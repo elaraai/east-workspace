@@ -21,6 +21,7 @@ import {
     SelectStyleType,
     type SelectItemStyle,
     type SelectStyle,
+    type SelectOptions,
 } from "./types.js";
 import { UIComponentType } from "../../component.js";
 
@@ -31,6 +32,7 @@ export {
     SelectStyleType,
     type SelectItemStyle,
     type SelectStyle,
+    type SelectOptions,
 } from "./types.js";
 
 // ============================================================================
@@ -51,10 +53,10 @@ export {
  * import { Select, UIComponentType } from "@elaraai/east-ui";
  *
  * const example = East.function([], UIComponentType, $ => {
- *     return Select.Root("", [
+ *     return Select.Root({ value: "", items: [
  *         Select.Item("us", "United States"),
  *         Select.Item("restricted", "Restricted", { disabled: true }),
- *     ]);
+ *     ] });
  * });
  * ```
  */
@@ -91,13 +93,11 @@ function createSelectItem(
  * import { Select, UIComponentType } from "@elaraai/east-ui";
  *
  * const example = East.function([], UIComponentType, $ => {
- *     return Select.Root("", [
+ *     return Select.Root({ value: "", items: [
  *         Select.Item("us", "United States"),
  *         Select.Item("uk", "United Kingdom"),
  *         Select.Item("ca", "Canada"),
- *     ], {
- *         placeholder: "Select a country",
- *     });
+ *     ], placeholder: "Select a country" });
  * });
  * ```
  */
@@ -145,11 +145,10 @@ export function createSelectRoot_(
 }
 
 function createSelectRoot(
-    value: SubtypeExprOrValue<StringType>,
-    items: SubtypeExprOrValue<ArrayType<SelectItemType>>,
-    style?: SelectStyle
+    options: SelectOptions,
 ): ExprType<UIComponentType> {
-    return East.value(variant("Select", createSelectRoot_(value, items, style)), UIComponentType);
+    const { value, items } = options;
+    return East.value(variant("Select", createSelectRoot_(value, items, options)), UIComponentType);
 }
 
 // ============================================================================
@@ -169,13 +168,11 @@ function createSelectRoot(
  * import { Select, UIComponentType } from "@elaraai/east-ui";
  *
  * const example = East.function([], UIComponentType, $ => {
- *     return Select.Root("", [
+ *     return Select.Root({ value: "", items: [
  *         Select.Item("us", "United States"),
  *         Select.Item("uk", "United Kingdom"),
  *         Select.Item("ca", "Canada"),
- *     ], {
- *         placeholder: "Select a country",
- *     });
+ *     ], placeholder: "Select a country" });
  * });
  * ```
  */

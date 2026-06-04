@@ -21,6 +21,7 @@ import {
     ComboboxStyleType,
     type ComboboxItemStyle,
     type ComboboxStyle,
+    type ComboboxOptions,
 } from "./types.js";
 import { UIComponentType } from "../../component.js";
 
@@ -31,6 +32,7 @@ export {
     ComboboxStyleType,
     type ComboboxItemStyle,
     type ComboboxStyle,
+    type ComboboxOptions,
 } from "./types.js";
 
 // ============================================================================
@@ -51,10 +53,10 @@ export {
  * import { Combobox, UIComponentType } from "@elaraai/east-ui";
  *
  * const example = East.function([], UIComponentType, $ => {
- *     return Combobox.Root("", [
+ *     return Combobox.Root({ value: "", items: [
  *         Combobox.Item("us", "United States"),
  *         Combobox.Item("restricted", "Restricted", { disabled: true }),
- *     ]);
+ *     ] });
  * });
  * ```
  */
@@ -92,13 +94,11 @@ function createComboboxItem(
  * import { Combobox, UIComponentType } from "@elaraai/east-ui";
  *
  * const example = East.function([], UIComponentType, $ => {
- *     return Combobox.Root("", [
+ *     return Combobox.Root({ value: "", items: [
  *         Combobox.Item("us", "United States"),
  *         Combobox.Item("uk", "United Kingdom"),
  *         Combobox.Item("ca", "Canada"),
- *     ], {
- *         placeholder: "Search countries...",
- *     });
+ *     ], placeholder: "Search countries..." });
  * });
  * ```
  */
@@ -148,11 +148,10 @@ export function createComboboxRoot_(
 }
 
 function createComboboxRoot(
-    value: SubtypeExprOrValue<StringType>,
-    items: SubtypeExprOrValue<ArrayType<ComboboxItemType>>,
-    style?: ComboboxStyle
+    options: ComboboxOptions,
 ): ExprType<UIComponentType> {
-    return East.value(variant("Combobox", createComboboxRoot_(value, items, style)), UIComponentType);
+    const { value, items } = options;
+    return East.value(variant("Combobox", createComboboxRoot_(value, items, options)), UIComponentType);
 }
 
 // ============================================================================
@@ -172,13 +171,11 @@ function createComboboxRoot(
  * import { Combobox, UIComponentType } from "@elaraai/east-ui";
  *
  * const example = East.function([], UIComponentType, $ => {
- *     return Combobox.Root("", [
+ *     return Combobox.Root({ value: "", items: [
  *         Combobox.Item("us", "United States"),
  *         Combobox.Item("uk", "United Kingdom"),
  *         Combobox.Item("ca", "Canada"),
- *     ], {
- *         placeholder: "Search countries...",
- *     });
+ *     ], placeholder: "Search countries..." });
  * });
  * ```
  */

@@ -142,3 +142,17 @@ export interface SelectStyle {
     /** Callback fired when dropdown opens/closes */
     onOpenChange?: SubtypeExprOrValue<FunctionType<[BooleanType], NullType>>;
 }
+
+/**
+ * TypeScript options bag for `Select.Root` — the flat `SelectStyle` fields
+ * plus the required selection `value` and `items`.
+ *
+ * @property value - Currently selected value (empty string when none)
+ * @property items - Array of options created with `Select.Item`
+ */
+export interface SelectOptions extends SelectStyle {
+    /** Currently selected value (empty string when none) — required. */
+    value: SubtypeExprOrValue<StringType>;
+    /** Array of options created with `Select.Item` — required. */
+    items: SubtypeExprOrValue<ArrayType<SelectItemType>>;
+}
