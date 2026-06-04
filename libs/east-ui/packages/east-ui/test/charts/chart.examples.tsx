@@ -4,7 +4,7 @@
  */
 /** @jsxImportSource @elaraai/east-ui */
 import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from "@elaraai/east";
-import { Chart as C, State, UIComponentType } from "@elaraai/east-ui";
+import { State, UIComponentType } from "@elaraai/east-ui";
 import { Box, Chart, Reactive } from "@elaraai/east-ui/jsx";
 
 // ============================================================================
@@ -21,7 +21,7 @@ export const lineBasic = example({
         ], ArrayType(StructType({ month: StringType, sales: IntegerType })));
         return (
             <Box height="220px" width="100%">
-                <Chart layers={C.Line(rows, { x: r => r.month, y: r => r.sales }, { color: "teal.solid" })} grid tooltip />
+                <Chart layers={Chart.Line(rows, { x: r => r.month, y: r => r.sales }, { color: "teal.solid" })} grid tooltip />
             </Box>
         );
     }),
@@ -38,7 +38,7 @@ export const lineMultiColumns = example({
         ], ArrayType(StructType({ month: StringType, mac: IntegerType, linux: IntegerType })));
         return (
             <Box height="240px" width="100%">
-                <Chart layers={C.Line(rows, { x: r => r.month, columns: { Mac: r => r.mac, Linux: r => r.linux } })} legend grid tooltip />
+                <Chart layers={Chart.Line(rows, { x: r => r.month, columns: { Mac: r => r.mac, Linux: r => r.linux } })} legend grid tooltip />
             </Box>
         );
     }),
@@ -56,7 +56,7 @@ export const lineBreakdown = example({
         ], ArrayType(StructType({ month: StringType, os: StringType, n: IntegerType })));
         return (
             <Box height="240px" width="100%">
-                <Chart layers={C.Line(rows, { x: r => r.month, y: r => r.n, by: r => r.os })} legend grid />
+                <Chart layers={Chart.Line(rows, { x: r => r.month, y: r => r.n, by: r => r.os })} legend grid />
             </Box>
         );
     }),
@@ -73,7 +73,7 @@ export const lineCurveNatural = example({
         ], ArrayType(StructType({ month: StringType, sales: IntegerType })));
         return (
             <Box height="220px" width="100%">
-                <Chart layers={C.Line(rows, { x: r => r.month, y: r => r.sales }, { curve: "natural", color: "green.solid" })} grid />
+                <Chart layers={Chart.Line(rows, { x: r => r.month, y: r => r.sales }, { curve: "natural", color: "green.solid" })} grid />
             </Box>
         );
     }),
@@ -90,7 +90,7 @@ export const lineStepNoDots = example({
         ], ArrayType(StructType({ month: StringType, price: IntegerType })));
         return (
             <Box height="220px" width="100%">
-                <Chart layers={C.Line(rows, { x: r => r.month, y: r => r.price }, { curve: "step", width: 2, dots: false, color: "orange.solid" })} grid />
+                <Chart layers={Chart.Line(rows, { x: r => r.month, y: r => r.price }, { curve: "step", width: 2, dots: false, color: "orange.solid" })} grid />
             </Box>
         );
     }),
@@ -108,8 +108,8 @@ export const lineDashedTargetOverlay = example({
         return (
             <Box height="240px" width="100%">
                 <Chart layers={[
-                    C.Line(rows, { x: r => r.month, y: r => r.actual }, { key: "Actual", color: "teal.solid", width: 2 }),
-                    C.Line(rows, { x: r => r.month, y: r => r.target }, { key: "Target", color: "gray.solid", dash: "5 5", dots: false }),
+                    Chart.Line(rows, { x: r => r.month, y: r => r.actual }, { key: "Actual", color: "teal.solid", width: 2 }),
+                    Chart.Line(rows, { x: r => r.month, y: r => r.target }, { key: "Target", color: "gray.solid", dash: "5 5", dots: false }),
                 ]} legend grid />
             </Box>
         );
@@ -128,9 +128,9 @@ export const lineTemporal = example({
         return (
             <Box height="240px" width="100%">
                 <Chart
-                    layers={C.Line(rows, { x: r => r.at, y: r => r.users })}
-                    x={{ format: C.format.date("MMM YYYY") }}
-                    y={{ format: C.format.compact() }}
+                    layers={Chart.Line(rows, { x: r => r.at, y: r => r.users })}
+                    x={{ format: Chart.format.date("MMM YYYY") }}
+                    y={{ format: Chart.format.compact() }}
                     grid
                 />
             </Box>
@@ -150,7 +150,7 @@ export const lineNumericX = example({
         return (
             <Box height="240px" width="100%">
                 <Chart
-                    layers={C.Line(rows, { x: r => r.dose, y: r => r.response }, { color: "purple.solid" })}
+                    layers={Chart.Line(rows, { x: r => r.dose, y: r => r.response }, { color: "purple.solid" })}
                     x={{ label: "Dose", scale: "linear", domain: [0, 6] }}
                     y={{ label: "Response" }}
                     grid
@@ -174,7 +174,7 @@ export const barBasic = example({
         ], ArrayType(StructType({ q: StringType, revenue: IntegerType })));
         return (
             <Box height="220px" width="100%">
-                <Chart layers={C.Bar(rows, { x: r => r.q, y: r => r.revenue }, { color: "teal.solid" })} y={{ format: C.format.currency({ compact: true }) }} grid />
+                <Chart layers={Chart.Bar(rows, { x: r => r.q, y: r => r.revenue }, { color: "teal.solid" })} y={{ format: Chart.format.currency({ compact: true }) }} grid />
             </Box>
         );
     }),
@@ -190,7 +190,7 @@ export const barGrouped = example({
         ], ArrayType(StructType({ region: StringType, a: IntegerType, b: IntegerType })));
         return (
             <Box height="220px" width="100%">
-                <Chart layers={C.Bar(rows, { x: r => r.region, columns: { Product: r => r.a, Service: r => r.b } })} legend />
+                <Chart layers={Chart.Bar(rows, { x: r => r.region, columns: { Product: r => r.a, Service: r => r.b } })} legend />
             </Box>
         );
     }),
@@ -207,7 +207,7 @@ export const barStacked = example({
         ], ArrayType(StructType({ week: StringType, mobile: IntegerType, desktop: IntegerType })));
         return (
             <Box height="220px" width="100%">
-                <Chart layers={C.Bar(rows, { x: r => r.week, columns: { Mobile: r => r.mobile, Desktop: r => r.desktop } }, { stack: "traffic" })} legend />
+                <Chart layers={Chart.Bar(rows, { x: r => r.week, columns: { Mobile: r => r.mobile, Desktop: r => r.desktop } }, { stack: "traffic" })} legend />
             </Box>
         );
     }),
@@ -224,7 +224,7 @@ export const barPercentStacked = example({
         ], ArrayType(StructType({ week: StringType, channel: StringType, spend: IntegerType })));
         return (
             <Box height="240px" width="100%">
-                <Chart layers={C.Bar(rows, { x: r => r.week, y: r => r.spend, by: r => r.channel })} stackOffset="expand" y={{ format: C.format.percent() }} legend />
+                <Chart layers={Chart.Bar(rows, { x: r => r.week, y: r => r.spend, by: r => r.channel })} stackOffset="expand" y={{ format: Chart.format.percent() }} legend />
             </Box>
         );
     }),
@@ -241,7 +241,7 @@ export const barCustomColors = example({
         ], ArrayType(StructType({ week: StringType, channel: StringType, spend: IntegerType })));
         return (
             <Box height="220px" width="100%">
-                <Chart layers={C.Bar(rows, { x: r => r.week, y: r => r.spend, by: r => r.channel, colors: { Search: "blue.solid", Social: "orange.solid" } })} legend />
+                <Chart layers={Chart.Bar(rows, { x: r => r.week, y: r => r.spend, by: r => r.channel, colors: { Search: "blue.solid", Social: "orange.solid" } })} legend />
             </Box>
         );
     }),
@@ -262,7 +262,7 @@ export const areaStacked = example({
         ], ArrayType(StructType({ month: StringType, mobile: IntegerType, desktop: IntegerType })));
         return (
             <Box height="240px" width="100%">
-                <Chart layers={C.Area(rows, { x: r => r.month, columns: { Mobile: r => r.mobile, Desktop: r => r.desktop } }, { stack: "traffic", fillOpacity: 0.5 })} legend grid />
+                <Chart layers={Chart.Area(rows, { x: r => r.month, columns: { Mobile: r => r.mobile, Desktop: r => r.desktop } }, { stack: "traffic", fillOpacity: 0.5 })} legend grid />
             </Box>
         );
     }),
@@ -280,8 +280,8 @@ export const areaConfidenceBand = example({
         return (
             <Box height="240px" width="100%">
                 <Chart layers={[
-                    C.Band(rows, { x: r => r.day, low: r => r.lo, high: r => r.hi }, { key: "Range", color: "blue.200", fillOpacity: 0.3 }),
-                    C.Line(rows, { x: r => r.day, y: r => r.value }, { key: "Value", color: "blue.solid", width: 2 }),
+                    Chart.Band(rows, { x: r => r.day, low: r => r.lo, high: r => r.hi }, { key: "Range", color: "blue.200", fillOpacity: 0.3 }),
+                    Chart.Line(rows, { x: r => r.day, y: r => r.value }, { key: "Value", color: "blue.solid", width: 2 }),
                 ]} legend tooltip grid />
             </Box>
         );
@@ -305,9 +305,9 @@ export const scatterQuadrants = example({
             <Box height="280px" width="100%">
                 <Chart
                     layers={[
-                        C.Scatter(rows, { x: r => r.effort, columns: { Value: r => r.value, Baseline: r => r.baseline } }, { size: 6 }),
-                        C.refLine({ x: 50, dash: "3 3" }),
-                        C.refLine({ y: 50, dash: "3 3" }),
+                        Chart.Scatter(rows, { x: r => r.effort, columns: { Value: r => r.value, Baseline: r => r.baseline } }, { size: 6 }),
+                        Chart.refLine({ x: 50, dash: "3 3" }),
+                        Chart.refLine({ y: 50, dash: "3 3" }),
                     ]}
                     x={{ label: "Effort", scale: "linear", domain: [0, 100] }}
                     y={{ label: "Value", domain: [0, 100] }}
@@ -329,7 +329,7 @@ export const scatterBubble = example({
         ], ArrayType(StructType({ gdp: FloatType, life: FloatType, pop: FloatType })));
         return (
             <Box height="260px" width="100%">
-                <Chart layers={C.Scatter(rows, { x: r => r.gdp, y: r => r.life, size: r => r.pop })} x={{ label: "GDP per capita" }} y={{ label: "Life expectancy" }} grid />
+                <Chart layers={Chart.Scatter(rows, { x: r => r.gdp, y: r => r.life, size: r => r.pop })} x={{ label: "GDP per capita" }} y={{ label: "Life expectancy" }} grid />
             </Box>
         );
     }),
@@ -351,8 +351,8 @@ export const composedBarLine = example({
         return (
             <Box height="260px" width="100%">
                 <Chart layers={[
-                    C.Bar(rows, { x: r => r.month, y: r => r.revenue }, { key: "Revenue", color: "teal.solid" }),
-                    C.Line(rows, { x: r => r.month, y: r => r.profit }, { key: "Profit", color: "purple.solid", dots: true }),
+                    Chart.Bar(rows, { x: r => r.month, y: r => r.revenue }, { key: "Revenue", color: "teal.solid" }),
+                    Chart.Line(rows, { x: r => r.month, y: r => r.profit }, { key: "Profit", color: "purple.solid", dots: true }),
                 ]} legend tooltip grid />
             </Box>
         );
@@ -376,13 +376,13 @@ export const composedDualAxisForecast = example({
             <Box height="300px" width="100%">
                 <Chart
                     layers={[
-                        C.Area(rows, { x: r => r.month, columns: { Mobile: r => r.mobile, Desktop: r => r.desktop } }, { stack: "traffic", fillOpacity: 0.5 }),
-                        C.Band(rows, { x: r => r.month, low: r => r.lo, high: r => r.hi }, { key: "Confidence", color: "blue.200", fillOpacity: 0.3 }),
-                        C.Line(rows, { x: r => r.month, y: r => r.trend }, { key: "Trend", color: "red.solid", dash: "5 5", dots: false, axis: "right", order: 10 }),
-                        C.refLine({ y: 200, label: "Capacity", dash: "4 4" }),
+                        Chart.Area(rows, { x: r => r.month, columns: { Mobile: r => r.mobile, Desktop: r => r.desktop } }, { stack: "traffic", fillOpacity: 0.5 }),
+                        Chart.Band(rows, { x: r => r.month, low: r => r.lo, high: r => r.hi }, { key: "Confidence", color: "blue.200", fillOpacity: 0.3 }),
+                        Chart.Line(rows, { x: r => r.month, y: r => r.trend }, { key: "Trend", color: "red.solid", dash: "5 5", dots: false, axis: "right", order: 10 }),
+                        Chart.refLine({ y: 200, label: "Capacity", dash: "4 4" }),
                     ]}
                     y={{ label: "Sessions" }}
-                    y2={{ label: "Trend", format: C.format.compact() }}
+                    y2={{ label: "Trend", format: Chart.format.compact() }}
                     legend
                     tooltip
                     grid
@@ -408,10 +408,10 @@ export const referenceAnnotations = example({
         return (
             <Box height="240px" width="100%">
                 <Chart layers={[
-                    C.refBand({ y: [120, 200], label: "Normal" }),
-                    C.Line(rows, { x: r => r.month, y: r => r.value }, { color: "teal.solid" }),
-                    C.refLine({ y: 220, label: "Target", dash: "4 4" }),
-                    C.refDot({ x: "Mar", y: 237, label: "Peak" }),
+                    Chart.refBand({ y: [120, 200], label: "Normal" }),
+                    Chart.Line(rows, { x: r => r.month, y: r => r.value }, { color: "teal.solid" }),
+                    Chart.refLine({ y: 220, label: "Target", dash: "4 4" }),
+                    Chart.refDot({ x: "Mar", y: 237, label: "Peak" }),
                 ]} grid />
             </Box>
         );
@@ -433,7 +433,7 @@ export const axisFormatting = example({
         ], ArrayType(StructType({ at: DateTimeType, revenue: IntegerType })));
         return (
             <Box height="240px" width="100%">
-                <Chart layers={C.Bar(rows, { x: r => r.at, y: r => r.revenue }, { color: "teal.solid" })} x={{ format: C.format.date("MMM") }} y={{ format: C.format.currency({ compact: true }) }} grid />
+                <Chart layers={Chart.Bar(rows, { x: r => r.at, y: r => r.revenue }, { color: "teal.solid" })} x={{ format: Chart.format.date("MMM") }} y={{ format: Chart.format.currency({ compact: true }) }} grid />
             </Box>
         );
     }),
@@ -454,7 +454,7 @@ export const interactiveValue = example({
             const rows = $.const([
                 { q: "Q1", v: 40n }, { q: "Q2", v: 65n }, { q: "Q3", v: 55n }, { q: "Q4", v: peakVal },
             ], ArrayType(StructType({ q: StringType, v: IntegerType })));
-            return <Chart layers={C.Bar(rows, { x: r => r.q, y: r => r.v }, { color: "teal.solid" })} grid />;
+            return <Chart layers={Chart.Bar(rows, { x: r => r.q, y: r => r.v }, { color: "teal.solid" })} grid />;
         }}</Reactive>
     )),
     inputs: [],

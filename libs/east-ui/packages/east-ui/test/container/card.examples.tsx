@@ -4,7 +4,7 @@
  */
 /** @jsxImportSource @elaraai/east-ui */
 import { East, example } from "@elaraai/east";
-import { Card as CardNs, UIComponentType } from "@elaraai/east-ui";
+import { UIComponentType } from "@elaraai/east-ui";
 import { Badge, Button, Card, Text, HStack } from "@elaraai/east-ui/jsx";
 
 export const cardBasic = example({
@@ -195,8 +195,8 @@ export const cardWithSections = example({
         return (
             <Card header={{ title: "Commit approval" }}>
                 <Text>Top-level summary line.</Text>
-                {CardNs.Section([<Text>Scope A details</Text>], { title: "Scope" })}
-                {CardNs.Section([
+                {Card.Section([<Text>Scope A details</Text>], { title: "Scope" })}
+                {Card.Section([
                     <HStack gap="2">
                         <Button>Apply</Button>
                         <Button variant="subtle">Revert</Button>
