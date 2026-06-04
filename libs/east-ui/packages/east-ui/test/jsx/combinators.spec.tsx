@@ -7,23 +7,29 @@
 
 /**
  * Tag-builder combinator contract (`src/jsx/combinators.ts`). One representative
- * per shape — `container`, `textLeaf`, `leaf`, the shape-3 `Button`, the
- * builder-children `Reactive` — each asserted East-equal to the factory call it
- * desugars to, plus the `joinText` text/numeric folds. Per-component coverage
- * lives in each component's `*.examples.tsx`, so this stays a small contract.
+ * per shape — `container`, `content` (text leaf + single-content slot), `leaf`,
+ * the shape-3 `Button`, the builder-children `Reactive` — each asserted
+ * East-equal to the factory call it desugars to. Per-component coverage lives in
+ * each component's `*.examples.tsx`, so this stays a small contract.
  */
 
 import { East, StringType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Badge, Button, Checkbox, Code, Flex, HStack, Reactive, ScrollArea, Slider, Text } from "@elaraai/east-ui/jsx";
+import { Badge, Button, Checkbox, Code, CodeBlock, EditableChip, Flex, HStack, Kbd, Meter, Progress, Reactive, ScrollArea, Slider, Sparkline, Text } from "@elaraai/east-ui/jsx";
 import {
     Badge as BadgeF,
     Button as ButtonF,
     Checkbox as CheckboxF,
     Code as CodeF,
+    CodeBlock as CodeBlockF,
+    EditableChip as EditableChipF,
     Flex as FlexF,
+    Kbd as KbdF,
+    Meter as MeterF,
+    Progress as ProgressF,
     ScrollArea as ScrollAreaF,
     Slider as SliderF,
+    Sparkline as SparklineF,
     Text as TextF,
     Stack,
 } from "@elaraai/east-ui";
@@ -70,6 +76,21 @@ describeEast("JSX tag combinators", (test) => {
         $(Assert.equal(
             <ScrollArea><Text>scroll me</Text></ScrollArea>,
             ScrollAreaF.Root(TextF.Root("scroll me")),
+        ));
+    });
+
+    test("value-leaf + content tags over varied factory value types desugar to their factories", ($) => {
+        // scalar-valued leaves
+        $(Assert.equal(<Meter value={0.5} />, MeterF.Root(0.5)));
+        $(Assert.equal(<Progress value={0.3} />, ProgressF.Root(0.3)));
+        // array-valued leaves
+        $(Assert.equal(<Sparkline data={[1.0, 2.0, 3.0]} />, SparklineF.Root([1.0, 2.0, 3.0])));
+        $(Assert.equal(<Kbd keys={["Ctrl", "C"]} />, KbdF.Root(["Ctrl", "C"])));
+        // content tags — string child and component child
+        $(Assert.equal(<CodeBlock>{"const x = 1"}</CodeBlock>, CodeBlockF.Root("const x = 1")));
+        $(Assert.equal(
+            <EditableChip><Text>label</Text></EditableChip>,
+            EditableChipF.Root(TextF.Root("label")),
         ));
     });
 

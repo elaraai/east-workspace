@@ -7,3 +7,6 @@
 
 export { Badge } from "./badge.js";
 export { Tag } from "./tag.js";
+export { Meter } from "./meter.js";
+export { Kbd } from "./kbd.js";
+export { EditableChip } from "./editable-chip.js";

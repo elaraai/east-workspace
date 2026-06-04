@@ -8,4 +8,5 @@
 export { Text } from "./text.js";
 export { Heading } from "./heading.js";
 export { Code } from "./code.js";
+export { CodeBlock } from "./code-block.js";
 export { Mark } from "./mark.js";

@@ -34,4 +34,6 @@ export * from "./typography/index.js";
 export * from "./display/index.js";
 export * from "./forms/index.js";
 export * from "./buttons/index.js";
+export * from "./feedback/index.js";
+export * from "./charts/index.js";
 export * from "./reactive/index.js";
