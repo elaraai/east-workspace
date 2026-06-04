@@ -52,13 +52,11 @@ export interface DisclosureStyle {
  * @property lessLabel - Label for the collapse trigger (default: "show less")
  * @property style - Visual-presentation sub-struct
  */
-export interface DisclosureOptions {
+export interface DisclosureOptions extends DisclosureStyle {
     /** Number of visible lines before truncation */
     lines?: SubtypeExprOrValue<IntegerType>;
     /** Label for the expand trigger */
     moreLabel?: SubtypeExprOrValue<StringType>;
     /** Label for the collapse trigger */
     lessLabel?: SubtypeExprOrValue<StringType>;
-    /** Visual-presentation sub-struct */
-    style?: DisclosureStyle;
 }
