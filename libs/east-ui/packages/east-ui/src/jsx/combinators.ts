@@ -60,7 +60,7 @@ export type OptionsProps<F extends (...a: never[]) => UIElement> =
     NonNullable<Parameters<F>[0]>;
 
 /** True when an object has at least one own enumerable key. */
-function hasKeys(o: Record<string, unknown>): boolean {
+function hasKeys(o: object): boolean {
     for (const _ in o) return true;
     return false;
 }
