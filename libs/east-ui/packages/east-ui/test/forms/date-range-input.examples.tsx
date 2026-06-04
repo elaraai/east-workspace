@@ -2,8 +2,10 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
+/** @jsxImportSource @elaraai/east-ui */
 import { East, DateTimeType, NullType, example } from "@elaraai/east";
-import { DateRangeInput, Reactive, Stack, State, Text, UIComponentType } from "@elaraai/east-ui";
+import { State, UIComponentType } from "@elaraai/east-ui";
+import { DateRangeInput, Text, VStack, Reactive } from "@elaraai/east-ui/jsx";
 
 export const dateRangeInputBasic = example({
     keywords: ["DateRangeInput", "Root", "date", "range", "basic"],
@@ -11,7 +13,7 @@ export const dateRangeInputBasic = example({
     fn: East.function([], UIComponentType, ($) => {
         const start = $.let(new Date("2026-04-01T00:00:00Z"), DateTimeType);
         const end = $.let(new Date("2026-04-30T00:00:00Z"), DateTimeType);
-        return DateRangeInput.Root(start, end, { precision: "date" });
+        return <DateRangeInput startValue={start} endValue={end} precision="date" />;
     }),
     inputs: [],
 });
@@ -22,7 +24,7 @@ export const dateRangeInputDateTime = example({
     fn: East.function([], UIComponentType, ($) => {
         const start = $.let(new Date("2026-04-01T09:00:00Z"), DateTimeType);
         const end = $.let(new Date("2026-04-01T17:00:00Z"), DateTimeType);
-        return DateRangeInput.Root(start, end, { precision: "datetime" });
+        return <DateRangeInput startValue={start} endValue={end} precision="datetime" />;
     }),
     inputs: [],
 });
@@ -30,8 +32,8 @@ export const dateRangeInputDateTime = example({
 export const dateRangeInputReactive = example({
     keywords: ["DateRangeInput", "Reactive", "State", "onChange", "interactive"],
     description: "Reactive range bound to State — both fields write back through one callback",
-    fn: East.function([], UIComponentType, (_$) => {
-        return Reactive.Root(East.function([], UIComponentType, $ => {
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
             const startBind = $.let(State.bind([DateTimeType], "drin.start", new Date("2026-04-01T00:00:00Z")));
             const endBind = $.let(State.bind([DateTimeType], "drin.end", new Date("2026-04-07T00:00:00Z")));
             const start = $.let(startBind.read(), DateTimeType);
@@ -40,20 +42,22 @@ export const dateRangeInputReactive = example({
                 $(startBind.write(s));
                 $(endBind.write(e));
             }));
-            return Stack.VStack([
-                DateRangeInput.Root(start, end, { precision: "date", onChange }),
-                Text.Presets.MonoLabel(East.str`${start} → ${end}`),
-            ], { gap: "3", align: "flex-start" });
-        }));
-    }),
+            return (
+                <VStack gap="3" align="flex-start">
+                    <DateRangeInput startValue={start} endValue={end} precision="date" onChange={onChange} />
+                    {Text.Presets.MonoLabel(East.str`${start} → ${end}`)}
+                </VStack>
+            );
+        }}</Reactive>
+    )),
     inputs: [],
 });
 
 export const dateRangeInputPresets = example({
     keywords: ["DateRangeInput", "presets", "relative", "MTD", "YTD", "Last 7 days"],
     description: "Range with five canonical presets — Last 7 days / MTD / QTD / YTD / Q2 2026",
-    fn: East.function([], UIComponentType, (_$) => {
-        return Reactive.Root(East.function([], UIComponentType, $ => {
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
             const startBind = $.let(State.bind([DateTimeType], "drin.preset.start", new Date("2026-04-21T00:00:00Z")));
             const endBind = $.let(State.bind([DateTimeType], "drin.preset.end", new Date("2026-04-28T00:00:00Z")));
             const start = $.let(startBind.read(), DateTimeType);
@@ -62,19 +66,23 @@ export const dateRangeInputPresets = example({
                 $(startBind.write(s));
                 $(endBind.write(e));
             }));
-            return DateRangeInput.Root(start, end, {
-                precision: "date",
-                onChange,
-                presets: [
-                    { label: "Last 7 days", start: new Date("2026-04-21T00:00:00Z"), end: new Date("2026-04-28T00:00:00Z") },
-                    { label: "MTD",         start: new Date("2026-04-01T00:00:00Z"), end: new Date("2026-04-28T00:00:00Z") },
-                    { label: "QTD",         start: new Date("2026-04-01T00:00:00Z"), end: new Date("2026-04-28T00:00:00Z") },
-                    { label: "YTD",         start: new Date("2026-01-01T00:00:00Z"), end: new Date("2026-04-28T00:00:00Z") },
-                    { label: "Q2 2026",     start: new Date("2026-04-01T00:00:00Z"), end: new Date("2026-06-30T00:00:00Z") },
-                ],
-            });
-        }));
-    }),
+            return (
+                <DateRangeInput
+                    startValue={start}
+                    endValue={end}
+                    precision="date"
+                    onChange={onChange}
+                    presets={[
+                        { label: "Last 7 days", start: new Date("2026-04-21T00:00:00Z"), end: new Date("2026-04-28T00:00:00Z") },
+                        { label: "MTD", start: new Date("2026-04-01T00:00:00Z"), end: new Date("2026-04-28T00:00:00Z") },
+                        { label: "QTD", start: new Date("2026-04-01T00:00:00Z"), end: new Date("2026-04-28T00:00:00Z") },
+                        { label: "YTD", start: new Date("2026-01-01T00:00:00Z"), end: new Date("2026-04-28T00:00:00Z") },
+                        { label: "Q2 2026", start: new Date("2026-04-01T00:00:00Z"), end: new Date("2026-06-30T00:00:00Z") },
+                    ]}
+                />
+            );
+        }}</Reactive>
+    )),
     inputs: [],
 });
 
@@ -84,13 +92,7 @@ export const dateRangeInputColours = example({
     fn: East.function([], UIComponentType, ($) => {
         const start = $.let(new Date("2026-04-01T00:00:00Z"), DateTimeType);
         const end = $.let(new Date("2026-04-30T00:00:00Z"), DateTimeType);
-        return DateRangeInput.Root(start, end, {
-            precision: "date",
-            color: "fg",
-            background: "bg.subtle",
-            borderColor: "blue.300",
-            focusBorderColor: "blue.500",
-        });
+        return <DateRangeInput startValue={start} endValue={end} precision="date" color="fg" background="bg.subtle" borderColor="blue.300" focusBorderColor="blue.500" />;
     }),
     inputs: [],
 });
@@ -101,11 +103,13 @@ export const dateRangeInputSizes = example({
     fn: East.function([], UIComponentType, ($) => {
         const start = $.let(new Date("2026-04-01T00:00:00Z"), DateTimeType);
         const end = $.let(new Date("2026-04-30T00:00:00Z"), DateTimeType);
-        return Stack.VStack([
-            DateRangeInput.Root(start, end, { precision: "date", size: "sm" }),
-            DateRangeInput.Root(start, end, { precision: "date", size: "md" }),
-            DateRangeInput.Root(start, end, { precision: "date", size: "lg" }),
-        ], { gap: "3", align: "flex-start" });
+        return (
+            <VStack gap="3" align="flex-start">
+                <DateRangeInput startValue={start} endValue={end} precision="date" size="sm" />
+                <DateRangeInput startValue={start} endValue={end} precision="date" size="md" />
+                <DateRangeInput startValue={start} endValue={end} precision="date" size="lg" />
+            </VStack>
+        );
     }),
     inputs: [],
 });
@@ -116,7 +120,7 @@ export const dateRangeInputDisabled = example({
     fn: East.function([], UIComponentType, ($) => {
         const start = $.let(new Date("2026-04-01T00:00:00Z"), DateTimeType);
         const end = $.let(new Date("2026-04-30T00:00:00Z"), DateTimeType);
-        return DateRangeInput.Root(start, end, { precision: "date", disabled: true });
+        return <DateRangeInput startValue={start} endValue={end} precision="date" disabled={true} />;
     }),
     inputs: [],
 });
