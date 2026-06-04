@@ -47,17 +47,22 @@ export const breadcrumbInteractive = example({
         <Reactive>{$ => {
             const pageBind = $.let(State.bind([StringType], "breadcrumb_page", "Home"));
             const page = $.let(pageBind.read());
-
-            const navigateTo = (target: string) => $.const(East.function([], NullType, $ => {
-                $(pageBind.write(target));
+            const goHome = $.const(East.function([], NullType, $ => {
+                $(pageBind.write("Home"));
+            }));
+            const goProducts = $.const(East.function([], NullType, $ => {
+                $(pageBind.write("Products"));
+            }));
+            const goWidgets = $.const(East.function([], NullType, $ => {
+                $(pageBind.write("Widgets"));
             }));
 
             return (
                 <VStack gap="4" align="flex-start">
                     <Breadcrumb items={[
-                        { label: "Home", current: none, onClick: some(navigateTo("Home")) },
-                        { label: "Products", current: none, onClick: some(navigateTo("Products")) },
-                        { label: "Widgets", current: none, onClick: some(navigateTo("Widgets")) },
+                        { label: "Home", current: none, onClick: some(goHome) },
+                        { label: "Products", current: none, onClick: some(goProducts) },
+                        { label: "Widgets", current: none, onClick: some(goWidgets) },
                         { label: "Details", current: some(true), onClick: none },
                     ]} />
                     <Text fontWeight="bold">{East.str`Current page: ${page}`}</Text>
