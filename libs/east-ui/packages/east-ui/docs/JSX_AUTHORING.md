@@ -61,6 +61,22 @@ These govern every decision below.
    the contract JSX desugars to), but worked usage is JSX. The generated search
    index must never serve two competing surfaces for the same component.
 
+6. **The factory's options interface IS the JSX prop bag — flat.** Every
+   component factory is `(primaryValue?, options?)` where `options` is a **single
+   flat interface** of `SubtypeExprOrValue<T>` fields (+ enum `| XxxLiteral`
+   proxies) — **no nested `style` sub-object, no second positional**. So a tag's
+   props *are* the factory's `options` arg, verbatim: `<Button variant="solid"
+   onClick={f}>Save</Button>` → `Button.Root("Save", { variant: "solid", onClick:
+   f })`. The factory composes the flat options into whatever nested struct the IR
+   needs internally — **the IR and the renderer are unchanged**. This is what makes
+   every tag a trivial `container`/`content`/`leaf`/`optionsTag` with **zero**
+   per-component splitting: no `flatten` combinator, no hand-maintained
+   top-level-vs-`style` key set that can silently drift from the factory.
+   Multi-positional factories **fold their extra positionals into the flat
+   options** (Option 1), keeping the interface's existing name (never
+   `XxxStyle`→`XxxOptions`; see [`feedback_no_rename_style_interfaces`]).
+   "Props become the function arg object directly."
+
 ---
 
 ## 1. Architecture
@@ -101,7 +117,7 @@ src/jsx/
   runtime.ts            # jsx / jsxs / jsxDEV / h / Fragment + the single `export namespace JSX`
                         #   → exported as ./jsx-runtime (and ./jsx-dev-runtime)
   children.ts           # coalesceChildren + ElementChild
-  combinators.ts        # container / content / leaf (+ shape-3 / items-parent / …) + *Props types
+  combinators.ts        # container / content / leaf / optionsTag + *Props types
   index.ts              # barrels the category barrels + combinators → exported as ./jsx
   layout/   box.ts flex.ts stack.ts …      + index.ts      # mirrors src/layout/<comp>/
   typography/ text.ts heading.ts code.ts mark.ts … + index.ts
@@ -283,25 +299,42 @@ proxy. UIComponent slots use `SubtypeExprOrValue<UIComponentType>` (single) or
 
 ### 3.2 Derive tag props from the factory, don't author a parallel type
 
-The hand-written TS option/style interface in each `types.ts`
-(`ButtonStyle`/`ButtonOptions`/`BoxStyle`) stays the single canonical prop
-vocabulary (and carries the full TypeDoc). Tag props are mechanically derived
-from the factory signature via the combinator pattern already proven in the
-shipped `jsx.ts`:
+The hand-written TS option interface in each `types.ts`
+(`ButtonStyle`/`ButtonOptions`/`BoxStyle`) is the single canonical prop
+vocabulary (and carries the full TypeDoc). Because that interface is **flat**
+(Principle 6), tag props derive from it mechanically and the combinator just
+forwards the prop bag as `options` — there is **no `flatten`, no nested-style
+split, no per-component key set**. Four combinators cover every component, keyed
+only on where the primary value comes from:
 
 - `ContainerProps<F> = NonNullable<Parameters<F>[1]> & { children?: ContainerChildrenType }`
-- `ContentProps<F>  = NonNullable<Parameters<F>[1]> & { children: Parameters<F>[0] }` (the value — text leaf or single-content slot)
+  — children list + flat options. `container(F)`.
+- `ContentProps<F>  = NonNullable<Parameters<F>[1]> & { children: Parameters<F>[0] }`
+  — value-as-child + flat options (text leaf or single-content slot). `content(F)`.
 - `ValueProps<F,K>  = Record<K, Parameters<F>[0]> & NonNullable<Parameters<F>[1]>`
-- shape-3 (Button/ButtonGroup/Toggle/IconButton/… — factories whose options
-  nest a visual `style` sub-object): `FlattenProps<F>` =
-  `NonNullable<NonNullable<Parameters<F>[1]>['style']>` ⋃
-  `Omit<NonNullable<Parameters<F>[1]>, 'style'>` ⋃ `{ children: Parameters<F>[0] }`,
-  built by the `flatten(factory, topLevelKeys)` combinator. (`Card` is **not**
-  shape-3 — its options bag is flat, so `<Card>` is plain `container(Card.Root)`.)
+  — named value prop + flat options. `leaf(F, key)`.
+- `OptionsProps<F>  = NonNullable<Parameters<F>[0]>`
+  — options-only, no value/children (e.g. `<CloseButton onClick=… variant=…/>`).
+  `optionsTag(F)`.
 
 No standalone `XxxJsxProps` interface; no StructType code-gen (the TS interface
-is strictly richer than the struct). The one piece of per-component hand-state
-is the shape-3 top-level-vs-style key split (a `string[]`, not a type).
+is strictly richer than the struct). With flat options there is **no
+per-component hand-state at all** — the previous shape-3 top-level-vs-style key
+set is gone.
+
+**Hover shows the named option interface.** A DX goal: hovering a tag (e.g.
+`<Button>`) should surface the factory's **named** option interface
+(`ButtonOptions`, with its per-field TypeDoc), not a structural expansion of
+`NonNullable<Parameters<F>[1]>`. Because options are now flat, the tag's props
+*are* `XxxOptions` (+ a `children` field for value/content/container tags), so
+annotate each tag with that named type directly —
+`JsxTag<ButtonOptions & { children: ButtonLabelInput }>`,
+`JsxTag<CloseButtonOptions>` — rather than the `Parameters<F>`-derived
+`ContentProps<typeof F.Root>` which TS tends to expand on hover. This reuses the
+factory's own interface (not a parallel one) and gives the best editor
+experience: hovering a prop shows its `SubtypeExprOrValue<T>` type + the field's
+doc comment. (Verify empirically per the foundation pilot; keep the combinator
+helper types available for ad-hoc wrapping.)
 
 ### 3.3 Callback families — lifted at the factory
 
@@ -416,7 +449,33 @@ factory's expected struct/array — **East code, no JSX, no bucketing**:
 
 ---
 
-## 6. Factory interface improvements (benefit both surfaces)
+## 6. Factory interface changes (the flat-options refactor)
+
+This is the major refactor that makes the JSX surface trivial (Principle 6). It
+is a **breaking change** to the imperative factory API, applied **library-wide**,
+done as a phased migration (§9.1).
+
+0. **Flatten every options interface — the headline change.** No factory's option
+   bag may nest a `style` sub-object, and no factory may take more than one
+   positional before `options`. Concretely:
+   - **Nested-`.style` factories** (Button, ButtonGroup, ChipRail, Carousel,
+     CloseButton, CopyButton, Toggle, IconButton, Accordion, Tabs, Collapsible,
+     ScrollArea, Sticky, ShowMore, …): merge the visual `XxxStyle` fields **up**
+     into `XxxOptions` (`interface XxxOptions extends XxxStyle { …behaviour… }`),
+     so the options bag is one flat interface. The factory's `buildXxxStyle`
+     reads the flat fields and still builds the **nested IR struct** — IR and
+     renderer unchanged. `Button.Root("Save", { variant: "solid", onClick })`,
+     not `{ onClick, style: { variant: "solid" } }`.
+   - **Multi-positional factories** (Toggle `(label, pressed)`, IconButton
+     `(prefix, name, label)`, Stat `(label, value)`, Tabs/Accordion/Collapsible
+     `(value, …)`, Highlight/Link already done, …): fold the extra positionals
+     into the flat options (Option 1), so the signature is `(primaryValue?,
+     options?)`. Keep the interface name (never `XxxStyle`→`XxxOptions`).
+   - **Already-flat factories** (Box, Text, Badge, Slider, Meter, …) need no
+     change — they are the target shape.
+   This **deletes** the `flatten`/`containerFlatten`/`optionsFlatten` combinators
+   + `FlattenProps`/etc. + every per-component `topLevel` set, and replaces them
+   with a trivial `optionsTag` combinator (§3.2).
 
 1. **Arrow-accepting callback aliases** at the factory lift site (§3.3) for every
    East-function handler prop.
@@ -526,6 +585,29 @@ Every JSX snippet must mirror a `*.examples.tsx` that compiles in CI
   buttons/forms → disclosure/overlays → collections/charts last). e3-ui examples
   migrate after the base tags are stable.
 
+### 9.1 Migration strategy for the flat-options refactor (phased)
+
+Because the flat-options refactor (§6.0) breaks every nested-`.style` factory's
+imperative API, the ~90 `*.examples.ts` + ~94 `*.spec.ts` would all error at once
+mid-refactor. So the consumers are **disabled, the core is fixed, then consumers
+return one at a time** — which also *is* the Phase-5 `.tsx` migration:
+
+- **A — disable.** Rename every `test/**/*.{examples.ts,spec.ts,spec.tsx}` to a
+  `.off` suffix so tsc / `node --test` / eslint / the index+Makefile globs all
+  skip them. Reversible per file.
+- **B — flat-options refactor of `src`.** Delete the `flatten` family; add
+  `optionsTag`. Flatten every factory's options interface + fold multi-positional
+  factories (§6.0). `src` (factories + jsx tags) builds green against no tests.
+  Button first as the proof.
+- **C — wire all JSX tags.** Every component → `container`/`content`/`leaf`/
+  `optionsTag` against its now-flat options.
+- **D — examples → `.tsx`, one by one.** Re-enable each `*.examples.off` as
+  `*.examples.tsx`, migrate the body to JSX + the flat interface precisely, and
+  **snapshot-verify each** (always-visual-verify). Commit per category.
+- **E — re-enable specs.** Restore each `*.spec.off`; update calls/assertions to
+  the flat interface; rewrite the `test/jsx/*.spec.tsx` foundation specs for the
+  new combinator set (`optionsTag`, no `flatten`). Full suite green.
+
 ---
 
 ## 10. Tooling touchpoints (widen before renaming)
@@ -560,14 +642,18 @@ teaches JSX while the index serves nothing.
 
 ## 11. Phases
 
+Foundation phases 0–1 are done (runtime + coalescer + mirror tree + glob
+widening). The flat-options refactor (§6.0, §9.1) is the active plan:
+
 | Phase | Work | Gate |
 |---|---|---|
-| 0 | Runtime foundation (§2): coalescer, Fragment, `East.str`, remove `never`, `JSX.Element` union, type-bucketing, tests + IR-parity | green build + adversarial tests pass |
-| 1 | Relocate runtime+tags to `east-ui/src/jsx/`; e3-ui passthroughs; package.json exports; widen the 4 globs (§10) | e3-ui-showcase compiles unchanged; index count unchanged |
-| 2 | Factory interface improvements (§6): callback arrow aliases, literal-union backfill, Card widening, `key`→`name`, new factories | factory tests green |
-| 3 | Tags per category (§1.2), ascending shape; complex components (§5) | per-category snapshots + IR parity |
-| 4 | STANDARDS / SKILL / USAGE / @example rewrite (§7–8) | SKILLS_STANDARD compliance; snippets ↔ examples |
-| 5 | Wholesale UI example migration to `.tsx` (§9), pilot-first then fan-out | every PNG re-verified; index green |
+| 0–1 (done) | Runtime foundation (§2): coalescer, Fragment, `East.str`, remove `never`, strict `JSX.Element`; relocation + mirror tree; e3-ui passthroughs; widen the 4 globs (§10) | green; e3-ui-showcase unchanged; index count unchanged |
+| A | Disable all `test/**` example+spec files (§9.1) | tsc / test / eslint / index globs skip them |
+| B | Flat-options refactor of `src` (§6.0): delete `flatten` family, add `optionsTag`; flatten every factory's options interface + fold multi-positional factories | `src` (factories + jsx tags) builds green |
+| C | Wire all JSX tags — `container`/`content`/`leaf`/`optionsTag` (§3.2) | `src` builds green |
+| D | Examples → `.tsx` one by one (§9, §9.1) | every converted PNG re-verified |
+| E | Re-enable + fix specs; rewrite `test/jsx/*.spec.tsx` for the new combinator set | full suite green |
+| later | STANDARDS / SKILL / USAGE / `@example` (§7–8); the other §6 factory improvements (arrow aliases, literal backfill, `key`→`name`) | SKILLS_STANDARD compliance |
 
 ---
 
@@ -612,9 +698,12 @@ Branch `claude/east-ui-jsx-foundation` (PR #19).
   proxy). `Numeric` dropped its redundant `| number` arm. Combinator tweak:
   `content`/`leaf` type the factory's 2nd arg as required so they accept a
   required-options factory.
-- **Shape-3 `flatten` combinator (§3.2).** `flatten(factory, topLevelKeys)` +
-  `FlattenProps<F>` lift a nested `.style` flat; `<Button>` refactored onto it
-  (behaviour preserved). Exported from `./jsx`.
+- **Shape-3 `flatten` combinator** — built, then **superseded** by the
+  flat-options refactor (§6.0, Principle 6): rather than split a nested `.style`
+  in the JSX layer (a hand-maintained `topLevel` set that can drift from the
+  factory), the factory *options* are flattened so no split is needed.
+  `flatten`/`containerFlatten`/`optionsFlatten` + `FlattenProps`/etc. are deleted
+  in Phase B and replaced by a trivial `optionsTag`.
 - **Card via option objects (§2.3, §5.4).** `header`/`footer` are strict
   `CardHeaderOptions` / `CardFooterInput` objects the factory composes (no
   component-or-string union, no runtime routing); `CardHeaderOptions` fields
@@ -629,30 +718,27 @@ Branch `claude/east-ui-jsx-foundation` (PR #19).
 - **Tooling globs** widened to `*.examples.{ts,tsx}` across the five discovery
   points (verified non-breaking).
 
-**Remaining:**
-- **Rest of shape-3 tags** (via `flatten`): `ButtonGroup`, `ChipRail`,
-  `Carousel`, `CloseButton`; `CopyButton` (value child, `flatten`); `Toggle` /
-  `IconButton` need their positional fold first (Option 1) then `flatten`.
-- **Remaining leaves / options-only tags:** display (`Avatar`/`Stat`/`BarStrip`/
-  `Icon`/…), feedback (`Banner`/`Status`/`Skeleton`/`EmptyState`), navigation,
-  typography (`List`/`Note`), forms (`Input`/`Textarea`/`Select`/`RadioGroup`/…),
-  layout (`Grid`/`Separator`/`Splitter`).
-- **Config-driven complex components (§5) — no child sub-tags, no `JSX.Element`
-  widening:** items-parents (`Tabs`/`Accordion`/`Select`/`SegmentGroup`) via an
-  `items=` config array of factory item values; collections (`Table`/`DataList`/
-  `Matrix`/`Gantt`/`Planner`/`TreeView`) via config props + callbacks that
-  return factory values; charts via a layer config array. New factory:
-  `DataList.Item`.
-- **Overlays (§5.4):** `trigger` (UIComponent prop) + body children.
-- **Strict-rule cleanups (separate pass):** `MetricChipOptions.icon` is `unknown`
-  → `SubtypeExprOrValue<IconType>`; the library-wide `padding`/`margin`
-  `| string` shorthand on style interfaces.
-- **Phase 2 — other factory interface improvements** (§6): callback arrow
-  aliases at the factory lift site; literal-union backfill; `Card.Body/Footer/
-  Section` child widening; Chart `key`→`name`.
-- **Phase 4 — STANDARDS / SKILL / USAGE / @example** rewrites (§7–8).
-- **Phase 5 — example migration** of every `UIComponentType` example to `.tsx`
-  with snapshot + IR verification (§9), pilot `buttons/button-group` first.
+**Remaining — the flat-options refactor (§6.0, §9.1), phases A–E:**
+- **A — disable** all `test/**` example+spec files (`.off` suffix).
+- **B — flat-options refactor of `src`:** delete the `flatten` family; add
+  `optionsTag`; flatten every factory's options interface + fold multi-positional
+  factories (§6.0). Components needing change (nested `.style` or
+  multi-positional): **buttons** (button, button-group, close-button, copy-button,
+  icon-button, toggle), **disclosure** (accordion, carousel, collapsible,
+  show-more, tabs), **layout** (chip-rail, scroll-area, sticky), plus any others
+  the audit surfaces; already-flat components unchanged. Button first as the proof.
+- **C — wire all JSX tags** (`container`/`content`/`leaf`/`optionsTag`), props
+  annotated with the named option interface for clean hover (§3.2).
+- **D — examples → `.tsx`**, one component at a time, snapshot-verified.
+- **E — re-enable + fix specs**; rewrite `test/jsx/*.spec.tsx` for the new
+  combinator set.
+- **Config-driven complex components (§5):** items-parents + collections + charts
+  via config props + callbacks returning factory values (no child sub-tags); new
+  `DataList.Item` factory.
+- **Later:** STANDARDS / SKILL / USAGE / `@example` (§7–8); other §6 factory
+  improvements (arrow aliases, literal backfill, `Card.Body/Footer/Section`
+  widening, Chart `key`→`name`); strict cleanups (`MetricChipOptions.icon`
+  `unknown`; padding/margin `| string` shorthand).
 
 ## 12. Risks
 
