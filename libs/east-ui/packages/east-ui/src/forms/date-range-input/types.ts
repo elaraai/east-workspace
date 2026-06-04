@@ -107,6 +107,10 @@ export type DateRangeInputStyleType = typeof DateRangeInputStyleType;
  * @property focusBorderColor - Explicit border colour while focused
  */
 export interface DateRangeInputStyle {
+    /** Start of range (UTC `DateTime`) — required. */
+    startValue: SubtypeExprOrValue<DateTimeType>;
+    /** End of range (UTC `DateTime`) — required. */
+    endValue: SubtypeExprOrValue<DateTimeType>;
     /** Lower-bound DateTime. */
     min?: SubtypeExprOrValue<DateTimeType>;
     /** Upper-bound DateTime. */

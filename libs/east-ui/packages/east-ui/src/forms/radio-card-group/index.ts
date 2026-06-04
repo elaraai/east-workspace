@@ -5,9 +5,7 @@
 
 import {
     type ExprType,
-    type SubtypeExprOrValue,
     East,
-    StringType,
     variant,
     some,
     none,
@@ -21,7 +19,6 @@ import {
     RadioCardGroupOrientationType,
     RadioCardItemType,
     type RadioCardGroupStyle,
-    type RadioCardItemInput,
 } from "./types.js";
 
 export {
@@ -37,9 +34,8 @@ export {
  * Creates a `RadioCardGroup` component — single-select card list with
  * label + optional description per card.
  *
- * @param value - Currently selected card value (empty string when none)
- * @param items - Array of card entries `{ value, label, description?, disabled? }`
- * @param style - Optional styling + behaviour configuration
+ * @param options - Required `value` + `items` (each `{ value, label,
+ *   description?, disabled? }`), optional styling + behaviour configuration
  * @returns An East expression representing the RadioCardGroup component
  *
  * @example
@@ -54,24 +50,25 @@ export {
  *         const onChange = $.const(East.function([StringType], NullType, ($, next) => {
  *             $(planBind.write(next));
  *         }));
- *         return RadioCardGroup.Root(
- *             plan,
- *             [
+ *         return RadioCardGroup.Root({
+ *             value: plan,
+ *             items: [
  *                 { value: "starter", label: "Starter", description: "Up to 5 users" },
  *                 { value: "team", label: "Team", description: "Up to 50 users" },
  *                 { value: "business", label: "Business", description: "Unlimited" },
  *             ],
- *             { onChange, colorPalette: "blue" },
- *         );
+ *             onChange,
+ *             colorPalette: "blue",
+ *         });
  *     }));
  * });
  * ```
  */
 function createRadioCardGroup(
-    value: SubtypeExprOrValue<StringType>,
-    items: RadioCardItemInput[],
-    style?: RadioCardGroupStyle,
+    options: RadioCardGroupStyle,
 ): ExprType<UIComponentType> {
+    const { value, items } = options;
+
     const itemsExpr = items.map(item => East.value({
         value: item.value,
         label: item.label,
@@ -79,51 +76,51 @@ function createRadioCardGroup(
         disabled: item.disabled !== undefined ? some(item.disabled) : none,
     }, RadioCardItemType));
 
-    const colorPaletteValue = style?.colorPalette
-        ? (typeof style.colorPalette === "string"
-            ? East.value(variant(style.colorPalette, null), ColorSchemeType)
-            : style.colorPalette)
+    const colorPaletteValue = options.colorPalette
+        ? (typeof options.colorPalette === "string"
+            ? East.value(variant(options.colorPalette, null), ColorSchemeType)
+            : options.colorPalette)
         : undefined;
-    const sizeValue = style?.size
-        ? (typeof style.size === "string"
-            ? East.value(variant(style.size, null), SizeType)
-            : style.size)
+    const sizeValue = options.size
+        ? (typeof options.size === "string"
+            ? East.value(variant(options.size, null), SizeType)
+            : options.size)
         : undefined;
-    const orientationValue = style?.orientation
-        ? (typeof style.orientation === "string"
-            ? East.value(variant(style.orientation, null), RadioCardGroupOrientationType)
-            : style.orientation)
+    const orientationValue = options.orientation
+        ? (typeof options.orientation === "string"
+            ? East.value(variant(options.orientation, null), RadioCardGroupOrientationType)
+            : options.orientation)
         : undefined;
 
-    const hasStyle = !!style && (
+    const hasStyle = (
         colorPaletteValue !== undefined ||
         sizeValue !== undefined ||
         orientationValue !== undefined ||
-        style.color !== undefined ||
-        style.descriptionColor !== undefined ||
-        style.cardBackground !== undefined ||
-        style.selectedCardBackground !== undefined ||
-        style.selectedBorderColor !== undefined
+        options.color !== undefined ||
+        options.descriptionColor !== undefined ||
+        options.cardBackground !== undefined ||
+        options.selectedCardBackground !== undefined ||
+        options.selectedBorderColor !== undefined
     );
 
     const styleValue = hasStyle ? East.value({
         colorPalette: colorPaletteValue ? some(colorPaletteValue) : none,
         size: sizeValue ? some(sizeValue) : none,
         orientation: orientationValue ? some(orientationValue) : none,
-        color: style!.color !== undefined ? some(style!.color) : none,
-        descriptionColor: style!.descriptionColor !== undefined ? some(style!.descriptionColor) : none,
-        cardBackground: style!.cardBackground !== undefined ? some(style!.cardBackground) : none,
-        selectedCardBackground: style!.selectedCardBackground !== undefined ? some(style!.selectedCardBackground) : none,
-        selectedBorderColor: style!.selectedBorderColor !== undefined ? some(style!.selectedBorderColor) : none,
+        color: options.color !== undefined ? some(options.color) : none,
+        descriptionColor: options.descriptionColor !== undefined ? some(options.descriptionColor) : none,
+        cardBackground: options.cardBackground !== undefined ? some(options.cardBackground) : none,
+        selectedCardBackground: options.selectedCardBackground !== undefined ? some(options.selectedCardBackground) : none,
+        selectedBorderColor: options.selectedBorderColor !== undefined ? some(options.selectedBorderColor) : none,
     }, RadioCardGroupStyleType) : undefined;
 
     return East.value(variant("RadioCardGroup", {
         value,
         items: itemsExpr,
-        name: style?.name !== undefined ? some(style.name) : none,
-        disabled: style?.disabled !== undefined ? some(style.disabled) : none,
-        required: style?.required !== undefined ? some(style.required) : none,
-        onChange: style?.onChange ? some(style.onChange) : none,
+        name: options.name !== undefined ? some(options.name) : none,
+        disabled: options.disabled !== undefined ? some(options.disabled) : none,
+        required: options.required !== undefined ? some(options.required) : none,
+        onChange: options.onChange ? some(options.onChange) : none,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
@@ -142,7 +139,7 @@ interface RadioCardGroupNamespace {
  * `RadioCardGroup` namespace — single-select card-style radio list.
  *
  * @remarks
- * Use `RadioCardGroup.Root(value, items, options?)` to construct.
+ * Use `RadioCardGroup.Root({ value, items, ... })` to construct.
  * Each item carries a label + optional description; cards are
  * mutually exclusive selections styled as bordered surfaces.
  */

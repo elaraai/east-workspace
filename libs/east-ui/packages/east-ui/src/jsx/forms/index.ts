@@ -8,3 +8,11 @@
 export { Checkbox } from "./checkbox.js";
 export { Switch } from "./switch.js";
 export { Slider } from "./slider.js";
+export { TagsInput } from "./tags-input.js";
+export { Textarea } from "./textarea.js";
+export { TimeScaleControl } from "./time-scale-control.js";
+export { FileUpload } from "./file-upload.js";
+export { DateRangeInput } from "./date-range-input.js";
+export { TimeRangeInput } from "./time-range-input.js";
+export { RadioGroup } from "./radio-group.js";
+export { RadioCardGroup } from "./radio-card-group.js";

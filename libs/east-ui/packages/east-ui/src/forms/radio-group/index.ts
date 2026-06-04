@@ -5,9 +5,7 @@
 
 import {
     type ExprType,
-    type SubtypeExprOrValue,
     East,
-    StringType,
     variant,
     some,
     none,
@@ -21,7 +19,6 @@ import {
     RadioGroupOrientationType,
     RadioItemType,
     type RadioGroupStyle,
-    type RadioItemInput,
 } from "./types.js";
 
 export {
@@ -37,9 +34,8 @@ export {
  * Creates a `RadioGroup` component — single-select radio list with
  * optional rich item labels.
  *
- * @param value - Currently selected item value (empty string when none)
- * @param items - Array of items: each `{ value, label?, disabled? }`
- * @param style - Optional styling + behaviour configuration
+ * @param options - Required `value` + `items` (each `{ value, label?,
+ *   disabled? }`), optional styling + behaviour configuration
  * @returns An East expression representing the RadioGroup component
  *
  * @remarks
@@ -60,73 +56,74 @@ export {
  *         const onChange = $.const(East.function([StringType], NullType, ($, next) => {
  *             $(choiceBind.write(next));
  *         }));
- *         return RadioGroup.Root(
- *             choice,
- *             [
+ *         return RadioGroup.Root({
+ *             value: choice,
+ *             items: [
  *                 { value: "yes", label: "Yes" },
  *                 { value: "no", label: "No" },
  *                 { value: "maybe", label: "Maybe", disabled: true },
  *             ],
- *             { onChange, colorPalette: "blue" },
- *         );
+ *             onChange,
+ *             colorPalette: "blue",
+ *         });
  *     }));
  * });
  * ```
  */
 function createRadioGroup(
-    value: SubtypeExprOrValue<StringType>,
-    items: RadioItemInput[],
-    style?: RadioGroupStyle,
+    options: RadioGroupStyle,
 ): ExprType<UIComponentType> {
+    const { value, items } = options;
+
     const itemsExpr = items.map(item => East.value({
         value: item.value,
         label: item.label !== undefined ? some(item.label) : none,
         disabled: item.disabled !== undefined ? some(item.disabled) : none,
     }, RadioItemType));
 
-    const colorPaletteValue = style?.colorPalette
-        ? (typeof style.colorPalette === "string"
-            ? East.value(variant(style.colorPalette, null), ColorSchemeType)
-            : style.colorPalette)
+    const colorPaletteValue = options.colorPalette
+        ? (typeof options.colorPalette === "string"
+            ? East.value(variant(options.colorPalette, null), ColorSchemeType)
+            : options.colorPalette)
         : undefined;
 
-    const sizeValue = style?.size
-        ? (typeof style.size === "string"
-            ? East.value(variant(style.size, null), SizeType)
-            : style.size)
+    const sizeValue = options.size
+        ? (typeof options.size === "string"
+            ? East.value(variant(options.size, null), SizeType)
+            : options.size)
         : undefined;
 
-    const orientationValue = style?.orientation
-        ? (typeof style.orientation === "string"
-            ? East.value(variant(style.orientation, null), RadioGroupOrientationType)
-            : style.orientation)
+    const orientationValue = options.orientation
+        ? (typeof options.orientation === "string"
+            ? East.value(variant(options.orientation, null), RadioGroupOrientationType)
+            : options.orientation)
         : undefined;
 
-    const hasStyle = !!style && (
+    const hasStyle = (
         colorPaletteValue !== undefined ||
         sizeValue !== undefined ||
         orientationValue !== undefined ||
-        style.color !== undefined ||
-        style.fillColor !== undefined ||
-        style.borderColor !== undefined
+        options.color !== undefined ||
+        options.fillColor !== undefined ||
+        options.borderColor !== undefined
     );
 
     const styleValue = hasStyle ? East.value({
         colorPalette: colorPaletteValue ? some(colorPaletteValue) : none,
         size: sizeValue ? some(sizeValue) : none,
         orientation: orientationValue ? some(orientationValue) : none,
-        color: style!.color !== undefined ? some(style!.color) : none,
-        fillColor: style!.fillColor !== undefined ? some(style!.fillColor) : none,
-        borderColor: style!.borderColor !== undefined ? some(style!.borderColor) : none,
+        color: options.color !== undefined ? some(options.color) : none,
+        fillColor: options.fillColor !== undefined ? some(options.fillColor) : none,
+        borderColor: options.borderColor !== undefined ? some(options.borderColor) : none,
     }, RadioGroupStyleType) : undefined;
 
     return East.value(variant("RadioGroup", {
         value,
         items: itemsExpr,
-        name: style?.name !== undefined ? some(style.name) : none,
-        disabled: style?.disabled !== undefined ? some(style.disabled) : none,
-        required: style?.required !== undefined ? some(style.required) : none,
-        onChange: style?.onChange ? some(style.onChange) : none,
+        name: options.name !== undefined ? some(options.name) : none,
+        disabled: options.disabled !== undefined ? some(options.disabled) : none,
+        required: options.required !== undefined ? some(options.required) : none,
+        onChange: options.onChange ? some(options.onChange) : none,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
@@ -145,7 +142,7 @@ interface RadioGroupNamespace {
  * `RadioGroup` namespace — single-select radio list primitive.
  *
  * @remarks
- * Use `RadioGroup.Root(value, items, options?)` to construct.
+ * Use `RadioGroup.Root({ value, items, ... })` to construct.
  * Access IR types via `RadioGroup.Types.Root`,
  * `RadioGroup.Types.Style`, `RadioGroup.Types.Item`,
  * `RadioGroup.Types.Orientation`.

@@ -5,8 +5,6 @@
 
 import {
     type ExprType,
-    type SubtypeExprOrValue,
-    DateTimeType,
     East,
     variant,
     some,
@@ -38,9 +36,8 @@ export {
  * Creates a `DateRangeInput` — paired start / end date fields with
  * optional named presets.
  *
- * @param startValue - Start of range (UTC `DateTime`)
- * @param endValue - End of range (UTC `DateTime`)
- * @param style - Optional styling + behaviour configuration
+ * @param options - Required `startValue` + `endValue`, optional styling +
+ *   behaviour configuration
  * @returns An East expression representing the DateRangeInput
  *
  * @remarks
@@ -63,52 +60,52 @@ export {
  * const example = East.function([], UIComponentType, $ => {
  *     const start = $.let(new Date("2026-04-01T00:00:00Z"), DateTimeType);
  *     const end = $.let(new Date("2026-04-30T00:00:00Z"), DateTimeType);
- *     return DateRangeInput.Root(start, end, { precision: "date" });
+ *     return DateRangeInput.Root({ startValue: start, endValue: end, precision: "date" });
  * });
  * ```
  */
 function createDateRangeInput(
-    startValue: SubtypeExprOrValue<DateTimeType>,
-    endValue: SubtypeExprOrValue<DateTimeType>,
-    style?: DateRangeInputStyle,
+    options: DateRangeInputStyle,
 ): ExprType<UIComponentType> {
-    const variantValue = style?.variant
-        ? (typeof style.variant === "string"
-            ? East.value(variant(style.variant, null), InputVariantType)
-            : style.variant)
+    const { startValue, endValue } = options;
+
+    const variantValue = options.variant
+        ? (typeof options.variant === "string"
+            ? East.value(variant(options.variant, null), InputVariantType)
+            : options.variant)
         : undefined;
-    const sizeValue = style?.size
-        ? (typeof style.size === "string"
-            ? East.value(variant(style.size, null), SizeType)
-            : style.size)
+    const sizeValue = options.size
+        ? (typeof options.size === "string"
+            ? East.value(variant(options.size, null), SizeType)
+            : options.size)
         : undefined;
-    const precisionValue = style?.precision
-        ? (typeof style.precision === "string"
-            ? East.value(variant(style.precision, null), DateTimePrecisionType)
-            : style.precision)
+    const precisionValue = options.precision
+        ? (typeof options.precision === "string"
+            ? East.value(variant(options.precision, null), DateTimePrecisionType)
+            : options.precision)
         : undefined;
 
-    const hasStyle = !!style && (
+    const hasStyle = (
         variantValue !== undefined ||
         sizeValue !== undefined ||
-        style.color !== undefined ||
-        style.background !== undefined ||
-        style.borderColor !== undefined ||
-        style.focusBorderColor !== undefined
+        options.color !== undefined ||
+        options.background !== undefined ||
+        options.borderColor !== undefined ||
+        options.focusBorderColor !== undefined
     );
 
     const styleValue = hasStyle ? East.value({
         variant: variantValue ? some(variantValue) : none,
         size: sizeValue ? some(sizeValue) : none,
-        color: style!.color !== undefined ? some(style!.color) : none,
-        background: style!.background !== undefined ? some(style!.background) : none,
-        borderColor: style!.borderColor !== undefined ? some(style!.borderColor) : none,
-        focusBorderColor: style!.focusBorderColor !== undefined ? some(style!.focusBorderColor) : none,
+        color: options.color !== undefined ? some(options.color) : none,
+        background: options.background !== undefined ? some(options.background) : none,
+        borderColor: options.borderColor !== undefined ? some(options.borderColor) : none,
+        focusBorderColor: options.focusBorderColor !== undefined ? some(options.focusBorderColor) : none,
     }, DateRangeInputStyleType) : undefined;
 
-    const presetsExpr = style?.presets
+    const presetsExpr = options.presets
         ? East.value(
-            style.presets.map(p => East.value({
+            options.presets.map(p => East.value({
                 label: p.label,
                 start: p.start,
                 end: p.end,
@@ -119,12 +116,12 @@ function createDateRangeInput(
     return East.value(variant("DateRangeInput", {
         startValue,
         endValue,
-        min: style?.min !== undefined ? some(style.min) : none,
-        max: style?.max !== undefined ? some(style.max) : none,
+        min: options.min !== undefined ? some(options.min) : none,
+        max: options.max !== undefined ? some(options.max) : none,
         precision: precisionValue ? some(precisionValue) : none,
         presets: presetsExpr ? some(presetsExpr) : none,
-        disabled: style?.disabled !== undefined ? some(style.disabled) : none,
-        onChange: style?.onChange ? some(style.onChange) : none,
+        disabled: options.disabled !== undefined ? some(options.disabled) : none,
+        onChange: options.onChange ? some(options.onChange) : none,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
@@ -143,7 +140,7 @@ interface DateRangeInputNamespace {
  * optional named presets.
  *
  * @remarks
- * Use `DateRangeInput.Root(startValue, endValue, options?)` to
+ * Use `DateRangeInput.Root({ startValue, endValue, ... })` to
  * construct. Access IR types via `DateRangeInput.Types.Root`,
  * `DateRangeInput.Types.Style`, `DateRangeInput.Types.Preset`.
  */

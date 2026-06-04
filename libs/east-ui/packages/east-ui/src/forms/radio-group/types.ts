@@ -119,6 +119,10 @@ export type RadioGroupStyleType = typeof RadioGroupStyleType;
  * @property borderColor - Explicit border colour override for unselected radios
  */
 export interface RadioGroupStyle {
+    /** Currently selected item value (empty string when none) — required. */
+    value: SubtypeExprOrValue<StringType>;
+    /** Array of items: each `{ value, label?, disabled? }` — required. */
+    items: RadioItemInput[];
     /** Optional form-control name (groups radios in the same form). */
     name?: SubtypeExprOrValue<StringType>;
     /** Whether the entire group is disabled. */
