@@ -13,11 +13,11 @@
  * build defines EAST_C_DLL_EXPORTS (the object lib) / EAST_C_DLL_IMPORTS (the
  * extensions); the standalone static CLI defines neither. */
 #if defined(_WIN32) && defined(EAST_C_DLL_EXPORTS)
-#  define EAST_DATA __declspec(dllexport)
+#define EAST_DATA __declspec(dllexport)
 #elif defined(_WIN32) && defined(EAST_C_DLL_IMPORTS)
-#  define EAST_DATA __declspec(dllimport)
+#define EAST_DATA __declspec(dllimport)
 #else
-#  define EAST_DATA
+#define EAST_DATA
 #endif
 
 typedef enum {
