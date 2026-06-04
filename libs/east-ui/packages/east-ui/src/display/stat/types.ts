@@ -6,6 +6,8 @@
 import {
     type SubtypeExprOrValue,
     type ExprType,
+    FloatType,
+    IntegerType,
     StringType,
     NullType,
     OptionType,
@@ -13,6 +15,8 @@ import {
     VariantType,
     East,
     variant,
+    some,
+    none,
 } from "@elaraai/east";
 
 import { SizeType } from "../../style.js";
@@ -150,11 +154,11 @@ export function StatIndicator(
 ): ExprType<StatIndicatorType> {
     const directionExpr = East.value(variant(direction, null), StatDirectionType);
     const sentimentExpr = options?.sentiment !== undefined
-        ? variant("some", East.value(variant(options.sentiment, null), StatSentimentType))
-        : variant("none", null);
+        ? some(East.value(variant(options.sentiment, null), StatSentimentType))
+        : none;
     const iconExpr = options?.icon !== undefined
-        ? variant("some", options.icon)
-        : variant("none", null);
+        ? some(options.icon)
+        : none;
     return East.value({
         direction: directionExpr,
         sentiment: sentimentExpr,
@@ -207,6 +211,8 @@ export type StatStyleType = typeof StatStyleType;
  * struct) and visual-style fields. The factory splits them into the
  * nested IR shape internally.
  *
+ * @property label - Metric label
+ * @property value - Primary value — a scalar (Integer / Float / String)
  * @property helpText - Optional caption beneath the main value
  * @property baseline - Optional UIComponent rendered as a secondary baseline line
  * @property delta - Optional UIComponent rendered as a delta / change pill
@@ -219,6 +225,14 @@ export type StatStyleType = typeof StatStyleType;
  * @property indicatorColor - Explicit colour for the indicator arrow / icon
  */
 export interface StatStyle {
+    /** Metric label — required. */
+    label: SubtypeExprOrValue<StringType>;
+    /**
+     * Primary value — a scalar (number / bigint / string or an East
+     * `Float` / `Integer` / `String` expression) — required. Pass `format`
+     * to format a numeric value.
+     */
+    value: SubtypeExprOrValue<FloatType | IntegerType | StringType>;
     /** Optional `Format` / tick descriptor applied when the value is numeric
      *  (e.g. `Format.Currency({ currency: "AUD" })`). Ignored for string values. */
     format?: SubtypeExprOrValue<TickFormatType>;
