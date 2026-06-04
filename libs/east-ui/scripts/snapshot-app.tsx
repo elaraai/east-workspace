@@ -110,7 +110,7 @@ function Root({ modules, keyOf, prepare }: Required<Pick<MountSnapshotOptions, '
         return () => { cancelled = true; };
     }, [modules, keyOf, prepare]);
 
-    if (state.kind === 'loading') return <Box p="6" fontFamily="mono">Loading…</Box>;
+    if (state.kind === 'loading') return <Box data-snapshot-boot p="6" fontFamily="mono">Loading…</Box>;
     if (state.kind === 'error') return <Box p="6" fontFamily="mono" color="fg.danger">Snapshot error: {state.message}</Box>;
 
     // Per-example: render just the one, full-bleed.

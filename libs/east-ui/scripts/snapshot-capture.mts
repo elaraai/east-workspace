@@ -133,6 +133,17 @@ export async function captureFiles(cfg: CaptureConfig): Promise<{ captured: numb
                 await page.waitForTimeout(500);
                 await page.reload({ waitUntil: 'networkidle', timeout: 30_000 });
                 await page.evaluate(() => document.fonts.ready);
+                // Wait for the snapshot app to boot past its "Loading…" state
+                // (cold Vite can compile a newly-seen example module slower than
+                // the skeleton wait), then for any in-component skeletons to clear.
+                try {
+                    await page.waitForFunction(
+                        () => document.querySelector('[data-snapshot-boot]') === null,
+                        { timeout: 25_000, polling: 100 },
+                    );
+                } catch {
+                    console.warn(`[snapshot]   ${target.outName}: still booting at timeout`);
+                }
                 try {
                     await page.waitForFunction(
                         () => document.querySelectorAll('.elara-skeleton').length === 0,
