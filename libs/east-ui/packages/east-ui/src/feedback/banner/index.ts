@@ -104,15 +104,27 @@ type BannerInput =
 /**
  * TypeScript options bag for `Banner.Root`.
  *
+ * @property status - The banner status (info / warning / success / error / neutral / …)
+ * @property title - Banner title (string coerced to `Text.Root` or a UIComponent)
  * @property description - Optional description (rich or string)
  * @property actions - Optional trailing action(s)
  * @property icon - Explicit icon override (skips paired default)
  * @property dismissible - Whether to show a close button
  * @property showIcon - Whether to show the paired icon (default true)
  * @property onDismiss - Callback fired when the close button is pressed
- * @property style - Optional visual-only style
+ * @property variant - Visual preset (subtle / solid / outline)
+ * @property size - Size preset (sm / md / lg)
+ * @property color - Text colour
+ * @property background - Background colour
+ * @property borderColor - Border colour
+ * @property iconColor - Colour of the leading paired icon
+ * @property accentColor - Prominent left / top accent stripe
  */
-export interface BannerOptions {
+export interface BannerOptions extends BannerStyle {
+    /** The banner status (info / warning / success / error / neutral / …) — required. */
+    status: BannerStatusLiteral | SubtypeExprOrValue<BannerStatusType>;
+    /** Banner title (string coerced to `Text.Root` or a UIComponent) — required. */
+    title: BannerInput;
     /** Optional description (rich or string) */
     description?: BannerInput;
     /** Optional trailing action(s) */
@@ -125,17 +137,14 @@ export interface BannerOptions {
     showIcon?: SubtypeExprOrValue<BooleanType>;
     /** Callback fired when the close button is pressed */
     onDismiss?: SubtypeExprOrValue<FunctionType<[], NullType>>;
-    /** Optional visual-only style */
-    style?: BannerStyle;
 }
 
 /**
  * Creates a Banner — a full-width page-level feedback surface with paired
  * icon.
  *
- * @param status - The banner status (info / warning / success / error / neutral)
- * @param title - String (coerced to `Text.Root(s)`) or UIComponentType
- * @param options - Optional rich description / actions / dismissible / style
+ * @param options - Required `status` + `title`, optional rich description /
+ *   actions / dismissible / visual style fields
  * @returns An East expression representing the Banner component
  *
  * @example
@@ -144,7 +153,9 @@ export interface BannerOptions {
  * import { Banner, Button, UIComponentType } from "@elaraai/east-ui";
  *
  * const stale = East.function([], UIComponentType, _$ =>
- *     Banner.Root("warning", "Data last refreshed 48m ago", {
+ *     Banner.Root({
+ *         status: "warning",
+ *         title: "Data last refreshed 48m ago",
  *         description: "Some metrics may be stale.",
  *         actions: Button.Root("Refresh"),
  *     }),
@@ -152,10 +163,10 @@ export interface BannerOptions {
  * ```
  */
 function createBannerRoot(
-    status: BannerStatusLiteral | SubtypeExprOrValue<BannerStatusType>,
-    title: BannerInput,
-    options?: BannerOptions,
+    options: BannerOptions,
 ): ExprType<UIComponentType> {
+    const { status, title, description, actions, icon, dismissible, showIcon, onDismiss, ...visual } = options;
+
     const statusValue = typeof status === "string"
         ? East.value(variant(status, null), BannerStatusType)
         : status as ExprType<BannerStatusType>;
@@ -171,22 +182,22 @@ function createBannerRoot(
             : input as ExprType<UIComponentType>;
     };
 
-    const descriptionValue = coerce(options?.description);
-    const actionsValue = coerce(options?.actions);
+    const descriptionValue = coerce(description);
+    const actionsValue = coerce(actions);
 
     // paired-icon
     let iconValue: SubtypeExprOrValue<IconType> | undefined;
-    const showIcon = options?.showIcon ?? true;
-    if (options?.icon && typeof (options.icon as { prefix?: unknown }).prefix === "string") {
+    const showIconResolved = showIcon ?? true;
+    if (icon && typeof (icon as { prefix?: unknown }).prefix === "string") {
         iconValue = East.value({
-            prefix: (options.icon as { prefix: string }).prefix,
-            name: (options.icon as { name: string }).name,
+            prefix: (icon as { prefix: string }).prefix,
+            name: (icon as { name: string }).name,
             label: none,
             style: none,
         }, IconType);
-    } else if (options?.icon !== undefined) {
-        iconValue = options.icon as SubtypeExprOrValue<IconType>;
-    } else if (showIcon === true && typeof status === "string") {
+    } else if (icon !== undefined) {
+        iconValue = icon as SubtypeExprOrValue<IconType>;
+    } else if (showIconResolved === true && typeof status === "string") {
         const paired = PAIRED_ICONS[status];
         iconValue = East.value({
             prefix: paired.prefix,
@@ -196,7 +207,8 @@ function createBannerRoot(
         }, IconType);
     }
 
-    const styleValue = options?.style ? buildBannerStyle(options.style) : undefined;
+    const hasVisual = Object.values(visual).some(field => field !== undefined);
+    const styleValue = hasVisual ? buildBannerStyle(visual) : undefined;
 
     return East.value(variant("Banner", {
         status: statusValue,
@@ -204,9 +216,9 @@ function createBannerRoot(
         description: descriptionValue ? some(descriptionValue) : none,
         actions: actionsValue ? some(actionsValue) : none,
         icon: iconValue ? some(iconValue) : none,
-        dismissible: options?.dismissible !== undefined ? some(options.dismissible) : none,
-        showIcon: options?.showIcon !== undefined ? some(options.showIcon) : none,
-        onDismiss: options?.onDismiss !== undefined ? some(options.onDismiss) : none,
+        dismissible: dismissible !== undefined ? some(dismissible) : none,
+        showIcon: showIcon !== undefined ? some(showIcon) : none,
+        onDismiss: onDismiss !== undefined ? some(onDismiss) : none,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
@@ -241,13 +253,14 @@ export const Banner = {
     /**
      * Creates a Banner.
      *
-     * @param status - "info" / "warning" / "success" / "error" / "neutral"
-     * @param title - String (coerced to `Text.Root(s)`) or UIComponentType
-     * @param options - Optional rich description / actions / dismissible / style
+     * @param options - Required `status` + `title`, optional rich description /
+     *   actions / dismissible / visual style fields
      *
      * @example
      * ```ts
-     * Banner.Root("warning", "Data last refreshed 48m ago", {
+     * Banner.Root({
+     *     status: "warning",
+     *     title: "Data last refreshed 48m ago",
      *     actions: Button.Root("Refresh"),
      * });
      * ```

@@ -91,13 +91,20 @@ type StatusInput =
 /**
  * TypeScript options bag for `Status.Root`.
  *
+ * @property label - Status label (string coerced to `Text.Root` or a UIComponent)
  * @property value - Semantic classification — defaults to `"neutral"` if omitted
  * @property icon - Explicit icon override (skips paired-icon default)
  * @property pulsing - Animate the indicator dot
  * @property showIcon - Whether to show the paired icon (default true)
- * @property style - Optional visual-only style
+ * @property size - Size preset (sm / md / lg)
+ * @property color - Default text colour
+ * @property background - Background colour
+ * @property borderColor - Border colour
+ * @property dotColor - Colour of the leading indicator dot
  */
-export interface StatusOptions {
+export interface StatusOptions extends StatusStyle {
+    /** Status label (string coerced to `Text.Root` or a UIComponent) — required. */
+    label: StatusInput;
     /** Semantic classification — defaults to `"neutral"` if omitted */
     value?: StatusValueLiteral | SubtypeExprOrValue<StatusValueType>;
     /** Explicit icon override (skips paired-icon default) */
@@ -106,15 +113,13 @@ export interface StatusOptions {
     pulsing?: SubtypeExprOrValue<BooleanType>;
     /** Whether to show the paired icon (default true) */
     showIcon?: SubtypeExprOrValue<BooleanType>;
-    /** Optional visual-only style */
-    style?: StatusStyle;
 }
 
 /**
  * Creates a Status chip with a semantic classification and a paired icon.
  *
- * @param label - String (coerced to `Text.Root(s)`) or UIComponentType
- * @param options - Optional `value` / `icon` / `pulsing` / `showIcon` / `style`
+ * @param options - Required `label`, optional `value` / `icon` / `pulsing` /
+ *   `showIcon` / visual style fields
  * @returns An East expression representing the Status component
  *
  * @remarks
@@ -129,42 +134,43 @@ export interface StatusOptions {
  * import { Status, UIComponentType } from "@elaraai/east-ui";
  *
  * const chip = East.function([], UIComponentType, _$ =>
- *     Status.Root("Up to date", { value: "success" }),
+ *     Status.Root({ label: "Up to date", value: "success" }),
  * );
  * ```
  */
 function createStatusRoot(
-    label: StatusInput,
-    options?: StatusOptions,
+    options: StatusOptions,
 ): ExprType<UIComponentType> {
+    const { label, value, icon, pulsing, showIcon, ...visual } = options;
+
     const labelExpr: ExprType<UIComponentType> = typeof label === "string"
         ? Text.Root(label)
         : label as ExprType<UIComponentType>;
 
-    const valueLiteral: StatusValueLiteral = typeof options?.value === "string"
-        ? options.value
+    const valueLiteral: StatusValueLiteral = typeof value === "string"
+        ? value
         : "neutral";
-    const valueValue = typeof options?.value === "string" || options?.value === undefined
+    const valueValue = typeof value === "string" || value === undefined
         ? East.value(variant(valueLiteral, null), StatusValueType)
-        : options.value as ExprType<StatusValueType>;
+        : value as ExprType<StatusValueType>;
 
     // Paired-icon injection
-    const explicitIcon = options?.icon && typeof (options.icon as { prefix?: unknown }).prefix === "string"
+    const explicitIcon = icon && typeof (icon as { prefix?: unknown }).prefix === "string"
         ? East.value({
-            prefix: (options.icon as { prefix: string }).prefix,
-            name: (options.icon as { name: string }).name,
+            prefix: (icon as { prefix: string }).prefix,
+            name: (icon as { name: string }).name,
             label: none,
             style: none,
         }, IconType)
-        : (options?.icon as SubtypeExprOrValue<IconType> | undefined);
+        : (icon as SubtypeExprOrValue<IconType> | undefined);
 
-    const showIcon = options?.showIcon ?? true;
+    const showIconResolved = showIcon ?? true;
     // If `icon` explicitly provided → use it. If `showIcon === false` → no icon.
     // Otherwise inject the paired default when the value is a static literal.
     let iconValue: SubtypeExprOrValue<IconType> | undefined;
     if (explicitIcon !== undefined) {
         iconValue = explicitIcon;
-    } else if (showIcon === true && typeof options?.value === "string") {
+    } else if (showIconResolved === true && typeof value === "string") {
         const paired = PAIRED_ICONS[valueLiteral];
         iconValue = East.value({
             prefix: paired.prefix,
@@ -172,7 +178,7 @@ function createStatusRoot(
             label: none,
             style: none,
         }, IconType);
-    } else if (showIcon === true && options?.value === undefined) {
+    } else if (showIconResolved === true && value === undefined) {
         const paired = PAIRED_ICONS["neutral"];
         iconValue = East.value({
             prefix: paired.prefix,
@@ -182,14 +188,15 @@ function createStatusRoot(
         }, IconType);
     }
 
-    const styleValue = options?.style ? buildStatusStyle(options.style) : undefined;
+    const hasVisual = Object.values(visual).some(field => field !== undefined);
+    const styleValue = hasVisual ? buildStatusStyle(visual) : undefined;
 
     return East.value(variant("Status", {
         value: valueValue,
         label: labelExpr,
         icon: iconValue ? some(iconValue) : none,
-        pulsing: options?.pulsing !== undefined ? some(options.pulsing) : none,
-        showIcon: options?.showIcon !== undefined ? some(options.showIcon) : none,
+        pulsing: pulsing !== undefined ? some(pulsing) : none,
+        showIcon: showIcon !== undefined ? some(showIcon) : none,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
@@ -223,12 +230,12 @@ export const Status = {
     /**
      * Creates a Status chip.
      *
-     * @param label - String (coerced to `Text.Root(s)`) or UIComponentType
-     * @param options - Optional `value` / `icon` / `pulsing` / `showIcon` / `style`
+     * @param options - Required `label`, optional `value` / `icon` / `pulsing` /
+     *   `showIcon` / visual style fields
      *
      * @example
      * ```ts
-     * Status.Root("Recomputing", { value: "warning", pulsing: true });
+     * Status.Root({ label: "Recomputing", value: "warning", pulsing: true });
      * ```
      */
     Root: createStatusRoot,

@@ -74,12 +74,20 @@ type EmptyStateInput =
 /**
  * TypeScript options bag for `EmptyState.Root`.
  *
+ * @property title - Title (string coerced to `Text.Root` or a UIComponent)
  * @property icon - Optional leading Font Awesome icon
+ * @property glyph - Spec-preferred mono glyph string (takes precedence over `icon`)
  * @property description - Optional description (rich or string)
  * @property actions - Optional trailing action(s) (rich; typically a Button or HStack)
- * @property style - Optional visual-only style
+ * @property size - Size preset (sm / md / lg)
+ * @property color - Default text colour
+ * @property background - Background colour
+ * @property borderColor - Border colour
+ * @property iconColor - Colour of the leading indicator icon
  */
-export interface EmptyStateOptions {
+export interface EmptyStateOptions extends EmptyStateStyle {
+    /** Title (string coerced to `Text.Root` or a UIComponent) — required. */
+    title: EmptyStateInput;
     /** Optional leading Font Awesome icon (off-spec escape hatch) */
     icon?: { prefix: string; name: string } | SubtypeExprOrValue<IconType>;
     /** Spec-preferred mono glyph string (e.g. `"·   ·   ·"` / `"+ + +"`) — renders at 36px mono with letter-spacing 0.1em, colour `border.strong`. When set, takes precedence over `icon`. */
@@ -88,16 +96,14 @@ export interface EmptyStateOptions {
     description?: EmptyStateInput;
     /** Optional trailing action(s) (rich; typically a Button or HStack) */
     actions?: EmptyStateInput;
-    /** Optional visual-only style */
-    style?: EmptyStateStyle;
 }
 
 /**
  * Creates an EmptyState — a placeholder for a section that would otherwise
  * render zero rows / zero results / no scenarios.
  *
- * @param title - String (coerced to `Text.Root(s)`) or UIComponentType
- * @param options - Optional `icon` / `description` / `actions` / `style`
+ * @param options - Required `title`, optional `icon` / `glyph` /
+ *   `description` / `actions` / visual style fields
  * @returns An East expression representing the EmptyState component
  *
  * @example
@@ -106,7 +112,8 @@ export interface EmptyStateOptions {
  * import { EmptyState, Button, UIComponentType } from "@elaraai/east-ui";
  *
  * const empty = East.function([], UIComponentType, _$ =>
- *     EmptyState.Root("No results", {
+ *     EmptyState.Root({
+ *         title: "No results",
  *         icon: { prefix: "fas", name: "magnifying-glass" },
  *         description: "Try clearing filters or broadening your search.",
  *         actions: Button.Root("Clear filters"),
@@ -115,39 +122,41 @@ export interface EmptyStateOptions {
  * ```
  */
 function createEmptyStateRoot(
-    title: EmptyStateInput,
-    options?: EmptyStateOptions,
+    options: EmptyStateOptions,
 ): ExprType<UIComponentType> {
+    const { title, icon, glyph, description, actions, ...visual } = options;
+
     const titleExpr: ExprType<UIComponentType> = typeof title === "string"
         ? Text.Root(title)
         : title as ExprType<UIComponentType>;
 
-    const descriptionValue = options?.description !== undefined
-        ? (typeof options.description === "string"
-            ? Text.Root(options.description)
-            : options.description as ExprType<UIComponentType>)
+    const descriptionValue = description !== undefined
+        ? (typeof description === "string"
+            ? Text.Root(description)
+            : description as ExprType<UIComponentType>)
         : undefined;
 
-    const actionsValue = options?.actions !== undefined
-        ? (typeof options.actions === "string"
-            ? Text.Root(options.actions)
-            : options.actions as ExprType<UIComponentType>)
+    const actionsValue = actions !== undefined
+        ? (typeof actions === "string"
+            ? Text.Root(actions)
+            : actions as ExprType<UIComponentType>)
         : undefined;
 
-    const iconValue = options?.icon && typeof (options.icon as { prefix?: unknown }).prefix === "string"
+    const iconValue = icon && typeof (icon as { prefix?: unknown }).prefix === "string"
         ? East.value({
-            prefix: (options.icon as { prefix: string }).prefix,
-            name: (options.icon as { name: string }).name,
+            prefix: (icon as { prefix: string }).prefix,
+            name: (icon as { name: string }).name,
             label: none,
             style: none,
         }, IconType)
-        : (options?.icon as SubtypeExprOrValue<IconType> | undefined);
+        : (icon as SubtypeExprOrValue<IconType> | undefined);
 
-    const styleValue = options?.style ? buildEmptyStateStyle(options.style) : undefined;
+    const hasVisual = Object.values(visual).some(field => field !== undefined);
+    const styleValue = hasVisual ? buildEmptyStateStyle(visual) : undefined;
 
     return East.value(variant("EmptyState", {
         icon: iconValue ? some(iconValue) : none,
-        glyph: options?.glyph !== undefined ? some(options.glyph) : none,
+        glyph: glyph !== undefined ? some(glyph) : none,
         title: titleExpr,
         description: descriptionValue ? some(descriptionValue) : none,
         actions: actionsValue ? some(actionsValue) : none,
@@ -186,14 +195,15 @@ export const EmptyState = {
     /**
      * Creates an EmptyState.
      *
-     * @param title - String (coerced to `Text.Root(s)`) or UIComponentType
-     * @param options - Optional `icon` / `description` / `actions` / `style`
+     * @param options - Required `title`, optional `icon` / `glyph` /
+     *   `description` / `actions` / visual style fields
      *
      * @example
      * ```ts
-     * EmptyState.Root("No scenarios yet — create one", {
+     * EmptyState.Root({
+     *     title: "No scenarios yet — create one",
      *     icon: { prefix: "fas", name: "folder-plus" },
-     *     actions: Button.Root("New scenario", { style: { variant: "solid" } }),
+     *     actions: Button.Root("New scenario", { variant: "solid" }),
      * });
      * ```
      */

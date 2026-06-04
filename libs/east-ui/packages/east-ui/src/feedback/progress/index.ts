@@ -57,9 +57,16 @@ export {
  * @property showValue - Whether to render the computed value text
  * @property estimatedDuration - Expected duration in seconds (drives ETA display)
  * @property startedAt - Start timestamp (drives ETA display)
- * @property style - Optional visual-only style
+ * @property variant - Visual preset (solid / subtle / outline)
+ * @property tone - Semantic tone (pos / neg / warn / info / neutral)
+ * @property size - Size preset (sm / md / lg)
+ * @property striped - Diagonal stripe overlay
+ * @property animated - Animate the stripe overlay
+ * @property trackColor - Explicit track (unfilled) colour
+ * @property fillColor - Explicit fill colour
+ * @property labelColor - Explicit label colour
  */
-export interface ProgressOptions {
+export interface ProgressOptions extends ProgressStyle {
     /** Minimum value (defaults to 0) */
     min?: SubtypeExprOrValue<FloatType>;
     /** Maximum value (defaults to 100) */
@@ -76,8 +83,6 @@ export interface ProgressOptions {
     estimatedDuration?: SubtypeExprOrValue<IntegerType>;
     /** Start timestamp (drives ETA display) */
     startedAt?: SubtypeExprOrValue<DateTimeType>;
-    /** Optional visual-only style */
-    style?: ProgressStyle;
 }
 
 /**
@@ -85,7 +90,7 @@ export interface ProgressOptions {
  *
  * @param value - Current progress value (between min and max)
  * @param options - Optional min/max/label/valueText/indeterminate/showValue/
- *   estimatedDuration/startedAt/style
+ *   estimatedDuration/startedAt + visual style fields
  * @returns An East expression representing the progress component
  *
  * @example
@@ -94,9 +99,7 @@ export interface ProgressOptions {
  * import { Progress, UIComponentType } from "@elaraai/east-ui";
  *
  * const p = East.function([], UIComponentType, _$ =>
- *     Progress.Root(60.0, {
- *         style: { tone: "pos", size: "md", striped: true },
- *     }),
+ *     Progress.Root(60.0, { tone: "pos", size: "md", striped: true }),
  * );
  * ```
  */
@@ -104,18 +107,21 @@ function createProgress(
     value: SubtypeExprOrValue<FloatType>,
     options?: ProgressOptions,
 ): ExprType<UIComponentType> {
-    const styleValue = options?.style ? buildProgressStyle(options.style) : undefined;
+    const { min, max, label, valueText, indeterminate, showValue, estimatedDuration, startedAt, ...visual } = options ?? {};
+
+    const hasVisual = Object.values(visual).some(field => field !== undefined);
+    const styleValue = hasVisual ? buildProgressStyle(visual) : undefined;
 
     return East.value(variant("Progress", {
         value: value,
-        min: options?.min !== undefined ? some(options.min) : none,
-        max: options?.max !== undefined ? some(options.max) : none,
-        label: options?.label !== undefined ? some(options.label) : none,
-        valueText: options?.valueText !== undefined ? some(options.valueText) : none,
-        indeterminate: options?.indeterminate !== undefined ? some(options.indeterminate) : none,
-        showValue: options?.showValue !== undefined ? some(options.showValue) : none,
-        estimatedDuration: options?.estimatedDuration !== undefined ? some(options.estimatedDuration) : none,
-        startedAt: options?.startedAt !== undefined ? some(options.startedAt) : none,
+        min: min !== undefined ? some(min) : none,
+        max: max !== undefined ? some(max) : none,
+        label: label !== undefined ? some(label) : none,
+        valueText: valueText !== undefined ? some(valueText) : none,
+        indeterminate: indeterminate !== undefined ? some(indeterminate) : none,
+        showValue: showValue !== undefined ? some(showValue) : none,
+        estimatedDuration: estimatedDuration !== undefined ? some(estimatedDuration) : none,
+        startedAt: startedAt !== undefined ? some(startedAt) : none,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
@@ -157,11 +163,11 @@ export const Progress = {
      * Creates a Progress bar.
      *
      * @param value - Current progress value (0–100 by default)
-     * @param options - Optional content + state + style
+     * @param options - Optional content + state + visual style fields
      *
      * @example
      * ```ts
-     * Progress.Root(60.0, { style: { tone: "pos" } });
+     * Progress.Root(60.0, { tone: "pos" });
      * ```
      */
     Root: createProgress,
