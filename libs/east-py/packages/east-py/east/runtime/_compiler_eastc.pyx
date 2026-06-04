@@ -15,6 +15,7 @@ east-c via east_register_all_builtins — no Python builtins are used.
 from libc.stddef cimport size_t
 from libc.stdint cimport int64_t, uint8_t, uintptr_t
 from libc.stdlib cimport malloc, free
+from cpython.ref cimport Py_INCREF, Py_DECREF
 
 from east cimport _eastc
 from east._eastc_bridge cimport py_type_to_c, c_value_to_py, py_value_to_c, _c_type_tag_to_py_type
@@ -41,6 +42,166 @@ cdef void _ensure_runtime() except *:
     _eastc.east_register_all_builtins(_builtins)
     _eastc.east_type_of_type_init()
     _runtime_initialized = True
+
+
+# ─── Python callbacks as east-c function values (the invoke hook) ─────────
+#
+# A callback builtin (ArrayMap, ArrayFilter, keyed ArraySort, …) takes the
+# user's lambda as a function ARG. To delegate the whole builtin to east-c we
+# wrap that lambda as a function value whose EastCompiledFn.invoke trampolines
+# back into Python. east-c then drives the loop and calls the lambda per element
+# through the trampoline — no algorithm is reimplemented in Python.
+
+cdef _eastc.EvalResult _py_invoke_trampoline(_eastc.EastCompiledFn* self,
+                                             _eastc.EastValue** args, size_t n) noexcept with gil:
+    """Called by east-c when it invokes a wrapped Python callable."""
+    cdef object ud = <object>self.invoke_userdata  # (fn, input_types, output_type)
+    cdef _eastc.EastType* c_in
+    cdef _eastc.EastType* c_out
+    cdef _eastc.EastValue* c_result
+    cdef size_t i, n_types
+    cdef bytes msg
+    pyfn = ud[0]
+    input_types = ud[1]
+    output_type = ud[2]
+    n_types = len(input_types)
+    try:
+        py_args = []
+        for i in range(n):
+            in_type = input_types[i] if i < n_types else input_types[n_types - 1]
+            c_in = py_type_to_c(in_type)
+            try:
+                py_args.append(c_value_to_py(args[i], c_in))
+            finally:
+                _eastc.east_type_release(c_in)
+        py_result = pyfn(*py_args)
+        c_out = py_type_to_c(output_type)
+        try:
+            c_result = py_value_to_c(py_result, c_out)
+        finally:
+            _eastc.east_type_release(c_out)
+        return _eastc.eval_ok(c_result)
+    except BaseException as e:  # surface the Python error through east-c
+        msg = f"callback raised: {e}".encode("utf-8")
+        return _eastc.eval_error(<const char*>msg)
+
+
+cdef void _py_invoke_release(void* ud) noexcept with gil:
+    """Release the Python callable handle when the function value is freed."""
+    Py_DECREF(<object>ud)
+
+
+cdef _eastc.EastValue* _wrap_pyfn(object east_fn) except NULL:
+    """Wrap an EastFunction (Python callable + signature) as a C function value."""
+    cdef tuple ud = (east_fn.fn, east_fn.input_types, east_fn.output_type)
+    Py_INCREF(ud)  # held by the C value; released by _py_invoke_release
+    cdef _eastc.EastValue* fv = _eastc.east_foreign_function(
+        <_eastc.EastInvokeFn>_py_invoke_trampoline, <void*>ud, _py_invoke_release, NULL
+    )
+    if fv == NULL:
+        # east_foreign_function already released `ud` on allocation failure.
+        raise MemoryError()
+    return fv
+
+
+# ─── Eager builtin invocation (no IR compile) ────────────────────────────
+
+def call_builtin(str name, list type_params, list args, object output_type):
+    """Eagerly invoke an east-c builtin by name and return its result.
+
+    This is the bridge that backs east-py's eager value methods. It marshals
+    args into east-c, looks up the builtin in the shared registry, calls the
+    factory then the impl back-to-back (so factories that stash thread-local
+    type context stay valid — mirrors compiler.c's IR_BUILTIN path), and
+    decodes the result.
+
+    Args:
+        name: undotted builtin name, e.g. "ArraySortDefault", "FloatSqrt".
+        type_params: Python EastTypes for the builtin's type parameters.
+        args: Python values; each arg's C type is inferred via ``type_of``.
+        output_type: Python EastType used to decode the result.
+    """
+    cdef bytes name_bytes = name.encode("utf-8")
+    cdef size_t ntp = len(type_params)
+    cdef size_t nargs = len(args)
+    cdef _eastc.EastType** c_tps = NULL
+    cdef _eastc.EastType** arg_types = NULL
+    cdef _eastc.EastValue** c_args = NULL
+    cdef _eastc.EastType* c_out = NULL
+    cdef _eastc.BuiltinImpl bfn
+    cdef _eastc.EastValue* result
+    cdef char* err
+    cdef size_t i, j
+    cdef object py_result
+
+    from east.types.values import EastFunction, type_of
+
+    _ensure_runtime()
+
+    try:
+        if ntp > 0:
+            c_tps = <_eastc.EastType**>malloc(ntp * sizeof(_eastc.EastType*))
+            if c_tps == NULL:
+                raise MemoryError()
+            for i in range(ntp):
+                c_tps[i] = py_type_to_c(type_params[i])
+
+        if nargs > 0:
+            c_args = <_eastc.EastValue**>malloc(nargs * sizeof(_eastc.EastValue*))
+            arg_types = <_eastc.EastType**>malloc(nargs * sizeof(_eastc.EastType*))
+            if c_args == NULL or arg_types == NULL:
+                raise MemoryError()
+            for i in range(nargs):
+                c_args[i] = NULL
+                arg_types[i] = NULL
+            for i in range(nargs):
+                if isinstance(args[i], EastFunction):
+                    # Wrap the Python callable as an east-c function value.
+                    c_args[i] = _wrap_pyfn(args[i])
+                else:
+                    arg_types[i] = py_type_to_c(type_of(args[i]))
+                    c_args[i] = py_value_to_c(args[i], arg_types[i])
+
+        c_out = py_type_to_c(output_type)
+
+        # Factory + impl back-to-back — no Python allocation in between.
+        bfn = _eastc.builtin_registry_get(_builtins, <const char*>name_bytes, c_tps, ntp)
+        if bfn == NULL:
+            raise ValueError(f"Unknown east-c builtin: {name}")
+        result = bfn(c_args, nargs)
+
+        if result == NULL:
+            err = _eastc.east_builtin_get_error()
+            from east.runtime.errors import EastError
+            from east.types.values import EastArray, EastVariant
+            if err != NULL:
+                msg = err.decode("utf-8")
+                free(err)
+            else:
+                msg = f"east-c builtin {name} failed"
+            raise EastError(msg, [])
+
+        py_result = c_value_to_py(result, c_out)
+        _eastc.east_value_release(result)
+        return py_result
+    finally:
+        if c_args != NULL:
+            for j in range(nargs):
+                if c_args[j] != NULL:
+                    _eastc.east_value_release(c_args[j])
+            free(c_args)
+        if arg_types != NULL:
+            for j in range(nargs):
+                if arg_types[j] != NULL:
+                    _eastc.east_type_release(arg_types[j])
+            free(arg_types)
+        if c_tps != NULL:
+            for j in range(ntp):
+                if c_tps[j] != NULL:
+                    _eastc.east_type_release(c_tps[j])
+            free(c_tps)
+        if c_out != NULL:
+            _eastc.east_type_release(c_out)
 
 
 # ─── Common compile from C IR value ──────────────────────────────────────
@@ -454,7 +615,7 @@ def _invoke_c_function_py(uintptr_t val_ptr, list input_type_ptrs, uintptr_t out
             _eastc.east_value_release(result.value)
         from east.runtime.errors import EastError
         from east.types.values import EastArray, EastVariant
-        raise EastError(msg, EastArray(EastVariant("Null", None)))
+        raise EastError(msg, [])
 
     if result.value == NULL:
         return None
@@ -542,25 +703,21 @@ cpdef object _eastc_call(uintptr_t compiled_ptr, list input_type_ptrs,
     if result.error_message != NULL:
         msg = result.error_message.decode("utf-8")
 
-    # Build location array for EastError
+    # Build the location stack for EastError — a plain list of {filename, line,
+    # column} structs (error-reporting data; no need for a C-backed array).
     from east.runtime.errors import EastError
-    from east.types.values import EastArray, EastStruct, EastVariant
+    from east.types.values import EastStruct
 
-    locations = []
+    location_array = []
     if result.num_locations > 0 and result.locations != NULL:
         for i in range(result.num_locations):
             loc = result.locations[i]
             filename = loc.filename.decode("utf-8") if loc.filename != NULL else "<unknown>"
-            locations.append(EastStruct({
+            location_array.append(EastStruct({
                 "filename": filename,
                 "line": loc.line,
                 "column": loc.column,
             }))
-
-    location_array = EastArray(
-        EastVariant("Struct", None),  # element type placeholder
-        locations if locations else [],
-    )
 
     if result.value != NULL:
         _eastc.east_value_release(result.value)

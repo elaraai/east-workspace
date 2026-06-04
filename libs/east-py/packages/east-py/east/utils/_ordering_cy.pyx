@@ -245,11 +245,11 @@ def cy_compare_for(type_val, type_ctx=None):
             cdef int length, i, cmp_val, lx, ly
             if x is y:
                 return 0
-            lx = len(x.data)
-            ly = len(y.data)
+            lx = len(x._data)
+            ly = len(y._data)
             length = lx if lx < ly else ly
             for i in range(length):
-                cmp_val = elem_compare(x.data[i], y.data[i])
+                cmp_val = elem_compare(x._data[i], y._data[i])
                 if cmp_val != 0:
                     return cmp_val
             if lx < ly:
@@ -270,8 +270,8 @@ def cy_compare_for(type_val, type_ctx=None):
                 return -1 if x.rows < y.rows else 1
             if x.cols != y.cols:
                 return -1 if x.cols < y.cols else 1
-            flat_x = x.data.ravel()
-            flat_y = y.data.ravel()
+            flat_x = x._data.ravel()
+            flat_y = y._data.ravel()
             for i in range(len(flat_x)):
                 cmp_val = elem_compare(flat_x[i], flat_y[i])
                 if cmp_val != 0:
@@ -528,10 +528,10 @@ def cy_equal_for(type_val, type_ctx=None):
             cdef int i
             if x is y:
                 return True
-            if len(x.data) != len(y.data):
+            if len(x._data) != len(y._data):
                 return False
-            for i in range(len(x.data)):
-                if not elem_equal(x.data[i], y.data[i]):
+            for i in range(len(x._data)):
+                if not elem_equal(x._data[i], y._data[i]):
                     return False
             return True
         return equal_vector
@@ -545,8 +545,8 @@ def cy_equal_for(type_val, type_ctx=None):
                 return True
             if x.rows != y.rows or x.cols != y.cols:
                 return False
-            xd = x.data.ravel()
-            yd = y.data.ravel()
+            xd = x._data.ravel()
+            yd = y._data.ravel()
             for i in range(len(xd)):
                 if not elem_equal(xd[i], yd[i]):
                     return False

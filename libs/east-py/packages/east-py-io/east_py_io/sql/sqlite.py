@@ -16,7 +16,11 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from east.runtime.platform import GenericPlatformFunction, PlatformFunction
+from east.runtime.platform import (
+    generic_platform_function,
+    platform_function,
+    platform_functions,
+)
 
 _HAS_SQLITE_SUPPORT = importlib.util.find_spec("apsw") is not None
 
@@ -303,6 +307,11 @@ def _convert_value_for_type(
         return value
 
 
+@platform_function(
+    name="sqlite_connect",
+    inputs=[SqliteConfigType],
+    output=ConnectionHandleType,
+)
 async def sqlite_connect_impl(config: EastStruct) -> str:
     """Connect to a SQLite database.
 
@@ -353,6 +362,11 @@ async def sqlite_connect_impl(config: EastStruct) -> str:
         raise Exception(f"SQLite connection failed: {e}") from e
 
 
+@platform_function(
+    name="sqlite_query",
+    inputs=[ConnectionHandleType, StringType, SqlParametersType],
+    output=SqlResultType,
+)
 async def sqlite_query_impl(handle: str, sql: str, params: EastArray) -> EastVariant:
     """Execute a SQL query with parameterized values.
 
@@ -438,6 +452,11 @@ async def sqlite_query_impl(handle: str, sql: str, params: EastArray) -> EastVar
         raise Exception(f"SQLite query failed: {e}") from e
 
 
+@platform_function(
+    name="sqlite_close",
+    inputs=[ConnectionHandleType],
+    output=NullType,
+)
 async def sqlite_close_impl(handle: str) -> None:
     """Close a SQLite database connection.
 
@@ -461,6 +480,11 @@ async def sqlite_close_impl(handle: str) -> None:
         raise Exception(f"SQLite close failed: {e}") from e
 
 
+@platform_function(
+    name="sqlite_close_all",
+    inputs=[],
+    output=NullType,
+)
 async def sqlite_close_all_impl() -> None:
     """Close all SQLite connections.
 
@@ -637,43 +661,17 @@ def sqlite_select_factory(*args: Any) -> Any:
     return sqlite_select_impl
 
 
-# Platform function implementations
-sqlite_impl = [
-    PlatformFunction(
-        name="sqlite_connect",
-        inputs=[SqliteConfigType],
-        output=ConnectionHandleType,
-        type="async",
-        fn=sqlite_connect_impl,
-    ),
-    PlatformFunction(
-        name="sqlite_query",
-        inputs=[ConnectionHandleType, StringType, SqlParametersType],
-        output=SqlResultType,
-        type="async",
-        fn=sqlite_query_impl,
-    ),
-    PlatformFunction(
-        name="sqlite_close",
-        inputs=[ConnectionHandleType],
-        output=NullType,
-        type="async",
-        fn=sqlite_close_impl,
-    ),
-    PlatformFunction(
-        name="sqlite_close_all",
-        inputs=[],
-        output=NullType,
-        type="async",
-        fn=sqlite_close_all_impl,
-    ),
-    GenericPlatformFunction(
-        name="sqlite_select",
-        type_parameters=["T"],
-        type="async",
-        fn=lambda _platform_list, T: sqlite_select_factory(T),
-    ),
-]
+@generic_platform_function(
+    name="sqlite_select",
+    type_parameters=["T"],
+    is_async=True,
+)
+def _sqlite_select_factory(_platform_list: Any, T: Any) -> Any:  # noqa: N803
+    return sqlite_select_factory(T)
+
+
+# Collected from the @platform_function / @generic_platform_function decorations above.
+sqlite_impl = platform_functions(__name__)
 
 
 __all__ = [

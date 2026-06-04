@@ -147,12 +147,12 @@ Task → What do you need?
     │   │   └─ Compare → .equals()/.equal()/.eq(), .notEquals()/.notEqual()/.ne()
     │   ├─ Vector
     │   │   ├─ Read → .length(), .get()
-    │   │   ├─ Mutate → .set()
+    │   │   ├─ Functional update → .set() (returns a new vector)
     │   │   ├─ Transform → .slice(), .concat(), .map(), .reduce()
     │   │   └─ Convert → .toArray(), .toMatrix()
     │   ├─ Matrix
     │   │   ├─ Read → .rows(), .cols(), .get(), .getRow(), .getCol()
-    │   │   ├─ Mutate → .set()
+    │   │   ├─ Functional update → .set() (returns a new matrix)
     │   │   ├─ Transform → .transpose()
     │   │   └─ Convert → .toVector(), .toArray()
     │   ├─ Struct → .fieldName (direct property access)
@@ -175,7 +175,7 @@ Task → What do you need?
     │   ├─ Equality → East.equal()/.equals()/.eq(), East.notEqual()/.notEquals()/.ne()
     │   ├─ Ordering → East.less()/.lessThan()/.lt(), East.greater()/.greaterThan()/.gt()
     │   ├─ Bounds → East.lessEqual()/.lte()/.le(), East.greaterEqual()/.gte()/.ge()
-    │   ├─ Identity → East.is() (reference equality for mutable types)
+    │   ├─ Identity → East.is() (identity equality; use East.equal() for value equality)
     │   └─ Utilities → East.min(), East.max(), East.clamp()
     │
     ├─ Conversion (East.*)
@@ -207,10 +207,10 @@ Task → What do you need?
 | `SetType<K>` | `Set<ValueTypeOf<K>>` | **Mutable** |
 | `DictType<K, V>` | `Map<ValueTypeOf<K>, ValueTypeOf<V>>` | **Mutable** |
 | `RefType<T>` | `ref<ValueTypeOf<T>>` | **Mutable** |
-| `VectorType<FloatType>` | `Float64Array` | **Mutable** |
-| `VectorType<IntegerType>` | `BigInt64Array` | **Mutable** |
-| `VectorType<BooleanType>` | `Uint8ClampedArray` | **Mutable** |
-| `MatrixType<T>` | `matrix<TypedArray>` | **Mutable** |
+| `VectorType<FloatType>` | `Float64Array` | Immutable |
+| `VectorType<IntegerType>` | `BigInt64Array` | Immutable |
+| `VectorType<BooleanType>` | `Uint8ClampedArray` | Immutable |
+| `MatrixType<T>` | `matrix<TypedArray>` | Immutable |
 | `StructType<Fields>` | `{...}` | Immutable |
 | `VariantType<Cases>` | `variant` | Immutable |
 | `FunctionType<I, O>` | Function | Immutable |

@@ -25,12 +25,18 @@ cimport numpy as cnp
 cdef extern from "numpy/arrayobject.h":
     void *PyArray_DATA(cnp.ndarray arr) nogil
 
+# Initialise the numpy C-API table.
+cnp.import_array()
+
 from east cimport _eastc
 
 from datetime import UTC
 from datetime import datetime as DateTime
 
 import numpy as np
+import os
+import sys
+import weakref
 
 from east.types.values import (
     EastArray,
@@ -194,45 +200,25 @@ cdef _eastc.EastType* _py_type_to_c_impl(object py_type) except NULL:
         _eastc.east_type_retain(&_eastc.east_never_type)
         return &_eastc.east_never_type
 
-    # Array, Set, Ref, Vector, Matrix — single element type
+    # Array, Set, Ref, Vector, Matrix — single element type. Each nesting level
+    # is counted by replace_markers (types.py), so the helper pushes a recursive
+    # context level too — otherwise Recursive(depth) markers that recurse THROUGH
+    # a container (e.g. BsonValue.document: Dict<String, self>) undercount the
+    # stack and fail with "Invalid recursive type depth".
     elif tag == "Array":
-        elem = py_type_to_c(py_type.value)
-        result = _eastc.east_array_type(elem)
-        _eastc.east_type_release(elem)
-        return result
+        return _convert_single_child_type(py_type.value, 0)
     elif tag == "Set":
-        elem = py_type_to_c(py_type.value)
-        result = _eastc.east_set_type(elem)
-        _eastc.east_type_release(elem)
-        return result
+        return _convert_single_child_type(py_type.value, 1)
     elif tag == "Ref":
-        elem = py_type_to_c(py_type.value)
-        result = _eastc.east_ref_type(elem)
-        _eastc.east_type_release(elem)
-        return result
+        return _convert_single_child_type(py_type.value, 2)
     elif tag == "Vector":
-        elem = py_type_to_c(py_type.value)
-        result = _eastc.east_vector_type(elem)
-        _eastc.east_type_release(elem)
-        return result
+        return _convert_single_child_type(py_type.value, 3)
     elif tag == "Matrix":
-        elem = py_type_to_c(py_type.value)
-        result = _eastc.east_matrix_type(elem)
-        _eastc.east_type_release(elem)
-        return result
+        return _convert_single_child_type(py_type.value, 4)
 
-    # Dict — key + value types
+    # Dict — key + value types (both sit one level deeper, like replace_markers)
     elif tag == "Dict":
-        key_type = py_type_to_c(py_type.value["key"])
-        try:
-            val_type = py_type_to_c(py_type.value["value"])
-        except:
-            _eastc.east_type_release(key_type)
-            raise
-        result = _eastc.east_dict_type(key_type, val_type)
-        _eastc.east_type_release(key_type)
-        _eastc.east_type_release(val_type)
-        return result
+        return _convert_dict_type(py_type.value)
 
     # Struct — named fields (push onto recursive context)
     elif tag == "Struct":
@@ -384,6 +370,96 @@ cdef _eastc.EastType* _convert_variant_type(object cases) except NULL:
         free(c_types)
 
 
+cdef _eastc.EastType* _convert_single_child_type(object child_py, int kind) except NULL:
+    """Convert a single-child structural type, managing the recursive _type_ctx
+    level the same way _convert_struct_type does.
+
+    Every nesting level is counted by replace_markers (types.py), so each
+    container must push a level. Without this, a Recursive(depth) marker that
+    recurses through the container resolves against too-shallow a stack.
+    kind: 0=Array 1=Set 2=Ref 3=Vector 4=Matrix.
+    """
+    cdef Py_ssize_t ctx_idx = len(_type_ctx)
+    cdef _eastc.EastType* elem = NULL
+    cdef _eastc.EastType* result
+    cdef uintptr_t rec_ptr
+
+    # Push sentinel — Recursive(depth) may replace it with a placeholder.
+    _type_ctx.append(<uintptr_t>0)
+    try:
+        elem = py_type_to_c(child_py)
+        if kind == 0:
+            result = _eastc.east_array_type(elem)
+        elif kind == 1:
+            result = _eastc.east_set_type(elem)
+        elif kind == 2:
+            result = _eastc.east_ref_type(elem)
+        elif kind == 3:
+            result = _eastc.east_vector_type(elem)
+        else:
+            result = _eastc.east_matrix_type(elem)
+        _eastc.east_type_release(elem)
+        elem = NULL
+
+        # If Recursive replaced the sentinel with a placeholder (this container is
+        # the recursion node), wire it up and return the wrapper.
+        rec_ptr = <uintptr_t>_type_ctx[ctx_idx]
+        if rec_ptr != 0:
+            _eastc.east_recursive_type_set(<_eastc.EastType*>rec_ptr, result)
+            _eastc.east_recursive_type_finalize(<_eastc.EastType*>rec_ptr)
+            return <_eastc.EastType*>rec_ptr
+        return result
+    except:
+        if elem != NULL:
+            _eastc.east_type_release(elem)
+        rec_ptr = <uintptr_t>_type_ctx[ctx_idx]
+        if rec_ptr != 0:
+            _eastc.east_type_release(<_eastc.EastType*>rec_ptr)
+        raise
+    finally:
+        _type_ctx.pop()
+
+
+cdef _eastc.EastType* _convert_dict_type(object value) except NULL:
+    """Convert a Dict type, managing the recursive _type_ctx level. Key and value
+    both sit one level deeper (replace_markers increments both), so a single
+    pushed level covers them."""
+    cdef Py_ssize_t ctx_idx = len(_type_ctx)
+    cdef _eastc.EastType* key_type = NULL
+    cdef _eastc.EastType* val_type = NULL
+    cdef _eastc.EastType* result
+    cdef uintptr_t rec_ptr
+
+    # Push sentinel — Recursive(depth) may replace it with a placeholder.
+    _type_ctx.append(<uintptr_t>0)
+    try:
+        key_type = py_type_to_c(value["key"])
+        val_type = py_type_to_c(value["value"])
+        result = _eastc.east_dict_type(key_type, val_type)
+        _eastc.east_type_release(key_type)
+        key_type = NULL
+        _eastc.east_type_release(val_type)
+        val_type = NULL
+
+        rec_ptr = <uintptr_t>_type_ctx[ctx_idx]
+        if rec_ptr != 0:
+            _eastc.east_recursive_type_set(<_eastc.EastType*>rec_ptr, result)
+            _eastc.east_recursive_type_finalize(<_eastc.EastType*>rec_ptr)
+            return <_eastc.EastType*>rec_ptr
+        return result
+    except:
+        if key_type != NULL:
+            _eastc.east_type_release(key_type)
+        if val_type != NULL:
+            _eastc.east_type_release(val_type)
+        rec_ptr = <uintptr_t>_type_ctx[ctx_idx]
+        if rec_ptr != 0:
+            _eastc.east_type_release(<_eastc.EastType*>rec_ptr)
+        raise
+    finally:
+        _type_ctx.pop()
+
+
 cdef _eastc.EastType* _convert_function_type(object value, bint is_async) except NULL:
     """Convert function type to C."""
     cdef object inputs = value["inputs"]
@@ -518,7 +594,7 @@ cdef object _c_value_to_py_impl(_eastc.EastValue *val, _eastc.EastType *c_type, 
 cdef object _c_array_to_py(_eastc.EastValue *val, _eastc.EastType *c_type, dict alias_map):
     cdef _eastc.EastType *elem_c = c_type.data.element
     py_elem_type = _c_type_tag_to_py_type(elem_c)
-    result = EastArrayProxy(py_elem_type, <uintptr_t>val, <uintptr_t>elem_c)
+    result = EastArrayProxy._wrap(py_elem_type, <uintptr_t>val, <uintptr_t>elem_c)
     alias_map[<uintptr_t>val] = result
     return result
 
@@ -526,7 +602,7 @@ cdef object _c_array_to_py(_eastc.EastValue *val, _eastc.EastType *c_type, dict 
 cdef object _c_set_to_py(_eastc.EastValue *val, _eastc.EastType *c_type, dict alias_map):
     cdef _eastc.EastType *elem_c = c_type.data.element
     py_elem_type = _c_type_tag_to_py_type(elem_c)
-    result = EastSetProxy(py_elem_type, <uintptr_t>val, <uintptr_t>elem_c)
+    result = EastSetProxy._wrap(py_elem_type, <uintptr_t>val, <uintptr_t>elem_c)
     alias_map[<uintptr_t>val] = result
     return result
 
@@ -536,7 +612,7 @@ cdef object _c_dict_to_py(_eastc.EastValue *val, _eastc.EastType *c_type, dict a
     cdef _eastc.EastType *val_c = c_type.data.dict.value
     py_key_type = _c_type_tag_to_py_type(key_c)
     py_val_type = _c_type_tag_to_py_type(val_c)
-    result = EastDictProxy(py_key_type, py_val_type, <uintptr_t>val, <uintptr_t>key_c, <uintptr_t>val_c)
+    result = EastDictProxy._wrap(py_key_type, py_val_type, <uintptr_t>val, <uintptr_t>key_c, <uintptr_t>val_c)
     alias_map[<uintptr_t>val] = result
     return result
 
@@ -595,12 +671,83 @@ cdef object _c_ref_to_py(_eastc.EastValue *val, _eastc.EastType *c_type, dict al
     return result
 
 
+# ---------------------------------------------------------------------------
+# Zero-copy c->py views.
+#
+# A Vector/Matrix returned from east-c is exposed to Python as a read-only numpy
+# view over the C buffer instead of a copy: PyArray_SimpleNewFromData wraps the
+# buffer, and an `_EastBufferOwner` holding a retained reference to the owning
+# EastValue is set as the array's base — so the EastValue (and the buffer) lives
+# exactly as long as the view and anything derived from it. The value is retained
+# once and released in `__dealloc__`. east-c values are immutable, so the borrowed
+# bytes never change underneath the view.
+#
+# Requires the GIL (the borrowed EastValue's refcount is non-atomic) — disabled
+# under free-threading. Set EAST_PY_NO_ZEROCOPY=1 to force the copy path.
+# ---------------------------------------------------------------------------
+
+cdef bint _gil_enabled():
+    try:
+        return sys._is_gil_enabled()
+    except AttributeError:
+        return True
+
+
+cdef bint _ZEROCOPY_C2PY = (os.environ.get("EAST_PY_NO_ZEROCOPY") != "1") and _gil_enabled()
+
+
+cdef class _EastBufferOwner:
+    """Retained EastValue that anchors the lifetime of a zero-copy numpy view.
+
+    The view (a PyArray_SimpleNewFromData array) borrows the C buffer; this owner
+    is set as the array's base, so numpy keeps it alive while the array — and any
+    slice / torch tensor derived from it — lives, releasing the EastValue (and so
+    the buffer) in __dealloc__. east-c values are immutable, so the bytes never
+    change underneath the view.
+    """
+    cdef _eastc.EastValue *val
+
+    def __cinit__(self):
+        self.val = NULL
+
+    def __dealloc__(self):
+        if self.val != NULL:
+            _eastc.east_value_release(self.val)
+            self.val = NULL
+
+
+cdef object _east_buffer_view(_eastc.EastValue *val, void *buf, int ndim,
+                              cnp.npy_intp *dims, int typenum):
+    """Read-only zero-copy numpy view over a C buffer owned by `val` (retains val).
+
+    A data-pointer array (not the buffer protocol, which makes numpy cache a
+    per-array buffer-info struct) plus cnp.set_array_base — numpy's own helper
+    that does the INCREF + base-steal behind a function boundary (base is a
+    parameter, so Cython does not also decrement it), avoiding the
+    premature-dealloc / dangling-base bug of a hand-rolled Py_INCREF +
+    PyArray_SetBaseObject.
+    """
+    cdef cnp.ndarray arr = cnp.PyArray_SimpleNewFromData(ndim, dims, typenum, buf)
+    cdef _EastBufferOwner owner = _EastBufferOwner.__new__(_EastBufferOwner)
+    _eastc.east_value_retain(val)
+    owner.val = val
+    cnp.set_array_base(arr, owner)
+    cnp.PyArray_CLEARFLAGS(arr, cnp.NPY_ARRAY_WRITEABLE)
+    return arr
+
+
 cdef object _c_vector_to_py(_eastc.EastValue *val, _eastc.EastType *c_type):
     cdef _eastc.EastType *elem_c = c_type.data.element
+    cdef size_t n = val.data.vector.len
+    cdef size_t byte_count
+    cdef cnp.npy_intp dims[1]
     py_elem_type = _c_type_tag_to_py_type(elem_c)
     dtype = np.dtype(EAST_ELEMENT_TO_DTYPE[py_elem_type.type])
-    cdef size_t n = val.data.vector.len
-    cdef size_t byte_count = n * dtype.itemsize
+    if _ZEROCOPY_C2PY and n > 0:
+        dims[0] = <cnp.npy_intp>n
+        return EastVector(py_elem_type, _east_buffer_view(
+            val, val.data.vector.data, 1, dims, <int>dtype.num))
+    byte_count = n * dtype.itemsize
     data = np.empty(n, dtype=dtype)
     if byte_count > 0:
         memcpy(PyArray_DATA(<cnp.ndarray>data), val.data.vector.data, byte_count)
@@ -609,17 +756,40 @@ cdef object _c_vector_to_py(_eastc.EastValue *val, _eastc.EastType *c_type):
 
 cdef object _c_matrix_to_py(_eastc.EastValue *val, _eastc.EastType *c_type):
     cdef _eastc.EastType *elem_c = c_type.data.element
-    py_elem_type = _c_type_tag_to_py_type(elem_c)
-    dtype = np.dtype(EAST_ELEMENT_TO_DTYPE[py_elem_type.type])
     cdef size_t rows = val.data.matrix.rows
     cdef size_t cols = val.data.matrix.cols
     cdef size_t count = rows * cols
-    cdef size_t byte_count = count * dtype.itemsize
+    cdef size_t byte_count
+    cdef cnp.npy_intp dims[2]
+    py_elem_type = _c_type_tag_to_py_type(elem_c)
+    dtype = np.dtype(EAST_ELEMENT_TO_DTYPE[py_elem_type.type])
+    if _ZEROCOPY_C2PY and count > 0:
+        dims[0] = <cnp.npy_intp>rows
+        dims[1] = <cnp.npy_intp>cols
+        return EastMatrix(py_elem_type, _east_buffer_view(
+            val, val.data.matrix.data, 2, dims, <int>dtype.num), rows, cols)
+    byte_count = count * dtype.itemsize
     data = np.empty(count, dtype=dtype)
     if byte_count > 0:
         memcpy(PyArray_DATA(<cnp.ndarray>data), val.data.matrix.data, byte_count)
     data = data.reshape(rows, cols)
     return EastMatrix(py_elem_type, data, rows, cols)
+
+
+def _release_c_function(uintptr_t val_ptr, uintptr_t output_type_ptr, tuple input_type_ptrs):
+    """Release the C function value + its retained input/output types.
+
+    Run as a weakref finalizer when the Python wrapper is collected — the
+    wrapper is a plain closure (it carries IR/handle attributes), so it has no
+    __dealloc__ of its own to return these references to east-c.
+    """
+    if val_ptr != 0:
+        _eastc.east_value_release(<_eastc.EastValue*>val_ptr)
+    if output_type_ptr != 0:
+        _eastc.east_type_release(<_eastc.EastType*>output_type_ptr)
+    for p in input_type_ptrs:
+        if <uintptr_t>p != 0:
+            _eastc.east_type_release(<_eastc.EastType*><uintptr_t>p)
 
 
 cdef object _c_function_to_py(_eastc.EastValue *val, _eastc.EastType *c_type, dict alias_map):
@@ -653,34 +823,27 @@ cdef object _c_function_to_py(_eastc.EastValue *val, _eastc.EastType *c_type, di
         _eastc.east_type_retain(fn_c_type.data.function.inputs[i])
         input_type_ptrs.append(<uintptr_t>fn_c_type.data.function.inputs[i])
 
-    # Also retain the source_ir for re-serialization
-    cdef _eastc.EastCompiledFn *fn = val.data.function.compiled
-    has_source_ir = fn != NULL and fn.source_ir != NULL
-
     def call_eastc_function(*args):
         """Python wrapper that calls the C function via east_call.
         Delegates to _compiler_eastc.so to share _Thread_local with builtins."""
         from east.runtime._compiler_eastc import _invoke_c_function_py
         return _invoke_c_function_py(val_ptr, input_type_ptrs, output_type_ptr, args)
 
-    # Attach IR for re-serialization
-    cdef _eastc.EastType* ir_type
-    if has_source_ir:
-        if _eastc.east_ir_type == NULL:
-            _eastc.east_type_of_type_init()
-        ir_type = _eastc.east_ir_type
-        if ir_type.kind == _eastc.EAST_TYPE_RECURSIVE:
-            ir_type = ir_type.data.recursive.node
-        py_ir = _c_value_to_py_impl(fn.source_ir, ir_type, alias_map)
-        object.__setattr__(call_eastc_function, EAST_IR_ATTR, py_ir)
-        object.__setattr__(call_eastc_function, EAST_CAPTURES_ATTR, {})
+    # The wrapper owns one retain on the function value + its input/output types
+    # (acquired above). It is a plain closure, so release them when it is
+    # collected. The finalizer holds only the integer pointers, not the wrapper,
+    # so it does not keep the wrapper alive.
+    weakref.finalize(call_eastc_function, _release_c_function,
+                     val_ptr, output_type_ptr, tuple(input_type_ptrs))
 
     # Attach the C-side EastValue* handle so that _py_function_to_c can
-    # round-trip this wrapper back to its original C value (preserving
-    # capture environment and any other internal state) instead of
-    # rebuilding from IR + the empty EAST_CAPTURES_ATTR. The wrapper holds
-    # one retain on the value (acquired above); the encoder will retain
-    # again when re-using the pointer.
+    # round-trip this wrapper back to its original C value (preserving the
+    # capture environment and any other internal state). The wrapper holds one
+    # retain on the value (acquired above), which keeps the handle valid for its
+    # whole lifetime, so the handle fast path always covers the round-trip — no
+    # need to also decode source_ir into a Python value here (that conversion
+    # was never read back, and its container proxies retained IR sub-values for
+    # the wrapper's whole lifetime).
     object.__setattr__(call_eastc_function, EAST_C_HANDLE_ATTR, val_ptr)
 
     return call_eastc_function
@@ -789,12 +952,12 @@ cdef object _c_type_tag_to_py_type_impl(_eastc.EastType *c_type, uintptr_t key):
         from east.types.type_of_type import EastTypeType
         if kind == _eastc.EAST_TYPE_FUNCTION:
             result = EastVariant("Function", EastStruct({
-                "inputs": EastArray(EastTypeType, inputs),
+                "inputs": inputs,
                 "output": output,
             }))
         else:
             result = EastVariant("AsyncFunction", EastStruct({
-                "inputs": EastArray(EastTypeType, inputs),
+                "inputs": inputs,
                 "output": output,
             }))
         _py_type_cache[key] = result
@@ -810,14 +973,14 @@ cdef object _c_type_tag_to_py_type_impl(_eastc.EastType *c_type, uintptr_t key):
                 name = c_type.data.struct_.fields[i].name.decode("utf-8")
                 ftype = _c_type_tag_to_py_type(c_type.data.struct_.fields[i].type)
                 fields.append(EastStruct({"name": name, "type": ftype}))
-            result = EastVariant("Struct", EastArray(EastVariant("Struct", None), fields))
+            result = EastVariant("Struct", fields)
         elif kind == _eastc.EAST_TYPE_VARIANT:
             cases = []
             for i in range(c_type.data.variant.num_cases):
                 name = c_type.data.variant.cases[i].name.decode("utf-8")
                 ctype = _c_type_tag_to_py_type(c_type.data.variant.cases[i].type)
                 cases.append(EastStruct({"name": name, "type": ctype}))
-            result = EastVariant("Variant", EastArray(EastVariant("Variant", None), cases))
+            result = EastVariant("Variant", cases)
         else:
             raise ValueError(f"Unknown C type kind: {kind}")
     finally:
@@ -1073,10 +1236,13 @@ cdef _eastc.EastValue* _py_vector_to_c(object val, _eastc.EastType *c_type) exce
     cdef _eastc.EastValue* vec = _eastc.east_vector_new(elem_c, n)
     cdef size_t byte_count
 
-    cdef object data = val.data
-    byte_count = n * data.dtype.itemsize
+    # The C buffer stores the canonical width for the logical element (f64 for
+    # Float, i64 for Integer, bool for Boolean). The Python buffer may use any
+    # compatible runtime dtype (e.g. f32), so cast to canonical before copy.
+    expected_dtype = EAST_ELEMENT_TO_DTYPE[val.element_type.type]
+    cdef object data = np.ascontiguousarray(val._data, dtype=expected_dtype)
+    byte_count = n * expected_dtype.itemsize
     if byte_count > 0:
-        data = np.ascontiguousarray(data)
         memcpy(vec.data.vector.data, PyArray_DATA(<cnp.ndarray>data), byte_count)
 
     return vec
@@ -1089,11 +1255,12 @@ cdef _eastc.EastValue* _py_matrix_to_c(object val, _eastc.EastType *c_type) exce
     cdef _eastc.EastValue* mat = _eastc.east_matrix_new(elem_c, rows, cols)
     cdef size_t byte_count
 
-    cdef object data = val.data
+    # Cast the (possibly f32) runtime buffer to the canonical C storage width.
+    expected_dtype = EAST_ELEMENT_TO_DTYPE[val.element_type.type]
+    cdef object data = np.ascontiguousarray(val._data, dtype=expected_dtype)
     cdef size_t count = rows * cols
-    byte_count = count * data.dtype.itemsize
+    byte_count = count * expected_dtype.itemsize
     if byte_count > 0:
-        data = np.ascontiguousarray(data)
         memcpy(mat.data.matrix.data, PyArray_DATA(<cnp.ndarray>data), byte_count)
 
     return mat
@@ -1301,7 +1468,7 @@ cpdef object _proxy_set_iter(uintptr_t ptr, uintptr_t elem_type_ptr):
     cdef size_t n = s.data.set.len
     cdef list result = []
     for i in range(n):
-        result.append(c_value_to_py(s.data.set.items[i], <_eastc.EastType*>elem_type_ptr))
+        result.append(c_value_to_py(_eastc.east_set_at(s, i), <_eastc.EastType*>elem_type_ptr))
     return result
 
 cpdef Py_ssize_t _proxy_dict_len(uintptr_t ptr):
@@ -1333,8 +1500,8 @@ cpdef object _proxy_dict_items(uintptr_t ptr, uintptr_t key_type_ptr, uintptr_t 
     cdef size_t n = d.data.dict.len
     cdef list result = []
     for i in range(n):
-        k = c_value_to_py(d.data.dict.keys[i], <_eastc.EastType*>key_type_ptr)
-        v = c_value_to_py(d.data.dict.values[i], <_eastc.EastType*>val_type_ptr)
+        k = c_value_to_py(_eastc.east_dict_key_at(d, i), <_eastc.EastType*>key_type_ptr)
+        v = c_value_to_py(_eastc.east_dict_val_at(d, i), <_eastc.EastType*>val_type_ptr)
         result.append((k, v))
     return result
 
@@ -1372,19 +1539,38 @@ class EastArrayProxy(EastArray):
 
     __slots__ = ("_c_ptr", "_c_elem_type_ptr")
 
-    def __init__(self, element_type, c_ptr, c_elem_type_ptr):
-        # Do NOT call super().__init__ with items — list storage stays empty
-        list.__init__(self)
+    def __init__(self, element_type, items=None):
+        # User construction: allocate a live east-c array from birth, bulk-push.
+        cdef _eastc.EastType *elem_c
+        cdef _eastc.EastValue *arr
+        object.__setattr__(self, "element_type", element_type)
+        object.__setattr__(self, "_iteration_lock", 0)
+        elem_c = py_type_to_c(element_type)
+        arr = _eastc.east_array_new(elem_c)
+        self._c_ptr = <uintptr_t>arr
+        self._c_elem_type_ptr = <uintptr_t>elem_c
+        if items is not None:
+            for item in items:
+                _proxy_array_push(self._c_ptr, self._c_elem_type_ptr, item)
+
+    @staticmethod
+    def _wrap(element_type, c_ptr, c_elem_type_ptr):
+        # Wrap an existing live east-c value (from c_value_to_py); retains it.
+        self = EastArrayProxy.__new__(EastArrayProxy)
         object.__setattr__(self, "element_type", element_type)
         object.__setattr__(self, "_iteration_lock", 0)
         self._c_ptr = c_ptr
         self._c_elem_type_ptr = c_elem_type_ptr
         _proxy_retain(c_ptr)
         _proxy_type_retain(c_elem_type_ptr)
+        return self
 
     def __del__(self):
-        _proxy_release(self._c_ptr)
-        _proxy_type_release(self._c_elem_type_ptr)
+        # Tolerate a proxy whose __init__ never set _c_ptr (e.g. __new__ without
+        # a completed __init__): a __del__ must not assume construction finished.
+        if getattr(self, "_c_ptr", 0):
+            _proxy_release(self._c_ptr)
+            _proxy_type_release(getattr(self, "_c_elem_type_ptr", 0))
 
     def __len__(self):
         return _proxy_array_len(self._c_ptr)
@@ -1451,9 +1637,25 @@ class EastArrayProxy(EastArray):
     def reverse(self):
         _proxy_array_reverse(self._c_ptr)
 
-    def sort(self, *args, **kwargs):
-        items = list(self)
-        items.sort(*args, **kwargs)
+    def sort(self, *, key=None, reverse=False):
+        # Sort by East's total order (not Python's default), in place.
+        if key is None:
+            # Keyless: sort in east-c via ArraySortDefault.
+            from east.runtime._compiler_eastc import call_builtin
+            from east.types.types import ArrayType
+            result = call_builtin("ArraySortDefault", [self.element_type], [self], ArrayType(self.element_type))
+            items = list(result)
+            if reverse:
+                items.reverse()
+        else:
+            # Keyed: project in Python, order keys with East semantics.
+            from east.utils.ordering import make_east_key
+            from east.types.values import type_of
+            items = list(self)
+            sample = key(items[0]) if items else None
+            key_type = type_of(sample) if sample is not None else self.element_type
+            east_key = make_east_key(key_type)
+            items.sort(key=lambda item: east_key(key(item)), reverse=reverse)
         _proxy_array_clear(self._c_ptr)
         for item in items:
             _proxy_array_push(self._c_ptr, self._c_elem_type_ptr, item)
@@ -1483,19 +1685,39 @@ class EastSetProxy(EastSet):
 
     __slots__ = ("_c_ptr", "_c_elem_type_ptr")
 
-    def __init__(self, element_type, c_ptr, c_elem_type_ptr):
-        # Skip EastSet.__init__ — don't create SortedSet
+    def __init__(self, element_type, items=None):
+        # User construction: allocate a live east-c set from birth, bulk-insert
+        # items. No Python-side store. (Owns east_set_new's ref + py_type_to_c's ref.)
+        cdef _eastc.EastType *elem_c
+        cdef _eastc.EastValue *s
         object.__setattr__(self, "element_type", element_type)
-        object.__setattr__(self, "_data", None)
+        object.__setattr__(self, "_iteration_lock", 0)
+        elem_c = py_type_to_c(element_type)
+        s = _eastc.east_set_new(elem_c)
+        self._c_ptr = <uintptr_t>s
+        self._c_elem_type_ptr = <uintptr_t>elem_c
+        if items is not None:
+            for item in items:
+                _proxy_set_add(self._c_ptr, self._c_elem_type_ptr, item)
+
+    @staticmethod
+    def _wrap(element_type, c_ptr, c_elem_type_ptr):
+        # Wrap an existing live east-c value (from c_value_to_py); retains it.
+        self = EastSetProxy.__new__(EastSetProxy)
+        object.__setattr__(self, "element_type", element_type)
         object.__setattr__(self, "_iteration_lock", 0)
         self._c_ptr = c_ptr
         self._c_elem_type_ptr = c_elem_type_ptr
         _proxy_retain(c_ptr)
         _proxy_type_retain(c_elem_type_ptr)
+        return self
 
     def __del__(self):
-        _proxy_release(self._c_ptr)
-        _proxy_type_release(self._c_elem_type_ptr)
+        # Tolerate a proxy whose __init__ never set _c_ptr (e.g. __new__ without
+        # a completed __init__): a __del__ must not assume construction finished.
+        if getattr(self, "_c_ptr", 0):
+            _proxy_release(self._c_ptr)
+            _proxy_type_release(getattr(self, "_c_elem_type_ptr", 0))
 
     def __len__(self):
         return _proxy_set_len(self._c_ptr)
@@ -1513,10 +1735,7 @@ class EastSetProxy(EastSet):
             pass
 
     def clear(self):
-        cdef _eastc.EastValue *s = <_eastc.EastValue*><uintptr_t>self._c_ptr
-        for i in range(s.data.set.len):
-            _eastc.east_value_release(s.data.set.items[i])
-        s.data.set.len = 0
+        _eastc.east_set_clear(<_eastc.EastValue*><uintptr_t>self._c_ptr)
 
     def __contains__(self, item):
         return _proxy_set_contains(self._c_ptr, self._c_elem_type_ptr, item)
@@ -1546,10 +1765,30 @@ class EastDictProxy(EastDict):
 
     __slots__ = ("_c_ptr", "_c_key_type_ptr", "_c_val_type_ptr")
 
-    def __init__(self, key_type, value_type, c_ptr, c_key_type_ptr, c_val_type_ptr):
+    def __init__(self, key_type, value_type, items=None):
+        # User construction: allocate a live east-c dict from birth, bulk-insert.
+        cdef _eastc.EastType *key_c
+        cdef _eastc.EastType *val_c
+        cdef _eastc.EastValue *d
         object.__setattr__(self, "key_type", key_type)
         object.__setattr__(self, "value_type", value_type)
-        object.__setattr__(self, "_data", None)
+        object.__setattr__(self, "_iteration_lock", 0)
+        key_c = py_type_to_c(key_type)
+        val_c = py_type_to_c(value_type)
+        d = _eastc.east_dict_new(key_c, val_c)
+        self._c_ptr = <uintptr_t>d
+        self._c_key_type_ptr = <uintptr_t>key_c
+        self._c_val_type_ptr = <uintptr_t>val_c
+        if items is not None:
+            for key, value in items.items():
+                _proxy_dict_set(self._c_ptr, self._c_key_type_ptr, self._c_val_type_ptr, key, value)
+
+    @staticmethod
+    def _wrap(key_type, value_type, c_ptr, c_key_type_ptr, c_val_type_ptr):
+        # Wrap an existing live east-c value (from c_value_to_py); retains it.
+        self = EastDictProxy.__new__(EastDictProxy)
+        object.__setattr__(self, "key_type", key_type)
+        object.__setattr__(self, "value_type", value_type)
         object.__setattr__(self, "_iteration_lock", 0)
         self._c_ptr = c_ptr
         self._c_key_type_ptr = c_key_type_ptr
@@ -1557,11 +1796,15 @@ class EastDictProxy(EastDict):
         _proxy_retain(c_ptr)
         _proxy_type_retain(c_key_type_ptr)
         _proxy_type_retain(c_val_type_ptr)
+        return self
 
     def __del__(self):
-        _proxy_release(self._c_ptr)
-        _proxy_type_release(self._c_key_type_ptr)
-        _proxy_type_release(self._c_val_type_ptr)
+        # Tolerate a proxy whose __init__ never set _c_ptr (e.g. __new__ without
+        # a completed __init__): a __del__ must not assume construction finished.
+        if getattr(self, "_c_ptr", 0):
+            _proxy_release(self._c_ptr)
+            _proxy_type_release(getattr(self, "_c_key_type_ptr", 0))
+            _proxy_type_release(getattr(self, "_c_val_type_ptr", 0))
 
     def __len__(self):
         return _proxy_dict_len(self._c_ptr)
@@ -1610,6 +1853,21 @@ class EastDictProxy(EastDict):
             return True
         return NotImplemented
 
+    def pop(self, key, *args):
+        cdef _eastc.EastValue *c_key = py_value_to_c(key, <_eastc.EastType*><uintptr_t>self._c_key_type_ptr)
+        cdef _eastc.EastValue *c_val = _eastc.east_dict_pop(<_eastc.EastValue*><uintptr_t>self._c_ptr, c_key)
+        _eastc.east_value_release(c_key)
+        if c_val == NULL:
+            if args:
+                return args[0]
+            raise KeyError(key)
+        result = c_value_to_py(c_val, <_eastc.EastType*><uintptr_t>self._c_val_type_ptr)
+        _eastc.east_value_release(c_val)  # east_dict_pop handed us a ref to release
+        return result
+
+    def clear(self):
+        _eastc.east_dict_clear(<_eastc.EastValue*><uintptr_t>self._c_ptr)
+
 
 class EastRefProxy(EastRef):
     """C-backed ref proxy."""
@@ -1624,8 +1882,11 @@ class EastRefProxy(EastRef):
         _proxy_type_retain(c_inner_type_ptr)
 
     def __del__(self):
-        _proxy_release(self._c_ptr)
-        _proxy_type_release(self._c_inner_type_ptr)
+        # Tolerate a proxy whose __init__ never set _c_ptr (e.g. __new__ without
+        # a completed __init__): a __del__ must not assume construction finished.
+        if getattr(self, "_c_ptr", 0):
+            _proxy_release(self._c_ptr)
+            _proxy_type_release(getattr(self, "_c_inner_type_ptr", 0))
 
     @property
     def value(self):

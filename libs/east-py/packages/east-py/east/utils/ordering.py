@@ -194,10 +194,10 @@ def equal_for(type_val: Any, type_ctx: list[Any] | None = None) -> Any:
         def equal_vector(x: EastVector, y: EastVector, _ctx=None) -> bool:
             if x is y:
                 return True
-            if len(x.data) != len(y.data):
+            if len(x._data) != len(y._data):
                 return False
-            for i in range(len(x.data)):
-                if not elem_equal(x.data[i], y.data[i]):
+            for i in range(len(x._data)):
+                if not elem_equal(x._data[i], y._data[i]):
                     return False
             return True
 
@@ -211,8 +211,8 @@ def equal_for(type_val: Any, type_ctx: list[Any] | None = None) -> Any:
                 return True
             if x.rows != y.rows or x.cols != y.cols:
                 return False
-            xd = x.data.ravel()
-            yd = y.data.ravel()
+            xd = x._data.ravel()
+            yd = y._data.ravel()
             for i in range(len(xd)):
                 if not elem_equal(xd[i], yd[i]):
                     return False
@@ -494,11 +494,11 @@ def is_for(type_val: Any, type_ctx: list[Any] | None = None) -> Any:
         return is_blob
 
     if is_vector_type(type_val):
-        # Mutable: identity comparison
+        # `is` compares by identity; value equality is via Equal/equal_for
         return lambda x, y, _ctx=None: x is y
 
     if is_matrix_type(type_val):
-        # Mutable: identity comparison
+        # `is` compares by identity; value equality is via Equal/equal_for
         return lambda x, y, _ctx=None: x is y
 
     if is_array_type(type_val):
@@ -664,12 +664,12 @@ def compare_for(type_val: Any, type_ctx: list[Any] | None = None) -> Any:
         def compare_vector(x: EastVector, y: EastVector, _ctx: Any = None) -> int:
             if x is y:
                 return 0
-            length = min(len(x.data), len(y.data))
+            length = min(len(x._data), len(y._data))
             for i in range(length):
-                cmp = elem_compare(x.data[i], y.data[i])
+                cmp = elem_compare(x._data[i], y._data[i])
                 if cmp != 0:
                     return cmp
-            return -1 if len(x.data) < len(y.data) else (1 if len(x.data) > len(y.data) else 0)
+            return -1 if len(x._data) < len(y._data) else (1 if len(x._data) > len(y._data) else 0)
 
         return compare_vector
 
@@ -683,8 +683,8 @@ def compare_for(type_val: Any, type_ctx: list[Any] | None = None) -> Any:
                 return -1 if x.rows < y.rows else 1
             if x.cols != y.cols:
                 return -1 if x.cols < y.cols else 1
-            flat_x = x.data.ravel()
-            flat_y = y.data.ravel()
+            flat_x = x._data.ravel()
+            flat_y = y._data.ravel()
             for i in range(len(flat_x)):
                 cmp = elem_compare(flat_x[i], flat_y[i])
                 if cmp != 0:

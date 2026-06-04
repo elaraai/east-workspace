@@ -13,7 +13,11 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from east.runtime.platform import GenericPlatformFunction, PlatformFunction
+from east.runtime.platform import (
+    generic_platform_function,
+    platform_function,
+    platform_functions,
+)
 
 _HAS_POSTGRES_SUPPORT = importlib.util.find_spec("asyncpg") is not None
 
@@ -104,6 +108,11 @@ def convert_native_to_param(value: Any) -> EastVariant:
         return EastVariant("Null", east_null)
 
 
+@platform_function(
+    name="postgres_connect",
+    inputs=[PostgresConfigType],
+    output=ConnectionHandleType,
+)
 async def postgres_connect_impl(config: EastStruct) -> str:
     """Connect to a PostgreSQL database.
 
@@ -149,6 +158,11 @@ async def postgres_connect_impl(config: EastStruct) -> str:
         raise Exception(f"PostgreSQL connection failed: {e}") from e
 
 
+@platform_function(
+    name="postgres_query",
+    inputs=[ConnectionHandleType, StringType, SqlParametersType],
+    output=SqlResultType,
+)
 async def postgres_query_impl(handle: str, sql: str, params: EastArray) -> EastVariant:
     """Execute a SQL query with parameterized values."""
     _check_postgres_support()
@@ -214,6 +228,11 @@ async def postgres_query_impl(handle: str, sql: str, params: EastArray) -> EastV
         raise Exception(f"PostgreSQL query failed: {e}") from e
 
 
+@platform_function(
+    name="postgres_close",
+    inputs=[ConnectionHandleType],
+    output=NullType,
+)
 async def postgres_close_impl(handle: str) -> None:
     """Close a PostgreSQL connection pool."""
     _check_postgres_support()
@@ -229,6 +248,11 @@ async def postgres_close_impl(handle: str) -> None:
         raise Exception(f"PostgreSQL close failed: {e}") from e
 
 
+@platform_function(
+    name="postgres_close_all",
+    inputs=[],
+    output=NullType,
+)
 async def postgres_close_all_impl() -> None:
     """Close all PostgreSQL connection pools."""
     for pool in _pools.values():
@@ -441,43 +465,17 @@ def postgres_select_factory(row_type: Any) -> Any:
     return postgres_select_impl
 
 
-# Platform function implementations
-postgres_impl = [
-    PlatformFunction(
-        name="postgres_connect",
-        inputs=[PostgresConfigType],
-        output=ConnectionHandleType,
-        type="async",
-        fn=postgres_connect_impl,
-    ),
-    PlatformFunction(
-        name="postgres_query",
-        inputs=[ConnectionHandleType, StringType, SqlParametersType],
-        output=SqlResultType,
-        type="async",
-        fn=postgres_query_impl,
-    ),
-    PlatformFunction(
-        name="postgres_close",
-        inputs=[ConnectionHandleType],
-        output=NullType,
-        type="async",
-        fn=postgres_close_impl,
-    ),
-    PlatformFunction(
-        name="postgres_close_all",
-        inputs=[],
-        output=NullType,
-        type="async",
-        fn=postgres_close_all_impl,
-    ),
-    GenericPlatformFunction(
-        name="postgres_select",
-        type_parameters=["T"],
-        type="async",
-        fn=lambda _platform_list, T: postgres_select_factory(T),
-    ),
-]
+@generic_platform_function(
+    name="postgres_select",
+    type_parameters=["T"],
+    is_async=True,
+)
+def _postgres_select_factory(_platform_list: Any, T: Any) -> Any:  # noqa: N803
+    return postgres_select_factory(T)
+
+
+# Collected from the @platform_function / @generic_platform_function decorations above.
+postgres_impl = platform_functions(__name__)
 
 __all__ = [
     "postgres_impl",

@@ -12,7 +12,7 @@ import importlib.util
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from east.runtime.platform import PlatformFunction
+from east.runtime.platform import platform_function, platform_functions
 from east.types.types import (
     ArrayType,
     BooleanType,
@@ -163,6 +163,15 @@ def _check_optuna_support() -> None:
 # ============================================================================
 
 
+@platform_function(
+    name="optuna_optimize",
+    inputs=[
+        ArrayType(ParamSpaceType),
+        FunctionType([ArrayType(NamedParamType)], FloatType),
+        OptunaStudyConfigType,
+    ],
+    output=StudyResultType,
+)
 def optuna_optimize_impl(
     search_space: EastArray,
     objective_fn: Callable[[EastArray], float],
@@ -412,19 +421,7 @@ def _params_to_east(params: dict) -> list[EastStruct]:
 # Platform Function Registration
 # ============================================================================
 
-optuna_impl = [
-    PlatformFunction(
-        name="optuna_optimize",
-        inputs=[
-            ArrayType(ParamSpaceType),
-            FunctionType([ArrayType(NamedParamType)], FloatType),
-            OptunaStudyConfigType,
-        ],
-        output=StudyResultType,
-        type="sync",
-        fn=optuna_optimize_impl,
-    ),
-]
+optuna_impl = platform_functions(__name__)
 
 
 __all__ = [

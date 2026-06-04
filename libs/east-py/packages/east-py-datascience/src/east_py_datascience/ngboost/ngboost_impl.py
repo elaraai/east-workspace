@@ -12,9 +12,16 @@ import importlib.util
 import warnings
 
 import numpy as np
-from east.runtime.platform import PlatformFunction
+from east.runtime.platform import platform_function, platform_functions
 from east.types.types import FloatType, MatrixType, VectorType
-from east.types.values import EastArray, EastBlob, EastStruct, EastVariant, EastVector
+from east.types.values import (
+    EastArray,
+    EastBlob,
+    EastStruct,
+    EastVariant,
+    EastVector,
+    east_null,
+)
 
 from east_py_datascience.types import (
     ModelBlobType,
@@ -54,7 +61,7 @@ def _deserialize_model(blob: EastBlob):
 
 def _make_distribution_variant(dist_name: str) -> EastVariant:
     """Create distribution enum variant."""
-    return EastVariant(dist_name, EastStruct({}))
+    return EastVariant(dist_name, east_null)
 
 
 
@@ -76,6 +83,11 @@ def _check_ngboost_support() -> None:
 # ============================================================================
 
 
+@platform_function(
+    name="ngboost_train_regressor",
+    inputs=[MatrixType(FloatType), VectorType(FloatType), NGBoostConfigType],
+    output=ModelBlobType,
+)
 def ngboost_train_regressor_impl(
     X: EastArray,
     y: EastArray,
@@ -87,8 +99,8 @@ def ngboost_train_regressor_impl(
     from ngboost.distns import LogNormal, Normal
 
     try:
-        X_np = X.data
-        y_np = y.data
+        X_np = X.to_numpy()
+        y_np = y.to_numpy()
     except Exception as e:
         raise RuntimeError(f"ngboost_train_regressor: Invalid input data - {e}") from e
 
@@ -143,6 +155,11 @@ def ngboost_train_regressor_impl(
     )
 
 
+@platform_function(
+    name="ngboost_predict",
+    inputs=[ModelBlobType, MatrixType(FloatType)],
+    output=VectorType(FloatType),
+)
 def ngboost_predict_impl(
     model_blob: EastVariant,
     X: EastArray,
@@ -155,7 +172,7 @@ def ngboost_predict_impl(
         )
 
     try:
-        X_np = X.data
+        X_np = X.to_numpy()
     except Exception as e:
         raise RuntimeError(f"ngboost_predict: Invalid input data - {e}") from e
 
@@ -172,6 +189,11 @@ def ngboost_predict_impl(
         ) from e
 
 
+@platform_function(
+    name="ngboost_predict_dist",
+    inputs=[ModelBlobType, MatrixType(FloatType), NGBoostPredictConfigType],
+    output=NGBoostPredictResultType,
+)
 def ngboost_predict_dist_impl(
     model_blob: EastVariant,
     X: EastArray,
@@ -185,7 +207,7 @@ def ngboost_predict_dist_impl(
         )
 
     try:
-        X_np = X.data
+        X_np = X.to_numpy()
     except Exception as e:
         raise RuntimeError(f"ngboost_predict_dist: Invalid input data - {e}") from e
 
@@ -231,29 +253,7 @@ def ngboost_predict_dist_impl(
 # Platform Function Registration
 # ============================================================================
 
-ngboost_impl = [
-    PlatformFunction(
-        name="ngboost_train_regressor",
-        inputs=[MatrixType(FloatType), VectorType(FloatType), NGBoostConfigType],
-        output=ModelBlobType,
-        type="sync",
-        fn=ngboost_train_regressor_impl,
-    ),
-    PlatformFunction(
-        name="ngboost_predict",
-        inputs=[ModelBlobType, MatrixType(FloatType)],
-        output=VectorType(FloatType),
-        type="sync",
-        fn=ngboost_predict_impl,
-    ),
-    PlatformFunction(
-        name="ngboost_predict_dist",
-        inputs=[ModelBlobType, MatrixType(FloatType), NGBoostPredictConfigType],
-        output=NGBoostPredictResultType,
-        type="sync",
-        fn=ngboost_predict_dist_impl,
-    ),
-]
+ngboost_impl = platform_functions(__name__)
 
 __all__ = [
     "ngboost_impl",

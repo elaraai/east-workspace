@@ -21,7 +21,7 @@ import warnings
 from collections.abc import Callable
 
 import numpy as np
-from east.runtime.platform import PlatformFunction
+from east.runtime.platform import platform_function, platform_functions
 from east.types.values import EastArray, EastBlob, EastStruct, EastVariant, is_east_variant
 
 # Lazy import guard for optional dependency
@@ -1135,7 +1135,15 @@ def _deserialize_model(blob: bytes) -> LightningMLP:
 # Platform Function Implementations
 # ============================================================================
 
+# 3D tensor type for masks
+Tensor3DType = EastArray  # ArrayType(ArrayType(ArrayType(BooleanType)))
 
+
+@platform_function(
+    name="lightning_train",
+    inputs=[MatrixType(FloatType), MatrixType(FloatType), LightningConfigType, Tensor3DType, GroupWeightsType, MatrixType(FloatType)],
+    output=LightningResultType,
+)
 def lightning_train_impl(
     X: EastArray,
     y: EastArray,
@@ -1150,8 +1158,8 @@ def lightning_train_impl(
     import warnings
 
     # Convert inputs
-    X_np = X.data
-    y_np = y.data
+    X_np = X.to_numpy()
+    y_np = y.to_numpy()
 
     n_samples = X_np.shape[0]
     input_dim = X_np.shape[1]
@@ -1219,13 +1227,13 @@ def lightning_train_impl(
     if output_type == "binary":
         pos_weight = _get_option(output.value.get("pos_weight"), None)
         output_config = {
-            "pos_weight": pos_weight.data.tolist() if pos_weight is not None else None,
+            "pos_weight": pos_weight.to_numpy().tolist() if pos_weight is not None else None,
         }
     elif output_type == "multiclass":
         class_weights = _get_option(output.value.get("class_weights"), None)
         output_config = {
             "n_classes": int(output.value.get("n_classes")),
-            "class_weights": class_weights.data.tolist() if class_weights is not None else None,
+            "class_weights": class_weights.to_numpy().tolist() if class_weights is not None else None,
         }
     elif output_type == "multi_head":
         class_weights = _get_option(output.value.get("class_weights"), None)
@@ -1233,7 +1241,7 @@ def lightning_train_impl(
             "n_heads": int(output.value.get("n_heads")),
             "n_classes_per_head": int(output.value.get("n_classes_per_head")),
             # Convert to nested list for safe serialization (numpy arrays fail with weights_only=True)
-            "class_weights": class_weights.data.tolist() if class_weights is not None else None,
+            "class_weights": class_weights.to_numpy().tolist() if class_weights is not None else None,
         }
     else:
         output_config = {}
@@ -1353,7 +1361,7 @@ def lightning_train_impl(
     conditions_tensor = None
     has_condition_dim = architecture_config.get("condition_dim") is not None
     if conditions is not None and is_east_variant(conditions) and conditions.type == "some":
-        conditions_np = conditions.value.data
+        conditions_np = conditions.value.to_numpy()
         conditions_tensor = torch.tensor(conditions_np, dtype=torch.float32)
         if not has_condition_dim:
             raise ValueError("conditions provided but architecture has no condition_dim set")
@@ -1504,6 +1512,11 @@ def lightning_train_impl(
     )
 
 
+@platform_function(
+    name="lightning_predict",
+    inputs=[ModelBlobType, MatrixType(FloatType), Tensor3DType, MatrixType(FloatType)],
+    output=MatrixType(FloatType),
+)
 def lightning_predict_impl(
     model_blob: EastVariant,
     X: EastArray,
@@ -1520,7 +1533,7 @@ def lightning_predict_impl(
     model.eval()
 
     # Convert input
-    X_np = X.data
+    X_np = X.to_numpy()
     X_tensor = torch.tensor(X_np, dtype=torch.float32)
 
     # Parse masks if provided
@@ -1533,7 +1546,7 @@ def lightning_predict_impl(
     # Parse conditions if provided
     condition_tensor = None
     if conditions is not None and is_east_variant(conditions) and conditions.type == "some":
-        condition_np = conditions.value.data
+        condition_np = conditions.value.to_numpy()
         condition_tensor = torch.tensor(condition_np, dtype=torch.float32)
 
         # Validate condition_dim matches model
@@ -1562,6 +1575,11 @@ def lightning_predict_impl(
     return EastMatrix(FloatType, np.atleast_2d(probs).astype(np.float64))
 
 
+@platform_function(
+    name="lightning_encode",
+    inputs=[ModelBlobType, MatrixType(FloatType)],
+    output=MatrixType(FloatType),
+)
 def lightning_encode_impl(
     model_blob: EastVariant,
     X: EastArray,
@@ -1577,7 +1595,7 @@ def lightning_encode_impl(
     if model.architecture_type not in ("autoencoder", "conv1d", "sequential", "transformer"):
         raise ValueError(f"encode() not available for {model.architecture_type} architecture")
 
-    X_np = X.data
+    X_np = X.to_numpy()
     X_tensor = torch.tensor(X_np, dtype=torch.float32)
 
     with torch.no_grad():
@@ -1586,6 +1604,11 @@ def lightning_encode_impl(
     return EastMatrix(FloatType, np.atleast_2d(embeddings).astype(np.float64))
 
 
+@platform_function(
+    name="lightning_decode",
+    inputs=[ModelBlobType, MatrixType(FloatType)],
+    output=MatrixType(FloatType),
+)
 def lightning_decode_impl(
     model_blob: EastVariant,
     z: EastArray,
@@ -1608,7 +1631,7 @@ def lightning_decode_impl(
             "Use decodeConditional() instead."
         )
 
-    z_np = z.data
+    z_np = z.to_numpy()
     z_tensor = torch.tensor(z_np, dtype=torch.float32)
 
     with torch.no_grad():
@@ -1619,6 +1642,11 @@ def lightning_decode_impl(
     return EastMatrix(FloatType, np.atleast_2d(output).astype(np.float64))
 
 
+@platform_function(
+    name="lightning_decode_conditional",
+    inputs=[ModelBlobType, MatrixType(FloatType), MatrixType(FloatType)],
+    output=MatrixType(FloatType),
+)
 def lightning_decode_conditional_impl(
     model_blob: EastVariant,
     z: EastArray,
@@ -1641,8 +1669,8 @@ def lightning_decode_conditional_impl(
     if model.condition_dim is None:
         raise ValueError("Model has no condition_dim but condition was provided")
 
-    z_np = z.data
-    condition_np = condition.data
+    z_np = z.to_numpy()
+    condition_np = condition.to_numpy()
 
     if condition_np.shape[1] != model.condition_dim:
         raise ValueError(
@@ -1660,6 +1688,11 @@ def lightning_decode_conditional_impl(
     return EastMatrix(FloatType, np.atleast_2d(output).astype(np.float64))
 
 
+@platform_function(
+    name="lightning_generate_sequence",
+    inputs=[ModelBlobType, MatrixType(FloatType), MatrixType(FloatType), LightningGenerateConfigType],
+    output=MatrixType(FloatType),
+)
 def lightning_generate_sequence_impl(
     model_blob: EastVariant,
     prefix: EastArray,
@@ -1697,13 +1730,13 @@ def lightning_generate_sequence_impl(
     return_probs = bool(config.get("return_probs"))
 
     # Parse prefix
-    prefix_np = prefix.data
+    prefix_np = prefix.to_numpy()
     prefix_tensor = torch.tensor(prefix_np, dtype=torch.float32) if prefix_np.shape[0] > 0 else None
 
     # Parse condition
     condition_tensor = None
     if condition is not None and is_east_variant(condition) and condition.type == "some":
-        condition_np = condition.value.data
+        condition_np = condition.value.to_numpy()
         condition_tensor = torch.tensor(condition_np, dtype=torch.float32)
 
         # Validate condition_dim
@@ -1736,50 +1769,5 @@ def lightning_generate_sequence_impl(
 # Platform Function Registration
 # ============================================================================
 
-# 3D tensor type for masks
-Tensor3DType = EastArray  # ArrayType(ArrayType(ArrayType(BooleanType)))
-
-lightning_impl = [
-    PlatformFunction(
-        name="lightning_train",
-        inputs=[MatrixType(FloatType), MatrixType(FloatType), LightningConfigType, Tensor3DType, GroupWeightsType, MatrixType(FloatType)],
-        output=LightningResultType,
-        type="sync",
-        fn=lightning_train_impl,
-    ),
-    PlatformFunction(
-        name="lightning_predict",
-        inputs=[ModelBlobType, MatrixType(FloatType), Tensor3DType, MatrixType(FloatType)],
-        output=MatrixType(FloatType),
-        type="sync",
-        fn=lightning_predict_impl,
-    ),
-    PlatformFunction(
-        name="lightning_encode",
-        inputs=[ModelBlobType, MatrixType(FloatType)],
-        output=MatrixType(FloatType),
-        type="sync",
-        fn=lightning_encode_impl,
-    ),
-    PlatformFunction(
-        name="lightning_decode",
-        inputs=[ModelBlobType, MatrixType(FloatType)],
-        output=MatrixType(FloatType),
-        type="sync",
-        fn=lightning_decode_impl,
-    ),
-    PlatformFunction(
-        name="lightning_decode_conditional",
-        inputs=[ModelBlobType, MatrixType(FloatType), MatrixType(FloatType)],
-        output=MatrixType(FloatType),
-        type="sync",
-        fn=lightning_decode_conditional_impl,
-    ),
-    PlatformFunction(
-        name="lightning_generate_sequence",
-        inputs=[ModelBlobType, MatrixType(FloatType), MatrixType(FloatType), LightningGenerateConfigType],
-        output=MatrixType(FloatType),
-        type="sync",
-        fn=lightning_generate_sequence_impl,
-    ),
-]
+# Collected from the @platform_function decorations above.
+lightning_impl = platform_functions(__name__)

@@ -3210,19 +3210,17 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
   },
 
   VectorSet: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (vec: Float64Array | BigInt64Array | Uint8ClampedArray, idx: bigint, value: any) => {
-    if (Object.isFrozen(vec)) {
-      throw new EastError("Cannot modify frozen Vector", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
-    }
     const i = Number(idx);
     if (i < 0 || i >= vec.length) {
       throw new EastError(`Vector index ${idx} out of bounds (length ${vec.length})`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
-    if (vec instanceof Uint8ClampedArray) {
-      vec[i] = value ? 1 : 0;
+    const result = vec.slice() as typeof vec;
+    if (result instanceof Uint8ClampedArray) {
+      result[i] = value ? 1 : 0;
     } else {
-      (vec as any)[i] = value;
+      (result as any)[i] = value;
     }
-    return null;
+    return result;
   },
 
   VectorSlice: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (vec: Float64Array | BigInt64Array | Uint8ClampedArray, start: bigint, end: bigint) => {
@@ -3329,20 +3327,18 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
   },
 
   MatrixSet: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (m: any, row: bigint, col: bigint, value: any) => {
-    if (Object.isFrozen(m.data)) {
-      throw new EastError("Cannot modify frozen Matrix", { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
-    }
     const r = Number(row);
     const c = Number(col);
     if (r < 0 || r >= m.rows || c < 0 || c >= m.cols) {
       throw new EastError(`Matrix index (${row}, ${col}) out of bounds (${m.rows}×${m.cols})`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
     }
-    if (m.data instanceof Uint8ClampedArray) {
-      m.data[r * m.cols + c] = value ? 1 : 0;
+    const data = m.data.slice() as typeof m.data;
+    if (data instanceof Uint8ClampedArray) {
+      data[r * m.cols + c] = value ? 1 : 0;
     } else {
-      m.data[r * m.cols + c] = value;
+      data[r * m.cols + c] = value;
     }
-    return null;
+    return matrix(data, m.rows, m.cols);
   },
 
   MatrixGetRow: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _T: EastTypeValue) => (m: any, row: bigint) => {

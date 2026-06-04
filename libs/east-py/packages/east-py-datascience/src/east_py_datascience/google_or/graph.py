@@ -16,7 +16,7 @@ Includes:
 import importlib.util
 import time
 
-from east.runtime.platform import PlatformFunction
+from east.runtime.platform import platform_function, platform_functions
 from east.types.types import (
     ArrayType,
     FloatType,
@@ -118,6 +118,11 @@ def _check_google_or_support() -> None:
 # ============================================================================
 
 
+@platform_function(
+    name="google_or_min_cost_flow",
+    inputs=[MinCostFlowInputType],
+    output=MinCostFlowResultType,
+)
 def min_cost_flow_impl(
     input_data: EastStruct,
 ) -> EastStruct:
@@ -202,6 +207,11 @@ def min_cost_flow_impl(
         )
 
 
+@platform_function(
+    name="google_or_max_flow",
+    inputs=[MaxFlowInputType],
+    output=MaxFlowResultType,
+)
 def max_flow_impl(
     input_data: EastStruct,
 ) -> EastStruct:
@@ -258,6 +268,11 @@ def max_flow_impl(
         )
 
 
+@platform_function(
+    name="google_or_assignment",
+    inputs=[AssignmentInputType],
+    output=AssignmentResultType,
+)
 def assignment_impl(
     input_data: EastStruct,
 ) -> EastStruct:
@@ -349,29 +364,7 @@ def assignment_impl(
 # Platform Function Registration
 # ============================================================================
 
-graph_impl = [
-    PlatformFunction(
-        name="google_or_min_cost_flow",
-        inputs=[MinCostFlowInputType],
-        output=MinCostFlowResultType,
-        type="sync",
-        fn=min_cost_flow_impl,
-    ),
-    PlatformFunction(
-        name="google_or_max_flow",
-        inputs=[MaxFlowInputType],
-        output=MaxFlowResultType,
-        type="sync",
-        fn=max_flow_impl,
-    ),
-    PlatformFunction(
-        name="google_or_assignment",
-        inputs=[AssignmentInputType],
-        output=AssignmentResultType,
-        type="sync",
-        fn=assignment_impl,
-    ),
-]
+graph_impl = platform_functions(__name__)
 
 
 __all__ = [

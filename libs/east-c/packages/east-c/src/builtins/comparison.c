@@ -194,8 +194,7 @@ static bool equal_for_impl(EastType *type, EastValue *a, EastValue *b, CycleCtx 
     case EAST_TYPE_SET:
         if (a->data.set.len != b->data.set.len) return false;
         for (size_t i = 0; i < a->data.set.len; i++)
-            if (!equal_for_impl(type->data.element, a->data.set.items[i], b->data.set.items[i],
-                                ctx))
+            if (!equal_for_impl(type->data.element, east_set_at(a, i), east_set_at(b, i), ctx))
                 return false;
         return true;
 
@@ -203,11 +202,11 @@ static bool equal_for_impl(EastType *type, EastValue *a, EastValue *b, CycleCtx 
         if (cycle_check_and_mark(ctx, a, b)) return true;
         if (a->data.dict.len != b->data.dict.len) return false;
         for (size_t i = 0; i < a->data.dict.len; i++) {
-            if (!equal_for_impl(type->data.dict.key, a->data.dict.keys[i], b->data.dict.keys[i],
+            if (!equal_for_impl(type->data.dict.key, east_dict_key_at(a, i), east_dict_key_at(b, i),
                                 ctx))
                 return false;
-            if (!equal_for_impl(type->data.dict.value, a->data.dict.values[i],
-                                b->data.dict.values[i], ctx))
+            if (!equal_for_impl(type->data.dict.value, east_dict_val_at(a, i),
+                                east_dict_val_at(b, i), ctx))
                 return false;
         }
         return true;
@@ -397,8 +396,7 @@ static int compare_for_impl(EastType *type, EastValue *a, EastValue *b, CycleCtx
         size_t la = a->data.set.len, lb = b->data.set.len;
         size_t mn = la < lb ? la : lb;
         for (size_t i = 0; i < mn; i++) {
-            int c = compare_for_impl(type->data.element, a->data.set.items[i], b->data.set.items[i],
-                                     ctx);
+            int c = compare_for_impl(type->data.element, east_set_at(a, i), east_set_at(b, i), ctx);
             if (c != 0) return c;
         }
         return la < lb ? -1 : (la > lb ? 1 : 0);
@@ -409,11 +407,11 @@ static int compare_for_impl(EastType *type, EastValue *a, EastValue *b, CycleCtx
         size_t la = a->data.dict.len, lb = b->data.dict.len;
         size_t mn = la < lb ? la : lb;
         for (size_t i = 0; i < mn; i++) {
-            int c = compare_for_impl(type->data.dict.key, a->data.dict.keys[i],
-                                     b->data.dict.keys[i], ctx);
+            int c = compare_for_impl(type->data.dict.key, east_dict_key_at(a, i),
+                                     east_dict_key_at(b, i), ctx);
             if (c != 0) return c;
-            c = compare_for_impl(type->data.dict.value, a->data.dict.values[i],
-                                 b->data.dict.values[i], ctx);
+            c = compare_for_impl(type->data.dict.value, east_dict_val_at(a, i),
+                                 east_dict_val_at(b, i), ctx);
             if (c != 0) return c;
         }
         return la < lb ? -1 : (la > lb ? 1 : 0);

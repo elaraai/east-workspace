@@ -29,7 +29,7 @@ import multiprocessing
 import os
 from typing import TYPE_CHECKING, Any
 
-from east.runtime.platform import GenericPlatformFunction
+from east.runtime.platform import generic_platform_function, platform_functions
 from east.serialization.beast2 import (
     decode_beast2_with_header_for,
     encode_beast2_with_header_for,
@@ -89,6 +89,11 @@ def _worker(
     return encode_beast2_with_header_for(array_r_type)(results)
 
 
+@generic_platform_function(
+    name="parallel_map",
+    type_parameters=["T", "R"],
+    is_async=True,
+)
 def _parallel_map_factory(
     platform: list[PlatformFunction] | None, T: Any, R: Any  # noqa: N803
 ) -> Any:
@@ -144,14 +149,8 @@ def _parallel_map_factory(
     return _parallel_map
 
 
-parallel_impl = [
-    GenericPlatformFunction(
-        name="parallel_map",
-        type_parameters=["T", "R"],
-        type="async",
-        fn=_parallel_map_factory,
-    ),
-]
+# Collected from the @generic_platform_function decoration above.
+parallel_impl = platform_functions(__name__)
 
 
 __all__ = ["parallel_impl"]

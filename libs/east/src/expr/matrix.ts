@@ -4,10 +4,9 @@
  */
 import type { AST } from "../ast.js";
 import { get_location_id } from "../location.js";
-import { IntegerType, VectorType, MatrixType, NullType, FunctionType, ArrayType, type EastType, type NeverType, isSubtype, printType, isTypeEqual } from "../types.js";
+import { IntegerType, VectorType, MatrixType, FunctionType, ArrayType, type EastType, type NeverType, isSubtype, printType, isTypeEqual } from "../types.js";
 import { valueOrExprToAstTyped } from "./ast.js";
 import type { IntegerExpr } from "./integer.js";
-import type { NullExpr } from "./null.js";
 import { AstSymbol, Expr, FactorySymbol, TypeSymbol, type ToExpr } from "./expr.js";
 import type { SubtypeExprOrValue, ExprType } from "./types.js";
 import type { VectorExpr } from "./vector.js";
@@ -15,12 +14,12 @@ import type { ArrayExpr } from "./array.js";
 import type { BlockBuilder } from "./block.js";
 
 /**
- * Expression representing mutable matrix (2D typed array) values and operations.
+ * Expression representing immutable matrix (2D typed array) values and operations.
  *
  * MatrixExpr provides methods for matrix manipulation including element access,
- * mutation, row/column access, transpose, and conversion. Matrices are backed by
- * contiguous typed arrays in row-major order for efficient numeric computation
- * and zero-copy interop with ML libraries.
+ * functional update, row/column access, transpose, and conversion. Matrices are
+ * backed by contiguous typed arrays in row-major order for efficient numeric
+ * computation and zero-copy interop with ML libraries.
  */
 export class MatrixExpr<T extends any> extends Expr<MatrixType<T>> {
   constructor(private element_type: T, ast: AST, createExpr: ToExpr) {
@@ -82,27 +81,27 @@ export class MatrixExpr<T extends any> extends Expr<MatrixType<T>> {
   }
 
   /**
-   * Sets the element at the specified row and column (mutates the matrix).
+   * Returns a new matrix with the element at the specified row and column replaced.
    *
    * @param row - The zero-based row index
    * @param col - The zero-based column index
    * @param value - The value to set
-   * @returns NullExpr (operation performed for side effect)
+   * @returns A new MatrixExpr with the element at (row, col) replaced by value
    *
    * @throws East runtime error if the indices are out of bounds
    */
-  set(row: SubtypeExprOrValue<IntegerType>, col: SubtypeExprOrValue<IntegerType>, value: SubtypeExprOrValue<T>): NullExpr {
+  set(row: SubtypeExprOrValue<IntegerType>, col: SubtypeExprOrValue<IntegerType>, value: SubtypeExprOrValue<T>): MatrixExpr<T> {
     const r = valueOrExprToAstTyped(row, IntegerType);
     const c = valueOrExprToAstTyped(col, IntegerType);
     const v = valueOrExprToAstTyped(value, this.element_type as EastType);
     return this[FactorySymbol]({
       ast_type: "Builtin",
-      type: NullType,
+      type: MatrixType(this.element_type as EastType),
       loc_id: get_location_id(),
       builtin: "MatrixSet",
       type_parameters: [this.element_type as EastType],
       arguments: [this[AstSymbol], r, c, v],
-    }) as NullExpr;
+    }) as MatrixExpr<T>;
   }
 
   /**

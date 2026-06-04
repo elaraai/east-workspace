@@ -124,7 +124,7 @@ static void vt_walk(Beast2ValueTable *vt, EastValue *value, EastType *type, Beas
         vt_add_entry(vt, VT_TAG_SET, type, value);
         EastType *elem = type->data.element;
         for (size_t i = 0; i < value->data.set.len; i++)
-            vt_walk(vt, value->data.set.items[i], elem, tt);
+            vt_walk(vt, east_set_at(value, i), elem, tt);
         return;
     }
     case EAST_TYPE_DICT: {
@@ -133,8 +133,8 @@ static void vt_walk(Beast2ValueTable *vt, EastValue *value, EastType *type, Beas
         EastType *kt = type->data.dict.key;
         EastType *vt_type = type->data.dict.value;
         for (size_t i = 0; i < value->data.dict.len; i++) {
-            vt_walk(vt, value->data.dict.keys[i], kt, tt);
-            vt_walk(vt, value->data.dict.values[i], vt_type, tt);
+            vt_walk(vt, east_dict_key_at(value, i), kt, tt);
+            vt_walk(vt, east_dict_val_at(value, i), vt_type, tt);
         }
         return;
     }
@@ -270,7 +270,7 @@ void write_value_table_section(Beast2ValueTable *vt, Beast2EncodeCtx *ctx, ByteB
             size_t count = value->data.set.len;
             write_varint(entry, count);
             for (size_t j = 0; j < count; j++)
-                vt_encode_elem(entry, value->data.set.items[j], elem, ctx);
+                vt_encode_elem(entry, east_set_at(value, j), elem, ctx);
             break;
         }
         case VT_TAG_DICT: {
@@ -283,8 +283,8 @@ void write_value_table_section(Beast2ValueTable *vt, Beast2EncodeCtx *ctx, ByteB
             size_t count = value->data.dict.len;
             write_varint(entry, count);
             for (size_t j = 0; j < count; j++) {
-                vt_encode_elem(entry, value->data.dict.keys[j], kt, ctx);
-                vt_encode_elem(entry, value->data.dict.values[j], vt_t, ctx);
+                vt_encode_elem(entry, east_dict_key_at(value, j), kt, ctx);
+                vt_encode_elem(entry, east_dict_val_at(value, j), vt_t, ctx);
             }
             break;
         }

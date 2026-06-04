@@ -21,7 +21,11 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from east.runtime.platform import GenericPlatformFunction, PlatformFunction
+from east.runtime.platform import (
+    generic_platform_function,
+    platform_function,
+    platform_functions,
+)
 from east.types.types import (
     NullType,
     StringType,
@@ -166,6 +170,11 @@ def _check_type_compatibility(field_type: Any, expected_east: str) -> tuple[bool
     return field_is_option, compatible
 
 
+@platform_function(
+    name="access_open",
+    inputs=[AccessConfigType],
+    output=ConnectionHandleType,
+)
 async def access_open_impl(config: EastStruct) -> str:
     """Open a Microsoft Access database file.
 
@@ -199,6 +208,11 @@ async def access_open_impl(config: EastStruct) -> str:
         raise Exception(f"Access database open failed: {e}") from e
 
 
+@platform_function(
+    name="access_tables",
+    inputs=[ConnectionHandleType],
+    output=AccessTablesResultType,
+)
 async def access_tables_impl(handle: str) -> EastStruct:
     """List all table names in the database.
 
@@ -381,6 +395,20 @@ def access_query_factory(row_type: Any) -> Any:
     return access_query_impl
 
 
+@generic_platform_function(
+    name="access_query",
+    type_parameters=["T"],
+    is_async=True,
+)
+def _access_query_factory(_platform_list: Any, T: Any) -> Any:  # noqa: N803
+    return access_query_factory(T)
+
+
+@platform_function(
+    name="access_close",
+    inputs=[ConnectionHandleType],
+    output=NullType,
+)
 async def access_close_impl(handle: str) -> None:
     """Close an Access database connection.
 
@@ -400,6 +428,11 @@ async def access_close_impl(handle: str) -> None:
         raise Exception(f"Access close failed: {e}") from e
 
 
+@platform_function(
+    name="access_close_all",
+    inputs=[],
+    output=NullType,
+)
 async def access_close_all_impl() -> None:
     """Close all Access connections.
 
@@ -408,43 +441,8 @@ async def access_close_all_impl() -> None:
     _access_connections.clear()
 
 
-# Platform function implementations
-access_impl = [
-    PlatformFunction(
-        name="access_open",
-        inputs=[AccessConfigType],
-        output=ConnectionHandleType,
-        type="async",
-        fn=access_open_impl,
-    ),
-    PlatformFunction(
-        name="access_tables",
-        inputs=[ConnectionHandleType],
-        output=AccessTablesResultType,
-        type="async",
-        fn=access_tables_impl,
-    ),
-    GenericPlatformFunction(
-        name="access_query",
-        type_parameters=["T"],
-        type="async",
-        fn=lambda _platform_list, T: access_query_factory(T),
-    ),
-    PlatformFunction(
-        name="access_close",
-        inputs=[ConnectionHandleType],
-        output=NullType,
-        type="async",
-        fn=access_close_impl,
-    ),
-    PlatformFunction(
-        name="access_close_all",
-        inputs=[],
-        output=NullType,
-        type="async",
-        fn=access_close_all_impl,
-    ),
-]
+# Collected from the @platform_function / @generic_platform_function decorations above.
+access_impl = platform_functions(__name__)
 
 __all__ = [
     "access_impl",

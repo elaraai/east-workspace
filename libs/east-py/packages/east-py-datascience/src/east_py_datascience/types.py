@@ -992,10 +992,30 @@ LightningConfigType = StructType(
     ]
 )
 
+# Lightning model blob - single "lightning" variant case (mirrors the unified
+# ModelBlobType "lightning" case; defined here to satisfy top-to-bottom eval)
+LightningModelBlobType = VariantType(
+    [
+        (
+            "lightning",
+            StructType(
+                [
+                    ("data", BlobType),  # pickle serialized state_dict + hparams
+                    ("n_features", IntegerType),
+                    ("output_dim", IntegerType),
+                    ("architecture_type", StringType),  # "mlp" or "autoencoder"
+                    ("output_type", StringType),  # "regression", "binary", "multiclass", "multi_head"
+                    ("latent_dim", OptionType(IntegerType)),  # for autoencoder only
+                ]
+            ),
+        ),
+    ]
+)
+
 # Lightning training result
 LightningResultType = StructType(
     [
-        ("model", BlobType),  # Serialized model (state_dict + hparams)
+        ("model", LightningModelBlobType),  # Serialized model (state_dict + hparams)
         ("train_loss", FloatType),
         ("val_loss", FloatType),
         ("best_epoch", IntegerType),

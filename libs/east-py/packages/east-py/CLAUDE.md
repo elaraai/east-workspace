@@ -1,9 +1,14 @@
 # east-py
 
-Python runtime for the East programming language. Complete
-implementation of the East type system, IR compiler, 212+ builtins, and
-serialization formats. Enables East IR to be compiled and executed in
-Python environments.
+Python runtime for the East programming language. Implements the East type
+system in Python and bridges to the native **east-c** runtime via Cython for
+IR compilation, the builtin library, execution, and serialization (the
+`_eastc` bridge — `runtime/compiler.py:5-9`). East values are usable as plain
+Python data with eager methods that delegate to the east-c builtins. Enables
+East IR to be compiled and executed in Python environments.
+
+> The older "pure-Python compiler + 212 builtins" framing is stale — do not
+> reintroduce it; builtins are not ported to Python.
 
 ## Commands
 

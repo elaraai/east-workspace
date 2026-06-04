@@ -113,6 +113,12 @@ module = ["numpy", "numpy.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+# torch is an optional interop target (EastVector/EastMatrix to_torch/from_torch),
+# not a core dependency; it may be absent in a clean typecheck environment.
+module = ["torch", "torch.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 module = [
     "east.types._values_cy",
     "east.serialization._binary_utils_cy",

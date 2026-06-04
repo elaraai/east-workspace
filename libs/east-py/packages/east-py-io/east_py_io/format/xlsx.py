@@ -12,7 +12,7 @@ import io
 from datetime import UTC, datetime
 from typing import Any
 
-from east.runtime.platform import PlatformFunction
+from east.runtime.platform import platform_function, platform_functions
 from east.types.types import BlobType
 from east.types.values import EastArray, EastBlob, EastStruct, EastVariant, east_null
 
@@ -96,6 +96,11 @@ def convert_east_to_cell(value: EastVariant) -> Any:
         return val
 
 
+@platform_function(
+    name="xlsx_read",
+    inputs=[BlobType, XlsxReadOptionsType],
+    output=XlsxSheetType,
+)
 def xlsx_read_impl(blob: EastBlob, options: EastStruct) -> EastArray:
     """Read an XLSX file."""
     _check_xlsx_support()
@@ -136,6 +141,11 @@ def xlsx_read_impl(blob: EastBlob, options: EastStruct) -> EastArray:
         raise Exception(f"XLSX read failed: {e}") from e
 
 
+@platform_function(
+    name="xlsx_write",
+    inputs=[XlsxSheetType, XlsxWriteOptionsType],
+    output=BlobType,
+)
 def xlsx_write_impl(data: EastArray, options: EastStruct) -> EastBlob:
     """Write data to an XLSX file."""
     _check_xlsx_support()
@@ -168,6 +178,11 @@ def xlsx_write_impl(data: EastArray, options: EastStruct) -> EastBlob:
         raise Exception(f"XLSX write failed: {e}") from e
 
 
+@platform_function(
+    name="xlsx_info",
+    inputs=[BlobType],
+    output=XlsxInfoType,
+)
 def xlsx_info_impl(blob: EastBlob) -> EastStruct:
     """Get information about an XLSX file."""
     _check_xlsx_support()
@@ -195,30 +210,8 @@ def xlsx_info_impl(blob: EastBlob) -> EastStruct:
         raise Exception(f"XLSX info failed: {e}") from e
 
 
-# Platform function implementations
-xlsx_impl = [
-    PlatformFunction(
-        name="xlsx_read",
-        inputs=[BlobType, XlsxReadOptionsType],
-        output=XlsxSheetType,
-        type="sync",
-        fn=xlsx_read_impl,
-    ),
-    PlatformFunction(
-        name="xlsx_write",
-        inputs=[XlsxSheetType, XlsxWriteOptionsType],
-        output=BlobType,
-        type="sync",
-        fn=xlsx_write_impl,
-    ),
-    PlatformFunction(
-        name="xlsx_info",
-        inputs=[BlobType],
-        output=XlsxInfoType,
-        type="sync",
-        fn=xlsx_info_impl,
-    ),
-]
+# Collected from the @platform_function decorations above.
+xlsx_impl = platform_functions(__name__)
 
 __all__ = [
     "xlsx_impl",

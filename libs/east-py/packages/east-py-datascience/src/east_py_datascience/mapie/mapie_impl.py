@@ -17,7 +17,7 @@ warnings.filterwarnings("ignore", category=DeprecationWarning, module="sklearn")
 import importlib.util
 
 import numpy as np
-from east.runtime.platform import PlatformFunction
+from east.runtime.platform import platform_function, platform_functions
 
 # ============================================================================
 # Type Definitions for MAPIE
@@ -404,13 +404,13 @@ def _create_base_regressor(base_model_variant: EastVariant, random_state):
         # Get categorical features config
         categorical_features = _get_option(config.get("categorical_features"), None)
         if categorical_features is not None:
-            categorical_features = [int(x) for x in categorical_features.data]
+            categorical_features = [int(x) for x in categorical_features.to_numpy()]
 
         # Get categorical_n config
         categorical_n_opt = _get_option(config.get("categorical_n"), None)
         categorical_n = None
         if categorical_n_opt is not None:
-            categorical_n = categorical_n_opt.data.astype(np.int64).tolist()
+            categorical_n = categorical_n_opt.to_numpy(dtype=np.int64).tolist()
 
         max_cat_to_onehot = _get_option(config.get("max_cat_to_onehot"), None)
         if max_cat_to_onehot is not None:
@@ -490,13 +490,13 @@ def _create_base_classifier(base_model_variant: EastVariant, random_state):
         # Get categorical features config
         categorical_features = _get_option(config.get("categorical_features"), None)
         if categorical_features is not None:
-            categorical_features = [int(x) for x in categorical_features.data]
+            categorical_features = [int(x) for x in categorical_features.to_numpy()]
 
         # Get categorical_n config
         categorical_n_opt = _get_option(config.get("categorical_n"), None)
         categorical_n = None
         if categorical_n_opt is not None:
-            categorical_n = categorical_n_opt.data.astype(np.int64).tolist()
+            categorical_n = categorical_n_opt.to_numpy(dtype=np.int64).tolist()
 
         max_cat_to_onehot = _get_option(config.get("max_cat_to_onehot"), None)
         if max_cat_to_onehot is not None:
@@ -576,6 +576,11 @@ def _check_mapie_support() -> None:
 # ============================================================================
 
 
+@platform_function(
+    name="mapie_train_conformal_regressor",
+    inputs=[MatrixType(FloatType), VectorType(FloatType), MatrixType(FloatType), VectorType(FloatType), MAPIEConfigType],
+    output=MAPIERegressorBlobType,
+)
 def mapie_train_conformal_regressor_impl(
     X_train: EastMatrix,
     y_train: EastVector,
@@ -590,10 +595,10 @@ def mapie_train_conformal_regressor_impl(
 
     # Convert inputs
     try:
-        X_train_np = X_train.data
-        y_train_np = y_train.data
-        X_calib_np = X_calib.data
-        y_calib_np = y_calib.data
+        X_train_np = X_train.to_numpy()
+        y_train_np = y_train.to_numpy()
+        X_calib_np = X_calib.to_numpy()
+        y_calib_np = y_calib.to_numpy()
     except Exception as e:
         raise RuntimeError(
             f"mapie_train_conformal_regressor: Invalid input data - {e}"
@@ -638,7 +643,7 @@ def mapie_train_conformal_regressor_impl(
     sample_weight_raw = _get_option(base_config_value.get("sample_weight"), None)
     fit_params = {}
     if sample_weight_raw is not None:
-        fit_params["sample_weight"] = sample_weight_raw.data
+        fit_params["sample_weight"] = sample_weight_raw.to_numpy()
 
     # Prepare categorical features for XGBoost (validates and converts to category dtype)
     X_train_np, categorical_features, _ = _prepare_categorical_features(
@@ -734,6 +739,11 @@ def mapie_train_conformal_regressor_impl(
     )
 
 
+@platform_function(
+    name="mapie_train_cqr",
+    inputs=[MatrixType(FloatType), VectorType(FloatType), MatrixType(FloatType), VectorType(FloatType), MAPIECQRConfigType],
+    output=MAPIERegressorBlobType,
+)
 def mapie_train_cqr_impl(
     X_train: EastMatrix,
     y_train: EastVector,
@@ -752,10 +762,10 @@ def mapie_train_cqr_impl(
 
     # Convert inputs
     try:
-        X_train_np = X_train.data
-        y_train_np = y_train.data
-        X_calib_np = X_calib.data
-        y_calib_np = y_calib.data
+        X_train_np = X_train.to_numpy()
+        y_train_np = y_train.to_numpy()
+        X_calib_np = X_calib.to_numpy()
+        y_calib_np = y_calib.to_numpy()
     except Exception as e:
         raise RuntimeError(f"mapie_train_cqr: Invalid input data - {e}") from e
 
@@ -841,8 +851,8 @@ def _extract_from_base_model_data(data_variant):
         model_bytes = inner_struct.get("data")
         cat_opt = _get_option(inner_struct.get("categorical_features"), None)
         cat_n_opt = _get_option(inner_struct.get("categorical_n"), None)
-        cat_features = cat_opt.data.astype(np.int64).tolist() if cat_opt is not None else None
-        cat_n = cat_n_opt.data.astype(np.int64).tolist() if cat_n_opt is not None else None
+        cat_features = cat_opt.to_numpy(dtype=np.int64).tolist() if cat_opt is not None else None
+        cat_n = cat_n_opt.to_numpy(dtype=np.int64).tolist() if cat_n_opt is not None else None
         return model_bytes, cat_features, cat_n
     elif outer_type == "lightgbm":
         inner = data_variant.value  # LightGBMModelBlobType variant
@@ -852,6 +862,11 @@ def _extract_from_base_model_data(data_variant):
         return data_variant.value, None, None  # bare blob
 
 
+@platform_function(
+    name="mapie_predict_interval",
+    inputs=[MAPIERegressorBlobType, MatrixType(FloatType)],
+    output=IntervalResultType,
+)
 def mapie_predict_interval_impl(
     model_blob: EastVariant,
     X: EastMatrix,
@@ -870,7 +885,7 @@ def mapie_predict_interval_impl(
 
     # Convert input
     try:
-        X_np = X.data
+        X_np = X.to_numpy()
     except Exception as e:
         raise RuntimeError(f"mapie_predict_interval: Invalid input data - {e}") from e
 
@@ -916,6 +931,17 @@ def mapie_predict_interval_impl(
 # ============================================================================
 
 
+@platform_function(
+    name="mapie_train_conformal_classifier",
+    inputs=[
+        MatrixType(FloatType),
+        VectorType(IntegerType),
+        MatrixType(FloatType),
+        VectorType(IntegerType),
+        MAPIEClassifierConfigType,
+    ],
+    output=MAPIEClassifierBlobType,
+)
 def mapie_train_conformal_classifier_impl(
     X_train: EastMatrix,
     y_train: EastVector,
@@ -929,10 +955,10 @@ def mapie_train_conformal_classifier_impl(
 
     # Convert inputs
     try:
-        X_train_np = X_train.data
-        y_train_np = y_train.data
-        X_calib_np = X_calib.data
-        y_calib_np = y_calib.data
+        X_train_np = X_train.to_numpy()
+        y_train_np = y_train.to_numpy()
+        X_calib_np = X_calib.to_numpy()
+        y_calib_np = y_calib.to_numpy()
     except Exception as e:
         raise RuntimeError(
             f"mapie_train_conformal_classifier: Invalid input data - {e}"
@@ -986,7 +1012,7 @@ def mapie_train_conformal_classifier_impl(
     sample_weight_raw = _get_option(base_config_value.get("sample_weight"), None)
     fit_params = {}
     if sample_weight_raw is not None:
-        fit_params["sample_weight"] = sample_weight_raw.data
+        fit_params["sample_weight"] = sample_weight_raw.to_numpy()
 
     # Prepare categorical features for XGBoost (validates and converts to category dtype)
     X_train_np, categorical_features, _ = _prepare_categorical_features(
@@ -1067,6 +1093,11 @@ def mapie_train_conformal_classifier_impl(
     )
 
 
+@platform_function(
+    name="mapie_predict_set",
+    inputs=[MAPIEClassifierBlobType, MatrixType(FloatType)],
+    output=PredictionSetResultType,
+)
 def mapie_predict_set_impl(
     model_blob: EastVariant,
     X: EastMatrix,
@@ -1083,12 +1114,12 @@ def mapie_predict_set_impl(
     base_clf = combined_model["base_clf"]
     # Get original_classes from outer struct (not cloudpickle)
     original_classes_vec = model_data.get("classes")
-    original_classes = original_classes_vec.data if original_classes_vec is not None else None
+    original_classes = original_classes_vec.to_numpy() if original_classes_vec is not None else None
     n_features = model_data.get("n_features")
 
     # Convert input
     try:
-        X_np = X.data
+        X_np = X.to_numpy()
     except Exception as e:
         raise RuntimeError(f"mapie_predict_set: Invalid input data - {e}") from e
 
@@ -1142,8 +1173,8 @@ def mapie_predict_set_impl(
             "pred": EastVector(IntegerType, y_pred.ravel().astype(np.int64)),
             # Convert boolean mask to class indices (where mask is 1)
             "sets": EastArray(
-                ArrayType(ArrayType(IntegerType)),
-                [EastArray(ArrayType(IntegerType), s) for s in sets_remapped],
+                ArrayType(IntegerType),
+                [EastArray(IntegerType, s) for s in sets_remapped],
             ),
             "probabilities": EastMatrix(FloatType, np.atleast_2d(proba).astype(np.float64)),
             "set_sizes": EastVector(IntegerType, set_sizes.ravel().astype(np.int64)),
@@ -1156,6 +1187,11 @@ def mapie_predict_set_impl(
 # ============================================================================
 
 
+@platform_function(
+    name="mapie_uncertainty_predictor_regressor",
+    inputs=[MAPIERegressorBlobType],
+    output=UncertaintyPredictorType,
+)
 def mapie_uncertainty_predictor_regressor_impl(
     model_blob: EastVariant,
 ) -> EastVariant:
@@ -1190,6 +1226,11 @@ def mapie_uncertainty_predictor_regressor_impl(
     )
 
 
+@platform_function(
+    name="mapie_uncertainty_predictor_classifier",
+    inputs=[MAPIEClassifierBlobType],
+    output=UncertaintyPredictorType,
+)
 def mapie_uncertainty_predictor_classifier_impl(
     model_blob: EastVariant,
 ) -> EastVariant:
@@ -1221,66 +1262,8 @@ def mapie_uncertainty_predictor_classifier_impl(
 # Platform Function Registration
 # ============================================================================
 
-mapie_impl = [
-    # Regression
-    PlatformFunction(
-        name="mapie_train_conformal_regressor",
-        inputs=[MatrixType(FloatType), VectorType(FloatType), MatrixType(FloatType), VectorType(FloatType), MAPIEConfigType],
-        output=MAPIERegressorBlobType,
-        type="sync",
-        fn=mapie_train_conformal_regressor_impl,
-    ),
-    PlatformFunction(
-        name="mapie_train_cqr",
-        inputs=[MatrixType(FloatType), VectorType(FloatType), MatrixType(FloatType), VectorType(FloatType), MAPIECQRConfigType],
-        output=MAPIERegressorBlobType,
-        type="sync",
-        fn=mapie_train_cqr_impl,
-    ),
-    PlatformFunction(
-        name="mapie_predict_interval",
-        inputs=[MAPIERegressorBlobType, MatrixType(FloatType)],
-        output=IntervalResultType,
-        type="sync",
-        fn=mapie_predict_interval_impl,
-    ),
-    # Classification
-    PlatformFunction(
-        name="mapie_train_conformal_classifier",
-        inputs=[
-            MatrixType(FloatType),
-            VectorType(IntegerType),
-            MatrixType(FloatType),
-            VectorType(IntegerType),
-            MAPIEClassifierConfigType,
-        ],
-        output=MAPIEClassifierBlobType,
-        type="sync",
-        fn=mapie_train_conformal_classifier_impl,
-    ),
-    PlatformFunction(
-        name="mapie_predict_set",
-        inputs=[MAPIEClassifierBlobType, MatrixType(FloatType)],
-        output=PredictionSetResultType,
-        type="sync",
-        fn=mapie_predict_set_impl,
-    ),
-    # SHAP integration (uncertainty predictors)
-    PlatformFunction(
-        name="mapie_uncertainty_predictor_regressor",
-        inputs=[MAPIERegressorBlobType],
-        output=UncertaintyPredictorType,
-        type="sync",
-        fn=mapie_uncertainty_predictor_regressor_impl,
-    ),
-    PlatformFunction(
-        name="mapie_uncertainty_predictor_classifier",
-        inputs=[MAPIEClassifierBlobType],
-        output=UncertaintyPredictorType,
-        type="sync",
-        fn=mapie_uncertainty_predictor_classifier_impl,
-    ),
-]
+# Collected from the @platform_function decorations above.
+mapie_impl = platform_functions(__name__)
 
 __all__ = [
     "mapie_impl",

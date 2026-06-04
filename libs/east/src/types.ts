@@ -672,7 +672,9 @@ export type ImmutableType =
   | BlobType
   | StructType
   | VariantType
-  | RecursiveType;
+  | RecursiveType
+  | VectorType
+  | MatrixType;
 
 /**
  * Checks if a type is a pure data type (excludes functions).
@@ -757,7 +759,8 @@ export function isImmutableType(type: EastType, recursive_type?: EastType): type
     // Dict are mutable
     return false;
   } else if (type.type === "Vector" || type.type === "Matrix") {
-    return false;
+    // Vectors and Matrices are immutable value types
+    return true;
   } else if (type.type === "Struct") {
     for (const field_type of Object.values(type.fields)) {
       if (!isImmutableType(field_type, recursive_type)) {

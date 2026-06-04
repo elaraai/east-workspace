@@ -10,11 +10,12 @@ Provides filesystem operations for East programs running in Python.
 import os
 from pathlib import Path
 
-from east.runtime.platform import PlatformFunction
+from east.runtime.platform import platform_function, platform_functions
 from east.types.types import ArrayType, BlobType, BooleanType, NullType, StringType
 from east.types.values import EastArray, EastBlob
 
 
+@platform_function(name="fs_read_file", inputs=[StringType], output=StringType)
 def fs_read_file_impl(path: str) -> str:
     """Read entire file contents as UTF-8 text.
 
@@ -27,6 +28,7 @@ def fs_read_file_impl(path: str) -> str:
     return Path(path).read_text(encoding="utf-8")
 
 
+@platform_function(name="fs_write_file", inputs=[StringType, StringType], output=NullType)
 def fs_write_file_impl(path: str, content: str) -> None:
     """Write UTF-8 string to file.
 
@@ -37,6 +39,7 @@ def fs_write_file_impl(path: str, content: str) -> None:
     Path(path).write_text(content, encoding="utf-8")
 
 
+@platform_function(name="fs_append_file", inputs=[StringType, StringType], output=NullType)
 def fs_append_file_impl(path: str, content: str) -> None:
     """Append UTF-8 string to end of file.
 
@@ -48,6 +51,7 @@ def fs_append_file_impl(path: str, content: str) -> None:
         f.write(content)
 
 
+@platform_function(name="fs_delete_file", inputs=[StringType], output=NullType)
 def fs_delete_file_impl(path: str) -> None:
     """Delete a file.
 
@@ -57,6 +61,7 @@ def fs_delete_file_impl(path: str) -> None:
     os.remove(path)
 
 
+@platform_function(name="fs_exists", inputs=[StringType], output=BooleanType)
 def fs_exists_impl(path: str) -> bool:
     """Check if file or directory exists.
 
@@ -69,6 +74,7 @@ def fs_exists_impl(path: str) -> bool:
     return os.path.exists(path)
 
 
+@platform_function(name="fs_is_file", inputs=[StringType], output=BooleanType)
 def fs_is_file_impl(path: str) -> bool:
     """Check if path is a regular file.
 
@@ -81,6 +87,7 @@ def fs_is_file_impl(path: str) -> bool:
     return os.path.isfile(path)
 
 
+@platform_function(name="fs_is_directory", inputs=[StringType], output=BooleanType)
 def fs_is_directory_impl(path: str) -> bool:
     """Check if path is a directory.
 
@@ -93,6 +100,7 @@ def fs_is_directory_impl(path: str) -> bool:
     return os.path.isdir(path)
 
 
+@platform_function(name="fs_create_directory", inputs=[StringType], output=NullType)
 def fs_create_directory_impl(path: str) -> None:
     """Create directory with all necessary parent directories.
 
@@ -102,6 +110,7 @@ def fs_create_directory_impl(path: str) -> None:
     os.makedirs(path, exist_ok=True)
 
 
+@platform_function(name="fs_read_directory", inputs=[StringType], output=ArrayType(StringType))
 def fs_read_directory_impl(path: str) -> EastArray:
     """List files and directories within a directory.
 
@@ -115,6 +124,7 @@ def fs_read_directory_impl(path: str) -> EastArray:
     return EastArray(StringType, entries)
 
 
+@platform_function(name="fs_read_file_bytes", inputs=[StringType], output=BlobType)
 def fs_read_file_bytes_impl(path: str) -> EastBlob:
     """Read entire file contents as raw binary data.
 
@@ -127,6 +137,7 @@ def fs_read_file_bytes_impl(path: str) -> EastBlob:
     return EastBlob(Path(path).read_bytes())
 
 
+@platform_function(name="fs_write_file_bytes", inputs=[StringType, BlobType], output=NullType)
 def fs_write_file_bytes_impl(path: str, content: bytes) -> None:
     """Write raw binary data to file.
 
@@ -137,86 +148,8 @@ def fs_write_file_bytes_impl(path: str, content: bytes) -> None:
     Path(path).write_bytes(content)
 
 
-# Platform function implementations
-fs_impl = [
-    PlatformFunction(
-        name="fs_read_file",
-        inputs=[StringType],
-        output=StringType,
-        type="sync",
-        fn=fs_read_file_impl,
-    ),
-    PlatformFunction(
-        name="fs_write_file",
-        inputs=[StringType, StringType],
-        output=NullType,
-        type="sync",
-        fn=fs_write_file_impl,
-    ),
-    PlatformFunction(
-        name="fs_append_file",
-        inputs=[StringType, StringType],
-        output=NullType,
-        type="sync",
-        fn=fs_append_file_impl,
-    ),
-    PlatformFunction(
-        name="fs_delete_file",
-        inputs=[StringType],
-        output=NullType,
-        type="sync",
-        fn=fs_delete_file_impl,
-    ),
-    PlatformFunction(
-        name="fs_exists",
-        inputs=[StringType],
-        output=BooleanType,
-        type="sync",
-        fn=fs_exists_impl,
-    ),
-    PlatformFunction(
-        name="fs_is_file",
-        inputs=[StringType],
-        output=BooleanType,
-        type="sync",
-        fn=fs_is_file_impl,
-    ),
-    PlatformFunction(
-        name="fs_is_directory",
-        inputs=[StringType],
-        output=BooleanType,
-        type="sync",
-        fn=fs_is_directory_impl,
-    ),
-    PlatformFunction(
-        name="fs_create_directory",
-        inputs=[StringType],
-        output=NullType,
-        type="sync",
-        fn=fs_create_directory_impl,
-    ),
-    PlatformFunction(
-        name="fs_read_directory",
-        inputs=[StringType],
-        output=ArrayType(StringType),
-        type="sync",
-        fn=fs_read_directory_impl,
-    ),
-    PlatformFunction(
-        name="fs_read_file_bytes",
-        inputs=[StringType],
-        output=BlobType,
-        type="sync",
-        fn=fs_read_file_bytes_impl,
-    ),
-    PlatformFunction(
-        name="fs_write_file_bytes",
-        inputs=[StringType, BlobType],
-        output=NullType,
-        type="sync",
-        fn=fs_write_file_bytes_impl,
-    ),
-]
+# Collected from the @platform_function decorations above.
+fs_impl = platform_functions(__name__)
 
 
 __all__ = ["fs_impl"]

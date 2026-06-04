@@ -4,10 +4,9 @@
  */
 import type { AST } from "../ast.js";
 import { get_location_id } from "../location.js";
-import { IntegerType, VectorType, MatrixType, NullType, FunctionType, ArrayType, type EastType, type NeverType, isSubtype, printType, isTypeEqual } from "../types.js";
+import { IntegerType, VectorType, MatrixType, FunctionType, ArrayType, type EastType, type NeverType, isSubtype, printType, isTypeEqual } from "../types.js";
 import { valueOrExprToAst, valueOrExprToAstTyped } from "./ast.js";
 import type { IntegerExpr } from "./integer.js";
-import type { NullExpr } from "./null.js";
 import { AstSymbol, Expr, FactorySymbol, TypeSymbol, type ToExpr } from "./expr.js";
 import type { SubtypeExprOrValue, ExprType, TypeOf } from "./types.js";
 import type { BlockBuilder } from "./block.js";
@@ -15,13 +14,13 @@ import type { ArrayExpr } from "./array.js";
 import type { MatrixExpr } from "./matrix.js";
 
 /**
- * Expression representing mutable vector (1D typed array) values and operations.
+ * Expression representing immutable vector (1D typed array) values and operations.
  *
  * VectorExpr provides methods for vector manipulation including element access,
- * mutation, slicing, concatenation, conversion, and higher-order operations.
- * Vectors are backed by contiguous typed arrays (Float64Array, BigInt64Array,
- * or Uint8Array) for efficient numeric computation and zero-copy interop
- * with ML libraries.
+ * functional update, slicing, concatenation, conversion, and higher-order
+ * operations. Vectors are backed by contiguous typed arrays (Float64Array,
+ * BigInt64Array, or Uint8Array) for efficient numeric computation and zero-copy
+ * interop with ML libraries.
  */
 export class VectorExpr<T extends any> extends Expr<VectorType<T>> {
   constructor(private element_type: T, ast: AST, createExpr: ToExpr) {
@@ -65,25 +64,25 @@ export class VectorExpr<T extends any> extends Expr<VectorType<T>> {
   }
 
   /**
-   * Sets the element at the specified index (mutates the vector).
+   * Returns a new vector with the element at the specified index replaced.
    *
    * @param index - The zero-based index to set
    * @param value - The new value to store at that index
-   * @returns NullExpr (operation performed for side effect)
+   * @returns A new VectorExpr with the element at index replaced by value
    *
    * @throws East runtime error if the index is out of bounds
    */
-  set(index: SubtypeExprOrValue<IntegerType>, value: SubtypeExprOrValue<T>): NullExpr {
+  set(index: SubtypeExprOrValue<IntegerType>, value: SubtypeExprOrValue<T>): VectorExpr<T> {
     const idx = valueOrExprToAstTyped(index, IntegerType);
     const val = valueOrExprToAstTyped(value, this.element_type as EastType);
     return this[FactorySymbol]({
       ast_type: "Builtin",
-      type: NullType,
+      type: VectorType(this.element_type as EastType),
       loc_id: get_location_id(),
       builtin: "VectorSet",
       type_parameters: [this.element_type as EastType],
       arguments: [this[AstSymbol], idx, val],
-    }) as NullExpr;
+    }) as VectorExpr<T>;
   }
 
   /**

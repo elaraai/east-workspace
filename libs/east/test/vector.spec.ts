@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, ArrayType, FloatType } from "../src/index.js";
+import { East, ArrayType, FloatType, SetType, DictType, VectorType, StringType } from "../src/index.js";
 import { describeEast as describe, assertEast as assert } from "./platforms.spec.js";
 import * as ex from "./vector.examples.js";
 
@@ -78,12 +78,14 @@ await describe("Vector", (test) => {
 
     test("Vector get and set", $ => {
         const v = $.let(East.Vector.zeros(3n));
-        $(v.set(0n, 10.0))
-        $(v.set(1n, 20.0))
-        $(v.set(2n, 30.0))
-        $(assert.equal(v.get(0n), 10.0))
-        $(assert.equal(v.get(1n), 20.0))
-        $(assert.equal(v.get(2n), 30.0))
+        const v1 = $.let(v.set(0n, 10.0));
+        const v2 = $.let(v1.set(1n, 20.0));
+        const v3 = $.let(v2.set(2n, 30.0));
+        $(assert.equal(v3.get(0n), 10.0))
+        $(assert.equal(v3.get(1n), 20.0))
+        $(assert.equal(v3.get(2n), 30.0))
+        // set is functional: the original is unchanged
+        $(assert.equal(v.get(0n), 0.0))
     });
 
     test("Vector bounds checking", $ => {
@@ -100,12 +102,12 @@ await describe("Vector", (test) => {
     });
 
     test("Vector slice", $ => {
-        const v = $.let(East.Vector.fill(5n, 0.0));
-        $(v.set(0n, 1.0))
-        $(v.set(1n, 2.0))
-        $(v.set(2n, 3.0))
-        $(v.set(3n, 4.0))
-        $(v.set(4n, 5.0))
+        const v0 = $.let(East.Vector.fill(5n, 0.0));
+        const v1 = $.let(v0.set(0n, 1.0));
+        const v2 = $.let(v1.set(1n, 2.0));
+        const v3 = $.let(v2.set(2n, 3.0));
+        const v4 = $.let(v3.set(3n, 4.0));
+        const v = $.let(v4.set(4n, 5.0));
         const s = $.let(v.slice(1n, 4n));
         $(assert.equal(s.length(), 3n))
         $(assert.equal(s.get(0n), 2.0))
@@ -186,10 +188,10 @@ await describe("Vector", (test) => {
     });
 
     test("Vector integer ops", $ => {
-        const v = $.let(East.Vector.fill(3n, 0n));
-        $(v.set(0n, 100n))
-        $(v.set(1n, 200n))
-        $(v.set(2n, 300n))
+        const v0 = $.let(East.Vector.fill(3n, 0n));
+        const v1 = $.let(v0.set(0n, 100n));
+        const v2 = $.let(v1.set(1n, 200n));
+        const v = $.let(v2.set(2n, 300n));
         $(assert.equal(v.length(), 3n))
         $(assert.equal(v.get(0n), 100n))
         $(assert.equal(v.get(1n), 200n))
@@ -197,8 +199,8 @@ await describe("Vector", (test) => {
     });
 
     test("Vector boolean ops", $ => {
-        const v = $.let(East.Vector.fill(3n, false));
-        $(v.set(0n, true))
+        const v0 = $.let(East.Vector.fill(3n, false));
+        const v = $.let(v0.set(0n, true));
         $(assert.equal(v.length(), 3n))
         $(assert.equal(v.get(0n), true))
         $(assert.equal(v.get(1n), false))
@@ -262,9 +264,9 @@ await describe("Vector", (test) => {
     });
 
     test("Vector to array boolean", $ => {
-        const v = $.let(East.Vector.fill(3n, false));
-        $(v.set(0n, true))
-        $(v.set(2n, true))
+        const v0 = $.let(East.Vector.fill(3n, false));
+        const v1 = $.let(v0.set(0n, true));
+        const v = $.let(v1.set(2n, true));
         const result = $.let(v.toArray());
         $(assert.equal(result, [true, false, true]))
     });
@@ -278,11 +280,11 @@ await describe("Vector", (test) => {
     });
 
     test("Vector boolean slice", $ => {
-        const v = $.let(East.Vector.fill(4n, false));
-        $(v.set(0n, true))
-        $(v.set(1n, false))
-        $(v.set(2n, true))
-        $(v.set(3n, true))
+        const v0 = $.let(East.Vector.fill(4n, false));
+        const v1 = $.let(v0.set(0n, true));
+        const v2 = $.let(v1.set(1n, false));
+        const v3 = $.let(v2.set(2n, true));
+        const v = $.let(v3.set(3n, true));
         const s = $.let(v.slice(1n, 3n));
         $(assert.equal(s.length(), 2n))
         $(assert.equal(s.get(0n), false))
@@ -301,8 +303,8 @@ await describe("Vector", (test) => {
     });
 
     test("Vector boolean map", $ => {
-        const v = $.let(East.Vector.fill(3n, true));
-        $(v.set(1n, false))
+        const v0 = $.let(East.Vector.fill(3n, true));
+        const v = $.let(v0.set(1n, false));
         const negated = $.let(v.map(($, x) => x.not()));
         $(assert.equal(negated.get(0n), false))
         $(assert.equal(negated.get(1n), true))
@@ -310,17 +312,17 @@ await describe("Vector", (test) => {
     });
 
     test("Vector boolean reduce", $ => {
-        const v = $.let(East.Vector.fill(3n, true));
-        $(v.set(1n, false))
+        const v0 = $.let(East.Vector.fill(3n, true));
+        const v = $.let(v0.set(1n, false));
         // count trues via ifElse: true→1n, false→0n, sum them
         const count = $.let(v.reduce(($, acc, val) => acc.add(val.ifElse(() => 1n, () => 0n)), 0n));
         $(assert.equal(count, 2n))
     });
 
     test("Vector boolean to matrix", $ => {
-        const v = $.let(East.Vector.fill(4n, false));
-        $(v.set(0n, true))
-        $(v.set(3n, true))
+        const v0 = $.let(East.Vector.fill(4n, false));
+        const v1 = $.let(v0.set(0n, true));
+        const v = $.let(v1.set(3n, true));
         const m = $.let(v.toMatrix(2n, 2n));
         $(assert.equal(m.rows(), 2n))
         $(assert.equal(m.cols(), 2n))
@@ -331,11 +333,11 @@ await describe("Vector", (test) => {
     });
 
     test("Vector integer slice", $ => {
-        const v = $.let(East.Vector.fill(4n, 0n));
-        $(v.set(0n, 10n))
-        $(v.set(1n, 20n))
-        $(v.set(2n, 30n))
-        $(v.set(3n, 40n))
+        const v0 = $.let(East.Vector.fill(4n, 0n));
+        const v1 = $.let(v0.set(0n, 10n));
+        const v2 = $.let(v1.set(1n, 20n));
+        const v3 = $.let(v2.set(2n, 30n));
+        const v = $.let(v3.set(3n, 40n));
         const s = $.let(v.slice(1n, 3n));
         $(assert.equal(s.length(), 2n))
         $(assert.equal(s.get(0n), 20n))
@@ -383,5 +385,27 @@ await describe("Vector", (test) => {
         const arr = $.let([], ArrayType(FloatType));
         const v = $.let(East.Vector.fromArray(arr));
         $(assert.equal(v.length(), 0n))
+    });
+
+    // Immutable vectors are valid Set/Dict keys (ordered by value via compareFor).
+    test("Vector as Set key", $ => {
+        const s = $.let(new Set([new Float64Array([1.0, 2.0]), new Float64Array([3.0, 4.0])]), SetType(VectorType(FloatType)));
+        $(assert.equal(s.size(), 2n))
+        $(assert.equal(s.has(new Float64Array([1.0, 2.0])), true))
+        $(assert.equal(s.has(new Float64Array([3.0, 4.0])), true))
+        $(assert.equal(s.has(new Float64Array([9.0, 9.0])), false))
+    });
+
+    test("Vector as Dict key", $ => {
+        // The Dict<Vector, String> constant round-trips through IR serialization
+        // (the compliance harness runs it on every backend) and keys are ordered
+        // by value via compareFor in the B-tree.
+        const dt = DictType(VectorType(FloatType), StringType);
+        const d = $.let(new Map([[new Float64Array([1.0, 2.0]), "a"], [new Float64Array([3.0, 4.0]), "b"]]), dt);
+        $(assert.equal(d.size(), 2n))
+        $(assert.equal(d.get(new Float64Array([1.0, 2.0])), "a"))
+        $(assert.equal(d.get(new Float64Array([3.0, 4.0])), "b"))
+        $(assert.equal(d.has(new Float64Array([1.0, 2.0])), true))
+        $(assert.equal(d.has(new Float64Array([9.0, 9.0])), false))
     });
 });

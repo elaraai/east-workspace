@@ -755,12 +755,11 @@ def is_immutable_type(typ: EastType, recursive_type: EastType | None = None) -> 
         or is_set_type(typ)
         or is_dict_type(typ)
         or is_ref_type(typ)
-        or is_vector_type(typ)
-        or is_matrix_type(typ)
         or is_function_type(typ)
         or is_async_function_type(typ)
     ):
         return False
+    # Vectors and Matrices are immutable value types (fall through to True).
     if is_struct_type(typ):
         return all(is_immutable_type(field["type"], recursive_type) for field in typ.value)
     if is_variant_type(typ):
@@ -800,6 +799,66 @@ def OptionType(value_type: EastType) -> EastVariant[list[VariantCaseDef]]:
         Variant type with 'some' and 'none' cases
     """
     return SomeType(value_type)
+
+
+def PatchType(type: EastType) -> EastType:
+    """Compute the patch type for ``type``.
+
+    A patch is the type of the diff between two values of ``type``, as produced
+    by ``East.diff`` (east-c ``Diff``) and consumed by ``East.apply_patch``.
+    Every patch is a variant with an ``unchanged`` case (``Null``) and a
+    ``replace`` case (``Struct{before, after}``); structural types add a
+    ``patch`` case describing the granular edit.
+
+    Args:
+        type: The East type whose patch type to compute.
+
+    Returns:
+        The patch type as an ``EastType``.
+    """
+    kind = type.type
+    unchanged = ("unchanged", NullType)
+    replace = ("replace", StructType([("before", type), ("after", type)]))
+
+    if kind == "Array":
+        element_type = type.value
+        operation = VariantType(
+            [
+                ("delete", element_type),
+                ("insert", element_type),
+                ("update", PatchType(element_type)),
+            ]
+        )
+        entry = StructType(
+            [("key", IntegerType), ("offset", IntegerType), ("operation", operation)]
+        )
+        return VariantType([unchanged, replace, ("patch", ArrayType(entry))])
+    if kind == "Set":
+        operation = VariantType([("delete", NullType), ("insert", NullType)])
+        return VariantType([unchanged, replace, ("patch", DictType(type.value, operation))])
+    if kind == "Dict":
+        value_type = type.value["value"]
+        operation = VariantType(
+            [
+                ("delete", value_type),
+                ("insert", value_type),
+                ("update", PatchType(value_type)),
+            ]
+        )
+        return VariantType(
+            [unchanged, replace, ("patch", DictType(type.value["key"], operation))]
+        )
+    if kind == "Struct":
+        patch_fields = [(f["name"], PatchType(f["type"])) for f in type.value]
+        return VariantType([unchanged, replace, ("patch", StructType(patch_fields))])
+    if kind == "Variant":
+        patch_cases = [(c["name"], PatchType(c["type"])) for c in type.value]
+        return VariantType([unchanged, replace, ("patch", VariantType(patch_cases))])
+    if kind == "Ref":
+        return VariantType([unchanged, replace, ("patch", PatchType(type.value))])
+    # Scalars, Vector/Matrix, Function/AsyncFunction, and recursive back-reference
+    # markers all carry replace-only semantics.
+    return VariantType([unchanged, replace])
 
 
 # =============================================================================
@@ -1806,6 +1865,7 @@ __all__ = [
     # Common type constructors
     "SomeType",
     "OptionType",
+    "PatchType",
     # Helper functions for working with types
     "field_names",
     "field_types",

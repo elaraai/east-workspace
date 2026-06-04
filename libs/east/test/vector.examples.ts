@@ -79,12 +79,12 @@ export const vectorGet = example({
 });
 
 export const vectorSet = example({
-    keywords: ["vector", "VectorType", "set", "element", "mutate"],
-    description: "Set an element in a vector by index",
+    keywords: ["vector", "VectorType", "set", "element", "immutable", "functional"],
+    description: "Set an element in a vector by index, returning a new vector",
     fn: East.function([], FloatType, ($) => {
         const v = $.let(East.Vector.zeros(3n));
-        $(v.set(1n, 42.0));
-        return v.get(1n);
+        const v2 = $.let(v.set(1n, 42.0));
+        return v2.get(1n);
     }),
     inputs: [],
     returns: 42.0,

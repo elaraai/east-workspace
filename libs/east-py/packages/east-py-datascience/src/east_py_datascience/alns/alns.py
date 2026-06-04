@@ -18,7 +18,7 @@ import importlib.util
 from collections.abc import Callable
 from typing import Any
 
-from east.runtime.platform import GenericPlatformFunction
+from east.runtime.platform import generic_platform_function, platform_functions
 from east.types.types import (
     ArrayType,
     BooleanType,
@@ -318,14 +318,17 @@ def alns_optimize_impl(
 # The factory receives the type parameter and returns the implementation.
 # Type safety is enforced at the TypeScript level.
 
-alns_impl = [
-    GenericPlatformFunction(
-        name="alns_optimize",
-        type_parameters=["S"],
-        type="sync",
-        fn=lambda _platform_list, S: alns_optimize_impl,
-    ),
-]
+@generic_platform_function(
+    name="alns_optimize",
+    type_parameters=["S"],
+    is_async=False,
+)
+def _alns_optimize_factory(_platform_list: Any, S: Any) -> Callable:  # noqa: N803
+    return alns_optimize_impl
+
+
+# Collected from the @generic_platform_function decoration above.
+alns_impl = platform_functions(__name__)
 
 
 __all__ = [

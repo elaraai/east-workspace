@@ -5,6 +5,21 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* Cross-DLL export marker for extern DATA symbols (the type/value singletons
+ * declared in this header, type_of_type.h, and values.h). On Windows a DLL's
+ * exported data must be __declspec(dllimport) in consumers and dllexport in the
+ * DLL; functions auto-export via the import library, so only data needs this.
+ * Empty for the static library and on non-Windows. east-py's shared-east-c DLL
+ * build defines EAST_C_DLL_EXPORTS (the object lib) / EAST_C_DLL_IMPORTS (the
+ * extensions); the standalone static CLI defines neither. */
+#if defined(_WIN32) && defined(EAST_C_DLL_EXPORTS)
+#define EAST_DATA __declspec(dllexport)
+#elif defined(_WIN32) && defined(EAST_C_DLL_IMPORTS)
+#define EAST_DATA __declspec(dllimport)
+#else
+#define EAST_DATA
+#endif
+
 typedef enum {
     EAST_TYPE_NEVER,
     EAST_TYPE_NULL,
@@ -90,14 +105,14 @@ struct EastType {
 };
 
 // Primitive type singletons (never freed)
-extern EastType east_never_type;
-extern EastType east_null_type;
-extern EastType east_boolean_type;
-extern EastType east_integer_type;
-extern EastType east_float_type;
-extern EastType east_string_type;
-extern EastType east_datetime_type;
-extern EastType east_blob_type;
+extern EAST_DATA EastType east_never_type;
+extern EAST_DATA EastType east_null_type;
+extern EAST_DATA EastType east_boolean_type;
+extern EAST_DATA EastType east_integer_type;
+extern EAST_DATA EastType east_float_type;
+extern EAST_DATA EastType east_string_type;
+extern EAST_DATA EastType east_datetime_type;
+extern EAST_DATA EastType east_blob_type;
 
 // Constructors (return ref_count=1)
 EastType *east_array_type(EastType *elem);

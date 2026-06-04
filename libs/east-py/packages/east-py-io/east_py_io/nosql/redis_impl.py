@@ -12,7 +12,7 @@ import importlib.util
 import uuid
 from typing import Any
 
-from east.runtime.platform import PlatformFunction
+from east.runtime.platform import platform_function, platform_functions
 
 _HAS_REDIS_SUPPORT = importlib.util.find_spec("redis") is not None
 
@@ -33,6 +33,11 @@ from .types import ConnectionHandleType, RedisConfigType
 _clients: dict[str, Any] = {}
 
 
+@platform_function(
+    name="redis_connect",
+    inputs=[RedisConfigType],
+    output=ConnectionHandleType,
+)
 async def redis_connect_impl(config: EastStruct) -> str:
     """Connect to a Redis server."""
     _check_redis_support()
@@ -69,6 +74,11 @@ async def redis_connect_impl(config: EastStruct) -> str:
         raise Exception(f"Redis connection failed: {e}") from e
 
 
+@platform_function(
+    name="redis_get",
+    inputs=[ConnectionHandleType, StringType],
+    output=OptionType(StringType),
+)
 async def redis_get_impl(handle: str, key: str) -> EastVariant:
     """Get a value by key from Redis."""
     try:
@@ -86,6 +96,11 @@ async def redis_get_impl(handle: str, key: str) -> EastVariant:
         raise Exception(f"Redis get failed: {e}") from e
 
 
+@platform_function(
+    name="redis_set",
+    inputs=[ConnectionHandleType, StringType, StringType],
+    output=NullType,
+)
 async def redis_set_impl(handle: str, key: str, value: str) -> None:
     """Set a key-value pair in Redis."""
     try:
@@ -98,6 +113,11 @@ async def redis_set_impl(handle: str, key: str, value: str) -> None:
         raise Exception(f"Redis set failed: {e}") from e
 
 
+@platform_function(
+    name="redis_setex",
+    inputs=[ConnectionHandleType, StringType, StringType, IntegerType],
+    output=NullType,
+)
 async def redis_setex_impl(handle: str, key: str, value: str, ttl: int) -> None:
     """Set a key-value pair with expiration in Redis."""
     try:
@@ -110,6 +130,11 @@ async def redis_setex_impl(handle: str, key: str, value: str, ttl: int) -> None:
         raise Exception(f"Redis setex failed: {e}") from e
 
 
+@platform_function(
+    name="redis_del",
+    inputs=[ConnectionHandleType, StringType],
+    output=IntegerType,
+)
 async def redis_del_impl(handle: str, key: str) -> int:
     """Delete a key from Redis."""
     try:
@@ -123,6 +148,11 @@ async def redis_del_impl(handle: str, key: str) -> int:
         raise Exception(f"Redis del failed: {e}") from e
 
 
+@platform_function(
+    name="redis_close",
+    inputs=[ConnectionHandleType],
+    output=NullType,
+)
 async def redis_close_impl(handle: str) -> None:
     """Close a Redis connection."""
     try:
@@ -136,6 +166,11 @@ async def redis_close_impl(handle: str) -> None:
         raise Exception(f"Redis close failed: {e}") from e
 
 
+@platform_function(
+    name="redis_close_all",
+    inputs=[],
+    output=NullType,
+)
 async def redis_close_all_impl() -> None:
     """Close all Redis connections."""
     for client in _clients.values():
@@ -143,58 +178,8 @@ async def redis_close_all_impl() -> None:
     _clients.clear()
 
 
-# Platform function implementations
-redis_impl = [
-    PlatformFunction(
-        name="redis_connect",
-        inputs=[RedisConfigType],
-        output=ConnectionHandleType,
-        type="async",
-        fn=redis_connect_impl,
-    ),
-    PlatformFunction(
-        name="redis_get",
-        inputs=[ConnectionHandleType, StringType],
-        output=OptionType(StringType),
-        type="async",
-        fn=redis_get_impl,
-    ),
-    PlatformFunction(
-        name="redis_set",
-        inputs=[ConnectionHandleType, StringType, StringType],
-        output=NullType,
-        type="async",
-        fn=redis_set_impl,
-    ),
-    PlatformFunction(
-        name="redis_setex",
-        inputs=[ConnectionHandleType, StringType, StringType, IntegerType],
-        output=NullType,
-        type="async",
-        fn=redis_setex_impl,
-    ),
-    PlatformFunction(
-        name="redis_del",
-        inputs=[ConnectionHandleType, StringType],
-        output=IntegerType,
-        type="async",
-        fn=redis_del_impl,
-    ),
-    PlatformFunction(
-        name="redis_close",
-        inputs=[ConnectionHandleType],
-        output=NullType,
-        type="async",
-        fn=redis_close_impl,
-    ),
-    PlatformFunction(
-        name="redis_close_all",
-        inputs=[],
-        output=NullType,
-        type="async",
-        fn=redis_close_all_impl,
-    ),
-]
+# Collected from the @platform_function decorations above.
+redis_impl = platform_functions(__name__)
 
 __all__ = [
     "redis_impl",

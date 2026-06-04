@@ -45,6 +45,14 @@ EastCompiledFn *east_compile(IRNode *ir, PlatformRegistry *platform, BuiltinRegi
 EvalResult east_call(EastCompiledFn *fn, EastValue **args, size_t num_args);
 void east_compiled_fn_free(EastCompiledFn *fn);
 
+/* Build a function VALUE backed by a foreign-runtime invoke hook (e.g. a
+ * Python callable). `invoke` is called with (self, args, n); read your handle
+ * from `self->invoke_userdata`. `invoke_release` runs once when the value is
+ * freed. `fn_type` is borrowed (not owned). Returns a function EastValue the
+ * caller owns (NULL on allocation failure). */
+EastValue *east_foreign_function(EastInvokeFn invoke, void *userdata,
+                                 void (*invoke_release)(void *userdata), EastType *fn_type);
+
 // Internal evaluation
 EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                    BuiltinRegistry *builtins);

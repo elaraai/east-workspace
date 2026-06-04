@@ -10,11 +10,12 @@ Provides path operations for East programs running in Python.
 import posixpath
 from pathlib import Path as PathLib
 
-from east.runtime.platform import PlatformFunction
+from east.runtime.platform import platform_function, platform_functions
 from east.types.types import ArrayType, StringType
 from east.types.values import EastArray
 
 
+@platform_function(name="path_join", inputs=[ArrayType(StringType)], output=StringType)
 def path_join_impl(segments: EastArray) -> str:
     """Join path segments into a single path.
 
@@ -29,6 +30,7 @@ def path_join_impl(segments: EastArray) -> str:
     return posixpath.join(*segments)
 
 
+@platform_function(name="path_resolve", inputs=[StringType], output=StringType)
 def path_resolve_impl(path: str) -> str:
     """Resolve path to an absolute path.
 
@@ -41,6 +43,7 @@ def path_resolve_impl(path: str) -> str:
     return str(PathLib(path).resolve())
 
 
+@platform_function(name="path_dirname", inputs=[StringType], output=StringType)
 def path_dirname_impl(path: str) -> str:
     """Get directory name from a path.
 
@@ -53,6 +56,7 @@ def path_dirname_impl(path: str) -> str:
     return posixpath.dirname(path)
 
 
+@platform_function(name="path_basename", inputs=[StringType], output=StringType)
 def path_basename_impl(path: str) -> str:
     """Get base name (file name) from a path.
 
@@ -65,6 +69,7 @@ def path_basename_impl(path: str) -> str:
     return posixpath.basename(path)
 
 
+@platform_function(name="path_extname", inputs=[StringType], output=StringType)
 def path_extname_impl(path: str) -> str:
     """Get file extension from a path.
 
@@ -77,44 +82,8 @@ def path_extname_impl(path: str) -> str:
     return posixpath.splitext(path)[1]
 
 
-# Platform function implementations
-path_impl = [
-    PlatformFunction(
-        name="path_join",
-        inputs=[ArrayType(StringType)],
-        output=StringType,
-        type="sync",
-        fn=path_join_impl,
-    ),
-    PlatformFunction(
-        name="path_resolve",
-        inputs=[StringType],
-        output=StringType,
-        type="sync",
-        fn=path_resolve_impl,
-    ),
-    PlatformFunction(
-        name="path_dirname",
-        inputs=[StringType],
-        output=StringType,
-        type="sync",
-        fn=path_dirname_impl,
-    ),
-    PlatformFunction(
-        name="path_basename",
-        inputs=[StringType],
-        output=StringType,
-        type="sync",
-        fn=path_basename_impl,
-    ),
-    PlatformFunction(
-        name="path_extname",
-        inputs=[StringType],
-        output=StringType,
-        type="sync",
-        fn=path_extname_impl,
-    ),
-]
+# Collected from the @platform_function decorations above.
+path_impl = platform_functions(__name__)
 
 
 __all__ = ["path_impl"]

@@ -12,10 +12,11 @@ import time
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
-from east.runtime.platform import PlatformFunction
+from east.runtime.platform import platform_function, platform_functions
 from east.types.types import DateTimeType, IntegerType, NullType, StringType
 
 
+@platform_function(name="time_now", inputs=[], output=IntegerType)
 def time_now_impl() -> int:
     """Get current Unix timestamp in milliseconds.
 
@@ -25,6 +26,7 @@ def time_now_impl() -> int:
     return int(time.time() * 1000)
 
 
+@platform_function(name="time_sleep", inputs=[IntegerType], output=NullType)
 async def time_sleep_impl(ms: int) -> None:
     """Sleep for specified number of milliseconds.
 
@@ -39,6 +41,11 @@ async def time_sleep_impl(ms: int) -> None:
     await asyncio.sleep(ms / 1000.0)
 
 
+@platform_function(
+    name="time_get_timezone_offset",
+    inputs=[DateTimeType, StringType],
+    output=IntegerType,
+)
 def time_get_timezone_offset_impl(dt: datetime, zone_name: str) -> int:
     """Get the UTC offset in minutes for an IANA timezone at a given UTC datetime.
 
@@ -78,30 +85,8 @@ def time_get_timezone_offset_impl(dt: datetime, zone_name: str) -> int:
     return int(offset.total_seconds() / 60)
 
 
-# Platform function implementations
-time_impl = [
-    PlatformFunction(
-        name="time_now",
-        inputs=[],
-        output=IntegerType,
-        type="sync",
-        fn=time_now_impl,
-    ),
-    PlatformFunction(
-        name="time_sleep",
-        inputs=[IntegerType],
-        output=NullType,
-        type="async",
-        fn=time_sleep_impl,
-    ),
-    PlatformFunction(
-        name="time_get_timezone_offset",
-        inputs=[DateTimeType, StringType],
-        output=IntegerType,
-        type="sync",
-        fn=time_get_timezone_offset_impl,
-    ),
-]
+# Collected from the @platform_function decorations above.
+time_impl = platform_functions(__name__)
 
 
 __all__ = ["time_impl"]

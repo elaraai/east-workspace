@@ -1,13 +1,15 @@
 # east-py-datascience native build — driven by scikit-build-core via pyproject.toml.
 #
 # Compiles the 2 .pyx files under src/east_py_datascience/ into Python
-# extension modules, links them against east-c (built fresh via
-# add_subdirectory).
+# extension modules and links them against the SINGLE shared libeast-c.so
+# shipped by the core `east` package (consumed via RUNPATH, not embedded).
 #
 # Mirrors packages/east-py/CMakeLists.txt — same monorepo-walk + PCRE2
-# fetch + east-c build pattern. The only differences are the source
-# directory layout (src/east_py_datascience/ vs east/) and the smaller
-# .pyx file set.
+# fetch + east-c build + shared-repackage pattern. The differences are the
+# source layout (src/east_py_datascience/ vs east/), the smaller .pyx set,
+# that this package does NOT install its own libeast-c.so (core ships the one
+# copy), and the deeper RUNPATH ($ORIGIN/../../east, since the extensions sit
+# one subdir below a sibling of east/).
 cmake_minimum_required(VERSION 3.18)
 project(east_py_datascience_native LANGUAGES C)
 
@@ -72,11 +74,69 @@ FetchContent_MakeAvailable(pcre2)
 set(EAST_USE_MIMALLOC OFF CACHE BOOL "" FORCE)
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 
+# Windows builds the shared east-c as a DLL from east-c's OBJECT twin (see below).
+if(WIN32)
+    set(EAST_C_BUILD_OBJECT ON CACHE BOOL "" FORCE)
+endif()
+
 add_subdirectory(
     ${EAST_C_DIR}
     ${CMAKE_BINARY_DIR}/_deps/east-c
     EXCLUDE_FROM_ALL
 )
+
+# ────────────────────────────────────────────────────────────────────────
+# Single shared east-c — consumed, not shipped.
+#
+# Like core (packages/east-py/CMakeLists.txt), each extension must link east-c
+# as a shared library rather than embed its own static copy: a static copy
+# carries east-c's global state (the value slab, the IR-type singleton, the
+# error register), and Python loads extension modules RTLD_LOCAL, so the copies
+# don't interpose. A value built by a datascience platform function and freed by
+# core's interpreter (or a core-compiled objective called back from here) would
+# otherwise be allocated in one slab and freed in another — leaking the origin
+# slab, underflowing the freeing slab.
+#
+# We build our OWN east-c-shared here only so the extensions get a dependency on
+# the ONE east-c (by soname libeast-c.so on Unix, by import name east_c_shared.dll
+# on Windows) to link against; it is NOT installed. The one true east-c is shipped
+# by the core `east` package (a sibling of east_py_datascience/ in site-packages).
+# Unix resolves it via the extensions' $ORIGIN/../../east RUNPATH; Windows (no
+# RUNPATH) via os.add_dll_directory(<east/>) in __init__.py. Windows splices the
+# OBJECT twin into the DLL (WINDOWS_EXPORT_ALL_SYMBOLS won't export a static
+# archive's members); the DLL gets a distinct basename so its import .lib doesn't
+# collide with the static east-c.lib.
+if(WIN32)
+    add_library(east-c-shared SHARED $<TARGET_OBJECTS:east-c-obj>)
+    add_dependencies(east-c-shared east-c-obj)
+    set_target_properties(east-c-shared PROPERTIES
+        OUTPUT_NAME                east_c_shared
+        ARCHIVE_OUTPUT_NAME        east_c_shared
+        WINDOWS_EXPORT_ALL_SYMBOLS ON)
+    target_link_libraries(east-c-shared PRIVATE pcre2-8 btreec)
+    set(EAST_PY_LINK_EASTC east-c-shared)
+    # NO install(TARGETS east-c-shared) — core ships the one copy.
+else()
+    set(_eastc_shared_stub "${CMAKE_BINARY_DIR}/east_c_shared_stub.c")
+    file(WRITE ${_eastc_shared_stub}
+         "/* Repackages the static east-c archive as one shared library. */\n")
+    add_library(east-c-shared SHARED ${_eastc_shared_stub})
+    set_target_properties(east-c-shared PROPERTIES OUTPUT_NAME east-c)
+    add_dependencies(east-c-shared east-c)
+
+    if(APPLE)
+        target_link_options(east-c-shared PRIVATE
+            "LINKER:-force_load,$<TARGET_FILE:east-c>")
+        target_link_libraries(east-c-shared PRIVATE pcre2-8 btreec)
+    else()
+        target_link_options(east-c-shared PRIVATE
+            "LINKER:--whole-archive,$<TARGET_FILE:east-c>,--no-whole-archive"
+            "LINKER:--exclude-libs,libpcre2-8.a"
+            "LINKER:--exclude-libs,libbtreec.a")
+        target_link_libraries(east-c-shared PRIVATE pcre2-8 btreec m)
+    endif()
+    set(EAST_PY_LINK_EASTC east-c-shared)
+endif()
 
 # ────────────────────────────────────────────────────────────────────────
 # Python + NumPy + Cython
@@ -125,7 +185,27 @@ foreach(pyx ${PYX_FILES})
         ${Python_NumPy_INCLUDE_DIRS}
         ${EAST_PY_PXD_DIR}
     )
-    target_link_libraries(${name} PRIVATE east-c)
+    target_link_libraries(${name} PRIVATE ${EAST_PY_LINK_EASTC})
+    # Consume east-c's exported DATA singletons as dllimport (Windows DLL); no-op
+    # off Windows.
+    if(WIN32)
+        target_compile_definitions(${name} PRIVATE EAST_C_DLL_IMPORTS)
+    endif()
+    # libeast-c.so is shipped by the core `east` package, a sibling of
+    # east_py_datascience/ in site-packages. Both .pyx live one subdir deep
+    # (optimization/, simulation/), so the hop to the sibling east/ package is
+    # $ORIGIN/../../east; a top-level extension would be $ORIGIN/../east.
+    if(install_subdir STREQUAL "")
+        set(_eastc_origin "$ORIGIN/../east")
+    else()
+        set(_eastc_origin "$ORIGIN/../../east")
+    endif()
+    if(APPLE)
+        string(REPLACE "$ORIGIN" "@loader_path" _eastc_origin "${_eastc_origin}")
+    endif()
+    if(NOT WIN32)
+        set_target_properties(${name} PROPERTIES INSTALL_RPATH "${_eastc_origin}")
+    endif()
     # libm is part of the CRT on Windows/MSVC; link the separate libm elsewhere.
     if(NOT WIN32)
         target_link_libraries(${name} PRIVATE m)

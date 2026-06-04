@@ -8,15 +8,13 @@ Provides East type definitions for SQL database operations including
 connection configurations, query parameters, and result types.
 """
 
+from east.types.type_of_type import LiteralValueType
 from east.types.types import (
     ArrayType,
     BlobType,
     BooleanType,
-    DateTimeType,
     DictType,
-    FloatType,
     IntegerType,
-    NullType,
     OptionType,
     StringType,
     StructType,
@@ -61,18 +59,9 @@ MySqlConfigType = StructType(
 # Connection handle type
 ConnectionHandleType = StringType
 
-# SQL parameter type (accepts any East value)
-SqlParameterType = VariantType(
-    [
-        ("String", StringType),
-        ("Integer", IntegerType),
-        ("Float", FloatType),
-        ("Boolean", BooleanType),
-        ("Null", NullType),
-        ("Blob", BlobType),
-        ("DateTime", DateTimeType),
-    ]
-)
+# SQL parameter type (accepts any East value) — the canonical IR literal type,
+# matching TypeScript's `SqlParameterType = LiteralValueType`.
+SqlParameterType = LiteralValueType
 
 SqlParametersType = ArrayType(SqlParameterType)
 

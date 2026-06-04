@@ -11,7 +11,7 @@ import importlib.util
 import uuid
 from typing import Any
 
-from east.runtime.platform import PlatformFunction
+from east.runtime.platform import platform_function, platform_functions
 
 _HAS_SFTP_SUPPORT = importlib.util.find_spec("asyncssh") is not None
 
@@ -32,6 +32,11 @@ from .types import ConnectionHandleType, FileEntryType, FileListType, SftpConfig
 _connections: dict[str, tuple[Any, Any]] = {}
 
 
+@platform_function(
+    name="sftp_connect",
+    inputs=[SftpConfigType],
+    output=ConnectionHandleType,
+)
 async def sftp_connect_impl(config: EastStruct) -> str:
     """Connect to an SFTP server."""
     _check_sftp_support()
@@ -76,6 +81,11 @@ async def sftp_connect_impl(config: EastStruct) -> str:
         raise Exception(f"SFTP connection failed: {e}") from e
 
 
+@platform_function(
+    name="sftp_put",
+    inputs=[ConnectionHandleType, StringType, BlobType],
+    output=NullType,
+)
 async def sftp_put_impl(handle: str, remote_path: str, data: EastBlob) -> None:
     """Upload a file to SFTP server."""
     try:
@@ -90,6 +100,11 @@ async def sftp_put_impl(handle: str, remote_path: str, data: EastBlob) -> None:
         raise Exception(f"SFTP put failed: {e}") from e
 
 
+@platform_function(
+    name="sftp_get",
+    inputs=[ConnectionHandleType, StringType],
+    output=BlobType,
+)
 async def sftp_get_impl(handle: str, remote_path: str) -> EastBlob:
     """Download a file from SFTP server."""
     try:
@@ -105,6 +120,11 @@ async def sftp_get_impl(handle: str, remote_path: str) -> EastBlob:
         raise Exception(f"SFTP get failed: {e}") from e
 
 
+@platform_function(
+    name="sftp_list",
+    inputs=[ConnectionHandleType, StringType],
+    output=FileListType,
+)
 async def sftp_list_impl(handle: str, remote_path: str) -> EastArray:
     """List files in a directory on SFTP server."""
     import asyncssh
@@ -134,6 +154,11 @@ async def sftp_list_impl(handle: str, remote_path: str) -> EastArray:
         raise Exception(f"SFTP list failed: {e}") from e
 
 
+@platform_function(
+    name="sftp_delete",
+    inputs=[ConnectionHandleType, StringType],
+    output=NullType,
+)
 async def sftp_delete_impl(handle: str, remote_path: str) -> None:
     """Delete a file from SFTP server."""
     try:
@@ -146,6 +171,11 @@ async def sftp_delete_impl(handle: str, remote_path: str) -> None:
         raise Exception(f"SFTP delete failed: {e}") from e
 
 
+@platform_function(
+    name="sftp_close",
+    inputs=[ConnectionHandleType],
+    output=NullType,
+)
 async def sftp_close_impl(handle: str) -> None:
     """Close SFTP connection."""
     try:
@@ -160,6 +190,11 @@ async def sftp_close_impl(handle: str) -> None:
         raise Exception(f"SFTP close failed: {e}") from e
 
 
+@platform_function(
+    name="sftp_close_all",
+    inputs=[],
+    output=NullType,
+)
 async def sftp_close_all_impl() -> None:
     """Close all SFTP connections."""
     for conn, sftp in _connections.values():
@@ -171,58 +206,8 @@ async def sftp_close_all_impl() -> None:
     _connections.clear()
 
 
-# Platform function implementations
-sftp_impl = [
-    PlatformFunction(
-        name="sftp_connect",
-        inputs=[SftpConfigType],
-        output=ConnectionHandleType,
-        type="async",
-        fn=sftp_connect_impl,
-    ),
-    PlatformFunction(
-        name="sftp_put",
-        inputs=[ConnectionHandleType, StringType, BlobType],
-        output=NullType,
-        type="async",
-        fn=sftp_put_impl,
-    ),
-    PlatformFunction(
-        name="sftp_get",
-        inputs=[ConnectionHandleType, StringType],
-        output=BlobType,
-        type="async",
-        fn=sftp_get_impl,
-    ),
-    PlatformFunction(
-        name="sftp_list",
-        inputs=[ConnectionHandleType, StringType],
-        output=FileListType,
-        type="async",
-        fn=sftp_list_impl,
-    ),
-    PlatformFunction(
-        name="sftp_delete",
-        inputs=[ConnectionHandleType, StringType],
-        output=NullType,
-        type="async",
-        fn=sftp_delete_impl,
-    ),
-    PlatformFunction(
-        name="sftp_close",
-        inputs=[ConnectionHandleType],
-        output=NullType,
-        type="async",
-        fn=sftp_close_impl,
-    ),
-    PlatformFunction(
-        name="sftp_close_all",
-        inputs=[],
-        output=NullType,
-        type="async",
-        fn=sftp_close_all_impl,
-    ),
-]
+# Collected from the @platform_function decorations above.
+sftp_impl = platform_functions(__name__)
 
 __all__ = [
     "sftp_impl",

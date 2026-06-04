@@ -438,7 +438,7 @@ static void print_val(PBuf *sb, EastValue *value, EastType *type, PrintContext *
             pbuf_append_char(sb, '{');
             for (size_t i = 0; i < count; i++) {
                 if (i > 0) pbuf_append_char(sb, ',');
-                print_val(sb, value->data.set.items[i], elem_type, ctx);
+                print_val(sb, east_set_at(value, i), elem_type, ctx);
             }
             pbuf_append_char(sb, '}');
         }
@@ -464,9 +464,9 @@ static void print_val(PBuf *sb, EastValue *value, EastType *type, PrintContext *
             pbuf_append_char(sb, '{');
             for (size_t i = 0; i < count; i++) {
                 if (i > 0) pbuf_append_char(sb, ',');
-                print_val(sb, value->data.dict.keys[i], key_type, ctx);
+                print_val(sb, east_dict_key_at(value, i), key_type, ctx);
                 pbuf_append_char(sb, ':');
-                print_val(sb, value->data.dict.values[i], val_type, ctx);
+                print_val(sb, east_dict_val_at(value, i), val_type, ctx);
             }
             pbuf_append_char(sb, '}');
         }

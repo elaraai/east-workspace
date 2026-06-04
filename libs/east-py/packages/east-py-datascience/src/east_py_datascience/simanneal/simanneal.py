@@ -14,7 +14,7 @@ from collections.abc import Callable
 from typing import Any
 
 import numpy as np
-from east.runtime.platform import PlatformFunction
+from east.runtime.platform import platform_function, platform_functions
 from east.types.types import (
     BooleanType,
     FloatType,
@@ -107,6 +107,16 @@ def _check_simanneal_support() -> None:
 # ============================================================================
 
 
+@platform_function(
+    name="simanneal_optimize",
+    inputs=[
+        DiscreteStateType,
+        EnergyFunctionType,
+        MoveFunctionType,
+        AnnealConfigType,
+    ],
+    output=AnnealResultType,
+)
 def simanneal_optimize_impl(
     initial_state: EastVariant,
     energy_fn: Callable[[EastVariant], float],
@@ -186,6 +196,15 @@ def simanneal_optimize_impl(
     )
 
 
+@platform_function(
+    name="simanneal_optimize_permutation",
+    inputs=[
+        VectorType(IntegerType),
+        PermutationEnergyType,
+        AnnealConfigType,
+    ],
+    output=AnnealResultType,
+)
 def simanneal_optimize_permutation_impl(
     initial_perm: EastVector,
     energy_fn: Callable[[EastVector], float],
@@ -200,8 +219,8 @@ def simanneal_optimize_permutation_impl(
     if random_state is not None:
         random.seed(int(random_state))
 
-    # Convert to numpy array for efficient operations (EastVector is not iterable; use .data)
-    state_arr = initial_perm.data.astype(np.int64)
+    # Convert to numpy array for efficient operations
+    state_arr = initial_perm.to_numpy(dtype=np.int64)
 
     # Pre-allocate EastVector for energy function calls (reused each call)
     cached_east_array: EastVector | None = None
@@ -279,6 +298,15 @@ def simanneal_optimize_permutation_impl(
     )
 
 
+@platform_function(
+    name="simanneal_optimize_subset",
+    inputs=[
+        VectorType(BooleanType),
+        SubsetEnergyType,
+        AnnealConfigType,
+    ],
+    output=AnnealResultType,
+)
 def simanneal_optimize_subset_impl(
     initial_selection: EastVector,
     energy_fn: Callable[[EastVector], float],
@@ -293,8 +321,8 @@ def simanneal_optimize_subset_impl(
     if random_state is not None:
         random.seed(int(random_state))
 
-    # Convert to numpy array for efficient operations (EastVector is not iterable; use .data)
-    state_arr = initial_selection.data.astype(np.bool_)
+    # Convert to numpy array for efficient operations
+    state_arr = initial_selection.to_numpy(dtype=np.bool_)
 
     # Pre-allocate EastVector for energy function calls (reused each call)
     cached_east_array: EastVector | None = None
@@ -374,42 +402,8 @@ def simanneal_optimize_subset_impl(
 # Platform Function Registration
 # ============================================================================
 
-simanneal_impl = [
-    PlatformFunction(
-        name="simanneal_optimize",
-        inputs=[
-            DiscreteStateType,
-            EnergyFunctionType,
-            MoveFunctionType,
-            AnnealConfigType,
-        ],
-        output=AnnealResultType,
-        type="sync",
-        fn=simanneal_optimize_impl,
-    ),
-    PlatformFunction(
-        name="simanneal_optimize_permutation",
-        inputs=[
-            VectorType(IntegerType),
-            PermutationEnergyType,
-            AnnealConfigType,
-        ],
-        output=AnnealResultType,
-        type="sync",
-        fn=simanneal_optimize_permutation_impl,
-    ),
-    PlatformFunction(
-        name="simanneal_optimize_subset",
-        inputs=[
-            VectorType(BooleanType),
-            SubsetEnergyType,
-            AnnealConfigType,
-        ],
-        output=AnnealResultType,
-        type="sync",
-        fn=simanneal_optimize_subset_impl,
-    ),
-]
+# Collected from the @platform_function decorations above.
+simanneal_impl = platform_functions(__name__)
 
 
 __all__ = [

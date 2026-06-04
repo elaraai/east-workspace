@@ -13,7 +13,11 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from east.runtime.platform import GenericPlatformFunction, PlatformFunction
+from east.runtime.platform import (
+    generic_platform_function,
+    platform_function,
+    platform_functions,
+)
 
 _HAS_MYSQL_SUPPORT = importlib.util.find_spec("aiomysql") is not None
 
@@ -180,6 +184,11 @@ def _convert_placeholders(sql: str) -> str:
     return "".join(result)
 
 
+@platform_function(
+    name="mysql_connect",
+    inputs=[MySqlConfigType],
+    output=ConnectionHandleType,
+)
 async def mysql_connect_impl(config: EastStruct) -> str:
     """Connect to a MySQL database.
 
@@ -219,6 +228,11 @@ async def mysql_connect_impl(config: EastStruct) -> str:
         raise Exception(f"MySQL connection failed: {e}") from e
 
 
+@platform_function(
+    name="mysql_query",
+    inputs=[ConnectionHandleType, StringType, SqlParametersType],
+    output=SqlResultType,
+)
 async def mysql_query_impl(handle: str, sql: str, params: EastArray) -> EastVariant:
     """Execute a SQL query with parameterized values."""
     _check_mysql_support()
@@ -296,6 +310,11 @@ async def mysql_query_impl(handle: str, sql: str, params: EastArray) -> EastVari
         raise Exception(f"MySQL query failed: {e}") from e
 
 
+@platform_function(
+    name="mysql_close",
+    inputs=[ConnectionHandleType],
+    output=NullType,
+)
 async def mysql_close_impl(handle: str) -> None:
     """Close a MySQL connection pool."""
     _check_mysql_support()
@@ -312,6 +331,11 @@ async def mysql_close_impl(handle: str) -> None:
         raise Exception(f"MySQL close failed: {e}") from e
 
 
+@platform_function(
+    name="mysql_close_all",
+    inputs=[],
+    output=NullType,
+)
 async def mysql_close_all_impl() -> None:
     """Close all MySQL connection pools."""
     for pool in _pools.values():
@@ -424,15 +448,23 @@ def _convert_mysql_select_value(value: Any, field_type: int | None) -> Any:
         return value
 
 
-def mysql_select_factory(row_type: Any) -> Any:
+@generic_platform_function(
+    name="mysql_select",
+    type_parameters=["T"],
+    is_async=True,
+)
+def mysql_select_factory(platform: Any, row_type: Any) -> Any:
     """Factory for mysql_select that captures the type parameter.
 
     Args:
+        platform: Platform-function list (unused; matches the
+            GenericPlatformFunction factory convention of `(platform_list, *type_params)`).
         row_type: Row type parameter (East IR type format)
 
     Returns:
         Async implementation function for mysql_select
     """
+    del platform
 
     async def mysql_select_impl(handle: str, sql: str, params: EastArray) -> EastArray:
         """Execute a SELECT query with typed results.
@@ -556,43 +588,8 @@ def mysql_select_factory(row_type: Any) -> Any:
     return mysql_select_impl
 
 
-# Platform function implementations
-mysql_impl = [
-    PlatformFunction(
-        name="mysql_connect",
-        inputs=[MySqlConfigType],
-        output=ConnectionHandleType,
-        type="async",
-        fn=mysql_connect_impl,
-    ),
-    PlatformFunction(
-        name="mysql_query",
-        inputs=[ConnectionHandleType, StringType, SqlParametersType],
-        output=SqlResultType,
-        type="async",
-        fn=mysql_query_impl,
-    ),
-    PlatformFunction(
-        name="mysql_close",
-        inputs=[ConnectionHandleType],
-        output=NullType,
-        type="async",
-        fn=mysql_close_impl,
-    ),
-    PlatformFunction(
-        name="mysql_close_all",
-        inputs=[],
-        output=NullType,
-        type="async",
-        fn=mysql_close_all_impl,
-    ),
-    GenericPlatformFunction(
-        name="mysql_select",
-        type_parameters=["T"],
-        type="async",
-        fn=lambda _platform_list, T: mysql_select_factory(T),
-    ),
-]
+# Collected from the @platform_function / @generic_platform_function decorations above.
+mysql_impl = platform_functions(__name__)
 
 __all__ = [
     "mysql_impl",

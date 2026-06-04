@@ -12,7 +12,7 @@ import importlib.util
 import uuid
 from typing import Any
 
-from east.runtime.platform import PlatformFunction
+from east.runtime.platform import platform_function, platform_functions
 
 _HAS_FTP_SUPPORT = importlib.util.find_spec("aioftp") is not None
 
@@ -33,6 +33,9 @@ from .types import ConnectionHandleType, FileEntryType, FileListType, FtpConfigT
 _clients: dict[str, Any] = {}
 
 
+@platform_function(
+    name="ftp_connect", inputs=[FtpConfigType], output=ConnectionHandleType
+)
 async def ftp_connect_impl(config: EastStruct) -> str:
     """Connect to an FTP server."""
     _check_ftp_support()
@@ -56,6 +59,11 @@ async def ftp_connect_impl(config: EastStruct) -> str:
         raise Exception(f"FTP connection failed: {e}") from e
 
 
+@platform_function(
+    name="ftp_put",
+    inputs=[ConnectionHandleType, StringType, BlobType],
+    output=NullType,
+)
 async def ftp_put_impl(handle: str, remote_path: str, data: EastBlob) -> None:
     """Upload a file to FTP server."""
     try:
@@ -71,6 +79,9 @@ async def ftp_put_impl(handle: str, remote_path: str, data: EastBlob) -> None:
         raise Exception(f"FTP put failed: {e}") from e
 
 
+@platform_function(
+    name="ftp_get", inputs=[ConnectionHandleType, StringType], output=BlobType
+)
 async def ftp_get_impl(handle: str, remote_path: str) -> EastBlob:
     """Download a file from FTP server."""
     try:
@@ -90,6 +101,9 @@ async def ftp_get_impl(handle: str, remote_path: str) -> EastBlob:
         raise Exception(f"FTP get failed: {e}") from e
 
 
+@platform_function(
+    name="ftp_list", inputs=[ConnectionHandleType, StringType], output=FileListType
+)
 async def ftp_list_impl(handle: str, remote_path: str) -> EastArray:
     """List files in a directory on FTP server."""
     try:
@@ -117,6 +131,9 @@ async def ftp_list_impl(handle: str, remote_path: str) -> EastArray:
         raise Exception(f"FTP list failed: {e}") from e
 
 
+@platform_function(
+    name="ftp_delete", inputs=[ConnectionHandleType, StringType], output=NullType
+)
 async def ftp_delete_impl(handle: str, remote_path: str) -> None:
     """Delete a file from FTP server."""
     try:
@@ -129,6 +146,7 @@ async def ftp_delete_impl(handle: str, remote_path: str) -> None:
         raise Exception(f"FTP delete failed: {e}") from e
 
 
+@platform_function(name="ftp_close", inputs=[ConnectionHandleType], output=NullType)
 def ftp_close_impl(handle: str) -> None:
     """Close FTP connection.
 
@@ -149,6 +167,7 @@ def ftp_close_impl(handle: str) -> None:
         raise Exception(f"FTP close failed: {e}") from e
 
 
+@platform_function(name="ftp_close_all", inputs=[], output=NullType)
 async def ftp_close_all_impl() -> None:
     """Close all FTP connections."""
     for client in _clients.values():
@@ -157,58 +176,8 @@ async def ftp_close_all_impl() -> None:
     _clients.clear()
 
 
-# Platform function implementations
-ftp_impl = [
-    PlatformFunction(
-        name="ftp_connect",
-        inputs=[FtpConfigType],
-        output=ConnectionHandleType,
-        type="async",
-        fn=ftp_connect_impl,
-    ),
-    PlatformFunction(
-        name="ftp_put",
-        inputs=[ConnectionHandleType, StringType, BlobType],
-        output=NullType,
-        type="async",
-        fn=ftp_put_impl,
-    ),
-    PlatformFunction(
-        name="ftp_get",
-        inputs=[ConnectionHandleType, StringType],
-        output=BlobType,
-        type="async",
-        fn=ftp_get_impl,
-    ),
-    PlatformFunction(
-        name="ftp_list",
-        inputs=[ConnectionHandleType, StringType],
-        output=FileListType,
-        type="async",
-        fn=ftp_list_impl,
-    ),
-    PlatformFunction(
-        name="ftp_delete",
-        inputs=[ConnectionHandleType, StringType],
-        output=NullType,
-        type="async",
-        fn=ftp_delete_impl,
-    ),
-    PlatformFunction(
-        name="ftp_close",
-        inputs=[ConnectionHandleType],
-        output=NullType,
-        type="sync",
-        fn=ftp_close_impl,
-    ),
-    PlatformFunction(
-        name="ftp_close_all",
-        inputs=[],
-        output=NullType,
-        type="async",
-        fn=ftp_close_all_impl,
-    ),
-]
+# Collected from the @platform_function decorations above.
+ftp_impl = platform_functions(__name__)
 
 __all__ = [
     "ftp_impl",

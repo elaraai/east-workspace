@@ -3,4 +3,5 @@ build-asan/
 build-debug/
 build-msvc/
 build-prof/
+build-release/
 build-win/
