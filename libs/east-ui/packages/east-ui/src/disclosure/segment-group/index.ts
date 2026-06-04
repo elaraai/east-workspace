@@ -143,28 +143,38 @@ function createSegmentGroupItem(
 /**
  * TypeScript options bag for `SegmentGroup.Root`.
  *
+ * @property value - Currently selected segment value
+ * @property items - Array of segments created with `SegmentGroup.Item`
  * @property onChange - Callback invoked with the new selected value
- * @property style - Visual-presentation sub-struct
+ * @property size - Size token
+ * @property colorPalette - Chakra colour palette
+ * @property orientation - Layout orientation
+ * @property background - Track background colour
+ * @property borderColor - Track border colour
+ * @property activeBackground - Active-segment background colour
+ * @property activeColor - Active-segment text colour
+ * @property inactiveColor - Inactive-segment text colour
  */
-export interface SegmentGroupOptions {
+export interface SegmentGroupOptions extends SegmentGroupStyle {
+    /** Currently selected segment value — required. */
+    value: SubtypeExprOrValue<StringType>;
+    /** Array of segments created with `SegmentGroup.Item` — required. */
+    items: SubtypeExprOrValue<ArrayType<SegmentGroupItemType>>;
     /** Callback invoked with the new selected value */
     onChange?: SubtypeExprOrValue<FunctionType<[StringType], NullType>>;
-    /** Visual-presentation sub-struct */
-    style?: SegmentGroupStyle;
 }
 
 /**
  * Creates a SegmentGroup component.
  *
- * @param value - Currently selected segment value
- * @param items - Array of segment items (created with `SegmentGroup.Item`)
- * @param options - Behaviour + optional `style`
+ * @param options - Required `value` + `items` (created with
+ *   `SegmentGroup.Item`), optional behaviour + visual style fields
  * @returns An East expression representing the SegmentGroup component
  *
  * @remarks
- * `value` (state) and `onChange` (behaviour)
- * are top-level; `size` / `colorPalette` / `orientation` + colour slots
- * live inside `options.style`.
+ * `value` (state), `onChange` (behaviour), and the visual style fields
+ * (`size` / `colorPalette` / `orientation` + colour slots) all sit in one
+ * flat bag.
  *
  * @example
  * ```ts
@@ -178,28 +188,29 @@ export interface SegmentGroupOptions {
  *         const onChange = $.const(East.function([StringType], NullType, ($, next) => {
  *             $(bind.write(next));
  *         }));
- *         return SegmentGroup.Root(view, [
+ *         return SegmentGroup.Root({ value: view, items: [
  *             SegmentGroup.Item("summary", "Summary"),
  *             SegmentGroup.Item("demand", "Demand"),
  *             SegmentGroup.Item("coverage", "Coverage"),
  *             SegmentGroup.Item("rotation", "Rotation plan"),
  *             SegmentGroup.Item("unmet", "Unmet · 2"),
- *         ], { onChange, style: { size: "sm" } });
+ *         ], onChange, size: "sm" });
  *     })),
  * );
  * ```
  */
 function createSegmentGroupRoot(
-    value: SubtypeExprOrValue<StringType>,
-    items: SubtypeExprOrValue<ArrayType<SegmentGroupItemType>>,
-    options?: SegmentGroupOptions,
+    options: SegmentGroupOptions,
 ): ExprType<UIComponentType> {
-    const styleValue = options?.style ? buildSegmentGroupStyle(options.style) : undefined;
+    const { value, items, onChange, ...visual } = options;
+
+    const hasVisual = Object.values(visual).some(field => field !== undefined);
+    const styleValue = hasVisual ? buildSegmentGroupStyle(visual) : undefined;
 
     return East.value(variant("SegmentGroup", {
         value,
         items: items as never,
-        onChange: options?.onChange ? some(options.onChange) : none,
+        onChange: onChange ? some(onChange) : none,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
@@ -244,7 +255,7 @@ function buildSegmentGroupStyle(style: SegmentGroupStyle): ExprType<SegmentGroup
  * `Tabs`, which owns full content panels).
  *
  * @remarks
- * Use `SegmentGroup.Root(value, items, options)` for the container and
+ * Use `SegmentGroup.Root({ value, items, ... })` for the container and
  * `SegmentGroup.Item(value, label, options)` for each segment. The
  * `label` accepts any UIComponentType — strings coerce to `Text.Root(s)`.
  */
@@ -252,9 +263,7 @@ export const SegmentGroup = {
     /**
      * Creates a SegmentGroup container.
      *
-     * @param value - Currently selected segment value
-     * @param items - Array of segment items
-     * @param options - Behaviour + optional `style`
+     * @param options - Required `value` + `items`, optional behaviour + visual style fields
      * @returns An East expression representing the SegmentGroup component
      *
      * @example
@@ -263,10 +272,10 @@ export const SegmentGroup = {
      * import { SegmentGroup, UIComponentType } from "@elaraai/east-ui";
      *
      * const ex = East.function([], UIComponentType, _$ =>
-     *     SegmentGroup.Root("summary", [
+     *     SegmentGroup.Root({ value: "summary", items: [
      *         SegmentGroup.Item("summary", "Summary"),
      *         SegmentGroup.Item("demand", "Demand"),
-     *     ], { style: { size: "sm" } }),
+     *     ], size: "sm" }),
      * );
      * ```
      */

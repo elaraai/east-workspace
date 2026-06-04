@@ -6,3 +6,9 @@
 /** Disclosure JSX tags. Mirrors `src/disclosure/`. */
 
 export { Carousel } from "./carousel.js";
+export { Accordion } from "./accordion.js";
+export { Collapsible } from "./collapsible.js";
+export { SegmentGroup } from "./segment-group.js";
+export { Tabs } from "./tabs.js";
+export { Disclosure } from "./show-more.js";
+export { OptionList } from "./option-list.js";

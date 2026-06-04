@@ -148,7 +148,7 @@ type TabsTriggerInput =
  *             Stack.HStack([Text.Root("Results"), Badge.Root("5", { colorPalette: "blue" })], { gap: "2" }),
  *             [Text.Root("Five results computed.")],
  *         ),
- *     ], { defaultValue: "inputs", style: { variant: "line" } }),
+ *     ], { defaultValue: "inputs", variant: "line" }),
  * );
  * ```
  */
@@ -178,13 +178,12 @@ function createTabsItem(
  * Creates a Tabs component.
  *
  * @param items - Array of tab items (created with `Tabs.Item`)
- * @param options - State + behaviour + optional `style`
+ * @param options - State + behaviour + visual style fields
  * @returns An East expression representing the Tabs component
  *
  * @remarks
- * `value` / `defaultValue` (state) and
- * `onValueChange` (behaviour) are top-level options; visual presentation
- * lives inside `options.style`.
+ * `value` / `defaultValue` (state), `onValueChange` (behaviour), and the
+ * visual style fields all sit in one flat options bag.
  *
  * @example
  * ```ts
@@ -196,7 +195,7 @@ function createTabsItem(
  *     Tabs.Root([
  *         Tabs.Item("overview", "Overview", [Text.Root("Overview.")]),
  *         Tabs.Item("settings", "Settings", [Text.Root("Settings.")]),
- *     ], { defaultValue: "overview", style: { variant: "line" } }),
+ *     ], { defaultValue: "overview", variant: "line" }),
  * );
  *
  * // Reactive tabs via State.bind
@@ -219,16 +218,19 @@ function createTabsRoot(
     items: SubtypeExprOrValue<ArrayType<TabsItemType>>,
     options?: TabsOptions,
 ): ExprType<UIComponentType> {
-    const styleValue = options?.style ? buildTabsStyle(options.style) : undefined;
+    const { value, defaultValue, onValueChange, ...visual } = options ?? {};
+
+    const hasVisual = Object.values(visual).some(field => field !== undefined);
+    const styleValue = hasVisual ? buildTabsStyle(visual) : undefined;
 
     // Cast at variant boundary — inline `Tabs` variant in component.ts uses
     // the recursive `node` for item.trigger, structurally identical to
     // `UIComponentType` after unfolding but not provably equal to TS.
     return East.value(variant("Tabs", {
         items: items as never,
-        value: options?.value !== undefined ? some(options.value) : none,
-        defaultValue: options?.defaultValue !== undefined ? some(options.defaultValue) : none,
-        onValueChange: options?.onValueChange ? some(options.onValueChange) : none,
+        value: value !== undefined ? some(value) : none,
+        defaultValue: defaultValue !== undefined ? some(defaultValue) : none,
+        onValueChange: onValueChange ? some(onValueChange) : none,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
@@ -305,13 +307,13 @@ export const Tabs = {
      * Creates a Tabs container.
      *
      * @param items - Array of tab items
-     * @param options - State + behaviour + optional `style`
+     * @param options - State + behaviour + visual style fields
      * @returns An East expression representing the Tabs component
      *
      * @remarks
      * See {@link createTabsRoot} for full semantics. `value` / `defaultValue`
-     * / `onValueChange` are top-level options; `style` holds visual presets
-     * + colour slots.
+     * / `onValueChange` sit alongside the visual style fields (presets +
+     * colour slots) in one flat bag.
      *
      * @example
      * ```ts
@@ -322,7 +324,7 @@ export const Tabs = {
      *     Tabs.Root([
      *         Tabs.Item("a", "Tab A", [Text.Root("A")]),
      *         Tabs.Item("b", "Tab B", [Text.Root("B")]),
-     *     ], { defaultValue: "a", style: { variant: "line" } }),
+     *     ], { defaultValue: "a", variant: "line" }),
      * );
      * ```
      */
