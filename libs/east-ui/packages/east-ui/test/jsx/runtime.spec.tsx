@@ -15,9 +15,9 @@
  * silently wrong; here they are pinned against the factory output.
  */
 
-import { East, ArrayType, StringType } from "@elaraai/east";
+import { East, ArrayType, StringType, IntegerType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Badge, Button, Code, Flex, Reactive, Text, VStack } from "@elaraai/east-ui/jsx";
+import { Badge, Button, Code, Flex, HStack, Reactive, Text, VStack } from "@elaraai/east-ui/jsx";
 import {
     Badge as BadgeF,
     Button as ButtonF,
@@ -85,6 +85,21 @@ describeEast("JSX runtime", (test) => {
             return <Text>{label}</Text>;
         }}</Reactive>);
         $(Assert.equal(r.unwrap().getTag(), "ReactiveComponent"));
+    });
+
+    test("numeric expressions interpolate in text via East.str", ($) => {
+        const n = $.let(East.value(3n, IntegerType));
+        $(Assert.equal(
+            <Text>Total: {n} items</Text>,
+            TextF.Root(East.str`Total: ${n} items`),
+        ));
+    });
+
+    test("a single component child is the Button label", ($) => {
+        $(Assert.equal(
+            <Button><HStack><Text>Accept</Text></HStack></Button>,
+            ButtonF.Root(Stack.HStack([TextF.Root("Accept")])),
+        ));
     });
 
     test("Flex/Code/Badge tags desugar to their factories", ($) => {

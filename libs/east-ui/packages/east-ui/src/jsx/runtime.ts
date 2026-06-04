@@ -34,9 +34,9 @@
  * @packageDocumentation
  */
 
-import type { ExprType } from '@elaraai/east';
-import type { UIComponentType } from '../component.js';
-import { coalesceChildren } from './children.js';
+import type { ExprType } from "@elaraai/east";
+import type { UIComponentType } from "../component.js";
+import { coalesceChildren } from "./children.js";
 
 /** A built east-ui element — what every JSX element expression evaluates to. */
 export type UIElement = ExprType<UIComponentType>;
@@ -48,7 +48,7 @@ export type Component<P> = (props: P) => UIElement;
  * Fragment marker. `<>…</>` collects its children with no wrapper element;
  * the enclosing container coalesces them into its own child list.
  */
-export const Fragment = Symbol('@elaraai/east-ui.jsx.Fragment');
+export const Fragment = Symbol("@elaraai/east-ui.jsx.Fragment");
 export type Fragment = typeof Fragment;
 
 /**

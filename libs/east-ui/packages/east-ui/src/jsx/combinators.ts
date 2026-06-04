@@ -18,18 +18,28 @@ import {
     East,
     Expr,
     ArrayType,
+    type ExprType,
     type SubtypeExprOrValue,
     type StringType,
+    type IntegerType,
+    type FloatType,
 } from "@elaraai/east";
 import { UIComponentType } from "../component.js";
 import { coalesceChildren, type ElementChild } from "./children.js";
 import type { UIElement } from "./runtime.js";
 
-/** A child of a text-leaf tag: a string/number literal or a string expression. */
+/**
+ * A child of a text-leaf tag: a string/number literal, a string expression, or
+ * a numeric expression — all East-typed. Numbers and numeric expressions fold
+ * to their decimal string via `East.str`, so `<Text>{count}</Text>` and
+ * `<Text>Hi {name}, {n} items</Text>` work.
+ */
 export type TextChild =
     | string
     | number
     | SubtypeExprOrValue<StringType>
+    | ExprType<IntegerType>
+    | ExprType<FloatType>
     | null
     | undefined
     | TextChild[];
@@ -56,39 +66,12 @@ function hasKeys(o: Record<string, unknown>): boolean {
 }
 
 /**
- * Collapse text children into a single `StringType` value.
- *
- * A single child passes through untouched (preserving a lone East expression);
- * all-static parts are joined; a mix of literals and East expressions is folded
- * into one `StringType` expression via `East.str` (which string-converts
- * non-string expressions). A single element expression also passes through, so
- * a tag whose value arg accepts a `UIComponentType` (e.g. a rich Button label)
- * still works.
+ * Fold literal + expression parts into one `StringType` expression via
+ * `East.str`, which inserts `Print` for non-string expressions (so an Integer
+ * or Float interpolates as its decimal string, and a lone string expression
+ * folds to an equivalent value).
  */
-export function joinText(child: TextChild): SubtypeExprOrValue<StringType> {
-    const parts: unknown[] = [];
-    const walk = (c: TextChild): void => {
-        if (c === null || c === undefined) return;
-        if (Array.isArray(c)) {
-            for (const x of c) walk(x);
-            return;
-        }
-        parts.push(c);
-    };
-    walk(child);
-
-    if (parts.length === 0) return "";
-    if (parts.length === 1) {
-        const only = parts[0];
-        return typeof only === "number"
-            ? String(only)
-            : (only as SubtypeExprOrValue<StringType>);
-    }
-    if (parts.every((p) => typeof p === "string" || typeof p === "number")) {
-        return parts.map((p) => String(p)).join("");
-    }
-
-    // Mixed literals + East expressions → one StringType expr via East.str.
+function foldStr(parts: unknown[]): ExprType<StringType> {
     let buf = "";
     const strings: string[] = [];
     const exprs: Expr[] = [];
@@ -106,6 +89,30 @@ export function joinText(child: TextChild): SubtypeExprOrValue<StringType> {
         raw: [...strings],
     }) as unknown as TemplateStringsArray;
     return East.str(template, ...exprs);
+}
+
+/**
+ * Collapse text children into a single `StringType` value. Nullish parts are
+ * dropped; all-static parts join; anything with an expression — alone or
+ * interpolated with literals — folds through `East.str`.
+ */
+export function joinText(child: TextChild): SubtypeExprOrValue<StringType> {
+    const parts: unknown[] = [];
+    const walk = (c: TextChild): void => {
+        if (c === null || c === undefined) return;
+        if (Array.isArray(c)) {
+            for (const x of c) walk(x);
+            return;
+        }
+        parts.push(c);
+    };
+    walk(child);
+
+    if (parts.length === 0) return "";
+    if (parts.every((p) => typeof p === "string" || typeof p === "number")) {
+        return parts.map((p) => String(p)).join("");
+    }
+    return foldStr(parts);
 }
 
 /**

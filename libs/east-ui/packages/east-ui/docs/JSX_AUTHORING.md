@@ -415,13 +415,13 @@ wrapper buckets by East type (§2.3):
 
 ## 8. SKILL.md / USAGE.md / @example — JSX-only corpus
 
-The skill files (`east-ui/SKILL.md` 452 lines, `e3-ui/SKILL.md` 119 lines) are
+The skill files (the east-ui one is the larger; the e3-ui one is smaller) are
 **symlinked** into the plugin — editing the lib copy *is* editing the deployed
 skill. They are rewritten to lead with JSX; the factory *signature* reference is
 retained (SKILLS_STANDARD requires inline signature tables, and complex
 components must keep their generic signatures).
 
-**`east-ui/SKILL.md`** (replace, don't append — near the ~500-line cap):
+**`east-ui/SKILL.md`** (replace, don't append — it's already near the size cap):
 - Quick Start → `.tsx` (pragma/tsconfig, single `…/jsx` import, flat props) + a
   2-line factory-equivalence note.
 - New `## JSX vs Factory` (1:1 sugar, same IR, when to drop to the factory).
