@@ -18,6 +18,7 @@ import type { ColorSchemeLiteral, OverflowLiteral } from "../../style.js";
 import { PaddingType, MarginType } from "../../layout/style.js";
 
 // Re-export Font Awesome types for convenience
+import type { IconName, IconPrefix } from "@fortawesome/fontawesome-common-types";
 export type { IconName, IconPrefix } from "@fortawesome/fontawesome-common-types";
 
 // ============================================================================
@@ -187,6 +188,10 @@ export type IconStyleType = typeof IconStyleType;
  * @property margin - Margin (struct or shorthand for all 4 sides)
  */
 export interface IconStyle {
+    /** Font Awesome icon prefix (`"fas"`, `"far"`, …) — required. */
+    prefix: IconPrefix;
+    /** Font Awesome icon name — required. */
+    name: IconName;
     /**
      * Accessible label. When present, the renderer emits
      * `aria-label={label}`; when absent, the renderer emits

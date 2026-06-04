@@ -11,7 +11,6 @@ import {
     none,
 } from "@elaraai/east";
 
-import type { IconName, IconPrefix } from "@fortawesome/fontawesome-common-types";
 
 import { ColorSchemeType, OverflowType } from "../../style.js";
 import { PaddingType, MarginType } from "../../layout/style.js";
@@ -166,20 +165,19 @@ function buildIconStyle(style: IconStyle | undefined): ExprType<IconStyleType> |
  * import { Icon, UIComponentType } from "@elaraai/east-ui";
  *
  * const example = East.function([], UIComponentType, $ => {
- *     return Icon.Root("fas", "user", { label: "User profile", size: "lg" });
+ *     return Icon.Root({ prefix: "fas", name: "user", label: "User profile", size: "lg" });
  * });
  * ```
  */
 function createIcon(
-    prefix: IconPrefix,
-    name: IconName,
-    style?: IconStyle,
+    options: IconStyle,
 ): ExprType<UIComponentType> {
-    const styleValue = buildIconStyle(style);
+    const { prefix, name, label } = options;
+    const styleValue = buildIconStyle(options);
     return East.value(variant("Icon", {
         prefix,
         name,
-        label: style?.label !== undefined ? some(style.label) : none,
+        label: label !== undefined ? some(label) : none,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
@@ -188,16 +186,14 @@ function createIcon(
  * Icon — Font Awesome icon primitive.
  *
  * @remarks
- * Use `Icon.Root(prefix, name, { label?, ...style })` to create an icon, or
+ * Use `Icon.Root({ prefix, name, label?, ...style })` to create an icon, or
  * access `Icon.Types.Icon` for the East IR type.
  */
 export const Icon = {
     /**
      * Creates an Icon component value.
      *
-     * @param prefix - Font Awesome prefix (`"fas"`, `"far"`, `"fab"`, …)
-     * @param name - Font Awesome icon name
-     * @param style - Optional `label` (a11y) + visual style fields
+     * @param options - Required `prefix` + `name`, optional `label` (a11y) and visual style fields
      * @returns An East expression of type `UIComponentType`
      *
      * @remarks
@@ -210,7 +206,7 @@ export const Icon = {
      * import { Icon, UIComponentType } from "@elaraai/east-ui";
      *
      * const example = East.function([], UIComponentType, $ => {
-     *     return Icon.Root("fas", "heart", { label: "Favourite", color: "red.500", size: "xl" });
+     *     return Icon.Root({ prefix: "fas", name: "heart", label: "Favourite", color: "red.500", size: "xl" });
      * });
      * ```
      */

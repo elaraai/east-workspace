@@ -11,3 +11,8 @@ export { Meter } from "./meter.js";
 export { Kbd } from "./kbd.js";
 export { EditableChip } from "./editable-chip.js";
 export { MetricChip } from "./metric-chip.js";
+export { Avatar } from "./avatar.js";
+export { AvatarGroup } from "./avatar-group.js";
+export { BarStrip } from "./bar-strip.js";
+export { SegmentedMeter } from "./segmented-meter.js";
+export { Icon } from "./icon.js";
