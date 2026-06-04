@@ -32,7 +32,7 @@ export interface CatalogEntry extends ExampleDef, ShowcaseLayout {
 }
 
 const exampleModules = import.meta.glob<Record<string, ExampleDef | undefined>>(
-    "../east-ui/test/**/*.examples.ts",
+    "../east-ui/test/**/*.examples.{ts,tsx}",
     { eager: true },
 );
 
@@ -41,7 +41,7 @@ function buildCatalog(): CatalogEntry[] {
     for (const [filePath, mod] of Object.entries(exampleModules)) {
         const pathKey = filePath
             .replace(/^.*\/east-ui\/test\//, "")
-            .replace(/\.examples\.ts$/, "");
+            .replace(/\.examples\.tsx?$/, "");
         if (!pathKey.includes("/")) continue;
 
         const category = categoryFor(pathKey);

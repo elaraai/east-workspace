@@ -17,10 +17,10 @@ import { mountSnapshot } from '../../../scripts/snapshot-app.tsx';
 
 /** Keep the category path in the key (e.g. `buttons/button`). */
 function keyOf(filePath: string): string {
-    return filePath.replace(/^.*\/east-ui\/test\//, '').replace(/\.examples\.ts$/, '');
+    return filePath.replace(/^.*\/east-ui\/test\//, '').replace(/\.examples\.tsx?$/, '');
 }
 
 mountSnapshot({
-    modules: import.meta.glob<Record<string, unknown>>('../../east-ui/test/**/*.examples.ts'),
+    modules: import.meta.glob<Record<string, unknown>>('../../east-ui/test/**/*.examples.{ts,tsx}'),
     keyOf,
 });
