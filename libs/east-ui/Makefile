@@ -5,15 +5,15 @@
 ## A file at `test/buttons/button.examples.ts` becomes the key `buttons/button`,
 ## which maps 1:1 to `make east-ui-examples-html-buttons/button`. Re-evaluated
 ## each `make` invocation, so newly added example files appear without edits.
-EAST_UI_EXAMPLE_KEYS := $(shell find packages/east-ui/test -name '*.examples.ts' 2>/dev/null \
-                              | sed -e 's|^packages/east-ui/test/||' -e 's|\.examples\.ts$$||')
+EAST_UI_EXAMPLE_KEYS := $(shell find packages/east-ui/test \( -name '*.examples.ts' -o -name '*.examples.tsx' \) 2>/dev/null \
+                              | sed -e 's|^packages/east-ui/test/||' -e 's|\.examples\.tsx$$||' -e 's|\.examples\.ts$$||')
 
 ## Discover e3-ui example keys — top-level `packages/e3-ui/test/<key>.examples.ts`
 ## files (e3-task-bound components: ontology, diff, ...). Each maps 1:1 to
 ## `make e3-ui-examples-html-<key>`, rendered by the e3-ui-components snapshot
 ## harness (seeds a dataset cache from each example's e3.input defaults).
-E3_UI_EXAMPLE_KEYS := $(shell find packages/e3-ui/test -maxdepth 1 -name '*.examples.ts' 2>/dev/null \
-                             | sed -e 's|^packages/e3-ui/test/||' -e 's|\.examples\.ts$$||')
+E3_UI_EXAMPLE_KEYS := $(shell find packages/e3-ui/test -maxdepth 1 \( -name '*.examples.ts' -o -name '*.examples.tsx' \) 2>/dev/null \
+                             | sed -e 's|^packages/e3-ui/test/||' -e 's|\.examples\.tsx$$||' -e 's|\.examples\.ts$$||')
 
 .PHONY: build test lint showcase build-showcase design design-html-all probe-slice probe-collections clean extension extension-install extension-uninstall examples \
         east-ui-examples-html-all $(EAST_UI_EXAMPLE_KEYS:%=east-ui-examples-html-%) \

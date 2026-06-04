@@ -28,13 +28,13 @@
       "package": "east-ui",
       "skill": "east-ui",
       "testDir": "east-ui/packages/east-ui",
-      "pattern": "**/*.examples.ts"
+      "pattern": ["**/*.examples.ts", "**/*.examples.tsx"]
     },
     {
       "package": "e3-ui",
       "skill": "e3-ui",
       "testDir": "east-ui/packages/e3-ui",
-      "pattern": "**/*.examples.ts"
+      "pattern": ["**/*.examples.ts", "**/*.examples.tsx"]
     }
   ]
 }

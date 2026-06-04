@@ -35,11 +35,11 @@ export interface DiscoverOptions {
 }
 
 export async function discoverExampleFiles(opts: DiscoverOptions): Promise<DiscoveredExample[]> {
-    const matches = await fg("**/*.examples.ts", { cwd: opts.testDir, absolute: true });
+    const matches = await fg("**/*.examples.{ts,tsx}", { cwd: opts.testDir, absolute: true });
     const out: DiscoveredExample[] = [];
     for (const filePath of matches) {
         const rel = path.relative(opts.testDir, filePath).replace(/\\/g, "/");
-        const pathKey = rel.replace(/\.examples\.ts$/, "");
+        const pathKey = rel.replace(/\.examples\.tsx?$/, "");
         if (!pathKey.includes("/")) continue;
         out.push({ filePath, pathKey, category: categoryFor(pathKey) });
     }

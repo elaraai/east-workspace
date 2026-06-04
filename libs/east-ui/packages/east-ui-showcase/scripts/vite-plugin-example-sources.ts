@@ -156,7 +156,7 @@ export function exampleSourcesPlugin(opts: ExampleSourcesOptions): Plugin {
                  * matched example file changed (vs. unrelated files in the same
                  * watch tree). */
                 const abs = path.resolve(file);
-                if (abs.startsWith(opts.testDir) && abs.endsWith(".examples.ts")) {
+                if (abs.startsWith(opts.testDir) && (abs.endsWith(".examples.ts") || abs.endsWith(".examples.tsx"))) {
                     const mod = server.moduleGraph.getModuleById(RESOLVED_ID);
                     if (mod) server.reloadModule(mod);
                 }
