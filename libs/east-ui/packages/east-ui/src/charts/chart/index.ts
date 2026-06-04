@@ -103,7 +103,6 @@ type CategoryAccessor<Row extends EastType> = (row: ExprType<Row>) => SubtypeExp
 type CoordScalar = StringType | IntegerType | FloatType | DateTimeType;
 
 /** Internal accessor over an untyped row; the typed accessors above narrow to this. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyAccessor = (row: any) => SubtypeExprOrValue<CoordScalar>;
 
 /**
