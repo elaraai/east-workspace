@@ -531,14 +531,14 @@ type DataFields<T extends SubtypeExprOrValue<ArrayType<StructType>>> = ExtractSt
 type DataRowType<T extends SubtypeExprOrValue<ArrayType<StructType>>> = ExtractRowType<TypeOf<T>>;
 
 // Column specification can be array of keys or object config
-type ColumnSpec<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
+export type ColumnSpec<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
     | (keyof DataFields<NoInfer<T>>)[]
     | { [K in keyof DataFields<NoInfer<T>>]?: TableColumnConfig<DataFields<NoInfer<T>>[K], DataRowType<NoInfer<T>>> };
 
 // Every key in the data struct is a valid column key. Deriving from T (rather
 // than the columns object) keeps inference reliable when the column configs
 // contain render functions or complex field types.
-type DataFieldKeys<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
+export type DataFieldKeys<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
     Extract<keyof DataFields<NoInfer<T>>, string>;
 
 // ============================================================================
