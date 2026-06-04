@@ -83,11 +83,9 @@ export type CardType = typeof CardType;
  * TypeScript options bag for `Card.Root`.
  *
  * @remarks
- * Accepts both the new nested `style: {...}` sub-struct (0 preferred)
- * and legacy flat fields inherited from `CardStyle` for backward
- * compatibility. Flat fields are folded into the style sub-struct at the
- * factory boundary; the explicit `style` object takes precedence when both
- * are supplied.
+ * `header` / `footer` / `state` sit alongside the visual style fields
+ * (inherited from `CardStyle`) in one flat bag; the factory composes the
+ * nested IR style sub-struct.
  *
  * @property header - Optional header options (`eyebrow` / `title` / `meta` / `description`) — composed into the header strip
  * @property footer - Optional footer options (`content` + trailing `actions`)
@@ -101,8 +99,6 @@ export interface CardOptions extends CardStyle {
     footer?: CardFooterInput;
     /** Runtime state — `"ready" | "loading" | "empty" | "error" | "stale" | "disabled" | "permission-denied"`. */
     state?: StateValueLiteral | SubtypeExprOrValue<StateValueType>;
-    /** Optional visual-only style (preferred over the inherited flat fields). */
-    style?: CardStyle;
 }
 
 /**
@@ -158,8 +154,7 @@ function buildCardStyle(style: CardStyle): ExprType<CardStyleType> {
  * Creates a Card container with content slots + runtime state + visual style.
  *
  * @param children - Array of body UIComponents
- * @param options - Optional `header` / `footer` / `state` / `style` and (for
- *   backward compatibility) legacy flat visual fields
+ * @param options - Optional `header` / `footer` / `state` + visual style fields
  * @returns An East expression representing the Card component
  *
  * @remarks
@@ -169,7 +164,7 @@ function buildCardStyle(style: CardStyle): ExprType<CardStyleType> {
  * `libs/east-ui-components/src/container/card/index.tsx` for the dispatch table.
  * A bare-string `header` renders as the mono eyebrow; `Card.Header(...)` composes
  * the eyebrow + brand title + meta. Layout / dimension fields and colour escape
- * hatches live in `style: {...}`; flat fields continue to work as a shorthand.
+ * hatches are flat props on the options bag.
  *
  * @example
  * ```ts
@@ -187,41 +182,17 @@ function createCard(
     children: SubtypeExprOrValue<ArrayType<UIComponentType>>,
     options?: CardOptions,
 ): ExprType<UIComponentType> {
-    const flatStyle: CardStyle = {};
-    let hasFlat = false;
-    const copy = <K extends keyof CardStyle>(k: K) => {
-        const v = (options as CardStyle | undefined)?.[k];
-        if (v !== undefined) {
-            (flatStyle as Record<string, unknown>)[k] = v as unknown;
-            hasFlat = true;
-        }
-    };
-    copy("height");
-    copy("minHeight");
-    copy("maxHeight");
-    copy("width");
-    copy("minWidth");
-    copy("maxWidth");
-    copy("flex");
-    copy("overflow");
-    copy("background");
-    copy("borderColor");
-    copy("headerBackground");
-    copy("footerBackground");
-    copy("accentColor");
+    const { header, footer, state, ...visual } = options ?? {};
 
-    const resolvedStyle: CardStyle | undefined = options?.style
-        ? { ...flatStyle, ...options.style }
-        : (hasFlat ? flatStyle : undefined);
+    const hasVisual = Object.values(visual).some(field => field !== undefined);
+    const styleValue = hasVisual ? buildCardStyle(visual) : undefined;
 
-    const styleValue = resolvedStyle ? buildCardStyle(resolvedStyle) : undefined;
+    const stateValue = typeof state === "string"
+        ? East.value(variant(state, null), StateValueType)
+        : state as ExprType<StateValueType> | undefined;
 
-    const stateValue = typeof options?.state === "string"
-        ? East.value(variant(options.state, null), StateValueType)
-        : options?.state as ExprType<StateValueType> | undefined;
-
-    const headerComp = options?.header ? CardHeader(options.header) : undefined;
-    const footerComp = options?.footer ? composeFooter(options.footer) : undefined;
+    const headerComp = header ? CardHeader(header) : undefined;
+    const footerComp = footer ? composeFooter(footer) : undefined;
 
     return East.value(variant("Card", {
         header: headerComp ? some(headerComp) : none,
@@ -598,7 +569,7 @@ export const Card = {
      * Creates a Card container with content slots + runtime state + visual style.
      *
      * @param children - Array of body UIComponents
-     * @param options - Optional `header` / `footer` / `state` / `style` + legacy flat fields
+     * @param options - Optional `header` / `footer` / `state` + visual style fields
      *
      * @example
      * ```ts
