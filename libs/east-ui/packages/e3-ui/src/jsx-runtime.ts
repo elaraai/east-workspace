@@ -4,111 +4,14 @@
  */
 
 /**
- * JSX runtime for east-ui — author `UIComponentType` trees with JSX syntax
- * (`<Box>…</Box>`) that desugar to east-ui component factories.
+ * JSX runtime for e3-ui — a passthrough to the east-ui runtime, which owns the
+ * JSX authoring surface (the runtime + tags live in `@elaraai/east-ui` so
+ * east-ui's own examples can be authored as `.tsx`).
  *
- * A JSX element here is **not** a React element: it evaluates to a built
- * east-ui value (`ExprType<UIComponentType>`), exactly what `Box.Root(…)`
- * returns. The IR/renderer split is preserved — JSX is pure authoring sugar
- * that produces serializable East IR.
- *
- * @remarks
- * This module is the compiler-facing runtime; you never import it by hand.
- * Point the compiler at it project-wide in `tsconfig.json`:
- *
- * ```json
- * { "compilerOptions": { "jsx": "react-jsx", "jsxImportSource": "@elaraai/e3-ui" } }
- * ```
- *
- * The capitalized component tags (`Box`, `VStack`, `Text`, …) live in
- * `@elaraai/e3-ui/jsx` (and are re-exported from `@elaraai/e3-ui/ui`). JSX
- * only works in `.tsx` files — the `.ts` parser reads `<Box>` as a type
- * assertion, so there is no pragma/decorator that enables it in `.ts`.
+ * Kept so `jsxImportSource: "@elaraai/e3-ui"` keeps resolving for existing e3
+ * consumers; the semantics are identical to `@elaraai/east-ui/jsx-runtime`.
  *
  * @packageDocumentation
  */
 
-import type { ExprType } from '@elaraai/east';
-import type { UIComponentType } from '@elaraai/east-ui';
-
-/** A built east-ui element — what every JSX expression evaluates to. */
-export type UIElement = ExprType<UIComponentType>;
-
-/** A JSX component: a function from a single props object to a built element. */
-export type Component<P> = (props: P) => UIElement;
-
-/**
- * Fragment marker. `<>…</>` collects its children with no wrapper element;
- * the enclosing container flattens them into its own child list.
- */
-export const Fragment = Symbol('@elaraai/e3-ui.jsx.Fragment');
-export type Fragment = typeof Fragment;
-
-/**
- * Automatic-runtime entry point. The compiler emits calls to this (and to
- * {@link jsxs}) when `jsxImportSource` is `@elaraai/e3-ui`.
- *
- * `props.children` carries the nested elements; each component function does
- * its own child normalization (see `@elaraai/e3-ui/jsx`).
- */
-export function jsx(
-    type: Component<unknown> | Fragment,
-    props: { children?: unknown } | null,
-): UIElement {
-    if (type === Fragment) {
-        // A fragment is not itself an element; returning its raw children lets
-        // the parent container's child-flattening splice them into place.
-        return props?.children as UIElement;
-    }
-    return (type as Component<unknown>)((props ?? {}) as unknown);
-}
-
-/** Static-children variant — identical behaviour for this runtime. */
-export const jsxs: typeof jsx = jsx;
-
-/** Development entry point — same behaviour, extra compiler args ignored. */
-export function jsxDEV(
-    type: Component<unknown> | Fragment,
-    props: { children?: unknown } | null,
-): UIElement {
-    return jsx(type, props);
-}
-
-/**
- * Classic-runtime factory (`@jsxFactory h`). Folds positional children into
- * `props.children` and delegates to {@link jsx}, so both runtimes share one
- * code path.
- */
-export function h(
-    type: Component<unknown> | Fragment,
-    props: Record<string, unknown> | null,
-    ...children: unknown[]
-): UIElement {
-    const merged: Record<string, unknown> = { ...(props ?? {}) };
-    if (children.length === 1) merged.children = children[0];
-    else if (children.length > 1) merged.children = children;
-    return jsx(type, merged);
-}
-
-/**
- * JSX type contract consumed by the compiler under
- * `jsxImportSource: "@elaraai/e3-ui"`.
- *
- * A `namespace` is the only shape the compiler accepts for the `JSX` type
- * contract, so the module-syntax lint rule is disabled here intentionally.
- */
-// eslint-disable-next-line @typescript-eslint/no-namespace
-export namespace JSX {
-    /** Every JSX expression evaluates to a built east-ui element. */
-    export type Element = UIElement;
-    /** Names the prop (`children`) that carries nested elements. */
-    export interface ElementChildrenAttribute {
-        children: object;
-    }
-    /**
-     * No intrinsic (lowercase) tags: `<div>` is not an east-ui component.
-     * Only the capitalized component tags are valid.
-     */
-    // eslint-disable-next-line @typescript-eslint/no-empty-object-type
-    export interface IntrinsicElements {}
-}
+export * from "@elaraai/east-ui/jsx-runtime";
