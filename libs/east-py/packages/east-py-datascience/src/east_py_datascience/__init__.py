@@ -8,12 +8,19 @@ Python implementation of data science platform functions for the East programmin
 Provides ML and optimization capabilities for East programs running in Python.
 """
 
-# Load core's east/libeast-c.so into the process before any datascience _eastc
-# extension is dlopened. The extensions link the single shared libeast-c.so
-# (NEEDED + $ORIGIN/../../east RUNPATH) so the whole process shares one east-c
-# value slab / IR-type singleton / error register; importing east first maps
-# that lib so the extensions resolve it by soname regardless of install layout.
+# Make core's single shared east-c reachable before any datascience _eastc
+# extension is loaded, so the whole process shares one east-c value slab /
+# IR-type singleton / error register. Core ships the lib in the `east` package
+# dir (libeast-c.so / .dylib / east_c_shared.dll). On Unix `import east` maps it
+# and the extensions' $ORIGIN/../../east RUNPATH resolves it. Windows has no
+# RUNPATH: register core's `east/` dir on the DLL search path so the datascience
+# .pyd's — two package levels away — find east_c_shared.dll.
+import os
+
 import east  # noqa: F401
+
+if hasattr(os, "add_dll_directory"):  # Windows (Python 3.8+); no-op elsewhere
+    os.add_dll_directory(os.path.dirname(east.__file__))
 
 from east_py_datascience.alns import alns_impl
 from east_py_datascience.google_or import google_or_impl

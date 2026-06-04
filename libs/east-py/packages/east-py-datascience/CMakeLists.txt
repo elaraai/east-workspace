@@ -74,6 +74,11 @@ FetchContent_MakeAvailable(pcre2)
 set(EAST_USE_MIMALLOC OFF CACHE BOOL "" FORCE)
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 
+# Windows builds the shared east-c as a DLL from east-c's OBJECT twin (see below).
+if(WIN32)
+    set(EAST_C_BUILD_OBJECT ON CACHE BOOL "" FORCE)
+endif()
+
 add_subdirectory(
     ${EAST_C_DIR}
     ${CMAKE_BINARY_DIR}/_deps/east-c
@@ -92,16 +97,25 @@ add_subdirectory(
 # otherwise be allocated in one slab and freed in another — leaking the origin
 # slab, underflowing the freeing slab.
 #
-# We build our OWN east-c-shared here only so the extensions get a NEEDED
-# libeast-c.so dependency + soname to link against; it is NOT installed. The one
-# true libeast-c.so is shipped by the core `east` package (a sibling of
-# east_py_datascience/ in site-packages); the extensions' RUNPATH resolves to it
-# at runtime, so the whole process shares exactly one slab. Windows keeps the
-# static link — and must NOT create the shared target at all, since a SHARED
-# east-c emits an east-c.lib import library that collides with the static east-c
-# target's east-c.lib (the native-build pivot owns the DLL-export story there).
+# We build our OWN east-c-shared here only so the extensions get a dependency on
+# the ONE east-c (by soname libeast-c.so on Unix, by import name east_c_shared.dll
+# on Windows) to link against; it is NOT installed. The one true east-c is shipped
+# by the core `east` package (a sibling of east_py_datascience/ in site-packages).
+# Unix resolves it via the extensions' $ORIGIN/../../east RUNPATH; Windows (no
+# RUNPATH) via os.add_dll_directory(<east/>) in __init__.py. Windows splices the
+# OBJECT twin into the DLL (WINDOWS_EXPORT_ALL_SYMBOLS won't export a static
+# archive's members); the DLL gets a distinct basename so its import .lib doesn't
+# collide with the static east-c.lib.
 if(WIN32)
-    set(EAST_PY_LINK_EASTC east-c)
+    add_library(east-c-shared SHARED $<TARGET_OBJECTS:east-c-obj>)
+    add_dependencies(east-c-shared east-c-obj)
+    set_target_properties(east-c-shared PROPERTIES
+        OUTPUT_NAME                east_c_shared
+        ARCHIVE_OUTPUT_NAME        east_c_shared
+        WINDOWS_EXPORT_ALL_SYMBOLS ON)
+    target_link_libraries(east-c-shared PRIVATE pcre2-8 btreec)
+    set(EAST_PY_LINK_EASTC east-c-shared)
+    # NO install(TARGETS east-c-shared) — core ships the one copy.
 else()
     set(_eastc_shared_stub "${CMAKE_BINARY_DIR}/east_c_shared_stub.c")
     file(WRITE ${_eastc_shared_stub}

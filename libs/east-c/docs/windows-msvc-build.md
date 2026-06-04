@@ -13,16 +13,53 @@ east-c must build on Windows in **one consistent way** that serves both
 consumers of the C runtime:
 
 1. The **standalone `east-c` CLI / release binary** (`win32-x64`, the missing
-   target in `npm-runner-distribution.md`).
-2. The **static library that `east-py-datascience` links in-process** — its
-   `CMakeLists.txt` builds east-c via `add_subdirectory(east-c)` and
-   `target_link_libraries(<cython_ext> PRIVATE east-c m)`, so the East runtime
-   runs *inside* the Python extension module.
+   target in `npm-runner-distribution.md`). Stays a **static** `.exe` (one process,
+   one east-c — no sharing needed).
+2. The **single shared east-c DLL that the east-py extensions link in-process.**
+   (This was originally specced as a *static* per-extension link; that's since been
+   superseded — see "In-process link: shared DLL, not static" below. The MSVC
+   toolchain decision is unchanged; only the library *kind* changed.)
 
 Today these would use two different Windows toolchains (MinGW for the
 standalone build added on `feat/east-c-windows-build`; MSVC for the east-py
 extension, since that's what scikit-build-core / CPython default to). Two
 compilers building the same library is the problem this design removes.
+
+## In-process link: shared DLL, not static
+
+The original plan linked east-c **statically** into each east-py extension
+`.pyd`. That is wrong: east-py splits its east-c-dependent code across several
+extensions (core's `_eastc_bridge`, `_compiler_eastc`, `_beast2_eastc`, … and
+datascience's `_optimization_eastc`, `_simulation_eastc`), and a static link
+gives **each `.pyd` its own copy of east-c's value slab** (the `static` globals
+in `value_slab.c`). A value allocated in one extension's slab and freed in
+another's — which the zero-copy buffer view does within core, and which any
+datascience platform-function result freed by core's interpreter does across
+packages — lands in the wrong freelist, leaking the origin slab and underflowing
+the freer. Linux/macOS already solved this by linking **one shared east-c**
+(`libeast-c.so` / `.dylib`); Windows must match it with a DLL.
+
+The recipe (implemented in `libs/east-py/packages/east-py/CMakeLists.txt` and the
+datascience twin):
+
+- east-c's `CMakeLists.txt` builds an opt-in **OBJECT** library `east-c-obj`
+  (same sources as the static `east-c`, behind `EAST_C_BUILD_OBJECT`). The
+  standalone CLI still links the static `east-c`.
+- east-py splices `$<TARGET_OBJECTS:east-c-obj>` into a `SHARED` target with
+  `WINDOWS_EXPORT_ALL_SYMBOLS ON`. east-c's objects must be the DLL's **own**
+  objects: `WINDOWS_EXPORT_ALL_SYMBOLS` generates the export `.def` from the
+  target's own `.obj` files and never scans a static-archive dependency's members
+  (not even one pulled in with `/WHOLEARCHIVE`). All east-c API symbols are C
+  functions, so they auto-export; the `static` slab globals are never exported and
+  stay internal — the single-slab guarantee.
+- The DLL is named **`east_c_shared.dll`** (distinct import-lib basename so it
+  doesn't collide with the static `east-c.lib`). Core ships it into `east/`;
+  datascience does not ship its own. Windows has no RUNPATH, so the loader finds
+  it via the `.pyd`-directory search (core's `east/*.pyd`) and, for the nested /
+  cross-package extensions, an `os.add_dll_directory(<east/ dir>)` in
+  `east_py_datascience/__init__.py`. Wheel repair uses `delvewheel`:
+  `--ignore-existing --no-mangle east_c_shared.dll` for core, `--exclude
+  east_c_shared.dll` for datascience.
 
 ## Why MSVC, and why one toolchain
 

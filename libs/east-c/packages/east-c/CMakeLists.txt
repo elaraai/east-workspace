@@ -1,4 +1,4 @@
-add_library(east-c
+set(EAST_C_SOURCES
     src/arena.c
     src/gc.c
     src/hashmap.c
@@ -42,6 +42,8 @@ add_library(east-c
     src/serialization/binary_utils.c
     src/type_of_type.c
 )
+
+add_library(east-c ${EAST_C_SOURCES})
 
 target_include_directories(east-c PUBLIC include)
 target_link_libraries(east-c PRIVATE pcre2-8)
@@ -92,6 +94,35 @@ endif()
 if(EAST_USE_MIMALLOC AND TARGET mimalloc-static)
     target_link_libraries(east-c PUBLIC mimalloc-static)
     target_compile_definitions(east-c PUBLIC EAST_USE_MIMALLOC=1)
+endif()
+
+# Opt-in OBJECT-library twin of east-c, requested by east-py via EAST_C_BUILD_OBJECT.
+# east-py links east-c as ONE shared library so the whole process has a single
+# value slab. On Windows that shared library is a DLL whose export table is
+# auto-generated (WINDOWS_EXPORT_ALL_SYMBOLS) by scanning the target's OWN object
+# files — it never scans a static-archive dependency's members, even one pulled in
+# with /WHOLEARCHIVE. So the DLL must own east-c's objects directly: build them
+# here as an OBJECT library and splice $<TARGET_OBJECTS:east-c-obj> into the SHARED
+# target in east-py's CMakeLists. The STATIC east-c above is untouched (the
+# standalone CLI + test/profile executables keep linking it). Opt-in so a plain CLI
+# build doesn't compile every TU twice; the source list is shared so they can't drift.
+if(EAST_C_BUILD_OBJECT)
+    add_library(east-c-obj OBJECT ${EAST_C_SOURCES})
+    target_include_directories(east-c-obj PUBLIC include)
+    target_link_libraries(east-c-obj PRIVATE pcre2-8 btreec)
+    target_compile_definitions(east-c-obj PRIVATE PCRE2_CODE_UNIT_WIDTH=8)
+    if(WIN32)
+        target_compile_definitions(east-c-obj PRIVATE _CRT_NONSTDC_NO_WARNINGS _CRT_SECURE_NO_WARNINGS)
+        if(MSVC)
+            target_compile_options(east-c-obj PRIVATE /FI "${CMAKE_CURRENT_SOURCE_DIR}/include/east/compat.h")
+        else()
+            target_compile_options(east-c-obj PRIVATE -include "${CMAKE_CURRENT_SOURCE_DIR}/include/east/compat.h")
+        endif()
+    endif()
+    if(EAST_USE_MIMALLOC AND TARGET mimalloc-static)
+        target_link_libraries(east-c-obj PUBLIC mimalloc-static)
+        target_compile_definitions(east-c-obj PUBLIC EAST_USE_MIMALLOC=1)
+    endif()
 endif()
 
 # Compliance test runner (run via: make test-east-c). Built when cross-compiling
