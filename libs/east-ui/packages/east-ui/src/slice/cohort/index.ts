@@ -22,6 +22,8 @@ export { SliceCohortPickerType } from "./types.js";
 
 /** Options for `Slice.Cohort`. */
 export interface SliceCohortOptions {
+    /** The bound slice (from `Slice.bind`). */
+    slice: SubtypeExprOrValue<SliceBindType>;
     /** Author shown in the editor popover. */
     createdBy?: SubtypeExprOrValue<StringType>;
     /** Last-edited label shown in the editor popover. */
@@ -59,8 +61,8 @@ export interface SliceCohortOptions {
  *             }],
  *             activeCohorts: new Set(["power-users"]),
  *         })));
- *         return Slice.Cohort.Root(slice, {
- *             counts: new Map([["power-users", 2400n]]),
+ *         return Slice.Cohort.Root({
+ *             slice,
  *             reevaluateEvery: "every 10 min",
  *         });
  *     })),
@@ -68,16 +70,15 @@ export interface SliceCohortOptions {
  * ```
  */
 function createSliceCohort(
-    slice: SubtypeExprOrValue<SliceBindType>,
-    options?: SliceCohortOptions,
+    options: SliceCohortOptions,
 ): ExprType<UIComponentType> {
     return East.value(variant("SliceCohort", {
-        slice,
-        createdBy:       options?.createdBy !== undefined ? some(options.createdBy) : none,
-        lastEdited:      options?.lastEdited !== undefined ? some(options.lastEdited) : none,
-        reevaluateEvery: options?.reevaluateEvery !== undefined ? some(options.reevaluateEvery) : none,
-        density:         options?.density !== undefined ? some(variant(options.density, null)) : none,
-        editOpen:        options?.editOpen !== undefined ? some(options.editOpen) : none,
+        slice:           options.slice,
+        createdBy:       options.createdBy !== undefined ? some(options.createdBy) : none,
+        lastEdited:      options.lastEdited !== undefined ? some(options.lastEdited) : none,
+        reevaluateEvery: options.reevaluateEvery !== undefined ? some(options.reevaluateEvery) : none,
+        density:         options.density !== undefined ? some(variant(options.density, null)) : none,
+        editOpen:        options.editOpen !== undefined ? some(options.editOpen) : none,
     }), UIComponentType);
 }
 

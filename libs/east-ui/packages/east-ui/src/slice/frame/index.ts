@@ -34,6 +34,8 @@ export type SliceFrameAffordance = SliceAffordanceLiteral | SubtypeExprOrValue<S
 
 /** Options for `Slice.Frame.Root`. */
 export interface SliceFrameOptions {
+    /** The bound slice (from `Slice.bind`); config drives the affordances' data, data the footer. */
+    slice: SubtypeExprOrValue<SliceBindType>;
     /**
      * Eyebrow affordances, in order. Plain strings or variant expressions —
      * exactly like `state` on `CardOptions`. They render as labelled blocks in
@@ -69,9 +71,8 @@ export interface SliceFrameOptions {
  * `["filter", "search"]`, a chart frame `["breakdown"]`. Pass `[]` (or omit) to
  * get the chrome-less Embed shape (body only).
  *
- * @param slice   - The bound slice (from `Slice.bind`); config drives the affordances' data, data the footer
  * @param body    - The consumer visual to house (any `UIComponentType`)
- * @param options - `affordances` (eyebrow), right-zone `meta`, and `footer` mode
+ * @param options - The bound `slice`, eyebrow `affordances`, right-zone `meta`, and `footer` mode
  * @returns An East expression of type `UIComponentType`
  *
  * @example
@@ -79,32 +80,32 @@ export interface SliceFrameOptions {
  * Reactive.Root(East.function([], UIComponentType, $ => {
  *     const slice = $.let(Slice.bind([EventType], "events", cfg, Slice.state(), rows, none));
  *     const narrowed = $.let(Slice.apply.where([EventType], slice.read(), cfg, rows));
- *     return Slice.Frame.Root(slice, Table.Root(narrowed, columns), {
+ *     return Slice.Frame.Root(Table.Root(narrowed, columns), {
+ *         slice,
  *         affordances: ["filter", "search"],
  *     });
  * }));
  * ```
  */
 function createSliceFrame(
-    slice: SubtypeExprOrValue<SliceBindType>,
     body: SubtypeExprOrValue<UIComponentType>,
-    options?: SliceFrameOptions,
+    options: SliceFrameOptions,
 ): ExprType<UIComponentType> {
-    const affordances = (options?.affordances ?? []).map(a =>
+    const affordances = (options.affordances ?? []).map(a =>
         typeof a === "string" ? variant(a, null) : a,
     );
     return East.value(variant("SliceFrame", {
-        slice,
+        slice: options.slice,
         body,
         affordances: East.value(affordances, ArrayType(SliceAffordanceType)),
-        meta: options?.meta !== undefined ? some(options.meta) : none,
-        footer: options?.footer === false
+        meta: options.meta !== undefined ? some(options.meta) : none,
+        footer: options.footer === false
             ? variant("hidden", null)
-            : options?.footer === undefined
+            : options.footer === undefined
                 ? variant("derived", null)
                 : variant("custom", options.footer),
-        collapsible: options?.collapsible ?? true,
-        defaultCollapsed: options?.defaultCollapsed ?? false,
+        collapsible: options.collapsible ?? true,
+        defaultCollapsed: options.defaultCollapsed ?? false,
     }), UIComponentType);
 }
 

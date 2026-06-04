@@ -30,6 +30,8 @@ export { SliceChartType, SliceChartRangeKindType } from "./types.js";
 
 /** Options for `Slice.Chart.{Line,Bar,Area}`. */
 export interface SliceChartOptions {
+    /** The bound slice (from `Slice.bind`). */
+    slice: SubtypeExprOrValue<SliceBindType>;
     /** Field id positioning each point on the x-axis (e.g. `"month"`). */
     x: string;
     /** Numeric field id summed into each point's value (e.g. `"sessions"`). */
@@ -62,10 +64,9 @@ export interface SliceChartOptions {
  */
 function createSliceChart(
     mark: "line" | "bar" | "area" | "scatter",
-    slice: SubtypeExprOrValue<SliceBindType>,
     options: SliceChartOptions,
 ): ExprType<UIComponentType> {
-    const s = slice as ExprType<SliceBindType>;
+    const s = options.slice as ExprType<SliceBindType>;
     const series = s.series(options.x, options.value);
     const xScale = options.xScale ?? "band";
     const spec = chartFrame(
@@ -88,10 +89,10 @@ function createSliceChart(
     // `VisxChart` even with `brush: true`.
     const brushable = options.brush === true && (xScale === "time" || xScale === "linear");
     const chart = brushable
-        ? East.value(variant("SliceChart", { slice, spec, rangeKind: variant(xScale === "time" ? "datetime" : "float", null) }), UIComponentType)
+        ? East.value(variant("SliceChart", { slice: options.slice, spec, rangeKind: variant(xScale === "time" ? "datetime" : "float", null) }), UIComponentType)
         : East.value(variant("VisxChart", spec), UIComponentType);
     if (options.legend === false) return chart;
-    return Stack.VStack([chart, SliceLegend.Root(slice)], { gap: "3", align: "stretch" });
+    return Stack.VStack([chart, SliceLegend.Root({ slice: options.slice })], { gap: "3", align: "stretch" });
 }
 
 /**
@@ -102,20 +103,21 @@ function createSliceChart(
  *
  * @example
  * ```ts
- * Slice.Frame.Root(slice, Slice.Chart.Line(slice, { x: "month", value: "sessions" }), {
+ * Slice.Frame.Root(Slice.Chart.Line({ slice, x: "month", value: "sessions" }), {
+ *     slice,
  *     affordances: ["breakdown"],
  * });
  * ```
  */
 export const SliceChart = {
     /** Multi-line chart, one line per breakdown series. */
-    Line: (slice: SubtypeExprOrValue<SliceBindType>, options: SliceChartOptions): ExprType<UIComponentType> => createSliceChart("line", slice, options),
+    Line: (options: SliceChartOptions): ExprType<UIComponentType> => createSliceChart("line", options),
     /** Grouped bar chart, one bar per breakdown series at each x. */
-    Bar: (slice: SubtypeExprOrValue<SliceBindType>, options: SliceChartOptions): ExprType<UIComponentType> => createSliceChart("bar", slice, options),
+    Bar: (options: SliceChartOptions): ExprType<UIComponentType> => createSliceChart("bar", options),
     /** Filled-area chart, one area per breakdown series. */
-    Area: (slice: SubtypeExprOrValue<SliceBindType>, options: SliceChartOptions): ExprType<UIComponentType> => createSliceChart("area", slice, options),
+    Area: (options: SliceChartOptions): ExprType<UIComponentType> => createSliceChart("area", options),
     /** Scatter plot, one set of point markers per breakdown series. */
-    Scatter: (slice: SubtypeExprOrValue<SliceBindType>, options: SliceChartOptions): ExprType<UIComponentType> => createSliceChart("scatter", slice, options),
+    Scatter: (options: SliceChartOptions): ExprType<UIComponentType> => createSliceChart("scatter", options),
     Types: {
         /** The recursive visx `ChartSpec` IR these factories assemble. */
         Spec: ChartSpecType,

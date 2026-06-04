@@ -24,6 +24,8 @@ export { SliceSearchMatchType, SliceSearchMatchArrayType } from "../../platform/
 
 /** Options for `Slice.Search`. */
 export interface SliceSearchOptions {
+    /** The bound slice (from `Slice.bind`, with a `toMatch` projection). */
+    slice: SubtypeExprOrValue<SliceBindType>;
     /** Recent queries rendered in the focused footer. */
     recent?: SubtypeExprOrValue<ArrayType<StringType>>;
     /** Render density — defaults to the surrounding `Slice.Frame`, else `focused`. */
@@ -53,20 +55,19 @@ export interface SliceSearchOptions {
  *             toMatch: East.function([EventType], Slice.Types.SearchMatch, ($, r) =>
  *                 East.value({ id: r.sku, label: r.name, meta: some(r.note) }, Slice.Types.SearchMatch)),
  *         }));
- *         return Slice.Search.Root(slice);
+ *         return Slice.Search.Root({ slice });
  *     })),
  * );
  * ```
  */
 function createSliceSearch(
-    slice: SubtypeExprOrValue<SliceBindType>,
-    options?: SliceSearchOptions,
+    options: SliceSearchOptions,
 ): ExprType<UIComponentType> {
     return East.value(variant("SliceSearch", {
-        slice,
-        recent: options?.recent ?? [],
-        density: options?.density !== undefined ? some(variant(options.density, null)) : none,
-        editOpen: options?.editOpen !== undefined ? some(options.editOpen) : none,
+        slice: options.slice,
+        recent: options.recent ?? [],
+        density: options.density !== undefined ? some(variant(options.density, null)) : none,
+        editOpen: options.editOpen !== undefined ? some(options.editOpen) : none,
     }), UIComponentType);
 }
 

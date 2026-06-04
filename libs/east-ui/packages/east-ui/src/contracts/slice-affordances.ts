@@ -15,7 +15,7 @@ import { East, NullType, variant, VariantType, type ExprType } from "@elaraai/ea
  *
  * @remarks
  * The developer lists which affordances appear (and in what order) via
- * `Slice.Frame.Root(slice, body, { affordances: [...] })`. The renderer mounts
+ * `Slice.Frame.Root(body, { slice, affordances: [...] })`. The renderer mounts
  * the matching `Slice.*` component in compact density and places it by kind:
  *
  * | Affordance | Zone | Compact form |
@@ -59,9 +59,9 @@ export type SliceAffordanceLiteral = "filter" | "search" | "breakdown" | "range"
  * ```ts
  * import { SliceAffordance } from "@elaraai/east-ui/contracts";
  *
- * Slice.Frame.Root(slice, body, { affordances: [SliceAffordance("filter"), SliceAffordance("search")] });
+ * Slice.Frame.Root(body, { slice, affordances: [SliceAffordance("filter"), SliceAffordance("search")] });
  * // or, equivalently, the string shorthand:
- * Slice.Frame.Root(slice, body, { affordances: ["filter", "search"] });
+ * Slice.Frame.Root(body, { slice, affordances: ["filter", "search"] });
  * ```
  */
 export function SliceAffordance(affordance: SliceAffordanceLiteral): ExprType<SliceAffordanceType> {

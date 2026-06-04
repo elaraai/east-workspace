@@ -22,6 +22,8 @@ export { SliceFilterType } from "./types.js";
 
 /** Options for `Slice.Filter`. */
 export interface SliceFilterOptions {
+    /** The bound slice (from `Slice.bind`). */
+    slice: SubtypeExprOrValue<SliceBindType>;
     /** Unit noun for the focused `SHOWING N {unit}` footer (count from `slice.resultCount()`). */
     unit?: SubtypeExprOrValue<StringType>;
     /** Render density — defaults to the surrounding `Slice.Frame`, else `focused`. */
@@ -49,21 +51,19 @@ export interface SliceFilterOptions {
  * const view = East.function([], UIComponentType, _$ =>
  *     Reactive.Root(East.function([], UIComponentType, $ => {
  *         const slice = $.let(Slice.bind([EventType], "demo.events", cfg, Slice.state()));
- *         const rows = $.let(Slice.apply.where([EventType], slice.read(), cfg, events));
- *         return Slice.Filter.Root(slice, { resultCount: rows.length(), unit: "events" });
+ *         return Slice.Filter.Root({ slice, unit: "events" });
  *     })),
  * );
  * ```
  */
 function createSliceFilter(
-    slice: SubtypeExprOrValue<SliceBindType>,
-    options?: SliceFilterOptions,
+    options: SliceFilterOptions,
 ): ExprType<UIComponentType> {
     return East.value(variant("SliceFilter", {
-        slice,
-        unit:     options?.unit !== undefined ? some(options.unit) : none,
-        density:  options?.density !== undefined ? some(variant(options.density, null)) : none,
-        editOpen: options?.editOpen !== undefined ? some(options.editOpen) : none,
+        slice:    options.slice,
+        unit:     options.unit !== undefined ? some(options.unit) : none,
+        density:  options.density !== undefined ? some(variant(options.density, null)) : none,
+        editOpen: options.editOpen !== undefined ? some(options.editOpen) : none,
     }), UIComponentType);
 }
 

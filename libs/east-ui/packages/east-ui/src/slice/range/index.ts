@@ -21,6 +21,8 @@ export { SliceRangePickerType } from "./types.js";
 
 /** Options for `Slice.Range`. */
 export interface SliceRangeOptions {
+    /** The bound slice (from `Slice.bind`). */
+    slice: SubtypeExprOrValue<SliceBindType>;
     /** Render the picker popover open on mount (for static snapshots). */
     editOpen?: SubtypeExprOrValue<BooleanType>;
 }
@@ -42,18 +44,17 @@ export interface SliceRangeOptions {
  * const view = East.function([], UIComponentType, _$ =>
  *     Reactive.Root(East.function([], UIComponentType, $ => {
  *         const slice = $.let(Slice.bind([EventType], "demo.events", cfg, Slice.state()));
- *         return Slice.Range.Root(slice);
+ *         return Slice.Range.Root({ slice });
  *     })),
  * );
  * ```
  */
 function createSliceRange(
-    slice: SubtypeExprOrValue<SliceBindType>,
-    options?: SliceRangeOptions,
+    options: SliceRangeOptions,
 ): ExprType<UIComponentType> {
     return East.value(variant("SliceRange", {
-        slice,
-        editOpen: options?.editOpen !== undefined ? some(options.editOpen) : none,
+        slice: options.slice,
+        editOpen: options.editOpen !== undefined ? some(options.editOpen) : none,
     }), UIComponentType);
 }
 

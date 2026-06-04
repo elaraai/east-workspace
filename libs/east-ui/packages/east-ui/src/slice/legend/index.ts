@@ -22,7 +22,7 @@ export { SliceLegendType } from "./types.js";
  * Toggling a chip flips the group's membership in `state.visible` (none = all
  * visible).
  *
- * @param slice - The bound slice (from `Slice.bind`)
+ * @param options - The legend configuration ({@link SliceLegendOptions})
  * @returns An East expression of type `UIComponentType`
  *
  * @example
@@ -33,15 +33,25 @@ export { SliceLegendType } from "./types.js";
  * const view = East.function([], UIComponentType, _$ =>
  *     Reactive.Root(East.function([], UIComponentType, $ => {
  *         const slice = $.let(Slice.bind([EventType], "demo.events", cfg, Slice.state(), events));
- *         return Slice.Legend.Root(slice);
+ *         return Slice.Legend.Root({ slice });
  *     })),
  * );
  * ```
  */
 function createSliceLegend(
-    slice: SubtypeExprOrValue<SliceBindType>,
+    options: SliceLegendOptions,
 ): ExprType<UIComponentType> {
-    return East.value(variant("SliceLegend", { slice }), UIComponentType);
+    return East.value(variant("SliceLegend", { slice: options.slice }), UIComponentType);
+}
+
+/**
+ * Options for `Slice.Legend`.
+ *
+ * @property slice - The bound slice (from `Slice.bind`)
+ */
+export interface SliceLegendOptions {
+    /** The bound slice (from `Slice.bind`). */
+    slice: SubtypeExprOrValue<SliceBindType>;
 }
 
 /** `Slice.Legend` — series swatch / visibility rail. */

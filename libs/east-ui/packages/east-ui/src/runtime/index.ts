@@ -42,3 +42,4 @@ export * from "./navigation/index.js";
 export * from "./overlays/index.js";
 export * from "./collections/index.js";
 export * from "./reactive/index.js";
+export { Slice } from "./slice.js";
