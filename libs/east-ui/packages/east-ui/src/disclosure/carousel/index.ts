@@ -135,21 +135,28 @@ function createCarousel(
     items: SubtypeExprOrValue<ArrayType<UIComponentType>>,
     options?: CarouselOptions,
 ): ExprType<UIComponentType> {
-    const styleValue = options?.style ? buildCarouselStyle(options.style) : undefined;
+    const opts: CarouselOptions = options ?? {};
+    const {
+        index, defaultIndex, slidesPerView, slidesPerMove, loop, autoplay,
+        allowMouseDrag, showIndicators, showControls, spacing, onIndexChange, ...visual
+    } = opts;
+    const styleValue = Object.values(visual).some(field => field !== undefined)
+        ? buildCarouselStyle(opts)
+        : undefined;
 
     return East.value(variant("Carousel", {
         items,
-        index: options?.index !== undefined ? some(options.index) : none,
-        defaultIndex: options?.defaultIndex !== undefined ? some(options.defaultIndex) : none,
-        slidesPerView: options?.slidesPerView !== undefined ? some(options.slidesPerView) : none,
-        slidesPerMove: options?.slidesPerMove !== undefined ? some(options.slidesPerMove) : none,
-        loop: options?.loop !== undefined ? some(options.loop) : none,
-        autoplay: options?.autoplay !== undefined ? some(options.autoplay) : none,
-        allowMouseDrag: options?.allowMouseDrag !== undefined ? some(options.allowMouseDrag) : none,
-        showIndicators: options?.showIndicators !== undefined ? some(options.showIndicators) : none,
-        showControls: options?.showControls !== undefined ? some(options.showControls) : none,
-        spacing: options?.spacing !== undefined ? some(options.spacing) : none,
-        onIndexChange: options?.onIndexChange ? some(options.onIndexChange) : none,
+        index: index !== undefined ? some(index) : none,
+        defaultIndex: defaultIndex !== undefined ? some(defaultIndex) : none,
+        slidesPerView: slidesPerView !== undefined ? some(slidesPerView) : none,
+        slidesPerMove: slidesPerMove !== undefined ? some(slidesPerMove) : none,
+        loop: loop !== undefined ? some(loop) : none,
+        autoplay: autoplay !== undefined ? some(autoplay) : none,
+        allowMouseDrag: allowMouseDrag !== undefined ? some(allowMouseDrag) : none,
+        showIndicators: showIndicators !== undefined ? some(showIndicators) : none,
+        showControls: showControls !== undefined ? some(showControls) : none,
+        spacing: spacing !== undefined ? some(spacing) : none,
+        onIndexChange: onIndexChange ? some(onIndexChange) : none,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }

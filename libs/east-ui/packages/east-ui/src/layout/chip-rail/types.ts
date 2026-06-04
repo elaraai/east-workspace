@@ -70,7 +70,7 @@ export interface ChipRailStyle {
     overflowTriggerColor?: SubtypeExprOrValue<StringType>;
 }
 
-export interface ChipRailOptions {
+export interface ChipRailOptions extends ChipRailStyle {
     /**
      * Density (inherited via `DensityProvider` when omitted; per-rail override
      * always wins).
@@ -78,6 +78,4 @@ export interface ChipRailOptions {
     density?: SubtypeExprOrValue<DensityType> | DensityLiteral;
     /** Separator between chips. */
     separator?: SubtypeExprOrValue<ChipRailSeparatorType> | ChipRailSeparatorLiteral;
-    /** Style escape hatches (includes `overflow`). */
-    style?: ChipRailStyle;
 }

@@ -82,17 +82,17 @@ function createChipRail(
             : options.separator)
         : undefined;
 
-    const overflowValue = options?.style?.overflow
-        ? (typeof options.style.overflow === "string"
-            ? East.value(variant(options.style.overflow, null), ChipRailOverflowType)
-            : options.style.overflow)
+    const overflowValue = options?.overflow
+        ? (typeof options.overflow === "string"
+            ? East.value(variant(options.overflow, null), ChipRailOverflowType)
+            : options.overflow)
         : undefined;
 
-    const hasStyle = !!options?.style && (
+    const hasStyle = !!options && (
         overflowValue !== undefined ||
-        options.style.background !== undefined ||
-        options.style.separatorColor !== undefined ||
-        options.style.overflowTriggerColor !== undefined
+        options.background !== undefined ||
+        options.separatorColor !== undefined ||
+        options.overflowTriggerColor !== undefined
     );
 
     return East.value(variant("ChipRail", {
@@ -102,9 +102,9 @@ function createChipRail(
         style: hasStyle
             ? variant("some", East.value({
                 overflow: overflowValue ? variant("some", overflowValue) : variant("none", null),
-                background: options!.style!.background ? variant("some", options!.style!.background) : variant("none", null),
-                separatorColor: options!.style!.separatorColor ? variant("some", options!.style!.separatorColor) : variant("none", null),
-                overflowTriggerColor: options!.style!.overflowTriggerColor ? variant("some", options!.style!.overflowTriggerColor) : variant("none", null),
+                background: options!.background ? variant("some", options!.background) : variant("none", null),
+                separatorColor: options!.separatorColor ? variant("some", options!.separatorColor) : variant("none", null),
+                overflowTriggerColor: options!.overflowTriggerColor ? variant("some", options!.overflowTriggerColor) : variant("none", null),
             }, ChipRailStyleType))
             : variant("none", null),
     }), UIComponentType);

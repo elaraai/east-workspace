@@ -6,3 +6,4 @@
 /** Button JSX tags. Mirrors `src/buttons/`. */
 
 export { Button } from "./button.js";
+export { ButtonGroup } from "./button-group.js";
