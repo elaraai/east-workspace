@@ -7,3 +7,5 @@
 
 export { Button } from "./button.js";
 export { ButtonGroup } from "./button-group.js";
+export { CloseButton } from "./close-button.js";
+export { CopyButton } from "./copy-button.js";

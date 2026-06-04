@@ -83,13 +83,17 @@ function createCopyButton(
     value: SubtypeExprOrValue<StringType>,
     options?: CopyButtonOptions,
 ): ExprType<UIComponentType> {
-    const styleValue = options?.style ? buildCopyButtonStyle(options.style) : undefined;
+    const opts: CopyButtonOptions = options ?? {};
+    const { label, timeout, disabled, ...visual } = opts;
+    const styleValue = Object.values(visual).some(field => field !== undefined)
+        ? buildCopyButtonStyle(opts)
+        : undefined;
 
     return East.value(variant("CopyButton", {
         value,
-        label: options?.label !== undefined ? some(options.label) : none,
-        timeout: options?.timeout !== undefined ? some(options.timeout) : none,
-        disabled: options?.disabled !== undefined ? some(options.disabled) : none,
+        label: label !== undefined ? some(label) : none,
+        timeout: timeout !== undefined ? some(timeout) : none,
+        disabled: disabled !== undefined ? some(disabled) : none,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }

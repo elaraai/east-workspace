@@ -66,12 +66,16 @@ export {
 function createCloseButton(
     options?: CloseButtonOptions,
 ): ExprType<UIComponentType> {
-    const styleValue = options?.style ? buildCloseButtonStyle(options.style) : undefined;
+    const opts: CloseButtonOptions = options ?? {};
+    const { label, disabled, onClick, ...visual } = opts;
+    const styleValue = Object.values(visual).some(field => field !== undefined)
+        ? buildCloseButtonStyle(opts)
+        : undefined;
 
     return East.value(variant("CloseButton", {
-        label: options?.label !== undefined ? some(options.label) : none,
-        disabled: options?.disabled !== undefined ? some(options.disabled) : none,
-        onClick: options?.onClick ? some(options.onClick) : none,
+        label: label !== undefined ? some(label) : none,
+        disabled: disabled !== undefined ? some(disabled) : none,
+        onClick: onClick ? some(onClick) : none,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }

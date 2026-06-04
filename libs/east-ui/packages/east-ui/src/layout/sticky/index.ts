@@ -80,11 +80,11 @@ function createSticky(
         content: content_expr,
         offset: options?.offset ? variant("some", options.offset) : variant("none", null),
         boundary: boundaryValue ? variant("some", boundaryValue) : variant("none", null),
-        style: options?.style
+        style: (options && (options.background !== undefined || options.borderColor !== undefined || options.shadowColor !== undefined))
             ? variant("some", East.value({
-                background: options.style.background ? variant("some", options.style.background) : variant("none", null),
-                borderColor: options.style.borderColor ? variant("some", options.style.borderColor) : variant("none", null),
-                shadowColor: options.style.shadowColor ? variant("some", options.style.shadowColor) : variant("none", null),
+                background: options.background ? variant("some", options.background) : variant("none", null),
+                borderColor: options.borderColor ? variant("some", options.borderColor) : variant("none", null),
+                shadowColor: options.shadowColor ? variant("some", options.shadowColor) : variant("none", null),
             }, StickyStyleType))
             : variant("none", null),
     }), UIComponentType);
