@@ -46,14 +46,15 @@ These govern every decision below.
    The JSX tag is a thin prop-shape adapter that forwards to the factory — it
    never re-types or re-coerces East-shaped data.
 
-4. **Type-safety lives on props; children are JSX-union-granular.** Because TSX
-   exposes a single global `JSX.Element`, parent/child *position* type-checking
-   is union-granular (a known TSX limitation, same as React). Prop- and
-   encoding-level inference — the load-bearing part (Table `ColumnSpec<T>`,
-   Chart `Row` accessors) — is **fully preserved**. Children-position mistakes
-   are caught by runtime validation in the container/`<Chart>` wrappers and by
-   the tags' precise return types when used directly. **No JSX form may lose
-   inference the factory had** — this is a hard acceptance criterion.
+4. **Children are always `UIComponentType`; everything else is props.** Because
+   TSX exposes a single global `JSX.Element`, the only way to keep children-
+   position tight is to keep `JSX.Element` a single type — `ExprType<
+   UIComponentType>` — and *never* widen it (§2.6). So a JSX child is always a UI
+   component; non-UIComponent sub-structures (columns, layers, cells, header
+   data) are config props / typed callbacks, not child sub-tags (§2.3). Prop- and
+   encoding-level inference — the load-bearing part (Table `ColumnSpec<T>`, Chart
+   `Row` accessors) — is **fully preserved**. **No JSX form may lose inference the
+   factory had** — this is a hard acceptance criterion.
 
 5. **One canonical surface in the docs.** Examples and `@example` blocks are
    JSX-only for UI components. The factory *signature* reference stays (it is
@@ -194,23 +195,33 @@ value, independent of the parent (today it leaks a raw JS array that only works
 under a container parent). Fragments are meaningful as container/bucketed
 children; documented as such.
 
-### 2.3 Type-driven child bucketing (sub-tags)
+### 2.3 Sub-structures are props/config, not typed-slot children
 
-For tags whose children are heterogeneous item structs, the parent routes each
-child **by its East value type**:
+A tag's children are always `UIComponentType`: `JSX.Element` stays strictly
+`ExprType<UIComponentType>` (§2.6). Anything that **isn't** a UI component — a
+card header's fields, a chart's layers, a table's column specs, a matrix cell's
+segments — is **not** a JSX child. It is an **option-object prop**, a config
+array, or a typed callback authored with the factory.
 
-- `<Matrix.Cell>` → `MatrixSegmentType` children to `segments`,
-  `MatrixMarkerType` children to `markers`.
-- A Gantt row fragment → `GanttTaskType` to `tasks`, `GanttMilestoneType` to
-  `milestones`.
-- `<Tree.Branch>` children (`TreeNodeType`) → the branch's recursive `children`.
-- `<Chart>` collects layer children (`SeriesLayer`/`BandLayer`/`RefLayer` — TS
-  objects) into the array `Chart.Root` expects (pure JS collection; layers are
-  deferred TS objects, not UIComponentType).
+**Why not type-bucketed child sub-tags** (`<Card><Card.Header/></Card>`, routed
+by East type)? For `<Card.Header>` to be a valid child, its value type has to be
+admitted into the **global** `JSX.Element` — which taxes *every* tag's
+children-position (and grows with every new sub-tag type) just to make one
+component special. Rejected as a general mechanism.
 
-Because each sub-tag returns a distinct East type (or TS layer type), the
-bucketer discriminates by type — sound provenance with no JS tag-branding and no
-reliance on tag identity surviving the `jsx()` call.
+**The Card precedent (the pattern to follow):**
+`<Card header={{ eyebrow, title, meta }}>body</Card>` — `header` is strictly the
+`CardHeaderOptions` object (no component-or-string union, so no runtime "options
+or component?" routing), the factory composes it, and `<Card>` is plain
+`container(Card.Root)`. Zero new types, zero `JSX.Element` widening.
+
+The same rule governs the data-driven collections and charts: structured data
+stays on config props (`data=` / `columns=`), per-row builders are typed
+callbacks that return **factory values** (e.g. `cell={(r, col) =>
+Matrix.cell({ segments: […] })}`), and chart layers are a config array of factory
+layer values — never `<Chart.Line>` / `<Table.Column>` / `<Matrix.Cell>` child
+sub-tags (a layer/column/cell isn't a `UIComponentType`, so it can't be a JSX
+child without widening). This supersedes the sub-tag sketches in §5.
 
 ### 2.4 Content from a child (`content`)
 
@@ -234,19 +245,23 @@ casts are removed; the combinator types the factory's children param as its true
 `SubtypeExprOrValue<ArrayType<UIComponentType>>`, and the coalescer returns that
 type. This is what makes 2.1 type-checked end-to-end instead of silently wrong.
 
-### 2.6 Heterogeneous `JSX.Element`
+### 2.6 `JSX.Element` stays `ExprType<UIComponentType>` (no widening)
 
-`JSX.Element` widens from `ExprType<UIComponentType>` to the union of
-element-producing return types (`ExprType<UIComponentType> | ChartLayer |
-ExprType<ItemStructTypes…>`). Prop typing stays precise; children-position is
-union-granular (Principle 4); wrappers validate at build.
+`JSX.Element` is **strictly** `ExprType<UIComponentType>` and never widens. The
+earlier idea of unioning in element-producing slot/layer types
+(`… | ChartLayer | ExprType<ItemStructTypes…>`) is **rejected**: it is a global
+tax on every tag's children-position, paid to let a few components accept
+non-UIComponent children. Per §2.3, non-UIComponent sub-structures are props/
+config/callbacks, so nothing but a `UIComponentType` is ever a JSX child — and
+the children-position type stays tight, not union-granular.
 
 ### 2.7 Runtime test coverage (none exists today)
 
 Add adversarial tests + snapshots for: a lone expression child, a mixed
 static+expression parent, an expression child inside a Fragment, text
-interpolation, type-bucketed sub-tags, and an **IR-equivalence** assertion that
-each `<Tag .../>` builds byte-identical IR to its `Factory.Root(...)` form.
+interpolation, option-object composition (Card `header`/`footer`), and an
+**IR-equivalence** assertion that each `<Tag .../>` builds byte-identical IR to
+its `Factory.Root(...)` form.
 
 ---
 
@@ -277,9 +292,12 @@ shipped `jsx.ts`:
 - `ContainerProps<F> = NonNullable<Parameters<F>[1]> & { children?: ContainerChildrenType }`
 - `ContentProps<F>  = NonNullable<Parameters<F>[1]> & { children: Parameters<F>[0] }` (the value — text leaf or single-content slot)
 - `ValueProps<F,K>  = Record<K, Parameters<F>[0]> & NonNullable<Parameters<F>[1]>`
-- shape-3 (Button/Card/overlays): `FlattenProps<F>` =
-  `NonNullable<Parameters<F>[1]>['style']` ⋃ `Omit<NonNullable<Parameters<F>[1]>,
-  'style'>` ⋃ `{ children? }`.
+- shape-3 (Button/ButtonGroup/Toggle/IconButton/… — factories whose options
+  nest a visual `style` sub-object): `FlattenProps<F>` =
+  `NonNullable<NonNullable<Parameters<F>[1]>['style']>` ⋃
+  `Omit<NonNullable<Parameters<F>[1]>, 'style'>` ⋃ `{ children: Parameters<F>[0] }`,
+  built by the `flatten(factory, topLevelKeys)` combinator. (`Card` is **not**
+  shape-3 — its options bag is flat, so `<Card>` is plain `container(Card.Root)`.)
 
 No standalone `XxxJsxProps` interface; no StructType code-gen (the TS interface
 is strictly richer than the struct). The one piece of per-component hand-state
@@ -336,73 +354,64 @@ which lives on the factory option interface.
 
 ---
 
-## 5. Complex components — done properly (full target state)
+## 5. Complex components — config props & callbacks, never child sub-tags
 
-Both the data/config surface and the markup/callback surface are built. The
-data/config surface stays the **inference-preserving canonical** path; markup
-and sub-tag callbacks are additive.
+Per §2.3, the JSX surface composes `UIComponentType` trees; everything that
+*isn't* a UI component (columns, layers, cells, item metadata) is a **config
+prop or a typed callback that returns a factory value** — never a JSX child
+sub-tag (which would force `JSX.Element` to widen, §2.6). The data/config surface
+is the inference-preserving canonical path. `Card` (§5.4) is the ratified
+precedent; exact per-component prop spellings are settled when each is built.
 
 ### 5.1 Table
 
-- **Data mode (canonical, type-inferred):** `<Table data={rows} columns={{…}}
-  pagination={…} selection={…} />`. `columns` is the keyed `ColumnSpec<T>`
-  config object — keys and per-cell types inferred from the data struct. The tag
-  is a **generic pass-through** (`function Table<T extends
-  SubtypeExprOrValue<ArrayType<StructType>>, C extends ColumnSpec<T>>(props: {
-  data: T; columns: C; … })`), so inference is intact. `value` arrows pass
-  through (build-time accessors, must stay primitive-returning); `render` is a
-  factory-lifted East-function handler.
-- **Markup mode (additive, static):** `<Table.Column field="…" header="…"
-  render={…} />` + `<Table.Row><Table.Cell>…</Table.Cell></Table.Row>`. Requires
-  new `Table.Column` / `Table.Row` / `Table.Cell` factories and an IR-assembly
-  path where each cell carries both a `LiteralValueType` sort/filter value and
-  optional content. Type-bucketed: column children → column specs, row children
-  → rows. Used for static tables; dynamic/typed tables use data mode.
+`<Table data={rows} columns={{…}} pagination={…} selection={…} />`. `columns` is
+the keyed `ColumnSpec<T>` config object — keys and per-cell types inferred from
+the data struct. The tag is a **generic pass-through** (`function Table<T extends
+SubtypeExprOrValue<ArrayType<StructType>>, C extends ColumnSpec<T>>(props: {
+data: T; columns: C; … })`), so inference is intact. `value` arrows pass through
+(build-time accessors, primitive-returning); `render` is a factory-lifted
+East-function handler. **No `<Table.Column>`/`<Table.Row>` markup mode** — it
+needed `JSX.Element` widening; static and dynamic tables alike use the config
+form.
 
 ### 5.2 Chart
 
-`<Chart legend tooltip grid x={…} y={…} y2={…}>` with layer children
-`<Chart.Line data={rows} x={r => r.month} y={r => r.rev} name="Revenue" …/>`,
-`<Chart.Bar>`, `<Chart.Area>`, `<Chart.Scatter>`, `<Chart.Band>`, and refs
-`<Chart.RefLine>`/`<Chart.RefBand>`/`<Chart.RefDot>`. Encoding fields accept
-`SubtypeExprOrValue` field expressions (Principle 2); `Row` inference is
-preserved. Layers are collected as a JS array (§2.3). `key`→`name` (§3.4).
-`Sparkline` is a flat-prop leaf.
+Layers are a **config array of factory layer values**, not layer children (a
+layer is a deferred TS object, not a `UIComponentType`):
+`<Chart legend grid layers={[Chart.line(rows, {x, y}, {name}), Chart.bar(…)]}
+x={…} y={…} y2={…} />`. Encoding accessors are typed callbacks returning
+`SubtypeExprOrValue` field expressions (Principle 2); `Row` inference preserved.
+`key`→`name` (§3.4); `Sparkline` is a flat-prop leaf. (Final prop name —
+`layers=` vs `series=` — settled when built.)
 
-### 5.3 Matrix / Gantt / Planner — sub-tag callbacks via type bucketing
+### 5.3 Matrix / Gantt / Planner — callbacks return factory values
 
-The config stays props (`data`, `columns`, `rowKey`, `legend`, axis builders).
-The builder callbacks receive the East `row` expression and return sub-tags the
-wrapper buckets by East type (§2.3):
+Config stays props (`data`, `columns`, `rowKey`, `legend`, axis builders). The
+per-row builder callbacks receive the East `row` expression and return the
+factory's expected struct/array — **East code, no JSX, no bucketing**:
 
-- **Matrix:** `cell={(r, col) => <Matrix.Cell><Matrix.Segment …/><Matrix.Marker
-  …/></Matrix.Cell>}` — `<Matrix.Cell>` buckets segment vs marker children. Note
-  `col` is a plain JS string (the factory iterates columns in JS); markers nest
-  inside the cell (there is no separate top-level `marker=` prop).
-- **Gantt:** `row={row => <><Gantt.Task …/><Gantt.Milestone …/></>}` — the
-  fragment buckets into `{ tasks, milestones }`.
-- **Planner:** `events={r => <><Planner.Event …/>…</>}` and `markers={r =>
-  <Planner.Marker …/>}` — two *separate* callbacks, each coalescing into one
-  typed array. `Planner.Point` / `Planner.Span` are the two entry tags;
-  `axis`/`at` coordinate builders stay expression props.
+- **Matrix:** `cell={(r, col) => Matrix.cell({ segments: […], markers: […] })}`.
+- **Gantt:** `row={row => ({ tasks: [Gantt.Task(…)], milestones: [Gantt.Milestone(…)] })}`.
+- **Planner:** `events={r => [Planner.event(…)]}` and `markers={r => [Planner.marker(…)]}`.
 
 ### 5.4 Others
 
-- **DataList:** add a real `DataList.Item(label, valueChildren)` factory (none
-  exists today; items are bare `{label, value}` literals). `<DataList.Item
-  label="…">…</DataList.Item>`.
-- **TreeView:** `<Tree.Branch>`/`<Tree.Item>` wrap existing factories;
-  recursive children bucket into `Branch.children` by `TreeNodeType`.
-- **Tabs / Accordion:** `<Tab value title>…</Tab>` — `title` accepts
-  string|element (→ trigger), body → content. Item-children, dynamic item
-  expressions supported.
-- **Select / Combobox:** `<Select.Option value>label</Select.Option>` (alias of
-  `Select.Item`); `value`→arg1, `onChange`/`placeholder`→style bag; `multiple`
-  switches `onChange`↔`onChangeMultiple`.
-- **Card:** body→children; `header` (string|element) / `footer` →slot props;
-  `<Card.Header>`/`<Card.Title>`/`<Card.Actions>` produce the slot UIComponents.
-- **Overlays (Dialog/Drawer/Popover/HoverCard/Tooltip/Menu/…):** `trigger={<…/>}`
-  slot prop + body children + flat config/visual props.
+- **Card (ratified, built):** body→children; `header` is the `CardHeaderOptions`
+  object, `footer` the `CardFooterInput` object — strict option objects the
+  factory composes (§2.3). `<Card>` is plain `container(Card.Root)`.
+- **DataList:** items as a config array of `DataList.Item(label, valueChildren)`
+  factory values on an `items=` prop (new `DataList.Item` factory).
+- **TreeView:** nodes as a recursive data array (`nodes=` prop), built with the
+  `Tree.Branch` / `Tree.Item` factories.
+- **Tabs / Accordion / Select / Combobox:** items as a config array of factory
+  item values (`Tabs.Item(value, title, body)`, `Select.Item(value, label)`) on
+  an `items=` prop — item metadata is not a `UIComponentType`, so it is config,
+  not item child sub-tags.
+- **Overlays (Dialog/Drawer/Popover/HoverCard/Tooltip/Menu/…):** both `trigger`
+  and the body **are** UI components, so they stay JSX-native: `trigger` is a
+  `SubtypeExprOrValue<UIComponentType>` prop, body is children, flat config/
+  visual props.
 - **Pagination:** flat-prop leaf (four positionals → named props).
 
 ---
@@ -423,8 +432,12 @@ wrapper buckets by East type (§2.3):
    `ExprType<UIComponentType>[]` → `SubtypeExprOrValue<ArrayType<
    UIComponentType>>` so `.map`/expression children work uniformly.
 4. **Chart layer `key`→`name`** on the JSX surface (§3.4).
-5. **New factories:** `DataList.Item`; `Table.Column`/`Table.Row`/`Table.Cell`
-   (markup mode). All additive; no breaking change.
+5. **New factories:** `DataList.Item` (for the `items=` config array). No
+   `Table.Column`/`Table.Row`/`Table.Cell` — the markup mode is dropped (§5.1).
+6. **Card header/footer as option objects** (done): `CardOptions.header:
+   CardHeaderOptions`, `footer: CardFooterInput`; `CardHeaderOptions` fields
+   tightened to `SubtypeExprOrValue<StringType>`. Strictly the option objects, no
+   component-or-string union — the factory composes them (§2.3, §5.4).
 
 ---
 
@@ -447,7 +460,9 @@ wrapper buckets by East type (§2.3):
   - two callback families: build-time accessors (pass through) vs East-function
     handlers (factory-lifted typed arrows / `East.function`).
   - data-driven components keep structured data on config props (`data=` /
-    `columns=` / `items=`); type-bucketed sub-tags for markup/builder callbacks.
+    `columns=` / `items=`) and per-row builders as typed callbacks returning
+    factory values; non-UIComponent sub-structures are never child sub-tags
+    (`JSX.Element` never widens — §2.3/§2.6).
   - reserved props: `key`/`ref`/`children` remapped on the JSX layer.
   - tags live in a parallel `src/jsx/` tree mirroring `src/` —
     `src/jsx/<category>/<component>.ts` — never co-located inside the component
@@ -504,8 +519,8 @@ Every JSX snippet must mirror a `*.examples.tsx` that compiles in CI
   and import `./x.examples.js` unchanged (tsc still emits `.js`).
 - **Verification per the always-visually-verify rule:** rebuild → re-snapshot →
   Read the PNG for every converted example, plus the IR-equivalence assertion
-  (§2.7). New IR-construction paths (children concat, style-split, bucketing)
-  mean snapshots must be eyeballed, not trusted.
+  (§2.7). New IR-construction paths (children concat, style-split, option-object
+  composition) mean snapshots must be eyeballed, not trusted.
 - **Order:** pilot `buttons/button-group` end-to-end (build → spec green → index
   entry → PNG → IR diff), then fan out by ascending factory shape (layout/typo →
   buttons/forms → disclosure/overlays → collections/charts last). e3-ui examples
@@ -585,6 +600,27 @@ Branch `claude/east-ui-jsx-foundation` (PR #19).
   factory value either way. Tags: `<Box> <Flex> <Stack> <VStack> <HStack>
   <ScrollArea> <Sticky>`, `<Text> <Heading> <Code> <Mark>`, `<Badge> <Tag>`,
   `<Checkbox> <Switch> <Slider>`, `<Button>`, `<Reactive>{$ => …}</Reactive>`.
+- **More clean-shape tags.** leaf: `<Meter> <Progress> <Sparkline> <Kbd>
+  <Numeric>`; content: `<CodeBlock> <EditableChip> <Link> <Highlight>
+  <MetricChip>`. New jsx categories `feedback/`, `charts/`, `container/`.
+- **Factory normalizations (Option 1, §6).** Multi-positional leaf/content
+  factories folded to `(value, options)`, **keeping the existing `XxxStyle`/
+  `XxxOptions` interface name — never renaming** (see
+  [`feedback_no_rename_style_interfaces`]): `Link` (`href`→`LinkStyle`),
+  `Highlight` (`query`→`HighlightStyle`, dropped the `| string | string[]` arm),
+  `MetricChip` (`tone`→`MetricChipOptions`, kept the `| MetricChipToneLiteral`
+  proxy). `Numeric` dropped its redundant `| number` arm. Combinator tweak:
+  `content`/`leaf` type the factory's 2nd arg as required so they accept a
+  required-options factory.
+- **Shape-3 `flatten` combinator (§3.2).** `flatten(factory, topLevelKeys)` +
+  `FlattenProps<F>` lift a nested `.style` flat; `<Button>` refactored onto it
+  (behaviour preserved). Exported from `./jsx`.
+- **Card via option objects (§2.3, §5.4).** `header`/`footer` are strict
+  `CardHeaderOptions` / `CardFooterInput` objects the factory composes (no
+  component-or-string union, no runtime routing); `CardHeaderOptions` fields
+  tightened to `SubtypeExprOrValue<StringType>`. `<Card>` is plain
+  `container(Card.Root)`. The type-bucketed slot-children approach (a global
+  `JSX.Element` union) was prototyped and **rejected** — see §2.3/§2.6.
 - **`ui()` collapsed** to a single typed `ui(name, inputs, fn, options?)` (no
   closure overload, no `unknown`).
 - **Tests.** `test/jsx/children.spec.tsx` (coalescer) + `combinators.spec.tsx`
@@ -594,14 +630,26 @@ Branch `claude/east-ui-jsx-foundation` (PR #19).
   points (verified non-breaking).
 
 **Remaining:**
-- **Rest of tags:** display/feedback/navigation leaves; shape-3
-  (`CloseButton/CopyButton/Toggle/Card/ChipRail`, IconButton, ButtonGroup);
-  items-parent (`Grid/Splitter/Tabs/Accordion/Select/SegmentGroup/…`);
-  trigger+body overlays; complex collections/charts with type-driven sub-tag
-  bucketing (§2.3, §5) + new factories (`DataList.Item`, `Table.Column/.Row/.Cell`).
-- **Phase 2 — factory interface improvements** (§6): callback arrow aliases at
-  the factory lift site; literal-union backfill; Card child widening; Chart
-  `key`→`name`.
+- **Rest of shape-3 tags** (via `flatten`): `ButtonGroup`, `ChipRail`,
+  `Carousel`, `CloseButton`; `CopyButton` (value child, `flatten`); `Toggle` /
+  `IconButton` need their positional fold first (Option 1) then `flatten`.
+- **Remaining leaves / options-only tags:** display (`Avatar`/`Stat`/`BarStrip`/
+  `Icon`/…), feedback (`Banner`/`Status`/`Skeleton`/`EmptyState`), navigation,
+  typography (`List`/`Note`), forms (`Input`/`Textarea`/`Select`/`RadioGroup`/…),
+  layout (`Grid`/`Separator`/`Splitter`).
+- **Config-driven complex components (§5) — no child sub-tags, no `JSX.Element`
+  widening:** items-parents (`Tabs`/`Accordion`/`Select`/`SegmentGroup`) via an
+  `items=` config array of factory item values; collections (`Table`/`DataList`/
+  `Matrix`/`Gantt`/`Planner`/`TreeView`) via config props + callbacks that
+  return factory values; charts via a layer config array. New factory:
+  `DataList.Item`.
+- **Overlays (§5.4):** `trigger` (UIComponent prop) + body children.
+- **Strict-rule cleanups (separate pass):** `MetricChipOptions.icon` is `unknown`
+  → `SubtypeExprOrValue<IconType>`; the library-wide `padding`/`margin`
+  `| string` shorthand on style interfaces.
+- **Phase 2 — other factory interface improvements** (§6): callback arrow
+  aliases at the factory lift site; literal-union backfill; `Card.Body/Footer/
+  Section` child widening; Chart `key`→`name`.
 - **Phase 4 — STANDARDS / SKILL / USAGE / @example** rewrites (§7–8).
 - **Phase 5 — example migration** of every `UIComponentType` example to `.tsx`
   with snapshot + IR verification (§9), pilot `buttons/button-group` first.
@@ -614,7 +662,9 @@ Branch `claude/east-ui-jsx-foundation` (PR #19).
   a CI assert that the discovered example count is unchanged.
 - **Canonical-surface divergence** → JSX-only corpus; `@example` + SKILL convert
   in lockstep with the examples.
-- **TSX children-position looseness** (§Principle 4) → runtime validation in
-  container/`<Chart>` wrappers; precise tag return types.
+- **`JSX.Element` widening creep** — the temptation to admit a slot/layer/item
+  type into `JSX.Element` to enable a child sub-tag. It taxes every tag's
+  children-position globally; **rejected** (§2.3/§2.6/Principle 4). Non-UIComponent
+  sub-structures are props/config/callbacks, so children-position stays tight.
 - **tsconfig strictness** (`exactOptionalPropertyTypes`/`verbatimModuleSyntax`)
   fighting the wrapper's optional-prop spreading → resolve in the combinator.
