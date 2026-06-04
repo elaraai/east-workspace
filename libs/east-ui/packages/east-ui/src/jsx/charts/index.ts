@@ -6,3 +6,4 @@
 /** Chart JSX tags. Mirrors `src/charts/`. */
 
 export { Sparkline } from "./sparkline.js";
+export { Chart } from "./chart.js";
