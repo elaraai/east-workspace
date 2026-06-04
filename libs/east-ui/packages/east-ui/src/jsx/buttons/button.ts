@@ -6,20 +6,17 @@
 /**
  * Button JSX tag. Button's factory nests visual style under `options.style`,
  * so the flat JSX props are split: behaviour/state/content keys stay top-level
- * and the rest fold into `style`. The label is the tag's children — a string
- * (or interpolation), a dynamic string expression (wrapped in `Text.Root`), or
- * a single rich element (passed through as the `UIComponentType` label).
+ * and the rest fold into `style`. The label is the tag's children, typed as the
+ * factory's own `ButtonLabelInput` and forwarded verbatim — the factory coerces
+ * a string to `Text.Root` and takes any `UIComponentType` as a rich label.
  */
 
-import { Expr, type ExprType, type StringType } from "@elaraai/east";
 import {
     Button as ButtonFactory,
     type ButtonOptions,
     type ButtonLabelInput,
 } from "../../buttons/button/index.js";
-import { Text as TextFactory } from "../../typography/text/index.js";
-import { UIComponentType } from "../../component.js";
-import { joinText, hasKeys, type TextChild } from "../combinators.js";
+import { hasKeys } from "../combinators.js";
 import type { UIElement } from "../runtime.js";
 
 // Keys that stay top-level on `options`; everything else folds into `style`.
@@ -39,11 +36,11 @@ export type ButtonStyleProps = NonNullable<ButtonOptions["style"]>;
 
 /** Props for the `<Button>` tag: flat style + top-level options + label child. */
 export type ButtonProps = ButtonStyleProps &
-    Omit<ButtonOptions, "style"> & { children?: TextChild | UIElement };
+    Omit<ButtonOptions, "style"> & { children: ButtonLabelInput };
 
 /** `<Button>` — action button with flat style props. Maps to `Button.Root`. */
 export function Button(props: ButtonProps): UIElement {
-    const { children, ...rest } = props as { children?: TextChild | UIElement } &
+    const { children, ...rest } = props as { children: ButtonLabelInput } &
         Record<string, unknown>;
 
     const options: Record<string, unknown> = {};
@@ -54,35 +51,8 @@ export function Button(props: ButtonProps): UIElement {
     }
     if (hasKeys(style)) options.style = style;
 
-    // A single component child is the label; any other children are text
-    // (Button.Root coerces a string to Text.Root; a string expression we wrap).
-    const flat: unknown[] = [];
-    const walk = (c: unknown): void => {
-        if (c === null || c === undefined) return;
-        if (Array.isArray(c)) {
-            for (const x of c) walk(x);
-            return;
-        }
-        flat.push(c);
-    };
-    walk(children);
-
-    let label: ButtonLabelInput;
-    if (
-        flat.length === 1 &&
-        flat[0] instanceof Expr &&
-        (Expr.type(flat[0]) as { type?: string }).type === "Recursive"
-    ) {
-        label = flat[0] as ExprType<UIComponentType>;
-    } else {
-        const joined = joinText(children as TextChild);
-        label = typeof joined === "string"
-            ? joined
-            : TextFactory.Root(joined as ExprType<StringType>);
-    }
-
     return ButtonFactory.Root(
-        label,
+        children,
         (hasKeys(options) ? options : undefined) as ButtonOptions | undefined,
     );
 }

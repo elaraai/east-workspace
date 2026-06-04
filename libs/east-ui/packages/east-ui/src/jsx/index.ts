@@ -22,10 +22,10 @@
  */
 
 // Combinators + shared child types (for wrapping unlisted factories).
-export { container, textLeaf, leaf, joinText, hasKeys } from "./combinators.js";
-export type { JsxTag, ContainerProps, TextProps, ValueProps, TextChild } from "./combinators.js";
+export { container, textLeaf, leaf, hasKeys } from "./combinators.js";
+export type { JsxTag, ContainerProps, TextProps, ValueProps } from "./combinators.js";
 export { coalesceChildren } from "./children.js";
-export type { ElementChild } from "./children.js";
+export type { ContainerChildrenType } from "./children.js";
 export type { UIElement } from "./runtime.js";
 
 // Tags, by category — each module mirrors `src/<category>/`.

@@ -4,102 +4,49 @@
  */
 
 /**
- * Child coalescing for the east-ui JSX runtime.
+ * Children handling for the east-ui JSX runtime.
  *
- * A container tag's `children` arg is `SubtypeExprOrValue<ArrayType<
- * UIComponentType>>`. JSX hands children as a mix of static element values,
- * nested arrays, fragments, and — crucially — single East expressions whose
- * East type is `ArrayType<UIComponentType>` (e.g. an East `.map(...)` over a
- * dataset). {@link coalesceChildren} lowers any of these into one value of the
- * factory's real children type:
+ * A container factory's children arg is `SubtypeExprOrValue<ArrayType<
+ * UIComponentType>>` — a list. JSX hands that list in one of two East-typed
+ * shapes, and {@link coalesceChildren} normalizes either to the factory's arg:
  *
- * - all-static → a plain JS `UIElement[]` (the factory's value branch; keeps
- *   the IR shape identical to a hand-written factory call);
- * - any East array-typed child present → an East `ArrayType<UIComponentType>`
- *   expression built by concatenating static runs (`East.value([...],
- *   ArrayType(UIComponentType))`) with the array expressions in source order.
+ * - a single `UIComponentType` (a lone child, or an East `cond.ifElse(<A/>, <B/>)`)
+ *   → wrapped into a one-element list `[child]`;
+ * - an `ArrayType<UIComponentType>` — a JS array of elements (`<Box><A/><B/></Box>`)
+ *   or a dynamic East expression (`rows.map(...)`) → passed straight through.
  *
- * An East array child is not a special case — it is simply a value of the slot
- * type — so it flows straight through; the runtime only has to detect it (by
- * East type, never `Array.isArray`) and concat rather than push.
+ * No JS `boolean`/`null`/nesting: conditional UI is East-side (`ifElse`), and a
+ * static element among a dynamic list is composed East-side (`.concat`) or by
+ * wrapping the dynamic part in its own container. The only runtime type read is
+ * `Expr.type(x).type === "Array"`, to tell a dynamic array expression apart
+ * from a single element when lowering.
  */
 
-import { East, Expr, ArrayType, type ExprType, type SubtypeExprOrValue } from "@elaraai/east";
+import { Expr, East, ArrayType, isSubtype, type SubtypeExprOrValue } from "@elaraai/east";
 import { UIComponentType } from "../component.js";
-import type { UIElement } from "./runtime.js";
 
 /**
- * A child of a container tag: a built element, a single East
- * `ArrayType<UIComponentType>` expression (e.g. `rows.map(...)`), a
- * conditional, or nested arrays of the same.
+ * The children of a container tag: a single `UIComponentType` or an
+ * `ArrayType<UIComponentType>` — both East-typed.
  */
-export type ElementChild =
-    | UIElement
+export type ContainerChildrenType =
+    | SubtypeExprOrValue<UIComponentType>
     | SubtypeExprOrValue<ArrayType<UIComponentType>>
-    | boolean
-    | null
-    | undefined
-    | ElementChild[];
-
-/** Is `x` an East expression (a built value), vs a JS primitive/array? */
-function isExpr(x: unknown): x is Expr {
-    return x instanceof Expr;
-}
-
-/** Is `x` an East expression whose East type is `ArrayType<…>`? */
-function isArrayExpr(x: unknown): x is ExprType<ArrayType<UIComponentType>> {
-    return isExpr(x) && (Expr.type(x) as { type?: string }).type === "Array";
-}
-
-/** A contiguous run of static elements, or one East array expression. */
-type Segment = UIElement[] | ExprType<ArrayType<UIComponentType>>;
+    | undefined;
 
 /**
- * Lower JSX children into a value of the factory's `children` arg type.
- *
- * @param child - the raw `props.children` (one node, a JS array, a fragment
- *   result, or an East array expression — in any nesting)
- * @returns a `UIElement[]` when fully static, else a single East
- *   `ArrayType<UIComponentType>` expression
+ * Lower a container tag's `children` into the factory's
+ * `SubtypeExprOrValue<ArrayType<UIComponentType>>` arg.
  */
 export function coalesceChildren(
-    child: unknown,
+    child: ContainerChildrenType,
 ): SubtypeExprOrValue<ArrayType<UIComponentType>> {
-    const segments: Segment[] = [];
-    let staticRun: UIElement[] | null = null;
-
-    const walk = (c: unknown): void => {
-        if (c === null || c === undefined || typeof c === "boolean") return;
-        if (Array.isArray(c)) {
-            for (const x of c) walk(x);
-            return;
-        }
-        if (isArrayExpr(c)) {
-            segments.push(c);
-            staticRun = null;
-            return;
-        }
-        // Anything else is a single UIComponentType element.
-        if (staticRun === null) {
-            staticRun = [];
-            segments.push(staticRun);
-        }
-        staticRun.push(c as UIElement);
-    };
-    walk(child);
-
-    // Fully static: hand back a plain JS array (factory value branch).
-    if (segments.every((s) => Array.isArray(s))) {
-        return (segments as UIElement[][]).flat();
-    }
-
-    // Mixed / contains East array expressions: concat into one array expr.
-    let acc: ExprType<ArrayType<UIComponentType>> | undefined;
-    for (const seg of segments) {
-        const segExpr: ExprType<ArrayType<UIComponentType>> = Array.isArray(seg)
-            ? East.value(seg, ArrayType(UIComponentType))
-            : seg;
-        acc = acc === undefined ? segExpr : acc.concat(segExpr);
-    }
-    return acc ?? [];
+    if (child === undefined) return East.value([], ArrayType(UIComponentType));
+    // Multiple static children: JSX hands a JS array of element expressions.
+    if (Array.isArray(child)) return East.value(child, ArrayType(UIComponentType));
+    // A single East expression: an ArrayType<UIComponentType> (e.g. `rows.map(...)`)
+    // is the list already; anything else is one UIComponentType — wrap it.
+    return isSubtype(Expr.type(child as Expr), ArrayType(UIComponentType))
+        ? (child as SubtypeExprOrValue<ArrayType<UIComponentType>>)
+        : East.value([child as SubtypeExprOrValue<UIComponentType>], ArrayType(UIComponentType));
 }

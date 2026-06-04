@@ -36,7 +36,7 @@
 
 import type { ExprType } from "@elaraai/east";
 import type { UIComponentType } from "../component.js";
-import { coalesceChildren } from "./children.js";
+import { coalesceChildren, type ContainerChildrenType } from "./children.js";
 
 /** A built east-ui element — what every JSX element expression evaluates to. */
 export type UIElement = ExprType<UIComponentType>;
@@ -67,7 +67,7 @@ export function jsx(
     if (type === Fragment) {
         // A fragment yields its coalesced children (a JS array or an East array
         // expression); the enclosing container re-coalesces it into place.
-        return coalesceChildren(props?.children) as unknown as UIElement;
+        return coalesceChildren(props?.children as ContainerChildrenType) as unknown as UIElement;
     }
     return (type as Component<unknown>)((props ?? {}) as unknown);
 }

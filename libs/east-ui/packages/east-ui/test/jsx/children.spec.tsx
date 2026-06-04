@@ -16,7 +16,7 @@
 import { East, ArrayType, StringType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Text, VStack } from "@elaraai/east-ui/jsx";
-import { Text as TextF, Stack, UIComponentType } from "@elaraai/east-ui";
+import { Text as TextF, Stack } from "@elaraai/east-ui";
 
 describeEast("JSX children coalescing", (test) => {
     test("static children desugar to a plain array", ($) => {
@@ -34,15 +34,10 @@ describeEast("JSX children coalescing", (test) => {
         ));
     });
 
-    test("mixed static + East .map children concat in source order", ($) => {
-        const labels = $.let(East.value(["x", "y"], ArrayType(StringType)));
+    test("a single child is wrapped into a one-element list", ($) => {
         $(Assert.equal(
-            <VStack><Text>head</Text>{labels.map(($, s) => <Text>{s}</Text>)}</VStack>,
-            Stack.VStack(
-                East.value([TextF.Root("head")], ArrayType(UIComponentType)).concat(
-                    labels.map(($, s) => TextF.Root(s)),
-                ),
-            ),
+            <VStack><Text>only</Text></VStack>,
+            Stack.VStack([TextF.Root("only")]),
         ));
     });
 

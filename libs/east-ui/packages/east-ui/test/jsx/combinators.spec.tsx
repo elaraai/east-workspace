@@ -13,7 +13,7 @@
  * lives in each component's `*.examples.tsx`, so this stays a small contract.
  */
 
-import { East, StringType, IntegerType } from "@elaraai/east";
+import { East, StringType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Badge, Button, Checkbox, Code, Flex, HStack, Reactive, Slider, Text } from "@elaraai/east-ui/jsx";
 import {
@@ -57,16 +57,11 @@ describeEast("JSX tag combinators", (test) => {
         ));
     });
 
-    test("text interpolation folds via East.str instead of throwing", ($) => {
+    test("text is a single string value (interpolate East-side with East.str)", ($) => {
         const name = $.let(East.value("Ada", StringType));
-        $(Assert.equal(<Text>Hi {name}!</Text>, TextF.Root(East.str`Hi ${name}!`)));
-    });
-
-    test("numeric expressions interpolate in text via East.str", ($) => {
-        const n = $.let(East.value(3n, IntegerType));
         $(Assert.equal(
-            <Text>Total: {n} items</Text>,
-            TextF.Root(East.str`Total: ${n} items`),
+            <Text>{East.str`Hi ${name}!`}</Text>,
+            TextF.Root(East.str`Hi ${name}!`),
         ));
     });
 
