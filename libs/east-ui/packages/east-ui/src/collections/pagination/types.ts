@@ -5,6 +5,7 @@
 
 import {
     type SubtypeExprOrValue,
+    FunctionType,
     IntegerType,
     NullType,
     OptionType,
@@ -122,6 +123,14 @@ export type PaginationStyleType = typeof PaginationStyleType;
  * @property boundaries - Number of boundary page triggers shown at the start/end
  */
 export interface PaginationOptions {
+    /** Current 0-based page index — required. */
+    page: SubtypeExprOrValue<IntegerType>;
+    /** Number of items per page — required. */
+    pageSize: SubtypeExprOrValue<IntegerType>;
+    /** Total item count (drives the page range) — required. */
+    count: SubtypeExprOrValue<IntegerType>;
+    /** Callback fired with the new 0-based page index — required. */
+    onPageChange: SubtypeExprOrValue<FunctionType<[IntegerType], NullType>>;
     /** Size preset. Default `"md"`. */
     size?: SubtypeExprOrValue<PaginationSizeType> | PaginationSizeLiteral;
     /** Visual variant. Default `"subtle"`. */
