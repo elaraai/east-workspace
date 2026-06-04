@@ -2,19 +2,16 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
+/** @jsxImportSource @elaraai/east-ui */
 import { East, NullType, example } from "@elaraai/east";
-import {
-    Button,
-    Download,
-    Reactive,
-    UIComponentType,
-} from "@elaraai/east-ui";
+import { Download, UIComponentType } from "@elaraai/east-ui";
+import { Button, Reactive } from "@elaraai/east-ui/jsx";
 
 export const downloadCsvButton = example({
     keywords: ["Download", "csv", "Button", "onClick"],
     description: "Button that downloads a 2-column CSV with two body rows",
-    fn: East.function([], UIComponentType, (_$) => {
-        return Reactive.Root(East.function([], UIComponentType, $ => {
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
             const onClick = $.const(East.function([], NullType, ($) => {
                 $(Download.csv(East.value({
                     filename: "scenarios.csv",
@@ -25,17 +22,17 @@ export const downloadCsvButton = example({
                     ],
                 }, Download.Types.CsvInput)));
             }));
-            return Button.Root("Download CSV", { onClick });
-        }));
-    }),
+            return <Button onClick={onClick}>Download CSV</Button>;
+        }}</Reactive>
+    )),
     inputs: [],
 });
 
 export const downloadBlobButton = example({
     keywords: ["Download", "blob", "Button", "binary"],
     description: "Button that downloads a small binary payload",
-    fn: East.function([], UIComponentType, (_$) => {
-        return Reactive.Root(East.function([], UIComponentType, $ => {
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
             const onClick = $.const(East.function([], NullType, ($) => {
                 $(Download.blob(East.value({
                     filename: "preview.bin",
@@ -43,8 +40,8 @@ export const downloadBlobButton = example({
                     data: new Uint8Array([0xDE, 0xAD, 0xBE, 0xEF]),
                 }, Download.Types.BlobInput)));
             }));
-            return Button.Root("Download bytes", { onClick });
-        }));
-    }),
+            return <Button onClick={onClick}>Download bytes</Button>;
+        }}</Reactive>
+    )),
     inputs: [],
 });
