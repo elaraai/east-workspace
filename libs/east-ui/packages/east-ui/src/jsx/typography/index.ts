@@ -13,3 +13,5 @@ export { Mark } from "./mark.js";
 export { Numeric } from "./numeric.js";
 export { Link } from "./link.js";
 export { Highlight } from "./highlight.js";
+export { List } from "./list.js";
+export { Note } from "./note.js";
