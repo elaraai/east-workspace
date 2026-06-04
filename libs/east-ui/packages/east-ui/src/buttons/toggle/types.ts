@@ -89,7 +89,9 @@ export interface ToggleStyle {
  * @property onChange - Callback invoked with the new pressed state (opposite of current)
  * @property style - Visual-presentation sub-struct
  */
-export interface ToggleOptions {
+export interface ToggleOptions extends ToggleStyle {
+    /** Current pressed state (required — Toggle has no internal state). */
+    pressed: SubtypeExprOrValue<BooleanType>;
     /** Optional leading icon */
     icon?: { prefix: string; name: string };
     /** Disabled state — renderer blocks interaction */
@@ -99,6 +101,4 @@ export interface ToggleOptions {
      * If omitted, the toggle is purely presentational.
      */
     onChange?: SubtypeExprOrValue<FunctionType<[BooleanType], NullType>>;
-    /** Visual-presentation sub-struct */
-    style?: ToggleStyle;
 }

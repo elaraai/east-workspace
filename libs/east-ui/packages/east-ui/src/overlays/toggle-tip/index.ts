@@ -138,7 +138,7 @@ export const ToggleTip = {
      *
      * const example = East.function([], UIComponentType, $ => {
      *     return ToggleTip.Root(
-     *         IconButton.Root("fas", "circle-info"),
+     *         IconButton.Root({ prefix: "fas", name: "circle-info", label: "Info" }),
      *         "Click for more information about this feature"
      *     );
      * });

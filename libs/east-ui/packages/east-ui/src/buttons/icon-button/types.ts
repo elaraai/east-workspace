@@ -18,6 +18,7 @@ import type { SizeLiteral, ColorSchemeLiteral } from "../../style.js";
 import { ButtonVariantType, type ButtonVariantLiteral } from "../button/types.js";
 import { IconType } from "../../display/icon/types.js";
 import type { IconPayload } from "../button/types.js";
+import type { IconName, IconPrefix } from "@fortawesome/fontawesome-common-types";
 
 // Re-export ButtonVariantType for convenience
 export { ButtonVariantType, type ButtonVariantLiteral } from "../button/types.js";
@@ -133,17 +134,27 @@ export type IconButtonType = typeof IconButtonType;
  * TypeScript options bag for `IconButton.Root`.
  *
  * @remarks
- * Content (`loadingIcon`), state (`loading`, `disabled`) and behaviour
- * (`onClick`) live at the top level. Visual presentation lives inside the
- * nested `style` object.
+ * A single flat bag. `prefix` / `name` (the icon identity) and `label` (the
+ * a11y label) are required; content (`loadingIcon`), state (`loading`,
+ * `disabled`), behaviour (`onClick`) and the visual fields (from
+ * {@link IconButtonStyle}) all sit flat. The factory composes the visual fields
+ * into the nested IR `style` struct internally.
  *
+ * @property prefix - Font Awesome icon prefix (`"fas"`, `"far"`, …) — required
+ * @property name - Font Awesome icon name — required
+ * @property label - Accessible label (aria-label) — required
  * @property loadingIcon - Icon shown in place of the main icon when `loading` is true
  * @property loading - Loading state
  * @property disabled - Disabled state
  * @property onClick - Click-handler callback
- * @property style - Visual-presentation sub-struct
  */
-export interface IconButtonOptions {
+export interface IconButtonOptions extends IconButtonStyle {
+    /** Font Awesome icon prefix (`"fas"`, `"far"`, …) — required. */
+    prefix: IconPrefix;
+    /** Font Awesome icon name — required. */
+    name: IconName;
+    /** Accessible label (aria-label) — required. */
+    label: string;
     /** Icon swapped in when `loading` is true (e.g. a spinner) */
     loadingIcon?: IconPayload | SubtypeExprOrValue<IconType>;
     /** Loading state — renderer shows a spinner and blocks interaction */
@@ -152,6 +163,4 @@ export interface IconButtonOptions {
     disabled?: SubtypeExprOrValue<BooleanType>;
     /** Click-handler callback (zero-arg East function) */
     onClick?: SubtypeExprOrValue<FunctionType<[], NullType>>;
-    /** Visual-presentation sub-struct (presets + colour escape hatches) */
-    style?: IconButtonStyle;
 }

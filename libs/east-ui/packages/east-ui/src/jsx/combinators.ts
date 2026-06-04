@@ -149,10 +149,10 @@ export function leaf<V, S, K extends string>(
  * ```
  */
 export function optionsTag<O>(
-    factory: (options?: O) => UIElement,
+    factory: (options: O) => UIElement,
 ): JsxTag<NonNullable<O>> {
     return (props) =>
-        factory((hasKeys(props as Record<string, unknown>) ? props : undefined) as O | undefined);
+        factory((hasKeys(props as Record<string, unknown>) ? props : undefined) as O);
 }
 
 export { hasKeys };
