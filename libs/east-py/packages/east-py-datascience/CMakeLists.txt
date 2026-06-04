@@ -97,27 +97,30 @@ add_subdirectory(
 # true libeast-c.so is shipped by the core `east` package (a sibling of
 # east_py_datascience/ in site-packages); the extensions' RUNPATH resolves to it
 # at runtime, so the whole process shares exactly one slab. Windows keeps the
-# static link (the native-build pivot owns the DLL-export story there).
-set(_eastc_shared_stub "${CMAKE_BINARY_DIR}/east_c_shared_stub.c")
-file(WRITE ${_eastc_shared_stub}
-     "/* Repackages the static east-c archive as one shared library. */\n")
-add_library(east-c-shared SHARED ${_eastc_shared_stub})
-set_target_properties(east-c-shared PROPERTIES OUTPUT_NAME east-c)
-add_dependencies(east-c-shared east-c)
-
-if(APPLE)
-    target_link_options(east-c-shared PRIVATE
-        "LINKER:-force_load,$<TARGET_FILE:east-c>")
-    target_link_libraries(east-c-shared PRIVATE pcre2-8 btreec)
-    set(EAST_PY_LINK_EASTC east-c-shared)
-elseif(WIN32)
+# static link — and must NOT create the shared target at all, since a SHARED
+# east-c emits an east-c.lib import library that collides with the static east-c
+# target's east-c.lib (the native-build pivot owns the DLL-export story there).
+if(WIN32)
     set(EAST_PY_LINK_EASTC east-c)
 else()
-    target_link_options(east-c-shared PRIVATE
-        "LINKER:--whole-archive,$<TARGET_FILE:east-c>,--no-whole-archive"
-        "LINKER:--exclude-libs,libpcre2-8.a"
-        "LINKER:--exclude-libs,libbtreec.a")
-    target_link_libraries(east-c-shared PRIVATE pcre2-8 btreec m)
+    set(_eastc_shared_stub "${CMAKE_BINARY_DIR}/east_c_shared_stub.c")
+    file(WRITE ${_eastc_shared_stub}
+         "/* Repackages the static east-c archive as one shared library. */\n")
+    add_library(east-c-shared SHARED ${_eastc_shared_stub})
+    set_target_properties(east-c-shared PROPERTIES OUTPUT_NAME east-c)
+    add_dependencies(east-c-shared east-c)
+
+    if(APPLE)
+        target_link_options(east-c-shared PRIVATE
+            "LINKER:-force_load,$<TARGET_FILE:east-c>")
+        target_link_libraries(east-c-shared PRIVATE pcre2-8 btreec)
+    else()
+        target_link_options(east-c-shared PRIVATE
+            "LINKER:--whole-archive,$<TARGET_FILE:east-c>,--no-whole-archive"
+            "LINKER:--exclude-libs,libpcre2-8.a"
+            "LINKER:--exclude-libs,libbtreec.a")
+        target_link_libraries(east-c-shared PRIVATE pcre2-8 btreec m)
+    endif()
     set(EAST_PY_LINK_EASTC east-c-shared)
 endif()
 
