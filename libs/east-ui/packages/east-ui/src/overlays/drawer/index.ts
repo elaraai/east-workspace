@@ -11,6 +11,8 @@ import {
     StructType,
     ArrayType,
     variant,
+    some,
+    none,
     NullType
 } from "@elaraai/east";
 
@@ -108,9 +110,8 @@ export type DrawerOpenInputType = typeof DrawerOpenInputType;
 /**
  * Creates a Drawer component with a trigger and body content.
  *
- * @param trigger - The UI component that opens the drawer
  * @param body - Array of UI components for drawer content
- * @param style - Optional styling configuration
+ * @param options - Required `trigger` + optional `title` / `description` / visual style fields
  * @returns An East expression representing the drawer component
  *
  * @remarks
@@ -123,48 +124,54 @@ export type DrawerOpenInputType = typeof DrawerOpenInputType;
  * import { Drawer, Button, Text, UIComponentType } from "@elaraai/east-ui";
  *
  * const example = East.function([], UIComponentType, $ => {
- *     return Drawer.Root(
- *         Button.Root("Open Menu"),
- *         [Text.Root("Menu content")],
- *         { title: "Navigation", placement: "start" }
- *     );
+ *     return Drawer.Root([Text.Root("Menu content")], {
+ *         trigger: Button.Root("Open Menu"),
+ *         title: "Navigation",
+ *         placement: "start",
+ *     });
  * });
  * ```
  */
+export interface DrawerOptions extends DrawerStyle {
+    /** The UI component that opens the drawer — required. */
+    trigger: SubtypeExprOrValue<UIComponentType>;
+}
+
 function createDrawer(
-    trigger: SubtypeExprOrValue<UIComponentType>,
     body: SubtypeExprOrValue<ArrayType<UIComponentType>>,
-    style?: DrawerStyle
+    options: DrawerOptions,
 ): ExprType<UIComponentType> {
-    const sizeValue = style?.size
+    const { trigger, ...style } = options;
+
+    const sizeValue = style.size
         ? (typeof style.size === "string"
             ? East.value(variant(style.size, null), DrawerSizeType)
             : style.size)
         : undefined;
 
-    const placementValue = style?.placement
+    const placementValue = style.placement
         ? (typeof style.placement === "string"
             ? East.value(variant(style.placement, null), DrawerPlacementType)
             : style.placement)
         : undefined;
 
-    const hasStyle = sizeValue || placementValue || style?.contained !== undefined ||
-        style?.onOpenChange !== undefined || style?.onExitComplete !== undefined;
+    const hasStyle = sizeValue || placementValue || style.contained !== undefined ||
+        style.onOpenChange !== undefined || style.onExitComplete !== undefined;
 
     return East.value(variant("Drawer", {
         trigger: trigger,
         body: body,
-        title: style?.title !== undefined ? variant("some", style.title) : variant("none", null),
-        description: style?.description !== undefined ? variant("some", style.description) : variant("none", null),
+        title: style.title !== undefined ? some(style.title) : none,
+        description: style.description !== undefined ? some(style.description) : none,
         style: hasStyle
-            ? variant("some", East.value({
-                size: sizeValue ? variant("some", sizeValue) : variant("none", null),
-                placement: placementValue ? variant("some", placementValue) : variant("none", null),
-                contained: style?.contained !== undefined ? variant("some", style.contained) : variant("none", null),
-                onOpenChange: style?.onOpenChange !== undefined ? variant("some", style.onOpenChange) : variant("none", null),
-                onExitComplete: style?.onExitComplete !== undefined ? variant("some", style.onExitComplete) : variant("none", null),
+            ? some(East.value({
+                size: sizeValue ? some(sizeValue) : none,
+                placement: placementValue ? some(placementValue) : none,
+                contained: style.contained !== undefined ? some(style.contained) : none,
+                onOpenChange: style.onOpenChange !== undefined ? some(style.onOpenChange) : none,
+                onExitComplete: style.onExitComplete !== undefined ? some(style.onExitComplete) : none,
             }, DrawerStyleType))
-            : variant("none", null),
+            : none,
     }), UIComponentType);
 }
 
@@ -211,15 +218,14 @@ export const drawer_open = East.platform(
  * Drawer component for slide-in panels.
  *
  * @remarks
- * Use `Drawer.Root(trigger, body, style)` to create a drawer, or access `Drawer.Types` for East types.
+ * Use `Drawer.Root(body, { trigger, ... })` to create a drawer, or access `Drawer.Types` for East types.
  */
 export const Drawer = {
     /**
      * Creates a Drawer component with a trigger and body content.
      *
-     * @param trigger - The UI component that opens the drawer
      * @param body - Array of UI components for drawer content
-     * @param style - Optional styling configuration
+     * @param options - Required `trigger` + optional `title` / `description` / visual style fields
      * @returns An East expression representing the drawer component
      *
      * @remarks
@@ -232,11 +238,11 @@ export const Drawer = {
      * import { Drawer, Button, Text, UIComponentType } from "@elaraai/east-ui";
      *
      * const example = East.function([], UIComponentType, $ => {
-     *     return Drawer.Root(
-     *         Button.Root("Open Drawer"),
-     *         [Text.Root("Drawer content")],
-     *         { title: "Settings", placement: "end" }
-     *     );
+     *     return Drawer.Root([Text.Root("Drawer content")], {
+     *         trigger: Button.Root("Open Drawer"),
+     *         title: "Settings",
+     *         placement: "end",
+     *     });
      * });
      * ```
      */

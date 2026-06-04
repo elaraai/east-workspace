@@ -9,7 +9,9 @@ import {
     East,
     StringType, OptionType,
     StructType,
-    variant
+    variant,
+    some,
+    none,
 } from "@elaraai/east";
 
 import { UIComponentType } from "../../component.js";
@@ -64,9 +66,8 @@ export type ToggleTipType = typeof ToggleTipType;
 /**
  * Creates a ToggleTip component with a trigger and content.
  *
- * @param trigger - The UI component that toggles the tip
  * @param content - The text content of the tip
- * @param style - Optional styling configuration
+ * @param options - Required `trigger` + optional visual style fields
  * @returns An East expression representing the toggle tip component
  *
  * @remarks
@@ -79,36 +80,41 @@ export type ToggleTipType = typeof ToggleTipType;
  * import { ToggleTip, Button, UIComponentType } from "@elaraai/east-ui";
  *
  * const example = East.function([], UIComponentType, $ => {
- *     return ToggleTip.Root(
- *         Button.Root("?", { variant: "ghost", size: "sm" }),
- *         "Click to learn more about this feature"
- *     );
+ *     return ToggleTip.Root("Click to learn more about this feature", {
+ *         trigger: Button.Root("?", { variant: "ghost", size: "sm" }),
+ *     });
  * });
  * ```
  */
+export interface ToggleTipOptions extends ToggleTipStyle {
+    /** The UI component that toggles the tip — required. */
+    trigger: SubtypeExprOrValue<UIComponentType>;
+}
+
 function createToggleTip(
-    trigger: SubtypeExprOrValue<UIComponentType>,
     content: SubtypeExprOrValue<StringType>,
-    style?: ToggleTipStyle
+    options: ToggleTipOptions,
 ): ExprType<UIComponentType> {
-    const placementValue = style?.placement
-        ? (typeof style.placement === "string"
-            ? East.value(variant(style.placement, null), PlacementType)
-            : style.placement)
+    const { trigger, ...visual } = options;
+
+    const placementValue = visual.placement
+        ? (typeof visual.placement === "string"
+            ? East.value(variant(visual.placement, null), PlacementType)
+            : visual.placement)
         : undefined;
 
-    const hasStyle = placementValue || style?.hasArrow !== undefined || style?.onOpenChange !== undefined;
+    const hasStyle = placementValue || visual.hasArrow !== undefined || visual.onOpenChange !== undefined;
 
     return East.value(variant("ToggleTip", {
         trigger: trigger,
         content: content,
         style: hasStyle
-            ? variant("some", East.value({
-                placement: placementValue ? variant("some", placementValue) : variant("none", null),
-                hasArrow: style?.hasArrow !== undefined ? variant("some", style.hasArrow) : variant("none", null),
-                onOpenChange: style?.onOpenChange !== undefined ? variant("some", style.onOpenChange) : variant("none", null),
+            ? some(East.value({
+                placement: placementValue ? some(placementValue) : none,
+                hasArrow: visual.hasArrow !== undefined ? some(visual.hasArrow) : none,
+                onOpenChange: visual.onOpenChange !== undefined ? some(visual.onOpenChange) : none,
             }, ToggleTipStyleType))
-            : variant("none", null),
+            : none,
     }), UIComponentType);
 }
 
@@ -116,15 +122,14 @@ function createToggleTip(
  * ToggleTip component for click-activated tips.
  *
  * @remarks
- * Use `ToggleTip.Root(trigger, content, style)` to create a toggle tip, or access `ToggleTip.Types` for East types.
+ * Use `ToggleTip.Root(content, { trigger, ... })` to create a toggle tip, or access `ToggleTip.Types` for East types.
  */
 export const ToggleTip = {
     /**
      * Creates a ToggleTip component with a trigger and content.
      *
-     * @param trigger - The UI component that toggles the tip
      * @param content - The text content of the tip
-     * @param style - Optional styling configuration
+     * @param options - Required `trigger` + optional visual style fields
      * @returns An East expression representing the toggle tip component
      *
      * @remarks
@@ -137,10 +142,9 @@ export const ToggleTip = {
      * import { ToggleTip, IconButton, UIComponentType } from "@elaraai/east-ui";
      *
      * const example = East.function([], UIComponentType, $ => {
-     *     return ToggleTip.Root(
-     *         IconButton.Root({ prefix: "fas", name: "circle-info", label: "Info" }),
-     *         "Click for more information about this feature"
-     *     );
+     *     return ToggleTip.Root("Click for more information about this feature", {
+     *         trigger: IconButton.Root({ prefix: "fas", name: "circle-info", label: "Info" }),
+     *     });
      * });
      * ```
      */

@@ -80,7 +80,7 @@ function hasKeys(o: Record<string, unknown>): boolean {
 export function container<S>(
     factory: (
         children: SubtypeExprOrValue<ArrayType<UIComponentType>>,
-        style?: S,
+        style: S,
     ) => UIElement,
 ): JsxTag<S & { children?: ContainerChildrenType }> {
     return (props) => {

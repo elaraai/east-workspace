@@ -11,6 +11,8 @@ import {
     OptionType,
     StructType,
     variant,
+    some,
+    none,
 } from "@elaraai/east";
 
 import { UIComponentType } from "../../component.js";
@@ -66,11 +68,22 @@ export type TooltipType = typeof TooltipType;
 // ============================================================================
 
 /**
+ * TypeScript options bag for `Tooltip.Root`.
+ *
+ * @property trigger - The UI component that triggers the tooltip on hover
+ * @property placement - Where the tooltip appears relative to the trigger
+ * @property hasArrow - Show an arrow pointing to the trigger
+ */
+export interface TooltipOptions extends TooltipStyle {
+    /** The UI component that triggers the tooltip on hover — required. */
+    trigger: SubtypeExprOrValue<UIComponentType>;
+}
+
+/**
  * Creates a Tooltip component with a trigger element and content.
  *
- * @param trigger - The UI component that triggers the tooltip on hover
  * @param content - The tooltip text content
- * @param style - Optional styling configuration
+ * @param options - Required `trigger` + optional visual style fields
  * @returns An East expression representing the tooltip component
  *
  * @remarks
@@ -83,40 +96,35 @@ export type TooltipType = typeof TooltipType;
  * import { Tooltip, Button, UIComponentType } from "@elaraai/east-ui";
  *
  * const example = East.function([], UIComponentType, $ => {
- *     return Tooltip.Root(
- *         Button.Root("Hover me"),
- *         "This is a helpful tip"
- *     );
+ *     return Tooltip.Root("This is a helpful tip", { trigger: Button.Root("Hover me") });
  * });
  * ```
  */
 function createTooltip(
-    trigger: SubtypeExprOrValue<UIComponentType>,
     content: SubtypeExprOrValue<StringType>,
-    style?: TooltipStyle
+    options: TooltipOptions,
 ): ExprType<UIComponentType> {
-    const placementValue = style?.placement
-        ? (typeof style.placement === "string"
-            ? East.value(variant(style.placement, null), PlacementType)
-            : style.placement)
+    const { trigger, ...visual } = options;
+
+    const placementValue = visual.placement
+        ? (typeof visual.placement === "string"
+            ? East.value(variant(visual.placement, null), PlacementType)
+            : visual.placement)
         : undefined;
 
-    const hasVisualStyle = !!style && (
-        placementValue !== undefined ||
-        style.hasArrow !== undefined
-    );
+    const hasVisualStyle = placementValue !== undefined || visual.hasArrow !== undefined;
 
     const styleValue = hasVisualStyle
         ? East.value({
-            placement: placementValue ? variant("some", placementValue) : variant("none", null),
-            hasArrow: style!.hasArrow !== undefined ? variant("some", style!.hasArrow) : variant("none", null),
+            placement: placementValue ? some(placementValue) : none,
+            hasArrow: visual.hasArrow !== undefined ? some(visual.hasArrow) : none,
         }, TooltipStyleType)
         : undefined;
 
     return East.value(variant("Tooltip", {
         trigger: trigger,
         content: content,
-        style: styleValue ? variant("some", styleValue) : variant("none", null),
+        style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
 
@@ -124,15 +132,14 @@ function createTooltip(
  * Tooltip component for displaying additional information on hover.
  *
  * @remarks
- * Use `Tooltip.Root(trigger, content, style)` to create a tooltip, or access `Tooltip.Types` for East types.
+ * Use `Tooltip.Root(content, { trigger, ... })` to create a tooltip, or access `Tooltip.Types` for East types.
  */
 export const Tooltip = {
     /**
      * Creates a Tooltip component with a trigger and content text.
      *
-     * @param trigger - The UI component that triggers the tooltip on hover
      * @param content - The tooltip text content
-     * @param style - Optional styling configuration
+     * @param options - Required `trigger` + optional visual style fields
      * @returns An East expression representing the tooltip component
      *
      * @remarks
@@ -145,11 +152,10 @@ export const Tooltip = {
      * import { Tooltip, Button, UIComponentType } from "@elaraai/east-ui";
      *
      * const example = East.function([], UIComponentType, $ => {
-     *     return Tooltip.Root(
-     *         Button.Root("Hover me"),
-     *         "This is a helpful tooltip",
-     *         { placement: "top" }
-     *     );
+     *     return Tooltip.Root("This is a helpful tooltip", {
+     *         trigger: Button.Root("Hover me"),
+     *         placement: "top",
+     *     });
      * });
      * ```
      */

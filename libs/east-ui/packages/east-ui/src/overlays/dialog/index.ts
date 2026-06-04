@@ -11,6 +11,8 @@ import {
     StructType,
     ArrayType,
     variant,
+    some,
+    none,
     NullType,
 } from "@elaraai/east";
 
@@ -118,9 +120,9 @@ export type DialogOpenInputType = typeof DialogOpenInputType;
 /**
  * Creates a Dialog component with a trigger and body content.
  *
- * @param trigger - The UI component that opens the dialog
  * @param body - Array of UI components for dialog content
- * @param style - Optional styling configuration
+ * @param options - Required `trigger` + optional `eyebrow` / `title` /
+ *   `description` / visual style fields
  * @returns An East expression representing the dialog component
  *
  * @remarks
@@ -133,72 +135,77 @@ export type DialogOpenInputType = typeof DialogOpenInputType;
  * import { Dialog, Button, Text, UIComponentType } from "@elaraai/east-ui";
  *
  * const example = East.function([], UIComponentType, $ => {
- *     return Dialog.Root(
- *         Button.Root("Open Dialog"),
- *         [Text.Root("Dialog content here")],
- *         { title: "My Dialog" }
- *     );
+ *     return Dialog.Root([Text.Root("Dialog content here")], {
+ *         trigger: Button.Root("Open Dialog"),
+ *         title: "My Dialog",
+ *     });
  * });
  * ```
  */
+export interface DialogOptions extends DialogStyle {
+    /** The UI component that opens the dialog — required. */
+    trigger: SubtypeExprOrValue<UIComponentType>;
+}
+
 function createDialog(
-    trigger: SubtypeExprOrValue<UIComponentType>,
     body: SubtypeExprOrValue<ArrayType<UIComponentType>>,
-    style?: DialogStyle
+    options: DialogOptions,
 ): ExprType<UIComponentType> {
-    const sizeValue = style?.size
+    const { trigger, ...style } = options;
+
+    const sizeValue = style.size
         ? (typeof style.size === "string"
             ? East.value(variant(style.size, null), DialogSizeType)
             : style.size)
         : undefined;
 
-    const placementValue = style?.placement
+    const placementValue = style.placement
         ? (typeof style.placement === "string"
             ? East.value(variant(style.placement, null), DialogPlacementType)
             : style.placement)
         : undefined;
 
-    const scrollBehaviorValue = style?.scrollBehavior
+    const scrollBehaviorValue = style.scrollBehavior
         ? (typeof style.scrollBehavior === "string"
             ? East.value(variant(style.scrollBehavior, null), DialogScrollBehaviorType)
             : style.scrollBehavior)
         : undefined;
 
-    const motionPresetValue = style?.motionPreset
+    const motionPresetValue = style.motionPreset
         ? (typeof style.motionPreset === "string"
             ? East.value(variant(style.motionPreset, null), DialogMotionPresetType)
             : style.motionPreset)
         : undefined;
 
-    const roleValue = style?.role
+    const roleValue = style.role
         ? (typeof style.role === "string"
             ? East.value(variant(style.role, null), DialogRoleType)
             : style.role)
         : undefined;
 
     const hasStyle = sizeValue || placementValue || scrollBehaviorValue || motionPresetValue || roleValue ||
-        style?.onOpenChange !== undefined || style?.onExitComplete !== undefined ||
-        style?.onEscapeKeyDown !== undefined || style?.onInteractOutside !== undefined;
+        style.onOpenChange !== undefined || style.onExitComplete !== undefined ||
+        style.onEscapeKeyDown !== undefined || style.onInteractOutside !== undefined;
 
     return East.value(variant("Dialog", {
         trigger: trigger,
         body: body,
-        eyebrow: style?.eyebrow !== undefined ? variant("some", style.eyebrow) : variant("none", null),
-        title: style?.title !== undefined ? variant("some", style.title) : variant("none", null),
-        description: style?.description !== undefined ? variant("some", style.description) : variant("none", null),
+        eyebrow: style.eyebrow !== undefined ? some(style.eyebrow) : none,
+        title: style.title !== undefined ? some(style.title) : none,
+        description: style.description !== undefined ? some(style.description) : none,
         style: hasStyle
-            ? variant("some", East.value({
-                size: sizeValue ? variant("some", sizeValue) : variant("none", null),
-                placement: placementValue ? variant("some", placementValue) : variant("none", null),
-                scrollBehavior: scrollBehaviorValue ? variant("some", scrollBehaviorValue) : variant("none", null),
-                motionPreset: motionPresetValue ? variant("some", motionPresetValue) : variant("none", null),
-                role: roleValue ? variant("some", roleValue) : variant("none", null),
-                onOpenChange: style?.onOpenChange !== undefined ? variant("some", style.onOpenChange) : variant("none", null),
-                onExitComplete: style?.onExitComplete !== undefined ? variant("some", style.onExitComplete) : variant("none", null),
-                onEscapeKeyDown: style?.onEscapeKeyDown !== undefined ? variant("some", style.onEscapeKeyDown) : variant("none", null),
-                onInteractOutside: style?.onInteractOutside !== undefined ? variant("some", style.onInteractOutside) : variant("none", null),
+            ? some(East.value({
+                size: sizeValue ? some(sizeValue) : none,
+                placement: placementValue ? some(placementValue) : none,
+                scrollBehavior: scrollBehaviorValue ? some(scrollBehaviorValue) : none,
+                motionPreset: motionPresetValue ? some(motionPresetValue) : none,
+                role: roleValue ? some(roleValue) : none,
+                onOpenChange: style.onOpenChange !== undefined ? some(style.onOpenChange) : none,
+                onExitComplete: style.onExitComplete !== undefined ? some(style.onExitComplete) : none,
+                onEscapeKeyDown: style.onEscapeKeyDown !== undefined ? some(style.onEscapeKeyDown) : none,
+                onInteractOutside: style.onInteractOutside !== undefined ? some(style.onInteractOutside) : none,
             }, DialogStyleType))
-            : variant("none", null),
+            : none,
     }), UIComponentType);
 }
 
@@ -245,15 +252,15 @@ export const dialog_open = East.platform(
  * Dialog component for modal overlays.
  *
  * @remarks
- * Use `Dialog.Root(trigger, body, style)` to create a dialog, or access `Dialog.Types` for East types.
+ * Use `Dialog.Root(body, { trigger, ... })` to create a dialog, or access `Dialog.Types` for East types.
  */
 export const Dialog = {
     /**
      * Creates a Dialog component with a trigger and body content.
      *
-     * @param trigger - The UI component that opens the dialog
      * @param body - Array of UI components for dialog content
-     * @param style - Optional styling configuration
+     * @param options - Required `trigger` + optional `eyebrow` / `title` /
+     *   `description` / visual style fields
      * @returns An East expression representing the dialog component
      *
      * @remarks
@@ -266,11 +273,10 @@ export const Dialog = {
      * import { Dialog, Button, Text, UIComponentType } from "@elaraai/east-ui";
      *
      * const example = East.function([], UIComponentType, $ => {
-     *     return Dialog.Root(
-     *         Button.Root("Open Dialog"),
-     *         [Text.Root("Dialog content here")],
-     *         { title: "My Dialog" }
-     *     );
+     *     return Dialog.Root([Text.Root("Dialog content here")], {
+     *         trigger: Button.Root("Open Dialog"),
+     *         title: "My Dialog",
+     *     });
      * });
      * ```
      */
