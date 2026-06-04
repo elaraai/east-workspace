@@ -100,7 +100,7 @@ src/jsx/
   runtime.ts            # jsx / jsxs / jsxDEV / h / Fragment + the single `export namespace JSX`
                         #   → exported as ./jsx-runtime (and ./jsx-dev-runtime)
   children.ts           # coalesceChildren + ElementChild
-  combinators.ts        # container / textLeaf / leaf (+ shape-3 / items-parent / …) + *Props types
+  combinators.ts        # container / content / leaf (+ shape-3 / items-parent / …) + *Props types
   index.ts              # barrels the category barrels + combinators → exported as ./jsx
   layout/   box.ts flex.ts stack.ts …      + index.ts      # mirrors src/layout/<comp>/
   typography/ text.ts heading.ts code.ts mark.ts … + index.ts
@@ -212,16 +212,20 @@ Because each sub-tag returns a distinct East type (or TS layer type), the
 bucketer discriminates by type — sound provenance with no JS tag-branding and no
 reliance on tag identity surviving the `jsx()` call.
 
-### 2.4 Text leaves (`textLeaf`)
+### 2.4 Content from a child (`content`)
 
-A text leaf's value **is** its children, typed exactly as the factory's value
-arg `SubtypeExprOrValue<StringType>` and forwarded verbatim — no `joinText`, no
-`foldStr`, no JS `string`/`number`/multi-child joining. Interpolate East-side:
-`<Text>{East.str\`Hi ${name}\`}</Text>`, not `<Text>Hi {name}</Text>` (multiple
-children is a type error). A rich label is its own component, not text — and
-`<Button>` is **not** a text leaf: its label is the factory's `ButtonLabelInput`
-(string → `Text.Root`, or any `UIComponentType`), forwarded by the Button tag
-directly, with no text-joining or element-sniffing in the JSX layer.
+One combinator, `content`, covers both a **text leaf** and a **single-content
+slot**: the tag's single child **is** the factory's value arg, forwarded verbatim
+as that arg's own `SubtypeExprOrValue<T>` — `SubtypeExprOrValue<StringType>` for a
+text leaf (`Text`/`Heading`/`Code`/`Mark`/`Badge`/`Tag`), `SubtypeExprOrValue<
+UIComponentType>` for a single-content slot (`ScrollArea`/`Sticky`). No
+`joinText`, no `foldStr`, no JS `string`/`number`/multi-child joining; multiple
+children is a type error. Interpolate text East-side:
+`<Text>{East.str\`Hi ${name}\`}</Text>`, not `<Text>Hi {name}</Text>`. A rich
+label is its own component, not text — and `<Button>` is **not** a text leaf: its
+label is the factory's `ButtonLabelInput` (string → `Text.Root`, or any
+`UIComponentType`), forwarded by the Button tag directly, with no text-joining or
+element-sniffing in the JSX layer.
 
 ### 2.5 Honest typing (remove `never`)
 
@@ -271,7 +275,7 @@ from the factory signature via the combinator pattern already proven in the
 shipped `jsx.ts`:
 
 - `ContainerProps<F> = NonNullable<Parameters<F>[1]> & { children?: ContainerChildrenType }`
-- `TextProps<F>     = NonNullable<Parameters<F>[1]> & { children: Parameters<F>[0] }` (the value)
+- `ContentProps<F>  = NonNullable<Parameters<F>[1]> & { children: Parameters<F>[0] }` (the value — text leaf or single-content slot)
 - `ValueProps<F,K>  = Record<K, Parameters<F>[0]> & NonNullable<Parameters<F>[1]>`
 - shape-3 (Button/Card/overlays): `FlattenProps<F>` =
   `NonNullable<Parameters<F>[1]>['style']` ⋃ `Omit<NonNullable<Parameters<F>[1]>,
@@ -316,11 +320,11 @@ Every slot is the factory's own `SubtypeExprOrValue<T>`, by combinator:
 - **container children** → `ContainerChildrenType` = `SubtypeExprOrValue<
   UIComponentType> | SubtypeExprOrValue<ArrayType<UIComponentType>>` (a single
   component, or a list — §2.1).
-- **single-content slot** (ScrollArea/Sticky/Card header…) → strictly
-  `SubtypeExprOrValue<UIComponentType>` (its own combinator; no array, no
-  coalescing).
-- **text leaf** → the factory value `SubtypeExprOrValue<StringType>` as children
-  (§2.4); interpolate East-side with `East.str`.
+- **text leaf / single-content slot** (Text/Badge…; ScrollArea/Sticky/Card
+  header…) → the factory value as children via the one `content` combinator
+  (§2.4; no array, no coalescing) — `SubtypeExprOrValue<StringType>` for text,
+  `SubtypeExprOrValue<UIComponentType>` for a single-content slot. Interpolate
+  text East-side with `East.str`.
 - **value leaf** → the factory value `SubtypeExprOrValue<T>` under a named prop.
 - **item-children components** → the item array `SubtypeExprOrValue<ArrayType<
   ItemType>>`.
@@ -574,11 +578,13 @@ Branch `claude/east-ui-jsx-foundation` (PR #19).
   children arms are all **deleted**; text is `SubtypeExprOrValue<StringType>`;
   Button label is the factory's `ButtonLabelInput`. No runtime introspection to
   validate (see [`feedback_no_runtime_type_introspection`]).
-- **Combinators + tags.** `container` / `textLeaf` / `leaf(factory, key)` (+
-  `ContainerProps`/`TextProps`/`ValueProps` derived from the factory). Tags:
-  `<Box> <Flex> <Stack> <VStack> <HStack>`, `<Text> <Heading> <Code> <Mark>`,
-  `<Badge> <Tag>`, `<Checkbox> <Switch> <Slider>`, `<Button>`,
-  `<Reactive>{$ => …}</Reactive>`.
+- **Combinators + tags.** `container` / `content` / `leaf(factory, key)` (+
+  `ContainerProps`/`ContentProps`/`ValueProps` derived from the factory). `content`
+  is one combinator for both a text leaf (`SubtypeExprOrValue<StringType>`) and a
+  single-content slot (`SubtypeExprOrValue<UIComponentType>`) — the child is the
+  factory value either way. Tags: `<Box> <Flex> <Stack> <VStack> <HStack>
+  <ScrollArea> <Sticky>`, `<Text> <Heading> <Code> <Mark>`, `<Badge> <Tag>`,
+  `<Checkbox> <Switch> <Slider>`, `<Button>`, `<Reactive>{$ => …}</Reactive>`.
 - **`ui()` collapsed** to a single typed `ui(name, inputs, fn, options?)` (no
   closure overload, no `unknown`).
 - **Tests.** `test/jsx/children.spec.tsx` (coalescer) + `combinators.spec.tsx`
@@ -588,8 +594,6 @@ Branch `claude/east-ui-jsx-foundation` (PR #19).
   points (verified non-breaking).
 
 **Remaining:**
-- **single-content combinator** (`SubtypeExprOrValue<UIComponentType>`, no array)
-  for `ScrollArea`/`Sticky`/`Card` header-footer slots (§4).
 - **Rest of tags:** display/feedback/navigation leaves; shape-3
   (`CloseButton/CopyButton/Toggle/Card/ChipRail`, IconButton, ButtonGroup);
   items-parent (`Grid/Splitter/Tabs/Accordion/Select/SegmentGroup/…`);
