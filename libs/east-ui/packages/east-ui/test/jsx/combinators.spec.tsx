@@ -15,10 +15,11 @@
 
 import { East, StringType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Badge, Button, Checkbox, Code, CodeBlock, EditableChip, Flex, Highlight, HStack, Kbd, Link, MetricChip, Meter, Numeric, Progress, Reactive, ScrollArea, Slider, Sparkline, Text } from "@elaraai/east-ui/jsx";
+import { Badge, Button, Card, Checkbox, Code, CodeBlock, EditableChip, Flex, Highlight, HStack, Kbd, Link, MetricChip, Meter, Numeric, Progress, Reactive, ScrollArea, Slider, Sparkline, Text } from "@elaraai/east-ui/jsx";
 import {
     Badge as BadgeF,
     Button as ButtonF,
+    Card as CardF,
     Checkbox as CheckboxF,
     Code as CodeF,
     CodeBlock as CodeBlockF,
@@ -107,6 +108,13 @@ describeEast("JSX tag combinators", (test) => {
         $(Assert.equal(
             <MetricChip tone="positive"><Text>+12.5%</Text></MetricChip>,
             MetricChipF.Root(TextF.Root("+12.5%"), { tone: "positive" }),
+        ));
+    });
+
+    test("container tag with object props (Card header) desugars to its factory", ($) => {
+        $(Assert.equal(
+            <Card header={{ eyebrow: "Forecast", title: "Per plan week" }}><Text>body</Text></Card>,
+            CardF.Root([TextF.Root("body")], { header: { eyebrow: "Forecast", title: "Per plan week" } }),
         ));
     });
 

@@ -18,12 +18,12 @@ export const cardBasic = example({
 
 export const cardHeader = example({
     keywords: ["Card", "Root", "header", "eyebrow"],
-    description: "Card with a bare-string eyebrow header",
+    description: "Card with an eyebrow header",
     fn: East.function([], UIComponentType, (_$) => {
         return Card.Root([
             Text.Root("Card content goes here. The header is the mono eyebrow strip."),
         ], {
-            header: "Run summary",
+            header: { eyebrow: "Run summary" },
         });
     }),
     inputs: [],
@@ -36,11 +36,11 @@ export const cardHeaderTitle = example({
         return Card.Root([
             Text.Root("The main content area of the card."),
         ], {
-            header: Card.Header({
+            header: {
                 eyebrow: "Featured",
                 title: "Featured Article",
                 description: "A brief summary of what this card contains",
-            }),
+            },
         });
     }),
     inputs: [],
@@ -53,11 +53,13 @@ export const cardFooter = example({
         return Card.Root([
             Text.Root("This card has action buttons placed in the footer area."),
         ], {
-            header: Card.Header({ title: "Actions Card" }),
-            footer: Stack.HStack([
-                Button.Root("Cancel", { style: { variant: "outline", size: "sm" } }),
-                Button.Root("Save", { style: { variant: "solid", colorPalette: "blue", size: "sm" } }),
-            ], { gap: "2" }),
+            header: { title: "Actions Card" },
+            footer: {
+                actions: [
+                    Button.Root("Cancel", { style: { variant: "outline", size: "sm" } }),
+                    Button.Root("Save", { style: { variant: "solid", colorPalette: "blue", size: "sm" } }),
+                ],
+            },
         });
     }),
     inputs: [],
@@ -71,7 +73,7 @@ export const cardDimensions = example({
             Text.Root("This card has a fixed height of 200px and will scroll if content overflows."),
             Text.Root("The dimension properties allow precise control over card sizing."),
         ], {
-            header: "Sized card",
+            header: { eyebrow: "Sized card" },
             height: "200px",
             overflow: "auto",
         });
@@ -87,13 +89,13 @@ export const cardFlexible = example({
             Card.Root([
                 Text.Root("This card uses flex: 1 to fill available space."),
             ], {
-                header: "Flex card 1",
+                header: { eyebrow: "Flex card 1" },
                 flex: "1",
             }),
             Card.Root([
                 Text.Root("Both cards share the space equally."),
             ], {
-                header: "Flex card 2",
+                header: { eyebrow: "Flex card 2" },
                 flex: "1",
             }),
         ], { gap: "4", width: "100%" });
@@ -112,11 +114,13 @@ export const cardMultiple = example({
             ], { gap: "2" }),
             Text.Root("This card demonstrates how multiple components can be nested inside a card body."),
         ], {
-            header: Card.Header({ eyebrow: "Action required", title: "Please review and respond" }),
-            footer: Stack.HStack([
-                Button.Root("Accept", { style: { variant: "solid", colorPalette: "green", size: "sm" } }),
-                Button.Root("Decline", { style: { variant: "outline", colorPalette: "red", size: "sm" } }),
-            ], { gap: "2" }),
+            header: { eyebrow: "Action required", title: "Please review and respond" },
+            footer: {
+                actions: [
+                    Button.Root("Accept", { style: { variant: "solid", colorPalette: "green", size: "sm" } }),
+                    Button.Root("Decline", { style: { variant: "outline", colorPalette: "red", size: "sm" } }),
+                ],
+            },
         });
     }),
     inputs: [],
@@ -129,14 +133,15 @@ export const cardWithCompoundHeader = example({
         return Card.Root([
             Text.Root("Scenario vs baseline — per-plan week comparison."),
         ], {
-            header: Card.Header({
+            header: {
                 eyebrow: "Forecast · SE region",
                 title: "Per plan week",
                 meta: "14s ago",
-            }),
-            footer: Card.Footer([Text.Root("Last synced 14:32")], {
-                actions: Card.Actions([Button.Root("Export", { style: { variant: "subtle" } })]),
-            }),
+            },
+            footer: {
+                content: [Text.Root("Last synced 14:32")],
+                actions: [Button.Root("Export", { style: { variant: "subtle" } })],
+            },
         });
     }),
     inputs: [],
@@ -149,7 +154,7 @@ export const cardLoading = example({
         return Card.Root([
             Text.Root("Original content — replaced by skeleton while loading."),
         ], {
-            header: Card.Header({ title: "Run summary" }),
+            header: { title: "Run summary" },
             state: "loading",
         });
     }),
@@ -163,7 +168,7 @@ export const cardEmpty = example({
         return Card.Root([
             Text.Root("Original content — replaced by EmptyState when empty."),
         ], {
-            header: "Scenarios",
+            header: { eyebrow: "Scenarios" },
             state: "empty",
         });
     }),
@@ -177,7 +182,7 @@ export const cardError = example({
         return Card.Root([
             Text.Root("Original content — replaced by error alert."),
         ], {
-            header: "Run summary",
+            header: { eyebrow: "Run summary" },
             state: "error",
         });
     }),
@@ -191,7 +196,7 @@ export const cardPermissionDenied = example({
         return Card.Root([
             Text.Root("Sensitive content."),
         ], {
-            header: "Admin panel",
+            header: { eyebrow: "Admin panel" },
             state: "permission-denied",
         });
     }),
@@ -212,7 +217,7 @@ export const cardWithSections = example({
                 ], { gap: "2" }),
             ], { title: "Actions" }),
         ], {
-            header: Card.Header({ title: "Commit approval" }),
+            header: { title: "Commit approval" },
         });
     }),
     inputs: [],

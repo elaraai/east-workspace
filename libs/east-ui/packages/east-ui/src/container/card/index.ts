@@ -89,21 +89,33 @@ export type CardType = typeof CardType;
  * factory boundary; the explicit `style` object takes precedence when both
  * are supplied.
  *
- * @property header - Optional header — a bare string renders as the mono eyebrow,
- *   or use `Card.Header({ eyebrow, title, meta, description })` for the composed shape
- * @property footer - Optional footer UIComponent (use `Card.Footer(...)` for the composed shape)
+ * @property header - Optional header options (`eyebrow` / `title` / `meta` / `description`) — composed into the header strip
+ * @property footer - Optional footer options (`content` + trailing `actions`)
  * @property state - Runtime state literal or expression — drives the fallback-body contract
  * @property style - Optional visual-only style (preferred shape)
  */
 export interface CardOptions extends CardStyle {
-    /** Optional header. A bare string becomes the mono eyebrow; use `Card.Header(...)` for eyebrow + title + meta. */
-    header?: string | ExprType<UIComponentType>;
-    /** Optional footer component. Use `Card.Footer(...)` to compose content + actions. */
-    footer?: ExprType<UIComponentType>;
+    /** Optional header options — `eyebrow` / `title` / `meta` / `description`, composed into the header strip. */
+    header?: CardHeaderOptions;
+    /** Optional footer — `content` components + a trailing `actions` row. */
+    footer?: CardFooterInput;
     /** Runtime state — `"ready" | "loading" | "empty" | "error" | "stale" | "disabled" | "permission-denied"`. */
     state?: StateValueLiteral | SubtypeExprOrValue<StateValueType>;
     /** Optional visual-only style (preferred over the inherited flat fields). */
     style?: CardStyle;
+}
+
+/**
+ * TypeScript footer input for `Card.Root` — content row + optional trailing actions.
+ *
+ * @property content - Footer content components, rendered on the left
+ * @property actions - Trailing action buttons, rendered as a row on the right
+ */
+export interface CardFooterInput {
+    /** Footer content components, rendered on the left. */
+    content?: SubtypeExprOrValue<ArrayType<UIComponentType>>;
+    /** Trailing action buttons, rendered as a row on the right. */
+    actions?: SubtypeExprOrValue<ArrayType<UIComponentType>>;
 }
 
 // ============================================================================
@@ -166,11 +178,7 @@ function buildCardStyle(style: CardStyle): ExprType<CardStyleType> {
  *
  * const example = East.function([], UIComponentType, $ => {
  *     return Card.Root([Text.Root("Body copy")], {
- *         header: Card.Header({
- *             eyebrow: "Forecast · SE region",
- *             title: "Per plan week",
- *             meta: "14s ago",
- *         }),
+ *         header: { eyebrow: "Forecast · SE region", title: "Per plan week", meta: "14s ago" },
  *     });
  * });
  * ```
@@ -212,17 +220,33 @@ function createCard(
         ? East.value(variant(options.state, null), StateValueType)
         : options?.state as ExprType<StateValueType> | undefined;
 
-    const headerComp = typeof options?.header === "string"
-        ? CardHeader({ eyebrow: options.header })
-        : options?.header;
+    const headerComp = options?.header ? CardHeader(options.header) : undefined;
+    const footerComp = options?.footer ? composeFooter(options.footer) : undefined;
 
     return East.value(variant("Card", {
         header: headerComp ? some(headerComp) : none,
         body: children,
-        footer: options?.footer ? some(options.footer) : none,
+        footer: footerComp ? some(footerComp) : none,
         state: stateValue ? some(stateValue) : none,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
+}
+
+/**
+ * Internal — composes a {@link CardFooterInput} into the footer UIComponent:
+ * the content row on the left, the trailing actions row on the right.
+ */
+function composeFooter(footer: CardFooterInput): ExprType<UIComponentType> {
+    const actionsRow = footer.actions !== undefined
+        ? Stack.HStack(footer.actions, { gap: "2", justify: "flex-end" })
+        : undefined;
+    const contentRow = footer.content !== undefined
+        ? Stack.HStack(footer.content, { gap: "3", align: "center" })
+        : undefined;
+    if (contentRow !== undefined && actionsRow !== undefined) {
+        return Stack.HStack([contentRow, actionsRow], { gap: "3", align: "center", justify: "space-between" });
+    }
+    return actionsRow ?? contentRow ?? Box.Root(East.value([], ArrayType(UIComponentType)));
 }
 
 // ============================================================================
@@ -368,14 +392,14 @@ export function CardActions(
  * @property description - Optional secondary description below the title
  */
 export interface CardHeaderOptions {
-    /** Mono uppercase eyebrow label (left). Strings are styled automatically. */
-    eyebrow?: TextInput;
+    /** Mono uppercase eyebrow label (left). Styled automatically. */
+    eyebrow?: SubtypeExprOrValue<StringType>;
     /** Optional trailing meta on the right of the eyebrow row. */
-    meta?: TextInput;
+    meta?: SubtypeExprOrValue<StringType>;
     /** Optional brand-font card title rendered below the eyebrow. */
-    title?: string | ExprType<UIComponentType>;
+    title?: SubtypeExprOrValue<StringType>;
     /** Optional secondary description line below the title. */
-    description?: TextInput;
+    description?: SubtypeExprOrValue<StringType>;
 }
 
 /**
@@ -405,15 +429,13 @@ export function CardHeader(options: CardHeaderOptions): ExprType<UIComponentType
     // the renderer header strip so the eyebrow row hits the spec 11px exactly,
     // while the title's own heading textStyle overrides size + family.
     if (options.eyebrow !== undefined || options.meta !== undefined) {
-        const eyebrowComp = options.eyebrow !== undefined
-            ? (typeof options.eyebrow === "string"
-                ? Text.Root(options.eyebrow, { fontWeight: "semibold", textTransform: "uppercase", letterSpacing: "0.18em", color: "fg" })
-                : options.eyebrow as ExprType<UIComponentType>)
-            : Text.Root("", { fontWeight: "semibold", textTransform: "uppercase", letterSpacing: "0.18em", color: "fg" });
+        const eyebrowComp = Text.Root(options.eyebrow ?? "", {
+            fontWeight: "semibold", textTransform: "uppercase", letterSpacing: "0.18em", color: "fg",
+        });
         if (options.meta !== undefined) {
-            const metaComp = typeof options.meta === "string"
-                ? Text.Root(options.meta, { fontWeight: "medium", textTransform: "uppercase", letterSpacing: "0.12em", color: "fg.muted" })
-                : options.meta as ExprType<UIComponentType>;
+            const metaComp = Text.Root(options.meta, {
+                fontWeight: "medium", textTransform: "uppercase", letterSpacing: "0.12em", color: "fg.muted",
+            });
             children.push(Stack.HStack([eyebrowComp, metaComp], {
                 gap: "3",
                 align: "center",
@@ -426,12 +448,10 @@ export function CardHeader(options: CardHeaderOptions): ExprType<UIComponentType
     }
 
     if (options.title !== undefined) {
-        children.push(typeof options.title === "string"
-            ? Heading.Root(options.title, { textStyle: "heading-lg" })
-            : options.title);
+        children.push(Heading.Root(options.title, { textStyle: "heading-lg" }));
     }
     if (options.description !== undefined) {
-        children.push(CardDescription(options.description));
+        children.push(Text.Root(options.description, { textStyle: "caption", color: "fg.muted" }));
     }
 
     return children.length === 1
@@ -566,12 +586,9 @@ export function CardSection(
  * Card.Root(
  *     [Card.Body([Text.Root("Body copy")])],
  *     {
- *         header: Card.Header({
- *             title: "Per plan week",
- *             description: "Scenario vs baseline",
- *             actions: Card.Actions([Button.Root("Export")]),
- *         }),
- *         style: { variant: "elevated", elevation: "raised" },
+ *         header: { title: "Per plan week", description: "Scenario vs baseline" },
+ *         footer: { actions: [Button.Root("Export")] },
+ *         state: "ready",
  *     },
  * );
  * ```
