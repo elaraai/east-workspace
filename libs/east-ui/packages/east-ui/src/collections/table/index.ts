@@ -443,7 +443,7 @@ type PrimitiveFieldKeys<Fields> = {
  * - **Array form**: Only primitive field keys allowed (e.g., `["name", "age"]`)
  * - **Object form**: All fields allowed, but complex fields require a `value` function
  */
-type ColumnSpec<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
+export type ColumnSpec<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
     | PrimitiveFieldKeys<DataFields<NoInfer<T>>>[]
     | { [K in keyof DataFields<NoInfer<T>>]?: TableColumnConfig<DataFields<NoInfer<T>>[K], DataRowType<NoInfer<T>>> };
 
@@ -451,7 +451,7 @@ type ColumnSpec<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
 // than the columns object C) keeps inference reliable when C contains render
 // functions or complex field types that would otherwise cause C to widen to
 // the constraint union — which collapses `keyof C` to `never`.
-type DataFieldKeys<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
+export type DataFieldKeys<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
     Extract<keyof DataFields<NoInfer<T>>, string>;
 
 export function createTable<
