@@ -8,5 +8,20 @@
 import { Menu as MenuFactory, type MenuOptions } from "../../overlays/menu/index.js";
 import { optionsTag, type JsxTag } from "../combinators.js";
 
-/** `<Menu trigger={Button.Root("Actions")} items={[Menu.Item(…)]} placement="bottom-start" />` — dropdown menu. Maps to `Menu.Root`. */
-export const Menu: JsxTag<MenuOptions> = optionsTag(MenuFactory.Root);
+/** Item + separator builders carried alongside the `<Menu>` tag. */
+type MenuBuilders = {
+    Item: typeof MenuFactory.Item;
+    Separator: typeof MenuFactory.Separator;
+    Types: typeof MenuFactory.Types;
+};
+
+/**
+ * `<Menu trigger={Button.Root("Actions")} items={[Menu.Item(…)]} placement="bottom-start" />`
+ * — dropdown menu. Maps to `Menu.Root`. Build the `items` array with the carried
+ * `Menu.Item` / `Menu.Separator` builders.
+ */
+export const Menu: JsxTag<MenuOptions> & MenuBuilders = Object.assign(optionsTag(MenuFactory.Root), {
+    Item: MenuFactory.Item,
+    Separator: MenuFactory.Separator,
+    Types: MenuFactory.Types,
+});

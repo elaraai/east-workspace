@@ -8,5 +8,20 @@
 import { Drawer as DrawerFactory } from "../../overlays/drawer/index.js";
 import { container, type ContainerProps, type JsxTag } from "../combinators.js";
 
-/** `<Drawer trigger={Button.Root("Open")} title="Navigation" placement="start">…body…</Drawer>` — edge-sliding panel (body is children). Maps to `Drawer.Root`. */
-export const Drawer: JsxTag<ContainerProps<typeof DrawerFactory.Root>> = container(DrawerFactory.Root);
+/** Imperative `open` + types carried alongside the `<Drawer>` tag. */
+type DrawerBuilders = {
+    open: typeof DrawerFactory.open;
+    Types: typeof DrawerFactory.Types;
+};
+
+/**
+ * `<Drawer trigger={Button.Root("Open")} title="Navigation" placement="start">…body…</Drawer>`
+ * — edge-sliding panel (body is children). Maps to `Drawer.Root`. The imperative
+ * `Drawer.open(...)` (no-trigger programmatic open) and `Drawer.Types` are
+ * carried through.
+ */
+export const Drawer: JsxTag<ContainerProps<typeof DrawerFactory.Root>> & DrawerBuilders =
+    Object.assign(container(DrawerFactory.Root), {
+        open: DrawerFactory.open,
+        Types: DrawerFactory.Types,
+    });
