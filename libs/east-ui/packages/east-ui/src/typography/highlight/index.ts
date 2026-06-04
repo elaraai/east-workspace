@@ -8,7 +8,6 @@ import {
     type ExprType,
     East,
     StringType,
-    ArrayType,
     variant,
     some,
     none,
@@ -38,27 +37,23 @@ export {
  * Creates a Highlight component for highlighting text portions.
  *
  * @param value - The text containing content to highlight
- * @param query - String or array of strings to highlight
- * @param style - Optional visual-style configuration
+ * @param style - Style configuration. `query` is required (the terms to
+ *                highlight); every other field is visual and wrapped into
+ *                `style` in the IR.
  * @returns An East expression representing the highlight component
  */
 function createHighlight(
     value: SubtypeExprOrValue<StringType>,
-    query: SubtypeExprOrValue<ArrayType<StringType>> | string | string[],
-    style?: HighlightStyle
+    style: HighlightStyle,
 ): ExprType<UIComponentType> {
-    const queryArray = typeof query === "string"
-        ? [query]
-        : Array.isArray(query)
-            ? query
-            : query;
-
-    const styleValue = style ? buildHighlightVisualStyle(style) : undefined;
+    const { query, ...visual } = style;
+    const hasVisual = Object.values(visual).some(field => field !== undefined);
+    const styleValue = hasVisual ? buildHighlightVisualStyle(style) : undefined;
 
     return East.value(variant("Highlight", {
         value: value,
-        query: queryArray,
-        style: styleValue ? variant("some", styleValue) : variant("none", null),
+        query: query,
+        style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
 
@@ -136,9 +131,9 @@ function buildHighlightVisualStyle(
  * Highlight component for highlighting portions of text.
  *
  * @remarks
- * Use `Highlight.Root(value, query, style)` to highlight matching text.
- * All visual fields live inside the `style` sub-struct (see the
- * `{ content, style }` type-shape convention).
+ * Use `Highlight.Root(value, style)` to highlight matching text. `query` is
+ * required (the terms to highlight); all visual fields live inside the `style`
+ * sub-struct.
  *
  * @example
  * ```ts
@@ -146,11 +141,10 @@ function buildHighlightVisualStyle(
  * import { Highlight, UIComponentType } from "@elaraai/east-ui";
  *
  * const example = East.function([], UIComponentType, $ => {
- *     return Highlight.Root(
- *         "Search results for: react components",
- *         ["react", "components"],
- *         { background: "yellow.200" }
- *     );
+ *     return Highlight.Root("Search results for: react components", {
+ *         query: ["react", "components"],
+ *         background: "yellow.200",
+ *     });
  * });
  * ```
  */

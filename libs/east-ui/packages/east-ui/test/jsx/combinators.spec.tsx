@@ -15,7 +15,7 @@
 
 import { East, StringType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Badge, Button, Checkbox, Code, CodeBlock, EditableChip, Flex, HStack, Kbd, Link, Meter, Numeric, Progress, Reactive, ScrollArea, Slider, Sparkline, Text } from "@elaraai/east-ui/jsx";
+import { Badge, Button, Checkbox, Code, CodeBlock, EditableChip, Flex, Highlight, HStack, Kbd, Link, Meter, Numeric, Progress, Reactive, ScrollArea, Slider, Sparkline, Text } from "@elaraai/east-ui/jsx";
 import {
     Badge as BadgeF,
     Button as ButtonF,
@@ -24,6 +24,7 @@ import {
     CodeBlock as CodeBlockF,
     EditableChip as EditableChipF,
     Flex as FlexF,
+    Highlight as HighlightF,
     Kbd as KbdF,
     Link as LinkF,
     Meter as MeterF,
@@ -95,8 +96,12 @@ describeEast("JSX tag combinators", (test) => {
             <EditableChip><Text>label</Text></EditableChip>,
             EditableChipF.Root(TextF.Root("label")),
         ));
-        // content tag with a required option (href) — exercises the required-options combinator path
+        // content tags with a required option (href / query) — exercise the required-options combinator path
         $(Assert.equal(<Link href="/docs">Docs</Link>, LinkF.Root("Docs", { href: "/docs" })));
+        $(Assert.equal(
+            <Highlight query={["east"]}>east-ui rocks</Highlight>,
+            HighlightF.Root("east-ui rocks", { query: ["east"] }),
+        ));
     });
 
     test("a single component child is the Button label", ($) => {

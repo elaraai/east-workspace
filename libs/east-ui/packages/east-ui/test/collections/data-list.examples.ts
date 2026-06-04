@@ -100,7 +100,7 @@ export const dataListRichValues = example({
                     ], { gap: "1" }),
                 ],
             ) },
-            { label: "Filter", value: Highlight.Root("name LIKE '%smith%'", ["LIKE"]) },
+            { label: "Filter", value: Highlight.Root("name LIKE '%smith%'", { query: ["LIKE"] }) },
             { label: "Priority", value: Badge.Root("Urgent", { variant: "subtle", colorPalette: "red" }) },
         ]);
     }),

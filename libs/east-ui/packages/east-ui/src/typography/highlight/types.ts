@@ -78,10 +78,13 @@ export type HighlightType = typeof HighlightType;
 /**
  * Style configuration for Highlight components.
  *
- * Flat at the factory boundary for ergonomics; the IR wraps these fields
- * inside `HighlightType.style` (see `HighlightVisualStyleType`).
+ * Flat at the factory boundary for ergonomics; `query` is required (the terms
+ * to highlight), and the visual fields are wrapped into `HighlightType.style`
+ * (see `HighlightVisualStyleType`).
  */
 export type HighlightStyle = {
+    /** Terms to highlight within the text (required). */
+    query: SubtypeExprOrValue<ArrayType<StringType>>;
     /** Foreground text colour for the highlighted portions */
     color?: SubtypeExprOrValue<StringType>;
     /** Background colour for highlighted portions (the highlight fill) */

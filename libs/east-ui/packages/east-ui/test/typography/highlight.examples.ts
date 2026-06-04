@@ -9,7 +9,7 @@ export const highlightSingleTerm = example({
     keywords: ["Highlight", "Root", "single", "term", "search"],
     description: "Highlighting one word",
     fn: East.function([], UIComponentType, (_$) => {
-        return Highlight.Root("React is a JavaScript library", ["React"]);
+        return Highlight.Root("React is a JavaScript library", { query: ["React"] });
     }),
     inputs: [],
 });
@@ -18,7 +18,7 @@ export const highlightMultipleTerms = example({
     keywords: ["Highlight", "Root", "multiple", "terms"],
     description: "Highlighting several words",
     fn: East.function([], UIComponentType, (_$) => {
-        return Highlight.Root("The quick brown fox jumps over the lazy dog", ["quick", "fox", "dog"]);
+        return Highlight.Root("The quick brown fox jumps over the lazy dog", { query: ["quick", "fox", "dog"] });
     }),
     inputs: [],
 });
@@ -27,7 +27,7 @@ export const highlightCustomColor = example({
     keywords: ["Highlight", "Root", "background", "yellow", "fill"],
     description: "Yellow highlight background",
     fn: East.function([], UIComponentType, (_$) => {
-        return Highlight.Root("Important information here", ["Important"], { background: "yellow.200" });
+        return Highlight.Root("Important information here", { query: ["Important"], background: "yellow.200" });
     }),
     inputs: [],
 });
@@ -38,8 +38,7 @@ export const highlightGreen = example({
     fn: East.function([], UIComponentType, (_$) => {
         return Highlight.Root(
             "Your changes have been saved successfully",
-            ["saved", "successfully"],
-            { background: "green.100", color: "green.900" },
+            { query: ["saved", "successfully"], background: "green.100", color: "green.900" },
         );
     }),
     inputs: [],
@@ -51,8 +50,7 @@ export const highlightBlue = example({
     fn: East.function([], UIComponentType, (_$) => {
         return Highlight.Root(
             "Click the submit button to proceed",
-            ["submit", "button"],
-            { background: "blue.100", color: "blue.900" },
+            { query: ["submit", "button"], background: "blue.100", color: "blue.900" },
         );
     }),
     inputs: [],
@@ -64,8 +62,7 @@ export const highlightSearchResult = example({
     fn: East.function([], UIComponentType, (_$) => {
         return Highlight.Root(
             "TypeScript is a typed superset of JavaScript that compiles to plain JavaScript",
-            ["TypeScript", "JavaScript"],
-            { background: "yellow.200" }
+            { query: ["TypeScript", "JavaScript"], background: "yellow.200" },
         );
     }),
     inputs: [],
@@ -75,7 +72,7 @@ export const highlightNoMatches = example({
     keywords: ["Highlight", "Root", "no matches", "empty"],
     description: "When query doesn't match",
     fn: East.function([], UIComponentType, (_$) => {
-        return Highlight.Root("This text has no highlighted words", ["xyz"]);
+        return Highlight.Root("This text has no highlighted words", { query: ["xyz"] });
     }),
     inputs: [],
 });
@@ -94,8 +91,7 @@ export const highlightInteractive = example({
                 Input.String(term, { onChange, placeholder: "Type a word to highlight" }),
                 Highlight.Root(
                     "The quick brown fox jumps over the lazy dog",
-                    [term],
-                    { background: "yellow.300" },
+                    { query: [term], background: "yellow.300" },
                 ),
             ], { gap: "3", align: "stretch" });
         }));
