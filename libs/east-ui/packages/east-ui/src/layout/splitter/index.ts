@@ -11,6 +11,8 @@ import {
     StructType,
     ArrayType,
     variant,
+    some,
+    none,
     StringType,
     FloatType,
     BooleanType,
@@ -139,23 +141,13 @@ function SplitterPanel(
     content: SubtypeExprOrValue<UIComponentType>,
     config: SplitterPanelStyle
 ): ExprType<SplitterPanelType> {
-    const toFloatOption = (value: SubtypeExprOrValue<FloatType> | undefined) => {
-        if (value === undefined) return variant("none", null);
-        return variant("some", value);
-    };
-
-    const toBoolOption = (value: SubtypeExprOrValue<BooleanType> | undefined) => {
-        if (value === undefined) return variant("none", null);
-        return variant("some", value);
-    };
-
     return East.value({
         id: config.id,
         content: content,
-        minSize: toFloatOption(config.minSize),
-        maxSize: toFloatOption(config.maxSize),
-        collapsible: toBoolOption(config.collapsible),
-        defaultCollapsed: toBoolOption(config.defaultCollapsed),
+        minSize: config.minSize !== undefined ? some(config.minSize) : none,
+        maxSize: config.maxSize !== undefined ? some(config.maxSize) : none,
+        collapsible: config.collapsible !== undefined ? some(config.collapsible) : none,
+        defaultCollapsed: config.defaultCollapsed !== undefined ? some(config.defaultCollapsed) : none,
     }, SplitterPanelType);
 }
 
@@ -164,11 +156,27 @@ function SplitterPanel(
 // ============================================================================
 
 /**
+ * TypeScript options bag for `Splitter.Root`.
+ *
+ * @property panels - Array of panels created with `Splitter.Panel`
+ * @property defaultSize - Array of initial sizes (percentages) for each panel
+ * @property orientation - Layout orientation (horizontal or vertical)
+ * @property onResize - Callback triggered when panel sizes change during drag
+ * @property onResizeStart - Callback triggered when drag starts
+ * @property onResizeEnd - Callback triggered when drag ends
+ */
+export interface SplitterOptions extends SplitterStyle {
+    /** Array of panels created with `Splitter.Panel` — required. */
+    panels: SubtypeExprOrValue<ArrayType<SplitterPanelType>>;
+    /** Array of initial sizes (percentages) for each panel — required. */
+    defaultSize: SubtypeExprOrValue<ArrayType<FloatType>>;
+}
+
+/**
  * Creates a Splitter container with panels and optional styling.
  *
- * @param panels - Array of panels created with Splitter.Panel
- * @param defaultSize - Array of initial sizes (percentages) for each panel
- * @param style - Optional styling configuration for the splitter
+ * @param options - Required `panels` + `defaultSize`, optional styling +
+ *   resize callbacks
  * @returns An East expression representing the styled splitter component
  *
  * @remarks
@@ -182,40 +190,40 @@ function SplitterPanel(
  * import { Splitter, Text, UIComponentType } from "@elaraai/east-ui";
  *
  * const example = East.function([], UIComponentType, $ => {
- *     return Splitter.Root(
- *         [
+ *     return Splitter.Root({
+ *         panels: [
  *             Splitter.Panel(Text.Root("Left Panel"), { id: "left" }),
  *             Splitter.Panel(Text.Root("Right Panel"), { id: "right" }),
  *         ],
- *         [50.0, 50.0],
- *         { orientation: "horizontal" }
- *     );
+ *         defaultSize: [50.0, 50.0],
+ *         orientation: "horizontal",
+ *     });
  * });
  * ```
  */
 function SplitterRoot(
-    panels: SubtypeExprOrValue<ArrayType<SplitterPanelType>>,
-    defaultSize: SubtypeExprOrValue<ArrayType<FloatType>>,
-    style?: SplitterStyle
+    options: SplitterOptions,
 ): ExprType<UIComponentType> {
+    const { panels, defaultSize } = options;
+
     const panels_expr = East.value(panels, ArrayType(SplitterPanelType));
-    const orientationValue = style?.orientation
-        ? (typeof style.orientation === "string"
-            ? East.value(variant(style.orientation, null), OrientationType)
-            : style.orientation)
+    const orientationValue = options.orientation
+        ? (typeof options.orientation === "string"
+            ? East.value(variant(options.orientation, null), OrientationType)
+            : options.orientation)
         : undefined;
 
-    const hasStyle = orientationValue || style?.onResize !== undefined || style?.onResizeStart !== undefined || style?.onResizeEnd !== undefined;
+    const hasStyle = orientationValue || options.onResize !== undefined || options.onResizeStart !== undefined || options.onResizeEnd !== undefined;
 
     return East.value(variant("Splitter", {
         panels: panels_expr,
         defaultSize: defaultSize,
-        style: hasStyle ? variant("some", East.value({
-            orientation: orientationValue ? variant("some", orientationValue) : variant("none", null),
-            onResize: style?.onResize !== undefined ? variant("some", style.onResize) : variant("none", null),
-            onResizeStart: style?.onResizeStart !== undefined ? variant("some", style.onResizeStart) : variant("none", null),
-            onResizeEnd: style?.onResizeEnd !== undefined ? variant("some", style.onResizeEnd) : variant("none", null),
-        }, SplitterStyleType)) : variant("none", null),
+        style: hasStyle ? some(East.value({
+            orientation: orientationValue ? some(orientationValue) : none,
+            onResize: options.onResize !== undefined ? some(options.onResize) : none,
+            onResizeStart: options.onResizeStart !== undefined ? some(options.onResizeStart) : none,
+            onResizeEnd: options.onResizeEnd !== undefined ? some(options.onResizeEnd) : none,
+        }, SplitterStyleType)) : none,
     }), UIComponentType);
 }
 
@@ -228,15 +236,14 @@ function SplitterRoot(
  *
  * @remarks
  * Splitter provides resizable panels separated by draggable dividers.
- * Use `Splitter.Root(panels, defaultSize, style)` to create the container and `Splitter.Panel(content, config)` for each section.
+ * Use `Splitter.Root({ panels, defaultSize, ... })` to create the container and `Splitter.Panel(content, config)` for each section.
  */
 export const Splitter = {
     /**
      * Creates a Splitter container with panels and optional styling.
      *
-     * @param panels - Array of panels created with Splitter.Panel
-     * @param defaultSize - Array of initial sizes (percentages) for each panel
-     * @param style - Optional styling configuration for the splitter
+     * @param options - Required `panels` + `defaultSize`, optional styling +
+     *   resize callbacks
      * @returns An East expression representing the styled splitter component
      *
      * @remarks
@@ -250,14 +257,14 @@ export const Splitter = {
      * import { Splitter, Text, UIComponentType } from "@elaraai/east-ui";
      *
      * const example = East.function([], UIComponentType, $ => {
-     *     return Splitter.Root(
-     *         [
+     *     return Splitter.Root({
+     *         panels: [
      *             Splitter.Panel(Text.Root("Left Panel"), { id: "left" }),
      *             Splitter.Panel(Text.Root("Right Panel"), { id: "right" }),
      *         ],
-     *         [50.0, 50.0],
-     *         { orientation: "horizontal" }
-     *     );
+     *         defaultSize: [50.0, 50.0],
+     *         orientation: "horizontal",
+     *     });
      * });
      * ```
      */
