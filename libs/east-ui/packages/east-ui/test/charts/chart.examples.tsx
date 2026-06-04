@@ -2,9 +2,10 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-
+/** @jsxImportSource @elaraai/east-ui */
 import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from "@elaraai/east";
-import { Box, Chart, Reactive, State, UIComponentType } from "@elaraai/east-ui";
+import { Chart as C, State, UIComponentType } from "@elaraai/east-ui";
+import { Box, Chart, Reactive } from "@elaraai/east-ui/jsx";
 
 // ============================================================================
 // Line — marks, encodings, curves, scales
@@ -18,10 +19,11 @@ export const lineBasic = example({
             { month: "Jan", sales: 100n }, { month: "Feb", sales: 150n },
             { month: "Mar", sales: 120n }, { month: "Apr", sales: 180n },
         ], ArrayType(StructType({ month: StringType, sales: IntegerType })));
-        return Box.Root([
-            Chart.Root(Chart.Line(rows, { x: r => r.month, y: r => r.sales }, { color: "teal.solid" }),
-                { grid: true, tooltip: true }),
-        ], { height: "220px", width: "100%" });
+        return (
+            <Box height="220px" width="100%">
+                <Chart layers={C.Line(rows, { x: r => r.month, y: r => r.sales }, { color: "teal.solid" })} grid tooltip />
+            </Box>
+        );
     }),
     inputs: [],
 });
@@ -34,10 +36,11 @@ export const lineMultiColumns = example({
             { month: "Jan", mac: 10n, linux: 120n }, { month: "Feb", mac: 95n, linux: 110n },
             { month: "Mar", mac: 87n, linux: 125n }, { month: "Apr", mac: 110n, linux: 100n },
         ], ArrayType(StructType({ month: StringType, mac: IntegerType, linux: IntegerType })));
-        return Box.Root([
-            Chart.Root(Chart.Line(rows, { x: r => r.month, columns: { Mac: r => r.mac, Linux: r => r.linux } }),
-                { legend: true, grid: true, tooltip: true }),
-        ], { height: "240px", width: "100%" });
+        return (
+            <Box height="240px" width="100%">
+                <Chart layers={C.Line(rows, { x: r => r.month, columns: { Mac: r => r.mac, Linux: r => r.linux } })} legend grid tooltip />
+            </Box>
+        );
     }),
     inputs: [],
 });
@@ -51,10 +54,11 @@ export const lineBreakdown = example({
             { month: "Feb", os: "Mac", n: 95n }, { month: "Feb", os: "Linux", n: 110n },
             { month: "Mar", os: "Mac", n: 87n }, { month: "Mar", os: "Linux", n: 125n },
         ], ArrayType(StructType({ month: StringType, os: StringType, n: IntegerType })));
-        return Box.Root([
-            Chart.Root(Chart.Line(rows, { x: r => r.month, y: r => r.n, by: r => r.os }),
-                { legend: true, grid: true }),
-        ], { height: "240px", width: "100%" });
+        return (
+            <Box height="240px" width="100%">
+                <Chart layers={C.Line(rows, { x: r => r.month, y: r => r.n, by: r => r.os })} legend grid />
+            </Box>
+        );
     }),
     inputs: [],
 });
@@ -67,10 +71,11 @@ export const lineCurveNatural = example({
             { month: "Jan", sales: 100n }, { month: "Feb", sales: 150n },
             { month: "Mar", sales: 120n }, { month: "Apr", sales: 180n },
         ], ArrayType(StructType({ month: StringType, sales: IntegerType })));
-        return Box.Root([
-            Chart.Root(Chart.Line(rows, { x: r => r.month, y: r => r.sales }, { curve: "natural", color: "green.solid" }),
-                { grid: true }),
-        ], { height: "220px", width: "100%" });
+        return (
+            <Box height="220px" width="100%">
+                <Chart layers={C.Line(rows, { x: r => r.month, y: r => r.sales }, { curve: "natural", color: "green.solid" })} grid />
+            </Box>
+        );
     }),
     inputs: [],
 });
@@ -83,10 +88,11 @@ export const lineStepNoDots = example({
             { month: "Jan", price: 100n }, { month: "Feb", price: 120n },
             { month: "Mar", price: 115n }, { month: "Apr", price: 140n },
         ], ArrayType(StructType({ month: StringType, price: IntegerType })));
-        return Box.Root([
-            Chart.Root(Chart.Line(rows, { x: r => r.month, y: r => r.price },
-                { curve: "step", width: 2, dots: false, color: "orange.solid" }), { grid: true }),
-        ], { height: "220px", width: "100%" });
+        return (
+            <Box height="220px" width="100%">
+                <Chart layers={C.Line(rows, { x: r => r.month, y: r => r.price }, { curve: "step", width: 2, dots: false, color: "orange.solid" })} grid />
+            </Box>
+        );
     }),
     inputs: [],
 });
@@ -99,12 +105,14 @@ export const lineDashedTargetOverlay = example({
             { month: "Jan", actual: 100n, target: 110n }, { month: "Feb", actual: 150n, target: 130n },
             { month: "Mar", actual: 120n, target: 140n }, { month: "Apr", actual: 180n, target: 150n },
         ], ArrayType(StructType({ month: StringType, actual: IntegerType, target: IntegerType })));
-        return Box.Root([
-            Chart.Root([
-                Chart.Line(rows, { x: r => r.month, y: r => r.actual }, { key: "Actual", color: "teal.solid", width: 2 }),
-                Chart.Line(rows, { x: r => r.month, y: r => r.target }, { key: "Target", color: "gray.solid", dash: "5 5", dots: false }),
-            ], { legend: true, grid: true }),
-        ], { height: "240px", width: "100%" });
+        return (
+            <Box height="240px" width="100%">
+                <Chart layers={[
+                    C.Line(rows, { x: r => r.month, y: r => r.actual }, { key: "Actual", color: "teal.solid", width: 2 }),
+                    C.Line(rows, { x: r => r.month, y: r => r.target }, { key: "Target", color: "gray.solid", dash: "5 5", dots: false }),
+                ]} legend grid />
+            </Box>
+        );
     }),
     inputs: [],
 });
@@ -117,10 +125,16 @@ export const lineTemporal = example({
             { at: new Date("2025-01-01"), users: 1200n }, { at: new Date("2025-02-01"), users: 1500n },
             { at: new Date("2025-03-01"), users: 1700n }, { at: new Date("2025-04-01"), users: 1650n },
         ], ArrayType(StructType({ at: DateTimeType, users: IntegerType })));
-        return Box.Root([
-            Chart.Root(Chart.Line(rows, { x: r => r.at, y: r => r.users }),
-                { x: { format: Chart.format.date("MMM YYYY") }, y: { format: Chart.format.compact() }, grid: true }),
-        ], { height: "240px", width: "100%" });
+        return (
+            <Box height="240px" width="100%">
+                <Chart
+                    layers={C.Line(rows, { x: r => r.at, y: r => r.users })}
+                    x={{ format: C.format.date("MMM YYYY") }}
+                    y={{ format: C.format.compact() }}
+                    grid
+                />
+            </Box>
+        );
     }),
     inputs: [],
 });
@@ -133,10 +147,16 @@ export const lineNumericX = example({
             { dose: 0.5, response: 12.0 }, { dose: 1.0, response: 30.0 },
             { dose: 2.5, response: 55.0 }, { dose: 5.0, response: 70.0 },
         ], ArrayType(StructType({ dose: FloatType, response: FloatType })));
-        return Box.Root([
-            Chart.Root(Chart.Line(rows, { x: r => r.dose, y: r => r.response }, { color: "purple.solid" }),
-                { x: { label: "Dose", scale: "linear", domain: [0, 6] }, y: { label: "Response" }, grid: true }),
-        ], { height: "240px", width: "100%" });
+        return (
+            <Box height="240px" width="100%">
+                <Chart
+                    layers={C.Line(rows, { x: r => r.dose, y: r => r.response }, { color: "purple.solid" })}
+                    x={{ label: "Dose", scale: "linear", domain: [0, 6] }}
+                    y={{ label: "Response" }}
+                    grid
+                />
+            </Box>
+        );
     }),
     inputs: [],
 });
@@ -152,10 +172,11 @@ export const barBasic = example({
         const rows = $.const([
             { q: "Q1", revenue: 186n }, { q: "Q2", revenue: 305n }, { q: "Q3", revenue: 237n }, { q: "Q4", revenue: 273n },
         ], ArrayType(StructType({ q: StringType, revenue: IntegerType })));
-        return Box.Root([
-            Chart.Root(Chart.Bar(rows, { x: r => r.q, y: r => r.revenue }, { color: "teal.solid" }),
-                { y: { format: Chart.format.currency({ compact: true }) }, grid: true }),
-        ], { height: "220px", width: "100%" });
+        return (
+            <Box height="220px" width="100%">
+                <Chart layers={C.Bar(rows, { x: r => r.q, y: r => r.revenue }, { color: "teal.solid" })} y={{ format: C.format.currency({ compact: true }) }} grid />
+            </Box>
+        );
     }),
     inputs: [],
 });
@@ -167,10 +188,11 @@ export const barGrouped = example({
         const rows = $.const([
             { region: "NA", a: 40n, b: 30n }, { region: "EU", a: 55n, b: 45n }, { region: "APAC", a: 30n, b: 60n },
         ], ArrayType(StructType({ region: StringType, a: IntegerType, b: IntegerType })));
-        return Box.Root([
-            Chart.Root(Chart.Bar(rows, { x: r => r.region, columns: { Product: r => r.a, Service: r => r.b } }),
-                { legend: true }),
-        ], { height: "220px", width: "100%" });
+        return (
+            <Box height="220px" width="100%">
+                <Chart layers={C.Bar(rows, { x: r => r.region, columns: { Product: r => r.a, Service: r => r.b } })} legend />
+            </Box>
+        );
     }),
     inputs: [],
 });
@@ -183,10 +205,11 @@ export const barStacked = example({
             { week: "W1", mobile: 50n, desktop: 100n }, { week: "W2", mobile: 70n, desktop: 120n },
             { week: "W3", mobile: 60n, desktop: 110n },
         ], ArrayType(StructType({ week: StringType, mobile: IntegerType, desktop: IntegerType })));
-        return Box.Root([
-            Chart.Root(Chart.Bar(rows, { x: r => r.week, columns: { Mobile: r => r.mobile, Desktop: r => r.desktop } },
-                { stack: "traffic" }), { legend: true }),
-        ], { height: "220px", width: "100%" });
+        return (
+            <Box height="220px" width="100%">
+                <Chart layers={C.Bar(rows, { x: r => r.week, columns: { Mobile: r => r.mobile, Desktop: r => r.desktop } }, { stack: "traffic" })} legend />
+            </Box>
+        );
     }),
     inputs: [],
 });
@@ -199,10 +222,11 @@ export const barPercentStacked = example({
             { week: "W1", channel: "Search", spend: 40n }, { week: "W1", channel: "Social", spend: 60n },
             { week: "W2", channel: "Search", spend: 55n }, { week: "W2", channel: "Social", spend: 45n },
         ], ArrayType(StructType({ week: StringType, channel: StringType, spend: IntegerType })));
-        return Box.Root([
-            Chart.Root(Chart.Bar(rows, { x: r => r.week, y: r => r.spend, by: r => r.channel }),
-                { stackOffset: "expand", y: { format: Chart.format.percent() }, legend: true }),
-        ], { height: "240px", width: "100%" });
+        return (
+            <Box height="240px" width="100%">
+                <Chart layers={C.Bar(rows, { x: r => r.week, y: r => r.spend, by: r => r.channel })} stackOffset="expand" y={{ format: C.format.percent() }} legend />
+            </Box>
+        );
     }),
     inputs: [],
 });
@@ -215,10 +239,11 @@ export const barCustomColors = example({
             { week: "W1", channel: "Search", spend: 40n }, { week: "W1", channel: "Social", spend: 60n },
             { week: "W2", channel: "Search", spend: 55n }, { week: "W2", channel: "Social", spend: 45n },
         ], ArrayType(StructType({ week: StringType, channel: StringType, spend: IntegerType })));
-        return Box.Root([
-            Chart.Root(Chart.Bar(rows, { x: r => r.week, y: r => r.spend, by: r => r.channel,
-                colors: { Search: "blue.solid", Social: "orange.solid" } }), { legend: true }),
-        ], { height: "220px", width: "100%" });
+        return (
+            <Box height="220px" width="100%">
+                <Chart layers={C.Bar(rows, { x: r => r.week, y: r => r.spend, by: r => r.channel, colors: { Search: "blue.solid", Social: "orange.solid" } })} legend />
+            </Box>
+        );
     }),
     inputs: [],
 });
@@ -235,10 +260,11 @@ export const areaStacked = example({
             { month: "Jan", mobile: 50n, desktop: 100n }, { month: "Feb", mobile: 70n, desktop: 120n },
             { month: "Mar", mobile: 60n, desktop: 110n }, { month: "Apr", mobile: 90n, desktop: 140n },
         ], ArrayType(StructType({ month: StringType, mobile: IntegerType, desktop: IntegerType })));
-        return Box.Root([
-            Chart.Root(Chart.Area(rows, { x: r => r.month, columns: { Mobile: r => r.mobile, Desktop: r => r.desktop } },
-                { stack: "traffic", fillOpacity: 0.5 }), { legend: true, grid: true }),
-        ], { height: "240px", width: "100%" });
+        return (
+            <Box height="240px" width="100%">
+                <Chart layers={C.Area(rows, { x: r => r.month, columns: { Mobile: r => r.mobile, Desktop: r => r.desktop } }, { stack: "traffic", fillOpacity: 0.5 })} legend grid />
+            </Box>
+        );
     }),
     inputs: [],
 });
@@ -251,12 +277,14 @@ export const areaConfidenceBand = example({
             { day: "Mon", value: 100n, lo: 80n, hi: 120n }, { day: "Tue", value: 150n, lo: 130n, hi: 170n },
             { day: "Wed", value: 130n, lo: 110n, hi: 150n }, { day: "Thu", value: 180n, lo: 160n, hi: 200n },
         ], ArrayType(StructType({ day: StringType, value: IntegerType, lo: IntegerType, hi: IntegerType })));
-        return Box.Root([
-            Chart.Root([
-                Chart.Band(rows, { x: r => r.day, low: r => r.lo, high: r => r.hi }, { key: "Range", color: "blue.200", fillOpacity: 0.3 }),
-                Chart.Line(rows, { x: r => r.day, y: r => r.value }, { key: "Value", color: "blue.solid", width: 2 }),
-            ], { legend: true, tooltip: true, grid: true }),
-        ], { height: "240px", width: "100%" });
+        return (
+            <Box height="240px" width="100%">
+                <Chart layers={[
+                    C.Band(rows, { x: r => r.day, low: r => r.lo, high: r => r.hi }, { key: "Range", color: "blue.200", fillOpacity: 0.3 }),
+                    C.Line(rows, { x: r => r.day, y: r => r.value }, { key: "Value", color: "blue.solid", width: 2 }),
+                ]} legend tooltip grid />
+            </Box>
+        );
     }),
     inputs: [],
 });
@@ -273,13 +301,20 @@ export const scatterQuadrants = example({
             { effort: 10.0, value: 80.0, baseline: 20.0 }, { effort: 35.0, value: 55.0, baseline: 60.0 },
             { effort: 70.0, value: 30.0, baseline: 90.0 },
         ], ArrayType(StructType({ effort: FloatType, value: FloatType, baseline: FloatType })));
-        return Box.Root([
-            Chart.Root([
-                Chart.Scatter(rows, { x: r => r.effort, columns: { Value: r => r.value, Baseline: r => r.baseline } }, { size: 6 }),
-                Chart.refLine({ x: 50, dash: "3 3" }),
-                Chart.refLine({ y: 50, dash: "3 3" }),
-            ], { x: { label: "Effort", scale: "linear", domain: [0, 100] }, y: { label: "Value", domain: [0, 100] }, legend: true }),
-        ], { height: "280px", width: "100%" });
+        return (
+            <Box height="280px" width="100%">
+                <Chart
+                    layers={[
+                        C.Scatter(rows, { x: r => r.effort, columns: { Value: r => r.value, Baseline: r => r.baseline } }, { size: 6 }),
+                        C.refLine({ x: 50, dash: "3 3" }),
+                        C.refLine({ y: 50, dash: "3 3" }),
+                    ]}
+                    x={{ label: "Effort", scale: "linear", domain: [0, 100] }}
+                    y={{ label: "Value", domain: [0, 100] }}
+                    legend
+                />
+            </Box>
+        );
     }),
     inputs: [],
 });
@@ -292,10 +327,11 @@ export const scatterBubble = example({
             { gdp: 1.2, life: 62.0, pop: 1400.0 }, { gdp: 4.5, life: 78.0, pop: 330.0 },
             { gdp: 2.1, life: 70.0, pop: 210.0 }, { gdp: 5.8, life: 82.0, pop: 125.0 },
         ], ArrayType(StructType({ gdp: FloatType, life: FloatType, pop: FloatType })));
-        return Box.Root([
-            Chart.Root(Chart.Scatter(rows, { x: r => r.gdp, y: r => r.life, size: r => r.pop }),
-                { x: { label: "GDP per capita" }, y: { label: "Life expectancy" }, grid: true }),
-        ], { height: "260px", width: "100%" });
+        return (
+            <Box height="260px" width="100%">
+                <Chart layers={C.Scatter(rows, { x: r => r.gdp, y: r => r.life, size: r => r.pop })} x={{ label: "GDP per capita" }} y={{ label: "Life expectancy" }} grid />
+            </Box>
+        );
     }),
     inputs: [],
 });
@@ -312,12 +348,14 @@ export const composedBarLine = example({
             { month: "Jan", revenue: 186n, profit: 80n }, { month: "Feb", revenue: 305n, profit: 120n },
             { month: "Mar", revenue: 237n, profit: 95n }, { month: "Apr", revenue: 273n, profit: 150n },
         ], ArrayType(StructType({ month: StringType, revenue: IntegerType, profit: IntegerType })));
-        return Box.Root([
-            Chart.Root([
-                Chart.Bar(rows, { x: r => r.month, y: r => r.revenue }, { key: "Revenue", color: "teal.solid" }),
-                Chart.Line(rows, { x: r => r.month, y: r => r.profit }, { key: "Profit", color: "purple.solid", dots: true }),
-            ], { legend: true, tooltip: true, grid: true }),
-        ], { height: "260px", width: "100%" });
+        return (
+            <Box height="260px" width="100%">
+                <Chart layers={[
+                    C.Bar(rows, { x: r => r.month, y: r => r.revenue }, { key: "Revenue", color: "teal.solid" }),
+                    C.Line(rows, { x: r => r.month, y: r => r.profit }, { key: "Profit", color: "purple.solid", dots: true }),
+                ]} legend tooltip grid />
+            </Box>
+        );
     }),
     inputs: [],
 });
@@ -334,15 +372,23 @@ export const composedDualAxisForecast = example({
         ], ArrayType(StructType({
             month: StringType, mobile: IntegerType, desktop: IntegerType, lo: IntegerType, hi: IntegerType, trend: IntegerType,
         })));
-        return Box.Root([
-            Chart.Root([
-                Chart.Area(rows, { x: r => r.month, columns: { Mobile: r => r.mobile, Desktop: r => r.desktop } },
-                    { stack: "traffic", fillOpacity: 0.5 }),
-                Chart.Band(rows, { x: r => r.month, low: r => r.lo, high: r => r.hi }, { key: "Confidence", color: "blue.200", fillOpacity: 0.3 }),
-                Chart.Line(rows, { x: r => r.month, y: r => r.trend }, { key: "Trend", color: "red.solid", dash: "5 5", dots: false, axis: "right", order: 10 }),
-                Chart.refLine({ y: 200, label: "Capacity", dash: "4 4" }),
-            ], { y: { label: "Sessions" }, y2: { label: "Trend", format: Chart.format.compact() }, legend: true, tooltip: true, grid: true }),
-        ], { height: "300px", width: "100%" });
+        return (
+            <Box height="300px" width="100%">
+                <Chart
+                    layers={[
+                        C.Area(rows, { x: r => r.month, columns: { Mobile: r => r.mobile, Desktop: r => r.desktop } }, { stack: "traffic", fillOpacity: 0.5 }),
+                        C.Band(rows, { x: r => r.month, low: r => r.lo, high: r => r.hi }, { key: "Confidence", color: "blue.200", fillOpacity: 0.3 }),
+                        C.Line(rows, { x: r => r.month, y: r => r.trend }, { key: "Trend", color: "red.solid", dash: "5 5", dots: false, axis: "right", order: 10 }),
+                        C.refLine({ y: 200, label: "Capacity", dash: "4 4" }),
+                    ]}
+                    y={{ label: "Sessions" }}
+                    y2={{ label: "Trend", format: C.format.compact() }}
+                    legend
+                    tooltip
+                    grid
+                />
+            </Box>
+        );
     }),
     inputs: [],
 });
@@ -359,14 +405,16 @@ export const referenceAnnotations = example({
             { month: "Jan", value: 100n }, { month: "Feb", value: 150n },
             { month: "Mar", value: 237n }, { month: "Apr", value: 180n },
         ], ArrayType(StructType({ month: StringType, value: IntegerType })));
-        return Box.Root([
-            Chart.Root([
-                Chart.refBand({ y: [120, 200], label: "Normal" }),
-                Chart.Line(rows, { x: r => r.month, y: r => r.value }, { color: "teal.solid" }),
-                Chart.refLine({ y: 220, label: "Target", dash: "4 4" }),
-                Chart.refDot({ x: "Mar", y: 237, label: "Peak" }),
-            ], { grid: true }),
-        ], { height: "240px", width: "100%" });
+        return (
+            <Box height="240px" width="100%">
+                <Chart layers={[
+                    C.refBand({ y: [120, 200], label: "Normal" }),
+                    C.Line(rows, { x: r => r.month, y: r => r.value }, { color: "teal.solid" }),
+                    C.refLine({ y: 220, label: "Target", dash: "4 4" }),
+                    C.refDot({ x: "Mar", y: 237, label: "Peak" }),
+                ]} grid />
+            </Box>
+        );
     }),
     inputs: [],
 });
@@ -383,10 +431,11 @@ export const axisFormatting = example({
             { at: new Date("2025-01-01"), revenue: 12000n }, { at: new Date("2025-02-01"), revenue: 18500n },
             { at: new Date("2025-03-01"), revenue: 21000n },
         ], ArrayType(StructType({ at: DateTimeType, revenue: IntegerType })));
-        return Box.Root([
-            Chart.Root(Chart.Bar(rows, { x: r => r.at, y: r => r.revenue }, { color: "teal.solid" }),
-                { x: { format: Chart.format.date("MMM") }, y: { format: Chart.format.currency({ compact: true }) }, grid: true }),
-        ], { height: "240px", width: "100%" });
+        return (
+            <Box height="240px" width="100%">
+                <Chart layers={C.Bar(rows, { x: r => r.at, y: r => r.revenue }, { color: "teal.solid" })} x={{ format: C.format.date("MMM") }} y={{ format: C.format.currency({ compact: true }) }} grid />
+            </Box>
+        );
     }),
     inputs: [],
 });
@@ -398,15 +447,15 @@ export const axisFormatting = example({
 export const interactiveValue = example({
     keywords: ["Chart", "Reactive", "State", "interactive", "expression"],
     description: "A bar chart whose last value is driven by reactive State",
-    fn: East.function([], UIComponentType, (_$) => {
-        return Reactive.Root(East.function([], UIComponentType, $ => {
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
             const peak = $.let(State.bind([IntegerType], "chart_peak", 90n));
             const peakVal = $.let(peak.read());
             const rows = $.const([
                 { q: "Q1", v: 40n }, { q: "Q2", v: 65n }, { q: "Q3", v: 55n }, { q: "Q4", v: peakVal },
             ], ArrayType(StructType({ q: StringType, v: IntegerType })));
-            return Chart.Root(Chart.Bar(rows, { x: r => r.q, y: r => r.v }, { color: "teal.solid" }), { grid: true });
-        }));
-    }),
+            return <Chart layers={C.Bar(rows, { x: r => r.q, y: r => r.v }, { color: "teal.solid" })} grid />;
+        }}</Reactive>
+    )),
     inputs: [],
 });
