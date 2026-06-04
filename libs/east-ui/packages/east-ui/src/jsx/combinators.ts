@@ -55,6 +55,14 @@ export type ContainerProps<F extends (...a: never[]) => UIElement> =
 export type TextProps<F extends (...a: never[]) => UIElement> =
     NonNullable<Parameters<F>[1]> & { children?: TextChild };
 
+/**
+ * Props for a value-leaf tag wrapping `F` (signature `(value, style?)`): the
+ * factory's value arg surfaced under the prop name `K`, plus its style props
+ * (flat). E.g. `ValueProps<typeof Checkbox.Root, "checked">`.
+ */
+export type ValueProps<F extends (...a: never[]) => UIElement, K extends string> =
+    Record<K, Parameters<F>[0]> & NonNullable<Parameters<F>[1]>;
+
 function isExpr(x: unknown): x is Expr {
     return x instanceof Expr;
 }
@@ -158,6 +166,34 @@ export function textLeaf<V extends SubtypeExprOrValue<StringType>, S>(
         const { children, ...style } = props as { children?: TextChild } &
             Record<string, unknown>;
         return factory(joinText(children) as V, (hasKeys(style) ? style : undefined) as S);
+    };
+}
+
+/**
+ * Build a JSX tag for a value-leaf factory (signature `(value, style?)`) whose
+ * value is a typed datum, not children (e.g. forms). The value is exposed as
+ * the prop named `key` (its natural name — `checked`, `value`, …); the rest of
+ * the options sit flat.
+ *
+ * @example
+ * ```ts
+ * import { Slider } from "@elaraai/east-ui";
+ * export const SliderTag = leaf(Slider.Root, "value");
+ * // <SliderTag value={v} min={0} max={100} onChange={set} />
+ * ```
+ */
+export function leaf<V, S, K extends string>(
+    factory: (value: V, style?: S) => UIElement,
+    key: K,
+): JsxTag<Record<K, V> & S> {
+    return (props) => {
+        const bag = props as Record<string, unknown>;
+        const value = bag[key] as V;
+        const style: Record<string, unknown> = {};
+        for (const k of Object.keys(bag)) {
+            if (k !== key) style[k] = bag[k];
+        }
+        return factory(value, (hasKeys(style) ? style : undefined) as S);
     };
 }
 

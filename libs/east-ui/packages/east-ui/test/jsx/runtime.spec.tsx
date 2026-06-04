@@ -17,12 +17,16 @@
 
 import { East, ArrayType, StringType, IntegerType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Badge, Button, Code, Flex, HStack, Reactive, Text, VStack } from "@elaraai/east-ui/jsx";
+import {
+    Badge, Button, Checkbox, Code, Flex, HStack, Reactive, Slider, Text, VStack,
+} from "@elaraai/east-ui/jsx";
 import {
     Badge as BadgeF,
     Button as ButtonF,
+    Checkbox as CheckboxF,
     Code as CodeF,
     Flex as FlexF,
+    Slider as SliderF,
     Text as TextF,
     Stack,
     UIComponentType,
@@ -99,6 +103,17 @@ describeEast("JSX runtime", (test) => {
         $(Assert.equal(
             <Button><HStack><Text>Accept</Text></HStack></Button>,
             ButtonF.Root(Stack.HStack([TextF.Root("Accept")])),
+        ));
+    });
+
+    test("value-leaf tags (Checkbox/Slider) desugar to their factories", ($) => {
+        $(Assert.equal(
+            <Checkbox checked={true} colorPalette="blue" />,
+            CheckboxF.Root(true, { colorPalette: "blue" }),
+        ));
+        $(Assert.equal(
+            <Slider value={5.0} min={0.0} max={10.0} />,
+            SliderF.Root(5.0, { min: 0.0, max: 10.0 }),
         ));
     });
 

@@ -20,8 +20,8 @@
  */
 
 // Combinators + shared child types (for wrapping unlisted factories).
-export { container, textLeaf, joinText, hasKeys } from "./combinators.js";
-export type { JsxTag, ContainerProps, TextProps, TextChild } from "./combinators.js";
+export { container, textLeaf, leaf, joinText, hasKeys } from "./combinators.js";
+export type { JsxTag, ContainerProps, TextProps, ValueProps, TextChild } from "./combinators.js";
 export { coalesceChildren } from "./children.js";
 export type { ElementChild } from "./children.js";
 export type { UIElement } from "./runtime.js";
@@ -30,6 +30,7 @@ export type { UIElement } from "./runtime.js";
 export { Box, Flex, Stack, VStack, HStack } from "./layout.js";
 export { Text, Heading, Code, Mark } from "./typography.js";
 export { Badge, Tag } from "./display.js";
+export { Checkbox, Switch, Slider } from "./forms.js";
 export { Button } from "./buttons.js";
 export type { ButtonProps, ButtonStyleProps } from "./buttons.js";
 export { Reactive } from "./reactive.js";
