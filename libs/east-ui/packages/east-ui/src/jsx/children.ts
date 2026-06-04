@@ -35,7 +35,7 @@ import type { UIElement } from "./runtime.js";
  */
 export type ElementChild =
     | UIElement
-    | ExprType<ArrayType<UIComponentType>>
+    | SubtypeExprOrValue<ArrayType<UIComponentType>>
     | boolean
     | null
     | undefined
