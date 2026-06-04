@@ -79,30 +79,48 @@ only `ui()` plus its bridge-specific tags. `ui.ts` continues to
 `ui()` + tags. The existing e3-ui-showcase (`jsxImportSource: "@elaraai/e3-ui"`)
 compiles unchanged.
 
-### 1.2 File structure — `src/jsx/`, one file per category
+### 1.2 File structure — `src/jsx/` mirrors `src/`, one file per component
 
-**No per-component `index.tsx`.** A parallel tag file in each
-`src/<cat>/<comp>/` dir would double the file count, triple the TypeDoc/parity
-burden, fight the `types.ts`↔`component.ts` no-cycle rule, and — fatally — the
-TypeScript `JSX` namespace contract can only be declared **once** per
-jsxImportSource module graph; it cannot shard across component dirs.
+`src/jsx/` is a **parallel tree that mirrors the component tree**: one tag file
+per component dir, grouped by category, with per-category barrels — exactly how
+`src/<category>/<component>/` + `src/<category>/index.ts` + `src/index.ts` are
+organized. Collapsing a category into one file (`collections.tsx`) was rejected:
+the heavy Table/Matrix/Gantt/Planner/Chart wrappers make those files unreviewable
+and the barrel a flat dump.
 
 ```
 src/jsx/
-  runtime.tsx     # jsx / jsxs / jsxDEV / h / Fragment + the single `export namespace JSX`
-                  #   → exported as ./jsx-runtime (and ./jsx-dev-runtime)
-  <category>.tsx  # one file per category: buttons.tsx, layout.tsx, typography.tsx,
-                  #   forms.tsx, display.tsx, feedback.tsx, navigation.tsx,
-                  #   disclosure.tsx, overlays.tsx, container.tsx, collections.tsx,
-                  #   charts.tsx, … — each exports that category's tag functions
-  index.ts        # barrels every category file → exported as ./jsx
+  runtime.ts            # jsx / jsxs / jsxDEV / h / Fragment + the single `export namespace JSX`
+                        #   → exported as ./jsx-runtime (and ./jsx-dev-runtime)
+  children.ts           # coalesceChildren + ElementChild
+  combinators.ts        # container / textLeaf / leaf (+ shape-3 / items-parent / …) + *Props types
+  index.ts              # barrels the category barrels + combinators → exported as ./jsx
+  layout/   box.ts flex.ts stack.ts …      + index.ts      # mirrors src/layout/<comp>/
+  typography/ text.ts heading.ts code.ts mark.ts … + index.ts
+  forms/    checkbox.ts switch.ts slider.ts input.ts select.ts … + index.ts
+  buttons/  button.ts icon-button.ts … + index.ts
+  display/  badge.ts tag.ts avatar.ts stat.ts … + index.ts
+  collections/ table.ts matrix.ts gantt.ts planner.ts data-list.ts … + index.ts
+  charts/   chart.ts sparkline.ts + index.ts
+  reactive/ reactive.ts + index.ts
+  … feedback/ navigation/ disclosure/ overlays/ container/
 ```
 
-Per-category (not monolith) keeps the heavy Table/Chart/collection wrappers
-reviewable and independently merge-able; it mirrors the existing
-`src/<category>/` tree and the `./examples/<category>` export map. The runtime
-and namespace sit in exactly one place (`runtime.tsx`); category files export
-only tag functions; `index.ts` barrels them.
+Why a parallel tree is sound (the earlier objection does not apply): the JSX
+`namespace` is declared **once** in `runtime.ts`, not per file; tag files import
+their factory by relative path (`../../layout/box/index.js`), so there is no
+`types.ts`↔`component.ts` cycle (the cycle risk only existed for an `index.tsx`
+co-located *inside* the component dir). Each `<category>/index.ts` barrels its
+component tags (mirroring `src/<category>/index.ts`); `src/jsx/index.ts` barrels
+the categories. The package still exposes ONE public subpath `./jsx`, so authors
+import from one place — the export graph is identical in shape to the factory
+side (root barrel → category barrel → component), not a flat list.
+
+Tag files are `.ts`: they contain no `<JSX>` literals (they are
+`container(Box.Root)`-style calls), which keeps them in the existing
+`src/**/*.ts` lint scope and makes accidental untransformed JSX impossible. Only
+files that author JSX literals are `.tsx` (the `*.examples.tsx` and the
+`test/jsx/*.spec.tsx` foundation tests).
 
 ### 1.3 Naming, imports, pragma
 
@@ -407,7 +425,9 @@ wrapper buckets by East type (§2.3):
   - data-driven components keep structured data on config props (`data=` /
     `columns=` / `items=`); type-bucketed sub-tags for markup/builder callbacks.
   - reserved props: `key`/`ref`/`children` remapped on the JSX layer.
-  - **no per-component `index.tsx`**; tags live in `src/jsx/<category>.tsx`.
+  - tags live in a parallel `src/jsx/` tree mirroring `src/` —
+    `src/jsx/<category>/<component>.ts` — never co-located inside the component
+    dir (that would hit the `types.ts`↔`component.ts` cycle).
 - **EXAMPLES_AUTHORING.md** + **test/CLAUDE.md**: UI example bodies return a JSX
   tag; the `example({ keywords, description, fn: East.function([],
   UIComponentType, …), inputs })` wrapper is kept verbatim (the index parser

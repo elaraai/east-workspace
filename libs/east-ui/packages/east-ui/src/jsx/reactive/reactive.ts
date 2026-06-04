@@ -14,9 +14,9 @@
  */
 
 import { East, type BlockBuilder, type SubtypeExprOrValue } from "@elaraai/east";
-import { Reactive as ReactiveFactory } from "../reactive/index.js";
-import { UIComponentType } from "../component.js";
-import type { UIElement } from "./runtime.js";
+import { Reactive as ReactiveFactory } from "../../reactive/index.js";
+import { UIComponentType } from "../../component.js";
+import type { UIElement } from "../runtime.js";
 
 /** The block-builder body of a `<Reactive>` tag. */
 export type ReactiveRender = (

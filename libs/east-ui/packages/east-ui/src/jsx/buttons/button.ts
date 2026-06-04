@@ -16,11 +16,11 @@ import {
     Button as ButtonFactory,
     type ButtonOptions,
     type ButtonLabelInput,
-} from "../buttons/index.js";
-import { Text as TextFactory } from "../typography/text/index.js";
-import { UIComponentType } from "../component.js";
-import { joinText, hasKeys, type TextChild } from "./combinators.js";
-import type { UIElement } from "./runtime.js";
+} from "../../buttons/button/index.js";
+import { Text as TextFactory } from "../../typography/text/index.js";
+import { UIComponentType } from "../../component.js";
+import { joinText, hasKeys, type TextChild } from "../combinators.js";
+import type { UIElement } from "../runtime.js";
 
 // Keys that stay top-level on `options`; everything else folds into `style`.
 // Typed against ButtonOptions so a renamed/removed option key fails the build.

@@ -13,8 +13,10 @@
  * nested elements arrive as `children`. Every tag returns the exact value its
  * factory returns, so JSX is pure authoring sugar over East IR.
  *
+ * The tag modules under `./<category>/` mirror `src/<category>/` one-to-one.
  * Wrap any other east-ui factory yourself with {@link container} (children +
- * style) or {@link textLeaf} (text content + style).
+ * style), {@link textLeaf} (text content + style), or {@link leaf} (a typed
+ * value prop + style).
  *
  * @packageDocumentation
  */
@@ -26,12 +28,10 @@ export { coalesceChildren } from "./children.js";
 export type { ElementChild } from "./children.js";
 export type { UIElement } from "./runtime.js";
 
-// Tags, by category.
-export { Box, Flex, Stack, VStack, HStack } from "./layout.js";
-export { Text, Heading, Code, Mark } from "./typography.js";
-export { Badge, Tag } from "./display.js";
-export { Checkbox, Switch, Slider } from "./forms.js";
-export { Button } from "./buttons.js";
-export type { ButtonProps, ButtonStyleProps } from "./buttons.js";
-export { Reactive } from "./reactive.js";
-export type { ReactiveRender } from "./reactive.js";
+// Tags, by category — each module mirrors `src/<category>/`.
+export * from "./layout/index.js";
+export * from "./typography/index.js";
+export * from "./display/index.js";
+export * from "./forms/index.js";
+export * from "./buttons/index.js";
+export * from "./reactive/index.js";
