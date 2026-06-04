@@ -165,7 +165,7 @@ work via the sequence protocol. Callbacks receive **decoded East values** and th
 coerced to the East result type — pass `out`/`element_type` when the result type can't be sampled
 from the first element (empty input, or a widening map). `.element_type` is the logical element type.
 
-| Group | Methods (signatures) |
+| Group | Methods |
 |-------|----------------------|
 | Access | `get(i)` · `get_or_default(i, default)` · `try_get(i) -> some/none` · `has(i)` · `get_keys(indices: EastArray)` |
 | Reorder | `sort(*, key=None, reverse=False) -> None` (in place) · `sorted(key=None, *, reverse=False)` · `reverse() -> None` · `reversed()` |
@@ -212,21 +212,40 @@ take `fn(key, value)`; `reduce` takes `fn(acc, key, value)`; collision `combine`
 | Convert | `keys_set() -> Set` · `to_array(fn(key, value), out=None)` · `to_set(fn(key, value), out=None)` · `to_dict(key_fn, value_fn, combine(existing, incoming, new_key), key_out=None, value_out=None)` · `copy()` |
 | Mutate (in place) | `d[k]=v` · `del d[k]` · `insert(k, v)` · `get_or_insert(k, fn(k))` · `insert_or_update(k, v, combine(existing, incoming, k))` · `update(k, fn(current))` · `swap(k, v) -> prev` · `delete(k)` · `try_delete(k) -> bool` · `pop(k, *default)` · `clear()` |
 
-### EastVector / EastMatrix (the numpy boundary)
+### EastVector — complete method surface
 
-Carry a **logical** element type (`Float`/`Integer`/`Boolean`); reach the backing numpy buffer via
-`to_numpy(dtype=None, copy=False)` (a read-only view by default — a cast or `copy=True` is
-writeable) or `to_torch(dtype=None)`, with `.dtype` the runtime storage dtype (may be f32) and
-`.element_type` the logical type. **No arithmetic methods** — do tensor math via
-`to_numpy()`/`to_torch()` (`m.to_torch()`) and wrap the result back with the constructor or the
-`from_numpy(array, element_type=None)` / `from_torch(tensor, element_type=None)` classmethods —
-`element_type` is **inferred** from the array's dtype kind (float→`Float`, int→`Integer`,
-bool→`Boolean`) when omitted, so `EastVector.from_numpy(arr)` just works.
+Immutable 1-D numeric value — logical element type `Float`/`Integer`/`Boolean`, backed by a
+contiguous NumPy buffer for zero-copy ML interop. The logical `.element_type` is fixed; the storage
+`.dtype` may be any compatible width (e.g. f32). **No arithmetic methods** — do tensor math via
+`to_numpy()`/`to_torch()` and wrap the result back. **Immutable:** `set`/transform return a NEW
+vector; the original is unchanged. **Not hashable**, but valid as an East Set/Dict key (ordered by
+value). Construct via the `EastVector.*` classmethods (see [Container generators](#container-generators-classmethods)); `from_numpy`/`from_torch` infer `element_type` from the array dtype when omitted.
 
-| Type | Methods |
-|------|---------|
-| `EastVector` | `get(i)` · `set(i, v) -> EastVector` · `length()` · `slice(start, end)` · `concat(other)` · `map(fn(el), out=None)` · `fold(initial, fn(acc, el))` · `to_array()` · `to_matrix(rows, cols)` · numpy/torch `to_numpy(dtype=,copy=)`/`to_torch(dtype=)`/`from_numpy(array, element_type=None)`/`from_torch(tensor, element_type=None)` · props `.dtype`/`.element_type` |
-| `EastMatrix` | `get(r, c)` · `set(r, c, v) -> EastMatrix` · `get_row(r) -> Vector` · `get_col(c) -> Vector` · `num_rows()`/`num_cols()` · `transpose()` · `map_elements(fn(el), out=None)` · `map_rows(fn(row_vector), out=None)` · `to_rows() -> Array<Vector>` · `to_array()` · `to_vector()` · numpy/torch `to_numpy(dtype=,copy=)`/`to_torch(dtype=)`/`from_numpy(array, element_type=None)`/`from_torch(tensor, element_type=None)` · props `.dtype`/`.element_type`/`.rows`/`.cols` |
+| Group | Methods |
+|-------|---------|
+| Access | `get(i)` (promoted Python scalar) · `length() -> int` · `slice(start, end) -> EastVector` (half-open, contiguous copy) |
+| Transform (returns new) | `set(i, v) -> EastVector` (original unchanged) · `concat(other) -> EastVector` (takes this vector's element type) |
+| Per-element | `map(fn(el), out=None) -> EastVector` (runs in Python, not delegated; pin `out` to fix result element type / storage dtype) |
+| Reduce | `fold(initial, fn(acc, el))` (left fold in Python; returns `initial` if empty) |
+| Convert | `to_array() -> EastArray` (promotes scalars; severs the zero-copy link) · `to_matrix(rows, cols) -> EastMatrix` (row-major reshape; `rows*cols == length`) |
+| NumPy / torch | `to_numpy(dtype=None, copy=False) -> ndarray` (read-only view by default; a cast or `copy=True` is writeable) · `to_torch(dtype=None) -> torch.Tensor` (always a writeable copy) · `np.asarray(v)` via `__array__` · props `.dtype` (storage) / `.element_type` (logical) |
+
+### EastMatrix — complete method surface
+
+Immutable 2-D row-major numeric value — logical element type `Float`/`Integer`/`Boolean`, backed by
+a contiguous NumPy buffer. Logical `.element_type` is separate from storage `.dtype` (a Float matrix
+may be stored f32). Same contract as `EastVector`: **no arithmetic** (use `to_numpy()`/`to_torch()`),
+**immutable** (`set`/transform return a NEW matrix), **not hashable** but valid as an East Set/Dict
+key. Construct via the `EastMatrix.*` classmethods (see [Container generators](#container-generators-classmethods)); `from_numpy`/`from_torch` infer `element_type` from the array dtype when omitted.
+
+| Group | Methods |
+|-------|---------|
+| Access | `get(r, c)` (Python scalar) · `num_rows() -> int` · `num_cols() -> int` |
+| Transform (returns new) | `set(r, c, v) -> EastMatrix` (original unchanged) · `transpose() -> EastMatrix` (new cols×rows, contiguous) |
+| Rows & cols | `get_row(r) -> EastVector` (contiguous copy) · `get_col(c) -> EastVector` (contiguous copy) |
+| Per-element & per-row | `map_elements(fn(el), out=None) -> EastMatrix` (row-major, no row/col index) · `map_rows(fn(row: EastVector), out=None) -> EastMatrix` (returned rows must share one width) |
+| Convert | `to_vector() -> EastVector` (row-major flatten) · `to_array() -> EastArray` (`Array<Array<el>>`, one inner array per row) · `to_rows() -> EastArray` (`Array<Vector<el>>`, one `EastVector` per row) |
+| NumPy / torch | `to_numpy(dtype=None, copy=False) -> ndarray` (2-D; read-only view by default) · `to_torch(dtype=None) -> torch.Tensor` (writeable copy) · `np.asarray(m)` via `__array__` · props `.dtype` / `.element_type` / `.rows` / `.cols` |
 
 ### EastBlob (a `bytes` subclass)
 
@@ -265,20 +284,30 @@ container classes (snake_case):
 | `EastArray.generate(count, fn(i), element_type=None)` | `EastArray.generate(3, lambda i: i*i, IntegerType)` |
 | `EastSet.generate(n, fn(i), element_type=None)` | `EastSet.generate(4, lambda i: i % 2, IntegerType)` |
 | `EastDict.generate(n, key_fn(i), value_fn(i), combine, key_type, value_type)` | `EastDict.generate(3, lambda i:i, lambda i:i*10, None, IntegerType, IntegerType)` |
-| `EastVector.zeros/ones(element_type, length)` · `fill(element_type, length, value)` · `from_array(element_type, items)` | `EastVector.zeros(FloatType, 3)` |
-| `EastMatrix.zeros/ones(element_type, rows, cols)` · `fill(…, value)` · `from_array/from_rows(element_type, rows)` | `EastMatrix.from_array(FloatType, [[1.,2.],[3.,4.]])` |
+| `EastVector.zeros/ones(element_type, length)` · `fill(element_type, length, value)` · `from_array(element_type, items)` · `from_numpy(array, element_type=None)` · `from_torch(tensor, element_type=None)` | `EastVector.zeros(FloatType, 3)` |
+| `EastMatrix.zeros/ones(element_type, rows, cols)` · `fill(…, value)` · `from_array/from_rows(element_type, rows)` · `from_numpy(array, element_type=None)` · `from_torch(tensor, element_type=None)` | `EastMatrix.from_array(FloatType, [[1.,2.],[3.,4.]])` |
 
 ### East.<Type> scalar namespaces
 
 Scalars are plain Python, so their builtins are namespace functions — **complete** lists below.
 Every one delegates to east-c.
 
-**`East.Float`** (f64): `add(a,b)` `subtract(a,b)` `multiply(a,b)` `divide(a,b)` `remainder(a,b)`
-`pow(base,exp)` `negate(x)` `abs(x)` `sign(x)` `sqrt(x)` `exp(x)` `log(x)` `sin(x)` `cos(x)` `tan(x)`
-`to_integer(x) -> int` (raises on a non-integer float, e.g. `3.9`).
+**`East.Float`** (f64)
 
-**`East.Integer`** (i64): `add(a,b)` `subtract(a,b)` `multiply(a,b)` `divide(a,b)` (truncating)
-`remainder(a,b)` `pow(base,exp)` `negate(x)` `abs(x)` `sign(x)` `log(x, base)` `to_float(x) -> float`.
+| Signature | Notes |
+|-----------|-------|
+| `add(a,b)` · `subtract(a,b)` · `multiply(a,b)` · `divide(a,b)` · `remainder(a,b)` · `pow(base,exp)` | arithmetic |
+| `negate(x)` · `abs(x)` · `sign(x)` · `sqrt(x)` · `exp(x)` · `log(x)` | unary / powers |
+| `sin(x)` · `cos(x)` · `tan(x)` | trig |
+| `to_integer(x) -> int` | raises on a non-integer float (e.g. `3.9`) |
+
+**`East.Integer`** (i64)
+
+| Signature | Notes |
+|-----------|-------|
+| `add(a,b)` · `subtract(a,b)` · `multiply(a,b)` · `divide(a,b)` · `remainder(a,b)` · `pow(base,exp)` | arithmetic (`divide` truncates) |
+| `negate(x)` · `abs(x)` · `sign(x)` · `log(x, base)` | unary |
+| `to_float(x) -> float` | widen to f64 |
 
 **`East.String`**
 
@@ -303,7 +332,11 @@ Every one delegates to east-c.
 | `add_milliseconds(dt, millis)` · `duration_milliseconds(a, b) -> int` | `duration` returns **a − b** |
 | `print_format(dt, fmt) -> str` · `parse_format(s, fmt) -> datetime` | Day.js-style tokens |
 
-**`East.Boolean`**: `not_(x)` `and_(a, b)` `or_(a, b)` `xor(a, b)`.
+**`East.Boolean`**
+
+| Signature | Notes |
+|-----------|-------|
+| `not_(x)` · `and_(a, b)` · `or_(a, b)` · `xor(a, b)` | logical |
 
 **`East`** comparisons (East total order; element type `T` first): `compare(T, a, b) -> int`,
 `equal/not_equal/less/less_equal/greater/greater_equal(T, a, b) -> bool`.
