@@ -4,32 +4,20 @@
  */
 
 /**
- * Button JSX tag. Button's factory nests visual style under `options.style`, so
- * the flat JSX props are split (shape-3): behaviour/state/content keys stay
- * top-level and the rest fold into `style`. The label is the tag's children,
- * typed as the factory's own `ButtonLabelInput` and forwarded verbatim — the
- * factory coerces a string to `Text.Root` and takes any `UIComponentType` as a
- * rich label.
+ * Button JSX tag. Button's options are flat (Principle 6), so the tag is a plain
+ * `content` wrapper: the label is the single child (the factory's own
+ * `ButtonLabelInput` — string → `Text.Root`, or any `UIComponentType`), and every
+ * option is a flat prop. Annotated with the named `ButtonOptions` interface so it
+ * surfaces on hover.
  */
 
 import {
     Button as ButtonFactory,
     type ButtonOptions,
+    type ButtonLabelInput,
 } from "../../buttons/button/index.js";
-import { flatten, type FlattenProps, type JsxTag } from "../combinators.js";
+import { content, type JsxTag } from "../combinators.js";
 
-// Keys that stay top-level on `options`; everything else folds into `style`.
-// Typed against ButtonOptions so a renamed/removed option key fails the build.
-const BUTTON_TOP_LEVEL: ReadonlySet<keyof Omit<ButtonOptions, "style">> = new Set([
-    "startIcon",
-    "endIcon",
-    "loadingText",
-    "loadingIcon",
-    "loading",
-    "disabled",
-    "onClick",
-] as const);
-
-/** `<Button>` — action button with flat style props. Maps to `Button.Root`. */
-export const Button: JsxTag<FlattenProps<typeof ButtonFactory.Root>> =
-    flatten(ButtonFactory.Root, BUTTON_TOP_LEVEL);
+/** `<Button variant="solid" onClick={f}>Save</Button>` — action button. Maps to `Button.Root`. */
+export const Button: JsxTag<ButtonOptions & { children: ButtonLabelInput }> =
+    content(ButtonFactory.Root);

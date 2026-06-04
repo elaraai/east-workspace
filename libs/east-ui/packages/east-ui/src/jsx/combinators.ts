@@ -4,20 +4,22 @@
  */
 
 /**
- * Combinators that turn an east-ui component factory into a JSX tag. Every tag
- * forwards the factory's own `SubtypeExprOrValue<T>` args verbatim — props are
- * never re-typed into JS/TS junk unions, and values are never coerced at the
- * JSX boundary. (Enum/variant style props carry their `XxxLiteral` string-union
- * proxy, but that lives on the factory's option interface, not here.)
+ * Combinators that turn an east-ui component factory into a JSX tag. Every
+ * factory is `(primaryValue?, options?)` with a **flat** options bag (no nested
+ * `style`), so the combinator just forwards the prop bag as `options` — props are
+ * never re-typed into JS/TS junk unions, never split, never coerced. (Enum props
+ * carry their `XxxLiteral` proxy, but that lives on the factory's option
+ * interface, not here.)
  *
- * - {@link container} wraps a `(children, style?)` factory: children are the
+ * - {@link container} wraps a `(children, options?)` factory: children are the
  *   JSX children-collection (see `./children.js`), lowered to the factory's
- *   `SubtypeExprOrValue<ArrayType<UIComponentType>>`; style props sit flat.
- * - {@link content} wraps a `(value, style?)` factory whose single value is the
+ *   `SubtypeExprOrValue<ArrayType<UIComponentType>>`; options sit flat.
+ * - {@link content} wraps a `(value, options?)` factory whose single value is the
  *   JSX child — a text leaf (`Text`/`Badge`, value `SubtypeExprOrValue<StringType>`)
  *   or a single-content slot (`ScrollArea`/`Sticky`, value
  *   `SubtypeExprOrValue<UIComponentType>`) — forwarded verbatim.
- * - {@link leaf} wraps a `(value, style?)` factory whose value is a named prop.
+ * - {@link leaf} wraps a `(value, options?)` factory whose value is a named prop.
+ * - {@link optionsTag} wraps an `(options?)` factory with no value/children.
  */
 
 import { ArrayType, type SubtypeExprOrValue } from "@elaraai/east";
@@ -50,16 +52,12 @@ export type ValueProps<F extends (...a: never[]) => UIElement, K extends string>
     Record<K, Parameters<F>[0]> & NonNullable<Parameters<F>[1]>;
 
 /**
- * Props for a shape-3 tag wrapping `F` (signature `(value, options?)` whose
- * `options` nest a visual `style` sub-object): the nested `style` keys hoisted
- * flat, plus the top-level option keys, plus the value as `children`. The
- * runtime top-level-vs-style split is a per-component key set — see
- * {@link flatten}. E.g. `FlattenProps<typeof Button.Root>`.
+ * Props for an options-only tag wrapping `F` (signature `(options?)`, no
+ * value/children — e.g. `<CloseButton onClick=… variant=…/>`): the factory's
+ * flat options bag. Built by {@link optionsTag}.
  */
-export type FlattenProps<F extends (...a: never[]) => UIElement> =
-    NonNullable<NonNullable<Parameters<F>[1]>["style"]>
-    & Omit<NonNullable<Parameters<F>[1]>, "style">
-    & { children: Parameters<F>[0] };
+export type OptionsProps<F extends (...a: never[]) => UIElement> =
+    NonNullable<Parameters<F>[0]>;
 
 /** True when an object has at least one own enumerable key. */
 function hasKeys(o: Record<string, unknown>): boolean {
@@ -140,40 +138,21 @@ export function leaf<V, S, K extends string>(
 }
 
 /**
- * Build a JSX tag for a shape-3 factory (signature `(value, options?)`) whose
- * `options` nest a visual `style` sub-object. Flat JSX props are split: keys in
- * `topLevel` stay on `options` (behaviour/state/content); every other key folds
- * into `options.style`. The factory value is the tag's `children`.
- *
- * `topLevel` is typed `keyof Omit<O, "style">`, so a renamed/removed option key
- * fails the build — this per-component key set is the one bit of hand-state a
- * shape-3 tag carries.
+ * Build a JSX tag for an options-only factory (signature `(options?)`) — no value
+ * and no children. The flat props **are** the factory's options (Principle 6).
  *
  * @example
  * ```ts
- * import { Button } from "@elaraai/east-ui";
- * const TOP = new Set(["onClick", "disabled"] as const);
- * export const ButtonTag = flatten(Button.Root, TOP);
- * // <ButtonTag onClick={f} variant="solid">Save</ButtonTag>
- * //   → Button.Root("Save", { onClick: f, style: { variant: "solid" } })
+ * import { CloseButton } from "@elaraai/east-ui";
+ * export const CloseButtonTag = optionsTag(CloseButton.Root);
+ * // <CloseButtonTag onClick={f} variant="ghost" />
  * ```
  */
-export function flatten<V, O extends { style?: unknown }>(
-    factory: (value: V, options?: O) => UIElement,
-    topLevel: ReadonlySet<keyof Omit<O, "style">>,
-): JsxTag<NonNullable<O["style"]> & Omit<O, "style"> & { children: V }> {
-    const top = topLevel as ReadonlySet<string>;
-    return (props) => {
-        const { children, ...rest } = props as { children: V } & Record<string, unknown>;
-        const options: Record<string, unknown> = {};
-        const style: Record<string, unknown> = {};
-        for (const key of Object.keys(rest)) {
-            if (top.has(key)) options[key] = rest[key];
-            else style[key] = rest[key];
-        }
-        if (hasKeys(style)) options.style = style;
-        return factory(children, (hasKeys(options) ? options : undefined) as O | undefined);
-    };
+export function optionsTag<O>(
+    factory: (options?: O) => UIElement,
+): JsxTag<NonNullable<O>> {
+    return (props) =>
+        factory((hasKeys(props as Record<string, unknown>) ? props : undefined) as O | undefined);
 }
 
 export { hasKeys };
