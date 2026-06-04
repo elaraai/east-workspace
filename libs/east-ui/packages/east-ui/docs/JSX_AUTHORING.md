@@ -124,10 +124,13 @@ only tag functions; `index.ts` barrels them.
 
 ### 1.4 e3-ui author surface
 
-`@elaraai/e3-ui/ui` exports `ui()` + the re-exported tags. The closure overload
-`ui(name, () => <…/>)` wraps the thunk in a zero-input `East.function`. e3 UI
-tasks may set `jsxImportSource` to either `@elaraai/east-ui` or
-`@elaraai/e3-ui` (byte-identical runtime); pick one consistently.
+`@elaraai/e3-ui/ui` exports `ui()` + the re-exported tags. `ui()` is a single
+typed form — `ui(name, inputs, fn, options?)` — with `inputs` `[]` when there are
+none and `fn` a normal `East.function([], UIComponentType, _$ => <…/>)`; there is
+no closure-only overload (it only existed as JSX sugar and forced an untyped
+overload-discrimination, so it was dropped). e3 UI tasks may set `jsxImportSource`
+to either `@elaraai/east-ui` or `@elaraai/e3-ui` (byte-identical runtime); pick one
+consistently.
 
 ---
 

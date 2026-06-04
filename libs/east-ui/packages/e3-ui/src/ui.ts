@@ -16,9 +16,7 @@
 import { task, type DatasetDef, type Runner, type TaskDef } from '@elaraai/e3';
 import { UIComponentType } from '@elaraai/east-ui';
 import {
-  East,
   type EastType,
-  type ExprType,
   type CallableFunctionExpr,
   type CallableAsyncFunctionExpr,
 } from '@elaraai/east';
@@ -68,18 +66,6 @@ export * from './jsx.js';
  * // Manifest: { reads: [name.path], writes: [] }
  * ```
  */
-// Closure form — `ui(name, () => <Box…/>)`. The thunk returns a built
-// `UIComponentType` value (e.g. east-ui JSX), which is wrapped in a zero-input
-// `East.function`. No compute-time inputs; reactive `Data.bind` reads are still
-// derived from the IR. Ideal for `.tsx` JSX authoring.
-export function ui(
-  name: string,
-  render: () => ExprType<typeof UIComponentType>,
-  options?: {
-    runner?: Runner,
-  },
-): TaskDef;
-// Function form — `ui(name, [inputs], East.function([...], UIComponentType, …))`.
 export function ui<
   Inputs extends readonly DatasetDef[],
   O extends EastType = typeof UIComponentType,
@@ -90,26 +76,8 @@ export function ui<
   options?: {
     runner?: Runner,
   },
-): TaskDef;
-export function ui(
-  name: string,
-  arg2: unknown,
-  arg3?: unknown,
-  arg4?: unknown,
 ): TaskDef {
-  // Discriminate the overloads by `arg2`: the function form always passes an
-  // `inputs` array there, so a function means the closure form.
-  if (typeof arg2 === 'function') {
-    const render = arg2 as () => ExprType<typeof UIComponentType>;
-    const fn = East.function([], UIComponentType, () => render());
-    return buildUiTask(name, [], fn, arg3 as { runner?: Runner } | undefined);
-  }
-  return buildUiTask(
-    name,
-    arg2 as readonly DatasetDef[],
-    arg3 as CallableFunctionExpr<any, EastType> | CallableAsyncFunctionExpr<any, EastType>,
-    arg4 as { runner?: Runner } | undefined,
-  );
+  return buildUiTask(name, inputs, fn, options);
 }
 
 function buildUiTask(
