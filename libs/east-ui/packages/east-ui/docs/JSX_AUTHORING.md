@@ -509,6 +509,49 @@ teaches JSX while the index serves nothing.
 
 ---
 
+## 11a. Implementation status
+
+Tracks what has landed on `claude/east-ui-react-types-olfJV`. Update as phases
+complete.
+
+**Done (green + committed):**
+- **Phase 1 — relocation.** Runtime + tags moved to `east-ui/src/jsx/`
+  (`runtime.ts`, `children.ts`, `combinators.ts`, `layout.ts`, `typography.ts`,
+  `display.ts`, `buttons.ts`, `reactive.ts`, `index.ts`); `./jsx`,
+  `./jsx-runtime`, `./jsx-dev-runtime` exports added; e3-ui `jsx.ts` /
+  `jsx-runtime.ts` are passthroughs. e3-ui-showcase compiles unchanged; round-trip
+  demo runs.
+- **Phase 0 — runtime foundation.** East-array-aware `coalesceChildren`
+  (lone `.map` child kept whole; mixed static+expr concat in source order;
+  Fragment routed through the coalescer), `joinText`→`East.str` fold,
+  `never`-casts removed. `test/jsx/runtime.spec.tsx` pins the four dynamic cases
+  + IR/value-equivalence against the factory output, using the self-referential
+  `/** @jsxImportSource @elaraai/east-ui */` pragma (validated on a clean build).
+- **Phase 3 (partial) — tags.** `<Box> <Flex> <Stack> <VStack> <HStack>`,
+  `<Text> <Heading> <Code> <Mark>`, `<Badge> <Tag>`, `<Button>`, and the
+  `<Reactive>{$ => …}</Reactive>` builder-children tag. Generic builder type
+  renamed `Tag<P>`→`JsxTag<P>` (collided with the `<Tag>` component).
+- **Phase 5 (prep) — tooling globs widened** to `*.examples.{ts,tsx}` across the
+  five discovery points (plugin `index.config.json`, `plugin-artifacts.yml`
+  paths, east-ui `Makefile`, showcase `discover-example-files.ts` +
+  `vite-plugin-example-sources.ts`). Verified non-breaking (index byte-identical).
+
+**Remaining:**
+- **Phase 3 (rest of tags).** A `leaf` combinator (shape-2 value+options:
+  forms `Checkbox/Switch/Slider/Input/Select/…`, display `Avatar/Stat/Meter/…`,
+  feedback `Progress/Status/Banner/…`); the shape-3 generalization
+  (`CloseButton/CopyButton/Toggle/Card/ScrollArea/Sticky/ChipRail`); IconButton +
+  ButtonGroup; items-parent (`Grid/Splitter/Tabs/Accordion/Select/SegmentGroup/…`);
+  trigger+body overlays (`Dialog/Drawer/Popover/Menu/Tooltip/…`); the complex
+  collections/charts with type-driven sub-tag bucketing (§2.3, §5) and the new
+  factories (`DataList.Item`, `Table.Column/.Row/.Cell`).
+- **Phase 2 — factory interface improvements** (§6): arrow-accepting callback
+  aliases at the factory lift site; literal-union backfill; Card child widening;
+  Chart `key`→`name`.
+- **Phase 4 — STANDARDS / SKILL / USAGE / @example** rewrites (§7–8).
+- **Phase 5 — example migration** of every `UIComponentType`-returning example to
+  `.tsx` with snapshot + IR verification (§9), pilot `buttons/button-group` first.
+
 ## 12. Risks
 
 - **Silent IR drift** in new construction paths → mitigated by the
