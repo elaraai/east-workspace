@@ -43,8 +43,7 @@ export {
  *
  * @remarks
  * The rendered button's `aria-label` defaults to `"Close"` when `label` is
- * absent. state + behaviour live at the top
- * level; visual presentation lives inside `options.style`.
+ * absent.
  *
  * @example
  * ```ts
@@ -119,9 +118,7 @@ export const CloseButton = {
      * @returns An East expression representing the CloseButton component
      *
      * @remarks
-     * `label` defaults to `"Close"` in the renderer when absent. Per the
-     * Type-shape convention: state + behaviour on main; visual presentation
-     * inside `options.style`.
+     * `label` defaults to `"Close"` in the renderer when absent.
      *
      * @example
      * ```ts
