@@ -14,16 +14,16 @@
       "default": "./dist/src/internal.js"
     },
     "./jsx": {
-      "types": "./dist/src/jsx/index.d.ts",
-      "default": "./dist/src/jsx/index.js"
+      "types": "./dist/src/runtime/index.d.ts",
+      "default": "./dist/src/runtime/index.js"
     },
     "./jsx-runtime": {
-      "types": "./dist/src/jsx/runtime.d.ts",
-      "default": "./dist/src/jsx/runtime.js"
+      "types": "./dist/src/runtime/runtime.d.ts",
+      "default": "./dist/src/runtime/runtime.js"
     },
     "./jsx-dev-runtime": {
-      "types": "./dist/src/jsx/runtime.d.ts",
-      "default": "./dist/src/jsx/runtime.js"
+      "types": "./dist/src/runtime/runtime.d.ts",
+      "default": "./dist/src/runtime/runtime.js"
     },
     "./examples/buttons": {
       "types": "./dist/test/buttons/button.examples.d.ts",
