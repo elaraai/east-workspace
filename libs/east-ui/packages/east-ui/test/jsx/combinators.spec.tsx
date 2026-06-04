@@ -15,13 +15,14 @@
 
 import { East, StringType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Badge, Button, Checkbox, Code, Flex, HStack, Reactive, Slider, Text } from "@elaraai/east-ui/jsx";
+import { Badge, Button, Checkbox, Code, Flex, HStack, Reactive, ScrollArea, Slider, Text } from "@elaraai/east-ui/jsx";
 import {
     Badge as BadgeF,
     Button as ButtonF,
     Checkbox as CheckboxF,
     Code as CodeF,
     Flex as FlexF,
+    ScrollArea as ScrollAreaF,
     Slider as SliderF,
     Text as TextF,
     Stack,
@@ -62,6 +63,13 @@ describeEast("JSX tag combinators", (test) => {
         $(Assert.equal(
             <Text>{East.str`Hi ${name}!`}</Text>,
             TextF.Root(East.str`Hi ${name}!`),
+        ));
+    });
+
+    test("single-content tag (ScrollArea) forwards its one child", ($) => {
+        $(Assert.equal(
+            <ScrollArea><Text>scroll me</Text></ScrollArea>,
+            ScrollAreaF.Root(TextF.Root("scroll me")),
         ));
     });
 

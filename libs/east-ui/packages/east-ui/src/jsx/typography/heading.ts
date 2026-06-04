@@ -6,7 +6,7 @@
 /** Typography `<Heading>` tag — heading text. Maps to `Heading.Root`. */
 
 import { Heading as HeadingFactory } from "../../typography/heading/index.js";
-import { textLeaf, type TextProps, type JsxTag } from "../combinators.js";
+import { content, type ContentProps, type JsxTag } from "../combinators.js";
 
 /** `<Heading>` — heading text. Maps to `Heading.Root`. */
-export const Heading: JsxTag<TextProps<typeof HeadingFactory.Root>> = textLeaf(HeadingFactory.Root);
+export const Heading: JsxTag<ContentProps<typeof HeadingFactory.Root>> = content(HeadingFactory.Root);

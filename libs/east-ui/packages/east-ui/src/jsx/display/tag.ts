@@ -6,7 +6,7 @@
 /** Display `<Tag>` tag — keyword/chip. Maps to `Tag.Root`. */
 
 import { Tag as TagFactory } from "../../display/tag/index.js";
-import { textLeaf, type TextProps, type JsxTag } from "../combinators.js";
+import { content, type ContentProps, type JsxTag } from "../combinators.js";
 
 /** `<Tag>` — keyword/chip with optional close affordance. Maps to `Tag.Root`. */
-export const Tag: JsxTag<TextProps<typeof TagFactory.Root>> = textLeaf(TagFactory.Root);
+export const Tag: JsxTag<ContentProps<typeof TagFactory.Root>> = content(TagFactory.Root);

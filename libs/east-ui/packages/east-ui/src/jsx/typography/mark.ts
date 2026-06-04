@@ -6,7 +6,7 @@
 /** Typography `<Mark>` tag — highlighted text. Maps to `Mark.Root`. */
 
 import { Mark as MarkFactory } from "../../typography/mark/index.js";
-import { textLeaf, type TextProps, type JsxTag } from "../combinators.js";
+import { content, type ContentProps, type JsxTag } from "../combinators.js";
 
 /** `<Mark>` — highlighted text. Maps to `Mark.Root`. */
-export const Mark: JsxTag<TextProps<typeof MarkFactory.Root>> = textLeaf(MarkFactory.Root);
+export const Mark: JsxTag<ContentProps<typeof MarkFactory.Root>> = content(MarkFactory.Root);

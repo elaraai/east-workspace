@@ -6,7 +6,7 @@
 /** Display `<Badge>` tag — small status/label pill. Maps to `Badge.Root`. */
 
 import { Badge as BadgeFactory } from "../../display/badge/index.js";
-import { textLeaf, type TextProps, type JsxTag } from "../combinators.js";
+import { content, type ContentProps, type JsxTag } from "../combinators.js";
 
 /** `<Badge>` — small status/label pill. Maps to `Badge.Root`. */
-export const Badge: JsxTag<TextProps<typeof BadgeFactory.Root>> = textLeaf(BadgeFactory.Root);
+export const Badge: JsxTag<ContentProps<typeof BadgeFactory.Root>> = content(BadgeFactory.Root);

@@ -15,15 +15,15 @@
  *
  * The tag modules under `./<category>/` mirror `src/<category>/` one-to-one.
  * Wrap any other east-ui factory yourself with {@link container} (children +
- * style), {@link textLeaf} (text content + style), or {@link leaf} (a typed
+ * style), {@link content} (text content + style), or {@link leaf} (a typed
  * value prop + style).
  *
  * @packageDocumentation
  */
 
 // Combinators + shared child types (for wrapping unlisted factories).
-export { container, textLeaf, leaf, hasKeys } from "./combinators.js";
-export type { JsxTag, ContainerProps, TextProps, ValueProps } from "./combinators.js";
+export { container, content, leaf, hasKeys } from "./combinators.js";
+export type { JsxTag, ContainerProps, ContentProps, ValueProps } from "./combinators.js";
 export { coalesceChildren } from "./children.js";
 export type { ContainerChildrenType } from "./children.js";
 export type { UIElement } from "./runtime.js";

@@ -13,8 +13,10 @@
  * - {@link container} wraps a `(children, style?)` factory: children are the
  *   JSX children-collection (see `./children.js`), lowered to the factory's
  *   `SubtypeExprOrValue<ArrayType<UIComponentType>>`; style props sit flat.
- * - {@link textLeaf} wraps a `(value, style?)` factory whose value is the text
- *   children — passed straight through as the factory's value type.
+ * - {@link content} wraps a `(value, style?)` factory whose single value is the
+ *   JSX child — a text leaf (`Text`/`Badge`, value `SubtypeExprOrValue<StringType>`)
+ *   or a single-content slot (`ScrollArea`/`Sticky`, value
+ *   `SubtypeExprOrValue<UIComponentType>`) — forwarded verbatim.
  * - {@link leaf} wraps a `(value, style?)` factory whose value is a named prop.
  */
 
@@ -36,7 +38,7 @@ export type ContainerProps<F extends (...a: never[]) => UIElement> =
  * (`SubtypeExprOrValue<StringType>`). Interpolate with `East.str` — text is a
  * single string value, not a join of mixed children.
  */
-export type TextProps<F extends (...a: never[]) => UIElement> =
+export type ContentProps<F extends (...a: never[]) => UIElement> =
     NonNullable<Parameters<F>[1]> & { children: Parameters<F>[0] };
 
 /**
@@ -85,11 +87,11 @@ export function container<S>(
  * @example
  * ```ts
  * import { Code } from "@elaraai/east-ui";
- * export const CodeTag = textLeaf(Code.Root);
+ * export const CodeTag = content(Code.Root);
  * // <CodeTag>{"const x = 1"}</CodeTag>
  * ```
  */
-export function textLeaf<V, S>(
+export function content<V, S>(
     factory: (value: V, style?: S) => UIElement,
 ): JsxTag<S & { children: V }> {
     return (props) => {
