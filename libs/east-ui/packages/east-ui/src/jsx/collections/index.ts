@@ -11,3 +11,4 @@ export { Pagination } from "./pagination.js";
 export { Table } from "./table.js";
 export { Matrix } from "./matrix.js";
 export { Gantt } from "./gantt.js";
+export { Planner } from "./planner.js";

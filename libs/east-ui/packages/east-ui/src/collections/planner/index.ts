@@ -481,7 +481,7 @@ export interface PlannerConfig<R extends StructType> {
 
 // Infer the row struct type R from the data argument (a plain JS array of
 // objects or an East array expression), mirroring the Table / Gantt factories.
-type RowElement<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
+export type RowElement<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
     TypeOf<T> extends ArrayType<infer S> ? (S extends StructType ? S : never) : never;
 
 function buildRoot(
