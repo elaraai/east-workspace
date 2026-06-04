@@ -17,8 +17,16 @@
 
 import { East, ArrayType, StringType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Button, Text, VStack } from "@elaraai/east-ui/jsx";
-import { Button as ButtonF, Text as TextF, Stack, UIComponentType } from "@elaraai/east-ui";
+import { Badge, Button, Code, Flex, Text, VStack } from "@elaraai/east-ui/jsx";
+import {
+    Badge as BadgeF,
+    Button as ButtonF,
+    Code as CodeF,
+    Flex as FlexF,
+    Text as TextF,
+    Stack,
+    UIComponentType,
+} from "@elaraai/east-ui";
 
 describeEast("JSX runtime", (test) => {
     test("Button tag desugars to Button.Root", ($) => {
@@ -68,6 +76,17 @@ describeEast("JSX runtime", (test) => {
         $(Assert.equal(
             <Text>Hi {name}!</Text>,
             TextF.Root(East.str`Hi ${name}!`),
+        ));
+    });
+
+    test("Flex/Code/Badge tags desugar to their factories", ($) => {
+        $(Assert.equal(
+            <Flex direction="row" gap="2"><Code>x = 1</Code></Flex>,
+            FlexF.Root([CodeF.Root("x = 1")], { direction: "row", gap: "2" }),
+        ));
+        $(Assert.equal(
+            <Badge variant="solid" colorPalette="green">Active</Badge>,
+            BadgeF.Root("Active", { variant: "solid", colorPalette: "green" }),
         ));
     });
 }, { platformFns: TestImpl });

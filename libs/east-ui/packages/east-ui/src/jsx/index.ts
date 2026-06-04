@@ -21,13 +21,14 @@
 
 // Combinators + shared child types (for wrapping unlisted factories).
 export { container, textLeaf, joinText, hasKeys } from "./combinators.js";
-export type { Tag, ContainerProps, TextProps, TextChild } from "./combinators.js";
+export type { JsxTag, ContainerProps, TextProps, TextChild } from "./combinators.js";
 export { coalesceChildren } from "./children.js";
 export type { ElementChild } from "./children.js";
 export type { UIElement } from "./runtime.js";
 
 // Tags, by category.
-export { Box, Stack, VStack, HStack } from "./layout.js";
-export { Text, Heading } from "./typography.js";
+export { Box, Flex, Stack, VStack, HStack } from "./layout.js";
+export { Text, Heading, Code, Mark } from "./typography.js";
+export { Badge, Tag } from "./display.js";
 export { Button } from "./buttons.js";
 export type { ButtonProps, ButtonStyleProps } from "./buttons.js";

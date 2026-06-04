@@ -35,7 +35,7 @@ export type TextChild =
     | TextChild[];
 
 /** A JSX tag: a function from a single props object to a built east-ui element. */
-export type Tag<P> = (props: P) => UIElement;
+export type JsxTag<P> = (props: P) => UIElement;
 
 /** Props for a container tag wrapping `F`: its style props (flat) + children. */
 export type ContainerProps<F extends (...a: never[]) => UIElement> =
@@ -125,7 +125,7 @@ export function container<S>(
         children: SubtypeExprOrValue<ArrayType<UIComponentType>>,
         style?: S,
     ) => UIElement,
-): Tag<S & { children?: ElementChild }> {
+): JsxTag<S & { children?: ElementChild }> {
     return (props) => {
         const { children, ...style } = props as { children?: ElementChild } &
             Record<string, unknown>;
@@ -146,7 +146,7 @@ export function container<S>(
  */
 export function textLeaf<V extends SubtypeExprOrValue<StringType>, S>(
     factory: (value: V, style?: S) => UIElement,
-): Tag<S & { children?: TextChild }> {
+): JsxTag<S & { children?: TextChild }> {
     return (props) => {
         const { children, ...style } = props as { children?: TextChild } &
             Record<string, unknown>;
