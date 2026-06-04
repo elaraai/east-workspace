@@ -15,7 +15,7 @@
 
 import { East, StringType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Badge, Button, Checkbox, Code, CodeBlock, EditableChip, Flex, Highlight, HStack, Kbd, Link, Meter, Numeric, Progress, Reactive, ScrollArea, Slider, Sparkline, Text } from "@elaraai/east-ui/jsx";
+import { Badge, Button, Checkbox, Code, CodeBlock, EditableChip, Flex, Highlight, HStack, Kbd, Link, MetricChip, Meter, Numeric, Progress, Reactive, ScrollArea, Slider, Sparkline, Text } from "@elaraai/east-ui/jsx";
 import {
     Badge as BadgeF,
     Button as ButtonF,
@@ -27,6 +27,7 @@ import {
     Highlight as HighlightF,
     Kbd as KbdF,
     Link as LinkF,
+    MetricChip as MetricChipF,
     Meter as MeterF,
     Numeric as NumericF,
     Progress as ProgressF,
@@ -101,6 +102,11 @@ describeEast("JSX tag combinators", (test) => {
         $(Assert.equal(
             <Highlight query={["east"]}>east-ui rocks</Highlight>,
             HighlightF.Root("east-ui rocks", { query: ["east"] }),
+        ));
+        // content tag with a required enum option (tone, literal proxy)
+        $(Assert.equal(
+            <MetricChip tone="positive"><Text>+12.5%</Text></MetricChip>,
+            MetricChipF.Root(TextF.Root("+12.5%"), { tone: "positive" }),
         ));
     });
 

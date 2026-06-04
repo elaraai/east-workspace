@@ -10,3 +10,4 @@ export { Tag } from "./tag.js";
 export { Meter } from "./meter.js";
 export { Kbd } from "./kbd.js";
 export { EditableChip } from "./editable-chip.js";
+export { MetricChip } from "./metric-chip.js";

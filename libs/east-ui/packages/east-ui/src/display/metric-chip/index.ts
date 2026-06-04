@@ -23,7 +23,6 @@ import {
     MetricChipEmphasisType,
     MetricChipStyleType,
     type MetricChipOptions,
-    type MetricChipToneLiteral,
 } from "./types.js";
 
 export {
@@ -75,8 +74,7 @@ export type MetricChipType = typeof MetricChipType;
 // Helpers
 // ============================================================================
 
-function buildMetricChipStyle(options: MetricChipOptions | undefined): ExprType<MetricChipStyleType> | undefined {
-    if (options === undefined) return undefined;
+function buildMetricChipStyle(options: MetricChipOptions): ExprType<MetricChipStyleType> | undefined {
     const hasAny = options.emphasis !== undefined
         || options.size !== undefined
         || options.borderRadius !== undefined
@@ -117,9 +115,9 @@ function buildMetricChipStyle(options: MetricChipOptions | undefined): ExprType<
  * a required semantic `tone`.
  *
  * @param value - Primary metric value (UIComponent)
- * @param tone - Semantic tone literal (`"positive"` / `"negative"` /
- *   `"neutral"` / `"info"`) or East expression
- * @param options - Optional `unit` / `icon` content + visual style fields
+ * @param options - Options bag. `tone` is required (`"positive"` /
+ *   `"negative"` / `"neutral"` / `"info"`, or East expression); plus optional
+ *   `unit` / `icon` content + visual style fields.
  * @returns An East expression of type `UIComponentType`
  *
  * @remarks
@@ -134,7 +132,8 @@ function buildMetricChipStyle(options: MetricChipOptions | undefined): ExprType<
  * import { MetricChip, Text, UIComponentType } from "@elaraai/east-ui";
  *
  * const example = East.function([], UIComponentType, $ => {
- *     return MetricChip.Root(Text.Root("+12.5%"), "positive", {
+ *     return MetricChip.Root(Text.Root("+12.5%"), {
+ *         tone: "positive",
  *         unit: "%",
  *         emphasis: "subtle",
  *     });
@@ -143,18 +142,17 @@ function buildMetricChipStyle(options: MetricChipOptions | undefined): ExprType<
  */
 function createMetricChip(
     value: SubtypeExprOrValue<UIComponentType>,
-    tone: MetricChipToneLiteral | SubtypeExprOrValue<MetricChipToneType>,
-    options?: MetricChipOptions,
+    options: MetricChipOptions,
 ): ExprType<UIComponentType> {
-    const toneValue = typeof tone === "string"
-        ? East.value(variant(tone, null), MetricChipToneType)
-        : tone;
+    const toneValue = typeof options.tone === "string"
+        ? East.value(variant(options.tone, null), MetricChipToneType)
+        : options.tone;
     const styleValue = buildMetricChipStyle(options);
 
     return East.value(variant("MetricChip", {
         value,
-        unit: options?.unit !== undefined ? some(options.unit) : none,
-        icon: options?.icon !== undefined ? some(options.icon as SubtypeExprOrValue<IconType>) : none,
+        unit: options.unit !== undefined ? some(options.unit) : none,
+        icon: options.icon !== undefined ? some(options.icon as SubtypeExprOrValue<IconType>) : none,
         tone: toneValue,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
@@ -174,16 +172,16 @@ interface MetricChipNamespace {
  * MetricChip — labelled metric pill with semantic tone.
  *
  * @remarks
- * Consumed by DeltaPill / UncertaintyBadge / SumCheckBadge patterns (§2).
- * Use `MetricChip.Root(value, tone, options?)`.
+ * Consumed by DeltaPill / UncertaintyBadge / SumCheckBadge patterns.
+ * Use `MetricChip.Root(value, options)` — `options.tone` is required.
  */
 export const MetricChip: MetricChipNamespace = {
     /**
      * Creates a MetricChip component value.
      *
      * @param value - Primary metric value (UIComponent)
-     * @param tone - Semantic tone classification
-     * @param options - Optional `unit` / `icon` + visual style fields
+     * @param options - Options bag; `tone` is required, plus optional
+     *   `unit` / `icon` + visual style fields
      * @returns An East expression of type `UIComponentType`
      *
      * @example
@@ -192,7 +190,8 @@ export const MetricChip: MetricChipNamespace = {
      * import { MetricChip, Text, UIComponentType } from "@elaraai/east-ui";
      *
      * const example = East.function([], UIComponentType, $ => {
-     *     return MetricChip.Root(Text.Root("Error rate 0.42%"), "negative", {
+     *     return MetricChip.Root(Text.Root("Error rate 0.42%"), {
+     *         tone: "negative",
      *         emphasis: "solid",
      *     });
      * });
