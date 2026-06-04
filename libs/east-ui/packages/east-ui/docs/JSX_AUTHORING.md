@@ -1,9 +1,8 @@
 # east-ui JSX — authoring surface design & implementation plan
 
-> **Status:** APPROVED target state (sign-off captured). Supersedes the
-> e3-ui-scoped `e3-ui/docs/JSX_COMPONENTS.md`, which predates the decision to
-> host the runtime in east-ui. This doc is the single source of truth for the
-> JSX authoring surface across **both** `@elaraai/east-ui` and `@elaraai/e3-ui`.
+> **Status:** APPROVED target state (sign-off captured). This doc is the single
+> source of truth for the JSX authoring surface across **both**
+> `@elaraai/east-ui` and `@elaraai/e3-ui`.
 
 JSX becomes the **primary** authoring surface for east-ui component trees, to
 the point that every UIComponentType example in both packages is written as
