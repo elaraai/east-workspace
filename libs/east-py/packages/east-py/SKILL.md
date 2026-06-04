@@ -123,8 +123,8 @@ by building a new value; `set` returns a new tensor).
 | `ArrayType(T)` | `EastArray` (indexable, iterable) | **Mutable** |
 | `SetType(K)` | `EastSet` (East-sorted) | **Mutable** |
 | `DictType(K, V)` | `EastDict` (East-sorted by key) | **Mutable** |
-| `VectorType(T)` | `EastVector`; `.data` is a 1-D numpy buffer | Immutable |
-| `MatrixType(T)` | `EastMatrix`; `.data` is a 2-D row-major numpy buffer | Immutable |
+| `VectorType(T)` | `EastVector`; 1-D numpy buffer via `.to_numpy()` | Immutable |
+| `MatrixType(T)` | `EastMatrix`; 2-D row-major numpy buffer via `.to_numpy()` | Immutable |
 | `StructType({...})` | `EastStruct` (index by field name: `s["name"]`) | Immutable (frozen) |
 | `VariantType({...})` | `EastVariant` (`.type` tag, `.value`; compared **by case name**) | Immutable (frozen) |
 | `RefType(T)` | `EastRef` (cell; `.get()` / `.set()` / `.update()`) | **Mutable** |
@@ -218,13 +218,15 @@ Carry a **logical** element type (`Float`/`Integer`/`Boolean`); reach the backin
 `to_numpy(dtype=None, copy=False)` (a read-only view by default — a cast or `copy=True` is
 writeable) or `to_torch(dtype=None)`, with `.dtype` the runtime storage dtype (may be f32) and
 `.element_type` the logical type. **No arithmetic methods** — do tensor math via
-`to_numpy()`/`to_torch()` (`m.to_torch()`) and wrap the result back (`from_numpy`/`from_torch` or
-the constructor).
+`to_numpy()`/`to_torch()` (`m.to_torch()`) and wrap the result back with the constructor or the
+`from_numpy(array, element_type=None)` / `from_torch(tensor, element_type=None)` classmethods —
+`element_type` is **inferred** from the array's dtype kind (float→`Float`, int→`Integer`,
+bool→`Boolean`) when omitted, so `EastVector.from_numpy(arr)` just works.
 
 | Type | Methods |
 |------|---------|
-| `EastVector` | `get(i)` · `set(i, v) -> EastVector` · `length()` · `slice(start, end)` · `concat(other)` · `map(fn(el), out=None)` · `fold(initial, fn(acc, el))` · `to_array()` · `to_matrix(rows, cols)` · numpy/torch `to_numpy(dtype=,copy=)`/`to_torch(dtype=)`/`from_numpy`/`from_torch` · props `.dtype`/`.element_type` |
-| `EastMatrix` | `get(r, c)` · `set(r, c, v) -> EastMatrix` · `get_row(r) -> Vector` · `get_col(c) -> Vector` · `num_rows()`/`num_cols()` · `transpose()` · `map_elements(fn(el), out=None)` · `map_rows(fn(row_vector), out=None)` · `to_rows() -> Array<Vector>` · `to_array()` · `to_vector()` · numpy/torch `to_numpy(dtype=,copy=)`/`to_torch(dtype=)`/`from_numpy`/`from_torch` · props `.dtype`/`.element_type`/`.rows`/`.cols` |
+| `EastVector` | `get(i)` · `set(i, v) -> EastVector` · `length()` · `slice(start, end)` · `concat(other)` · `map(fn(el), out=None)` · `fold(initial, fn(acc, el))` · `to_array()` · `to_matrix(rows, cols)` · numpy/torch `to_numpy(dtype=,copy=)`/`to_torch(dtype=)`/`from_numpy(array, element_type=None)`/`from_torch(tensor, element_type=None)` · props `.dtype`/`.element_type` |
+| `EastMatrix` | `get(r, c)` · `set(r, c, v) -> EastMatrix` · `get_row(r) -> Vector` · `get_col(c) -> Vector` · `num_rows()`/`num_cols()` · `transpose()` · `map_elements(fn(el), out=None)` · `map_rows(fn(row_vector), out=None)` · `to_rows() -> Array<Vector>` · `to_array()` · `to_vector()` · numpy/torch `to_numpy(dtype=,copy=)`/`to_torch(dtype=)`/`from_numpy(array, element_type=None)`/`from_torch(tensor, element_type=None)` · props `.dtype`/`.element_type`/`.rows`/`.cols` |
 
 ### EastBlob (a `bytes` subclass)
 
