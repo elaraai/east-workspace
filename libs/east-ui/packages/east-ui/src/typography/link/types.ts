@@ -99,17 +99,17 @@ export const LinkType = StructType({
 export type LinkType = typeof LinkType;
 
 // ============================================================================
-// Link Options (TS interface)
+// Link Style (TS interface)
 // ============================================================================
 
 /**
- * Options for Link components.
+ * Style configuration for Link components.
  *
  * Flat at the factory boundary for ergonomics; the IR wraps visual fields
  * inside `LinkType.style` (see `LinkVisualStyleType`). `href` is required and
  * `external` is state — both forwarded to the main struct.
  */
-export type LinkOptions = {
+export type LinkStyle = {
     /** URL the link points to (required). */
     href: SubtypeExprOrValue<StringType>;
     /** Whether to open in new tab (state — not visual) */

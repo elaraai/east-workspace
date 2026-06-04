@@ -20,7 +20,7 @@ import {
     LinkType,
     LinkVariantType,
     LinkVisualStyleType,
-    type LinkOptions,
+    type LinkStyle,
 } from "./types.js";
 
 // Re-export types
@@ -28,7 +28,7 @@ export {
     LinkType,
     LinkVariantType,
     LinkVisualStyleType,
-    type LinkOptions,
+    type LinkStyle,
 } from "./types.js";
 
 // ============================================================================
@@ -39,18 +39,18 @@ export {
  * Creates a Link component for navigation.
  *
  * @param value - The link text to display
- * @param options - Link options. `href` is required; `external` is state
- *                  (new-tab); every other field is visual and wrapped into
- *                  `style` in the IR.
+ * @param style - Style configuration. `href` is required; `external` is state
+ *                (new-tab); every other field is visual and wrapped into
+ *                `style` in the IR.
  * @returns An East expression representing the link component
  */
 function createLink(
     value: SubtypeExprOrValue<StringType>,
-    options: LinkOptions,
+    style: LinkStyle,
 ): ExprType<UIComponentType> {
-    const { href, external, ...visual } = options;
+    const { href, external, ...visual } = style;
     const hasVisual = Object.values(visual).some(field => field !== undefined);
-    const styleValue = hasVisual ? buildLinkVisualStyle(options) : undefined;
+    const styleValue = hasVisual ? buildLinkVisualStyle(style) : undefined;
 
     return East.value(variant("Link", {
         value: value,
@@ -60,7 +60,7 @@ function createLink(
     }), UIComponentType);
 }
 
-function buildLinkVisualStyle(style: LinkOptions): ExprType<LinkVisualStyleType> {
+function buildLinkVisualStyle(style: LinkStyle): ExprType<LinkVisualStyleType> {
     const variantValue = style.variant
         ? (typeof style.variant === "string"
             ? East.value(variant(style.variant, null), LinkVariantType)
@@ -141,7 +141,7 @@ function buildLinkVisualStyle(style: LinkOptions): ExprType<LinkVisualStyleType>
  * Link component for accessible navigation.
  *
  * @remarks
- * Use `Link.Root(value, options)` to create navigation links. `href` is
+ * Use `Link.Root(value, style)` to create navigation links. `href` is
  * required; `external` is state (opens in a new tab); every visual field lives
  * inside the `style` sub-struct.
  *
