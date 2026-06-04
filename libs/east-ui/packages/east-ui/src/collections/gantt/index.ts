@@ -573,12 +573,9 @@ export type DataFieldKeys<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
  * });
  * ```
  */
-function createGantt<
-    T extends SubtypeExprOrValue<ArrayType<StructType>>,
-    C extends ColumnSpec<T> = ColumnSpec<T>,
->(
+function createGantt<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
     data: T,
-    columns: C,
+    columns: ColumnSpec<T>,
     rowSpec: (row: ExprType<TypeOf<T> extends ArrayType<infer E> ? E : never>) => {
         tasks?: SubtypeExprOrValue<ArrayType<GanttTaskType>>;
         milestones?: SubtypeExprOrValue<ArrayType<GanttMilestoneType>>;

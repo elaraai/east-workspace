@@ -454,12 +454,9 @@ export type ColumnSpec<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
 export type DataFieldKeys<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
     Extract<keyof DataFields<NoInfer<T>>, string>;
 
-export function createTable<
-    T extends SubtypeExprOrValue<ArrayType<StructType>>,
-    C extends ColumnSpec<T> = ColumnSpec<T>,
->(
+export function createTable<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
     data: T,
-    columns: C,
+    columns: ColumnSpec<T>,
     style?: TableOptions<DataFieldKeys<T>>
 ): ExprType<UIComponentType> {
     const data_expr = East.value(data) as ExprType<ArrayType<StructType>>;

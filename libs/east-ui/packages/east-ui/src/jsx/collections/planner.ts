@@ -37,8 +37,26 @@ function PlannerSpan<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
     return PlannerFactory.Span(data, config as PlannerConfig<RowElement<T>>);
 }
 
-/** Planner tags keyed by event shape: `<Planner.Point …/>` and `<Planner.Span …/>`. */
-export const Planner: { Point: typeof PlannerPoint; Span: typeof PlannerSpan } = {
+/**
+ * Planner tags keyed by event shape: `<Planner.Point …/>` and `<Planner.Span …/>`.
+ * The axis (`Planner.axis.*`), slot (`Planner.at.*`), `Planner.event` /
+ * `Planner.marker` config builders and `Planner.Types` are carried through from
+ * the factory so a single import wires the whole config.
+ */
+export const Planner: {
+    Point: typeof PlannerPoint;
+    Span: typeof PlannerSpan;
+    axis: typeof PlannerFactory.axis;
+    at: typeof PlannerFactory.at;
+    event: typeof PlannerFactory.event;
+    marker: typeof PlannerFactory.marker;
+    Types: typeof PlannerFactory.Types;
+} = {
     Point: PlannerPoint,
     Span: PlannerSpan,
+    axis: PlannerFactory.axis,
+    at: PlannerFactory.at,
+    event: PlannerFactory.event,
+    marker: PlannerFactory.marker,
+    Types: PlannerFactory.Types,
 };

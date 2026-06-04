@@ -20,9 +20,29 @@ import {
 import type { UIElement } from "../runtime.js";
 
 /** `<Matrix data={rows} columns={[…]} rowKey={r => r.name} cell={(r, col) => …} />` — schema-typed matrix. Maps to `Matrix.Root`. */
-export function Matrix<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
+function MatrixTag<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
     props: { data: T } & MatrixConfig<RowElement<T>>,
 ): UIElement {
     const { data, ...config } = props;
     return MatrixFactory.Root(data, config as MatrixConfig<RowElement<T>>);
 }
+
+/**
+ * `<Matrix data={rows} … />` — schema-typed matrix. Maps to `Matrix.Root`. The
+ * `Matrix.column` (x-axis) / `Matrix.segment` / `Matrix.cell` / `Matrix.marker`
+ * builders and `Matrix.Types` are carried through so a single import wires the
+ * whole grid.
+ */
+export const Matrix: typeof MatrixTag & {
+    column: typeof MatrixFactory.column;
+    segment: typeof MatrixFactory.segment;
+    cell: typeof MatrixFactory.cell;
+    marker: typeof MatrixFactory.marker;
+    Types: typeof MatrixFactory.Types;
+} = Object.assign(MatrixTag, {
+    column: MatrixFactory.column,
+    segment: MatrixFactory.segment,
+    cell: MatrixFactory.cell,
+    marker: MatrixFactory.marker,
+    Types: MatrixFactory.Types,
+});
