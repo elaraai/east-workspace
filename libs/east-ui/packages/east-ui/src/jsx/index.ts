@@ -22,8 +22,8 @@
  */
 
 // Combinators + shared child types (for wrapping unlisted factories).
-export { container, content, leaf, hasKeys } from "./combinators.js";
-export type { JsxTag, ContainerProps, ContentProps, ValueProps } from "./combinators.js";
+export { container, content, leaf, flatten, hasKeys } from "./combinators.js";
+export type { JsxTag, ContainerProps, ContentProps, ValueProps, FlattenProps } from "./combinators.js";
 export { coalesceChildren } from "./children.js";
 export type { ContainerChildrenType } from "./children.js";
 export type { UIElement } from "./runtime.js";

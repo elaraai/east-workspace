@@ -49,6 +49,18 @@ export type ContentProps<F extends (...a: never[]) => UIElement> =
 export type ValueProps<F extends (...a: never[]) => UIElement, K extends string> =
     Record<K, Parameters<F>[0]> & NonNullable<Parameters<F>[1]>;
 
+/**
+ * Props for a shape-3 tag wrapping `F` (signature `(value, options?)` whose
+ * `options` nest a visual `style` sub-object): the nested `style` keys hoisted
+ * flat, plus the top-level option keys, plus the value as `children`. The
+ * runtime top-level-vs-style split is a per-component key set — see
+ * {@link flatten}. E.g. `FlattenProps<typeof Button.Root>`.
+ */
+export type FlattenProps<F extends (...a: never[]) => UIElement> =
+    NonNullable<NonNullable<Parameters<F>[1]>["style"]>
+    & Omit<NonNullable<Parameters<F>[1]>, "style">
+    & { children: Parameters<F>[0] };
+
 /** True when an object has at least one own enumerable key. */
 function hasKeys(o: Record<string, unknown>): boolean {
     for (const _ in o) return true;
@@ -124,6 +136,43 @@ export function leaf<V, S, K extends string>(
             if (k !== key) style[k] = bag[k];
         }
         return factory(value, (hasKeys(style) ? style : undefined) as S);
+    };
+}
+
+/**
+ * Build a JSX tag for a shape-3 factory (signature `(value, options?)`) whose
+ * `options` nest a visual `style` sub-object. Flat JSX props are split: keys in
+ * `topLevel` stay on `options` (behaviour/state/content); every other key folds
+ * into `options.style`. The factory value is the tag's `children`.
+ *
+ * `topLevel` is typed `keyof Omit<O, "style">`, so a renamed/removed option key
+ * fails the build — this per-component key set is the one bit of hand-state a
+ * shape-3 tag carries.
+ *
+ * @example
+ * ```ts
+ * import { Button } from "@elaraai/east-ui";
+ * const TOP = new Set(["onClick", "disabled"] as const);
+ * export const ButtonTag = flatten(Button.Root, TOP);
+ * // <ButtonTag onClick={f} variant="solid">Save</ButtonTag>
+ * //   → Button.Root("Save", { onClick: f, style: { variant: "solid" } })
+ * ```
+ */
+export function flatten<V, O extends { style?: unknown }>(
+    factory: (value: V, options?: O) => UIElement,
+    topLevel: ReadonlySet<keyof Omit<O, "style">>,
+): JsxTag<NonNullable<O["style"]> & Omit<O, "style"> & { children: V }> {
+    const top = topLevel as ReadonlySet<string>;
+    return (props) => {
+        const { children, ...rest } = props as { children: V } & Record<string, unknown>;
+        const options: Record<string, unknown> = {};
+        const style: Record<string, unknown> = {};
+        for (const key of Object.keys(rest)) {
+            if (top.has(key)) options[key] = rest[key];
+            else style[key] = rest[key];
+        }
+        if (hasKeys(style)) options.style = style;
+        return factory(children, (hasKeys(options) ? options : undefined) as O | undefined);
     };
 }
 
