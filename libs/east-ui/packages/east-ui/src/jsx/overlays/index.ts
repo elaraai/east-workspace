@@ -11,3 +11,6 @@ export { Popover } from "./popover.js";
 export { HoverCard } from "./hover-card.js";
 export { Dialog } from "./dialog.js";
 export { Drawer } from "./drawer.js";
+export { CommandPalette } from "./command-palette.js";
+export { ActionBar } from "./action-bar.js";
+export { Menu } from "./menu.js";
