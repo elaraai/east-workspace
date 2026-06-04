@@ -20,7 +20,7 @@ import {
     LinkType,
     LinkVariantType,
     LinkVisualStyleType,
-    type LinkStyle,
+    type LinkOptions,
 } from "./types.js";
 
 // Re-export types
@@ -28,7 +28,7 @@ export {
     LinkType,
     LinkVariantType,
     LinkVisualStyleType,
-    type LinkStyle,
+    type LinkOptions,
 } from "./types.js";
 
 // ============================================================================
@@ -39,29 +39,28 @@ export {
  * Creates a Link component for navigation.
  *
  * @param value - The link text to display
- * @param href - URL the link points to
- * @param style - Optional configuration: `external` is state (new-tab),
- *                everything else is visual and wrapped into `style` in the IR.
+ * @param options - Link options. `href` is required; `external` is state
+ *                  (new-tab); every other field is visual and wrapped into
+ *                  `style` in the IR.
  * @returns An East expression representing the link component
  */
 function createLink(
     value: SubtypeExprOrValue<StringType>,
-    href: SubtypeExprOrValue<StringType>,
-    style?: LinkStyle
+    options: LinkOptions,
 ): ExprType<UIComponentType> {
-    const externalValue = style?.external !== undefined ? style.external : undefined;
-
-    const styleValue = style ? buildLinkVisualStyle(style) : undefined;
+    const { href, external, ...visual } = options;
+    const hasVisual = Object.values(visual).some(field => field !== undefined);
+    const styleValue = hasVisual ? buildLinkVisualStyle(options) : undefined;
 
     return East.value(variant("Link", {
         value: value,
         href: href,
-        external: externalValue !== undefined ? variant("some", externalValue) : variant("none", null),
-        style: styleValue ? variant("some", styleValue) : variant("none", null),
+        external: external !== undefined ? some(external) : none,
+        style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
 
-function buildLinkVisualStyle(style: LinkStyle): ExprType<LinkVisualStyleType> {
+function buildLinkVisualStyle(style: LinkOptions): ExprType<LinkVisualStyleType> {
     const variantValue = style.variant
         ? (typeof style.variant === "string"
             ? East.value(variant(style.variant, null), LinkVariantType)
@@ -142,9 +141,9 @@ function buildLinkVisualStyle(style: LinkStyle): ExprType<LinkVisualStyleType> {
  * Link component for accessible navigation.
  *
  * @remarks
- * Use `Link.Root(value, href, style)` to create navigation links.
- * `external` is state (opens in a new tab); every visual field lives inside
- * the `style` sub-struct (see the `{ content, style }` type-shape convention).
+ * Use `Link.Root(value, options)` to create navigation links. `href` is
+ * required; `external` is state (opens in a new tab); every visual field lives
+ * inside the `style` sub-struct.
  *
  * @example
  * ```ts
@@ -152,7 +151,8 @@ function buildLinkVisualStyle(style: LinkStyle): ExprType<LinkVisualStyleType> {
  * import { Link, UIComponentType } from "@elaraai/east-ui";
  *
  * const example = East.function([], UIComponentType, $ => {
- *     return Link.Root("Visit our site", "https://example.com", {
+ *     return Link.Root("Visit our site", {
+ *         href: "https://example.com",
  *         external: true,
  *         colorPalette: "blue",
  *     });

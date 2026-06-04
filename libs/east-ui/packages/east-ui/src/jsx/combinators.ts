@@ -92,8 +92,8 @@ export function container<S>(
  * ```
  */
 export function content<V, S>(
-    factory: (value: V, style?: S) => UIElement,
-): JsxTag<S & { children: V }> {
+    factory: (value: V, style: S) => UIElement,
+): JsxTag<NonNullable<S> & { children: V }> {
     return (props) => {
         const { children, ...style } = props as { children: V } & Record<string, unknown>;
         return factory(children, (hasKeys(style) ? style : undefined) as S);
@@ -113,9 +113,9 @@ export function content<V, S>(
  * ```
  */
 export function leaf<V, S, K extends string>(
-    factory: (value: V, style?: S) => UIElement,
+    factory: (value: V, style: S) => UIElement,
     key: K,
-): JsxTag<Record<K, V> & S> {
+): JsxTag<Record<K, V> & NonNullable<S>> {
     return (props) => {
         const bag = props as Record<string, unknown>;
         const value = bag[key] as V;

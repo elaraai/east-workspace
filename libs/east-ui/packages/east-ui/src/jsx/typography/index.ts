@@ -11,3 +11,4 @@ export { Code } from "./code.js";
 export { CodeBlock } from "./code-block.js";
 export { Mark } from "./mark.js";
 export { Numeric } from "./numeric.js";
+export { Link } from "./link.js";

@@ -17,7 +17,7 @@ export { HeadingType, HeadingAsType, HeadingVisualStyleType, type HeadingStyle }
 
 // Link
 export { Link } from "./link/index.js";
-export { LinkType, LinkVariantType, LinkVisualStyleType, type LinkStyle } from "./link/types.js";
+export { LinkType, LinkVariantType, LinkVisualStyleType, type LinkOptions } from "./link/types.js";
 
 // Highlight
 export { Highlight } from "./highlight/index.js";
