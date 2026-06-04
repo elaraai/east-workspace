@@ -17,7 +17,7 @@
 
 import { East, ArrayType, StringType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Badge, Button, Code, Flex, Text, VStack } from "@elaraai/east-ui/jsx";
+import { Badge, Button, Code, Flex, Reactive, Text, VStack } from "@elaraai/east-ui/jsx";
 import {
     Badge as BadgeF,
     Button as ButtonF,
@@ -77,6 +77,14 @@ describeEast("JSX runtime", (test) => {
             <Text>Hi {name}!</Text>,
             TextF.Root(East.str`Hi ${name}!`),
         ));
+    });
+
+    test("Reactive builder-children tag lifts the $ block", ($) => {
+        const r = $.let(<Reactive>{($) => {
+            const label = $.let(East.value("hi", StringType));
+            return <Text>{label}</Text>;
+        }}</Reactive>);
+        $(Assert.equal(r.unwrap().getTag(), "ReactiveComponent"));
     });
 
     test("Flex/Code/Badge tags desugar to their factories", ($) => {

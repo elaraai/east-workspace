@@ -32,3 +32,5 @@ export { Text, Heading, Code, Mark } from "./typography.js";
 export { Badge, Tag } from "./display.js";
 export { Button } from "./buttons.js";
 export type { ButtonProps, ButtonStyleProps } from "./buttons.js";
+export { Reactive } from "./reactive.js";
+export type { ReactiveRender } from "./reactive.js";
