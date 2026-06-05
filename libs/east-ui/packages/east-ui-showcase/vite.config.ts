@@ -18,6 +18,7 @@ export default defineConfig(({ command }) => {
       react(),
       exampleSourcesPlugin({
         testDir: path.resolve(__dirname, '../east-ui/test'),
+        rootDir: __dirname,
       }),
     ],
     base: '/east-workspace/',

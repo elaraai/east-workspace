@@ -32,6 +32,12 @@ export interface DiscoverOptions {
     /** Absolute path to the test root — the directory containing
      *  `<category>/<component>.examples.ts` files. */
     testDir: string;
+    /** Include top-level files whose pathKey has no `/` (no category
+     *  directory). Off by default so the east-ui showcase still skips
+     *  category-less files like `style.examples.tsx`. Code-reference roots
+     *  keep their examples flat (`array.examples.ts`) and rely on the
+     *  package as the category, so they pass `true`. */
+    includeTopLevel?: boolean;
 }
 
 export async function discoverExampleFiles(opts: DiscoverOptions): Promise<DiscoveredExample[]> {
@@ -40,7 +46,7 @@ export async function discoverExampleFiles(opts: DiscoverOptions): Promise<Disco
     for (const filePath of matches) {
         const rel = path.relative(opts.testDir, filePath).replace(/\\/g, "/");
         const pathKey = rel.replace(/\.examples\.tsx?$/, "");
-        if (!pathKey.includes("/")) continue;
+        if (!pathKey.includes("/") && !opts.includeTopLevel) continue;
         out.push({ filePath, pathKey, category: categoryFor(pathKey) });
     }
     out.sort((a, b) => a.pathKey.localeCompare(b.pathKey));

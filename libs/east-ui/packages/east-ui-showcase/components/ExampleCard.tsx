@@ -77,11 +77,16 @@ export function ExampleCard({
     /* `ExampleDef.fn`'s return type is erased to `EastType` at the package
      * boundary (to keep downstream `.d.ts` small); `<EastFunction>` needs
      * the precise `EastIR<[], UIComponentType>`. The cast narrows it back —
-     * every example in the showcase is a UI component by construction. */
-    const ir = useMemo(() => example.fn.toIR() as EastFunctionProps["ir"], [example.fn]);
+     * every live example in the showcase is a UI component by construction.
+     * Code-reference (`.ts`) entries have no `fn` to render. */
+    const ir = useMemo(
+        () => (example.tier === "live" ? (example.fn.toIR() as EastFunctionProps["ir"]) : null),
+        [example],
+    );
     const [view, setView] = useState<View>("output");
 
-    const hasSource = !!example.source;
+    const isLive = example.tier === "live";
+    const showToggle = isLive && !!example.source;
     const pressed = view === "source";
 
     return (
@@ -113,7 +118,7 @@ export function ExampleCard({
                                 <Tag.Label>{k}</Tag.Label>
                             </Tag.Root>
                         ))}
-                        {hasSource && (
+                        {showToggle && (
                             <IconButton
                                 aria-label={pressed ? "Show rendered output" : "Show source"}
                                 size="xs"
@@ -143,7 +148,7 @@ export function ExampleCard({
             {/* Body — fixed `bodyHeight` keeps row heights deterministic
              *  for the virtualizer and keeps the rendered-view ↔ source-
              *  view toggle from jumping between heights. */}
-            {view === "output" ? (
+            {isLive && view === "output" ? (
                 <Box
                     bg="bg.surface"
                     p="5"
@@ -151,40 +156,85 @@ export function ExampleCard({
                     overflowX="hidden"
                     overflowY="auto"
                 >
-                    <EastFunction ir={ir} storageKey={`example-${name}`} />
+                    {ir && <EastFunction ir={ir} storageKey={`example-${name}`} />}
+                </Box>
+            ) : example.tier === "code" ? (
+                /* Code-reference card: source block fills the body, the
+                 *  declared `returns` value sits in a strip at its foot —
+                 *  both inside the fixed `bodyHeight`. */
+                <Box h={bodyHeight} display="flex" flexDirection="column" minH={0}>
+                    <Box flex="1" minH={0} position="relative" overflow="hidden">
+                        <SourceBlock raw={example.source.raw} height="100%" />
+                    </Box>
+                    {example.returns && (
+                        <Flex
+                            align="center"
+                            gap="2.5"
+                            px="20px"
+                            h="36px"
+                            flexShrink={0}
+                            borderTopWidth="1px"
+                            borderTopColor="border.subtle"
+                            bg="bg.canvas"
+                        >
+                            <Text textStyle="mono.label" color="fg.muted" flexShrink={0}>
+                                returns
+                            </Text>
+                            <Box
+                                as="span"
+                                fontFamily="mono"
+                                fontSize="12px"
+                                color="fg"
+                                whiteSpace="nowrap"
+                                overflowX="auto"
+                                title={example.returns}
+                            >
+                                {example.returns}
+                            </Box>
+                        </Flex>
+                    )}
                 </Box>
             ) : (
-                <CodeBlock.Root
-                    code={example.source!.raw}
-                    language="typescript"
-                    meta={{ colorScheme: "dark", showLineNumbers: true }}
-                    size="sm"
-                    h={bodyHeight}
-                    borderRadius="0"
-                    overflow="hidden"
-                    position="relative"
-                    style={{ "--code-block-max-height": bodyHeight } as React.CSSProperties}
-                >
-                    <CodeBlock.Content h="full" maxH="full">
-                        <CodeBlock.Code h="full" overflow="auto">
-                            <CodeBlock.CodeText />
-                        </CodeBlock.Code>
-                    </CodeBlock.Content>
-                    <CodeBlock.CopyTrigger
-                        position="absolute"
-                        top="2"
-                        right="3"
-                        zIndex="1"
-                        bg="whiteAlpha.100"
-                        _hover={{ bg: "whiteAlpha.200" }}
-                        rounded="sm"
-                        p="1"
-                        backdropFilter="blur(4px)"
-                    >
-                        <CodeBlock.CopyIndicator />
-                    </CodeBlock.CopyTrigger>
-                </CodeBlock.Root>
+                <SourceBlock raw={example.source!.raw} height={bodyHeight} />
             )}
         </Box>
+    );
+}
+
+/** The dark, copyable source view shared by the live source-toggle and the
+ *  code-reference cards. `height` is "100%" inside a flex region (code card)
+ *  or the fixed body height (live source toggle). */
+function SourceBlock({ raw, height }: { raw: string; height: string }) {
+    return (
+        <CodeBlock.Root
+            code={raw}
+            language="typescript"
+            meta={{ colorScheme: "dark", showLineNumbers: true }}
+            size="sm"
+            h={height}
+            borderRadius="0"
+            overflow="hidden"
+            position="relative"
+            style={{ "--code-block-max-height": height } as React.CSSProperties}
+        >
+            <CodeBlock.Content h="full" maxH="full">
+                <CodeBlock.Code h="full" overflow="auto">
+                    <CodeBlock.CodeText />
+                </CodeBlock.Code>
+            </CodeBlock.Content>
+            <CodeBlock.CopyTrigger
+                position="absolute"
+                top="2"
+                right="3"
+                zIndex="1"
+                bg="whiteAlpha.100"
+                _hover={{ bg: "whiteAlpha.200" }}
+                rounded="sm"
+                p="1"
+                backdropFilter="blur(4px)"
+            >
+                <CodeBlock.CopyIndicator />
+            </CodeBlock.CopyTrigger>
+        </CodeBlock.Root>
     );
 }

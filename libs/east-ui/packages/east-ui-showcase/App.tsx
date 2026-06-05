@@ -29,15 +29,15 @@
  * 1480 px max content width. Grid layout (one of the three allowed).
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import {
-    Box, Flex, Heading, Input, InputGroup, Kbd, Text, useSlotRecipe,
+    Box, chakra, Flex, Heading, Input, InputGroup, Kbd, Text, useSlotRecipe,
 } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faMagnifyingGlass, faChevronLeft, faChevronRight } from "@fortawesome/free-solid-svg-icons";
 import { LogoCollapsed, LogoFull } from "./components/ElaraLogo";
 import { VirtualizedGrid } from "./components/VirtualizedGrid";
-import { catalog, categories } from "./catalog";
+import { catalog, categories, navSections } from "./catalog";
 
 const SIDEBAR_KEY = "east-ui-showcase.sidebar-collapsed";
 
@@ -124,8 +124,7 @@ function ToggleButton({
     onClick, icon, ...rest
 }: { onClick: () => void; icon: import("@fortawesome/fontawesome-svg-core").IconDefinition } & React.AriaAttributes) {
     return (
-        <Box
-            as="button"
+        <chakra.button
             type="button"
             onClick={onClick}
             width="22px"
@@ -142,7 +141,7 @@ function ToggleButton({
             {...rest}
         >
             <FontAwesomeIcon icon={icon} style={{ fontSize: "10px" }} />
-        </Box>
+        </chakra.button>
     );
 }
 
@@ -189,46 +188,52 @@ function Sidebar({ selected, onSelect }: { selected: string; onSelect: (cat: str
                 </Flex>
             ) : (
                 <Box as="nav" css={styles.root}>
-                    {/* Section eyebrow + collapse toggle — bsys line 641
-                     *  padding: 4px 10px 10px 14px · 9.5 px / 0.18 em eyebrow · 22 px button */}
-                    <Flex
-                        align="center"
-                        justify="space-between"
-                        pt="4px"
-                        pb="10px"
-                        pl="14px"
-                        pr="10px"
-                    >
-                        <Box
-                            fontFamily="mono"
-                            fontSize="9.5px"
-                            fontWeight="semibold"
-                            letterSpacing="0.18em"
-                            textTransform="uppercase"
-                            color="fg.muted"
-                        >
-                            Components
-                        </Box>
-                        <ToggleButton aria-label="Collapse sidebar" onClick={toggle} icon={faChevronLeft} />
-                    </Flex>
-                    {categories.map(cat => {
-                        const active = selected === cat;
-                        return (
-                            <Box
-                                key={cat}
-                                as="button"
-                                type="button"
-                                onClick={() => onSelect(cat)}
-                                aria-current={active ? "page" : undefined}
-                                css={styles.item}
+                    {navSections.map((sec, sIdx) => (
+                        <Fragment key={sec.section}>
+                            {/* Section eyebrow — the collapse toggle lives in
+                             *  the first section's header. bsys line 641:
+                             *  9.5 px / 0.18 em eyebrow · 22 px button. */}
+                            <Flex
+                                align="center"
+                                justify="space-between"
+                                pt={sIdx === 0 ? "4px" : "16px"}
+                                pb="10px"
+                                pl="14px"
+                                pr="10px"
                             >
-                                <Box flex="1" textAlign="left">{cat}</Box>
-                                <Text as="span" textStyle="mono.sm" color="fg.muted" letterSpacing="0">
-                                    {catalog.filter(e => e.category === cat).length}
-                                </Text>
-                            </Box>
-                        );
-                    })}
+                                <Box
+                                    fontFamily="mono"
+                                    fontSize="9.5px"
+                                    fontWeight="semibold"
+                                    letterSpacing="0.18em"
+                                    textTransform="uppercase"
+                                    color="fg.muted"
+                                >
+                                    {sec.section}
+                                </Box>
+                                {sIdx === 0 && (
+                                    <ToggleButton aria-label="Collapse sidebar" onClick={toggle} icon={faChevronLeft} />
+                                )}
+                            </Flex>
+                            {sec.categories.map(cat => {
+                                const active = selected === cat;
+                                return (
+                                    <chakra.button
+                                        key={cat}
+                                        type="button"
+                                        onClick={() => onSelect(cat)}
+                                        aria-current={active ? "page" : undefined}
+                                        css={styles.item}
+                                    >
+                                        <Box flex="1" textAlign="left">{cat}</Box>
+                                        <Text as="span" textStyle="mono.sm" color="fg.muted" letterSpacing="0">
+                                            {catalog.filter(e => e.category === cat).length}
+                                        </Text>
+                                    </chakra.button>
+                                );
+                            })}
+                        </Fragment>
+                    ))}
                 </Box>
             )}
         </Box>
@@ -275,9 +280,10 @@ function Header({
 }
 
 function Breadcrumb({ category }: { category: string }) {
+    const section = navSections.find(s => s.categories.includes(category))?.section ?? "East UI";
     return (
         <Text textStyle="breadcrumb">
-            <Box as="span" color="brand.600">East UI</Box>
+            <Box as="span" color="brand.600">{section}</Box>
             <Box as="span" px="1">/</Box>
             <Box as="span" color="fg">{category}</Box>
         </Text>
