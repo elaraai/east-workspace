@@ -6,7 +6,7 @@
 import { test, describe } from "node:test";
 import { East, IntegerType, StringType, NullType, ArrayType, StructType, variant, some, none, type BlockBuilder } from "@elaraai/east";
 import { TestImpl, Assert } from "../platforms.spec.js";
-import { Slice } from "@elaraai/east-ui";
+import { Slice } from "@elaraai/east-ui/internal";
 import { SliceImpl, SliceApplyImpl } from "../../src/platform/slice/index.js";
 
 const platform = [...TestImpl, ...SliceImpl, ...SliceApplyImpl];

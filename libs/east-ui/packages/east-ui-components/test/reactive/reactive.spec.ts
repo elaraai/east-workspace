@@ -5,7 +5,7 @@
 
 import { describeEast, Assert } from "../platforms.spec.js";
 import { East, IntegerType, StringType, NullType } from "@elaraai/east";
-import { Reactive, State, Button, Text, Stat, Stack, UIComponentType } from "@elaraai/east-ui";
+import { Reactive, State, Button, Text, Stat, Stack, UIComponentType } from "@elaraai/east-ui/internal";
 
 // Module-level constant (NOT a capture - in module scope)
 const TITLE = "Counter";
@@ -25,7 +25,7 @@ describeEast("Reactive.Root - Valid Cases", (test) => {
             East.function([], UIComponentType, $ => {
                 const counter = $.let(State.bind([IntegerType], "counter", 0n));
                 const count = $.let(counter.read(), IntegerType);
-                return Stat.Root("Counter", East.str`${count}`);
+                return Stat.Root({ label: "Counter", value: East.str`${count}` });
             })));
 
         $(Assert.equal(reactive.unwrap().getTag(), "ReactiveComponent"));
@@ -69,7 +69,7 @@ describeEast("Reactive.Root - Valid Cases", (test) => {
             East.function([], UIComponentType, $ => {
                 const counter = $.let(State.bind([IntegerType], "counter", 42n));
                 const count = $.let(counter.read(), IntegerType);
-                return Stat.Root(TITLE, East.str`${count}`);
+                return Stat.Root({ label: TITLE, value: East.str`${count}` });
             }))
         );
 

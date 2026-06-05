@@ -6,7 +6,7 @@
 import { test, describe, beforeEach } from "node:test";
 import { East, IntegerType, StringType, BooleanType, NullType, type BlockBuilder } from "@elaraai/east";
 import { createTestPlatform, Assert } from "../platforms.spec.js";
-import { State } from "@elaraai/east-ui";
+import { State } from "@elaraai/east-ui/internal";
 import { getStore } from "../../src/platform/state-runtime.js";
 
 const platform = createTestPlatform();
