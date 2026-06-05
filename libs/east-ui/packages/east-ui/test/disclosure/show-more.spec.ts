@@ -44,7 +44,7 @@ describeEast("Disclosure", (test) => {
 
     test("creates disclosure with full colour escape hatches", $ => {
         const d = $.let(Disclosure.Root("Body", {
-            style: { color: "#374151", triggerColor: "#3d5cff" },
+            color: "#374151", triggerColor: "#3d5cff",
         }));
         const s = d.unwrap().unwrap("Disclosure").style.unwrap("some");
         $(Assert.equal(s.color.unwrap("some"), "#374151"));

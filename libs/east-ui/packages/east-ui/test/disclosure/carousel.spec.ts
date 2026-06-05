@@ -113,7 +113,7 @@ describeEast("Carousel", (test) => {
     test("creates carousel with padding inside style", $ => {
         const carousel = $.let(Carousel.Root([
             Text.Root("Slide 1"),
-        ], { style: { padding: "2" } }));
+        ], { padding: "2" }));
         const sv = carousel.unwrap().unwrap("Carousel").style.unwrap("some");
         $(Assert.equal(sv.padding.unwrap("some"), "2"));
     });
@@ -125,7 +125,7 @@ describeEast("Carousel", (test) => {
     test("creates carousel with horizontal orientation (inside style)", $ => {
         const carousel = $.let(Carousel.Root([
             Text.Root("Slide 1"),
-        ], { style: { orientation: "horizontal" } }));
+        ], { orientation: "horizontal" }));
         $(Assert.equal(
             carousel.unwrap().unwrap("Carousel").style.unwrap("some").orientation.unwrap("some").hasTag("horizontal"),
             true,
@@ -135,7 +135,7 @@ describeEast("Carousel", (test) => {
     test("creates carousel with vertical orientation", $ => {
         const carousel = $.let(Carousel.Root([
             Text.Root("Slide 1"),
-        ], { style: { orientation: "vertical" } }));
+        ], { orientation: "vertical" }));
         $(Assert.equal(
             carousel.unwrap().unwrap("Carousel").style.unwrap("some").orientation.unwrap("some").hasTag("vertical"),
             true,
@@ -146,12 +146,10 @@ describeEast("Carousel", (test) => {
         const carousel = $.let(Carousel.Root([
             Text.Root("Slide 1"),
         ], {
-            style: {
-                indicatorColor: "#cbd5e1",
-                activeIndicatorColor: "#3d5cff",
-                controlColor: "#ffffff",
-                controlBackground: "#1a2234",
-            },
+            indicatorColor: "#cbd5e1",
+            activeIndicatorColor: "#3d5cff",
+            controlColor: "#ffffff",
+            controlBackground: "#1a2234",
         }));
         const s = carousel.unwrap().unwrap("Carousel").style.unwrap("some");
         $(Assert.equal(s.indicatorColor.unwrap("some"), "#cbd5e1"));
@@ -179,7 +177,7 @@ describeEast("Carousel", (test) => {
             showIndicators: true,
             showControls: true,
             spacing: "4",
-            style: { orientation: "horizontal", padding: "2" },
+            orientation: "horizontal", padding: "2",
         }));
         const c = carousel.unwrap().unwrap("Carousel");
         const sv = c.style.unwrap("some");
@@ -235,7 +233,7 @@ describeEast("Carousel", (test) => {
         const carousel = $.let(Carousel.Root([
             Text.Root("Testimonial 1"),
             Text.Root("Testimonial 2"),
-        ], { slidesPerView: 1n, style: { orientation: "vertical" } }));
+        ], { slidesPerView: 1n, orientation: "vertical" }));
         $(Assert.equal(
             carousel.unwrap().unwrap("Carousel").style.unwrap("some").orientation.unwrap("some").hasTag("vertical"),
             true,

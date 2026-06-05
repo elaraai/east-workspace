@@ -91,7 +91,7 @@ describeEast("Tabs", (test) => {
     test("creates line variant tabs (inside style)", $ => {
         const tabs = $.let(Tabs.Root([
             Tabs.Item("a", "A", [Text.Root("A")]),
-        ], { style: { variant: "line" } }));
+        ], { variant: "line" }));
         $(Assert.equal(
             tabs.unwrap().unwrap("Tabs").style.unwrap("some").variant.unwrap("some").hasTag("line"),
             true,
@@ -102,12 +102,10 @@ describeEast("Tabs", (test) => {
         const tabs = $.let(Tabs.Root([
             Tabs.Item("a", "A", [Text.Root("A")]),
         ], {
-            style: {
-                size: "lg",
-                orientation: "vertical",
-                fitted: true,
-                colorPalette: "blue",
-            },
+            size: "lg",
+            orientation: "vertical",
+            fitted: true,
+            colorPalette: "blue",
         }));
         const s = tabs.unwrap().unwrap("Tabs").style.unwrap("some");
         $(Assert.equal(s.size.unwrap("some").hasTag("lg"), true));
@@ -120,7 +118,7 @@ describeEast("Tabs", (test) => {
         const tabs = $.let(Tabs.Root([
             Tabs.Item("a", "A", [Text.Root("A")]),
         ], {
-            style: { activationMode: "manual", justify: "center" },
+            activationMode: "manual", justify: "center",
         }));
         const s = tabs.unwrap().unwrap("Tabs").style.unwrap("some");
         $(Assert.equal(s.activationMode.unwrap("some").hasTag("manual"), true));
@@ -131,7 +129,7 @@ describeEast("Tabs", (test) => {
         const tabs = $.let(Tabs.Root([
             Tabs.Item("a", "A", [Text.Root("A")]),
         ], {
-            style: { lazyMount: true, unmountOnExit: true },
+            lazyMount: true, unmountOnExit: true,
         }));
         const s = tabs.unwrap().unwrap("Tabs").style.unwrap("some");
         $(Assert.equal(s.lazyMount.unwrap("some"), true));
@@ -146,13 +144,11 @@ describeEast("Tabs", (test) => {
         const tabs = $.let(Tabs.Root([
             Tabs.Item("a", "A", [Text.Root("A")]),
         ], {
-            style: {
-                listBackground: "#f9fafb",
-                indicatorColor: "#3d5cff",
-                activeTriggerColor: "#1a2234",
-                inactiveTriggerColor: "#6b7280",
-                contentBackground: "#ffffff",
-            },
+            listBackground: "#f9fafb",
+            indicatorColor: "#3d5cff",
+            activeTriggerColor: "#1a2234",
+            inactiveTriggerColor: "#6b7280",
+            contentBackground: "#ffffff",
         }));
         const s = tabs.unwrap().unwrap("Tabs").style.unwrap("some");
         $(Assert.equal(s.listBackground.unwrap("some"), "#f9fafb"));
@@ -169,7 +165,7 @@ describeEast("Tabs", (test) => {
     test("creates tabs with TabsVariant helper", $ => {
         const tabs = $.let(Tabs.Root([
             Tabs.Item("a", "A", [Text.Root("A")]),
-        ], { style: { variant: Tabs.Variant("plain") } }));
+        ], { variant: Tabs.Variant("plain") }));
         $(Assert.equal(
             tabs.unwrap().unwrap("Tabs").style.unwrap("some").variant.unwrap("some").hasTag("plain"),
             true,
@@ -186,12 +182,10 @@ describeEast("Tabs", (test) => {
             Tabs.Item("details", "Details", [Text.Root("Details")]),
         ], {
             defaultValue: "overview",
-            style: {
-                variant: "line",
-                size: "md",
-                colorPalette: "blue",
-                fitted: true,
-            },
+            variant: "line",
+            size: "md",
+            colorPalette: "blue",
+            fitted: true,
         }));
         const t = tabs.unwrap().unwrap("Tabs");
         $(Assert.equal(t.defaultValue.unwrap("some"), "overview"));
