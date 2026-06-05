@@ -35,7 +35,7 @@ describeEast("CloseButton", (test) => {
     });
 
     test("creates close button with variant in style", $ => {
-        const btn = $.let(CloseButton.Root({ style: { variant: "ghost" } }));
+        const btn = $.let(CloseButton.Root({ variant: "ghost" }));
         $(Assert.equal(
             btn.unwrap().unwrap("CloseButton").style.unwrap("some").variant.unwrap("some").hasTag("ghost"),
             true,
@@ -43,7 +43,7 @@ describeEast("CloseButton", (test) => {
     });
 
     test("creates close button with size xs", $ => {
-        const btn = $.let(CloseButton.Root({ style: { size: "xs" } }));
+        const btn = $.let(CloseButton.Root({ size: "xs" }));
         $(Assert.equal(
             btn.unwrap().unwrap("CloseButton").style.unwrap("some").size.unwrap("some").hasTag("xs"),
             true,
@@ -52,12 +52,10 @@ describeEast("CloseButton", (test) => {
 
     test("creates close button with full colour escape hatches", $ => {
         const btn = $.let(CloseButton.Root({
-            style: {
-                color: "#ffffff",
-                background: "#1a2234",
-                borderColor: "#3d5cff",
-                hoverBackground: "#25345a",
-            },
+            color: "#ffffff",
+            background: "#1a2234",
+            borderColor: "#3d5cff",
+            hoverBackground: "#25345a",
         }));
         const s = btn.unwrap().unwrap("CloseButton").style.unwrap("some");
         $(Assert.equal(s.color.unwrap("some"), "#ffffff"));
