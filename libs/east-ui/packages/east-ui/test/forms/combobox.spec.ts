@@ -66,30 +66,30 @@ describeEast("Combobox", (test) => {
     // =========================================================================
 
     test("creates combobox with no initial value", $ => {
-        const combobox = $.let(Combobox.Root("", [
+        const combobox = $.let(Combobox.Root({ value: "", items: [
             Combobox.Item("us", "United States"),
-        ]));
+        ] }));
 
         $(Assert.equal(combobox.unwrap().unwrap("Combobox").value.hasTag("none"), true));
     });
 
     test("creates combobox with string initial value", $ => {
-        const combobox = $.let(Combobox.Root("us", [
+        const combobox = $.let(Combobox.Root({ value: "us", items: [
             Combobox.Item("us", "United States"),
             Combobox.Item("uk", "United Kingdom"),
-        ]));
+        ] }));
 
         $(Assert.equal(combobox.unwrap().unwrap("Combobox").value.hasTag("some"), true));
         $(Assert.equal(combobox.unwrap().unwrap("Combobox").value.unwrap("some"), "us"));
     });
 
     test("creates combobox with multiple items", $ => {
-        const combobox = $.let(Combobox.Root("", [
+        const combobox = $.let(Combobox.Root({ value: "", items: [
             Combobox.Item("us", "United States"),
             Combobox.Item("uk", "United Kingdom"),
             Combobox.Item("ca", "Canada"),
             Combobox.Item("au", "Australia"),
-        ]));
+        ] }));
 
         $(Assert.equal(combobox.unwrap().unwrap("Combobox").value.hasTag("none"), true));
     });
@@ -99,9 +99,9 @@ describeEast("Combobox", (test) => {
     // =========================================================================
 
     test("creates combobox with placeholder", $ => {
-        const combobox = $.let(Combobox.Root("", [
+        const combobox = $.let(Combobox.Root({ value: "", items: [
             Combobox.Item("us", "United States"),
-        ], {
+        ], 
             placeholder: "Search countries...",
         }));
 
@@ -110,9 +110,9 @@ describeEast("Combobox", (test) => {
     });
 
     test("creates combobox without placeholder", $ => {
-        const combobox = $.let(Combobox.Root("", [
+        const combobox = $.let(Combobox.Root({ value: "", items: [
             Combobox.Item("us", "United States"),
-        ]));
+        ] }));
 
         $(Assert.equal(combobox.unwrap().unwrap("Combobox").placeholder.hasTag("none"), true));
     });
@@ -122,11 +122,11 @@ describeEast("Combobox", (test) => {
     // =========================================================================
 
     test("creates multiple selection combobox", $ => {
-        const combobox = $.let(Combobox.Root("", [
+        const combobox = $.let(Combobox.Root({ value: "", items: [
             Combobox.Item("red", "Red"),
             Combobox.Item("green", "Green"),
             Combobox.Item("blue", "Blue"),
-        ], {
+        ], 
             multiple: true,
         }));
 
@@ -135,9 +135,9 @@ describeEast("Combobox", (test) => {
     });
 
     test("creates single selection combobox explicitly", $ => {
-        const combobox = $.let(Combobox.Root("", [
+        const combobox = $.let(Combobox.Root({ value: "", items: [
             Combobox.Item("a", "Option A"),
-        ], {
+        ], 
             multiple: false,
         }));
 
@@ -149,9 +149,9 @@ describeEast("Combobox", (test) => {
     // =========================================================================
 
     test("creates disabled combobox", $ => {
-        const combobox = $.let(Combobox.Root("", [
+        const combobox = $.let(Combobox.Root({ value: "", items: [
             Combobox.Item("us", "United States"),
-        ], {
+        ], 
             disabled: true,
         }));
 
@@ -160,9 +160,9 @@ describeEast("Combobox", (test) => {
     });
 
     test("creates enabled combobox explicitly", $ => {
-        const combobox = $.let(Combobox.Root("", [
+        const combobox = $.let(Combobox.Root({ value: "", items: [
             Combobox.Item("us", "United States"),
-        ], {
+        ], 
             disabled: false,
         }));
 
@@ -174,9 +174,9 @@ describeEast("Combobox", (test) => {
     // =========================================================================
 
     test("creates small combobox", $ => {
-        const combobox = $.let(Combobox.Root("", [
+        const combobox = $.let(Combobox.Root({ value: "", items: [
             Combobox.Item("us", "United States"),
-        ], {
+        ], 
             size: "sm",
         }));
 
@@ -185,9 +185,9 @@ describeEast("Combobox", (test) => {
     });
 
     test("creates medium combobox", $ => {
-        const combobox = $.let(Combobox.Root("", [
+        const combobox = $.let(Combobox.Root({ value: "", items: [
             Combobox.Item("us", "United States"),
-        ], {
+        ], 
             size: "md",
         }));
 
@@ -195,9 +195,9 @@ describeEast("Combobox", (test) => {
     });
 
     test("creates large combobox", $ => {
-        const combobox = $.let(Combobox.Root("", [
+        const combobox = $.let(Combobox.Root({ value: "", items: [
             Combobox.Item("us", "United States"),
-        ], {
+        ], 
             size: "lg",
         }));
 
@@ -205,9 +205,9 @@ describeEast("Combobox", (test) => {
     });
 
     test("creates combobox with Style.Size helper", $ => {
-        const combobox = $.let(Combobox.Root("", [
+        const combobox = $.let(Combobox.Root({ value: "", items: [
             Combobox.Item("us", "United States"),
-        ], {
+        ], 
             size: Style.Size("md"),
         }));
 
@@ -219,9 +219,9 @@ describeEast("Combobox", (test) => {
     // =========================================================================
 
     test("creates combobox with allowCustomValue", $ => {
-        const combobox = $.let(Combobox.Root("", [
+        const combobox = $.let(Combobox.Root({ value: "", items: [
             Combobox.Item("us", "United States"),
-        ], {
+        ], 
             allowCustomValue: true,
         }));
 
@@ -230,9 +230,9 @@ describeEast("Combobox", (test) => {
     });
 
     test("creates combobox without allowCustomValue", $ => {
-        const combobox = $.let(Combobox.Root("", [
+        const combobox = $.let(Combobox.Root({ value: "", items: [
             Combobox.Item("us", "United States"),
-        ]));
+        ] }));
 
         $(Assert.equal(combobox.unwrap().unwrap("Combobox").allowCustomValue.hasTag("none"), true));
     });
@@ -242,11 +242,11 @@ describeEast("Combobox", (test) => {
     // =========================================================================
 
     test("creates combobox with all options", $ => {
-        const combobox = $.let(Combobox.Root("us", [
+        const combobox = $.let(Combobox.Root({ value: "us", items: [
             Combobox.Item("us", "United States"),
             Combobox.Item("uk", "United Kingdom"),
             Combobox.Item("ca", "Canada"),
-        ], {
+        ], 
             placeholder: "Search countries...",
             multiple: false,
             disabled: false,
@@ -263,13 +263,13 @@ describeEast("Combobox", (test) => {
     });
 
     test("creates country search combobox", $ => {
-        const combobox = $.let(Combobox.Root("", [
+        const combobox = $.let(Combobox.Root({ value: "", items: [
             Combobox.Item("us", "United States"),
             Combobox.Item("uk", "United Kingdom"),
             Combobox.Item("ca", "Canada"),
             Combobox.Item("au", "Australia"),
             Combobox.Item("de", "Germany"),
-        ], {
+        ], 
             placeholder: "Search your country",
             size: "md",
         }));
@@ -282,11 +282,11 @@ describeEast("Combobox", (test) => {
         const disabledItem = $.let(Combobox.Item("enterprise", "Enterprise Plan", { disabled: true }));
         $(Assert.equal(disabledItem.disabled.unwrap("some"), true));
 
-        const combobox = $.let(Combobox.Root("", [
+        const combobox = $.let(Combobox.Root({ value: "", items: [
             Combobox.Item("free", "Free Plan"),
             Combobox.Item("pro", "Pro Plan"),
             Combobox.Item("enterprise", "Enterprise Plan", { disabled: true }),
-        ], {
+        ], 
             placeholder: "Search plans",
         }));
 
@@ -294,9 +294,9 @@ describeEast("Combobox", (test) => {
     });
 
     test("creates disabled readonly combobox", $ => {
-        const combobox = $.let(Combobox.Root("current", [
+        const combobox = $.let(Combobox.Root({ value: "current", items: [
             Combobox.Item("current", "Current Selection"),
-        ], {
+        ], 
             disabled: true,
             size: "sm",
         }));

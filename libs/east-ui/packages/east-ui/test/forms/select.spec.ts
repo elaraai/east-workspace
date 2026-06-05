@@ -60,39 +60,39 @@ describeEast("Select", (test) => {
     // =========================================================================
 
     test("creates select with no initial value", $ => {
-        const select = $.let(Select.Root("", [
+        const select = $.let(Select.Root({ value: "", items: [
             Select.Item("us", "United States"),
-        ]));
+        ] }));
 
         $(Assert.equal(select.unwrap().unwrap("Select").value.hasTag("none"), true));
     });
 
     test("creates select with string initial value", $ => {
-        const select = $.let(Select.Root("us", [
+        const select = $.let(Select.Root({ value: "us", items: [
             Select.Item("us", "United States"),
             Select.Item("uk", "United Kingdom"),
-        ]));
+        ] }));
 
         $(Assert.equal(select.unwrap().unwrap("Select").value.hasTag("some"), true));
         $(Assert.equal(select.unwrap().unwrap("Select").value.unwrap("some"), "us"));
     });
 
     test("creates select with expression initial value", $ => {
-        const select = $.let(Select.Root("ca", [
+        const select = $.let(Select.Root({ value: "ca", items: [
             Select.Item("us", "United States"),
             Select.Item("ca", "Canada"),
-        ]));
+        ] }));
 
         $(Assert.equal(select.unwrap().unwrap("Select").value.unwrap("some"), "ca"));
     });
 
     test("creates select with multiple items", $ => {
-        const select = $.let(Select.Root("", [
+        const select = $.let(Select.Root({ value: "", items: [
             Select.Item("us", "United States"),
             Select.Item("uk", "United Kingdom"),
             Select.Item("ca", "Canada"),
             Select.Item("au", "Australia"),
-        ]));
+        ] }));
 
         // Verify select was created with items (items array is embedded in East value)
         $(Assert.equal(select.unwrap().unwrap("Select").value.hasTag("none"), true));
@@ -103,9 +103,9 @@ describeEast("Select", (test) => {
     // =========================================================================
 
     test("creates select with placeholder", $ => {
-        const select = $.let(Select.Root("", [
+        const select = $.let(Select.Root({ value: "", items: [
             Select.Item("us", "United States"),
-        ], {
+        ], 
             placeholder: "Select a country",
         }));
 
@@ -114,9 +114,9 @@ describeEast("Select", (test) => {
     });
 
     test("creates select without placeholder", $ => {
-        const select = $.let(Select.Root("", [
+        const select = $.let(Select.Root({ value: "", items: [
             Select.Item("us", "United States"),
-        ]));
+        ] }));
 
         $(Assert.equal(select.unwrap().unwrap("Select").placeholder.hasTag("none"), true));
     });
@@ -126,11 +126,11 @@ describeEast("Select", (test) => {
     // =========================================================================
 
     test("creates multiple selection select", $ => {
-        const select = $.let(Select.Root("", [
+        const select = $.let(Select.Root({ value: "", items: [
             Select.Item("red", "Red"),
             Select.Item("green", "Green"),
             Select.Item("blue", "Blue"),
-        ], {
+        ], 
             multiple: true,
         }));
 
@@ -139,9 +139,9 @@ describeEast("Select", (test) => {
     });
 
     test("creates single selection select explicitly", $ => {
-        const select = $.let(Select.Root("", [
+        const select = $.let(Select.Root({ value: "", items: [
             Select.Item("a", "Option A"),
-        ], {
+        ], 
             multiple: false,
         }));
 
@@ -153,9 +153,9 @@ describeEast("Select", (test) => {
     // =========================================================================
 
     test("creates disabled select", $ => {
-        const select = $.let(Select.Root("", [
+        const select = $.let(Select.Root({ value: "", items: [
             Select.Item("us", "United States"),
-        ], {
+        ], 
             disabled: true,
         }));
 
@@ -164,9 +164,9 @@ describeEast("Select", (test) => {
     });
 
     test("creates enabled select explicitly", $ => {
-        const select = $.let(Select.Root("", [
+        const select = $.let(Select.Root({ value: "", items: [
             Select.Item("us", "United States"),
-        ], {
+        ], 
             disabled: false,
         }));
 
@@ -178,9 +178,9 @@ describeEast("Select", (test) => {
     // =========================================================================
 
     test("creates small select", $ => {
-        const select = $.let(Select.Root("", [
+        const select = $.let(Select.Root({ value: "", items: [
             Select.Item("us", "United States"),
-        ], {
+        ], 
             size: "sm",
         }));
 
@@ -189,9 +189,9 @@ describeEast("Select", (test) => {
     });
 
     test("creates medium select", $ => {
-        const select = $.let(Select.Root("", [
+        const select = $.let(Select.Root({ value: "", items: [
             Select.Item("us", "United States"),
-        ], {
+        ], 
             size: "md",
         }));
 
@@ -199,9 +199,9 @@ describeEast("Select", (test) => {
     });
 
     test("creates large select", $ => {
-        const select = $.let(Select.Root("", [
+        const select = $.let(Select.Root({ value: "", items: [
             Select.Item("us", "United States"),
-        ], {
+        ], 
             size: "lg",
         }));
 
@@ -209,9 +209,9 @@ describeEast("Select", (test) => {
     });
 
     test("creates select with Style.Size helper", $ => {
-        const select = $.let(Select.Root("", [
+        const select = $.let(Select.Root({ value: "", items: [
             Select.Item("us", "United States"),
-        ], {
+        ], 
             size: Style.Size("md"),
         }));
 
@@ -223,11 +223,11 @@ describeEast("Select", (test) => {
     // =========================================================================
 
     test("creates select with all options", $ => {
-        const select = $.let(Select.Root("us", [
+        const select = $.let(Select.Root({ value: "us", items: [
             Select.Item("us", "United States"),
             Select.Item("uk", "United Kingdom"),
             Select.Item("ca", "Canada"),
-        ], {
+        ], 
             placeholder: "Select a country",
             multiple: false,
             disabled: false,
@@ -242,13 +242,13 @@ describeEast("Select", (test) => {
     });
 
     test("creates country selector", $ => {
-        const select = $.let(Select.Root("", [
+        const select = $.let(Select.Root({ value: "", items: [
             Select.Item("us", "United States"),
             Select.Item("uk", "United Kingdom"),
             Select.Item("ca", "Canada"),
             Select.Item("au", "Australia"),
             Select.Item("de", "Germany"),
-        ], {
+        ], 
             placeholder: "Select your country",
             size: "md",
         }));
@@ -258,12 +258,12 @@ describeEast("Select", (test) => {
     });
 
     test("creates color picker select", $ => {
-        const select = $.let(Select.Root("", [
+        const select = $.let(Select.Root({ value: "", items: [
             Select.Item("red", "Red"),
             Select.Item("green", "Green"),
             Select.Item("blue", "Blue"),
             Select.Item("yellow", "Yellow"),
-        ], {
+        ], 
             multiple: true,
             placeholder: "Select colors",
         }));
@@ -278,11 +278,11 @@ describeEast("Select", (test) => {
         $(Assert.equal(disabledItem.disabled.unwrap("some"), true));
 
         // Then create the select with the items
-        const select = $.let(Select.Root("", [
+        const select = $.let(Select.Root({ value: "", items: [
             Select.Item("free", "Free Plan"),
             Select.Item("pro", "Pro Plan"),
             Select.Item("enterprise", "Enterprise Plan", { disabled: true }),
-        ], {
+        ], 
             placeholder: "Select a plan",
         }));
 
@@ -290,9 +290,9 @@ describeEast("Select", (test) => {
     });
 
     test("creates disabled readonly select", $ => {
-        const select = $.let(Select.Root("current", [
+        const select = $.let(Select.Root({ value: "current", items: [
             Select.Item("current", "Current Selection"),
-        ], {
+        ], 
             disabled: true,
             size: "sm",
         }));
