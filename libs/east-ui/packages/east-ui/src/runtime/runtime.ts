@@ -27,7 +27,7 @@
  * ```
  *
  * The capitalized component tags (`Box`, `VStack`, `Text`, …) live in
- * `@elaraai/east-ui/jsx`. JSX only works in `.tsx` files — the `.ts` parser
+ * `@elaraai/east-ui`. JSX only works in `.tsx` files — the `.ts` parser
  * reads `<Box>` as a type assertion, so there is no pragma that enables it in
  * `.ts`.
  *
@@ -56,7 +56,7 @@ export type Fragment = typeof Fragment;
  * {@link jsxs}) when `jsxImportSource` is `@elaraai/east-ui`.
  *
  * `props.children` carries the nested elements; each component function does
- * its own child normalization (see `@elaraai/east-ui/jsx`). A fragment is
+ * its own child normalization (see `@elaraai/east-ui`). A fragment is
  * routed through the shared child coalescer so it yields a well-typed children
  * value independent of the enclosing tag.
  */

@@ -4,11 +4,7 @@
  */
 
 /**
- * Button JSX tag. Button's options are flat (Principle 6), so the tag is a plain
- * `content` wrapper: the label is the single child (the factory's own
- * `ButtonLabelInput` — string → `Text.Root`, or any `UIComponentType`), and every
- * option is a flat prop. Annotated with the named `ButtonOptions` interface so it
- * surfaces on hover.
+ * `<Button>` tag — see the export's JSDoc.
  */
 
 import {
@@ -18,6 +14,26 @@ import {
 } from "../../buttons/button/index.js";
 import { content, type JsxTag } from "../combinators.js";
 
-/** `<Button variant="solid" onClick={f}>Save</Button>` — action button. Maps to `Button.Root`. */
+/**
+ * Action button — triggers a behaviour on click. Supports rich labels,
+ * leading/trailing icons, a distinct loading state, colour escape hatches, and
+ * five visual variants (solid / subtle / outline / ghost / plain). The label is
+ * the child; every option is a flat prop ({@link ButtonOptions}).
+ *
+ * @example
+ * ```tsx
+ * // .tsx file with the `@jsxImportSource @elaraai/east-ui` pragma
+ * import { East } from "@elaraai/east";
+ * import { Button, UIComponentType } from "@elaraai/east-ui";
+ *
+ * const save = East.function([], UIComponentType, _$ => (
+ *     <Button variant="solid" colorPalette="blue" onClick={onSave}>Save Changes</Button>
+ * ));
+ * ```
+ *
+ * @remarks
+ * Carries `Button.Types` — the East data type, the style struct, and the
+ * variant enum. Desugars to `Button.Root(label, options)`.
+ */
 export const Button: JsxTag<ButtonOptions & { children: ButtonLabelInput }> & { Types: typeof ButtonFactory.Types } =
     Object.assign(content(ButtonFactory.Root), { Types: ButtonFactory.Types });
