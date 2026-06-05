@@ -12,7 +12,7 @@ import {
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronLeft, faChevronRight } from "@fortawesome/free-solid-svg-icons";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Pagination } from "@elaraai/east-ui";
+import { Pagination } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 
 const paginationEqual = equalFor(Pagination.Types.Pagination);

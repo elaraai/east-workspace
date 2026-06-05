@@ -8,7 +8,7 @@ import { Collapsible as ChakraCollapsible, Box as ChakraBox, useSlotRecipe } fro
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronDown } from "@fortawesome/free-solid-svg-icons";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Collapsible } from "@elaraai/east-ui";
+import { Collapsible } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 

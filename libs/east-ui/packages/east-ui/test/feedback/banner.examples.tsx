@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, BooleanType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Banner, Button, HStack, Reactive } from "@elaraai/east-ui/jsx";
+import { Banner, Button, HStack, Reactive } from "@elaraai/east-ui";
 
 export const bannerStaleData = example({
     keywords: ["Banner", "stale", "dashed", "refresh"],

@@ -6,7 +6,7 @@
 import { memo, useMemo } from "react";
 import { Flex as ChakraFlex, type FlexProps } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Flex } from "@elaraai/east-ui";
+import { Flex } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 

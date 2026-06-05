@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { MetricChip, Text } from "@elaraai/east-ui/jsx";
+import { MetricChip, Text } from "@elaraai/east-ui";
 
 export const metricChipPositive = example({
     keywords: ["MetricChip", "Root", "tone", "positive", "delta"],

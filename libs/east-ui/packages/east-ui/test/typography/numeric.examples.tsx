@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, example } from "@elaraai/east";
 import { Format, UIComponentType } from "@elaraai/east-ui";
-import { Numeric, HStack } from "@elaraai/east-ui/jsx";
+import { Numeric, HStack } from "@elaraai/east-ui";
 
 export const numericKpi = example({
     keywords: ["Numeric", "Root", "KPI", "currency", "mono-kpi"],

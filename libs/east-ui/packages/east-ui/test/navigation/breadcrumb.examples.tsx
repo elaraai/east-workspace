@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, NullType, StringType, example, some, none } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Breadcrumb, VStack, Text, Reactive } from "@elaraai/east-ui/jsx";
+import { Breadcrumb, VStack, Text, Reactive } from "@elaraai/east-ui";
 
 export const breadcrumbBasic = example({
     keywords: ["Breadcrumb", "Root", "navigation", "separator"],

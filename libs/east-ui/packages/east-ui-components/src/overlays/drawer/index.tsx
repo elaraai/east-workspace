@@ -8,7 +8,7 @@ import { Drawer as ChakraDrawer, Portal, IconButton, HStack, type DrawerRootProp
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faExpand, faCompress } from "@fortawesome/free-solid-svg-icons";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Drawer } from "@elaraai/east-ui";
+import { Drawer } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 

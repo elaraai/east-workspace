@@ -5,7 +5,7 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { East, NullType } from "@elaraai/east";
-import { Clipboard } from "@elaraai/east-ui";
+import { Clipboard } from "@elaraai/east-ui/internal";
 import * as ex from "./clipboard.examples.js";
 
 describeEast("Clipboard", (test) => {

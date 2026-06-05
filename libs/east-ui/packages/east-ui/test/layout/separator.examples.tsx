@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, IntegerType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Box, Button, Separator, Text, VStack, HStack, Reactive } from "@elaraai/east-ui/jsx";
+import { Box, Button, Separator, Text, VStack, HStack, Reactive } from "@elaraai/east-ui";
 
 export const separatorHorizontal = example({
     keywords: ["Separator", "Root", "orientation", "horizontal"],

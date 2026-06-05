@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { MetricChip, Text } from "@elaraai/east-ui";
+import { MetricChip, Text } from "@elaraai/east-ui/internal";
 import * as ex from "./metric-chip.examples.js";
 
 describeEast("MetricChip", (test) => {

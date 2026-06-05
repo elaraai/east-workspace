@@ -10,7 +10,7 @@
 import { memo, useMemo } from "react";
 import { Box as ChakraBox } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Sticky } from "@elaraai/east-ui";
+import { Sticky } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 

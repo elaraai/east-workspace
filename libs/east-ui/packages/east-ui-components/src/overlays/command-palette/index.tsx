@@ -6,7 +6,7 @@
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
 import { Box, Button, Dialog as ChakraDialog, Input as ChakraInput, Kbd, Portal, Text, VStack } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { CommandPalette } from "@elaraai/east-ui";
+import { CommandPalette } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 
 const commandPaletteEqual = equalFor(CommandPalette.Types.CommandPalette);

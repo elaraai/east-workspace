@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, IntegerType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Button, Heading, Reactive, VStack } from "@elaraai/east-ui/jsx";
+import { Button, Heading, Reactive, VStack } from "@elaraai/east-ui";
 
 export const headingBasic = example({
     keywords: ["Heading", "Root", "basic"],

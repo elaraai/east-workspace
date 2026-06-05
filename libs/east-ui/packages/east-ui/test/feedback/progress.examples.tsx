@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { Progress, VStack } from "@elaraai/east-ui/jsx";
+import { Progress, VStack } from "@elaraai/east-ui";
 
 export const progressBasic = example({
     keywords: ["Progress", "Root", "basic"],

@@ -6,7 +6,7 @@
 import { memo, useMemo, useCallback, type ReactNode } from "react";
 import { Dialog as ChakraDialog, Portal, Box as ChakraBox } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Dialog } from "@elaraai/east-ui";
+import { Dialog } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 

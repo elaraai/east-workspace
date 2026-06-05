@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, NullType, StringType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Accordion, Box, Text, VStack, Reactive } from "@elaraai/east-ui/jsx";
+import { Accordion, Box, Text, VStack, Reactive } from "@elaraai/east-ui";
 
 export const accordionBasic = example({
     keywords: ["Accordion", "Root", "Item", "basic", "collapsible"],

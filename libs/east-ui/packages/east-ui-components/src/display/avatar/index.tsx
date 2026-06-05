@@ -6,7 +6,7 @@
 import { memo, useMemo } from "react";
 import { Avatar as ChakraAvatar, type AvatarRootProps } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Avatar } from "@elaraai/east-ui";
+import { Avatar } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 
 const avatarEqual = equalFor(Avatar.Types.Avatar);

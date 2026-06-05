@@ -9,7 +9,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPen } from "@fortawesome/free-solid-svg-icons";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-svg-core";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { EditableChip } from "@elaraai/east-ui";
+import { EditableChip } from "@elaraai/east-ui/internal";
 import { EastChakraComponent } from "../../component";
 import { getSomeorUndefined } from "../../utils";
 

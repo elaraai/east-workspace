@@ -25,7 +25,7 @@
 import { none, type variant } from "@elaraai/east";
 import { encodeBeast2For, decodeBeast2For } from "@elaraai/east";
 import { type PlatformFunction, type EastTypeValue } from "@elaraai/east/internal";
-import { Slice, SliceApplyImpl, sliceDimensions, sliceFields, sliceMatches, sliceBreakdown, sliceSeries } from "@elaraai/east-ui";
+import { Slice, SliceApplyImpl, sliceDimensions, sliceFields, sliceMatches, sliceBreakdown, sliceSeries } from "@elaraai/east-ui/internal";
 import { getStore, trackKey } from "../state-runtime.js";
 import { registerPlatformImplementation } from "../registry.js";
 

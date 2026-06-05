@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, NullType, StringType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Field, Text, VStack, Reactive } from "@elaraai/east-ui/jsx";
+import { Field, Text, VStack, Reactive } from "@elaraai/east-ui";
 
 export const fieldBasic = example({
     keywords: ["Field", "StringInput", "label", "helperText", "errorText", "required", "invalid"],

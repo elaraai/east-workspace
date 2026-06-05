@@ -8,7 +8,7 @@ import { Box, HStack, Text as ChakraText, useSlotRecipe } from "@chakra-ui/react
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-svg-core";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { MetricChip } from "@elaraai/east-ui";
+import { MetricChip } from "@elaraai/east-ui/internal";
 import { EastChakraComponent } from "../../component";
 import { getSomeorUndefined } from "../../utils";
 

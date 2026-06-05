@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { EmptyState, Button, HStack } from "@elaraai/east-ui/jsx";
+import { EmptyState, Button, HStack } from "@elaraai/east-ui";
 
 export const emptyStateNoResults = example({
     keywords: ["EmptyState", "Root", "no results", "glyph", "filters"],

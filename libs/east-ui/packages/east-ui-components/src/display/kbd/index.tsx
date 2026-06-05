@@ -6,7 +6,7 @@
 import { memo, useMemo, Fragment } from "react";
 import { Kbd as ChakraKbd, HStack, Text as ChakraText } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Kbd } from "@elaraai/east-ui";
+import { Kbd } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 
 const kbdEqual = equalFor(Kbd.Types.Kbd);

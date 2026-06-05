@@ -5,7 +5,7 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { IntegerType, StringType, StructType, ArrayType } from "@elaraai/east";
-import { Chart } from "@elaraai/east-ui";
+import { Chart } from "@elaraai/east-ui/internal";
 import * as ex from "./chart.examples.js";
 
 describeEast("Chart", (test) => {

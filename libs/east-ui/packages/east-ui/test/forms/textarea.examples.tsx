@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, IntegerType, NullType, StringType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Text, Textarea, VStack, HStack, Reactive } from "@elaraai/east-ui/jsx";
+import { Text, Textarea, VStack, HStack, Reactive } from "@elaraai/east-ui";
 
 export const textareaBasic = example({
     keywords: ["Textarea", "Root", "placeholder", "rows", "resize"],

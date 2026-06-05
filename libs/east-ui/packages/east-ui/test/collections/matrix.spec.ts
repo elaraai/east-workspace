@@ -5,7 +5,7 @@
 
 import { East, NullType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Matrix } from "@elaraai/east-ui";
+import { Matrix } from "@elaraai/east-ui/internal";
 import * as ex from "./matrix.examples.js";
 
 describeEast("Matrix", (test) => {

@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, NullType, example, some } from "@elaraai/east";
 import { Share, UIComponentType } from "@elaraai/east-ui";
-import { Button, Reactive } from "@elaraai/east-ui/jsx";
+import { Button, Reactive } from "@elaraai/east-ui";
 
 export const shareLinkButton = example({
     keywords: ["Share", "link", "Button", "navigator.share"],

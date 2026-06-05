@@ -6,7 +6,7 @@
 import { memo, useMemo } from "react";
 import { Highlight as ChakraHighlight, Box, type BoxProps } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Highlight } from "@elaraai/east-ui";
+import { Highlight } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 
 // Pre-define the equality function at module level

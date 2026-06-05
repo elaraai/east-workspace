@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Format } from "@elaraai/east-ui";
+import { Format } from "@elaraai/east-ui/internal";
 
 describeEast("Format", (test) => {
     test("Number round-trips fraction-digit + sign-display fields", $ => {

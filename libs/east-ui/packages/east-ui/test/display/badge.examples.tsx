@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, IntegerType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Badge, Button, HStack, VStack, Reactive } from "@elaraai/east-ui/jsx";
+import { Badge, Button, HStack, VStack, Reactive } from "@elaraai/east-ui";
 
 export const badgeBasic = example({
     keywords: ["Badge", "Root", "basic", "label"],

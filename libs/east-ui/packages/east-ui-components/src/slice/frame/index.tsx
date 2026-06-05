@@ -8,7 +8,7 @@ import { Box, chakra, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faFilter, faLayerGroup, faUsers, faMagnifyingGlass, faCalendar, faChevronDown, faChevronUp, type IconDefinition } from "@fortawesome/free-solid-svg-icons";
 import { type ValueTypeOf } from "@elaraai/east";
-import { Slice } from "@elaraai/east-ui";
+import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { useReflow } from "../../hooks/useReflow";
 import { EastChakraComponent } from "../../component";

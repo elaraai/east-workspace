@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Select, Style } from "@elaraai/east-ui";
+import { Select, Style } from "@elaraai/east-ui/internal";
 import * as ex from "./select.examples.js";
 
 describeEast("Select", (test) => {

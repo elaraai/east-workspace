@@ -6,7 +6,7 @@
 import { Fragment, memo, useMemo, useCallback } from "react";
 import { Breadcrumb as ChakraBreadcrumb, Box } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Breadcrumb } from "@elaraai/east-ui";
+import { Breadcrumb } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 
 // Pre-define equality functions at module level

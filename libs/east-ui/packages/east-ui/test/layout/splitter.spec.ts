@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Splitter, Style, Text } from "@elaraai/east-ui";
+import { Splitter, Style, Text } from "@elaraai/east-ui/internal";
 import * as ex from "./splitter.examples.js";
 
 describeEast("Splitter", (test) => {

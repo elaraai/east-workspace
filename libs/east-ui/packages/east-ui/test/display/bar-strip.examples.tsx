@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { BarStrip, Text } from "@elaraai/east-ui/jsx";
+import { BarStrip, Text } from "@elaraai/east-ui";
 
 export const barStripBasic = example({
     keywords: ["BarStrip", "Root", "items"],

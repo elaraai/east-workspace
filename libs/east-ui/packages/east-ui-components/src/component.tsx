@@ -5,7 +5,7 @@
 
 import { memo, useMemo } from "react";
 import { match, equalFor, type ValueTypeOf } from "@elaraai/east";
-import { UIComponentType } from "@elaraai/east-ui";
+import { UIComponentType } from "@elaraai/east-ui/internal";
 
 // Import implemented components
 import { EastChakraText } from "./typography/text";

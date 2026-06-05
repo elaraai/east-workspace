@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, IntegerType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Box, Button, Grid, Text, VStack, Reactive } from "@elaraai/east-ui/jsx";
+import { Box, Button, Grid, Text, VStack, Reactive } from "@elaraai/east-ui";
 
 export const gridBasic3Col = example({
     keywords: ["Grid", "Root", "Item", "templateColumns", "repeat"],

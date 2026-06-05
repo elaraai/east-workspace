@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, BooleanType, NullType, example } from "@elaraai/east";
 import { Hotkey, State, UIComponentType } from "@elaraai/east-ui";
-import { CommandPalette, Reactive, VStack } from "@elaraai/east-ui/jsx";
+import { CommandPalette, Reactive, VStack } from "@elaraai/east-ui";
 
 export const commandPaletteBasic = example({
     keywords: ["CommandPalette", "Root", "launcher", "cmdk"],

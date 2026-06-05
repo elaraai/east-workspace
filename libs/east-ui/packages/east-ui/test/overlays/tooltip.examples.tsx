@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { Button, Tooltip } from "@elaraai/east-ui/jsx";
+import { Button, Tooltip } from "@elaraai/east-ui";
 
 export const tooltipBasic = example({
     keywords: ["Tooltip", "Root", "basic", "hover"],

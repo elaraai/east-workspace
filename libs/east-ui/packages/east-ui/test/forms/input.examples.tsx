@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, DateTimeType, FloatType, IntegerType, NullType, StringType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Input, Status, Text, VStack, HStack, Reactive } from "@elaraai/east-ui/jsx";
+import { Input, Status, Text, VStack, HStack, Reactive } from "@elaraai/east-ui";
 
 export const inputString = example({
     keywords: ["Input", "String", "placeholder", "variant", "outline"],

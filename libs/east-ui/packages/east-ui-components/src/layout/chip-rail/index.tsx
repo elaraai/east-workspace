@@ -14,7 +14,7 @@
 import { memo, Fragment, useMemo } from "react";
 import { Flex as ChakraFlex, Separator as ChakraSeparator, Box as ChakraBox } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { ChipRail } from "@elaraai/east-ui";
+import { ChipRail } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 import { useDensity, type Density } from "../../contracts/density";

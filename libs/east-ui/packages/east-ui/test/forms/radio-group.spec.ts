@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { RadioGroup, UIComponentType } from "@elaraai/east-ui";
+import { RadioGroup, UIComponentType } from "@elaraai/east-ui/internal";
 import { East, NullType, StringType } from "@elaraai/east";
 import * as ex from "./radio-group.examples.js";
 

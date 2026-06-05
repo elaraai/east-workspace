@@ -7,7 +7,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { Box, Popover, Portal, Text, useToken } from "@chakra-ui/react";
 import { useDrag } from "@use-gesture/react";
 import type { ValueTypeOf } from "@elaraai/east";
-import type { Gantt } from "@elaraai/east-ui";
+import type { Gantt } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 import { MILESTONE_KIND } from "./palette";

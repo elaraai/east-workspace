@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, IntegerType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Button, Reactive, Sparkline, VStack, HStack, Text } from "@elaraai/east-ui/jsx";
+import { Button, Reactive, Sparkline, VStack, HStack, Text } from "@elaraai/east-ui";
 
 export const sparklineLine = example({
     keywords: ["Sparkline", "line", "basic"],

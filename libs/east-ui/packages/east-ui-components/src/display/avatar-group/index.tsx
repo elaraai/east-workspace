@@ -6,7 +6,7 @@
 import { memo, useMemo } from "react";
 import { AvatarGroup as ChakraAvatarGroup, Avatar as ChakraAvatar } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { AvatarGroup } from "@elaraai/east-ui";
+import { AvatarGroup } from "@elaraai/east-ui/internal";
 import { toChakraAvatar } from "../avatar";
 import { getSomeorUndefined } from "../../utils";
 

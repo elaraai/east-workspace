@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { Box, ScrollArea, Text, VStack } from "@elaraai/east-ui/jsx";
+import { Box, ScrollArea, Text, VStack } from "@elaraai/east-ui";
 
 export const scrollAreaDriverList = example({
     keywords: ["ScrollArea", "Root", "vertical", "driver-list", "radix", "scroll"],

@@ -5,7 +5,7 @@
 
 import { East } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Gantt, Text, Badge, Table, UIComponentType } from "@elaraai/east-ui";
+import { Gantt, Text, Badge, Table, UIComponentType } from "@elaraai/east-ui/internal";
 import * as ex from "./gantt.examples.js";
 
 describeEast("Gantt", (test) => {

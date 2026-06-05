@@ -5,7 +5,7 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { East, NullType, some, none } from "@elaraai/east";
-import { Share } from "@elaraai/east-ui";
+import { Share } from "@elaraai/east-ui/internal";
 import * as ex from "./share.examples.js";
 
 describeEast("Share", (test) => {

@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { SliceApplyImpl } from "@elaraai/east-ui";
+import { SliceApplyImpl } from "@elaraai/east-ui/internal";
 import * as ex from "./slice.examples.js";
 
 // The Slice.* UI examples — affordances, the reflowing Slice.Frame, and the

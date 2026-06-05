@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Input, Style } from "@elaraai/east-ui";
+import { Input, Style } from "@elaraai/east-ui/internal";
 import { tokenizeDateTimeFormat } from "@elaraai/east/internal";
 import * as ex from "./input.examples.js";
 

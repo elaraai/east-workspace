@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { CloseButton } from "@elaraai/east-ui";
+import { CloseButton } from "@elaraai/east-ui/internal";
 import * as ex from "./close-button.examples.js";
 
 describeEast("CloseButton", (test) => {

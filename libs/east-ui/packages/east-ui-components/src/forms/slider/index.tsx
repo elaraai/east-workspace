@@ -6,7 +6,7 @@
 import { memo, useMemo, useCallback, useState, useEffect } from "react";
 import { Slider as ChakraSlider, type ConditionalValue, type SliderRootProps, type SliderValueChangeDetails } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Slider } from "@elaraai/east-ui";
+import { Slider } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 
 // Pre-define equality function at module level

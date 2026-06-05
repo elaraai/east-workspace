@@ -6,7 +6,7 @@
 import { memo, useMemo } from "react";
 import { Grid as ChakraGrid, GridItem as ChakraGridItem, type GridProps } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Grid } from "@elaraai/east-ui";
+import { Grid } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 

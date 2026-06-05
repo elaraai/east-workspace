@@ -6,7 +6,7 @@
 import { memo } from "react";
 import { Box, chakra } from "@chakra-ui/react";
 import { type ValueTypeOf } from "@elaraai/east";
-import { Slice } from "@elaraai/east-ui";
+import { Slice } from "@elaraai/east-ui/internal";
 import { useSliceReactivity } from "../use-slice-reactivity";
 
 /** East Slice.Summary value type. */

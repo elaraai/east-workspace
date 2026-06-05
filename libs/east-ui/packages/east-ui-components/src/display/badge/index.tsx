@@ -6,7 +6,7 @@
 import { memo, useMemo } from "react";
 import { Badge as ChakraBadge, type BadgeProps } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Badge } from "@elaraai/east-ui";
+import { Badge } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 
 const badgeEqual = equalFor(Badge.Types.Badge);

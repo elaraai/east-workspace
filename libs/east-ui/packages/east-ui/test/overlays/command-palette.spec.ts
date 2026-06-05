@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { CommandPalette } from "@elaraai/east-ui";
+import { CommandPalette } from "@elaraai/east-ui/internal";
 import { East, BooleanType, NullType } from "@elaraai/east";
 import * as ex from "./command-palette.examples.js";
 

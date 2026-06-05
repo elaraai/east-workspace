@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { Badge, DataList, Highlight, HoverCard, Text, VStack } from "@elaraai/east-ui/jsx";
+import { Badge, DataList, Highlight, HoverCard, Text, VStack } from "@elaraai/east-ui";
 
 export const dataListBasic = example({
     keywords: ["DataList", "Root", "basic", "vertical"],

@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, IntegerType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { EditableChip, Text, HStack, Reactive } from "@elaraai/east-ui/jsx";
+import { EditableChip, Text, HStack, Reactive } from "@elaraai/east-ui";
 
 export const editableChipBasic = example({
     keywords: ["EditableChip", "Root", "label"],

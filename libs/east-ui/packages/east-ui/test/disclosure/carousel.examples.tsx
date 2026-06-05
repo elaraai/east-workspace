@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, IntegerType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Box, Carousel, Text, VStack, Reactive } from "@elaraai/east-ui/jsx";
+import { Box, Carousel, Text, VStack, Reactive } from "@elaraai/east-ui";
 
 export const carouselBasic = example({
     keywords: ["Carousel", "Root", "showControls", "showIndicators", "basic"],

@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { SegmentedMeter, Text } from "@elaraai/east-ui/jsx";
+import { SegmentedMeter, Text } from "@elaraai/east-ui";
 
 export const segmentedMeterBasic = example({
     keywords: ["SegmentedMeter", "Root", "segments"],

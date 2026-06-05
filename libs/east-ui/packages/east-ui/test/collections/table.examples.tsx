@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, IntegerType, NullType, StringType, example } from "@elaraai/east";
 import { State, Style, UIComponentType } from "@elaraai/east-ui";
-import { Badge, Box, HStack, Reactive, Table, Tag, Text, VStack } from "@elaraai/east-ui/jsx";
+import { Badge, Box, HStack, Reactive, Table, Tag, Text, VStack } from "@elaraai/east-ui";
 
 export const tableBasic = example({
     keywords: ["Table", "Root", "basic", "header"],

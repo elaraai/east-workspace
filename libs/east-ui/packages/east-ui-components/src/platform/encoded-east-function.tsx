@@ -5,7 +5,7 @@
 
 import { useMemo } from "react";
 import type { ValueTypeOf } from "@elaraai/east";
-import { UIComponentType } from "@elaraai/east-ui";
+import { UIComponentType } from "@elaraai/east-ui/internal";
 import {
     decodeBeast2For,
     compileFunctionIR,

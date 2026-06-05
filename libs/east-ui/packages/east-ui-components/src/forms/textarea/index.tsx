@@ -6,7 +6,7 @@
 import { memo, useMemo, useCallback, useState, useEffect } from "react";
 import { Textarea as ChakraTextarea, type TextareaProps } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Textarea } from "@elaraai/east-ui";
+import { Textarea } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 
 // Pre-define equality function at module level

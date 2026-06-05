@@ -4,7 +4,7 @@
  */
 
 import { type ValueTypeOf } from "@elaraai/east";
-import { Slice } from "@elaraai/east-ui";
+import { Slice } from "@elaraai/east-ui/internal";
 
 /** One filter clause, unwrapped — shared by `Slice.Filter` and `Slice.Cohort`. */
 export type PredicateValue = ValueTypeOf<typeof Slice.Types.Predicate>;

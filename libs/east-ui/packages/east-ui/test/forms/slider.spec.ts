@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Slider, Style } from "@elaraai/east-ui";
+import { Slider, Style } from "@elaraai/east-ui/internal";
 import * as ex from "./slider.examples.js";
 
 describeEast("Slider", (test) => {

@@ -19,7 +19,7 @@ import {
     example,
 } from "@elaraai/east";
 import { Slice, UIComponentType } from "@elaraai/east-ui";
-import { Button, Reactive, Text, VStack } from "@elaraai/east-ui/jsx";
+import { Button, Reactive, Text, VStack } from "@elaraai/east-ui";
 
 // ---------------------------------------------------------------------------
 // Each example below is self-contained: `UserEventType` is declared inside

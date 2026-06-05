@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { TimeRangeInput } from "@elaraai/east-ui";
+import { TimeRangeInput } from "@elaraai/east-ui/internal";
 import { East, IntegerType, NullType } from "@elaraai/east";
 import * as ex from "./time-range-input.examples.js";
 

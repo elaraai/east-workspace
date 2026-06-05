@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { BarStrip, Text } from "@elaraai/east-ui";
+import { BarStrip, Text } from "@elaraai/east-ui/internal";
 import * as ex from "./bar-strip.examples.js";
 
 describeEast("BarStrip", (test) => {

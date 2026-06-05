@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Toggle } from "@elaraai/east-ui";
+import { Toggle } from "@elaraai/east-ui/internal";
 import * as ex from "./toggle.examples.js";
 
 describeEast("Toggle", (test) => {

@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { Box, HStack, Text, VStack } from "@elaraai/east-ui/jsx";
+import { Box, HStack, Text, VStack } from "@elaraai/east-ui";
 
 // -----------------------------------------------------------------------------
 // Style token examples.

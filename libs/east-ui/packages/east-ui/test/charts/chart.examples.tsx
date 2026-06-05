@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Box, Chart, Reactive } from "@elaraai/east-ui/jsx";
+import { Box, Chart, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Line — marks, encodings, curves, scales

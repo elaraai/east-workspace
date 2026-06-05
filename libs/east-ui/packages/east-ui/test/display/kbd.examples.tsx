@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { Kbd } from "@elaraai/east-ui/jsx";
+import { Kbd } from "@elaraai/east-ui";
 
 export const kbdSingle = example({
     keywords: ["Kbd", "Root", "single", "key"],

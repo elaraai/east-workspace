@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Select, Text, VStack, Reactive } from "@elaraai/east-ui/jsx";
+import { Select, Text, VStack, Reactive } from "@elaraai/east-ui";
 
 export const selectBasic = example({
     keywords: ["Select", "Root", "Item", "dropdown", "placeholder"],

@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, NullType, StringType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Highlight, Input, Reactive, VStack } from "@elaraai/east-ui/jsx";
+import { Highlight, Input, Reactive, VStack } from "@elaraai/east-ui";
 
 export const highlightSingleTerm = example({
     keywords: ["Highlight", "Root", "single", "term", "search"],

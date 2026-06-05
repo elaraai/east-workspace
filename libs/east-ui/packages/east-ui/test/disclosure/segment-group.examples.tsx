@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, NullType, StringType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Badge, SegmentGroup, Text, VStack, HStack, Reactive } from "@elaraai/east-ui/jsx";
+import { Badge, SegmentGroup, Text, VStack, HStack, Reactive } from "@elaraai/east-ui";
 
 export const segmentGroupViewToggle = example({
     keywords: ["SegmentGroup", "Root", "Item", "toolbar", "toggle", "view"],

@@ -6,7 +6,7 @@
 import { useState } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { type ValueTypeOf, variant, some } from "@elaraai/east";
-import { Slice } from "@elaraai/east-ui";
+import { Slice } from "@elaraai/east-ui/internal";
 import {
     EastChakraStringInput,
     EastChakraIntegerInput,

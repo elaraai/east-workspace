@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, NullType, StringType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { NavList, VStack, Text, Reactive } from "@elaraai/east-ui/jsx";
+import { NavList, VStack, Text, Reactive } from "@elaraai/east-ui";
 
 export const navListBasic = example({
     keywords: ["NavList", "Root", "navigation", "section"],

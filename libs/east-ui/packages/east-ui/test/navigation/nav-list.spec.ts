@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { NavList } from "@elaraai/east-ui";
+import { NavList } from "@elaraai/east-ui/internal";
 import { East, NullType, StringType } from "@elaraai/east";
 import * as ex from "./nav-list.examples.js";
 

@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, DateTimeType, StringType, IntegerType, ArrayType, StructType, variant, some, none, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { Box, Reactive, Separator, Slice, Table, Text, VStack } from "@elaraai/east-ui/jsx";
+import { Box, Reactive, Separator, Slice, Table, Text, VStack } from "@elaraai/east-ui";
 
 export const sliceSummary = example({
     keywords: ["Slice", "Summary", "results", "filters", "clear"],

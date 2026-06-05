@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { ArrayType, East, FloatType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Matrix, Reactive, Slider, Text, VStack } from "@elaraai/east-ui/jsx";
+import { Matrix, Reactive, Slider, Text, VStack } from "@elaraai/east-ui";
 
 /**
  * Heat-grid — rows × days, each cell a booked/free weight bar, rows grouped by

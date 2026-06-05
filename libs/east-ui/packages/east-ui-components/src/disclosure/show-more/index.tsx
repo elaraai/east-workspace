@@ -6,7 +6,7 @@
 import { memo, useMemo, useState } from "react";
 import { Box as ChakraBox, chakra, useSlotRecipe } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Disclosure } from "@elaraai/east-ui";
+import { Disclosure } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 

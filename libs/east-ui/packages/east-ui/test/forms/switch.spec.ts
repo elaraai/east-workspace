@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Switch, Style } from "@elaraai/east-ui";
+import { Switch, Style } from "@elaraai/east-ui/internal";
 import * as ex from "./switch.examples.js";
 
 describeEast("Switch", (test) => {

@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { TimeScaleControl, UIComponentType } from "@elaraai/east-ui";
+import { TimeScaleControl, UIComponentType } from "@elaraai/east-ui/internal";
 import { East, NullType } from "@elaraai/east";
 import * as ex from "./time-scale-control.examples.js";
 

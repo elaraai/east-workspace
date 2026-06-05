@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, NullType, variant, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Text, TimeScaleControl, VStack, Reactive } from "@elaraai/east-ui/jsx";
+import { Text, TimeScaleControl, VStack, Reactive } from "@elaraai/east-ui";
 
 export const timeScaleControlBasic = example({
     keywords: ["TimeScaleControl", "Root", "scale", "segment", "control"],

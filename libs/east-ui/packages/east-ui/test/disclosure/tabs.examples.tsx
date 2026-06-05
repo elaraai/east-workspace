@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, NullType, StringType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Box, Tabs, Text, VStack, HStack, Reactive } from "@elaraai/east-ui/jsx";
+import { Box, Tabs, Text, VStack, HStack, Reactive } from "@elaraai/east-ui";
 
 export const tabsBasic = example({
     keywords: ["Tabs", "Root", "Item", "defaultValue", "basic"],

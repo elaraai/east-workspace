@@ -6,7 +6,7 @@
 import { memo, useMemo } from "react";
 import { Text as ChakraText, type TextProps } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Text } from "@elaraai/east-ui";
+import { Text } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 
 // Pre-define the equality function at module level

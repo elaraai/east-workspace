@@ -15,7 +15,7 @@
 
 import { East, StringType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Badge, Button, Card, Checkbox, Code, CodeBlock, EditableChip, Flex, Highlight, HStack, Kbd, Link, MetricChip, Meter, Numeric, Progress, Reactive, ScrollArea, Slider, Sparkline, Text } from "@elaraai/east-ui/jsx";
+import { Badge, Button, Card, Checkbox, Code, CodeBlock, EditableChip, Flex, Highlight, HStack, Kbd, Link, MetricChip, Meter, Numeric, Progress, Reactive, ScrollArea, Slider, Sparkline, Text } from "@elaraai/east-ui";
 import {
     Badge as BadgeF,
     Button as ButtonF,
@@ -37,7 +37,7 @@ import {
     Sparkline as SparklineF,
     Text as TextF,
     Stack,
-} from "@elaraai/east-ui";
+} from "@elaraai/east-ui/internal";
 
 describeEast("JSX tag combinators", (test) => {
     test("shape-3 Button desugars to Button.Root", ($) => {

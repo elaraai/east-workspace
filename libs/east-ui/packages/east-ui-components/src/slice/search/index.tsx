@@ -6,7 +6,7 @@
 import { memo, useState, useEffect, useMemo, useCallback } from "react";
 import { Box, Combobox as ChakraCombobox, Portal, createListCollection, useSlotRecipe } from "@chakra-ui/react";
 import { type ValueTypeOf, some, none } from "@elaraai/east";
-import { Slice } from "@elaraai/east-ui";
+import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { useSliceDensity } from "../density";
 import { useSliceReactivity } from "../use-slice-reactivity";

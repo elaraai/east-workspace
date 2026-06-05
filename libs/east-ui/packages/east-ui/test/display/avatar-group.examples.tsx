@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { AvatarGroup } from "@elaraai/east-ui/jsx";
+import { AvatarGroup } from "@elaraai/east-ui";
 
 export const avatarGroupBasic = example({
     keywords: ["AvatarGroup", "Root", "avatars"],

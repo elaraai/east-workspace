@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { TagsInput, Style } from "@elaraai/east-ui";
+import { TagsInput, Style } from "@elaraai/east-ui/internal";
 import * as ex from "./tags-input.examples.js";
 
 describeEast("TagsInput", (test) => {

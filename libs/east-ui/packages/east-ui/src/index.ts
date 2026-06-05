@@ -4,23 +4,35 @@
  */
 
 /**
- * East UI - UI component library for the East language.
+ * East UI — UI component library for the East language.
  *
  * @remarks
- * East UI provides typed UI component definitions that return data structures
- * describing UI layouts rather than rendering directly. This enables portability,
- * type safety, composability, and separation of concerns.
+ * The public surface is **JSX tags**: capitalized, React-style components
+ * (`<Button variant="solid">Save</Button>`, `<VStack gap="4">…</VStack>`) that
+ * desugar to East IR. Author them in a `.tsx` file with the
+ * `/** @jsxImportSource @elaraai/east-ui *​/` pragma. Each tag also carries its
+ * `Types` namespace (e.g. `Table.Types.CellRenderContext`, `Slider.Types`) and,
+ * where relevant, data-builders (`Select.Item`) and nested tags
+ * (`<Text.Eyebrow>`).
  *
- * Components return East data structures (variants/structs) that can be:
- * - Serialized to JSON as East IR
- * - Compiled to executable functions
- * - Rendered in any environment (React with Chakra UI, HTML, etc.)
+ * The underlying factories (`Button.Root(…)`) are an implementation detail and
+ * live under `@elaraai/east-ui/internal` for renderers and tests.
+ *
+ * Components return East data structures (variants/structs) that can be
+ * serialized to IR, compiled, and rendered in any environment.
  *
  * @packageDocumentation
  */
 
 // Re-export variant from East for convenience
 export { variant } from "@elaraai/east";
+
+// JSX combinators — wrap any factory as a custom tag (the extension API).
+export { optionsTag, content, leaf, container, hasKeys } from "./runtime/combinators.js";
+export type { JsxTag, ContainerProps, ContentProps, ValueProps, OptionsProps } from "./runtime/combinators.js";
+export { coalesceChildren } from "./runtime/children.js";
+export type { ContainerChildrenType } from "./runtime/children.js";
+export type { UIElement } from "./runtime/runtime.js";
 
 // Style System
 export { Style } from "./style.js";
@@ -40,50 +52,53 @@ export type {
 export {
     Text, Code, Heading, Link, Highlight, Mark, List, CodeBlock,
     Numeric, Note,
-} from "./typography/index.js";
+} from "./runtime/typography/index.js";
 
 // Layout
 export {
-    Box, Flex, Stack, Separator, Grid, Splitter,
+    Box, Flex, Stack, VStack, HStack, Separator, Grid, Splitter,
     Sticky, ScrollArea, ChipRail,
-} from "./layout/index.js";
+} from "./runtime/layout/index.js";
 
 // Buttons
-export { Button, IconButton, CopyButton, CloseButton, Toggle, ButtonGroup } from "./buttons/index.js";
+export { Button, IconButton, CopyButton, CloseButton, Toggle, ButtonGroup } from "./runtime/buttons/index.js";
 export type { ButtonLabelInput, ButtonOptions } from "./buttons/index.js";
 
 // Forms
-export { Input, Checkbox, RadioGroup, RadioCardGroup, TimeScaleControl, TimeRangeInput, DateRangeInput, Switch, Select, Combobox, Slider, Field, FileUpload, Textarea, TagsInput } from "./forms/index.js";
+export { Input, Checkbox, RadioGroup, RadioCardGroup, TimeScaleControl, TimeRangeInput, DateRangeInput, Switch, Select, Combobox, Slider, Field, FileUpload, Textarea, TagsInput } from "./runtime/forms/index.js";
 
 // Feedback
-export { Progress, Banner, EmptyState, Skeleton, Status } from "./feedback/index.js";
+export { Progress, Banner, EmptyState, Skeleton, Status } from "./runtime/feedback/index.js";
 
 // Navigation
-export { Breadcrumb, NavList, NavListType, NavSectionType, NavItemType } from "./navigation/index.js";
+export { Breadcrumb, NavList } from "./runtime/navigation/index.js";
+export { NavListType, NavSectionType, NavItemType } from "./navigation/index.js";
 export type { NavListStyle, NavSectionInput, NavItemInput } from "./navigation/index.js";
 
 // Display
-export { Badge, Tag, Avatar, Stat, Icon, MetricChip, EditableChip, Kbd, Meter, SegmentedMeter, BarStrip, AvatarGroup, type IconName } from "./display/index.js";
+export { Badge, Tag, Avatar, Stat, Icon, MetricChip, EditableChip, Kbd, Meter, SegmentedMeter, BarStrip, AvatarGroup } from "./runtime/display/index.js";
+export type { IconName } from "./display/index.js";
 
 // Containers
-export { Card } from "./container/index.js";
+export { Card } from "./runtime/container/index.js";
 
 // Collections
-export { DataList, Matrix, Pagination, Table, TreeView, Gantt, Planner } from "./collections/index.js";
+export { DataList, Matrix, Pagination, Table, TreeView, Gantt, Planner } from "./runtime/collections/index.js";
 
 // Charts
-export { Chart } from "./charts/chart/index.js";
-export { Sparkline } from "./charts/index.js";
+export { Chart, Sparkline } from "./runtime/charts/index.js";
 
 // Disclosure
-export { Accordion, Carousel, Collapsible, Disclosure, OptionList, SegmentGroup, Tabs } from "./disclosure/index.js";
+export { Accordion, Carousel, Collapsible, Disclosure, OptionList, SegmentGroup, Tabs } from "./runtime/disclosure/index.js";
 
 // Overlays
-export { Tooltip, Menu, Dialog, dialog_open, Drawer, drawer_open, Popover, HoverCard, ActionBar, ToggleTip, CommandPalette } from "./overlays/index.js";
+export { Tooltip, Menu, Dialog, Drawer, Popover, HoverCard, ActionBar, ToggleTip, CommandPalette } from "./runtime/overlays/index.js";
+export { dialog_open, drawer_open } from "./overlays/index.js";
+// Hotkey is a keyboard-binding primitive with no visual tag — exported as its factory.
 export { Hotkey, HotkeyType } from "./platform/hotkey/index.js";
 
 // Reactive (selective re-rendering)
-export { Reactive } from "./reactive/index.js";
+export { Reactive } from "./runtime/reactive/index.js";
 
 // Component Types
 export { UIComponentType } from "./component.js";
@@ -100,8 +115,8 @@ export {
 // Platform (state management - signatures only)
 // For e3 dataset bindings, use Data.bind from @elaraai/e3-ui
 export { State, SliceApplyImpl, sliceDimensions, sliceFields, sliceMatches, sliceBreakdown, sliceSeries, SLICE_SERIES_PALETTE, Clipboard, Download, Share } from "./platform/index.js";
+export { Slice } from "./runtime/slice.js";
 export {
-    Slice,
     SliceSummaryType, SliceRangePickerType, SliceFilterType,
     SliceLegendType, SliceBreakdownPickerType,
     SliceSearchType, SliceSearchMatchType,

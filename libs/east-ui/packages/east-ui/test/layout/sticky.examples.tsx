@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { Box, Sticky, Text, VStack, HStack } from "@elaraai/east-ui/jsx";
+import { Box, Sticky, Text, VStack, HStack } from "@elaraai/east-ui";
 
 export const stickyHeader = example({
     keywords: ["Sticky", "Root", "header", "position", "sticky", "scrolling"],

@@ -108,7 +108,7 @@ const blobEqual = equalFor(BlobType)
  * @example
  * ```ts
  * import { UIStore } from "@elaraai/east-ui-components";
- * import { State } from "@elaraai/east-ui";
+ * import { State } from "@elaraai/east-ui/internal";
  * import { StateImpl } from "@elaraai/east-ui-components";
  *
  * // Use StateImpl for compilation

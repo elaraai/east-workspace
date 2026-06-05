@@ -6,7 +6,7 @@
 import { memo, useMemo } from "react";
 import { Stack as ChakraStack, type StackProps } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Stack } from "@elaraai/east-ui";
+import { Stack } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 

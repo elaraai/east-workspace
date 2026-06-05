@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, IntegerType, NullType, example } from "@elaraai/east";
 import { State, Style, UIComponentType } from "@elaraai/east-ui";
-import { Button, Flex, Text, VStack, Reactive } from "@elaraai/east-ui/jsx";
+import { Button, Flex, Text, VStack, Reactive } from "@elaraai/east-ui";
 
 export const flexBasic = example({
     keywords: ["Flex", "Root", "basic", "row", "gap"],

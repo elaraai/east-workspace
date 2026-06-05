@@ -4,7 +4,7 @@
  */
 
 import { type PlatformFunction } from "@elaraai/east/internal";
-import { Share } from "@elaraai/east-ui";
+import { Share } from "@elaraai/east-ui/internal";
 import { registerPlatformImplementation } from "../registry.js";
 
 interface OptionTag<T> {

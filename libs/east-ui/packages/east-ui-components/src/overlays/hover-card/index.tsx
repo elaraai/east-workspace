@@ -6,7 +6,7 @@
 import { memo, useMemo, useCallback } from "react";
 import { HoverCard as ChakraHoverCard, Portal } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { HoverCard } from "@elaraai/east-ui";
+import { HoverCard } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 

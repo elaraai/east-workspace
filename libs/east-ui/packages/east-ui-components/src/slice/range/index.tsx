@@ -8,7 +8,7 @@ import { Box, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCalendar, faChevronDown } from "@fortawesome/free-solid-svg-icons";
 import { type ValueTypeOf, some, none, variant } from "@elaraai/east";
-import { Slice } from "@elaraai/east-ui";
+import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { SliceEditPopover } from "../edit";
 import { useSliceDensity } from "../density";

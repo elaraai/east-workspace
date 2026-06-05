@@ -9,7 +9,7 @@
 import { memo, useMemo } from "react";
 import * as RadixScrollArea from "@radix-ui/react-scroll-area";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { ScrollArea } from "@elaraai/east-ui";
+import { ScrollArea } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 

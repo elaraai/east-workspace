@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, IntegerType, NullType, StringType, StructType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { FileUpload, Text, VStack, Reactive } from "@elaraai/east-ui/jsx";
+import { FileUpload, Text, VStack, Reactive } from "@elaraai/east-ui";
 
 export const fileUploadBasic = example({
     keywords: ["FileUpload", "Root", "label", "dropzone", "maxFiles", "accept"],

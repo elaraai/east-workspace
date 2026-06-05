@@ -7,7 +7,7 @@ import { memo, useMemo, createContext, useContext, type ReactNode, type MouseEve
 import { Box, useChakraContext } from "@chakra-ui/react";
 import { useTooltip, TooltipWithBounds } from "@visx/tooltip";
 import { match, equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Chart } from "@elaraai/east-ui";
+import { Chart } from "@elaraai/east-ui/internal";
 import { ParentSize } from "@visx/responsive";
 import { Group } from "@visx/group";
 import { scaleBand, scaleLinear, scaleTime, scaleSqrt } from "@visx/scale";

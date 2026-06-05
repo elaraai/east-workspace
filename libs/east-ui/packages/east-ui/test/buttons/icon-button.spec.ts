@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { IconButton } from "@elaraai/east-ui";
+import { IconButton } from "@elaraai/east-ui/internal";
 import * as ex from "./icon-button.examples.js";
 
 describeEast("IconButton", (test) => {

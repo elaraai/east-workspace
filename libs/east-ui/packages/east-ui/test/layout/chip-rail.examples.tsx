@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { ChipRail, Tag } from "@elaraai/east-ui/jsx";
+import { ChipRail, Tag } from "@elaraai/east-ui";
 
 export const chipRailBasic = example({
     keywords: ["ChipRail", "Root", "tags", "line-separator", "compact"],

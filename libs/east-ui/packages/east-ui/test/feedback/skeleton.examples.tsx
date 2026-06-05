@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { Skeleton, VStack } from "@elaraai/east-ui/jsx";
+import { Skeleton, VStack } from "@elaraai/east-ui";
 
 export const skeletonTextBlock = example({
     keywords: ["Skeleton", "text", "lines"],

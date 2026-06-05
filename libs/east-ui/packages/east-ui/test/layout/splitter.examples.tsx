@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, FloatType, IntegerType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Badge, Box, Splitter, Text, VStack, HStack, Reactive } from "@elaraai/east-ui/jsx";
+import { Badge, Box, Splitter, Text, VStack, HStack, Reactive } from "@elaraai/east-ui";
 
 export const splitterHorizontal = example({
     keywords: ["Splitter", "Root", "Panel", "orientation", "horizontal"],

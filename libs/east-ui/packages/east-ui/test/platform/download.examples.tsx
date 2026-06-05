@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, NullType, example } from "@elaraai/east";
 import { Download, UIComponentType } from "@elaraai/east-ui";
-import { Button, Reactive } from "@elaraai/east-ui/jsx";
+import { Button, Reactive } from "@elaraai/east-ui";
 
 export const downloadCsvButton = example({
     keywords: ["Download", "csv", "Button", "onClick"],

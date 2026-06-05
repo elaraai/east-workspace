@@ -10,7 +10,7 @@
 import { memo, useMemo } from "react";
 import { Box as ChakraBox, type BoxProps } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Box } from "@elaraai/east-ui";
+import { Box } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 import { toTransition, type TransitionToken, type MotionDurationToken, type MotionEasingToken } from "../../style/motion.js";

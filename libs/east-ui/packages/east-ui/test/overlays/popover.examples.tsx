@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, BooleanType, IntegerType, NullType, StringType, StructType, ArrayType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Button, Chart, Popover, Reactive, Text, VStack } from "@elaraai/east-ui/jsx";
+import { Button, Chart, Popover, Reactive, Text, VStack } from "@elaraai/east-ui";
 
 export const popoverBasic = example({
     keywords: ["Popover", "Root", "title", "description", "click"],

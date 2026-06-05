@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { SegmentGroup, Text } from "@elaraai/east-ui";
+import { SegmentGroup, Text } from "@elaraai/east-ui/internal";
 import * as ex from "./segment-group.examples.js";
 
 describeEast("SegmentGroup", (test) => {

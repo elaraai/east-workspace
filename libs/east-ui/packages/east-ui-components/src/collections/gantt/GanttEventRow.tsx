@@ -5,7 +5,7 @@
 
 import { useMemo } from "react";
 import type { ValueTypeOf } from "@elaraai/east";
-import type { Gantt } from "@elaraai/east-ui";
+import type { Gantt } from "@elaraai/east-ui/internal";
 import { GanttTask, type TimeStep } from "./GanttTask";
 import { GanttMilestone } from "./GanttMilestone";
 

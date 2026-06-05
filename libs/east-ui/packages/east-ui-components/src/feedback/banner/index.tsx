@@ -12,7 +12,7 @@ import {
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-common-types";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Banner } from "@elaraai/east-ui";
+import { Banner } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 

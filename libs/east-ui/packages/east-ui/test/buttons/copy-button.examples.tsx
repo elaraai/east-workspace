@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { CopyButton } from "@elaraai/east-ui/jsx";
+import { CopyButton } from "@elaraai/east-ui";
 
 export const copyButtonBasic = example({
     keywords: ["CopyButton", "Root", "icon-only", "clipboard"],

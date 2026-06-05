@@ -8,7 +8,7 @@ import { EmptyState as ChakraEmptyState, Box as ChakraBox } from "@chakra-ui/rea
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-common-types";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { EmptyState } from "@elaraai/east-ui";
+import { EmptyState } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 

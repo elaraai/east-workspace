@@ -18,7 +18,7 @@
 
 import { East, StructType, StringType, IntegerType, BooleanType, OptionType, example, some, none } from "@elaraai/east";
 import { EastUI, UIComponentType } from "@elaraai/east-ui";
-import { optionsTag, Text, VStack } from "@elaraai/east-ui/jsx";
+import { optionsTag, Text, VStack } from "@elaraai/east-ui";
 
 export const counterBasic = example({
     keywords: ["EastUI", "component", "extension", "Counter", "optionsTag", "platform-symmetry"],

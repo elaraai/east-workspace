@@ -7,7 +7,7 @@ import { memo, useMemo, useCallback, useState, useEffect } from "react";
 import { Portal } from "@chakra-ui/react";
 import { Select as ChakraSelect, createListCollection, type SelectRootProps } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Select } from "@elaraai/east-ui";
+import { Select } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 
 // Pre-define equality function at module level

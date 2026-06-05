@@ -6,7 +6,7 @@
 import { memo, useMemo, useCallback } from "react";
 import { Box, FileUpload as ChakraFileUpload, type FileUploadRootProps } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { FileUpload } from "@elaraai/east-ui";
+import { FileUpload } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 
 // Pre-define equality function at module level

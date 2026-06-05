@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Kbd } from "@elaraai/east-ui";
+import { Kbd } from "@elaraai/east-ui/internal";
 import * as ex from "./kbd.examples.js";
 
 describeEast("Kbd", (test) => {

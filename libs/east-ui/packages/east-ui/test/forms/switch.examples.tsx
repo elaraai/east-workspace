@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, BooleanType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Status, Switch, VStack, HStack, Reactive } from "@elaraai/east-ui/jsx";
+import { Status, Switch, VStack, HStack, Reactive } from "@elaraai/east-ui";
 
 export const switchBasic = example({
     keywords: ["Switch", "Root", "label", "toggle", "disabled"],

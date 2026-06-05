@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, IntegerType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Button, Text, VStack, HStack, Reactive } from "@elaraai/east-ui/jsx";
+import { Button, Text, VStack, HStack, Reactive } from "@elaraai/east-ui";
 
 export const stackBasicVStack = example({
     keywords: ["Stack", "VStack", "vertical", "gap"],

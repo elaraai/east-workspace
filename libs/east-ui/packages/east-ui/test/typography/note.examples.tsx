@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { Note, VStack, Text } from "@elaraai/east-ui/jsx";
+import { Note, VStack, Text } from "@elaraai/east-ui";
 
 export const noteNarrative = example({
     keywords: ["Note", "Root", "variant", "narrative"],

@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { AvatarGroup } from "@elaraai/east-ui";
+import { AvatarGroup } from "@elaraai/east-ui/internal";
 import * as ex from "./avatar-group.examples.js";
 
 describeEast("AvatarGroup", (test) => {

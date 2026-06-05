@@ -6,7 +6,7 @@
 import { memo, useMemo } from "react";
 import { Box, Flex, HStack, Text as ChakraText } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { SegmentedMeter } from "@elaraai/east-ui";
+import { SegmentedMeter } from "@elaraai/east-ui/internal";
 import { EastChakraComponent } from "../../component";
 import { getSomeorUndefined } from "../../utils";
 

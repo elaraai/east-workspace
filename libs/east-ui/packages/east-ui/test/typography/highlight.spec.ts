@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Highlight } from "@elaraai/east-ui";
+import { Highlight } from "@elaraai/east-ui/internal";
 import * as ex from "./highlight.examples.js";
 
 describeEast("Highlight", (test) => {

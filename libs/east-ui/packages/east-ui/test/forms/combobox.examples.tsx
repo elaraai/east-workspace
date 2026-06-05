@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Combobox, Text, VStack, Reactive } from "@elaraai/east-ui/jsx";
+import { Combobox, Text, VStack, Reactive } from "@elaraai/east-ui";
 
 export const comboboxBasic = example({
     keywords: ["Combobox", "Root", "Item", "searchable", "dropdown"],

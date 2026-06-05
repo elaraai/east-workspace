@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, NullType, StringType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { OptionList, Badge, Text, VStack, Reactive } from "@elaraai/east-ui/jsx";
+import { OptionList, Badge, Text, VStack, Reactive } from "@elaraai/east-ui";
 
 export const optionListAlternatives = example({
     keywords: ["OptionList", "Root", "Option", "alternatives", "what-if"],

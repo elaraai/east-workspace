@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { Disclosure, Text } from "@elaraai/east-ui/jsx";
+import { Disclosure, Text } from "@elaraai/east-ui";
 
 export const disclosureRationale = example({
     keywords: ["Disclosure", "Root", "show more", "truncate", "rationale"],

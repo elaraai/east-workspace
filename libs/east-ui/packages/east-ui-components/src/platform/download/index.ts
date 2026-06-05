@@ -4,7 +4,7 @@
  */
 
 import { type PlatformFunction } from "@elaraai/east/internal";
-import { Download } from "@elaraai/east-ui";
+import { Download } from "@elaraai/east-ui/internal";
 import { registerPlatformImplementation } from "../registry.js";
 
 interface BlobInput {

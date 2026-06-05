@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, NullType, OptionType, StringType, example, none } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Badge, Reactive, Text, TreeView, VStack } from "@elaraai/east-ui/jsx";
+import { Badge, Reactive, Text, TreeView, VStack } from "@elaraai/east-ui";
 
 export const treeViewFile = example({
     keywords: ["TreeView", "Root", "Branch", "Item", "file", "tree"],

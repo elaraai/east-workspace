@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, NullType, StringType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { RadioCardGroup, Text, VStack, Reactive } from "@elaraai/east-ui/jsx";
+import { RadioCardGroup, Text, VStack, Reactive } from "@elaraai/east-ui";
 
 export const radioCardGroupBasic = example({
     keywords: ["RadioCardGroup", "Root", "card", "radio", "select"],

@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { SegmentedMeter } from "@elaraai/east-ui";
+import { SegmentedMeter } from "@elaraai/east-ui/internal";
 import * as ex from "./segmented-meter.examples.js";
 
 describeEast("SegmentedMeter", (test) => {

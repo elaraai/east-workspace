@@ -14,7 +14,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCheck, faMinus } from "@fortawesome/free-solid-svg-icons";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-common-types";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { List } from "@elaraai/east-ui";
+import { List } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 

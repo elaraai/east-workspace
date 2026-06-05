@@ -9,7 +9,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faGripVertical } from "@fortawesome/free-solid-svg-icons";
 import { useDrag } from "@use-gesture/react";
 import type { ValueTypeOf } from "@elaraai/east";
-import type { Gantt } from "@elaraai/east-ui";
+import type { Gantt } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 import { alignToCss } from "../shared/helpers";

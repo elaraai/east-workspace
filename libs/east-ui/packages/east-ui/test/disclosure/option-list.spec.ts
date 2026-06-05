@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { OptionList, Text } from "@elaraai/east-ui";
+import { OptionList, Text } from "@elaraai/east-ui/internal";
 import * as ex from "./option-list.examples.js";
 
 describeEast("OptionList", (test) => {

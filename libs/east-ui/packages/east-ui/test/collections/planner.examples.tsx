@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, NullType, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { Planner, Text, VStack } from "@elaraai/east-ui/jsx";
+import { Planner, Text, VStack } from "@elaraai/east-ui";
 
 /**
  * Point Planner — a numeric day axis with AM/PM buckets, an identity column,

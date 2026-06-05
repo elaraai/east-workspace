@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, FloatType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Slider, Text, VStack, Reactive } from "@elaraai/east-ui/jsx";
+import { Slider, Text, VStack, Reactive } from "@elaraai/east-ui";
 
 export const sliderBasic = example({
     keywords: ["Slider", "Root", "min", "max", "step"],

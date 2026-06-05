@@ -6,7 +6,7 @@
 import { memo, useMemo, useCallback, useState, useEffect, useRef, type ChangeEvent, type FocusEvent, type KeyboardEvent } from "react";
 import { Input as ChakraInput, type InputProps, Box } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Input } from "@elaraai/east-ui";
+import { Input } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { CalendarDate, Time, type DateValue } from "@internationalized/date";
 import {

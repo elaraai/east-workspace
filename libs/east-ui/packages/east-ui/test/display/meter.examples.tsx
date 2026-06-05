@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { Meter, Text } from "@elaraai/east-ui/jsx";
+import { Meter, Text } from "@elaraai/east-ui";
 
 export const meterBasic = example({
     keywords: ["Meter", "Root", "value"],

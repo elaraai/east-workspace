@@ -5,7 +5,7 @@
 
 import { memo, useCallback } from "react";
 import { type ValueTypeOf, some, none, variant, match } from "@elaraai/east";
-import { Slice } from "@elaraai/east-ui";
+import { Slice } from "@elaraai/east-ui/internal";
 import { EastVisxChart } from "../../charts/spec";
 import { getSomeorUndefined } from "../../utils";
 import { useSliceReactivity } from "../use-slice-reactivity";

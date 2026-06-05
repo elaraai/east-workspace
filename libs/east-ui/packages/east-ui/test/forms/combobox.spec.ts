@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Combobox, Style } from "@elaraai/east-ui";
+import { Combobox, Style } from "@elaraai/east-ui/internal";
 import * as ex from "./combobox.examples.js";
 
 describeEast("Combobox", (test) => {

@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Separator } from "@elaraai/east-ui";
+import { Separator } from "@elaraai/east-ui/internal";
 import * as ex from "./separator.examples.js";
 
 describeEast("Separator", (test) => {

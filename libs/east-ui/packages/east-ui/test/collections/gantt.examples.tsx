@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, DateTimeType, IntegerType, NullType, StringType, variant, example } from "@elaraai/east";
 import { State, Style, UIComponentType } from "@elaraai/east-ui";
-import { Badge, Gantt, Reactive, Table, Text, VStack } from "@elaraai/east-ui/jsx";
+import { Badge, Gantt, Reactive, Table, Text, VStack } from "@elaraai/east-ui";
 
 export const ganttBasic = example({
     keywords: ["Gantt", "Root", "Task", "basic", "timeline"],

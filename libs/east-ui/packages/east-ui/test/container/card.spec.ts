@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Card, Text, Button } from "@elaraai/east-ui";
+import { Card, Text, Button } from "@elaraai/east-ui/internal";
 import * as ex from "./card.examples.js";
 
 describeEast("Card", (test) => {

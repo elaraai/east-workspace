@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, NullType, OptionType, StringType, example, none } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { TagsInput, Text, VStack, Reactive } from "@elaraai/east-ui/jsx";
+import { TagsInput, Text, VStack, Reactive } from "@elaraai/east-ui";
 
 export const tagsInputBasic = example({
     keywords: ["TagsInput", "Root", "label", "placeholder", "max"],

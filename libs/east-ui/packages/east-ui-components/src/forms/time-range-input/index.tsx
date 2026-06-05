@@ -7,7 +7,7 @@ import { memo, useCallback, useState, useEffect, useMemo } from "react";
 import { HStack, VStack, Wrap, Button, Text, Box } from "@chakra-ui/react";
 import { Time } from "@internationalized/date";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { TimeRangeInput } from "@elaraai/east-ui";
+import { TimeRangeInput } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { TimeField, TimeInput, TimeSegment } from "../input/date";
 

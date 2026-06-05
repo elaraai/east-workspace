@@ -15,7 +15,7 @@ import {
     Progress,
     Tag,
     UIComponentType,
-} from "../src/index.js";
+} from "@elaraai/east-ui/internal";
 
 describeEast("UIComponentType - Nested Components", (test) => {
     test("creates nested dashboard layout", $ => {

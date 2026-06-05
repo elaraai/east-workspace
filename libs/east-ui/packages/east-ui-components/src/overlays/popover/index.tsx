@@ -6,7 +6,7 @@
 import { memo, useMemo, useCallback } from "react";
 import { Popover as ChakraPopover, Portal } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Popover } from "@elaraai/east-ui";
+import { Popover } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 

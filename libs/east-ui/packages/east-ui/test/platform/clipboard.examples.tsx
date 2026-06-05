@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, NullType, StringType, example } from "@elaraai/east";
 import { Clipboard, State, UIComponentType } from "@elaraai/east-ui";
-import { Button, Reactive, Text, VStack } from "@elaraai/east-ui/jsx";
+import { Button, Reactive, Text, VStack } from "@elaraai/east-ui";
 
 export const clipboardCopyButton = example({
     keywords: ["Clipboard", "copy", "Button", "onClick"],

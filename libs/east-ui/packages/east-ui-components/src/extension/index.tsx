@@ -16,7 +16,7 @@
 import { memo, useMemo } from "react";
 import { Box, Text } from "@chakra-ui/react";
 import { type ValueTypeOf } from "@elaraai/east";
-import { UIComponentType } from "@elaraai/east-ui";
+import { UIComponentType } from "@elaraai/east-ui/internal";
 
 import { getExtensionEntry } from "./registry.js";
 

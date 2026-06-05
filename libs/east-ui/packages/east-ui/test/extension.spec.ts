@@ -5,7 +5,7 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { East, StructType, StringType, IntegerType, OptionType, encodeBeast2For, decodeBeast2For, equalFor, some } from "@elaraai/east";
-import { EastUI, UIComponentType } from "@elaraai/east-ui";
+import { EastUI, UIComponentType } from "@elaraai/east-ui/internal";
 import * as ex from "./extension.examples.js";
 
 describeEast("EastUI.component (extension API)", (test) => {

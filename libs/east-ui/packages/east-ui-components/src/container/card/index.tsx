@@ -16,7 +16,7 @@ import {
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faInbox, faTriangleExclamation, faLock, faClock } from "@fortawesome/free-solid-svg-icons";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Card } from "@elaraai/east-ui";
+import { Card } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 

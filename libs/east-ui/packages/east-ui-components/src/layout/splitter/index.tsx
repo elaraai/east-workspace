@@ -7,7 +7,7 @@ import React, { memo, useMemo, useCallback } from "react";
 import { usePersistedState } from "../../hooks/usePersistedState";
 import { Splitter as ChakraSplitter } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Splitter } from "@elaraai/east-ui";
+import { Splitter } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 

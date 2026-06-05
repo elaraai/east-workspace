@@ -23,7 +23,7 @@
 
 import type { ComponentType } from "react";
 import { type EastType, type ValueTypeOf, decodeBeast2For } from "@elaraai/east";
-import type { UIComponentDef } from "@elaraai/east-ui";
+import type { UIComponentDef } from "@elaraai/east-ui/internal";
 
 /**
  * The shape of the component renderer the dispatcher expects. The renderer

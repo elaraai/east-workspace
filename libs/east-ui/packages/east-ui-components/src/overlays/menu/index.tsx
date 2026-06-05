@@ -6,7 +6,7 @@
 import { memo, useMemo } from "react";
 import { Menu as ChakraMenu, Portal } from "@chakra-ui/react";
 import { equalFor, match, type ValueTypeOf } from "@elaraai/east";
-import { Menu } from "@elaraai/east-ui";
+import { Menu } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 

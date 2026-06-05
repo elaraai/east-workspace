@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, IntegerType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { IconButton, Reactive, VStack, Stat } from "@elaraai/east-ui/jsx";
+import { IconButton, Reactive, VStack, Stat } from "@elaraai/east-ui";
 
 export const iconButtonBasic = example({
     keywords: ["IconButton", "Root", "label", "aria-label", "close"],

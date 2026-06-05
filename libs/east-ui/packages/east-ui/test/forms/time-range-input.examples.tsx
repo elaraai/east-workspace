@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, IntegerType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Text, TimeRangeInput, VStack, Reactive } from "@elaraai/east-ui/jsx";
+import { Text, TimeRangeInput, VStack, Reactive } from "@elaraai/east-ui";
 
 export const timeRangeInputBasic = example({
     keywords: ["TimeRangeInput", "Root", "shift", "time", "range"],

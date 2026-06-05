@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { EmptyState, Text, Button } from "@elaraai/east-ui";
+import { EmptyState, Text, Button } from "@elaraai/east-ui/internal";
 import * as ex from "./empty-state.examples.js";
 
 describeEast("EmptyState", (test) => {

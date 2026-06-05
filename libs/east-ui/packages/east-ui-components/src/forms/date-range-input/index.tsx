@@ -7,7 +7,7 @@ import { memo, useCallback, useState, useEffect, useMemo, useRef } from "react";
 import { HStack, VStack, Wrap, Button, Text, Box } from "@chakra-ui/react";
 import { CalendarDate, Time, type DateValue } from "@internationalized/date";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { DateRangeInput } from "@elaraai/east-ui";
+import { DateRangeInput } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import {
     CompoundDateField,

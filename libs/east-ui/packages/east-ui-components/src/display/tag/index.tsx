@@ -6,7 +6,7 @@
 import { memo, useMemo, useCallback } from "react";
 import { Tag as ChakraTag, type TagRootProps } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Tag } from "@elaraai/east-ui";
+import { Tag } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 
 const tagEqual = equalFor(Tag.Types.Tag);

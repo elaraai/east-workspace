@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, BooleanType, IntegerType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { HStack, IconButton, Reactive, Text, ToggleTip, VStack } from "@elaraai/east-ui/jsx";
+import { HStack, IconButton, Reactive, Text, ToggleTip, VStack } from "@elaraai/east-ui";
 
 export const toggleTipBasic = example({
     keywords: ["ToggleTip", "Root", "Icon", "accessible", "click"],

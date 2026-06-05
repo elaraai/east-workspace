@@ -26,7 +26,7 @@ import {
     type ColumnDef,
 } from "@tanstack/react-table";
 import { compareFor, equalFor, printFor, variant, type ValueTypeOf } from "@elaraai/east";
-import { Gantt, Table, type UIComponentType } from "@elaraai/east-ui";
+import { Gantt, Table, type UIComponentType } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 import { useRowStatusBg, useDensityHeights } from "../shared/helpers";

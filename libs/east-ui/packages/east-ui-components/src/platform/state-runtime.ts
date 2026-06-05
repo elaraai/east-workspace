@@ -15,7 +15,7 @@ import {
     decodeBeast2For,
 } from "@elaraai/east";
 import { type PlatformFunction } from "@elaraai/east/internal";
-import { State } from "@elaraai/east-ui";
+import { State } from "@elaraai/east-ui/internal";
 import { UIStore, type UIStoreInterface } from "./state-store.js";
 import { registerReactiveTracker } from "../reactive/tracker.js";
 import { registerPlatformImplementation } from "./registry.js";

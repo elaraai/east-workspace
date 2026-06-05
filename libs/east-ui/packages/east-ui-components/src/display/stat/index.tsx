@@ -8,7 +8,7 @@ import { Stat as ChakraStat, HStack, Box } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-svg-core";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Stat } from "@elaraai/east-ui";
+import { Stat } from "@elaraai/east-ui/internal";
 import { EastChakraComponent } from "../../component";
 import { getSomeorUndefined } from "../../utils";
 import { formatTick } from "../../typography/numeric/format-tick";

@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { CopyButton } from "@elaraai/east-ui";
+import { CopyButton } from "@elaraai/east-ui/internal";
 import * as ex from "./copy-button.examples.js";
 
 describeEast("CopyButton", (test) => {

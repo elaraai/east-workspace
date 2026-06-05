@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Collapsible, Text } from "@elaraai/east-ui";
+import { Collapsible, Text } from "@elaraai/east-ui/internal";
 import * as ex from "./collapsible.examples.js";
 
 describeEast("Collapsible", (test) => {

@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, BooleanType, IntegerType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Avatar, Badge, Button, HoverCard, HStack, Reactive, Text, VStack } from "@elaraai/east-ui/jsx";
+import { Avatar, Badge, Button, HoverCard, HStack, Reactive, Text, VStack } from "@elaraai/east-ui";
 
 export const hoverCardProfile = example({
     keywords: ["HoverCard", "Root", "Avatar", "Badge", "profile"],

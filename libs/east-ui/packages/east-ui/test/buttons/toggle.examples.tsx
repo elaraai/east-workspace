@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, BooleanType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Toggle, HStack, Text, Reactive } from "@elaraai/east-ui/jsx";
+import { Toggle, HStack, Text, Reactive } from "@elaraai/east-ui";
 
 export const toggleGridlines = example({
     keywords: ["Toggle", "Root", "pressed", "toolbar", "gridlines"],

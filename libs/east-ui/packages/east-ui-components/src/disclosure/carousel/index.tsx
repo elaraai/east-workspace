@@ -12,7 +12,7 @@ import {
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronLeft, faChevronRight } from "@fortawesome/free-solid-svg-icons";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Carousel } from "@elaraai/east-ui";
+import { Carousel } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 

@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { Button, ButtonGroup, IconButton } from "@elaraai/east-ui/jsx";
+import { Button, ButtonGroup, IconButton } from "@elaraai/east-ui";
 
 // NOTE: Chakra v3's <Group> does NOT propagate `variant` / `size` /
 // `colorPalette` to descendant buttons — set those on EACH child Button

@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Carousel, Text } from "@elaraai/east-ui";
+import { Carousel, Text } from "@elaraai/east-ui/internal";
 import * as ex from "./carousel.examples.js";
 
 describeEast("Carousel", (test) => {

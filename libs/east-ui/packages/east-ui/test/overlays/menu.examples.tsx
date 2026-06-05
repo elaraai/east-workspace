@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { Button, IconButton, Menu } from "@elaraai/east-ui/jsx";
+import { Button, IconButton, Menu } from "@elaraai/east-ui";
 
 export const menuBasic = example({
     keywords: ["Menu", "Root", "Item", "Separator", "dropdown", "kebab"],

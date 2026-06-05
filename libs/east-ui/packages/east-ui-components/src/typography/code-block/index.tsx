@@ -8,7 +8,7 @@ import { Box, IconButton, Text, Flex } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCopy } from "@fortawesome/free-solid-svg-icons";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { CodeBlock } from "@elaraai/east-ui";
+import { CodeBlock } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 
 // Pre-define the equality function at module level

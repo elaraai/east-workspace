@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Grid, Style, Text } from "@elaraai/east-ui";
+import { Grid, Style, Text } from "@elaraai/east-ui/internal";
 import * as ex from "./grid.examples.js";
 
 describeEast("Grid", (test) => {

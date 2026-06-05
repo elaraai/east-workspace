@@ -5,7 +5,7 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { East, IntegerType, NullType } from "@elaraai/east";
-import { Pagination, UIComponentType } from "@elaraai/east-ui";
+import { Pagination, UIComponentType } from "@elaraai/east-ui/internal";
 import * as ex from "./pagination.examples.js";
 
 describeEast("Pagination", (test) => {

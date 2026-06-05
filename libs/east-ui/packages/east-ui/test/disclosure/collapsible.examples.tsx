@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, BooleanType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Box, Collapsible, Text, VStack, Reactive } from "@elaraai/east-ui/jsx";
+import { Box, Collapsible, Text, VStack, Reactive } from "@elaraai/east-ui";
 
 export const collapsibleWhy = example({
     keywords: ["Collapsible", "Root", "why", "show more", "inline drawer"],

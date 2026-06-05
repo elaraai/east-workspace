@@ -15,7 +15,7 @@ import {
     type IconDefinition,
 } from "@fortawesome/free-solid-svg-icons";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Matrix } from "@elaraai/east-ui";
+import { Matrix } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { usePersistedState } from "../../hooks/usePersistedState";
 import { EastChakraComponent } from "../../component";

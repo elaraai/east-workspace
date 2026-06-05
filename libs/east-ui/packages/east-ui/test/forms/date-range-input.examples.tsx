@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, DateTimeType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { DateRangeInput, Text, VStack, Reactive } from "@elaraai/east-ui/jsx";
+import { DateRangeInput, Text, VStack, Reactive } from "@elaraai/east-ui";
 
 export const dateRangeInputBasic = example({
     keywords: ["DateRangeInput", "Root", "date", "range", "basic"],

@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, IntegerType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Pagination, Reactive } from "@elaraai/east-ui/jsx";
+import { Pagination, Reactive } from "@elaraai/east-ui";
 
 export const paginationBasic = example({
     keywords: ["Pagination", "Root", "page", "basic", "Reactive", "State"],

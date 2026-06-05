@@ -6,7 +6,7 @@
 import { memo, useCallback, useState, useEffect } from "react";
 import { SegmentGroup } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf, variant } from "@elaraai/east";
-import { TimeScaleControl } from "@elaraai/east-ui";
+import { TimeScaleControl } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 
 const timeScaleControlEqual = equalFor(TimeScaleControl.Types.Root);
