@@ -13,6 +13,8 @@ import { noRelativeSrcImport } from "./no-relative-src-import.js";
 import { noLetConstInExpression } from "./no-let-const-in-expression.js";
 import { noUnexecutedEastExpression } from "./no-unexecuted-east-expression.js";
 import { noReinlinedEastBinding } from "./no-reinlined-east-binding.js";
+import { noEastDataBuilderHelper } from "./no-east-data-builder-helper.js";
+import { preferJsxOverFactoryCall } from "./prefer-jsx-over-factory-call.js";
 
 export { noRedundantEastCast } from "./no-redundant-east-cast.js";
 export { preferExplicitEastType } from "./prefer-explicit-east-type.js";
@@ -23,6 +25,9 @@ export { preferLetConstOverEastValue } from "./prefer-let-const-over-east-value.
 export { noRelativeSrcImport } from "./no-relative-src-import.js";
 export { noLetConstInExpression } from "./no-let-const-in-expression.js";
 export { noUnexecutedEastExpression } from "./no-unexecuted-east-expression.js";
+export { noReinlinedEastBinding } from "./no-reinlined-east-binding.js";
+export { noEastDataBuilderHelper } from "./no-east-data-builder-helper.js";
+export { preferJsxOverFactoryCall } from "./prefer-jsx-over-factory-call.js";
 
 export const allRules: readonly EastRule[] = [
   noRedundantEastCast,
@@ -35,4 +40,6 @@ export const allRules: readonly EastRule[] = [
   noLetConstInExpression,
   noUnexecutedEastExpression,
   noReinlinedEastBinding,
+  noEastDataBuilderHelper,
+  preferJsxOverFactoryCall,
 ];
