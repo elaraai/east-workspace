@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join, dirname, resolve } from "node:path";
 import { readHookInput, writeHookOutput } from "../lib/hook-io.js";
-import { getEastProjectInfo } from "../lib/east-project.js";
+import { getEastProjectInfo, isElaraaiPackageSrc } from "../lib/east-project.js";
 import { getDiagnosticsText } from "../lib/diagnostics-client.js";
 
 const EAST_IMPORT_PATTERN = /@elaraai\/east/;
@@ -27,6 +27,10 @@ async function main() {
   if (!filePath.endsWith(".ts") && !filePath.endsWith(".tsx") && !filePath.endsWith(".js")) {
     process.exit(0);
   }
+  // Don't review first-party @elaraai/* library src — its factories legitimately
+  // use East-construction patterns the rules flag. End-user solutions and the
+  // monorepo's examples (under test/, not src/) are still reviewed.
+  if (await isElaraaiPackageSrc(filePath)) process.exit(0);
 
   let content: string;
   try {

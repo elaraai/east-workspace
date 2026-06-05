@@ -231,22 +231,41 @@ var noEastNamespacedType = {
   }
 };
 
-// ../east-diagnostics/dist/src/rules/prefer-let-const-over-east-value.js
-var NAME6 = "prefer-let-const-over-east-value";
-var CODE6 = 990006;
-function insideEastFunctionBody(node, t) {
+// ../east-diagnostics/dist/src/block-scope.js
+function isEastFunctionCall(node, t) {
+  if (!t.isCallExpression(node))
+    return false;
+  const callee = node.expression;
+  return t.isPropertyAccessExpression(callee) && t.isIdentifier(callee.expression) && callee.expression.text === "East" && (callee.name.text === "function" || callee.name.text === "asyncFunction");
+}
+function isBlockBuilderCallback(node, ctx) {
+  const t = ctx.ts;
+  if (!t.isArrowFunction(node) && !t.isFunctionExpression(node))
+    return false;
+  const first = node.parameters[0];
+  if (first === void 0)
+    return false;
+  return isBlockBuilderType(ctx.checker.getTypeAtLocation(first.name));
+}
+function enclosingBlockScope(node, ctx) {
+  const t = ctx.ts;
+  let outermost;
   let current = node.parent;
   while (current !== void 0) {
-    if (t.isCallExpression(current)) {
-      const callee = current.expression;
-      if (t.isPropertyAccessExpression(callee) && t.isIdentifier(callee.expression) && callee.expression.text === "East" && (callee.name.text === "function" || callee.name.text === "asyncFunction")) {
-        return true;
-      }
+    if (isEastFunctionCall(current, t) || isBlockBuilderCallback(current, ctx)) {
+      outermost = current;
     }
     current = current.parent;
   }
-  return false;
+  return outermost;
 }
+function insideBlockScope(node, ctx) {
+  return enclosingBlockScope(node, ctx) !== void 0;
+}
+
+// ../east-diagnostics/dist/src/rules/prefer-let-const-over-east-value.js
+var NAME6 = "prefer-let-const-over-east-value";
+var CODE6 = 990006;
 var preferLetConstOverEastValue = {
   name: NAME6,
   code: CODE6,
@@ -268,7 +287,7 @@ var preferLetConstOverEastValue = {
     const asCallbackBody = parent !== void 0 && t.isArrowFunction(parent) && parent.body === node && parent.parent !== void 0 && t.isCallExpression(parent.parent) && parent.parent.arguments.some((arg) => arg === parent);
     if (!asDeclaration && !asReturn && !asCallbackBody)
       return;
-    if (!insideEastFunctionBody(node, t))
+    if (!insideBlockScope(node, ctx))
       return;
     const sf = ctx.sourceFile;
     const start = node.getStart(sf);
@@ -278,7 +297,7 @@ var preferLetConstOverEastValue = {
       code: CODE6,
       start,
       length: node.getEnd() - start,
-      messageText: asCallbackBody ? "Don't wrap a callback's return in `East.value(...)` \u2014 the callback's expected element type already supplies the East type. Return the plain value." : asReturn ? "Don't `return East.value(...)` \u2014 it erases the East type. Bind the value with `$.let`/`$.const` (passing the East type) and return that variable." : "Inside an East.function block, declare with `$.const(value, Type)` / `$.let(value, Type)` instead of `East.value(...)`, which erases the East type at the call site.",
+      messageText: asCallbackBody ? "Don't wrap a callback's return in `East.value(...)` \u2014 the callback's expected element type already supplies the East type. Return the plain value." : asReturn ? "Don't `return East.value(...)` \u2014 it erases the East type. Bind the value with `$.let`/`$.const` (passing the East type) and return that variable." : "Inside an East block, declare with `$.const(value, Type)` / `$.let(value, Type)` instead of `East.value(...)`, which erases the East type at the call site.",
       category: "suggestion",
       ...asCallbackBody && inner !== void 0 ? {
         fix: {
@@ -409,19 +428,6 @@ var noUnexecutedEastExpression = {
 // ../east-diagnostics/dist/src/rules/no-reinlined-east-binding.js
 var NAME10 = "no-reinlined-east-binding";
 var CODE10 = 990010;
-function enclosingEastFunctionCall(node, t) {
-  let current = node.parent;
-  while (current !== void 0) {
-    if (t.isCallExpression(current)) {
-      const callee = current.expression;
-      if (t.isPropertyAccessExpression(callee) && t.isIdentifier(callee.expression) && callee.expression.text === "East" && (callee.name.text === "function" || callee.name.text === "asyncFunction")) {
-        return current;
-      }
-    }
-    current = current.parent;
-  }
-  return void 0;
-}
 var noReinlinedEastBinding = {
   name: NAME10,
   code: CODE10,
@@ -451,7 +457,7 @@ var noReinlinedEastBinding = {
     const visit = (n) => {
       if (t.isIdentifier(n) && n !== node.name && n.text === name) {
         if (ctx.checker.getSymbolAtLocation(n) === declSymbol) {
-          const body = enclosingEastFunctionCall(n, t);
+          const body = enclosingBlockScope(n, ctx);
           if (body !== void 0)
             perBody.set(body, (perBody.get(body) ?? 0) + 1);
         }
@@ -478,6 +484,164 @@ var noReinlinedEastBinding = {
   }
 };
 
+// ../east-diagnostics/dist/src/rules/no-east-data-builder-helper.js
+var NAME11 = "no-east-data-builder-helper";
+var CODE11 = 990011;
+var VALUE_CONSTRUCTORS = /* @__PURE__ */ new Set(["variant", "some"]);
+function isEastValueConstructor(expr, t) {
+  if (t.isCallExpression(expr)) {
+    const callee = expr.expression;
+    if (t.isIdentifier(callee) && VALUE_CONSTRUCTORS.has(callee.text))
+      return true;
+    return t.isPropertyAccessExpression(callee) && t.isIdentifier(callee.expression) && callee.expression.text === "East" && callee.name.text === "value";
+  }
+  return t.isIdentifier(expr) && expr.text === "none";
+}
+function returnExpressions(fn, t) {
+  if (fn.body === void 0)
+    return [];
+  if (!t.isBlock(fn.body))
+    return [fn.body];
+  const out = [];
+  const visit = (n) => {
+    if (t.isFunctionDeclaration(n) || t.isFunctionExpression(n) || t.isArrowFunction(n))
+      return;
+    if (t.isReturnStatement(n) && n.expression !== void 0)
+      out.push(n.expression);
+    t.forEachChild(n, visit);
+  };
+  t.forEachChild(fn.body, visit);
+  return out;
+}
+function isBuilderFunction(fn, ctx) {
+  const t = ctx.ts;
+  const first = fn.parameters[0];
+  if (first !== void 0 && isBlockBuilderType(ctx.checker.getTypeAtLocation(first.name))) {
+    return false;
+  }
+  const returns = returnExpressions(fn, t);
+  return returns.length > 0 && returns.every((r) => isEastValueConstructor(r, t));
+}
+var noEastDataBuilderHelper = {
+  name: NAME11,
+  code: CODE11,
+  description: "Flag a TS helper whose only job is to return a hand-built East value (variant/some/none/East.value) \u2014 inline it or make it a real East.function.",
+  check(node, ctx) {
+    const t = ctx.ts;
+    let fn;
+    let reportNode;
+    if (t.isFunctionDeclaration(node) && node.body !== void 0) {
+      fn = node;
+      reportNode = node.name ?? node;
+    } else if (t.isVariableDeclaration(node) && node.initializer !== void 0 && (t.isArrowFunction(node.initializer) || t.isFunctionExpression(node.initializer))) {
+      fn = node.initializer;
+      reportNode = node.name;
+    }
+    if (fn === void 0 || reportNode === void 0)
+      return;
+    if (!isBuilderFunction(fn, ctx))
+      return;
+    const sf = ctx.sourceFile;
+    const start = reportNode.getStart(sf);
+    ctx.report({
+      ruleName: NAME11,
+      code: CODE11,
+      start,
+      length: reportNode.getEnd() - start,
+      messageText: "This helper just returns a hand-built East value (`variant`/`some`/`none`/`East.value`), so it is an authoring-time macro, not a real East function. Inline the constructor at each call site (repetition is welcome), or make it a real `East.function` if you need a reusable East computation.",
+      category: "warning"
+    });
+  }
+};
+
+// ../east-diagnostics/dist/src/rules/prefer-jsx-over-factory-call.js
+var NAME12 = "prefer-jsx-over-factory-call";
+var CODE12 = 990012;
+var FACTORY_TO_TAG_ENTRY = {
+  "@elaraai/east-ui/internal": "@elaraai/east-ui",
+  "@elaraai/e3-ui/internal": "@elaraai/e3-ui"
+};
+function importSpecifierOf(ident, ctx) {
+  const t = ctx.ts;
+  const symbol = ctx.checker.getSymbolAtLocation(ident);
+  for (const decl of symbol?.declarations ?? []) {
+    if (!t.isImportSpecifier(decl) && !t.isImportClause(decl))
+      continue;
+    let n = decl;
+    while (n.parent !== void 0 && !t.isImportDeclaration(n))
+      n = n.parent;
+    if (t.isImportDeclaration(n) && t.isStringLiteral(n.moduleSpecifier)) {
+      return n.moduleSpecifier.text;
+    }
+  }
+  return void 0;
+}
+var tagExportCache = /* @__PURE__ */ new WeakMap();
+function tagExports(tagEntry, ctx) {
+  const t = ctx.ts;
+  const sf = ctx.sourceFile;
+  let perFile = tagExportCache.get(sf);
+  if (perFile === void 0) {
+    perFile = /* @__PURE__ */ new Map();
+    tagExportCache.set(sf, perFile);
+  }
+  const cached = perFile.get(tagEntry);
+  if (cached !== void 0)
+    return cached;
+  const names = /* @__PURE__ */ new Set();
+  for (const stmt of sf.statements) {
+    if (!t.isImportDeclaration(stmt) || !t.isStringLiteral(stmt.moduleSpecifier))
+      continue;
+    if (stmt.moduleSpecifier.text !== tagEntry)
+      continue;
+    const moduleSymbol = ctx.checker.getSymbolAtLocation(stmt.moduleSpecifier);
+    if (moduleSymbol === void 0)
+      continue;
+    for (const exp of ctx.checker.getExportsOfModule(moduleSymbol))
+      names.add(exp.name);
+  }
+  perFile.set(tagEntry, names);
+  return names;
+}
+var preferJsxOverFactoryCall = {
+  name: NAME12,
+  code: CODE12,
+  description: "In a .tsx file, prefer the <Foo> JSX tag over an east-ui / e3-ui factory's Foo.Root(...) when the tag exists.",
+  check(node, ctx) {
+    const t = ctx.ts;
+    if (ctx.sourceFile.languageVariant !== t.LanguageVariant.JSX)
+      return;
+    if (!t.isCallExpression(node))
+      return;
+    const callee = node.expression;
+    if (!t.isPropertyAccessExpression(callee))
+      return;
+    if (callee.name.text !== "Root")
+      return;
+    if (!t.isIdentifier(callee.expression))
+      return;
+    const factoryIdent = callee.expression;
+    const from = importSpecifierOf(factoryIdent, ctx);
+    if (from === void 0)
+      return;
+    const tagEntry = FACTORY_TO_TAG_ENTRY[from];
+    if (tagEntry === void 0)
+      return;
+    if (!tagExports(tagEntry, ctx).has(factoryIdent.text))
+      return;
+    const sf = ctx.sourceFile;
+    const start = callee.getStart(sf);
+    ctx.report({
+      ruleName: NAME12,
+      code: CODE12,
+      start,
+      length: callee.getEnd() - start,
+      messageText: `Author this with the \`<${factoryIdent.text}>\` JSX tag (from \`${tagEntry}\`) instead of \`${factoryIdent.text}.Root(...)\` \u2014 in a .tsx file the JSX tag is the authoring surface.`,
+      category: "suggestion"
+    });
+  }
+};
+
 // ../east-diagnostics/dist/src/rules/index.js
 var allRules = [
   noRedundantEastCast,
@@ -489,7 +653,9 @@ var allRules = [
   noRelativeSrcImport,
   noLetConstInExpression,
   noUnexecutedEastExpression,
-  noReinlinedEastBinding
+  noReinlinedEastBinding,
+  noEastDataBuilderHelper,
+  preferJsxOverFactoryCall
 ];
 
 // ../east-diagnostics/dist/src/run.js

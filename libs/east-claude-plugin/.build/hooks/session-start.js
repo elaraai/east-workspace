@@ -18,7 +18,7 @@ function writeHookOutput(hookEventName, additionalContext) {
 
 // lib/east-project.ts
 import { readFile } from "node:fs/promises";
-import { join, dirname } from "node:path";
+import { join, dirname, resolve } from "node:path";
 var PACKAGE_SKILL_MAP = {
   "@elaraai/east": "east",
   "@elaraai/east-node-std": "east-node-std",
@@ -67,14 +67,14 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { existsSync, unlinkSync } from "node:fs";
-import { dirname as dirname2, join as join2, resolve } from "node:path";
+import { dirname as dirname2, join as join2, resolve as resolve2 } from "node:path";
 import { fileURLToPath } from "node:url";
 function daemonSocket() {
   const hash = createHash("sha1").update(daemonEntry()).digest("hex").slice(0, 16);
   return join2(tmpdir(), `east-diag-${hash}.sock`);
 }
 function daemonEntry() {
-  return resolve(dirname2(fileURLToPath(import.meta.url)), "..", "daemon", "server.js");
+  return resolve2(dirname2(fileURLToPath(import.meta.url)), "..", "daemon", "server.js");
 }
 function spawnDaemon(socketPath, workspace) {
   const entry = daemonEntry();
