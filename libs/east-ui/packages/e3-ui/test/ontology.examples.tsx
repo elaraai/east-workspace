@@ -20,9 +20,8 @@
  */
 
 import { East, none, some, variant, example } from '@elaraai/east';
-import { UIComponentType } from '@elaraai/east-ui';
-import { Card, Diff, HStack, Ontology, Reactive, Text, VStack } from '@elaraai/e3-ui/jsx';
-import { Data, OntologyType } from '@elaraai/e3-ui';
+import { Card, HStack, Reactive, Text, UIComponentType, VStack } from '@elaraai/east-ui';
+import { Data, Diff, Ontology, OntologyType } from '@elaraai/e3-ui';
 import * as e3 from '@elaraai/e3';
 
 // ============================================================================

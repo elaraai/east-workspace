@@ -262,4 +262,10 @@ export const Diff = {
      * touch this directly.
      */
     Component: DiffComponent,
+    Types: {
+        /** Rendered Diff payload struct (bindings + style). */
+        Payload: DiffPayloadType,
+        /** Visual-presentation sub-struct (density, layout). */
+        Style: DiffStyleType,
+    },
 } as const;

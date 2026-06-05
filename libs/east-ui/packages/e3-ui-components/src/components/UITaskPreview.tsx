@@ -30,7 +30,7 @@ import type { ValueTypeOf } from '@elaraai/east';
 import type { UIComponentType } from '@elaraai/east-ui';
 import type { PlatformFunction } from '@elaraai/east/internal';
 import type { TreePath } from '@elaraai/e3-types';
-import { decodeManifest } from '@elaraai/e3-ui';
+import { decodeManifest } from '@elaraai/e3-ui/internal';
 import {
     useReactiveDatasetCacheOptional,
     usePreloadReactiveDatasets,

@@ -9,13 +9,9 @@
       "types": "./dist/src/index.d.ts",
       "default": "./dist/src/index.js"
     },
-    "./ui": {
-      "types": "./dist/src/ui.d.ts",
-      "default": "./dist/src/ui.js"
-    },
-    "./jsx": {
-      "types": "./dist/src/runtime/index.d.ts",
-      "default": "./dist/src/runtime/index.js"
+    "./internal": {
+      "types": "./dist/src/internal.d.ts",
+      "default": "./dist/src/internal.js"
     },
     "./jsx-runtime": {
       "types": "./dist/src/runtime/runtime.d.ts",

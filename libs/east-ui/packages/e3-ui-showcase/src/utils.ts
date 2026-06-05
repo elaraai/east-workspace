@@ -12,7 +12,7 @@
  */
 
 import e3 from '@elaraai/e3';
-import { ui } from '@elaraai/e3-ui/ui';
+import { ui } from '@elaraai/e3-ui';
 
 import type { Runner } from '@elaraai/e3';
 

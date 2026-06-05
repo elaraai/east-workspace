@@ -46,10 +46,9 @@ import {
 } from "@elaraai/east";
 import {
     Card, HStack, VStack, Slider, Input, Switch, Select, Text, Button,
-    Reactive, Table, Diff,
-} from "@elaraai/e3-ui/jsx";
-import { Data } from "@elaraai/e3-ui";
-import { UIComponentType } from "@elaraai/east-ui";
+    Reactive, Table, UIComponentType,
+} from "@elaraai/east-ui";
+import { Data, Diff } from "@elaraai/e3-ui";
 import * as e3 from "@elaraai/e3";
 
 // ============================================================================

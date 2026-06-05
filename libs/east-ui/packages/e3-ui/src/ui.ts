@@ -19,15 +19,11 @@ import {
   type EastType,
   type CallableFunctionExpr,
   type CallableAsyncFunctionExpr,
+  type variant,
 } from '@elaraai/east';
 import type { TreePath } from '@elaraai/e3-types';
 import { encodeManifest } from './manifest.js';
 import { deriveManifest } from './derive.js';
-
-// Re-export the JSX component tags (Box, VStack, Text, Button, …) so the
-// author-side entry `@elaraai/e3-ui/ui` is a single import for both `ui()`
-// and the JSX tags used inside it.
-export * from './runtime/index.js';
 
 /**
  * Create a UI task — an e3 task that produces a UIComponentType value.
@@ -67,17 +63,21 @@ export * from './runtime/index.js';
  * ```
  */
 export function ui<
+  Name extends string,
   Inputs extends readonly DatasetDef[],
   O extends EastType = typeof UIComponentType,
 >(
-  name: string,
+  name: Name,
   inputs: [...Inputs],
   fn: CallableFunctionExpr<any, O> | CallableAsyncFunctionExpr<any, O>,
   options?: {
     runner?: Runner,
   },
-): TaskDef {
-  return buildUiTask(name, inputs, fn, options);
+): TaskDef<O, [variant<'field', 'tasks'>, variant<'field', Name>, variant<'field', 'output'>]> {
+  return buildUiTask(name, inputs, fn, options) as TaskDef<
+    O,
+    [variant<'field', 'tasks'>, variant<'field', Name>, variant<'field', 'output'>]
+  >;
 }
 
 function buildUiTask(

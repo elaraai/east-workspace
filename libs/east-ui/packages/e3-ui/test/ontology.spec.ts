@@ -5,8 +5,9 @@
 
 import { describeEast, Assert, TestImpl } from '@elaraai/east-node-std';
 import { East, none } from '@elaraai/east';
-import { Reactive, UIComponentType } from '@elaraai/east-ui';
-import { Data, Ontology, OntologyType } from '@elaraai/e3-ui';
+import { Reactive, UIComponentType } from '@elaraai/east-ui/internal';
+import { Data, OntologyType } from '@elaraai/e3-ui';
+import { Ontology } from '@elaraai/e3-ui/internal';
 import * as e3 from '@elaraai/e3';
 import * as ex from './ontology.examples.js';
 

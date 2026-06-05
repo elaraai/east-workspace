@@ -398,4 +398,22 @@ export const Ontology = {
      * factory) and never touch this directly.
      */
     Component: OntologyComponent,
+    Types: {
+        /** Rendered Ontology payload struct (binding + style). */
+        Payload: OntologyPayloadType,
+        /** Visual-presentation sub-struct (density, readonly, …). */
+        Style: OntologyStyleType,
+        /** The bound graph value type. */
+        Ontology: OntologyType,
+        /** Node struct. */
+        Node: NodeType,
+        /** Link struct. */
+        Link: LinkType,
+        /** Node-kind variant enum. */
+        NodeKind: NodeKindType,
+        /** Link-kind variant enum. */
+        LinkKind: LinkKindType,
+        /** Optional ontology metadata struct. */
+        Metadata: OntologyMetadataType,
+    },
 } as const;

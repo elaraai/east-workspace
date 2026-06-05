@@ -4,9 +4,8 @@
  */
 /** @jsxImportSource @elaraai/e3-ui */
 import { East, FloatType, FunctionType, IntegerType, NullType, StringType, PatchType, variant, example } from "@elaraai/east";
-import { UIComponentType } from "@elaraai/east-ui";
+import { Button, Input, Reactive, Slider, Stat, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Data } from "@elaraai/e3-ui";
-import { Button, Input, Reactive, Slider, Stat, Text, VStack } from "@elaraai/e3-ui/jsx";
 import * as e3 from "@elaraai/e3";
 
 export const thresholdInput      = e3.input('threshold',       FloatType, 50.0);

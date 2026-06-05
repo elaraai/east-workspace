@@ -5,7 +5,7 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { East, FloatType, NullType, variant } from "@elaraai/east";
-import { Reactive, Stat, Button, UIComponentType } from "@elaraai/east-ui";
+import { Reactive, Stat, Button, UIComponentType } from "@elaraai/east-ui/internal";
 import { Data } from "@elaraai/e3-ui";
 import * as ex from "./data.examples.js";
 

@@ -9,10 +9,10 @@ import assert from "node:assert/strict";
 import { East, FloatType, equalFor, variant } from "@elaraai/east";
 import { TreePathType } from "@elaraai/e3-types";
 import { input } from "@elaraai/e3";
-import { Reactive, UIComponentType, Text } from "@elaraai/east-ui";
+import { Reactive, UIComponentType, Text } from "@elaraai/east-ui/internal";
 
 import { decodeManifest, DataManifestType, Data } from "@elaraai/e3-ui";
-import { ui } from "@elaraai/e3-ui/ui";
+import { ui } from "@elaraai/e3-ui";
 
 const pathEqual = equalFor(TreePathType);
 const manifestEqual = equalFor(DataManifestType);
