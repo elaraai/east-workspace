@@ -43,7 +43,7 @@ describeEast("JSX tag combinators", (test) => {
     test("shape-3 Button desugars to Button.Root", ($) => {
         $(Assert.equal(
             <Button variant="solid" colorPalette="blue">Save</Button>,
-            ButtonF.Root("Save", { style: { variant: "solid", colorPalette: "blue" } }),
+            ButtonF.Root("Save", { variant: "solid", colorPalette: "blue" }),
         ));
     });
 
