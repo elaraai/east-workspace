@@ -4,11 +4,7 @@
  */
 
 /**
- * Collection `<Matrix>` tag — schema-typed cell matrix. Maps to `Matrix.Root`.
- *
- * Generic like `<Table>`: threads the data-row generic `T` so the config
- * closures (`rowKey` / `cell` / `rowValue` / `groupBy` …) stay inferred from
- * the data schema. `data` is a flat prop; the `MatrixConfig` fields spread in.
+ * `<Matrix>` tag — see the export's JSDoc.
  */
 
 import type { SubtypeExprOrValue, ArrayType, StructType } from "@elaraai/east";
@@ -19,7 +15,11 @@ import {
 } from "../../collections/matrix/index.js";
 import type { UIElement } from "../runtime.js";
 
-/** `<Matrix data={rows} columns={[…]} rowKey={r => r.name} cell={(r, col) => …} />` — schema-typed matrix. Maps to `Matrix.Root`. */
+/**
+ * Maps `props` to `Matrix.Root(data, config)`, threading the data-row generic
+ * `T` so the {@link MatrixConfig} closures (`rowKey` / `cell` / `groupBy` …)
+ * infer their row parameter from the data schema.
+ */
 function MatrixTag<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
     props: { data: T } & MatrixConfig<RowElement<T>>,
 ): UIElement {
@@ -28,10 +28,48 @@ function MatrixTag<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
 }
 
 /**
- * `<Matrix data={rows} … />` — schema-typed matrix. Maps to `Matrix.Root`. The
- * `Matrix.column` (x-axis) / `Matrix.segment` / `Matrix.cell` / `Matrix.marker`
- * builders and `Matrix.Types` are carried through so a single import wires the
- * whole grid.
+ * Heat-grid matrix — rows × columns where every cell is a stacked weight bar of
+ * coloured segments. Use it for capacity / utilisation / allocation grids: each
+ * row maps to a record, each column to an axis key, and the `cell` closure
+ * builds the cell's segments from the row and column. The config closures
+ * (`rowKey`, `rowHeader`, `rowSublabel`, `groupBy`, `cell`) and the display
+ * options (`orientation`, `minLabelSize`, `legend`, interaction callbacks) live
+ * on {@link MatrixConfig}. Segments can be drag-resizable and cells can carry
+ * status markers and click popovers.
+ *
+ * @example
+ * ```tsx
+ * // .tsx file with the `@jsxImportSource @elaraai/east-ui` pragma
+ * import { East, FloatType } from "@elaraai/east";
+ * import { Matrix, UIComponentType } from "@elaraai/east-ui";
+ *
+ * const utilisation = East.function([], UIComponentType, _$ => (
+ *     <Matrix
+ *         data={[
+ *             { name: "Alice", booked: new Map([["mon", 0.45], ["tue", 0.70]]) },
+ *             { name: "Bob", booked: new Map([["mon", 0.35], ["tue", 0.60]]) },
+ *         ]}
+ *         columns={[
+ *             Matrix.column({ key: "mon", label: "Mon" }),
+ *             Matrix.column({ key: "tue", label: "Tue" }),
+ *         ]}
+ *         rowKey={r => r.name}
+ *         rowHeader="Resource"
+ *         cell={(r, col) => Matrix.cell({ segments: [
+ *             Matrix.segment({ fill: "brand", weight: r.booked.get(col.key) }),
+ *             Matrix.segment({ fill: "free", weight: East.value(1.0, FloatType).subtract(r.booked.get(col.key)) }),
+ *         ] })}
+ *         legend={[{ fill: "brand", label: "Booked" }, { fill: "free", label: "Free" }]}
+ *     />
+ * ));
+ * ```
+ *
+ * @remarks
+ * Carries `Matrix.column` (declare an x-axis column), `Matrix.cell` (assemble a
+ * cell's segments / markers / popover), `Matrix.segment` (one weight band), and
+ * `Matrix.marker` (a status-coloured corner ring), plus `Matrix.Types` for the
+ * drag / click event types (`Matrix.Types.SegmentChangeEvent`,
+ * `Matrix.Types.CellClickEvent`). Desugars to `Matrix.Root(data, config)`.
  */
 export const Matrix: typeof MatrixTag & {
     column: typeof MatrixFactory.column;

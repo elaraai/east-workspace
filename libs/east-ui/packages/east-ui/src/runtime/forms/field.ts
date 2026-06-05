@@ -4,15 +4,7 @@
  */
 
 /**
- * Form `<Field.*>` tags — labelled form controls. Mirrors the `Field`
- * namespace so `<Field.StringInput label="Email" value="" />` desugars to
- * `Field.StringInput(label, value, style)`. The control value surfaces under
- * a meaningful prop key per member (`value` / `checked` / `values`); the
- * `FieldStyle & <control>Style` fields spread in.
- *
- * Each member destructures its own typed props and calls the factory
- * directly — so the wiring (which prop reaches which positional) is
- * type-checked, not cast away.
+ * `<Field.*>` namespace tags — see the export's JSDoc.
  */
 
 import { Field as FieldFactory } from "../../forms/field/index.js";
@@ -36,10 +28,42 @@ type FieldFileUploadProps =
     & NonNullable<Parameters<typeof FieldFactory.FileUpload>[1]>;
 
 /**
- * Labelled form-control tags keyed by control type — e.g.
- * `<Field.StringInput label="Email" value="" />`,
- * `<Field.Checkbox label="Accept" checked={false} />`,
- * `<Field.Select label="Country" value="" items={[Select.Item(…)]} />`.
+ * Labelled form control — wraps an underlying input with a `label` and the
+ * surrounding form chrome (`helperText`, `errorText`, `required`, `invalid`,
+ * `schemaKey`). Reach for it to build proper form rows rather than dropping a
+ * bare input on the page. The member name picks the control; the value surfaces
+ * under a control-appropriate prop:
+ *
+ * - `<Field.StringInput>` / `IntegerInput` / `FloatInput` / `DateTimeInput` — the
+ *   typed text/number/date inputs, value under `value`.
+ * - `<Field.Textarea>` — multi-line text, value under `value`.
+ * - `<Field.Slider>` — numeric slider, value under `value`.
+ * - `<Field.Checkbox>` / `<Field.Switch>` — boolean toggles, value under `checked`.
+ * - `<Field.TagsInput>` — multi-tag entry, value under `values`.
+ * - `<Field.Select>` — dropdown, value under `value` with an `items` list.
+ * - `<Field.FileUpload>` — file picker (label only, no value prop).
+ *
+ * Each member also accepts its wrapped control's own style props.
+ *
+ * @example
+ * ```tsx
+ * // .tsx file with the `@jsxImportSource @elaraai/east-ui` pragma
+ * import { East } from "@elaraai/east";
+ * import { Field, VStack, UIComponentType } from "@elaraai/east-ui";
+ *
+ * const form = East.function([], UIComponentType, _$ => (
+ *     <VStack gap="4" align="stretch" width="100%">
+ *         <Field.StringInput label="Email" value="" schemaKey="user.email" helperText="We'll never share your email." placeholder="you@example.com" />
+ *         <Field.StringInput label="Password" value="" schemaKey="user.password" required={true} errorText="Password is required" invalid={true} placeholder="Enter password" />
+ *     </VStack>
+ * ));
+ * ```
+ *
+ * @remarks
+ * Carries `Field.Types`. Bind the control value to state and wire its `onChange`
+ * inside a `<Reactive>` block for a live, validating field. Each member desugars
+ * to `Field.<Member>(label, value, style)` (`Field.Select` adds `items`;
+ * `Field.FileUpload` takes only `label`).
  */
 export const Field: {
     StringInput: JsxTag<FieldValueProps<typeof FieldFactory.StringInput, "value">>;

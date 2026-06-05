@@ -4,12 +4,7 @@
  */
 
 /**
- * Form `<TimeScaleControl value={…}>` tag — time-scale selector. Maps to
- * `TimeScaleControl.Root`.
- *
- * `Types` is attached to the tag, so a single `TimeScaleControl` import gives
- * both `<TimeScaleControl …/>` and `TimeScaleControl.Types.*` (e.g. the
- * change-detail type for an `onChange` closure) — no separate factory import.
+ * `<TimeScaleControl>` tag — see the export's JSDoc.
  */
 
 import { TimeScaleControl as TimeScaleControlFactory } from "../../forms/time-scale-control/index.js";
@@ -20,7 +15,29 @@ type TimeScaleControlBuilders = {
     Types: typeof TimeScaleControlFactory.Types;
 };
 
-/** `<TimeScaleControl value="day" />` — time-scale segmented selector. Maps to `TimeScaleControl.Root`. */
+/**
+ * Time-scale segmented selector — a row of segments (minute / hour / day / week /
+ * month / quarter / year) for picking the granularity of a time-series view.
+ * Reach for it to drive the bucketing of a chart, Gantt or planner. The active
+ * scale is the `value` prop; `availableScales` restricts the offered set, and
+ * `onChange` carries the picked scale. Supports `variant` and three sizes.
+ *
+ * @example
+ * ```tsx
+ * // .tsx file with the `@jsxImportSource @elaraai/east-ui` pragma
+ * import { East } from "@elaraai/east";
+ * import { TimeScaleControl, UIComponentType } from "@elaraai/east-ui";
+ *
+ * const scale = East.function([], UIComponentType, _$ => (
+ *     <TimeScaleControl value="week" availableScales={["day", "week", "month"]} />
+ * ));
+ * ```
+ *
+ * @remarks
+ * Carries `TimeScaleControl.Types` — in particular `Types.Scale`, the variant
+ * type to bind `value`/`onChange` against inside a `<Reactive>` block. Desugars
+ * to `TimeScaleControl.Root(value, style)`.
+ */
 export const TimeScaleControl: JsxTag<ValueProps<typeof TimeScaleControlFactory.Root, "value">> & TimeScaleControlBuilders =
     Object.assign(leaf(TimeScaleControlFactory.Root, "value"), {
         Types: TimeScaleControlFactory.Types,

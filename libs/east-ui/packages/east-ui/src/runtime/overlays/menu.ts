@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-/** Overlay `<Menu>` tag — dropdown menu. Maps to `Menu.Root`. */
+/** `<Menu>` tag — see the export's JSDoc. */
 
 import { Menu as MenuFactory, type MenuOptions } from "../../overlays/menu/index.js";
 import { optionsTag, type JsxTag } from "../combinators.js";
@@ -16,9 +16,35 @@ type MenuBuilders = {
 };
 
 /**
- * `<Menu trigger={Button.Root("Actions")} items={[Menu.Item(…)]} placement="bottom-start" />`
- * — dropdown menu. Maps to `Menu.Root`. Build the `items` array with the carried
- * `Menu.Item` / `Menu.Separator` builders.
+ * Menu — a dropdown of discrete actions opened from a `trigger`. Reach for it as
+ * the canonical row-end "kebab" overflow or an account menu: a short list of
+ * commands, with optional disabled entries and `Menu.Separator` dividers between
+ * groups. The `items` array and `placement` are flat props ({@link MenuOptions});
+ * unlike {@link Popover} the body is a fixed list of items, not arbitrary UI.
+ *
+ * @example
+ * ```tsx
+ * // .tsx file with the `@jsxImportSource @elaraai/east-ui` pragma
+ * import { East } from "@elaraai/east";
+ * import { IconButton, Menu, UIComponentType } from "@elaraai/east-ui";
+ *
+ * const overflow = East.function([], UIComponentType, _$ => (
+ *     <Menu
+ *         trigger={<IconButton prefix="fas" name="ellipsis" label="More" variant="ghost" size="sm" />}
+ *         items={[
+ *             Menu.Item("view", "View"),
+ *             Menu.Item("edit", "Edit"),
+ *             Menu.Separator(),
+ *             Menu.Item("delete", "Delete"),
+ *         ]}
+ *     />
+ * ));
+ * ```
+ *
+ * @remarks
+ * Carries `Menu.Types` and the `Menu.Item(value, label, disabled?)` /
+ * `Menu.Separator()` item builders for the `items` array. Desugars to
+ * `Menu.Root(options)`.
  */
 export const Menu: JsxTag<MenuOptions> & MenuBuilders = Object.assign(optionsTag(MenuFactory.Root), {
     Item: MenuFactory.Item,

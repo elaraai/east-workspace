@@ -4,12 +4,7 @@
  */
 
 /**
- * Collection `<Gantt>` tag — schema-typed gantt chart. Maps to `Gantt.Root`.
- *
- * Generic like `<Table>`, plus a per-row `rowSpec` callback (returning the
- * row's tasks / milestones). `data` / `columns` / `rowSpec` are flat props;
- * the remaining `GanttStyle` fields spread in. The `rowSpec` row parameter
- * mirrors the factory's `ExprType<element of T>` so it stays inferred.
+ * `<Gantt>` tag — see the export's JSDoc.
  */
 
 import type { SubtypeExprOrValue, ArrayType, StructType, ExprType, TypeOf } from "@elaraai/east";
@@ -50,9 +45,40 @@ function GanttTag<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
 }
 
 /**
- * `<Gantt data={rows} columns={…} rowSpec={…} />` — schema-typed gantt. Maps to
- * `Gantt.Root`. The `Gantt.Task` / `Gantt.Milestone` row-spec builders and
- * `Gantt.Types` (event types) are carried through alongside the tag.
+ * Schema-typed Gantt chart — a frozen identity grid on the left, a time axis on
+ * the right. Each data row becomes a chart row whose bars and diamonds come from
+ * `rowSpec`: it returns the row's tasks and milestones built from the row's
+ * fields. `columns` is the left-grid column list / config ({@link ColumnSpec}),
+ * and the remaining display options (the `axis` window/tier/format, `striped`,
+ * `showToday` now-line, `density`, `frozen` columns, `rowStatus`, drag steps,
+ * interaction callbacks) are flat ({@link GanttStyle}). Use it for project plans,
+ * roadmaps, and sprint timelines.
+ *
+ * @example
+ * ```tsx
+ * // .tsx file with the `@jsxImportSource @elaraai/east-ui` pragma
+ * import { East } from "@elaraai/east";
+ * import { Gantt, UIComponentType } from "@elaraai/east-ui";
+ *
+ * const plan = East.function([], UIComponentType, _$ => (
+ *     <Gantt
+ *         data={[
+ *             { task: "Planning", owner: "Alice", start: new Date("2024-01-01"), end: new Date("2024-01-15") },
+ *             { task: "Design", owner: "Bob", start: new Date("2024-01-10"), end: new Date("2024-02-01") },
+ *         ]}
+ *         columns={["task", "owner"]}
+ *         rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
+ *     />
+ * ));
+ * ```
+ *
+ * @remarks
+ * Carries `Gantt.Task` (a duration bar — start/end, label, progress, status,
+ * popover) and `Gantt.Milestone` (a point diamond — date, label, kind) for use
+ * inside `rowSpec`, plus `Gantt.Types` for the task / milestone event types
+ * (`Gantt.Types.TaskClickEvent`, `Gantt.Types.TaskDragEvent`,
+ * `Gantt.Types.MilestoneClickEvent`, …; left-grid clicks use the shared
+ * `Table.Types.*` events). Desugars to `Gantt.Root(data, columns, rowSpec, style)`.
  */
 export const Gantt: typeof GanttTag & {
     Task: typeof GanttFactory.Task;
