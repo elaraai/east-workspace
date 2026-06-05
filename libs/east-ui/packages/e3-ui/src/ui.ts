@@ -27,7 +27,7 @@ import { deriveManifest } from './derive.js';
 // Re-export the JSX component tags (Box, VStack, Text, Button, …) so the
 // author-side entry `@elaraai/e3-ui/ui` is a single import for both `ui()`
 // and the JSX tags used inside it.
-export * from './jsx.js';
+export * from './runtime/index.js';
 
 /**
  * Create a UI task — an e3 task that produces a UIComponentType value.

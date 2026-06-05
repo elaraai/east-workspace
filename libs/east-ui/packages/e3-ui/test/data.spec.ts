@@ -29,7 +29,7 @@ describeEast("Data", (test) => {
         const root = $.let(Reactive.Root(East.function([], UIComponentType, $ => {
             const bound = $.let(Data.bind([FloatType], path));
             const value = $.let(bound.read());
-            return Stat.Root("X", East.print(value));
+            return Stat.Root({ label: "X", value: East.print(value) });
         })));
         $(Assert.equal(root.unwrap().getTag(), "ReactiveComponent"));
     });

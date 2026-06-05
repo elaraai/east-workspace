@@ -2,6 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
+/** @jsxImportSource @elaraai/e3-ui */
 
 /**
  * Ontology component examples — each scene binds an `OntologyType`-typed
@@ -12,15 +13,16 @@
  * Pattern:
  *   1. Declare `e3.input(name, OntologyType, default)` with `default` fully
  *      inline (no shared constants, no `node()` / `link()` wrappers).
- *   2. Inside `Reactive.Root`, bind via `Data.bind([OntologyType], path)`.
- *   3. Pass `view.binding` to `Ontology.Root(...)`.
- *   4. (Optional) Stack a `Diff.Root({ bindings: [view.binding] })` next
- *      to it to surface the pending node/link patch.
+ *   2. Inside `<Reactive>`, bind via `Data.bind([OntologyType], path)`.
+ *   3. Pass `view.binding` to `<Ontology binding={view.binding} />`.
+ *   4. (Optional) Stack a `<Diff bindings={[view.binding]} />` next to it
+ *      to surface the pending node/link patch.
  */
 
 import { East, none, some, variant, example } from '@elaraai/east';
-import { Card, Stack, Text, Reactive, UIComponentType } from '@elaraai/east-ui';
-import { Data, Diff, Ontology, OntologyType } from '@elaraai/e3-ui';
+import { UIComponentType } from '@elaraai/east-ui';
+import { Card, Diff, HStack, Ontology, Reactive, Text, VStack } from '@elaraai/e3-ui/jsx';
+import { Data, OntologyType } from '@elaraai/e3-ui';
 import * as e3 from '@elaraai/e3';
 
 // ============================================================================
@@ -190,10 +192,12 @@ export const simpleOntologyEditor = example({
     keywords: ['Ontology', 'bindStaged', 'editor', 'minimal'],
     description: 'Empty Ontology editor — minimal call site bound to a defaulted input',
     fn: East.function([], UIComponentType, (_$) => {
-        return Reactive.Root(East.function([], UIComponentType, $ => {
-            const view = $.let(Data.bind([OntologyType], simpleOntologyInput.path, { mode: 'direct' }));
-            return Ontology.Root({ binding: view.binding });
-        }));
+        return (
+            <Reactive>{$ => {
+                const view = $.let(Data.bind([OntologyType], simpleOntologyInput.path, { mode: 'direct' }));
+                return <Ontology binding={view.binding} />;
+            }}</Reactive>
+        );
     }),
     inputs: [],
 });
@@ -207,10 +211,12 @@ export const supplyChainOntology = example({
     keywords: ['Ontology', 'supply-chain', 'process', 'kpi', 'objective', 'bindStaged'],
     description: 'Supply-chain ontology — process/resource/data/kpi graph with policy constraints',
     fn: East.function([], UIComponentType, (_$) => {
-        return Reactive.Root(East.function([], UIComponentType, $ => {
-            const view = $.let(Data.bind([OntologyType], supplyChainOntologyInput.path, { mode: 'direct' }));
-            return Ontology.Root({ binding: view.binding });
-        }));
+        return (
+            <Reactive>{$ => {
+                const view = $.let(Data.bind([OntologyType], supplyChainOntologyInput.path, { mode: 'direct' }));
+                return <Ontology binding={view.binding} />;
+            }}</Reactive>
+        );
     }),
     inputs: [],
 });
@@ -223,10 +229,12 @@ export const governanceOntology = example({
     keywords: ['Ontology', 'governance', 'policy', 'decision', 'document', 'bindStaged'],
     description: 'Governance ontology — policy/decision/document graph for SOC 2 readiness',
     fn: East.function([], UIComponentType, (_$) => {
-        return Reactive.Root(East.function([], UIComponentType, $ => {
-            const view = $.let(Data.bind([OntologyType], governanceOntologyInput.path, { mode: 'direct' }));
-            return Ontology.Root({ binding: view.binding });
-        }));
+        return (
+            <Reactive>{$ => {
+                const view = $.let(Data.bind([OntologyType], governanceOntologyInput.path, { mode: 'direct' }));
+                return <Ontology binding={view.binding} />;
+            }}</Reactive>
+        );
     }),
     inputs: [],
 });
@@ -239,10 +247,12 @@ export const readonlyOntologyViewer = example({
     keywords: ['Ontology', 'readonly', 'viewer'],
     description: 'Read-only Ontology viewer — drawer/context menus/handles disabled',
     fn: East.function([], UIComponentType, (_$) => {
-        return Reactive.Root(East.function([], UIComponentType, $ => {
-            const view = $.let(Data.bind([OntologyType], readonlyOntologyInput.path, { mode: 'direct' }));
-            return Ontology.Root({ binding: view.binding, readonly: some(true) });
-        }));
+        return (
+            <Reactive>{$ => {
+                const view = $.let(Data.bind([OntologyType], readonlyOntologyInput.path, { mode: 'direct' }));
+                return <Ontology binding={view.binding} readonly={some(true)} />;
+            }}</Reactive>
+        );
     }),
     inputs: [],
 });
@@ -255,10 +265,12 @@ export const compactDensityOntology = example({
     keywords: ['Ontology', 'density', 'compact'],
     description: 'Compact-density Ontology editor — tighter node cards and toolbar spacing',
     fn: East.function([], UIComponentType, (_$) => {
-        return Reactive.Root(East.function([], UIComponentType, $ => {
-            const view = $.let(Data.bind([OntologyType], compactOntologyInput.path, { mode: 'direct' }));
-            return Ontology.Root({ binding: view.binding, density: 'compact' });
-        }));
+        return (
+            <Reactive>{$ => {
+                const view = $.let(Data.bind([OntologyType], compactOntologyInput.path, { mode: 'direct' }));
+                return <Ontology binding={view.binding} density="compact" />;
+            }}</Reactive>
+        );
     }),
     inputs: [],
 });
@@ -272,17 +284,21 @@ export const ontologyWithDiff = example({
     keywords: ['Ontology', 'Diff', 'bindStaged', 'review'],
     description: 'Ontology editor + Diff panel — pending node/link patch surfaces in Diff card',
     fn: East.function([], UIComponentType, (_$) => {
-        return Reactive.Root(East.function([], UIComponentType, $ => {
-            const view = $.let(Data.bind([OntologyType], ontologyWithDiffInput.path));
-            return Card.Root([
-                Stack.VStack([
-                    Text.Root('Churn-reduction ontology', { textStyle: 'heading-md' }),
-                    Text.Root('Edit nodes and links above; review the pending patch below before applying.'),
-                    Ontology.Root({ binding: view.binding }),
-                    Diff.Root({ bindings: [view.binding], hideUnchanged: some(true) }),
-                ], { gap: '4', align: 'stretch' }),
-            ]);
-        }));
+        return (
+            <Reactive>{$ => {
+                const view = $.let(Data.bind([OntologyType], ontologyWithDiffInput.path));
+                return (
+                    <Card>
+                        <VStack gap="4" align="stretch">
+                            <Text textStyle="heading-md">Churn-reduction ontology</Text>
+                            <Text>Edit nodes and links above; review the pending patch below before applying.</Text>
+                            <Ontology binding={view.binding} />
+                            <Diff bindings={[view.binding]} hideUnchanged={some(true)} />
+                        </VStack>
+                    </Card>
+                );
+            }}</Reactive>
+        );
     }),
     inputs: [],
 });
@@ -296,27 +312,31 @@ export const multiBindingDashboard = example({
     keywords: ['Ontology', 'dashboard', 'multi-binding', 'Stack'],
     description: 'Two Ontology editors side by side — independent staging buffers per binding',
     fn: East.function([], UIComponentType, (_$) => {
-        return Reactive.Root(East.function([], UIComponentType, $ => {
-            const left  = $.let(Data.bind([OntologyType], dashboardLeftInput.path, { mode: 'direct' }));
-            const right = $.let(Data.bind([OntologyType], dashboardRightInput.path, { mode: 'direct' }));
-            return Stack.VStack([
-                Text.Root('Operations · Governance', { textStyle: 'heading-md' }),
-                Stack.HStack([
-                    Card.Root([
-                        Stack.VStack([
-                            Text.Root('Operations', { textStyle: 'heading-sm' }),
-                            Ontology.Root({ binding: left.binding }),
-                        ], { gap: '3', align: 'stretch' }),
-                    ]),
-                    Card.Root([
-                        Stack.VStack([
-                            Text.Root('Governance', { textStyle: 'heading-sm' }),
-                            Ontology.Root({ binding: right.binding }),
-                        ], { gap: '3', align: 'stretch' }),
-                    ]),
-                ], { gap: '4', align: 'stretch' }),
-            ], { gap: '4', align: 'stretch' });
-        }));
+        return (
+            <Reactive>{$ => {
+                const left  = $.let(Data.bind([OntologyType], dashboardLeftInput.path, { mode: 'direct' }));
+                const right = $.let(Data.bind([OntologyType], dashboardRightInput.path, { mode: 'direct' }));
+                return (
+                    <VStack gap="4" align="stretch">
+                        <Text textStyle="heading-md">Operations · Governance</Text>
+                        <HStack gap="4" align="stretch">
+                            <Card>
+                                <VStack gap="3" align="stretch">
+                                    <Text textStyle="heading-sm">Operations</Text>
+                                    <Ontology binding={left.binding} />
+                                </VStack>
+                            </Card>
+                            <Card>
+                                <VStack gap="3" align="stretch">
+                                    <Text textStyle="heading-sm">Governance</Text>
+                                    <Ontology binding={right.binding} />
+                                </VStack>
+                            </Card>
+                        </HStack>
+                    </VStack>
+                );
+            }}</Reactive>
+        );
     }),
     inputs: [],
 });

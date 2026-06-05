@@ -14,16 +14,16 @@
       "default": "./dist/src/ui.js"
     },
     "./jsx": {
-      "types": "./dist/src/jsx.d.ts",
-      "default": "./dist/src/jsx.js"
+      "types": "./dist/src/runtime/index.d.ts",
+      "default": "./dist/src/runtime/index.js"
     },
     "./jsx-runtime": {
-      "types": "./dist/src/jsx-runtime.d.ts",
-      "default": "./dist/src/jsx-runtime.js"
+      "types": "./dist/src/runtime/runtime.d.ts",
+      "default": "./dist/src/runtime/runtime.js"
     },
     "./jsx-dev-runtime": {
-      "types": "./dist/src/jsx-runtime.d.ts",
-      "default": "./dist/src/jsx-runtime.js"
+      "types": "./dist/src/runtime/runtime.d.ts",
+      "default": "./dist/src/runtime/runtime.js"
     },
     "./examples/data": {
       "types": "./dist/test/data.examples.d.ts",

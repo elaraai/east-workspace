@@ -8,8 +8,8 @@ VERSION := $(shell node -p "require('./package.json').version")
 ## picks up automatically — no edits needed here.
 SHOWCASE_KEYS := $(patsubst src/%.ts,%,$(wildcard src/*.ts))
 TEST_KEYS := $(sort $(shell \
-    { find ../east-ui/test ../e3-ui/test -mindepth 2 -name '*.examples.ts' -printf '%P\n' 2>/dev/null | sed 's|/.*||' ; \
-      find ../east-ui/test ../e3-ui/test -maxdepth 1 -name '*.examples.ts' -printf '%f\n' 2>/dev/null | sed 's|\.examples\.ts$$||' ; \
+    { find ../east-ui/test ../e3-ui/test -mindepth 2 \( -name '*.examples.ts' -o -name '*.examples.tsx' \) -printf '%P\n' 2>/dev/null | sed 's|/.*||' ; \
+      find ../east-ui/test ../e3-ui/test -maxdepth 1 \( -name '*.examples.ts' -o -name '*.examples.tsx' \) -printf '%f\n' 2>/dev/null | sed 's|\.examples\.tsx\?$$||' ; \
     } | sort -u))
 CATEGORIES := $(filter $(TEST_KEYS),$(SHOWCASE_KEYS))
 
