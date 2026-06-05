@@ -20,7 +20,7 @@ describeEast("Stat", (test) => {
     // =========================================================================
 
     test("creates stat with label and numeric value", $ => {
-        const stat = $.let(Stat.Root("Revenue", 45231));
+        const stat = $.let(Stat.Root({ label: "Revenue", value: 45231 }));
 
         $(Assert.equal(stat.unwrap().unwrap("Stat").label, "Revenue"));
         $(Assert.equal(stat.unwrap().unwrap("Stat").value.unwrap("Float"), 45231.0));
@@ -30,13 +30,13 @@ describeEast("Stat", (test) => {
     });
 
     test("creates stat with a string value", $ => {
-        const stat = $.let(Stat.Root("Status", "Operational"));
+        const stat = $.let(Stat.Root({ label: "Status", value: "Operational" }));
 
         $(Assert.equal(stat.unwrap().unwrap("Stat").value.unwrap("String"), "Operational"));
     });
 
     test("creates stat with an integer value", $ => {
-        const stat = $.let(Stat.Root("Count", 42n));
+        const stat = $.let(Stat.Root({ label: "Count", value: 42n }));
 
         $(Assert.equal(stat.unwrap().unwrap("Stat").value.unwrap("Integer"), 42n));
     });
@@ -46,7 +46,7 @@ describeEast("Stat", (test) => {
     // =========================================================================
 
     test("creates stat with a currency format", $ => {
-        const stat = $.let(Stat.Root("ARR", 1842500, {
+        const stat = $.let(Stat.Root({ label: "ARR", value: 1842500,
             format: Format.Currency({ currency: "AUD", compact: "short" }),
         }));
 
@@ -59,7 +59,7 @@ describeEast("Stat", (test) => {
     // =========================================================================
 
     test("creates stat with help text", $ => {
-        const stat = $.let(Stat.Root("Total Users", 1234, {
+        const stat = $.let(Stat.Root({ label: "Total Users", value: 1234,
             helpText: "From last month",
         }));
 
@@ -68,7 +68,7 @@ describeEast("Stat", (test) => {
     });
 
     test("creates stat with trend help text", $ => {
-        const stat = $.let(Stat.Root("Growth", 0.2336, {
+        const stat = $.let(Stat.Root({ label: "Growth", value: 0.2336,
             format: Format.Percent({ maximumFractionDigits: 2n }),
             helpText: "Compared to last week",
         }));
@@ -82,7 +82,7 @@ describeEast("Stat", (test) => {
     // =========================================================================
 
     test("creates stat with up indicator", $ => {
-        const stat = $.let(Stat.Root("Revenue", 45231, {
+        const stat = $.let(Stat.Root({ label: "Revenue", value: 45231,
             indicator: "up",
         }));
 
@@ -91,7 +91,7 @@ describeEast("Stat", (test) => {
     });
 
     test("creates stat with down indicator", $ => {
-        const stat = $.let(Stat.Root("Bounce Rate", 0.325, {
+        const stat = $.let(Stat.Root({ label: "Bounce Rate", value: 0.325,
             indicator: "down",
         }));
 
@@ -103,7 +103,7 @@ describeEast("Stat", (test) => {
     // =========================================================================
 
     test("creates stat with all options", $ => {
-        const stat = $.let(Stat.Root("Revenue", 45231, {
+        const stat = $.let(Stat.Root({ label: "Revenue", value: 45231,
             format: Format.Currency({ currency: "USD", maximumFractionDigits: 0n }),
             helpText: "+20.1% from last month",
             indicator: "up",
@@ -116,7 +116,7 @@ describeEast("Stat", (test) => {
     });
 
     test("creates user stat with negative trend", $ => {
-        const stat = $.let(Stat.Root("Active Users", 892, {
+        const stat = $.let(Stat.Root({ label: "Active Users", value: 892,
             helpText: "-5.2% from yesterday",
             indicator: "down",
         }));
@@ -126,7 +126,7 @@ describeEast("Stat", (test) => {
     });
 
     test("creates simple count stat", $ => {
-        const stat = $.let(Stat.Root("Total Orders", 1567));
+        const stat = $.let(Stat.Root({ label: "Total Orders", value: 1567 }));
 
         $(Assert.equal(stat.unwrap().unwrap("Stat").label, "Total Orders"));
         $(Assert.equal(stat.unwrap().unwrap("Stat").value.unwrap("Float"), 1567.0));
