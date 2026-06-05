@@ -9,5 +9,5 @@ import { List as ListFactory } from "../../typography/list/index.js";
 import { leaf, type ValueProps, type JsxTag } from "../combinators.js";
 
 /** `<List items={[List.Item("…")]} variant="unordered" />` — list. Maps to `List.Root`. */
-export const List: JsxTag<ValueProps<typeof ListFactory.Root, "items">> =
-    leaf(ListFactory.Root, "items");
+export const List: JsxTag<ValueProps<typeof ListFactory.Root, "items">> & { Types: typeof ListFactory.Types } =
+    Object.assign(leaf(ListFactory.Root, "items"), { Types: ListFactory.Types });

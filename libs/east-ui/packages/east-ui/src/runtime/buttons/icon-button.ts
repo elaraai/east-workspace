@@ -9,4 +9,5 @@ import { IconButton as IconButtonFactory, type IconButtonOptions } from "../../b
 import { optionsTag, type JsxTag } from "../combinators.js";
 
 /** `<IconButton prefix="fas" name="trash" label="Delete" onClick={f} variant="ghost" />` — icon-only button. Maps to `IconButton.Root`. */
-export const IconButton: JsxTag<IconButtonOptions> = optionsTag(IconButtonFactory.Root);
+export const IconButton: JsxTag<IconButtonOptions> & { Types: typeof IconButtonFactory.Types } =
+    Object.assign(optionsTag(IconButtonFactory.Root), { Types: IconButtonFactory.Types });

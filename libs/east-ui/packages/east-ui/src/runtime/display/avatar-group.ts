@@ -9,5 +9,5 @@ import { AvatarGroup as AvatarGroupFactory, type AvatarGroupOptions } from "../.
 import { leaf, type JsxTag } from "../combinators.js";
 
 /** `<AvatarGroup avatars={[…]} max={5} />` — avatar cluster (config-array prop). Maps to `AvatarGroup.Root`. */
-export const AvatarGroup: JsxTag<AvatarGroupOptions & { avatars: Parameters<typeof AvatarGroupFactory.Root>[0] }> =
-    leaf(AvatarGroupFactory.Root, "avatars");
+export const AvatarGroup: JsxTag<AvatarGroupOptions & { avatars: Parameters<typeof AvatarGroupFactory.Root>[0] }> & { Types: typeof AvatarGroupFactory.Types } =
+    Object.assign(leaf(AvatarGroupFactory.Root, "avatars"), { Types: AvatarGroupFactory.Types });

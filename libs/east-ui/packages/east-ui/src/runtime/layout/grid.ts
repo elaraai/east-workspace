@@ -13,13 +13,15 @@
 import { Grid as GridFactory } from "../../layout/grid/index.js";
 import { leaf, type ValueProps, type JsxTag } from "../combinators.js";
 
-/** Cell builder surfaced on the `<Grid>` tag (mirrors the `Grid` factory namespace). */
+/** Cell builder + types surfaced on the `<Grid>` tag (mirrors the `Grid` factory namespace). */
 type GridBuilders = {
     Item: typeof GridFactory.Item;
+    Types: typeof GridFactory.Types;
 };
 
 /** `<Grid items={[Grid.Item(…)]} templateColumns="repeat(3, 1fr)" />` — CSS grid. Maps to `Grid.Root`. */
 export const Grid: JsxTag<ValueProps<typeof GridFactory.Root, "items">> & GridBuilders =
     Object.assign(leaf(GridFactory.Root, "items"), {
         Item: GridFactory.Item,
+        Types: GridFactory.Types,
     });

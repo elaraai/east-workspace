@@ -9,5 +9,5 @@ import { Sparkline as SparklineFactory } from "../../charts/sparkline/index.js";
 import { leaf, type ValueProps, type JsxTag } from "../combinators.js";
 
 /** `<Sparkline data={…}>` — compact inline trend line/area. Maps to `Sparkline.Root`. */
-export const Sparkline: JsxTag<ValueProps<typeof SparklineFactory.Root, "data">> =
-    leaf(SparklineFactory.Root, "data");
+export const Sparkline: JsxTag<ValueProps<typeof SparklineFactory.Root, "data">> & { Types: typeof SparklineFactory.Types } =
+    Object.assign(leaf(SparklineFactory.Root, "data"), { Types: SparklineFactory.Types });

@@ -10,5 +10,5 @@ import { container, type JsxTag } from "../combinators.js";
 import type { ContainerChildrenType } from "../children.js";
 
 /** `<Carousel loop autoplay showControls>…items…</Carousel>` — sliding carousel. Maps to `Carousel.Root`. */
-export const Carousel: JsxTag<CarouselOptions & { children?: ContainerChildrenType }> =
-    container(CarouselFactory.Root);
+export const Carousel: JsxTag<CarouselOptions & { children?: ContainerChildrenType }> & { Types: typeof CarouselFactory.Types } =
+    Object.assign(container(CarouselFactory.Root), { Types: CarouselFactory.Types });

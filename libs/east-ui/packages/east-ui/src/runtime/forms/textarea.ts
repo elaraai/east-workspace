@@ -9,5 +9,5 @@ import { Textarea as TextareaFactory } from "../../forms/textarea/index.js";
 import { leaf, type ValueProps, type JsxTag } from "../combinators.js";
 
 /** `<Textarea value={…}>` — multi-line text input. Maps to `Textarea.Root`. */
-export const Textarea: JsxTag<ValueProps<typeof TextareaFactory.Root, "value">> =
-    leaf(TextareaFactory.Root, "value");
+export const Textarea: JsxTag<ValueProps<typeof TextareaFactory.Root, "value">> & { Types: typeof TextareaFactory.Types } =
+    Object.assign(leaf(TextareaFactory.Root, "value"), { Types: TextareaFactory.Types });

@@ -17,10 +17,12 @@ import { leaf, type ValueProps, type JsxTag } from "../combinators.js";
 /** Panel builder surfaced on the `<Accordion>` tag (mirrors the `Accordion` factory namespace). */
 type AccordionBuilders = {
     Item: typeof AccordionFactory.Item;
+    Types: typeof AccordionFactory.Types;
 };
 
 /** `<Accordion items={[Accordion.Item(…)]} multiple collapsible variant="enclosed" />` — collapsible panels. Maps to `Accordion.Root`. */
 export const Accordion: JsxTag<ValueProps<typeof AccordionFactory.Root, "items">> & AccordionBuilders =
     Object.assign(leaf(AccordionFactory.Root, "items"), {
         Item: AccordionFactory.Item,
+        Types: AccordionFactory.Types,
     });

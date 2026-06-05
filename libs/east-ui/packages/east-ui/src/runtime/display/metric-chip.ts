@@ -9,4 +9,5 @@ import { MetricChip as MetricChipFactory } from "../../display/metric-chip/index
 import { content, type ContentProps, type JsxTag } from "../combinators.js";
 
 /** `<MetricChip tone={…}>` — labelled metric pill (required `tone`); the value is its child. Maps to `MetricChip.Root`. */
-export const MetricChip: JsxTag<ContentProps<typeof MetricChipFactory.Root>> = content(MetricChipFactory.Root);
+export const MetricChip: JsxTag<ContentProps<typeof MetricChipFactory.Root>> & { Types: typeof MetricChipFactory.Types } =
+    Object.assign(content(MetricChipFactory.Root), { Types: MetricChipFactory.Types });

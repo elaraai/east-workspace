@@ -9,4 +9,5 @@ import { DateRangeInput as DateRangeInputFactory, type DateRangeInputStyle } fro
 import { optionsTag, type JsxTag } from "../combinators.js";
 
 /** `<DateRangeInput startValue={…} endValue={…} precision="date" />` — paired date fields with optional presets. Maps to `DateRangeInput.Root`. */
-export const DateRangeInput: JsxTag<DateRangeInputStyle> = optionsTag(DateRangeInputFactory.Root);
+export const DateRangeInput: JsxTag<DateRangeInputStyle> & { Types: typeof DateRangeInputFactory.Types } =
+    Object.assign(optionsTag(DateRangeInputFactory.Root), { Types: DateRangeInputFactory.Types });

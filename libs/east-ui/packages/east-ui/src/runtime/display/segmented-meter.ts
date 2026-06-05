@@ -9,5 +9,5 @@ import { SegmentedMeter as SegmentedMeterFactory, type SegmentedMeterOptions } f
 import { leaf, type JsxTag } from "../combinators.js";
 
 /** `<SegmentedMeter segments={[…]} max={100} thickness="sm" />` — segmented meter. Maps to `SegmentedMeter.Root`. */
-export const SegmentedMeter: JsxTag<SegmentedMeterOptions & { segments: Parameters<typeof SegmentedMeterFactory.Root>[0] }> =
-    leaf(SegmentedMeterFactory.Root, "segments");
+export const SegmentedMeter: JsxTag<SegmentedMeterOptions & { segments: Parameters<typeof SegmentedMeterFactory.Root>[0] }> & { Types: typeof SegmentedMeterFactory.Types } =
+    Object.assign(leaf(SegmentedMeterFactory.Root, "segments"), { Types: SegmentedMeterFactory.Types });

@@ -9,4 +9,5 @@ import { Link as LinkFactory } from "../../typography/link/index.js";
 import { content, type ContentProps, type JsxTag } from "../combinators.js";
 
 /** `<Link href={…}>` — hyperlink (required `href`); the link text is its child. Maps to `Link.Root`. */
-export const Link: JsxTag<ContentProps<typeof LinkFactory.Root>> = content(LinkFactory.Root);
+export const Link: JsxTag<ContentProps<typeof LinkFactory.Root>> & { Types: typeof LinkFactory.Types } =
+    Object.assign(content(LinkFactory.Root), { Types: LinkFactory.Types });

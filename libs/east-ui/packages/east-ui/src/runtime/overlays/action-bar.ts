@@ -9,5 +9,5 @@ import { ActionBar as ActionBarFactory } from "../../overlays/action-bar/index.j
 import { leaf, type ValueProps, type JsxTag } from "../combinators.js";
 
 /** `<ActionBar items={[ActionBar.Action(…)]} />` — contextual selection action bar. Maps to `ActionBar.Root`. */
-export const ActionBar: JsxTag<ValueProps<typeof ActionBarFactory.Root, "items">> =
-    leaf(ActionBarFactory.Root, "items");
+export const ActionBar: JsxTag<ValueProps<typeof ActionBarFactory.Root, "items">> & { Types: typeof ActionBarFactory.Types } =
+    Object.assign(leaf(ActionBarFactory.Root, "items"), { Types: ActionBarFactory.Types });

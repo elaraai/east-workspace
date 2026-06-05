@@ -9,4 +9,5 @@ import { Skeleton as SkeletonFactory, type SkeletonOptions } from "../../feedbac
 import { optionsTag, type JsxTag } from "../combinators.js";
 
 /** `<Skeleton shape="text" lines={3n} />` — loading placeholder. Maps to `Skeleton.Root`. */
-export const Skeleton: JsxTag<SkeletonOptions> = optionsTag(SkeletonFactory.Root);
+export const Skeleton: JsxTag<SkeletonOptions> & { Types: typeof SkeletonFactory.Types } =
+    Object.assign(optionsTag(SkeletonFactory.Root), { Types: SkeletonFactory.Types });

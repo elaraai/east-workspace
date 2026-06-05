@@ -18,10 +18,12 @@ import { optionsTag, type JsxTag } from "../combinators.js";
 /** Segment builder surfaced on the `<SegmentGroup>` tag (mirrors the `SegmentGroup` factory namespace). */
 type SegmentGroupBuilders = {
     Item: typeof SegmentGroupFactory.Item;
+    Types: typeof SegmentGroupFactory.Types;
 };
 
 /** `<SegmentGroup value={…} items={[SegmentGroup.Item(…)]} onChange={…} />` — segmented toolbar toggle. Maps to `SegmentGroup.Root`. */
 export const SegmentGroup: JsxTag<SegmentGroupOptions> & SegmentGroupBuilders =
     Object.assign(optionsTag(SegmentGroupFactory.Root), {
         Item: SegmentGroupFactory.Item,
+        Types: SegmentGroupFactory.Types,
     });

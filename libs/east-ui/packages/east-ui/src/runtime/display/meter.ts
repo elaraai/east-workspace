@@ -9,5 +9,5 @@ import { Meter as MeterFactory } from "../../display/meter/index.js";
 import { leaf, type ValueProps, type JsxTag } from "../combinators.js";
 
 /** `<Meter value={…}>` — value meter (set `max`/`tone`/`thickness`). Maps to `Meter.Root`. */
-export const Meter: JsxTag<ValueProps<typeof MeterFactory.Root, "value">> =
-    leaf(MeterFactory.Root, "value");
+export const Meter: JsxTag<ValueProps<typeof MeterFactory.Root, "value">> & { Types: typeof MeterFactory.Types } =
+    Object.assign(leaf(MeterFactory.Root, "value"), { Types: MeterFactory.Types });

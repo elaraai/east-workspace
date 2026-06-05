@@ -9,5 +9,5 @@ import { DataList as DataListFactory } from "../../collections/data-list/index.j
 import { leaf, type ValueProps, type JsxTag } from "../combinators.js";
 
 /** `<DataList items={[DataList.Item(…)]} />` — key/value detail list. Maps to `DataList.Root`. */
-export const DataList: JsxTag<ValueProps<typeof DataListFactory.Root, "items">> =
-    leaf(DataListFactory.Root, "items");
+export const DataList: JsxTag<ValueProps<typeof DataListFactory.Root, "items">> & { Types: typeof DataListFactory.Types } =
+    Object.assign(leaf(DataListFactory.Root, "items"), { Types: DataListFactory.Types });

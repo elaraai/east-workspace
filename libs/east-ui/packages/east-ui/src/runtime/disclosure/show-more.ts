@@ -9,5 +9,5 @@ import { Disclosure as DisclosureFactory } from "../../disclosure/show-more/inde
 import { content, type ContentProps, type JsxTag } from "../combinators.js";
 
 /** `<Disclosure lines={3n}>…long text…</Disclosure>` — truncated text with show-more toggle (text is children). Maps to `Disclosure.Root`. */
-export const Disclosure: JsxTag<ContentProps<typeof DisclosureFactory.Root>> =
-    content(DisclosureFactory.Root);
+export const Disclosure: JsxTag<ContentProps<typeof DisclosureFactory.Root>> & { Types: typeof DisclosureFactory.Types } =
+    Object.assign(content(DisclosureFactory.Root), { Types: DisclosureFactory.Types });

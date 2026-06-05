@@ -9,4 +9,5 @@ import { Note as NoteFactory } from "../../typography/note/index.js";
 import { content, type ContentProps, type JsxTag } from "../combinators.js";
 
 /** `<Note tone="info">Heads up…</Note>` — inline callout (body is children). Maps to `Note.Root`. */
-export const Note: JsxTag<ContentProps<typeof NoteFactory.Root>> = content(NoteFactory.Root);
+export const Note: JsxTag<ContentProps<typeof NoteFactory.Root>> & { Types: typeof NoteFactory.Types } =
+    Object.assign(content(NoteFactory.Root), { Types: NoteFactory.Types });

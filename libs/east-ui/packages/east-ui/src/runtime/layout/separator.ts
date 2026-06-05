@@ -9,4 +9,5 @@ import { Separator as SeparatorFactory, type SeparatorStyle } from "../../layout
 import { optionsTag, type JsxTag } from "../combinators.js";
 
 /** `<Separator orientation="horizontal" />` — divider line. Maps to `Separator.Root`. */
-export const Separator: JsxTag<SeparatorStyle> = optionsTag(SeparatorFactory.Root);
+export const Separator: JsxTag<SeparatorStyle> & { Types: typeof SeparatorFactory.Types } =
+    Object.assign(optionsTag(SeparatorFactory.Root), { Types: SeparatorFactory.Types });

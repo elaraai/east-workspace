@@ -9,5 +9,5 @@ import { ScrollArea as ScrollAreaFactory } from "../../layout/scroll-area/index.
 import { content, type ContentProps, type JsxTag } from "../combinators.js";
 
 /** `<ScrollArea>` — scroll container around a single content element. Maps to `ScrollArea.Root`. */
-export const ScrollArea: JsxTag<ContentProps<typeof ScrollAreaFactory.Root>> =
-    content(ScrollAreaFactory.Root);
+export const ScrollArea: JsxTag<ContentProps<typeof ScrollAreaFactory.Root>> & { Types: typeof ScrollAreaFactory.Types } =
+    Object.assign(content(ScrollAreaFactory.Root), { Types: ScrollAreaFactory.Types });

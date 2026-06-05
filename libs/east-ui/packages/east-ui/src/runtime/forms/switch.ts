@@ -9,5 +9,5 @@ import { Switch as SwitchFactory } from "../../forms/switch/index.js";
 import { leaf, type ValueProps, type JsxTag } from "../combinators.js";
 
 /** `<Switch checked={…}>` — on/off switch. Maps to `Switch.Root`. */
-export const Switch: JsxTag<ValueProps<typeof SwitchFactory.Root, "checked">> =
-    leaf(SwitchFactory.Root, "checked");
+export const Switch: JsxTag<ValueProps<typeof SwitchFactory.Root, "checked">> & { Types: typeof SwitchFactory.Types } =
+    Object.assign(leaf(SwitchFactory.Root, "checked"), { Types: SwitchFactory.Types });

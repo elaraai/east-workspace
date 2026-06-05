@@ -22,9 +22,11 @@ export const Input: {
     Integer: JsxTag<ValueProps<typeof InputFactory.Integer, "value">>;
     Float: JsxTag<ValueProps<typeof InputFactory.Float, "value">>;
     DateTime: JsxTag<ValueProps<typeof InputFactory.DateTime, "value">>;
+    Types: typeof InputFactory.Types;
 } = {
     String: leaf(InputFactory.String, "value"),
     Integer: leaf(InputFactory.Integer, "value"),
     Float: leaf(InputFactory.Float, "value"),
     DateTime: leaf(InputFactory.DateTime, "value"),
+    Types: InputFactory.Types,
 };

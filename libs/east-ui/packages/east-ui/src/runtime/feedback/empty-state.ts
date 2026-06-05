@@ -9,4 +9,5 @@ import { EmptyState as EmptyStateFactory, type EmptyStateOptions } from "../../f
 import { optionsTag, type JsxTag } from "../combinators.js";
 
 /** `<EmptyState title="No results" icon={{ prefix: "fas", name: "magnifying-glass" }} />` — zero-state placeholder. Maps to `EmptyState.Root`. */
-export const EmptyState: JsxTag<EmptyStateOptions> = optionsTag(EmptyStateFactory.Root);
+export const EmptyState: JsxTag<EmptyStateOptions> & { Types: typeof EmptyStateFactory.Types } =
+    Object.assign(optionsTag(EmptyStateFactory.Root), { Types: EmptyStateFactory.Types });

@@ -9,4 +9,5 @@ import { RadioCardGroup as RadioCardGroupFactory, type RadioCardGroupStyle } fro
 import { optionsTag, type JsxTag } from "../combinators.js";
 
 /** `<RadioCardGroup value={…} items={[…]} onChange={…} />` — single-select card list (label + description per card). Maps to `RadioCardGroup.Root`. */
-export const RadioCardGroup: JsxTag<RadioCardGroupStyle> = optionsTag(RadioCardGroupFactory.Root);
+export const RadioCardGroup: JsxTag<RadioCardGroupStyle> & { Types: typeof RadioCardGroupFactory.Types } =
+    Object.assign(optionsTag(RadioCardGroupFactory.Root), { Types: RadioCardGroupFactory.Types });

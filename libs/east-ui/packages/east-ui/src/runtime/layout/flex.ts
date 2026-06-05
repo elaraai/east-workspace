@@ -9,4 +9,5 @@ import { Flex as FlexFactory } from "../../layout/flex/index.js";
 import { container, type ContainerProps, type JsxTag } from "../combinators.js";
 
 /** `<Flex>` — flexbox container (set `direction`/`wrap`). Maps to `Flex.Root`. */
-export const Flex: JsxTag<ContainerProps<typeof FlexFactory.Root>> = container(FlexFactory.Root);
+export const Flex: JsxTag<ContainerProps<typeof FlexFactory.Root>> & { Types: typeof FlexFactory.Types } =
+    Object.assign(container(FlexFactory.Root), { Types: FlexFactory.Types });

@@ -9,4 +9,5 @@ import { CloseButton as CloseButtonFactory, type CloseButtonOptions } from "../.
 import { optionsTag, type JsxTag } from "../combinators.js";
 
 /** `<CloseButton onClick={f} variant="ghost" />` — close button (no children). Maps to `CloseButton.Root`. */
-export const CloseButton: JsxTag<CloseButtonOptions> = optionsTag(CloseButtonFactory.Root);
+export const CloseButton: JsxTag<CloseButtonOptions> & { Types: typeof CloseButtonFactory.Types } =
+    Object.assign(optionsTag(CloseButtonFactory.Root), { Types: CloseButtonFactory.Types });

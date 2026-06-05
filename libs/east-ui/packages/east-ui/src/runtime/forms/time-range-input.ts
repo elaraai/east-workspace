@@ -9,4 +9,5 @@ import { TimeRangeInput as TimeRangeInputFactory, type TimeRangeInputStyle } fro
 import { optionsTag, type JsxTag } from "../combinators.js";
 
 /** `<TimeRangeInput startValue={360n} endValue={840n} step={15n} />` — paired time-of-day fields (minutes since midnight). Maps to `TimeRangeInput.Root`. */
-export const TimeRangeInput: JsxTag<TimeRangeInputStyle> = optionsTag(TimeRangeInputFactory.Root);
+export const TimeRangeInput: JsxTag<TimeRangeInputStyle> & { Types: typeof TimeRangeInputFactory.Types } =
+    Object.assign(optionsTag(TimeRangeInputFactory.Root), { Types: TimeRangeInputFactory.Types });

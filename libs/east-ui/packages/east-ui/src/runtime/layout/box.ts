@@ -9,4 +9,5 @@ import { Box as BoxFactory } from "../../layout/box/index.js";
 import { container, type ContainerProps, type JsxTag } from "../combinators.js";
 
 /** `<Box>` — flexible layout container. Maps to `Box.Root`. */
-export const Box: JsxTag<ContainerProps<typeof BoxFactory.Root>> = container(BoxFactory.Root);
+export const Box: JsxTag<ContainerProps<typeof BoxFactory.Root>> & { Types: typeof BoxFactory.Types } =
+    Object.assign(container(BoxFactory.Root), { Types: BoxFactory.Types });

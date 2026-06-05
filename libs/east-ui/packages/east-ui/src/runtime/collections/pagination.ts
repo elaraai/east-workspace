@@ -9,4 +9,5 @@ import { Pagination as PaginationFactory, type PaginationOptions } from "../../c
 import { optionsTag, type JsxTag } from "../combinators.js";
 
 /** `<Pagination page={page} pageSize={20n} count={500n} onPageChange={…} size="md" />` — page-navigation control. Maps to `Pagination.Root`. */
-export const Pagination: JsxTag<PaginationOptions> = optionsTag(PaginationFactory.Root);
+export const Pagination: JsxTag<PaginationOptions> & { Types: typeof PaginationFactory.Types } =
+    Object.assign(optionsTag(PaginationFactory.Root), { Types: PaginationFactory.Types });

@@ -9,4 +9,5 @@ import { Tag as TagFactory } from "../../display/tag/index.js";
 import { content, type ContentProps, type JsxTag } from "../combinators.js";
 
 /** `<Tag>` — keyword/chip with optional close affordance. Maps to `Tag.Root`. */
-export const Tag: JsxTag<ContentProps<typeof TagFactory.Root>> = content(TagFactory.Root);
+export const Tag: JsxTag<ContentProps<typeof TagFactory.Root>> & { Types: typeof TagFactory.Types } =
+    Object.assign(content(TagFactory.Root), { Types: TagFactory.Types });

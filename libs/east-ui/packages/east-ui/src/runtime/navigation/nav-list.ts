@@ -9,5 +9,5 @@ import { NavList as NavListFactory } from "../../navigation/nav-list/index.js";
 import { leaf, type ValueProps, type JsxTag } from "../combinators.js";
 
 /** `<NavList sections={[NavList.Section(…)]} />` — sectioned nav list. Maps to `NavList.Root`. */
-export const NavList: JsxTag<ValueProps<typeof NavListFactory.Root, "sections">> =
-    leaf(NavListFactory.Root, "sections");
+export const NavList: JsxTag<ValueProps<typeof NavListFactory.Root, "sections">> & { Types: typeof NavListFactory.Types } =
+    Object.assign(leaf(NavListFactory.Root, "sections"), { Types: NavListFactory.Types });

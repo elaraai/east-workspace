@@ -9,4 +9,5 @@ import { ToggleTip as ToggleTipFactory } from "../../overlays/toggle-tip/index.j
 import { content, type ContentProps, type JsxTag } from "../combinators.js";
 
 /** `<ToggleTip trigger={IconButton.Root(…)}>Info text</ToggleTip>` — click-activated tip (text is children). Maps to `ToggleTip.Root`. */
-export const ToggleTip: JsxTag<ContentProps<typeof ToggleTipFactory.Root>> = content(ToggleTipFactory.Root);
+export const ToggleTip: JsxTag<ContentProps<typeof ToggleTipFactory.Root>> & { Types: typeof ToggleTipFactory.Types } =
+    Object.assign(content(ToggleTipFactory.Root), { Types: ToggleTipFactory.Types });

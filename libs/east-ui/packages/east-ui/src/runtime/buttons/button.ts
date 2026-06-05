@@ -19,5 +19,5 @@ import {
 import { content, type JsxTag } from "../combinators.js";
 
 /** `<Button variant="solid" onClick={f}>Save</Button>` — action button. Maps to `Button.Root`. */
-export const Button: JsxTag<ButtonOptions & { children: ButtonLabelInput }> =
-    content(ButtonFactory.Root);
+export const Button: JsxTag<ButtonOptions & { children: ButtonLabelInput }> & { Types: typeof ButtonFactory.Types } =
+    Object.assign(content(ButtonFactory.Root), { Types: ButtonFactory.Types });

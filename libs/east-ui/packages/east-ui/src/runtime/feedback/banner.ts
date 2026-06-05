@@ -9,4 +9,5 @@ import { Banner as BannerFactory, type BannerOptions } from "../../feedback/bann
 import { optionsTag, type JsxTag } from "../combinators.js";
 
 /** `<Banner status="warning" title="Data is stale" description="…" />` — page-level feedback surface. Maps to `Banner.Root`. */
-export const Banner: JsxTag<BannerOptions> = optionsTag(BannerFactory.Root);
+export const Banner: JsxTag<BannerOptions> & { Types: typeof BannerFactory.Types } =
+    Object.assign(optionsTag(BannerFactory.Root), { Types: BannerFactory.Types });

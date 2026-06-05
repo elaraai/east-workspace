@@ -9,5 +9,5 @@ import { Breadcrumb as BreadcrumbFactory } from "../../navigation/breadcrumb/ind
 import { leaf, type ValueProps, type JsxTag } from "../combinators.js";
 
 /** `<Breadcrumb items={[Breadcrumb.Item(…)]} />` — navigation trail. Maps to `Breadcrumb.Root`. */
-export const Breadcrumb: JsxTag<ValueProps<typeof BreadcrumbFactory.Root, "items">> =
-    leaf(BreadcrumbFactory.Root, "items");
+export const Breadcrumb: JsxTag<ValueProps<typeof BreadcrumbFactory.Root, "items">> & { Types: typeof BreadcrumbFactory.Types } =
+    Object.assign(leaf(BreadcrumbFactory.Root, "items"), { Types: BreadcrumbFactory.Types });

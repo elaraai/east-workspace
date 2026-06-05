@@ -9,4 +9,5 @@ import { RadioGroup as RadioGroupFactory, type RadioGroupStyle } from "../../for
 import { optionsTag, type JsxTag } from "../combinators.js";
 
 /** `<RadioGroup value={…} items={[…]} onChange={…} />` — single-select radio list. Maps to `RadioGroup.Root`. */
-export const RadioGroup: JsxTag<RadioGroupStyle> = optionsTag(RadioGroupFactory.Root);
+export const RadioGroup: JsxTag<RadioGroupStyle> & { Types: typeof RadioGroupFactory.Types } =
+    Object.assign(optionsTag(RadioGroupFactory.Root), { Types: RadioGroupFactory.Types });

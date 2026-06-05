@@ -9,5 +9,5 @@ import { CopyButton as CopyButtonFactory, type CopyButtonOptions } from "../../b
 import { content, type JsxTag } from "../combinators.js";
 
 /** `<CopyButton label="Copy">{token}</CopyButton>` — the child is the copied string. Maps to `CopyButton.Root`. */
-export const CopyButton: JsxTag<CopyButtonOptions & { children: Parameters<typeof CopyButtonFactory.Root>[0] }> =
-    content(CopyButtonFactory.Root);
+export const CopyButton: JsxTag<CopyButtonOptions & { children: Parameters<typeof CopyButtonFactory.Root>[0] }> & { Types: typeof CopyButtonFactory.Types } =
+    Object.assign(content(CopyButtonFactory.Root), { Types: CopyButtonFactory.Types });

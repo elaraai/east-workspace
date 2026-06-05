@@ -9,4 +9,5 @@ import { Popover as PopoverFactory } from "../../overlays/popover/index.js";
 import { container, type ContainerProps, type JsxTag } from "../combinators.js";
 
 /** `<Popover trigger={Button.Root("Edit")} title="Edit Profile">…body…</Popover>` — floating click panel (body is children). Maps to `Popover.Root`. */
-export const Popover: JsxTag<ContainerProps<typeof PopoverFactory.Root>> = container(PopoverFactory.Root);
+export const Popover: JsxTag<ContainerProps<typeof PopoverFactory.Root>> & { Types: typeof PopoverFactory.Types } =
+    Object.assign(container(PopoverFactory.Root), { Types: PopoverFactory.Types });

@@ -9,5 +9,5 @@ import { Numeric as NumericFactory } from "../../typography/numeric/index.js";
 import { leaf, type ValueProps, type JsxTag } from "../combinators.js";
 
 /** `<Numeric value={…}>` — formatted numeric value (set `format`/`sentiment`). Maps to `Numeric.Root`. */
-export const Numeric: JsxTag<ValueProps<typeof NumericFactory.Root, "value">> =
-    leaf(NumericFactory.Root, "value");
+export const Numeric: JsxTag<ValueProps<typeof NumericFactory.Root, "value">> & { Types: typeof NumericFactory.Types } =
+    Object.assign(leaf(NumericFactory.Root, "value"), { Types: NumericFactory.Types });

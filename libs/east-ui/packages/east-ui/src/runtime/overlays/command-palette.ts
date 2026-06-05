@@ -9,5 +9,5 @@ import { CommandPalette as CommandPaletteFactory } from "../../overlays/command-
 import { leaf, type ValueProps, type JsxTag } from "../combinators.js";
 
 /** `<CommandPalette commands={[CommandPalette.Command(…)]} placeholder="…" />` — searchable command list. Maps to `CommandPalette.Root`. */
-export const CommandPalette: JsxTag<ValueProps<typeof CommandPaletteFactory.Root, "commands">> =
-    leaf(CommandPaletteFactory.Root, "commands");
+export const CommandPalette: JsxTag<ValueProps<typeof CommandPaletteFactory.Root, "commands">> & { Types: typeof CommandPaletteFactory.Types } =
+    Object.assign(leaf(CommandPaletteFactory.Root, "commands"), { Types: CommandPaletteFactory.Types });

@@ -9,5 +9,5 @@ import { Slider as SliderFactory } from "../../forms/slider/index.js";
 import { leaf, type ValueProps, type JsxTag } from "../combinators.js";
 
 /** `<Slider value={…}>` — numeric slider. Maps to `Slider.Root`. */
-export const Slider: JsxTag<ValueProps<typeof SliderFactory.Root, "value">> =
-    leaf(SliderFactory.Root, "value");
+export const Slider: JsxTag<ValueProps<typeof SliderFactory.Root, "value">> & { Types: typeof SliderFactory.Types } =
+    Object.assign(leaf(SliderFactory.Root, "value"), { Types: SliderFactory.Types });

@@ -9,4 +9,5 @@ import { Heading as HeadingFactory } from "../../typography/heading/index.js";
 import { content, type ContentProps, type JsxTag } from "../combinators.js";
 
 /** `<Heading>` — heading text. Maps to `Heading.Root`. */
-export const Heading: JsxTag<ContentProps<typeof HeadingFactory.Root>> = content(HeadingFactory.Root);
+export const Heading: JsxTag<ContentProps<typeof HeadingFactory.Root>> & { Types: typeof HeadingFactory.Types } =
+    Object.assign(content(HeadingFactory.Root), { Types: HeadingFactory.Types });

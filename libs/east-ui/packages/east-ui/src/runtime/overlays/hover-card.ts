@@ -9,4 +9,5 @@ import { HoverCard as HoverCardFactory } from "../../overlays/hover-card/index.j
 import { container, type ContainerProps, type JsxTag } from "../combinators.js";
 
 /** `<HoverCard trigger={Text.Root("@user")} openDelay={200n}>…preview…</HoverCard>` — hover preview panel (body is children). Maps to `HoverCard.Root`. */
-export const HoverCard: JsxTag<ContainerProps<typeof HoverCardFactory.Root>> = container(HoverCardFactory.Root);
+export const HoverCard: JsxTag<ContainerProps<typeof HoverCardFactory.Root>> & { Types: typeof HoverCardFactory.Types } =
+    Object.assign(container(HoverCardFactory.Root), { Types: HoverCardFactory.Types });

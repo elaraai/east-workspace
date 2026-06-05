@@ -9,5 +9,5 @@ import { EditableChip as EditableChipFactory } from "../../display/editable-chip
 import { content, type ContentProps, type JsxTag } from "../combinators.js";
 
 /** `<EditableChip>` — chip whose label is its single child. Maps to `EditableChip.Root`. */
-export const EditableChip: JsxTag<ContentProps<typeof EditableChipFactory.Root>> =
-    content(EditableChipFactory.Root);
+export const EditableChip: JsxTag<ContentProps<typeof EditableChipFactory.Root>> & { Types: typeof EditableChipFactory.Types } =
+    Object.assign(content(EditableChipFactory.Root), { Types: EditableChipFactory.Types });

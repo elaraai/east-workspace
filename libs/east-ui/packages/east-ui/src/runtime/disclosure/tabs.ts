@@ -16,10 +16,12 @@ import { leaf, type ValueProps, type JsxTag } from "../combinators.js";
 /** Tab builder surfaced on the `<Tabs>` tag (mirrors the `Tabs` factory namespace). */
 type TabsBuilders = {
     Item: typeof TabsFactory.Item;
+    Types: typeof TabsFactory.Types;
 };
 
 /** `<Tabs items={[Tabs.Item(…)]} defaultValue="overview" variant="line" />` — tabbed panels. Maps to `Tabs.Root`. */
 export const Tabs: JsxTag<ValueProps<typeof TabsFactory.Root, "items">> & TabsBuilders =
     Object.assign(leaf(TabsFactory.Root, "items"), {
         Item: TabsFactory.Item,
+        Types: TabsFactory.Types,
     });

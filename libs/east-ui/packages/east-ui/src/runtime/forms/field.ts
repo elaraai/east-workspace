@@ -53,6 +53,7 @@ export const Field: {
     TagsInput: JsxTag<FieldValueProps<typeof FieldFactory.TagsInput, "values">>;
     Select: JsxTag<FieldSelectProps>;
     FileUpload: JsxTag<FieldFileUploadProps>;
+    Types: typeof FieldFactory.Types;
 } = {
     StringInput: ({ label, value, ...style }) =>
         FieldFactory.StringInput(label, value, hasKeys(style) ? style : undefined),
@@ -76,4 +77,5 @@ export const Field: {
         FieldFactory.Select(label, value, items, hasKeys(style) ? style : undefined),
     FileUpload: ({ label, ...style }) =>
         FieldFactory.FileUpload(label, hasKeys(style) ? style : undefined),
+    Types: FieldFactory.Types,
 };

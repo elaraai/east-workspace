@@ -9,5 +9,5 @@ import { BarStrip as BarStripFactory, type BarStripOptions } from "../../display
 import { leaf, type JsxTag } from "../combinators.js";
 
 /** `<BarStrip items={[…]} orientation="horizontal" />` — bar strip (config-array prop). Maps to `BarStrip.Root`. */
-export const BarStrip: JsxTag<BarStripOptions & { items: Parameters<typeof BarStripFactory.Root>[0] }> =
-    leaf(BarStripFactory.Root, "items");
+export const BarStrip: JsxTag<BarStripOptions & { items: Parameters<typeof BarStripFactory.Root>[0] }> & { Types: typeof BarStripFactory.Types } =
+    Object.assign(leaf(BarStripFactory.Root, "items"), { Types: BarStripFactory.Types });

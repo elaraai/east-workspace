@@ -14,13 +14,15 @@
 import { Combobox as ComboboxFactory, type ComboboxOptions } from "../../forms/combobox/index.js";
 import { optionsTag, type JsxTag } from "../combinators.js";
 
-/** Option builder surfaced on the `<Combobox>` tag (mirrors the `Combobox` factory namespace). */
+/** Option builder + types surfaced on the `<Combobox>` tag (mirrors the `Combobox` factory namespace). */
 type ComboboxBuilders = {
     Item: typeof ComboboxFactory.Item;
+    Types: typeof ComboboxFactory.Types;
 };
 
 /** `<Combobox value={…} items={[Combobox.Item(…)]} placeholder="…" />` — searchable type-to-filter dropdown. Maps to `Combobox.Root`. */
 export const Combobox: JsxTag<ComboboxOptions> & ComboboxBuilders =
     Object.assign(optionsTag(ComboboxFactory.Root), {
         Item: ComboboxFactory.Item,
+        Types: ComboboxFactory.Types,
     });

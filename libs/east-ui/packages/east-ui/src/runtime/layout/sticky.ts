@@ -9,5 +9,5 @@ import { Sticky as StickyFactory } from "../../layout/sticky/index.js";
 import { content, type ContentProps, type JsxTag } from "../combinators.js";
 
 /** `<Sticky>` — sticky-positioned wrapper around a single content element. Maps to `Sticky.Root`. */
-export const Sticky: JsxTag<ContentProps<typeof StickyFactory.Root>> =
-    content(StickyFactory.Root);
+export const Sticky: JsxTag<ContentProps<typeof StickyFactory.Root>> & { Types: typeof StickyFactory.Types } =
+    Object.assign(content(StickyFactory.Root), { Types: StickyFactory.Types });

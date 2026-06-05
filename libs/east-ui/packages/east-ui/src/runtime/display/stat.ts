@@ -9,4 +9,5 @@ import { Stat as StatFactory, type StatStyle } from "../../display/stat/index.js
 import { optionsTag, type JsxTag } from "../combinators.js";
 
 /** `<Stat label="Revenue" value="$45,231" indicator={{ direction: "up", sentiment: "positive" }} />` — metric tile. Maps to `Stat.Root`. */
-export const Stat: JsxTag<StatStyle> = optionsTag(StatFactory.Root);
+export const Stat: JsxTag<StatStyle> & { Types: typeof StatFactory.Types } =
+    Object.assign(optionsTag(StatFactory.Root), { Types: StatFactory.Types });

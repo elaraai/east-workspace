@@ -9,5 +9,5 @@ import { Kbd as KbdFactory } from "../../display/kbd/index.js";
 import { leaf, type ValueProps, type JsxTag } from "../combinators.js";
 
 /** `<Kbd keys={["⌘","K"]}>` — keyboard-key cluster. Maps to `Kbd.Root`. */
-export const Kbd: JsxTag<ValueProps<typeof KbdFactory.Root, "keys">> =
-    leaf(KbdFactory.Root, "keys");
+export const Kbd: JsxTag<ValueProps<typeof KbdFactory.Root, "keys">> & { Types: typeof KbdFactory.Types } =
+    Object.assign(leaf(KbdFactory.Root, "keys"), { Types: KbdFactory.Types });

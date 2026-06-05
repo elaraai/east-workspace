@@ -18,10 +18,12 @@ import { leaf, type ValueProps, type JsxTag } from "../combinators.js";
 /** Option builder surfaced on the `<OptionList>` tag (mirrors the `OptionList` factory namespace). */
 type OptionListBuilders = {
     Option: typeof OptionListFactory.Option;
+    Types: typeof OptionListFactory.Types;
 };
 
 /** `<OptionList options={[OptionList.Option(…)]} selectedId="alt-1" onSelect={…} />` — selectable option list. Maps to `OptionList.Root`. */
 export const OptionList: JsxTag<ValueProps<typeof OptionListFactory.Root, "options">> & OptionListBuilders =
     Object.assign(leaf(OptionListFactory.Root, "options"), {
         Option: OptionListFactory.Option,
+        Types: OptionListFactory.Types,
     });

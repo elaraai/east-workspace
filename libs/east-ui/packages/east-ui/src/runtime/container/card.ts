@@ -12,6 +12,7 @@ import { container, type ContainerProps, type JsxTag } from "../combinators.js";
 type CardBuilders = {
     Section: typeof CardFactory.Section;
     Header: typeof CardFactory.Header;
+    Types: typeof CardFactory.Types;
 };
 
 /**
@@ -26,4 +27,5 @@ export const Card: JsxTag<ContainerProps<typeof CardFactory.Root>> & CardBuilder
     Object.assign(container(CardFactory.Root), {
         Section: CardFactory.Section,
         Header: CardFactory.Header,
+        Types: CardFactory.Types,
     });

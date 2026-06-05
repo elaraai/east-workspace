@@ -9,4 +9,5 @@ import { Tooltip as TooltipFactory } from "../../overlays/tooltip/index.js";
 import { content, type ContentProps, type JsxTag } from "../combinators.js";
 
 /** `<Tooltip trigger={Button.Root("Hover")} placement="top">Helpful tip</Tooltip>` — hover tooltip (tip text is children). Maps to `Tooltip.Root`. */
-export const Tooltip: JsxTag<ContentProps<typeof TooltipFactory.Root>> = content(TooltipFactory.Root);
+export const Tooltip: JsxTag<ContentProps<typeof TooltipFactory.Root>> & { Types: typeof TooltipFactory.Types } =
+    Object.assign(content(TooltipFactory.Root), { Types: TooltipFactory.Types });

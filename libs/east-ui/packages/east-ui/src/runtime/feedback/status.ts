@@ -9,4 +9,5 @@ import { Status as StatusFactory, type StatusOptions } from "../../feedback/stat
 import { optionsTag, type JsxTag } from "../combinators.js";
 
 /** `<Status label="Up to date" value="success" />` — classification chip with paired icon. Maps to `Status.Root`. */
-export const Status: JsxTag<StatusOptions> = optionsTag(StatusFactory.Root);
+export const Status: JsxTag<StatusOptions> & { Types: typeof StatusFactory.Types } =
+    Object.assign(optionsTag(StatusFactory.Root), { Types: StatusFactory.Types });

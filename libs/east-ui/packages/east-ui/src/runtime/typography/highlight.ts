@@ -9,4 +9,5 @@ import { Highlight as HighlightFactory } from "../../typography/highlight/index.
 import { content, type ContentProps, type JsxTag } from "../combinators.js";
 
 /** `<Highlight query={…}>` — highlight matching terms (required `query`); the text is its child. Maps to `Highlight.Root`. */
-export const Highlight: JsxTag<ContentProps<typeof HighlightFactory.Root>> = content(HighlightFactory.Root);
+export const Highlight: JsxTag<ContentProps<typeof HighlightFactory.Root>> & { Types: typeof HighlightFactory.Types } =
+    Object.assign(content(HighlightFactory.Root), { Types: HighlightFactory.Types });

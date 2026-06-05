@@ -14,13 +14,15 @@
 import { Select as SelectFactory, type SelectOptions } from "../../forms/select/index.js";
 import { optionsTag, type JsxTag } from "../combinators.js";
 
-/** Option builder surfaced on the `<Select>` tag (mirrors the `Select` factory namespace). */
+/** Option builder + types surfaced on the `<Select>` tag (mirrors the `Select` factory namespace). */
 type SelectBuilders = {
     Item: typeof SelectFactory.Item;
+    Types: typeof SelectFactory.Types;
 };
 
 /** `<Select value={…} items={[Select.Item(…)]} placeholder="…" />` — dropdown selection. Maps to `Select.Root`. */
 export const Select: JsxTag<SelectOptions> & SelectBuilders =
     Object.assign(optionsTag(SelectFactory.Root), {
         Item: SelectFactory.Item,
+        Types: SelectFactory.Types,
     });

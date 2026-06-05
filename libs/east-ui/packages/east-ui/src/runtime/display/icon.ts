@@ -9,4 +9,5 @@ import { Icon as IconFactory, type IconStyle } from "../../display/icon/index.js
 import { optionsTag, type JsxTag } from "../combinators.js";
 
 /** `<Icon prefix="fas" name="check" size="lg" />` — icon (no children). Maps to `Icon.Root`. */
-export const Icon: JsxTag<IconStyle> = optionsTag(IconFactory.Root);
+export const Icon: JsxTag<IconStyle> & { Types: typeof IconFactory.Types } =
+    Object.assign(optionsTag(IconFactory.Root), { Types: IconFactory.Types });

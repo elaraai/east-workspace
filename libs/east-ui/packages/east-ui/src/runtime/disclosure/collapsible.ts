@@ -9,5 +9,5 @@ import { Collapsible as CollapsibleFactory } from "../../disclosure/collapsible/
 import { content, type ContentProps, type JsxTag } from "../combinators.js";
 
 /** `<Collapsible trigger="Why?" defaultOpen>…content…</Collapsible>` — open/close region (content is children). Maps to `Collapsible.Root`. */
-export const Collapsible: JsxTag<ContentProps<typeof CollapsibleFactory.Root>> =
-    content(CollapsibleFactory.Root);
+export const Collapsible: JsxTag<ContentProps<typeof CollapsibleFactory.Root>> & { Types: typeof CollapsibleFactory.Types } =
+    Object.assign(content(CollapsibleFactory.Root), { Types: CollapsibleFactory.Types });

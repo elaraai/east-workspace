@@ -9,5 +9,5 @@ import { Toggle as ToggleFactory, type ToggleOptions } from "../../buttons/toggl
 import { content, type JsxTag } from "../combinators.js";
 
 /** `<Toggle pressed={on} onChange={set} variant="outline">Bold</Toggle>` — pressable toggle. Maps to `Toggle.Root`. */
-export const Toggle: JsxTag<ToggleOptions & { children: Parameters<typeof ToggleFactory.Root>[0] }> =
-    content(ToggleFactory.Root);
+export const Toggle: JsxTag<ToggleOptions & { children: Parameters<typeof ToggleFactory.Root>[0] }> & { Types: typeof ToggleFactory.Types } =
+    Object.assign(content(ToggleFactory.Root), { Types: ToggleFactory.Types });

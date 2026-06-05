@@ -9,4 +9,5 @@ import { Avatar as AvatarFactory, type AvatarStyle } from "../../display/avatar/
 import { optionsTag, type JsxTag } from "../combinators.js";
 
 /** `<Avatar src={…} name={…} size="md" />` — avatar (no children). Maps to `Avatar.Root`. */
-export const Avatar: JsxTag<AvatarStyle> = optionsTag(AvatarFactory.Root);
+export const Avatar: JsxTag<AvatarStyle> & { Types: typeof AvatarFactory.Types } =
+    Object.assign(optionsTag(AvatarFactory.Root), { Types: AvatarFactory.Types });

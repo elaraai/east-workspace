@@ -9,5 +9,5 @@ import { Checkbox as CheckboxFactory } from "../../forms/checkbox/index.js";
 import { leaf, type ValueProps, type JsxTag } from "../combinators.js";
 
 /** `<Checkbox checked={…}>` — boolean toggle. Maps to `Checkbox.Root`. */
-export const Checkbox: JsxTag<ValueProps<typeof CheckboxFactory.Root, "checked">> =
-    leaf(CheckboxFactory.Root, "checked");
+export const Checkbox: JsxTag<ValueProps<typeof CheckboxFactory.Root, "checked">> & { Types: typeof CheckboxFactory.Types } =
+    Object.assign(leaf(CheckboxFactory.Root, "checked"), { Types: CheckboxFactory.Types });

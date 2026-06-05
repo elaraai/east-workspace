@@ -9,4 +9,5 @@ import { Badge as BadgeFactory } from "../../display/badge/index.js";
 import { content, type ContentProps, type JsxTag } from "../combinators.js";
 
 /** `<Badge>` — small status/label pill. Maps to `Badge.Root`. */
-export const Badge: JsxTag<ContentProps<typeof BadgeFactory.Root>> = content(BadgeFactory.Root);
+export const Badge: JsxTag<ContentProps<typeof BadgeFactory.Root>> & { Types: typeof BadgeFactory.Types } =
+    Object.assign(content(BadgeFactory.Root), { Types: BadgeFactory.Types });
