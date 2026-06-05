@@ -1,26 +1,44 @@
 # __DISPLAY_NAME__
 
-e3 project (BSL-1.1) — Node + Python, durable dataflow execution.
+An e3 project (BSL-1.1) — typed East logic, durable dataflow execution.
+
+East turns inputs and logic into **decisions**. This starter ships one: `reorder_qty`
+in `src/index.ts` recommends how many units to reorder to bring stock (`on_hand`) up to
+its target (`reorder_to`), never negative. Edit it, add inputs and tasks, and grow the
+package from there.
 
 ## Setup
 
 ```bash
-npm run setup     # npm install + uv sync (Node and Python deps)
+npm run setup     # install dependencies (npm install, plus `uv sync` if you kept the Python runner)
 ```
 
-## Commands
+## Run
+
+```bash
+npm run start     # deploy from ./src/index.ts, then run the dataflow once
+npm run watch     # re-deploy and re-run on every save
+npm run deploy    # create the repo (if needed) and deploy without running
+```
+
+The package is the default export of `src/index.ts`; the e3 CLI deploys it straight from source.
+
+## Test
 
 ```bash
 npm run build     # compile TypeScript
-npm run test      # build, export IR, run TS + Python tests
-npm run test:ts   # TypeScript tests only
-npm run test:py   # Python tests only (needs IR exported first)
-npm run deploy    # create repo (if needed) + deploy from ./src/index.ts
-npm run start     # deploy, then run the dataflow once
-npm run watch     # auto-deploy + run on every save
-npm run lint      # lint sources
-npm run clean     # remove build output, venv, repo, dependencies
+npm run test      # build, export the IR, and run the tests
 ```
 
-The package is defined in `src/index.ts` as the default export; `npm run
-deploy`/`start`/`watch` deploy it straight from source via the e3 CLI.
+`npm run test` is present if you scaffolded with tests. With the Python (east-py) runner it also
+runs the exported IR through the Python runtime; without it, tests run on Node only.
+
+## Other
+
+```bash
+npm run lint      # lint sources
+npm run clean     # remove build output, dependencies, and the local repo
+```
+
+If you scaffolded with UI, `src/surface.tsx` holds a decision surface — a `ui()` task an operator
+uses to observe and act on the recommendation, registered in the package next to the decision.

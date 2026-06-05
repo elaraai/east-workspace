@@ -11,6 +11,13 @@ import { deriveNames, type ProjectNames } from "./names.js";
 
 export type ProjectKind = "e3" | "east";
 
+/**
+ * Feature toggles passed to {@link scaffold}, keyed by the feature names a
+ * template's `template.json` declares (e.g. `tests`, `ui`, `runner:east-py`).
+ * A missing key falls back to the feature's manifest `default`.
+ */
+export type Features = Record<string, boolean>;
+
 export interface ScaffoldOptions {
   /** Project type to scaffold. */
   kind: ProjectKind;
@@ -22,6 +29,8 @@ export interface ScaffoldOptions {
   templateDir: string;
   /** Version to pin `@elaraai/*` deps to when rewriting `workspace:*` (e.g. "1.4.0"). */
   version: string;
+  /** Feature toggles; unspecified features use the manifest default. */
+  features?: Features;
   /** Install dependencies after writing files (npm install, plus uv sync for e3). */
   install?: boolean;
   /** Logger; defaults to console.log. */
@@ -35,6 +44,36 @@ export interface ScaffoldResult extends ProjectNames {
   inPlace: boolean;
 }
 
+/** One feature in a template's `template.json` manifest. */
+interface FeatureSpec {
+  /** Enabled state when the caller does not specify the feature. Defaults to `true`. */
+  default?: boolean;
+  /** Template-relative files that exist only while this feature is ON. */
+  files?: string[];
+  /** Template-relative files dropped while this feature is ON (the base a variant replaces). */
+  disable?: string[];
+  /** Template-relative `source -> dest` renames applied while this feature is ON. */
+  rename?: Record<string, string>;
+  /** package.json `dependencies` entries dropped while this feature is OFF. */
+  dependencies?: string[];
+  /** package.json `devDependencies` entries dropped while this feature is OFF. */
+  devDependencies?: string[];
+  /** package.json `scripts` entries dropped while this feature is OFF. */
+  scripts?: string[];
+}
+
+/**
+ * `template.json` describes how features prune the template. `features` maps
+ * each feature to the files / deps / scripts it owns; `scriptVariants` rebuilds
+ * composite scripts whose body depends on more than one feature (the first
+ * variant whose `when` features are all enabled wins; none → the script is
+ * dropped).
+ */
+interface TemplateManifest {
+  features: Record<string, FeatureSpec>;
+  scriptVariants?: Record<string, { when: string[]; value: string }[]>;
+}
+
 const TEXT_REPLACE_EXT = new Set([
   ".ts", ".tsx", ".js", ".mjs", ".json", ".toml", ".md", ".txt",
   ".yml", ".yaml", ".py", ".nvmrc", ".python-version", "",
@@ -46,6 +85,9 @@ const DOTFILE_RENAMES: Record<string, string> = {
   npmrc: ".npmrc",
 };
 
+/** Manifest filename; describes feature pruning and is never emitted into the project. */
+const MANIFEST_FILE = "template.json";
+
 function substituteTokens(content: string, names: ProjectNames): string {
   return content
     .replaceAll("__PROJECT_NAME__", names.projectName)
@@ -54,12 +96,35 @@ function substituteTokens(content: string, names: ProjectNames): string {
 }
 
 /** Rewrite a template package.json into the emitted project's manifest. */
-function transformPackageJson(raw: string, names: ProjectNames, version: string): string {
+function transformPackageJson(
+  raw: string,
+  names: ProjectNames,
+  version: string,
+  manifest: TemplateManifest | null,
+  enabled: (feature: string) => boolean,
+): string {
   const pkg = JSON.parse(raw) as Record<string, unknown>;
   pkg.name = `@elaraai/${names.projectName}`;
   pkg.description = names.displayName;
   pkg.version = "0.0.1";
   delete pkg.private;
+
+  if (manifest) {
+    const deps = pkg.dependencies as Record<string, string> | undefined;
+    const devDeps = pkg.devDependencies as Record<string, string> | undefined;
+    const scripts = pkg.scripts as Record<string, string> | undefined;
+    for (const [feature, spec] of Object.entries(manifest.features)) {
+      if (enabled(feature)) continue;
+      for (const d of spec.dependencies ?? []) delete deps?.[d];
+      for (const d of spec.devDependencies ?? []) delete devDeps?.[d];
+      for (const s of spec.scripts ?? []) delete scripts?.[s];
+    }
+    for (const [name, variants] of Object.entries(manifest.scriptVariants ?? {})) {
+      const match = variants.find((v) => v.when.every(enabled));
+      if (match) scripts![name] = match.value;
+      else delete scripts?.[name];
+    }
+  }
 
   const pin = `^${version}`;
   for (const field of ["dependencies", "devDependencies", "peerDependencies"]) {
@@ -88,6 +153,12 @@ function extOf(path: string): string {
   return dot <= 0 ? "" : base.slice(dot);
 }
 
+function loadManifest(templateDir: string): TemplateManifest | null {
+  const path = join(templateDir, MANIFEST_FILE);
+  if (!existsSync(path)) return null;
+  return JSON.parse(readFileSync(path, "utf8")) as TemplateManifest;
+}
+
 export function scaffold(options: ScaffoldOptions): ScaffoldResult {
   const { kind, name, templateDir, version } = options;
   const cwd = options.cwd ?? process.cwd();
@@ -95,6 +166,24 @@ export function scaffold(options: ScaffoldOptions): ScaffoldResult {
 
   if (!existsSync(templateDir)) {
     throw new Error(`Template directory not found: ${templateDir}`);
+  }
+
+  const manifest = loadManifest(templateDir);
+  const enabled = (feature: string): boolean =>
+    options.features?.[feature] ?? manifest?.features[feature]?.default ?? true;
+
+  // Resolve which template files are skipped or renamed by the feature toggles.
+  const skip = new Set<string>();
+  const renames: Record<string, string> = {};
+  if (manifest) {
+    for (const [feature, spec] of Object.entries(manifest.features)) {
+      if (enabled(feature)) {
+        for (const f of spec.disable ?? []) skip.add(f);
+        for (const [src, dest] of Object.entries(spec.rename ?? {})) renames[src] = dest;
+      } else {
+        for (const f of spec.files ?? []) skip.add(f);
+      }
+    }
   }
 
   const names = deriveNames(name, cwd);
@@ -107,19 +196,22 @@ export function scaffold(options: ScaffoldOptions): ScaffoldResult {
   mkdirSync(projectDir, { recursive: true });
 
   for (const srcPath of walk(templateDir)) {
-    const rel = relative(templateDir, srcPath);
-    const segments = rel.split(/[/\\]/);
+    const rel = relative(templateDir, srcPath).replaceAll("\\", "/");
+    if (rel === MANIFEST_FILE) continue;
+    if (skip.has(rel)) continue;
+
+    const destRel = renames[rel] ?? rel;
+    const segments = destRel.split("/");
     const last = segments[segments.length - 1]!;
     segments[segments.length - 1] = DOTFILE_RENAMES[last] ?? last;
-    const destRel = segments.join("/");
-    const destPath = join(projectDir, destRel);
+    const destPath = join(projectDir, segments.join("/"));
 
     mkdirSync(join(destPath, ".."), { recursive: true });
 
     const baseName = segments[segments.length - 1]!;
     if (baseName === "package.json") {
-      const manifest = transformPackageJson(readFileSync(srcPath, "utf8"), names, version);
-      writeFileSync(destPath, substituteTokens(manifest, names));
+      const transformed = transformPackageJson(readFileSync(srcPath, "utf8"), names, version, manifest, enabled);
+      writeFileSync(destPath, substituteTokens(transformed, names));
     } else if (TEXT_REPLACE_EXT.has(extOf(srcPath)) || baseName.startsWith(".")) {
       writeFileSync(destPath, substituteTokens(readFileSync(srcPath, "utf8"), names));
     } else {
@@ -130,7 +222,7 @@ export function scaffold(options: ScaffoldOptions): ScaffoldResult {
   log(`Created ${names.projectName} (${kind}) at ${projectDir}`);
 
   if (options.install) {
-    runInstall(kind, projectDir, log);
+    runInstall(kind, projectDir, enabled, log);
   }
 
   return { ...names, projectDir, inPlace };
@@ -141,7 +233,12 @@ function hasCommand(cmd: string): boolean {
   return spawnSync(probe, [cmd], { stdio: "ignore" }).status === 0;
 }
 
-function runInstall(kind: ProjectKind, projectDir: string, log: (m: string) => void): void {
+function runInstall(
+  kind: ProjectKind,
+  projectDir: string,
+  enabled: (feature: string) => boolean,
+  log: (m: string) => void,
+): void {
   log("Installing Node dependencies (npm install)...");
   const npm = spawnSync("npm", ["install"], { cwd: projectDir, stdio: "inherit", shell: process.platform === "win32" });
   if (npm.status !== 0) {
@@ -149,7 +246,7 @@ function runInstall(kind: ProjectKind, projectDir: string, log: (m: string) => v
     return;
   }
 
-  if (kind === "e3") {
+  if (kind === "e3" && enabled("runner:east-py")) {
     if (hasCommand("uv")) {
       log("Installing Python dependencies (uv sync)...");
       const uv = spawnSync("uv", ["sync"], { cwd: projectDir, stdio: "inherit", shell: process.platform === "win32" });

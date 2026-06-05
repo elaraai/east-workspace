@@ -1,0 +1,40 @@
+{
+  "features": {
+    "tests": {
+      "default": true,
+      "files": ["src/index.spec.ts", "tests/test_unit.py"],
+      "scripts": ["test:ts", "test:export", "test:py"]
+    },
+    "ui": {
+      "default": false,
+      "files": ["src/surface.tsx", "src/index.ui.ts"],
+      "disable": ["src/index.ts"],
+      "rename": { "src/index.ui.ts": "src/index.ts" },
+      "dependencies": ["@elaraai/east-ui", "@elaraai/e3-ui"]
+    },
+    "runner:east-node": {
+      "default": true,
+      "devDependencies": ["@elaraai/east-node-cli"]
+    },
+    "runner:east-c": {
+      "default": true,
+      "devDependencies": ["@elaraai/east-c-cli"]
+    },
+    "runner:east-py": {
+      "default": true,
+      "files": ["pyproject.toml", ".python-version", "tests/test_unit.py"],
+      "scripts": ["test:py"],
+      "dependencies": ["@elaraai/east-py-datascience"]
+    }
+  },
+  "scriptVariants": {
+    "test": [
+      { "when": ["tests", "runner:east-py"], "value": "npm run build && npm run test:export && npm run test:py" },
+      { "when": ["tests"], "value": "npm run build && npm run test:export" }
+    ],
+    "setup": [
+      { "when": ["runner:east-py"], "value": "npm install && uv sync" },
+      { "when": [], "value": "npm install" }
+    ]
+  }
+}

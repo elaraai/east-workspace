@@ -23,7 +23,9 @@
     "@elaraai/east-node-io": "workspace:*",
     "@elaraai/east-py-datascience": "workspace:*",
     "@elaraai/e3": "workspace:*",
-    "@elaraai/e3-types": "workspace:*"
+    "@elaraai/e3-types": "workspace:*",
+    "@elaraai/east-ui": "workspace:*",
+    "@elaraai/e3-ui": "workspace:*"
   },
   "devDependencies": {
     "@elaraai/e3-cli": "workspace:*",

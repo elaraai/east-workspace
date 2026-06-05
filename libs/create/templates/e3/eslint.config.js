@@ -4,7 +4,7 @@ import tsparser from "@typescript-eslint/parser";
 export default [
   { ignores: ["dist/", "node_modules/", ".venv/"] },
   {
-    files: ["src/**/*.ts"],
+    files: ["src/**/*.ts", "src/**/*.tsx"],
     languageOptions: {
       parser: tsparser,
       parserOptions: { ecmaVersion: "latest", sourceType: "module" },
