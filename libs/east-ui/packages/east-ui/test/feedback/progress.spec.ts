@@ -17,7 +17,6 @@ describeEast("Progress", (test) => {
         progressRange: ex.progressRange,
         progressIndeterminate: ex.progressIndeterminate,
         progressWithETA: ex.progressWithETA,
-        progressInteractive: ex.progressInteractive,
     });
 
     // =========================================================================
@@ -83,7 +82,7 @@ describeEast("Progress", (test) => {
 
     test("creates progress with style.variant + tone + size", $ => {
         const p = $.let(Progress.Root(50.0, {
-            style: { variant: "subtle", tone: "pos", size: "md" },
+            variant: "subtle", tone: "pos", size: "md",
         }));
         const s = p.unwrap().unwrap("Progress").style.unwrap("some");
         $(Assert.equal(s.variant.unwrap("some").hasTag("subtle"), true));
@@ -92,7 +91,7 @@ describeEast("Progress", (test) => {
     });
 
     test("creates progress with style.striped + animated", $ => {
-        const p = $.let(Progress.Root(50.0, { style: { striped: true, animated: true } }));
+        const p = $.let(Progress.Root(50.0, { striped: true, animated: true }));
         const s = p.unwrap().unwrap("Progress").style.unwrap("some");
         $(Assert.equal(s.striped.unwrap("some"), true));
         $(Assert.equal(s.animated.unwrap("some"), true));
@@ -100,11 +99,9 @@ describeEast("Progress", (test) => {
 
     test("creates progress with colour slots", $ => {
         const p = $.let(Progress.Root(50.0, {
-            style: {
-                trackColor: "#e5e7eb",
-                fillColor: "#3d5cff",
-                labelColor: "#111827",
-            },
+            trackColor: "#e5e7eb",
+            fillColor: "#3d5cff",
+            labelColor: "#111827",
         }));
         const s = p.unwrap().unwrap("Progress").style.unwrap("some");
         $(Assert.equal(s.trackColor.unwrap("some"), "#e5e7eb"));
