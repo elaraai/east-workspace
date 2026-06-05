@@ -92,7 +92,7 @@ describeEast("Card", (test) => {
         ], {
             footer: {
                 actions: [
-                    Button.Root("Cancel", { style: { variant: "outline" } }),
+                    Button.Root("Cancel", { variant: "outline" }),
                     Button.Root("Save"),
                 ],
             },

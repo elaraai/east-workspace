@@ -38,9 +38,9 @@ describeEast("UIComponentType - Nested Components", (test) => {
                     // Stats row: HStack with multiple stats
                     Stack.HStack(
                         [
-                            Stat.Root("Revenue", "$45,231", { indicator: "up" }),
-                            Stat.Root("Users", "1,234"),
-                            Stat.Root("Orders", "156", { indicator: "down" }),
+                            Stat.Root({ label: "Revenue", value: "$45,231", indicator: "up" }),
+                            Stat.Root({ label: "Users", value: "1,234" }),
+                            Stat.Root({ label: "Orders", value: "156", indicator: "down" }),
                         ],
                         { gap: "6" }
                     ),
@@ -48,8 +48,8 @@ describeEast("UIComponentType - Nested Components", (test) => {
                     // Content section: Box with alert and progress
                     Box.Root(
                         [
-                            Banner.Root("info", "Welcome back!"),
-                            Progress.Root(75.0, { style: { tone: "brand" } })
+                            Banner.Root({ status: "info", title: "Welcome back!" }),
+                            Progress.Root(75.0, { tone: "brand" })
                         ],
                         { padding: Box.Padding({ top: "4", right: "4", bottom: "4", left: "4" }) }
                     ),
