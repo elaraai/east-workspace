@@ -60,11 +60,9 @@ describeEast("Sticky", (test) => {
         const sticky = $.let(Sticky.Root(Text.Root("Header"), {
             offset: "0",
             boundary: "parent",
-            style: {
-                background: "white",
-                borderColor: "gray.200",
-                shadowColor: "shadows.raised",
-            },
+            background: "white",
+            borderColor: "gray.200",
+            shadowColor: "shadows.raised",
         }));
 
         $(Assert.equal(sticky.unwrap().unwrap("Sticky").style.hasTag("some"), true));

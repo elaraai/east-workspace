@@ -84,13 +84,13 @@ describeEast("ChipRail", (test) => {
     // =========================================================================
 
     test("creates a chip rail with wrap overflow", $ => {
-        const rail = $.let(ChipRail.Root([Tag.Root("A")], { style: { overflow: "wrap" } }));
+        const rail = $.let(ChipRail.Root([Tag.Root("A")], { overflow: "wrap" }));
         const sv = rail.unwrap().unwrap("ChipRail").style.unwrap("some");
         $(Assert.equal(sv.overflow.unwrap("some").hasTag("wrap"), true));
     });
 
     test("creates a chip rail with scroll overflow", $ => {
-        const rail = $.let(ChipRail.Root([Tag.Root("A")], { style: { overflow: "scroll" } }));
+        const rail = $.let(ChipRail.Root([Tag.Root("A")], { overflow: "scroll" }));
         const sv = rail.unwrap().unwrap("ChipRail").style.unwrap("some");
         $(Assert.equal(sv.overflow.unwrap("some").hasTag("scroll"), true));
     });
@@ -101,11 +101,9 @@ describeEast("ChipRail", (test) => {
 
     test("creates a chip rail with all style hatches", $ => {
         const rail = $.let(ChipRail.Root([Tag.Root("A")], {
-            style: {
-                background: "gray.50",
-                separatorColor: "gray.200",
-                overflowTriggerColor: "gray.600",
-            },
+            background: "gray.50",
+            separatorColor: "gray.200",
+            overflowTriggerColor: "gray.600",
         }));
 
         $(Assert.equal(rail.unwrap().unwrap("ChipRail").style.hasTag("some"), true));
