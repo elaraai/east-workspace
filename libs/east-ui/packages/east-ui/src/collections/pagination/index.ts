@@ -6,11 +6,6 @@
 import {
     type ExprType,
     East,
-    FunctionType,
-    IntegerType,
-    NullType,
-    OptionType,
-    StructType,
     variant,
     some,
     none,
@@ -21,6 +16,7 @@ import {
     PaginationSizeType,
     PaginationVariantType,
     PaginationStyleType,
+    PaginationType,
     type PaginationOptions,
 } from "./types.js";
 
@@ -28,44 +24,9 @@ export {
     PaginationSizeType,
     PaginationVariantType,
     PaginationStyleType,
+    PaginationType,
     type PaginationOptions,
 } from "./types.js";
-
-// ============================================================================
-// PaginationType — standalone mirror of the inline variant in component.ts
-// ============================================================================
-
-/**
- * Standalone East StructType mirror of the inline `Pagination` variant
- * in `component.ts`.
- *
- * @remarks
- * Per the 0 main/style type-shape convention, main carries content
- * (`page` / `pageSize` / `count`) and behaviour (`onPageChange`);
- * `style` carries visual fields only.
- *
- * @property page - Current 0-based page index
- * @property pageSize - Number of items per page
- * @property count - Total item count (drives the page-number range)
- * @property onPageChange - Callback fired when the user picks a new page
- * @property style - Optional visual style sub-struct
- */
-export const PaginationType: StructType<{
-    page: IntegerType,
-    pageSize: IntegerType,
-    count: IntegerType,
-    onPageChange: FunctionType<[IntegerType], NullType>,
-    style: OptionType<PaginationStyleType>,
-}> = StructType({
-    page: IntegerType,
-    pageSize: IntegerType,
-    count: IntegerType,
-    onPageChange: FunctionType([IntegerType], NullType),
-    style: OptionType(PaginationStyleType),
-});
-
-/** Type alias for PaginationType. */
-export type PaginationType = typeof PaginationType;
 
 // ============================================================================
 // Helpers

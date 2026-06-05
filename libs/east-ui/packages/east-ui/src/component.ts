@@ -128,7 +128,7 @@ import {
     MatrixSegmentClickEventType,
     MatrixSegmentChangeEventType,
 } from "./collections/matrix/types.js";
-import { PaginationType } from "./collections/pagination/index.js";
+import { PaginationType } from "./collections/pagination/types.js";
 import {
     TableStyleType,
     TableCellRenderContextType,
@@ -191,7 +191,7 @@ import { HoverCardStyleType } from "./overlays/hover-card/types.js";
 import { ActionBarItemType, ActionBarStyleType } from "./overlays/action-bar/types.js";
 import { ToggleTipStyleType } from "./overlays/toggle-tip/types.js";
 import { CommandPaletteType } from "./overlays/command-palette/types.js";
-import { HotkeyType } from "./platform/hotkey/index.js";
+import { HotkeyType } from "./platform/hotkey/types.js";
 
 /**
  * Recursive type representing any UI component in East UI.
