@@ -26,9 +26,9 @@ describeEast("Matrix", (test) => {
         const m = $.let(Matrix.Root(
             [{ name: "Alice", booked: new Map([["mon", 0.7]]) }],
             {
-                columns: [{ key: "mon", label: "Mon" }],
+                columns: [Matrix.column({ key: "mon", label: "Mon" })],
                 rowKey: r => r.name,
-                cell: (r, col) => Matrix.cell({ segments: [Matrix.segment({ fill: "brand", weight: r.booked.get(col) })] }),
+                cell: (r, col) => Matrix.cell({ segments: [Matrix.segment({ fill: "brand", weight: r.booked.get(col.key) })] }),
             },
         ));
         const root = $.let(m.unwrap().unwrap("Matrix"));
@@ -43,12 +43,12 @@ describeEast("Matrix", (test) => {
         const m = $.let(Matrix.Root(
             [{ name: "Alice", role: "PM", booked: new Map([["mon", 0.5]]) }],
             {
-                columns: [{ key: "mon" }],
+                columns: [Matrix.column({ key: "mon" })],
                 rowKey: r => r.name,
                 rowHeader: "Resource",
                 rowValue: r => r.name,
                 rowSublabel: r => r.role,
-                cell: (r, col) => Matrix.cell({ segments: [Matrix.segment({ fill: "brand", weight: r.booked.get(col) })] }),
+                cell: (r, col) => Matrix.cell({ segments: [Matrix.segment({ fill: "brand", weight: r.booked.get(col.key) })] }),
             },
         ));
         const root = $.let(m.unwrap().unwrap("Matrix"));
@@ -61,9 +61,9 @@ describeEast("Matrix", (test) => {
         const m = $.let(Matrix.Root(
             [{ name: "Alice", booked: new Map([["mon", 0.5]]) }],
             {
-                columns: [{ key: "mon" }],
+                columns: [Matrix.column({ key: "mon" })],
                 rowKey: r => r.name,
-                cell: (r, col) => Matrix.cell({ segments: [Matrix.segment({ fill: "brand", weight: r.booked.get(col) })] }),
+                cell: (r, col) => Matrix.cell({ segments: [Matrix.segment({ fill: "brand", weight: r.booked.get(col.key) })] }),
             },
         ));
         const row = $.let(m.unwrap().unwrap("Matrix").rows.get(0n));
@@ -75,10 +75,10 @@ describeEast("Matrix", (test) => {
         const m = $.let(Matrix.Root(
             [{ name: "A", booked: new Map([["mon", 0.5]]) }],
             {
-                columns: [{ key: "mon" }],
+                columns: [Matrix.column({ key: "mon" })],
                 rowKey: r => r.name,
                 orientation: "vertical",
-                cell: (r, col) => Matrix.cell({ segments: [Matrix.segment({ fill: "brand", weight: r.booked.get(col) })] }),
+                cell: (r, col) => Matrix.cell({ segments: [Matrix.segment({ fill: "brand", weight: r.booked.get(col.key) })] }),
             },
         ));
         $(Assert.equal(m.unwrap().unwrap("Matrix").orientation.hasTag("vertical"), true));
@@ -126,10 +126,10 @@ describeEast("Matrix", (test) => {
         const m = $.let(Matrix.Root(
             [{ name: "Alice", team: "Web", booked: new Map([["mon", 0.5]]) }],
             {
-                columns: [{ key: "mon" }],
+                columns: [Matrix.column({ key: "mon" })],
                 rowKey: r => r.name,
                 groupBy: r => r.team,
-                cell: (r, col) => Matrix.cell({ segments: [Matrix.segment({ fill: "brand", weight: r.booked.get(col) })] }),
+                cell: (r, col) => Matrix.cell({ segments: [Matrix.segment({ fill: "brand", weight: r.booked.get(col.key) })] }),
             },
         ));
         $(Assert.equal(m.unwrap().unwrap("Matrix").rows.get(0n).group.unwrap("some"), "Web"));
@@ -139,9 +139,9 @@ describeEast("Matrix", (test) => {
         const m = $.let(Matrix.Root(
             [{ name: "A", booked: new Map([["mon", 0.5]]) }],
             {
-                columns: [{ key: "mon" }],
+                columns: [Matrix.column({ key: "mon" })],
                 rowKey: r => r.name,
-                cell: (r, col) => Matrix.cell({ segments: [Matrix.segment({ fill: "brand", weight: r.booked.get(col) })] }),
+                cell: (r, col) => Matrix.cell({ segments: [Matrix.segment({ fill: "brand", weight: r.booked.get(col.key) })] }),
                 onSegmentChange: East.function([Matrix.Types.SegmentChangeEvent], NullType, _$ => null),
             },
         ));
@@ -152,9 +152,9 @@ describeEast("Matrix", (test) => {
         const m = $.let(Matrix.Root(
             [{ name: "A", booked: new Map([["mon", 0.5]]) }],
             {
-                columns: [{ key: "mon" }],
+                columns: [Matrix.column({ key: "mon" })],
                 rowKey: r => r.name,
-                cell: (r, col) => Matrix.cell({ segments: [Matrix.segment({ fill: "brand", weight: r.booked.get(col) })] }),
+                cell: (r, col) => Matrix.cell({ segments: [Matrix.segment({ fill: "brand", weight: r.booked.get(col.key) })] }),
                 legend: [{ fill: "brand", label: "Booked" }],
             },
         ));
