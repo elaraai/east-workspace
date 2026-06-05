@@ -55,7 +55,7 @@ export const accordionCollapsible = example({
                 <Accordion
                     items={[
                         Accordion.Item("a", "Panel A", [<Box padding="4"><Text>This accordion allows all panels to be collapsed.</Text></Box>]),
-                        Accordion.Item("b", "Panel B", [<Box padding="4"><Text>Click an open panel's trigger to collapse it.</Text></Box>]),
+                        Accordion.Item("b", "Panel B", [<Box padding="4"><Text>Click an open panel’s trigger to collapse it.</Text></Box>]),
                     ]}
                     collapsible={true}
                 />

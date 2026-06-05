@@ -63,7 +63,7 @@ export const dialogInteractive = example({
             return (
                 <VStack gap="3" align="flex-start">
                     <Dialog trigger={<Button>Open Dialog</Button>} title="Interactive Dialog" onOpenChange={onOpenChange}>
-                        <Text>This dialog tracks when it's opened and closed.</Text>
+                        <Text>This dialog tracks when it’s opened and closed.</Text>
                         <HStack gap="2" justify="flex-end">
                             <Button variant="solid">Got it!</Button>
                         </HStack>

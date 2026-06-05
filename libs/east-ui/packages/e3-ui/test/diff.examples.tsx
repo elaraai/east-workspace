@@ -198,7 +198,7 @@ export const serviceConfigForm = example({
                     <Card>
                         <VStack gap="4" align="stretch">
                             <Text textStyle="heading-md">Service configuration</Text>
-                            <Text>Stage edits across heterogeneous types; on apply you'll see a confirmation toast.</Text>
+                            <Text>Stage edits across heterogeneous types; on apply you’ll see a confirmation toast.</Text>
 
                             <VStack gap="1">
                                 <Text textStyle="label-sm">Service name</Text>

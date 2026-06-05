@@ -58,7 +58,7 @@ export const drawerInteractive = example({
                 <VStack gap="3" align="flex-start">
                     <Drawer trigger={<Button>Open Drawer</Button>} title="Interactive Drawer" placement="end" onOpenChange={onOpenChange}>
                         <VStack gap="4">
-                            <Text>This drawer counts how many times it's been opened.</Text>
+                            <Text>This drawer counts how many times it’s been opened.</Text>
                             <Status label={<Text>{East.str`OPENED · ${East.print(openCount)} TIMES`}</Text>} value="info" />
                         </VStack>
                     </Drawer>
