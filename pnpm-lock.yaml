@@ -446,9 +446,6 @@ importers:
       '@elaraai/east':
         specifier: workspace:*
         version: link:../east
-      '@elaraai/east-ui':
-        specifier: workspace:*
-        version: link:../east-ui/packages/east-ui
       '@types/node':
         specifier: ^22.18.1
         version: 22.19.15
