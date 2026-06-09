@@ -21,7 +21,6 @@ import {
   NeverType,
   NullType,
   printType,
-  printTypeSummary,
   RefType,
   SetType,
   StringType,
@@ -31,6 +30,7 @@ import {
   VectorType
 } from "../types.js";
 import { isVariant, variant } from "../containers/variant.js";
+import { typeMismatchError } from "../type_diff.js";
 import { Expr, AstSymbol, TypeSymbol } from "./expr.js";
 import { isRef } from "../containers/ref.js";
 import { isMatrix } from "../containers/matrix.js";
@@ -156,7 +156,7 @@ export function valueOrExprToAstTyped<T extends EastType>(value: any, type: T, v
   if (value instanceof Expr) {
     const valueType = value[TypeSymbol];
     if (!isSubtype(valueType, type)) {
-      throw new Error(`Expression expected to have type ${printTypeSummary(type)} but got type ${printTypeSummary(valueType)}`);
+      throw typeMismatchError(valueType, type, { loc_id });
     }
     return value[AstSymbol] as AST & { type: T };
   }
@@ -205,7 +205,7 @@ export function valueOrExprToAstTyped<T extends EastType>(value: any, type: T, v
 
     const val_ast = valueOrExprToAstTyped(value.value, type.value, visited, loc_id);
     if (!isSubtype(val_ast.type, type.value)) {
-      throw new Error(`Ref value expected to have type ${printTypeSummary(type.value)} but got type ${printTypeSummary(val_ast.type)}`);
+      throw typeMismatchError(val_ast.type, type.value, { loc_id });
     }
     if (val_ast.type.type === "Never") {
       throw new Error(`Unable to convert value to Ref expression: value has type .Never`);
@@ -284,7 +284,7 @@ export function valueOrExprToAstTyped<T extends EastType>(value: any, type: T, v
 
     const valueAst = valueOrExprToAstTyped((value as variant).value, caseType, visited, loc_id);
     if (!isSubtype(valueAst.type, caseType)) {
-      throw new Error(`Variant case ${name} expected to have type ${printTypeSummary(caseType)} but got type ${printTypeSummary(valueAst.type)}`);
+      throw typeMismatchError(valueAst.type, caseType, { loc_id });
     }
     if (valueAst.type.type === "Never") {
       throw new Error(`Unable to convert variant to Variant expression: case ${name} has type .Never`);

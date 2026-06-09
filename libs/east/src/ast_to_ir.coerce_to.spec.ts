@@ -133,14 +133,14 @@ describe("coerce_to: invalid widening throws", () => {
     it("Integer → String throws", () => {
         assert.throws(
             () => coerce_to(mkValue(IntegerType, 1n), IntegerType, StringType, LOC),
-            /Cannot coerce value/,
+            /East type mismatch/,
         );
     });
 
     it("String → Integer throws", () => {
         assert.throws(
             () => coerce_to(mkValue(StringType, "x"), StringType, IntegerType, LOC),
-            /Cannot coerce value/,
+            /East type mismatch/,
         );
     });
 
@@ -158,7 +158,7 @@ describe("coerce_to: invalid widening throws", () => {
         const wide = VariantType({ some: IntegerType, none: NullType });
         assert.throws(
             () => coerce_to(mkVariable(wide), wide, narrow, LOC),
-            /Cannot coerce value/,
+            /East type mismatch/,
         );
     });
 });
@@ -412,7 +412,7 @@ describe("coerce_to: invariant containers (Array/Set/Dict/Vector/Matrix/Ref)", (
         const wide = ArrayType(OptionType(IntegerType));
         assert.throws(
             () => coerce_to(mkVariable(narrow), narrow, wide, LOC),
-            /Cannot coerce value/,
+            /East type mismatch/,
         );
     });
 
@@ -421,7 +421,7 @@ describe("coerce_to: invariant containers (Array/Set/Dict/Vector/Matrix/Ref)", (
         const wide = SetType(OptionType(IntegerType));
         assert.throws(
             () => coerce_to(mkVariable(narrow), narrow, wide, LOC),
-            /Cannot coerce value/,
+            /East type mismatch/,
         );
     });
 
@@ -430,7 +430,7 @@ describe("coerce_to: invariant containers (Array/Set/Dict/Vector/Matrix/Ref)", (
         const wide = DictType(StringType, OptionType(IntegerType));
         assert.throws(
             () => coerce_to(mkVariable(narrow), narrow, wide, LOC),
-            /Cannot coerce value/,
+            /East type mismatch/,
         );
     });
 
@@ -439,7 +439,7 @@ describe("coerce_to: invariant containers (Array/Set/Dict/Vector/Matrix/Ref)", (
         const wide = RefType(OptionType(IntegerType));
         assert.throws(
             () => coerce_to(mkVariable(narrow), narrow, wide, LOC),
-            /Cannot coerce value/,
+            /East type mismatch/,
         );
     });
 

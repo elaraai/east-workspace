@@ -10,6 +10,7 @@ export * from './containers/sortedmap.js';
 export * from './containers/matrix.js';
 export * from './types.js';
 export * from './type_of_type.js';
+export * from './type_diff.js';
 export * from './serialization/index.js';
 export * from './comparison.js';
 export * from './ast.js';
