@@ -21,7 +21,7 @@ export default defineConfig(({ command }) => {
         rootDir: __dirname,
       }),
     ],
-    base: '/east-workspace/',
+    base: '/',
     define: {
       'process.env': {},
       'process.argv': '[]',

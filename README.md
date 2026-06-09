@@ -15,6 +15,8 @@ You write it as typed TypeScript — no new language or syntax — and the same 
 - **Durable execution.** e3 runs dataflow content-addressed and memoized: it reruns only what changed and keeps a replayable audit trail.
 - **Works for agents and people.** Indexed examples and DSL-level linting catch errors at the language level, whether the code is written by a person or an agent.
 
+See it live at [learning.elaraai.com](https://learning.elaraai.com/) — the East UI component showcase, doubling as the browsable index of East code examples.
+
 ## Grounded in how the business actually works
 
 Everything starts from an **economic ontology** — a typed graph of the business itself: its objectives, processes, resources and decisions, the KPIs that measure them and the policies that constrain them, wired together by what *drives*, *produces*, *constrains*, and *measures* what. That shared model is what lets integrations, forecasts, optimizations, and simulations reason about the *same* world instead of each guessing at it.
@@ -143,6 +145,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) and [CLA.md](CLA.md). Contributors sign t
 ## Links
 
 - **Website**: https://elaraai.com/
+- **Showcase & example index**: https://learning.elaraai.com/
 - **Repository**: https://github.com/elaraai/east-workspace
 - **Issues**: https://github.com/elaraai/east-workspace/issues
 - **Email**: support@elara.ai
