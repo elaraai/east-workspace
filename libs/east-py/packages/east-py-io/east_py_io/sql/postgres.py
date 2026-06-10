@@ -58,7 +58,19 @@ _pools: dict[str, Any] = {}
 
 
 def convert_param_to_native(param: EastVariant) -> Any:
-    """Convert East SQL parameter to native Python value."""
+    """Convert an East SQL parameter variant to a native Python value for asyncpg binding.
+
+    ``DateTime`` values have their timezone stripped before binding to avoid
+    asyncpg comparison failures with timezone-aware timestamps.
+
+    Args:
+        param: ``EastVariant`` whose ``type`` tag is one of ``String``,
+            ``Integer``, ``Float``, ``Boolean``, ``Null``, ``Blob``,
+            ``DateTime``.
+
+    Returns:
+        Native Python value suitable for asyncpg parameter binding.
+    """
     tag = param.type
     value = param.value
 
@@ -82,7 +94,19 @@ def convert_param_to_native(param: EastVariant) -> Any:
 
 
 def convert_native_to_param(value: Any) -> EastVariant:
-    """Convert native Python value to East SQL parameter variant."""
+    """Convert a native asyncpg result value to an East SQL parameter variant.
+
+    ``datetime`` values are normalized to UTC and truncated to millisecond
+    precision to match TypeScript behavior.
+
+    Args:
+        value: Native Python value returned by asyncpg (``None``, ``bool``,
+            ``int``, ``float``, ``str``, ``bytes``, or ``datetime``).
+
+    Returns:
+        ``EastVariant`` tagged ``Null``, ``Boolean``, ``Integer``, ``Float``,
+        ``String``, ``Blob``, or ``DateTime``.
+    """
     from east.types.values import EastBlob
 
     if value is None:
@@ -114,9 +138,29 @@ def convert_native_to_param(value: Any) -> EastVariant:
     output=ConnectionHandleType,
 )
 async def postgres_connect_impl(config: EastStruct) -> str:
-    """Connect to a PostgreSQL database.
+    """Create an asyncpg connection pool and return a handle.
 
-    Creates a connection pool and returns a handle.
+    Args:
+        config: ``PostgresConfigType`` (``EastStruct``) with fields:
+
+            - ``host`` (``String``): server hostname or IP.
+            - ``port`` (``Integer``): server port (typically 5432).
+            - ``database`` (``String``): database name.
+            - ``user`` (``String``): login user.
+            - ``password`` (``String``): login password.
+            - ``ssl`` (``Option<Boolean>``): enable TLS (default ``False``).
+            - ``maxConnections`` (``Option<Integer>``): pool upper bound
+              (default 10).
+
+    Returns:
+        ``String`` - opaque connection handle, passed to
+        ``postgres_query_impl`` / ``postgres_close_impl``.
+
+    Raises:
+        NotImplementedError: the ``postgres`` extra (asyncpg) is not
+            installed.
+        Exception: asyncpg pool creation fails (bad credentials, host
+            unreachable, etc.).
     """
     _check_postgres_support()
     import asyncpg
@@ -164,7 +208,35 @@ async def postgres_connect_impl(config: EastStruct) -> str:
     output=SqlResultType,
 )
 async def postgres_query_impl(handle: str, sql: str, params: EastArray) -> EastVariant:
-    """Execute a SQL query with parameterized values."""
+    """Execute a parameterized SQL statement and return a typed result.
+
+    Dispatches on the leading keyword of the SQL string (``SELECT``,
+    ``INSERT``, ``UPDATE``, ``DELETE``; everything else treated as ``UPDATE``
+    with ``rowsAffected = 0``).
+
+    Args:
+        handle: ``String`` - connection handle from ``postgres_connect_impl``.
+        sql: ``String`` - SQL statement with ``$1``, ``$2``, ... positional
+            placeholders (asyncpg style).
+        params: ``Array<SqlParameterType>`` (``EastArray``) - bind values in
+            placeholder order.
+
+    Returns:
+        ``SqlResultType`` (``EastVariant``):
+
+        - ``select`` ``{rows: Array<Dict<String, SqlParameterType>>}``
+        - ``insert`` ``{rowsAffected: Integer, lastInsertId: Option<Integer>}``
+          (``lastInsertId`` is always ``none`` for PostgreSQL - use
+          ``RETURNING`` in the query instead)
+        - ``update`` ``{rowsAffected: Integer}``
+        - ``delete`` ``{rowsAffected: Integer}``
+
+    Raises:
+        NotImplementedError: the ``postgres`` extra (asyncpg) is not
+            installed.
+        Exception: the handle is unknown, the SQL is malformed, or a
+            parameter type is incompatible.
+    """
     _check_postgres_support()
 
     try:
@@ -234,7 +306,16 @@ async def postgres_query_impl(handle: str, sql: str, params: EastArray) -> EastV
     output=NullType,
 )
 async def postgres_close_impl(handle: str) -> None:
-    """Close a PostgreSQL connection pool."""
+    """Gracefully close a PostgreSQL connection pool and release its handle.
+
+    Args:
+        handle: ``String`` - connection handle from ``postgres_connect_impl``.
+
+    Raises:
+        NotImplementedError: the ``postgres`` extra (asyncpg) is not
+            installed.
+        Exception: the handle is unknown.
+    """
     _check_postgres_support()
 
     try:
@@ -254,7 +335,10 @@ async def postgres_close_impl(handle: str) -> None:
     output=NullType,
 )
 async def postgres_close_all_impl() -> None:
-    """Close all PostgreSQL connection pools."""
+    """Gracefully close every open PostgreSQL connection pool managed by this process.
+
+    Clears the internal pool map; useful for test teardown.
+    """
     for pool in _pools.values():
         await pool.close()
     _pools.clear()
@@ -351,29 +435,48 @@ def _convert_postgres_select_value(value: Any, oid: int) -> Any:
 
 
 def postgres_select_factory(row_type: Any) -> Any:
-    """Factory for postgres_select that captures the type parameter.
+    """Return a typed ``postgres_select`` implementation for a given row struct type.
+
+    Called by the ``@generic_platform_function`` decorator with the resolved
+    ``T`` type argument.  The returned coroutine uses asyncpg's
+    ``conn.prepare()`` to obtain column OIDs and validates them against ``T``
+    before converting each row.
 
     Args:
-        row_type: Row type parameter (East IR type format)
+        row_type: East ``StructType`` describing one result row.
 
     Returns:
-        Async implementation function for postgres_select
+        Async callable ``(handle, sql, params) -> EastArray(T)`` implementing
+        ``postgres_select<T>``.
     """
 
     async def postgres_select_impl(handle: str, sql: str, params: EastArray) -> EastArray:
-        """Execute a SELECT query with typed results.
+        """Execute a SELECT query and return rows typed as ``Array<T>``.
+
+        Uses a prepared statement to obtain column OIDs and validates that
+        every field in ``T`` maps to a compatible PostgreSQL column type
+        before converting values.  Nullable columns must be declared as
+        ``Option<...>`` in ``T``.
 
         Args:
-            handle: Connection handle
-            sql: SQL SELECT query string
-            params: Query parameters
+            handle: ``String`` - connection handle from
+                ``postgres_connect_impl``.
+            sql: ``String`` - ``SELECT`` statement with ``$1``, ``$2``, ...
+                positional placeholders.
+            params: ``Array<SqlParameterType>`` (``EastArray``) - bind
+                values in placeholder order.
 
         Returns:
-            Array of rows matching the type parameter T
+            ``Array<T>`` (``EastArray``) - one ``EastStruct`` per result row,
+            fields coerced to the types declared in ``T``.
 
         Raises:
-            NotImplementedError: If asyncpg is not installed
-            Exception: If query fails or types don't match
+            NotImplementedError: the ``postgres`` extra (asyncpg) is not
+                installed.
+            Exception: the handle is unknown, ``T`` is not a ``StructType``,
+                a required column is missing from the result, a column type
+                is incompatible with the corresponding ``T`` field, or a
+                non-optional field contains ``NULL``.
         """
         _check_postgres_support()
 

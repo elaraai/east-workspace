@@ -7,6 +7,10 @@
 Provides random number generation for East programs running in Python.
 Supports both cryptographically secure random (default) and seedable PRNG
 for reproducible simulations.
+
+The ``*_impl`` functions are plain Python callables taking and returning East
+values - import them directly from a project's own ``@platform_function`` to
+reuse the implementations without an IR round-trip.
 """
 
 import math
@@ -128,7 +132,6 @@ def _set_rng(rng: RNG) -> None:
     _global_rng = rng
 
 
-# For testing - allow resetting to crypto RNG
 def _reset_to_crypto() -> None:
     """Reset to cryptographic RNG (for testing)."""
     global _global_rng
@@ -137,22 +140,22 @@ def _reset_to_crypto() -> None:
 
 @platform_function(name="random_uniform", inputs=[], output=FloatType)
 def random_uniform_impl() -> float:
-    """Generate uniform random float in [0.0, 1.0).
+    """Sample a uniform random float from ``[0.0, 1.0)``.
 
     Returns:
-        Random float in range [0.0, 1.0)
+        ``Float`` (``float``) - uniformly distributed value in ``[0.0, 1.0)``.
     """
     return _get_rng().next()
 
 
 @platform_function(name="random_normal", inputs=[], output=FloatType)
 def random_normal_impl() -> float:
-    """Generate random float from standard normal distribution.
+    """Sample a random float from the standard normal distribution N(0, 1).
 
-    Uses Marsaglia polar method for Box-Muller transform.
+    Uses the Marsaglia polar method (Box-Muller transform).
 
     Returns:
-        Random float from N(0, 1) distribution
+        ``Float`` (``float``) - variate drawn from N(0, 1).
     """
     rng = _get_rng()
     # Marsaglia polar method
@@ -168,17 +171,17 @@ def random_normal_impl() -> float:
     name="random_range", inputs=[IntegerType, IntegerType], output=IntegerType
 )
 def random_range_impl(min_val: int, max_val: int) -> int:
-    """Generate uniformly distributed random integer in [min, max].
+    """Sample a uniformly distributed random integer from the closed interval ``[min, max]``.
 
     Args:
-        min_val: Minimum value (inclusive)
-        max_val: Maximum value (inclusive)
+        min_val: ``Integer`` (``int``) - inclusive lower bound.
+        max_val: ``Integer`` (``int``) - inclusive upper bound.
 
     Returns:
-        Random integer in range [min, max]
+        ``Integer`` (``int``) - random integer in ``[min_val, max_val]``.
 
     Raises:
-        ValueError: If min > max
+        ValueError: If ``min_val > max_val``.
     """
     if min_val > max_val:
         raise ValueError("Invalid range")
@@ -188,16 +191,18 @@ def random_range_impl(min_val: int, max_val: int) -> int:
 
 @platform_function(name="random_exponential", inputs=[FloatType], output=FloatType)
 def random_exponential_impl(lambda_rate: float) -> float:
-    """Generate random float from exponential distribution.
+    """Sample a random float from an exponential distribution with rate lambda.
 
     Args:
-        lambda_rate: Rate parameter (mean = 1/λ)
+        lambda_rate: ``Float`` (``float``) - rate parameter lambda; mean of
+            the distribution is ``1 / lambda_rate``.
 
     Returns:
-        Random float from exponential distribution
+        ``Float`` (``float``) - non-negative variate drawn from
+        Exponential(lambda).
 
     Raises:
-        ValueError: If lambda_rate <= 0
+        ValueError: If ``lambda_rate <= 0``.
     """
     if lambda_rate <= 0:
         raise ValueError(f"Lambda rate must be positive, got {lambda_rate}")
@@ -208,16 +213,16 @@ def random_exponential_impl(lambda_rate: float) -> float:
 
 @platform_function(name="random_weibull", inputs=[FloatType], output=FloatType)
 def random_weibull_impl(shape_k: float) -> float:
-    """Generate random float from Weibull distribution.
+    """Sample a random float from a Weibull distribution with scale 1.
 
     Args:
-        shape_k: Shape parameter k
+        shape_k: ``Float`` (``float``) - shape parameter k; must be positive.
 
     Returns:
-        Random float from Weibull(k, 1) distribution
+        ``Float`` (``float``) - variate drawn from Weibull(k, scale=1).
 
     Raises:
-        ValueError: If shape_k <= 0
+        ValueError: If ``shape_k <= 0``.
     """
     if shape_k <= 0:
         raise ValueError(f"Shape parameter must be positive, got {shape_k}")
@@ -227,16 +232,17 @@ def random_weibull_impl(shape_k: float) -> float:
 
 @platform_function(name="random_bernoulli", inputs=[FloatType], output=IntegerType)
 def random_bernoulli_impl(p: float) -> int:
-    """Generate binary random outcome (Bernoulli trial).
+    """Perform a single Bernoulli trial with success probability p.
 
     Args:
-        p: Success probability [0, 1]
+        p: ``Float`` (``float``) - success probability in ``[0, 1]``.
 
     Returns:
-        1 with probability p, 0 with probability (1-p)
+        ``Integer`` (``int``) - ``1`` with probability ``p``, ``0`` with
+        probability ``1 - p``.
 
     Raises:
-        ValueError: If p not in [0, 1]
+        ValueError: If ``p`` is not in ``[0, 1]``.
     """
     if not 0 <= p <= 1:
         raise ValueError(f"Probability must be in [0, 1], got {p}")
@@ -247,17 +253,17 @@ def random_bernoulli_impl(p: float) -> int:
     name="random_binomial", inputs=[IntegerType, FloatType], output=IntegerType
 )
 def random_binomial_impl(n: int, p: float) -> int:
-    """Generate number of successes in n Bernoulli trials.
+    """Sample the number of successes in n independent Bernoulli trials.
 
     Args:
-        n: Number of trials
-        p: Success probability [0, 1]
+        n: ``Integer`` (``int``) - number of trials; must be non-negative.
+        p: ``Float`` (``float``) - success probability per trial in ``[0, 1]``.
 
     Returns:
-        Number of successes
+        ``Integer`` (``int``) - number of successes in ``[0, n]``.
 
     Raises:
-        ValueError: If n < 0 or p not in [0, 1]
+        ValueError: If ``n < 0`` or ``p`` is not in ``[0, 1]``.
     """
     if n < 0:
         raise ValueError(f"Number of trials must be non-negative, got {n}")
@@ -274,16 +280,16 @@ def random_binomial_impl(n: int, p: float) -> int:
 
 @platform_function(name="random_geometric", inputs=[FloatType], output=IntegerType)
 def random_geometric_impl(p: float) -> int:
-    """Generate number of trials until first success.
+    """Sample the number of trials until the first success in a Bernoulli process.
 
     Args:
-        p: Success probability (0, 1]
+        p: ``Float`` (``float``) - success probability per trial in ``(0, 1]``.
 
     Returns:
-        Number of trials until first success
+        ``Integer`` (``int``) - number of trials (>= 1) until first success.
 
     Raises:
-        ValueError: If p not in (0, 1]
+        ValueError: If ``p`` is not in ``(0, 1]``.
     """
     if not 0 < p <= 1:
         raise ValueError(f"Probability must be in (0, 1], got {p}")
@@ -293,16 +299,21 @@ def random_geometric_impl(p: float) -> int:
 
 @platform_function(name="random_poisson", inputs=[FloatType], output=IntegerType)
 def random_poisson_impl(lambda_rate: float) -> int:
-    """Generate number of events from Poisson process.
+    """Sample the number of events from a Poisson process with rate lambda.
+
+    Uses the Knuth algorithm for small lambda and a normal approximation for
+    large lambda (>= 30).
 
     Args:
-        lambda_rate: Rate parameter (mean number of events)
+        lambda_rate: ``Float`` (``float``) - mean number of events per
+            interval; must be non-negative.
 
     Returns:
-        Number of events
+        ``Integer`` (``int``) - non-negative event count drawn from
+        Poisson(lambda).
 
     Raises:
-        ValueError: If lambda_rate < 0
+        ValueError: If ``lambda_rate < 0``.
     """
     if lambda_rate < 0:
         raise ValueError(f"Lambda rate must be non-negative, got {lambda_rate}")
@@ -337,16 +348,18 @@ def random_poisson_impl(lambda_rate: float) -> int:
 
 @platform_function(name="random_pareto", inputs=[FloatType], output=FloatType)
 def random_pareto_impl(alpha: float) -> float:
-    """Generate random float from Pareto distribution.
+    """Sample a random float from a Pareto distribution with scale 1.
 
     Args:
-        alpha: Shape parameter
+        alpha: ``Float`` (``float``) - shape parameter alpha; must be
+            positive.
 
     Returns:
-        Random float from Pareto(α) distribution, value >= 1.0
+        ``Float`` (``float``) - variate drawn from Pareto(alpha, scale=1);
+        always >= 1.0.
 
     Raises:
-        ValueError: If alpha <= 0
+        ValueError: If ``alpha <= 0``.
     """
     if alpha <= 0:
         raise ValueError(f"Alpha must be positive, got {alpha}")
@@ -358,17 +371,20 @@ def random_pareto_impl(alpha: float) -> float:
     name="random_log_normal", inputs=[FloatType, FloatType], output=FloatType
 )
 def random_log_normal_impl(mu: float, sigma: float) -> float:
-    """Generate random float from log-normal distribution.
+    """Sample a random float from a log-normal distribution.
 
     Args:
-        mu: Mean of underlying normal distribution
-        sigma: Standard deviation of underlying normal distribution
+        mu: ``Float`` (``float``) - mean of the underlying normal distribution
+            (log-space mean).
+        sigma: ``Float`` (``float``) - standard deviation of the underlying
+            normal distribution (log-space std); must be positive.
 
     Returns:
-        Random float from log-normal distribution (always positive)
+        ``Float`` (``float``) - strictly positive variate drawn from
+        LogNormal(mu, sigma).
 
     Raises:
-        ValueError: If sigma <= 0
+        ValueError: If ``sigma <= 0``.
     """
     if sigma <= 0:
         raise ValueError(f"Sigma must be positive, got {sigma}")
@@ -378,16 +394,17 @@ def random_log_normal_impl(mu: float, sigma: float) -> float:
 
 @platform_function(name="random_irwin_hall", inputs=[IntegerType], output=FloatType)
 def random_irwin_hall_impl(n: int) -> float:
-    """Generate sum of n uniform(0,1) random variables.
+    """Sample the sum of n independent Uniform(0, 1) random variables.
 
     Args:
-        n: Number of variables to sum
+        n: ``Integer`` (``int``) - number of variables to sum; must be
+            positive.
 
     Returns:
-        Random float in range [0, n]
+        ``Float`` (``float``) - sum in the range ``[0, n]``.
 
     Raises:
-        ValueError: If n <= 0
+        ValueError: If ``n <= 0``.
     """
     if n <= 0:
         raise ValueError(f"n must be positive, got {n}")
@@ -397,16 +414,17 @@ def random_irwin_hall_impl(n: int) -> float:
 
 @platform_function(name="random_bates", inputs=[IntegerType], output=FloatType)
 def random_bates_impl(n: int) -> float:
-    """Generate average of n uniform(0,1) random variables.
+    """Sample the mean of n independent Uniform(0, 1) random variables.
 
     Args:
-        n: Number of variables to average
+        n: ``Integer`` (``int``) - number of variables to average; must be
+            positive.
 
     Returns:
-        Random float in range [0, 1]
+        ``Float`` (``float``) - mean in the range ``[0, 1]``.
 
     Raises:
-        ValueError: If n <= 0
+        ValueError: If ``n <= 0``.
     """
     if n <= 0:
         raise ValueError(f"n must be positive, got {n}")
@@ -417,16 +435,14 @@ def random_bates_impl(n: int) -> float:
 def random_seed_impl(seed: int) -> None:
     """Seed the random number generator for reproducible sequences.
 
-    IMPORTANT: Calling this function switches from cryptographically secure
-    random to a deterministic PRNG (XorShift128+). This is essential for
-    reproducible simulations but should not be used when cryptographic security
-    is required.
-
-    Uses same algorithm as TypeScript implementation for cross-platform
-    reproducibility with the same seed.
+    Switches the global RNG from the cryptographically secure default to a
+    deterministic XorShift128+ PRNG. Uses the same algorithm as the
+    TypeScript implementation so sequences are reproducible across platforms
+    with the same seed. Do not call this when cryptographic security is
+    required.
 
     Args:
-        seed: Seed value for reproducible random sequences
+        seed: ``Integer`` (``int``) - seed value.
     """
     _set_rng(XorShift128RNG(seed))
 
@@ -435,4 +451,20 @@ def random_seed_impl(seed: int) -> None:
 random_impl = platform_functions(__name__)
 
 
-__all__ = ["random_impl", "_reset_to_crypto"]
+__all__ = [
+    "random_impl",
+    "random_uniform_impl",
+    "random_normal_impl",
+    "random_range_impl",
+    "random_exponential_impl",
+    "random_weibull_impl",
+    "random_bernoulli_impl",
+    "random_binomial_impl",
+    "random_geometric_impl",
+    "random_poisson_impl",
+    "random_pareto_impl",
+    "random_log_normal_impl",
+    "random_irwin_hall_impl",
+    "random_bates_impl",
+    "random_seed_impl",
+]

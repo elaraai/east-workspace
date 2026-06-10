@@ -4,7 +4,10 @@
 #
 """FTP platform functions for East.
 
-Provides FTP file transfer operations for East programs.
+Provides FTP file transfer operations for East programs.  The ``*_impl``
+functions are plain Python callables taking and returning East values - import
+them directly from a project's own ``@platform_function`` to reuse the
+implementations without an IR round-trip.
 """
 
 import contextlib
@@ -18,7 +21,7 @@ _HAS_FTP_SUPPORT = importlib.util.find_spec("aioftp") is not None
 
 
 def _check_ftp_support() -> None:
-    """Check if FTP support is available."""
+    """Raise if the ftp extra (aioftp) isn't installed."""
     if not _HAS_FTP_SUPPORT:
         raise NotImplementedError(
             "FTP support requires the 'ftp' extra. "
@@ -37,7 +40,25 @@ _clients: dict[str, Any] = {}
     name="ftp_connect", inputs=[FtpConfigType], output=ConnectionHandleType
 )
 async def ftp_connect_impl(config: EastStruct) -> str:
-    """Connect to an FTP server."""
+    """Open a connection to an FTP server and return a session handle.
+
+    Args:
+        config: ``FtpConfigType`` (``EastStruct``) with fields:
+
+            - ``host`` (``String``): server hostname or IP.
+            - ``port`` (``Integer``): server port (typically 21).
+            - ``user`` (``String``): login username.
+            - ``password`` (``String``): login password.
+            - ``secure`` (``Boolean``): request TLS/AUTH TLS upgrade.
+
+    Returns:
+        ``ConnectionHandleType`` (``String``) - opaque UUID identifying the
+        live session; pass to all subsequent ``ftp_*`` calls.
+
+    Raises:
+        NotImplementedError: the ``ftp`` extra (aioftp) is not installed.
+        Exception: connection or login failure.
+    """
     _check_ftp_support()
     import aioftp
 
@@ -65,14 +86,26 @@ async def ftp_connect_impl(config: EastStruct) -> str:
     output=NullType,
 )
 async def ftp_put_impl(handle: str, remote_path: str, data: EastBlob) -> None:
-    """Upload a file to FTP server."""
+    """Upload a file to an FTP server.
+
+    Args:
+        handle: ``ConnectionHandleType`` (``String``) - session handle from
+            :func:`ftp_connect_impl`.
+        remote_path: ``String`` - destination path on the server.
+        data: ``Blob`` (``EastBlob``) - binary content to upload.
+
+    Returns:
+        ``Null`` on success.
+
+    Raises:
+        Exception: invalid handle, or upload failure.
+    """
     try:
         if handle not in _clients:
             raise Exception(f"Invalid connection handle: {handle}")
 
         client = _clients[handle]
 
-        # Write data using stream
         async with client.upload_stream(remote_path) as stream:
             await stream.write(bytes(data))
     except Exception as e:
@@ -83,14 +116,25 @@ async def ftp_put_impl(handle: str, remote_path: str, data: EastBlob) -> None:
     name="ftp_get", inputs=[ConnectionHandleType, StringType], output=BlobType
 )
 async def ftp_get_impl(handle: str, remote_path: str) -> EastBlob:
-    """Download a file from FTP server."""
+    """Download a file from an FTP server.
+
+    Args:
+        handle: ``ConnectionHandleType`` (``String``) - session handle from
+            :func:`ftp_connect_impl`.
+        remote_path: ``String`` - source path on the server.
+
+    Returns:
+        ``Blob`` (``EastBlob``) - raw file content.
+
+    Raises:
+        Exception: invalid handle, or download failure.
+    """
     try:
         if handle not in _clients:
             raise Exception(f"Invalid connection handle: {handle}")
 
         client = _clients[handle]
 
-        # Read data using stream
         data = b""
         async with client.download_stream(remote_path) as stream:
             async for block in stream.iter_by_block():
@@ -105,7 +149,22 @@ async def ftp_get_impl(handle: str, remote_path: str) -> EastBlob:
     name="ftp_list", inputs=[ConnectionHandleType, StringType], output=FileListType
 )
 async def ftp_list_impl(handle: str, remote_path: str) -> EastArray:
-    """List files in a directory on FTP server."""
+    """List entries in a directory on an FTP server.
+
+    Args:
+        handle: ``ConnectionHandleType`` (``String``) - session handle from
+            :func:`ftp_connect_impl`.
+        remote_path: ``String`` - directory path to list.
+
+    Returns:
+        ``Array<FileEntryType>`` (``EastArray``) - one ``FileEntryType``
+        struct per entry: ``name`` (``String``), ``path`` (``String``),
+        ``size`` (``Integer``), ``isDirectory`` (``Boolean``),
+        ``modifiedTime`` (``String``).
+
+    Raises:
+        Exception: invalid handle, or listing failure.
+    """
     try:
         if handle not in _clients:
             raise Exception(f"Invalid connection handle: {handle}")
@@ -135,7 +194,19 @@ async def ftp_list_impl(handle: str, remote_path: str) -> EastArray:
     name="ftp_delete", inputs=[ConnectionHandleType, StringType], output=NullType
 )
 async def ftp_delete_impl(handle: str, remote_path: str) -> None:
-    """Delete a file from FTP server."""
+    """Delete a file on an FTP server.
+
+    Args:
+        handle: ``ConnectionHandleType`` (``String``) - session handle from
+            :func:`ftp_connect_impl`.
+        remote_path: ``String`` - path of the file to delete.
+
+    Returns:
+        ``Null`` on success.
+
+    Raises:
+        Exception: invalid handle, or deletion failure.
+    """
     try:
         if handle not in _clients:
             raise Exception(f"Invalid connection handle: {handle}")
@@ -148,18 +219,26 @@ async def ftp_delete_impl(handle: str, remote_path: str) -> None:
 
 @platform_function(name="ftp_close", inputs=[ConnectionHandleType], output=NullType)
 def ftp_close_impl(handle: str) -> None:
-    """Close FTP connection.
+    """Close a single FTP session (hard close, no QUIT command).
 
-    Note: This is a sync function that does a hard close (no QUIT command)
-    to match the TypeScript implementation which is also sync.
+    Matches the TypeScript ``ftp_close`` which is synchronous - the
+    underlying stream is closed directly without sending QUIT.
+
+    Args:
+        handle: ``ConnectionHandleType`` (``String``) - session handle from
+            :func:`ftp_connect_impl`.
+
+    Returns:
+        ``Null`` on success.
+
+    Raises:
+        Exception: invalid handle, or close failure.
     """
     try:
         if handle not in _clients:
             raise Exception(f"Invalid connection handle: {handle}")
 
         client = _clients[handle]
-        # Hard close - just close the underlying stream without async QUIT
-        # This matches TypeScript behavior where ftp_close is sync
         if hasattr(client, "stream") and client.stream:
             client.stream.close()
         del _clients[handle]
@@ -169,7 +248,11 @@ def ftp_close_impl(handle: str) -> None:
 
 @platform_function(name="ftp_close_all", inputs=[], output=NullType)
 async def ftp_close_all_impl() -> None:
-    """Close all FTP connections."""
+    """Close all open FTP sessions with a graceful QUIT.
+
+    Returns:
+        ``Null`` on success.  Errors on individual sessions are suppressed.
+    """
     for client in _clients.values():
         with contextlib.suppress(Exception):
             await client.quit()

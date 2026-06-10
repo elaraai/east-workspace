@@ -5,7 +5,9 @@
 """S3 platform functions for East.
 
 Provides S3 and S3-compatible object storage operations for East programs,
-including upload, download, delete, list, and presigned URL generation.
+including upload, download, delete, list, and presigned URL generation.  The
+``s3_*_impl`` functions are plain Python callables taking and returning East
+values and can be called directly from project code without an IR round-trip.
 """
 
 import importlib.util
@@ -18,7 +20,7 @@ _HAS_S3_SUPPORT = importlib.util.find_spec("boto3") is not None
 
 
 def _check_s3_support() -> None:
-    """Check if S3 support is available."""
+    """Raise if the s3 extra (boto3) isn't installed."""
     if not _HAS_S3_SUPPORT:
         raise NotImplementedError(
             "S3 support requires the 's3' extra. "
@@ -37,7 +39,6 @@ from east.types.types import (
 )
 from east.types.values import EastArray, EastBlob, EastStruct, EastVariant
 
-# S3 configuration type
 S3ConfigType = StructType(
     [
         ("region", StringType),
@@ -47,8 +48,16 @@ S3ConfigType = StructType(
         ("endpoint", OptionType(StringType)),
     ]
 )
+"""S3 or S3-compatible object storage connection configuration.
 
-# S3 object metadata type
+Fields: ``region`` (``String`` - AWS region name, e.g. ``"us-east-1"``),
+``bucket`` (``String``), ``accessKeyId`` (``Option<String>`` - AWS access key;
+falls back to the SDK credential chain when absent),
+``secretAccessKey`` (``Option<String>`` - AWS secret key; paired with
+``accessKeyId``), ``endpoint`` (``Option<String>`` - custom endpoint URL for
+S3-compatible stores such as MinIO or Cloudflare R2; omit for AWS).
+"""
+
 S3ObjectMetadataType = StructType(
     [
         ("key", StringType),
@@ -58,8 +67,13 @@ S3ObjectMetadataType = StructType(
         ("etag", OptionType(StringType)),
     ]
 )
+"""Metadata for a single S3 object returned by ``s3_head_object`` / ``s3_list_objects``.
 
-# S3 list result type
+Fields: ``key`` (``String`` - object key), ``size`` (``Integer`` - bytes),
+``lastModified`` (``DateTime``), ``contentType`` (``Option<String>`` - MIME
+type; absent in list results), ``etag`` (``Option<String>`` - object ETag).
+"""
+
 S3ListResultType = StructType(
     [
         ("objects", ArrayType(S3ObjectMetadataType)),
@@ -67,25 +81,31 @@ S3ListResultType = StructType(
         ("continuationToken", OptionType(StringType)),
     ]
 )
+"""Paginated listing result from ``s3_list_objects``.
+
+Fields: ``objects`` (``Array<S3ObjectMetadataType>``),
+``isTruncated`` (``Boolean`` - ``True`` when more pages follow),
+``continuationToken`` (``Option<String>`` - pass as the
+``continuation_token`` argument of the next call to retrieve the next page).
+"""
 
 
 def create_s3_client(config: EastStruct) -> Any:
-    """Create an S3 client from configuration.
+    """Create a boto3 S3 client from an ``S3ConfigType`` struct.
 
     Args:
-        config: S3 configuration struct
+        config: ``S3ConfigType`` (``EastStruct``) - see type definition above.
 
     Returns:
-        Configured boto3 S3 client
+        Configured boto3 S3 client (``botocore.client.S3``).
 
     Raises:
-        NotImplementedError: If boto3 is not installed
+        NotImplementedError: the ``s3`` extra (boto3) is not installed.
     """
     _check_s3_support()
     import boto3
     from botocore.client import Config
 
-    # Extract credentials
     access_key_id = None
     secret_access_key = None
 
@@ -97,13 +117,11 @@ def create_s3_client(config: EastStruct) -> Any:
     if secret_key_opt.type == "some":
         secret_access_key = secret_key_opt.value
 
-    # Extract optional endpoint
     endpoint_url = None
     endpoint_opt = config["endpoint"]
     if endpoint_opt.type == "some":
         endpoint_url = endpoint_opt.value
 
-    # Build client config
     session = boto3.session.Session()
     client_config = Config(signature_version="s3v4")
 
@@ -129,15 +147,27 @@ def create_s3_client(config: EastStruct) -> Any:
     output=NullType,
 )
 async def s3_put_object_impl(config: EastStruct, key: str, data: EastBlob) -> None:
-    """Upload an object to S3.
+    """Upload an object to an S3 bucket.
 
     Args:
-        config: S3 configuration
-        key: Object key (path) in the bucket
-        data: Binary data to upload
+        config: ``S3ConfigType`` (``EastStruct``) with fields:
+
+            - ``region`` (``String``): AWS region.
+            - ``bucket`` (``String``): destination bucket name.
+            - ``accessKeyId`` (``Option<String>``): AWS access key ID.
+            - ``secretAccessKey`` (``Option<String>``): AWS secret access key.
+            - ``endpoint`` (``Option<String>``): custom endpoint URL for
+              S3-compatible stores; omit for AWS.
+
+        key: ``String`` - destination object key (path) within the bucket.
+        data: ``Blob`` (``EastBlob``) - binary content to upload.
+
+    Returns:
+        ``Null`` on success.
 
     Raises:
-        Exception: If upload fails
+        NotImplementedError: the ``s3`` extra (boto3) is not installed.
+        Exception: S3 ``ClientError`` on upload failure.
     """
     from botocore.exceptions import ClientError
 
@@ -155,17 +185,18 @@ async def s3_put_object_impl(config: EastStruct, key: str, data: EastBlob) -> No
     output=BlobType,
 )
 async def s3_get_object_impl(config: EastStruct, key: str) -> EastBlob:
-    """Download an object from S3.
+    """Download an object from an S3 bucket.
 
     Args:
-        config: S3 configuration
-        key: Object key (path) in the bucket
+        config: ``S3ConfigType`` (``EastStruct``) - see :func:`s3_put_object_impl`.
+        key: ``String`` - object key (path) within the bucket.
 
     Returns:
-        Binary data as EastBlob
+        ``Blob`` (``EastBlob``) - raw object content.
 
     Raises:
-        Exception: If download fails
+        NotImplementedError: the ``s3`` extra (boto3) is not installed.
+        Exception: S3 ``ClientError`` on download failure (e.g. key not found).
     """
     from botocore.exceptions import ClientError
 
@@ -184,17 +215,20 @@ async def s3_get_object_impl(config: EastStruct, key: str) -> EastBlob:
     output=S3ObjectMetadataType,
 )
 async def s3_head_object_impl(config: EastStruct, key: str) -> EastStruct:
-    """Get object metadata without downloading.
+    """Fetch metadata for an S3 object without downloading its body.
 
     Args:
-        config: S3 configuration
-        key: Object key (path) in the bucket
+        config: ``S3ConfigType`` (``EastStruct``) - see :func:`s3_put_object_impl`.
+        key: ``String`` - object key (path) within the bucket.
 
     Returns:
-        Object metadata struct
+        ``S3ObjectMetadataType`` (``EastStruct``): ``key`` (``String``),
+        ``size`` (``Integer`` bytes), ``lastModified`` (``DateTime``),
+        ``contentType`` (``Option<String>``), ``etag`` (``Option<String>``).
 
     Raises:
-        Exception: If metadata retrieval fails
+        NotImplementedError: the ``s3`` extra (boto3) is not installed.
+        Exception: S3 ``ClientError`` on failure (e.g. key not found).
     """
     from botocore.exceptions import ClientError
 
@@ -233,14 +267,18 @@ async def s3_head_object_impl(config: EastStruct, key: str) -> EastStruct:
     output=NullType,
 )
 async def s3_delete_object_impl(config: EastStruct, key: str) -> None:
-    """Delete an object from S3.
+    """Delete an object from an S3 bucket.
 
     Args:
-        config: S3 configuration
-        key: Object key (path) to delete
+        config: ``S3ConfigType`` (``EastStruct``) - see :func:`s3_put_object_impl`.
+        key: ``String`` - object key (path) to delete.
+
+    Returns:
+        ``Null`` on success.
 
     Raises:
-        Exception: If deletion fails
+        NotImplementedError: the ``s3`` extra (boto3) is not installed.
+        Exception: S3 ``ClientError`` on deletion failure.
     """
     from botocore.exceptions import ClientError
 
@@ -260,19 +298,29 @@ async def s3_delete_object_impl(config: EastStruct, key: str) -> None:
 async def s3_list_objects_impl(
     config: EastStruct, prefix: str, max_keys: int, continuation_token: EastVariant
 ) -> EastStruct:
-    """List objects in an S3 bucket with a prefix.
+    """List objects in an S3 bucket filtered by a key prefix.
+
+    Supports pagination via ``continuation_token``; ``max_keys`` is clamped
+    to the S3 range of 1-1000.
 
     Args:
-        config: S3 configuration
-        prefix: Prefix to filter objects
-        max_keys: Maximum number of objects to return
-        continuation_token: Continuation token from a previous list result for pagination (None for first page)
+        config: ``S3ConfigType`` (``EastStruct``) - see :func:`s3_put_object_impl`.
+        prefix: ``String`` - key prefix to filter results.
+        max_keys: ``Integer`` - maximum objects to return per page; clamped
+            to ``[1, 1000]``.
+        continuation_token: ``Option<String>`` (``EastVariant``) - token
+            from a previous call's ``continuationToken`` field; pass
+            ``none`` for the first page.
 
     Returns:
-        List result struct with objects and pagination
+        ``S3ListResultType`` (``EastStruct``): ``objects``
+        (``Array<S3ObjectMetadataType>``), ``isTruncated`` (``Boolean``),
+        ``continuationToken`` (``Option<String>`` - present when
+        ``isTruncated`` is ``True``).
 
     Raises:
-        Exception: If listing fails
+        NotImplementedError: the ``s3`` extra (boto3) is not installed.
+        Exception: S3 ``ClientError`` on listing failure.
     """
     from botocore.exceptions import ClientError
 
@@ -280,7 +328,6 @@ async def s3_list_objects_impl(
         client = create_s3_client(config)
         bucket = config["bucket"]
 
-        # Clamp maxKeys to valid range (1-1000)
         clamped_max_keys = max(1, min(1000, max_keys))
 
         kwargs: dict[str, Any] = {
@@ -293,7 +340,6 @@ async def s3_list_objects_impl(
 
         response = client.list_objects_v2(**kwargs)
 
-        # Convert objects to metadata
         objects: EastArray = EastArray(S3ObjectMetadataType, [])
         for obj in response.get("Contents", []):
             etag: EastVariant = (
@@ -306,7 +352,7 @@ async def s3_list_objects_impl(
                         "key": obj.get("Key", ""),
                         "size": obj.get("Size", 0),
                         "lastModified": obj.get("LastModified", datetime.now()),
-                        "contentType": EastVariant("none", None),  # Not available in list
+                        "contentType": EastVariant("none", None),
                         "etag": etag,
                     }
                 )
@@ -335,18 +381,23 @@ async def s3_list_objects_impl(
     output=StringType,
 )
 async def s3_presign_url_impl(config: EastStruct, key: str, expires_in: int) -> str:
-    """Generate a presigned URL for temporary access.
+    """Generate a presigned GET URL for temporary, unauthenticated object access.
+
+    ``expires_in`` is clamped to the S3-supported range of 1 second to 7 days
+    (604800 seconds).
 
     Args:
-        config: S3 configuration
-        key: Object key (path) in the bucket
-        expires_in: URL expiration time in seconds
+        config: ``S3ConfigType`` (``EastStruct``) - see :func:`s3_put_object_impl`.
+        key: ``String`` - object key (path) within the bucket.
+        expires_in: ``Integer`` - URL validity period in seconds; clamped to
+            ``[1, 604800]``.
 
     Returns:
-        Presigned URL as string
+        ``String`` - presigned URL valid for the specified duration.
 
     Raises:
-        Exception: If URL generation fails
+        NotImplementedError: the ``s3`` extra (boto3) is not installed.
+        Exception: S3 ``ClientError`` on URL generation failure.
     """
     from botocore.exceptions import ClientError
 
@@ -354,7 +405,6 @@ async def s3_presign_url_impl(config: EastStruct, key: str, expires_in: int) -> 
         client = create_s3_client(config)
         bucket = config["bucket"]
 
-        # Clamp expiresIn to valid range (1 second to 7 days)
         clamped_expires_in = max(1, min(604800, expires_in))
 
         url = client.generate_presigned_url(
@@ -372,4 +422,15 @@ async def s3_presign_url_impl(config: EastStruct, key: str, expires_in: int) -> 
 s3_impl = platform_functions(__name__)
 
 
-__all__ = ["s3_impl", "S3ConfigType", "S3ObjectMetadataType", "S3ListResultType"]
+__all__ = [
+    "s3_impl",
+    "s3_put_object_impl",
+    "s3_get_object_impl",
+    "s3_head_object_impl",
+    "s3_delete_object_impl",
+    "s3_list_objects_impl",
+    "s3_presign_url_impl",
+    "S3ConfigType",
+    "S3ObjectMetadataType",
+    "S3ListResultType",
+]

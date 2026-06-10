@@ -2,7 +2,12 @@
 # Copyright (c) 2025 Elara AI Pty Ltd
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
-"""Compression module - gzip, tar, and zip archives."""
+"""Compression module - gzip, tar, and zip archives.
+
+The ``*_impl`` functions are plain Python callables taking and returning East
+values - import them directly from a project's own ``@platform_function`` to
+reuse the implementations without an IR round-trip.
+"""
 
 from east_py_io.compression.gzip_impl import (
     gzip_compress_impl,

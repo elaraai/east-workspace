@@ -58,7 +58,16 @@ _pools: dict[str, Any] = {}
 
 
 def convert_param_to_native(param: EastVariant) -> Any:
-    """Convert East SQL parameter to native Python value."""
+    """Convert an East SQL parameter variant to a native Python value for aiomysql binding.
+
+    Args:
+        param: ``EastVariant`` whose ``type`` tag is one of ``String``,
+            ``Integer``, ``Float``, ``Boolean``, ``Null``, ``Blob``,
+            ``DateTime``.
+
+    Returns:
+        Native Python value suitable for aiomysql ``%s`` parameter binding.
+    """
     tag = param.type
     value = param.value
 
@@ -190,9 +199,29 @@ def _convert_placeholders(sql: str) -> str:
     output=ConnectionHandleType,
 )
 async def mysql_connect_impl(config: EastStruct) -> str:
-    """Connect to a MySQL database.
+    """Create an aiomysql connection pool and return a handle.
 
-    Creates a connection pool and returns a handle.
+    Args:
+        config: ``MySqlConfigType`` (``EastStruct``) with fields:
+
+            - ``host`` (``String``): server hostname or IP.
+            - ``port`` (``Integer``): server port (typically 3306).
+            - ``database`` (``String``): schema/database name.
+            - ``user`` (``String``): login user.
+            - ``password`` (``String``): login password.
+            - ``ssl`` (``Option<Boolean>``): enable TLS (reserved - aiomysql
+              pool does not currently forward this flag; default ``False``).
+            - ``maxConnections`` (``Option<Integer>``): pool upper bound
+              (default 10).
+
+    Returns:
+        ``String`` - opaque connection handle, passed to
+        ``mysql_query_impl`` / ``mysql_close_impl``.
+
+    Raises:
+        NotImplementedError: the ``mysql`` extra (aiomysql) is not installed.
+        Exception: aiomysql pool creation fails (bad credentials, host
+            unreachable, etc.).
     """
     _check_mysql_support()
     import aiomysql
@@ -234,7 +263,33 @@ async def mysql_connect_impl(config: EastStruct) -> str:
     output=SqlResultType,
 )
 async def mysql_query_impl(handle: str, sql: str, params: EastArray) -> EastVariant:
-    """Execute a SQL query with parameterized values."""
+    """Execute a parameterized SQL statement and return a typed result.
+
+    Converts ``?`` placeholders to ``%s`` before passing to aiomysql.
+    Dispatches on the leading keyword of the SQL string (``SELECT``,
+    ``INSERT``, ``UPDATE``, ``DELETE``; everything else treated as
+    ``UPDATE``).  MySQL field type codes from ``cursor.description`` drive
+    East type coercion for ``SELECT`` rows.
+
+    Args:
+        handle: ``String`` - connection handle from ``mysql_connect_impl``.
+        sql: ``String`` - SQL statement with ``?`` positional placeholders.
+        params: ``Array<SqlParameterType>`` (``EastArray``) - bind values in
+            placeholder order.
+
+    Returns:
+        ``SqlResultType`` (``EastVariant``):
+
+        - ``select`` ``{rows: Array<Dict<String, SqlParameterType>>}``
+        - ``insert`` ``{rowsAffected: Integer, lastInsertId: Option<Integer>}``
+        - ``update`` ``{rowsAffected: Integer}``
+        - ``delete`` ``{rowsAffected: Integer}``
+
+    Raises:
+        NotImplementedError: the ``mysql`` extra (aiomysql) is not installed.
+        Exception: the handle is unknown, the SQL is malformed, or a
+            parameter type is incompatible.
+    """
     _check_mysql_support()
 
     try:
@@ -316,7 +371,15 @@ async def mysql_query_impl(handle: str, sql: str, params: EastArray) -> EastVari
     output=NullType,
 )
 async def mysql_close_impl(handle: str) -> None:
-    """Close a MySQL connection pool."""
+    """Close a MySQL connection pool and release its handle.
+
+    Args:
+        handle: ``String`` - connection handle from ``mysql_connect_impl``.
+
+    Raises:
+        NotImplementedError: the ``mysql`` extra (aiomysql) is not installed.
+        Exception: the handle is unknown.
+    """
     _check_mysql_support()
 
     try:
@@ -337,7 +400,10 @@ async def mysql_close_impl(handle: str) -> None:
     output=NullType,
 )
 async def mysql_close_all_impl() -> None:
-    """Close all MySQL connection pools."""
+    """Close every open MySQL connection pool managed by this process.
+
+    Clears the internal pool map; useful for test teardown.
+    """
     for pool in _pools.values():
         pool.close()
         await pool.wait_closed()
@@ -454,32 +520,53 @@ def _convert_mysql_select_value(value: Any, field_type: int | None) -> Any:
     is_async=True,
 )
 def mysql_select_factory(platform: Any, row_type: Any) -> Any:
-    """Factory for mysql_select that captures the type parameter.
+    """Return a typed ``mysql_select`` implementation for a given row struct type.
+
+    Called by the ``@generic_platform_function`` decorator with the resolved
+    ``T`` type argument.  The returned coroutine validates MySQL field type
+    codes against ``T`` (using the first returned row for ``BLOB``/``TEXT``
+    disambiguation) before converting each row.
 
     Args:
         platform: Platform-function list (unused; matches the
-            GenericPlatformFunction factory convention of `(platform_list, *type_params)`).
-        row_type: Row type parameter (East IR type format)
+            ``GenericPlatformFunction`` factory convention of
+            ``(platform_list, *type_params)``).
+        row_type: East ``StructType`` describing one result row.
 
     Returns:
-        Async implementation function for mysql_select
+        Async callable ``(handle, sql, params) -> EastArray(T)`` implementing
+        ``mysql_select<T>``.
     """
     del platform
 
     async def mysql_select_impl(handle: str, sql: str, params: EastArray) -> EastArray:
-        """Execute a SELECT query with typed results.
+        """Execute a SELECT query and return rows typed as ``Array<T>``.
+
+        Validates that every field in ``T`` maps to a compatible MySQL field
+        type from ``cursor.description`` before converting values.  Nullable
+        columns must be declared as ``Option<...>`` in ``T``.  ``BLOB``
+        vs ``TEXT`` disambiguation (both are field type 252) uses the actual
+        Python type of the first row's value.
 
         Args:
-            handle: Connection handle
-            sql: SQL SELECT query string
-            params: Query parameters
+            handle: ``String`` - connection handle from
+                ``mysql_connect_impl``.
+            sql: ``String`` - ``SELECT`` statement with ``?`` positional
+                placeholders.
+            params: ``Array<SqlParameterType>`` (``EastArray``) - bind
+                values in placeholder order.
 
         Returns:
-            Array of rows matching the type parameter T
+            ``Array<T>`` (``EastArray``) - one ``EastStruct`` per result row,
+            fields coerced to the types declared in ``T``.
 
         Raises:
-            NotImplementedError: If aiomysql is not installed
-            Exception: If query fails or types don't match
+            NotImplementedError: the ``mysql`` extra (aiomysql) is not
+                installed.
+            Exception: the handle is unknown, the query has no result set,
+                ``T`` is not a ``StructType``, a required column is missing,
+                a column type is incompatible with the corresponding ``T``
+                field, or a non-optional field contains ``NULL``.
         """
         _check_mysql_support()
         import aiomysql

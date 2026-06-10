@@ -18,75 +18,89 @@ from east.types.types import (
     StructType,
 )
 
-# Compression level for gzip operations (0-9).
-#
-# - 0: No compression
-# - 1-3: Fast compression
-# - 4-6: Balanced (6 is default)
-# - 7-9: Maximum compression
 GzipLevelType = IntegerType
+"""Compression level for gzip operations (``Integer`` 0-9).
 
-# Gzip compression options.
-#
-# Controls how data is compressed using gzip.
+- 0: no compression (store only)
+- 1-3: fast compression
+- 4-6: balanced (6 is the default)
+- 7-9: maximum compression
+"""
+
 GzipOptionsType = StructType(
     [
         ("level", OptionType(GzipLevelType)),
     ]
 )
+"""Options for gzip compression.
 
-# Compression level for zip operations (0-9).
-#
-# - 0: Store only (no compression)
-# - 1-3: Fast compression
-# - 4-6: Balanced (default is typically 6)
-# - 7-9: Maximum compression
+Fields: ``level`` (``Option<Integer>`` 0-9, default 6).
+"""
+
 ZipLevelType = IntegerType
+"""Compression level for zip operations (``Integer`` 0-9).
 
-# Zip compression options.
-#
-# Controls how data is compressed when creating zip archives.
+- 0: store only (no compression; uses ``ZIP_STORED``)
+- 1-3: fast compression
+- 4-6: balanced (default is typically 6)
+- 7-9: maximum compression
+"""
+
 ZipOptionsType = StructType(
     [
         ("level", OptionType(ZipLevelType)),
     ]
 )
+"""Options for zip archive creation.
 
-# Entry in a ZIP archive.
-#
-# Contains the file name and its uncompressed data.
+Fields: ``level`` (``Option<Integer>`` 0-9, default 6; level 0 stores
+without compression).
+"""
+
 ZipEntryType = StructType(
     [
         ("name", StringType),
         ("data", BlobType),
     ]
 )
+"""A single file entry to be stored in a ZIP archive.
 
-# List of entries for creating a ZIP archive.
+Fields: ``name`` (``String`` - path/filename inside the archive),
+``data`` (``Blob`` - uncompressed file content).
+"""
+
 ZipEntriesType = ArrayType(ZipEntryType)
+"""List of ``ZipEntryType`` entries passed to ``zip_compress``."""
 
-# Entry in a TAR archive.
-#
-# Contains the file name and its data.
 TarEntryType = StructType(
     [
         ("name", StringType),
         ("data", BlobType),
     ]
 )
+"""A single file entry to be stored in a TAR archive.
 
-# List of entries for creating a TAR archive.
+Fields: ``name`` (``String`` - path/filename inside the archive),
+``data`` (``Blob`` - file content).
+"""
+
 TarEntriesType = ArrayType(TarEntryType)
+"""List of ``TarEntryType`` entries passed to ``tar_create``."""
 
-# Extracted files from a ZIP archive as a dictionary.
-#
-# Maps file names to their uncompressed data.
 ZipExtractedType = DictType(StringType, BlobType)
+"""Files extracted from a ZIP archive.
 
-# Extracted files from a TAR archive as a dictionary.
-#
-# Maps file names to their data.
+``Dict<String, Blob>`` mapping each filename (as stored in the archive)
+to its uncompressed content. Directory entries (names ending in ``/``)
+are omitted.
+"""
+
 TarExtractedType = DictType(StringType, BlobType)
+"""Files extracted from a TAR archive.
+
+``Dict<String, Blob>`` mapping each member filename to its content.
+Only regular files are included; directories and symlinks are omitted.
+"""
 
 __all__ = [
     "GzipLevelType",
@@ -95,8 +109,8 @@ __all__ = [
     "ZipOptionsType",
     "ZipEntryType",
     "ZipEntriesType",
+    "ZipExtractedType",
     "TarEntryType",
     "TarEntriesType",
-    "ZipExtractedType",
     "TarExtractedType",
 ]

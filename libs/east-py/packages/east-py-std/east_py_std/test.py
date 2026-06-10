@@ -41,17 +41,41 @@ def reset_counters(out=None):
 
 @platform_function(name="testPass", inputs=[], output=NullType)
 def test_pass_impl() -> None:
-    """Signal that a test assertion passed."""
+    """Signal that a test assertion passed (no-op at runtime).
+
+    Returns:
+        ``Null`` (``None``).
+    """
 
 
 @platform_function(name="testFail", inputs=[StringType], output=NullType)
 def test_fail_impl(message: str) -> None:
-    """Signal that a test assertion failed with a message."""
+    """Signal that a test assertion failed by raising an AssertionError.
+
+    Args:
+        message: ``String`` (``str``) - failure description surfaced in the
+            test output.
+
+    Returns:
+        ``Null`` (``None``) - never reached; always raises.
+
+    Raises:
+        AssertionError: unconditionally, carrying ``message``.
+    """
     raise AssertionError(message)
 
 
 def test_impl_fn(name: str, body: Any) -> None:
-    """Run a single test case with pass/fail tracking and logging."""
+    """Run a single named test case, tracking pass/fail and logging elapsed time.
+
+    Invokes ``body()`` and catches any exception as a failure. Increments the
+    module-level ``passed`` or ``failed`` counter and writes a ``[+]``/``[x]``
+    line to ``_out``.
+
+    Args:
+        name: display name for the test case.
+        body: zero-argument callable; called when not ``None``.
+    """
     global passed, failed
     t0 = time.perf_counter()
     ok = True
@@ -72,7 +96,16 @@ def test_impl_fn(name: str, body: Any) -> None:
 
 
 def describe_impl(name: str, body: Any) -> None:
-    """Define a test suite/group with logging."""
+    """Define a named test suite, logging a header and summary with elapsed time.
+
+    Increments the nesting depth while ``body`` runs so that nested test cases
+    are indented. Writes a ``[>]`` header at depth 1 and a ``[+]``/``[x]``
+    summary line when returning to depth 0.
+
+    Args:
+        name: display name for the test suite.
+        body: zero-argument callable; called when not ``None``.
+    """
     global _depth, failed
     t0 = time.perf_counter()
     failed_before = failed
@@ -114,4 +147,13 @@ test_impl = [
 ]
 
 
-__all__ = ["test_impl", "passed", "failed", "reset_counters"]
+__all__ = [
+    "test_impl",
+    "test_pass_impl",
+    "test_fail_impl",
+    "test_impl_fn",
+    "describe_impl",
+    "passed",
+    "failed",
+    "reset_counters",
+]

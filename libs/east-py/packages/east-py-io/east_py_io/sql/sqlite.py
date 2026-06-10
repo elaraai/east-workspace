@@ -313,17 +313,27 @@ def _convert_value_for_type(
     output=ConnectionHandleType,
 )
 async def sqlite_connect_impl(config: EastStruct) -> str:
-    """Connect to a SQLite database.
+    """Open a SQLite database and return a connection handle.
+
+    Uses APSW to open the file (or an in-memory database) with the appropriate
+    read/write flags, then enables foreign-key enforcement before returning.
 
     Args:
-        config: SQLite connection configuration
+        config: ``SqliteConfigType`` (``EastStruct``) with fields:
+
+            - ``path`` (``String``): file-system path to the ``.db`` file.
+            - ``readOnly`` (``Option<Boolean>``): open in read-only mode
+              (default ``False``).
+            - ``memory`` (``Option<Boolean>``): open an in-memory database,
+              ignoring ``path`` (default ``False``).
 
     Returns:
-        Connection handle (opaque string)
+        ``String`` - opaque connection handle, passed to ``sqlite_query_impl``
+        / ``sqlite_close_impl``.
 
     Raises:
-        NotImplementedError: If apsw is not installed
-        Exception: If connection fails
+        NotImplementedError: the ``sqlite`` extra (apsw) is not installed.
+        Exception: the APSW connection call fails (e.g. bad path, permissions).
     """
     _check_sqlite_support()
     import apsw
@@ -368,19 +378,32 @@ async def sqlite_connect_impl(config: EastStruct) -> str:
     output=SqlResultType,
 )
 async def sqlite_query_impl(handle: str, sql: str, params: EastArray) -> EastVariant:
-    """Execute a SQL query with parameterized values.
+    """Execute a parameterized SQL statement and return a typed result.
+
+    Dispatches on the leading keyword of the SQL string (``SELECT``,
+    ``INSERT``, ``UPDATE``, ``DELETE``; everything else treated as
+    ``UPDATE``).  Column declared types from APSW's ``cursor.description``
+    drive East type coercion for ``SELECT`` rows - numeric literals with no
+    declared type are returned as ``Float`` to match TypeScript behavior.
 
     Args:
-        handle: Connection handle
-        sql: SQL query string
-        params: Query parameters
+        handle: ``String`` - connection handle from ``sqlite_connect_impl``.
+        sql: ``String`` - SQL statement with ``?`` positional placeholders.
+        params: ``Array<SqlParameterType>`` (``EastArray``) - bind values in
+            placeholder order.
 
     Returns:
-        Query result variant
+        ``SqlResultType`` (``EastVariant``):
+
+        - ``select`` ``{rows: Array<Dict<String, SqlParameterType>>}``
+        - ``insert`` ``{rowsAffected: Integer, lastInsertId: Option<Integer>}``
+        - ``update`` ``{rowsAffected: Integer}``
+        - ``delete`` ``{rowsAffected: Integer}``
 
     Raises:
-        NotImplementedError: If apsw is not installed
-        Exception: If query fails or handle is invalid
+        NotImplementedError: the ``sqlite`` extra (apsw) is not installed.
+        Exception: the handle is unknown, the SQL is malformed, or a
+            parameter type cannot be coerced.
     """
     _check_sqlite_support()
 
@@ -458,14 +481,14 @@ async def sqlite_query_impl(handle: str, sql: str, params: EastArray) -> EastVar
     output=NullType,
 )
 async def sqlite_close_impl(handle: str) -> None:
-    """Close a SQLite database connection.
+    """Close a SQLite database connection and release its handle.
 
     Args:
-        handle: Connection handle
+        handle: ``String`` - connection handle from ``sqlite_connect_impl``.
 
     Raises:
-        NotImplementedError: If apsw is not installed
-        Exception: If handle is invalid
+        NotImplementedError: the ``sqlite`` extra (apsw) is not installed.
+        Exception: the handle is unknown.
     """
     _check_sqlite_support()
 
@@ -486,9 +509,9 @@ async def sqlite_close_impl(handle: str) -> None:
     output=NullType,
 )
 async def sqlite_close_all_impl() -> None:
-    """Close all SQLite connections.
+    """Close every open SQLite connection managed by this process.
 
-    Useful for test cleanup.
+    Clears the internal connection map; useful for test teardown.
     """
     for conn in _connections.values():
         conn.close()
@@ -496,32 +519,50 @@ async def sqlite_close_all_impl() -> None:
 
 
 def sqlite_select_factory(*args: Any) -> Any:
-    """Factory for sqlite_select that captures the type parameter.
+    """Return a typed ``sqlite_select`` implementation for a given row struct type.
+
+    Called by the ``@generic_platform_function`` decorator with the resolved
+    ``T`` type argument.  The returned coroutine validates column names and
+    declared SQLite types against ``T`` before converting each row.
 
     Args:
-        args: Type parameters - expects single row_type parameter
+        args: Expects exactly one positional argument - the East ``StructType``
+            that describes one result row.
 
     Returns:
-        Async implementation function for sqlite_select
+        Async callable ``(handle, sql, params) -> EastArray(T)`` implementing
+        ``sqlite_select<T>``.
+
+    Raises:
+        ValueError: not exactly one type argument was supplied.
     """
     if len(args) != 1:
         raise ValueError(f"sqlite_select_factory expects 1 type parameter, got {len(args)}: {args}")
     row_type = args[0]
 
     async def sqlite_select_impl(handle: str, sql: str, params: EastArray) -> EastArray:
-        """Execute a SELECT query with typed results.
+        """Execute a SELECT query and return rows typed as ``Array<T>``.
+
+        Validates that every field in ``T`` maps to a compatible declared
+        SQLite column type using APSW's ``cursor.getdescription()`` before
+        converting values.  Nullable columns must be declared as
+        ``Option<...>`` in ``T``.
 
         Args:
-            handle: Connection handle
-            sql: SQL SELECT query string
-            params: Query parameters
+            handle: ``String`` - connection handle from ``sqlite_connect_impl``.
+            sql: ``String`` - ``SELECT`` statement with ``?`` placeholders.
+            params: ``Array<SqlParameterType>`` (``EastArray``) - bind values.
 
         Returns:
-            Array of rows matching the type parameter T
+            ``Array<T>`` (``EastArray``) - one ``EastStruct`` per result row,
+            fields coerced to the types declared in ``T``.
 
         Raises:
-            NotImplementedError: If apsw is not installed
-            Exception: If query fails or types don't match
+            NotImplementedError: the ``sqlite`` extra (apsw) is not installed.
+            Exception: the handle is unknown, ``T`` is not a ``StructType``,
+                a required column is missing from the result, a column type
+                is incompatible with the corresponding ``T`` field, or a
+                non-optional field contains ``NULL``.
         """
         _check_sqlite_support()
         import apsw

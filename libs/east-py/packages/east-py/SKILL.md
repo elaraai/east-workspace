@@ -437,8 +437,9 @@ on-ramp. Load the skill that matches what you are adding:
 - **east-py-datascience** — Python platform functions for ML and optimization (XGBoost, LightGBM,
   Optuna, MADS, PyMC, SHAP, Torch, GoogleOR, Simulation). The home once a `@platform_function`
   POC needs a real model or solver.
-- **east-node-std** / **east-node-io** — the TypeScript-side siblings of the `east-py-std` /
-  `east-py-io` packages: Console/FileSystem/Fetch/Crypto/Time/Random, and SQL/NoSQL/S3/FTP/SFTP/
-  XLSX/XML/compression. Use the TS skills on Node; use the `east-py-*` packages on the Python runtime.
+- **east-py-std** / **east-py-io** — the platform functions on the Python runtime:
+  Console/FileSystem/Fetch/Crypto/Time/Random, and SQL/NoSQL/S3/FTP/SFTP/XLSX/XML/compression —
+  each `*_impl` directly callable with East values. (Their TypeScript authoring siblings are
+  **east-node-std** / **east-node-io**.)
 - **e3** — run compiled East functions as durable, content-addressed dataflow tasks.
 - **east-design** — start here when you have a goal but no architecture yet.

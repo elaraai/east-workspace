@@ -18,7 +18,7 @@ _HAS_REDIS_SUPPORT = importlib.util.find_spec("redis") is not None
 
 
 def _check_redis_support() -> None:
-    """Check if Redis support is available."""
+    """Raise if the redis extra is not installed."""
     if not _HAS_REDIS_SUPPORT:
         raise NotImplementedError(
             "Redis support requires the 'redis' extra. "
@@ -39,7 +39,32 @@ _clients: dict[str, Any] = {}
     output=ConnectionHandleType,
 )
 async def redis_connect_impl(config: EastStruct) -> str:
-    """Connect to a Redis server."""
+    """Open an async Redis connection and return a connection handle.
+
+    Connects to the Redis server described by ``config``, issues a
+    ``PING`` to verify the connection, and stores the client under a
+    generated handle.
+
+    Args:
+        config: ``RedisConfigType`` (``EastStruct``) with fields:
+
+            - ``host`` (``String``): Redis server hostname or IP address.
+            - ``port`` (``Integer``): Redis server port (typically 6379).
+            - ``password`` (``Option<String>``): authentication password;
+              absent means no password.
+            - ``db`` (``Option<Integer>``): logical database index;
+              default 0.
+            - ``keyPrefix`` (``Option<String>``): key prefix stored for
+              reference; not applied automatically by this function.
+
+    Returns:
+        ``String`` (``ConnectionHandleType``) - an opaque UUID handle
+        for use with all subsequent redis_* functions.
+
+    Raises:
+        NotImplementedError: the ``redis`` extra is not installed.
+        Exception: the server is unreachable or authentication fails.
+    """
     _check_redis_support()
     import redis.asyncio as redis
 
@@ -80,7 +105,20 @@ async def redis_connect_impl(config: EastStruct) -> str:
     output=OptionType(StringType),
 )
 async def redis_get_impl(handle: str, key: str) -> EastVariant:
-    """Get a value by key from Redis."""
+    """Retrieve a string value from Redis by key.
+
+    Args:
+        handle: ``String`` (``ConnectionHandleType``) - connection handle
+            from ``redis_connect_impl``.
+        key: ``String`` - the key to look up.
+
+    Returns:
+        ``Option<String>`` (``EastVariant``) - ``some(value)`` when the
+        key exists, ``none`` when it is absent or has expired.
+
+    Raises:
+        Exception: the handle is invalid or the Redis command fails.
+    """
     try:
         if handle not in _clients:
             raise Exception(f"Invalid connection handle: {handle}")
@@ -102,7 +140,20 @@ async def redis_get_impl(handle: str, key: str) -> EastVariant:
     output=NullType,
 )
 async def redis_set_impl(handle: str, key: str, value: str) -> None:
-    """Set a key-value pair in Redis."""
+    """Set a string key-value pair in Redis with no expiration.
+
+    Args:
+        handle: ``String`` (``ConnectionHandleType``) - connection handle
+            from ``redis_connect_impl``.
+        key: ``String`` - the key to write.
+        value: ``String`` - the value to store.
+
+    Returns:
+        ``Null`` - always ``None`` on success.
+
+    Raises:
+        Exception: the handle is invalid or the Redis command fails.
+    """
     try:
         if handle not in _clients:
             raise Exception(f"Invalid connection handle: {handle}")
@@ -119,7 +170,22 @@ async def redis_set_impl(handle: str, key: str, value: str) -> None:
     output=NullType,
 )
 async def redis_setex_impl(handle: str, key: str, value: str, ttl: int) -> None:
-    """Set a key-value pair with expiration in Redis."""
+    """Set a string key-value pair in Redis with a TTL expiration.
+
+    Args:
+        handle: ``String`` (``ConnectionHandleType``) - connection handle
+            from ``redis_connect_impl``.
+        key: ``String`` - the key to write.
+        value: ``String`` - the value to store.
+        ttl: ``Integer`` - time-to-live in seconds; the key is
+            automatically deleted by Redis after this many seconds.
+
+    Returns:
+        ``Null`` - always ``None`` on success.
+
+    Raises:
+        Exception: the handle is invalid or the Redis command fails.
+    """
     try:
         if handle not in _clients:
             raise Exception(f"Invalid connection handle: {handle}")
@@ -136,7 +202,20 @@ async def redis_setex_impl(handle: str, key: str, value: str, ttl: int) -> None:
     output=IntegerType,
 )
 async def redis_del_impl(handle: str, key: str) -> int:
-    """Delete a key from Redis."""
+    """Delete a key from Redis.
+
+    Args:
+        handle: ``String`` (``ConnectionHandleType``) - connection handle
+            from ``redis_connect_impl``.
+        key: ``String`` - the key to delete.
+
+    Returns:
+        ``Integer`` - the number of keys deleted (0 if the key did not
+        exist, 1 if it was deleted).
+
+    Raises:
+        Exception: the handle is invalid or the Redis command fails.
+    """
     try:
         if handle not in _clients:
             raise Exception(f"Invalid connection handle: {handle}")
@@ -154,7 +233,18 @@ async def redis_del_impl(handle: str, key: str) -> int:
     output=NullType,
 )
 async def redis_close_impl(handle: str) -> None:
-    """Close a Redis connection."""
+    """Close a single Redis connection and remove its handle.
+
+    Args:
+        handle: ``String`` (``ConnectionHandleType``) - connection handle
+            from ``redis_connect_impl``.
+
+    Returns:
+        ``Null`` - always ``None`` on success.
+
+    Raises:
+        Exception: the handle is invalid or the close call fails.
+    """
     try:
         if handle not in _clients:
             raise Exception(f"Invalid connection handle: {handle}")
@@ -172,7 +262,18 @@ async def redis_close_impl(handle: str) -> None:
     output=NullType,
 )
 async def redis_close_all_impl() -> None:
-    """Close all Redis connections."""
+    """Close all open Redis connections managed by this process.
+
+    Iterates every handle in the internal connection store, closes each
+    client, then clears the store. Safe to call when no connections are
+    open.
+
+    Returns:
+        ``Null`` - always ``None`` on success.
+
+    Raises:
+        NotImplementedError: the ``redis`` extra is not installed.
+    """
     for client in _clients.values():
         await client.close()
     _clients.clear()

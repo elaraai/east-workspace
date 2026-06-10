@@ -36,5 +36,8 @@ uv workspace, single `uv.lock` at this lib's root. Cross-package deps use
   native deps and the `find_spec` + lazy-import guard pattern.
 - `packages/east-py-datascience/SKILL.md` — matches the
   `east:east-py-datascience` plugin skill — **DO NOT EDIT casually**.
+- `packages/east-py-std/SKILL.md` / `packages/east-py-io/SKILL.md` — match
+  the `east:east-py-std` / `east:east-py-io` plugin skills (Python-only,
+  like `east:east-py`) — **DO NOT EDIT casually**.
 - `packages/east-py/CLAUDE.md` — core runtime architecture
   (homoiconic type system, layer map, Cython acceleration).

@@ -72,7 +72,7 @@ disallow_untyped_defs = false
 check_untyped_defs = true
 
 [[tool.mypy.overrides]]
-module = ["east", "east.*", "east_py_std._parallel_eastc"]
+module = ["east", "east.*"]
 ignore_missing_imports = true
 
 [tool.ruff]
