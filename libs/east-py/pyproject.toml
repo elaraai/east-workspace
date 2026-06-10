@@ -8,6 +8,12 @@ license = { file = "LICENSE.md" }
 [tool.uv.workspace]
 members = ["packages/*"]
 
+[tool.uv]
+# econml pins shap<0.49, but shap<0.51 can't read current xgboost model dumps
+# (TreeExplainer "could not convert string to float"). We never call econml's
+# shap-based interpretability, so lift the pin for the whole workspace.
+override-dependencies = ["shap>=0.51.0"]
+
 [dependency-groups]
 dev = [
     "pytest>=8.0.0",

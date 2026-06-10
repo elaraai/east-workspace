@@ -44,6 +44,10 @@ See [`../../../../docs/conventions/MAKEFILE_TARGETS.md`](../../../../docs/conven
 
 - **PyMC** (`pymc/`) — Bayesian linear regression, hierarchical models, multi-layer joint estimation.
 
+### Causal inference
+
+- **Causal** (`causal/`) — DoWhy backdoor effects + refuters, EconML LinearDML CATE, PyALE dose-response.
+
 ### ML utilities
 
 - **Sklearn** (`sklearn/`) — preprocessing, metrics, data splitting, regressor chains.

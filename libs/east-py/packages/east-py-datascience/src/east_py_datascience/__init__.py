@@ -23,6 +23,7 @@ if hasattr(os, "add_dll_directory"):  # Windows (Python 3.8+); no-op elsewhere
     os.add_dll_directory(os.path.dirname(east.__file__))
 
 from east_py_datascience.alns import alns_impl
+from east_py_datascience.causal import causal_impl
 from east_py_datascience.google_or import google_or_impl
 from east_py_datascience.gp import gp_impl
 from east_py_datascience.lightgbm import lightgbm_impl
@@ -101,6 +102,7 @@ platform = [
     *google_or_impl,
     *pymc_impl,
     *simulation_impl,
+    *causal_impl,
 ]
 
 __all__ = [
@@ -125,6 +127,7 @@ __all__ = [
     "google_or_impl",
     "pymc_impl",
     "simulation_impl",
+    "causal_impl",
     # Type exports
     "ScalarObjectiveType",
     "VectorObjectiveType",
