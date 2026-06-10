@@ -47,6 +47,10 @@ export interface RuleContext {
   ts: TsModule;
   sourceFile: ts.SourceFile;
   checker: ts.TypeChecker;
+  /** The whole program — needed by rules that resolve cross-module types (e.g.
+   * `<source>/jsx-runtime`'s `JSX.Element`). Optional so a checker-only caller
+   * still works; rules that need it stay silent when it is absent. */
+  program?: ts.Program;
   options: EastRulesOptions;
   report(diagnostic: EastDiagnostic): void;
 }

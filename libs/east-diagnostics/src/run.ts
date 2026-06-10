@@ -11,6 +11,7 @@ import { allRules } from "./rules/index.js";
  * `rules` defaults to `allRules` (the run-anywhere set). */
 export function runEastRules(
   tsModule: TsModule,
+  program: ts.Program,
   sourceFile: ts.SourceFile,
   checker: ts.TypeChecker,
   options: EastRulesOptions = {},
@@ -21,6 +22,7 @@ export function runEastRules(
     ts: tsModule,
     sourceFile,
     checker,
+    program,
     options,
     report: (d) => diagnostics.push(d),
   };

@@ -47,7 +47,7 @@ function run(
   const sourceFile = program.getSourceFile(fixture);
   if (sourceFile === undefined) throw new Error("fixture source file not found");
 
-  return runEastRules(ts, sourceFile, program.getTypeChecker(), options, rules);
+  return runEastRules(ts, program, sourceFile, program.getTypeChecker(), options, rules);
 }
 
 /** Analyze a `.ts` fixture. */
@@ -67,4 +67,49 @@ export function analyzeTsx(
   rules?: readonly EastRule[],
 ): EastDiagnostic[] {
   return run(FIXTURE_TSX, source, { jsx: ts.JsxEmit.Preserve }, options, rules);
+}
+
+/**
+ * Analyze one entry file of a self-contained, multi-file in-memory program
+ * (virtual paths → source). Real `node_modules` are NOT consulted — supply
+ * every module the program needs in `files`, wiring imports through `paths`.
+ * Used to stand up a homemade JSX runtime + factory package and exercise rules
+ * that resolve cross-module types (e.g. the file's `JSX.Element`).
+ */
+export function analyzeProgram(
+  files: Record<string, string>,
+  entry: string,
+  extraOptions: ts.CompilerOptions,
+  rules?: readonly EastRule[],
+): EastDiagnostic[] {
+  const compilerOptions: ts.CompilerOptions = {
+    target: ts.ScriptTarget.ESNext,
+    module: ts.ModuleKind.NodeNext,
+    moduleResolution: ts.ModuleResolutionKind.NodeNext,
+    strict: true,
+    skipLibCheck: true,
+    noEmit: true,
+    types: [],
+    lib: ["lib.esnext.d.ts"],
+    ...extraOptions,
+  };
+
+  const host = ts.createCompilerHost(compilerOptions);
+  const getSourceFile = host.getSourceFile.bind(host);
+  host.getSourceFile = (name, lv, onError, shouldCreate) =>
+    name in files
+      ? ts.createSourceFile(name, files[name]!, lv, true)
+      : getSourceFile(name, lv, onError, shouldCreate);
+  const fileExists = host.fileExists.bind(host);
+  host.fileExists = (name) => name in files || fileExists(name);
+  const readFile = host.readFile.bind(host);
+  host.readFile = (name) => (name in files ? files[name]! : readFile(name));
+
+  // Root every supplied file so ambient declarations (a global `JSX` namespace
+  // in a non-imported `.d.ts`) load, mirroring a real tsconfig `include`.
+  const program = ts.createProgram(Object.keys(files), compilerOptions, host);
+  const sourceFile = program.getSourceFile(entry);
+  if (sourceFile === undefined) throw new Error(`entry source file not found: ${entry}`);
+
+  return runEastRules(ts, program, sourceFile, program.getTypeChecker(), {}, rules);
 }
