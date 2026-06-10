@@ -63,6 +63,8 @@ if [[ "${SKIP_BUILD:-}" != "1" ]]; then
   make -C libs/e3 build
   NODE_OPTIONS=--max-old-space-size=4096 make -C libs/east-ui build
   pnpm --filter @elaraai/east-py-datascience run build
+  make -C libs/east-diagnostics build
+  make -C libs/eslint-plugin-east build
   pnpm --filter @elaraai/scaffold-core --filter @elaraai/create-e3 --filter @elaraai/create-east run build
   log "Building east-c (cmake, $TARGET)"
   # OS-aware to match publish-c-native: Ninja + MSVC on Windows; nproc has no
@@ -172,7 +174,8 @@ cat > "$PROJ/package.json" <<EOF
     "@elaraai/east-node-cli": "$VERSION",
     "@elaraai/e3-cli": "$VERSION",
     "@elaraai/east": "$VERSION",
-    "@elaraai/east-node-std": "$VERSION"
+    "@elaraai/east-node-std": "$VERSION",
+    "@elaraai/eslint-plugin-east": "$VERSION"
   },
   "scripts": {
     "smoke": "east-c version && east-node version && e3 --version"
@@ -184,5 +187,8 @@ EOF
 log "Smoke tests (each CLI via npm run, resolved from node_modules/.bin)"
 ( cd "$PROJ" && npm run smoke )
 echo -n "  require @elaraai/east: "; ( cd "$PROJ" && node -e "require('@elaraai/east'); console.log('ok')" )
+# Pulls @elaraai/east-diagnostics transitively, so this also proves the
+# workspace:* rewrite + both new packages actually shipped their dist.
+echo -n "  require @elaraai/eslint-plugin-east: "; ( cd "$PROJ" && node -e "require('@elaraai/eslint-plugin-east'); console.log('ok')" )
 
 log "PASS — full @elaraai/* release installs + runs from verdaccio (${TARGET})"
