@@ -52,7 +52,13 @@
                     "description": "Last used e3 repository path (auto-saved)"
                 }
             }
-        }
+        },
+        "typescriptServerPlugins": [
+            {
+                "name": "@elaraai/tsserver-plugin-east",
+                "enableForWorkspaceTypeScriptVersions": true
+            }
+        ]
     },
     "activationEvents": [
         "onCommand:east-ui.openPreview"
@@ -63,7 +69,7 @@
         "typecheck": "tsc --noEmit",
         "build:webview": "cd webview && pnpm run build",
         "watch": "pnpm run build:extension -- --watch",
-        "package": "vsce package --no-dependencies",
+        "package": "vsce package --no-dependencies && node scripts/inject-tsserver-plugin.mjs",
         "publish": "vsce publish",
         "test": "echo 'No tests yet'",
         "lint": "eslint ."
@@ -78,6 +84,7 @@
         "@elaraai/east": "workspace:*",
         "@elaraai/east-ui": "workspace:*",
         "@elaraai/east-ui-components": "workspace:*",
+        "@elaraai/tsserver-plugin-east": "workspace:*",
         "@types/node": "^22.0.0",
         "@types/vscode": "^1.85.0",
         "@typescript-eslint/eslint-plugin": "^8.32.1",

@@ -243,6 +243,9 @@ jobs:
       - name: Build eslint-plugin-east
         working-directory: libs/eslint-plugin-east
         run: make build
+      - name: Build tsserver-plugin-east
+        working-directory: libs/tsserver-plugin-east
+        run: make build
       - name: Build create packages
         run: pnpm --filter @elaraai/scaffold-core --filter @elaraai/create-e3 --filter @elaraai/create-east run build
       - name: Publish (skip already-published)
@@ -282,11 +285,15 @@ jobs:
         run: make build
         env:
           NODE_OPTIONS: --max-old-space-size=4096
+      - name: Build east-diagnostics + tsserver-plugin-east
+        run: pnpm --filter @elaraai/east-diagnostics --filter @elaraai/tsserver-plugin-east run build
       - name: Build extension + webview
         run: pnpm --filter=east-ui-preview --filter=east-ui-preview-webview run build
       - name: Package VSIX
         working-directory: libs/east-ui/packages/east-ui-extension
-        run: pnpm exec vsce package --no-dependencies
+        # The package script wraps vsce and injects @elaraai/tsserver-plugin-east
+        # into the vsix (vsce --no-dependencies excludes node_modules).
+        run: pnpm run package
       - name: Publish to VS Marketplace
         if: ${{ !inputs.dry_run }}
         working-directory: libs/east-ui/packages/east-ui-extension

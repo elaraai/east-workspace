@@ -1074,6 +1074,9 @@ importers:
       '@elaraai/east-ui-components':
         specifier: workspace:*
         version: link:../east-ui-components
+      '@elaraai/tsserver-plugin-east':
+        specifier: workspace:*
+        version: link:../../../tsserver-plugin-east
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
@@ -1189,6 +1192,18 @@ importers:
       '@chakra-ui/react':
         specifier: ^3.0.0
         version: 3.34.0(@emotion/react@11.14.0(@types/react@19.2.14)(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@elaraai/e3':
+        specifier: workspace:*
+        version: link:../../../e3/packages/e3
+      '@elaraai/e3-types':
+        specifier: workspace:*
+        version: link:../../../e3/packages/e3-types
+      '@elaraai/e3-ui':
+        specifier: workspace:*
+        version: link:../e3-ui
+      '@elaraai/e3-ui-components':
+        specifier: workspace:*
+        version: link:../e3-ui-components
       '@elaraai/east':
         specifier: workspace:*
         version: link:../../../east
@@ -1290,6 +1305,21 @@ importers:
       eslint:
         specifier: ^9.34.0
         version: 9.39.4
+      typescript:
+        specifier: ~5.9.2
+        version: 5.9.3
+
+  libs/tsserver-plugin-east:
+    devDependencies:
+      '@elaraai/east':
+        specifier: workspace:*
+        version: link:../east
+      '@elaraai/east-diagnostics':
+        specifier: workspace:*
+        version: link:../east-diagnostics
+      esbuild:
+        specifier: ^0.27.3
+        version: 0.27.7
       typescript:
         specifier: ~5.9.2
         version: 5.9.3
@@ -4082,6 +4112,7 @@ packages:
   basic-ftp@5.2.0:
     resolution: {integrity: sha512-VoMINM2rqJwJgfdHq6RiUudKt2BV+FY5ZFezP/ypmwayk68+NzzAQy4XXLlqsGD4MCzq3DrmNFD/uUmBJuGoXw==}
     engines: {node: '>=10.0.0'}
+    deprecated: Security vulnerability fixed in 5.2.1, please upgrade
 
   bcrypt-pbkdf@1.0.2:
     resolution: {integrity: sha512-qeFIXtP4MSoi6NLqO12WfqARWWuCKi2Rn/9hJLEmtB5yTNr9DqFWkJRCf2qShWzPeAMRnOgCrq0sg/KLv5ES9w==}

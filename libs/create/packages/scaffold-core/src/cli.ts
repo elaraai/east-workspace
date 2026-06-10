@@ -67,12 +67,18 @@ async function resolveFeatures(templateDir: string, args: string[]): Promise<Fea
   const runnerName = (key: string): string => key.slice("runner:".length);
 
   const runnersFlag = args.find((a) => a.startsWith("--runners="));
-  const selectionFlags = ["--tests", "--no-tests", "--ui", "--no-ui"].some((f) => args.includes(f)) || Boolean(runnersFlag);
+  const selectionFlags =
+    ["--tests", "--no-tests", "--ui", "--no-ui", "--eslint", "--no-eslint"].some((f) => args.includes(f)) ||
+    Boolean(runnersFlag);
 
   if (args.includes("--tests")) features["tests"] = true;
   if (args.includes("--no-tests")) features["tests"] = false;
   if (args.includes("--ui")) features["ui"] = true;
   if (args.includes("--no-ui")) features["ui"] = false;
+  if (args.includes("--eslint")) features["eslint"] = true;
+  if (args.includes("--no-eslint")) features["eslint"] = false;
+  if (args.includes("--editor-diagnostics")) features["editor-diagnostics"] = true;
+  if (args.includes("--no-editor-diagnostics")) features["editor-diagnostics"] = false;
   if (runnersFlag) {
     const chosen = new Set(runnersFlag.slice("--runners=".length).split(",").map((s) => s.trim()).filter(Boolean));
     for (const key of runnerKeys) features[key] = chosen.has(runnerName(key));
@@ -95,6 +101,16 @@ async function resolveFeatures(templateDir: string, args: string[]): Promise<Fea
       const picks = new Set(answer ? answer.split(",").map((s) => s.trim()).filter(Boolean) : defaults);
       for (const key of runnerKeys) features[key] = picks.has(runnerName(key));
     }
+    if ("eslint" in manifest.features) {
+      features["eslint"] = await askYesNo(rl, "Include ESLint with the East lint rules?", features["eslint"]!);
+    }
+    if ("editor-diagnostics" in manifest.features) {
+      features["editor-diagnostics"] = await askYesNo(
+        rl,
+        "Include East editor diagnostics (TypeScript language service plugin)?",
+        features["editor-diagnostics"]!,
+      );
+    }
   } finally {
     rl.close();
   }
@@ -113,13 +129,15 @@ function printHelp(kind: ProjectKind): void {
   console.log("");
   console.log("Options:");
   console.log("  --install | --no-install     install dependencies after scaffolding (default: TTY)");
+  console.log("  --eslint | --no-eslint       include ESLint with the East lint rules (default: yes)");
+  console.log("  --editor-diagnostics | --no-editor-diagnostics   include the East tsserver plugin for editor squiggles (default: yes)");
   if (kind === "e3") {
     console.log("  --tests | --no-tests         include test files (default: yes)");
     console.log("  --ui | --no-ui               include east-ui + e3-ui UI components (default: no)");
     console.log("  --runners=east-node,east-c,east-py   East runtimes to include (default: all)");
-    console.log("");
-    console.log("Run interactively (a TTY with no feature flags) to be prompted for these.");
   }
+  console.log("");
+  console.log("Run interactively (a TTY with no feature flags) to be prompted for these.");
 }
 
 function printNextSteps(

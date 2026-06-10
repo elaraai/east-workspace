@@ -25,6 +25,21 @@
       "files": ["pyproject.toml", ".python-version", "tests/test_unit.py"],
       "scripts": ["test:py"],
       "dependencies": ["@elaraai/east-py-datascience"]
+    },
+    "eslint": {
+      "default": true,
+      "files": ["eslint.config.js"],
+      "scripts": ["lint"],
+      "devDependencies": [
+        "eslint",
+        "@typescript-eslint/eslint-plugin",
+        "@typescript-eslint/parser",
+        "@elaraai/eslint-plugin-east"
+      ]
+    },
+    "editor-diagnostics": {
+      "default": true,
+      "devDependencies": ["@elaraai/tsserver-plugin-east"]
     }
   },
   "scriptVariants": {

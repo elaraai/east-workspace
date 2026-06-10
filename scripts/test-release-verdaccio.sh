@@ -65,6 +65,7 @@ if [[ "${SKIP_BUILD:-}" != "1" ]]; then
   pnpm --filter @elaraai/east-py-datascience run build
   make -C libs/east-diagnostics build
   make -C libs/eslint-plugin-east build
+  make -C libs/tsserver-plugin-east build
   pnpm --filter @elaraai/scaffold-core --filter @elaraai/create-e3 --filter @elaraai/create-east run build
   log "Building east-c (cmake, $TARGET)"
   # OS-aware to match publish-c-native: Ninja + MSVC on Windows; nproc has no

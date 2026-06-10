@@ -69,6 +69,45 @@ for (const kind of ["east", "e3"] as const) {
 
     rmSync(dirname(dir), { recursive: true, force: true });
   });
+
+  test(`scaffold ${kind}: eslint is on by default — config, lint script, plugin dep`, () => {
+    const dir = scaffoldInto(kind, "my-proj", "9.9.9");
+    const pkg = readPkg(dir);
+
+    assert.ok(existsSync(join(dir, "eslint.config.js")), "eslint.config.js is emitted by default");
+    assert.equal(pkg.scripts["lint"], "eslint .", "the lint script is present by default");
+    assert.equal(pkg.devDependencies["@elaraai/eslint-plugin-east"], "^9.9.9",
+      "the East ESLint plugin is a pinned devDep by default");
+
+    rmSync(dirname(dir), { recursive: true, force: true });
+  });
+
+  test(`scaffold ${kind}: disabling eslint drops the config, lint script, and lint deps`, () => {
+    const dir = scaffoldInto(kind, "my-proj", "1.0.0", { eslint: false });
+    const pkg = readPkg(dir);
+
+    assert.ok(!existsSync(join(dir, "eslint.config.js")), "no eslint.config.js when eslint is off");
+    assert.equal(pkg.scripts["lint"], undefined, "the lint script is dropped");
+    for (const d of ["eslint", "@typescript-eslint/eslint-plugin", "@typescript-eslint/parser", "@elaraai/eslint-plugin-east"]) {
+      assert.equal(pkg.devDependencies[d], undefined, `eslint devDep ${d} must be dropped`);
+    }
+
+    rmSync(dirname(dir), { recursive: true, force: true });
+  });
+
+  test(`scaffold ${kind}: editor diagnostics are on by default and toggle off`, () => {
+    const onDir = scaffoldInto(kind, "my-proj", "9.9.9");
+    assert.equal(readPkg(onDir).devDependencies["@elaraai/tsserver-plugin-east"], "^9.9.9",
+      "the East tsserver plugin is a pinned devDep by default");
+    const tsconfig = readFileSync(join(onDir, "tsconfig.json"), "utf8");
+    assert.ok(tsconfig.includes("@elaraai/tsserver-plugin-east"), "tsconfig wires the tsserver plugin");
+    rmSync(dirname(onDir), { recursive: true, force: true });
+
+    const offDir = scaffoldInto(kind, "my-proj", "1.0.0", { "editor-diagnostics": false });
+    assert.equal(readPkg(offDir).devDependencies["@elaraai/tsserver-plugin-east"], undefined,
+      "editor-diagnostics off drops the tsserver plugin devDep");
+    rmSync(dirname(offDir), { recursive: true, force: true });
+  });
 }
 
 test("scaffold e3: pyproject + index default export are emitted", () => {

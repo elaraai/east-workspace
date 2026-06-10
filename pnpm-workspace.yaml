@@ -39,3 +39,7 @@ packages:
 
   # eslint-plugin-east — ESLint surface for the east-diagnostics rules
   - "libs/eslint-plugin-east"
+
+  # tsserver-plugin-east — TypeScript language service surface for the
+  # east-diagnostics rules (editor squiggles via tsconfig plugins / VS Code)
+  - "libs/tsserver-plugin-east"

@@ -21,6 +21,7 @@
     "moduleDetection": "force",
     "skipLibCheck": true,
     "noErrorTruncation": true,
-    "incremental": true
+    "incremental": true,
+    "plugins": [{ "name": "@elaraai/tsserver-plugin-east" }]
   }
 }
