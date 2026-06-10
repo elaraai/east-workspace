@@ -18,7 +18,13 @@ import importlib.util  # noqa: E402
 import numpy as np  # noqa: E402
 from east.runtime.platform import platform_function, platform_functions  # noqa: E402
 from east.types.types import FloatType, MatrixType, VectorType  # noqa: E402
-from east.types.values import EastArray, EastBlob, EastStruct, EastVariant, EastVector  # noqa: E402
+from east.types.values import (  # noqa: E402
+    EastBlob,
+    EastMatrix,
+    EastStruct,
+    EastVariant,
+    EastVector,
+)
 
 from east_py_datascience.types import (  # noqa: E402
     GPConfigType,
@@ -105,11 +111,48 @@ def _check_gp_support() -> None:
     output=ModelBlobType,
 )
 def gp_train_impl(
-    X: EastArray,
-    y: EastArray,
+    X: EastMatrix,
+    y: EastVector,
     config: EastStruct,
 ) -> EastVariant:
-    """Train a Gaussian Process Regressor."""
+    """Train a Gaussian Process regressor and return a serialized model blob.
+
+    Fits a scikit-learn GaussianProcessRegressor with a kernel composed of a
+    ConstantKernel multiplied by the chosen base kernel. The kernel
+    hyperparameters are optimized by maximizing the log-marginal likelihood,
+    optionally with multiple restarts.
+
+    Args:
+        X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix, one row per
+            sample.
+        y: ``Vector<Float>`` (``EastVector``) - continuous target values; must
+            have the same number of rows as ``X``.
+        config: ``GPConfigType`` (``EastStruct``) with fields:
+
+            - ``kernel`` (``Option<GPKernelType>``): one of ``rbf`` (squared
+              exponential, default), ``matern_1_2`` (exponential, nu=0.5),
+              ``matern_3_2`` (nu=1.5), ``matern_5_2`` (nu=2.5),
+              ``rational_quadratic``, or ``dot_product``.
+            - ``alpha`` (``Option<Float>``): noise variance added to the
+              diagonal of the kernel matrix for numerical stability (default
+              1e-10).
+            - ``n_restarts_optimizer`` (``Option<Integer>``): number of
+              restarts of the kernel hyperparameter optimizer (default 0).
+            - ``normalize_y`` (``Option<Boolean>``): subtract the mean of
+              ``y`` before fitting (default False).
+            - ``random_state`` (``Option<Integer>``): seed for optimizer
+              restarts (default None).
+
+    Returns:
+        ``ModelBlobType`` (``EastVariant``) tagged ``gp_regressor``:
+        ``{data: Blob (cloudpickle), n_features: Integer,
+        kernel_type: String}`` for use with :func:`gp_predict_impl` /
+        :func:`gp_predict_std_impl`.
+
+    Raises:
+        NotImplementedError: the ``gp`` extra is not installed.
+        RuntimeError: shape mismatch or training failure.
+    """
     _check_gp_support()
     from sklearn.gaussian_process import GaussianProcessRegressor
 
@@ -185,9 +228,24 @@ def gp_train_impl(
 )
 def gp_predict_impl(
     model_blob: EastVariant,
-    X: EastArray,
-) -> EastArray:
-    """Make predictions with GP (mean only)."""
+    X: EastMatrix,
+) -> EastVector:
+    """Predict the posterior mean with a trained Gaussian Process regressor.
+
+    Args:
+        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+            ``gp_regressor`` - as returned by :func:`gp_train_impl`.
+        X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix; must have the
+            same number of columns the model was trained with.
+
+    Returns:
+        ``Vector<Float>`` (``EastVector``) - posterior mean per row.
+
+    Raises:
+        NotImplementedError: the ``gp`` extra is not installed.
+        RuntimeError: wrong model blob type, invalid input data, or prediction
+            failure.
+    """
     _check_gp_support()
     # Model type check
     if model_blob.type != "gp_regressor":
@@ -223,9 +281,28 @@ def gp_predict_impl(
 )
 def gp_predict_std_impl(
     model_blob: EastVariant,
-    X: EastArray,
+    X: EastMatrix,
 ) -> EastStruct:
-    """Make predictions with GP (mean and std)."""
+    """Predict posterior mean and standard deviation with a trained GP regressor.
+
+    Args:
+        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+            ``gp_regressor`` - as returned by :func:`gp_train_impl`.
+        X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix; must have the
+            same number of columns the model was trained with.
+
+    Returns:
+        ``GPPredictResultType`` (``EastStruct``):
+
+        - ``mean`` (``Vector<Float>``): posterior mean per row.
+        - ``std`` (``Vector<Float>``): posterior standard deviation per row;
+          larger values indicate higher epistemic uncertainty.
+
+    Raises:
+        NotImplementedError: the ``gp`` extra is not installed.
+        RuntimeError: wrong model blob type, invalid input data, or prediction
+            failure.
+    """
     _check_gp_support()
     # Model type check
     if model_blob.type != "gp_regressor":

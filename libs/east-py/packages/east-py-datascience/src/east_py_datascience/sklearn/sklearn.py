@@ -194,15 +194,51 @@ def _stratified_n_way_split(
     output=SplitResultType,
 )
 def sklearn_split_impl(
-    X: EastArray,
-    Y: EastArray,
+    X: EastMatrix,
+    Y: EastMatrix,
     config: EastStruct,
 ) -> EastStruct:
-    """Split arrays into N subsets (train/test, train/val/test, etc.).
+    """Split feature and target matrices into N subsets (train/test, train/val/test, etc.).
 
-    Uses single-pass proportional allocation for stratified splits.
-    Supports multi-column stratification (combined into compound strata) and
-    overlap columns (values must appear in all splits).
+    Performs single-pass proportional allocation per stratum, with optional
+    stratification, overlap enforcement, and multi-valued overlap columns.
+    Rows whose overlap-column values are too rare (below ``min_overlap``) are
+    placed in ``rejected_indices`` rather than any split.
+
+    Args:
+        X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix, shape
+            (n_samples, n_features).
+        Y: ``Matrix<Float>`` (``EastMatrix``) - target matrix, shape
+            (n_samples, n_targets); must have the same number of rows as X.
+        config: ``SplitConfigType`` (``EastStruct``) with fields:
+
+            - ``split_sizes`` (``Array<Float>``): proportions that must sum
+              to 1.0, e.g. ``[0.7, 0.15, 0.15]`` for train/val/test.
+            - ``random_state`` (``Option<Integer>``): RNG seed; default None.
+            - ``shuffle`` (``Option<Boolean>``): shuffle before splitting;
+              default true.
+            - ``stratify`` (``Option<Matrix<Integer>>``): each row is one
+              column of integer stratum labels; rows are combined into
+              compound strata.
+            - ``overlap`` (``Option<Matrix<Integer>>``): each row is one
+              column of integer labels that must appear in every split;
+              samples whose values are too rare are rejected.
+            - ``multi_overlap`` (``Option<Array<Array<Vector<Integer>>>>``):
+              multi-valued overlap columns; each sample may belong to
+              multiple categories.
+            - ``min_overlap`` (``Option<Integer>``): minimum samples per
+              overlap value before rejection; default equals n_splits.
+
+    Returns:
+        ``SplitResultType`` (``EastStruct``): ``X_splits`` /
+        ``Y_splits`` (``Array<Matrix<Float>>``, one entry per split in
+        ``split_sizes`` order), ``rejected_indices`` (``Array<Integer>``
+        of original row indices rejected due to rare overlap values).
+
+    Raises:
+        NotImplementedError: the ``sklearn`` extra is not installed.
+        RuntimeError: split_sizes length < 2, split_sizes do not sum to
+            1.0, row-count mismatch between X and Y, or split failure.
     """
     _check_sklearn_support()
     try:
@@ -579,25 +615,41 @@ def _filter_by_known_categories(
     output=OverlapResultType,
 )
 def sklearn_overlap_impl(
-    X_reference: EastArray,
+    X_reference: EastMatrix,
     X_targets: EastArray,
     Y_targets: EastArray,
     config: EastStruct,
 ) -> EastStruct:
-    """Filter target matrices to only contain rows whose categorical values exist in the reference.
+    """Filter target matrices to rows whose categorical values all appear in the reference.
 
-    Given a reference feature matrix (e.g. training data) and one or more target matrices
-    (e.g. validation, calibration), removes rows from each target where any categorical
-    column has a value not seen in the reference.
+    Given a reference feature matrix (e.g. training data) and one or more
+    target matrices (e.g. validation, calibration, inference), removes rows
+    from each target where any categorical column holds a value not seen in
+    the reference. X and Y targets are filtered in sync.
 
     Args:
-        X_reference: Reference feature matrix (MatrixType(FloatType)) — defines known categories.
-        X_targets: Array of target feature matrices to filter (ArrayType(MatrixType(FloatType))).
-        Y_targets: Array of target label matrices to filter in sync (ArrayType(MatrixType(FloatType))).
-        config: OverlapConfigType with cat_indices (which columns are categorical).
+        X_reference: ``Matrix<Float>`` (``EastMatrix``) - reference feature
+            matrix; defines the set of known category values per column.
+        X_targets: ``Array<Matrix<Float>>`` (``EastArray``) - target feature
+            matrices to filter.
+        Y_targets: ``Array<Matrix<Float>>`` (``EastArray``) - target label
+            matrices; must correspond one-to-one with ``X_targets`` and have
+            the same row counts.
+        config: ``OverlapConfigType`` (``EastStruct``) with fields:
+
+            - ``cat_indices`` (``Vector<Integer>``): zero-based column
+              indices in X that are categorical.
 
     Returns:
-        OverlapResultType with X_filtered, Y_filtered, rejected_counts, known_categories.
+        ``OverlapResultType`` (``EastStruct``): ``X_filtered`` /
+        ``Y_filtered`` (``Array<Matrix<Float>>``, one matrix per target),
+        ``rejected_counts`` (``Vector<Integer>``, rows removed per target),
+        ``known_categories`` (``Array<Vector<Integer>>``, sorted known
+        values per categorical column in ``cat_indices`` order).
+
+    Raises:
+        NotImplementedError: the ``sklearn`` extra is not installed.
+        RuntimeError: invalid input data or conversion failure.
     """
     _check_sklearn_support()
     cat_indices = [int(v) for v in config["cat_indices"].to_numpy()]
@@ -656,8 +708,25 @@ def sklearn_overlap_impl(
     inputs=[MatrixType(FloatType)],
     output=ModelBlobType,
 )
-def sklearn_standard_scaler_fit_impl(X: EastArray) -> EastVariant:
-    """Fit StandardScaler and return model blob."""
+def sklearn_standard_scaler_fit_impl(X: EastMatrix) -> EastVariant:
+    """Fit a StandardScaler on X and return an ONNX-serialised model blob.
+
+    Computes per-feature mean and standard deviation; use the returned blob
+    with :func:`sklearn_standard_scaler_transform_impl` to zero-centre and
+    unit-variance scale new data.
+
+    Args:
+        X: ``Matrix<Float>`` (``EastMatrix``) - training data, shape
+            (n_samples, n_features).
+
+    Returns:
+        ``ModelBlobType`` (``EastVariant``) tagged ``standard_scaler``:
+        ``{onnx: Blob, n_features: Integer}``.
+
+    Raises:
+        NotImplementedError: the ``sklearn`` extra is not installed.
+        RuntimeError: invalid input data or scaler fitting failure.
+    """
     _check_sklearn_support()
     from sklearn.preprocessing import StandardScaler
 
@@ -697,9 +766,26 @@ def sklearn_standard_scaler_fit_impl(X: EastArray) -> EastVariant:
 )
 def sklearn_standard_scaler_transform_impl(
     model_blob: EastVariant,
-    X: EastArray,
-) -> EastArray:
-    """Transform data using fitted scaler."""
+    X: EastMatrix,
+) -> EastMatrix:
+    """Apply a fitted StandardScaler to X via ONNX Runtime.
+
+    Args:
+        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+            ``standard_scaler``, as returned by
+            :func:`sklearn_standard_scaler_fit_impl`.
+        X: ``Matrix<Float>`` (``EastMatrix``) - data to transform, shape
+            (n_samples, n_features); must have the same feature count as
+            the fitting data.
+
+    Returns:
+        ``Matrix<Float>`` (``EastMatrix``) - zero-centred, unit-variance
+        data, same shape as X.
+
+    Raises:
+        NotImplementedError: the ``sklearn`` extra is not installed.
+        RuntimeError: wrong blob tag, or ONNX transform failure.
+    """
     _check_sklearn_support()
     if model_blob.type != "standard_scaler":
         raise RuntimeError(
@@ -720,8 +806,25 @@ def sklearn_standard_scaler_transform_impl(
     inputs=[MatrixType(FloatType)],
     output=ModelBlobType,
 )
-def sklearn_min_max_scaler_fit_impl(X: EastArray) -> EastVariant:
-    """Fit MinMaxScaler and return model blob."""
+def sklearn_min_max_scaler_fit_impl(X: EastMatrix) -> EastVariant:
+    """Fit a MinMaxScaler on X and return an ONNX-serialised model blob.
+
+    Computes per-feature min and max; use the returned blob with
+    :func:`sklearn_min_max_scaler_transform_impl` to scale features to
+    [0, 1].
+
+    Args:
+        X: ``Matrix<Float>`` (``EastMatrix``) - training data, shape
+            (n_samples, n_features).
+
+    Returns:
+        ``ModelBlobType`` (``EastVariant``) tagged ``min_max_scaler``:
+        ``{onnx: Blob, n_features: Integer}``.
+
+    Raises:
+        NotImplementedError: the ``sklearn`` extra is not installed.
+        RuntimeError: invalid input data or scaler fitting failure.
+    """
     _check_sklearn_support()
     from sklearn.preprocessing import MinMaxScaler
 
@@ -761,9 +864,26 @@ def sklearn_min_max_scaler_fit_impl(X: EastArray) -> EastVariant:
 )
 def sklearn_min_max_scaler_transform_impl(
     model_blob: EastVariant,
-    X: EastArray,
-) -> EastArray:
-    """Transform data using fitted min-max scaler."""
+    X: EastMatrix,
+) -> EastMatrix:
+    """Apply a fitted MinMaxScaler to X via ONNX Runtime.
+
+    Args:
+        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+            ``min_max_scaler``, as returned by
+            :func:`sklearn_min_max_scaler_fit_impl`.
+        X: ``Matrix<Float>`` (``EastMatrix``) - data to transform, shape
+            (n_samples, n_features); must have the same feature count as
+            the fitting data.
+
+    Returns:
+        ``Matrix<Float>`` (``EastMatrix``) - features scaled to [0, 1],
+        same shape as X.
+
+    Raises:
+        NotImplementedError: the ``sklearn`` extra is not installed.
+        RuntimeError: wrong blob tag, or ONNX transform failure.
+    """
     _check_sklearn_support()
     if model_blob.type != "min_max_scaler":
         raise RuntimeError(
@@ -784,11 +904,24 @@ def sklearn_min_max_scaler_transform_impl(
     inputs=[MatrixType(FloatType)],
     output=ModelBlobType,
 )
-def sklearn_robust_scaler_fit_impl(X: EastArray) -> EastVariant:
-    """Fit RobustScaler and return model blob.
+def sklearn_robust_scaler_fit_impl(X: EastMatrix) -> EastVariant:
+    """Fit a RobustScaler on X and return an ONNX-serialised model blob.
 
-    RobustScaler scales features using statistics that are robust to outliers.
-    It centers data using the median and scales using the interquartile range (IQR).
+    Centres using the median and scales using the interquartile range,
+    making it robust to outliers.  Use the returned blob with
+    :func:`sklearn_robust_scaler_transform_impl`.
+
+    Args:
+        X: ``Matrix<Float>`` (``EastMatrix``) - training data, shape
+            (n_samples, n_features).
+
+    Returns:
+        ``ModelBlobType`` (``EastVariant``) tagged ``robust_scaler``:
+        ``{onnx: Blob, n_features: Integer}``.
+
+    Raises:
+        NotImplementedError: the ``sklearn`` extra is not installed.
+        RuntimeError: invalid input data or scaler fitting failure.
     """
     _check_sklearn_support()
     from sklearn.preprocessing import RobustScaler
@@ -829,9 +962,26 @@ def sklearn_robust_scaler_fit_impl(X: EastArray) -> EastVariant:
 )
 def sklearn_robust_scaler_transform_impl(
     model_blob: EastVariant,
-    X: EastArray,
-) -> EastArray:
-    """Transform data using fitted robust scaler."""
+    X: EastMatrix,
+) -> EastMatrix:
+    """Apply a fitted RobustScaler to X via ONNX Runtime.
+
+    Args:
+        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+            ``robust_scaler``, as returned by
+            :func:`sklearn_robust_scaler_fit_impl`.
+        X: ``Matrix<Float>`` (``EastMatrix``) - data to transform, shape
+            (n_samples, n_features); must have the same feature count as
+            the fitting data.
+
+    Returns:
+        ``Matrix<Float>`` (``EastMatrix``) - median-centred, IQR-scaled
+        data, same shape as X.
+
+    Raises:
+        NotImplementedError: the ``sklearn`` extra is not installed.
+        RuntimeError: wrong blob tag, or ONNX transform failure.
+    """
     _check_sklearn_support()
     if model_blob.type != "robust_scaler":
         raise RuntimeError(
@@ -852,8 +1002,25 @@ def sklearn_robust_scaler_transform_impl(
     inputs=[VectorType(IntegerType)],
     output=ModelBlobType,
 )
-def sklearn_label_encoder_fit_impl(y: EastArray) -> EastVariant:
-    """Fit LabelEncoder to labels and return model blob."""
+def sklearn_label_encoder_fit_impl(y: EastVector) -> EastVariant:
+    """Fit a LabelEncoder on integer labels and return a cloudpickle-serialised model blob.
+
+    Maps arbitrary integer class codes to a contiguous 0..N-1 range; use
+    the returned blob with :func:`sklearn_label_encoder_transform_impl` or
+    :func:`sklearn_label_encoder_inverse_transform_impl`.
+
+    Args:
+        y: ``Vector<Integer>`` (``EastVector``) - integer class labels to
+            learn from.
+
+    Returns:
+        ``ModelBlobType`` (``EastVariant``) tagged ``label_encoder``:
+        ``{data: Blob, n_classes: Integer}``.
+
+    Raises:
+        NotImplementedError: the ``sklearn`` extra is not installed.
+        RuntimeError: invalid input data or fitting failure.
+    """
     _check_sklearn_support()
     import cloudpickle
     from sklearn.preprocessing import LabelEncoder
@@ -892,9 +1059,27 @@ def sklearn_label_encoder_fit_impl(y: EastArray) -> EastVariant:
 )
 def sklearn_label_encoder_transform_impl(
     model_blob: EastVariant,
-    y: EastArray,
-) -> EastArray:
-    """Transform labels using fitted LabelEncoder."""
+    y: EastVector,
+) -> EastVector:
+    """Encode integer labels with a fitted LabelEncoder.
+
+    Maps each value in ``y`` to its contiguous index in the fitted class
+    set (0..N-1).
+
+    Args:
+        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+            ``label_encoder``, as returned by
+            :func:`sklearn_label_encoder_fit_impl`.
+        y: ``Vector<Integer>`` (``EastVector``) - labels to encode; all
+            values must have been seen during fitting.
+
+    Returns:
+        ``Vector<Integer>`` (``EastVector``) - encoded labels in 0..N-1.
+
+    Raises:
+        NotImplementedError: the ``sklearn`` extra is not installed.
+        RuntimeError: wrong blob tag, or transform failure (unseen label).
+    """
     _check_sklearn_support()
     import cloudpickle
 
@@ -922,9 +1107,26 @@ def sklearn_label_encoder_transform_impl(
 )
 def sklearn_label_encoder_inverse_transform_impl(
     model_blob: EastVariant,
-    y: EastArray,
-) -> EastArray:
-    """Inverse transform encoded labels back to original values."""
+    y: EastVector,
+) -> EastVector:
+    """Decode contiguous indices back to the original integer class labels.
+
+    Args:
+        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+            ``label_encoder``, as returned by
+            :func:`sklearn_label_encoder_fit_impl`.
+        y: ``Vector<Integer>`` (``EastVector``) - encoded labels in
+            0..N-1 to decode.
+
+    Returns:
+        ``Vector<Integer>`` (``EastVector``) - original integer class
+        labels.
+
+    Raises:
+        NotImplementedError: the ``sklearn`` extra is not installed.
+        RuntimeError: wrong blob tag, or inverse transform failure (index
+            out of range).
+    """
     _check_sklearn_support()
     import cloudpickle
 
@@ -950,8 +1152,24 @@ def sklearn_label_encoder_inverse_transform_impl(
     inputs=[MatrixType(FloatType)],
     output=ModelBlobType,
 )
-def sklearn_ordinal_encoder_fit_impl(X: EastArray) -> EastVariant:
-    """Fit OrdinalEncoder to features and return model blob."""
+def sklearn_ordinal_encoder_fit_impl(X: EastMatrix) -> EastVariant:
+    """Fit an OrdinalEncoder on feature matrix X and return a cloudpickle-serialised model blob.
+
+    Assigns each category in each column an integer ordinal; use the
+    returned blob with :func:`sklearn_ordinal_encoder_transform_impl`.
+
+    Args:
+        X: ``Matrix<Float>`` (``EastMatrix``) - training data containing
+            categorical columns, shape (n_samples, n_features).
+
+    Returns:
+        ``ModelBlobType`` (``EastVariant``) tagged ``ordinal_encoder``:
+        ``{data: Blob, n_features: Integer}``.
+
+    Raises:
+        NotImplementedError: the ``sklearn`` extra is not installed.
+        RuntimeError: invalid input data or fitting failure.
+    """
     _check_sklearn_support()
     import cloudpickle
     from sklearn.preprocessing import OrdinalEncoder
@@ -991,9 +1209,27 @@ def sklearn_ordinal_encoder_fit_impl(X: EastArray) -> EastVariant:
 )
 def sklearn_ordinal_encoder_transform_impl(
     model_blob: EastVariant,
-    X: EastArray,
-) -> EastArray:
-    """Transform features using fitted OrdinalEncoder."""
+    X: EastMatrix,
+) -> EastMatrix:
+    """Apply a fitted OrdinalEncoder to X.
+
+    Args:
+        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+            ``ordinal_encoder``, as returned by
+            :func:`sklearn_ordinal_encoder_fit_impl`.
+        X: ``Matrix<Float>`` (``EastMatrix``) - data to encode, shape
+            (n_samples, n_features); must have the same feature count as
+            the fitting data.
+
+    Returns:
+        ``Matrix<Float>`` (``EastMatrix``) - ordinal-encoded features,
+        same shape as X.
+
+    Raises:
+        NotImplementedError: the ``sklearn`` extra is not installed.
+        RuntimeError: wrong blob tag, or transform failure (unseen
+            category).
+    """
     _check_sklearn_support()
     import cloudpickle
 
@@ -1021,11 +1257,28 @@ def sklearn_ordinal_encoder_transform_impl(
 )
 def sklearn_compute_class_weight_impl(
     mode: EastVariant,
-    y: EastArray,
-) -> EastArray:
-    """Compute class weights for balanced training.
+    y: EastVector,
+) -> EastVector:
+    """Compute per-class weights inversely proportional to class frequencies.
 
-    Calculates weights inversely proportional to class frequencies.
+    Useful for balancing training on imbalanced datasets by passing the
+    returned weights to a model's ``sample_weight`` argument.
+
+    Args:
+        mode: ``ClassWeightModeType`` (``EastVariant``) - currently only
+            the ``balanced`` tag is supported; weights are set to
+            n_samples / (n_classes * class_count).
+        y: ``Vector<Integer>`` (``EastVector``) - integer class labels for
+            all training samples.
+
+    Returns:
+        ``Vector<Float>`` (``EastVector``) - one weight per unique class,
+        ordered by ascending class label.
+
+    Raises:
+        NotImplementedError: the ``sklearn`` extra is not installed.
+        RuntimeError: invalid input data, unknown mode, or weight
+            computation failure.
     """
     _check_sklearn_support()
     from sklearn.utils.class_weight import compute_class_weight
@@ -1060,13 +1313,30 @@ def sklearn_compute_class_weight_impl(
     output=ConfusionMatrixResultType,
 )
 def sklearn_confusion_matrix_impl(
-    y_true: EastArray,
-    y_pred: EastArray,
+    y_true: EastVector,
+    y_pred: EastVector,
 ) -> EastStruct:
-    """Compute confusion matrix for classification results.
+    """Compute the confusion matrix for a set of classification predictions.
 
-    Returns matrix where entry [i,j] is the count of samples with true label i
-    that were predicted as label j.
+    Entry [i, j] of the returned matrix is the number of samples whose
+    true label is the i-th class and whose predicted label is the j-th
+    class, where classes are sorted in ascending order.
+
+    Args:
+        y_true: ``Vector<Integer>`` (``EastVector``) - ground-truth class
+            labels.
+        y_pred: ``Vector<Integer>`` (``EastVector``) - predicted class
+            labels; must have the same length as ``y_true``.
+
+    Returns:
+        ``ConfusionMatrixResultType`` (``EastStruct``): ``matrix``
+        (``Matrix<Float>`` of shape n_classes x n_classes), ``classes``
+        (``Vector<Integer>``, sorted union of true and predicted labels).
+
+    Raises:
+        NotImplementedError: the ``sklearn`` extra is not installed.
+        RuntimeError: length mismatch between y_true and y_pred, or
+            matrix computation failure.
     """
     _check_sklearn_support()
     from sklearn.metrics import confusion_matrix
@@ -1107,11 +1377,35 @@ def sklearn_confusion_matrix_impl(
     output=FloatType,
 )
 def sklearn_roc_auc_score_impl(
-    y_true: EastArray,
-    y_proba: EastArray,
+    y_true: EastVector,
+    y_proba: EastMatrix,
     config: EastStruct,
 ) -> float:
-    """Compute ROC AUC score for classification results."""
+    """Compute the ROC AUC score for binary or multi-class classification.
+
+    For binary problems uses the positive-class column of ``y_proba``.
+    For multi-class problems the ``multi_class`` and ``average`` config
+    fields control the aggregation strategy.
+
+    Args:
+        y_true: ``Vector<Integer>`` (``EastVector``) - ground-truth class
+            labels.
+        y_proba: ``Matrix<Float>`` (``EastMatrix``) - class probability
+            estimates, shape (n_samples, n_classes).
+        config: ``RocAucConfigType`` (``EastStruct``) with fields:
+
+            - ``multi_class`` (``Option<RocAucMultiClassType>``): ``ovr``
+              (one-vs-rest, default) or ``ovo`` (one-vs-one).
+            - ``average`` (``Option<ClassificationAverageType>``): how to
+              aggregate per-class AUC; default ``macro``.
+
+    Returns:
+        ``Float`` - ROC AUC score.
+
+    Raises:
+        NotImplementedError: the ``sklearn`` extra is not installed.
+        RuntimeError: sample-count mismatch, or scoring failure.
+    """
     _check_sklearn_support()
     from sklearn.metrics import roc_auc_score
 
@@ -1171,10 +1465,25 @@ def sklearn_roc_auc_score_impl(
     output=FloatType,
 )
 def sklearn_log_loss_impl(
-    y_true: EastArray,
-    y_proba: EastArray,
+    y_true: EastVector,
+    y_proba: EastMatrix,
 ) -> float:
-    """Compute log loss (cross-entropy) for classification results."""
+    """Compute log loss (cross-entropy) for binary or multi-class predictions.
+
+    Args:
+        y_true: ``Vector<Integer>`` (``EastVector``) - ground-truth class
+            labels.
+        y_proba: ``Matrix<Float>`` (``EastMatrix``) - class probability
+            estimates, shape (n_samples, n_classes); each row should sum
+            to 1.
+
+    Returns:
+        ``Float`` - mean log loss (lower is better).
+
+    Raises:
+        NotImplementedError: the ``sklearn`` extra is not installed.
+        RuntimeError: sample-count mismatch, or loss computation failure.
+    """
     _check_sklearn_support()
     from sklearn.metrics import log_loss
 
@@ -1208,9 +1517,28 @@ def sklearn_log_loss_impl(
     output=FloatType,
 )
 def sklearn_silhouette_score_impl(
-    X: EastArray, labels: EastArray
+    X: EastMatrix, labels: EastVector
 ) -> float:
-    """Compute the silhouette score for clustering quality evaluation."""
+    """Compute the mean silhouette coefficient for clustering quality.
+
+    The silhouette score ranges from -1 (incorrect clustering) to +1
+    (dense, well-separated clusters); 0 indicates overlapping clusters.
+
+    Args:
+        X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix, shape
+            (n_samples, n_features).
+        labels: ``Vector<Integer>`` (``EastVector``) - cluster assignment
+            per sample; must have the same length as X rows and contain at
+            least 2 distinct labels.
+
+    Returns:
+        ``Float`` - mean silhouette coefficient over all samples.
+
+    Raises:
+        NotImplementedError: the ``sklearn`` extra is not installed.
+        RuntimeError: sample-count mismatch, or score computation failure
+            (e.g. only one cluster).
+    """
     _check_sklearn_support()
     from sklearn.metrics import silhouette_score
 
@@ -1320,11 +1648,42 @@ def _compute_regression_metric(
     output=MetricsResultType,
 )
 def sklearn_compute_metrics_impl(
-    y_true: EastArray,
-    y_pred: EastArray,
+    y_true: EastVector,
+    y_pred: EastVector,
     metrics: EastArray,
 ) -> EastArray:
-    """Compute regression metrics for single-target predictions."""
+    """Compute one or more regression metrics for single-target predictions.
+
+    Metrics that raise an exception are silently skipped rather than
+    failing the whole call.
+
+    Args:
+        y_true: ``Vector<Float>`` (``EastVector``) - ground-truth target
+            values.
+        y_pred: ``Vector<Float>`` (``EastVector``) - predicted values;
+            must have the same length as ``y_true``.
+        metrics: ``Array<RegressionMetricType>`` (``EastArray``) - metrics
+            to compute.  Each element is an ``EastVariant`` whose tag
+            selects the metric and whose value carries an optional
+            parameter:
+
+            - ``mse``, ``rmse``, ``mae``, ``r2``, ``mape``,
+              ``explained_variance``, ``max_error``, ``median_ae``,
+              ``mean_error`` - no parameter (``NullType``).
+            - ``pinball_loss`` (``Float``) - quantile alpha (default 0.5).
+            - ``huber`` (``Float``) - delta threshold (default 1.0).
+            - ``mean_tweedie_deviance`` (``Float``) - power parameter
+              (default 0.0 = normal).
+
+    Returns:
+        ``MetricsResultType`` (``Array<MetricResultType>``): one
+        ``{metric: RegressionMetricType, value: Float}`` struct per
+        successfully computed metric, in input order.
+
+    Raises:
+        NotImplementedError: the ``sklearn`` extra is not installed.
+        RuntimeError: invalid input data or sample-count mismatch.
+    """
     _check_sklearn_support()
     try:
         y_true_np = y_true.to_numpy()
@@ -1370,12 +1729,42 @@ def sklearn_compute_metrics_impl(
     output=MultiMetricsResultType,
 )
 def sklearn_compute_metrics_multi_impl(
-    Y_true: EastArray,
-    Y_pred: EastArray,
+    Y_true: EastMatrix,
+    Y_pred: EastMatrix,
     metrics: EastArray,
     config: EastStruct,
 ) -> EastArray:
-    """Compute regression metrics for multi-target predictions."""
+    """Compute one or more regression metrics for multi-target predictions.
+
+    Computes each metric per column of Y then aggregates according to
+    ``config["aggregation"]``.  Metrics that raise an exception are
+    silently skipped.
+
+    Args:
+        Y_true: ``Matrix<Float>`` (``EastMatrix``) - ground-truth targets,
+            shape (n_samples, n_targets).
+        Y_pred: ``Matrix<Float>`` (``EastMatrix``) - predicted targets;
+            must have the same shape as ``Y_true``.
+        metrics: ``Array<RegressionMetricType>`` (``EastArray``) - same
+            variant tags and parameters as
+            :func:`sklearn_compute_metrics_impl`.
+        config: ``MultiMetricsConfigType`` (``EastStruct``) with fields:
+
+            - ``aggregation`` (``Option<MetricAggregationType>``):
+              ``per_target`` (default, returns a vector of per-column
+              values) or ``uniform_average`` (returns a scalar mean).
+
+    Returns:
+        ``MultiMetricsResultType`` (``Array<MultiMetricResultType>``): one
+        ``{metric, value: MultiMetricValueType}`` struct per successfully
+        computed metric.  ``value`` is tagged ``per_target``
+        (``Vector<Float>``) or ``scalar`` (``Float``) depending on
+        aggregation.
+
+    Raises:
+        NotImplementedError: the ``sklearn`` extra is not installed.
+        RuntimeError: invalid input data or shape mismatch.
+    """
     _check_sklearn_support()
     try:
         Y_true_np = Y_true.to_numpy()
@@ -1487,12 +1876,47 @@ def _compute_classification_metric(
     output=ClassificationMetricResultsType,
 )
 def sklearn_compute_classification_metrics_impl(
-    y_true: EastArray,
-    y_pred: EastArray,
+    y_true: EastVector,
+    y_pred: EastVector,
     metrics: EastArray,
     config: EastStruct,
 ) -> EastArray:
-    """Compute classification metrics for single-target predictions."""
+    """Compute one or more classification metrics for single-target predictions.
+
+    Metrics that raise an exception are silently skipped.
+
+    Args:
+        y_true: ``Vector<Integer>`` (``EastVector``) - ground-truth class
+            labels.
+        y_pred: ``Vector<Integer>`` (``EastVector``) - predicted class
+            labels; must have the same length as ``y_true``.
+        metrics: ``Array<ClassificationMetricType>`` (``EastArray``) -
+            metrics to compute.  Each element is an ``EastVariant`` with
+            one of these tags:
+
+            - ``accuracy``, ``balanced_accuracy``, ``precision``,
+              ``recall``, ``f1``, ``matthews_corrcoef``, ``jaccard`` - no
+              per-metric parameter.
+            - ``cohen_kappa`` (``CohenKappaWeightsType``) - optional
+              weights variant: ``none``, ``linear``, or ``quadratic``.
+
+        config: ``ClassificationMetricsConfigType`` (``EastStruct``) with
+            fields:
+
+            - ``average`` (``Option<ClassificationAverageType>``):
+              ``macro`` (default), ``micro``, ``weighted``, or ``binary``;
+              applied to precision, recall, f1, and jaccard.
+
+    Returns:
+        ``ClassificationMetricResultsType``
+        (``Array<ClassificationMetricResultType>``): one
+        ``{metric: ClassificationMetricType, value: Float}`` struct per
+        successfully computed metric, in input order.
+
+    Raises:
+        NotImplementedError: the ``sklearn`` extra is not installed.
+        RuntimeError: invalid input data or sample-count mismatch.
+    """
     _check_sklearn_support()
     try:
         y_true_np = y_true.to_numpy()
@@ -1552,12 +1976,46 @@ def sklearn_compute_classification_metrics_impl(
     output=MultiClassificationMetricResultsType,
 )
 def sklearn_compute_classification_metrics_multi_impl(
-    Y_true: EastArray,
-    Y_pred: EastArray,
+    Y_true: EastMatrix,
+    Y_pred: EastMatrix,
     metrics: EastArray,
     config: EastStruct,
 ) -> EastArray:
-    """Compute classification metrics for multi-target predictions."""
+    """Compute one or more classification metrics for multi-target predictions.
+
+    Computes each metric per column of Y then aggregates according to
+    ``config["aggregation"]``.  Metrics that raise an exception are
+    silently skipped.
+
+    Args:
+        Y_true: ``Matrix<Float>`` (``EastMatrix``) - ground-truth integer
+            class labels as floats, shape (n_samples, n_targets); cast to
+            int internally.
+        Y_pred: ``Matrix<Float>`` (``EastMatrix``) - predicted integer
+            class labels as floats; must have the same shape as
+            ``Y_true``.
+        metrics: ``Array<ClassificationMetricType>`` (``EastArray``) -
+            same variant tags and parameters as
+            :func:`sklearn_compute_classification_metrics_impl`.
+        config: ``MultiClassificationConfigType`` (``EastStruct``) with
+            fields:
+
+            - ``average`` (``Option<ClassificationAverageType>``):
+              ``macro`` (default), ``micro``, ``weighted``, or ``binary``.
+            - ``aggregation`` (``Option<MetricAggregationType>``):
+              ``per_target`` (default) or ``uniform_average``.
+
+    Returns:
+        ``MultiClassificationMetricResultsType``
+        (``Array<MultiClassificationMetricResultType>``): one
+        ``{metric, value: MultiMetricValueType}`` struct per successfully
+        computed metric.  ``value`` is tagged ``per_target``
+        (``Vector<Float>``) or ``scalar`` (``Float``).
+
+    Raises:
+        NotImplementedError: the ``sklearn`` extra is not installed.
+        RuntimeError: invalid input data or shape mismatch.
+    """
     _check_sklearn_support()
     try:
         Y_true_np = Y_true.to_numpy(dtype=int)
@@ -1755,11 +2213,50 @@ def _create_base_estimator(estimator_variant: EastVariant):
     output=ModelBlobType,
 )
 def sklearn_regressor_chain_train_impl(
-    X: EastArray,
-    Y: EastArray,
+    X: EastMatrix,
+    Y: EastMatrix,
     config: EastStruct,
 ) -> EastVariant:
-    """Train a RegressorChain for multi-target regression."""
+    """Train a RegressorChain for chained multi-target regression.
+
+    Each target in the chain is predicted using all features plus the
+    predictions of all preceding targets, propagating inter-target
+    dependencies.  The chain is serialised with cloudpickle for use with
+    :func:`sklearn_regressor_chain_predict_impl`.
+
+    Args:
+        X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix, shape
+            (n_samples, n_features).
+        Y: ``Matrix<Float>`` (``EastMatrix``) - target matrix, shape
+            (n_samples, n_targets); must have the same number of rows as X.
+        config: ``RegressorChainConfigType`` (``EastStruct``) with fields:
+
+            - ``base_estimator`` (``RegressorChainBaseConfigType``):
+              variant selecting the per-link estimator; one of:
+
+              - ``xgboost`` (``XGBoostConfigType``) - see XGBoost docs
+                for field defaults.
+              - ``lightgbm`` (``LightGBMConfigType``) - see LightGBM docs
+                for field defaults.
+              - ``ngboost`` (``NGBoostConfigType``) - see NGBoost docs for
+                field defaults.
+              - ``gp`` (``GPConfigType``) - Gaussian Process regressor.
+
+            - ``order`` (``Option<Array<Integer>>``): target ordering for
+              the chain; default None means natural order 0..n_targets-1.
+            - ``random_state`` (``Option<Integer>``): seed for estimators
+              that support it.
+
+    Returns:
+        ``ModelBlobType`` (``EastVariant``) tagged ``regressor_chain``:
+        ``{data: Blob, n_features: Integer, n_targets: Integer,
+        base_estimator_type: String}``.
+
+    Raises:
+        NotImplementedError: the ``sklearn`` extra is not installed.
+        RuntimeError: sample-count mismatch, unknown estimator type, base
+            estimator creation failure, or training failure.
+    """
     _check_sklearn_support()
     from sklearn.multioutput import RegressorChain
 
@@ -1836,9 +2333,27 @@ def sklearn_regressor_chain_train_impl(
 )
 def sklearn_regressor_chain_predict_impl(
     model_blob: EastVariant,
-    X: EastArray,
-) -> EastArray:
-    """Predict using a fitted RegressorChain."""
+    X: EastMatrix,
+) -> EastMatrix:
+    """Predict multi-target outputs with a fitted RegressorChain.
+
+    Args:
+        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+            ``regressor_chain``, as returned by
+            :func:`sklearn_regressor_chain_train_impl`.
+        X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix, shape
+            (n_samples, n_features); must have the same feature count as
+            the training data.
+
+    Returns:
+        ``Matrix<Float>`` (``EastMatrix``) - predicted targets, shape
+        (n_samples, n_targets).
+
+    Raises:
+        NotImplementedError: the ``sklearn`` extra is not installed.
+        RuntimeError: wrong blob tag, invalid input data, or prediction
+            failure.
+    """
     _check_sklearn_support()
     if model_blob.type != "regressor_chain":
         raise RuntimeError(
@@ -1875,10 +2390,45 @@ def sklearn_regressor_chain_predict_impl(
     output=ModelBlobType,
 )
 def sklearn_gmm_fit_impl(
-    X: EastArray,
+    X: EastMatrix,
     config: EastStruct,
 ) -> EastVariant:
-    """Fit a Gaussian Mixture Model to data."""
+    """Fit a Gaussian Mixture Model to data and return a cloudpickle-serialised model blob.
+
+    Use the returned blob with :func:`sklearn_gmm_predict_impl`,
+    :func:`sklearn_gmm_predict_proba_impl`,
+    :func:`sklearn_gmm_score_samples_impl`,
+    :func:`sklearn_gmm_sample_impl`,
+    :func:`sklearn_gmm_bic_impl`, and :func:`sklearn_gmm_aic_impl`.
+
+    Args:
+        X: ``Matrix<Float>`` (``EastMatrix``) - training data, shape
+            (n_samples, n_features).
+        config: ``GMMConfigType`` (``EastStruct``) with fields:
+
+            - ``n_components`` (``Option<Integer>``): number of mixture
+              components; default 1.
+            - ``covariance_type`` (``Option<GMMCovarianceType>``):
+              ``full`` (default), ``tied``, ``diag``, or ``spherical``.
+            - ``max_iter`` (``Option<Integer>``): maximum EM iterations;
+              default 100.
+            - ``n_init`` (``Option<Integer>``): number of random
+              initialisations; best result is kept; default 1.
+            - ``tol`` (``Option<Float>``): convergence threshold; default
+              1e-3.
+            - ``reg_covar`` (``Option<Float>``): regularisation added to
+              the diagonal of each covariance matrix to ensure it is
+              positive; default 1e-6.
+            - ``random_state`` (``Option<Integer>``): seed; default None.
+
+    Returns:
+        ``ModelBlobType`` (``EastVariant``) tagged ``gaussian_mixture``:
+        ``{data: Blob, n_features: Integer, n_components: Integer}``.
+
+    Raises:
+        NotImplementedError: the ``sklearn`` extra is not installed.
+        RuntimeError: invalid input data or fitting failure.
+    """
     _check_sklearn_support()
     from sklearn.mixture import GaussianMixture
 
@@ -1938,9 +2488,26 @@ def sklearn_gmm_fit_impl(
 )
 def sklearn_gmm_predict_impl(
     model_blob: EastVariant,
-    X: EastArray,
-) -> EastArray:
-    """Predict cluster labels for data using a fitted GMM."""
+    X: EastMatrix,
+) -> EastVector:
+    """Predict the most likely component label for each sample.
+
+    Args:
+        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+            ``gaussian_mixture``, as returned by
+            :func:`sklearn_gmm_fit_impl`.
+        X: ``Matrix<Float>`` (``EastMatrix``) - data, shape (n_samples,
+            n_features); must match the feature count of the fitting data.
+
+    Returns:
+        ``Vector<Integer>`` (``EastVector``) - component index per sample
+        in 0..n_components-1.
+
+    Raises:
+        NotImplementedError: the ``sklearn`` extra is not installed.
+        RuntimeError: wrong blob tag, invalid input data, or prediction
+            failure.
+    """
     _check_sklearn_support()
     if model_blob.type != "gaussian_mixture":
         raise RuntimeError(
@@ -1972,9 +2539,26 @@ def sklearn_gmm_predict_impl(
 )
 def sklearn_gmm_predict_proba_impl(
     model_blob: EastVariant,
-    X: EastArray,
-) -> EastArray:
-    """Predict posterior probabilities for each component."""
+    X: EastMatrix,
+) -> EastMatrix:
+    """Compute posterior membership probabilities for each GMM component.
+
+    Args:
+        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+            ``gaussian_mixture``, as returned by
+            :func:`sklearn_gmm_fit_impl`.
+        X: ``Matrix<Float>`` (``EastMatrix``) - data, shape (n_samples,
+            n_features).
+
+    Returns:
+        ``Matrix<Float>`` (``EastMatrix``) - posterior probabilities, shape
+        (n_samples, n_components); each row sums to 1.
+
+    Raises:
+        NotImplementedError: the ``sklearn`` extra is not installed.
+        RuntimeError: wrong blob tag, invalid input data, or prediction
+            failure.
+    """
     _check_sklearn_support()
     if model_blob.type != "gaussian_mixture":
         raise RuntimeError(
@@ -2006,9 +2590,26 @@ def sklearn_gmm_predict_proba_impl(
 )
 def sklearn_gmm_score_samples_impl(
     model_blob: EastVariant,
-    X: EastArray,
-) -> EastArray:
-    """Compute per-sample log-likelihood under the model."""
+    X: EastMatrix,
+) -> EastVector:
+    """Compute the per-sample log-likelihood under the fitted GMM.
+
+    Args:
+        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+            ``gaussian_mixture``, as returned by
+            :func:`sklearn_gmm_fit_impl`.
+        X: ``Matrix<Float>`` (``EastMatrix``) - data, shape (n_samples,
+            n_features).
+
+    Returns:
+        ``Vector<Float>`` (``EastVector``) - log-likelihood per sample
+        (higher = more likely under the model).
+
+    Raises:
+        NotImplementedError: the ``sklearn`` extra is not installed.
+        RuntimeError: wrong blob tag, invalid input data, or scoring
+            failure.
+    """
     _check_sklearn_support()
     if model_blob.type != "gaussian_mixture":
         raise RuntimeError(
@@ -2041,8 +2642,23 @@ def sklearn_gmm_score_samples_impl(
 def sklearn_gmm_sample_impl(
     model_blob: EastVariant,
     n_samples: int,
-) -> EastArray:
-    """Generate random samples from the fitted GMM."""
+) -> EastMatrix:
+    """Draw random samples from the fitted Gaussian Mixture Model.
+
+    Args:
+        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+            ``gaussian_mixture``, as returned by
+            :func:`sklearn_gmm_fit_impl`.
+        n_samples: ``Integer`` - number of samples to generate.
+
+    Returns:
+        ``Matrix<Float>`` (``EastMatrix``) - generated samples, shape
+        (n_samples, n_features).
+
+    Raises:
+        NotImplementedError: the ``sklearn`` extra is not installed.
+        RuntimeError: wrong blob tag, or sampling failure.
+    """
     _check_sklearn_support()
     if model_blob.type != "gaussian_mixture":
         raise RuntimeError(
@@ -2067,9 +2683,28 @@ def sklearn_gmm_sample_impl(
 )
 def sklearn_gmm_bic_impl(
     model_blob: EastVariant,
-    X: EastArray,
+    X: EastMatrix,
 ) -> float:
-    """Compute Bayesian Information Criterion for the model on data."""
+    """Compute the Bayesian Information Criterion for the fitted GMM on data.
+
+    Lower BIC indicates a better trade-off between fit quality and model
+    complexity; useful for selecting the number of components.
+
+    Args:
+        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+            ``gaussian_mixture``, as returned by
+            :func:`sklearn_gmm_fit_impl`.
+        X: ``Matrix<Float>`` (``EastMatrix``) - data to evaluate, shape
+            (n_samples, n_features).
+
+    Returns:
+        ``Float`` - BIC value (lower is better).
+
+    Raises:
+        NotImplementedError: the ``sklearn`` extra is not installed.
+        RuntimeError: wrong blob tag, invalid input data, or BIC
+            computation failure.
+    """
     _check_sklearn_support()
     if model_blob.type != "gaussian_mixture":
         raise RuntimeError(
@@ -2099,9 +2734,28 @@ def sklearn_gmm_bic_impl(
 )
 def sklearn_gmm_aic_impl(
     model_blob: EastVariant,
-    X: EastArray,
+    X: EastMatrix,
 ) -> float:
-    """Compute Akaike Information Criterion for the model on data."""
+    """Compute the Akaike Information Criterion for the fitted GMM on data.
+
+    Lower AIC indicates a better trade-off between fit quality and model
+    complexity; penalises complexity less heavily than BIC.
+
+    Args:
+        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+            ``gaussian_mixture``, as returned by
+            :func:`sklearn_gmm_fit_impl`.
+        X: ``Matrix<Float>`` (``EastMatrix``) - data to evaluate, shape
+            (n_samples, n_features).
+
+    Returns:
+        ``Float`` - AIC value (lower is better).
+
+    Raises:
+        NotImplementedError: the ``sklearn`` extra is not installed.
+        RuntimeError: wrong blob tag, invalid input data, or AIC
+            computation failure.
+    """
     _check_sklearn_support()
     if model_blob.type != "gaussian_mixture":
         raise RuntimeError(

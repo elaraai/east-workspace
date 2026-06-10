@@ -15,8 +15,8 @@ import numpy as np
 from east.runtime.platform import platform_function, platform_functions
 from east.types.types import FloatType, MatrixType, VectorType
 from east.types.values import (
-    EastArray,
     EastBlob,
+    EastMatrix,
     EastStruct,
     EastVariant,
     EastVector,
@@ -89,11 +89,46 @@ def _check_ngboost_support() -> None:
     output=ModelBlobType,
 )
 def ngboost_train_regressor_impl(
-    X: EastArray,
-    y: EastArray,
+    X: EastMatrix,
+    y: EastVector,
     config: EastStruct,
 ) -> EastVariant:
-    """Train NGBoost regressor and return model blob."""
+    """Train an NGBoost probabilistic regressor and return a serialized model blob.
+
+    Fits natural gradient boosted decision trees using either a Normal or
+    LogNormal output distribution. Use :func:`ngboost_predict_impl` for point
+    predictions and :func:`ngboost_predict_dist_impl` for full uncertainty
+    quantification.
+
+    Args:
+        X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix, one row per
+            sample.
+        y: ``Vector<Float>`` (``EastVector``) - continuous target values; must
+            have the same number of rows as ``X``.
+        config: ``NGBoostConfigType`` (``EastStruct``) with fields:
+
+            - ``n_estimators`` (``Option<Integer>``): number of boosting stages
+              (default 500).
+            - ``learning_rate`` (``Option<Float>``): shrinkage applied to each
+              stage (default 0.01).
+            - ``minibatch_frac`` (``Option<Float>``): fraction of samples used
+              per stage (default 1.0).
+            - ``col_sample`` (``Option<Float>``): fraction of features sampled
+              per stage (default 1.0).
+            - ``random_state`` (``Option<Integer>``): random seed (default
+              None).
+            - ``distribution`` (``Option<NGBoostDistributionType>``):
+              ``normal`` (default) or ``lognormal``.
+
+    Returns:
+        ``ModelBlobType`` (``EastVariant``) tagged ``ngboost_regressor``:
+        ``{data: Blob (cloudpickle), distribution: NGBoostDistributionType,
+        n_features: Integer}``.
+
+    Raises:
+        NotImplementedError: the ``ngboost`` extra is not installed.
+        RuntimeError: shape mismatch or training failure.
+    """
     _check_ngboost_support()
     from ngboost import NGBRegressor
     from ngboost.distns import LogNormal, Normal
@@ -162,9 +197,25 @@ def ngboost_train_regressor_impl(
 )
 def ngboost_predict_impl(
     model_blob: EastVariant,
-    X: EastArray,
-) -> EastArray:
-    """Make point predictions (mean) with NGBoost regressor."""
+    X: EastMatrix,
+) -> EastVector:
+    """Predict the distributional mean with a trained NGBoost regressor.
+
+    Args:
+        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+            ``ngboost_regressor`` - as returned by
+            :func:`ngboost_train_regressor_impl`.
+        X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix; must have the
+            same number of columns the model was trained with.
+
+    Returns:
+        ``Vector<Float>`` (``EastVector``) - distributional mean per row.
+
+    Raises:
+        NotImplementedError: the ``ngboost`` extra is not installed.
+        RuntimeError: wrong model blob type, invalid input data, or prediction
+            failure.
+    """
     _check_ngboost_support()
     if model_blob.type != "ngboost_regressor":
         raise RuntimeError(
@@ -196,10 +247,41 @@ def ngboost_predict_impl(
 )
 def ngboost_predict_dist_impl(
     model_blob: EastVariant,
-    X: EastArray,
+    X: EastMatrix,
     config: EastStruct,
 ) -> EastStruct:
-    """Get predictions with full uncertainty from NGBoost."""
+    """Predict the full distribution (mean, std, and confidence interval) with NGBoost.
+
+    The confidence interval is derived from the distributional standard
+    deviation using a normal approximation via scipy's percent-point function.
+
+    Args:
+        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+            ``ngboost_regressor`` - as returned by
+            :func:`ngboost_train_regressor_impl`.
+        X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix; must have the
+            same number of columns the model was trained with.
+        config: ``NGBoostPredictConfigType`` (``EastStruct``) with fields:
+
+            - ``confidence_level`` (``Option<Float>``): symmetric confidence
+              interval coverage; e.g. 0.95 gives a 95% CI (default 0.95).
+
+    Returns:
+        ``NGBoostPredictResultType`` (``EastStruct``):
+
+        - ``predictions`` (``Vector<Float>``): distributional mean per row.
+        - ``std`` (``Option<Vector<Float>>``): standard deviation per row
+          (always ``some``).
+        - ``lower`` (``Option<Vector<Float>>``): lower CI bound per row
+          (always ``some``).
+        - ``upper`` (``Option<Vector<Float>>``): upper CI bound per row
+          (always ``some``).
+
+    Raises:
+        NotImplementedError: the ``ngboost`` extra is not installed.
+        RuntimeError: wrong model blob type, invalid input data, or prediction
+            failure.
+    """
     _check_ngboost_support()
     if model_blob.type != "ngboost_regressor":
         raise RuntimeError(

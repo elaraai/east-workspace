@@ -46,6 +46,12 @@ LinearVarType = StructType(
         ("is_integer", BooleanType),
     ]
 )
+"""Declaration of a decision variable for an LP or MIP model.
+
+Fields: ``name`` (``String`` unique identifier), ``lower_bound``
+(``Float``), ``upper_bound`` (``Float``), ``is_integer`` (``Boolean`` —
+true triggers MIP mode for the whole model).
+"""
 
 LinearTermType = StructType(
     [
@@ -53,6 +59,11 @@ LinearTermType = StructType(
         ("coeff", FloatType),
     ]
 )
+"""One term in a linear expression: ``coeff * var``.
+
+Fields: ``var`` (``String`` variable name), ``coeff`` (``Float``
+coefficient).
+"""
 
 LinearConstraintDefType = StructType(
     [
@@ -61,6 +72,12 @@ LinearConstraintDefType = StructType(
         ("upper_bound", FloatType),
     ]
 )
+"""A linear constraint expressed as a range: ``lower_bound <= expr <= upper_bound``.
+
+Fields: ``terms`` (``Array<LinearTermType>``), ``lower_bound`` (``Float``),
+``upper_bound`` (``Float`` — set equal to ``lower_bound`` for an equality
+constraint).
+"""
 
 LinearObjectiveType = StructType(
     [
@@ -68,6 +85,11 @@ LinearObjectiveType = StructType(
         ("maximize", BooleanType),
     ]
 )
+"""Objective function for an LP or MIP model.
+
+Fields: ``terms`` (``Array<LinearTermType>`` linear expression to optimize),
+``maximize`` (``Boolean`` — true maximizes, false minimizes).
+"""
 
 LinearModelType = StructType(
     [
@@ -76,6 +98,13 @@ LinearModelType = StructType(
         ("objective", LinearObjectiveType),
     ]
 )
+"""Complete declarative description of a linear or mixed-integer program.
+
+Fields: ``variables`` (``Array<LinearVarType>`` decision variables),
+``constraints`` (``Array<LinearConstraintDefType>``),
+``objective`` (``LinearObjectiveType``). Any variable with ``is_integer =
+true`` promotes the problem to MIP.
+"""
 
 LinearSolverType = VariantType(
     [
@@ -84,6 +113,12 @@ LinearSolverType = VariantType(
         ("highs", NullType),
     ]
 )
+"""Backend solver to use for the linear or MIP problem.
+
+Cases: ``glop`` (Google Simplex LP — pure LP only), ``scip`` (SCIP
+mixed-integer programming), ``highs`` (HiGHS LP/MIP). Defaults to ``glop``
+for pure-LP models and ``scip`` for MIP models when omitted.
+"""
 
 LinearConfigType = StructType(
     [
@@ -91,6 +126,11 @@ LinearConfigType = StructType(
         ("max_time_seconds", OptionType(FloatType)),
     ]
 )
+"""Solver configuration for a linear solve call.
+
+Fields: ``solver`` (backend override, auto-selected if omitted),
+``max_time_seconds`` (time limit; converted to milliseconds internally).
+"""
 
 LinearResultType = StructType(
     [
@@ -100,6 +140,13 @@ LinearResultType = StructType(
         ("wall_time", FloatType),
     ]
 )
+"""Result returned by ``google_or_linear_solve``.
+
+Fields: ``status`` (``GoogleOrStatusType``), ``objective_value``
+(``Option<Float>`` — present when feasible or optimal), ``assignments``
+(``Dict<String, Float>`` mapping variable names to solution values),
+``wall_time`` (``Float`` seconds).
+"""
 
 
 
@@ -152,14 +199,47 @@ def linear_solve_impl(
     model_data: EastStruct,
     config: EastStruct,
 ) -> EastStruct:
-    """Solve a linear programming / MIP problem.
+    """Solve a linear programming or mixed-integer programming problem.
+
+    Automatically selects a solver backend (Glop for pure LP, SCIP for MIP)
+    unless overridden in ``config``. Variables with ``is_integer = true``
+    trigger MIP mode.
 
     Args:
-        model_data: Linear model (variables, constraints, objective)
-        config: Solver configuration (solver backend, time limit)
+        model_data: ``LinearModelType`` (``EastStruct``) with fields:
+
+            - ``variables`` (``Array<LinearVarType>``): decision variables;
+              each ``{name: String, lower_bound: Float, upper_bound: Float,
+              is_integer: Boolean}``.
+            - ``constraints`` (``Array<LinearConstraintDefType>``): linear
+              constraints; each ``{terms: Array<{var: String, coeff: Float}>,
+              lower_bound: Float, upper_bound: Float}`` (set ``lower_bound``
+              and ``upper_bound`` equal for equality constraints).
+            - ``objective`` (``LinearObjectiveType``): ``{terms:
+              Array<{var: String, coeff: Float}>, maximize: Boolean}``.
+
+        config: ``LinearConfigType`` (``EastStruct``) with fields:
+
+            - ``solver`` (``Option<LinearSolverType>``): backend to use -
+              ``glop`` (Simplex LP), ``scip`` (MIP via SCIP), or ``highs``
+              (LP/MIP via HiGHS); defaults to ``glop`` for pure-LP models
+              and ``scip`` for MIP models.
+            - ``max_time_seconds`` (``Option<Float>``): time limit in seconds
+              (converted to milliseconds for the OR-Tools solver).
 
     Returns:
-        EastStruct with status, objective_value, assignments, wall_time
+        ``LinearResultType`` (``EastStruct``): ``status``
+        (``GoogleOrStatusType`` - ``optimal``, ``feasible``,
+        ``infeasible``, or ``not_solved``), ``objective_value``
+        (``Option<Float>`` - present when feasible or optimal),
+        ``assignments`` (``Dict<String, Float>`` - variable name to solution
+        value), ``wall_time`` (``Float`` seconds).
+
+    Raises:
+        NotImplementedError: the ``google-or`` extra (ortools) is not installed.
+        RuntimeError: the requested solver backend is unavailable in the
+            installed OR-Tools build (returns ``model_invalid`` status instead
+            of raising).
     """
     _check_google_or_support()
     from ortools.linear_solver import pywraplp

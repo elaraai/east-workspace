@@ -42,6 +42,15 @@ MinCostFlowInputType = StructType(
         ("supplies", ArrayType(IntegerType)),
     ]
 )
+"""Input for a minimum-cost flow problem.
+
+Fields: ``start_nodes`` (``Array<Integer>`` tail node of each arc),
+``end_nodes`` (``Array<Integer>`` head node, parallel to ``start_nodes``),
+``capacities`` (``Array<Integer>`` max flow on each arc),
+``unit_costs`` (``Array<Integer>`` cost per unit of flow on each arc),
+``supplies`` (``Array<Integer>`` net supply per node — positive produces
+flow, negative consumes; must sum to zero for feasibility).
+"""
 
 MinCostFlowResultType = StructType(
     [
@@ -51,6 +60,13 @@ MinCostFlowResultType = StructType(
         ("wall_time", FloatType),
     ]
 )
+"""Result returned by ``google_or_min_cost_flow``.
+
+Fields: ``status`` (``GoogleOrStatusType``), ``total_cost`` (``Integer``
+optimal objective when feasible; 0 otherwise), ``flows`` (``Array<Integer>``
+per-arc flow in arc-declaration order; empty when infeasible), ``wall_time``
+(``Float`` seconds).
+"""
 
 # --- Max flow ---
 
@@ -63,6 +79,13 @@ MaxFlowInputType = StructType(
         ("sink", IntegerType),
     ]
 )
+"""Input for a maximum-flow problem.
+
+Fields: ``start_nodes`` (``Array<Integer>`` tail node of each arc),
+``end_nodes`` (``Array<Integer>`` head node, parallel to ``start_nodes``),
+``capacities`` (``Array<Integer>`` max flow on each arc), ``source``
+(``Integer`` source node index), ``sink`` (``Integer`` sink node index).
+"""
 
 MaxFlowResultType = StructType(
     [
@@ -72,6 +95,13 @@ MaxFlowResultType = StructType(
         ("wall_time", FloatType),
     ]
 )
+"""Result returned by ``google_or_max_flow``.
+
+Fields: ``status`` (``GoogleOrStatusType`` — ``optimal`` when solved),
+``total_flow`` (``Integer`` maximum flow value; 0 when not solved),
+``flows`` (``Array<Integer>`` per-arc flow in arc-declaration order; empty
+when not solved), ``wall_time`` (``Float`` seconds).
+"""
 
 # --- Assignment ---
 
@@ -80,6 +110,12 @@ AssignmentInputType = StructType(
         ("costs", ArrayType(ArrayType(IntegerType))),
     ]
 )
+"""Input for a linear sum assignment problem.
+
+Fields: ``costs`` (``Array<Array<Integer>>`` cost matrix of shape
+[num_workers][num_tasks]; ``costs[i][j]`` is the cost of assigning worker
+``i`` to task ``j``).
+"""
 
 AssignmentMatchType = StructType(
     [
@@ -88,6 +124,11 @@ AssignmentMatchType = StructType(
         ("cost", IntegerType),
     ]
 )
+"""One worker-to-task pairing in an assignment solution.
+
+Fields: ``worker`` (``Integer`` worker index), ``task`` (``Integer`` task
+index), ``cost`` (``Integer`` cost of this specific pairing).
+"""
 
 AssignmentResultType = StructType(
     [
@@ -97,6 +138,14 @@ AssignmentResultType = StructType(
         ("wall_time", FloatType),
     ]
 )
+"""Result returned by ``google_or_assignment``.
+
+Fields: ``status`` (``GoogleOrStatusType`` — ``optimal``, ``infeasible``,
+or ``not_solved``), ``total_cost`` (``Integer`` sum of assigned costs when
+optimal; 0 otherwise), ``assignments`` (``Array<AssignmentMatchType>`` one
+entry per worker when optimal; empty otherwise), ``wall_time`` (``Float``
+seconds).
+"""
 
 
 
@@ -126,16 +175,34 @@ def _check_google_or_support() -> None:
 def min_cost_flow_impl(
     input_data: EastStruct,
 ) -> EastStruct:
-    """Solve a min-cost flow problem.
+    """Solve a minimum-cost flow problem using OR-Tools' SimpleMinCostFlow.
 
-    Finds the minimum cost flow through a network that satisfies all
-    supply/demand constraints and respects arc capacities.
+    Finds the cheapest feasible flow through a directed network that satisfies
+    all node supply/demand values while respecting arc capacities.
 
     Args:
-        input_data: Network definition (arcs, capacities, costs, supplies)
+        input_data: ``MinCostFlowInputType`` (``EastStruct``) with fields:
+
+            - ``start_nodes`` (``Array<Integer>``): tail node index of each
+              arc (parallel array with ``end_nodes``).
+            - ``end_nodes`` (``Array<Integer>``): head node index of each arc.
+            - ``capacities`` (``Array<Integer>``): maximum flow on each arc.
+            - ``unit_costs`` (``Array<Integer>``): cost per unit of flow on
+              each arc.
+            - ``supplies`` (``Array<Integer>``): net supply at each node; a
+              positive value means the node produces flow, negative means it
+              consumes; values must sum to zero for the problem to be feasible.
 
     Returns:
-        EastStruct with status, total_cost, flows, wall_time
+        ``MinCostFlowResultType`` (``EastStruct``): ``status``
+        (``GoogleOrStatusType`` - ``optimal``, ``feasible``, ``infeasible``,
+        or ``not_solved``), ``total_cost`` (``Integer`` optimal objective
+        when feasible/optimal; 0 otherwise), ``flows`` (``Array<Integer>``
+        per-arc flow in the same order as ``start_nodes``; empty when
+        infeasible), ``wall_time`` (``Float`` seconds).
+
+    Raises:
+        NotImplementedError: the ``google-or`` extra (ortools) is not installed.
     """
     _check_google_or_support()
     from ortools.graph.python import min_cost_flow
@@ -215,15 +282,30 @@ def min_cost_flow_impl(
 def max_flow_impl(
     input_data: EastStruct,
 ) -> EastStruct:
-    """Solve a max-flow problem.
+    """Solve a maximum-flow problem using OR-Tools' SimpleMaxFlow.
 
-    Finds the maximum flow from source to sink through a network.
+    Finds the maximum flow that can be pushed from a single source to a single
+    sink through a directed network with arc capacities.
 
     Args:
-        input_data: Network definition (arcs, capacities, source, sink)
+        input_data: ``MaxFlowInputType`` (``EastStruct``) with fields:
+
+            - ``start_nodes`` (``Array<Integer>``): tail node index of each arc.
+            - ``end_nodes`` (``Array<Integer>``): head node index of each arc.
+            - ``capacities`` (``Array<Integer>``): maximum flow on each arc.
+            - ``source`` (``Integer``): index of the source node.
+            - ``sink`` (``Integer``): index of the sink node.
 
     Returns:
-        EastStruct with status, total_flow, flows, wall_time
+        ``MaxFlowResultType`` (``EastStruct``): ``status``
+        (``GoogleOrStatusType`` - ``optimal`` when solved, ``not_solved``
+        otherwise), ``total_flow`` (``Integer`` maximum flow value when
+        optimal; 0 otherwise), ``flows`` (``Array<Integer>`` per-arc flow in
+        the same order as ``start_nodes``; empty when not solved), ``wall_time``
+        (``Float`` seconds).
+
+    Raises:
+        NotImplementedError: the ``google-or`` extra (ortools) is not installed.
     """
     _check_google_or_support()
     from ortools.graph.python import max_flow
@@ -276,16 +358,31 @@ def max_flow_impl(
 def assignment_impl(
     input_data: EastStruct,
 ) -> EastStruct:
-    """Solve a linear sum assignment problem.
+    """Solve a linear sum assignment problem using OR-Tools' Hungarian algorithm.
 
-    Finds the optimal one-to-one assignment of workers to tasks that
-    minimizes total cost.
+    Finds the optimal one-to-one assignment of workers to tasks that minimizes
+    total cost. The number of workers and tasks need not be equal; the solver
+    handles rectangular cost matrices.
 
     Args:
-        input_data: Cost matrix (workers x tasks)
+        input_data: ``AssignmentInputType`` (``EastStruct``) with field:
+
+            - ``costs`` (``Array<Array<Integer>>``): cost matrix of shape
+              [num_workers][num_tasks]; ``costs[i][j]`` is the cost of
+              assigning worker ``i`` to task ``j``.  An empty outer array
+              returns an optimal result with zero cost and no assignments.
 
     Returns:
-        EastStruct with status, total_cost, assignments, wall_time
+        ``AssignmentResultType`` (``EastStruct``): ``status``
+        (``GoogleOrStatusType`` - ``optimal`` when solved, ``infeasible``
+        when no valid assignment exists, ``not_solved`` on other errors),
+        ``total_cost`` (``Integer`` sum of assigned costs when optimal; 0
+        otherwise), ``assignments`` (``Array<AssignmentMatchType>`` - one
+        ``{worker: Integer, task: Integer, cost: Integer}`` per worker when
+        optimal; empty otherwise), ``wall_time`` (``Float`` seconds).
+
+    Raises:
+        NotImplementedError: the ``google-or`` extra (ortools) is not installed.
     """
     _check_google_or_support()
     from ortools.graph.python import linear_sum_assignment

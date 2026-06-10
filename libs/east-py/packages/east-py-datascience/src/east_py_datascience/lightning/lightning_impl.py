@@ -1145,14 +1145,123 @@ Tensor3DType = EastArray  # ArrayType(ArrayType(ArrayType(BooleanType)))
     output=LightningResultType,
 )
 def lightning_train_impl(
-    X: EastArray,
-    y: EastArray,
+    X: EastMatrix,
+    y: EastMatrix,
     config: EastStruct,
     masks: EastVariant | None,
     group_weights: EastVariant | None,
-    conditions: EastVariant | None,
+    conditions: EastMatrix | None,
 ) -> EastStruct:
-    """Train a Lightning model."""
+    """Train a Lightning neural network and return the model blob with training metrics.
+
+    Builds a ``LightningMLP`` from ``config``, applies early stopping and
+    checkpoint selection, then serializes the best checkpoint.  Architecture
+    and output-type variants determine the network structure and loss function.
+
+    Args:
+        X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix
+           (n_samples x n_features).
+        y: ``Matrix<Float>`` (``EastMatrix``) - target matrix
+           (n_samples x output_dim).
+        config: ``LightningConfigType`` (``EastStruct``) with fields:
+
+            - ``architecture`` (``LightningArchitectureType``): one of
+
+              - ``mlp`` ``{hidden_layers: Array<Integer>}``: fully-connected
+                network with LayerNorm + ReLU + Dropout per layer.
+              - ``autoencoder`` ``{encoder_layers, latent_dim, decoder_layers}``:
+                symmetric encoder/decoder MLP.
+              - ``conv1d`` ``{n_channels, sequence_length, conv_channels,
+                kernel_size, latent_dim, condition_dim?}``: 1-D convolutional
+                autoencoder over ``sequence_length`` steps with ``n_channels``
+                features per step; requires ``multi_head`` or ``binary``
+                output; ``n_heads`` must equal ``n_channels * sequence_length``.
+              - ``sequential`` ``{n_channels, sequence_length, hidden_size,
+                n_layers, cell_type, latent_dim, bidirectional,
+                condition_dim?}``: LSTM/GRU autoencoder (``cell_type``:
+                ``lstm`` or ``gru``); ``bidirectional`` encoder, always
+                unidirectional decoder; supports
+                :func:`lightning_generate_sequence_impl`.
+              - ``transformer`` ``{n_channels, sequence_length, d_model,
+                n_attention_heads, n_layers, d_ff?, latent_dim,
+                condition_dim?}``: Transformer autoencoder with positional
+                encoding; ``d_model`` must be divisible by
+                ``n_attention_heads``.
+
+            - ``output`` (``LightningOutputType``): one of
+
+              - ``regression`` (``NullType``): MSE loss, no output activation.
+              - ``binary`` ``{pos_weight?}``: BCE with logits loss, sigmoid
+                activation; ``pos_weight`` is a ``Vector<Float>`` of
+                per-output positive-class weights.
+              - ``multiclass`` ``{n_classes, class_weights?}``: cross-entropy
+                loss, softmax activation; ``class_weights`` is a
+                ``Vector<Float>`` of length ``n_classes``.
+              - ``multi_head`` ``{n_heads, n_classes_per_head,
+                class_weights?}``: ``n_heads`` independent cross-entropy
+                heads; ``class_weights`` is a
+                ``Matrix<Float>`` (n_heads x n_classes_per_head).
+
+            - ``learning_rate`` (``Option<Float>``): AdamW step size
+              (default 1e-3).
+            - ``max_epochs`` (``Option<Integer>``): training budget
+              (default 100).
+            - ``patience`` (``Option<Integer>``): early-stopping patience in
+              epochs (default 10).
+            - ``batch_size`` (``Option<Integer>``): mini-batch size
+              (default 32).
+            - ``dropout`` (``Option<Float>``): dropout rate per layer
+              (default 0.1).
+            - ``gradient_clip`` (``Option<Float>``): gradient clipping
+              (default 1.0).
+            - ``weight_decay`` (``Option<Float>``): L2 regularization
+              (default 0.0).
+            - ``random_state`` (``Option<Integer>``): seed for
+              reproducibility.
+            - ``epoch_callback`` (``Option<LightningEpochCallbackType>``):
+              East function called at the end of each epoch with
+              ``(epoch, train_loss, val_loss)``.
+
+        masks: ``Option<Array<Array<Array<Boolean>>>>`` (``EastVariant``) -
+            3-D boolean mask tensor (n_samples x n_heads x n_classes_per_head
+            for ``multi_head``, or n_samples x 1 x output_dim for ``binary``);
+            ``True`` = valid position. Pass ``none`` when unused.
+        group_weights: ``Option<GroupWeightsType>`` (``EastVariant``) -
+            per-group loss weights.  ``GroupWeightsType`` has fields:
+
+            - ``weights``: variant ``binary`` (``Array<Array<Float>>``,
+              shape [n_groups][output_dim]) or ``multi_head``
+              (``Array<Array<Array<Float>>>``,
+              shape [n_groups][n_heads][n_classes]); must match the output
+              type.
+            - ``sample_groups`` (``Array<Integer>``): group index per sample,
+              length must equal n_samples.
+
+        conditions: ``Option<Matrix<Float>>`` (``EastMatrix``) - per-sample
+            condition vectors (n_samples x condition_dim) for temporal
+            architectures that set ``condition_dim`` in their architecture
+            config. Pass ``none`` when unused.
+
+    Returns:
+        ``LightningResultType`` (``EastStruct``) with fields:
+
+        - ``model`` (``EastVariant`` tagged ``lightning``): serialized model
+          blob with ``data`` (``Blob``), ``n_features`` (``Integer``),
+          ``output_dim`` (``Integer``), ``architecture_type`` (``String``),
+          ``output_type`` (``String``), and ``latent_dim``
+          (``Option<Integer>``; present for autoencoder/temporal).
+        - ``train_loss`` (``Float``): final epoch training loss.
+        - ``val_loss`` (``Float``): final epoch validation loss.
+        - ``best_epoch`` (``Integer``): epoch at which training stopped.
+
+    Raises:
+        NotImplementedError: the ``lightning`` extra is not installed.
+        RuntimeError: temporal architecture with unsupported output type;
+            ``n_heads`` not equal to ``n_channels * sequence_length``;
+            ``d_model`` not divisible by ``n_attention_heads``;
+            group_weights shape mismatch; conditions shape mismatch; or
+            training failure.
+    """
     _check_lightning_support()
 
     import warnings
@@ -1519,11 +1628,38 @@ def lightning_train_impl(
 )
 def lightning_predict_impl(
     model_blob: EastVariant,
-    X: EastArray,
+    X: EastMatrix,
     masks: EastVariant | None,
-    conditions: EastVariant | None,
-) -> EastArray:
-    """Predict using a Lightning model with optional conditions."""
+    conditions: EastMatrix | None,
+) -> EastMatrix:
+    """Predict output probabilities with a trained Lightning model.
+
+    Applies the appropriate output activation (sigmoid for ``binary``,
+    softmax per head for ``multi_head``, identity for ``regression``) and
+    optionally zeros masked positions.
+
+    Args:
+        model_blob: ``ModelBlobType`` (``EastVariant`` tagged ``lightning``)
+            from :func:`lightning_train_impl`.
+        X: ``Matrix<Float>`` (``EastMatrix``) - input features
+           (n_samples x n_features).
+        masks: ``Option<Array<Array<Array<Boolean>>>>`` (``EastVariant``) -
+            3-D boolean validity mask; same layout as the training ``masks``
+            parameter. Pass ``none`` when unused.
+        conditions: ``Option<Matrix<Float>>`` (``EastMatrix``) - per-sample
+            condition vectors (n_samples x condition_dim) for temporal
+            architectures. Pass ``none`` for unconditional models.
+
+    Returns:
+        ``Matrix<Float>`` (``EastMatrix``) - activated output
+        (n_samples x output_dim).
+
+    Raises:
+        NotImplementedError: the ``lightning`` extra is not installed.
+        RuntimeError: model requires conditions but none provided;
+            condition column count does not match ``condition_dim``; or
+            inference fails.
+    """
     _check_lightning_support()
 
     # Extract model data
@@ -1582,9 +1718,28 @@ def lightning_predict_impl(
 )
 def lightning_encode_impl(
     model_blob: EastVariant,
-    X: EastArray,
-) -> EastArray:
-    """Encode input to latent space (autoencoder and temporal architectures)."""
+    X: EastMatrix,
+) -> EastMatrix:
+    """Encode inputs to the latent space of an autoencoder or temporal model.
+
+    Available for ``autoencoder``, ``conv1d``, ``sequential``, and
+    ``transformer`` architectures.
+
+    Args:
+        model_blob: ``ModelBlobType`` (``EastVariant`` tagged ``lightning``)
+            from :func:`lightning_train_impl`.
+        X: ``Matrix<Float>`` (``EastMatrix``) - input features
+           (n_samples x n_features).
+
+    Returns:
+        ``Matrix<Float>`` (``EastMatrix``) - latent vectors
+        (n_samples x latent_dim).
+
+    Raises:
+        NotImplementedError: the ``lightning`` extra is not installed.
+        RuntimeError: architecture is ``mlp`` (encode not available) or
+            encoding fails.
+    """
     _check_lightning_support()
 
     model_data = model_blob.value
@@ -1611,9 +1766,34 @@ def lightning_encode_impl(
 )
 def lightning_decode_impl(
     model_blob: EastVariant,
-    z: EastArray,
-) -> EastArray:
-    """Decode latent to output (autoencoder and temporal architectures without condition)."""
+    z: EastMatrix,
+) -> EastMatrix:
+    """Decode latent vectors to output without a condition vector.
+
+    Available for ``autoencoder``, ``conv1d``, ``sequential``, and
+    ``transformer`` architectures. Applies the output activation before
+    returning (sigmoid for ``binary``, per-head softmax for ``multi_head``,
+    identity for ``regression``).
+
+    Use :func:`lightning_decode_conditional_impl` when the architecture
+    sets ``condition_dim``.
+
+    Args:
+        model_blob: ``ModelBlobType`` (``EastVariant`` tagged ``lightning``)
+            from :func:`lightning_train_impl`.
+        z: ``Matrix<Float>`` (``EastMatrix``) - latent vectors
+           (n_samples x latent_dim).
+
+    Returns:
+        ``Matrix<Float>`` (``EastMatrix``) - activated output
+        (n_samples x output_dim).
+
+    Raises:
+        NotImplementedError: the ``lightning`` extra is not installed.
+        RuntimeError: architecture is ``mlp``; model requires a condition
+            vector (use :func:`lightning_decode_conditional_impl`); or
+            decoding fails.
+    """
     _check_lightning_support()
 
     model_data = model_blob.value
@@ -1649,10 +1829,35 @@ def lightning_decode_impl(
 )
 def lightning_decode_conditional_impl(
     model_blob: EastVariant,
-    z: EastArray,
-    condition: EastArray,
-) -> EastArray:
-    """Decode latent to output with condition vector (temporal architectures with condition_dim)."""
+    z: EastMatrix,
+    condition: EastMatrix,
+) -> EastMatrix:
+    """Decode latent vectors to output with a per-sample condition vector.
+
+    Applies the same output activation as :func:`lightning_decode_impl` but
+    concatenates ``condition`` to the latent before the decoder, enabling
+    controlled generation for temporal architectures (``conv1d``,
+    ``sequential``, ``transformer``) that set ``condition_dim``.
+
+    Args:
+        model_blob: ``ModelBlobType`` (``EastVariant`` tagged ``lightning``)
+            from :func:`lightning_train_impl`.
+        z: ``Matrix<Float>`` (``EastMatrix``) - latent vectors
+           (n_samples x latent_dim).
+        condition: ``Matrix<Float>`` (``EastMatrix``) - condition vectors
+            (n_samples x condition_dim); column count must match the model's
+            ``condition_dim``.
+
+    Returns:
+        ``Matrix<Float>`` (``EastMatrix``) - activated output
+        (n_samples x output_dim).
+
+    Raises:
+        NotImplementedError: the ``lightning`` extra is not installed.
+        RuntimeError: architecture is not ``conv1d``, ``sequential``, or
+            ``transformer``; model has no ``condition_dim``; condition
+            column count does not match ``condition_dim``; or decoding fails.
+    """
     _check_lightning_support()
 
     model_data = model_blob.value
@@ -1695,20 +1900,50 @@ def lightning_decode_conditional_impl(
 )
 def lightning_generate_sequence_impl(
     model_blob: EastVariant,
-    prefix: EastArray,
+    prefix: EastMatrix,
     condition: EastVariant | None,
     config: EastStruct,
-) -> EastArray:
-    """Generate sequence autoregressively with optional prefix and condition.
+) -> EastMatrix:
+    """Generate a sequence autoregressively with a ``sequential`` architecture model.
+
+    At each step the model's decoder RNN takes the previous output (or the
+    last prefix step) as input and emits the next step.  An optional prefix
+    seeds the RNN hidden state before generation begins.
+
+    Only available for models trained with the ``sequential`` architecture
+    and ``binary`` or ``regression`` output types.
 
     Args:
-        model_blob: Trained sequential model blob
-        prefix: Prefix matrix (n_prefix_steps, n_channels), can be empty []
-        condition: Optional condition matrix (1, condition_dim)
-        config: Generation config with n_steps, temperature, return_probs
+        model_blob: ``ModelBlobType`` (``EastVariant`` tagged ``lightning``)
+            from :func:`lightning_train_impl` with ``sequential``
+            architecture.
+        prefix: ``Matrix<Float>`` (``EastMatrix``) - optional prefix sequence
+            (n_prefix_steps x n_channels). Pass an empty matrix (0 rows)
+            to start from a zero hidden state.
+        condition: ``Option<Matrix<Float>>`` (``EastVariant``) - per-step
+            condition vector (1 x condition_dim) broadcast over all
+            generated steps. Pass ``none`` for unconditional generation.
+        config: ``LightningGenerateConfigType`` (``EastStruct``) with fields:
+
+            - ``n_steps`` (``Integer``): number of steps to generate.
+            - ``temperature`` (``Float``): sampling temperature.  ``0.0``
+              selects the argmax (deterministic); values ``> 0`` scale the
+              logits before sampling.
+            - ``return_probs`` (``Boolean``): when ``True`` each step
+              returns the activated probabilities (not a hard sample);
+              when ``False`` samples are drawn for ``binary`` or the raw
+              regression value is returned for ``regression``.
 
     Returns:
-        Generated sequence matrix (n_steps, n_channels)
+        ``Matrix<Float>`` (``EastMatrix``) - generated sequence
+        (n_steps x n_channels). Does NOT include the prefix rows.
+
+    Raises:
+        NotImplementedError: the ``lightning`` extra is not installed.
+        RuntimeError: model architecture is not ``sequential``; output type
+            is not ``binary`` or ``regression``; model requires a condition
+            but none provided; condition column count does not match
+            ``condition_dim``; or generation fails.
     """
     _check_lightning_support()
 

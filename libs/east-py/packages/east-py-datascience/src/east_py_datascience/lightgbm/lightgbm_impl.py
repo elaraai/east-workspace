@@ -14,7 +14,7 @@ import warnings
 import numpy as np
 from east.runtime.platform import platform_function, platform_functions
 from east.types.types import FloatType, IntegerType, MatrixType, VectorType
-from east.types.values import EastArray, EastBlob, EastMatrix, EastStruct, EastVariant, EastVector
+from east.types.values import EastBlob, EastMatrix, EastStruct, EastVariant, EastVector
 
 from east_py_datascience.types import (
     LightGBMConfigType,
@@ -74,11 +74,52 @@ def _check_lightgbm_support() -> None:
     output=ModelBlobType,
 )
 def lightgbm_train_regressor_impl(
-    X: EastArray,
-    y: EastArray,
+    X: EastMatrix,
+    y: EastVector,
     config: EastStruct,
 ) -> EastVariant:
-    """Train LightGBM regressor and return model blob."""
+    """Train a LightGBM regressor and return a serialized model blob.
+
+    Uses leaf-wise tree growth for fast training on large datasets.
+
+    Args:
+        X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix, one row per
+            sample.
+        y: ``Vector<Float>`` (``EastVector``) - continuous target values; must
+            have the same number of rows as ``X``.
+        config: ``LightGBMConfigType`` (``EastStruct``) with fields:
+
+            - ``n_estimators`` (``Option<Integer>``): number of boosting rounds
+              (default 100).
+            - ``max_depth`` (``Option<Integer>``): maximum tree depth; -1 means
+              unlimited (default -1).
+            - ``learning_rate`` (``Option<Float>``): shrinkage step size
+              (default 0.1).
+            - ``num_leaves`` (``Option<Integer>``): maximum number of leaves per
+              tree (default 31).
+            - ``min_child_samples`` (``Option<Integer>``): minimum samples
+              required in a leaf (default 20).
+            - ``subsample`` (``Option<Float>``): row subsampling ratio per tree
+              (default 1.0).
+            - ``colsample_bytree`` (``Option<Float>``): column subsampling ratio
+              per tree (default 1.0).
+            - ``reg_alpha`` (``Option<Float>``): L1 regularization (default
+              0.0).
+            - ``reg_lambda`` (``Option<Float>``): L2 regularization (default
+              0.0).
+            - ``random_state`` (``Option<Integer>``): random seed (default
+              None).
+            - ``n_jobs`` (``Option<Integer>``): parallel threads; -1 uses all
+              cores (default -1).
+
+    Returns:
+        ``ModelBlobType`` (``EastVariant``) tagged ``lightgbm_regressor``:
+        ``{data: Blob (cloudpickle), n_features: Integer}``.
+
+    Raises:
+        NotImplementedError: the ``lightgbm`` extra is not installed.
+        RuntimeError: shape mismatch or training failure.
+    """
     _check_lightgbm_support()
     import lightgbm as lgb
 
@@ -149,11 +190,29 @@ def lightgbm_train_regressor_impl(
     output=ModelBlobType,
 )
 def lightgbm_train_classifier_impl(
-    X: EastArray,
-    y: EastArray,
+    X: EastMatrix,
+    y: EastVector,
     config: EastStruct,
 ) -> EastVariant:
-    """Train LightGBM classifier and return model blob."""
+    """Train a LightGBM classifier and return a serialized model blob.
+
+    Args:
+        X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix, one row per
+            sample.
+        y: ``Vector<Integer>`` (``EastVector``) - integer class labels; must
+            have the same number of rows as ``X``.
+        config: ``LightGBMConfigType`` (``EastStruct``) - see
+            :func:`lightgbm_train_regressor_impl` for field descriptions.
+            All fields apply identically.
+
+    Returns:
+        ``ModelBlobType`` (``EastVariant``) tagged ``lightgbm_classifier``:
+        ``{data: Blob (cloudpickle), n_features: Integer, n_classes: Integer}``.
+
+    Raises:
+        NotImplementedError: the ``lightgbm`` extra is not installed.
+        RuntimeError: shape mismatch or training failure.
+    """
     _check_lightgbm_support()
     import lightgbm as lgb
 
@@ -229,9 +288,25 @@ def lightgbm_train_classifier_impl(
 )
 def lightgbm_predict_impl(
     model_blob: EastVariant,
-    X: EastArray,
-) -> EastArray:
-    """Make predictions with LightGBM regressor."""
+    X: EastMatrix,
+) -> EastVector:
+    """Predict continuous values with a trained LightGBM regressor.
+
+    Args:
+        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+            ``lightgbm_regressor`` - as returned by
+            :func:`lightgbm_train_regressor_impl`.
+        X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix; must have the
+            same number of columns the model was trained with.
+
+    Returns:
+        ``Vector<Float>`` (``EastVector``) - one predicted value per row.
+
+    Raises:
+        NotImplementedError: the ``lightgbm`` extra is not installed.
+        RuntimeError: wrong model blob type, invalid input data, or prediction
+            failure.
+    """
     _check_lightgbm_support()
     if model_blob.type != "lightgbm_regressor":
         raise RuntimeError(
@@ -265,9 +340,26 @@ def lightgbm_predict_impl(
 )
 def lightgbm_predict_class_impl(
     model_blob: EastVariant,
-    X: EastArray,
-) -> EastArray:
-    """Predict class labels with LightGBM classifier."""
+    X: EastMatrix,
+) -> EastVector:
+    """Predict class labels with a trained LightGBM classifier.
+
+    Args:
+        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+            ``lightgbm_classifier`` - as returned by
+            :func:`lightgbm_train_classifier_impl`.
+        X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix; must have the
+            same number of columns the model was trained with.
+
+    Returns:
+        ``Vector<Integer>`` (``EastVector``) - one predicted class label per
+        row.
+
+    Raises:
+        NotImplementedError: the ``lightgbm`` extra is not installed.
+        RuntimeError: wrong model blob type, invalid input data, or prediction
+            failure.
+    """
     _check_lightgbm_support()
     if model_blob.type != "lightgbm_classifier":
         raise RuntimeError(
@@ -301,9 +393,26 @@ def lightgbm_predict_class_impl(
 )
 def lightgbm_predict_proba_impl(
     model_blob: EastVariant,
-    X: EastArray,
-) -> EastArray:
-    """Get class probabilities from LightGBM classifier."""
+    X: EastMatrix,
+) -> EastMatrix:
+    """Get class probability estimates from a trained LightGBM classifier.
+
+    Args:
+        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+            ``lightgbm_classifier`` - as returned by
+            :func:`lightgbm_train_classifier_impl`.
+        X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix; must have the
+            same number of columns the model was trained with.
+
+    Returns:
+        ``Matrix<Float>`` (``EastMatrix``) - shape ``(n_samples, n_classes)``
+        where each row sums to 1.0.
+
+    Raises:
+        NotImplementedError: the ``lightgbm`` extra is not installed.
+        RuntimeError: wrong model blob type, invalid input data, or prediction
+            failure.
+    """
     _check_lightgbm_support()
     if model_blob.type != "lightgbm_classifier":
         raise RuntimeError(

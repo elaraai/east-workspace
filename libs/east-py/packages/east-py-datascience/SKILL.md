@@ -1,6 +1,6 @@
 ---
 name: east-py-datascience
-description: "Data science and machine learning platform functions for the East language (TypeScript types). Use when writing East programs that need optimization (MADS, Optuna, SimAnneal, Scipy, Optimization, GoogleOr), machine learning (XGBoost, LightGBM, NGBoost, Torch MLP, Lightning, GP), Bayesian inference (PyMC), simulation (Simulation DES), ML utilities (Sklearn preprocessing, metrics, splits), conformal prediction (MAPIE), or model explainability (SHAP). Triggers for: (1) Writing East programs with @elaraai/east-py-datascience, (2) Derivative-free optimization with MADS, (3) Bayesian optimization with Optuna, (4) Discrete/combinatorial optimization with SimAnneal, (5) Gradient boosting with XGBoost or LightGBM, (6) Probabilistic predictions with NGBoost or GP, (7) Neural networks with Torch MLP or Lightning, (8) Data preprocessing and metrics with Sklearn, (9) Conformal prediction intervals with MAPIE, (10) Model explainability with Shap, (11) Iterative coordinate descent with Optimization, (12) Constraint programming, vehicle routing, LP/MIP, or graph algorithms with GoogleOr, (13) Bayesian regression, hierarchical models, and multi-layer estimation with PyMC, (14) Economic ontology simulation via discrete event simulation with Simulation."
+description: "Data science and machine learning platform functions for the East language (TypeScript types + directly-callable Python implementations). Use when writing East programs that need optimization (MADS, Optuna, SimAnneal, Scipy, Optimization, GoogleOr), machine learning (XGBoost, LightGBM, NGBoost, Torch MLP, Lightning, GP), Bayesian inference (PyMC), causal inference (Causal: DoWhy, EconML DML, ALE), simulation (Simulation DES), ML utilities (Sklearn preprocessing, metrics, splits), conformal prediction (MAPIE), or model explainability (SHAP). Triggers for: (1) Writing East programs with @elaraai/east-py-datascience, (2) Derivative-free optimization with MADS, (3) Bayesian optimization with Optuna, (4) Discrete/combinatorial optimization with SimAnneal, (5) Gradient boosting with XGBoost or LightGBM, (6) Probabilistic predictions with NGBoost or GP, (7) Neural networks with Torch MLP or Lightning, (8) Data preprocessing and metrics with Sklearn, (9) Conformal prediction intervals with MAPIE, (10) Model explainability with Shap, (11) Iterative coordinate descent with Optimization, (12) Constraint programming, vehicle routing, LP/MIP, or graph algorithms with GoogleOr, (13) Bayesian regression, hierarchical models, and multi-layer estimation with PyMC, (14) Economic ontology simulation via discrete event simulation with Simulation, (15) Causal effect estimation, refutation, CATE, and dose-response with Causal, (16) Calling the east_py_datascience *_impl functions directly from a project's own Python @platform_function."
 ---
 
 # East Data Science
@@ -136,6 +136,16 @@ Task → What do you need?
     ├─ Simulation (economic ontology simulation via DES)
     │   └─ Single run → .run([R, E], initialState, initialEvents, process, config)
     │
+    ├─ Causal (causal inference: effects, refutation, CATE, dose-response)
+    │   ├─ Effect estimate → .effect(data, config) (backdoor linear_regression /
+    │   │   propensity_score_weighting; ate/att/atc; overlap or bounds trim;
+    │   │   cluster bootstrap CI)
+    │   ├─ Refutation → .refute(data, config, refuter) (placebo_treatment,
+    │   │   random_common_cause, data_subset, unobserved_common_cause sensitivity)
+    │   ├─ Heterogeneous effects (EconML LinearDML) → .dmlTrain(Y, T, X, W, config),
+    │   │   .dmlEffect(model, X) (per-row CATE), .dmlAte(model, X) (ATE + CI)
+    │   └─ Dose-response → .ale(data, config) (accumulated local effects, CI bands)
+    │
     └─ Shap (model explainability)
         ├─ Create → .treeExplainerCreate() (XGBoost only), .kernelExplainerCreate() (any model)
         ├─ Compute → .computeValues(), .featureImportance()
@@ -173,6 +183,7 @@ Task → What do you need?
 | GoogleOr | `import { GoogleOr } from "@elaraai/east-py-datascience"` | OR-Tools: CP-SAT, routing, LP/MIP, graph algorithms |
 | PyMC | `import { PyMC } from "@elaraai/east-py-datascience"` | Bayesian regression, hierarchical models, multi-layer estimation |
 | Simulation | `import { Simulation } from "@elaraai/east-py-datascience"` | Economic ontology simulation via DES |
+| Causal | `import { Causal } from "@elaraai/east-py-datascience"` | Causal inference: DoWhy backdoor effects + refuters, EconML LinearDML CATE, ALE dose-response |
 
 ## Accessing Types
 
@@ -228,9 +239,61 @@ const result = $.let(Module.optimize(objective, x0, bounds, config));
 // result.x_best, result.f_best
 ```
 
+## Calling from Python (direct `*_impl` functions)
+
+Every platform function has a Python implementation in the `east_py_datascience`
+package that is a **plain callable taking and returning East values** — no IR,
+no compile. A project's own `@platform_function` can import and call them
+directly (the preferred way to use lightning/torch/xgboost/sklearn/etc. from
+project Python code). Each module re-exports its functions from its package:
+
+```python
+from east import (EastMatrix, EastVector, FloatType, MatrixType, VectorType,
+                  coerce_to, platform_function)
+from east_py_datascience.xgboost import (
+    XGBoostConfigType, xgboost_train_regressor_impl, xgboost_predict_impl)
+
+@platform_function(inputs=[MatrixType(FloatType), VectorType(FloatType), MatrixType(FloatType)],
+                   output=VectorType(FloatType))
+def forecast(X_train, y_train, X_new):
+    # Build the config struct from a plain dict - coerce_to fills Option fields
+    config = coerce_to({
+        "n_estimators": 200, "max_depth": 4, "learning_rate": 0.05,
+        "min_child_weight": None, "subsample": None, "colsample_bytree": None,
+        "reg_alpha": None, "reg_lambda": None, "gamma": None,
+        "random_state": 42, "n_jobs": None, "sample_weight": None,
+        "categorical_features": None, "categorical_n": None,
+        "max_cat_to_onehot": None, "max_cat_threshold": None,
+    }, XGBoostConfigType)
+    model = xgboost_train_regressor_impl(X_train, y_train, config)   # East blob in/out
+    return xgboost_predict_impl(model, X_new)
+```
+
+Rules:
+
+- **Inputs are East values, not numpy** — `EastMatrix`/`EastVector` for data,
+  `EastStruct` configs (build with `coerce_to(dict, ConfigType)` — plain
+  `None`/scalars coerce to the `Option` fields), `EastVariant` for variants
+  (`variant('some', x)` / option fields via `coerce_to`).
+- **Config and blob types are defined Python-side** in each
+  `east_py_datascience.<module>` (e.g. `XGBoostConfigType`,
+  `XGBoostModelBlobType`) — mirror images of the TS `Module.Types.*`.
+- **Model blobs round-trip**: the variant blob a train function returns is
+  exactly what the predict/explain functions accept — store it, pass it
+  between platform functions, or hand it to `Shap`.
+- **Registering everything instead**: `from east_py_datascience import platform`
+  and pass it to `compile_async()` to wire all functions to East IR (this is
+  what the e3 Python runner does).
+- Optional deps gate at call time: functions raise `NotImplementedError`
+  naming the missing extra (e.g. `east-py-datascience[causal]`).
+
+For the East-value API itself (eager methods, `coerce_to`, `to_numpy`/`to_torch`,
+`@platform_function`), load the **east-py** skill.
+
 ## Related skills
 
 - **e3** — **required to run these**: they need the Python runtime, so wrap each in an `e3.task` with a Python runner (`{ runner: ['uv','run','east-py','run','-p','east-py-datascience'] }`). They do not run on the default Node / C runtime.
 - **east** — the language for objective functions, configs, and result handling.
+- **east-py** — the Python runtime: East values as plain Python data, eager methods, and the `@platform_function` on-ramp — pairs with the direct `*_impl` calls above.
 - **east-ontology** — the decisions these models improve are the `decision` nodes of the business's economic ontology.
 - **east-design** — place the forecast / optimization in a decision-oriented architecture.

@@ -49,12 +49,22 @@ CpSatIntVarType = StructType(
         ("upper_bound", IntegerType),
     ]
 )
+"""Declaration of an integer decision variable for a CP-SAT model.
+
+Fields: ``name`` (``String`` unique identifier), ``lower_bound``
+(``Integer``), ``upper_bound`` (``Integer``).
+"""
 
 CpSatBoolVarType = StructType(
     [
         ("name", StringType),
     ]
 )
+"""Declaration of a boolean decision variable for a CP-SAT model.
+
+Fields: ``name`` (``String`` unique identifier; the variable takes value
+0 or 1).
+"""
 
 CpSatIntervalVarType = StructType(
     [
@@ -65,6 +75,13 @@ CpSatIntervalVarType = StructType(
         ("is_present", OptionType(StringType)),
     ]
 )
+"""Declaration of an interval variable for scheduling constraints.
+
+Fields: ``name`` (``String`` unique identifier), ``start`` / ``size`` /
+``end`` (names of already-declared integer variables satisfying
+``start + size == end``), ``is_present`` (name of a boolean variable that
+gates whether this interval is active — omit for mandatory intervals).
+"""
 
 # --- Expressions and literals ---
 
@@ -74,6 +91,11 @@ CpSatLinearTermType = StructType(
         ("coeff", IntegerType),
     ]
 )
+"""One term in a CP-SAT linear expression: ``coeff * var``.
+
+Fields: ``var`` (``String`` variable name), ``coeff`` (``Integer``
+coefficient).
+"""
 
 CpSatLinearExprType = StructType(
     [
@@ -81,6 +103,11 @@ CpSatLinearExprType = StructType(
         ("constant", IntegerType),
     ]
 )
+"""A linear expression over CP-SAT variables plus an integer constant.
+
+Fields: ``terms`` (``Array<CpSatLinearTermType>`` weighted variable
+references), ``constant`` (``Integer`` additive offset, often 0).
+"""
 
 CpSatLiteralType = StructType(
     [
@@ -88,6 +115,11 @@ CpSatLiteralType = StructType(
         ("negated", BooleanType),
     ]
 )
+"""A boolean literal (variable or its negation) in a CP-SAT constraint.
+
+Fields: ``var`` (``String`` name of a boolean variable), ``negated``
+(``Boolean`` — true means the logical negation of the variable is used).
+"""
 
 # --- Constraints ---
 
@@ -99,6 +131,11 @@ CpSatComparisonType = VariantType(
         ("greater_equal", NullType),
     ]
 )
+"""Comparison operator used in a ``linear`` CP-SAT constraint.
+
+Cases: ``equal`` (``==``), ``not_equal`` (``!=``),
+``less_equal`` (``<=``), ``greater_equal`` (``>=``).
+"""
 
 CpSatConstraintType = VariantType(
     [
@@ -227,6 +264,29 @@ CpSatConstraintType = VariantType(
         ),
     ]
 )
+"""A CP-SAT constraint added to the model.
+
+Cases:
+- ``linear`` ``{expr, op, rhs}`` — linear expression compared to a constant
+  (``equal``, ``not_equal``, ``less_equal``, ``greater_equal``).
+- ``bool_or`` ``{literals}`` — at least one literal must be true.
+- ``bool_and`` ``{literals}`` — all literals must be true.
+- ``implication`` ``{if_literal, then_literal}`` — if ``if_literal`` is
+  true, ``then_literal`` must also be true.
+- ``exactly_k`` ``{vars, k}`` — exactly ``k`` of the named bool vars are
+  true.
+- ``at_most_k`` ``{vars, k}`` — at most ``k`` true.
+- ``at_least_k`` ``{vars, k}`` — at least ``k`` true.
+- ``all_different`` ``{vars}`` — all named int vars take distinct values.
+- ``element`` ``{index_var, values, target_var}`` —
+  ``target_var == values[index_var]``.
+- ``no_overlap`` ``{intervals}`` — named interval vars do not overlap in
+  time.
+- ``cumulative`` ``{intervals, demands, capacity}`` — sum of active
+  interval demands never exceeds ``capacity``.
+- ``circuit`` ``{arcs}`` — each arc is ``{tail, head: Integer, literal:
+  String}``; the active (literal=1) arcs form a Hamiltonian circuit.
+"""
 
 # --- Objective ---
 
@@ -236,6 +296,12 @@ CpSatObjectiveType = VariantType(
         ("maximize", CpSatLinearExprType),
     ]
 )
+"""Optimization direction and linear expression for the CP-SAT objective.
+
+Cases: ``minimize`` (``CpSatLinearExprType`` — minimize the expression),
+``maximize`` (``CpSatLinearExprType`` — maximize the expression). Omit the
+objective entirely for a pure feasibility problem.
+"""
 
 # --- Model ---
 
@@ -248,6 +314,14 @@ CpSatModelType = StructType(
         ("objective", OptionType(CpSatObjectiveType)),
     ]
 )
+"""Complete declarative description of a CP-SAT model.
+
+Fields: ``int_vars`` (``Array<CpSatIntVarType>`` integer decision variables),
+``bool_vars`` (``Array<CpSatBoolVarType>`` boolean decision variables),
+``interval_vars`` (``Array<CpSatIntervalVarType>`` scheduling intervals built
+from int/bool vars), ``constraints`` (``Array<CpSatConstraintType>``),
+``objective`` (``Option<CpSatObjectiveType>`` — omit for feasibility).
+"""
 
 # --- Config ---
 
@@ -265,6 +339,16 @@ CpSatConfigType = StructType(
         ("absolute_gap_limit", OptionType(FloatType)),
     ]
 )
+"""Solver configuration for a CP-SAT solve call.
+
+Fields: ``max_time_seconds`` (wall-clock time limit), ``num_workers``
+(parallel search threads), ``log_search_progress`` (emit solver log, default
+false), ``seed`` (random seed), ``max_solutions`` (used by
+``google_or_cpsat_solve_all`` to cap collected solutions, default 100),
+``relative_gap_limit`` (declare optimality when proven gap <=
+``best * this``, e.g. 0.005 for 0.5%), ``absolute_gap_limit`` (declare
+optimality when proven gap <= this value in objective units).
+"""
 
 # --- Result ---
 
@@ -276,6 +360,13 @@ CpSatResultType = StructType(
         ("wall_time", FloatType),
     ]
 )
+"""Result returned by ``google_or_cpsat_solve`` and ``google_or_cpsat_solve_all``.
+
+Fields: ``status`` (``GoogleOrStatusType``), ``objective_value``
+(``Option<Float>`` — present when feasible or optimal), ``assignments``
+(``Dict<String, Integer>`` mapping variable names to their integer values),
+``wall_time`` (``Float`` seconds).
+"""
 
 
 
@@ -541,14 +632,58 @@ def cpsat_solve_impl(
     model_data: EastStruct,
     config: EastStruct,
 ) -> EastStruct:
-    """Solve a CP-SAT model and return the best solution.
+    """Solve a CP-SAT model and return the single best solution found.
+
+    Builds an OR-Tools CP-SAT model from the declarative ``model_data``
+    description, applies the solver configuration, and returns the first
+    feasible or optimal solution found.
 
     Args:
-        model_data: Declarative model (variables, constraints, objective)
-        config: Solver configuration
+        model_data: ``CpSatModelType`` (``EastStruct``) with fields:
+
+            - ``int_vars`` (``Array<CpSatIntVarType>``): integer decision
+              variables; each ``{name: String, lower_bound: Integer,
+              upper_bound: Integer}``.
+            - ``bool_vars`` (``Array<CpSatBoolVarType>``): boolean decision
+              variables; each ``{name: String}``.
+            - ``interval_vars`` (``Array<CpSatIntervalVarType>``): optional
+              interval variables for scheduling; each ``{name, start, size,
+              end: String, is_present: Option<String>}`` where string fields
+              name already-declared int/bool vars.
+            - ``constraints`` (``Array<CpSatConstraintType>``): constraint
+              list; each is a variant - ``linear``, ``bool_or``,
+              ``bool_and``, ``implication``, ``exactly_k``, ``at_most_k``,
+              ``at_least_k``, ``all_different``, ``element``, ``no_overlap``,
+              ``cumulative``, ``circuit``.
+            - ``objective`` (``Option<CpSatObjectiveType>``): either
+              ``minimize`` or ``maximize`` wrapping a ``CpSatLinearExprType``
+              ``{terms: Array<{var, coeff: Integer}>, constant: Integer}``.
+
+        config: ``CpSatConfigType`` (``EastStruct``) with fields:
+
+            - ``max_time_seconds`` (``Option<Float>``): wall-clock time limit.
+            - ``num_workers`` (``Option<Integer>``): parallel search threads.
+            - ``log_search_progress`` (``Option<Boolean>``): emit CP-SAT
+              solver log (default false).
+            - ``seed`` (``Option<Integer>``): random seed for the solver.
+            - ``max_solutions`` (``Option<Integer>``): ignored by this
+              function (used by :func:`cpsat_solve_all_impl`).
+            - ``relative_gap_limit`` (``Option<Float>``): declare
+              optimality when proven gap <= this fraction (e.g. 0.005).
+            - ``absolute_gap_limit`` (``Option<Float>``): declare
+              optimality when proven gap <= this value in objective units.
 
     Returns:
-        EastStruct with status, objective_value, assignments, wall_time
+        ``CpSatResultType`` (``EastStruct``): ``status``
+        (``GoogleOrStatusType`` - ``optimal``, ``feasible``,
+        ``infeasible``, ``not_solved``, or ``model_invalid``),
+        ``objective_value`` (``Option<Float>`` - present when feasible or
+        optimal), ``assignments`` (``Dict<String, Integer>`` - variable
+        name to value for all int/bool vars), ``wall_time`` (``Float``
+        seconds).
+
+    Raises:
+        NotImplementedError: the ``google-or`` extra (ortools) is not installed.
     """
     _check_google_or_support()
     from ortools.sat.python import cp_model
@@ -588,16 +723,28 @@ def cpsat_solve_all_impl(
     model_data: EastStruct,
     config: EastStruct,
 ) -> EastArray:
-    """Solve a CP-SAT model and return all feasible solutions found.
+    """Solve a CP-SAT model and collect all feasible solutions up to a limit.
 
-    Uses a solution callback to collect multiple solutions up to max_solutions.
+    Installs a solution callback on the CP-SAT solver so that every solution
+    found during search is captured. Stops after ``max_solutions`` solutions
+    or when the solver exhausts the search space.
 
     Args:
-        model_data: Declarative model (variables, constraints, objective)
-        config: Solver configuration (max_solutions controls limit)
+        model_data: ``CpSatModelType`` (``EastStruct``) - same schema as
+            :func:`cpsat_solve_impl`.
+        config: ``CpSatConfigType`` (``EastStruct``) - same schema as
+            :func:`cpsat_solve_impl`; ``max_solutions`` (``Option<Integer>``)
+            caps the number of solutions collected (default 100).
 
     Returns:
-        Array of CpSatResult structs, one per solution found
+        ``Array<CpSatResultType>`` (``EastArray``) - one entry per solution
+        found; each entry has ``status`` ``feasible``, ``objective_value``
+        (``Option<Float>``), ``assignments`` (``Dict<String, Integer>``), and
+        ``wall_time`` (``Float``, set on the last element to total elapsed
+        time).  Returns an empty array when the model is infeasible.
+
+    Raises:
+        NotImplementedError: the ``google-or`` extra (ortools) is not installed.
     """
     _check_google_or_support()
     from ortools.sat.python import cp_model

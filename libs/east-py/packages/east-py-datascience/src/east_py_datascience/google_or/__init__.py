@@ -2,10 +2,13 @@
 # Copyright (c) 2025 Elara AI Pty Ltd
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
-"""Google OR-Tools platform functions for East Data Science.
+"""Google OR-Tools for East - CP-SAT, vehicle routing, LP/MIP, and graph algorithms.
 
-Provides constraint programming (CP-SAT), vehicle routing, linear programming,
-and graph algorithms using Google OR-Tools.
+The ``*_impl`` functions are plain Python callables taking and returning East
+values - import them directly from a project's own ``@platform_function`` to
+reuse the implementations without an IR round-trip. The East type definitions
+(model, config, and result types) are re-exported here for building inputs with
+``coerce_to`` and validating outputs.
 """
 
 from east_py_datascience.google_or.cpsat import (
@@ -22,6 +25,8 @@ from east_py_datascience.google_or.cpsat import (
     CpSatObjectiveType,
     CpSatResultType,
     cpsat_impl,
+    cpsat_solve_all_impl,
+    cpsat_solve_impl,
 )
 from east_py_datascience.google_or.graph import (
     AssignmentInputType,
@@ -31,7 +36,10 @@ from east_py_datascience.google_or.graph import (
     MaxFlowResultType,
     MinCostFlowInputType,
     MinCostFlowResultType,
+    assignment_impl,
     graph_impl,
+    max_flow_impl,
+    min_cost_flow_impl,
 )
 from east_py_datascience.google_or.linear import (
     LinearConfigType,
@@ -43,6 +51,7 @@ from east_py_datascience.google_or.linear import (
     LinearTermType,
     LinearVarType,
     linear_impl,
+    linear_solve_impl,
 )
 from east_py_datascience.google_or.routing import (
     RoutingConfigType,
@@ -54,6 +63,7 @@ from east_py_datascience.google_or.routing import (
     RoutingRouteType,
     RoutingTimeWindowType,
     routing_impl,
+    routing_solve_impl,
 )
 from east_py_datascience.google_or.types import (
     GoogleOrStatusType,
@@ -62,13 +72,21 @@ from east_py_datascience.google_or.types import (
 google_or_impl = [*cpsat_impl, *routing_impl, *linear_impl, *graph_impl]
 
 __all__ = [
-    # Aggregated platform implementation
+    # Aggregated platform registration
     "google_or_impl",
-    # Sub-module implementations
+    # Sub-module registrations
     "cpsat_impl",
     "routing_impl",
     "linear_impl",
     "graph_impl",
+    # Directly-callable implementations
+    "cpsat_solve_impl",
+    "cpsat_solve_all_impl",
+    "routing_solve_impl",
+    "linear_solve_impl",
+    "min_cost_flow_impl",
+    "max_flow_impl",
+    "assignment_impl",
     # Shared types
     "GoogleOrStatusType",
     # CP-SAT types

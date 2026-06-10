@@ -196,15 +196,43 @@ def _extract_tree_model(model_blob: EastVariant, function_name: str):
 def shap_tree_explainer_create_impl(
     config: EastVariant,
 ) -> EastVariant:
-    """Create SHAP TreeExplainer for tree-based models.
+    """Create a SHAP TreeExplainer for tree-based models.
 
-    Accepts a variant config:
-    - path_dependent: Uses tree structure only (default SHAP behavior).
-    - interventional: Uses background data to break feature correlations (causal).
+    Accepts a variant config choosing between path-dependent and
+    interventional attribution.
 
-    Supports:
-    - XGBoost regressor/classifier/quantile models directly
-    - MAPIE conformal regressors/classifiers with XGBoost base (extracts underlying estimator)
+    Accepted model blob types via ``config.model``:
+
+    - ``XGBoostModelBlobType`` cases: ``xgboost_regressor``,
+      ``xgboost_classifier``, ``xgboost_quantile`` - used directly.
+    - ``MAPIERegressorBlobType`` cases: ``mapie_split``, ``mapie_cross``,
+      ``mapie_cqr`` - the underlying XGBoost estimator is extracted from
+      the MAPIE wrapper (LightGBM base models are **not** supported; use
+      :func:`shap_kernel_explainer_create_impl` instead).
+    - ``MAPIEClassifierBlobType`` case: ``mapie_classifier`` - same
+      XGBoost-only restriction applies.
+
+    Args:
+        config: ``TreeExplainerConfigType`` (``EastVariant``), one of:
+
+            - ``path_dependent`` ``{model: ModelBlobType}``: uses the tree
+              structure alone for attribution - fast, no background data
+              required.
+            - ``interventional`` ``{model: ModelBlobType,
+              background: Matrix<Float>}``: marginalises over the background
+              distribution to break feature correlations (causal attribution).
+              For XGBoost models with categorical features the SHAP C++
+              extension is used directly (Python guard bypassed).
+
+    Returns:
+        ``ModelBlobType`` (``EastVariant``) tagged ``shap_tree_explainer``
+        with ``{data: Blob (cloudpickle), n_features: Integer}``.  Pass to
+        :func:`shap_compute_values_impl`.
+
+    Raises:
+        NotImplementedError: the ``shap`` extra is not installed.
+        RuntimeError: unsupported model type, non-XGBoost base model inside
+            a MAPIE wrapper, or explainer creation failure.
     """
     _check_shap_support()
     import shap
@@ -483,7 +511,39 @@ def shap_kernel_explainer_create_impl(
     model_blob: EastVariant,
     X_background: EastArray,
 ) -> EastVariant:
-    """Create SHAP KernelExplainer for any model."""
+    """Create a SHAP KernelExplainer for any model type.
+
+    Model-agnostic explainer that treats the model as a black box and
+    approximates SHAP values via weighted linear regression over coalition
+    samples.  Slower than :func:`shap_tree_explainer_create_impl` but
+    supports all model types in ``ModelBlobType``, including:
+
+    - XGBoost / LightGBM regressors and classifiers.
+    - Torch MLP, NGBoost, Gaussian Process.
+    - MAPIE regressor/classifier wrappers (any base model, including
+      LightGBM).
+    - MAPIE uncertainty predictors (``mapie_interval_width``,
+      ``mapie_set_size``) for explaining uncertainty rather than predictions.
+    - ``regressor_chain``, ``gp_regressor``, ``ngboost_regressor``.
+
+    Args:
+        model_blob: ``ModelBlobType`` (``EastVariant``) - any supported
+            model blob; the appropriate predict function is selected
+            automatically based on the variant tag.
+        X_background: ``Matrix<Float>`` (``EastMatrix``) - background
+            dataset used to marginalise feature contributions; typically
+            a sample or summary of the training set.
+
+    Returns:
+        ``ModelBlobType`` (``EastVariant``) tagged ``shap_kernel_explainer``
+        with ``{data: Blob (cloudpickle), n_features: Integer}``.  Pass to
+        :func:`shap_compute_values_impl`.
+
+    Raises:
+        NotImplementedError: the ``shap`` extra is not installed.
+        RuntimeError: unsupported model type, invalid background data, or
+            explainer creation failure.
+    """
     _check_shap_support()
     import shap
 
@@ -536,7 +596,45 @@ def shap_compute_values_impl(
     X: EastArray,
     feature_names: EastArray,
 ) -> EastStruct:
-    """Compute SHAP values for samples."""
+    """Compute SHAP values for a set of samples.
+
+    Handles regression, binary classification, and multi-class
+    classification automatically:
+
+    - Regression / binary classification: returns a ``matrix_2d``
+      ``(n_samples, n_features)`` SHAP matrix and a single base value.
+    - Multi-class (more than 2 classes): returns a ``tensor_3d`` list of
+      ``(n_features, n_classes)`` matrices (one per sample) and a
+      ``per_class`` base value vector.
+
+    For XGBoost models with categorical features the SHAP Python guard
+    (``_xgboost_cat_unsupported``) is bypassed so the C++ extension handles
+    categorical splits correctly.
+
+    Args:
+        explainer_blob: ``ModelBlobType`` (``EastVariant``) tagged
+            ``shap_tree_explainer`` or ``shap_kernel_explainer``, produced
+            by :func:`shap_tree_explainer_create_impl` or
+            :func:`shap_kernel_explainer_create_impl`.
+        X: ``Matrix<Float>`` (``EastMatrix``) - samples to explain.
+        feature_names: ``Array<String>`` (``EastArray``) - one name per
+            feature column; included verbatim in the result.
+
+    Returns:
+        ``ShapResultType`` (``EastStruct``):
+
+        - ``shap_values`` (``ShapValuesType`` - ``EastVariant``): tagged
+          ``matrix_2d`` ``Matrix<Float>`` for regression/binary, or
+          ``tensor_3d`` ``Array<Matrix<Float>>`` for multi-class.
+        - ``base_value`` (``ShapBaseValueType`` - ``EastVariant``): tagged
+          ``single`` ``Float`` or ``per_class`` ``Vector<Float>``.
+        - ``feature_names`` (``Array<String>``): echoed back from input.
+
+    Raises:
+        NotImplementedError: the ``shap`` extra is not installed.
+        RuntimeError: ``explainer_blob`` is not an explainer variant,
+            invalid input data, or SHAP computation failure.
+    """
     _check_shap_support()
     function_name = "shap_compute_values"
 
@@ -678,10 +776,37 @@ def shap_feature_importance_impl(
     shap_values: EastVariant,
     feature_names: EastArray,
 ) -> EastStruct:
-    """Compute global feature importance from SHAP values.
+    """Compute global feature importance as mean absolute SHAP values.
 
-    Accepts either matrix_2d (regression/binary) or tensor_3d (multi-class) variant.
-    For multi-class, computes mean(|SHAP|) across both samples and classes.
+    Aggregates across samples (and classes for multi-class models) to
+    produce a single importance score per feature.
+
+    Args:
+        shap_values: ``ShapValuesType`` (``EastVariant``) from
+            :func:`shap_compute_values_impl`:
+
+            - ``matrix_2d`` ``Matrix<Float>`` ``(n_samples, n_features)``:
+              regression or binary classification - ``mean(|SHAP|)`` across
+              samples.
+            - ``tensor_3d`` ``Array<Matrix<Float>>`` (one ``(n_features,
+              n_classes)`` matrix per sample): multi-class -
+              ``mean(|SHAP|)`` across samples and classes.
+
+        feature_names: ``Array<String>`` (``EastArray``) - one name per
+            feature column.
+
+    Returns:
+        ``FeatureImportanceType`` (``EastStruct``):
+
+        - ``feature_names`` (``Array<String>``): echoed back.
+        - ``importances`` (``Vector<Float>``): mean ``|SHAP|`` per feature.
+        - ``std`` (``Option<Vector<Float>>``): always ``some`` - standard
+          deviation of ``|SHAP|`` per feature.
+
+    Raises:
+        NotImplementedError: the ``shap`` extra is not installed.
+        RuntimeError: unrecognised ``shap_values`` variant tag or
+            computation failure.
     """
     _check_shap_support()
     function_name = "shap_feature_importance"

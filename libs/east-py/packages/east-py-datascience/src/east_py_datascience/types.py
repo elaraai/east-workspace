@@ -33,6 +33,7 @@ from east.types.values import EastVariant, is_east_variant
 
 # String vector type (for feature names - strings can't go in vectors)
 StringVectorType = ArrayType(StringType)
+"""Array of ``String`` used for feature name lists."""
 
 # ============================================================================
 # Function Types
@@ -40,9 +41,11 @@ StringVectorType = ArrayType(StringType)
 
 # Scalar objective function type: Vector -> Float
 ScalarObjectiveType = FunctionType([VectorType(FloatType)], FloatType)
+"""East function type ``(Vector<Float>) -> Float`` for scalar objective functions."""
 
 # Vector objective function type: Vector -> Vector
 VectorObjectiveType = FunctionType([VectorType(FloatType)], VectorType(FloatType))
+"""East function type ``(Vector<Float>) -> Vector<Float>`` for vector objective functions."""
 
 # ============================================================================
 # Enum Types (Variant with NullType values)
@@ -58,6 +61,12 @@ OptimizeMethodType = VariantType(
         ("cg", NullType),
     ]
 )
+"""SciPy gradient-based minimization algorithm.
+
+Cases: ``bfgs``, ``l_bfgs_b`` (default, memory-efficient quasi-Newton with box
+bounds), ``nelder_mead`` (derivative-free simplex), ``powell``
+(derivative-free direction-set), ``cg`` (conjugate gradient).
+"""
 
 # Interpolation kind
 InterpolationKindType = VariantType(
@@ -67,6 +76,10 @@ InterpolationKindType = VariantType(
         ("quadratic", NullType),
     ]
 )
+"""Interpolation spline order for ``scipy_interp_1d``.
+
+Cases: ``linear`` (default), ``cubic``, ``quadratic``.
+"""
 
 # Histogram bin selection method
 HistogramBinMethodType = VariantType(
@@ -80,6 +93,12 @@ HistogramBinMethodType = VariantType(
         ("doane", NullType),
     ]
 )
+"""Automatic bin-count estimator for ``scipy_histogram``, passed to ``numpy.histogram_bin_edges``.
+
+Cases: ``auto`` (best of ``fd``/``sturges``), ``fd`` (Freedman-Diaconis),
+``sturges``, ``scott``, ``rice``, ``sqrt``, ``doane``.
+Overrides the numeric ``bins`` field when set.
+"""
 
 # KDE bandwidth selection method
 KdeBandwidthMethodType = VariantType(
@@ -88,6 +107,11 @@ KdeBandwidthMethodType = VariantType(
         ("silverman", NullType),
     ]
 )
+"""Bandwidth selection rule for ``scipy_kde``.
+
+Cases: ``scott`` (default), ``silverman``.
+Overridden by a numeric ``bandwidth_scalar`` when both are supplied.
+"""
 
 # NGBoost distribution type
 NGBoostDistributionType = VariantType(
@@ -96,6 +120,10 @@ NGBoostDistributionType = VariantType(
         ("lognormal", NullType),
     ]
 )
+"""Parametric output distribution for NGBoost probabilistic regression.
+
+Cases: ``normal`` (default), ``lognormal`` (strictly positive targets).
+"""
 
 # Torch activation function type
 TorchActivationType = VariantType(
@@ -106,6 +134,10 @@ TorchActivationType = VariantType(
         ("leaky_relu", NullType),
     ]
 )
+"""Hidden-layer activation function for the Torch MLP.
+
+Cases: ``relu`` (default), ``tanh``, ``sigmoid``, ``leaky_relu``.
+"""
 
 # Torch loss function type
 TorchLossType = VariantType(
@@ -118,6 +150,12 @@ TorchLossType = VariantType(
         ("bce_with_logits", NullType),
     ]
 )
+"""Training loss function for the Torch MLP.
+
+Cases: ``mse`` (default), ``mae``, ``cross_entropy``, ``kl_div``,
+``bce`` (binary cross-entropy with sigmoid), ``bce_with_logits``
+(numerically stable combined sigmoid + BCE).
+"""
 
 # Torch optimizer type
 TorchOptimizerType = VariantType(
@@ -128,6 +166,11 @@ TorchOptimizerType = VariantType(
         ("rmsprop", NullType),
     ]
 )
+"""Parameter update rule for the Torch MLP.
+
+Cases: ``adam`` (default), ``sgd``, ``adamw`` (Adam with decoupled weight
+decay), ``rmsprop``.
+"""
 
 # Torch output activation type
 TorchOutputActivationType = VariantType(
@@ -137,6 +180,11 @@ TorchOutputActivationType = VariantType(
         ("sigmoid", NullType),
     ]
 )
+"""Output-layer activation for the Torch MLP.
+
+Cases: ``none`` (default - raw logits/regression), ``softmax``
+(multinomial probabilities), ``sigmoid`` (independent binary probabilities).
+"""
 
 # Per-row output constraint type
 RowConstraintType = VariantType(
@@ -184,6 +232,15 @@ RowConstraintType = VariantType(
         ),
     ]
 )
+"""Per-row structural constraint applied to the Torch MLP output layer.
+
+Cases: ``binary`` ``{mask, data_mask}`` (independent sigmoid outputs per
+position; both masks optional - positions where either mask is ``False`` are
+forced to zero), ``mutex`` ``{mask, allow_none, data_mask}`` (softmax over
+active positions - at most one position on; ``allow_none`` permits the
+all-zero state), ``at_most`` ``{max_count, mask, data_mask}`` (top-K
+sigmoid selection; at most ``max_count`` positions active).
+"""
 
 # Positive weight type for class imbalance handling
 PosWeightType = VariantType(
@@ -195,6 +252,12 @@ PosWeightType = VariantType(
         ),  # Per-output weights (length = output_dim)
     ]
 )
+"""Positive-class weight for BCE loss in the Torch MLP (class-imbalance correction).
+
+Cases: ``scalar`` (single ``Float`` weight applied to every output),
+``per_output`` (``Array<Float>`` of length ``output_dim`` - one weight per
+output position).
+"""
 
 # Prior regularization configuration
 PriorConfigType = StructType(
@@ -203,6 +266,12 @@ PriorConfigType = StructType(
         ("weight", FloatType),  # Lambda weight for MSE regularization
     ]
 )
+"""Prior regularization for the Torch MLP output layer.
+
+Adds an MSE penalty pulling predictions toward prior probabilities.
+Fields: ``values`` (``Array<Float>`` - prior probability per output
+position), ``weight`` (lambda controlling penalty strength).
+"""
 
 # Per-sample constraints configuration
 SampleConstraintsConfigType = StructType(
@@ -216,6 +285,16 @@ SampleConstraintsConfigType = StructType(
         ("priors", OptionType(ArrayType(ArrayType(FloatType)))),
     ]
 )
+"""Per-sample override for output-layer constraints in the Torch MLP.
+
+Allows each training sample to carry its own constraint state.
+Fields: ``masks`` (``Option<Array<Array<Array<Boolean>>>>`` shape
+``[n_samples][n_rows][n_cols]`` - ``True`` = allowed, ``False`` = masked),
+``pos_weights`` (``Option<Array<Array<Float>>>`` shape
+``[n_samples][output_dim]`` - per-sample BCE positive weights),
+``priors`` (``Option<Array<Array<Float>>>`` shape
+``[n_samples][output_dim]`` - per-sample prior values for regularization).
+"""
 
 # Constrained output configuration
 ConstrainedOutputConfigType = StructType(
@@ -223,6 +302,11 @@ ConstrainedOutputConfigType = StructType(
         ("row_constraints", ArrayType(RowConstraintType)),
     ]
 )
+"""Structural constraint applied to every row of the Torch MLP output.
+
+Fields: ``row_constraints`` (``Array<RowConstraintType>`` - one entry per
+output row defining the constraint kind and optional masks for that row).
+"""
 
 # GMM covariance type
 GMMCovarianceType = VariantType(
@@ -233,6 +317,12 @@ GMMCovarianceType = VariantType(
         ("spherical", NullType),
     ]
 )
+"""Covariance matrix structure for the Gaussian Mixture Model.
+
+Cases: ``full`` (default - each component has its own full covariance),
+``tied`` (all components share one covariance), ``diag`` (diagonal
+per-component), ``spherical`` (single variance per component).
+"""
 
 # GP kernel type
 GPKernelType = VariantType(
@@ -245,6 +335,14 @@ GPKernelType = VariantType(
         ("dot_product", NullType),
     ]
 )
+"""Covariance kernel for the Gaussian Process regressor.
+
+Cases: ``rbf`` (default - squared exponential, infinitely differentiable),
+``matern_1_2`` (exponential, non-differentiable), ``matern_3_2``
+(once differentiable), ``matern_5_2`` (twice differentiable),
+``rational_quadratic`` (scale mixture of RBFs), ``dot_product``
+(inner product, non-stationary).
+"""
 
 
 # ============================================================================
@@ -257,6 +355,10 @@ ClassWeightModeType = VariantType(
         ("balanced", NullType),
     ]
 )
+"""Automatic class-weight mode for sklearn classifiers.
+
+Cases: ``balanced`` (weights inversely proportional to class frequencies).
+"""
 
 # Confusion matrix result type
 ConfusionMatrixResultType = StructType(
@@ -265,6 +367,11 @@ ConfusionMatrixResultType = StructType(
         ("classes", VectorType(IntegerType)),  # class labels
     ]
 )
+"""Confusion matrix with class labels.
+
+Fields: ``matrix`` (``Matrix<Float>`` of shape ``n_classes x n_classes``),
+``classes`` (``Vector<Integer>`` - sorted class labels in row/column order).
+"""
 
 # N-way split configuration (unified for 2-way, 3-way, 4-way, etc.)
 SplitConfigType = StructType(
@@ -286,6 +393,18 @@ SplitConfigType = StructType(
         ("min_overlap", OptionType(IntegerType)),
     ]
 )
+"""N-way train/validation/test split configuration.
+
+Fields: ``split_sizes`` (``Array<Float>`` proportions summing to 1.0, e.g.
+``[0.7, 0.15, 0.15]``), ``random_state`` (default ``None``), ``shuffle``
+(default ``True``), ``stratify`` (``Option<Matrix<Integer>>`` - each row is
+one integer-label column; stratifies jointly on all provided columns),
+``overlap`` (``Option<Matrix<Integer>>`` - categories that must appear in
+every split, not used for stratification), ``multi_overlap``
+(``Option<Array<Array<Vector<Integer>>>>`` - multi-valued overlap: each
+sample may belong to several categories), ``min_overlap`` (minimum samples
+per overlap value, default ``n_splits``).
+"""
 
 # SciPy optimization configuration
 OptimizeConfigType = StructType(
@@ -295,6 +414,11 @@ OptimizeConfigType = StructType(
         ("tol", OptionType(FloatType)),  # default 1e-6
     ]
 )
+"""Configuration for ``scipy_optimize`` (scalar minimization).
+
+Fields: ``method`` (default ``l_bfgs_b``), ``max_iter`` (default 1000),
+``tol`` (convergence tolerance, default 1e-6).
+"""
 
 # SciPy interpolation configuration
 InterpolateConfigType = StructType(
@@ -302,6 +426,10 @@ InterpolateConfigType = StructType(
         ("kind", OptionType(InterpolationKindType)),  # default linear
     ]
 )
+"""Configuration for ``scipy_interp_1d`` (1-D spline fitting).
+
+Fields: ``kind`` (default ``linear``).
+"""
 
 # Histogram configuration
 HistogramConfigType = StructType(
@@ -314,6 +442,13 @@ HistogramConfigType = StructType(
         ("weights", OptionType(VectorType(FloatType))),  # per-element weights
     ]
 )
+"""Configuration for ``scipy_histogram``.
+
+Fields: ``bins`` (default 10), ``bin_method`` (automatic estimator -
+overrides ``bins`` when set), ``range_min`` / ``range_max`` (clip range),
+``density`` (normalize to probability density, default ``False``),
+``weights`` (``Option<Vector<Float>>`` per-element weights).
+"""
 
 # KDE configuration
 KdeConfigType = StructType(
@@ -323,6 +458,12 @@ KdeConfigType = StructType(
         ("weights", OptionType(VectorType(FloatType))),  # per-datapoint weights
     ]
 )
+"""Configuration for ``scipy_kde`` (kernel density estimation).
+
+Fields: ``bandwidth`` (selection rule, default ``scott``),
+``bandwidth_scalar`` (explicit numeric bandwidth - overrides ``bandwidth``
+when set), ``weights`` (``Option<Vector<Float>>`` per-datapoint weights).
+"""
 
 # Parameter bounds for curve fitting
 ParamBoundsType = StructType(
@@ -331,10 +472,21 @@ ParamBoundsType = StructType(
         ("upper", VectorType(FloatType)),
     ]
 )
+"""Box bounds on curve-fit parameters for ``scipy_curve_fit``.
+
+Fields: ``lower`` / ``upper`` (``Vector<Float>`` - one bound per optimized
+parameter in the custom curve function).
+"""
 
 # Custom curve function: (x: Float, params: Vector, fixed_params: Vector) -> Float
 # The params are optimized, fixed_params are passed through unchanged.
 CustomCurveFunctionType = FunctionType([FloatType, VectorType(FloatType), VectorType(FloatType)], FloatType)
+"""East function type ``(Float, Vector<Float>, Vector<Float>) -> Float`` for user-defined curve shapes.
+
+Signature: ``(x, params, fixed_params) -> Float`` where ``params`` are
+optimized by ``scipy_curve_fit`` and ``fixed_params`` are passed through
+unchanged.
+"""
 
 # Curve function type (built-in + custom)
 CurveFunctionType = VariantType(
@@ -363,6 +515,17 @@ CurveFunctionType = VariantType(
         ),
     ]
 )
+"""Curve shape for ``scipy_curve_fit`` - built-in or user-defined.
+
+Cases: ``exponential_decay`` (``a * exp(-b*x)``), ``exponential_with_offset``
+(``a + b*exp(-c*x)``), ``exponential_growth`` (``a * exp(b*x)``),
+``logistic`` (``L / (1 + exp(-k*(x-x0)))``), ``gompertz``
+(``a * exp(-b*exp(-c*x))``), ``power_law`` (``a * x^b``), ``linear``
+(``a + b*x``), ``quadratic`` (``a + b*x + c*x^2``), ``cubic``
+(``a + b*x + c*x^2 + d*x^3``), ``custom`` ``{fn, n_params, param_bounds,
+fixed_params}`` (arbitrary East function - ``n_params`` parameters are
+optimized; ``fixed_params`` passed through unchanged).
+"""
 
 # Curve fit configuration
 CurveFitConfigType = StructType(
@@ -371,6 +534,12 @@ CurveFitConfigType = StructType(
         ("initial_guess", OptionType(VectorType(FloatType))),  # default: auto
     ]
 )
+"""Configuration for ``scipy_curve_fit`` iterations and starting point.
+
+Fields: ``max_iter`` (default 5000), ``initial_guess``
+(``Option<Vector<Float>>`` - one value per parameter; derived automatically
+when absent).
+"""
 
 # Quadratic function configuration: f(x) = 0.5 * x'Ax + b'x + c
 QuadraticConfigType = StructType(
@@ -380,6 +549,12 @@ QuadraticConfigType = StructType(
         ("c", FloatType),  # Constant term
     ]
 )
+"""Quadratic objective ``f(x) = 0.5 * x'Ax + b'x + c`` used by ``scipy_optimize_quadratic``.
+
+Fields: ``A`` (``Matrix<Float>`` - symmetric positive-definite quadratic
+term), ``b`` (``Vector<Float>`` - linear term), ``c`` (``Float`` - constant
+offset).
+"""
 
 # XGBoost configuration
 XGBoostConfigType = StructType(
@@ -402,6 +577,20 @@ XGBoostConfigType = StructType(
         ("max_cat_threshold", OptionType(IntegerType)),  # default 64
     ]
 )
+"""Configuration for XGBoost regression and classification.
+
+Fields: ``n_estimators`` (default 100), ``max_depth`` (default 6),
+``learning_rate`` (default 0.3), ``min_child_weight`` (default 1),
+``subsample`` (default 1.0), ``colsample_bytree`` (default 1.0),
+``reg_alpha`` (L1, default 0), ``reg_lambda`` (L2, default 1),
+``gamma`` (min split loss, default 0), ``random_state`` (default
+``None``), ``n_jobs`` (default -1), ``sample_weight``
+(``Option<Vector<Float>>`` per-row weights, default uniform),
+``categorical_features`` (``Option<Vector<Integer>>`` zero-based column
+indices), ``categorical_n`` (``Option<Vector<Integer>>`` category count per
+categorical feature), ``max_cat_to_onehot`` (default 4),
+``max_cat_threshold`` (default 64).
+"""
 
 # XGBoost quantile configuration
 XGBoostQuantileConfigType = StructType(
@@ -425,6 +614,18 @@ XGBoostQuantileConfigType = StructType(
         ("max_cat_threshold", OptionType(IntegerType)),  # default 64
     ]
 )
+"""Configuration for XGBoost quantile regression (one model per quantile).
+
+Fields: ``quantiles`` (``Vector<Float>`` e.g. ``[0.1, 0.5, 0.9]``), plus
+the same hyperparameters as ``XGBoostConfigType`` - ``n_estimators``
+(default 100), ``max_depth`` (default 6), ``learning_rate`` (default 0.3),
+``min_child_weight`` (default 1), ``subsample`` (default 1.0),
+``colsample_bytree`` (default 1.0), ``reg_alpha`` (L1, default 0),
+``reg_lambda`` (L2, default 1), ``gamma`` (default 0),
+``random_state`` (default ``None``), ``n_jobs`` (default -1),
+``sample_weight``, ``categorical_features``, ``categorical_n``,
+``max_cat_to_onehot`` (default 4), ``max_cat_threshold`` (default 64).
+"""
 
 # LightGBM configuration
 LightGBMConfigType = StructType(
@@ -442,6 +643,15 @@ LightGBMConfigType = StructType(
         ("n_jobs", OptionType(IntegerType)),  # default -1
     ]
 )
+"""Configuration for LightGBM regression and classification.
+
+Fields: ``n_estimators`` (default 100), ``max_depth`` (default -1 -
+unlimited depth), ``learning_rate`` (default 0.1), ``num_leaves`` (default
+31), ``min_child_samples`` (default 20), ``subsample`` (default 1.0),
+``colsample_bytree`` (default 1.0), ``reg_alpha`` (L1, default 0),
+``reg_lambda`` (L2, default 0), ``random_state`` (default ``None``),
+``n_jobs`` (default -1).
+"""
 
 # NGBoost configuration
 NGBoostConfigType = StructType(
@@ -454,6 +664,12 @@ NGBoostConfigType = StructType(
         ("distribution", OptionType(NGBoostDistributionType)),  # default normal
     ]
 )
+"""Configuration for NGBoost probabilistic regression.
+
+Fields: ``n_estimators`` (default 500), ``learning_rate`` (default 0.01),
+``minibatch_frac`` (default 1.0), ``col_sample`` (default 1.0),
+``random_state`` (default ``None``), ``distribution`` (default ``normal``).
+"""
 
 # NGBoost prediction configuration
 NGBoostPredictConfigType = StructType(
@@ -461,6 +677,11 @@ NGBoostPredictConfigType = StructType(
         ("confidence_level", OptionType(FloatType)),  # default 0.95
     ]
 )
+"""Configuration for NGBoost prediction intervals.
+
+Fields: ``confidence_level`` (default 0.95 - symmetric interval width
+around the point prediction).
+"""
 
 # Torch MLP configuration
 TorchMLPConfigType = StructType(
@@ -476,6 +697,14 @@ TorchMLPConfigType = StructType(
         ),  # per-row constraints
     ]
 )
+"""Architecture configuration for the Torch MLP.
+
+Fields: ``hidden_layers`` (``Array<Integer>`` e.g. ``[64, 32]``),
+``activation`` (default ``relu``), ``output_activation`` (default
+``none``), ``dropout`` (default 0.0), ``output_dim`` (default 1),
+``output_constraints`` (``Option<ConstrainedOutputConfigType>`` - per-row
+structural output constraints).
+"""
 
 # Torch training configuration
 TorchTrainConfigType = StructType(
@@ -499,6 +728,16 @@ TorchTrainConfigType = StructType(
         ),  # per-sample constraints
     ]
 )
+"""Training loop configuration for the Torch MLP.
+
+Fields: ``epochs`` (default 100), ``batch_size`` (default 32),
+``learning_rate`` (default 0.001), ``loss`` (default ``mse``),
+``optimizer`` (default ``adam``), ``early_stopping`` (patience in epochs;
+0 = disabled), ``validation_split`` (default 0.2),
+``random_state``, ``pos_weight`` (BCE class-imbalance weight - scalar or
+per-output), ``prior`` (prior regularization config),
+``sample_constraints`` (per-sample mask/weight/prior overrides).
+"""
 
 # GP configuration
 GPConfigType = StructType(
@@ -510,6 +749,13 @@ GPConfigType = StructType(
         ("random_state", OptionType(IntegerType)),  # for reproducibility
     ]
 )
+"""Configuration for Gaussian Process regression.
+
+Fields: ``kernel`` (default ``rbf``), ``alpha`` (observation noise
+variance added to the diagonal, default 1e-10), ``n_restarts_optimizer``
+(random restarts for marginal likelihood maximization, default 0),
+``normalize_y`` (default ``False``), ``random_state``.
+"""
 
 # GMM configuration
 GMMConfigType = StructType(
@@ -523,6 +769,14 @@ GMMConfigType = StructType(
         ("random_state", OptionType(IntegerType)),  # default None
     ]
 )
+"""Configuration for Gaussian Mixture Model fitting.
+
+Fields: ``n_components`` (default 1), ``covariance_type`` (default
+``full``), ``max_iter`` (EM iterations, default 100), ``n_init``
+(independent initializations, default 1), ``tol`` (default 1e-3),
+``reg_covar`` (covariance regularization, default 1e-6),
+``random_state`` (default ``None``).
+"""
 
 # RegressorChain base estimator config (variant carries type + config)
 RegressorChainBaseConfigType = VariantType(
@@ -533,6 +787,13 @@ RegressorChainBaseConfigType = VariantType(
         ("gp", GPConfigType),
     ]
 )
+"""Base estimator selector for sklearn ``RegressorChain``.
+
+Cases: ``xgboost`` (``XGBoostConfigType``), ``lightgbm``
+(``LightGBMConfigType``), ``ngboost`` (``NGBoostConfigType``), ``gp``
+(``GPConfigType``). The chosen estimator is fitted independently for
+each output in the chain.
+"""
 
 # RegressorChain configuration
 RegressorChainConfigType = StructType(
@@ -545,6 +806,13 @@ RegressorChainConfigType = StructType(
         ("random_state", OptionType(IntegerType)),  # Random seed
     ]
 )
+"""Configuration for sklearn ``RegressorChain`` (chained multi-output regression).
+
+Fields: ``base_estimator`` (which model and its config to replicate per
+target), ``order`` (``Option<Array<Integer>>`` target indices defining the
+chain order; default ``None`` = natural 0, 1, 2, … order),
+``random_state``.
+"""
 
 # ============================================================================
 # Result Types
@@ -561,6 +829,13 @@ SplitResultType = StructType(
         ("rejected_indices", ArrayType(IntegerType)),
     ]
 )
+"""Result of ``sklearn_split`` - N feature/target matrix pairs plus rejection info.
+
+Fields: ``X_splits`` (``Array<Matrix<Float>>`` - one feature matrix per
+split in ``split_sizes`` order), ``Y_splits`` (``Array<Matrix<Float>>`` -
+matching target matrices), ``rejected_indices`` (``Array<Integer>`` rows
+dropped due to rare stratify classes or missing overlap values).
+"""
 
 # Overlap configuration (for filtering targets to match reference categories)
 OverlapConfigType = StructType(
@@ -569,6 +844,11 @@ OverlapConfigType = StructType(
         ("cat_indices", VectorType(IntegerType)),
     ]
 )
+"""Configuration for ``sklearn_overlap`` - specifies which X columns are categorical.
+
+Fields: ``cat_indices`` (``Vector<Integer>`` - zero-based column indices
+treated as categorical when computing overlap filtering).
+"""
 
 # Overlap result
 OverlapResultType = StructType(
@@ -583,6 +863,14 @@ OverlapResultType = StructType(
         ("known_categories", ArrayType(VectorType(IntegerType))),
     ]
 )
+"""Result of ``sklearn_overlap`` - feature/target pairs filtered to reference categories.
+
+Fields: ``X_filtered`` (``Array<Matrix<Float>>`` - one feature matrix per
+target dataset), ``Y_filtered`` (``Array<Matrix<Float>>`` - matching target
+matrices), ``rejected_counts`` (``Vector<Integer>`` rows dropped per
+target), ``known_categories`` (``Array<Vector<Integer>>`` - sorted known
+values per categorical column derived from the reference dataset).
+"""
 
 # ============================================================================
 # Flexible Metrics Types
@@ -605,6 +893,14 @@ RegressionMetricType = VariantType(
         ("mean_tweedie_deviance", FloatType),  # Skewed distributions (param = power)
     ]
 )
+"""Regression metric selector used in ``sklearn_metrics`` and multi-target variants.
+
+Cases: ``mse``, ``rmse``, ``mae``, ``r2``, ``mape``, ``explained_variance``,
+``max_error``, ``median_ae``, ``mean_error`` (bias: mean(pred - true)),
+``pinball_loss`` (``Float`` quantile alpha), ``huber`` (``Float`` delta for
+robust loss), ``mean_tweedie_deviance`` (``Float`` power for skewed
+distributions).
+"""
 
 # Single metric result
 MetricResultType = StructType(
@@ -613,9 +909,15 @@ MetricResultType = StructType(
         ("value", FloatType),
     ]
 )
+"""Single regression metric result from ``sklearn_metrics``.
+
+Fields: ``metric`` (which metric was computed), ``value`` (``Float``
+computed value).
+"""
 
 # Multiple metrics result
 MetricsResultType = ArrayType(MetricResultType)
+"""Array of ``MetricResultType`` - one entry per requested metric from ``sklearn_metrics``."""
 
 # Metric aggregation type
 MetricAggregationType = VariantType(
@@ -624,6 +926,11 @@ MetricAggregationType = VariantType(
         ("uniform_average", NullType),
     ]
 )
+"""Aggregation strategy for multi-target regression metrics.
+
+Cases: ``per_target`` (return one value per output column),
+``uniform_average`` (scalar average across all outputs).
+"""
 
 # Multi-target metrics config
 MultiMetricsConfigType = StructType(
@@ -631,6 +938,10 @@ MultiMetricsConfigType = StructType(
         ("aggregation", OptionType(MetricAggregationType)),
     ]
 )
+"""Configuration for ``sklearn_multi_metrics`` aggregation strategy.
+
+Fields: ``aggregation`` (default ``uniform_average``).
+"""
 
 # Multi-target metric value (scalar or per-target)
 MultiMetricValueType = VariantType(
@@ -639,6 +950,11 @@ MultiMetricValueType = VariantType(
         ("per_target", VectorType(FloatType)),
     ]
 )
+"""Metric value for multi-target regression - aggregated or per-output.
+
+Cases: ``scalar`` (``Float`` - uniform average across targets),
+``per_target`` (``Vector<Float>`` - one value per output column).
+"""
 
 # Multi-target metric result
 MultiMetricResultType = StructType(
@@ -647,9 +963,15 @@ MultiMetricResultType = StructType(
         ("value", MultiMetricValueType),
     ]
 )
+"""Single metric result for multi-target regression from ``sklearn_multi_metrics``.
+
+Fields: ``metric`` (which metric), ``value`` (``MultiMetricValueType`` -
+scalar or per-target).
+"""
 
 # Multi-target metrics result
 MultiMetricsResultType = ArrayType(MultiMetricResultType)
+"""Array of ``MultiMetricResultType`` - one entry per requested metric."""
 
 # Cohen's Kappa weights type
 CohenKappaWeightsType = VariantType(
@@ -659,6 +981,12 @@ CohenKappaWeightsType = VariantType(
         ("quadratic", NullType),
     ]
 )
+"""Disagreement weighting scheme for Cohen's Kappa.
+
+Cases: ``none`` (unweighted - all disagreements equal), ``linear``
+(penalty proportional to distance), ``quadratic`` (penalty proportional
+to squared distance).
+"""
 
 # Classification metric variant
 ClassificationMetricType = VariantType(
@@ -673,6 +1001,12 @@ ClassificationMetricType = VariantType(
         ("jaccard", NullType),
     ]
 )
+"""Classification metric selector used in ``sklearn_classification_metrics``.
+
+Cases: ``accuracy``, ``balanced_accuracy``, ``precision``, ``recall``,
+``f1``, ``matthews_corrcoef``, ``cohen_kappa`` (``CohenKappaWeightsType``
+weighting scheme), ``jaccard``.
+"""
 
 # Classification averaging type
 ClassificationAverageType = VariantType(
@@ -683,6 +1017,12 @@ ClassificationAverageType = VariantType(
         ("binary", NullType),
     ]
 )
+"""Averaging strategy for multi-class/multi-label classification metrics.
+
+Cases: ``macro`` (unweighted mean per class), ``micro`` (globally pooled
+counts), ``weighted`` (support-weighted mean), ``binary`` (positive class
+only - for binary problems).
+"""
 
 # ROC AUC multi-class strategy type
 RocAucMultiClassType = VariantType(
@@ -691,6 +1031,10 @@ RocAucMultiClassType = VariantType(
         ("ovo", NullType),  # One-vs-one
     ]
 )
+"""Multi-class extension strategy for ROC AUC.
+
+Cases: ``ovr`` (default - one-vs-rest), ``ovo`` (one-vs-one).
+"""
 
 # ROC AUC configuration type
 RocAucConfigType = StructType(
@@ -699,6 +1043,10 @@ RocAucConfigType = StructType(
         ("average", OptionType(ClassificationAverageType)),  # default macro
     ]
 )
+"""Configuration for ``sklearn_roc_auc``.
+
+Fields: ``multi_class`` (default ``ovr``), ``average`` (default ``macro``).
+"""
 
 # Classification metrics config
 ClassificationMetricsConfigType = StructType(
@@ -706,6 +1054,10 @@ ClassificationMetricsConfigType = StructType(
         ("average", OptionType(ClassificationAverageType)),
     ]
 )
+"""Configuration for ``sklearn_classification_metrics`` averaging strategy.
+
+Fields: ``average`` (default ``macro``).
+"""
 
 # Single classification metric result
 ClassificationMetricResultType = StructType(
@@ -714,9 +1066,15 @@ ClassificationMetricResultType = StructType(
         ("value", FloatType),
     ]
 )
+"""Single classification metric result from ``sklearn_classification_metrics``.
+
+Fields: ``metric`` (which metric was computed), ``value`` (``Float``
+computed value).
+"""
 
 # Multiple classification metrics result
 ClassificationMetricResultsType = ArrayType(ClassificationMetricResultType)
+"""Array of ``ClassificationMetricResultType`` - one entry per requested metric."""
 
 # Multi-target classification config
 MultiClassificationConfigType = StructType(
@@ -725,6 +1083,11 @@ MultiClassificationConfigType = StructType(
         ("aggregation", OptionType(MetricAggregationType)),
     ]
 )
+"""Configuration for multi-target classification metrics.
+
+Fields: ``average`` (per-class averaging, default ``macro``),
+``aggregation`` (cross-target aggregation, default ``uniform_average``).
+"""
 
 # Multi-target classification metric result
 MultiClassificationMetricResultType = StructType(
@@ -733,9 +1096,15 @@ MultiClassificationMetricResultType = StructType(
         ("value", MultiMetricValueType),
     ]
 )
+"""Single metric result for multi-target classification.
+
+Fields: ``metric`` (which metric), ``value`` (``MultiMetricValueType`` -
+scalar or per-target).
+"""
 
 # Multi-target classification metrics result
 MultiClassificationMetricResultsType = ArrayType(MultiClassificationMetricResultType)
+"""Array of ``MultiClassificationMetricResultType`` - one entry per requested metric."""
 
 # SciPy stats describe result
 StatsDescribeResultType = StructType(
@@ -749,6 +1118,11 @@ StatsDescribeResultType = StructType(
         ("max", FloatType),
     ]
 )
+"""Descriptive statistics result from ``scipy_stats_describe``.
+
+Fields: ``count`` (sample size), ``mean``, ``variance``, ``skewness``
+(Fisher's definition), ``kurtosis`` (excess kurtosis), ``min``, ``max``.
+"""
 
 # Robust statistics result (median-based, outlier-resistant)
 RobustStatsResultType = StructType(
@@ -760,6 +1134,12 @@ RobustStatsResultType = StructType(
         ("q3", FloatType),
     ]
 )
+"""Robust (median-based) statistics result from ``scipy_robust_stats``.
+
+Fields: ``median``, ``iqr`` (interquartile range), ``mad``
+(median absolute deviation), ``q1`` (25th percentile), ``q3``
+(75th percentile).
+"""
 
 # Correlation result
 CorrelationResultType = StructType(
@@ -768,6 +1148,11 @@ CorrelationResultType = StructType(
         ("pvalue", FloatType),
     ]
 )
+"""Pairwise correlation result from ``scipy_pearsonr`` / ``scipy_spearmanr``.
+
+Fields: ``correlation`` (coefficient in [-1, 1]), ``pvalue``
+(two-tailed significance).
+"""
 
 # Histogram result
 HistogramResultType = StructType(
@@ -776,6 +1161,11 @@ HistogramResultType = StructType(
         ("bin_edges", VectorType(FloatType)),  # length = len(counts) + 1
     ]
 )
+"""Histogram result from ``scipy_histogram``.
+
+Fields: ``counts`` (``Vector<Float>`` - bin values; float to support
+density mode), ``bin_edges`` (``Vector<Float>`` - length ``len(counts)+1``).
+"""
 
 # KDE result metadata
 KdeResultType = StructType(
@@ -785,6 +1175,11 @@ KdeResultType = StructType(
         ("data_max", FloatType),  # max of training data
     ]
 )
+"""Kernel density estimator metadata from ``scipy_kde_fit``.
+
+Fields: ``bandwidth`` (actual bandwidth factor applied), ``data_min`` /
+``data_max`` (range of the training data, used to bound evaluation grids).
+"""
 
 # Curve fitting result
 CurveFitResultType = StructType(
@@ -794,6 +1189,12 @@ CurveFitResultType = StructType(
         ("r_squared", FloatType),
     ]
 )
+"""Result of ``scipy_curve_fit``.
+
+Fields: ``params`` (``Vector<Float>`` - fitted parameter values),
+``success`` (whether the optimizer converged), ``r_squared``
+(coefficient of determination on the training data).
+"""
 
 # SciPy optimization result
 OptimizeResultType = StructType(
@@ -804,6 +1205,12 @@ OptimizeResultType = StructType(
         ("nit", IntegerType),  # Number of iterations
     ]
 )
+"""Result of ``scipy_optimize``.
+
+Fields: ``x`` (``Vector<Float>`` - optimal parameter values), ``fun``
+(objective value at ``x``), ``success`` (optimizer convergence flag),
+``nit`` (iterations taken).
+"""
 
 # SciPy dual annealing bounds (required)
 DualAnnealBoundsType = StructType(
@@ -812,6 +1219,11 @@ DualAnnealBoundsType = StructType(
         ("upper", VectorType(FloatType)),  # Upper bounds for each variable
     ]
 )
+"""Required search-space bounds for ``scipy_dual_anneal``.
+
+Fields: ``lower`` / ``upper`` (``Vector<Float>`` - one bound per decision
+variable; must match the objective's input dimension).
+"""
 
 # SciPy dual annealing configuration
 DualAnnealConfigType = StructType(
@@ -829,6 +1241,16 @@ DualAnnealConfigType = StructType(
         ("no_local_search", OptionType(BooleanType)),  # Disable local search
     ]
 )
+"""Configuration for ``scipy_dual_anneal`` (dual annealing global optimizer).
+
+Fields: ``maxfun`` (max function evaluations, SciPy default 1e7 - pass
+explicitly to cap), ``maxiter`` (max annealing iterations, SciPy default
+1000), ``initial_temp`` (SciPy default 5230), ``restart_temp_ratio``
+(restart threshold, SciPy default 2e-5), ``visit`` (visiting distribution
+parameter, SciPy default 2.62), ``accept`` (acceptance parameter, SciPy
+default -5.0), ``seed`` (random seed), ``no_local_search`` (disable local
+polishing, default ``False``).
+"""
 
 # SciPy dual annealing result
 DualAnnealResultType = StructType(
@@ -841,6 +1263,13 @@ DualAnnealResultType = StructType(
         ("message", StringType),  # Status message
     ]
 )
+"""Result of ``scipy_dual_anneal``.
+
+Fields: ``x`` (``Vector<Float>`` - best solution found), ``fun`` (best
+objective value), ``nfev`` (function evaluations), ``nit``
+(iterations), ``success`` (convergence flag), ``message`` (status
+string from SciPy).
+"""
 
 # NGBoost prediction result (with uncertainty)
 NGBoostPredictResultType = StructType(
@@ -851,6 +1280,13 @@ NGBoostPredictResultType = StructType(
         ("upper", OptionType(VectorType(FloatType))),  # Upper confidence interval
     ]
 )
+"""NGBoost prediction result with uncertainty from ``ngboost_predict``.
+
+Fields: ``predictions`` (``Vector<Float>`` - point predictions / mean),
+``std`` (``Option<Vector<Float>>`` - predictive standard deviation),
+``lower`` / ``upper`` (``Option<Vector<Float>>`` - confidence interval
+bounds at the configured ``confidence_level``).
+"""
 
 # XGBoost quantile prediction result
 XGBoostQuantilePredictResultType = StructType(
@@ -859,6 +1295,12 @@ XGBoostQuantilePredictResultType = StructType(
         ("predictions", MatrixType(FloatType)),  # Predictions matrix (n_samples x n_quantiles)
     ]
 )
+"""XGBoost quantile regression prediction result from ``xgboost_quantile_predict``.
+
+Fields: ``quantiles`` (``Vector<Float>`` - the quantile levels that were
+predicted), ``predictions`` (``Matrix<Float>`` shape
+``n_samples x n_quantiles``).
+"""
 
 # SHAP values variant type - 2D (regression/binary) or 3D (multi-class)
 ShapValuesType = VariantType(
@@ -870,6 +1312,13 @@ ShapValuesType = VariantType(
         ),  # 3D for multi-class (n_samples x n_features x n_classes)
     ]
 )
+"""SHAP attribution values - 2-D for single-output models, 3-D for multi-class.
+
+Cases: ``matrix_2d`` (``Matrix<Float>`` shape ``n_samples x n_features`` -
+regression or binary classification), ``tensor_3d``
+(``Array<Matrix<Float>>`` shape ``n_classes x n_samples x n_features`` -
+multi-class classification).
+"""
 
 # SHAP base value variant type - single (regression/binary) or per-class (multi-class)
 ShapBaseValueType = VariantType(
@@ -878,6 +1327,11 @@ ShapBaseValueType = VariantType(
         ("per_class", VectorType(FloatType)),  # Per-class base values for multi-class
     ]
 )
+"""SHAP expected-value baseline - scalar or per-class.
+
+Cases: ``single`` (``Float`` - regression/binary), ``per_class``
+(``Vector<Float>`` - one baseline value per class for multi-class models).
+"""
 
 # SHAP values result
 ShapResultType = StructType(
@@ -887,6 +1341,12 @@ ShapResultType = StructType(
         ("feature_names", StringVectorType),  # Feature names
     ]
 )
+"""SHAP explanation result from ``shap_values``.
+
+Fields: ``shap_values`` (2-D or 3-D attributions), ``base_value``
+(model expected output - scalar or per-class), ``feature_names``
+(``Array<String>`` feature labels in column order).
+"""
 
 # Feature importance result
 FeatureImportanceType = StructType(
@@ -896,6 +1356,13 @@ FeatureImportanceType = StructType(
         ("std", OptionType(VectorType(FloatType))),  # Std of |SHAP| for each feature
     ]
 )
+"""SHAP-based feature importance from ``shap_feature_importance``.
+
+Fields: ``feature_names`` (``Array<String>``), ``importances``
+(``Vector<Float>`` - mean absolute SHAP value per feature),
+``std`` (``Option<Vector<Float>>`` - standard deviation of |SHAP| per
+feature, present when computed).
+"""
 
 # Torch training result
 TorchTrainResultType = StructType(
@@ -905,6 +1372,12 @@ TorchTrainResultType = StructType(
         ("best_epoch", IntegerType),  # Best epoch (for early stopping)
     ]
 )
+"""Training diagnostics from ``torch_train``.
+
+Fields: ``train_losses`` / ``val_losses`` (``Vector<Float>`` - loss per
+epoch), ``best_epoch`` (epoch index of lowest validation loss, used for
+early-stopping recovery).
+"""
 
 # ============================================================================
 # Lightning Types
@@ -947,6 +1420,16 @@ LightningOutputType = VariantType(
         ),
     ]
 )
+"""Output head type for a Lightning model - determines loss and final activation.
+
+Cases: ``regression`` (MSE loss, no activation), ``binary`` ``{pos_weight}``
+(BCE loss with sigmoid; ``pos_weight`` is a ``Vector<Float>`` per output
+for class-imbalance correction), ``multiclass`` ``{n_classes, class_weights}``
+(CrossEntropy with softmax; ``class_weights`` is ``Option<Vector<Float>>``),
+``multi_head`` ``{n_heads, n_classes_per_head, class_weights}`` (N
+independent CrossEntropy heads; ``class_weights`` is
+``Option<Matrix<Float>>`` shape ``n_heads x n_classes``).
+"""
 
 # Lightning architecture
 LightningArchitectureType = VariantType(
@@ -971,9 +1454,20 @@ LightningArchitectureType = VariantType(
         ),
     ]
 )
+"""Network architecture for a Lightning model.
+
+Cases: ``mlp`` ``{hidden_layers}`` (standard multi-layer perceptron),
+``autoencoder`` ``{encoder_layers, latent_dim, decoder_layers}``
+(encoder-decoder with a bottleneck; ``encoder_layers`` and
+``decoder_layers`` are ``Array<Integer>`` of hidden widths).
+"""
 
 # Lightning epoch callback: (epoch, train_loss, val_loss) -> void
 LightningEpochCallbackType = FunctionType([IntegerType, FloatType, FloatType], NullType)
+"""East function type ``(Integer, Float, Float) -> Null`` called after each training epoch.
+
+Signature: ``(epoch, train_loss, val_loss) -> Null``.
+"""
 
 # Lightning training configuration
 LightningConfigType = StructType(
@@ -991,6 +1485,16 @@ LightningConfigType = StructType(
         ("epoch_callback", OptionType(LightningEpochCallbackType)),  # called each epoch
     ]
 )
+"""Full training configuration for a PyTorch Lightning model.
+
+Fields: ``architecture`` (network shape), ``output`` (loss and activation
+head), ``learning_rate`` (default 1e-3), ``max_epochs`` (default 100),
+``patience`` (early-stopping patience, default 10), ``batch_size``
+(default 32), ``dropout`` (default 0.1), ``gradient_clip`` (default 1.0),
+``weight_decay`` (L2 regularization, default 0), ``random_state``,
+``epoch_callback`` (``Option<LightningEpochCallbackType>`` called after
+each epoch with ``epoch``, ``train_loss``, ``val_loss``).
+"""
 
 # Lightning model blob - single "lightning" variant case (mirrors the unified
 # ModelBlobType "lightning" case; defined here to satisfy top-to-bottom eval)
@@ -1011,6 +1515,15 @@ LightningModelBlobType = VariantType(
         ),
     ]
 )
+"""Serialized Lightning model blob returned by ``lightning_train``.
+
+Single case ``lightning``: ``data`` (pickle-serialized ``state_dict`` +
+hparams), ``n_features`` (input dimension), ``output_dim`` (output
+dimension), ``architecture_type`` (``"mlp"`` or ``"autoencoder"``),
+``output_type`` (``"regression"``, ``"binary"``, ``"multiclass"``, or
+``"multi_head"``), ``latent_dim`` (``Option<Integer>`` - bottleneck size,
+autoencoder only).
+"""
 
 # Lightning training result
 LightningResultType = StructType(
@@ -1021,6 +1534,12 @@ LightningResultType = StructType(
         ("best_epoch", IntegerType),
     ]
 )
+"""Training result from ``lightning_train``.
+
+Fields: ``model`` (serialized ``LightningModelBlobType``),
+``train_loss`` / ``val_loss`` (final epoch losses), ``best_epoch``
+(epoch index of the best checkpoint).
+"""
 
 # Group-based weights for Lightning (binary or multi_head)
 GroupWeightsType = StructType(
@@ -1041,6 +1560,15 @@ GroupWeightsType = StructType(
         ("sample_groups", ArrayType(IntegerType)),
     ]
 )
+"""Group-conditioned positive/class weights for Lightning binary and multi-head models.
+
+Different sample groups (e.g. cohorts or time windows) can receive
+different loss weights to handle heterogeneous class imbalance.
+Fields: ``weights`` (variant - ``binary``: ``Array<Array<Float>>`` shape
+``[n_groups][output_dim]``; ``multi_head``: ``Array<Array<Array<Float>>>``
+shape ``[n_groups][n_heads][n_classes]``), ``sample_groups``
+(``Array<Integer>`` - zero-based group index per training sample).
+"""
 
 # Lightning sequence generation configuration
 LightningGenerateConfigType = StructType(
@@ -1050,6 +1578,13 @@ LightningGenerateConfigType = StructType(
         ("return_probs", BooleanType),  # If true, return probabilities instead of samples
     ]
 )
+"""Configuration for autoregressive sequence generation with a Lightning model.
+
+Fields: ``n_steps`` (number of generation steps), ``temperature``
+(softmax temperature - 0.0 = argmax/greedy, >0 = scaled sampling),
+``return_probs`` (when ``True`` returns softmax probabilities instead of
+sampled token indices).
+"""
 
 # GP prediction result (with uncertainty)
 GPPredictResultType = StructType(
@@ -1058,6 +1593,11 @@ GPPredictResultType = StructType(
         ("std", VectorType(FloatType)),  # Predicted standard deviation
     ]
 )
+"""Gaussian Process prediction result from ``gp_predict``.
+
+Fields: ``mean`` (``Vector<Float>`` - posterior mean per sample), ``std``
+(``Vector<Float>`` - posterior standard deviation per sample).
+"""
 
 # ============================================================================
 # Model Blob Type
@@ -1103,6 +1643,14 @@ XGBoostModelBlobType = VariantType(
         ),
     ]
 )
+"""Serialized XGBoost model blob - reused by MAPIE conformal wrappers.
+
+Cases: ``xgboost_regressor`` ``{data, n_features, categorical_features,
+categorical_n}``, ``xgboost_classifier`` ``{data, n_features, n_classes,
+categorical_features, categorical_n}``, ``xgboost_quantile`` ``{data,
+quantiles, n_features, categorical_features, categorical_n}``.
+All ``data`` fields are cloudpickle-serialized.
+"""
 
 LightGBMModelBlobType = VariantType(
     [
@@ -1127,6 +1675,12 @@ LightGBMModelBlobType = VariantType(
         ),
     ]
 )
+"""Serialized LightGBM model blob - reused by MAPIE conformal wrappers.
+
+Cases: ``lightgbm_regressor`` ``{data, n_features}``,
+``lightgbm_classifier`` ``{data, n_features, n_classes}``.
+All ``data`` fields are cloudpickle-serialized.
+"""
 
 # Model blob type - each model type has its own variant case
 ModelBlobType = VariantType(
@@ -1350,6 +1904,24 @@ ModelBlobType = VariantType(
         ),
     ]
 )
+"""Unified model blob covering all serializable model types across modules.
+
+Cases: ``standard_scaler`` / ``min_max_scaler`` / ``robust_scaler``
+(ONNX-serialized sklearn scalers, ``{onnx, n_features}``),
+``label_encoder`` / ``ordinal_encoder`` (cloudpickle-serialized sklearn
+encoders), ``scipy_interp_1d`` / ``scipy_kde`` (cloudpickle SciPy objects),
+``xgboost_regressor`` / ``xgboost_classifier`` / ``xgboost_quantile``
+(cloudpickle XGBoost, see ``XGBoostModelBlobType``), ``lightgbm_regressor``
+/ ``lightgbm_classifier`` (cloudpickle LightGBM), ``ngboost_regressor``
+(cloudpickle NGBoost ``{data, distribution, n_features}``),
+``shap_tree_explainer`` / ``shap_kernel_explainer`` (cloudpickle SHAP
+explainers), ``torch_mlp`` (cloudpickle PyTorch MLP ``{data, n_features,
+hidden_layers, output_dim}``), ``regressor_chain`` (cloudpickle
+RegressorChain ``{data, n_features, n_targets, base_estimator_type}``),
+``gp_regressor`` (cloudpickle GP ``{data, n_features, kernel_type}``),
+``lightning`` (pickle state_dict + hparams, see ``LightningModelBlobType``),
+``gaussian_mixture`` (cloudpickle GMM ``{data, n_features, n_components}``).
+"""
 
 # TreeExplainer config type - path_dependent (tree structure) or interventional (background data)
 TreeExplainerConfigType = VariantType(
@@ -1373,6 +1945,13 @@ TreeExplainerConfigType = VariantType(
         ),
     ]
 )
+"""SHAP TreeExplainer construction config - chooses attribution method.
+
+Cases: ``path_dependent`` ``{model}`` (uses tree structure for exact
+Shapley values - no background data required), ``interventional``
+``{model, background}`` (uses a background dataset to condition on
+feature absence - recommended when features are correlated).
+"""
 
 # ============================================================================
 # Helper Functions

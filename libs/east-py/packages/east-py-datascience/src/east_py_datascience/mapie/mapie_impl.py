@@ -50,6 +50,13 @@ MAPIEBaseModelDataType = VariantType(
         ("histogram", BlobType),
     ]
 )
+"""Serialized base model data inside a MAPIE blob.
+
+Cases: ``xgboost`` (``XGBoostModelBlobType`` - regressor or classifier
+nested variant), ``lightgbm`` (``LightGBMModelBlobType`` - regressor or
+classifier nested variant), ``histogram`` (bare ``Blob`` for
+``HistGradientBoostingRegressor`` used by CQR).
+"""
 
 # MAPIE regressor model blob type (MAPIE 1.2.0)
 MAPIERegressorBlobType = VariantType(
@@ -86,6 +93,13 @@ MAPIERegressorBlobType = VariantType(
         ),
     ]
 )
+"""Fitted MAPIE conformal regressor blob.
+
+Cases: ``mapie_split`` (split-conformal), ``mapie_cross``
+(cross-conformal), ``mapie_cqr`` (conformalized quantile regression) -
+each carrying ``{data: MAPIEBaseModelDataType, n_features: Integer,
+confidence_level: Float}``.
+"""
 
 # MAPIE classifier model blob type (single-case variant for consistency)
 MAPIEClassifierBlobType = VariantType(
@@ -104,6 +118,13 @@ MAPIEClassifierBlobType = VariantType(
         ),
     ]
 )
+"""Fitted MAPIE split-conformal classifier blob.
+
+Single case ``mapie_classifier``: ``data`` (``MAPIEBaseModelDataType``),
+``n_features``, ``n_classes`` (internal 0-indexed count), ``classes``
+(``Vector<Integer>`` - original label values for remapping predictions
+back), ``confidence_level``.
+"""
 
 # Interval result type
 IntervalResultType = StructType(
@@ -113,6 +134,11 @@ IntervalResultType = StructType(
         ("upper", VectorType(FloatType)),
     ]
 )
+"""Conformal prediction interval result for regression.
+
+Fields: ``lower``, ``pred``, ``upper`` (all ``Vector<Float>``, one entry
+per input row) at the confidence level the model was calibrated with.
+"""
 
 # Prediction set result type
 PredictionSetResultType = StructType(
@@ -123,6 +149,15 @@ PredictionSetResultType = StructType(
         ("set_sizes", VectorType(IntegerType)),
     ]
 )
+"""Conformal prediction set result for classification.
+
+Fields: ``pred`` (``Vector<Integer>`` argmax label per row, original label
+space), ``sets`` (``Array<Array<Integer>>`` conformal prediction set per
+row in original label space), ``probabilities``
+(``Matrix<Float>`` base-classifier ``predict_proba`` output,
+shape ``n_rows × n_classes``), ``set_sizes``
+(``Vector<Integer>`` number of classes in each prediction set).
+"""
 
 # Uncertainty predictor type (for SHAP integration)
 UncertaintyPredictorType = VariantType(
@@ -137,6 +172,13 @@ UncertaintyPredictorType = VariantType(
         ),
     ]
 )
+"""Lightweight uncertainty predictor blob for SHAP integration.
+
+Cases: ``mapie_interval_width`` (wraps a MAPIE regressor; ``predict``
+returns ``upper - lower`` interval width), ``mapie_set_size`` (wraps a
+MAPIE classifier; ``predict`` returns conformal set size). Both carry
+``{data: Blob, n_features: Integer}``.
+"""
 
 # Config types - use full XGBoost/LightGBM config types for complete parameter support
 XGBoostConfigType = StructType(
@@ -159,6 +201,19 @@ XGBoostConfigType = StructType(
         ("max_cat_threshold", OptionType(IntegerType)),
     ]
 )
+"""XGBoost hyperparameter configuration for MAPIE base models.
+
+Fields: ``n_estimators`` (default 100), ``max_depth`` (default 6),
+``learning_rate`` (default 0.3), ``min_child_weight`` (default 1),
+``subsample`` (default 1.0), ``colsample_bytree`` (default 1.0),
+``reg_alpha`` (default 0), ``reg_lambda`` (default 1), ``gamma``
+(default 0), ``random_state``, ``n_jobs`` (default -1),
+``sample_weight`` (per-row training weights), ``categorical_features``
+(0-based column indices for native categorical splits),
+``categorical_n`` (total category count per categorical feature, one
+entry per entry in ``categorical_features``),
+``max_cat_to_onehot``, ``max_cat_threshold``.
+"""
 
 LightGBMConfigType = StructType(
     [
@@ -175,6 +230,14 @@ LightGBMConfigType = StructType(
         ("n_jobs", OptionType(IntegerType)),
     ]
 )
+"""LightGBM hyperparameter configuration for MAPIE base models.
+
+Fields: ``n_estimators`` (default 100), ``max_depth`` (default -1,
+unlimited), ``learning_rate`` (default 0.1), ``num_leaves`` (default 31),
+``min_child_samples`` (default 20), ``subsample`` (default 1.0),
+``colsample_bytree`` (default 1.0), ``reg_alpha`` (default 0),
+``reg_lambda`` (default 0), ``random_state``, ``n_jobs`` (default -1).
+"""
 
 BaseModelType = VariantType(
     [
@@ -182,6 +245,11 @@ BaseModelType = VariantType(
         ("lightgbm", LightGBMConfigType),
     ]
 )
+"""Base regressor choice for ``MAPIEConfigType``.
+
+Cases: ``xgboost`` (``XGBoostConfigType``), ``lightgbm``
+(``LightGBMConfigType``).
+"""
 
 ConformalMethodType = VariantType(
     [
@@ -189,6 +257,11 @@ ConformalMethodType = VariantType(
         ("cross", NullType),
     ]
 )
+"""Conformal method for ``MAPIEConfigType``.
+
+Cases: ``split`` (split-conformal - fit on train, calibrate on calib),
+``cross`` (cross-conformal - combines train+calib with cross-validation).
+"""
 
 MAPIEConfigType = StructType(
     [
@@ -199,6 +272,13 @@ MAPIEConfigType = StructType(
         ("random_state", OptionType(IntegerType)),
     ]
 )
+"""Configuration for training a MAPIE conformal regressor.
+
+Fields: ``base_model`` (``BaseModelType``, required - ``xgboost`` or
+``lightgbm``), ``method`` (``ConformalMethodType``, default ``split``),
+``confidence_level`` (target coverage probability, default 0.9),
+``cv_folds`` (folds for ``cross`` method, default 5), ``random_state``.
+"""
 
 MAPIECQRConfigType = StructType(
     [
@@ -207,6 +287,14 @@ MAPIECQRConfigType = StructType(
         ("random_state", OptionType(IntegerType)),
     ]
 )
+"""Configuration for training a MAPIE conformalized quantile regressor.
+
+Fields: ``xgboost_config`` (``XGBoostConfigType``, required - parameters
+mapped onto ``HistGradientBoostingRegressor``: ``n_estimators`` →
+``max_iter`` (default 100), ``max_depth`` (default 6), ``learning_rate``
+(default 0.1), ``reg_lambda`` → ``l2_regularization`` (default 0)),
+``confidence_level`` (default 0.9), ``random_state``.
+"""
 
 ClassificationMethodType = VariantType(
     [
@@ -214,6 +302,11 @@ ClassificationMethodType = VariantType(
         ("aps", NullType),
     ]
 )
+"""Conformity score method for ``MAPIEClassifierConfigType``.
+
+Cases: ``lac`` (Least Ambiguous Classifier - default, tighter sets),
+``aps`` (Adaptive Prediction Sets - better coverage on hard examples).
+"""
 
 BaseClassifierType = VariantType(
     [
@@ -221,6 +314,11 @@ BaseClassifierType = VariantType(
         ("lightgbm", LightGBMConfigType),
     ]
 )
+"""Base classifier choice for ``MAPIEClassifierConfigType``.
+
+Cases: ``xgboost`` (``XGBoostConfigType``), ``lightgbm``
+(``LightGBMConfigType``).
+"""
 
 MAPIEClassifierConfigType = StructType(
     [
@@ -230,6 +328,13 @@ MAPIEClassifierConfigType = StructType(
         ("random_state", OptionType(IntegerType)),
     ]
 )
+"""Configuration for training a MAPIE split-conformal classifier.
+
+Fields: ``base_model`` (``BaseClassifierType``, required - ``xgboost``
+or ``lightgbm``), ``method`` (``ClassificationMethodType``, default
+``lac``), ``confidence_level`` (target coverage probability, default 0.9),
+``random_state``.
+"""
 
 
 # ============================================================================
@@ -588,7 +693,59 @@ def mapie_train_conformal_regressor_impl(
     y_calib: EastVector,
     config: EastStruct,
 ) -> EastVariant:
-    """Train a MAPIE conformal regressor (MAPIE 1.2.0 API)."""
+    """Train a MAPIE conformal regressor with split or cross-conformal method.
+
+    Fits the base model on the training set, then calibrates prediction
+    intervals on the calibration set (split), or combines both sets and
+    cross-fits (cross). Uses the MAPIE 1.2.0 API
+    (``SplitConformalRegressor`` / ``CrossConformalRegressor``).
+
+    Args:
+        X_train: ``Matrix<Float>`` (``EastMatrix``) - training features,
+            shape ``(n_train, n_features)``.
+        y_train: ``Vector<Float>`` (``EastVector``) - training targets,
+            length ``n_train``.
+        X_calib: ``Matrix<Float>`` (``EastMatrix``) - calibration features,
+            shape ``(n_calib, n_features)``; must have the same number of
+            columns as ``X_train``.
+        y_calib: ``Vector<Float>`` (``EastVector``) - calibration targets,
+            length ``n_calib``.
+        config: ``MAPIEConfigType`` (``EastStruct``) with fields:
+
+            - ``base_model`` (``BaseModelType``, required): ``xgboost``
+              ``XGBoostConfigType`` with ``{n_estimators (100), max_depth (6),
+              learning_rate (0.3), min_child_weight (1), subsample (1.0),
+              colsample_bytree (1.0), reg_alpha (0), reg_lambda (1),
+              gamma (0), random_state, n_jobs (-1), sample_weight,
+              categorical_features, categorical_n, max_cat_to_onehot,
+              max_cat_threshold}``; or ``lightgbm`` ``LightGBMConfigType``
+              with ``{n_estimators (100), max_depth (-1), learning_rate (0.1),
+              num_leaves (31), min_child_samples (20), subsample (1.0),
+              colsample_bytree (1.0), reg_alpha (0), reg_lambda (0),
+              random_state, n_jobs (-1)}``.
+            - ``method`` (``Option<ConformalMethodType>``): ``split`` (default)
+              or ``cross`` (uses ``cv_folds``).
+            - ``confidence_level`` (``Option<Float>``): target coverage
+              probability, default 0.9.
+            - ``cv_folds`` (``Option<Integer>``): cross-validation folds for
+              ``cross`` method, default 5.
+            - ``random_state`` (``Option<Integer>``): seed forwarded to the
+              base model.
+
+    Returns:
+        ``MAPIERegressorBlobType`` (``EastVariant``): tagged ``mapie_split``
+        or ``mapie_cross`` with ``{data: MAPIEBaseModelDataType,
+        n_features: Integer, confidence_level: Float}``, where
+        ``MAPIEBaseModelDataType`` is tagged ``xgboost``
+        (``XGBoostModelBlobType``) or ``lightgbm``
+        (``LightGBMModelBlobType``).  Use with
+        :func:`mapie_predict_interval_impl`.
+
+    Raises:
+        NotImplementedError: the ``mapie`` extra is not installed.
+        RuntimeError: shape mismatch between X/y arrays, categorical index
+            out of bounds or non-integer values, or training failure.
+    """
     _check_mapie_support()
     from mapie.conformity_scores import AbsoluteConformityScore
     from mapie.regression import CrossConformalRegressor, SplitConformalRegressor
@@ -751,10 +908,37 @@ def mapie_train_cqr_impl(
     y_calib: EastVector,
     config: EastStruct,
 ) -> EastVariant:
-    """Train a MAPIE CQR (Conformalized Quantile Regression) model.
+    """Train a MAPIE Conformalized Quantile Regression model.
 
-    Uses sklearn's HistGradientBoostingRegressor which has native quantile
-    support and is natively supported by MAPIE's CQR.
+    Uses ``sklearn.ensemble.HistGradientBoostingRegressor`` with quantile
+    loss, which natively supports MAPIE's ``ConformalizedQuantileRegressor``.
+    Training and calibration sets are combined internally.
+
+    Args:
+        X_train: ``Matrix<Float>`` (``EastMatrix``) - training features.
+        y_train: ``Vector<Float>`` (``EastVector``) - training targets.
+        X_calib: ``Matrix<Float>`` (``EastMatrix``) - calibration features.
+        y_calib: ``Vector<Float>`` (``EastVector``) - calibration targets.
+        config: ``MAPIECQRConfigType`` (``EastStruct``) with fields:
+
+            - ``xgboost_config`` (``XGBoostConfigType``, required): parameters
+              mapped to ``HistGradientBoostingRegressor`` - ``n_estimators``
+              becomes ``max_iter`` (default 100), ``max_depth`` (default 6),
+              ``learning_rate`` (default 0.1), ``reg_lambda`` becomes
+              ``l2_regularization`` (default 0).
+            - ``confidence_level`` (``Option<Float>``): target coverage
+              probability, default 0.9.
+            - ``random_state`` (``Option<Integer>``): seed.
+
+    Returns:
+        ``MAPIERegressorBlobType`` (``EastVariant``) tagged ``mapie_cqr``
+        with ``{data: MAPIEBaseModelDataType (histogram), n_features:
+        Integer, confidence_level: Float}``.  Use with
+        :func:`mapie_predict_interval_impl`.
+
+    Raises:
+        NotImplementedError: the ``mapie`` extra is not installed.
+        RuntimeError: shape mismatch between X/y arrays or training failure.
     """
     _check_mapie_support()
     from mapie.regression import ConformalizedQuantileRegressor
@@ -871,7 +1055,27 @@ def mapie_predict_interval_impl(
     model_blob: EastVariant,
     X: EastMatrix,
 ) -> EastStruct:
-    """Predict with intervals using the model's calibrated confidence level."""
+    """Predict regression targets with conformal prediction intervals.
+
+    Returns point predictions and lower/upper bounds at the confidence level
+    the model was calibrated with.
+
+    Args:
+        model_blob: ``MAPIERegressorBlobType`` (``EastVariant``) - a blob
+            produced by :func:`mapie_train_conformal_regressor_impl` or
+            :func:`mapie_train_cqr_impl` (tagged ``mapie_split``,
+            ``mapie_cross``, or ``mapie_cqr``).
+        X: ``Matrix<Float>`` (``EastMatrix``) - features to predict, must
+            have the same number of columns the model was trained with.
+
+    Returns:
+        ``IntervalResultType`` (``EastStruct``): ``lower``, ``pred``,
+        ``upper`` (all ``Vector<Float>``), one entry per input row.
+
+    Raises:
+        NotImplementedError: the ``mapie`` extra is not installed.
+        RuntimeError: feature-count mismatch or prediction failure.
+    """
     _check_mapie_support()
     model_data = model_blob.value
 
@@ -949,7 +1153,48 @@ def mapie_train_conformal_classifier_impl(
     y_calib: EastVector,
     config: EastStruct,
 ) -> EastStruct:
-    """Train a MAPIE conformal classifier (MAPIE 1.2.0 API)."""
+    """Train a MAPIE split-conformal classifier with prediction sets.
+
+    Fits the base classifier on the training set, then calibrates prediction
+    sets on the calibration set using ``SplitConformalClassifier``.  Class
+    labels are automatically remapped to a contiguous 0-indexed range
+    internally and remapped back in :func:`mapie_predict_set_impl`.
+
+    Args:
+        X_train: ``Matrix<Float>`` (``EastMatrix``) - training features,
+            shape ``(n_train, n_features)``.
+        y_train: ``Vector<Integer>`` (``EastVector``) - integer class labels,
+            length ``n_train``.
+        X_calib: ``Matrix<Float>`` (``EastMatrix``) - calibration features;
+            must have the same number of columns as ``X_train``.
+        y_calib: ``Vector<Integer>`` (``EastVector``) - calibration class
+            labels.
+        config: ``MAPIEClassifierConfigType`` (``EastStruct``) with fields:
+
+            - ``base_model`` (``BaseClassifierType``, required): ``xgboost``
+              ``XGBoostConfigType`` or ``lightgbm`` ``LightGBMConfigType``
+              (see :func:`mapie_train_conformal_regressor_impl` for field
+              details; ``sample_weight`` supported for XGBoost).
+            - ``method`` (``Option<ClassificationMethodType>``): ``lac``
+              (Least Ambiguous Classifier, default) or ``aps`` (Adaptive
+              Prediction Sets).
+            - ``confidence_level`` (``Option<Float>``): target coverage,
+              default 0.9.
+            - ``random_state`` (``Option<Integer>``): seed.
+
+    Returns:
+        ``MAPIEClassifierBlobType`` (``EastVariant``) tagged
+        ``mapie_classifier`` with ``{data: MAPIEBaseModelDataType,
+        n_features: Integer, n_classes: Integer,
+        classes: Vector<Integer> (original labels),
+        confidence_level: Float}``.  Use with
+        :func:`mapie_predict_set_impl`.
+
+    Raises:
+        NotImplementedError: the ``mapie`` extra is not installed.
+        RuntimeError: shape mismatch, categorical index out of bounds or
+            non-integer values, or training failure.
+    """
     _check_mapie_support()
     from mapie.classification import SplitConformalClassifier
 
@@ -1102,7 +1347,35 @@ def mapie_predict_set_impl(
     model_blob: EastVariant,
     X: EastMatrix,
 ) -> EastStruct:
-    """Predict with prediction sets using the model's calibrated confidence level."""
+    """Predict classification labels and conformal prediction sets.
+
+    Returns point predictions, the prediction set per row (class indices
+    meeting the coverage threshold), class probabilities from the base
+    classifier, and per-row set sizes.
+
+    Args:
+        model_blob: ``MAPIEClassifierBlobType`` (``EastVariant``) - a blob
+            produced by :func:`mapie_train_conformal_classifier_impl`
+            (tagged ``mapie_classifier``).
+        X: ``Matrix<Float>`` (``EastMatrix``) - features to predict; must
+            have the same number of columns the model was trained with.
+
+    Returns:
+        ``PredictionSetResultType`` (``EastStruct``):
+
+        - ``pred`` (``Vector<Integer>``): argmax class label per row
+          (in original label space).
+        - ``sets`` (``Array<Array<Integer>>``): per-row list of class labels
+          included in the prediction set (original label space).
+        - ``probabilities`` (``Matrix<Float>``): base-classifier
+          ``predict_proba`` output, shape ``(n_rows, n_classes)``.
+        - ``set_sizes`` (``Vector<Integer>``): number of classes in each
+          prediction set.
+
+    Raises:
+        NotImplementedError: the ``mapie`` extra is not installed.
+        RuntimeError: feature-count mismatch or prediction failure.
+    """
     _check_mapie_support()
     # Extract struct from variant (mapie_classifier)
     model_data = model_blob.value
@@ -1195,10 +1468,26 @@ def mapie_predict_set_impl(
 def mapie_uncertainty_predictor_regressor_impl(
     model_blob: EastVariant,
 ) -> EastVariant:
-    """Create an uncertainty predictor from a MAPIE regressor.
+    """Wrap a MAPIE regressor as an interval-width uncertainty predictor.
 
-    The resulting model blob predicts interval width (upper - lower) instead of
-    point predictions. Use with SHAP KernelExplainer to explain uncertainty.
+    Produces a lightweight blob whose ``predict`` returns ``upper - lower``
+    (interval width) rather than a point prediction.  Designed for use with
+    :func:`shap_kernel_explainer_create_impl <east_py_datascience.shap.shap_impl.shap_kernel_explainer_create_impl>`
+    to explain which features drive prediction uncertainty.
+
+    Args:
+        model_blob: ``MAPIERegressorBlobType`` (``EastVariant``) - a blob
+            tagged ``mapie_split``, ``mapie_cross``, or ``mapie_cqr`` from
+            :func:`mapie_train_conformal_regressor_impl` or
+            :func:`mapie_train_cqr_impl`.
+
+    Returns:
+        ``UncertaintyPredictorType`` (``EastVariant``) tagged
+        ``mapie_interval_width`` with ``{data: Blob, n_features: Integer}``.
+
+    Raises:
+        NotImplementedError: the ``mapie`` extra is not installed.
+        RuntimeError: ``model_blob`` is not a MAPIE regressor variant.
     """
     _check_mapie_support()
     model_type = model_blob.type
@@ -1234,10 +1523,25 @@ def mapie_uncertainty_predictor_regressor_impl(
 def mapie_uncertainty_predictor_classifier_impl(
     model_blob: EastVariant,
 ) -> EastVariant:
-    """Create an uncertainty predictor from a MAPIE classifier.
+    """Wrap a MAPIE classifier as a set-size uncertainty predictor.
 
-    The resulting model blob predicts prediction set size instead of
-    class probabilities. Use with SHAP KernelExplainer to explain uncertainty.
+    Produces a lightweight blob whose ``predict`` returns the prediction
+    set size (number of classes in the conformal set) rather than class
+    probabilities.  Designed for use with
+    :func:`shap_kernel_explainer_create_impl <east_py_datascience.shap.shap_impl.shap_kernel_explainer_create_impl>`
+    to explain which features drive classification ambiguity.
+
+    Args:
+        model_blob: ``MAPIEClassifierBlobType`` (``EastVariant``) - a blob
+            tagged ``mapie_classifier`` from
+            :func:`mapie_train_conformal_classifier_impl`.
+
+    Returns:
+        ``UncertaintyPredictorType`` (``EastVariant``) tagged
+        ``mapie_set_size`` with ``{data: Blob, n_features: Integer}``.
+
+    Raises:
+        NotImplementedError: the ``mapie`` extra is not installed.
     """
     _check_mapie_support()
     # Classifier is a variant with single case "mapie_classifier"

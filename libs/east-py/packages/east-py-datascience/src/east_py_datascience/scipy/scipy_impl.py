@@ -93,7 +93,47 @@ def scipy_curve_fit_impl(
     y: EastVector,
     config: EastStruct,
 ) -> EastStruct:
-    """Fit curve to data using scipy.optimize.curve_fit."""
+    """Fit a parametric curve to (x, y) data using scipy.optimize.curve_fit.
+
+    Supports nine built-in curve shapes and a ``custom`` variant that wraps a
+    compiled East function.  Built-in shapes supply smart initial guesses and
+    non-negativity bounds automatically; ``custom`` curves use the bounds and
+    initial guess encoded in the variant payload.
+
+    Args:
+        curve_type: ``CurveFunctionType`` (``EastVariant``) - the curve shape.
+            Cases with no payload: ``exponential_decay``,
+            ``exponential_with_offset``, ``exponential_growth``, ``logistic``,
+            ``gompertz``, ``power_law``, ``linear``, ``quadratic``, ``cubic``.
+            Case ``custom`` carries a struct with fields:
+
+            - ``fn`` (``CustomCurveFunctionType``): East function
+              ``(x: Float, params: Vector<Float>, fixed_params: Vector<Float>)
+              -> Float``; an ``EastFunction`` is expected.
+            - ``n_params`` (``Integer``): number of free parameters to fit.
+            - ``param_bounds`` (``Option<ParamBoundsType>``): ``{lower, upper}``
+              ``Vector<Float>`` bounds per parameter (default unconstrained).
+            - ``fixed_params`` (``Option<Vector<Float>>``): constants passed
+              through to ``fn`` unchanged (default empty).
+        x: ``Vector<Float>`` (``EastVector``) - independent variable values.
+        y: ``Vector<Float>`` (``EastVector``) - observed dependent variable
+            values corresponding to ``x``.
+        config: ``CurveFitConfigType`` (``EastStruct``) with fields:
+
+            - ``max_iter`` (``Option<Integer>``): maximum optimizer iterations
+              (default 5000).
+            - ``initial_guess`` (``Option<Vector<Float>>``): initial parameter
+              guess; overrides the built-in auto-guess for non-custom curves.
+
+    Returns:
+        ``CurveFitResultType`` (``EastStruct``): ``params``
+        (``Vector<Float>`` - fitted parameters, empty on failure), ``success``
+        (``Boolean``), ``r_squared`` (``Float``, clipped to [-10, 1]).
+
+    Raises:
+        NotImplementedError: the ``scipy`` extra is not installed.
+        RuntimeError: unknown curve type tag.
+    """
     _check_scipy_support()
     from scipy.optimize import OptimizeWarning, curve_fit
 
@@ -262,7 +302,19 @@ def scipy_curve_fit_impl(
     output=StatsDescribeResultType,
 )
 def scipy_stats_describe_impl(data: EastVector) -> EastStruct:
-    """Compute descriptive statistics for data."""
+    """Compute descriptive statistics for a numeric sample via scipy.stats.describe.
+
+    Args:
+        data: ``Vector<Float>`` (``EastVector``) - the sample to describe.
+
+    Returns:
+        ``StatsDescribeResultType`` (``EastStruct``): ``count`` (``Integer``),
+        ``mean``, ``variance``, ``skewness``, ``kurtosis``, ``min``, ``max``
+        (all ``Float``).
+
+    Raises:
+        NotImplementedError: the ``scipy`` extra is not installed.
+    """
     _check_scipy_support()
     from scipy import stats
 
@@ -288,7 +340,20 @@ def scipy_stats_describe_impl(data: EastVector) -> EastStruct:
     output=CorrelationResultType,
 )
 def scipy_stats_pearsonr_impl(x: EastVector, y: EastVector) -> EastStruct:
-    """Compute Pearson correlation coefficient."""
+    """Compute the Pearson product-moment correlation coefficient between two samples.
+
+    Args:
+        x: ``Vector<Float>`` (``EastVector``) - first sample.
+        y: ``Vector<Float>`` (``EastVector``) - second sample; must have the
+            same length as ``x``.
+
+    Returns:
+        ``CorrelationResultType`` (``EastStruct``): ``correlation`` (``Float``,
+        in [-1, 1]) and ``pvalue`` (``Float``, two-tailed p-value).
+
+    Raises:
+        NotImplementedError: the ``scipy`` extra is not installed.
+    """
     _check_scipy_support()
     from scipy import stats
 
@@ -311,7 +376,23 @@ def scipy_stats_pearsonr_impl(x: EastVector, y: EastVector) -> EastStruct:
     output=CorrelationResultType,
 )
 def scipy_stats_spearmanr_impl(x: EastVector, y: EastVector) -> EastStruct:
-    """Compute Spearman rank correlation."""
+    """Compute the Spearman rank-order correlation coefficient between two samples.
+
+    A non-parametric measure of monotonic association; robust to outliers and
+    non-linear relationships.
+
+    Args:
+        x: ``Vector<Float>`` (``EastVector``) - first sample.
+        y: ``Vector<Float>`` (``EastVector``) - second sample; must have the
+            same length as ``x``.
+
+    Returns:
+        ``CorrelationResultType`` (``EastStruct``): ``correlation`` (``Float``,
+        in [-1, 1]) and ``pvalue`` (``Float``, two-tailed p-value).
+
+    Raises:
+        NotImplementedError: the ``scipy`` extra is not installed.
+    """
     _check_scipy_support()
     from scipy import stats
 
@@ -334,7 +415,17 @@ def scipy_stats_spearmanr_impl(x: EastVector, y: EastVector) -> EastStruct:
     output=VectorType(FloatType),
 )
 def scipy_stats_percentile_impl(data: EastVector, percentiles: EastVector) -> EastVector:
-    """Compute percentiles of data."""
+    """Compute one or more percentiles of a dataset.
+
+    Args:
+        data: ``Vector<Float>`` (``EastVector``) - the sample.
+        percentiles: ``Vector<Float>`` (``EastVector``) - percentile values to
+            compute, each in [0, 100].
+
+    Returns:
+        ``Vector<Float>`` (``EastVector``) - one value per entry in
+        ``percentiles``, in the same order.
+    """
     import numpy as np
 
     data_np = data.to_numpy()
@@ -349,7 +440,18 @@ def scipy_stats_percentile_impl(data: EastVector, percentiles: EastVector) -> Ea
     output=FloatType,
 )
 def scipy_stats_percentileofscore_impl(data: EastVector, score: float) -> float:
-    """Compute the percentile rank of a score relative to a dataset."""
+    """Compute the percentile rank of a single score relative to a dataset.
+
+    Args:
+        data: ``Vector<Float>`` (``EastVector``) - the reference dataset.
+        score: ``Float`` - the value whose rank is computed.
+
+    Returns:
+        ``Float`` - the percentile rank in [0, 100].
+
+    Raises:
+        NotImplementedError: the ``scipy`` extra is not installed.
+    """
     _check_scipy_support()
     from scipy.stats import percentileofscore
 
@@ -362,7 +464,17 @@ def scipy_stats_percentileofscore_impl(data: EastVector, score: float) -> float:
     output=FloatType,
 )
 def scipy_stats_iqr_impl(data: EastVector) -> float:
-    """Compute interquartile range (Q3 - Q1)."""
+    """Compute the interquartile range (Q3 - Q1) of a sample.
+
+    Args:
+        data: ``Vector<Float>`` (``EastVector``) - the sample.
+
+    Returns:
+        ``Float`` - the IQR (Q75 - Q25).
+
+    Raises:
+        NotImplementedError: the ``scipy`` extra is not installed.
+    """
     _check_scipy_support()
     from scipy import stats
 
@@ -375,7 +487,14 @@ def scipy_stats_iqr_impl(data: EastVector) -> float:
     output=FloatType,
 )
 def scipy_stats_median_impl(data: EastVector) -> float:
-    """Compute median."""
+    """Compute the median of a sample.
+
+    Args:
+        data: ``Vector<Float>`` (``EastVector``) - the sample.
+
+    Returns:
+        ``Float`` - the median value.
+    """
     import numpy as np
 
     return float(np.median(data.to_numpy()))
@@ -387,7 +506,19 @@ def scipy_stats_median_impl(data: EastVector) -> float:
     output=FloatType,
 )
 def scipy_stats_mad_impl(data: EastVector) -> float:
-    """Compute median absolute deviation."""
+    """Compute the median absolute deviation (MAD) of a sample.
+
+    MAD is a robust dispersion measure: median(|x - median(x)|).
+
+    Args:
+        data: ``Vector<Float>`` (``EastVector``) - the sample.
+
+    Returns:
+        ``Float`` - the MAD value.
+
+    Raises:
+        NotImplementedError: the ``scipy`` extra is not installed.
+    """
     _check_scipy_support()
     from scipy import stats
 
@@ -400,7 +531,21 @@ def scipy_stats_mad_impl(data: EastVector) -> float:
     output=RobustStatsResultType,
 )
 def scipy_stats_robust_impl(data: EastVector) -> EastStruct:
-    """Compute robust statistics: median, iqr, mad, q1, q3."""
+    """Compute a full set of outlier-resistant summary statistics in one pass.
+
+    Combines median, interquartile range, median absolute deviation, and
+    quartile values computed by numpy and scipy.
+
+    Args:
+        data: ``Vector<Float>`` (``EastVector``) - the sample.
+
+    Returns:
+        ``RobustStatsResultType`` (``EastStruct``): ``median``, ``iqr``,
+        ``mad``, ``q1``, ``q3`` (all ``Float``).
+
+    Raises:
+        NotImplementedError: the ``scipy`` extra is not installed.
+    """
     _check_scipy_support()
     import numpy as np
     from scipy import stats
@@ -429,7 +574,30 @@ def scipy_interpolate_1d_fit_impl(
     y: EastVector,
     config: EastStruct,
 ) -> EastVariant:
-    """Fit 1D interpolator."""
+    """Fit a 1-D piecewise interpolator to (x, y) data.
+
+    The fitted model is serialized with cloudpickle and returned as a
+    ``ModelBlobType`` variant for use with
+    :func:`scipy_interpolate_1d_predict_impl`.
+
+    Args:
+        x: ``Vector<Float>`` (``EastVector``) - knot positions; must be
+            strictly increasing.
+        y: ``Vector<Float>`` (``EastVector``) - knot values corresponding to
+            ``x``; same length.
+        config: ``InterpolateConfigType`` (``EastStruct``) with fields:
+
+            - ``kind`` (``Option<InterpolationKindType>``): ``linear``
+              (default), ``quadratic``, or ``cubic``.
+
+    Returns:
+        ``ModelBlobType`` (``EastVariant`` tagged ``scipy_interp_1d``):
+        ``{data: Blob, kind: InterpolationKindType}`` - the cloudpickle
+        serialized ``scipy.interpolate.interp1d`` instance.
+
+    Raises:
+        NotImplementedError: the ``scipy`` extra is not installed.
+    """
     _check_scipy_support()
     from scipy import interpolate
 
@@ -461,7 +629,23 @@ def scipy_interpolate_1d_predict_impl(
     model_blob: EastVariant,
     x: EastVector,
 ) -> EastVector:
-    """Evaluate 1D interpolator at given points."""
+    """Evaluate a fitted 1-D interpolator at new points.
+
+    The interpolator extrapolates beyond the training range using
+    ``fill_value="extrapolate"``.
+
+    Args:
+        model_blob: ``ModelBlobType`` (``EastVariant`` tagged
+            ``scipy_interp_1d``) from :func:`scipy_interpolate_1d_fit_impl`.
+        x: ``Vector<Float>`` (``EastVector``) - query points.
+
+    Returns:
+        ``Vector<Float>`` (``EastVector``) - interpolated values at each query
+        point.
+
+    Raises:
+        RuntimeError: ``model_blob`` is not tagged ``scipy_interp_1d``.
+    """
     if model_blob.type != "scipy_interp_1d":
         raise RuntimeError(
             f"scipy_interpolate_1d_predict: Expected scipy_interp_1d, got {model_blob.type}"
@@ -485,7 +669,33 @@ def scipy_optimize_minimize_impl(
     x0: EastVector,
     config: EastStruct,
 ) -> EastStruct:
-    """Minimize a scalar function using scipy.optimize.minimize."""
+    """Minimize a scalar objective using scipy.optimize.minimize.
+
+    The East objective function is wrapped so scipy receives a plain
+    ``numpy.ndarray`` and returns a ``float``; the wrapper converts to/from
+    ``EastVector`` on each call.
+
+    Args:
+        objective_fn: ``ScalarObjectiveType`` - East function
+            ``(x: Vector<Float>) -> Float``; an ``EastFunction`` is expected.
+        x0: ``Vector<Float>`` (``EastVector``) - starting point.
+        config: ``OptimizeConfigType`` (``EastStruct``) with fields:
+
+            - ``method`` (``Option<OptimizeMethodType>``): ``l_bfgs_b``
+              (default), ``bfgs``, ``nelder_mead``, ``powell``, ``cg``.
+            - ``max_iter`` (``Option<Integer>``): maximum iterations (default
+              1000).
+            - ``tol`` (``Option<Float>``): convergence tolerance (default
+              1e-6).
+
+    Returns:
+        ``OptimizeResultType`` (``EastStruct``): ``x`` (``Vector<Float>``
+        optimal parameters), ``fun`` (``Float`` objective at optimum),
+        ``success`` (``Boolean``), ``nit`` (``Integer`` iterations used).
+
+    Raises:
+        NotImplementedError: the ``scipy`` extra is not installed.
+    """
     _check_scipy_support()
     from scipy import optimize
 
@@ -536,7 +746,31 @@ def scipy_optimize_minimize_quadratic_impl(
     quadratic: EastStruct,
     config: EastStruct,
 ) -> EastStruct:
-    """Minimize quadratic function: f(x) = 0.5 * x'Ax + b'x + c"""
+    """Minimize the quadratic form f(x) = 0.5 * x'Ax + b'x + c.
+
+    Supplies the exact analytic gradient (A @ x + b) to the solver,
+    so gradient-based methods (``l_bfgs_b``, ``bfgs``, ``cg``) converge
+    in far fewer iterations than with finite differences.
+
+    Args:
+        x0: ``Vector<Float>`` (``EastVector``) - starting point.
+        quadratic: ``QuadraticConfigType`` (``EastStruct``) with fields:
+
+            - ``A`` (``Matrix<Float>``): symmetric positive-definite quadratic
+              coefficient matrix.
+            - ``b`` (``Vector<Float>``): linear coefficient vector.
+            - ``c`` (``Float``): scalar constant.
+        config: ``OptimizeConfigType`` (``EastStruct``) - see
+            :func:`scipy_optimize_minimize_impl` for fields.
+
+    Returns:
+        ``OptimizeResultType`` (``EastStruct``): ``x`` (``Vector<Float>``),
+        ``fun`` (``Float``), ``success`` (``Boolean``), ``nit``
+        (``Integer``).
+
+    Raises:
+        NotImplementedError: the ``scipy`` extra is not installed.
+    """
     _check_scipy_support()
     from scipy import optimize
 
@@ -598,10 +832,49 @@ def scipy_optimize_dual_annealing_impl(
     bounds: EastStruct,
     config: EastStruct,
 ) -> EastStruct:
-    """Global optimization using scipy.optimize.dual_annealing.
+    """Global optimization over a bounded continuous domain using dual annealing.
 
-    Combines generalized simulated annealing with local search.
-    Much faster than pure Python simanneal for continuous optimization.
+    Combines generalized simulated annealing with a local gradient-based search
+    (L-BFGS-B by default).  Faster than pure Python simanneal for continuous
+    problems.  The East objective is wrapped to convert between numpy arrays and
+    ``EastVector`` on each call.
+
+    Args:
+        objective_fn: ``ScalarObjectiveType`` - East function
+            ``(x: Vector<Float>) -> Float``; an ``EastFunction`` is expected.
+        x0_opt: ``Option<Vector<Float>>`` (``EastVariant``) - optional initial
+            point; ``none`` lets the algorithm choose.
+        bounds: ``DualAnnealBoundsType`` (``EastStruct``) with fields:
+
+            - ``lower`` (``Vector<Float>``): lower bound per dimension.
+            - ``upper`` (``Vector<Float>``): upper bound per dimension.
+        config: ``DualAnnealConfigType`` (``EastStruct``) with fields:
+
+            - ``maxfun`` (``Option<Integer>``): max function evaluations
+              (default 1000).
+            - ``maxiter`` (``Option<Integer>``): max outer iterations (default
+              1000).
+            - ``initial_temp`` (``Option<Float>``): initial annealing
+              temperature (default 5230).
+            - ``restart_temp_ratio`` (``Option<Float>``): restart threshold
+              (default 2e-5).
+            - ``visit`` (``Option<Float>``): visiting distribution parameter
+              (default 2.62).
+            - ``accept`` (``Option<Float>``): acceptance parameter (default
+              -5.0).
+            - ``seed`` (``Option<Integer>``): random seed for reproducibility.
+            - ``no_local_search`` (``Option<Boolean>``): disable the local
+              search phase (default false).
+
+    Returns:
+        ``DualAnnealResultType`` (``EastStruct``): ``x``
+        (``Vector<Float>`` best solution), ``fun`` (``Float`` best objective
+        value), ``nfev`` (``Integer`` function evaluations), ``nit``
+        (``Integer`` iterations), ``success`` (``Boolean``), ``message``
+        (``String``).
+
+    Raises:
+        NotImplementedError: the ``scipy`` extra is not installed.
     """
     _check_scipy_support()
     from scipy.optimize import dual_annealing
@@ -685,7 +958,34 @@ def scipy_histogram_impl(
     data: EastVector,
     config: EastStruct,
 ) -> EastStruct:
-    """Compute histogram using numpy.histogram."""
+    """Compute a histogram of a numeric sample using numpy.histogram.
+
+    Args:
+        data: ``Vector<Float>`` (``EastVector``) - the sample to bin.
+        config: ``HistogramConfigType`` (``EastStruct``) with fields:
+
+            - ``bins`` (``Option<Integer>``): number of equal-width bins
+              (default 10); ignored when ``bin_method`` is set.
+            - ``bin_method`` (``Option<HistogramBinMethodType>``): automatic
+              bin selection strategy - ``auto``, ``fd``, ``sturges``,
+              ``scott``, ``rice``, ``sqrt``, ``doane``; overrides ``bins``
+              when provided.
+            - ``range_min`` / ``range_max`` (``Option<Float>``): clamp the
+              histogram range; both must be provided together.
+            - ``density`` (``Option<Boolean>``): normalize to a probability
+              density (default false).
+            - ``weights`` (``Option<Vector<Float>>``): per-element weights,
+              same length as ``data`` (default uniform).
+
+    Returns:
+        ``HistogramResultType`` (``EastStruct``): ``counts``
+        (``Vector<Float>`` - bin values, float even in count mode for
+        consistency with density mode), ``bin_edges`` (``Vector<Float>`` -
+        length ``len(counts) + 1``).
+
+    Raises:
+        NotImplementedError: the ``scipy`` extra is not installed.
+    """
     _check_scipy_support()
 
     data_np = data.to_numpy()
@@ -734,7 +1034,32 @@ def scipy_kde_fit_impl(
     data: EastVector,
     config: EastStruct,
 ) -> EastVariant:
-    """Fit Kernel Density Estimator using scipy.stats.gaussian_kde."""
+    """Fit a Gaussian kernel density estimator to a 1-D sample.
+
+    The fitted KDE is serialized with cloudpickle and returned as a
+    ``ModelBlobType`` variant for use with :func:`scipy_kde_evaluate_impl`.
+
+    Args:
+        data: ``Vector<Float>`` (``EastVector``) - the training sample.
+        config: ``KdeConfigType`` (``EastStruct``) with fields:
+
+            - ``bandwidth`` (``Option<KdeBandwidthMethodType>``): automatic
+              bandwidth selector - ``scott`` (default) or ``silverman``;
+              ignored when ``bandwidth_scalar`` is set.
+            - ``bandwidth_scalar`` (``Option<Float>``): explicit bandwidth
+              factor; takes precedence over ``bandwidth``.
+            - ``weights`` (``Option<Vector<Float>>``): per-datapoint weights,
+              same length as ``data`` (default uniform).
+
+    Returns:
+        ``ModelBlobType`` (``EastVariant`` tagged ``scipy_kde``):
+        ``{data: Blob, metadata: {bandwidth: Float, data_min: Float,
+        data_max: Float}}`` - the cloudpickle serialized
+        ``scipy.stats.gaussian_kde`` instance.
+
+    Raises:
+        NotImplementedError: the ``scipy`` extra is not installed.
+    """
     _check_scipy_support()
     from scipy import stats
 
@@ -784,7 +1109,21 @@ def scipy_kde_evaluate_impl(
     model_blob: EastVariant,
     points: EastVector,
 ) -> EastVector:
-    """Evaluate fitted KDE at given points."""
+    """Evaluate a fitted KDE at given query points to obtain density values.
+
+    Args:
+        model_blob: ``ModelBlobType`` (``EastVariant`` tagged ``scipy_kde``)
+            from :func:`scipy_kde_fit_impl`.
+        points: ``Vector<Float>`` (``EastVector``) - points at which to
+            evaluate the density.
+
+    Returns:
+        ``Vector<Float>`` (``EastVector``) - estimated probability density at
+        each query point.
+
+    Raises:
+        RuntimeError: ``model_blob`` is not tagged ``scipy_kde``.
+    """
     if model_blob.type != "scipy_kde":
         raise RuntimeError(
             f"scipy_kde_evaluate: Expected scipy_kde, got {model_blob.type}"

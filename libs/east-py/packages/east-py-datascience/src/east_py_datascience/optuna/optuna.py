@@ -43,6 +43,11 @@ ParamValueType = VariantType(
         ("bool", BooleanType),
     ]
 )
+"""A single parameter value suggested by the TPE sampler.
+
+Cases: ``int`` (``Integer``), ``float`` (``Float``), ``string``
+(``String``), ``bool`` (``Boolean``).
+"""
 
 # Parameter space kind
 ParamSpaceKindType = VariantType(
@@ -53,6 +58,12 @@ ParamSpaceKindType = VariantType(
         ("log_uniform", NullType),
     ]
 )
+"""Sampling distribution kind for a search-space parameter.
+
+Cases: ``int`` (uniform integer in ``[low, high]``), ``float`` (uniform
+float), ``log_uniform`` (log-uniform float, useful for learning rates),
+``categorical`` (discrete choice from ``choices``).
+"""
 
 # Parameter search space definition
 ParamSpaceType = StructType(
@@ -64,6 +75,15 @@ ParamSpaceType = StructType(
         ("choices", OptionType(ArrayType(ParamValueType))),
     ]
 )
+"""Definition of one parameter's search space.
+
+Fields: ``name`` (parameter name passed to the objective), ``kind``
+(sampling distribution), ``low`` (lower bound for ``int`` (default 1),
+``float`` (default 0.0), or ``log_uniform`` (default 1e-6)),
+``high`` (upper bound for ``int`` (default 100), ``float`` (default 1.0),
+or ``log_uniform`` (default 1.0)), ``choices`` (discrete candidates for
+``categorical`` parameters, each a ``ParamValueType`` variant).
+"""
 
 # Named parameter (name + value pair)
 NamedParamType = StructType(
@@ -72,6 +92,10 @@ NamedParamType = StructType(
         ("value", ParamValueType),
     ]
 )
+"""A name-value pair for one parameter in a trial.
+
+Fields: ``name`` (``String``), ``value`` (``ParamValueType`` variant).
+"""
 
 # Optimization direction
 OptimizationDirectionType = VariantType(
@@ -80,6 +104,10 @@ OptimizationDirectionType = VariantType(
         ("maximize", NullType),
     ]
 )
+"""Whether Optuna minimizes or maximizes the objective score.
+
+Cases: ``minimize`` (default), ``maximize``.
+"""
 
 # Pruner type
 PrunerType = VariantType(
@@ -89,6 +117,12 @@ PrunerType = VariantType(
         ("hyperband", NullType),
     ]
 )
+"""Early-stopping pruner applied to intermediate trial values.
+
+Cases: ``none`` (no pruning, default), ``median`` (prune below median of
+previous trials at the same step), ``hyperband`` (successive halving with
+a bracket schedule).
+"""
 
 # Study config
 OptunaStudyConfigType = StructType(
@@ -100,6 +134,13 @@ OptunaStudyConfigType = StructType(
         ("initial_params", OptionType(ArrayType(NamedParamType))),
     ]
 )
+"""Configuration for an Optuna TPE study.
+
+Fields: ``direction`` (default ``minimize``), ``n_trials`` (number of
+trials to run), ``random_state`` (TPE sampler seed),
+``pruner`` (default ``none``), ``initial_params`` (warm-start point
+enqueued as the first trial).
+"""
 
 # Trial result
 TrialResultType = StructType(
@@ -109,6 +150,12 @@ TrialResultType = StructType(
         ("score", FloatType),
     ]
 )
+"""Result for one completed Optuna trial.
+
+Fields: ``trial_id`` (``Integer`` Optuna trial number), ``params``
+(``Array<NamedParamType>`` parameter values used), ``score`` (``Float``
+objective value returned by the objective function).
+"""
 
 # Study result
 StudyResultType = StructType(
@@ -118,6 +165,12 @@ StudyResultType = StructType(
         ("trials", ArrayType(TrialResultType)),
     ]
 )
+"""Outcome of a completed Optuna study.
+
+Fields: ``best_params`` (``Array<NamedParamType>`` parameters of the best
+trial), ``best_score`` (``Float`` objective at the best trial), ``trials``
+(``Array<TrialResultType>`` all completed trials).
+"""
 
 # Objective function type
 ObjectiveFunctionType = ArrayType(NamedParamType)  # Input type for the function
@@ -177,15 +230,53 @@ def optuna_optimize_impl(
     objective_fn: Callable[[EastArray], float],
     config: EastStruct,
 ) -> EastStruct:
-    """Run Optuna optimization with East objective function.
+    """Run Bayesian hyperparameter optimization using Optuna's TPE sampler.
+
+    Creates an Optuna study, optionally warm-starts it from ``initial_params``,
+    and runs ``n_trials`` trials by suggesting parameter values from the
+    ``search_space`` and evaluating them with ``objective_fn``.
 
     Args:
-        search_space: Array of ParamSpace definitions
-        objective_fn: East function that takes params and returns score
-        config: Study configuration
+        search_space: ``Array<ParamSpaceType>`` (``EastArray``) - one entry per
+            parameter. Each ``ParamSpaceType`` is a struct:
+
+            - ``name`` (``String``): parameter name passed to the objective.
+            - ``kind`` (``ParamSpaceKindType``): ``int``, ``float``,
+              ``log_uniform``, or ``categorical``.
+            - ``low`` (``Option<Float>``): lower bound for ``int`` (default 1),
+              ``float`` (default 0.0), or ``log_uniform`` (default 1e-6).
+            - ``high`` (``Option<Float>``): upper bound for ``int``
+              (default 100), ``float`` (default 1.0), or ``log_uniform``
+              (default 1.0).
+            - ``choices`` (``Option<Array<ParamValueType>>``): discrete
+              candidates for ``categorical`` parameters; each choice is a
+              ``ParamValueType`` variant (``int``, ``float``, ``string``, or
+              ``bool``).
+
+        objective_fn: ``Function<[Array<NamedParamType>], Float>`` (callable) -
+            receives an ``Array<NamedParamType>`` where each element is a
+            ``{name: String, value: ParamValueType}`` struct, and returns the
+            score to optimize (minimize or maximize per ``config.direction``).
+        config: ``OptunaStudyConfigType`` (``EastStruct``) with fields:
+
+            - ``direction`` (``Option<OptimizationDirectionType>``):
+              ``minimize`` (default) or ``maximize``.
+            - ``n_trials`` (``Integer``): number of Optuna trials to run.
+            - ``random_state`` (``Option<Integer>``): TPE sampler seed.
+            - ``pruner`` (``Option<PrunerType>``): ``none`` (default),
+              ``median``, or ``hyperband``.
+            - ``initial_params`` (``Option<Array<NamedParamType>>``): warm-start
+              point enqueued as the first trial.
 
     Returns:
-        EastStruct with best_params, best_score, trials
+        ``StudyResultType`` (``EastStruct``): ``best_params``
+        (``Array<NamedParamType>``), ``best_score`` (``Float``), ``trials``
+        (``Array<TrialResultType>`` - completed trials only, each with
+        ``trial_id``, ``params``, and ``score``).
+
+    Raises:
+        NotImplementedError: the ``optuna`` extra is not installed.
+        ValueError: a ``categorical`` parameter has no ``choices``.
     """
     _check_optuna_support()
     import optuna
