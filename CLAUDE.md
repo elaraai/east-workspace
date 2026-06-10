@@ -67,14 +67,15 @@ cd libs/e3 && make help
 The following `SKILL.md` files back Claude Code plugin skills
 (`east:east`, `east:e3`, `east:east-ui`, `east:e3-ui`,
 `east:east-node-std`, `east:east-node-io`, `east:east-py`,
-`east:east-py-datascience`).
+`east:east-py-std`, `east:east-py-io`, `east:east-py-datascience`).
 Editing them changes plugin behaviour — coordinate before touching. The
 plugin (`libs/east-claude-plugin/skills/<name>/SKILL.md`) holds **symlinks**
 to these files, so the lib copy is the single source of truth; the search
 index (`libs/east-claude-plugin/index.json`) is regenerated from each lib's
 `*.examples.ts` and must be re-run when these change (see the
-`plugin-artifacts` workflow). `east:east-py` is **skill-file-only** for now —
-no `*.examples.py` are indexed.
+`plugin-artifacts` workflow). `east:east-py`, `east:east-py-std`, and
+`east:east-py-io` are **skill-file-only** for now — no `*.examples.py` are
+indexed.
 
 - `libs/east/SKILL.md`
 - `libs/e3/SKILL.md`
@@ -83,6 +84,8 @@ no `*.examples.py` are indexed.
 - `libs/east-node/packages/east-node-std/SKILL.md`
 - `libs/east-node/packages/east-node-io/SKILL.md`
 - `libs/east-py/packages/east-py/SKILL.md`
+- `libs/east-py/packages/east-py-std/SKILL.md`
+- `libs/east-py/packages/east-py-io/SKILL.md`
 - `libs/east-py/packages/east-py-datascience/SKILL.md`
 
 Further skills are **plugin-native** (not a lib API), with `SKILL.md`

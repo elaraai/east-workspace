@@ -9,7 +9,10 @@ A Claude Code plugin for the East programming language ecosystem.
 | `east` | `@elaraai/east` | Core East language - types, expressions, compilation |
 | `east-node-std` | `@elaraai/east-node-std` | Node.js platform functions (Console, FileSystem, Fetch, Crypto, Random, Time) |
 | `east-node-io` | `@elaraai/east-node-io` | I/O platform functions (SQL, NoSQL, S3, FTP, XLSX, compression) |
-| `east-py-datascience` | `@elaraai/east-py-datascience` | Data science & ML (MADS, Optuna, XGBoost, Torch, GP, SHAP) |
+| `east-py` | `elaraai-east-py` | Python runtime - East values as plain data, eager methods, @platform_function |
+| `east-py-std` | `elaraai-east-py-std` | Standard platform functions on the Python runtime (direct `*_impl` calls) |
+| `east-py-io` | `elaraai-east-py-io` | I/O platform functions on the Python runtime (direct `*_impl` calls) |
+| `east-py-datascience` | `@elaraai/east-py-datascience` | Data science & ML (MADS, Optuna, XGBoost, Torch, GP, SHAP, Causal) |
 | `east-ui` | `@elaraai/east-ui` | UI components (50+ typed components for layouts, forms, charts) |
 | `e3` | `@elaraai/e3` | East Execution Engine - durable execution for East pipelines |
 | `e3-ui` | `@elaraai/e3-ui` | e3 + UI bridge - reactive dashboards as e3 tasks (Data.bind, ui(), Diff, Ontology) |
