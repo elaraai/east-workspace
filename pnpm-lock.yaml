@@ -801,6 +801,12 @@ importers:
         specifier: workspace:*
         version: link:../east-ui
     devDependencies:
+      '@elaraai/east-c-cli':
+        specifier: workspace:*
+        version: link:../../../east-c/packages/east-c-cli
+      '@elaraai/east-node-cli':
+        specifier: workspace:*
+        version: link:../../../east-node/packages/east-node-cli
       '@types/node':
         specifier: ^22
         version: 22.19.15
