@@ -11,13 +11,15 @@ const EAST_IMPORT_PATTERN = /@elaraai\/east/;
 // Vendored / built / generated trees: never review code the agent doesn't own.
 const SKIP_PATH = /[/\\](node_modules|dist|build|\.venv|\.git)[/\\]/;
 
-// PostToolUse(Read|Edit|Write): preemptive East diagnostics via the warm daemon
-// (native type errors + the east-diagnostics rule set). Fires when an agent
-// writes OR reads an East file, so code review is covered too — not just the
-// agent's own edits. Silent unless the file is a TS/JS file that imports
+// PostToolUse(Read): preemptive East diagnostics via the warm daemon (native
+// type errors + the east-diagnostics rule set) when an agent READS an East
+// file, so code review is covered. The agent's own edits are covered by the
+// plugin LSP server (daemon/lsp.ts) — Claude Code injects its diagnostics
+// after every Edit/Write natively, which is why this hook no longer matches
+// those tools. Silent unless the file is a TS/JS file that imports
 // @elaraai/east, sits in an East project, and the daemon answers within budget.
-// Deduped by content per session so a read→edit→read loop reviews each distinct
-// version once, not on every read.
+// Deduped by content per session so re-reads review each distinct version
+// once, not on every read.
 async function main() {
   const event = await readHookInput();
 

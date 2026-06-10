@@ -1,7 +1,3 @@
-// daemon/server.ts
-import { createServer } from "node:net";
-import { existsSync as existsSync2, unlinkSync } from "node:fs";
-
 // ../east-diagnostics/dist/src/east-type.js
 function isEastExprType(type) {
   const seen = /* @__PURE__ */ new Set();
@@ -1252,56 +1248,225 @@ function createDiagnosticsService(options = {}) {
   };
 }
 
-// daemon/server.ts
-var socketPath = process.env["EAST_DIAG_SOCKET"];
-if (socketPath === void 0) process.exit(1);
-var service = createDiagnosticsService();
-var IDLE_MS = 10 * 60 * 1e3;
-var idleTimer;
-function armIdle() {
-  if (idleTimer !== void 0) clearTimeout(idleTimer);
-  idleTimer = setTimeout(() => {
-    server.close();
-    process.exit(0);
-  }, IDLE_MS);
-  idleTimer.unref();
+// ../east-diagnostics/dist/src/lsp.js
+import { readFileSync as readFileSync2 } from "node:fs";
+import { fileURLToPath } from "node:url";
+var EAST_IMPORT_PATTERN = /@elaraai\//;
+var SKIP_PATH = /[/\\](node_modules|dist|build|\.venv|\.git)[/\\]/;
+var DEBOUNCE_MS = 100;
+var SEVERITY = {
+  error: 1,
+  warning: 2,
+  suggestion: 3
+};
+function lineStarts(content) {
+  const starts = [0];
+  for (let i = 0; i < content.length; i++) {
+    if (content[i] === "\n")
+      starts.push(i + 1);
+  }
+  return starts;
 }
-var server = createServer((conn) => {
-  armIdle();
-  let buffer = "";
-  conn.on("data", (chunk) => {
-    buffer += chunk.toString("utf8");
-    const newline = buffer.indexOf("\n");
-    if (newline < 0) return;
-    let response;
-    try {
-      const request = JSON.parse(buffer.slice(0, newline));
-      const text = typeof request.file === "string" ? service.diagnoseText(request.file) : "";
-      response = JSON.stringify({ ok: true, text });
-    } catch (error) {
-      response = JSON.stringify({ ok: false, error: String(error) });
-    }
-    conn.end(`${response}
-`);
-  });
-  conn.on("error", () => void 0);
-});
-if (existsSync2(socketPath)) {
+function offsetToPosition(starts, offset) {
+  let low = 0;
+  let high = starts.length - 1;
+  while (low < high) {
+    const mid = low + high + 1 >> 1;
+    if (starts[mid] <= offset)
+      low = mid;
+    else
+      high = mid - 1;
+  }
+  return { line: low, character: offset - starts[low] };
+}
+function uriToPath(uri) {
+  if (!uri.startsWith("file://"))
+    return void 0;
   try {
-    unlinkSync(socketPath);
+    return fileURLToPath(uri);
   } catch {
+    return void 0;
   }
 }
-server.on("error", () => process.exit(1));
-server.listen(socketPath, () => {
-  armIdle();
-  const cwd = process.env["EAST_DIAG_CWD"];
-  if (cwd !== void 0 && cwd !== "") {
-    setImmediate(() => {
+function runEastLsp(options = {}) {
+  const service = options.service ?? createDiagnosticsService();
+  const input = options.input ?? process.stdin;
+  const output = options.output ?? process.stdout;
+  const exit = options.exit ?? ((code) => process.exit(code));
+  const open = /* @__PURE__ */ new Map();
+  const pending = /* @__PURE__ */ new Map();
+  let shuttingDown = false;
+  function send(message) {
+    const body = JSON.stringify({ jsonrpc: "2.0", ...message });
+    output.write(`Content-Length: ${Buffer.byteLength(body, "utf8")}\r
+\r
+${body}`);
+  }
+  function publish(path) {
+    const content = open.get(path) ?? (() => {
       try {
-        service.warm(cwd);
+        return readFileSync2(path, "utf-8");
+      } catch {
+        return void 0;
+      }
+    })();
+    let diagnostics = [];
+    if (content !== void 0 && !SKIP_PATH.test(path) && EAST_IMPORT_PATTERN.test(content)) {
+      const starts = lineStarts(content);
+      diagnostics = service.diagnose(path).map((d) => ({
+        range: {
+          start: offsetToPosition(starts, d.start),
+          end: offsetToPosition(starts, d.start + d.length)
+        },
+        severity: SEVERITY[d.category],
+        code: d.ruleName === "tsc" ? `TS${d.code}` : d.ruleName,
+        source: "east",
+        message: d.messageText
+      }));
+    }
+    send({ method: "textDocument/publishDiagnostics", params: { uri: `file://${path}`, diagnostics } });
+  }
+  function schedule(path) {
+    const existing = pending.get(path);
+    if (existing !== void 0)
+      clearTimeout(existing);
+    pending.set(path, setTimeout(() => {
+      pending.delete(path);
+      try {
+        publish(path);
       } catch {
       }
-    });
+    }, DEBOUNCE_MS));
   }
-});
+  function handle(message) {
+    const { method, id, params } = message;
+    if (method === void 0)
+      return;
+    switch (method) {
+      case "initialize": {
+        const folders = [];
+        const root = params?.rootUri ?? params?.rootPath;
+        if (typeof root === "string") {
+          const p = root.startsWith("file://") ? uriToPath(root) : root;
+          if (p !== void 0)
+            folders.push(p);
+        }
+        for (const f of params?.workspaceFolders ?? []) {
+          const p = uriToPath(f?.uri ?? "");
+          if (p !== void 0)
+            folders.push(p);
+        }
+        send({
+          id,
+          result: {
+            capabilities: {
+              textDocumentSync: { openClose: true, change: 1, save: { includeText: true } }
+            },
+            serverInfo: { name: "east-diagnostics" }
+          }
+        });
+        setImmediate(() => {
+          for (const folder of folders) {
+            try {
+              service.warm(folder);
+            } catch {
+            }
+          }
+        });
+        return;
+      }
+      case "initialized":
+        return;
+      case "shutdown":
+        shuttingDown = true;
+        send({ id, result: null });
+        return;
+      case "exit":
+        exit(shuttingDown ? 0 : 1);
+        return;
+      case "textDocument/didOpen": {
+        const path = uriToPath(params?.textDocument?.uri ?? "");
+        const text = params?.textDocument?.text;
+        if (path === void 0 || typeof text !== "string")
+          return;
+        open.set(path, text);
+        service.setOverlay(path, text);
+        schedule(path);
+        return;
+      }
+      case "textDocument/didChange": {
+        const path = uriToPath(params?.textDocument?.uri ?? "");
+        const text = params?.contentChanges?.at?.(-1)?.text;
+        if (path === void 0 || typeof text !== "string")
+          return;
+        open.set(path, text);
+        service.setOverlay(path, text);
+        schedule(path);
+        return;
+      }
+      case "textDocument/didSave": {
+        const path = uriToPath(params?.textDocument?.uri ?? "");
+        if (path === void 0)
+          return;
+        const text = params?.text;
+        if (typeof text === "string") {
+          open.set(path, text);
+          service.setOverlay(path, text);
+        } else {
+          open.delete(path);
+          service.clearOverlay(path);
+        }
+        schedule(path);
+        return;
+      }
+      case "textDocument/didClose": {
+        const path = uriToPath(params?.textDocument?.uri ?? "");
+        if (path === void 0)
+          return;
+        open.delete(path);
+        service.clearOverlay(path);
+        const timer = pending.get(path);
+        if (timer !== void 0)
+          clearTimeout(timer);
+        pending.delete(path);
+        send({ method: "textDocument/publishDiagnostics", params: { uri: `file://${path}`, diagnostics: [] } });
+        return;
+      }
+      default:
+        if (id !== void 0) {
+          send({ id, error: { code: -32601, message: `Method not found: ${method}` } });
+        }
+        return;
+    }
+  }
+  let buffer = Buffer.alloc(0);
+  input.on("data", (chunk) => {
+    buffer = Buffer.concat([buffer, chunk]);
+    for (; ; ) {
+      const headerEnd = buffer.indexOf("\r\n\r\n");
+      if (headerEnd < 0)
+        return;
+      const header = buffer.subarray(0, headerEnd).toString("utf8");
+      const match = /Content-Length:\s*(\d+)/i.exec(header);
+      if (match === null) {
+        buffer = buffer.subarray(headerEnd + 4);
+        continue;
+      }
+      const length = Number(match[1]);
+      const bodyStart = headerEnd + 4;
+      if (buffer.length < bodyStart + length)
+        return;
+      const body = buffer.subarray(bodyStart, bodyStart + length).toString("utf8");
+      buffer = buffer.subarray(bodyStart + length);
+      try {
+        handle(JSON.parse(body));
+      } catch {
+      }
+    }
+  });
+  input.on("close", () => exit(0));
+  input.on("end", () => exit(0));
+}
+
+// daemon/lsp.ts
+runEastLsp();

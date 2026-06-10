@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc",
-    "bundle": "esbuild hooks/prompt-submit.ts hooks/session-start.ts hooks/subagent-start.ts hooks/pre-agent.ts hooks/pre-write.ts hooks/diagnose.ts daemon/server.ts status/report.ts mcp/server.ts --bundle --format=esm --platform=node --outdir=.build --external:typescript",
+    "bundle": "esbuild hooks/prompt-submit.ts hooks/session-start.ts hooks/subagent-start.ts hooks/pre-agent.ts hooks/pre-write.ts hooks/diagnose.ts daemon/server.ts daemon/lsp.ts status/report.ts mcp/server.ts --bundle --format=esm --platform=node --outdir=.build --external:typescript",
     "generate-index": "npm run build && node dist/scripts/generate-index.js --base-dir ..",
     "test": "npm run build && npm run bundle && node --enable-source-maps --test-reporter=spec --test 'dist/test/**/*.spec.js'"
   },
