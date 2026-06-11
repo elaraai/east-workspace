@@ -115,9 +115,12 @@ packages:
 logs:
   - { type: file, format: pretty, path: $WORK/verdaccio.log, level: info }
 EOF
+# Warm the npx cache first: on slow runners (Windows especially) the cold
+# install alone can exceed the readiness window, so install before starting.
+npx --yes verdaccio --version >/dev/null 2>&1 || true
 npx --yes verdaccio --config "$CONFIG" --listen "0.0.0.0:$PORT" > "$WORK/verdaccio.stdout" 2>&1 &
 VERDACCIO_PID=$!
-for _ in $(seq 1 30); do curl -sf "$URL/-/ping" >/dev/null 2>&1 && break || sleep 1; done
+for _ in $(seq 1 120); do curl -sf "$URL/-/ping" >/dev/null 2>&1 && break || sleep 1; done
 curl -sf "$URL/-/ping" >/dev/null || { echo "::error::verdaccio failed to start"; cat "$WORK/verdaccio.stdout"; exit 1; }
 
 # ── 3. Register a user and capture its real token ───────────────────────────
