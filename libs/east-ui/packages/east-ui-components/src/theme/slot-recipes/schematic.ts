@@ -51,16 +51,18 @@ export const schematicSlotRecipe = defineSlotRecipe({
             "&:active": { cursor: "grabbing" },
         },
         /* Metric grid per the spec plant-floor canvas — minor lines with a
-         * heavier major rule; the major cell equals the scale legend. */
+         * heavier major rule; the major cell equals the scale legend. The
+         * grid is the ground layer of the canvas contrast hierarchy
+         * (ground ⇢ annotation ⇢ content): felt, never read. */
         grid: {
             position: "absolute",
             inset: "0",
             pointerEvents: "none",
             backgroundImage: `
-                linear-gradient(to right, color-mix(in oklch, {colors.border.strong} 60%, transparent) 1px, transparent 1px),
-                linear-gradient(to bottom, color-mix(in oklch, {colors.border.strong} 60%, transparent) 1px, transparent 1px),
-                linear-gradient(to right, color-mix(in oklch, {colors.border.subtle} 50%, transparent) 1px, transparent 1px),
-                linear-gradient(to bottom, color-mix(in oklch, {colors.border.subtle} 50%, transparent) 1px, transparent 1px)`,
+                linear-gradient(to right, color-mix(in oklch, {colors.border.strong} 30%, transparent) 1px, transparent 1px),
+                linear-gradient(to bottom, color-mix(in oklch, {colors.border.strong} 30%, transparent) 1px, transparent 1px),
+                linear-gradient(to right, color-mix(in oklch, {colors.border.subtle} 22%, transparent) 1px, transparent 1px),
+                linear-gradient(to bottom, color-mix(in oklch, {colors.border.subtle} 22%, transparent) 1px, transparent 1px)`,
         },
         /* Links draw in pixel space; tone → token mapping lives here so
          * data only ever names a tone. */
@@ -102,7 +104,7 @@ export const schematicSlotRecipe = defineSlotRecipe({
             "&[data-pattern=hatch]": {
                 backgroundImage:
                     "repeating-linear-gradient(var(--hatch-angle, 45deg), var(--schematic-tone) 0, var(--schematic-tone) 1px, transparent 1px, transparent var(--hatch-spacing, 8px))",
-                opacity: "0.6",
+                opacity: "0.3",
             },
         },
         zoneLabel: {
@@ -116,30 +118,34 @@ export const schematicSlotRecipe = defineSlotRecipe({
             letterSpacing: "0.14em",
             lineHeight: "normal",
             textTransform: "uppercase",
-            color: "fg.subtle",
+            color: "fg.muted",
             background: "bg.panel",
             paddingX: "{spacing.1}",
             whiteSpace: "nowrap",
         },
-        /* LOD tiers — constant screen-size markers over scaled geometry. */
+        /* LOD tiers — constant screen-size markers over scaled geometry.
+         * Items are the content layer: the darkest marks on the canvas at
+         * every tier. */
         itemDot: {
             position: "absolute",
             transform: "translate(-50%, -50%)",
-            width: "9px",
-            height: "9px",
+            width: "10px",
+            height: "10px",
             borderRadius: "{radii.full}",
             borderWidth: "1.5px",
             borderColor: "{colors.white}",
             cursor: "pointer",
+            boxShadow: "0 0 0 1px color-mix(in oklch, {colors.fg} 18%, transparent)",
             "&[data-tone=success]": { background: "{colors.status.ok}" },
             "&[data-tone=warning]": { background: "{colors.status.warn}" },
             "&[data-tone=danger]": { background: "{colors.status.bad}" },
             "&[data-tone=info]": { background: "{colors.brand.500}" },
-            "&[data-tone=neutral]": { background: "{colors.border.strong}" },
+            "&[data-tone=neutral]": { background: "{colors.fg.muted}" },
             "&[data-selected]": {
                 outline: "2px solid",
                 outlineColor: "fg",
                 outlineOffset: "1px",
+                boxShadow: "0 0 0 5px color-mix(in oklch, {colors.fg} 16%, transparent)",
             },
         },
         itemPin: {
@@ -154,7 +160,7 @@ export const schematicSlotRecipe = defineSlotRecipe({
             color: "fg",
             background: "bg.surface",
             borderWidth: "1px",
-            borderColor: "border.subtle",
+            borderColor: "border.strong",
             borderRadius: "{radii.full}",
             paddingX: "{spacing.1.5}",
             paddingY: "1px",
@@ -181,7 +187,7 @@ export const schematicSlotRecipe = defineSlotRecipe({
             paddingY: "{spacing.1}",
             minWidth: "84px",
             cursor: "pointer",
-            boxShadow: "xs",
+            boxShadow: "sm",
             "&[data-selected]": {
                 outline: "2px solid",
                 outlineColor: "fg",
@@ -217,7 +223,7 @@ export const schematicSlotRecipe = defineSlotRecipe({
             "&[data-tone=warning]": { background: "{colors.status.warn}" },
             "&[data-tone=danger]": { background: "{colors.status.bad}" },
             "&[data-tone=info]": { background: "{colors.brand.500}" },
-            "&[data-tone=neutral]": { background: "{colors.border.strong}" },
+            "&[data-tone=neutral]": { background: "{colors.fg.muted}" },
         },
         itemSublabel: {
             fontFamily: "mono",
@@ -437,19 +443,24 @@ export const schematicSlotRecipe = defineSlotRecipe({
             color: "fg.subtle",
             fontVariantNumeric: "tabular-nums",
         },
-        /* Map-style ruler — end caps and a half tick over the baseline. */
+        /* Map-style ruler — a bare bottom bracket with quarter ticks and
+         * the distance floating above it; a text halo keeps it legible
+         * with no panel chrome (the Mapbox convention). */
         scaleBar: {
             position: "absolute",
             right: "{spacing.3}",
             bottom: "{spacing.2}",
             display: "flex",
-            alignItems: "flex-end",
-            gap: "{spacing.1.5}",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: "0px",
+            pointerEvents: "none",
+            height: "20px",
             background: "bg.surface",
-            paddingX: "{spacing.1.5}",
-            paddingY: "{spacing.1}",
-            borderRadius: "{radii.xs}",
-            boxShadow: "xs",
+             borderColor: "border.subtle",
+             borderRadius: "{radii.xs}",  
+             boxShadow: "xs",
+             padding: "2px",
         },
         scaleRuler: {
             display: "block",
@@ -461,12 +472,14 @@ export const schematicSlotRecipe = defineSlotRecipe({
         scaleLabel: {
             fontFamily: "mono",
             fontSize: "9px",
+            fontWeight: "600",
             letterSpacing: "0.08em",
             lineHeight: "1",
             textTransform: "uppercase",
             color: "fg.muted",
             fontVariantNumeric: "tabular-nums",
             whiteSpace: "nowrap",
+            textShadow: "0 0 3px {colors.bg.panel}, 0 0 3px {colors.bg.panel}, 0 0 2px {colors.bg.panel}",
         },
     },
 });
