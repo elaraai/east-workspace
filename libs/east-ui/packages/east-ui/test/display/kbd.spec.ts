@@ -12,6 +12,7 @@ describeEast("Kbd", (test) => {
         kbdSingle: ex.kbdSingle,
         kbdChord: ex.kbdChord,
         kbdStyled: ex.kbdStyled,
+        kbdDensities: ex.kbdDensities,
     });
 
     test("creates a single-key Kbd", $ => {

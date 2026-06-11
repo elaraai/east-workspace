@@ -12,8 +12,8 @@ import {
     VariantType,
 } from "@elaraai/east";
 
-import { SizeType } from "../../style.js";
-import type { SizeLiteral } from "../../style.js";
+import { DensityType, SizeType } from "../../style.js";
+import type { DensityLiteral, SizeLiteral } from "../../style.js";
 
 // ============================================================================
 // MetricChip Tone — semantic classification (drives default colour)
@@ -118,6 +118,7 @@ export type MetricChipStyleType = typeof MetricChipStyleType;
  * @property tone - Required semantic tone classification (drives the default palette)
  * @property unit - Optional unit suffix rendered after the value (e.g. "%", "ms")
  * @property icon - Optional leading icon (IconType value)
+ * @property density - Density override; shares the cascade with `ChipRail` / `Trace` so mixed display cells align
  * @property emphasis - Visual preset (subtle / solid / outline)
  * @property size - Size preset
  * @property color - Explicit text colour override
@@ -132,6 +133,13 @@ export interface MetricChipOptions {
     unit?: SubtypeExprOrValue<StringType>;
     /** Optional leading icon (IconType expression). */
     icon?: unknown;
+    /**
+     * Density override (main-struct). Inherited from the enclosing surface
+     * (Table, ChipRail, …) when omitted; an explicit value wins over both the
+     * cascade and `size`, sizing the chip to match rails and traces at the
+     * same density.
+     */
+    density?: SubtypeExprOrValue<DensityType> | DensityLiteral;
     /** Visual emphasis preset (subtle / solid / outline). */
     emphasis?: SubtypeExprOrValue<MetricChipEmphasisType> | MetricChipEmphasisLiteral;
     /** Size preset. */

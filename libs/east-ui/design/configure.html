@@ -122,6 +122,160 @@
     border: 1px solid var(--warn);
     border-radius: 1px;
   }
+
+  /* ============================================================
+   * Collections.Trace — the read-only, inline projection of the
+   * Planner grammar. Rows (measures) × ordered steps on one axis;
+   * each step is a single heat-mapped scalar. Each track runs
+   * measured-past → predicted-future, split by the same 1px
+   * brand-d now-line as Planner. Past = solid (like committed);
+   * future = hatched + italic + ring (like proposed). Sized to
+   * live inside a table cell. Density is variable.
+   * ============================================================ */
+  .trace {
+    --t-step-w: 30px;
+    --t-step-h: 22px;
+    --t-gap: 2px;
+    --t-stub-w: 34px;
+    --t-radius: 2px;
+    --t-fs: 10px;
+    --t-c: var(--brand-d);          /* heat hue (sequential / categorical) */
+    position: relative;
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-feature-settings: "tnum" 1;
+    vertical-align: middle;
+  }
+  .trace > [data-track] { display: none; }   /* source rows — read by JS, never shown */
+
+  .trace-out { position: relative; }
+  .trace-body { position: relative; }
+  /* past zone shaded paper-2, future zone paper — same before/after-today read as Planner */
+  .trace-zone { position: absolute; top: 0; bottom: 0; z-index: 0; background: var(--paper-2); border-radius: var(--t-radius); }
+  .trace-grid {
+    position: relative; z-index: 1;
+    display: grid;
+    grid-template-columns: var(--t-stub-w) repeat(var(--t-steps), var(--t-step-w));
+    gap: var(--t-gap);
+  }
+  .trace-stub {
+    grid-column: 1;
+    display: flex; align-items: center;
+    font-size: 9px; font-weight: 600;
+    letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--ink-4);
+    padding-right: 6px;
+    white-space: nowrap;
+  }
+  .trace-step {
+    height: var(--t-step-h);
+    border-radius: var(--t-radius);
+    display: flex; align-items: center; justify-content: center;
+    font-size: var(--t-fs); font-weight: 500;
+    line-height: 1;
+    color: var(--ink-2);
+    background: var(--t-fill, var(--paper-3));
+    border: 1px solid transparent;
+    position: relative;
+    overflow: hidden;
+  }
+  .trace-step.hot { color: var(--paper); }
+  /* future = predicted: lighter fill + dashed edge + italic — echoes .evt-proposed exactly */
+  .trace-step.future {
+    background: var(--t-faint, var(--paper));
+    border: 1px dashed var(--t-edge, var(--brand-d));
+    color: var(--t-edge, var(--brand-dd));
+    font-style: italic;
+  }
+  .trace-step .v { position: relative; z-index: 1; }
+  .trace[data-future="hatch"] .trace-step.future .v {
+    text-shadow: 0 0 2px var(--paper), 0 0 2px var(--paper);
+  }
+  .trace[data-density="compact"] .trace-step .v { display: none; }
+
+  /* forecast treatment — how the predicted (future) zone reads */
+  .trace[data-future="hatch"] .trace-step.future::after {
+    content: ""; position: absolute; inset: 0; z-index: 0;
+    background: repeating-linear-gradient(-45deg,
+      transparent 0 5px, color-mix(in srgb, var(--t-edge) 9%, transparent) 5px 6px);
+    pointer-events: none;
+  }
+  .trace[data-future="fade"] .trace-step.future { border-style: solid; border-color: transparent; opacity: 0.7; }
+
+  /* axis ruler — only rendered at large density */
+  .trace-axis {
+    display: grid;
+    grid-template-columns: var(--t-stub-w) repeat(var(--t-steps), var(--t-step-w));
+    gap: var(--t-gap);
+    margin-bottom: 5px;
+  }
+  .trace-axis .ax {
+    text-align: center; font-size: 8.5px;
+    letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--ink-5);
+  }
+
+  /* now-line — same vocabulary as .planner-now */
+  /* now-line — stronger contrast against the steps: a 2px brand-dd rule with a
+     1px paper moat so it separates cleanly from the heat fills on either side */
+  .trace-now {
+    position: absolute; top: -1px; bottom: -1px;
+    width: 2px; margin-left: -1px;
+    background: var(--brand-dd);
+    box-shadow: 0 0 0 1px var(--paper);
+    z-index: 2; pointer-events: none;
+  }
+  .trace-now-hint {
+    position: absolute; top: 0; bottom: 0; width: 12px;
+    transform: translateX(-6px);
+    cursor: help; z-index: 3;
+  }
+  .trace-now-hint::after {
+    content: attr(data-label);
+    position: absolute; top: -22px; left: 50%; transform: translateX(-50%);
+    white-space: nowrap;
+    font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.04em;
+    background: var(--ink); color: var(--paper);
+    padding: 2px 6px; border-radius: 3px;
+    opacity: 0; transition: opacity 120ms var(--ease-out); pointer-events: none;
+  }
+  .trace-now-hint:hover::after { opacity: 1; }
+
+  /* density presets — the variable-size system */
+  .trace[data-density="compact"]     { --t-step-w: 15px; --t-step-h: 15px; --t-gap: 1px; --t-stub-w: 26px; }
+  .trace[data-density="comfortable"] { --t-step-w: 30px; --t-step-h: 22px; --t-gap: 2px; --t-stub-w: 34px; --t-fs: 10px; }
+  .trace[data-density="large"]       { --t-step-w: 46px; --t-step-h: 34px; --t-gap: 3px; --t-stub-w: 46px; --t-fs: 12.5px; }
+
+  /* segmented controls for the live showcase */
+  .trace-controls { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; padding: 12px 18px; border-bottom: 1px solid var(--rule); background: var(--paper-2); }
+  .trace-ctl { display: inline-flex; align-items: center; gap: 8px; }
+  .trace-ctl > .cap-eyebrow { color: var(--ink-4); }
+  .trace-seg { display: inline-flex; border: 1px solid var(--rule-strong); border-radius: 5px; overflow: hidden; }
+  .trace-seg button {
+    font-family: var(--font-mono); font-size: 10.5px; font-weight: 500;
+    letter-spacing: 0.04em;
+    padding: 5px 11px; border: 0; border-right: 1px solid var(--rule-strong);
+    background: var(--paper); color: var(--ink-3); cursor: pointer;
+  }
+  .trace-seg button:last-child { border-right: 0; }
+  .trace-seg button:hover { background: var(--paper-3); color: var(--ink); }
+  .trace-seg button.active { background: var(--brand-d); color: #fff; }
+
+  /* hero tank table — recreates the in-context use from the source UI */
+  .trace-table { width: 100%; border-collapse: collapse; font-feature-settings: "tnum" 1; }
+  .trace-table thead th {
+    font-family: var(--font-mono); font-size: 10px; font-weight: 600;
+    letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4);
+    text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--rule-strong);
+    background: var(--paper-2); white-space: nowrap;
+  }
+  .trace-table tbody td { padding: 12px 14px; border-bottom: 1px solid var(--rule); vertical-align: middle; }
+  .trace-table tbody tr:last-child td { border-bottom: 0; }
+  .trace-table .t-tank { font-family: var(--font-mono); font-size: 12px; font-weight: 600; color: var(--ink); }
+  .trace-table .t-batch { font-size: 12.5px; color: var(--ink-2); }
+  .trace-table .t-batch .sub { display: block; font-family: var(--font-mono); font-size: 10px; color: var(--ink-4); margin-top: 2px; }
+  .trace-table .t-days { font-family: var(--font-mono); font-size: 12px; color: var(--ink); white-space: nowrap; }
+  .trace-table .t-days .pred { color: var(--ink-4); }
 </style>
 </head>
 <body>
@@ -2146,6 +2300,311 @@
           </p>
         </div>
       </div>
+
+    </article>
+
+    <article id="trace" class="pattern">
+      <div class="pattern-head">
+        <span class="pattern-name">Collections<span class="ns">.</span>Trace</span>
+        <span class="pattern-recipe">read-only projection of <span class="mono">Planner</span></span>
+      </div>
+      <p class="pattern-blurb">The inline, read-only twin of <a class="btn-link" href="#planner">Collections.Planner</a>. Same axis grammar — <strong>rows × ordered steps</strong> on a <span class="mono">datetime</span>, <span class="mono">numeric</span> or <span class="mono">ordinal</span> axis, split by the same 1px <span class="mono">brand-d</span> now-line — but each step renders a <strong>single heat-mapped scalar</strong> instead of a draggable event. Each track (a measure) runs <strong>measured&nbsp;past → predicted&nbsp;future</strong> left-to-right: past steps are solid (the <span class="mono">committed</span> read), future steps are hatched + italic (the <span class="mono">proposed</span> read). No events, no DnD, no commit ownership — it is a <em>glance</em>, sized to live inside a table cell. Density is variable: <span class="mono">compact</span> · <span class="mono">comfortable</span> · <span class="mono">large</span>.</p>
+
+      <!-- HERO · recreates the in-context use: a tank list with a Bé/Temp Trace per row -->
+      <div class="frame">
+        <div class="eyebrow-row">
+          <span class="lbl">Active ferments · SE cellar · Bé + Temp trajectory</span>
+          <span class="meta muted">compact density · measured <span class="sep">·</span> <span style="font-style: italic;">predicted (dashed)</span></span>
+        </div>
+        <table class="trace-table">
+          <thead>
+            <tr>
+              <th style="width: 88px;">Tank</th>
+              <th style="width: 200px;">Batch</th>
+              <th>Bé / Temp · ferment day 1 → 9</th>
+              <th style="width: 120px;">Days left</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="t-tank">B4701</td>
+              <td class="t-batch">KELLYS KFCS7<span class="sub">J26RCASW</span></td>
+              <td>
+                <div class="trace" data-track-host data-density="compact" data-scale="brand" data-steps-past="5" data-now-label="now · ferment-day 5">
+                  <div data-track="Bé" data-values="14.2,14.2,11.3,9.7,7.7,5.3,3.3,1.9,1.0"></div>
+                  <div data-track="Temp" data-values="20,22,24,25,24,23,22,21,20"></div>
+                </div>
+              </td>
+              <td class="t-days">curr <strong>7</strong> · <span class="pred">pred 6–9</span></td>
+            </tr>
+            <tr>
+              <td class="t-tank">B4705</td>
+              <td class="t-batch">COO SOUTH NY3<span class="sub">J26RCASC</span></td>
+              <td>
+                <div class="trace" data-track-host data-density="compact" data-scale="brand" data-steps-past="4" data-now-label="now · ferment-day 4">
+                  <div data-track="Bé" data-values="12.3,12.0,10.4,8.4,5.8,4.6,2.4,1.3,0.7"></div>
+                  <div data-track="Temp" data-values="19,21,23,24,23,22,21,20,19"></div>
+                </div>
+              </td>
+              <td class="t-days">curr <strong>4</strong> · <span class="pred">pred 7–10</span></td>
+            </tr>
+            <tr>
+              <td class="t-tank">B4706</td>
+              <td class="t-batch">COO NORTH EY3N<span class="sub">J26RCASC</span></td>
+              <td>
+                <div class="trace" data-track-host data-density="compact" data-scale="brand" data-steps-past="6" data-now-label="now · ferment-day 6">
+                  <div data-track="Bé" data-values="13.9,13.0,11.7,8.7,4.7,2.8,1.9,0.9,0.4"></div>
+                  <div data-track="Temp" data-values="21,23,25,24,23,22,21,20,19"></div>
+                </div>
+              </td>
+              <td class="t-days">curr <strong>6</strong> · <span class="pred">pred 3–5</span></td>
+            </tr>
+            <tr>
+              <td class="t-tank">B4709</td>
+              <td class="t-batch">COO SOUTH NY3<span class="sub">J26RCASC</span></td>
+              <td>
+                <div class="trace" data-track-host data-density="compact" data-scale="brand" data-steps-past="3" data-now-label="now · ferment-day 3">
+                  <div data-track="Bé" data-values="14.9,14.4,13.0,11.5,9.6,7.1,4.5,2.6,1.2"></div>
+                  <div data-track="Temp" data-values="18,20,22,24,25,24,23,22,21"></div>
+                </div>
+              </td>
+              <td class="t-days">curr <strong>3</strong> · <span class="pred">pred 8–11</span></td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="spec-note" style="padding: 10px 18px;">
+          One <span class="mono">Collections.Trace</span> per cell · two tracks (Bé, Temp) · axis is <span class="mono">numeric</span> (ferment-day). The now-line lands at a different day per tank because each batch is at a different ferment stage — past values are sensor-measured, future values are the model's forecast.
+        </div>
+      </div>
+
+      <!-- INTERACTIVE · live density / scale / forecast switcher -->
+      <div class="frame" style="margin-top: 16px;">
+        <div class="trace-controls">
+          <div class="trace-ctl">
+            <span class="cap-eyebrow">Density</span>
+            <span class="trace-seg" data-key="density">
+              <button onclick="traceSet('trace-live','density','compact',this)">compact</button>
+              <button class="active" onclick="traceSet('trace-live','density','comfortable',this)">comfortable</button>
+              <button onclick="traceSet('trace-live','density','large',this)">large</button>
+            </span>
+          </div>
+          <div class="trace-ctl">
+            <span class="cap-eyebrow">Scale</span>
+            <span class="trace-seg" data-key="scale">
+              <button class="active" onclick="traceSet('trace-live','scale','brand',this)">brand</button>
+              <button onclick="traceSet('trace-live','scale','diverge',this)">diverge</button>
+              <button onclick="traceSet('trace-live','scale','categorical',this)">categorical</button>
+            </span>
+          </div>
+          <div class="trace-ctl">
+            <span class="cap-eyebrow">Forecast</span>
+            <span class="trace-seg" data-key="future">
+              <button class="active" onclick="traceSet('trace-live','future','ghost',this)">ghost</button>
+              <button onclick="traceSet('trace-live','future','hatch',this)">hatch</button>
+              <button onclick="traceSet('trace-live','future','fade',this)">fade</button>
+            </span>
+          </div>
+        </div>
+        <div style="padding: 28px 22px; display: flex; justify-content: center;">
+          <div class="trace" id="trace-live" data-track-host data-density="comfortable" data-scale="brand" data-future="ghost" data-steps-past="5" data-now-label="now · ferment-day 5" data-axis="d1,d2,d3,d4,d5,d6,d7,d8,d9,d10">
+            <div data-track="Bé" data-values="14.2,13.1,11.3,9.7,7.7,5.3,3.6,2.2,1.3,0.7"></div>
+            <div data-track="Temp" data-values="18,21,24,26,25,24,23,22,21,20"></div>
+            <div data-track="pH" data-values="3.10,3.18,3.24,3.30,3.34,3.38,3.41,3.43,3.45,3.46"></div>
+          </div>
+        </div>
+        <div class="spec-note" style="padding: 0 18px 12px;">
+          Same component, three knobs. <span class="k">Density</span> swaps step size and shows/hides the in-step value (and, at <span class="mono">large</span>, the axis ruler). <span class="k">Scale</span> picks the colour encoding. <span class="k">Forecast</span> chooses how the predicted zone is distinguished.
+        </div>
+      </div>
+
+      <!-- DENSITY · the three sizes side by side -->
+      <div class="frame" style="margin-top: 16px;">
+        <div class="eyebrow-row"><span class="lbl">Density · variable size</span><span class="meta muted">same data · same scale</span></div>
+        <div style="display: grid; grid-template-columns: 1fr; gap: 0;">
+          <div style="display: flex; align-items: center; gap: 22px; padding: 16px 18px; border-bottom: 1px solid var(--rule);">
+            <div style="width: 130px; flex: none;"><div class="cap-eyebrow" style="color: var(--ink);">compact</div><div style="font-family: var(--font-mono); font-size: 10px; color: var(--ink-4); margin-top: 3px;">table cell · no value</div></div>
+            <div class="trace" data-track-host data-density="compact" data-scale="brand" data-steps-past="5">
+              <div data-track="Bé" data-values="14.2,13.1,11.3,9.7,7.7,5.3,3.6,2.2,1.3,0.7"></div>
+              <div data-track="Temp" data-values="18,21,24,26,25,24,23,22,21,20"></div>
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 22px; padding: 16px 18px; border-bottom: 1px solid var(--rule);">
+            <div style="width: 130px; flex: none;"><div class="cap-eyebrow" style="color: var(--ink);">comfortable</div><div style="font-family: var(--font-mono); font-size: 10px; color: var(--ink-4); margin-top: 3px;">card · value in step</div></div>
+            <div class="trace" data-track-host data-density="comfortable" data-scale="brand" data-steps-past="5">
+              <div data-track="Bé" data-values="14.2,13.1,11.3,9.7,7.7,5.3,3.6,2.2,1.3,0.7"></div>
+              <div data-track="Temp" data-values="18,21,24,26,25,24,23,22,21,20"></div>
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 22px; padding: 16px 18px;">
+            <div style="width: 130px; flex: none;"><div class="cap-eyebrow" style="color: var(--ink);">large</div><div style="font-family: var(--font-mono); font-size: 10px; color: var(--ink-4); margin-top: 3px;">panel · value + ruler</div></div>
+            <div class="trace" data-track-host data-density="large" data-scale="brand" data-steps-past="5" data-now-label="now · ferment-day 5" data-axis="d1,d2,d3,d4,d5,d6,d7,d8,d9,d10">
+              <div data-track="Bé" data-values="14.2,13.1,11.3,9.7,7.7,5.3,3.6,2.2,1.3,0.7"></div>
+              <div data-track="Temp" data-values="18,21,24,26,25,24,23,22,21,20"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SCALE · colour encodings -->
+      <div class="frame" style="margin-top: 16px;">
+        <div class="eyebrow-row"><span class="lbl">Scale · colour encoding</span><span class="meta muted">configurable per surface</span></div>
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0;">
+          <div style="padding: 18px; border-right: 1px solid var(--rule);">
+            <div class="cap-eyebrow" style="color: var(--ink); margin-bottom: 3px;">brand</div>
+            <div style="font-family: var(--font-mono); font-size: 10px; color: var(--ink-4); margin-bottom: 14px;">sequential teal · matches Input.Calendar</div>
+            <div class="trace" data-track-host data-density="comfortable" data-scale="brand" data-steps-past="5">
+              <div data-track="Bé" data-values="14.2,13.1,11.3,9.7,7.7,5.3,3.6,2.2,1.3,0.7"></div>
+            </div>
+          </div>
+          <div style="padding: 18px; border-right: 1px solid var(--rule);">
+            <div class="cap-eyebrow" style="color: var(--ink); margin-bottom: 3px;">diverge</div>
+            <div style="font-family: var(--font-mono); font-size: 10px; color: var(--ink-4); margin-bottom: 14px;">teal ↔ terracotta · for bidirectional measures</div>
+            <div class="trace" data-track-host data-density="comfortable" data-scale="diverge" data-steps-past="5">
+              <div data-track="Temp" data-values="18,21,24,26,25,24,23,22,21,20"></div>
+            </div>
+          </div>
+          <div style="padding: 18px;">
+            <div class="cap-eyebrow" style="color: var(--ink); margin-bottom: 3px;">categorical</div>
+            <div style="font-family: var(--font-mono); font-size: 10px; color: var(--ink-4); margin-bottom: 14px;">one hue per track · value = intensity</div>
+            <div class="trace" data-track-host data-density="comfortable" data-scale="categorical" data-steps-past="5">
+              <div data-track="Bé" data-values="14.2,13.1,11.3,9.7,7.7,5.3,3.6,2.2,1.3,0.7"></div>
+              <div data-track="Temp" data-values="18,21,24,26,25,24,23,22,21,20"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ANATOMY note -->
+      <div class="spec-note" style="margin: 16px 0 0; padding: 14px 18px; border: 1px solid var(--rule); border-radius: 4px; background: var(--paper-2);">
+        <div class="cap-eyebrow" style="margin-bottom: 10px;">Reading a Trace</div>
+        <div style="font-size: 13px; line-height: 1.6; color: var(--ink-2);">
+          <strong>Track</strong> — one measure (Bé, Temp, pH), one row. A short <span class="mono">stub</span> labels it on the left.<br>
+          <strong>Step</strong> — one position on the axis. Fill encodes the value on the chosen scale; the number renders inside at comfortable / large density, and is dropped at compact.<br>
+          <strong>Now-line</strong> — a 2px <span class="mono">brand-dd</span> rule with a 1px paper moat, dividing measured past from predicted future with strong contrast against the heat fills. Hover the line for the exact position. Per-track placement via <span class="mono">stepsPast</span>.<br>
+          <strong>Past vs future</strong> — past steps are solid heat fills (measured / committed read); future steps are lighter-tinted with a dashed heat-coloured edge and italic value (predicted / proposed read). The grammar is borrowed wholesale from Planner — solid box vs dashed ghost — so the two never contradict each other.
+        </div>
+      </div>
+
+      <div class="pattern-footer">
+        <div>
+          <div class="pattern-section-title">Configuration</div>
+          <table class="pattern-table">
+            <thead><tr><th>Prop</th><th>Values</th><th>Effect</th></tr></thead>
+            <tbody>
+              <tr><td class="name">density</td><td><span class="mono">compact</span> · <span class="mono">comfortable</span> · <span class="mono">large</span></td><td>Step size + whether the in-step value and axis ruler render. Compact is table-cell sized; large is a standalone panel.</td></tr>
+              <tr><td class="name">scale</td><td><span class="mono">brand</span> · <span class="mono">diverge</span> · <span class="mono">categorical</span></td><td>Colour encoding. <span class="mono">brand</span> = sequential teal; <span class="mono">diverge</span> = teal↔terracotta centred on each track's midpoint; <span class="mono">categorical</span> = one hue per track, value mapped to intensity.</td></tr>
+              <tr><td class="name">axis</td><td><span class="mono">datetime</span> · <span class="mono">numeric</span> · <span class="mono">ordinal</span></td><td>The step ordering. One axis type per Trace — same rule as Planner. Labels surface in the ruler (large) and in step tooltips.</td></tr>
+              <tr><td class="name">stepsPast</td><td><span class="mono">int</span></td><td>How many leading steps are measured. The rest are predicted; the now-line is drawn at the boundary. Set per track.</td></tr>
+              <tr><td class="name">future</td><td><span class="mono">ghost</span> · <span class="mono">hatch</span> · <span class="mono">fade</span></td><td>How the predicted zone is distinguished. <span class="mono">ghost</span> (default) = lighter fill + dashed heat edge, mirroring <span class="mono">.evt-proposed</span>; <span class="mono">hatch</span> adds 45° lines; <span class="mono">fade</span> drops the edge and lowers opacity.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p class="spec-note">
+          <span class="k">Trace is not a Planner.</span> It shares the axis grammar and the now-line, but it is read-only by construction — no events, no committed/proposed state machine, no drag-and-drop, no <span class="mono">Commit.Bar</span> ownership. If a surface needs to <em>edit</em> the schedule, it is a <a class="btn-link" href="#planner">Planner</a>; if it only needs to <em>show</em> a measured-and-forecast trajectory at a glance, it is a Trace.
+          <span class="k">One value per step.</span> A step holds a single scalar. Multiple measures = multiple tracks, never multiple values stacked in one step. For two scenarios over one measure, render two tracks (e.g. <span class="mono">Bé · actual</span>, <span class="mono">Bé · model</span>).
+          <span class="k">Naming.</span> Recommended <span class="mono">Collections.Trace</span> — "trace" reads as a recorded-plus-forecast signal and sits in the same namespace as Planner / Roster / Gantt. Alternates considered: <span class="mono">.Track</span>, <span class="mono">.Strip</span>, <span class="mono">.Sparkgrid</span>.
+          <span class="k">Variants:</span>
+          <span class="mono">Collections<span class="ns">.</span>Trace.Inline</span> — the compact, value-less, table-cell form (the hero).
+          <span class="mono">Collections<span class="ns">.</span>Trace.Panel</span> — the large form with axis ruler and per-step values.
+        </p>
+      </div>
+    </article>
+
+    <script>
+    (function () {
+      var PALETTE = ['var(--brand-d)', 'var(--warn)', 'var(--info)', 'var(--neg)', 'var(--pos)'];
+      function fmt(v) { return Number.isInteger(v) ? String(v) : v.toFixed(v < 10 ? (Math.abs(v) < 5 ? 2 : 1) : 1); }
+      function render(el) {
+        var density = el.dataset.density || 'comfortable';
+        var scale = el.dataset.scale || 'brand';
+        var future = el.dataset.future || 'hatch';
+        var axis = (el.dataset.axis || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+        var tracks = [].slice.call(el.querySelectorAll('[data-track]')).map(function (t) {
+          return { name: t.dataset.track, values: t.dataset.values.split(',').map(Number), past: parseInt(t.dataset.stepsPast || el.dataset.stepsPast || '0', 10) };
+        });
+        if (!tracks.length) return;
+        var steps = Math.max.apply(null, tracks.map(function (t) { return t.values.length; }));
+        el.style.setProperty('--t-steps', steps);
+        el.setAttribute('data-future', future);
+
+        var prev = el.querySelector(':scope > .trace-out');
+        if (prev) prev.remove();
+        var out = document.createElement('div');
+        out.className = 'trace-out';
+
+        if (density === 'large' && axis.length) {
+          var ax = document.createElement('div');
+          ax.className = 'trace-axis';
+          var stub = document.createElement('div'); ax.appendChild(stub);
+          for (var k = 0; k < steps; k++) { var a = document.createElement('div'); a.className = 'ax'; a.textContent = axis[k] || ''; ax.appendChild(a); }
+          out.appendChild(ax);
+        }
+
+        var grid = document.createElement('div');
+        grid.className = 'trace-grid';
+        var firstPast = tracks[0].past;
+        tracks.forEach(function (tr, ti) {
+          var stubEl = document.createElement('div'); stubEl.className = 'trace-stub'; stubEl.textContent = tr.name; grid.appendChild(stubEl);
+          var min = Math.min.apply(null, tr.values), max = Math.max.apply(null, tr.values), mid = (min + max) / 2;
+          tr.values.forEach(function (v, i) {
+            var s = document.createElement('div'); s.className = 'trace-step';
+            if (i >= tr.past) s.classList.add('future');
+            var hue, t, hot;
+            if (scale === 'diverge') {
+              var half = Math.max(max - mid, mid - min) || 1;
+              var sgn = (v - mid) / half;
+              hue = sgn >= 0 ? 'var(--neg)' : 'var(--brand-d)';
+              t = Math.min(Math.abs(sgn), 1);
+              hot = t > 0.62;
+              s.style.setProperty('--t-fill', 'color-mix(in srgb, ' + hue + ' ' + (t * 80).toFixed(0) + '%, var(--paper-3))');
+              s.style.setProperty('--t-faint', 'color-mix(in srgb, ' + hue + ' ' + (t * 34).toFixed(0) + '%, var(--paper))');
+            } else {
+              hue = (scale === 'categorical') ? PALETTE[ti % PALETTE.length] : 'var(--brand-d)';
+              t = (max > min) ? (v - min) / (max - min) : 0.5;
+              hot = t > 0.6;
+              s.style.setProperty('--t-fill', 'color-mix(in srgb, ' + hue + ' ' + (t * 100).toFixed(0) + '%, var(--paper-3))');
+              s.style.setProperty('--t-faint', 'color-mix(in srgb, ' + hue + ' ' + (t * 42).toFixed(0) + '%, var(--paper))');
+            }
+            s.style.setProperty('--t-edge', hue);
+            if (hot) s.classList.add('hot');
+            var span = document.createElement('span'); span.className = 'v'; span.textContent = fmt(v); s.appendChild(span);
+            s.title = (axis[i] ? axis[i] + ' · ' : '') + tr.name + ' ' + fmt(v) + (i >= tr.past ? ' · predicted' : ' · measured');
+            grid.appendChild(s);
+          });
+        });
+
+        var body = document.createElement('div');
+        body.className = 'trace-body';
+        if (firstPast > 0 && firstPast < steps) {
+          var zone = document.createElement('div');
+          zone.className = 'trace-zone';
+          zone.style.left = 'calc(var(--t-stub-w) + var(--t-gap))';
+          zone.style.width = 'calc(' + firstPast + ' * (var(--t-step-w) + var(--t-gap)) - var(--t-gap) / 2)';
+          body.appendChild(zone);
+        }
+        body.appendChild(grid);
+
+        if (firstPast > 0 && firstPast < steps) {
+          var leftCalc = 'calc(var(--t-stub-w) + var(--t-gap) + ' + firstPast + ' * (var(--t-step-w) + var(--t-gap)) - var(--t-gap) / 2)';
+          var now = document.createElement('div'); now.className = 'trace-now'; now.style.left = leftCalc; grid.appendChild(now);
+          if (el.dataset.nowLabel) { var hint = document.createElement('div'); hint.className = 'trace-now-hint'; hint.setAttribute('data-label', el.dataset.nowLabel); hint.style.left = leftCalc; grid.appendChild(hint); }
+        }
+        out.appendChild(body);
+        el.appendChild(out);
+      }
+      window.__renderTrace = render;
+      window.traceSet = function (id, key, val, btn) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        el.dataset[key] = val;
+        render(el);
+        if (btn && btn.parentNode) { [].slice.call(btn.parentNode.children).forEach(function (b) { b.classList.remove('active'); }); btn.classList.add('active'); }
+      };
+      function renderAll() { [].slice.call(document.querySelectorAll('.trace[data-track-host]')).forEach(render); }
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', renderAll); else renderAll();
+    })();
+    </script>
 
     <article id="gantt" class="pattern">
       <div class="pattern-head"><span class="pattern-name">Collections<span class="ns">.</span>Gantt</span></div>

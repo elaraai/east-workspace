@@ -11,4 +11,3 @@ export { Grid } from "./grid/index.js";
 export { Splitter } from "./splitter/index.js";
 export { Sticky } from "./sticky/index.js";
 export { ScrollArea } from "./scroll-area/index.js";
-export { ChipRail } from "./chip-rail/index.js";

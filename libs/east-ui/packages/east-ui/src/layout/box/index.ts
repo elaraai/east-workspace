@@ -17,6 +17,7 @@ import {
 import { UIComponentType } from "../../component.js";
 import { BoxStyleType, type BoxStyle } from "./types.js";
 import {
+    DensityType,
     DisplayType,
     FlexDirectionType,
     JustifyContentType,
@@ -44,13 +45,16 @@ export { BoxStyleType, type BoxStyle } from "./types.js";
  * Box is a container component that can hold child components.
  *
  * @property children - Array of child UI components
+ * @property density - Optional density the box provides to its children via the density cascade
  * @property style - Optional styling configuration wrapped in OptionType
  */
 export const BoxType: StructType<{
     children: ArrayType<UIComponentType>,
+    density: OptionType<DensityType>,
     style: OptionType<BoxStyleType>,
 }> = StructType({
     children: ArrayType(UIComponentType),
+    density: OptionType(DensityType),
     style: OptionType(BoxStyleType),
 });
 
@@ -89,6 +93,12 @@ function createBox(
     children: SubtypeExprOrValue<ArrayType<UIComponentType>>,
     style?: BoxStyle
 ): ExprType<UIComponentType> {
+    const densityValue = style?.density
+        ? (typeof style.density === "string"
+            ? East.value(variant(style.density, null), DensityType)
+            : style.density)
+        : undefined;
+
     const displayValue = style?.display
         ? (typeof style.display === "string"
             ? East.value(variant(style.display, null), DisplayType)
@@ -203,6 +213,7 @@ function createBox(
 
     return East.value(variant("Box", {
         children: children,
+        density: densityValue ? variant("some", densityValue) : variant("none", null),
         style: style ? variant("some", East.value({
             display: displayValue ? variant("some", displayValue) : variant("none", null),
             width: style.width ? variant("some", style.width) : variant("none", null),

@@ -20,6 +20,7 @@ import {
     none,
 } from "@elaraai/east";
 
+import { SliceChromeType } from "../../platform/slice/index.js";
 import {
     ChartPointType,
     ChartXType,
@@ -98,6 +99,7 @@ export const ChartSpecType = RecursiveType(node => VariantType({
         yScale2:  OptionType(ChartScaleType),
         tooltip:  OptionType(ChartTooltipType),
         legend:   OptionType(ChartLegendType),
+        slice:    OptionType(SliceChromeType),
         children: ArrayType(node),
     }),
     group: StructType({
@@ -166,6 +168,8 @@ export interface ChartFrameOptions {
     tooltip?: boolean;
     /** Enable the in-chart legend. */
     legend?: boolean;
+    /** Slice chrome — the bound handle + rail affordances (set by `Chart.Root`'s `slice` option). */
+    slice?: SubtypeExprOrValue<SliceChromeType>;
 }
 
 /**
@@ -190,6 +194,7 @@ export function chartFrame(children: Array<ChartSpecValue>, options: ChartFrameO
         yScale2: options.yScale2 !== undefined ? some(variant(options.yScale2, null)) : none,
         tooltip: options.tooltip ? some({ cursor: none }) : none,
         legend:  options.legend ? some({ orientation: none, position: none }) : none,
+        slice:   options.slice !== undefined ? some(options.slice) : none,
         children,
     }), ChartSpecType);
 }

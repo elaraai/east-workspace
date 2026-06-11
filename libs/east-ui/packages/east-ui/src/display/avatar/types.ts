@@ -11,8 +11,8 @@ import {
     StructType,
 } from "@elaraai/east";
 
-import { ColorSchemeType, OverflowType, StyleVariantType, SizeType } from "../../style.js";
-import type { ColorSchemeLiteral, OverflowLiteral, StyleVariantLiteral, SizeLiteral } from "../../style.js";
+import { ColorSchemeType, DensityType, OverflowType, StyleVariantType, SizeType } from "../../style.js";
+import type { ColorSchemeLiteral, DensityLiteral, OverflowLiteral, StyleVariantLiteral, SizeLiteral } from "../../style.js";
 import { PaddingType, MarginType } from "../../layout/style.js";
 
 // ============================================================================
@@ -85,11 +85,13 @@ export type AvatarStyleType = typeof AvatarStyleType;
  *
  * @property src - Image URL for the avatar (main-struct content)
  * @property name - User name for initials fallback (main-struct content)
+ * @property density - Density override; shares the cascade with `ChipRail` / `Trace` so mixed display cells align
  * @property style - Optional visual style sub-struct
  */
 export const AvatarType = StructType({
     src: OptionType(StringType),
     name: OptionType(StringType),
+    density: OptionType(DensityType),
     style: OptionType(AvatarStyleType),
 });
 
@@ -118,6 +120,13 @@ export interface AvatarStyle {
     colorPalette?: SubtypeExprOrValue<ColorSchemeType> | ColorSchemeLiteral;
     /** Avatar size token */
     size?: SubtypeExprOrValue<SizeType> | SizeLiteral;
+    /**
+     * Density override (main-struct). Inherited from the enclosing surface
+     * (Table, ChipRail, …) when omitted; an explicit value wins over both the
+     * cascade and `size`, sizing the avatar to match rails and traces at the
+     * same density.
+     */
+    density?: SubtypeExprOrValue<DensityType> | DensityLiteral;
     /** CSS opacity (0–1) */
     opacity?: SubtypeExprOrValue<FloatType>;
     /** Corner radius */

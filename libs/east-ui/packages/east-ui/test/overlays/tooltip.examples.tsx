@@ -17,10 +17,10 @@ export const tooltipBasic = example({
 });
 
 export const tooltipArrow = example({
-    keywords: ["Tooltip", "Root", "hasArrow", "arrow"],
-    description: "Tooltip with pointing arrow",
+    keywords: ["Tooltip", "Root", "hasArrow", "arrow", "placement"],
+    description: "Tooltip with pointing arrow and explicit placement",
     fn: East.function([], UIComponentType, (_$) => {
-        return <Tooltip trigger={<Button variant="solid">With Arrow</Button>} hasArrow={true}>This tooltip has an arrow</Tooltip>;
+        return <Tooltip trigger={<Button variant="solid">With Arrow</Button>} hasArrow={true} placement="right">This tooltip has an arrow</Tooltip>;
     }),
     inputs: [],
 });

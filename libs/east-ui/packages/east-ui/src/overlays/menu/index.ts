@@ -11,7 +11,6 @@ import {
     some,
     none,
     StringType,
-    BooleanType,
     ArrayType,
     OptionType,
     StructType,
@@ -21,6 +20,7 @@ import { UIComponentType } from "../../component.js";
 import {
     MenuItemType,
     MenuStyleType,
+    type MenuItemOptions,
     type MenuStyle,
     PlacementType,
 } from "./types.js";
@@ -29,6 +29,7 @@ import {
 export {
     MenuItemType,
     MenuStyleType,
+    type MenuItemOptions,
     type MenuStyle,
     PlacementType,
     type PlacementLiteral,
@@ -74,7 +75,7 @@ export type MenuType = typeof MenuType;
  *
  * @param value - Unique identifier for the item
  * @param label - Display text for the item
- * @param disabled - Whether the item is disabled
+ * @param options - Optional icon / accelerator / disabled / destructive fields
  * @returns An East expression representing the menu item
  *
  * @example
@@ -83,25 +84,62 @@ export type MenuType = typeof MenuType;
  * import { Menu, Button, UIComponentType } from "@elaraai/east-ui";
  *
  * const example = East.function([], UIComponentType, $ => {
- *     return Menu.Root(
- *         Button.Root("Actions"),
- *         [
- *             Menu.Item("edit", "Edit"),
- *             Menu.Item("delete", "Delete", true),
- *         ]
- *     );
+ *     return Menu.Root({
+ *         trigger: Button.Root("Actions"),
+ *         items: [
+ *             Menu.Item("edit", "Edit · rename", { icon: "pen" }),
+ *             Menu.Item("duplicate", "Duplicate", { icon: "copy", command: "⌘D" }),
+ *             Menu.Separator(),
+ *             Menu.Item("archive", "Archive", { icon: "trash", destructive: true }),
+ *         ],
+ *     });
  * });
  * ```
  */
 function createMenuItem(
     value: SubtypeExprOrValue<typeof StringType>,
     label: SubtypeExprOrValue<typeof StringType>,
-    disabled?: SubtypeExprOrValue<typeof BooleanType>
+    options?: MenuItemOptions
 ): ExprType<MenuItemType> {
     return East.value(variant("Item", {
         value: value,
         label: label,
-        disabled: disabled !== undefined ? some(disabled) : none,
+        disabled: options?.disabled !== undefined ? some(options.disabled) : none,
+        icon: options?.icon !== undefined ? some(options.icon) : none,
+        command: options?.command !== undefined ? some(options.command) : none,
+        destructive: options?.destructive !== undefined ? some(options.destructive) : none,
+    }), MenuItemType);
+}
+
+/**
+ * Creates a menu group label — the uppercase mono eyebrow naming the
+ * section of items below it.
+ *
+ * @param label - Heading text — rendered uppercase in the mono eyebrow style
+ * @returns An East expression representing the group label
+ *
+ * @example
+ * ```ts
+ * import { East } from "@elaraai/east";
+ * import { Menu, Button, UIComponentType } from "@elaraai/east-ui";
+ *
+ * const example = East.function([], UIComponentType, $ => {
+ *     return Menu.Root({
+ *         trigger: Button.Root("Actions"),
+ *         items: [
+ *             Menu.GroupLabel("Actions"),
+ *             Menu.Item("edit", "Edit · rename", { icon: "pen" }),
+ *             Menu.Item("export", "Export CSV", { icon: "download" }),
+ *         ],
+ *     });
+ * });
+ * ```
+ */
+function createMenuGroupLabel(
+    label: SubtypeExprOrValue<typeof StringType>,
+): ExprType<MenuItemType> {
+    return East.value(variant("GroupLabel", {
+        label: label,
     }), MenuItemType);
 }
 
@@ -235,12 +273,15 @@ export const Menu = {
      *
      * @param value - Unique identifier for the item
      * @param label - Display text for the item
-     * @param disabled - Whether the item is disabled
+     * @param options - Optional icon / accelerator / disabled / destructive fields
      * @returns An East expression representing the menu item
      *
      * @remarks
      * Menu items are clickable entries within a Menu. Each item has a unique
-     * value for identification and a label for display.
+     * value for identification and a label for display. Items can carry a
+     * leading Font Awesome solid icon, a right-aligned keyboard accelerator,
+     * and a destructive flag (negative ink — place destructive items at the
+     * bottom, after a separator).
      *
      * @example
      * ```ts
@@ -248,17 +289,49 @@ export const Menu = {
      * import { Menu, Button, UIComponentType } from "@elaraai/east-ui";
      *
      * const example = East.function([], UIComponentType, $ => {
-     *     return Menu.Root(
-     *         Button.Root("Actions"),
-     *         [
-     *             Menu.Item("edit", "Edit"),
-     *             Menu.Item("delete", "Delete", true), // disabled
-     *         ]
-     *     );
+     *     return Menu.Root({
+     *         trigger: Button.Root("Actions"),
+     *         items: [
+     *             Menu.Item("edit", "Edit · rename", { icon: "pen" }),
+     *             Menu.Item("duplicate", "Duplicate", { icon: "copy", command: "⌘D" }),
+     *             Menu.Item("save", "Save", { disabled: true }),
+     *             Menu.Separator(),
+     *             Menu.Item("archive", "Archive", { icon: "trash", destructive: true }),
+     *         ],
+     *     });
      * });
      * ```
      */
     Item: createMenuItem,
+    /**
+     * Creates a menu group label — the uppercase mono eyebrow naming the
+     * section of items below it.
+     *
+     * @param label - Heading text — rendered uppercase in the mono eyebrow style
+     * @returns An East expression representing the group label
+     *
+     * @remarks
+     * Use a group label to head a run of related items, in the same mono
+     * uppercase eyebrow style used across the spec.
+     *
+     * @example
+     * ```ts
+     * import { East } from "@elaraai/east";
+     * import { Menu, Button, UIComponentType } from "@elaraai/east-ui";
+     *
+     * const example = East.function([], UIComponentType, $ => {
+     *     return Menu.Root({
+     *         trigger: Button.Root("Actions"),
+     *         items: [
+     *             Menu.GroupLabel("Actions"),
+     *             Menu.Item("edit", "Edit · rename", { icon: "pen" }),
+     *             Menu.Item("export", "Export CSV", { icon: "download" }),
+     *         ],
+     *     });
+     * });
+     * ```
+     */
+    GroupLabel: createMenuGroupLabel,
     /**
      * Creates a menu separator for visual grouping.
      *
@@ -305,9 +378,11 @@ export const Menu = {
          * Menu item variant type.
          *
          * @remarks
-         * Menu items can be either an Item (clickable menu entry) or a Separator (visual divider).
+         * Menu items can be an Item (clickable menu entry), a GroupLabel
+         * (uppercase mono eyebrow heading), or a Separator (visual divider).
          *
-         * @property Item - A clickable menu item with value, label, and optional disabled state
+         * @property Item - A clickable menu item with value, label, and optional icon / accelerator / disabled / destructive state
+         * @property GroupLabel - An uppercase eyebrow heading for the items that follow
          * @property Separator - A visual separator between menu items
          */
         Item: MenuItemType,

@@ -13,7 +13,7 @@ import {
     none,
 } from "@elaraai/east";
 
-import { BorderStyleType, BorderWidthType, SizeType, ColorSchemeType, StyleVariantType, OverflowType, JustifyContentType, AlignItemsType } from "../../style.js";
+import { BorderStyleType, BorderWidthType, DensityType, SizeType, ColorSchemeType, StyleVariantType, OverflowType, JustifyContentType, AlignItemsType } from "../../style.js";
 import { PaddingType, MarginType } from "../../layout/style.js";
 import { UIComponentType } from "../../component.js";
 import { BadgeType, BadgeStyleType, type BadgeStyle } from "./types.js";
@@ -182,8 +182,14 @@ function createBadge(
     style?: BadgeStyle,
 ): ExprType<UIComponentType> {
     const styleValue = buildBadgeStyle(style);
+    const densityValue = style?.density !== undefined
+        ? (typeof style.density === "string"
+            ? East.value(variant(style.density, null), DensityType)
+            : style.density)
+        : undefined;
     return East.value(variant("Badge", {
         value,
+        density: densityValue ? some(densityValue) : none,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
@@ -229,6 +235,7 @@ export const Badge = {
          * into the module's internal paths.
          *
          * @property value - The badge text content
+         * @property density - Density override; shares the cascade with `ChipRail` / `Trace` so mixed display cells align
          * @property style - Optional visual style sub-struct (see `Style`)
          */
         Badge: BadgeType,

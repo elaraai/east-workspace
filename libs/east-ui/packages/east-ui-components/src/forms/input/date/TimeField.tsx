@@ -84,9 +84,8 @@ export function DateInput({ children }: DateInputProps) {
       alignItems="center"
       gap={0}
       border="none"
-      borderRadius="4px"
-      px={1}
-      py={0.5}
+      px={0}
+      py={0}
       bg="transparent"
       opacity={state.isReadOnly ? 0.8 : 1}
       cursor={state.isReadOnly ? "not-allowed" : "text"}

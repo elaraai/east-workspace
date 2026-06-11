@@ -18,7 +18,7 @@ import {
     none,
 } from "@elaraai/east";
 
-import { SizeType } from "../../style.js";
+import { DensityType, SizeType } from "../../style.js";
 import { UIComponentType } from "../../component.js";
 import { TickFormatType } from "../../format/types.js";
 import { IconType } from "../icon/types.js";
@@ -64,6 +64,7 @@ export {
  * @property delta - Optional delta / change pill (UIComponent)
  * @property info - Optional ⓘ trigger beside the label (UIComponent)
  * @property indicator - Optional composite direction + sentiment + icon struct
+ * @property density - Density override; shares the cascade with `ChipRail` / `Trace` so mixed display cells align
  * @property style - Optional visual style sub-struct
  */
 const StatType: StructType<{
@@ -75,6 +76,7 @@ const StatType: StructType<{
     delta: OptionType<UIComponentType>,
     info: OptionType<UIComponentType>,
     indicator: OptionType<StatIndicatorType>,
+    density: OptionType<DensityType>,
     style: OptionType<StatStyleType>,
 }> = StructType({
     label: StringType,
@@ -85,6 +87,7 @@ const StatType: StructType<{
     delta: OptionType(UIComponentType),
     info: OptionType(UIComponentType),
     indicator: OptionType(StatIndicatorType),
+    density: OptionType(DensityType),
     style: OptionType(StatStyleType),
 });
 type StatType = typeof StatType;
@@ -229,6 +232,11 @@ function createStat(
     const { label, value } = options;
     const indicatorValue = buildIndicator(options.indicator);
     const styleValue = buildStatStyle(options);
+    const densityValue = options.density !== undefined
+        ? (typeof options.density === "string"
+            ? East.value(variant(options.density, null), DensityType)
+            : options.density)
+        : undefined;
 
     // Wrap the scalar value as a LiteralValueType, tagged by its East type
     // (Integer / Float / String) — mirrors the Table cell-value pattern.
@@ -245,6 +253,7 @@ function createStat(
         delta: options.delta !== undefined ? some(options.delta as SubtypeExprOrValue<UIComponentType>) : none,
         info: options.info !== undefined ? some(options.info as SubtypeExprOrValue<UIComponentType>) : none,
         indicator: indicatorValue ? some(indicatorValue) : none,
+        density: densityValue ? some(densityValue) : none,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
@@ -333,6 +342,7 @@ export const Stat: StatNamespace = {
          * @property delta - Optional delta / change pill (UIComponent)
          * @property info - Optional ⓘ trigger beside the label (UIComponent)
          * @property indicator - Optional composite direction + sentiment + icon struct
+         * @property density - Density override; shares the cascade with `ChipRail` / `Trace` so mixed display cells align
          * @property style - Optional visual style sub-struct (see `Style`)
          */
         Stat: StatType,

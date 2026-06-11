@@ -15,3 +15,5 @@ export { Meter } from "./meter/index.js";
 export { SegmentedMeter } from "./segmented-meter/index.js";
 export { BarStrip } from "./bar-strip/index.js";
 export { AvatarGroup } from "./avatar-group/index.js";
+export { Trace } from "./trace/index.js";
+export { ChipRail } from "./chip-rail/index.js";

@@ -95,7 +95,8 @@ export const EastChakraSliceRange = memo(function EastChakraSliceRange({ value }
     useSliceReactivity(slice.key);
     // In a Slice.Frame the block supplies the calendar identity, so the pill
     // drops its own; standalone it keeps it.
-    const framed = useSliceDensity() === "compact";
+    // `editor` takes the framed (flat pill) form; its picker inlines via the editor-density disclosure.
+    const framed = useSliceDensity() !== "focused";
     const state = slice.read();
 
     const range = getSomeorUndefined(state.range);

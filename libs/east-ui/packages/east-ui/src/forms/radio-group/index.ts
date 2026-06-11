@@ -75,11 +75,13 @@ function createRadioGroup(
 ): ExprType<UIComponentType> {
     const { value, items } = options;
 
-    const itemsExpr = items.map(item => East.value({
-        value: item.value,
-        label: item.label !== undefined ? some(item.label) : none,
-        disabled: item.disabled !== undefined ? some(item.disabled) : none,
-    }, RadioItemType));
+    const itemsExpr = Array.isArray(items)
+        ? items.map(item => East.value({
+            value: item.value,
+            label: item.label !== undefined ? some(item.label) : none,
+            disabled: item.disabled !== undefined ? some(item.disabled) : none,
+        }, RadioItemType))
+        : items;
 
     const colorPaletteValue = options.colorPalette
         ? (typeof options.colorPalette === "string"

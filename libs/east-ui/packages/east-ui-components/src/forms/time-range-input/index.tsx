@@ -9,6 +9,7 @@ import { Time } from "@internationalized/date";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { TimeRangeInput } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
+import { fieldChrome, fieldFocusRing } from "../../theme/field-chrome";
 import { TimeField, TimeInput, TimeSegment } from "../input/date";
 
 const timeRangeInputEqual = equalFor(TimeRangeInput.Types.Root);
@@ -82,30 +83,21 @@ export const EastChakraTimeRangeInput = memo(function EastChakraTimeRangeInput({
 
     // Size mapping — sm/md/lg → tighter / default / looser padding + font.
     const fontSize = sizeTag === "sm" || sizeTag === "xs" ? "sm" : sizeTag === "lg" ? "lg" : "md";
-    const px = sizeTag === "sm" || sizeTag === "xs" ? 2 : sizeTag === "lg" ? 4 : 3;
-    const py = sizeTag === "sm" || sizeTag === "xs" ? 1 : sizeTag === "lg" ? 2.5 : 1.5;
 
     const fieldShell = {
+        ...fieldChrome,
         display: "inline-flex",
         alignItems: "center",
-        borderWidth: "1px",
-        borderStyle: "solid",
-        borderColor: borderColor ?? "border",
-        borderRadius: "md",
-        bg: background,
-        color: colour,
-        px,
-        py,
-        fontSize,
+        ...(background !== undefined ? { background } : {}),
+        ...(colour !== undefined ? { color: colour } : {}),
+        ...(borderColor !== undefined ? { borderColor } : {}),
         opacity: disabled ? 0.6 : 1,
-        _focusWithin: focusBorderColor
-            ? { borderColor: focusBorderColor }
-            : { borderColor: "brand.500" },
-    } as const;
+        _focusWithin: focusBorderColor ? { borderColor: focusBorderColor } : fieldFocusRing,
+    };
 
     const inputs = (
         <HStack gap="2" align="center">
-            <Box {...fieldShell}>
+            <Box css={fieldShell}>
                 <TimeField value={localStart} onChange={handleStartChange} isReadOnly={disabled} aria-label="Start time">
                     <TimeInput>
                         {({ segment }) => <TimeSegment segment={segment} />}
@@ -113,7 +105,7 @@ export const EastChakraTimeRangeInput = memo(function EastChakraTimeRangeInput({
                 </TimeField>
             </Box>
             <Text color="fg.muted" fontSize={fontSize}>–</Text>
-            <Box {...fieldShell}>
+            <Box css={fieldShell}>
                 <TimeField value={localEnd} onChange={handleEndChange} isReadOnly={disabled} aria-label="End time">
                     <TimeInput>
                         {({ segment }) => <TimeSegment segment={segment} />}

@@ -17,6 +17,7 @@ type ChartBuilders = {
     Area: typeof ChartFactory.Area;
     Scatter: typeof ChartFactory.Scatter;
     Band: typeof ChartFactory.Band;
+    Series: typeof ChartFactory.Series;
     refLine: typeof ChartFactory.refLine;
     refBand: typeof ChartFactory.refBand;
     refDot: typeof ChartFactory.refDot;
@@ -74,6 +75,7 @@ export const Chart: JsxTag<ValueProps<typeof ChartFactory.Root, "layers">> & Cha
         Area: ChartFactory.Area,
         Scatter: ChartFactory.Scatter,
         Band: ChartFactory.Band,
+        Series: ChartFactory.Series,
         refLine: ChartFactory.refLine,
         refBand: ChartFactory.refBand,
         refDot: ChartFactory.refDot,

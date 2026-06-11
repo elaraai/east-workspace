@@ -13,6 +13,7 @@ describeEast("Stat", (test) => {
         statHelpText: ex.statHelpText,
         statIndicators: ex.statIndicators,
         statFormatted: ex.statFormatted,
+        statDensities: ex.statDensities,
     });
 
     // =========================================================================

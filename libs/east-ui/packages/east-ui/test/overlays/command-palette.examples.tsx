@@ -112,7 +112,7 @@ export const commandPaletteWithHotkey = example({
             }));
             return (
                 <VStack gap="2" align="flex-start">
-                    {Hotkey.Root("mod+k", trigger)}
+                    <Hotkey chord="mod+k" onTrigger={trigger} />
                     <CommandPalette
                         open={open}
                         onOpenChange={onOpenChange}

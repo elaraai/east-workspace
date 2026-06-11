@@ -46,6 +46,7 @@ export type { DrawerSizeLiteral, DrawerPlacementLiteral } from "./types.js";
  *
  * @property trigger - The UI component that opens the drawer
  * @property body - Array of UI components for drawer content
+ * @property eyebrow - Optional mono uppercase eyebrow above the title
  * @property title - Optional drawer title
  * @property description - Optional drawer description
  * @property style - Optional style configuration
@@ -53,12 +54,14 @@ export type { DrawerSizeLiteral, DrawerPlacementLiteral } from "./types.js";
 export const DrawerType: StructType<{
     trigger: UIComponentType,
     body: ArrayType<UIComponentType>,
+    eyebrow: OptionType<StringType>,
     title: OptionType<StringType>,
     description: OptionType<StringType>,
     style: OptionType<DrawerStyleType>,
 }> = StructType({
     trigger: UIComponentType,
     body: ArrayType(UIComponentType),
+    eyebrow: OptionType(StringType),
     title: OptionType(StringType),
     description: OptionType(StringType),
     style: OptionType(DrawerStyleType),
@@ -82,17 +85,20 @@ export type DrawerType = typeof DrawerType;
  * a trigger property.
  *
  * @property body - Array of UI components for drawer content
+ * @property eyebrow - Optional mono uppercase eyebrow above the title
  * @property title - Optional drawer title
  * @property description - Optional drawer description
  * @property style - Optional style configuration
  */
 export const DrawerOpenInputType: StructType<{
     body: ArrayType<UIComponentType>,
+    eyebrow: OptionType<StringType>,
     title: OptionType<StringType>,
     description: OptionType<StringType>,
     style: OptionType<DrawerStyleType>,
 }> = StructType({
     body: ArrayType(UIComponentType),
+    eyebrow: OptionType(StringType),
     title: OptionType(StringType),
     description: OptionType(StringType),
     style: OptionType(DrawerStyleType),
@@ -161,6 +167,7 @@ function createDrawer(
     return East.value(variant("Drawer", {
         trigger: trigger,
         body: body,
+        eyebrow: style.eyebrow !== undefined ? some(style.eyebrow) : none,
         title: style.title !== undefined ? some(style.title) : none,
         description: style.description !== undefined ? some(style.description) : none,
         style: hasStyle

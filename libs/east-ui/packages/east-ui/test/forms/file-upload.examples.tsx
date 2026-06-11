@@ -16,6 +16,20 @@ export const fileUploadBasic = example({
     inputs: [],
 });
 
+export const fileUploadOrientation = example({
+    keywords: ["FileUpload", "Root", "orientation", "vertical", "horizontal", "stacked", "inline"],
+    description: "Both dropzone orientations — vertical (stacked, prominent drop target) and horizontal (inline, compact for a band)",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <VStack gap="4" align="stretch" width="100%">
+                <FileUpload orientation="vertical" label="Retrain bundle (stacked)" dropzoneText="or drag and drop" triggerText="Choose file" accept=".tar.gz" />
+                <FileUpload orientation="horizontal" label="Evidence (inline)" dropzoneText="or drag and drop" triggerText="Attach file" />
+            </VStack>
+        );
+    }),
+    inputs: [],
+});
+
 export const fileUploadInteractive = example({
     keywords: ["FileUpload", "Reactive", "State", "onFileAccept", "interactive"],
     description: "FileUpload whose onFileAccept records the number of accepted files",
@@ -30,7 +44,7 @@ export const fileUploadInteractive = example({
             return (
                 <VStack gap="3" align="stretch" width="100%">
                     <FileUpload label="Upload Files" dropzoneText="or drag and drop" triggerText="Choose files" maxFiles={5} onFileAccept={onFileAccept} />
-                    {Text.Presets.MonoLabel(East.str`ACCEPTED · ${value} FILES`)}
+                    {<Text.MonoLabel>{East.str`ACCEPTED · ${value} FILES`}</Text.MonoLabel>}
                 </VStack>
             );
         }}</Reactive>
@@ -55,7 +69,7 @@ export const fileUploadOnFileReject = example({
             return (
                 <VStack gap="3" align="stretch" width="100%">
                     <FileUpload label="Images Only (max 100KB)" dropzoneText="or drag and drop" triggerText="Choose files" accept="image/*" maxFileSize={100000} onFileReject={onFileReject} />
-                    {Text.Presets.MonoLabel(East.str`REJECTED · ${value} FILES`)}
+                    {<Text.MonoLabel>{East.str`REJECTED · ${value} FILES`}</Text.MonoLabel>}
                 </VStack>
             );
         }}</Reactive>

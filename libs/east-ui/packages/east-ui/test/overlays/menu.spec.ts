@@ -66,16 +66,40 @@ describeEast("Menu", (test) => {
     });
 
     test("creates disabled menu item", $ => {
-        const item = $.let(Menu.Item("locked", "Locked Action", true));
+        const item = $.let(Menu.Item("locked", "Locked Action", { disabled: true }));
 
         $(Assert.equal(item.unwrap("Item").disabled.hasTag("some"), true));
         $(Assert.equal(item.unwrap("Item").disabled.unwrap("some"), true));
     });
 
     test("creates enabled menu item explicitly", $ => {
-        const item = $.let(Menu.Item("enabled", "Enabled Action", false));
+        const item = $.let(Menu.Item("enabled", "Enabled Action", { disabled: false }));
 
         $(Assert.equal(item.unwrap("Item").disabled.unwrap("some"), false));
+    });
+
+    test("creates menu item with icon, command, and destructive flag", $ => {
+        const item = $.let(Menu.Item("archive", "Archive", { icon: "trash", command: "⌘⌫", destructive: true }));
+
+        $(Assert.equal(item.unwrap("Item").icon.unwrap("some"), "trash"));
+        $(Assert.equal(item.unwrap("Item").command.unwrap("some"), "⌘⌫"));
+        $(Assert.equal(item.unwrap("Item").destructive.unwrap("some"), true));
+        $(Assert.equal(item.unwrap("Item").disabled.hasTag("none"), true));
+    });
+
+    test("menu item optional fields default to none", $ => {
+        const item = $.let(Menu.Item("plain", "Plain"));
+
+        $(Assert.equal(item.unwrap("Item").icon.hasTag("none"), true));
+        $(Assert.equal(item.unwrap("Item").command.hasTag("none"), true));
+        $(Assert.equal(item.unwrap("Item").destructive.hasTag("none"), true));
+    });
+
+    test("creates menu group label", $ => {
+        const label = $.let(Menu.GroupLabel("Actions"));
+
+        $(Assert.equal(label.getTag(), "GroupLabel"));
+        $(Assert.equal(label.unwrap("GroupLabel").label, "Actions"));
     });
 
     test("creates menu separator", $ => {
@@ -216,8 +240,8 @@ describeEast("Menu", (test) => {
         const menu = $.let(Menu.Root({
             trigger: Button.Root("Edit"),
             items: [
-                Menu.Item("undo", "Undo", true),
-                Menu.Item("redo", "Redo", true),
+                Menu.Item("undo", "Undo", { disabled: true }),
+                Menu.Item("redo", "Redo", { disabled: true }),
                 Menu.Separator(),
                 Menu.Item("cut", "Cut"),
                 Menu.Item("copy", "Copy"),

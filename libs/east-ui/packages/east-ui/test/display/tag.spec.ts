@@ -16,6 +16,7 @@ describeEast("Tag", (test) => {
         tagDynamic: ex.tagDynamic,
         tagBorder: ex.tagBorder,
         tagBoxModel: ex.tagBoxModel,
+        tagDensities: ex.tagDensities,
     });
 
     // =========================================================================

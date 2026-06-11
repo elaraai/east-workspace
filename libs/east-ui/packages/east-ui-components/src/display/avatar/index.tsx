@@ -8,6 +8,7 @@ import { Avatar as ChakraAvatar, type AvatarRootProps } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Avatar } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
+import { useDensity } from "../../contracts/density";
 
 const avatarEqual = equalFor(Avatar.Types.Avatar);
 
@@ -66,9 +67,12 @@ export const EastChakraAvatar = memo(function EastChakraAvatar({ value }: EastCh
     const props = useMemo(() => toChakraAvatar(value), [value]);
     const src = useMemo(() => getSomeorUndefined(value.src), [value.src]);
     const name = useMemo(() => getSomeorUndefined(value.name), [value.name]);
+    const inheritedDensity = useDensity();
+    const localDensity = useMemo(() => getSomeorUndefined(value.density)?.type, [value.density]);
+    const density = localDensity ?? inheritedDensity;
 
     return (
-        <ChakraAvatar.Root {...props}>
+        <ChakraAvatar.Root {...props} {...(density !== undefined ? ({ density } as AvatarRootProps) : {})}>
             <ChakraAvatar.Fallback name={name} />
             {src && <ChakraAvatar.Image src={src} />}
         </ChakraAvatar.Root>

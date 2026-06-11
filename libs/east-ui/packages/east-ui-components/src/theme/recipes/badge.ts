@@ -106,6 +106,16 @@ export const badgeRecipe = defineRecipe({
                 paddingX: "7px",
             },
         },
+        // Density cascade — a badge is a micro-label, one tier BELOW the
+        // chip-height rhythm: it scales with density but stays smaller than a
+        // Tag at the same density, centring vertically in the row. No
+        // default: an undensified badge keeps the `size` look. Declared last
+        // so density wins the merge over `size` / `variant` sizing.
+        density: {
+            condensed: { fontSize: "8.5px", lineHeight: "1", paddingX: "5px", paddingY: "1px" },
+            compact: { fontSize: "10px", lineHeight: "1", paddingX: "8px", paddingY: "2px" },
+            comfortable: { fontSize: "11px", lineHeight: "1", paddingX: "10px", paddingY: "4px" },
+        },
     },
     defaultVariants: {
         variant: "outline",

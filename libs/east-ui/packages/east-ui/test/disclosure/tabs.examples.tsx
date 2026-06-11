@@ -154,7 +154,7 @@ export const tabsInteractive = example({
                             variant="line"
                         />
                     </Box>
-                    {Text.Presets.Eyebrow(East.str`SELECTED · ${selected}`)}
+                    {<Text.Eyebrow>{East.str`SELECTED · ${selected}`}</Text.Eyebrow>}
                 </VStack>
             );
         }}</Reactive>
@@ -172,7 +172,7 @@ export const tabsWithCountBadges = example({
                     Tabs.Item("inputs", "Inputs", [<Box padding="4"><Text>Three inputs are defined.</Text></Box>]),
                     Tabs.Item(
                         "results",
-                        <HStack gap="2" align="center"><Text>Results</Text>{Text.Presets.MonoSm("5")}</HStack>,
+                        <HStack gap="2" align="center"><Text>Results</Text>{<Text.MonoSm>{"5"}</Text.MonoSm>}</HStack>,
                         [<Box padding="4"><Text>Five results computed.</Text></Box>],
                     ),
                 ]}

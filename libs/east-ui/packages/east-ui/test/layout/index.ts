@@ -6,7 +6,6 @@
 /** `layout` example barrel — re-exports every example in this category. */
 
 export * from "./box.examples.js";
-export * from "./chip-rail.examples.js";
 export * from "./flex.examples.js";
 export * from "./grid.examples.js";
 export * from "./scroll-area.examples.js";

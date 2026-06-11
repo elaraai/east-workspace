@@ -16,6 +16,8 @@ import {
 
 import { StatusTokenType } from "../../style/interaction.js";
 import type { StatusTokenLiteral } from "../../style/interaction.js";
+import { DensityType } from "../../style.js";
+import type { DensityLiteral } from "../../style.js";
 
 // ============================================================================
 // Meter Thickness
@@ -89,6 +91,7 @@ export type MeterStyleType = typeof MeterStyleType;
  * @property max - Maximum value (defaults to 100)
  * @property label - Optional label UIComponent rendered alongside the bar
  * @property tone - Semantic status tone (drives default fill colour)
+ * @property density - Density override; shares the cascade with `ChipRail` / `Trace` so mixed display cells align
  * @property thickness - Visual thickness preset
  * @property fillColor - Explicit fill colour override
  * @property trackColor - Explicit track colour override
@@ -101,6 +104,13 @@ export interface MeterOptions {
     label?: unknown;
     /** Semantic status tone (drives default fill colour when set). */
     tone?: SubtypeExprOrValue<StatusTokenType> | StatusTokenLiteral;
+    /**
+     * Density override (main-struct). Inherited from the enclosing surface
+     * (Table, ChipRail, …) when omitted; an explicit value wins over both the
+     * cascade and `thickness`, sizing the meter to match rails and traces at
+     * the same density.
+     */
+    density?: SubtypeExprOrValue<DensityType> | DensityLiteral;
     /** Visual thickness preset (xs / sm / md / lg). */
     thickness?: SubtypeExprOrValue<MeterThicknessType> | MeterThicknessLiteral;
     /** Corner radius (Chakra token or explicit px). Default `"sm"`. */

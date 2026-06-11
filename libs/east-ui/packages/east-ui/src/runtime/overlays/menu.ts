@@ -8,9 +8,10 @@
 import { Menu as MenuFactory, type MenuOptions } from "../../overlays/menu/index.js";
 import { optionsTag, type JsxTag } from "../combinators.js";
 
-/** Item + separator builders carried alongside the `<Menu>` tag. */
+/** Item + group label + separator builders carried alongside the `<Menu>` tag. */
 type MenuBuilders = {
     Item: typeof MenuFactory.Item;
+    GroupLabel: typeof MenuFactory.GroupLabel;
     Separator: typeof MenuFactory.Separator;
     Types: typeof MenuFactory.Types;
 };
@@ -32,22 +33,24 @@ type MenuBuilders = {
  *     <Menu
  *         trigger={<IconButton prefix="fas" name="ellipsis" label="More" variant="ghost" size="sm" />}
  *         items={[
- *             Menu.Item("view", "View"),
- *             Menu.Item("edit", "Edit"),
+ *             Menu.GroupLabel("Actions"),
+ *             Menu.Item("edit", "Edit · rename", { icon: "pen" }),
+ *             Menu.Item("duplicate", "Duplicate", { icon: "copy", command: "⌘D" }),
  *             Menu.Separator(),
- *             Menu.Item("delete", "Delete"),
+ *             Menu.Item("archive", "Archive", { icon: "trash", destructive: true }),
  *         ]}
  *     />
  * ));
  * ```
  *
  * @remarks
- * Carries `Menu.Types` and the `Menu.Item(value, label, disabled?)` /
- * `Menu.Separator()` item builders for the `items` array. Desugars to
- * `Menu.Root(options)`.
+ * Carries `Menu.Types` and the `Menu.Item(value, label, options?)` /
+ * `Menu.GroupLabel(label)` / `Menu.Separator()` item builders for the
+ * `items` array. Desugars to `Menu.Root(options)`.
  */
 export const Menu: JsxTag<MenuOptions> & MenuBuilders = Object.assign(optionsTag(MenuFactory.Root), {
     Item: MenuFactory.Item,
+    GroupLabel: MenuFactory.GroupLabel,
     Separator: MenuFactory.Separator,
     Types: MenuFactory.Types,
 });

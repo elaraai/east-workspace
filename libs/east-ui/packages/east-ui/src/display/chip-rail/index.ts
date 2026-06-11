@@ -9,6 +9,7 @@ import {
     ArrayType,
     East,
     OptionType,
+    StringType,
     StructType,
     variant,
 } from "@elaraai/east";
@@ -28,6 +29,7 @@ import {
  */
 export const ChipRailType = StructType({
     chips: ArrayType(UIComponentType),
+    labels: OptionType(ArrayType(StringType)),
     density: OptionType(DensityType),
     separator: OptionType(ChipRailSeparatorType),
     style: OptionType(ChipRailStyleType),
@@ -49,11 +51,11 @@ export {
  * ChipRail — horizontal chip row with density + separator + overflow control.
  *
  * @remarks
- * Shared primitive consumed by `MetricRail`, `AssumptionsBar`, `FilterBar`,
- * `LegendRail` (all in §2 patterns). The rail renders its `chips` left-to-
- * right with the chosen `separator` between them; when the container is too
- * narrow and `overflow === "menu"`, trailing chips collapse into an overflow
- * `⋯` Menu.
+ * The rail hosts any mix of chip-shaped children — Tag, Badge, MetricChip,
+ * EditableChip, Avatar, Kbd — and provides its `density` to them, so every
+ * chip sizes to the same rhythm without per-chip props (a child's own
+ * `density` wins over the rail's). Renders its `chips` left-to-right with
+ * the chosen `separator` between them.
  *
  * @example
  * ```ts
@@ -97,6 +99,7 @@ function createChipRail(
 
     return East.value(variant("ChipRail", {
         chips,
+        labels: options?.labels !== undefined ? variant("some", options.labels) : variant("none", null),
         density: densityValue ? variant("some", densityValue) : variant("none", null),
         separator: separatorValue ? variant("some", separatorValue) : variant("none", null),
         style: hasStyle

@@ -25,6 +25,15 @@ export const inputInteger = example({
     inputs: [],
 });
 
+export const inputFocused = example({
+    keywords: ["Input", "Integer", "autoFocus", "focus", "ring"],
+    description: "Auto-focused numeric input — shows the focus state (brand border + soft ring)",
+    fn: East.function([], UIComponentType, (_$) => {
+        return <Input.Integer value={6n} min={0n} max={100n} autoFocus />;
+    }),
+    inputs: [],
+});
+
 export const inputFloat = example({
     keywords: ["Input", "Float", "min", "max", "step", "precision"],
     description: "Decimal input with precision",
@@ -102,8 +111,8 @@ export const inputStringInteractive = example({
                     <Text>{East.str`You typed: ${text}`}</Text>
                     <Text>{East.str`Length: ${text.length()}`}</Text>
                     <HStack gap="4">
-                        {Text.Presets.MonoLabel(East.str`FOCUS · ${focusCount}`)}
-                        {Text.Presets.MonoLabel(East.str`BLUR · ${blurCount}`)}
+                        {<Text.MonoLabel>{East.str`FOCUS · ${focusCount}`}</Text.MonoLabel>}
+                        {<Text.MonoLabel>{East.str`BLUR · ${blurCount}`}</Text.MonoLabel>}
                     </HStack>
                 </VStack>
             );

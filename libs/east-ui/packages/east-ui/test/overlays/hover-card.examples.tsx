@@ -8,18 +8,18 @@ import { State, UIComponentType } from "@elaraai/east-ui";
 import { Avatar, Badge, Button, HoverCard, HStack, Reactive, Text, VStack } from "@elaraai/east-ui";
 
 export const hoverCardProfile = example({
-    keywords: ["HoverCard", "Root", "Avatar", "Badge", "profile"],
-    description: "Rich preview on hover",
+    keywords: ["HoverCard", "Root", "Avatar", "Badge", "profile", "title"],
+    description: "Rich preview on hover with the mono eyebrow title",
     fn: East.function([], UIComponentType, (_$) => {
         return (
-            <HoverCard trigger={<Text color="link" fontWeight="medium">@johndoe</Text>} placement="bottom" openDelay={200n}>
+            <HoverCard trigger={<Text color="link" fontWeight="medium">@johndoe</Text>} title="Operator · @johndoe" placement="bottom" openDelay={200n}>
                 <HStack gap="3">
                     <Avatar name="John Doe" size="lg" />
                     <VStack gap="1" align="flex-start">
                         <Text fontWeight="semibold">John Doe</Text>
                         <Text textStyle="body-sm" color="gray.500">Software Engineer</Text>
                         <HStack gap="1">
-                            <Badge colorPalette="purple" variant="solid">Pro</Badge>
+                            <Badge variant="subtle">Pro</Badge>
                             <Badge colorPalette="green" variant="subtle">Verified</Badge>
                         </HStack>
                     </VStack>
@@ -31,15 +31,17 @@ export const hoverCardProfile = example({
 });
 
 export const hoverCardLink = example({
-    keywords: ["HoverCard", "Root", "link", "preview", "hasArrow"],
-    description: "Preview content on hover",
+    keywords: ["HoverCard", "Root", "link", "preview", "title", "description"],
+    description: "Link preview on hover — title eyebrow + description config",
     fn: East.function([], UIComponentType, (_$) => {
         return (
-            <HoverCard trigger={<Button variant="ghost" colorPalette="blue">View Documentation</Button>} hasArrow={true}>
-                <VStack gap="2" padding="2">
-                    <Text fontWeight="semibold">East UI Documentation</Text>
-                    <Text textStyle="body-sm" color="gray.600">Complete guide to building UIs with East UI components. Learn about layout, forms, charts, and more.</Text>
-                </VStack>
+            <HoverCard
+                trigger={<Button variant="ghost">View Documentation</Button>}
+                title="East UI · docs"
+                description="Complete guide to building UIs with East UI components."
+                placement="bottom-start"
+            >
+                <Text textStyle="body-sm">Learn about layout, forms, charts, and more.</Text>
             </HoverCard>
         );
     }),
@@ -62,7 +64,7 @@ export const hoverCardInteractive = example({
                     <HoverCard trigger={<Button>Hover me</Button>} onOpenChange={onOpenChange}>
                         <Text>HoverCard content shown on hover</Text>
                     </HoverCard>
-                    {Text.Presets.MonoLabel(East.str`TOGGLED · ${East.print(value)}`)}
+                    {<Text.MonoLabel>{East.str`TOGGLED · ${East.print(value)}`}</Text.MonoLabel>}
                 </VStack>
             );
         }}</Reactive>

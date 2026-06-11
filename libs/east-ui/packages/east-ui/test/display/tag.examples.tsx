@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, IntegerType, NullType, variant, example } from "@elaraai/east";
 import { State, Style, UIComponentType } from "@elaraai/east-ui";
-import { Tag, Text, HStack, VStack, Reactive } from "@elaraai/east-ui";
+import { Tag, Text, HStack, VStack, Stack, Reactive } from "@elaraai/east-ui";
 
 export const tagBasic = example({
     keywords: ["Tag", "Root", "basic", "filter", "chip"],
@@ -127,6 +127,42 @@ export const tagBoxModel = example({
     inputs: [],
 });
 
+export const tagDensities = example({
+    keywords: ["Tag", "density", "condensed", "compact", "comfortable", "sizes"],
+    description: "The three densities stacked — chip height + font scale condensed → compact → comfortable (matching ChipRail)",
+    fn: East.function([], UIComponentType, ($) => {
+        const condensed = $.const(
+            <HStack gap="2">
+                <Tag density="condensed">region · SE</Tag>
+                <Tag density="condensed" variant="brand">cohort · selected</Tag>
+                <Tag density="condensed" variant="dashed">+ add filter</Tag>
+            </HStack>,
+        );
+        const compact = $.const(
+            <HStack gap="2">
+                <Tag density="compact">region · SE</Tag>
+                <Tag density="compact" variant="brand">cohort · selected</Tag>
+                <Tag density="compact" variant="dashed">+ add filter</Tag>
+            </HStack>,
+        );
+        const comfortable = $.const(
+            <HStack gap="2">
+                <Tag density="comfortable">region · SE</Tag>
+                <Tag density="comfortable" variant="brand">cohort · selected</Tag>
+                <Tag density="comfortable" variant="dashed">+ add filter</Tag>
+            </HStack>,
+        );
+        return (
+            <Stack direction="column" gap="6">
+                {condensed}
+                {compact}
+                {comfortable}
+            </Stack>
+        );
+    }),
+    inputs: [],
+});
+
 export const tagOnCloseInteractive = example({
     keywords: ["Tag", "Reactive", "State", "interactive", "onClose", "closable"],
     description: "Closable tag whose onClose increments a reactive counter",
@@ -141,7 +177,7 @@ export const tagOnCloseInteractive = example({
             return (
                 <VStack gap="3" align="center">
                     <Tag closable={true} variant="brand" onClose={onClose}>Click × to close</Tag>
-                    {Text.Presets.MonoLabel(East.str`CLOSED · ${value}`)}
+                    {<Text.MonoLabel>{East.str`CLOSED · ${value}`}</Text.MonoLabel>}
                 </VStack>
             );
         }}</Reactive>

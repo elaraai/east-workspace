@@ -137,6 +137,27 @@ export {
     type PlannerRootValue,
     type PlannerEventValue,
     type EastChakraPlannerProps,
+    EastChakraLibrary,
+    type LibraryValue,
+    type LibraryItemValue,
+    type EastChakraLibraryProps,
+    EastChakraRoster,
+    type RosterValue,
+    type RosterShiftValue,
+    type EastChakraRosterProps,
+    EastChakraCalendar,
+    type CalendarValue,
+    type CalendarCellValue,
+    type EastChakraCalendarProps,
+    EastChakraSchematic,
+    type SchematicValue,
+    type SchematicItemValue,
+    type EastChakraSchematicProps,
+    EastChakraBlend,
+    type BlendValue,
+    type BlendTargetValue,
+    type BlendAllocationValue,
+    type EastChakraBlendProps,
 } from "./collections/index.js";
 
 // Navigation
@@ -238,6 +259,15 @@ export {
     toChakraFileUpload,
     type FileUploadValue,
     type EastChakraFileUploadProps,
+    // ClauseBuilder
+    ClauseBuilder,
+    ClauseChip,
+    type ClauseBuilderProps,
+    type ClauseChipProps,
+    type ClauseFieldSpec,
+    type ClauseOpSpec,
+    type ClauseSubmitValue,
+    type ClauseKind,
 } from "./forms/index.js";
 
 // Feedback
@@ -304,6 +334,23 @@ export {
     OverlayImpl,
 } from "./overlays/index.js";
 
+// Drag & drop layer (the renderer half of the drag grammar contract)
+export {
+    DragLayerProvider,
+    type DragLayerProviderProps,
+    useDragLayer,
+    useDragLayerOptional,
+    useDragTarget,
+    useDropCell,
+    useDropSink,
+    useDragSourceItem,
+    useDragEventChip,
+    type DragEventValue,
+    type CellCoord,
+    type DragKinds,
+    type DragTargetConfig,
+} from "./dnd/drag-layer.js";
+
 // Hooks
 export { usePersistedState, type PersistedStateResult } from "./hooks/usePersistedState.js";
 
@@ -314,7 +361,7 @@ export {
     StateRuntime,
 
     // Slice implementations (auto-register on import)
-    SliceImpl,
+    SliceImpl, buildSliceHandle, DEFAULT_SLICE_STATE,
     SliceApplyImpl,
 
     // Clipboard implementation (auto-registers on import)
@@ -380,3 +427,12 @@ export {
     type EastChakraExtensionProps,
     type ExtensionRendererProps,
 } from "./extension/index.js";
+
+// Shared renderer helpers — for sibling renderer packages (e.g. e3-ui-components)
+// that build their own extension components and need the same option-unwrap +
+// tick-format primitives the in-package renderers use.
+export { getSomeorUndefined } from "./utils.js";
+export { formatTick, type TickFormatOpt } from "./typography/numeric/format-tick.js";
+
+export { SliceRailCluster, EastChakraSliceRail } from "./slice/rail";
+export { useSliceReactivity } from "./slice/use-slice-reactivity";

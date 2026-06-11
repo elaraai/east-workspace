@@ -157,7 +157,7 @@ export const carouselInteractive = example({
                             <Box padding="8" background="orange.100" borderRadius="md"><Text>Contact</Text></Box>
                         </Carousel>
                     </Box>
-                    {Text.Presets.Eyebrow(East.str`CURRENT · ${currentIndex.add(1n)} OF 4`)}
+                    {<Text.Eyebrow>{East.str`CURRENT · ${currentIndex.add(1n)} OF 4`}</Text.Eyebrow>}
                 </VStack>
             );
         }}</Reactive>

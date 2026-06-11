@@ -8,6 +8,7 @@ import { Tag as ChakraTag, type TagRootProps } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Tag } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
+import { useDensity } from "../../contracts/density";
 
 const tagEqual = equalFor(Tag.Types.Tag);
 
@@ -69,6 +70,9 @@ export const EastChakraTag = memo(function EastChakraTag({ value }: EastChakraTa
     const props = useMemo(() => toChakraTag(value), [value]);
     const closable = useMemo(() => getSomeorUndefined(value.closable), [value.closable]);
     const onCloseFn = useMemo(() => getSomeorUndefined(value.onClose), [value.onClose]);
+    const inheritedDensity = useDensity();
+    const localDensity = useMemo(() => getSomeorUndefined(value.density)?.type, [value.density]);
+    const density = localDensity ?? inheritedDensity;
 
     const handleClose = useCallback(() => {
         if (onCloseFn) {
@@ -77,7 +81,7 @@ export const EastChakraTag = memo(function EastChakraTag({ value }: EastChakraTa
     }, [onCloseFn]);
 
     return (
-        <ChakraTag.Root {...props}>
+        <ChakraTag.Root {...props} {...(density !== undefined ? ({ density } as TagRootProps) : {})}>
             <ChakraTag.Label>{value.label}</ChakraTag.Label>
             {closable && (
                 <ChakraTag.CloseTrigger onClick={onCloseFn ? handleClose : undefined} />

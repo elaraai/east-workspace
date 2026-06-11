@@ -109,7 +109,7 @@ export const accordionInteractive = example({
                             onValueChange={onValueChange}
                         />
                     </Box>
-                    {Text.Presets.Eyebrow(East.str`EXPANDED · ${expanded.size()}`)}
+                    {<Text.Eyebrow>{East.str`EXPANDED · ${expanded.size()}`}</Text.Eyebrow>}
                 </VStack>
             );
         }}</Reactive>

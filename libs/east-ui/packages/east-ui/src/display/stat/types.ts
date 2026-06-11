@@ -19,8 +19,8 @@ import {
     none,
 } from "@elaraai/east";
 
-import { SizeType } from "../../style.js";
-import type { SizeLiteral } from "../../style.js";
+import { DensityType, SizeType } from "../../style.js";
+import type { DensityLiteral, SizeLiteral } from "../../style.js";
 import { IconType } from "../icon/types.js";
 import { TickFormatType } from "../../format/types.js";
 
@@ -218,6 +218,7 @@ export type StatStyleType = typeof StatStyleType;
  * @property delta - Optional UIComponent rendered as a delta / change pill
  * @property info - Optional ⓘ trigger rendered next to the label (opens a ToggleTip)
  * @property indicator - Direction literal shorthand OR a struct `{ direction, sentiment?, icon? }`
+ * @property density - Density override shared with the rail / trace cascade
  * @property size - Visual size preset
  * @property valueColor - Explicit colour for the primary value line
  * @property labelColor - Explicit colour for the label
@@ -257,6 +258,13 @@ export interface StatStyle {
             icon?: SubtypeExprOrValue<IconType>;
         }
         | SubtypeExprOrValue<StatIndicatorType>;
+    /**
+     * Density override (main-struct). Inherited from the enclosing surface
+     * (Table, ChipRail, …) when omitted; an explicit value wins over both the
+     * cascade and `size`, sizing the tile to match rails and traces at the
+     * same density.
+     */
+    density?: SubtypeExprOrValue<DensityType> | DensityLiteral;
     /** Visual size preset (sm / md / lg). */
     size?: SubtypeExprOrValue<SizeType> | SizeLiteral;
     /** Explicit colour for the primary value line. */

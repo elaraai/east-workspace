@@ -15,6 +15,8 @@ import {
 
 import { StatusTokenType } from "../../style/interaction.js";
 import type { StatusTokenLiteral } from "../../style/interaction.js";
+import { DensityType } from "../../style.js";
+import type { DensityLiteral } from "../../style.js";
 
 // ============================================================================
 // SegmentedMeter Segment (per-segment data)
@@ -141,6 +143,7 @@ export type SegmentedMeterStyleType = typeof SegmentedMeterStyleType;
  *
  * @property caption - Optional caption UIComponent rendered alongside the bar
  * @property max - Optional total reference (defaults to `sum(segments.value)`)
+ * @property density - Density override; shares the cascade with `ChipRail` / `Trace` so mixed display cells align
  * @property thickness - Visual thickness preset
  * @property labels - Label position preset
  * @property trackColor - Explicit track colour override
@@ -152,6 +155,13 @@ export interface SegmentedMeterOptions {
     caption?: unknown;
     /** Optional total reference (defaults to sum of segment values). */
     max?: SubtypeExprOrValue<FloatType>;
+    /**
+     * Density override (main-struct). Inherited from the enclosing surface
+     * (Table, ChipRail, …) when omitted; an explicit value wins over both the
+     * cascade and `thickness`, sizing the bar to match rails and traces at
+     * the same density.
+     */
+    density?: SubtypeExprOrValue<DensityType> | DensityLiteral;
     /** Visual thickness preset (xs / sm / md / lg). */
     thickness?: SubtypeExprOrValue<SegmentedMeterThicknessType> | SegmentedMeterThicknessLiteral;
     /** Label position preset (inside / outside / none). */

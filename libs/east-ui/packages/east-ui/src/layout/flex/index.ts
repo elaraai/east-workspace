@@ -17,6 +17,7 @@ import {
 import { UIComponentType } from "../../component.js";
 import { FlexStyleType, type FlexStyle } from "./types.js";
 import {
+    DensityType,
     FlexDirectionType,
     JustifyContentType,
     AlignItemsType,
@@ -44,13 +45,16 @@ export { FlexStyleType, type FlexStyle } from "./types.js";
  * Flex is a container component with `display: flex` applied by default.
  *
  * @property children - Array of child UI components
+ * @property density - Optional density the flex container provides to its children via the density cascade
  * @property style - Optional styling configuration wrapped in OptionType
  */
 export const FlexType: StructType<{
     children: ArrayType<UIComponentType>,
+    density: OptionType<DensityType>,
     style: OptionType<FlexStyleType>,
 }> = StructType({
     children: ArrayType(UIComponentType),
+    density: OptionType(DensityType),
     style: OptionType(FlexStyleType),
 });
 
@@ -92,6 +96,12 @@ function createFlex(
     children: SubtypeExprOrValue<ArrayType<UIComponentType>>,
     style?: FlexStyle
 ): ExprType<UIComponentType> {
+    const densityValue = style?.density
+        ? (typeof style.density === "string"
+            ? East.value(variant(style.density, null), DensityType)
+            : style.density)
+        : undefined;
+
     const directionValue = style?.direction
         ? (typeof style.direction === "string"
             ? East.value(variant(style.direction, null), FlexDirectionType)
@@ -206,6 +216,7 @@ function createFlex(
 
     return East.value(variant("Flex", {
         children: children,
+        density: densityValue ? variant("some", densityValue) : variant("none", null),
         style: style ? variant("some", East.value({
             direction: directionValue ? variant("some", directionValue) : variant("none", null),
             wrap: wrapValue ? variant("some", wrapValue) : variant("none", null),

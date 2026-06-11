@@ -16,6 +16,7 @@ import {
     FileUploadType,
     FileUploadStyleType,
     FileCaptureType,
+    FileUploadOrientationType,
     type FileUploadStyle,
 } from "./types.js";
 
@@ -24,8 +25,10 @@ export {
     FileUploadType,
     FileUploadStyleType,
     FileCaptureType,
+    FileUploadOrientationType,
     type FileUploadStyle,
     type FileCaptureLiteral,
+    type FileUploadOrientationLiteral,
 } from "./types.js";
 
 // ============================================================================
@@ -72,6 +75,13 @@ export function createFileUpload_(
             : style.capture)
         : undefined;
 
+    // Convert orientation string literal to variant
+    const orientationValue = style?.orientation
+        ? (typeof style.orientation === "string"
+            ? East.value(variant(style.orientation, null), FileUploadOrientationType)
+            : style.orientation)
+        : undefined;
+
     const hasStyle = !!style && (
         style.variant !== undefined ||
         style.size !== undefined ||
@@ -106,6 +116,7 @@ export function createFileUpload_(
         label: style?.label !== undefined ? variant("some", style.label) : variant("none", null),
         dropzoneText: style?.dropzoneText !== undefined ? variant("some", style.dropzoneText) : variant("none", null),
         triggerText: style?.triggerText !== undefined ? variant("some", style.triggerText) : variant("none", null),
+        orientation: orientationValue !== undefined ? variant("some", orientationValue) : variant("none", null),
         onFileAccept: style?.onFileAccept !== undefined ? variant("some", style.onFileAccept) : variant("none", null),
         onFileReject: style?.onFileReject !== undefined ? variant("some", style.onFileReject) : variant("none", null),
         style: styleValue ? some(styleValue) : none,

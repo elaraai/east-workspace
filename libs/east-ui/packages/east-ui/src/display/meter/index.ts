@@ -16,6 +16,7 @@ import {
 } from "@elaraai/east";
 
 import { StatusTokenType } from "../../style/interaction.js";
+import { DensityType } from "../../style.js";
 import { UIComponentType } from "../../component.js";
 import {
     MeterThicknessType,
@@ -47,6 +48,7 @@ export {
  * @property max - Maximum value (defaults to 100)
  * @property label - Optional label UIComponent
  * @property tone - Semantic status tone (drives default fill palette)
+ * @property density - Density override; shares the cascade with `ChipRail` / `Trace` so mixed display cells align
  * @property style - Optional visual style sub-struct
  */
 export const MeterType: StructType<{
@@ -54,12 +56,14 @@ export const MeterType: StructType<{
     max: OptionType<FloatType>,
     label: OptionType<UIComponentType>,
     tone: OptionType<StatusTokenType>,
+    density: OptionType<DensityType>,
     style: OptionType<MeterStyleType>,
 }> = StructType({
     value: FloatType,
     max: OptionType(FloatType),
     label: OptionType(UIComponentType),
     tone: OptionType(StatusTokenType),
+    density: OptionType(DensityType),
     style: OptionType(MeterStyleType),
 });
 
@@ -134,6 +138,11 @@ function createMeter(
             ? East.value(variant(options.tone, null), StatusTokenType)
             : options.tone)
         : undefined;
+    const densityValue = options?.density !== undefined
+        ? (typeof options.density === "string"
+            ? East.value(variant(options.density, null), DensityType)
+            : options.density)
+        : undefined;
     const styleValue = buildMeterStyle(options);
 
     return East.value(variant("Meter", {
@@ -141,6 +150,7 @@ function createMeter(
         max: options?.max !== undefined ? some(options.max) : none,
         label: options?.label !== undefined ? some(options.label as SubtypeExprOrValue<UIComponentType>) : none,
         tone: toneValue ? some(toneValue) : none,
+        density: densityValue ? some(densityValue) : none,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
@@ -192,6 +202,7 @@ export const Meter: MeterNamespace = {
          * @property max - Maximum value (defaults to 100)
          * @property label - Optional label UIComponent
          * @property tone - Semantic status tone
+         * @property density - Density override; shares the cascade with `ChipRail` / `Trace` so mixed display cells align
          * @property style - Optional visual style sub-struct
          */
         Meter: MeterType,

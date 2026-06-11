@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, IntegerType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Button, Text, VStack, HStack, Reactive } from "@elaraai/east-ui";
+import { Badge, Box, Button, Meter, Stack, Tag, Text, VStack, HStack, Reactive } from "@elaraai/east-ui";
 
 export const stackBasicVStack = example({
     keywords: ["Stack", "VStack", "vertical", "gap"],
@@ -126,6 +126,33 @@ export const stackNavbar = example({
                     <Text>Contact</Text>
                 </HStack>
             </HStack>
+        );
+    }),
+    inputs: [],
+});
+
+export const stackDensityCascade = example({
+    keywords: ["Stack", "HStack", "density", "cascade", "condensed", "compact", "comfortable"],
+    description: "Three HStack rows with different densities — the same Tag / Badge / Meter children inherit each row's density",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <Stack direction="column" gap="6">
+                <HStack density="condensed" gap="2">
+                    <Tag>Shiraz</Tag>
+                    <Badge>WK 12</Badge>
+                    <Box width="160px"><Meter value={72.0} tone="success" /></Box>
+                </HStack>
+                <HStack density="compact" gap="2">
+                    <Tag>Shiraz</Tag>
+                    <Badge>WK 12</Badge>
+                    <Box width="160px"><Meter value={72.0} tone="success" /></Box>
+                </HStack>
+                <HStack density="comfortable" gap="2">
+                    <Tag>Shiraz</Tag>
+                    <Badge>WK 12</Badge>
+                    <Box width="160px"><Meter value={72.0} tone="success" /></Box>
+                </HStack>
+            </Stack>
         );
     }),
     inputs: [],

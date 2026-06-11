@@ -10,6 +10,9 @@ describeEast("ChipRail", (test) => {
     Assert.examples(test, {
         chipRailBasic: ex.chipRailBasic,
         chipRailDots: ex.chipRailDots,
+        chipRailMixed: ex.chipRailMixed,
+        chipRailLabeled: ex.chipRailLabeled,
+        chipRailDensities: ex.chipRailDensities,
         chipRailOverflow: ex.chipRailOverflow,
     });
 
@@ -55,6 +58,27 @@ describeEast("ChipRail", (test) => {
         const rail = $.let(ChipRail.Root([Tag.Root("A")], { density: "condensed" }));
 
         $(Assert.equal(rail.unwrap().unwrap("ChipRail").density.unwrap("some").hasTag("condensed"), true));
+    });
+
+    // =========================================================================
+    // Labels (labeled mode)
+    // =========================================================================
+
+    test("creates a chip rail with no labels by default", $ => {
+        const rail = $.let(ChipRail.Root([Tag.Root("A")]));
+
+        $(Assert.equal(rail.unwrap().unwrap("ChipRail").labels.hasTag("none"), true));
+    });
+
+    test("creates a labeled chip rail carrying per-chip captions", $ => {
+        const rail = $.let(ChipRail.Root([Tag.Root("A"), Tag.Root("B")], {
+            labels: ["Week", "Region"],
+        }));
+        const labels = $.let(rail.unwrap().unwrap("ChipRail").labels.unwrap("some"));
+
+        $(Assert.equal(labels.size(), 2n));
+        $(Assert.equal(labels.get(0n), "Week"));
+        $(Assert.equal(labels.get(1n), "Region"));
     });
 
     // =========================================================================

@@ -36,7 +36,16 @@ export type { UIElement } from "./runtime/runtime.js";
 
 // Style System
 export { Style } from "./style.js";
-export { DensityType, type DensityLiteral } from "./style/interaction.js";
+export { DensityType, type DensityLiteral, StatusTokenType, type StatusTokenLiteral } from "./style/interaction.js";
+
+// Drag & drop grammar contract — hosts type `onDrag` handlers against these
+export {
+    LibraryRefType,
+    CellRefType,
+    DragSinkType, type DragSinkLiteral,
+    DragEdgeType, type DragEdgeLiteral,
+    DragEventType,
+} from "./contracts/drag.js";
 
 // Format helpers
 export { Format } from "./format/index.js";
@@ -57,7 +66,7 @@ export {
 // Layout
 export {
     Box, Flex, Stack, VStack, HStack, Separator, Grid, Splitter,
-    Sticky, ScrollArea, ChipRail,
+    Sticky, ScrollArea,
 } from "./runtime/layout/index.js";
 
 // Buttons
@@ -65,7 +74,7 @@ export { Button, IconButton, CopyButton, CloseButton, Toggle, ButtonGroup } from
 export type { ButtonLabelInput, ButtonOptions } from "./buttons/index.js";
 
 // Forms
-export { Input, Checkbox, RadioGroup, RadioCardGroup, TimeScaleControl, TimeRangeInput, DateRangeInput, Switch, Select, Combobox, Slider, Field, FileUpload, Textarea, TagsInput } from "./runtime/forms/index.js";
+export { Input, Checkbox, RadioGroup, RadioCardGroup, TimeRangeInput, DateRangeInput, Switch, Select, Combobox, Slider, Field, FileUpload, Textarea, TagsInput } from "./runtime/forms/index.js";
 
 // Feedback
 export { Progress, Banner, EmptyState, Skeleton, Status } from "./runtime/feedback/index.js";
@@ -76,14 +85,14 @@ export { NavListType, NavSectionType, NavItemType } from "./navigation/index.js"
 export type { NavListStyle, NavSectionInput, NavItemInput } from "./navigation/index.js";
 
 // Display
-export { Badge, Tag, Avatar, Stat, Icon, MetricChip, EditableChip, Kbd, Meter, SegmentedMeter, BarStrip, AvatarGroup } from "./runtime/display/index.js";
+export { Badge, Tag, Avatar, Stat, Icon, MetricChip, EditableChip, Kbd, Meter, SegmentedMeter, BarStrip, AvatarGroup, Trace, ChipRail } from "./runtime/display/index.js";
 export type { IconName } from "./display/index.js";
 
 // Containers
 export { Card } from "./runtime/container/index.js";
 
 // Collections
-export { DataList, Matrix, Pagination, Table, TreeView, Gantt, Planner } from "./runtime/collections/index.js";
+export { DataList, Matrix, Pagination, Table, TreeView, Gantt, Planner, Library, Roster, Calendar, Schematic, Blend } from "./runtime/collections/index.js";
 
 // Charts
 export { Chart, Sparkline } from "./runtime/charts/index.js";
@@ -94,14 +103,14 @@ export { Accordion, Carousel, Collapsible, Disclosure, OptionList, SegmentGroup,
 // Overlays
 export { Tooltip, Menu, Dialog, Drawer, Popover, HoverCard, ActionBar, ToggleTip, CommandPalette } from "./runtime/overlays/index.js";
 export { dialog_open, drawer_open } from "./overlays/index.js";
-// Hotkey is a keyboard-binding primitive with no visual tag — exported as its factory.
-export { Hotkey, HotkeyType } from "./platform/hotkey/index.js";
+export { HotkeyType } from "./platform/hotkey/index.js";
+export { Hotkey } from "./runtime/platform-hotkey.js";
 
 // Reactive (selective re-rendering)
 export { Reactive } from "./runtime/reactive/index.js";
 
 // Component Types
-export { UIComponentType } from "./component.js";
+export { UIComponentType, type UIComponentNode } from "./component.js";
 
 // Extension mechanism — declare custom UI components that are rendered by
 // downstream `*-components` packages (the UI analog of platform functions).

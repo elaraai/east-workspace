@@ -12,26 +12,17 @@
  */
 
 import { memo, Fragment, useMemo } from "react";
-import { Flex as ChakraFlex, Separator as ChakraSeparator, Box as ChakraBox } from "@chakra-ui/react";
+import { Flex as ChakraFlex, Separator as ChakraSeparator, Box as ChakraBox, useSlotRecipe } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { ChipRail } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
-import { useDensity, type Density } from "../../contracts/density";
+import { useDensity, DensityProvider, type Density } from "../../contracts/density";
 
 const chipRailEqual = equalFor(ChipRail.Types.ChipRail);
 
 /** East ChipRail value type. */
 export type ChipRailValue = ValueTypeOf<typeof ChipRail.Types.ChipRail>;
-
-/** Density → Chakra gap token. */
-function densityToGap(density: Density): string {
-    switch (density) {
-        case "condensed": return "1";
-        case "compact": return "2";
-        case "comfortable": return "3";
-    }
-}
 
 export interface EastChakraChipRailProps {
     value: ChipRailValue;
@@ -39,10 +30,14 @@ export interface EastChakraChipRailProps {
 }
 
 export const EastChakraChipRail = memo(function EastChakraChipRail({ value, storageKey }: EastChakraChipRailProps) {
+    const recipe = useSlotRecipe({ key: "chipRail" });
     const inheritedDensity = useDensity();
     const localDensity = useMemo(() => getSomeorUndefined(value.density)?.type, [value.density]);
-    const density = (localDensity ?? inheritedDensity) as Density;
-    const gap = densityToGap(density);
+    const density: Density = localDensity ?? inheritedDensity ?? "comfortable";
+    const styles = recipe({ density });
+
+    const labels = useMemo(() => getSomeorUndefined(value.labels), [value.labels]);
+    const labeled = labels !== undefined;
 
     const separatorTag = useMemo(() => getSomeorUndefined(value.separator)?.type, [value.separator]);
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
@@ -57,6 +52,20 @@ export const EastChakraChipRail = memo(function EastChakraChipRail({ value, stor
 
     const chips = value.chips.map((chip, index) => {
         const key = `${storageKey}.chip.${index}`;
+        const rendered = <EastChakraComponent value={chip} storageKey={key} />;
+
+        // Labeled mode: each chip gets a caption column; separators are dropped
+        // because the caption already names the dimension.
+        if (labeled) {
+            const caption = labels[index] ?? "";
+            return (
+                <ChakraBox key={key} css={styles.item} flexShrink={0}>
+                    <ChakraBox css={styles.label}>{caption || " "}</ChakraBox>
+                    {rendered}
+                </ChakraBox>
+            );
+        }
+
         const needSep = index > 0 && separatorTag && separatorTag !== "none";
         return (
             <Fragment key={key}>
@@ -77,21 +86,22 @@ export const EastChakraChipRail = memo(function EastChakraChipRail({ value, stor
                           >·</ChakraBox>
                 )}
                 <ChakraBox flexShrink={0}>
-                    <EastChakraComponent value={chip} storageKey={key} />
+                    {rendered}
                 </ChakraBox>
             </Fragment>
         );
     });
 
     return (
-        <ChakraFlex
-            gap={gap}
-            alignItems="center"
-            flexWrap={isScroll ? "nowrap" : "wrap"}
-            overflowX={isScroll ? "auto" : undefined}
-            background={background}
-        >
-            {chips}
-        </ChakraFlex>
+        <DensityProvider value={density}>
+            <ChakraFlex
+                css={styles.root}
+                flexWrap={isScroll ? "nowrap" : "wrap"}
+                overflowX={isScroll ? "auto" : undefined}
+                background={background}
+            >
+                {chips}
+            </ChakraFlex>
+        </DensityProvider>
     );
 }, (prev, next) => chipRailEqual(prev.value, next.value) && prev.storageKey === next.storageKey);

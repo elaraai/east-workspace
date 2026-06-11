@@ -30,7 +30,7 @@ export interface SliceCohortOptions {
     lastEdited?: SubtypeExprOrValue<StringType>;
     /** Re-evaluation cadence (e.g. `"every 10 min"`). */
     reevaluateEvery?: SubtypeExprOrValue<StringType>;
-    /** Render density — defaults to the surrounding `Slice.Frame`, else `focused`. */
+    /** Render density — defaults to the surrounding rail, else `focused`. */
     density?: "compact" | "focused";
     /** Render the editor popover open on mount (for static snapshots). */
     editOpen?: SubtypeExprOrValue<BooleanType>;

@@ -18,12 +18,8 @@
  *   `<Slice.Breakdown>`, `<Slice.Legend>`, `<Slice.Search>`, `<Slice.Cohort>`)
  *   — self-driving widgets that mutate the bound state on interaction; each
  *   takes a flat options bag whose only required prop is `slice`.
- * - **Container** (`<Slice.Frame>`) — houses a consumer (Table / Chart) as its
- *   child and mounts the listed affordances in a reflowing eyebrow with a
- *   derived-count footer.
- * - **Charts** (`<Slice.Chart.Line|Bar|Area|Scatter>`) — slice-bound visx
- *   charts that pivot the narrowed rows by the active breakdown into one
- *   coloured series per dimension value.
+ * - **Strip** (`<Slice.Rail>`) — the affordance cluster standalone; components
+ *   with the `slice` chrome option mount the same cluster in their own header.
  *
  * @example
  * ```tsx
@@ -63,15 +59,7 @@
  */
 
 import { Slice as SliceFactory } from "../slice/index.js";
-import { optionsTag, content, type OptionsProps, type ContentProps, type JsxTag } from "./combinators.js";
-
-/** The `<Slice.Chart.*>` slice-bound chart tags. */
-type SliceChartTags = {
-    Line: JsxTag<OptionsProps<typeof SliceFactory.Chart.Line>>;
-    Bar: JsxTag<OptionsProps<typeof SliceFactory.Chart.Bar>>;
-    Area: JsxTag<OptionsProps<typeof SliceFactory.Chart.Area>>;
-    Scatter: JsxTag<OptionsProps<typeof SliceFactory.Chart.Scatter>>;
-};
+import { optionsTag, type OptionsProps, type JsxTag } from "./combinators.js";
 
 /** The `<Slice.*>` tag namespace: component tags + the carried platform API. */
 type SliceTags = {
@@ -82,10 +70,10 @@ type SliceTags = {
     Legend: JsxTag<OptionsProps<typeof SliceFactory.Legend.Root>>;
     Search: JsxTag<OptionsProps<typeof SliceFactory.Search.Root>>;
     Cohort: JsxTag<OptionsProps<typeof SliceFactory.Cohort.Root>>;
-    Frame: JsxTag<ContentProps<typeof SliceFactory.Frame.Root>>;
-    Chart: SliceChartTags;
+    Rail: JsxTag<OptionsProps<typeof SliceFactory.Rail.Root>>;
     config: typeof SliceFactory.config;
     bind: typeof SliceFactory.bind;
+    rows: typeof SliceFactory.rows;
     state: typeof SliceFactory.state;
     apply: typeof SliceFactory.apply;
     Types: typeof SliceFactory.Types;
@@ -171,8 +159,7 @@ export const Slice: SliceTags = {
      * built-in `+ add filter` builder (driven by the slice's fields) appends
      * new predicates with no host wiring. Reach for it as the primary
      * narrowing control of a table surface. Props are flat
-     * ({@link SliceFilterOptions}); `density` defaults from the surrounding
-     * `Slice.Frame`.
+     * ({@link SliceFilterOptions}); `density` defaults from the surrounding rail.
      *
      * @example
      * ```tsx
@@ -208,7 +195,7 @@ export const Slice: SliceTags = {
      * declared as `breakdownFieldIds`) set the active breakdown — the chosen
      * one is brand-tinted with a remove `×` — and a preview of the resulting
      * series is rendered from the platform-computed groups. Pair it with a
-     * `Slice.Chart.*` / `Slice.Legend` to split a chart into series. Props are
+     * a `Chart.Series` layer / `Slice.Legend` to split a chart into series. Props are
      * flat ({@link SliceBreakdownOptions}); `density` defaults from the
      * surrounding `Slice.Frame`.
      *
@@ -245,7 +232,7 @@ export const Slice: SliceTags = {
      * Inline `swatch · label · count · toggle` rail over the slice's active
      * breakdown series. Toggling a chip flips that group's visibility in the
      * bound state (none hidden ⇒ all visible), and its colours match whatever
-     * `Slice.Chart.*` is rendering the same series. Drop it beneath a slice
+     * `Chart.Series` is rendering the same series. Drop it beneath a slice
      * chart to label and gate the series. Props are flat
      * ({@link SliceLegendOptions}); the only required one is `slice`.
      *
@@ -284,8 +271,7 @@ export const Slice: SliceTags = {
      * its `toMatch` function (so this control needs a slice bound with a
      * `toMatch`), and selecting a suggestion commits it. Use it for
      * find-by-id / find-by-name narrowing. Props are flat
-     * ({@link SliceSearchOptions}); `density` defaults from the surrounding
-     * `Slice.Frame`.
+     * ({@link SliceSearchOptions}); `density` defaults from the surrounding rail.
      *
      * @example
      * ```tsx
@@ -361,22 +347,20 @@ export const Slice: SliceTags = {
      */
     Cohort: optionsTag(SliceFactory.Cohort.Root),
     /**
-     * Container that houses one slice consumer (a Table, a `Slice.Chart.*`, a
-     * Stat) as its child and wraps it in the canonical slice chassis: an
-     * eyebrow mounting the affordances you list — each a labelled block in a
-     * bar that reflows from one inline row to stacked rows when space runs out,
-     * optionally collapsible to a one-line summary — over a derived-count
-     * footer. Editing opens in a `Slice.Edit` popover, so the frame never
-     * changes height. The child is the consumer; everything else is a flat
-     * prop ({@link SliceFrameOptions}). A table frame is typically
-     * `["filter", "search"]`, a chart frame `["breakdown"]`; pass `[]` (or omit
-     * `affordances`) for a chrome-less body.
+     * The slice affordance cluster as a standalone strip — one row that never
+     * wraps, compressing along the chip ladder (whole chips → `+M more` within
+     * a family → family count chips → one `N narrowed` chip); under
+     * compression every chip opens the sectioned `Slice.Edit` popover floating
+     * over whatever sits below. Place it above components reading
+     * `Slice.rows([RowType], slice)` and the rail narrows them all — the new
+     * composition model: data flows explicitly, chrome sits where the author
+     * puts it. Props are flat ({@link SliceRailOptions}).
      *
      * @example
      * ```tsx
      * // .tsx file with the `@jsxImportSource @elaraai/east-ui` pragma
-     * import { East, StructType, StringType, IntegerType, ArrayType, variant, none } from "@elaraai/east";
-     * import { Reactive, Slice, Table, UIComponentType } from "@elaraai/east-ui";
+     * import { East, StructType, StringType, IntegerType, ArrayType, none } from "@elaraai/east";
+     * import { Reactive, Slice, Table, UIComponentType, VStack } from "@elaraai/east-ui";
      *
      * const view = East.function([], UIComponentType, _$ => {
      *     const EventType = StructType({ scenario: StringType, sessions: IntegerType });
@@ -387,14 +371,13 @@ export const Slice: SliceTags = {
      *     return (
      *         <Reactive>{$ => {
      *             const data = $.const([{ scenario: "v3", sessions: 42n }], ArrayType(EventType));
-     *             const slice = $.let(Slice.bind([EventType], "ex.slice.frame", cfg, Slice.state({
-     *                 filters: [variant("string", { fieldId: "scenario", op: variant("eq", "v3") })],
-     *             }), data, none));
-     *             const filtered = $.let(Slice.apply.where([EventType], slice.read(), cfg, data));
+     *             const slice = $.let(Slice.bind([EventType], "ex.slice.rail", cfg, Slice.state(), data, none));
+     *             const narrowed = $.let(Slice.rows([EventType], slice));
      *             return (
-     *                 <Slice.Frame slice={slice} affordances={["filter", "search"]}>
-     *                     <Table data={filtered} columns={{ scenario: { header: "Scenario" }, sessions: { header: "Sessions" } }} />
-     *                 </Slice.Frame>
+     *                 <VStack gap="3" align="stretch">
+     *                     <Slice.Rail slice={slice} affordances={["filter", "search"]} />
+     *                     <Table data={narrowed} columns={{ scenario: { header: "Scenario" }, sessions: { header: "Sessions" } }} />
+     *                 </VStack>
      *             );
      *         }}</Reactive>
      *     );
@@ -402,182 +385,14 @@ export const Slice: SliceTags = {
      * ```
      *
      * @remarks
-     * The single child is the housed consumer; `affordances` are plain strings
-     * (`"filter" | "search" | "breakdown" | "cohort" | "range"`) or variant
-     * expressions. Desugars to `Slice.Frame.Root(body, options)`.
+     * Desugars to `Slice.Rail.Root(options)`. Components that take a `slice`
+     * chrome option mount this same rail inside their own header.
      */
-    Frame: content(SliceFactory.Frame.Root),
-    /**
-     * Slice-bound visx charts. Each tag pivots the narrowed rows by the active
-     * breakdown into one coloured series per dimension value (colours assigned
-     * by the slice, matching the bundled `Slice.Legend`) and draws the chosen
-     * mark — `<Slice.Chart.Line>`, `.Bar`, `.Area`, `.Scatter`. The only
-     * authoring inputs are the `x` / `value` field ids and the `xScale`; a
-     * `band` (default) x treats each value as a discrete category, `time` /
-     * `linear` lay it out continuously, and `brush` on a continuous x lets you
-     * drag to set the slice's range. Props are flat ({@link SliceChartOptions}).
-     */
-    Chart: {
-        /**
-         * Multi-line slice chart — one line per active-breakdown series. Reach
-         * for it to show a trend over time or an ordered x. With
-         * `xScale="time"` the `DateTime` x lays out continuously; with
-         * `brush` it drags to set the slice's range. Props are flat
-         * ({@link SliceChartOptions}).
-         *
-         * @example
-         * ```tsx
-         * // .tsx file with the `@jsxImportSource @elaraai/east-ui` pragma
-         * import { East, StructType, StringType, IntegerType, ArrayType, some, none } from "@elaraai/east";
-         * import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui";
-         *
-         * const view = East.function([], UIComponentType, _$ => {
-         *     const EventType = StructType({ month: StringType, region: StringType, sessions: IntegerType });
-         *     const cfg = Slice.config(EventType, {
-         *         fields: { month: { label: "Month" }, region: { label: "Region" }, sessions: { label: "Sessions" } },
-         *         breakdownFieldIds: ["region"],
-         *     });
-         *     return (
-         *         <Reactive>{$ => {
-         *             const data = $.const([{ month: "Jan", region: "EU", sessions: 30n }], ArrayType(EventType));
-         *             const slice = $.let(Slice.bind([EventType], "ex.slice.chart.line", cfg, Slice.state({
-         *                 breakdown: some({ fieldId: "region", limit: none }),
-         *             }), data, none));
-         *             return (
-         *                 <Slice.Frame slice={slice} affordances={["breakdown"]}>
-         *                     <Slice.Chart.Line slice={slice} x="month" value="sessions" height={150} />
-         *                 </Slice.Frame>
-         *             );
-         *         }}</Reactive>
-         *     );
-         * });
-         * ```
-         *
-         * @remarks
-         * Bundles a colour-matched `Slice.Legend` unless `legend={false}`.
-         * Desugars to `Slice.Chart.Line(options)`.
-         */
-        Line: optionsTag(SliceFactory.Chart.Line),
-        /**
-         * Grouped-bar slice chart — one bar per active-breakdown series at each
-         * x. Reach for it to compare series side by side across discrete
-         * categories. Props are flat ({@link SliceChartOptions}).
-         *
-         * @example
-         * ```tsx
-         * // .tsx file with the `@jsxImportSource @elaraai/east-ui` pragma
-         * import { East, StructType, StringType, IntegerType, ArrayType, some, none } from "@elaraai/east";
-         * import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui";
-         *
-         * const view = East.function([], UIComponentType, _$ => {
-         *     const EventType = StructType({ month: StringType, region: StringType, sessions: IntegerType });
-         *     const cfg = Slice.config(EventType, {
-         *         fields: { month: { label: "Month" }, region: { label: "Region" }, sessions: { label: "Sessions" } },
-         *         breakdownFieldIds: ["region"],
-         *     });
-         *     return (
-         *         <Reactive>{$ => {
-         *             const data = $.const([{ month: "Jan", region: "EU", sessions: 30n }], ArrayType(EventType));
-         *             const slice = $.let(Slice.bind([EventType], "ex.slice.chart.bar", cfg, Slice.state({
-         *                 breakdown: some({ fieldId: "region", limit: none }),
-         *             }), data, none));
-         *             return (
-         *                 <Slice.Frame slice={slice} affordances={["breakdown"]}>
-         *                     <Slice.Chart.Bar slice={slice} x="month" value="sessions" height={150} />
-         *                 </Slice.Frame>
-         *             );
-         *         }}</Reactive>
-         *     );
-         * });
-         * ```
-         *
-         * @remarks
-         * Bundles a colour-matched `Slice.Legend` unless `legend={false}`.
-         * Desugars to `Slice.Chart.Bar(options)`.
-         */
-        Bar: optionsTag(SliceFactory.Chart.Bar),
-        /**
-         * Filled-area slice chart — one area per active-breakdown series, the
-         * slice's palette feeding both the fill and the legend swatch. Reach
-         * for it to show stacked or overlapping magnitude over an ordered x.
-         * Props are flat ({@link SliceChartOptions}).
-         *
-         * @example
-         * ```tsx
-         * // .tsx file with the `@jsxImportSource @elaraai/east-ui` pragma
-         * import { East, StructType, StringType, IntegerType, ArrayType, some, none } from "@elaraai/east";
-         * import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui";
-         *
-         * const view = East.function([], UIComponentType, _$ => {
-         *     const EventType = StructType({ month: StringType, region: StringType, sessions: IntegerType });
-         *     const cfg = Slice.config(EventType, {
-         *         fields: { month: { label: "Month" }, region: { label: "Region" }, sessions: { label: "Sessions" } },
-         *         breakdownFieldIds: ["region"],
-         *     });
-         *     return (
-         *         <Reactive>{$ => {
-         *             const data = $.const([{ month: "Jan", region: "EU", sessions: 30n }], ArrayType(EventType));
-         *             const slice = $.let(Slice.bind([EventType], "ex.slice.chart.area", cfg, Slice.state({
-         *                 breakdown: some({ fieldId: "region", limit: none }),
-         *             }), data, none));
-         *             return (
-         *                 <Slice.Frame slice={slice} affordances={["breakdown"]}>
-         *                     <Slice.Chart.Area slice={slice} x="month" value="sessions" height={150} />
-         *                 </Slice.Frame>
-         *             );
-         *         }}</Reactive>
-         *     );
-         * });
-         * ```
-         *
-         * @remarks
-         * Bundles a colour-matched `Slice.Legend` unless `legend={false}`.
-         * Desugars to `Slice.Chart.Area(options)`.
-         */
-        Area: optionsTag(SliceFactory.Chart.Area),
-        /**
-         * Scatter slice chart — one set of point markers per active-breakdown
-         * series. Reach for it to show the relationship between two numeric
-         * fields; with `xScale="linear"` a numeric x positions points
-         * continuously rather than bucketing them. Props are flat
-         * ({@link SliceChartOptions}).
-         *
-         * @example
-         * ```tsx
-         * // .tsx file with the `@jsxImportSource @elaraai/east-ui` pragma
-         * import { East, StructType, StringType, IntegerType, ArrayType, some, none } from "@elaraai/east";
-         * import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui";
-         *
-         * const view = East.function([], UIComponentType, _$ => {
-         *     const EventType = StructType({ spend: IntegerType, region: StringType, sessions: IntegerType });
-         *     const cfg = Slice.config(EventType, {
-         *         fields: { spend: { label: "Spend" }, region: { label: "Region" }, sessions: { label: "Sessions" } },
-         *         breakdownFieldIds: ["region"],
-         *     });
-         *     return (
-         *         <Reactive>{$ => {
-         *             const data = $.const([{ spend: 10n, region: "EU", sessions: 12n }], ArrayType(EventType));
-         *             const slice = $.let(Slice.bind([EventType], "ex.slice.chart.scatter", cfg, Slice.state({
-         *                 breakdown: some({ fieldId: "region", limit: none }),
-         *             }), data, none));
-         *             return (
-         *                 <Slice.Frame slice={slice} affordances={["breakdown"]}>
-         *                     <Slice.Chart.Scatter slice={slice} x="spend" value="sessions" xScale="linear" height={150} />
-         *                 </Slice.Frame>
-         *             );
-         *         }}</Reactive>
-         *     );
-         * });
-         * ```
-         *
-         * @remarks
-         * Bundles a colour-matched `Slice.Legend` unless `legend={false}`.
-         * Desugars to `Slice.Chart.Scatter(options)`.
-         */
-        Scatter: optionsTag(SliceFactory.Chart.Scatter),
-    },
+    Rail: optionsTag(SliceFactory.Rail.Root),
     config: SliceFactory.config,
     bind: SliceFactory.bind,
+    /** Narrowed rows for a bound slice — the typed data feed (`Slice.rows([RowType], slice)`). */
+    rows: SliceFactory.rows,
     state: SliceFactory.state,
     apply: SliceFactory.apply,
     Types: SliceFactory.Types,

@@ -157,7 +157,7 @@ export const comboboxInteractive = example({
                         placeholder="Search fruits..."
                         onChange={onChange}
                     />
-                    {Text.Presets.MonoLabel(East.str`SELECTED · ${East.greater(selected.length(), 0n).ifElse(_$ => selected, _$ => "(NONE)")}`)}
+                    {<Text.MonoLabel>{East.str`SELECTED · ${East.greater(selected.length(), 0n).ifElse(_$ => selected, _$ => "(NONE)")}`}</Text.MonoLabel>}
                 </VStack>
             );
         }}</Reactive>
@@ -191,7 +191,7 @@ export const comboboxInteractiveMulti = example({
                         multiple={true}
                         onChangeMultiple={onChangeMultiple}
                     />
-                    {Text.Presets.MonoLabel(East.str`SELECTED · ${East.greater(selected.length(), 0n).ifElse(_$ => selected.stringJoin(", "), _$ => "(NONE)")}`)}
+                    {<Text.MonoLabel>{East.str`SELECTED · ${East.greater(selected.length(), 0n).ifElse(_$ => selected.stringJoin(", "), _$ => "(NONE)")}`}</Text.MonoLabel>}
                 </VStack>
             );
         }}</Reactive>
@@ -221,7 +221,7 @@ export const comboboxOnInputValueChange = example({
                         placeholder="Type anything…"
                         onInputValueChange={onInputValueChange}
                     />
-                    {Text.Presets.MonoLabel(East.str`LAST TYPED · ${last}`)}
+                    {<Text.MonoLabel>{East.str`LAST TYPED · ${last}`}</Text.MonoLabel>}
                 </VStack>
             );
         }}</Reactive>
@@ -248,7 +248,7 @@ export const comboboxOnOpenChange = example({
                         placeholder="Open me…"
                         onOpenChange={onOpenChange}
                     />
-                    {Text.Presets.MonoLabel(East.str`TOGGLED · ${value}`)}
+                    {<Text.MonoLabel>{East.str`TOGGLED · ${value}`}</Text.MonoLabel>}
                 </VStack>
             );
         }}</Reactive>

@@ -97,6 +97,7 @@ export type DrawerStyleType = typeof DrawerStyleType;
  * @property size - Drawer size variant
  * @property placement - Edge placement
  * @property contained - Render within parent container
+ * @property eyebrow - Mono uppercase eyebrow above the title
  * @property title - Drawer title
  * @property description - Drawer description
  * @property open - Controlled open state
@@ -115,6 +116,8 @@ export interface DrawerStyle {
     placement?: SubtypeExprOrValue<DrawerPlacementType> | DrawerPlacementLiteral;
     /** Render within parent container */
     contained?: SubtypeExprOrValue<BooleanType>;
+    /** Mono uppercase eyebrow above the title (e.g. the surface or section name) */
+    eyebrow?: SubtypeExprOrValue<StringType>;
     /** Drawer title */
     title?: SubtypeExprOrValue<StringType>;
     /** Drawer description */

@@ -4,7 +4,7 @@
  */
 
 import { memo } from "react";
-import { Box, chakra } from "@chakra-ui/react";
+import { Box, chakra, useSlotRecipe } from "@chakra-ui/react";
 import { type ValueTypeOf } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { useSliceReactivity } from "../use-slice-reactivity";
@@ -27,32 +27,21 @@ export const EastChakraSliceSummary = memo(function EastChakraSliceSummary({ val
     const filterCount = Number(slice.activeCount());
     const resultCount = slice.resultCount();
 
+    const frame = useSlotRecipe({ key: "sliceFrame" })();
     return (
-        <Box
-            borderWidth="1px"
-            borderColor="border.subtle"
-            borderRadius="10px"
-            bg="bg.surface"
-            paddingX="18px"
-            paddingY="14px"
-            textStyle="body.md"
-        >
+        <Box css={frame.frameFooter}>
             {resultCount !== undefined && (
                 <>
-                    <Box as="span" fontFamily="mono" fontWeight="semibold" fontVariantNumeric="tabular-nums" color="fg">
-                        {Number(resultCount).toLocaleString()}
-                    </Box>
-                    {Number(resultCount) === 1 ? " result" : " results"}
-                    <Box as="span" color="fg.muted">{" · "}</Box>
+                    <Box as="span" css={frame.frameFooterStat}>{Number(resultCount).toLocaleString()}</Box>
+                    <Box as="span">{Number(resultCount) === 1 ? "result" : "results"}</Box>
+                    <Box as="span">·</Box>
                 </>
             )}
-            <Box as="span" fontFamily="mono" fontVariantNumeric="tabular-nums" color="fg">
-                {filterCount}
-            </Box>
-            {filterCount === 1 ? " narrowing" : " narrowings"}
+            <Box as="span" css={frame.frameFooterStat}>{filterCount}</Box>
+            <Box as="span">{filterCount === 1 ? "narrowing" : "narrowings"}</Box>
             {filterCount > 0 && (
                 <>
-                    <Box as="span" color="fg.muted">{" · "}</Box>
+                    <Box as="span">·</Box>
                     <chakra.button
                         type="button"
                         color="link"

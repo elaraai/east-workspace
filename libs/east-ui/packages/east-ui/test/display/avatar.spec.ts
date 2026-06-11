@@ -12,6 +12,7 @@ describeEast("Avatar", (test) => {
         avatarBasic: ex.avatarBasic,
         avatarSizes: ex.avatarSizes,
         avatarColors: ex.avatarColors,
+        avatarDensities: ex.avatarDensities,
     });
 
     // =========================================================================

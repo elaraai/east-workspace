@@ -12,6 +12,7 @@ describeEast("Meter", (test) => {
         meterBasic: ex.meterBasic,
         meterSuccess: ex.meterSuccess,
         meterWarning: ex.meterWarning,
+        meterDensities: ex.meterDensities,
         meterCustomMax: ex.meterCustomMax,
     });
 

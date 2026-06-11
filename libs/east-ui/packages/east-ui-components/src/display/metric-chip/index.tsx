@@ -11,6 +11,7 @@ import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { MetricChip } from "@elaraai/east-ui/internal";
 import { EastChakraComponent } from "../../component";
 import { getSomeorUndefined } from "../../utils";
+import { useDensity } from "../../contracts/density";
 
 const metricChipEqual = equalFor(MetricChip.Types.MetricChip);
 
@@ -59,7 +60,10 @@ export const EastChakraMetricChip = memo(function EastChakraMetricChip({ value, 
 
     const tone = value.tone.type;
     const sentiment = TONE_TO_SENTIMENT[tone] ?? "flat";
-    const styles = recipe({ sentiment });
+    const inheritedDensity = useDensity();
+    const localDensity = useMemo(() => getSomeorUndefined(value.density)?.type, [value.density]);
+    const density = localDensity ?? inheritedDensity;
+    const styles = recipe({ sentiment, density });
 
     const unit = useMemo(() => getSomeorUndefined(value.unit), [value.unit]);
     const icon = useMemo(() => getSomeorUndefined(value.icon), [value.icon]);

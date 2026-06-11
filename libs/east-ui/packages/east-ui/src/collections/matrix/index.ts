@@ -170,7 +170,7 @@ export type MatrixColumnType = typeof MatrixColumnType;
  * The shape `Matrix.Root` produces and the renderer consumes: `rows` × `columns`
  * with a status-coloured segment bar per cell, an optional `rowHeader` over the
  * left identity column, a default `orientation`, an optional `legend`, and the
- * `onCell/Segment*` callbacks. Drop it into a `Slice.Frame` for filter / search
+ * `onCell/Segment*` callbacks. Pair it with a `Slice.Rail` for filter / search
  * / breakdown / range.
  *
  * @property rows - Row data
@@ -476,7 +476,7 @@ export interface MatrixConfig<R extends StructType> {
  * @remarks
  * Data + accessors (Planner parity): `columns` declares the x-axis, `cell`
  * builds each `(row, column)` cell with `Matrix.cell(...)`, `groupBy` groups
- * rows. Drop the result into a `Slice.Frame` to get filter / search /
+ * rows. Pair the result with a `Slice.Rail` to get filter / search /
  * breakdown / range for free.
  *
  * @example
@@ -777,7 +777,7 @@ interface MatrixNamespace {
  * @remarks
  * Build with `Matrix.Root(data, config)`; assemble cells with `Matrix.cell`,
  * segments with `Matrix.segment`, status flags with `Matrix.marker`. Frame it
- * in `Slice.Frame` for filter / search / breakdown / range.
+ * with a `Slice.Rail` for filter / search / breakdown / range.
  */
 const MatrixImpl: MatrixNamespace = {
     /**
@@ -791,7 +791,7 @@ const MatrixImpl: MatrixNamespace = {
      * @remarks
      * Data + accessors (Planner parity): `columns` declares the x-axis, `cell`
      * builds each `(row, column)` cell with `Matrix.cell(...)`, `groupBy` groups
-     * rows. Drop the result into a `Slice.Frame` to get filter / search /
+     * rows. Pair the result with a `Slice.Rail` to get filter / search /
      * breakdown / range for free.
      *
      * @example

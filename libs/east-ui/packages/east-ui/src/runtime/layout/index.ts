@@ -10,7 +10,6 @@ export { Flex } from "./flex.js";
 export { Stack, VStack, HStack } from "./stack.js";
 export { ScrollArea } from "./scroll-area.js";
 export { Sticky } from "./sticky.js";
-export { ChipRail } from "./chip-rail.js";
 export { Separator } from "./separator.js";
 export { Grid } from "./grid.js";
 export { Splitter } from "./splitter.js";

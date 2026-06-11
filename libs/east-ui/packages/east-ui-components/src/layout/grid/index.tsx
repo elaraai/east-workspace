@@ -9,6 +9,7 @@ import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Grid } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
+import { DensityProvider } from "../../contracts/density.js";
 
 /**
  * Parses a grid position string to number | "auto" for Chakra GridItem.
@@ -83,8 +84,9 @@ export interface EastChakraGridProps {
  */
 export const EastChakraGrid = memo(function EastChakraGrid({ value, storageKey }: EastChakraGridProps) {
     const props = useMemo(() => toChakraGrid(value), [value]);
+    const localDensity = useMemo(() => getSomeorUndefined(value.density)?.type, [value.density]);
 
-    return (
+    const content = (
         <ChakraGrid {...props}>
             {value.items.map((item, index) => (
                 <ChakraGridItem
@@ -101,4 +103,8 @@ export const EastChakraGrid = memo(function EastChakraGrid({ value, storageKey }
             ))}
         </ChakraGrid>
     );
+
+    return localDensity !== undefined
+        ? <DensityProvider value={localDensity}>{content}</DensityProvider>
+        : content;
 }, (prev, next) => gridEqual(prev.value, next.value) && prev.storageKey === next.storageKey);

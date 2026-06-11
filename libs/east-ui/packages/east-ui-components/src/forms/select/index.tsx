@@ -50,13 +50,19 @@ export function toChakraSelect(value: SelectRootValue): Omit<SelectRootProps<Sel
 }
 
 export interface EastChakraSelectProps {
+    /** Accessible name for the trigger (React-side; not part of the East payload). */
+    ariaLabel?: string;
+    /** Render the dropdown in place instead of a portal (React-side). Needed
+     *  inside popovers, where a portalled listbox counts as an outside
+     *  interaction and dismisses the popover. */
+    portalled?: boolean;
     value: SelectRootValue;
 }
 
 /**
  * Renders an East UI Select value using Chakra UI Select component.
  */
-export const EastChakraSelect = memo(function EastChakraSelect({ value }: EastChakraSelectProps) {
+export const EastChakraSelect = memo(function EastChakraSelect({ value, ariaLabel, portalled }: EastChakraSelectProps) {
     const [props, setProps] = useState(toChakraSelect(value));
     const placeholder = useMemo(() => getSomeorUndefined(value.placeholder), [value.placeholder]);
     const onChangeFn = useMemo(() => getSomeorUndefined(value.onChange), [value.onChange]);
@@ -101,14 +107,14 @@ export const EastChakraSelect = memo(function EastChakraSelect({ value }: EastCh
         >
             <ChakraSelect.HiddenSelect />
             <ChakraSelect.Control>
-                <ChakraSelect.Trigger>
+                <ChakraSelect.Trigger {...(ariaLabel !== undefined ? { "aria-label": ariaLabel } : {})}>
                     <ChakraSelect.ValueText placeholder={placeholder ?? "Select..."} />
                 </ChakraSelect.Trigger>
                 <ChakraSelect.IndicatorGroup>
                     <ChakraSelect.Indicator />
                 </ChakraSelect.IndicatorGroup>
             </ChakraSelect.Control>
-            <Portal>
+            <Portal disabled={portalled === false}>
                 <ChakraSelect.Positioner>
                     <ChakraSelect.Content>
                         {collection.items.map((item) => (
@@ -122,4 +128,4 @@ export const EastChakraSelect = memo(function EastChakraSelect({ value }: EastCh
             </Portal>
         </ChakraSelect.Root>
     );
-}, (prev, next) => selectRootEqual(prev.value, next.value));
+}, (prev, next) => selectRootEqual(prev.value, next.value) && prev.ariaLabel === next.ariaLabel && prev.portalled === next.portalled);

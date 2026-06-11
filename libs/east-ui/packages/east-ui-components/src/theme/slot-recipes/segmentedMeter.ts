@@ -41,4 +41,28 @@ export const segmentedMeterSlotRecipe = defineSlotRecipe({
         keyDot: { width: "8px", height: "8px", borderRadius: "1px", display: "inline-block" },
         valueText: { fontFamily: "mono", fontSize: "11px", fontWeight: "semibold", color: "fg" },
     },
+    variants: {
+        // Density cascade — track + key text scale with the chipRail/trace
+        // rhythm. No default: an undensified meter keeps the base look.
+        density: {
+            condensed: {
+                track: { height: "4px" },
+                keyRow: { fontSize: "9px" },
+                keyDot: { width: "6px", height: "6px" },
+                valueText: { fontSize: "9px" },
+            },
+            compact: {
+                track: { height: "6px" },
+                keyRow: { fontSize: "10px" },
+                keyDot: { width: "7px", height: "7px" },
+                valueText: { fontSize: "10px" },
+            },
+            comfortable: {
+                track: { height: "10px" },
+                keyRow: { fontSize: "12.5px" },
+                keyDot: { width: "9px", height: "9px" },
+                valueText: { fontSize: "12.5px" },
+            },
+        },
+    },
 });

@@ -16,7 +16,8 @@ import {
     none,
 } from "@elaraai/east";
 
-import { OverflowType } from "../../style.js";
+import { DensityType, OverflowType } from "../../style.js";
+import type { DensityLiteral } from "../../style.js";
 import { UIComponentType } from "../../component.js";
 import {
     StateValueType,
@@ -56,6 +57,7 @@ export {
  * @property body - Array of body UIComponents
  * @property footer - Optional footer UIComponent
  * @property state - Optional runtime state (drives fallback body render)
+ * @property density - Optional density the card provides to its content via the density cascade
  * @property style - Optional visual-only style sub-struct
  */
 export const CardType: StructType<{
@@ -63,12 +65,14 @@ export const CardType: StructType<{
     body: ArrayType<UIComponentType>,
     footer: OptionType<UIComponentType>,
     state: OptionType<StateValueType>,
+    density: OptionType<DensityType>,
     style: OptionType<CardStyleType>,
 }> = StructType({
     header: OptionType(UIComponentType),
     body: ArrayType(UIComponentType),
     footer: OptionType(UIComponentType),
     state: OptionType(StateValueType),
+    density: OptionType(DensityType),
     style: OptionType(CardStyleType),
 });
 
@@ -90,6 +94,7 @@ export type CardType = typeof CardType;
  * @property header - Optional header options (`eyebrow` / `title` / `meta` / `description`) — composed into the header strip
  * @property footer - Optional footer options (`content` + trailing `actions`)
  * @property state - Runtime state literal or expression — drives the fallback-body contract
+ * @property density - Density the card provides to its content via the density cascade
  * @property style - Optional visual-only style (preferred shape)
  */
 export interface CardOptions extends CardStyle {
@@ -99,6 +104,14 @@ export interface CardOptions extends CardStyle {
     footer?: CardFooterInput;
     /** Runtime state — `"ready" | "loading" | "empty" | "error" | "stale" | "disabled" | "permission-denied"`. */
     state?: StateValueLiteral | SubtypeExprOrValue<StateValueType>;
+    /**
+     * Density the card provides to its content via the density cascade.
+     * Display components inside (Tag, Badge, Meter, Trace, …) inherit it
+     * unless they carry their own density; the card frame itself is visually
+     * unchanged. When omitted, the card is transparent to the cascade and an
+     * enclosing surface's density flows through.
+     */
+    density?: SubtypeExprOrValue<DensityType> | DensityLiteral;
 }
 
 /**
@@ -182,7 +195,7 @@ function createCard(
     children: SubtypeExprOrValue<ArrayType<UIComponentType>>,
     options?: CardOptions,
 ): ExprType<UIComponentType> {
-    const { header, footer, state, ...visual } = options ?? {};
+    const { header, footer, state, density, ...visual } = options ?? {};
 
     const hasVisual = Object.values(visual).some(field => field !== undefined);
     const styleValue = hasVisual ? buildCardStyle(visual) : undefined;
@@ -190,6 +203,12 @@ function createCard(
     const stateValue = typeof state === "string"
         ? East.value(variant(state, null), StateValueType)
         : state as ExprType<StateValueType> | undefined;
+
+    const densityValue = density
+        ? (typeof density === "string"
+            ? East.value(variant(density, null), DensityType)
+            : density)
+        : undefined;
 
     const headerComp = header ? CardHeader(header) : undefined;
     const footerComp = footer ? composeFooter(footer) : undefined;
@@ -199,6 +218,7 @@ function createCard(
         body: children,
         footer: footerComp ? some(footerComp) : none,
         state: stateValue ? some(stateValue) : none,
+        density: densityValue ? some(densityValue) : none,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }

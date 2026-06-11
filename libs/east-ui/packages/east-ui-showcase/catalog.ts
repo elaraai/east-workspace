@@ -25,12 +25,9 @@
 
 import type { ExampleDef } from "@elaraai/east";
 import { codeExamples, exampleSources, type CapturedSource } from "virtual:example-sources";
-import {
-    SECTION_CODE, SECTION_COMPONENTS, categoryFor, codeLayoutFor, layoutFor,
-    type ShowcaseLayout,
-} from "./showcase-config";
+import { SECTION_CODE, SECTION_E3, SECTION_EAST, categoryFor } from "./showcase-config";
 
-interface CatalogBase extends ShowcaseLayout {
+interface CatalogBase {
     name: string;
     section: string;
     category: string;
@@ -70,14 +67,59 @@ function buildComponents(): LiveEntry[] {
         if (!pathKey.includes("/")) continue;
 
         const category = categoryFor(pathKey);
-        const layout = layoutFor(pathKey);
         for (const [name, ex] of Object.entries(mod)) {
             if (!ex?.fn) continue;
             entries.push({
-                ...layout,
                 tier: "live",
                 name,
-                section: SECTION_COMPONENTS,
+                section: SECTION_EAST,
+                category,
+                pathKey,
+                description: ex.description,
+                keywords: ex.keywords,
+                fn: ex.fn,
+                source: exampleSources[pathKey]?.[name],
+            });
+        }
+    }
+    return entries;
+}
+
+/* e3-ui examples export `ExampleDef`s alongside the `e3.input` dataset
+ * definitions their `Data.bind` calls read — so the modules are typed
+ * `unknown` and filtered per-export. */
+const e3Modules = import.meta.glob<Record<string, unknown>>(
+    "../e3-ui/test/**/*.examples.tsx",
+    { eager: true },
+);
+
+/** Raw e3 example modules — `main.tsx` seeds the in-memory reactive-dataset
+ *  cache from their exported `e3.input` defaults before first render. */
+export const e3ExampleModules: ReadonlyArray<Record<string, unknown>> = Object.values(e3Modules);
+
+function isExampleDef(x: unknown): x is ExampleDef {
+    return typeof x === "object" && x !== null
+        && "fn" in x && "description" in x && "keywords" in x;
+}
+
+function buildE3Components(): LiveEntry[] {
+    const entries: LiveEntry[] = [];
+    for (const [filePath, mod] of Object.entries(e3Modules)) {
+        const rel = filePath
+            .replace(/^.*\/e3-ui\/test\//, "")
+            .replace(/\.examples\.tsx?$/, "");
+        // e3-ui's test dir mirrors east-ui's `<group>/<component>` layout;
+        // the group directory is the category and the `e3/` prefix keeps
+        // pathKeys collision-free against east-ui's keys.
+        const pathKey = `e3/${rel}`;
+        const group = rel.split("/")[0] ?? rel;
+        const category = group.charAt(0).toUpperCase() + group.slice(1);
+        for (const [name, ex] of Object.entries(mod)) {
+            if (!isExampleDef(ex)) continue;
+            entries.push({
+                tier: "live",
+                name,
+                section: SECTION_E3,
                 category,
                 pathKey,
                 description: ex.description,
@@ -92,7 +134,6 @@ function buildComponents(): LiveEntry[] {
 
 function buildCodeReference(): CodeEntry[] {
     return codeExamples.map(ex => ({
-        ...codeLayoutFor(ex.pathKey),
         tier: "code",
         name: ex.name,
         section: SECTION_CODE,
@@ -105,17 +146,21 @@ function buildCodeReference(): CodeEntry[] {
     }));
 }
 
-export const catalog: readonly CatalogEntry[] = [...buildComponents(), ...buildCodeReference()];
+export const catalog: readonly CatalogEntry[] = [
+    ...buildComponents(),
+    ...buildE3Components(),
+    ...buildCodeReference(),
+];
 
 /** One sidebar group: a section header and the categories filed under it,
- *  in catalog order (Components first, then Code Reference). */
+ *  in catalog order (East Components, e3 Components, then Code Reference). */
 export interface NavSection {
     section: string;
     categories: string[];
 }
 
 function buildNav(): NavSection[] {
-    const order = [SECTION_COMPONENTS, SECTION_CODE];
+    const order = [SECTION_EAST, SECTION_E3, SECTION_CODE];
     return order
         .map(section => ({
             section,
@@ -127,6 +172,3 @@ function buildNav(): NavSection[] {
 }
 
 export const navSections: readonly NavSection[] = buildNav();
-
-/** Flat category list (Components then Code Reference) for default selection. */
-export const categories: readonly string[] = navSections.flatMap(s => s.categories);

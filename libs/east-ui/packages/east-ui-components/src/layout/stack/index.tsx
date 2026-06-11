@@ -9,6 +9,7 @@ import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Stack } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
+import { DensityProvider } from "../../contracts/density.js";
 
 // Pre-define the equality function at module level
 const stackEqual = equalFor(Stack.Types.Stack);
@@ -70,12 +71,17 @@ export interface EastChakraStackProps {
  */
 export const EastChakraStack = memo(function EastChakraStack({ value, storageKey }: EastChakraStackProps) {
     const props = useMemo(() => toChakraStack(value), [value]);
+    const localDensity = useMemo(() => getSomeorUndefined(value.density)?.type, [value.density]);
 
-    return (
+    const content = (
         <ChakraStack {...props}>
             {value.children.map((child, index) => (
                 <EastChakraComponent key={index} value={child} storageKey={`${storageKey}.${index}`} />
             ))}
         </ChakraStack>
     );
+
+    return localDensity !== undefined
+        ? <DensityProvider value={localDensity}>{content}</DensityProvider>
+        : content;
 }, (prev, next) => stackEqual(prev.value, next.value) && prev.storageKey === next.storageKey);

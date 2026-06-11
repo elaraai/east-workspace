@@ -12,8 +12,8 @@ import {
     StringType,
 } from "@elaraai/east";
 
-import { SizeType } from "../../style.js";
-import type { SizeLiteral } from "../../style.js";
+import { DensityType, SizeType } from "../../style.js";
+import type { DensityLiteral, SizeLiteral } from "../../style.js";
 import { AvatarType } from "../avatar/types.js";
 
 // ============================================================================
@@ -53,11 +53,13 @@ export type AvatarGroupStyleType = typeof AvatarGroupStyleType;
  *
  * @property avatars - Array of AvatarType values
  * @property max - Optional overflow threshold (renderer shows `+N` after `max`)
+ * @property density - Density override; shares the cascade with `ChipRail` / `Trace` so mixed display cells align
  * @property style - Optional visual style sub-struct
  */
 export const AvatarGroupType = StructType({
     avatars: ArrayType(AvatarType),
     max: OptionType(IntegerType),
+    density: OptionType(DensityType),
     style: OptionType(AvatarGroupStyleType),
 });
 
@@ -75,12 +77,20 @@ export type AvatarGroupType = typeof AvatarGroupType;
  * Combines config (`max`) with visual style fields.
  *
  * @property max - Optional overflow threshold
+ * @property density - Density override shared with the rail / trace cascade
  * @property size - Shared avatar size preset
  * @property borderColor - Overlap ring colour override
  */
 export interface AvatarGroupOptions {
     /** Optional overflow threshold — renderer shows `+N` after this many avatars. */
     max?: SubtypeExprOrValue<IntegerType>;
+    /**
+     * Density override (main-struct). Inherited from the enclosing surface
+     * (Table, ChipRail, …) when omitted; an explicit value wins over both the
+     * cascade and `size`, sizing every member avatar to match rails and
+     * traces at the same density.
+     */
+    density?: SubtypeExprOrValue<DensityType> | DensityLiteral;
     /** Shared avatar size preset applied to every avatar in the group. */
     size?: SubtypeExprOrValue<SizeType> | SizeLiteral;
     /** Explicit overlap ring colour override. */

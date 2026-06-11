@@ -22,7 +22,7 @@ export { SliceBreakdownPickerType } from "./types.js";
 export interface SliceBreakdownOptions {
     /** The bound slice (from `Slice.bind`). */
     slice: SubtypeExprOrValue<SliceBindType>;
-    /** Render density — defaults to the surrounding `Slice.Frame`, else `focused`. */
+    /** Render density — defaults to the surrounding rail, else `focused`. */
     density?: "compact" | "focused";
 }
 

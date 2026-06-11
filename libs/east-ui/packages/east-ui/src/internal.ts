@@ -25,6 +25,15 @@ export { variant } from "@elaraai/east";
 export { Style } from "./style.js";
 export { DensityType, type DensityLiteral } from "./style/interaction.js";
 
+// Drag & drop grammar contract
+export {
+    LibraryRefType,
+    CellRefType,
+    DragSinkType, type DragSinkLiteral,
+    DragEdgeType, type DragEdgeLiteral,
+    DragEventType,
+} from "./contracts/drag.js";
+
 // Format helpers
 export { Format } from "./format/index.js";
 export type {
@@ -42,17 +51,17 @@ export {
 } from "./typography/index.js";
 export {
     Box, Flex, Stack, Separator, Grid, Splitter,
-    Sticky, ScrollArea, ChipRail,
+    Sticky, ScrollArea,
 } from "./layout/index.js";
 export { Button, IconButton, CopyButton, CloseButton, Toggle, ButtonGroup } from "./buttons/index.js";
 export type { ButtonLabelInput, ButtonOptions } from "./buttons/index.js";
-export { Input, Checkbox, RadioGroup, RadioCardGroup, TimeScaleControl, TimeRangeInput, DateRangeInput, Switch, Select, Combobox, Slider, Field, FileUpload, Textarea, TagsInput } from "./forms/index.js";
+export { Input, Checkbox, RadioGroup, RadioCardGroup, TimeRangeInput, DateRangeInput, Switch, Select, Combobox, Slider, Field, FileUpload, Textarea, TagsInput } from "./forms/index.js";
 export { Progress, Banner, EmptyState, Skeleton, Status } from "./feedback/index.js";
 export { Breadcrumb, NavList, NavListType, NavSectionType, NavItemType } from "./navigation/index.js";
 export type { NavListStyle, NavSectionInput, NavItemInput } from "./navigation/index.js";
-export { Badge, Tag, Avatar, Stat, Icon, MetricChip, EditableChip, Kbd, Meter, SegmentedMeter, BarStrip, AvatarGroup, type IconName } from "./display/index.js";
+export { Badge, Tag, Avatar, Stat, Icon, MetricChip, EditableChip, Kbd, Meter, SegmentedMeter, BarStrip, AvatarGroup, Trace, ChipRail, type IconName } from "./display/index.js";
 export { Card } from "./container/index.js";
-export { DataList, Matrix, Pagination, Table, TreeView, Gantt, Planner } from "./collections/index.js";
+export { DataList, Matrix, Pagination, Table, TreeView, Gantt, Planner, Library, Roster, Calendar, Schematic, Blend } from "./collections/index.js";
 export { Chart } from "./charts/chart/index.js";
 export { Sparkline } from "./charts/index.js";
 export { Accordion, Carousel, Collapsible, Disclosure, OptionList, SegmentGroup, Tabs } from "./disclosure/index.js";
@@ -69,6 +78,8 @@ export {
     type UIComponentOptions,
 } from "./extension.js";
 export { State, SliceApplyImpl, sliceDimensions, sliceFields, sliceMatches, sliceBreakdown, sliceSeries, SLICE_SERIES_PALETTE, Clipboard, Download, Share } from "./platform/index.js";
+export { SliceConfigType, sliceConfigTypeFor, SliceChromeType, SliceStateType, SliceBindType } from "./platform/slice/index.js";
+export { SliceAffordanceType, type SliceAffordanceLiteral } from "./contracts/slice-affordances.js";
 export {
     Slice,
     SliceSummaryType, SliceRangePickerType, SliceFilterType,
@@ -103,6 +114,7 @@ export * from "./display/avatar/types.js";
 export * from "./display/badge/types.js";
 export * from "./display/stat/types.js";
 export * from "./display/tag/types.js";
+export * from "./display/trace/types.js";
 export * from "./container/card/types.js";
 export * from "./collections/data-list/types.js";
 export * from "./collections/table/types.js";

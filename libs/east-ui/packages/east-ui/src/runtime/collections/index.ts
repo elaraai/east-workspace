@@ -12,3 +12,8 @@ export { Table } from "./table.js";
 export { Matrix } from "./matrix.js";
 export { Gantt } from "./gantt.js";
 export { Planner } from "./planner.js";
+export { Library } from "./library.js";
+export { Roster } from "./roster.js";
+export { Calendar } from "./calendar.js";
+export { Schematic } from "./schematic.js";
+export { Blend } from "./blend.js";

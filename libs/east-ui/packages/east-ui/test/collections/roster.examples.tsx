@@ -1,0 +1,178 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
+ */
+/** @jsxImportSource @elaraai/east-ui */
+import { East, IntegerType, NullType, StringType, example, variant } from "@elaraai/east";
+import { CellRefType, DragEventType, State, UIComponentType } from "@elaraai/east-ui";
+import { Library, Reactive, Roster, Text, VStack } from "@elaraai/east-ui";
+
+export const rosterEdit = example({
+    keywords: ["Roster", "shift", "edit", "ghost", "added", "removed", "drag", "summary"],
+    description: "Edit-mode roster — committed, added, removed, and model-ghost shifts with the status strip",
+    fn: East.function([], UIComponentType, ($) => {
+        const people = $.const([
+            { id: "patel", name: "Patel", target: "38h → 30h" },
+            { id: "cho", name: "Cho", target: "26h → 38h" },
+            { id: "rivera", name: "Rivera", target: "32h" },
+            { id: "okafor", name: "Okafor", target: "24h" },
+        ]);
+        const committed = variant("committed", null);
+        const added = variant("proposed", variant("added", null));
+        const removed = variant("proposed", variant("removed", null));
+        const ghost = variant("proposed", variant("model", null));
+        const shifts = $.const([
+            { id: "p1", person: "patel", day: "Mon", hours: 8n, state: committed },
+            { id: "p2", person: "patel", day: "Tue", hours: 8n, state: committed },
+            { id: "p3", person: "patel", day: "Wed", hours: 8n, state: removed },
+            { id: "p4", person: "patel", day: "Fri", hours: 6n, state: committed },
+            { id: "p5", person: "patel", day: "Sat", hours: 8n, state: removed },
+            { id: "c1", person: "cho", day: "Mon", hours: 8n, state: committed },
+            { id: "c2", person: "cho", day: "Tue", hours: 6n, state: committed },
+            { id: "c3", person: "cho", day: "Wed", hours: 8n, state: added },
+            { id: "c4", person: "cho", day: "Thu", hours: 8n, state: committed },
+            { id: "c5", person: "cho", day: "Sat", hours: 8n, state: added },
+            { id: "c6", person: "cho", day: "Sun", hours: 4n, state: ghost },
+            { id: "r1", person: "rivera", day: "Mon", hours: 8n, state: committed },
+            { id: "r2", person: "rivera", day: "Tue", hours: 8n, state: committed },
+            { id: "r3", person: "rivera", day: "Wed", hours: 8n, state: committed },
+            { id: "r4", person: "rivera", day: "Thu", hours: 8n, state: committed },
+            { id: "r5", person: "rivera", day: "Sat", hours: 6n, state: ghost },
+            { id: "o1", person: "okafor", day: "Tue", hours: 6n, state: committed },
+            { id: "o2", person: "okafor", day: "Wed", hours: 6n, state: committed },
+            { id: "o3", person: "okafor", day: "Thu", hours: 6n, state: committed },
+            { id: "o4", person: "okafor", day: "Fri", hours: 6n, state: committed },
+        ]);
+        return (
+            <Roster
+                id="roster-se"
+                sources={["people"]}
+                mode="edit"
+                people={people}
+                person={p => ({ key: p.id, label: p.name, sublabel: p.target })}
+                shifts={shifts}
+                shift={s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state })}
+                summary="3 dirty · 1 new · 2 model-ghost"
+            />
+        );
+    }),
+    inputs: [],
+});
+
+export const rosterPublished = example({
+    keywords: ["Roster", "shift", "published", "committed", "read-only", "days"],
+    description: "Published work-week roster — committed shifts only, no grips, pointer-immutable",
+    fn: East.function([], UIComponentType, ($) => {
+        const people = $.const([
+            { id: "patel", name: "Patel" },
+            { id: "cho", name: "Cho" },
+        ]);
+        const committed = variant("committed", null);
+        const shifts = $.const([
+            { id: "p1", person: "patel", day: "Mon", hours: 8n, state: committed },
+            { id: "p2", person: "patel", day: "Wed", hours: 8n, state: committed },
+            { id: "c1", person: "cho", day: "Tue", hours: 6n, state: committed },
+            { id: "c2", person: "cho", day: "Fri", hours: 6n, state: committed },
+        ]);
+        return (
+            <Roster
+                id="roster-published"
+                people={people}
+                person={p => ({ key: p.id, label: p.name })}
+                shifts={shifts}
+                shift={s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state })}
+                days={["Mon", "Tue", "Wed", "Thu", "Fri"]}
+                summary="published · wk of Sep 16"
+            />
+        );
+    }),
+    inputs: [],
+});
+
+export const rosterInteractive = example({
+    keywords: ["Roster", "Reactive", "State", "onDrag", "onAccept", "interactive"],
+    description: "Edit roster whose onDrag / onAccept callbacks count interactions",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const dragBind = $.let(State.bind([IntegerType], "roster_drags", 0n));
+            const acceptBind = $.let(State.bind([IntegerType], "roster_accepts", 0n));
+            const onDrag = $.const(East.function([DragEventType], NullType, ($, _event) => {
+                const n = $.let(dragBind.read());
+                $(dragBind.write(n.add(1n)));
+            }));
+            const onAccept = $.const(East.function([CellRefType], NullType, ($, _ref) => {
+                const n = $.let(acceptBind.read());
+                $(acceptBind.write(n.add(1n)));
+            }));
+            const drags = $.let(dragBind.read());
+            const accepts = $.let(acceptBind.read());
+            return (
+                <VStack gap="3" align="stretch">
+                    <Roster
+                        id="roster-live"
+                        sources={["people"]}
+                        mode="edit"
+                        people={[{ id: "patel", name: "Patel" }, { id: "cho", name: "Cho" }]}
+                        person={p => ({ key: p.id, label: p.name })}
+                        shifts={[
+                            { id: "p1", person: "patel", day: "Mon", hours: 8n, state: variant("proposed", variant("added", null)) },
+                            { id: "p2", person: "patel", day: "Wed", hours: 4n, state: variant("proposed", variant("model", null)) },
+                            { id: "c1", person: "cho", day: "Tue", hours: 6n, state: variant("proposed", variant("added", null)) },
+                        ]}
+                        shift={s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state })}
+                        days={["Mon", "Tue", "Wed"]}
+                        onDrag={onDrag}
+                        onAccept={onAccept}
+                    />
+                    <Text.MonoLabel>{East.str`DRAGS · ${East.print(drags)} · ACCEPTS · ${East.print(accepts)}`}</Text.MonoLabel>
+                </VStack>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+export const rosterWithLibrary = example({
+    keywords: ["Roster", "Library", "drag", "add", "onDrag", "page", "composition"],
+    description: "Library + Roster page — drag a person onto a cell to fire the add event",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const lastBind = $.let(State.bind([StringType], "roster_last_drop", "none yet"));
+            const onDrag = $.const(East.function([DragEventType], NullType, ($, event) => {
+                $.matchTag(event, "add", ($, add) => {
+                    $(lastBind.write(East.str`${add.from.key} → ${add.into.row} · ${add.into.slot}`));
+                });
+            }));
+            const last = $.let(lastBind.read());
+            return (
+                <VStack gap="4" align="stretch">
+                    <Library
+                        id="people"
+                        data={[
+                            { id: "patel", name: "Patel, R.", role: "Senior SE" },
+                            { id: "cho", name: "Cho, J.", role: "Senior SE" },
+                            { id: "kim", name: "Kim, A.", role: "Mid SE" },
+                        ]}
+                        item={p => ({ key: p.id, label: p.name, sublabel: p.role, icon: "user" })}
+                    />
+                    <Roster
+                        id="roster-se"
+                        sources={["people"]}
+                        mode="edit"
+                        people={[{ id: "patel", name: "Patel" }, { id: "cho", name: "Cho" }]}
+                        person={p => ({ key: p.id, label: p.name })}
+                        shifts={[
+                            { id: "p1", person: "patel", day: "Mon", hours: 8n, state: variant("committed", null) },
+                            { id: "c1", person: "cho", day: "Tue", hours: 6n, state: variant("proposed", variant("added", null)) },
+                        ]}
+                        shift={s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state })}
+                        days={["Mon", "Tue", "Wed", "Thu", "Fri"]}
+                        onDrag={onDrag}
+                    />
+                    <Text.MonoLabel>{East.str`LAST DROP · ${last}`}</Text.MonoLabel>
+                </VStack>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});

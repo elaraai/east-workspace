@@ -17,3 +17,5 @@ export { BarStrip } from "./bar-strip.js";
 export { SegmentedMeter } from "./segmented-meter.js";
 export { Icon } from "./icon.js";
 export { Stat } from "./stat.js";
+export { Trace } from "./trace.js";
+export { ChipRail } from "./chip-rail.js";

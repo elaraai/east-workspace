@@ -29,7 +29,7 @@ export const tagsInputInteractive = example({
             return (
                 <VStack gap="3" align="stretch">
                     <TagsInput value={tags} placeholder="Add tag..." onChange={onChange} />
-                    {Text.Presets.MonoLabel(East.str`${tags.size()} TAGS`)}
+                    {<Text.MonoLabel>{East.str`${tags.size()} TAGS`}</Text.MonoLabel>}
                 </VStack>
             );
         }}</Reactive>

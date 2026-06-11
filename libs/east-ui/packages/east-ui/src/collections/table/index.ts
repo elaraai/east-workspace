@@ -55,6 +55,8 @@ import {
     type TableSelectionModeLiteral,
 } from "./types.js";
 import { UIComponentType } from "../../component.js";
+import { SliceBindType, SliceChromeType } from "../../platform/slice/index.js";
+import { SliceAffordanceType, type SliceAffordanceLiteral } from "../../contracts/slice-affordances.js";
 import { Text } from "../../typography/index.js";
 import { DensityType } from "../../style/interaction.js";
 import { StatusTokenType } from "../../style/interaction.js";
@@ -171,6 +173,16 @@ export interface TableOptions<ColumnKeys extends string = string> extends TableS
     pagination?: TablePaginationInput;
     /** Embedded row-selection state. */
     selection?: TableSelectionInput;
+    /**
+     * Slice chrome — pass the bound handle and the table renders the frame
+     * chassis itself: a header rail mounting the `affordances` (default
+     * `["filter", "search"]`) and a derived-count footer. Chrome only: feed
+     * the narrowed data explicitly via `data={Slice.rows([RowType], slice)}`.
+     * `brush` is rejected — a table has no continuous axis.
+     */
+    slice?: SubtypeExprOrValue<SliceBindType>;
+    /** Rail affordances when `slice` is set. Default `["filter", "search"]`. */
+    affordances?: SliceAffordanceLiteral[];
 }
 
 // Re-export style types
@@ -285,6 +297,7 @@ export const TableRootType: StructType<{
     onRowDoubleClick: OptionType<FunctionType<[TableRowClickEventType], NullType>>,
     onRowSelectionChange: OptionType<FunctionType<[TableRowSelectionEventType], NullType>>,
     onSortChange: OptionType<FunctionType<[TableSortEventType], NullType>>,
+    slice: OptionType<typeof SliceChromeType>,
     style: OptionType<TableStyleType>,
 }> = StructType({
     rows: ArrayType(DictType(StringType, TableCellType)),
@@ -307,6 +320,7 @@ export const TableRootType: StructType<{
     onRowDoubleClick: OptionType(FunctionType([TableRowClickEventType], NullType)),
     onRowSelectionChange: OptionType(FunctionType([TableRowSelectionEventType], NullType)),
     onSortChange: OptionType(FunctionType([TableSortEventType], NullType)),
+    slice: OptionType(SliceChromeType),
     style: OptionType(TableStyleType),
 });
 
@@ -681,6 +695,19 @@ export function createTable<T extends SubtypeExprOrValue<ArrayType<StructType>>>
         }, TableSelectionType)
         : undefined;
 
+    if (style?.affordances?.includes("brush")) {
+        throw new Error("Table does not support the 'brush' affordance — it has no continuous axis. Use it on a Chart or Gantt.");
+    }
+    const sliceChromeValue = style?.slice !== undefined
+        ? East.value({
+            slice: style.slice,
+            affordances: East.value(
+                (style.affordances ?? ["filter", "search"]).map(a => variant(a, null)),
+                ArrayType(SliceAffordanceType),
+            ),
+        }, SliceChromeType)
+        : undefined;
+
     return East.value(variant("Table", {
         rows: rows_mapped,
         columns: columns_expr,
@@ -696,6 +723,7 @@ export function createTable<T extends SubtypeExprOrValue<ArrayType<StructType>>>
         rowStatus: rowStatusValue ? some(rowStatusValue) : none,
         pagination: paginationValue ? some(paginationValue) : none,
         selection: selectionValue ? some(selectionValue) : none,
+        slice: sliceChromeValue ? some(sliceChromeValue) : none,
         onCellClick: style?.onCellClick ? some(style.onCellClick) : none,
         onCellDoubleClick: style?.onCellDoubleClick ? some(style.onCellDoubleClick) : none,
         onRowClick: style?.onRowClick ? some(style.onRowClick) : none,

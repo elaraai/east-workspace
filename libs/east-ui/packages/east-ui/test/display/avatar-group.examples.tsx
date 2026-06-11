@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { AvatarGroup } from "@elaraai/east-ui";
+import { AvatarGroup, Stack } from "@elaraai/east-ui";
 
 export const avatarGroupBasic = example({
     keywords: ["AvatarGroup", "Root", "avatars"],
@@ -26,6 +26,24 @@ export const avatarGroupOverflow = example({
                 max={3n}
                 size="sm"
             />
+        );
+    }),
+    inputs: [],
+});
+
+export const avatarGroupDensities = example({
+    keywords: ["AvatarGroup", "density", "condensed", "compact", "comfortable", "sizes"],
+    description: "The three densities stacked — every member avatar sized to the group density (matching ChipRail / Trace)",
+    fn: East.function([], UIComponentType, ($) => {
+        const condensed = $.const(<AvatarGroup avatars={[{ name: "Alice" }, { name: "Bob" }, { name: "Carol" }]} density="condensed" />);
+        const compact = $.const(<AvatarGroup avatars={[{ name: "Alice" }, { name: "Bob" }, { name: "Carol" }]} density="compact" />);
+        const comfortable = $.const(<AvatarGroup avatars={[{ name: "Alice" }, { name: "Bob" }, { name: "Carol" }]} density="comfortable" />);
+        return (
+            <Stack direction="column" gap="6">
+                {condensed}
+                {compact}
+                {comfortable}
+            </Stack>
         );
     }),
     inputs: [],

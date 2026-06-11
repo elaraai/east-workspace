@@ -34,7 +34,7 @@ import { EastChakraGrid } from "./layout/grid";
 import { EastChakraSplitter } from "./layout/splitter";
 import { EastChakraSticky } from "./layout/sticky";
 import { EastChakraScrollArea } from "./layout/scroll-area";
-import { EastChakraChipRail } from "./layout/chip-rail";
+import { EastChakraChipRail } from "./display/chip-rail";
 import { EastChakraAccordion } from "./disclosure/accordion";
 import { EastChakraCarousel } from "./disclosure/carousel";
 import { EastChakraTabs } from "./disclosure/tabs";
@@ -61,16 +61,21 @@ import { EastChakraSliceSummary } from "./slice/summary";
 import { EastChakraSliceRange } from "./slice/range";
 import { EastChakraSliceFilter } from "./slice/filter";
 import { EastChakraSliceLegend } from "./slice/legend";
-import { EastSliceChart } from "./slice/chart";
 import { EastChakraSliceBreakdown } from "./slice/breakdown";
 import { EastChakraSliceSearch } from "./slice/search";
 import { EastChakraSliceCohort } from "./slice/cohort";
-import { EastChakraSliceFrame } from "./slice/frame";
+import { EastChakraSliceRail } from "./slice/rail";
 import { EastChakraEditableChip } from "./display/editable-chip";
 import { EastChakraKbd } from "./display/kbd";
 import { EastChakraMeter } from "./display/meter";
 import { EastChakraSegmentedMeter } from "./display/segmented-meter";
 import { EastChakraBarStrip } from "./display/bar-strip";
+import { EastChakraTrace } from "./display/trace";
+import { EastChakraLibrary } from "./collections/library";
+import { EastChakraRoster } from "./collections/roster";
+import { EastChakraCalendar } from "./collections/calendar";
+import { EastChakraSchematic } from "./collections/schematic";
+import { EastChakraBlend } from "./collections/blend";
 import { EastChakraAvatarGroup } from "./display/avatar-group";
 import {
     EastChakraStringInput,
@@ -80,7 +85,6 @@ import {
     EastChakraCheckbox,
     EastChakraRadioGroup,
     EastChakraRadioCardGroup,
-    EastChakraTimeScaleControl,
     EastChakraTimeRangeInput,
     EastChakraDateRangeInput,
     EastChakraSwitch,
@@ -169,7 +173,6 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
             Checkbox: (v) => <EastChakraCheckbox value={v} />,
             RadioGroup: (v) => <EastChakraRadioGroup value={v} />,
             RadioCardGroup: (v) => <EastChakraRadioCardGroup value={v} />,
-            TimeScaleControl: (v) => <EastChakraTimeScaleControl value={v} />,
             TimeRangeInput: (v) => <EastChakraTimeRangeInput value={v} />,
             DateRangeInput: (v) => <EastChakraDateRangeInput value={v} />,
             Switch: (v) => <EastChakraSwitch value={v} />,
@@ -205,17 +208,17 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
             SegmentedMeter: (v) => <EastChakraSegmentedMeter value={v} storageKey={childKey(storageKey, "SegmentedMeter")} />,
             BarStrip: (v) => <EastChakraBarStrip value={v} storageKey={childKey(storageKey, "BarStrip")} />,
             AvatarGroup: (v) => <EastChakraAvatarGroup value={v} />,
+            Trace: (v) => <EastChakraTrace value={v} storageKey={childKey(storageKey, "Trace")} />,
 
             // Slice
             SliceSummary: (v) => <EastChakraSliceSummary value={v} />,
             SliceRange: (v) => <EastChakraSliceRange value={v} />,
             SliceFilter: (v) => <EastChakraSliceFilter value={v} />,
             SliceLegend: (v) => <EastChakraSliceLegend value={v} />,
-            SliceChart: (v) => <EastSliceChart value={v} />,
             SliceBreakdown: (v) => <EastChakraSliceBreakdown value={v} />,
             SliceSearch: (v) => <EastChakraSliceSearch value={v} />,
             SliceCohort: (v) => <EastChakraSliceCohort value={v} />,
-            SliceFrame: (v) => <EastChakraSliceFrame value={v as never} storageKey={childKey(storageKey, "SliceFrame")} />,
+            SliceRail: (v) => <EastChakraSliceRail value={v as never} />,
 
             // Container
             Card: (v) => <EastChakraCard value={v} storageKey={storageKey} />,
@@ -227,6 +230,11 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
             Table: (v) => <EastChakraTable value={v} storageKey={childKey(storageKey, "Table")} />,
             Gantt: (v) => <EastChakraGantt value={v} storageKey={childKey(storageKey, "Gantt")} />,
             Planner: (v) => <EastChakraPlanner value={v} storageKey={childKey(storageKey, "Planner")} />,
+            Library: (v) => <EastChakraLibrary value={v} storageKey={childKey(storageKey, "Library")} />,
+            Roster: (v) => <EastChakraRoster value={v} storageKey={childKey(storageKey, "Roster")} />,
+            Calendar: (v) => <EastChakraCalendar value={v} storageKey={childKey(storageKey, "Calendar")} />,
+            Schematic: (v) => <EastChakraSchematic value={v} storageKey={childKey(storageKey, "Schematic")} />,
+            Blend: (v) => <EastChakraBlend value={v} storageKey={childKey(storageKey, "Blend")} />,
 
             // Charts
             Sparkline: (v) => <EastChakraSparkline value={v} />,

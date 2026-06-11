@@ -13,6 +13,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { fieldChrome, fieldFocusRing } from "../field-chrome.js";
 
 export const comboboxSlotRecipe = defineSlotRecipe({
     className: "elara-combobox",
@@ -22,28 +23,28 @@ export const comboboxSlotRecipe = defineSlotRecipe({
         "itemIndicator", "itemGroup", "itemGroupLabel", "empty", "indicatorGroup",
     ],
     base: {
+        // The bordered shell wears the shared chrome; the inner input carries
+        // the padding + font, so the control's own padding is zeroed and focus
+        // is tracked with `_focusWithin`.
         control: {
+            ...fieldChrome,
             display: "inline-flex",
             alignItems: "stretch",
             width: "100%",
-            borderRadius: "{radii.sm}",
-            borderWidth: "1px",
-            borderColor: "border.strong",
-            background: "bg.surface",
-            transitionProperty: "border-color, box-shadow",
-            transitionDuration: "{durations.fast}",
-            _focusWithin: {
-                borderColor: "{colors.brand.600}",
-                boxShadow: "none",
-            },
+            paddingInline: "0",
+            paddingBlock: "0",
+            _focusWithin: fieldFocusRing,
         },
         input: {
             flex: 1,
+            minHeight: "0",
             background: "transparent",
             border: "none",
-            paddingX: "10px",
-            paddingY: "7px",
+            paddingInline: "10px",
+            paddingBlock: "7px",
+            fontFamily: "body",
             fontSize: "{fontSizes.control}",
+            lineHeight: "1.3",
             color: "fg",
             outline: "none",
             _placeholder: { color: "fg.subtle" },

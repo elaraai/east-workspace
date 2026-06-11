@@ -41,7 +41,8 @@ export const EastChakraSliceBreakdown = memo(function EastChakraSliceBreakdown({
     const { slice } = value;
     useSliceReactivity(slice.key);
     const density = useSliceDensity(getSomeorUndefined(value.density)?.type as ("compact" | "focused" | undefined));
-    const compact = density === "compact";
+    // `editor` renders the flat compact form; its edit surfaces inline via the editor-density disclosure.
+    const compact = density !== "focused";
     const dimensions = slice.dimensions();
     const groups = slice.groups();
 

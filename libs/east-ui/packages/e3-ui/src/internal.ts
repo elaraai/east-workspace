@@ -22,6 +22,7 @@ export {
     DataBindModeType,
     type DataBindModeLiteral,
     DiffBindingType,
+    type BoundValue,
     DataBindHandleType,
     type DataBindOptions,
     bindPlatformFn,
@@ -48,3 +49,52 @@ export {
     OntologyMetadataType,
     OntologyType,
 } from './ontology.js';
+export { Decision } from './decision/index.js';
+export {
+    DecisionType,
+    DecisionOptionType,
+    UrgencyType,
+    type UrgencyLiteral,
+    StakesLevelType,
+    type StakesLevelLiteral,
+    EvidenceType,
+    AnswerType,
+    type AnswerLiteral,
+    VerdictType,
+    ReferenceType,
+    JudgementInputType,
+    DecisionConstraintType,
+    PromptType,
+    LeverType,
+    judgementInputType,
+    type PromptInput,
+    type LeverInput,
+    type DecisionInput,
+    type DecisionOptionInput,
+    type EvidenceInput,
+    type DecisionReferenceInput,
+    type DecisionJudgementInput,
+} from './decision/types.js';
+export {
+    decisionBind,
+    decisionBindPlatformFn,
+    DecisionHandleType,
+    DecisionHandleRefType,
+    CommitStateType,
+    JudgementsType,
+    type DecisionHandle,
+    type DecisionBindOptions,
+} from './decision/bind.js';
+export {
+    DecisionQueue,
+    DecisionQueueComponent,
+    DecisionQueuePayloadType,
+    DecisionUpdateType,
+    type DecisionQueueOptions,
+} from './decision/queue.js';
+export {
+    DecisionJournal,
+    DecisionJournalComponent,
+    DecisionJournalPayloadType,
+    type DecisionJournalOptions,
+} from './decision/journal.js';

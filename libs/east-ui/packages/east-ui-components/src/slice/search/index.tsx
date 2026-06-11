@@ -34,7 +34,8 @@ export const EastChakraSliceSearch = memo(function EastChakraSliceSearch({ value
     const recent = value.recent ?? [];
     useSliceReactivity(slice.key);
     const density = useSliceDensity(getSomeorUndefined(value.density)?.type as ("compact" | "focused" | undefined));
-    const compact = density === "compact";
+    // `editor` renders the flat compact form; its edit surfaces inline via the editor-density disclosure.
+    const compact = density !== "focused";
     const matches = slice.matches();
 
     const externalQuery = getSomeorUndefined(slice.read().search) ?? "";

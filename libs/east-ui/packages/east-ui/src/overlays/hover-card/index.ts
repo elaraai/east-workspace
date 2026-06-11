@@ -7,6 +7,7 @@ import {
     type ExprType,
     type SubtypeExprOrValue,
     East, OptionType,
+    StringType,
     StructType,
     ArrayType,
     variant,
@@ -38,20 +39,26 @@ export type { HoverCardSizeLiteral, PlacementLiteral } from "./types.js";
  * East StructType for HoverCard component.
  *
  * @remarks
- * HoverCard displays rich content when hovering over a trigger element.
- * Similar to Tooltip but with more structured content (e.g., user profiles).
+ * HoverCard displays rich content when hovering over a trigger element —
+ * the same visual as Popover, opened on hover/focus instead of click.
  *
  * @property trigger - The UI component that shows the hover card on hover
  * @property body - Array of UI components for hover card content
+ * @property title - Optional hover card title (mono uppercase eyebrow)
+ * @property description - Optional hover card description
  * @property style - Optional style configuration
  */
 export const HoverCardType: StructType<{
     trigger: UIComponentType,
     body: ArrayType<UIComponentType>,
+    title: OptionType<StringType>,
+    description: OptionType<StringType>,
     style: OptionType<HoverCardStyleType>,
 }> = StructType({
     trigger: UIComponentType,
     body: ArrayType(UIComponentType),
+    title: OptionType(StringType),
+    description: OptionType(StringType),
     style: OptionType(HoverCardStyleType),
 });
 
@@ -91,13 +98,17 @@ export type HoverCardType = typeof HoverCardType;
 export interface HoverCardOptions extends HoverCardStyle {
     /** The UI component that shows the hover card on hover — required. */
     trigger: SubtypeExprOrValue<UIComponentType>;
+    /** Optional title — rendered as the mono uppercase eyebrow, same as Popover. */
+    title?: SubtypeExprOrValue<StringType>;
+    /** Optional description shown under the title. */
+    description?: SubtypeExprOrValue<StringType>;
 }
 
 function createHoverCard(
     body: SubtypeExprOrValue<ArrayType<UIComponentType>>,
     options: HoverCardOptions,
 ): ExprType<UIComponentType> {
-    const { trigger, ...style } = options;
+    const { trigger, title, description, ...style } = options;
 
     const sizeValue = style.size
         ? (typeof style.size === "string"
@@ -117,6 +128,8 @@ function createHoverCard(
     return East.value(variant("HoverCard", {
         trigger: trigger,
         body: body,
+        title: title !== undefined ? some(title) : none,
+        description: description !== undefined ? some(description) : none,
         style: hasStyle
             ? some(East.value({
                 size: sizeValue ? some(sizeValue) : none,
@@ -167,11 +180,13 @@ export const HoverCard = {
          * East StructType for HoverCard component.
          *
          * @remarks
-         * HoverCard displays rich content when hovering over a trigger element.
-         * Similar to Tooltip but with more structured content (e.g., user profiles).
+         * HoverCard displays rich content when hovering over a trigger element —
+         * the same visual as Popover, opened on hover/focus instead of click.
          *
          * @property trigger - The UI component that shows the hover card on hover
          * @property body - Array of UI components for hover card content
+         * @property title - Optional hover card title (mono uppercase eyebrow)
+         * @property description - Optional hover card description
          * @property style - Optional style configuration
          */
         HoverCard: HoverCardType,

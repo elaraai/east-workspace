@@ -54,8 +54,10 @@ export const EastChakraPopover = memo(function EastChakraPopover({ value, storag
             </ChakraPopover.Trigger>
             <Portal>
                 <ChakraPopover.Positioner>
-                    <ChakraPopover.Content padding="14px 16px" minW="240px" maxW="360px" fontSize="13px">
-                        {hasArrow && (
+                    <ChakraPopover.Content>
+                        {/* The 12px arrow is part of the spec chrome — on unless
+                            explicitly disabled. */}
+                        {hasArrow !== false && (
                             <ChakraPopover.Arrow>
                                 <ChakraPopover.ArrowTip />
                             </ChakraPopover.Arrow>

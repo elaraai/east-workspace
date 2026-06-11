@@ -5,6 +5,7 @@
 
 import {
     type SubtypeExprOrValue,
+    ArrayType,
     NullType,
     OptionType,
     StringType,
@@ -78,4 +79,12 @@ export interface ChipRailOptions extends ChipRailStyle {
     density?: SubtypeExprOrValue<DensityType> | DensityLiteral;
     /** Separator between chips. */
     separator?: SubtypeExprOrValue<ChipRailSeparatorType> | ChipRailSeparatorLiteral;
+    /**
+     * Per-chip captions, index-aligned with `chips`. Supplying this switches
+     * the rail to labeled mode: each chip gains a mono uppercase caption above
+     * it and separators are suppressed. A shorter array leaves trailing chips
+     * caption-less; an empty entry reserves the caption row without text so
+     * chips stay baseline-aligned.
+     */
+    labels?: SubtypeExprOrValue<ArrayType<StringType>>;
 }

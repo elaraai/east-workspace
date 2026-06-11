@@ -58,6 +58,15 @@ export const kbdRecipe = defineRecipe({
                 boxShadow: "0 2px 0 {colors.border.strong}",
             },
         },
+        // Density cascade — a key cap is a micro-label like Badge, one tier
+        // below the chip-height rhythm: it scales with density but stays
+        // smaller than a Tag, centring vertically in the row. No default: an
+        // undensified kbd keeps the base look.
+        density: {
+            condensed: { fontSize: "8.5px", paddingX: "4px", paddingY: "1px" },
+            compact: { fontSize: "10px", paddingX: "6px", paddingY: "2px" },
+            comfortable: { fontSize: "11px", paddingX: "7px", paddingY: "4px" },
+        },
     },
     defaultVariants: {
         variant: "flat",

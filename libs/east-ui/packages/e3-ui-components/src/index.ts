@@ -12,6 +12,8 @@
 import './platform/bind-runtime.js';      // → registerPlatformImplementation(BindPlatform)
 import './diff/index.js';                 // → implementUIComponent(Diff.Component, EastChakraDiff)
 import './ontology/index.js';             // → implementUIComponent(Ontology.Component, EastChakraOntology)
+import './decision/queue.js';             // → implementUIComponent(DecisionQueue.Component, EastChakraDecisionQueue)
+import './decision/journal.js';           // → implementUIComponent(DecisionJournal.Component, EastChakraDecisionJournal)
 
 // Platform — reactive dataset cache, runtime, and React hooks for Data.bind
 export * from './platform/index.js';
@@ -27,6 +29,11 @@ export { EastChakraDiff, type EastChakraDiffProps } from './diff/index.js';
 
 // Ontology renderer — registers itself against the Ontology extension on import.
 export { EastChakraOntology, type EastChakraOntologyProps } from './ontology/index.js';
+
+// Decision queue renderer — registers itself against the DecisionQueue extension on import.
+export { EastChakraDecisionQueue, type EastChakraDecisionQueueProps } from './decision/queue.js';
+export { EastChakraDecisionJournal, type EastChakraDecisionJournalProps } from './decision/journal.js';
+export { useDecisionHandle, type UseDecisionHandleResult, type DecisionHandleValue } from './decision/handle-runtime.js';
 
 // Components
 export { ErrorBoundary, type ErrorBoundaryProps } from './components/ErrorBoundary.js';

@@ -46,6 +46,8 @@ import {
     type LabelInput,
 } from "../../style.js";
 import { UIComponentType } from "../../component.js";
+import { SliceChromeType } from "../../platform/slice/index.js";
+import { SliceAffordanceType } from "../../contracts/slice-affordances.js";
 import { DensityType } from "../../style/interaction.js";
 import {
     TableCellType,
@@ -240,6 +242,7 @@ export const GanttRootType: StructType<{
     onMilestoneClick: OptionType<FunctionType<[GanttMilestoneClickEventType], NullType>>,
     onMilestoneDoubleClick: OptionType<FunctionType<[GanttMilestoneClickEventType], NullType>>,
     onMilestoneDrag: OptionType<FunctionType<[GanttMilestoneDragEventType], NullType>>,
+    slice: OptionType<typeof SliceChromeType>,
     style: OptionType<GanttStyleType>,
 }> = StructType({
     rows: ArrayType(GanttRowType),
@@ -262,6 +265,7 @@ export const GanttRootType: StructType<{
     onMilestoneClick: OptionType(FunctionType([GanttMilestoneClickEventType], NullType)),
     onMilestoneDoubleClick: OptionType(FunctionType([GanttMilestoneClickEventType], NullType)),
     onMilestoneDrag: OptionType(FunctionType([GanttMilestoneDragEventType], NullType)),
+    slice: OptionType(SliceChromeType),
     style: OptionType(GanttStyleType),
 });
 
@@ -747,6 +751,16 @@ function createGantt<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
         showToday: style!.showToday !== undefined ? some(style!.showToday) : none,
     }, GanttStyleType) : undefined;
 
+    const sliceChromeValue = style?.slice !== undefined
+        ? East.value({
+            slice: style.slice,
+            affordances: East.value(
+                (style.affordances ?? ["filter", "search", "range"]).map(a => variant(a, null)),
+                ArrayType(SliceAffordanceType),
+            ),
+        }, SliceChromeType)
+        : undefined;
+
     return East.value(variant("Gantt", {
         rows: rows_mapped,
         columns: columns_expr,
@@ -770,6 +784,7 @@ function createGantt<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
         onMilestoneClick: style?.onMilestoneClick ? some(style.onMilestoneClick) : none,
         onMilestoneDoubleClick: style?.onMilestoneDoubleClick ? some(style.onMilestoneDoubleClick) : none,
         onMilestoneDrag: style?.onMilestoneDrag ? some(style.onMilestoneDrag) : none,
+        slice: sliceChromeValue ? some(sliceChromeValue) : none,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }

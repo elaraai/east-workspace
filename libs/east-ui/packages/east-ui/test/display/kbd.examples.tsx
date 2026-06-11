@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { Kbd } from "@elaraai/east-ui";
+import { Kbd, Stack } from "@elaraai/east-ui";
 
 export const kbdSingle = example({
     keywords: ["Kbd", "Root", "single", "key"],
@@ -30,6 +30,24 @@ export const kbdStyled = example({
     description: "Solid Kbd with blue palette",
     fn: East.function([], UIComponentType, ($) => {
         return <Kbd keys={["Ctrl", "Shift", "P"]} variant="solid" colorPalette="blue" size="md" />;
+    }),
+    inputs: [],
+});
+
+export const kbdDensities = example({
+    keywords: ["Kbd", "density", "condensed", "compact", "comfortable", "sizes"],
+    description: "The three densities stacked — key-cap height + font scale condensed → compact → comfortable (matching ChipRail)",
+    fn: East.function([], UIComponentType, ($) => {
+        const condensed = $.const(<Kbd keys={["⌘", "K"]} density="condensed" />);
+        const compact = $.const(<Kbd keys={["⌘", "K"]} density="compact" />);
+        const comfortable = $.const(<Kbd keys={["⌘", "K"]} density="comfortable" />);
+        return (
+            <Stack direction="column" gap="6">
+                {condensed}
+                {compact}
+                {comfortable}
+            </Stack>
+        );
     }),
     inputs: [],
 });

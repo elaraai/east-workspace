@@ -271,7 +271,7 @@ export const matrixReactivePivot = example({
             return (
                 <VStack gap="3" align="stretch">
                     <Slider value={threshold} min={0} max={1} step={0.05} onChange={onChange} />
-                    {Text.Presets.MonoLabel(East.str`THRESHOLD ${East.print(threshold)} · ${resourceKeys.size()} ROWS × ${dayKeys.size()} COLS`)}
+                    {<Text.MonoLabel>{East.str`THRESHOLD ${East.print(threshold)} · ${resourceKeys.size()} ROWS × ${dayKeys.size()} COLS`}</Text.MonoLabel>}
                     <Matrix
                         data={resourceKeys.map(($, name) => ({
                             name,

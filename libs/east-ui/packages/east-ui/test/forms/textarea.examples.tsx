@@ -29,7 +29,7 @@ export const textareaInteractive = example({
             return (
                 <VStack gap="3" align="stretch">
                     <Textarea value={text} placeholder="Write something..." rows={3} onChange={onChange} />
-                    {Text.Presets.MonoLabel(East.str`${text.length()} CHARS`)}
+                    {<Text.MonoLabel>{East.str`${text.length()} CHARS`}</Text.MonoLabel>}
                 </VStack>
             );
         }}</Reactive>
@@ -58,8 +58,8 @@ export const textareaOnFocusBlur = example({
                 <VStack gap="3" align="stretch">
                     <Textarea value="" placeholder="Click in/out to fire focus/blur" rows={3} onFocus={onFocus} onBlur={onBlur} />
                     <HStack gap="4">
-                        {Text.Presets.MonoLabel(East.str`FOCUS · ${focusCount}`)}
-                        {Text.Presets.MonoLabel(East.str`BLUR · ${blurCount}`)}
+                        {<Text.MonoLabel>{East.str`FOCUS · ${focusCount}`}</Text.MonoLabel>}
+                        {<Text.MonoLabel>{East.str`BLUR · ${blurCount}`}</Text.MonoLabel>}
                     </HStack>
                 </VStack>
             );

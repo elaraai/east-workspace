@@ -12,7 +12,7 @@ EAST_UI_EXAMPLE_KEYS := $(shell find packages/east-ui/test \( -name '*.examples.
 ## files (e3-task-bound components: ontology, diff, ...). Each maps 1:1 to
 ## `make e3-ui-examples-html-<key>`, rendered by the e3-ui-components snapshot
 ## harness (seeds a dataset cache from each example's e3.input defaults).
-E3_UI_EXAMPLE_KEYS := $(shell find packages/e3-ui/test -maxdepth 1 \( -name '*.examples.ts' -o -name '*.examples.tsx' \) 2>/dev/null \
+E3_UI_EXAMPLE_KEYS := $(shell find packages/e3-ui/test \( -name '*.examples.ts' -o -name '*.examples.tsx' \) 2>/dev/null \
                              | sed -e 's|^packages/e3-ui/test/||' -e 's|\.examples\.tsx$$||' -e 's|\.examples\.ts$$||')
 
 .PHONY: build test lint showcase build-showcase design design-html-all probe-slice probe-collections clean extension extension-install extension-uninstall examples \
@@ -33,12 +33,13 @@ lint:
 
 ## Run the showcase dev server. The renderer (east-ui-components) resolves
 ## from its source via a dev-only Vite alias — no prebuilt dist, and
-## component/theme edits hot-reload. Only the IR package is built first,
-## since the dev server still loads `@elaraai/east-ui` from dist. Vite's own
-## dep cache is reused (it self-invalidates on lockfile/config change); run
-## `pnpm --filter @elaraai/east-ui-showcase exec vite --force` if ever stale.
+## component/theme edits hot-reload. The IR package is built first, since the
+## dev server loads `@elaraai/east-ui` from dist. That rebuild changes the dist
+## without a version bump, which Vite's dep cache keys on — so it would serve a
+## stale prebundle. `vite --force` re-optimizes against the fresh dist on every
+## start, keeping the showcase in sync with IR-layer edits.
 showcase:
-	pnpm --filter @elaraai/east-ui run build && pnpm run dev
+	pnpm --filter @elaraai/east-ui run build && pnpm --filter @elaraai/east-ui-showcase exec vite --force
 
 ## Build east-ui-showcase for production deployment (used by GitHub Pages workflow)
 build-showcase:
@@ -52,8 +53,8 @@ build-showcase:
 ## First run downloads the Chromium binary (~150 MB). Subsequent runs are
 ## just the snapshot pass.
 design-html-all:
-	pnpm --filter @elaraai/east-ui-showcase exec playwright install chromium
-	pnpm --filter @elaraai/east-ui-showcase exec tsx scripts/snapshot-design.ts
+	pnpm exec playwright install chromium
+	pnpm exec tsx scripts/snapshot-design.ts
 
 ## Pixel-perfect audit of the Slice.Edit popover — opens each editor case in the
 ## snapshot harness and dumps the popover's computed CSS (content / head / body /

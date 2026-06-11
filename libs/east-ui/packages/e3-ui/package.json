@@ -21,17 +21,9 @@
       "types": "./dist/src/runtime/runtime.d.ts",
       "default": "./dist/src/runtime/runtime.js"
     },
-    "./examples/data": {
-      "types": "./dist/test/data.examples.d.ts",
-      "default": "./dist/test/data.examples.js"
-    },
-    "./examples/diff": {
-      "types": "./dist/test/diff.examples.d.ts",
-      "default": "./dist/test/diff.examples.js"
-    },
-    "./examples/ontology": {
-      "types": "./dist/test/ontology.examples.d.ts",
-      "default": "./dist/test/ontology.examples.js"
+    "./examples/*": {
+      "types": "./dist/test/*.examples.d.ts",
+      "default": "./dist/test/*.examples.js"
     }
   },
   "files": [

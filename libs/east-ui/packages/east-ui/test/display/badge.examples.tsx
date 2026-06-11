@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, IntegerType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Badge, Button, HStack, VStack, Reactive } from "@elaraai/east-ui";
+import { Badge, Button, HStack, VStack, Stack, Reactive } from "@elaraai/east-ui";
 
 export const badgeBasic = example({
     keywords: ["Badge", "Root", "basic", "label"],
@@ -126,6 +126,42 @@ export const badgeBoxModel = example({
                 <Badge variant="outline" width="120px" justifyContent="flex-start">Wide</Badge>
                 <Badge variant="brand" padding="2" borderRadius="lg">Rounded</Badge>
             </HStack>
+        );
+    }),
+    inputs: [],
+});
+
+export const badgeDensities = example({
+    keywords: ["Badge", "density", "condensed", "compact", "comfortable", "sizes"],
+    description: "The three densities stacked — badges scale condensed → compact → comfortable but stay a micro-label tier below tags at the same density",
+    fn: East.function([], UIComponentType, ($) => {
+        const condensed = $.const(
+            <HStack gap="2">
+                <Badge density="condensed">Open</Badge>
+                <Badge density="condensed" variant="brand">Beta</Badge>
+                <Badge density="condensed" variant="count">17</Badge>
+            </HStack>,
+        );
+        const compact = $.const(
+            <HStack gap="2">
+                <Badge density="compact">Open</Badge>
+                <Badge density="compact" variant="brand">Beta</Badge>
+                <Badge density="compact" variant="count">17</Badge>
+            </HStack>,
+        );
+        const comfortable = $.const(
+            <HStack gap="2">
+                <Badge density="comfortable">Open</Badge>
+                <Badge density="comfortable" variant="brand">Beta</Badge>
+                <Badge density="comfortable" variant="count">17</Badge>
+            </HStack>,
+        );
+        return (
+            <Stack direction="column" gap="6">
+                {condensed}
+                {compact}
+                {comfortable}
+            </Stack>
         );
     }),
     inputs: [],

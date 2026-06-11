@@ -34,7 +34,7 @@ export const timeRangeInputReactive = example({
             return (
                 <VStack gap="3" align="flex-start">
                     <TimeRangeInput startValue={start} endValue={end} step={15n} onChange={onChange} />
-                    {Text.Presets.MonoLabel(East.str`MIN · ${start} → ${end}`)}
+                    {<Text.MonoLabel>{East.str`MIN · ${start} → ${end}`}</Text.MonoLabel>}
                 </VStack>
             );
         }}</Reactive>

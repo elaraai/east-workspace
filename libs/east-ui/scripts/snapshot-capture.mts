@@ -92,6 +92,10 @@ export async function captureFiles(cfg: CaptureConfig): Promise<{ captured: numb
         ...(cfg.configFile ? { configFile: cfg.configFile } : {}),
         server: { port: 0, strictPort: false, host: '127.0.0.1' },
         logLevel: 'warn',
+        // The IR packages rebuild without version bumps, which Vite's dep
+        // cache keys on — force re-optimization so snapshots never render a
+        // stale prebundle.
+        optimizeDeps: { force: true },
     });
     await server.listen();
     const addr = server.httpServer?.address();

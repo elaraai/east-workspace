@@ -63,7 +63,6 @@ export const EastChakraSlider = memo(function EastChakraSlider({ value }: EastCh
     }, [onChangeFn]);
 
     const handleValueChangeEnd = useCallback((details: SliderValueChangeDetails) => {
-        console.log("handleValueChangeEnd called with details:", details);
         setProps(prev => ({ ...prev, value: details.value }))
         if (onChangeEndFn && details.value.length > 0) {
             queueMicrotask(() => onChangeEndFn(details.value[0]!));
@@ -74,6 +73,7 @@ export const EastChakraSlider = memo(function EastChakraSlider({ value }: EastCh
         <ChakraSlider.Root
             {...props}
             width="100%"
+            thumbAlignment="center"
             onValueChange={handleValueChange}
             onValueChangeEnd={handleValueChangeEnd}
         >

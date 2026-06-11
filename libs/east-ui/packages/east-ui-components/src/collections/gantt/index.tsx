@@ -25,11 +25,14 @@ import {
     type ColumnResizeMode,
     type ColumnDef,
 } from "@tanstack/react-table";
-import { compareFor, equalFor, printFor, variant, type ValueTypeOf } from "@elaraai/east";
-import { Gantt, Table, type UIComponentType } from "@elaraai/east-ui/internal";
+import { compareFor, equalFor, printFor, variant, some, none, type ValueTypeOf } from "@elaraai/east";
+import { Gantt, Table, Slice as SliceInternal, type UIComponentType } from "@elaraai/east-ui/internal";
+import { SliceRailCluster } from "../../slice/rail";
+import { useSliceReactivity } from "../../slice/use-slice-reactivity";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 import { useRowStatusBg, useDensityHeights } from "../shared/helpers";
+import { DensityProvider } from "../../contracts/density";
 import { RowStateManager, type RowKey, type RowState } from "../../utils/RowStateManager";
 import { useColumnPinning, HeaderControls, getHeaderCellStyle, getCellStyle, createGetSortIndex, useColumnSizeVars, useLastUnpinnedColumnId } from "../shared/column-pinning";
 import { EventAxis, tierInterval, type GanttTier } from "./EventAxis";
@@ -147,7 +150,7 @@ interface GanttPersistedState {
  * - Resizable splitter between table and timeline
  * - SVG-based task and milestone rendering
  */
-export const EastChakraGantt = memo(function EastChakraGantt({
+const GanttCore = function GanttCore({
     value,
     height = "100%",
     rowHeight = 36,
@@ -161,7 +164,12 @@ export const EastChakraGantt = memo(function EastChakraGantt({
     onMilestoneClick: _onMilestoneClickProp,
     tablePanelSize: tablePanelSizeProp,
     storageKey,
-}: EastChakraGanttProps) {
+    timelineBrush,
+}: EastChakraGanttProps & {
+    /** Slice-chrome brush: drag a window on the timeline header to select a
+     *  time range (`null` clears — a sub-threshold drag). */
+    timelineBrush?: (range: { from: Date; to: Date } | null) => void;
+}) {
     const props = useMemo(() => toChakraTableRoot(value), [value]);
 
     // Track root container width for accurate splitter sizing
@@ -221,6 +229,9 @@ export const EastChakraGantt = memo(function EastChakraGantt({
     const tableContainerRef = useRef<HTMLDivElement>(null);
     const timelineContainerRef = useRef<HTMLDivElement>(null);
     const [timelineWidth, setTimelineWidth] = useState(400);
+    // In-flight brush drag (px within the timeline header), when slice chrome
+    // enables the brush affordance.
+    const [brushDrag, setBrushDrag] = useState<{ x1: number; x2: number } | null>(null);
 
     // Row state management for loading indicators
     const [rowStateManager] = useState(() => new RowStateManager());
@@ -739,7 +750,7 @@ export const EastChakraGantt = memo(function EastChakraGantt({
         { id: "timeline", minSize: 20 },
     ], []);
 
-    return (
+    const ganttContent = (
         <Box
             ref={rootRef}
             width="100%"
@@ -962,6 +973,49 @@ export const EastChakraGantt = memo(function EastChakraGantt({
                             tier={axisTier}
                             format={axisFormat}
                         />
+                        {timelineBrush && (
+                            // Brush capture over the header: the time scale spans
+                            // the pane (no horizontal scroll), so pixel → time is
+                            // xScale.invert on the pointer offset.
+                            <Box
+                                position="absolute"
+                                inset={0}
+                                cursor="crosshair"
+                                onPointerDown={(e) => {
+                                    const el = e.currentTarget as HTMLElement;
+                                    el.setPointerCapture(e.pointerId);
+                                    const left = el.getBoundingClientRect().left;
+                                    setBrushDrag({ x1: e.clientX - left, x2: e.clientX - left });
+                                }}
+                                onPointerMove={(e) => {
+                                    if (!brushDrag) return;
+                                    const left = (e.currentTarget as HTMLElement).getBoundingClientRect().left;
+                                    setBrushDrag({ x1: brushDrag.x1, x2: e.clientX - left });
+                                }}
+                                onPointerUp={() => {
+                                    if (!brushDrag) return;
+                                    const [a, b] = [Math.min(brushDrag.x1, brushDrag.x2), Math.max(brushDrag.x1, brushDrag.x2)];
+                                    setBrushDrag(null);
+                                    if (b - a < 5) { timelineBrush(null); return; }
+                                    timelineBrush({ from: xScale.invert(a), to: xScale.invert(b) });
+                                }}
+                            >
+                                {brushDrag && (
+                                    <Box
+                                        position="absolute"
+                                        top={0}
+                                        bottom={0}
+                                        left={`${Math.min(brushDrag.x1, brushDrag.x2)}px`}
+                                        width={`${Math.abs(brushDrag.x2 - brushDrag.x1)}px`}
+                                        bg="accent.brand"
+                                        opacity={0.18}
+                                        borderXWidth="1px"
+                                        borderColor="accent.brand"
+                                        pointerEvents="none"
+                                    />
+                                )}
+                            </Box>
+                        )}
                     </Box>
 
                     {/* Timeline Body - uses same table structure for matching row styles */}
@@ -1078,6 +1132,61 @@ export const EastChakraGantt = memo(function EastChakraGantt({
                 </Box>
             </Splitter.Panel>
         </Splitter.Root>
+        </Box>
+    );
+
+    // A density set on the gantt cascades to display components rendered in
+    // its table cells, matching the Table behaviour.
+    return densityTag !== undefined
+        ? <DensityProvider value={densityTag}>{ganttContent}</DensityProvider>
+        : ganttContent;
+};
+
+/**
+ * The exported Gantt renderer. Without `slice` it renders the bare Gantt.
+ * With the `slice` chrome option it renders the frame chassis itself — a
+ * header rail mounting the listed affordances (the shared `SliceRailCluster`
+ * ladder; the `range` chip edits the window the `brush` gesture will also
+ * write) and a derived-count footer. Chrome only: the rows are whatever the
+ * host fed (`Slice.rows([RowType], slice)` upstream).
+ */
+export const EastChakraGantt = memo(function EastChakraGantt(props: EastChakraGanttProps) {
+    const chrome = getSomeorUndefined(props.value.slice as never) as
+        { slice: unknown; affordances: ReadonlyArray<{ type: string }> } | undefined;
+    const slice = chrome?.slice as ValueTypeOf<typeof SliceInternal.Types.Bind> | undefined;
+    useSliceReactivity(slice?.key);
+    const frameStyles = useSlotRecipe({ key: "sliceFrame" })();
+    if (chrome === undefined || slice === undefined) return <GanttCore {...props} />;
+
+    const state = slice.read();
+    const configuredKinds = chrome.affordances.map(a => a.type);
+    const railKinds = (state.cohorts.length > 0 && !configuredKinds.includes("cohort")
+        ? [...configuredKinds, "cohort"]
+        : configuredKinds).filter(k => k !== "brush");
+    const total = Number(slice.totalCount() as bigint);
+    const result = Number(slice.resultCount() as bigint);
+    const pct = total > 0 ? Math.round((1 - result / total) * 100) : 0;
+    const brushEnabled = configuredKinds.includes("brush");
+    const timelineBrush = brushEnabled
+        ? (range: { from: Date; to: Date } | null) => {
+            if (range === null) { slice.setRange(none); return; }
+            slice.setRange(some(variant("datetime", { from: range.from, to: range.to })));
+        }
+        : undefined;
+
+    return (
+        <Box css={frameStyles.root}>
+            <Box css={frameStyles.frameEyebrow}>
+                <SliceRailCluster slice={slice} affordanceKinds={railKinds} />
+            </Box>
+            <Box css={frameStyles.frameBody}>
+                <GanttCore {...props} {...(timelineBrush !== undefined ? { timelineBrush } : {})} />
+            </Box>
+            <Box css={frameStyles.frameFooter}>
+                <Box as="span" css={frameStyles.frameFooterStat}>{result.toLocaleString()}</Box>
+                <Box as="span">{`rows · of ${total.toLocaleString()}`}</Box>
+                {pct > 0 && <Box as="span" css={frameStyles.frameFooterDelta}>{`· −${pct}%`}</Box>}
+            </Box>
         </Box>
     );
 }, (prev, next) => ganttRootEqual(prev.value, next.value));

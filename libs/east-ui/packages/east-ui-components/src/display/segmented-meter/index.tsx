@@ -4,11 +4,12 @@
  */
 
 import { memo, useMemo } from "react";
-import { Box, Flex, HStack, Text as ChakraText } from "@chakra-ui/react";
+import { Box, Flex, HStack, Text as ChakraText, useSlotRecipe } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { SegmentedMeter } from "@elaraai/east-ui/internal";
 import { EastChakraComponent } from "../../component";
 import { getSomeorUndefined } from "../../utils";
+import { useDensity } from "../../contracts/density";
 
 const segmentedMeterEqual = equalFor(SegmentedMeter.Types.SegmentedMeter);
 
@@ -50,9 +51,16 @@ export interface EastChakraSegmentedMeterProps {
 export const EastChakraSegmentedMeter = memo(function EastChakraSegmentedMeter({ value, storageKey }: EastChakraSegmentedMeterProps) {
     const caption = useMemo(() => getSomeorUndefined(value.caption), [value.caption]);
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
+    const inheritedDensity = useDensity();
+    const localDensity = useMemo(() => getSomeorUndefined(value.density)?.type, [value.density]);
+    const density = localDensity ?? inheritedDensity;
+    const styles = useSlotRecipe({ key: "segmentedMeter" })({ density });
 
     const thicknessTag = style ? getSomeorUndefined(style.thickness)?.type ?? "sm" : "sm";
-    const height = THICKNESS_PX[thicknessTag] ?? "6px";
+    const densityHeight = density !== undefined
+        ? (styles.track as { height?: string } | undefined)?.height
+        : undefined;
+    const height = densityHeight ?? THICKNESS_PX[thicknessTag] ?? "6px";
     const labelsPos = style ? getSomeorUndefined(style.labels)?.type ?? "none" : "none";
     const borderRadius = (style && getSomeorUndefined(style.borderRadius)) ?? "sm";
     const trackColor = (style && getSomeorUndefined(style.trackColor)) ?? "gray.100";

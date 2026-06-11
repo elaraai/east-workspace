@@ -28,7 +28,7 @@ export interface SliceSearchOptions {
     slice: SubtypeExprOrValue<SliceBindType>;
     /** Recent queries rendered in the focused footer. */
     recent?: SubtypeExprOrValue<ArrayType<StringType>>;
-    /** Render density — defaults to the surrounding `Slice.Frame`, else `focused`. */
+    /** Render density — defaults to the surrounding rail, else `focused`. */
     density?: "compact" | "focused";
     /** Render the dropdown open on mount (for static snapshots). */
     editOpen?: SubtypeExprOrValue<BooleanType>;

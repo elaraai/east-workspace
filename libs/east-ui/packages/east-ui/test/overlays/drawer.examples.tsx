@@ -8,11 +8,11 @@ import { State, UIComponentType } from "@elaraai/east-ui";
 import { Button, Drawer, Reactive, Status, Text, VStack } from "@elaraai/east-ui";
 
 export const drawerRight = example({
-    keywords: ["Drawer", "Root", "placement", "end", "right"],
-    description: "Slide-in panel from right",
+    keywords: ["Drawer", "Root", "placement", "end", "right", "eyebrow"],
+    description: "Slide-in panel from right with the surface-header eyebrow",
     fn: East.function([], UIComponentType, (_$) => {
         return (
-            <Drawer trigger={<Button>Open Drawer</Button>} title="Drawer Title" description="Slide-in panel" placement="end" size="md">
+            <Drawer trigger={<Button>Open Drawer</Button>} eyebrow="Rail · detail" title="Drawer Title" description="Slide-in panel" placement="end" size="md">
                 <VStack gap="4">
                     <Text>This is a drawer panel that slides in from the side.</Text>
                     <Text color="fg.muted">Great for navigation, settings, or detailed content.</Text>
@@ -30,7 +30,7 @@ export const drawerLeft = example({
         return (
             <Drawer trigger={<Button variant="outline">Open Navigation</Button>} title="Navigation" placement="start">
                 <VStack gap="1" align="stretch">
-                    <Button variant="ghost" size="sm">Dashboard</Button>
+                    <Button variant="ghost" size="sm">Overview</Button>
                     <Button variant="ghost" size="sm">Projects</Button>
                     <Button variant="ghost" size="sm">Team</Button>
                     <Button variant="ghost" size="sm">Settings</Button>
@@ -85,6 +85,7 @@ export const drawerProgrammatic = example({
                                 <Text color="fg.muted">Great for navigation, notifications, or dynamic content.</Text>
                             </VStack>,
                         ],
+                        eyebrow: some("Rail · programmatic"),
                         title: some("Programmatic Drawer"),
                         description: some("Opened via Drawer.open()"),
                         style: none,

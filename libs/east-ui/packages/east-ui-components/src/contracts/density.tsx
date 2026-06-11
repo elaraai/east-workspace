@@ -20,7 +20,7 @@ import { createContext, useContext, type ReactNode } from "react";
 export type Density = "comfortable" | "compact" | "condensed";
 export type Verbosity = "minimal" | "standard" | "detailed";
 
-const DensityContext = createContext<Density>("comfortable");
+const DensityContext = createContext<Density | undefined>(undefined);
 const VerbosityContext = createContext<Verbosity>("standard");
 
 export interface DensityProviderProps {
@@ -33,10 +33,11 @@ export function DensityProvider({ value, children }: DensityProviderProps) {
 }
 
 /**
- * Read the current density from context. Defaults to `"comfortable"` when
- * no provider wraps the caller.
+ * Read the inherited density from context, or `undefined` when no surface
+ * (Table, ChipRail, …) provides one — so a consumer can tell "no density
+ * anywhere" (keep the standalone look) apart from an inherited value.
  */
-export function useDensity(): Density {
+export function useDensity(): Density | undefined {
     return useContext(DensityContext);
 }
 

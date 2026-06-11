@@ -45,7 +45,7 @@ export const dateRangeInputReactive = example({
             return (
                 <VStack gap="3" align="flex-start">
                     <DateRangeInput startValue={start} endValue={end} precision="date" onChange={onChange} />
-                    {Text.Presets.MonoLabel(East.str`${start} → ${end}`)}
+                    {<Text.MonoLabel>{East.str`${start} → ${end}`}</Text.MonoLabel>}
                 </VStack>
             );
         }}</Reactive>

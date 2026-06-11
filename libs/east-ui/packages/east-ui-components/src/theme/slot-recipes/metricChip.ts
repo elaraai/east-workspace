@@ -45,6 +45,24 @@ export const metricChipSlotRecipe = defineSlotRecipe({
             flat: { root: { borderColor: "border.strong", color: "fg.subtle", background: "bg.subtle" } },
             brand:{ root: { borderColor: "{colors.brand.600}", color: "{colors.brand.600}", background: "bg.brand.subtle" } },
         },
+        // Density cascade — root sizing mirrors the chipRail `--cr-*` sets
+        // (label tracks `--cr-lbl-fs`) so a metric chip lines up with tags
+        // and traces at the same density. No default: an undensified chip
+        // keeps the base look.
+        density: {
+            condensed: {
+                root: { fontSize: "9px", lineHeight: "1", paddingX: "7px", paddingY: "2px", gap: "4px" },
+                label: { fontSize: "8.5px" },
+            },
+            compact: {
+                root: { fontSize: "10px", lineHeight: "1", paddingX: "10px", paddingY: "5px", gap: "5px" },
+                label: { fontSize: "9.5px" },
+            },
+            comfortable: {
+                root: { fontSize: "12.5px", lineHeight: "1", paddingX: "15px", paddingY: "9.75px", gap: "7px" },
+                label: { fontSize: "11px" },
+            },
+        },
     },
     defaultVariants: { sentiment: "flat" },
 });

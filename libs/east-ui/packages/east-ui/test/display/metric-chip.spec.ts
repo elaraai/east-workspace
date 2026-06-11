@@ -12,6 +12,7 @@ describeEast("MetricChip", (test) => {
         metricChipPositive: ex.metricChipPositive,
         metricChipNegativeSolid: ex.metricChipNegativeSolid,
         metricChipNeutralOutline: ex.metricChipNeutralOutline,
+        metricChipDensities: ex.metricChipDensities,
         metricChipInfo: ex.metricChipInfo,
     });
 

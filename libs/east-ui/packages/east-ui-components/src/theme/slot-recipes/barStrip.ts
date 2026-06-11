@@ -60,6 +60,30 @@ export const barStripSlotRecipe = defineSlotRecipe({
             sm: { track: { height: "6px" } },
             md: { track: { height: "10px" } },
         },
+        // Density cascade — track, value text and row spacing scale with the
+        // chipRail/trace rhythm. No default: an undensified strip keeps the
+        // `thickness` look. Declared after `thickness` so density wins the
+        // merge.
+        density: {
+            condensed: {
+                root: { gap: "{spacing.1}" },
+                row: { gap: "{spacing.1.5}" },
+                track: { height: "4px" },
+                value: { fontSize: "9px" },
+            },
+            compact: {
+                root: { gap: "{spacing.1.5}" },
+                row: { gap: "{spacing.2}" },
+                track: { height: "6px" },
+                value: { fontSize: "10px" },
+            },
+            comfortable: {
+                root: { gap: "{spacing.2}" },
+                row: { gap: "{spacing.3}" },
+                track: { height: "10px" },
+                value: { fontSize: "12.5px" },
+            },
+        },
     },
     defaultVariants: {
         thickness: "sm",

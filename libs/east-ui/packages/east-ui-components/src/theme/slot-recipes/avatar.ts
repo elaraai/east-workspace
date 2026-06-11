@@ -76,6 +76,15 @@ export const avatarSlotRecipe = defineSlotRecipe({
             lg: { root: { width: "40px",  height: "40px",  fontSize: "{fontSizes.sm}" } },
             xl: { root: { width: "56px",  height: "56px",  fontSize: "{fontSizes.md}" } },
         },
+        // Density cascade — the avatar diameter matches the chipRail/trace
+        // chip height at each density, so an avatar sits flush in a mixed
+        // table row. No default: an undensified avatar keeps the `size` look.
+        // Declared after `size` so density wins the merge.
+        density: {
+            condensed: { root: { width: "15px", height: "15px", fontSize: "7px" } },
+            compact: { root: { width: "22px", height: "22px", fontSize: "10px" } },
+            comfortable: { root: { width: "34px", height: "34px", fontSize: "13px" } },
+        },
     },
     defaultVariants: {
         variant: "subtle",

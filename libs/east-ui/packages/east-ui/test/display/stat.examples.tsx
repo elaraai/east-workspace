@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, IntegerType, NullType, example } from "@elaraai/east";
 import { Format, State, UIComponentType } from "@elaraai/east-ui";
-import { Button, Stat, HStack, VStack, Reactive } from "@elaraai/east-ui";
+import { Button, Stat, HStack, VStack, Stack, Reactive } from "@elaraai/east-ui";
 
 export const statBasic = example({
     keywords: ["Stat", "Root", "basic", "metrics"],
@@ -61,6 +61,24 @@ export const statFormatted = example({
                 <Stat label="Throughput" value={42.5} format={Format.Unit({ unit: "kilometerPerHour", display: "short" })} />
                 <Stat label="Last sync" value={1716249600000} format={Format.DateTime("YYYY-MM-DD HH:mm")} />
             </HStack>
+        );
+    }),
+    inputs: [],
+});
+
+export const statDensities = example({
+    keywords: ["Stat", "density", "condensed", "compact", "comfortable", "sizes"],
+    description: "The three densities stacked — condensed → compact → comfortable (matching ChipRail / Trace)",
+    fn: East.function([], UIComponentType, ($) => {
+        const condensed = $.const(<Stat label="Revenue" value={45231} format={Format.Currency({ currency: "USD", maximumFractionDigits: 0n })} indicator="up" density="condensed" />);
+        const compact = $.const(<Stat label="Revenue" value={45231} format={Format.Currency({ currency: "USD", maximumFractionDigits: 0n })} indicator="up" density="compact" />);
+        const comfortable = $.const(<Stat label="Revenue" value={45231} format={Format.Currency({ currency: "USD", maximumFractionDigits: 0n })} indicator="up" density="comfortable" />);
+        return (
+            <Stack direction="column" gap="6">
+                {condensed}
+                {compact}
+                {comfortable}
+            </Stack>
         );
     }),
     inputs: [],

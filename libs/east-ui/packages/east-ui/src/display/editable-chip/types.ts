@@ -13,8 +13,8 @@ import {
     StringType,
 } from "@elaraai/east";
 
-import { SizeType } from "../../style.js";
-import type { SizeLiteral } from "../../style.js";
+import { DensityType, SizeType } from "../../style.js";
+import type { DensityLiteral, SizeLiteral } from "../../style.js";
 
 // ============================================================================
 // EditableChip Style
@@ -61,6 +61,7 @@ export type EditableChipStyleType = typeof EditableChipStyleType;
  * @property trigger - Optional trailing icon (defaults to `faChevronDown`)
  * @property disabled - Whether the chip is disabled (main state)
  * @property onClick - Callback fired when the chip is activated (main behaviour)
+ * @property density - Density override; shares the cascade with `ChipRail` / `Trace` so mixed display cells align
  * @property size - Size preset
  * @property color - Explicit text colour override
  * @property background - Explicit background override
@@ -74,6 +75,13 @@ export interface EditableChipOptions {
     disabled?: SubtypeExprOrValue<BooleanType>;
     /** Callback fired when the chip is activated (main-struct behaviour). */
     onClick?: SubtypeExprOrValue<FunctionType<[], NullType>>;
+    /**
+     * Density override (main-struct). Inherited from the enclosing surface
+     * (Table, ChipRail, …) when omitted; an explicit value wins over both the
+     * cascade and `size`, sizing the chip to match rails and traces at the
+     * same density.
+     */
+    density?: SubtypeExprOrValue<DensityType> | DensityLiteral;
     /** Size preset (sm / md / lg). */
     size?: SubtypeExprOrValue<SizeType> | SizeLiteral;
     /** Corner radius (Chakra token or explicit px). Default `"md"`. */

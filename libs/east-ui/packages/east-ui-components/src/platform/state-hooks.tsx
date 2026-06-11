@@ -285,7 +285,11 @@ export function EastFunction({ ir, storageKey }: EastFunctionProps) {
     }, [ir]);
 
     if (state.kind === "loading") {
-        return <Skeleton h="full" w="full" />;
+        /* `h="full"` resolves to 0 inside auto-height containers (e.g. a
+         * content-hugging frame), which would hide the skeleton exactly when
+         * it's needed — `minH` keeps it visible there while `full` still
+         * fills fixed-height hosts. */
+        return <Skeleton h="full" w="full" minH="56px" />;
     }
     if (state.kind === "error") {
         const info = toEastErrorInfo(state.error);

@@ -43,3 +43,4 @@ export * from "./overlays/index.js";
 export * from "./collections/index.js";
 export * from "./reactive/index.js";
 export { Slice } from "./slice.js";
+export { Hotkey } from "./platform-hotkey.js";

@@ -14,7 +14,7 @@ import {
     none,
 } from "@elaraai/east";
 
-import { SizeType, ColorSchemeType } from "../../style.js";
+import { DensityType, SizeType, ColorSchemeType } from "../../style.js";
 import { UIComponentType } from "../../component.js";
 import {
     KbdType,
@@ -104,8 +104,14 @@ function createKbd(
     style?: KbdStyle,
 ): ExprType<UIComponentType> {
     const styleValue = buildKbdStyle(style);
+    const densityValue = style?.density !== undefined
+        ? (typeof style.density === "string"
+            ? East.value(variant(style.density, null), DensityType)
+            : style.density)
+        : undefined;
     return East.value(variant("Kbd", {
         keys,
+        density: densityValue ? some(densityValue) : none,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
@@ -154,6 +160,7 @@ export const Kbd: KbdNamespace = {
          * via `Kbd.Types.Kbd` without reaching into module internals.
          *
          * @property keys - Array of key strings (e.g. `["⌘", "K"]`)
+         * @property density - Density override; shares the cascade with `ChipRail` / `Trace` so mixed display cells align
          * @property style - Optional visual style sub-struct (see `Style`)
          */
         Kbd: KbdType,

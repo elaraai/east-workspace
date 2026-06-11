@@ -14,6 +14,7 @@ describeEast("EditableChip", (test) => {
         editableChipWithCallback: ex.editableChipWithCallback,
         editableChipDisabled: ex.editableChipDisabled,
         editableChipStyled: ex.editableChipStyled,
+        editableChipDensities: ex.editableChipDensities,
         editableChipReactive: ex.editableChipReactive,
     });
 

@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { BarStrip, Text } from "@elaraai/east-ui";
+import { BarStrip, Stack, Text } from "@elaraai/east-ui";
 
 export const barStripBasic = example({
     keywords: ["BarStrip", "Root", "items"],
@@ -36,6 +36,48 @@ export const barStripSorted = example({
                 sort="desc"
                 thickness="md"
             />
+        );
+    }),
+    inputs: [],
+});
+
+export const barStripDensities = example({
+    keywords: ["BarStrip", "density", "condensed", "compact", "comfortable", "sizes"],
+    description: "The three densities stacked — row height + value text scale condensed → compact → comfortable (matching ChipRail)",
+    fn: East.function([], UIComponentType, ($) => {
+        const condensed = $.const(
+            <BarStrip
+                density="condensed"
+                items={[
+                    { label: <Text>Alpha</Text>, value: 42.0, tone: "success" },
+                    { label: <Text>Beta</Text>, value: 28.0, tone: "warning" },
+                ]}
+            />,
+        );
+        const compact = $.const(
+            <BarStrip
+                density="compact"
+                items={[
+                    { label: <Text>Alpha</Text>, value: 42.0, tone: "success" },
+                    { label: <Text>Beta</Text>, value: 28.0, tone: "warning" },
+                ]}
+            />,
+        );
+        const comfortable = $.const(
+            <BarStrip
+                density="comfortable"
+                items={[
+                    { label: <Text>Alpha</Text>, value: 42.0, tone: "success" },
+                    { label: <Text>Beta</Text>, value: 28.0, tone: "warning" },
+                ]}
+            />,
+        );
+        return (
+            <Stack direction="column" gap="6">
+                {condensed}
+                {compact}
+                {comfortable}
+            </Stack>
         );
     }),
     inputs: [],

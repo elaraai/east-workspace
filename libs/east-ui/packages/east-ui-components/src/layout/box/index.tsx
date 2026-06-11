@@ -16,6 +16,7 @@ import { EastChakraComponent } from "../../component";
 import { toTransition, type TransitionToken, type MotionDurationToken, type MotionEasingToken } from "../../style/motion.js";
 import { toAnimationProps, type AnimationPresetToken } from "../../style/animation.js";
 import { usePrefersReducedMotion } from "../../contracts/reduced-motion.js";
+import { DensityProvider } from "../../contracts/density.js";
 
 // Pre-define the equality function at module level
 const boxEqual = equalFor(Box.Types.Box);
@@ -123,6 +124,7 @@ export interface EastChakraBoxProps {
 export const EastChakraBox = memo(function EastChakraBox({ value, storageKey }: EastChakraBoxProps) {
     const props = useMemo(() => toChakraBox(value), [value]);
     const reducedMotion = usePrefersReducedMotion();
+    const localDensity = useMemo(() => getSomeorUndefined(value.density)?.type, [value.density]);
 
     // §0.2 — animation degrades to `none` under `prefers-reduced-motion`.
     const animation = useMemo(() => {
@@ -134,7 +136,7 @@ export const EastChakraBox = memo(function EastChakraBox({ value, storageKey }: 
         return tag ? toAnimationProps(tag) : null;
     }, [value.style, reducedMotion]);
 
-    return (
+    const content = (
         <ChakraBox
             {...props}
             animationName={animation?.animationName}
@@ -147,4 +149,8 @@ export const EastChakraBox = memo(function EastChakraBox({ value, storageKey }: 
             ))}
         </ChakraBox>
     );
+
+    return localDensity !== undefined
+        ? <DensityProvider value={localDensity}>{content}</DensityProvider>
+        : content;
 }, (prev, next) => boxEqual(prev.value, next.value) && prev.storageKey === next.storageKey);

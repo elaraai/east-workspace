@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { Meter, Text } from "@elaraai/east-ui";
+import { Meter, Stack, Text } from "@elaraai/east-ui";
 
 export const meterBasic = example({
     keywords: ["Meter", "Root", "value"],
@@ -30,6 +30,24 @@ export const meterWarning = example({
     description: "Meter with warning tone and large thickness",
     fn: East.function([], UIComponentType, ($) => {
         return <Meter value={42.0} tone="warning" thickness="lg" />;
+    }),
+    inputs: [],
+});
+
+export const meterDensities = example({
+    keywords: ["Meter", "density", "condensed", "compact", "comfortable", "sizes"],
+    description: "The three densities stacked — track height + value text scale condensed → compact → comfortable (matching ChipRail)",
+    fn: East.function([], UIComponentType, ($) => {
+        const condensed = $.const(<Meter value={72.0} tone="success" density="condensed" />);
+        const compact = $.const(<Meter value={72.0} tone="success" density="compact" />);
+        const comfortable = $.const(<Meter value={72.0} tone="success" density="comfortable" />);
+        return (
+            <Stack direction="column" gap="6">
+                {condensed}
+                {compact}
+                {comfortable}
+            </Stack>
+        );
     }),
     inputs: [],
 });

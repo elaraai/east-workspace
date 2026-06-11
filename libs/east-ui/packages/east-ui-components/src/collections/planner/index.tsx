@@ -24,6 +24,7 @@ import {
     ColumnDividerBar, ColumnResizeHandle,
 } from "../shared/column-pinning";
 import { useDensityHeights } from "../shared/helpers";
+import { DensityProvider } from "../../contracts/density";
 
 const plannerRootEqual = equalFor(Planner.Types.Root);
 
@@ -218,6 +219,7 @@ function EventChip({ event, eventStyle, gripStyle }: {
 
 /** Renders an East Planner value as a CSS-grid scheduling surface. */
 export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storageKey }: EastChakraPlannerProps) {
+    const densityTag = getSomeorUndefined(value.density)?.type;
     const size = sizeFromDensity(value);
     const recipe = useSlotRecipe({ key: "planner" });
     const tableRecipe = useSlotRecipe({ key: "table" });
@@ -379,7 +381,7 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
         ));
     };
 
-    return (
+    const plannerContent = (
         <Box css={base.root}>
             {/* Header: left data-column headers (Table chrome) + right slot axis. */}
             <Box css={base.header} data-slot="header" display="grid" gridTemplateColumns={`${leftPaneWidth} 1fr`} minWidth={gridMinWidth} height={`${headerH}px`}>
@@ -545,4 +547,10 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
             ))}
         </Box>
     );
+
+    // A density set on the planner cascades to display components rendered in
+    // its cells and event chips, matching the Table behaviour.
+    return densityTag !== undefined
+        ? <DensityProvider value={densityTag}>{plannerContent}</DensityProvider>
+        : plannerContent;
 }, (prev, next) => plannerRootEqual(prev.value, next.value) && prev.storageKey === next.storageKey);

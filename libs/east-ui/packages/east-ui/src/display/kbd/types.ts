@@ -13,8 +13,8 @@ import {
     VariantType,
 } from "@elaraai/east";
 
-import { SizeType, ColorSchemeType } from "../../style.js";
-import type { SizeLiteral, ColorSchemeLiteral } from "../../style.js";
+import { DensityType, SizeType, ColorSchemeType } from "../../style.js";
+import type { DensityLiteral, SizeLiteral, ColorSchemeLiteral } from "../../style.js";
 
 // ============================================================================
 // Kbd Variant
@@ -86,10 +86,12 @@ export type KbdStyleType = typeof KbdStyleType;
  * are rendered with `+` separators between each key.
  *
  * @property keys - Array of key strings (e.g. `["⌘", "K"]`)
+ * @property density - Density override; shares the cascade with `ChipRail` / `Trace` so mixed display cells align
  * @property style - Optional visual style sub-struct (see `KbdStyleType`)
  */
 export const KbdType = StructType({
     keys: ArrayType(StringType),
+    density: OptionType(DensityType),
     style: OptionType(KbdStyleType),
 });
 
@@ -110,6 +112,7 @@ export type KbdType = typeof KbdType;
  *
  * @property variant - Visual preset (solid / subtle / outline)
  * @property size - Size preset
+ * @property density - Density override shared with the `ChipRail` / `Trace` cascade
  * @property colorPalette - Chakra colour palette token
  * @property color - Explicit text colour override
  * @property background - Explicit background override
@@ -121,6 +124,13 @@ export interface KbdStyle {
     variant?: SubtypeExprOrValue<KbdVariantType> | KbdVariantLiteral;
     /** Size preset. */
     size?: SubtypeExprOrValue<SizeType> | SizeLiteral;
+    /**
+     * Density override (main-struct). Inherited from the enclosing surface
+     * (Table, ChipRail, …) when omitted; an explicit value wins over both the
+     * cascade and `size`, sizing the key caps to match rails and traces at
+     * the same density.
+     */
+    density?: SubtypeExprOrValue<DensityType> | DensityLiteral;
     /** Chakra colour palette token. */
     colorPalette?: SubtypeExprOrValue<ColorSchemeType> | ColorSchemeLiteral;
     /** Explicit text colour override. */

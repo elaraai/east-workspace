@@ -3,11 +3,14 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useMemo, createContext, useContext, type ReactNode, type MouseEvent } from "react";
-import { Box, useChakraContext } from "@chakra-ui/react";
+import { memo, useMemo, useCallback, createContext, useContext, type ReactNode, type MouseEvent } from "react";
+import { Box, useChakraContext, useSlotRecipe } from "@chakra-ui/react";
 import { useTooltip, TooltipWithBounds } from "@visx/tooltip";
-import { match, equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Chart } from "@elaraai/east-ui/internal";
+import { match, equalFor, some, none, variant, type ValueTypeOf } from "@elaraai/east";
+import { Chart, Slice as SliceInternal } from "@elaraai/east-ui/internal";
+import { SliceRailCluster } from "../../slice/rail";
+import { EastChakraSliceLegend } from "../../slice/legend";
+import { useSliceReactivity } from "../../slice/use-slice-reactivity";
 import { ParentSize } from "@visx/responsive";
 import { Group } from "@visx/group";
 import { scaleBand, scaleLinear, scaleTime, scaleSqrt } from "@visx/scale";
@@ -785,7 +788,74 @@ export interface EastVisxChartProps {
 
 const chartEqual = equalFor(T.Spec);
 
+/**
+ * Slice chrome around a chart frame — the rail above the plot, the
+ * colour-matched legend below it when a breakdown is active, and (with the
+ * `brush` affordance listed) the drag-to-range brush wired to `setRange`.
+ * Chrome only: the layers' data was fed explicitly upstream.
+ */
+function SliceChromeFrame({ node, chrome }: { node: Spec; chrome: { slice: unknown; affordances: ReadonlyArray<{ type: string }> } }): ReactNode {
+    const slice = chrome.slice as ValueTypeOf<typeof SliceInternal.Types.Bind>;
+    useSliceReactivity(slice.key);
+    const frameStyles = useSlotRecipe({ key: "sliceFrame" })();
+
+    const state = slice.read();
+    const configuredKinds = chrome.affordances.map(a => a.type);
+    const railKinds = (state.cohorts.length > 0 && !configuredKinds.includes("cohort")
+        ? [...configuredKinds, "cohort"]
+        : configuredKinds).filter(k => k !== "brush");
+
+    // Brush: enabled by the affordance; the range arm (datetime vs float)
+    // follows the slice's range field kind.
+    const brushEnabled = configuredKinds.includes("brush");
+    const rangeFieldId = getSomeorUndefined(slice.rangeFieldId() as never) as string | undefined;
+    const rangeKind = brushEnabled && rangeFieldId !== undefined
+        ? (slice.fields() as ReadonlyArray<{ fieldId: string; kind: string }>).find(f => f.fieldId === rangeFieldId)?.kind
+        : undefined;
+    const onBrushEnd = useCallback((range: { from: number; to: number } | null) => {
+        if (range === null) { slice.setRange(none); return; }
+        if (rangeKind === "datetime") {
+            slice.setRange(some(variant("datetime", { from: new Date(range.from), to: new Date(range.to) })));
+        } else {
+            slice.setRange(some(variant("float", { from: range.from, to: range.to })));
+        }
+    }, [slice, rangeKind]);
+    // Remount the brush whenever the applied range changes: visx Brush holds
+    // its selection in pixel state, which goes stale once the new range
+    // re-narrows the data + x-scale.
+    const rangeVal = getSomeorUndefined(state.range);
+    const brushKey = rangeVal === undefined
+        ? "none"
+        : JSON.stringify(rangeVal, (_k, v) => typeof v === "bigint" ? v.toString() : v instanceof Date ? v.toISOString() : v);
+
+    const breakdownActive = getSomeorUndefined(state.breakdown) !== undefined;
+
+    return (
+        <Box css={frameStyles.root}>
+            {railKinds.length > 0 && (
+                <Box css={frameStyles.frameEyebrow}>
+                    <SliceRailCluster slice={slice} affordanceKinds={railKinds} />
+                </Box>
+            )}
+            <Box css={frameStyles.frameBody} padding="8px 12px">
+                <Frame
+                    node={node}
+                    brush={brushEnabled && rangeKind !== undefined}
+                    onBrushEnd={onBrushEnd}
+                    brushKey={brushKey}
+                />
+                {breakdownActive && <EastChakraSliceLegend value={{ slice } as never} />}
+            </Box>
+        </Box>
+    );
+}
+
 /** Renders an East `ChartSpec` (visx-primitive tree). The root is a `frame`. */
 export const EastVisxChart = memo(function EastVisxChart({ value, brush, onBrushEnd, brushKey }: EastVisxChartProps) {
+    const chrome = value.type === "frame"
+        ? (getSomeorUndefined((value.value as unknown as { slice: never }).slice) as
+            { slice: unknown; affordances: ReadonlyArray<{ type: string }> } | undefined)
+        : undefined;
+    if (chrome !== undefined) return <SliceChromeFrame node={value} chrome={chrome} />;
     return <Frame node={value} brush={brush} onBrushEnd={onBrushEnd} brushKey={brushKey} />;
 }, (a, b) => chartEqual(a.value, b.value) && a.brush === b.brush && a.onBrushEnd === b.onBrushEnd && a.brushKey === b.brushKey);

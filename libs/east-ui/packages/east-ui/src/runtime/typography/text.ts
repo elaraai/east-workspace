@@ -32,7 +32,6 @@ import { content, type ContentProps, type JsxTag } from "../combinators.js";
  */
 type TextBuilders = {
     Types: typeof TextFactory.Types;
-    Presets: typeof TextFactory.Presets;
     Eyebrow: JsxTag<ContentProps<typeof TextFactory.Presets.Eyebrow>>;
     EyebrowSm: JsxTag<ContentProps<typeof TextFactory.Presets.EyebrowSm>>;
     MonoSm: JsxTag<ContentProps<typeof TextFactory.Presets.MonoSm>>;
@@ -98,8 +97,6 @@ export const Text: JsxTag<ContentProps<typeof TextFactory.Root>> & TextBuilders 
     Object.assign(content(TextFactory.Root), {
         /** The `Text` East data type and {@link TextStyle} struct. */
         Types: TextFactory.Types,
-        /** The preset builder functions (string-in form) that back each nested preset tag. */
-        Presets: TextFactory.Presets,
         /**
          * Eyebrow — a mono, uppercase, wide-tracked label set in muted ink:
          * the small heading above a section, a status word, or a frame

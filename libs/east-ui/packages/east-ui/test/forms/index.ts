@@ -19,4 +19,3 @@ export * from "./switch.examples.js";
 export * from "./tags-input.examples.js";
 export * from "./textarea.examples.js";
 export * from "./time-range-input.examples.js";
-export * from "./time-scale-control.examples.js";

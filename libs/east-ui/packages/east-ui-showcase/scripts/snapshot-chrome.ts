@@ -27,7 +27,7 @@ async function main(): Promise<void> {
     await server.listen();
     const addr = server.httpServer?.address();
     const port = server.config.server.port ?? (addr && typeof addr === "object" ? addr.port : 5173);
-    const url = `http://127.0.0.1:${port}/east-ui/`;
+    const url = `http://127.0.0.1:${port}${server.config.base}`;
     console.log(`[snapshot-chrome] ${url}`);
 
     const browser = await chromium.launch({ headless: true });

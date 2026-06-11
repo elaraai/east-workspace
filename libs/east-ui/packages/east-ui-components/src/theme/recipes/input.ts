@@ -17,52 +17,16 @@
  */
 
 import { defineRecipe } from "@chakra-ui/react";
+import { fieldChrome, numericChrome } from "../field-chrome.js";
 
 export const inputRecipe = defineRecipe({
     className: "elara-input",
-    base: {
-        fontFamily: "body",
-        fontSize: "{fontSizes.control}",
-        background: "bg.surface",
-        color: "fg",
-        borderRadius: "{radii.sm}",
-        borderWidth: "1px",
-        borderColor: "border.strong",
-        paddingX: "10px",
-        paddingY: "7px",
-        outline: "none",
-        transitionProperty: "border-color, box-shadow, background",
-        transitionDuration: "{durations.fast}",
-        transitionTimingFunction: "{easings.out}",
-        _placeholder: { color: "fg.subtle" },
-        _hover: { borderColor: "fg.subtle" },
-        _focusVisible: {
-            borderColor: "{colors.brand.600}",
-            boxShadow: "none",
-        },
-        _invalid: {
-            borderColor: "fg.danger",
-            _focusVisible: {
-                borderColor: "fg.danger",
-                boxShadow: "none",
-            },
-        },
-        _disabled: {
-            background: "bg.subtle",
-            color: "fg.muted",
-            cursor: "not-allowed",
-        },
-    },
+    base: { ...fieldChrome },
     variants: {
         variant: {
             default: {},
             /** Mono + right-aligned for numeric form rows. */
-            numeric: {
-                fontFamily: "mono",
-                textAlign: "right",
-                fontVariantNumeric: "tabular-nums",
-                fontFeatureSettings: '"tnum"',
-            },
+            numeric: { ...numericChrome },
             /** Uncommitted edit — spec `.mx-num.dirty` */
             dirty: {
                 background: "warning.subtle.strong",

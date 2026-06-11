@@ -45,7 +45,7 @@
     <div class="mode-head">
       <span class="mode-id">§ 2.6</span>
       <h2>Trust</h2>
-      <span class="anchor-tag">Anchor · <span class="pat">Trust<span class="ns">.</span>Journal</span></span>
+      <span class="anchor-tag">Anchor · <span class="pat">Decision<span class="ns">.</span>Journal</span> (in &sect;2.3 Decide)</span>
     </div>
     <p class="mode-lede">The connective tissue. Every decision the operator takes, every model output that gets cited, every roster that gets published — they all carry provenance. Trust mode is where the system answers <em>who, when, on what basis, with what assumptions</em>. Without it, every other mode is just opinion.</p>
 
@@ -53,124 +53,13 @@
     <div class="frame">
       <ol style="padding: 18px 22px 18px 40px; margin: 0; font-size: 13.5px; line-height: 1.7; color: var(--ink);">
         <li><strong>Every output is stamped.</strong> A <span class="mono">Trust<span class="ns">.</span>Stamp</span> shows model version, run time, input hash, and confidence band. No headless numbers.</li>
-        <li><strong>Every change is journaled.</strong> A <span class="mono">Trust<span class="ns">.</span>Journal</span> entry captures the actor, the rationale, the diff, and the run it was made against. Append-only.</li>
+        <li><strong>Every change is journaled.</strong> A <span class="mono">Decision<span class="ns">.</span>Journal</span> entry (pattern in &sect;2.3 Decide) captures the actor, the rationale, the diff, and the run it was made against. Append-only.</li>
         <li><strong>Staleness, partiality, and drift are surfaced — not hidden.</strong> Banners fire when a source goes stale, a feed drops, or the world has changed since the operator last looked.</li>
         <li><strong>Communication is part of the system.</strong> Handoffs, message-stubs, and reviewer comments live in the same surface as the decision.</li>
         <li><strong>Permission is positive.</strong> If an operator can't take an action, the gate explains <em>why</em> and routes to whomever can.</li>
       </ol>
     </div>
 
-    <!-- ANCHOR · DECISION JOURNAL -->
-    <article id="decision-journal" class="pattern">
-      <div class="pattern-head">
-        <span class="pattern-name">Trust<span class="ns">.</span>Journal</span>
-        <span class="pattern-anchor">Anchor</span>
-      </div>
-      <p class="pattern-blurb">Append-only log of every consequential change. Each entry is timestamped, attributed, and linked to the run, diff, and rationale. The system's memory of what happened, who decided it, and why.</p>
-      <div class="frame">
-        <div class="eyebrow-row"><span class="lbl">Decision journal · SE region</span><span class="meta muted">142 entries · 7 this week · <a class="btn-link" href="#">filter →</a></span></div>
-        <div class="journal">
-          <div class="je entry-published">
-            <div class="je-rail"><span class="je-dot pub"></span></div>
-            <div class="je-body">
-              <div class="je-head">
-                <span class="je-actor">Patel <span class="muted">·</span> Ops Manager</span>
-                <span class="je-time">Sep 14 · 16:42</span>
-              </div>
-              <div class="je-action"><span class="je-verb">published</span> roster · wk of Sep 16 · SE</div>
-              <div class="je-meta">
-                <span class="num">7 ops</span> · <span class="num">214h staffed</span> · <span class="num pos">−$8k vs baseline</span> · run <span class="mono">#42</span> · diff <span class="mono">#df-3211</span>
-              </div>
-              <div class="je-rationale">"Accepted model recommendation. Cho's hours are at OT cap; will need to revisit Wed if forecast holds. Personal-leave flag for Patel pre-applied."</div>
-              <div class="je-links">
-                <a class="btn-link" href="#audittrail">audit →</a>
-                <span class="muted">·</span>
-                <a class="btn-link" href="#">view roster →</a>
-                <span class="muted">·</span>
-                <a class="btn-link" href="#">copy permalink</a>
-              </div>
-            </div>
-          </div>
-
-          <div class="je">
-            <div class="je-rail"><span class="je-dot model"></span></div>
-            <div class="je-body">
-              <div class="je-head">
-                <span class="je-actor">Model <span class="muted">·</span> staffing-v3.2.1</span>
-                <span class="je-time">Sep 14 · 16:31</span>
-              </div>
-              <div class="je-action"><span class="je-verb">issued</span> recommendation · accept-runner-up</div>
-              <div class="je-meta">
-                conf <span class="num">0.78</span> · <span class="num pos">−$8k OT</span> · runner-up Δ <span class="num">$1.2k</span> · run <span class="mono">#42</span>
-              </div>
-              <div class="je-rationale muted">Triggered by demand spike + Patel personal-leave; baseline rejected (OT cap breach Thu).</div>
-              <div class="je-links">
-                <a class="btn-link" href="#briefing">briefing →</a>
-                <span class="muted">·</span>
-                <a class="btn-link" href="#">why-this-rec</a>
-              </div>
-            </div>
-          </div>
-
-          <div class="je">
-            <div class="je-rail"><span class="je-dot edit"></span></div>
-            <div class="je-body">
-              <div class="je-head">
-                <span class="je-actor">Patel <span class="muted">·</span> Ops Manager</span>
-                <span class="je-time">Sep 14 · 16:18</span>
-              </div>
-              <div class="je-action"><span class="je-verb">flagged</span> Patel personal-leave · Wed Sep 18</div>
-              <div class="je-meta">
-                judgement-gap · <span class="mono">model-blind-input</span> · forced model rerun
-              </div>
-              <div class="je-links">
-                <a class="btn-link" href="#">view input →</a>
-              </div>
-            </div>
-          </div>
-
-          <div class="je">
-            <div class="je-rail"><span class="je-dot config"></span></div>
-            <div class="je-body">
-              <div class="je-head">
-                <span class="je-actor">Singh <span class="muted">·</span> Workforce Lead</span>
-                <span class="je-time">Sep 12 · 09:04</span>
-              </div>
-              <div class="je-action"><span class="je-verb">changed</span> SLA target · <span class="num">0.92 → 0.95</span></div>
-              <div class="je-meta">
-                applied to · SE region · effective Sep 16 · <span class="num">+$22k</span> est. cost impact
-              </div>
-              <div class="je-rationale">"Quarterly review — contract renewal pushed SE-region SLA to 0.95. Applies for the rest of FY."</div>
-              <div class="je-links">
-                <a class="btn-link" href="#">diff →</a>
-                <span class="muted">·</span>
-                <a class="btn-link" href="#">approval thread</a>
-              </div>
-            </div>
-          </div>
-
-          <div class="je">
-            <div class="je-rail"><span class="je-dot drift"></span></div>
-            <div class="je-body">
-              <div class="je-head">
-                <span class="je-actor">System <span class="muted">·</span> drift-monitor</span>
-                <span class="je-time">Sep 11 · 23:00</span>
-              </div>
-              <div class="je-action"><span class="je-verb">detected</span> forecast drift · SE · <span class="num neg">+8% MAPE</span></div>
-              <div class="je-meta">
-                3-day rolling · threshold <span class="num">5%</span> · <a class="btn-link" href="#">recalibration scheduled</a>
-              </div>
-            </div>
-          </div>
-
-          <div class="je je-fold">
-            <a class="btn-link" href="#">12 earlier entries this week ▾</a>
-          </div>
-        </div>
-      </div>
-
-
-    </article>
 
     <article id="audittrail" class="pattern">
       <div class="pattern-head"><span class="pattern-name">Trust<span class="ns">.</span>AuditTrail</span></div>

@@ -85,9 +85,8 @@ export function DateInput({ children }: DateInputProps) {
       ref={fieldRef}
       display="inline-flex"
       border="none"
-      borderRadius="4px"
-      px={1}
-      py={0.5}
+      px={0}
+      py={0}
       alignItems="center"
       gap={0}
       bg="transparent"

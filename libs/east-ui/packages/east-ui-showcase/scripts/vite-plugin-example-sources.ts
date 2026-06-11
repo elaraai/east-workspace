@@ -38,6 +38,10 @@ export interface ExampleSourcesOptions {
     /** Absolute path to the live `east-ui` test root — the directory
      *  containing `<category>/<component>.examples.ts` files. */
     testDir: string;
+    /** Absolute path to the live `e3-ui` test root. Its example files are
+     *  flat (`data.examples.tsx`), so their captured sources are keyed
+     *  `e3/<stem>` — matching the catalog's e3 pathKeys. */
+    e3TestDir?: string;
     /** Absolute path to the showcase package root. `CODE_EXAMPLE_ROOTS`
      *  `dir` values are resolved against this, exactly like `testDir`. */
     rootDir: string;
@@ -175,9 +179,15 @@ async function capture(src: string): Promise<CapturedSource> {
     return { raw, html: highlight(raw) };
 }
 
-/** Live `east-ui` source map: `pathKey → name → fn source`. */
-async function buildSources(testDir: string): Promise<Record<string, Record<string, CapturedSource>>> {
-    const discovered = await discoverExampleFiles({ testDir });
+/** Live source map: `pathKey → name → fn source`. `keyPrefix` namespaces
+ *  flat roots (the e3-ui tree → `e3/<stem>`) against east-ui's
+ *  `<category>/<component>` keys. */
+async function buildSources(
+    testDir: string,
+    includeTopLevel = false,
+    keyPrefix = "",
+): Promise<Record<string, Record<string, CapturedSource>>> {
+    const discovered = await discoverExampleFiles({ testDir, includeTopLevel });
     const sources: Record<string, Record<string, CapturedSource>> = {};
     for (const { filePath, pathKey } of discovered) {
         const code = await fs.readFile(filePath, "utf8");
@@ -186,7 +196,7 @@ async function buildSources(testDir: string): Promise<Record<string, Record<stri
         if (names.length === 0) continue;
         const captured: Record<string, CapturedSource> = {};
         for (const name of names) captured[name] = await capture(raw[name].fn);
-        sources[pathKey] = captured;
+        sources[keyPrefix + pathKey] = captured;
     }
     return sources;
 }
@@ -226,9 +236,11 @@ export function exampleSourcesPlugin(opts: ExampleSourcesOptions): Plugin {
     let server: ViteDevServer | undefined;
 
     /* Absolute roots whose `.examples.*` changes should invalidate the
-     * virtual module — the live `east-ui` tree plus every code-reference root. */
+     * virtual module — the live `east-ui` + `e3-ui` trees plus every
+     * code-reference root. */
     const watchedDirs = [
         opts.testDir,
+        ...(opts.e3TestDir ? [opts.e3TestDir] : []),
         ...CODE_EXAMPLE_ROOTS.map((r) => path.resolve(opts.rootDir, r.dir)),
     ];
 
@@ -242,10 +254,12 @@ export function exampleSourcesPlugin(opts: ExampleSourcesOptions): Plugin {
 
         async load(id) {
             if (id !== RESOLVED_ID) return;
-            const [exampleSources, codeExamples] = await Promise.all([
+            const [eastSources, e3Sources, codeExamples] = await Promise.all([
                 buildSources(opts.testDir),
+                opts.e3TestDir ? buildSources(opts.e3TestDir, true, "e3/") : Promise.resolve({}),
                 buildCodeExamples(opts.rootDir),
             ]);
+            const exampleSources = { ...eastSources, ...e3Sources };
             return (
                 `export const exampleSources = ${JSON.stringify(exampleSources, null, 2)};\n` +
                 `export const codeExamples = ${JSON.stringify(codeExamples, null, 2)};\n`

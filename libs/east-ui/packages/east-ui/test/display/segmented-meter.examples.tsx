@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { SegmentedMeter, Text } from "@elaraai/east-ui";
+import { SegmentedMeter, Stack, Text } from "@elaraai/east-ui";
 
 export const segmentedMeterBasic = example({
     keywords: ["SegmentedMeter", "Root", "segments"],
@@ -36,6 +36,51 @@ export const segmentedMeterOutsideLabels = example({
                 labels="outside"
                 caption={<Text>Crew mix</Text>}
             />
+        );
+    }),
+    inputs: [],
+});
+
+export const segmentedMeterDensities = example({
+    keywords: ["SegmentedMeter", "density", "condensed", "compact", "comfortable", "sizes"],
+    description: "The three densities stacked — track height scales condensed → compact → comfortable (matching ChipRail)",
+    fn: East.function([], UIComponentType, ($) => {
+        const condensed = $.const(
+            <SegmentedMeter
+                density="condensed"
+                segments={[
+                    { value: 40, tone: "success", label: "Fresh" },
+                    { value: 35, tone: "warning", label: "Stale" },
+                    { value: 25, tone: "danger", label: "Broken" },
+                ]}
+            />,
+        );
+        const compact = $.const(
+            <SegmentedMeter
+                density="compact"
+                segments={[
+                    { value: 40, tone: "success", label: "Fresh" },
+                    { value: 35, tone: "warning", label: "Stale" },
+                    { value: 25, tone: "danger", label: "Broken" },
+                ]}
+            />,
+        );
+        const comfortable = $.const(
+            <SegmentedMeter
+                density="comfortable"
+                segments={[
+                    { value: 40, tone: "success", label: "Fresh" },
+                    { value: 35, tone: "warning", label: "Stale" },
+                    { value: 25, tone: "danger", label: "Broken" },
+                ]}
+            />,
+        );
+        return (
+            <Stack direction="column" gap="6">
+                {condensed}
+                {compact}
+                {comfortable}
+            </Stack>
         );
     }),
     inputs: [],

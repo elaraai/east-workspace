@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, IntegerType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Avatar, Button, HStack, VStack, Reactive } from "@elaraai/east-ui";
+import { Avatar, Button, HStack, VStack, Stack, Reactive } from "@elaraai/east-ui";
 
 export const avatarBasic = example({
     keywords: ["Avatar", "Root", "name", "basic"],
@@ -51,6 +51,24 @@ export const avatarColors = example({
                 <Avatar name="Blue User" colorPalette="blue" />
                 <Avatar name="Purple User" colorPalette="purple" />
             </HStack>
+        );
+    }),
+    inputs: [],
+});
+
+export const avatarDensities = example({
+    keywords: ["Avatar", "density", "condensed", "compact", "comfortable", "sizes"],
+    description: "The three densities stacked — condensed → compact → comfortable (matching ChipRail / Trace)",
+    fn: East.function([], UIComponentType, ($) => {
+        const condensed = $.const(<Avatar name="Jane Smith" colorPalette="blue" density="condensed" />);
+        const compact = $.const(<Avatar name="Jane Smith" colorPalette="blue" density="compact" />);
+        const comfortable = $.const(<Avatar name="Jane Smith" colorPalette="blue" density="comfortable" />);
+        return (
+            <Stack direction="column" gap="6">
+                {condensed}
+                {compact}
+                {comfortable}
+            </Stack>
         );
     }),
     inputs: [],

@@ -4,7 +4,9 @@
  */
 
 import { memo, useMemo, useCallback } from "react";
-import { Box, FileUpload as ChakraFileUpload, type FileUploadRootProps } from "@chakra-ui/react";
+import { Box, Flex, FileUpload as ChakraFileUpload, type FileUploadRootProps } from "@chakra-ui/react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faArrowUpFromBracket } from "@fortawesome/free-solid-svg-icons";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { FileUpload } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
@@ -63,6 +65,7 @@ export const EastChakraFileUpload = memo(function EastChakraFileUpload({ value }
     const label = useMemo(() => getSomeorUndefined(value.label), [value.label]);
     const dropzoneText = useMemo(() => getSomeorUndefined(value.dropzoneText), [value.dropzoneText]);
     const triggerText = useMemo(() => getSomeorUndefined(value.triggerText), [value.triggerText]);
+    const orientation = useMemo(() => getSomeorUndefined(value.orientation)?.type, [value.orientation]);
     const onFileAcceptFn = useMemo(() => getSomeorUndefined(value.onFileAccept), [value.onFileAccept]);
     const onFileRejectFn = useMemo(() => getSomeorUndefined(value.onFileReject), [value.onFileReject]);
 
@@ -98,15 +101,17 @@ export const EastChakraFileUpload = memo(function EastChakraFileUpload({ value }
             onFileReject={onFileRejectFn ? handleFileReject : undefined}
         >
             {label && <ChakraFileUpload.Label>{label}</ChakraFileUpload.Label>}
-            <ChakraFileUpload.Dropzone>
-                <ChakraFileUpload.DropzoneContent>
-                    <Box
-                        as="i"
-                        className="fa-solid fa-arrow-up-from-bracket"
-                        fontSize="20px"
-                        color="fg.muted"
-                        mb="1"
-                    />
+            <ChakraFileUpload.Dropzone py={orientation === "horizontal" ? "4" : "6"}>
+                <Flex
+                    direction={orientation === "horizontal" ? "row" : "column"}
+                    align="center"
+                    justify="center"
+                    gap="2"
+                    textAlign="center"
+                >
+                    <Box color="fg.muted" fontSize="20px" lineHeight="1" aria-hidden>
+                        <FontAwesomeIcon icon={faArrowUpFromBracket} />
+                    </Box>
                     <Box fontSize="sm" color="fg">
                         <ChakraFileUpload.Trigger asChild>
                             <Box as="span" color="link" cursor="pointer" textDecoration="underline" textUnderlineOffset="2px">
@@ -115,7 +120,7 @@ export const EastChakraFileUpload = memo(function EastChakraFileUpload({ value }
                         </ChakraFileUpload.Trigger>
                         {dropzoneText && <Box as="span" ml="2">{dropzoneText}</Box>}
                     </Box>
-                </ChakraFileUpload.DropzoneContent>
+                </Flex>
             </ChakraFileUpload.Dropzone>
             <ChakraFileUpload.ItemGroup>
                 <ChakraFileUpload.Context>

@@ -16,6 +16,7 @@ describeEast("Badge", (test) => {
         badgeFixedWidth: ex.badgeFixedWidth,
         badgeBorder: ex.badgeBorder,
         badgeBoxModel: ex.badgeBoxModel,
+        badgeDensities: ex.badgeDensities,
     });
 
     // =========================================================================

@@ -8,17 +8,19 @@ import { UIComponentType } from "@elaraai/east-ui";
 import { Button, IconButton, Menu } from "@elaraai/east-ui";
 
 export const menuBasic = example({
-    keywords: ["Menu", "Root", "Item", "Separator", "dropdown", "kebab"],
-    description: "Kebab-trigger menu — canonical row-end overflow",
+    keywords: ["Menu", "Root", "Item", "GroupLabel", "Separator", "dropdown", "kebab", "icon", "command", "destructive"],
+    description: "Kebab-trigger menu — canonical row-end overflow with group eyebrow, icons, accelerator, and destructive item",
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Menu
                 trigger={<IconButton prefix="fas" name="ellipsis" label="More" variant="ghost" size="sm" />}
                 items={[
-                    Menu.Item("view", "View"),
-                    Menu.Item("edit", "Edit"),
+                    Menu.GroupLabel("Actions"),
+                    Menu.Item("edit", "Edit · rename", { icon: "pen" }),
+                    Menu.Item("duplicate", "Duplicate", { icon: "copy", command: "⌘D" }),
+                    Menu.Item("export", "Export CSV", { icon: "download" }),
                     Menu.Separator(),
-                    Menu.Item("delete", "Delete"),
+                    Menu.Item("archive", "Archive", { icon: "trash", destructive: true }),
                 ]}
             />
         );
@@ -35,7 +37,7 @@ export const menuDisabled = example({
                 trigger={<IconButton prefix="fas" name="ellipsis" label="Options" variant="ghost" size="sm" />}
                 items={[
                     Menu.Item("new", "New File"),
-                    Menu.Item("save", "Save", true),
+                    Menu.Item("save", "Save", { disabled: true }),
                     Menu.Separator(),
                     Menu.Item("close", "Close"),
                 ]}

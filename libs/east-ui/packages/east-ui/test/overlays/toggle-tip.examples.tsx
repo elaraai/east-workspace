@@ -57,7 +57,7 @@ export const toggleTipInteractive = example({
                         placement="top"
                         onOpenChange={onOpenChange}
                     >ToggleTip content</ToggleTip>
-                    {Text.Presets.MonoLabel(East.str`TOGGLED · ${East.print(value)}`)}
+                    {<Text.MonoLabel>{East.str`TOGGLED · ${East.print(value)}`}</Text.MonoLabel>}
                 </VStack>
             );
         }}</Reactive>

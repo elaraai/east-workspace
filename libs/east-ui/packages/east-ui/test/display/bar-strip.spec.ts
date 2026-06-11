@@ -11,6 +11,7 @@ describeEast("BarStrip", (test) => {
     Assert.examples(test, {
         barStripBasic: ex.barStripBasic,
         barStripSorted: ex.barStripSorted,
+        barStripDensities: ex.barStripDensities,
         barStripMaxItems: ex.barStripMaxItems,
     });
 
@@ -55,7 +56,7 @@ describeEast("BarStrip", (test) => {
         const s = $.let(BarStrip.Root([
             { label: Text.Root("A"), value: 1.0 },
         ], { trackColor: "gray.200", labelColor: "fg.muted", valueColor: "fg.inverse" }));
-        const style = s.unwrap().unwrap("BarStrip").style.unwrap("some");
+        const style = $.let(s.unwrap().unwrap("BarStrip").style.unwrap("some"));
         $(Assert.equal(style.trackColor.unwrap("some"), "gray.200"));
         $(Assert.equal(style.labelColor.unwrap("some"), "fg.muted"));
         $(Assert.equal(style.valueColor.unwrap("some"), "fg.inverse"));

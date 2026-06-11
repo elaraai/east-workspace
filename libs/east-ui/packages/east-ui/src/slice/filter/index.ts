@@ -26,7 +26,7 @@ export interface SliceFilterOptions {
     slice: SubtypeExprOrValue<SliceBindType>;
     /** Unit noun for the focused `SHOWING N {unit}` footer (count from `slice.resultCount()`). */
     unit?: SubtypeExprOrValue<StringType>;
-    /** Render density — defaults to the surrounding `Slice.Frame`, else `focused`. */
+    /** Render density — defaults to the surrounding rail, else `focused`. */
     density?: "compact" | "focused";
     /** Render the add-filter `Slice.Edit` popover open on mount (for static snapshots). */
     editOpen?: SubtypeExprOrValue<BooleanType>;

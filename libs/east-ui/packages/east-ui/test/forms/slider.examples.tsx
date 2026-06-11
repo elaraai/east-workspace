@@ -35,7 +35,7 @@ export const sliderInteractive = example({
             return (
                 <VStack gap="3" align="stretch">
                     <Slider value={value} min={0} max={100} onChange={onChange} />
-                    {Text.Presets.MonoKpi(East.str`${East.print(value)} %`)}
+                    {<Text.MonoKpi>{East.str`${East.print(value)} %`}</Text.MonoKpi>}
                 </VStack>
             );
         }}</Reactive>
@@ -56,7 +56,7 @@ export const sliderOnChangeEnd = example({
             return (
                 <VStack gap="3" align="stretch">
                     <Slider value={value} min={0} max={100} onChangeEnd={onChangeEnd} />
-                    {Text.Presets.MonoLabel(East.str`COMMITTED · ${East.print(value)}`)}
+                    {<Text.MonoLabel>{East.str`COMMITTED · ${East.print(value)}`}</Text.MonoLabel>}
                 </VStack>
             );
         }}</Reactive>

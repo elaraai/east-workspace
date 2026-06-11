@@ -12,7 +12,7 @@ export const dialogBasic = example({
     description: "Modal overlay dialog",
     fn: East.function([], UIComponentType, (_$) => {
         return (
-            <Dialog trigger={<Button>Open Dialog</Button>} title="Confirm Action" description="Are you sure you want to proceed?">
+            <Dialog trigger={<Button>Open Dialog</Button>} eyebrow="Confirm · cannot be undone" title="Confirm Action" description="Are you sure you want to proceed?">
                 <Text>This is a dialog. It appears as a modal overlay and captures focus.</Text>
                 <HStack gap="2" justify="flex-end">
                     <Button variant="outline">Cancel</Button>

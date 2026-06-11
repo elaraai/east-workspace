@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, IntegerType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { EditableChip, Text, HStack, Reactive } from "@elaraai/east-ui";
+import { EditableChip, Text, HStack, Stack, Reactive } from "@elaraai/east-ui";
 
 export const editableChipBasic = example({
     keywords: ["EditableChip", "Root", "label"],
@@ -43,6 +43,24 @@ export const editableChipStyled = example({
             <EditableChip background="blue.50" color="blue.700" borderColor="blue.200" triggerIconColor="blue.500">
                 <Text>Demand mix · balanced</Text>
             </EditableChip>
+        );
+    }),
+    inputs: [],
+});
+
+export const editableChipDensities = example({
+    keywords: ["EditableChip", "density", "condensed", "compact", "comfortable", "sizes"],
+    description: "The three densities stacked — chip height + font scale condensed → compact → comfortable (matching ChipRail)",
+    fn: East.function([], UIComponentType, ($) => {
+        const condensed = $.const(<EditableChip density="condensed"><Text>Service level · 85%</Text></EditableChip>);
+        const compact = $.const(<EditableChip density="compact"><Text>Service level · 85%</Text></EditableChip>);
+        const comfortable = $.const(<EditableChip density="comfortable"><Text>Service level · 85%</Text></EditableChip>);
+        return (
+            <Stack direction="column" gap="6">
+                {condensed}
+                {compact}
+                {comfortable}
+            </Stack>
         );
     }),
     inputs: [],

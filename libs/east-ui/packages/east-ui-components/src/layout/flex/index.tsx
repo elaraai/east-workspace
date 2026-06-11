@@ -9,6 +9,7 @@ import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Flex } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
+import { DensityProvider } from "../../contracts/density.js";
 
 // Pre-define the equality function at module level
 const flexEqual = equalFor(Flex.Types.Flex);
@@ -75,12 +76,17 @@ export interface EastChakraFlexProps {
  */
 export const EastChakraFlex = memo(function EastChakraFlex({ value, storageKey }: EastChakraFlexProps) {
     const props = useMemo(() => toChakraFlex(value), [value]);
+    const localDensity = useMemo(() => getSomeorUndefined(value.density)?.type, [value.density]);
 
-    return (
+    const content = (
         <ChakraFlex {...props}>
             {value.children.map((child, index) => (
                 <EastChakraComponent key={index} value={child} storageKey={`${storageKey}.${index}`} />
             ))}
         </ChakraFlex>
     );
+
+    return localDensity !== undefined
+        ? <DensityProvider value={localDensity}>{content}</DensityProvider>
+        : content;
 }, (prev, next) => flexEqual(prev.value, next.value) && prev.storageKey === next.storageKey);

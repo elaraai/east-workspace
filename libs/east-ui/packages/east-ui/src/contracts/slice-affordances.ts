@@ -34,6 +34,10 @@ import { East, NullType, variant, VariantType, type ExprType } from "@elaraai/ea
  * @property breakdown - Split-by-dimension chips (left zone)
  * @property range - Time-range pill (right zone)
  * @property cohort - Saved-segment pills (left zone)
+ * @property brush - Drag-a-window gesture writing the slice's range. Hosts
+ *   render it natively: a Chart brushes the plot's continuous x, a Gantt the
+ *   timeline, a standalone `Slice.Rail` the mini brush strip. Hosts with no
+ *   continuous axis reject it at the factory.
  */
 export const SliceAffordanceType = VariantType({
     filter: NullType,
@@ -41,13 +45,14 @@ export const SliceAffordanceType = VariantType({
     breakdown: NullType,
     range: NullType,
     cohort: NullType,
+    brush: NullType,
 });
 
 /** Type representing slice affordance variant values. */
 export type SliceAffordanceType = typeof SliceAffordanceType;
 
 /** String literal type for slice affordances. */
-export type SliceAffordanceLiteral = "filter" | "search" | "breakdown" | "range" | "cohort";
+export type SliceAffordanceLiteral = "filter" | "search" | "breakdown" | "range" | "cohort" | "brush";
 
 /**
  * Creates a slice affordance variant expression.

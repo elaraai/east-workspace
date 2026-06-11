@@ -32,6 +32,7 @@ import {
     UIStore,
     UIStoreProvider,
     OverlayManagerProvider,
+    DragLayerProvider,
     EastFunction,
     type EastFunctionProps,
 } from '@elaraai/east-ui-components';
@@ -140,7 +141,7 @@ function Root({ modules, keyOf, prepare }: Required<Pick<MountSnapshotOptions, '
 }
 
 function defaultKeyOf(filePath: string): string {
-    return filePath.replace(/^.*\//, '').replace(/\.examples\.ts$/, '');
+    return filePath.replace(/^.*\//, '').replace(/\.examples\.tsx?$/, '');
 }
 
 /** Mount the snapshot harness into `#root`. */
@@ -151,7 +152,9 @@ export function mountSnapshot(opts: MountSnapshotOptions): void {
             <ChakraProvider value={system}>
                 <UIStoreProvider store={store}>
                     <OverlayManagerProvider>
-                        <Root modules={opts.modules} keyOf={opts.keyOf} prepare={opts.prepare} />
+                        <DragLayerProvider>
+                            <Root modules={opts.modules} keyOf={opts.keyOf} prepare={opts.prepare} />
+                        </DragLayerProvider>
                     </OverlayManagerProvider>
                 </UIStoreProvider>
             </ChakraProvider>

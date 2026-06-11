@@ -25,6 +25,8 @@ import type { ComponentType } from "react";
 import { type EastType, type ValueTypeOf, decodeBeast2For } from "@elaraai/east";
 import type { UIComponentDef } from "@elaraai/east-ui/internal";
 
+import { getRegisteredPlatformImplementations } from "../platform/registry.js";
+
 /**
  * The shape of the component renderer the dispatcher expects. The renderer
  * receives the decoded value typed against the declared schema, plus a
@@ -73,7 +75,12 @@ export function implementUIComponent<S extends EastType>(
     registry.set(def.name, {
         schema: def.schema,
         renderer: renderer as ComponentType<{ value: unknown; storageKey: string }>,
-        decode: decodeBeast2For(def.schema) as (bytes: Uint8Array) => unknown,
+        // Decode against the live platform so any function-typed payload fields
+        // (e.g. a `modify` callback) compile to invocable callables. The
+        // platform set can grow as more impls register, so resolve it per
+        // decode rather than capturing it once at registration.
+        decode: (bytes: Uint8Array) =>
+            decodeBeast2For(def.schema, { platform: getRegisteredPlatformImplementations() })(bytes),
     });
 }
 

@@ -21,15 +21,15 @@ export const popoverBasic = example({
 });
 
 export const popoverChart = example({
-    keywords: ["Popover", "Root", "Chart", "Area", "hasArrow"],
-    description: "Rich content with area chart",
+    keywords: ["Popover", "Root", "Chart", "Area", "hasArrow", "placement"],
+    description: "Rich content with area chart and explicit placement",
     fn: East.function([], UIComponentType, ($) => {
         const rows = $.const([
             { day: "Mon", value: 120n }, { day: "Tue", value: 150n }, { day: "Wed", value: 180n },
             { day: "Thu", value: 140n }, { day: "Fri", value: 200n },
         ], ArrayType(StructType({ day: StringType, value: IntegerType })));
         return (
-            <Popover trigger={<Button variant="solid">View Stats</Button>} hasArrow={true} title="Weekly Sales">
+            <Popover trigger={<Button variant="solid">View Stats</Button>} hasArrow={true} title="Weekly Sales" placement="bottom-start">
                 <Chart layers={Chart.Area(rows, { x: r => r.day, y: r => r.value }, { color: "brand.500", fillOpacity: 0.3 })} height={160} />
             </Popover>
         );
@@ -53,7 +53,7 @@ export const popoverInteractive = example({
                     <Popover trigger={<Button>Open popover</Button>} title="Reactive popover" description="Each open/close fires onOpenChange" onOpenChange={onOpenChange}>
                         <Text>Popover content</Text>
                     </Popover>
-                    {Text.Presets.MonoLabel(East.str`TOGGLED · ${East.print(value)}`)}
+                    {<Text.MonoLabel>{East.str`TOGGLED · ${East.print(value)}`}</Text.MonoLabel>}
                 </VStack>
             );
         }}</Reactive>

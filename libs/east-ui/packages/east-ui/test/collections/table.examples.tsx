@@ -367,19 +367,18 @@ export const tableDensityCompact = example({
 export const tableExpandedRichDetail = example({
     keywords: ["Table", "Root", "expandedContent", "rich detail", "Stack", "Stat"],
     description: "Expandable rows with rich detail content — Stack of Stat + Text components nested in the detail panel",
-    fn: East.function([], UIComponentType, (_$) => {
-        const rows = [
+    fn: East.function([], UIComponentType, ($) => {
+        const rows = $.const([
             { name: "Alice", revenue: 142000n, deals: 18n, region: "EMEA" },
             { name: "Bob", revenue: 98000n, deals: 12n, region: "APAC" },
             { name: "Charlie", revenue: 215000n, deals: 24n, region: "AMER" },
-        ];
-        const rowsExpr = East.value(rows);
+        ]);
         return (
             <Table
                 variant="line"
                 striped={true}
                 expandedContent={East.function([IntegerType], UIComponentType, ($, rowIndex) => {
-                    const row = $.let(rowsExpr.get(rowIndex));
+                    const row = $.let(rows.get(rowIndex));
                     return (
                         <Box padding="4" background="gray.50">
                             <HStack gap="8">

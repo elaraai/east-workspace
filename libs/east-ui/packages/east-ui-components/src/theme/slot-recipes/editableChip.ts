@@ -49,6 +49,24 @@ export const editableChipSlotRecipe = defineSlotRecipe({
             lg: { root: { paddingX: "{spacing.3}", paddingY: "{spacing.1.5}", fontSize: "{fontSizes.md}" } },
             xl: { root: { paddingX: "{spacing.3.5}", paddingY: "{spacing.2}", fontSize: "{fontSizes.md}" } },
         },
+        // Density cascade — mirrors the chipRail `--cr-*` sets so an editable
+        // chip lines up with tags and traces at the same density. No default:
+        // an undensified chip keeps the `size` look. Declared after `size` so
+        // density wins the merge.
+        density: {
+            condensed: {
+                root: { fontSize: "9px", lineHeight: "1", paddingX: "7px", paddingY: "2px", borderRadius: "3px", gap: "4px" },
+                trigger: { fontSize: "9px" },
+            },
+            compact: {
+                root: { fontSize: "10px", lineHeight: "1", paddingX: "10px", paddingY: "5px", borderRadius: "4px", gap: "5px" },
+                trigger: { fontSize: "10px" },
+            },
+            comfortable: {
+                root: { fontSize: "12.5px", lineHeight: "1", paddingX: "15px", paddingY: "9.75px", borderRadius: "6px", gap: "7px" },
+                trigger: { fontSize: "12.5px" },
+            },
+        },
     },
     defaultVariants: { size: "sm" },
 });

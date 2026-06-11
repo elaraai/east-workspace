@@ -15,7 +15,7 @@ import {
     none,
 } from "@elaraai/east";
 
-import { SizeType } from "../../style.js";
+import { DensityType, SizeType } from "../../style.js";
 import { UIComponentType } from "../../component.js";
 import { IconType } from "../icon/types.js";
 import {
@@ -51,6 +51,7 @@ export {
  * @property unit - Optional unit suffix (e.g. `"%"`, `"ms"`)
  * @property icon - Optional leading icon
  * @property tone - Semantic classification (positive / negative / neutral / info)
+ * @property density - Density override; shares the cascade with `ChipRail` / `Trace` so mixed display cells align
  * @property style - Optional visual style sub-struct
  */
 export const MetricChipType: StructType<{
@@ -58,12 +59,14 @@ export const MetricChipType: StructType<{
     unit: OptionType<StringType>,
     icon: OptionType<IconType>,
     tone: MetricChipToneType,
+    density: OptionType<DensityType>,
     style: OptionType<MetricChipStyleType>,
 }> = StructType({
     value: UIComponentType,
     unit: OptionType(StringType),
     icon: OptionType(IconType),
     tone: MetricChipToneType,
+    density: OptionType(DensityType),
     style: OptionType(MetricChipStyleType),
 });
 
@@ -148,12 +151,18 @@ function createMetricChip(
         ? East.value(variant(options.tone, null), MetricChipToneType)
         : options.tone;
     const styleValue = buildMetricChipStyle(options);
+    const densityValue = options.density !== undefined
+        ? (typeof options.density === "string"
+            ? East.value(variant(options.density, null), DensityType)
+            : options.density)
+        : undefined;
 
     return East.value(variant("MetricChip", {
         value,
         unit: options.unit !== undefined ? some(options.unit) : none,
         icon: options.icon !== undefined ? some(options.icon as SubtypeExprOrValue<IconType>) : none,
         tone: toneValue,
+        density: densityValue ? some(densityValue) : none,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
@@ -212,6 +221,7 @@ export const MetricChip: MetricChipNamespace = {
          * @property unit - Optional unit suffix
          * @property icon - Optional leading icon
          * @property tone - Semantic classification
+         * @property density - Density override shared with `ChipRail` / `Trace`
          * @property style - Optional visual style sub-struct
          */
         MetricChip: MetricChipType,

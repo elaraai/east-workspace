@@ -83,8 +83,8 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
             label={<>{"Edit · "}<Box as="span" css={edit.clauseField}>{pred.value.fieldId}</Box></>}
             footActions={<chakra.button type="button" css={btn({ variant: "outline", size: "xs" })} onClick={() => setOpen(null)}>Cancel</chakra.button>}
             trigger={
-                <Box css={chip({ tone: "brand", numeric: true, shape: compact ? "pill" : "rounded" })} cursor="pointer" minWidth="0" maxWidth={compact ? "150px" : undefined}>
-                    <Box as="span" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" minWidth="0" title={formatPredicate(pred)}>{formatPredicate(pred)}</Box>
+                <Box css={chip({ tone: "brand", numeric: true, shape: compact ? "pill" : "rounded" })} cursor="pointer" flexShrink={0}>
+                    <Box as="span" whiteSpace="nowrap">{formatPredicate(pred)}</Box>
                     <chakra.button type="button" cursor="pointer" color="{colors.brand.600}" flexShrink="0" onClick={e => { e.stopPropagation(); slice.removeFilter(BigInt(i)); }} aria-label="Remove filter">×</chakra.button>
                 </Box>
             }
@@ -112,6 +112,19 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
             {open === "add" ? <SlicePredicateBuilder fields={fields} onAdd={pred => { slice.addFilter(pred); }} /> : null}
         </SliceEditPopover>
     );
+
+    if (density === "editor") {
+        // The sectioned editor is the terminal surface: every clause shows
+        // (wrapping vertically — the editor scrolls), nothing folds, and the
+        // clause / add-filter editors expand inline via `SliceEditPopover`'s
+        // editor-density disclosure.
+        return (
+            <Box display="flex" gap="{spacing.2}" alignItems="center" flexWrap="wrap" minWidth="0">
+                {filters.map((pred, i) => clausePill(pred, i))}
+                {addPopover}
+            </Box>
+        );
+    }
 
     if (compact) {
         // During the measure pass every chip is in flow; once measured we show
