@@ -436,14 +436,14 @@ var noReinlinedEastBinding = {
       return;
     if (node.initializer === void 0)
       return;
-    let init = node.initializer;
-    while (t.isParenthesizedExpression(init))
-      init = init.expression;
-    if (matchBlockBuilderCall(init, ctx) !== void 0)
+    let init2 = node.initializer;
+    while (t.isParenthesizedExpression(init2))
+      init2 = init2.expression;
+    if (matchBlockBuilderCall(init2, ctx) !== void 0)
       return;
-    if (t.isIdentifier(init))
+    if (t.isIdentifier(init2))
       return;
-    if (!isEastExprType(ctx.checker.getTypeAtLocation(init)))
+    if (!isEastExprType(ctx.checker.getTypeAtLocation(init2)))
       return;
     const declSymbol = ctx.checker.getSymbolAtLocation(node.name);
     if (declSymbol === void 0)
@@ -661,6 +661,58 @@ var preferJsxOverFactoryCall = {
   }
 };
 
+// ../east-diagnostics/dist/src/rules/no-untracked-east-data.js
+var NAME13 = "no-untracked-east-data";
+var CODE13 = 990013;
+function plainLiteralInitializer(decl, t) {
+  const init2 = decl.initializer;
+  if (init2 === void 0)
+    return void 0;
+  const unwrapped = t.isAsExpression(init2) || t.isSatisfiesExpression(init2) ? init2.expression : init2;
+  if (t.isArrayLiteralExpression(unwrapped) || t.isObjectLiteralExpression(unwrapped)) {
+    return unwrapped;
+  }
+  return void 0;
+}
+var noUntrackedEastData = {
+  name: NAME13,
+  code: CODE13,
+  description: "Inside East blocks, bind data consumed in East-typed positions with $.const/$.let, not a bare JS const.",
+  check(node, ctx) {
+    const t = ctx.ts;
+    if (!t.isIdentifier(node))
+      return;
+    const parent = node.parent;
+    const isCallArg = parent !== void 0 && t.isCallExpression(parent) && parent.expression !== node && parent.arguments.some((arg) => arg === node);
+    const isJsxValue = parent !== void 0 && t.isJsxExpression(parent) && parent.expression === node;
+    if (!isCallArg && !isJsxValue)
+      return;
+    if (!insideBlockScope(node, ctx))
+      return;
+    const contextual = ctx.checker.getContextualType(node);
+    if (contextual === void 0 || !isEastExprType(contextual))
+      return;
+    const symbol = ctx.checker.getSymbolAtLocation(node);
+    const decl = symbol?.valueDeclaration;
+    if (decl === void 0 || !t.isVariableDeclaration(decl))
+      return;
+    if (plainLiteralInitializer(decl, t) === void 0)
+      return;
+    if (!insideBlockScope(decl, ctx))
+      return;
+    const sf = ctx.sourceFile;
+    const start = node.getStart(sf);
+    ctx.report({
+      ruleName: NAME13,
+      code: CODE13,
+      start,
+      length: node.getEnd() - start,
+      messageText: `Bare \`const ${node.text} = \u2026\` isn't tracked by the East block builder. Bind East data with \`$.const([...], Type)\` (or \`$.let\`) so the binding carries its East type and is evaluated once.`,
+      category: "suggestion"
+    });
+  }
+};
+
 // ../east-diagnostics/dist/src/rules/index.js
 var allRules = [
   noRedundantEastCast,
@@ -674,7 +726,8 @@ var allRules = [
   noUnexecutedEastExpression,
   noReinlinedEastBinding,
   noEastDataBuilderHelper,
-  preferJsxOverFactoryCall
+  preferJsxOverFactoryCall,
+  noUntrackedEastData
 ];
 
 // ../east-diagnostics/dist/src/run.js
@@ -1073,6 +1126,8 @@ function rewriteEastAssignability(t, program, sourceFile, diagnostic, east) {
   if (actual === void 0 || expected === void 0)
     return void 0;
   if (!actual.eastShaped && !expected.eastShaped)
+    return void 0;
+  if (expected.type === east.NeverType && actual.type !== east.NeverType)
     return void 0;
   let rendered;
   try {

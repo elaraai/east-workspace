@@ -90,6 +90,10 @@ export function rewriteEastAssignability(
   if (actual === undefined || expected === undefined) return undefined;
   // A mismatch between plain JS values is TypeScript's business, not East's.
   if (!actual.eastShaped && !expected.eastShaped) return undefined;
+  // An expected side of `.Never` means the parameter's East type is an
+  // unresolved generic (inference already failed upstream) — a diff against
+  // Never is noise, so keep the native message, which names the real cause.
+  if (expected.type === east.NeverType && actual.type !== east.NeverType) return undefined;
 
   let rendered: string;
   try {
