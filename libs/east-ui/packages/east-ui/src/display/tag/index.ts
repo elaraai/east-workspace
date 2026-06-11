@@ -13,7 +13,7 @@ import {
     none,
 } from "@elaraai/east";
 
-import { BorderStyleType, BorderWidthType, ColorSchemeType, StyleVariantType, OverflowType } from "../../style.js";
+import { BorderStyleType, BorderWidthType, ColorSchemeType, DensityType, StyleVariantType, OverflowType } from "../../style.js";
 import { PaddingType, MarginType } from "../../layout/style.js";
 import { UIComponentType } from "../../component.js";
 import { TagType, TagStyleType, TagSizeType, type TagStyle } from "./types.js";
@@ -175,10 +175,16 @@ function createTag(
     style?: TagStyle,
 ): ExprType<UIComponentType> {
     const styleValue = buildTagStyle(style);
+    const densityValue = style?.density !== undefined
+        ? (typeof style.density === "string"
+            ? East.value(variant(style.density, null), DensityType)
+            : style.density)
+        : undefined;
     return East.value(variant("Tag", {
         label,
         closable: style?.closable !== undefined ? some(style.closable) : none,
         onClose: style?.onClose !== undefined ? some(style.onClose) : none,
+        density: densityValue ? some(densityValue) : none,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }

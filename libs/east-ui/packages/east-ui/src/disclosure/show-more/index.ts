@@ -103,10 +103,10 @@ function createDisclosure(
         ? Text.Root(text)
         : text as ExprType<UIComponentType>;
 
-    const styleValue = options?.style
+    const styleValue = (options && (options.color !== undefined || options.triggerColor !== undefined))
         ? East.value({
-            color: options.style.color !== undefined ? some(options.style.color) : none,
-            triggerColor: options.style.triggerColor !== undefined ? some(options.style.triggerColor) : none,
+            color: options.color !== undefined ? some(options.color) : none,
+            triggerColor: options.triggerColor !== undefined ? some(options.triggerColor) : none,
         }, DisclosureStyleType)
         : undefined;
 

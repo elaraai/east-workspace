@@ -8,7 +8,7 @@ import { Box, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus } from "@fortawesome/free-solid-svg-icons";
 import { type ValueTypeOf, some, none } from "@elaraai/east";
-import { Slice } from "@elaraai/east-ui";
+import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { SLICE_SERIES_PALETTE } from "../palette";
 import { SliceEditPopover } from "../edit";
@@ -41,7 +41,8 @@ export const EastChakraSliceBreakdown = memo(function EastChakraSliceBreakdown({
     const { slice } = value;
     useSliceReactivity(slice.key);
     const density = useSliceDensity(getSomeorUndefined(value.density)?.type as ("compact" | "focused" | undefined));
-    const compact = density === "compact";
+    // `editor` renders the flat compact form; its edit surfaces inline via the editor-density disclosure.
+    const compact = density !== "focused";
     const dimensions = slice.dimensions();
     const groups = slice.groups();
 

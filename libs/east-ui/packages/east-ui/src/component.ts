@@ -50,7 +50,7 @@ import {
 import {
     ChipRailSeparatorType,
     ChipRailStyleType,
-} from "./layout/chip-rail/types.js";
+} from "./display/chip-rail/types.js";
 
 // Buttons
 import { ButtonStyleType } from "./buttons/button/types.js";
@@ -65,7 +65,6 @@ import { StringInputType, IntegerInputType, FloatInputType, DateTimeInputType } 
 import { CheckboxType } from "./forms/checkbox/types.js";
 import { RadioGroupType } from "./forms/radio-group/types.js";
 import { RadioCardGroupType } from "./forms/radio-card-group/types.js";
-import { TimeScaleControlType } from "./forms/time-scale-control/types.js";
 import { TimeRangeInputType } from "./forms/time-range-input/types.js";
 import { DateRangeInputType } from "./forms/date-range-input/types.js";
 import { FieldType } from "./forms/field/types.js";
@@ -100,6 +99,12 @@ import { MeterStyleType } from "./display/meter/types.js";
 import { SegmentedMeterSegmentType, SegmentedMeterStyleType } from "./display/segmented-meter/types.js";
 import { BarStripStyleType, BarStripSortType } from "./display/bar-strip/types.js";
 import { AvatarGroupType } from "./display/avatar-group/types.js";
+import { TraceType } from "./display/trace/types.js";
+import { LibraryRootType } from "./collections/library/types.js";
+import { RosterRootType } from "./collections/roster/types.js";
+import { CalendarRootType } from "./collections/calendar/types.js";
+import { SchematicRootType } from "./collections/schematic/types.js";
+import { BlendRootType } from "./collections/blend/types.js";
 import { StatusTokenType } from "./style/interaction.js";
 import { CardStyleType } from "./container/card/types.js";
 import { StateValueType } from "./contracts/states.js";
@@ -109,11 +114,10 @@ import { SliceSummaryType } from "./slice/summary/types.js";
 import { SliceRangePickerType } from "./slice/range/types.js";
 import { SliceFilterType } from "./slice/filter/types.js";
 import { SliceLegendType } from "./slice/legend/types.js";
-import { SliceChartType } from "./slice/chart/types.js";
 import { SliceBreakdownPickerType } from "./slice/breakdown/types.js";
 import { SliceSearchType } from "./slice/search/types.js";
 import { SliceCohortPickerType } from "./slice/cohort/types.js";
-import { SliceBindType } from "./platform/slice/index.js";
+import { SliceBindType, SliceChromeType } from "./platform/slice/index.js";
 import { SliceAffordanceType } from "./contracts/slice-affordances.js";
 import { IconType } from "./display/icon/types.js";
 
@@ -128,7 +132,7 @@ import {
     MatrixSegmentClickEventType,
     MatrixSegmentChangeEventType,
 } from "./collections/matrix/types.js";
-import { PaginationType } from "./collections/pagination/index.js";
+import { PaginationType } from "./collections/pagination/types.js";
 import {
     TableStyleType,
     TableCellRenderContextType,
@@ -191,7 +195,7 @@ import { HoverCardStyleType } from "./overlays/hover-card/types.js";
 import { ActionBarItemType, ActionBarStyleType } from "./overlays/action-bar/types.js";
 import { ToggleTipStyleType } from "./overlays/toggle-tip/types.js";
 import { CommandPaletteType } from "./overlays/command-palette/types.js";
-import { HotkeyType } from "./platform/hotkey/index.js";
+import { HotkeyType } from "./platform/hotkey/types.js";
 
 /**
  * Recursive type representing any UI component in East UI.
@@ -236,7 +240,7 @@ import { HotkeyType } from "./platform/hotkey/index.js";
  * @property Accordion - Accordion component for collapsible panels (container with content children)
  * @property Sparkline - Sparkline component for compact inline charts (leaf)
  */
-export const UIComponentType = RecursiveType(node => VariantType({
+const UIComponentTypeImpl = RecursiveType(node => VariantType({
     // Typography
     Text: TextType,
     Code: CodeType,
@@ -312,16 +316,19 @@ export const UIComponentType = RecursiveType(node => VariantType({
     // Layout - Containers
     Box: StructType({
         children: ArrayType(node),
+        density: OptionType(DensityType),
         style: OptionType(BoxStyleType),
     }),
 
     Flex: StructType({
         children: ArrayType(node),
+        density: OptionType(DensityType),
         style: OptionType(FlexStyleType),
     }),
 
     Stack: StructType({
         children: ArrayType(node),
+        density: OptionType(DensityType),
         style: OptionType(StackStyleType),
     }),
 
@@ -343,6 +350,7 @@ export const UIComponentType = RecursiveType(node => VariantType({
             /** Named grid area — references a name from `templateAreas`. */
             area: OptionType(StringType),
         })),
+        density: OptionType(DensityType),
         style: OptionType(GridStyleType),
     }),
 
@@ -383,10 +391,11 @@ export const UIComponentType = RecursiveType(node => VariantType({
     /**
      * ChipRail — horizontal chip row with density + separator + overflow
      * control. Shared primitive under `MetricRail`, `AssumptionsBar`,
-     * `FilterBar`, `LegendRail`. See `layout/chip-rail/`.
+     * `FilterBar`, `LegendRail`. See `display/chip-rail/`.
      */
     ChipRail: StructType({
         chips: ArrayType(node),
+        labels: OptionType(ArrayType(StringType)),
         density: OptionType(DensityType),
         separator: OptionType(ChipRailSeparatorType),
         style: OptionType(ChipRailStyleType),
@@ -401,7 +410,6 @@ export const UIComponentType = RecursiveType(node => VariantType({
     Checkbox: CheckboxType,
     RadioGroup: RadioGroupType,
     RadioCardGroup: RadioCardGroupType,
-    TimeScaleControl: TimeScaleControlType,
     TimeRangeInput: TimeRangeInputType,
     DateRangeInput: DateRangeInputType,
     Switch: SwitchType,
@@ -476,6 +484,7 @@ export const UIComponentType = RecursiveType(node => VariantType({
         delta: OptionType(node),
         info: OptionType(node),
         indicator: OptionType(StatIndicatorType),
+        density: OptionType(DensityType),
         style: OptionType(StatStyleType),
     }),
     Icon: IconType,
@@ -484,6 +493,7 @@ export const UIComponentType = RecursiveType(node => VariantType({
         unit: OptionType(StringType),
         icon: OptionType(IconType),
         tone: MetricChipToneType,
+        density: OptionType(DensityType),
         style: OptionType(MetricChipStyleType),
     }),
     EditableChip: StructType({
@@ -491,6 +501,7 @@ export const UIComponentType = RecursiveType(node => VariantType({
         trigger: OptionType(IconType),
         disabled: OptionType(BooleanType),
         onClick: OptionType(FunctionType([], NullType)),
+        density: OptionType(DensityType),
         style: OptionType(EditableChipStyleType),
     }),
     Kbd: KbdType,
@@ -499,12 +510,14 @@ export const UIComponentType = RecursiveType(node => VariantType({
         max: OptionType(FloatType),
         label: OptionType(node),
         tone: OptionType(StatusTokenType),
+        density: OptionType(DensityType),
         style: OptionType(MeterStyleType),
     }),
     SegmentedMeter: StructType({
         segments: ArrayType(SegmentedMeterSegmentType),
         caption: OptionType(node),
         max: OptionType(FloatType),
+        density: OptionType(DensityType),
         style: OptionType(SegmentedMeterStyleType),
     }),
     BarStrip: StructType({
@@ -518,37 +531,32 @@ export const UIComponentType = RecursiveType(node => VariantType({
         showValues: OptionType(BooleanType),
         sort: OptionType(BarStripSortType),
         maxItems: OptionType(IntegerType),
+        density: OptionType(DensityType),
         style: OptionType(BarStripStyleType),
     }),
     AvatarGroup: AvatarGroupType,
+    Trace: TraceType,
+
+    // Library — draggable palette (drag & drop source role)
+    Library: LibraryRootType,
 
     // Slice — typed-narrowing UI family (bound to the Slice platform)
     SliceSummary: SliceSummaryType,
     SliceRange: SliceRangePickerType,
     SliceFilter: SliceFilterType,
     SliceLegend: SliceLegendType,
-    SliceChart: SliceChartType,
     SliceBreakdown: SliceBreakdownPickerType,
     SliceSearch: SliceSearchType,
     SliceCohort: SliceCohortPickerType,
+
     /**
-     * SliceFrame — the container that houses a slice consumer. Three zones:
-     * a one-row eyebrow (compact affordances left, `meta` right), an unpadded
-     * `body` (the consumer visual — Table / Chart / Stat / anything), and a
-     * `footer` (`derived` count by default, a `custom` node, or `hidden`). The
-     * author lists which affordances the eyebrow mounts via `affordances`; the
-     * renderer places each by kind (`filter`/`breakdown`/`cohort` left,
-     * `search`/`range` right) in the given order. An empty `affordances` array
-     * renders no eyebrow (the Embed case).
+     * SliceRail — the slice affordance cluster as a standalone strip: one row
+     * that never wraps, compressing along the chip ladder, with the sectioned
+     * `Slice.Edit` popover as its only expansion.
      */
-    SliceFrame: StructType({
+    SliceRail: StructType({
         slice: SliceBindType,
-        body: node,
         affordances: ArrayType(SliceAffordanceType),
-        meta: OptionType(node),
-        footer: VariantType({ derived: NullType, hidden: NullType, custom: node }),
-        collapsible: BooleanType,
-        defaultCollapsed: BooleanType,
     }),
 
     // Container
@@ -557,6 +565,7 @@ export const UIComponentType = RecursiveType(node => VariantType({
         body: ArrayType(node),
         footer: OptionType(node),
         state: OptionType(StateValueType),
+        density: OptionType(DensityType),
         style: OptionType(CardStyleType),
     }),
     DataList: StructType({
@@ -668,6 +677,7 @@ export const UIComponentType = RecursiveType(node => VariantType({
         onRowDoubleClick: OptionType(FunctionType([TableRowClickEventType], NullType)),
         onRowSelectionChange: OptionType(FunctionType([TableRowSelectionEventType], NullType)),
         onSortChange: OptionType(FunctionType([TableSortEventType], NullType)),
+        slice: OptionType(SliceChromeType),
         style: OptionType(TableStyleType),
     }),
 
@@ -720,6 +730,7 @@ export const UIComponentType = RecursiveType(node => VariantType({
         onMilestoneClick: OptionType(FunctionType([GanttMilestoneClickEventType], NullType)),
         onMilestoneDoubleClick: OptionType(FunctionType([GanttMilestoneClickEventType], NullType)),
         onMilestoneDrag: OptionType(FunctionType([GanttMilestoneDragEventType], NullType)),
+        slice: OptionType(SliceChromeType),
         style: OptionType(GanttStyleType),
     }),
 
@@ -731,6 +742,7 @@ export const UIComponentType = RecursiveType(node => VariantType({
             group: OptionType(StringType),
             cells: DictType(StringType, PlannerCellType),
             events: ArrayType(StructType({
+                key: OptionType(StringType),
                 slot: PlannerSlotType,
                 endSlot: OptionType(PlannerSlotType),
                 bucket: OptionType(StringType),
@@ -745,6 +757,18 @@ export const UIComponentType = RecursiveType(node => VariantType({
         slotMinWidth: OptionType(StringType),
         onSelectRow: OptionType(FunctionType([PlannerSelectEventType], NullType)),
     }),
+
+    // Roster — people × days-of-week shift grid (drag & drop target role)
+    Roster: RosterRootType,
+
+    // Calendar — day-of-week × week intensity grid (visualisation only)
+    Calendar: CalendarRootType,
+
+    // Schematic — read-only 2D world-coordinate canvas
+    Schematic: SchematicRootType,
+
+    // Blend — assembly surface for blending / batching decisions
+    Blend: BlendRootType,
 
     // Disclosure
     /**
@@ -895,6 +919,7 @@ export const UIComponentType = RecursiveType(node => VariantType({
     Drawer: StructType({
         trigger: node,
         body: ArrayType(node),
+        eyebrow: OptionType(StringType),
         title: OptionType(StringType),
         description: OptionType(StringType),
         style: OptionType(DrawerStyleType),
@@ -911,6 +936,8 @@ export const UIComponentType = RecursiveType(node => VariantType({
     HoverCard: StructType({
         trigger: node,
         body: ArrayType(node),
+        title: OptionType(StringType),
+        description: OptionType(StringType),
         style: OptionType(HoverCardStyleType),
     }),
 
@@ -951,6 +978,29 @@ export const UIComponentType = RecursiveType(node => VariantType({
         payload: BlobType,
     }),
 }));
+
+type UIComponentNodeImpl =
+    typeof UIComponentTypeImpl extends RecursiveType<infer Node> ? Node : never;
+
+/**
+ * The recursion node of {@link UIComponentType}, as a named interface.
+ *
+ * The variant type inferred from the `RecursiveType(...)` literal is an
+ * anonymous structural type thousands of lines long. Type aliases lose their
+ * name through generic inference, so any downstream `export const x = ui(...)`
+ * compiled with declaration emit would force TypeScript to serialize the whole
+ * structure inline and fail with TS7056. An interface is a symbol, so the
+ * declaration emitter always references it by name instead.
+ *
+ * The interface wraps the node (`VariantType<...>`) rather than its cases
+ * record: interfaces have no implicit index signature, so a cases interface
+ * would fail `VariantType`'s `{ [K in string]: any }` constraint. The node's
+ * `cases` property remains the anonymous literal type, which satisfies it.
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- the empty interface is the point: it attaches a symbol the declaration emitter can reference by name
+export interface UIComponentNode extends UIComponentNodeImpl {}
+
+export const UIComponentType: RecursiveType<UIComponentNode> = UIComponentTypeImpl;
 
 /**
  * Type alias for UIComponentType.

@@ -8,7 +8,7 @@ import { Box, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCalendar, faChevronDown } from "@fortawesome/free-solid-svg-icons";
 import { type ValueTypeOf, some, none, variant } from "@elaraai/east";
-import { Slice } from "@elaraai/east-ui";
+import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { SliceEditPopover } from "../edit";
 import { useSliceDensity } from "../density";
@@ -95,7 +95,8 @@ export const EastChakraSliceRange = memo(function EastChakraSliceRange({ value }
     useSliceReactivity(slice.key);
     // In a Slice.Frame the block supplies the calendar identity, so the pill
     // drops its own; standalone it keeps it.
-    const framed = useSliceDensity() === "compact";
+    // `editor` takes the framed (flat pill) form; its picker inlines via the editor-density disclosure.
+    const framed = useSliceDensity() !== "focused";
     const state = slice.read();
 
     const range = getSomeorUndefined(state.range);

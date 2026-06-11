@@ -56,6 +56,11 @@ import { dialogSlotRecipe } from "./slot-recipes/dialog.js";
 import { popoverSlotRecipe } from "./slot-recipes/popover.js";
 import { tooltipSlotRecipe } from "./slot-recipes/tooltip.js";
 import { menuSlotRecipe } from "./slot-recipes/menu.js";
+import { librarySlotRecipe } from "./slot-recipes/library.js";
+import { rosterSlotRecipe } from "./slot-recipes/roster.js";
+import { calendarSlotRecipe } from "./slot-recipes/calendar.js";
+import { schematicSlotRecipe } from "./slot-recipes/schematic.js";
+import { blendSlotRecipe } from "./slot-recipes/blend.js";
 import { emptyStateSlotRecipe } from "./slot-recipes/emptyState.js";
 import { statSlotRecipe } from "./slot-recipes/stat.js";
 import { avatarSlotRecipe } from "./slot-recipes/avatar.js";
@@ -74,6 +79,8 @@ import { toastSlotRecipe } from "./slot-recipes/toast.js";
 import { breadcrumbSlotRecipe } from "./slot-recipes/breadcrumb.js";
 import { fieldSlotRecipe } from "./slot-recipes/field.js";
 import { comboboxSlotRecipe } from "./slot-recipes/combobox.js";
+import { tagsInputSlotRecipe } from "./slot-recipes/tagsInput.js";
+import { numberInputSlotRecipe } from "./slot-recipes/numberInput.js";
 import { fileUploadSlotRecipe } from "./slot-recipes/fileUpload.js";
 import { paginationSlotRecipe } from "./slot-recipes/pagination.js";
 import { dataListSlotRecipe } from "./slot-recipes/dataList.js";
@@ -89,8 +96,12 @@ import { segmentedMeterSlotRecipe } from "./slot-recipes/segmentedMeter.js";
 import { barStripSlotRecipe } from "./slot-recipes/barStrip.js";
 import { meterSlotRecipe } from "./slot-recipes/meter.js";
 import { metricChipSlotRecipe } from "./slot-recipes/metricChip.js";
+import { chipRailSlotRecipe } from "./slot-recipes/chipRail.js";
+import { traceSlotRecipe } from "./slot-recipes/trace.js";
 import { sliceFrameSlotRecipe } from "./slot-recipes/sliceFrame.js";
 import { sliceEditSlotRecipe } from "./slot-recipes/sliceEdit.js";
+import { clauseBuilderSlotRecipe } from "./slot-recipes/clauseBuilder.js";
+import { facetTabsSlotRecipe } from "./slot-recipes/facetTabs.js";
 import { editableChipSlotRecipe } from "./slot-recipes/editableChip.js";
 import { ganttSlotRecipe } from "./slot-recipes/gantt.js";
 import { plannerSlotRecipe } from "./slot-recipes/planner.js";
@@ -100,6 +111,7 @@ import { showMoreSlotRecipe } from "./slot-recipes/showMore.js";
 import { statusSlotRecipe } from "./slot-recipes/status.js";
 import { eyebrowRowSlotRecipe } from "./slot-recipes/eyebrowRow.js";
 import { commitBarSlotRecipe } from "./slot-recipes/commitBar.js";
+import { decisionQueueSlotRecipe } from "./slot-recipes/decisionQueue.js";
 
 const config = defineConfig({
     globalCss,
@@ -131,6 +143,11 @@ const config = defineConfig({
             popover:         popoverSlotRecipe,
             tooltip:         tooltipSlotRecipe,
             menu:            menuSlotRecipe,
+            library:         librarySlotRecipe,
+            roster:          rosterSlotRecipe,
+            calendar:        calendarSlotRecipe,
+            schematic:       schematicSlotRecipe,
+            blend:           blendSlotRecipe,
             emptyState:      emptyStateSlotRecipe,
             stat:            statSlotRecipe,
             avatar:          avatarSlotRecipe,
@@ -149,6 +166,8 @@ const config = defineConfig({
             breadcrumb:      breadcrumbSlotRecipe,
             field:           fieldSlotRecipe,
             combobox:        comboboxSlotRecipe,
+            tagsInput:       tagsInputSlotRecipe,
+            numberInput:     numberInputSlotRecipe,
             fileUpload:      fileUploadSlotRecipe,
             pagination:      paginationSlotRecipe,
             dataList:        dataListSlotRecipe,
@@ -164,8 +183,12 @@ const config = defineConfig({
             barStrip:        barStripSlotRecipe,
             meter:           meterSlotRecipe,
             metricChip:      metricChipSlotRecipe,
+            chipRail:        chipRailSlotRecipe,
+            trace:           traceSlotRecipe,
             sliceFrame:      sliceFrameSlotRecipe,
             sliceEdit:       sliceEditSlotRecipe,
+            clauseBuilder:   clauseBuilderSlotRecipe,
+            facetTabs:       facetTabsSlotRecipe,
             editableChip:    editableChipSlotRecipe,
             gantt:           ganttSlotRecipe,
             splitter:        splitterSlotRecipe,
@@ -175,6 +198,7 @@ const config = defineConfig({
             status:          statusSlotRecipe,
             eyebrowRow:      eyebrowRowSlotRecipe,
             commitBar:       commitBarSlotRecipe,
+            decisionQueue:   decisionQueueSlotRecipe,
         },
     },
 });

@@ -23,6 +23,56 @@
   .bsys-lbl .sub { display: block; margin-top: 6px; font-weight: 500; letter-spacing: 0.06em; text-transform: none; color: var(--ink-4); font-size: 11px; line-height: 1.45; }
   .bsys-body { padding: 16px 20px; }
 
+  /* ---------- Chip rail ---------- */
+  .chiprail-controls { display: flex; flex-wrap: wrap; gap: 18px; align-items: center; padding: 12px 20px; border-bottom: 1px solid var(--rule); background: var(--paper-2); }
+  .chiprail-ctl { display: inline-flex; align-items: center; gap: 8px; }
+  .chiprail-seg { display: inline-flex; border: 1px solid var(--rule-strong); border-radius: 5px; overflow: hidden; }
+  .chiprail-seg button {
+    font-family: var(--font-mono); font-size: 10.5px; font-weight: 500; letter-spacing: 0.04em;
+    padding: 5px 11px; border: 0; border-right: 1px solid var(--rule-strong);
+    background: var(--paper); color: var(--ink-3); cursor: pointer;
+  }
+  .chiprail-seg button:last-child { border-right: 0; }
+  .chiprail-seg button:hover { background: var(--paper-3); color: var(--ink); }
+  .chiprail-seg button.active { background: var(--brand-d); color: #fff; }
+
+  /* the rail — density-driven via custom props on the .chiprail host.
+     Sizes derive from Collections.Trace: chip height == step height (15 / 22 / 34),
+     chip font == trace --t-fs, so a labeled rail drops into a table cell beside a Trace. */
+  .chiprail-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--cr-gap, 8px); }
+  .chiprail .chip {
+    box-sizing: border-box;
+    height: var(--cr-h, 22px);
+    padding: 0 var(--cr-px, 10px);
+    gap: var(--cr-igap, 5px);
+    font-size: var(--cr-fs, 10px);
+    line-height: 1;
+    border-radius: var(--cr-radius, 4px);
+  }
+  .cr-item { display: flex; flex-direction: column; align-items: center; gap: var(--cr-lbl-gap, 5px); }
+  .cr-label {
+    font-family: var(--font-mono); font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.12em; color: var(--ink-4); font-size: var(--cr-lbl-fs, 9.5px);
+    line-height: 1; text-align: center; white-space: nowrap;
+  }
+  /* density presets — one knob, sizes lifted from .trace[data-density=…] */
+  .chiprail[data-density="compact"]     { --cr-h: 15px; --cr-px: 7px;  --cr-igap: 4px; --cr-fs: 9px;    --cr-radius: 3px; --cr-gap: 5px; --cr-lbl-fs: 8.5px; --cr-lbl-gap: 3px; }
+  .chiprail[data-density="comfortable"] { --cr-h: 22px; --cr-px: 10px; --cr-igap: 5px; --cr-fs: 10px;   --cr-radius: 4px; --cr-gap: 7px; --cr-lbl-fs: 9.5px; --cr-lbl-gap: 5px; }
+  .chiprail[data-density="large"]       { --cr-h: 34px; --cr-px: 15px; --cr-igap: 7px; --cr-fs: 12.5px; --cr-radius: 6px; --cr-gap: 9px; --cr-lbl-fs: 11px;  --cr-lbl-gap: 7px; }
+  /* mode visibility */
+  .chiprail[data-mode="rail"]    .cr-labeled { display: none; }
+  .chiprail[data-mode="labeled"] .cr-plain   { display: none; }
+
+  /* static density × mode matrix */
+  .cr-matrix { display: grid; grid-template-columns: 104px 1fr 1fr; }
+  .cr-matrix > * { border-bottom: 1px solid var(--rule); }
+  .cr-matrix > :not(:nth-child(3n)) { border-right: 1px solid var(--rule); }
+  .cr-matrix > :nth-last-child(-n+3) { border-bottom: 0; }
+  .cr-matrix > .cr-mh { padding: 9px 16px; background: var(--paper-2); display: flex; align-items: center; }
+  .cr-matrix > .cr-mside { padding: 18px 16px; display: flex; flex-direction: column; justify-content: center; gap: 4px; }
+  .cr-matrix > .cr-mcell { padding: 18px 18px; display: flex; align-items: center; }
+  .cr-mnote { font-family: var(--font-mono); font-size: 9.5px; color: var(--ink-4); letter-spacing: 0.04em; }
+
   /* swatch tiles */
   .swatches { display: grid; grid-template-columns: repeat(10, 1fr); gap: 6px; }
   .swatches.semantic { grid-template-columns: repeat(6, 1fr); }
@@ -223,7 +273,7 @@
          ============================================================ -->
     <h4 style="margin: 28px 0 12px; font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4);">1.1 · Identity</h4>
 
-    <div class="bsys">
+    <div class="bsys" id="wordmark">
       <div class="bsys-lbl">Wordmark<span class="sub">Application chrome only — never inside content surfaces.</span></div>
       <div class="bsys-body" style="display: flex; align-items: center; gap: 24px;">
         <span style="font-family: var(--font-brand); font-size: 28px; font-weight: 700; letter-spacing: -0.02em; color: var(--brand-dd);">elara<span style="color: var(--brand);">.</span>ai</span>
@@ -231,7 +281,7 @@
       </div>
     </div>
 
-    <div class="bsys">
+    <div class="bsys" id="voice">
       <div class="bsys-lbl">Voice<span class="sub">How the application speaks to the operator.</span></div>
       <div class="bsys-body">
         <ul class="dotlist" style="margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.65; color: var(--ink-2);">
@@ -248,7 +298,7 @@
          ============================================================ -->
     <h4 style="margin: 32px 0 12px; font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4);">1.2 · Palette</h4>
 
-    <div class="bsys">
+    <div class="bsys" id="palette">
       <div class="bsys-lbl">Brand · deep teal<span class="sub">Primary identity. Used for namespace marks, the commit primary, and the ▎ structural rule.</span></div>
       <div class="bsys-body">
         <div class="swatches">
@@ -271,7 +321,7 @@
       </div>
     </div>
 
-    <div class="bsys">
+    <div class="bsys" id="neutrals">
       <div class="bsys-lbl">Neutrals · cool green-gray<span class="sub">Every non-brand surface. Cool-cast on purpose — never use a warm gray.</span></div>
       <div class="bsys-body">
         <div class="swatches neutrals">
@@ -289,7 +339,7 @@
       </div>
     </div>
 
-    <div class="bsys">
+    <div class="bsys" id="semantic">
       <div class="bsys-lbl">Semantic<span class="sub">Reserved for state. Never decorative.</span></div>
       <div class="bsys-body">
         <div class="swatches semantic">
@@ -311,7 +361,7 @@
          ============================================================ -->
     <h4 style="margin: 32px 0 12px; font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4);">1.3 · Type</h4>
 
-    <div class="bsys">
+    <div class="bsys" id="type">
       <div class="bsys-lbl">Three families<span class="sub">One brand, one body, one numerals. No fourth.</span></div>
       <div class="bsys-body" style="padding: 4px 20px 12px;">
         <div class="type-row">
@@ -332,7 +382,7 @@
       </div>
     </div>
 
-    <div class="bsys">
+    <div class="bsys" id="eyebrow-grammar">
       <div class="bsys-lbl">Eyebrow grammar<span class="sub">The mono-uppercase label is the spec's structural device.</span></div>
       <div class="bsys-body" style="display: flex; gap: 18px; align-items: center; flex-wrap: wrap;">
         <span style="font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink);">Forecast · SE region · wk of Sep 16</span>
@@ -341,7 +391,7 @@
       </div>
     </div>
 
-    <div class="bsys">
+    <div class="bsys" id="numerals-evidence">
       <div class="bsys-lbl">Numerals are evidence<span class="sub">Every number in the application is mono &amp; tabular.</span></div>
       <div class="bsys-body">
         <ul class="dotlist" style="margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.7; color: var(--ink-2);">
@@ -358,7 +408,7 @@
          ============================================================ -->
     <h4 style="margin: 32px 0 12px; font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4);">1.4 · Eight rules every screen follows</h4>
 
-    <div class="frame">
+    <div class="bsys" id="principles">
       <div class="principles">
         <div class="principle">
           <div class="n">01</div>
@@ -424,7 +474,7 @@
          ============================================================ -->
     <h4 style="margin: 32px 0 12px; font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4);">1.5 · Surface anatomy</h4>
 
-    <div class="frame">
+    <div class="bsys" id="surface-anatomy">
       <div class="eyebrow-row"><span class="lbl">Canonical screen</span><span class="meta muted">five regions · commit bar always present in write modes</span></div>
       <div class="pad-18" style="padding: 18px;">
         <div class="surface">
@@ -453,7 +503,7 @@
       <strong>One <span class="mono">Frame</span> shape, four roles, five region recipes.</strong>
     </p>
 
-    <div class="bsys">
+    <div class="bsys" id="frame">
       <div class="bsys-lbl">Frame<span class="sub">The one card shape. Everything else is a role on top of it.</span></div>
       <div class="bsys-body">
         <div class="frame" style="margin: 0;">
@@ -475,7 +525,7 @@
       </div>
     </div>
 
-    <div class="bsys">
+    <div class="bsys" id="four-roles">
       <div class="bsys-lbl">Four roles<span class="sub">Same shape, four jobs. Each role has its own pattern family.</span></div>
       <div class="bsys-body" style="padding: 18px 20px;">
         <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px;">
@@ -516,7 +566,7 @@
       </div>
     </div>
 
-    <div class="bsys">
+    <div class="bsys" id="header-recipe">
       <div class="bsys-lbl">Header recipe<span class="sub">Two rows · sticky to viewport top.</span></div>
       <div class="bsys-body" style="padding: 0;">
         <div style="margin: 20px 20px 0; border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; background: var(--paper);">
@@ -556,7 +606,7 @@
       </div>
     </div>
 
-    <div class="bsys">
+    <div class="bsys" id="main-recipe">
       <div class="bsys-lbl">Main recipe<span class="sub">Three layouts. Pick one per surface, never mix.</span></div>
       <div class="bsys-body" style="padding: 18px 20px;">
         <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px;">
@@ -606,7 +656,7 @@
       </div>
     </div>
 
-    <div class="bsys">
+    <div class="bsys"  id="rail-recipe">
       <div class="bsys-lbl">Rail recipe<span class="sub">Stacked evidence frames. Supporting role only.</span></div>
       <div class="bsys-body" style="padding: 18px 20px;">
         <div style="display: grid; grid-template-columns: 280px 1fr; gap: 24px; align-items: start;">
@@ -641,7 +691,7 @@
       </div>
     </div>
 
-    <div class="bsys">
+    <div class="bsys" id="sidebar-recipe">
       <div class="bsys-lbl">Sidebar recipe<span class="sub">Top-level navigation. Two states · sits next to Main.</span></div>
       <div class="bsys-body" style="padding: 18px 20px;">
         <div style="display: grid; grid-template-columns: 220px 56px 1fr; gap: 18px; align-items: start;">
@@ -721,7 +771,7 @@
     </div>
 
 
-    <div class="bsys">
+    <div class="bsys" id="commit-bar-recipe">
       <div class="bsys-lbl">Commit.Bar recipe<span class="sub">Sticky bottom · visible only when dirty.</span></div>
       <div class="bsys-body" style="padding: 18px 20px;">
         <div style="display: flex; flex-direction: column; gap: 14px;">
@@ -773,7 +823,7 @@
       Every pattern declares its preferred layout along three orthogonal axes. Pages compose patterns honestly &mdash; a Scenario.Briefing dominates a row; a Stat.Card sits in a cluster; chrome lives in the eyebrow, not in the Main grid. Without descriptors, every screen drifts into a uniform tile grid and lies about what each surface needs.
     </p>
 
-    <div class="bsys">
+    <div class="bsys" id="layout-descriptors">
       <div class="bsys-lbl">Three axes<span class="sub">Orthogonal; every pattern picks one value on each.</span></div>
       <div class="bsys-body" style="padding: 18px 22px;">
         <table class="pattern-table" style="margin: 0;">
@@ -793,7 +843,7 @@
       </div>
     </div>
 
-    <div class="bsys">
+    <div class="bsys" id="pattern-map">
       <div class="bsys-lbl">Pattern map<span class="sub">Descriptor per pattern across the kit.</span></div>
       <div class="bsys-body" style="padding: 0;">
         <table class="pattern-table" style="margin: 0;">
@@ -844,7 +894,7 @@
       </div>
     </div>
 
-    <div class="bsys">
+    <div class="bsys" id="composition-rules">
       <div class="bsys-lbl">Composition rules<span class="sub">How a Main grid honours the descriptors.</span></div>
       <div class="bsys-body" style="padding: 18px 22px;">
         <ul class="dotlist" style="margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.65; color: var(--ink-2);">
@@ -858,7 +908,7 @@
       </div>
     </div>
 
-    <div class="bsys">
+    <div class="bsys" id="composition-examples">
       <div class="bsys-lbl">Example compositions<span class="sub">Three honest Main layouts using the descriptors.</span></div>
       <div class="bsys-body" style="padding: 18px 22px;">
         <div style="display: flex; flex-direction: column; gap: 14px;">
@@ -941,7 +991,7 @@
     </p>
 
     <!-- Data-flow diagram -->
-    <div class="bsys">
+    <div class="bsys" id="slice-composition">
       <div class="bsys-lbl">The pattern<span class="sub">One handle, many surfaces. Affordances write; consumers read.</span></div>
       <div class="bsys-body" style="padding: 18px 22px;">
         <div style="display: grid; grid-template-columns: 1fr 220px 1fr; gap: 18px; align-items: stretch; font-family: var(--font-mono); font-size: 11px;">
@@ -1054,7 +1104,7 @@
     </div>
 
     <!-- Region map -->
-    <div class="bsys">
+    <div class="bsys" id="slice-region-map">
       <div class="bsys-lbl">Where each surface lives<span class="sub">The five regions, with each Slice.* in its home.</span></div>
       <div class="bsys-body" style="padding: 18px 22px;">
         <div style="display: flex; flex-direction: column; gap: 18px;">
@@ -1149,7 +1199,7 @@
     </div>
 
     <!-- Worked example -->
-    <div class="bsys">
+    <div class="bsys" id="slice-worked-example">
       <div class="bsys-lbl">Worked example<span class="sub">Events · Q4. Range in Header, chips in eyebrow, Table consumes the slice.</span></div>
       <div class="bsys-body" style="padding: 18px 20px;">
 
@@ -1397,7 +1447,7 @@
     </div>
 
     <!-- Overflow behaviour -->
-    <div class="bsys">
+    <div class="bsys" id="slice-overflow">
       <div class="bsys-lbl">Overflow<span class="sub">The system shape. Per-pattern caps live with each pattern.</span></div>
       <div class="bsys-body" style="padding: 18px 22px;">
         <p style="margin: 0 0 14px; font-size: 13px; line-height: 1.55; color: var(--ink-2); max-width: 78ch;">
@@ -1437,7 +1487,7 @@
     <!-- ============================================================
          Multi-slice pages
          ============================================================ -->
-    <div class="bsys">
+    <div class="bsys" id="slice-multi-pages">
       <div class="bsys-lbl">Multi-slice pages<span class="sub">When one page narrows more than one data domain.</span></div>
       <div class="bsys-body" style="padding: 18px 22px;">
 
@@ -1674,7 +1724,7 @@
     </p>
 
     <!-- The four modes -->
-    <div class="bsys">
+    <div class="bsys" id="scenario-modes">
       <div class="bsys-lbl">Four modes<span class="sub">One default · three on-demand variants for comparing scenarios.</span></div>
       <div class="bsys-body" style="padding: 18px 22px;">
         <table class="pattern-table" style="margin: 0;">
@@ -1714,7 +1764,7 @@
     </div>
 
     <!-- Per-pattern guidance -->
-    <div class="bsys">
+    <div class="bsys" id="scenario-guidance">
       <div class="bsys-lbl">Per-pattern guidance<span class="sub">Which mode is the right default for each Planner family surface.</span></div>
       <div class="bsys-body" style="padding: 18px 22px;">
         <table class="pattern-table" style="margin: 0;">
@@ -1730,7 +1780,7 @@
     </div>
 
     <!-- Worked example · Overlay mode -->
-    <div class="bsys">
+    <div class="bsys" id="scenario-example">
       <div class="bsys-lbl">Worked example<span class="sub">Two scenarios on a winemaker tank · Overlay mode shows disagreement loud.</span></div>
       <div class="bsys-body" style="padding: 18px 22px;">
 
@@ -1814,7 +1864,7 @@
     </div>
 
     <!-- Invariants -->
-    <div class="bsys">
+    <div class="bsys" id="scenario-invariants">
       <div class="bsys-lbl">Invariants<span class="sub">The rules every Scenario.*-aware surface must honour.</span></div>
       <div class="bsys-body" style="padding: 18px 22px;">
         <ul class="dotlist" style="margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.65; color: var(--ink-2);">
@@ -1838,7 +1888,7 @@
     </p>
 
     <!-- The four event kinds with East types -->
-    <div class="bsys">
+    <div class="bsys" id="drag-drop-grammar">
       <div class="bsys-lbl">Four event kinds<span class="sub">Every drag interaction reduces to exactly one of these.</span></div>
       <div class="bsys-body" style="padding: 18px 22px;">
         <pre class="pattern-schema" style="margin: 0; padding: 14px 16px; background: var(--paper-2); border: 1px solid var(--rule); border-radius: 4px; font-size: 11.5px; line-height: 1.7;"><span class="k">DragEvent</span> = <span class="k">VariantType</span>({
@@ -1858,7 +1908,7 @@
     </div>
 
     <!-- The three actor roles -->
-    <div class="bsys">
+    <div class="bsys" id="drag-drop-roles">
       <div class="bsys-lbl">Three actor roles<span class="sub">Every surface declares its role in the grammar.</span></div>
       <div class="bsys-body" style="padding: 18px 22px;">
         <table class="pattern-table" style="margin: 0;">
@@ -1889,7 +1939,7 @@
     </div>
 
     <!-- Per-surface support matrix -->
-    <div class="bsys">
+    <div class="bsys" id="drag-drop-matrix">
       <div class="bsys-lbl">Per-surface support matrix<span class="sub">Which event kinds each pattern accepts.</span></div>
       <div class="bsys-body" style="padding: 18px 22px;">
         <table class="pattern-table" style="margin: 0;">
@@ -1918,7 +1968,7 @@
     </div>
 
     <!-- Visual treatment -->
-    <div class="bsys">
+    <div class="bsys" id="drag-drop-visuals">
       <div class="bsys-lbl">Visual treatment<span class="sub">How a drag-in-flight reads at every stage.</span></div>
       <div class="bsys-body" style="padding: 18px 22px;">
         <table class="pattern-table" style="margin: 0;">
@@ -1950,7 +2000,7 @@
     </div>
 
     <!-- Invariants -->
-    <div class="bsys">
+    <div class="bsys" id="drag-drop-invariants">
       <div class="bsys-lbl">Invariants<span class="sub">The rules every DnD-aware surface must honour.</span></div>
       <div class="bsys-body" style="padding: 18px 22px;">
         <ul class="dotlist" style="margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.65; color: var(--ink-2);">
@@ -1971,7 +2021,7 @@
          ============================================================ -->
     <h4 style="margin: 32px 0 12px; font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4);">1.6 · Interaction vocabulary</h4>
 
-    <div class="bsys">
+    <div class="bsys" id="stdlib-buttons">
       <div class="bsys-lbl">Buttons<span class="sub">Four roles. Never invent a fifth.</span></div>
       <div class="bsys-body">
         <div class="vocab-row">
@@ -1998,7 +2048,7 @@
       </div>
     </div>
 
-    <div class="bsys">
+    <div class="bsys" id="stdlib-commit-cluster">
       <div class="bsys-lbl">Commit cluster<span class="sub">The canonical action order, left to right.</span></div>
       <div class="bsys-body">
         <div class="row gap-2" style="display: flex; gap: 8px; align-items: center;">
@@ -2013,7 +2063,7 @@
       </div>
     </div>
 
-    <div class="bsys">
+    <div class="bsys" id="stdlib-keyboard">
       <div class="bsys-lbl">Keyboard<span class="sub">Universal accelerators. Match across every mode.</span></div>
       <div class="bsys-body" style="display: flex; gap: 24px; flex-wrap: wrap; font-size: 12.5px; color: var(--ink-2);">
         <span><span class="kbd">⏎</span> apply / commit</span>
@@ -2026,7 +2076,7 @@
       </div>
     </div>
 
-    <div class="bsys">
+    <div class="bsys" id="stdlib-motion">
       <div class="bsys-lbl">Motion<span class="sub">Restrained. Functional. Never decorative.</span></div>
       <div class="bsys-body" style="font-size: 12.5px; line-height: 1.6; color: var(--ink-2);">
         <span class="mono">--dur-fast 120 ms</span> · hover, focus, dot-pulse-tick<br>
@@ -2040,7 +2090,7 @@
       </div>
     </div>
 
-    <div class="bsys">
+    <div class="bsys" id="stdlib-field">
       <div class="bsys-lbl">Field<span class="sub">The editable-field wrapper — label · input · help. Chakra v3 <span class="mono">Field.Root</span>.</span></div>
       <div class="bsys-body" style="padding: 0;">
         <div class="param-row" style="padding: 14px 20px;">
@@ -2064,7 +2114,7 @@
       </div>
     </div>
 
-    <div class="bsys">
+    <div class="bsys" id="stdlib-fieldset">
       <div class="bsys-lbl">Fieldset<span class="sub">A group of fields sharing one legend. Chakra v3 <span class="mono">Fieldset.Root</span>.</span></div>
       <div class="bsys-body" style="padding: 0;">
         <fieldset style="border: 1px solid var(--rule); border-radius: 6px; padding: 18px 20px; margin: 16px 20px;">
@@ -2089,7 +2139,7 @@
       </div>
     </div>
 
-    <div class="bsys">
+    <div class="bsys" id="stdlib-number-input">
       <div class="bsys-lbl">Number input<span class="sub">Integer or bounded numeric with stepper. Chakra v3 <span class="mono">NumberInput.Root</span>.</span></div>
       <div class="bsys-body" style="padding: 0;">
         <div style="display: flex; gap: 24px; flex-wrap: wrap; align-items: center; padding: 16px 20px;">
@@ -2126,7 +2176,7 @@
       </div>
     </div>
 
-    <div class="bsys">
+    <div class="bsys" id="stdlib-tokens">
       <div class="bsys-lbl">Tokens<span class="sub">Inline atoms. <span class="mono">.chip</span> · <span class="mono">.trust-chip</span> · <span class="mono">.kbd</span></span></div>
       <div class="bsys-body" style="padding: 0;">
         <div style="display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; padding: 16px 20px;">
@@ -2145,7 +2195,111 @@
       </div>
     </div>
 
-    <div class="bsys">
+    <div class="bsys" id="stdlib-chip-rail">
+      <div class="bsys-lbl">Chip rail<span class="sub">Horizontal run of <span class="mono">.chip</span>s. Two modes — plain &amp; <span class="mono">.cr-label</span>'d — each at three densities.</span></div>
+      <div class="bsys-body" style="padding: 0;">
+
+        <!-- INTERACTIVE · mode + density switcher -->
+        <div class="chiprail-controls">
+          <div class="chiprail-ctl">
+            <span class="cap-eyebrow">Mode</span>
+            <span class="chiprail-seg" data-key="mode">
+              <button class="active" onclick="crSet('mode','rail',this)">rail</button>
+              <button onclick="crSet('mode','labeled',this)">labeled</button>
+            </span>
+          </div>
+          <div class="chiprail-ctl">
+            <span class="cap-eyebrow">Density</span>
+            <span class="chiprail-seg" data-key="density">
+              <button onclick="crSet('density','compact',this)">compact</button>
+              <button class="active" onclick="crSet('density','comfortable',this)">comfortable</button>
+              <button onclick="crSet('density','large',this)">large</button>
+            </span>
+          </div>
+        </div>
+        <div style="padding: 28px 22px;">
+          <div class="chiprail" id="cr-live" data-mode="rail" data-density="comfortable">
+            <!-- plain: a single run of filter chips -->
+            <div class="chiprail-row cr-plain">
+              <span class="chip brand">cohort · A12<span class="x">×</span></span>
+              <span class="chip">region · SE</span>
+              <span class="chip">shift · AM</span>
+              <span class="chip">line · PR-A12</span>
+              <span class="chip dashed">+ add filter</span>
+            </div>
+            <!-- labeled: each chip carries a centered caption naming its dimension -->
+            <div class="chiprail-row cr-labeled">
+              <span class="cr-item"><span class="cr-label">Region</span><span class="chip brand">SE</span></span>
+              <span class="cr-item"><span class="cr-label">Week</span><span class="chip">Sep 16</span></span>
+              <span class="cr-item"><span class="cr-label">Line</span><span class="chip">PR-A12</span></span>
+              <span class="cr-item"><span class="cr-label">Shift</span><span class="chip">AM</span></span>
+              <span class="cr-item"><span class="cr-label">Scope</span><span class="chip dashed">+ add</span></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- STATIC · all three densities × both modes -->
+        <div class="cr-matrix" style="border-top: 1px solid var(--rule);">
+          <div class="cr-mh cr-corner"></div>
+          <div class="cr-mh"><span class="cap-eyebrow" style="color: var(--ink);">rail</span></div>
+          <div class="cr-mh"><span class="cap-eyebrow" style="color: var(--ink);">labeled</span></div>
+
+          <!-- compact -->
+          <div class="cr-mside"><span class="cap-eyebrow" style="color: var(--ink);">compact</span><span class="cr-mnote">15px h · 9px</span></div>
+          <div class="cr-mcell">
+            <div class="chiprail" data-density="compact"><div class="chiprail-row">
+              <span class="chip brand">SE<span class="x">×</span></span><span class="chip">NE</span><span class="chip dashed">+ add</span>
+            </div></div>
+          </div>
+          <div class="cr-mcell">
+            <div class="chiprail" data-density="compact"><div class="chiprail-row">
+              <span class="cr-item"><span class="cr-label">Region</span><span class="chip brand">SE</span></span>
+              <span class="cr-item"><span class="cr-label">Line</span><span class="chip">PR-A12</span></span>
+              <span class="cr-item"><span class="cr-label">Shift</span><span class="chip">AM</span></span>
+            </div></div>
+          </div>
+
+          <!-- comfortable -->
+          <div class="cr-mside"><span class="cap-eyebrow" style="color: var(--ink);">comfortable</span><span class="cr-mnote">22px h · 10px</span></div>
+          <div class="cr-mcell">
+            <div class="chiprail" data-density="comfortable"><div class="chiprail-row">
+              <span class="chip brand">SE<span class="x">×</span></span><span class="chip">NE</span><span class="chip dashed">+ add</span>
+            </div></div>
+          </div>
+          <div class="cr-mcell">
+            <div class="chiprail" data-density="comfortable"><div class="chiprail-row">
+              <span class="cr-item"><span class="cr-label">Region</span><span class="chip brand">SE</span></span>
+              <span class="cr-item"><span class="cr-label">Line</span><span class="chip">PR-A12</span></span>
+              <span class="cr-item"><span class="cr-label">Shift</span><span class="chip">AM</span></span>
+            </div></div>
+          </div>
+
+          <!-- large -->
+          <div class="cr-mside"><span class="cap-eyebrow" style="color: var(--ink);">large</span><span class="cr-mnote">34px h · 12.5px</span></div>
+          <div class="cr-mcell">
+            <div class="chiprail" data-density="large"><div class="chiprail-row">
+              <span class="chip brand">SE<span class="x">×</span></span><span class="chip">NE</span><span class="chip dashed">+ add</span>
+            </div></div>
+          </div>
+          <div class="cr-mcell">
+            <div class="chiprail" data-density="large"><div class="chiprail-row">
+              <span class="cr-item"><span class="cr-label">Region</span><span class="chip brand">SE</span></span>
+              <span class="cr-item"><span class="cr-label">Line</span><span class="chip">PR-A12</span></span>
+              <span class="cr-item"><span class="cr-label">Shift</span><span class="chip">AM</span></span>
+            </div></div>
+          </div>
+        </div>
+
+        <div class="spec-note" style="border-top: 1px solid var(--rule); padding: 12px 20px; margin: 0;">
+          <span class="k">Rules:</span>
+          A <strong>chip rail</strong> is one horizontal run of <span class="mono">.chip</span>s — filters, applied scope, segment toggles — wrapping only when the container forces it. The <strong>labeled</strong> mode stacks a centered <span class="mono">.cr-label</span> (mono · uppercase · ink-4) above each chip when the value alone is ambiguous — a bare <span class="mono">SE</span> needs its <span class="mono">Region</span> caption; <span class="mono">region · SE</span> in the plain rail does not.
+          <strong>Density</strong> is a single knob — <span class="mono">compact</span> for table eyebrows and dense toolbars, <span class="mono">comfortable</span> as the default, <span class="mono">large</span> for touch and focused pickers. It scales pad, font, gap, radius and label-gap together; never mix densities inside one rail.
+          Active = <span class="mono">.brand</span>; the empty slot is always a trailing <span class="mono">.dashed</span> add. Keep one rail to one dimension family — don't blend scope chips and action chips on the same line.
+        </div>
+      </div>
+    </div>
+
+    <div class="bsys" id="stdlib-table">
       <div class="bsys-lbl">Rows &amp; tables<span class="sub">The default density for any list of decisions, runs, or units.</span></div>
       <div class="bsys-body" style="padding: 0;">
         <table class="dt" style="margin: 0;">
@@ -2196,7 +2350,7 @@
       </div>
     </div>
 
-    <div class="bsys">
+    <div class="bsys" id="stdlib-pagination">
       <div class="bsys-lbl">Pagination<span class="sub">Paged navigation for long lists. Chakra v3 <span class="mono">Pagination.Root</span>.</span></div>
       <div class="bsys-body" style="padding: 0;">
         <div style="display: flex; gap: 16px; flex-wrap: wrap; align-items: center; padding: 16px 20px;">
@@ -2227,7 +2381,7 @@
       </div>
     </div>
 
-    <div class="bsys">
+    <div class="bsys" id="stdlib-breadcrumb">
       <div class="bsys-lbl">Breadcrumb<span class="sub">Where am I in the catalogue. Chakra v3 <span class="mono">Breadcrumb.Root</span>.</span></div>
       <div class="bsys-body" style="padding: 0;">
         <div style="padding: 16px 20px; display: flex; gap: 8px; align-items: center; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em;">
@@ -2247,7 +2401,7 @@
       </div>
     </div>
 
-    <div class="bsys">
+    <div class="bsys" id="stdlib-radio-group">
       <div class="bsys-lbl">Radio group<span class="sub">One choice from a small set. <span class="mono">&lt;input type="radio"&gt;</span></span></div>
       <div class="bsys-body" style="padding: 0;">
         <div style="display: flex; gap: 28px; flex-wrap: wrap; padding: 16px 20px;">
@@ -2272,7 +2426,7 @@
       </div>
     </div>
 
-    <div class="bsys">
+    <div class="bsys" id="stdlib-segmented-control"> 
       <div class="bsys-lbl">Segmented control<span class="sub">View-state toggle. Chakra v3 <span class="mono">SegmentGroup.Root</span>.</span></div>
       <div class="bsys-body" style="padding: 0;">
         <div style="display: flex; gap: 24px; flex-wrap: wrap; align-items: center; padding: 16px 20px;">
@@ -2298,7 +2452,7 @@
       </div>
     </div>
 
-    <div class="bsys">
+    <div class="bsys" id="stdlib-checkbox">
       <div class="bsys-lbl">Checkbox<span class="sub">Independent toggles. <span class="mono">&lt;input type="checkbox"&gt;</span></span></div>
       <div class="bsys-body" style="padding: 0;">
         <div style="display: flex; gap: 28px; flex-wrap: wrap; padding: 16px 20px;">
@@ -2324,7 +2478,7 @@
       </div>
     </div>
 
-    <div class="bsys">
+    <div class="bsys" id="stdlib-switch">
       <div class="bsys-lbl">Switch<span class="sub">Persistent boolean assumption. Commits immediately when used inside a band.</span></div>
       <div class="bsys-body" style="padding: 0;">
         <div style="display: flex; gap: 24px; flex-wrap: wrap; padding: 16px 20px; align-items: center;">
@@ -2345,7 +2499,7 @@
       </div>
     </div>
 
-    <div class="bsys">
+    <div class="bsys" id="stdlib-select">
       <div class="bsys-lbl">Select<span class="sub">Many options · one choice. <span class="mono">&lt;select&gt;</span></span></div>
       <div class="bsys-body" style="padding: 0;">
         <div style="display: flex; gap: 16px; flex-wrap: wrap; padding: 16px 20px; align-items: center;">
@@ -2361,7 +2515,7 @@
       </div>
     </div>
 
-    <div class="bsys">
+    <div class="bsys" id="stdlib-slider">
       <div class="bsys-lbl">Slider<span class="sub">Continuous numeric input. Always paired with a tabular value.</span></div>
       <div class="bsys-body" style="padding: 0;">
         <div style="display: grid; grid-template-columns: 160px 1fr 80px; gap: 16px; align-items: center; padding: 16px 20px;">
@@ -2389,7 +2543,7 @@
       </div>
     </div>
 
-    <div class="bsys">
+    <div class="bsys" id="stdlib-tabs">
       <div class="bsys-lbl">Tabs<span class="sub">Switch between equivalent views of the same surface.</span></div>
       <div class="bsys-body" style="padding: 0;">
         <div style="display: flex; gap: 0; padding: 0 20px; border-bottom: 1px solid var(--rule);">
@@ -2408,7 +2562,7 @@
       </div>
     </div>
 
-    <div class="bsys">
+    <div class="bsys" id="stdlib-badge-progress">
       <div class="bsys-lbl">Badge &amp; progress<span class="sub">Display-only state. A badge is never clickable.</span></div>
       <div class="bsys-body" style="padding: 0;">
         <div style="display: flex; gap: 16px; flex-wrap: wrap; align-items: center; padding: 16px 20px;">
@@ -2431,7 +2585,7 @@
       </div>
     </div>
 
-    <div class="bsys">
+    <div class="bsys" id="stdlib-tooltip">
       <div class="bsys-lbl">Tooltip &amp; affordance<span class="sub">Reveal on hover. Never load-bearing.</span></div>
       <div class="bsys-body" style="padding: 0;">
         <div style="display: flex; gap: 24px; align-items: flex-start; padding: 16px 20px; flex-wrap: wrap;">
@@ -2449,7 +2603,7 @@
       </div>
     </div>
 
-    <div class="bsys">
+    <div class="bsys" id="stdlib-tags-input">
       <div class="bsys-lbl">Tags input<span class="sub">Multi-value entry — recipients, regions, cohorts. Chakra v3 <span class="mono">TagsInput.Root</span>.</span></div>
       <div class="bsys-body" style="padding: 0;">
         <div style="padding: 16px 20px;">
@@ -2469,7 +2623,7 @@
       </div>
     </div>
 
-    <div class="bsys">
+    <div class="bsys" id="stdlib-editable">
       <div class="bsys-lbl">Editable<span class="sub">Inline rename. Chakra v3 <span class="mono">Editable.Root</span>.</span></div>
       <div class="bsys-body" style="padding: 0;">
         <div style="padding: 16px 20px; display: flex; gap: 32px; flex-wrap: wrap; align-items: center;">
@@ -2489,7 +2643,7 @@
       </div>
     </div>
 
-    <div class="bsys">
+    <div class="bsys" id="stdlib-menu">
       <div class="bsys-lbl">Menu<span class="sub">Row-end overflow. Chakra v3 <span class="mono">Menu.Root</span>.</span></div>
       <div class="bsys-body" style="padding: 0;">
         <div style="padding: 16px 20px; display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start;">
@@ -2513,7 +2667,7 @@
       </div>
     </div>
 
-    <div class="bsys">
+    <div class="bsys" id="stdlib-popover-hovercard">
       <div class="bsys-lbl">Popover / HoverCard<span class="sub">Reveal on click or hover · expandable content. Chakra v3 <span class="mono">Popover.Root</span> / <span class="mono">HoverCard.Root</span>.</span></div>
       <div class="bsys-body" style="padding: 0;">
         <div style="padding: 16px 20px; display: flex; gap: 28px; flex-wrap: wrap; align-items: flex-start;">
@@ -2540,7 +2694,7 @@
       </div>
     </div>
 
-    <div class="bsys">
+    <div class="bsys" id="stdlib-accordion"> 
       <div class="bsys-lbl">Accordion<span class="sub">Collapsible sections in a long form. Chakra v3 <span class="mono">Accordion.Root</span>.</span></div>
       <div class="bsys-body" style="padding: 0;">
         <div style="padding: 16px 20px;">
@@ -2574,7 +2728,7 @@
       </div>
     </div>
 
-    <div class="bsys">
+    <div class="bsys" id="stdlib-dialog">
       <div class="bsys-lbl">Dialog<span class="sub">Blocking confirmation only. Chakra v3 <span class="mono">Dialog.Root</span>.</span></div>
       <div class="bsys-body" style="padding: 0;">
         <div style="padding: 16px 20px; background: rgba(17,27,34,0.04);">
@@ -2600,7 +2754,7 @@
       </div>
     </div>
 
-    <div class="bsys">
+    <div class="bsys" id="stdlib-file-upload">
       <div class="bsys-lbl">File upload<span class="sub">Drop or pick — model bundles, evidence. Chakra v3 <span class="mono">FileUpload.Root</span>.</span></div>
       <div class="bsys-body" style="padding: 0;">
         <div style="padding: 16px 20px;">
@@ -2624,7 +2778,7 @@
       </div>
     </div>
 
-    <div class="bsys">
+    <div class="bsys" id="stdlib-icons">
       <div class="bsys-lbl">Icons<span class="sub">Font Awesome 6 free · <span class="mono">fa-solid</span> only. No SVG, no emoji, no other glyph sets.</span></div>
       <div class="bsys-body" style="padding: 0;">
         <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 4px 0; padding: 12px 20px;">
@@ -2659,7 +2813,7 @@
       </div>
     </div>
 
-    <div class="bsys">
+    <div class="bsys" id="stdlib-icon-buttons">
       <div class="bsys-lbl">Icon buttons<span class="sub">Use only when the meaning is obvious from a glanced icon.</span></div>
       <div class="bsys-body" style="padding: 0;">
         <div style="display: flex; flex-wrap: wrap; gap: 24px; padding: 16px 20px; align-items: center;">
@@ -2701,7 +2855,7 @@
          ============================================================ -->
     <h4 style="margin: 32px 0 12px; font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4);">1.7 · Density &amp; spacing</h4>
 
-    <div class="bsys">
+    <div class="bsys" id="stdlib-spacing">
       <div class="bsys-lbl">Scale<span class="sub">Chakra 4-px base. Use the rung, not arbitrary px.</span></div>
       <div class="bsys-body" style="display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap;">
         <span style="display: inline-flex; flex-direction: column; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 10px; color: var(--ink-4);"><span style="background: var(--brand); width: 4px; height: 24px;"></span>sp-1 · 4</span>
@@ -2715,7 +2869,7 @@
       </div>
     </div>
 
-    <div class="bsys">
+    <div class="bsys" id="stdlib-surfaces">
       <div class="bsys-lbl">Surfaces<span class="sub">Three radii. Three shadows. That's it.</span></div>
       <div class="bsys-body" style="display: flex; gap: 18px; flex-wrap: wrap;">
         <span style="background: var(--paper); border: 1px solid var(--rule); border-radius: 4px; padding: 14px 18px; font-family: var(--font-mono); font-size: 11px; color: var(--ink-3);">r-sm · 4 px · chips, kbd, tray pills</span>
@@ -2898,6 +3052,17 @@
 
   </main>
 </div>
+
+<script>
+  window.crSet = function (key, val, btn) {
+    var host = document.getElementById('cr-live');
+    if (!host) return;
+    host.setAttribute('data-' + key, val);
+    var seg = btn.parentNode;
+    seg.querySelectorAll('button').forEach(function (b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+  };
+</script>
 
 </body>
 </html>

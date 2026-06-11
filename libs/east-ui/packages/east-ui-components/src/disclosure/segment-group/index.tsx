@@ -6,7 +6,7 @@
 import { memo, useMemo, useCallback, useState, useEffect } from "react";
 import { SegmentGroup as ChakraSegmentGroup, type SegmentGroupRootProps } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { SegmentGroup } from "@elaraai/east-ui";
+import { SegmentGroup } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 

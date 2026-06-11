@@ -45,10 +45,11 @@ function isExample(x: unknown): x is { fn: unknown } {
 }
 
 async function discoverKeys(): Promise<string[]> {
-    const entries = await fs.readdir(TEST_DIR);
+    const entries = await fs.readdir(TEST_DIR, { recursive: true }) as string[];
     return entries
-        .filter(f => f.endsWith('.examples.ts'))
-        .map(f => f.replace(/\.examples\.ts$/, ''))
+        .map(f => f.replace(/\\/g, '/'))
+        .filter(f => /\.examples\.tsx?$/.test(f))
+        .map(f => f.replace(/\.examples\.tsx?$/, ''))
         .sort();
 }
 
@@ -72,7 +73,7 @@ async function main(): Promise<void> {
     for (const key of selected) {
         const names = await exampleNames(key);
         for (const name of names) {
-            targets.push({ query: { file: key, example: name }, outName: `${key}__${name}` });
+            targets.push({ query: { file: key, example: name }, outName: `${key.replace(/\//g, '_')}__${name}` });
         }
     }
     console.log(`[snapshot] ${targets.length} example(s) across ${selected.length} file(s): ${selected.join(', ')}`);

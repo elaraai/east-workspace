@@ -97,9 +97,11 @@ export {
  * @property bucket - The declared bucket key the event sits in (none = unbucketed)
  * @property label - The event's text
  * @property state - The audit state (see {@link PlannerStateType})
+ * @property key - Optional stable event identity (drag-grammar cell refs)
  * @property popover - Optional click-triggered rich body (UIComponent)
  */
 export const PlannerEventType: StructType<{
+    key: OptionType<StringType>,
     slot: PlannerSlotType,
     endSlot: OptionType<PlannerSlotType>,
     bucket: OptionType<StringType>,
@@ -107,6 +109,7 @@ export const PlannerEventType: StructType<{
     state: PlannerStateType,
     popover: OptionType<UIComponentType>,
 }> = StructType({
+    key:      OptionType(StringType),
     slot:     PlannerSlotType,
     endSlot:  OptionType(PlannerSlotType),
     bucket:   OptionType(StringType),
@@ -310,6 +313,8 @@ function slotOrdinal(s: SubtypeExprOrValue<StringType>): ExprType<PlannerSlotTyp
  * @property popover - Optional click-triggered rich body (UIComponent)
  */
 export interface EventInput {
+    /** Optional stable event identity — referenced by drag-grammar cell refs. */
+    key?: SubtypeExprOrValue<StringType>;
     /** The event's (start) slot coordinate. */
     slot: SubtypeExprOrValue<PlannerSlotType>;
     /** The span end (Span variant only). */
@@ -345,6 +350,7 @@ function resolveState(state: EventInput["state"]): SubtypeExprOrValue<PlannerSta
  */
 function createEvent(input: EventInput): ExprType<PlannerEventType> {
     return East.value({
+        key:      input.key !== undefined ? some(input.key) : none,
         slot:     input.slot,
         endSlot:  input.endSlot !== undefined ? some(input.endSlot) : none,
         bucket:   input.bucket !== undefined ? some(input.bucket) : none,
@@ -481,7 +487,7 @@ export interface PlannerConfig<R extends StructType> {
 
 // Infer the row struct type R from the data argument (a plain JS array of
 // objects or an East array expression), mirroring the Table / Gantt factories.
-type RowElement<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
+export type RowElement<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
     TypeOf<T> extends ArrayType<infer S> ? (S extends StructType ? S : never) : never;
 
 function buildRoot(

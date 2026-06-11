@@ -4,10 +4,20 @@
  */
 
 import { memo, useMemo, useCallback, useState, useEffect, useRef, type ChangeEvent, type FocusEvent, type KeyboardEvent } from "react";
-import { Input as ChakraInput, type InputProps, Box } from "@chakra-ui/react";
+import { Input as ChakraInput, NumberInput as ChakraNumberInput, type InputProps, type NumberInputRootProps, Box } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Input } from "@elaraai/east-ui";
+import { Input } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
+import { fieldChrome, fieldFocusRing } from "../../theme/field-chrome";
+
+/** Bordered shell wrapping the date/time segments — same chrome as every input. */
+const dateFieldShell = {
+    ...fieldChrome,
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "{spacing.2}",
+    _focusWithin: fieldFocusRing,
+};
 import { CalendarDate, Time, type DateValue } from "@internationalized/date";
 import {
     CompoundDateField,
@@ -33,6 +43,7 @@ function inputStyleProps(styleOpt: StringInputValue["style"]): Partial<InputProp
     const background = getSomeorUndefined(style.background);
     const borderColor = getSomeorUndefined(style.borderColor);
     const focusBorderColor = getSomeorUndefined(style.focusBorderColor);
+    const autoFocus = getSomeorUndefined(style.autoFocus);
     const out: Partial<InputProps> = {};
     if (variantTag) out.variant = variantTag;
     if (sizeTag) out.size = sizeTag;
@@ -40,6 +51,7 @@ function inputStyleProps(styleOpt: StringInputValue["style"]): Partial<InputProp
     if (background) out.bg = background;
     if (borderColor) out.borderColor = borderColor;
     if (focusBorderColor) out._focus = { borderColor: focusBorderColor, boxShadow: `0 0 0 1px ${focusBorderColor}` };
+    if (autoFocus) out.autoFocus = autoFocus;
     return out;
 }
 
@@ -110,17 +122,36 @@ const integerInputEqual = equalFor(Input.Types.Integer);
 export type IntegerInputValue = ValueTypeOf<typeof Input.Types.Integer>;
 
 
+/** Map an Input value's `style` sub-struct to `NumberInput.Root` props. The
+ *  numeric figure treatment lives in the `numberInput` recipe; only the
+ *  `dirty` variant and the colour escape hatches pass through. */
+function numberStyleProps(styleOpt: StringInputValue["style"]): Partial<NumberInputRootProps> {
+    const style = getSomeorUndefined(styleOpt);
+    if (!style) return {};
+    const sizeTag = getSomeorUndefined(style.size)?.type;
+    const colour = getSomeorUndefined(style.color);
+    const background = getSomeorUndefined(style.background);
+    const borderColor = getSomeorUndefined(style.borderColor);
+    const focusBorderColor = getSomeorUndefined(style.focusBorderColor);
+    const out: Partial<NumberInputRootProps> = {};
+    if (sizeTag) out.size = sizeTag as NumberInputRootProps["size"];
+    if (colour) out.color = colour;
+    if (background) out.bg = background;
+    if (borderColor) out.borderColor = borderColor;
+    if (focusBorderColor) out._focusWithin = { borderColor: focusBorderColor, boxShadow: `0 0 0 1px ${focusBorderColor}` };
+    return out;
+}
+
 /**
- * Converts an East UI IntegerInput value to Chakra UI Input props.
+ * Converts an East UI IntegerInput value to Chakra UI NumberInput.Root props.
  */
-export function toChakraIntegerInput(value: IntegerInputValue): InputProps {
+export function toChakraIntegerInput(value: IntegerInputValue): NumberInputRootProps {
     return {
-        type: "number",
         value: value.value.toString(),
         min: getSomeorUndefined(value.min) !== undefined ? Number(getSomeorUndefined(value.min)) : undefined,
         max: getSomeorUndefined(value.max) !== undefined ? Number(getSomeorUndefined(value.max)) : undefined,
         step: getSomeorUndefined(value.step) !== undefined ? Number(getSomeorUndefined(value.step)) : 1,
-        ...inputStyleProps(value.style),
+        ...numberStyleProps(value.style),
         disabled: getSomeorUndefined(value.disabled),
     };
 }
@@ -165,8 +196,8 @@ export const EastChakraIntegerInput = memo(function EastChakraIntegerInput({ val
         e.preventDefault();
     }, []);
 
-    const handleChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
-        const raw = e.target.value;
+    const handleValueChange = useCallback((details: { value: string }) => {
+        const raw = details.value;
         // Always update local state so partial inputs ("-", "") render while typing
         setProps(prev => ({ ...prev, value: raw }));
         if (onChangeFn) {
@@ -194,13 +225,17 @@ export const EastChakraIntegerInput = memo(function EastChakraIntegerInput({ val
     }, [onFocusFn]);
 
     return (
-        <ChakraInput
-            {...props}
-            onKeyDown={handleKeyDown}
-            onChange={handleChange}
-            onBlur={handleBlur}
-            onFocus={handleFocus}
-        />
+        <ChakraNumberInput.Root {...props} onValueChange={handleValueChange}>
+            <ChakraNumberInput.Input
+                onKeyDown={handleKeyDown}
+                onBlur={handleBlur}
+                onFocus={handleFocus}
+            />
+            <ChakraNumberInput.Control>
+                <ChakraNumberInput.IncrementTrigger />
+                <ChakraNumberInput.DecrementTrigger />
+            </ChakraNumberInput.Control>
+        </ChakraNumberInput.Root>
     );
 }, (prev, next) => integerInputEqual(prev.value, next.value));
 
@@ -212,21 +247,20 @@ export type FloatInputValue = ValueTypeOf<typeof Input.Types.Float>;
 
 
 /**
- * Converts an East UI FloatInput value to Chakra UI Input props.
+ * Converts an East UI FloatInput value to Chakra UI NumberInput.Root props.
  */
-export function toChakraFloatInput(value: FloatInputValue): InputProps {
+export function toChakraFloatInput(value: FloatInputValue): NumberInputRootProps {
     const precision = getSomeorUndefined(value.precision);
     const displayValue = precision !== undefined
         ? value.value.toFixed(Number(precision))
         : value.value.toString();
 
     return {
-        type: "number",
         value: displayValue,
         min: getSomeorUndefined(value.min),
         max: getSomeorUndefined(value.max),
-        step: getSomeorUndefined(value.step) ?? "any",
-        ...inputStyleProps(value.style),
+        step: getSomeorUndefined(value.step),
+        ...numberStyleProps(value.style),
         disabled: getSomeorUndefined(value.disabled),
     };
 }
@@ -249,8 +283,8 @@ export const EastChakraFloatInput = memo(function EastChakraFloatInput({ value }
         setProps(() => toChakraFloatInput(value));
     }, [value]);
 
-    const handleChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
-        const raw = e.target.value;
+    const handleValueChange = useCallback((details: { value: string }) => {
+        const raw = details.value;
         // Always update local state so partial inputs ("-", ".", "-.") render while typing
         setProps(prev => ({ ...prev, value: raw }));
         if (onChangeFn) {
@@ -276,12 +310,16 @@ export const EastChakraFloatInput = memo(function EastChakraFloatInput({ value }
     }, [onFocusFn]);
 
     return (
-        <ChakraInput
-            {...props}
-            onChange={handleChange}
-            onBlur={handleBlur}
-            onFocus={handleFocus}
-        />
+        <ChakraNumberInput.Root {...props} onValueChange={handleValueChange}>
+            <ChakraNumberInput.Input
+                onBlur={handleBlur}
+                onFocus={handleFocus}
+            />
+            <ChakraNumberInput.Control>
+                <ChakraNumberInput.IncrementTrigger />
+                <ChakraNumberInput.DecrementTrigger />
+            </ChakraNumberInput.Control>
+        </ChakraNumberInput.Root>
     );
 }, (prev, next) => floatInputEqual(prev.value, next.value));
 
@@ -402,27 +440,31 @@ export const EastChakraDateTimeInput = memo(function EastChakraDateTimeInput({ v
     // Render based on precision
     if (props.precision === "time") {
         return (
-            <TimeField value={props.timeValue} onChange={handleTimeChange} isReadOnly={props.disabled}>
-                <TimeInput>
-                    {({ segment }) => <TimeSegment segment={segment} />}
-                </TimeInput>
-            </TimeField>
+            <Box css={dateFieldShell}>
+                <TimeField value={props.timeValue} onChange={handleTimeChange} isReadOnly={props.disabled}>
+                    <TimeInput>
+                        {({ segment }) => <TimeSegment segment={segment} />}
+                    </TimeInput>
+                </TimeField>
+            </Box>
         );
     }
 
     if (props.precision === "date") {
         return (
-            <CompoundDateField value={props.calendarDate} onChange={handleDateChange} isReadOnly={props.disabled}>
-                <CompoundDateInput>
-                    {({ segment }) => <CompoundDateSegment segment={segment} />}
-                </CompoundDateInput>
-            </CompoundDateField>
+            <Box css={dateFieldShell}>
+                <CompoundDateField value={props.calendarDate} onChange={handleDateChange} isReadOnly={props.disabled}>
+                    <CompoundDateInput>
+                        {({ segment }) => <CompoundDateSegment segment={segment} />}
+                    </CompoundDateInput>
+                </CompoundDateField>
+            </Box>
         );
     }
 
     // Default: datetime (both date and time)
     return (
-        <Box display="flex" alignItems="center" gap={2}>
+        <Box css={dateFieldShell}>
             <CompoundDateField value={props.calendarDate} onChange={handleDateChange} isReadOnly={props.disabled}>
                 <CompoundDateInput>
                     {({ segment }) => <CompoundDateSegment segment={segment} />}

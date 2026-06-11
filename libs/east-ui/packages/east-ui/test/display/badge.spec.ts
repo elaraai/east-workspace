@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Badge, Style } from "@elaraai/east-ui";
+import { Badge, Style } from "@elaraai/east-ui/internal";
 import * as ex from "./badge.examples.js";
 
 describeEast("Badge", (test) => {
@@ -16,6 +16,7 @@ describeEast("Badge", (test) => {
         badgeFixedWidth: ex.badgeFixedWidth,
         badgeBorder: ex.badgeBorder,
         badgeBoxModel: ex.badgeBoxModel,
+        badgeDensities: ex.badgeDensities,
     });
 
     // =========================================================================

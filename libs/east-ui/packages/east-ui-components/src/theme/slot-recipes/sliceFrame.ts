@@ -26,7 +26,7 @@ export const sliceFrameSlotRecipe = defineSlotRecipe({
     slots: [
         "root", "header", "eyebrow", "meta", "body", "footer", "footerLabel", "footerAction",
         "frameEyebrow", "frameEyebrowControls", "frameEyebrowMeta",
-        "frameAffordanceLabel", "frameAffordanceIcon", "frameSummary", "frameSummaryItem", "frameCollapseToggle",
+        "frameAffordanceIcon",
         "frameBody", "frameFooter", "frameFooterStat", "frameFooterDelta",
         "searchPill", "searchKbd",
         "legendRail", "legendItem", "legendSwatch", "legendLabel", "legendValue",
@@ -131,59 +131,12 @@ export const sliceFrameSlotRecipe = defineSlotRecipe({
             gap: "{spacing.2}",
             flexShrink: "0",
         },
-        // Affordance block label gutter (stacked rows) — the bsys mono eyebrow
-        // treatment: uppercase, wide tracking, muted, with a fixed icon slot so
-        // labels align across rows.
-        frameAffordanceLabel: {
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "{spacing.2}",
-            width: "104px",
-            flexShrink: "0",
-            fontFamily: "mono",
-            fontSize: "11px",
-            fontWeight: "medium",
-            letterSpacing: "0.12em",
-            textTransform: "uppercase",
-            color: "fg.muted",
-            lineHeight: "1",
-        },
         frameAffordanceIcon: {
             width: "14px",
             display: "inline-flex",
             justifyContent: "center",
             flexShrink: "0",
             color: "fg.subtle",
-        },
-        // Collapsed eyebrow summary — a mono readout of the active narrowing.
-        frameSummary: {
-            display: "flex",
-            flexWrap: "wrap",
-            alignItems: "center",
-            gap: "{spacing.4}",
-            minHeight: "28px",
-            fontFamily: "mono",
-            fontSize: "11px",
-            letterSpacing: "0.04em",
-            color: "fg.muted",
-        },
-        frameSummaryItem: {
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "{spacing.1.5}",
-            color: "fg",
-        },
-        frameCollapseToggle: {
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-            width: "22px",
-            height: "22px",
-            flexShrink: "0",
-            borderRadius: "{radii.sm}",
-            color: "fg.muted",
-            cursor: "pointer",
-            _hover: { background: "bg.subtle", color: "fg" },
         },
         frameBody: {
             // The consumer renders here; the frame supplies no padding so the

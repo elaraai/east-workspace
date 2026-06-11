@@ -13,10 +13,13 @@ real `ts.Program`, so they are type-aware, not regex heuristics.
 
 ## Features
 
-- **Shared rule set** - One engine, `runEastRules(ts, sourceFile, checker)`, reused across every surface.
+- **Shared rule set** - One engine, `runEastRules(ts, program, sourceFile, checker)`, reused across every surface.
 - **Type-aware** - Rules consult the TypeScript checker (e.g. resolving `BlockBuilder`, variant contextual types).
 - **No bundled compiler** - `typescript` is a peer dependency; the host's version is injected.
-- **Diagnostics service** - `createDiagnosticsService()` resolves the nearest tsconfig, holds a warm `LanguageService`, and merges native type errors with the East rules for a file.
+- **Diagnostics service** - `createDiagnosticsService()` resolves the nearest tsconfig, holds a warm `LanguageService`, and merges native type errors with the East rules for a file. Supports in-memory overlays for unsaved buffers.
+- **Readable East type errors** - native TS assignability errors on East types are rewritten via east's structural type diff (`diffTypes`), so a mismatch deep inside a recursive type reads as one localized line instead of pages of restated generics. The project's own `@elaraai/east` is resolved at runtime, so the diff always matches the project's type semantics.
+- **LSP server** - `runEastLsp()` serves the same diagnostics over the Language Server Protocol (stdio, zero dependencies), usable by Claude Code plugin `lspServers`, Neovim, or any LSP client.
+- **tsserver plugin** - the `@elaraai/east-diagnostics/tsserver-plugin` entry decorates the editor's existing TypeScript language service (no second program), shipped to VS Code via the East UI Preview extension's `typescriptServerPlugins` contribution.
 
 ## Rules
 
@@ -29,6 +32,9 @@ real `ts.Program`, so they are type-aware, not regex heuristics.
 - **`no-relative-src-import`** - Importing `../src/…` instead of the published package name.
 - **`no-let-const-in-expression`** - Using `$.let`/`$.const` inline in an expression instead of binding to a `const`.
 - **`no-unexecuted-east-expression`** - A bare East expression statement that is never executed with `$( … )` or bound.
+- **`no-reinlined-east-binding`** - An East `Expr` bound to a JS `const`/`let` and reused inside a block is re-inlined per use — bind it once with `$.let`/`$.const`.
+- **`no-east-data-builder-helper`** - A TS helper whose only job is to return a hand-built East value — inline it or make it a real `East.function`.
+- **`prefer-jsx-over-factory-call`** - In a `.tsx` file, a factory's `Foo.Root(...)` whose result is a JSX element — author it with the `<Foo>` tag instead.
 
 ## Usage
 
@@ -36,8 +42,8 @@ real `ts.Program`, so they are type-aware, not regex heuristics.
 import * as ts from "typescript";
 import { runEastRules, createDiagnosticsService } from "@elaraai/east-diagnostics";
 
-// Pure: run the rules over one source file you already have a checker for.
-const diagnostics = runEastRules(ts, sourceFile, checker, { disabled: ["prefer-some-none"] });
+// Pure: run the rules over one source file you already have a program + checker for.
+const diagnostics = runEastRules(ts, program, sourceFile, checker, { disabled: ["prefer-some-none"] });
 
 // Or let the service resolve the project and merge native + rule diagnostics.
 const service = createDiagnosticsService();

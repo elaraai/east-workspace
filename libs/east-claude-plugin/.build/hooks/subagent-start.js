@@ -18,7 +18,7 @@ function writeHookOutput(hookEventName, additionalContext) {
 
 // lib/east-project.ts
 import { readFile } from "node:fs/promises";
-import { join, dirname } from "node:path";
+import { join, dirname, resolve } from "node:path";
 var PACKAGE_SKILL_MAP = {
   "@elaraai/east": "east",
   "@elaraai/east-node-std": "east-node-std",

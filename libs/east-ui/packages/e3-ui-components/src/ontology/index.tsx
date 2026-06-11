@@ -36,7 +36,7 @@ import xyflowCss from '@xyflow/react/dist/style.css?inline';
 import { Box, HStack, Input, Menu, Portal, Text } from '@chakra-ui/react';
 import { FiSearch, FiX } from 'react-icons/fi';
 import { none, some, variant, type ValueTypeOf } from '@elaraai/east';
-import { Ontology } from '@elaraai/e3-ui';
+import { Ontology } from '@elaraai/e3-ui/internal';
 import { implementUIComponent } from '@elaraai/east-ui-components';
 
 import { OntologyNode, type OntologyFlowNodeData } from './OntologyNode.js';

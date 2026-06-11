@@ -6,7 +6,7 @@
 import { memo, useMemo, useCallback } from "react";
 import { CloseButton as ChakraCloseButton, type CloseButtonProps } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { CloseButton } from "@elaraai/east-ui";
+import { CloseButton } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 
 const closeButtonEqual = equalFor(CloseButton.Types.CloseButton);

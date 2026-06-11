@@ -98,7 +98,9 @@ function createButtonGroup(
     buttons: SubtypeExprOrValue<ArrayType<UIComponentType>>,
     options?: ButtonGroupOptions,
 ): ExprType<UIComponentType> {
-    const styleValue = options?.style ? buildButtonGroupStyle(options.style) : undefined;
+    const styleValue = options && Object.values(options).some(field => field !== undefined)
+        ? buildButtonGroupStyle(options)
+        : undefined;
 
     return East.value(variant("ButtonGroup", {
         buttons,

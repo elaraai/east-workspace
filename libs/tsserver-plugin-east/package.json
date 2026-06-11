@@ -1,0 +1,31 @@
+{
+  "name": "@elaraai/tsserver-plugin-east",
+  "version": "1.0.4",
+  "license": "AGPL-3.0-or-later",
+  "description": "TypeScript language service plugin for East — East idiom diagnostics and localized East type-diff error messages as native editor squiggles.",
+  "main": "dist/index.cjs",
+  "files": ["dist", "README.md", "LICENSE.md"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/elaraai/east-workspace.git",
+    "directory": "libs/tsserver-plugin-east"
+  },
+  "keywords": ["east", "elara", "typescript", "tsserver", "language-service", "plugin"],
+  "author": "Elara AI Pty Ltd",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "npm run build && node --test-reporter=spec --test 'test/**/*.test.mjs'"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "peerDependencies": {
+    "typescript": ">=5.0.0"
+  },
+  "devDependencies": {
+    "@elaraai/east": "workspace:*",
+    "@elaraai/east-diagnostics": "workspace:*",
+    "esbuild": "^0.27.3",
+    "typescript": "~5.9.2"
+  }
+}

@@ -3,7 +3,7 @@ import { readFile as readFile2 } from "node:fs/promises";
 import { existsSync as existsSync2, writeFileSync } from "node:fs";
 import { createHash as createHash2 } from "node:crypto";
 import { tmpdir as tmpdir2 } from "node:os";
-import { join as join3, dirname as dirname3, resolve as resolve2 } from "node:path";
+import { join as join3, dirname as dirname3, resolve as resolve3 } from "node:path";
 
 // lib/hook-io.ts
 async function readHookInput() {
@@ -25,7 +25,7 @@ function writeHookOutput(hookEventName, additionalContext) {
 
 // lib/east-project.ts
 import { readFile } from "node:fs/promises";
-import { join, dirname } from "node:path";
+import { join, dirname, resolve } from "node:path";
 var PACKAGE_SKILL_MAP = {
   "@elaraai/east": "east",
   "@elaraai/east-node-std": "east-node-std",
@@ -44,6 +44,22 @@ async function findPackageJson(startDir) {
     } catch {
       const parent = dirname(dir);
       if (parent === dir) return null;
+      dir = parent;
+    }
+  }
+}
+async function isElaraaiPackageSrc(filePath) {
+  const file = resolve(filePath);
+  let dir = dirname(file);
+  for (; ; ) {
+    try {
+      const content = await readFile(join(dir, "package.json"), "utf-8");
+      const { name } = JSON.parse(content);
+      if (typeof name !== "string" || !name.startsWith("@elaraai/")) return false;
+      return /[/\\]src[/\\]/.test(file.slice(dir.length));
+    } catch {
+      const parent = dirname(dir);
+      if (parent === dir) return false;
       dir = parent;
     }
   }
@@ -74,14 +90,14 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { existsSync, unlinkSync } from "node:fs";
-import { dirname as dirname2, join as join2, resolve } from "node:path";
+import { dirname as dirname2, join as join2, resolve as resolve2 } from "node:path";
 import { fileURLToPath } from "node:url";
 function daemonSocket() {
   const hash = createHash("sha1").update(daemonEntry()).digest("hex").slice(0, 16);
   return join2(tmpdir(), `east-diag-${hash}.sock`);
 }
 function daemonEntry() {
-  return resolve(dirname2(fileURLToPath(import.meta.url)), "..", "daemon", "server.js");
+  return resolve2(dirname2(fileURLToPath(import.meta.url)), "..", "daemon", "server.js");
 }
 function tryRequest(socketPath, file, timeoutMs) {
   return new Promise((resolveResult) => {
@@ -160,6 +176,7 @@ async function main() {
   if (!filePath.endsWith(".ts") && !filePath.endsWith(".tsx") && !filePath.endsWith(".js")) {
     process.exit(0);
   }
+  if (await isElaraaiPackageSrc(filePath)) process.exit(0);
   let content;
   try {
     content = await readFile2(filePath, "utf-8");
@@ -168,7 +185,7 @@ async function main() {
     return;
   }
   if (!EAST_IMPORT_PATTERN.test(content)) process.exit(0);
-  const projectDir = dirname3(resolve2(filePath));
+  const projectDir = dirname3(resolve3(filePath));
   const { isEast } = await getEastProjectInfo(projectDir);
   if (!isEast) process.exit(0);
   const key = createHash2("sha1").update(`${event.session_id}\0${filePath}\0`).update(content).digest("hex").slice(0, 20);

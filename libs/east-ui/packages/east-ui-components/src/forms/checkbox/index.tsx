@@ -6,7 +6,7 @@
 import { memo, useMemo, useCallback, useState, useEffect } from "react";
 import { Checkbox as ChakraCheckbox, type CheckboxCheckedChangeDetails, type CheckboxRootProps } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Checkbox } from "@elaraai/east-ui";
+import { Checkbox } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 
 // Pre-define equality function at module level

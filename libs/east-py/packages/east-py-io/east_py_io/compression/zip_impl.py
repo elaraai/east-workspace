@@ -2,9 +2,12 @@
 # Copyright (c) 2025 Elara AI Pty Ltd
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
-"""Zip platform functions for East.
+"""ZIP archive platform functions for East.
 
-Provides zip archive creation and extraction for East programs.
+The ``*_impl`` functions are plain Python callables taking and returning East
+values - import them directly from a project's own ``@platform_function`` to
+reuse the implementations without an IR round-trip. The East type definitions
+are re-exported from ``east_py_io.compression``.
 """
 
 import io
@@ -26,21 +29,33 @@ def zip_compress_impl(
     entries: EastArray,
     options: EastStruct,
 ) -> EastBlob:
-    """Compress files into a zip archive.
+    """Compress an array of named files into a ZIP archive.
 
     Args:
-        entries: Array of {name, data} entries to compress
-        options: Compression options with optional level (0-9)
+        entries: ``Array<ZipEntryType>`` (``EastArray``) - each element
+            is an ``EastStruct`` with fields:
+
+            - ``name`` (``String``): path/filename stored inside the
+              archive; must not be empty.
+            - ``data`` (``Blob``): uncompressed file content.
+
+        options: ``ZipOptionsType`` (``EastStruct``) with fields:
+
+            - ``level`` (``Option<Integer>``): compression level 0-9;
+              0 = store only (``ZIP_STORED``), 1-9 = deflate with the
+              given level (default 6).
 
     Returns:
-        Compressed zip archive as blob
+        ``Blob`` (``EastBlob``) - the ZIP archive bytes.
+
+    Raises:
+        RuntimeError: ``level`` is outside 0-9, any entry has an empty
+            ``name``, or archive creation fails.
     """
     try:
-        # Extract compression level (default to 6)
         level_opt = options["level"]
         level = int(level_opt.value) if level_opt.type == "some" else 6
 
-        # Validate level
         if level < 0 or level > 9:
             raise Exception(f"Invalid compression level: {level}. Must be 0-9.")
 
@@ -55,7 +70,6 @@ def zip_compress_impl(
                 if not name or len(name) == 0:
                     raise Exception("File name cannot be empty")
 
-                # Write entry to zip
                 zf.writestr(name, bytes(data))
 
         return EastBlob(output.getvalue())
@@ -69,20 +83,25 @@ def zip_compress_impl(
     output=ZipExtractedType,
 )
 def zip_decompress_impl(data: EastBlob) -> EastDict:
-    """Decompress a zip archive.
+    """Extract all files from a ZIP archive.
 
     Args:
-        data: Compressed zip archive blob
+        data: ``Blob`` (``EastBlob``) - the ZIP archive to extract.
 
     Returns:
-        Dict mapping file names to their uncompressed data
+        ``Dict<String, Blob>`` (``EastDict``) mapping each filename (as
+        stored in the archive) to its uncompressed content. Directory
+        entries (names ending in ``/``) are omitted.
+
+    Raises:
+        RuntimeError: ``data`` is not a valid ZIP archive or extraction
+            fails.
     """
     try:
         result: EastDict = EastDict(StringType, BlobType)
 
         with zipfile.ZipFile(io.BytesIO(bytes(data)), "r") as zf:
             for name in zf.namelist():
-                # Skip directories
                 if not name.endswith("/"):
                     content = zf.read(name)
                     result[name] = EastBlob(content)

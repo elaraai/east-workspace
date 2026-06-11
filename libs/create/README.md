@@ -10,6 +10,19 @@ npm create @elaraai/east my-project    # AGPL-3.0 · Node-only
 Pass `.` to scaffold into the current directory, or `-- --install` to install
 dependencies as part of scaffolding.
 
+Run interactively, `npm create @elaraai/e3` prompts for what to include:
+
+- **Tests** — `src/index.spec.ts` and the `test` scripts (default: yes).
+- **UI** — `east-ui` + `e3-ui` and a `ui()` decision surface in `src/surface.tsx`
+  (default: no).
+- **Runners** — which East runtimes to wire in: `east-node`, `east-c`, `east-py`
+  (default: all three; dropping `east-py` removes the Python project, tests, and
+  `uv` steps).
+
+Each is also a flag for non-interactive / CI use: `--tests`/`--no-tests`,
+`--ui`/`--no-ui`, `--runners=east-node,east-c,east-py`. Passing any of them skips
+the prompts.
+
 ## Layout
 
 | Package | Published | Purpose |

@@ -47,6 +47,15 @@ PyMCPriorDistributionType = VariantType(
         ("horseshoe", NullType),
     ]
 )
+"""Prior distribution family for a coefficient parameter.
+
+Cases: ``halfnormal`` (half-normal, non-negative coefficients),
+``lognormal`` (log-normal, strictly positive), ``normal`` (symmetric,
+uses ``mu`` + ``sigma``), ``halfcauchy`` (heavy-tailed scale prior, uses
+``sigma`` as beta), ``exponential`` (uses ``tau`` as rate lambda),
+``uniform`` (bounded, uses ``lower`` + ``upper``), ``horseshoe``
+(regularising horseshoe, encourages sparsity).
+"""
 
 PyMCLikelihoodType = VariantType(
     [
@@ -55,6 +64,12 @@ PyMCLikelihoodType = VariantType(
         ("poisson", NullType),
     ]
 )
+"""Observation likelihood distribution.
+
+Cases: ``normal`` (default - Gaussian noise with ``HalfNormal`` sigma),
+``studentt`` (robust to outliers - adds ``nu`` and ``sigma`` nuisance
+parameters), ``poisson`` (count data - ``mu`` clipped to positive).
+"""
 
 PyMCPoolingType = VariantType(
     [
@@ -63,6 +78,13 @@ PyMCPoolingType = VariantType(
         ("full", NullType),
     ]
 )
+"""Group-level pooling strategy for hierarchical models.
+
+Cases: ``none`` (independent per-group coefficients, no information
+sharing), ``partial`` (default - partial pooling via Normal hyperpriors on
+shared mean and scale), ``full`` (all groups share a single coefficient
+matrix).
+"""
 
 PyMCPriorParamsType = StructType(
     [
@@ -73,6 +95,14 @@ PyMCPriorParamsType = StructType(
         ("upper", OptionType(FloatType)),
     ]
 )
+"""Hyperparameters for a prior distribution.
+
+Fields: ``mu`` (location matrix, scalar ``[1×1]`` used; default 0.0),
+``sigma`` (scale matrix, scalar ``[1×1]`` used; default 1.0; serves as
+``beta`` for ``halfcauchy``), ``tau`` (rate used as ``lam`` for
+``exponential``; default 1.0), ``lower`` (lower bound for ``uniform``;
+default -10.0), ``upper`` (upper bound for ``uniform``; default 10.0).
+"""
 
 PyMCPriorSpecType = StructType(
     [
@@ -80,6 +110,11 @@ PyMCPriorSpecType = StructType(
         ("params", PyMCPriorParamsType),
     ]
 )
+"""Full prior specification: distribution family plus its hyperparameters.
+
+Fields: ``distribution`` (``PyMCPriorDistributionType`` - which family),
+``params`` (``PyMCPriorParamsType`` - the hyperparameter values).
+"""
 
 PyMCRegressionConfigType = StructType(
     [
@@ -92,6 +127,15 @@ PyMCRegressionConfigType = StructType(
         ("target_accept", OptionType(FloatType)),
     ]
 )
+"""Configuration for Bayesian linear regression training.
+
+Fields: ``prior`` (coefficient prior; default ``Normal(0, 10)``),
+``likelihood`` (observation model; default ``normal``),
+``include_intercept`` (fit per-target intercept; default ``true``),
+``samples`` (posterior draws; default 1000), ``tune`` (NUTS warm-up steps;
+default 1000), ``chains`` (parallel chains; default 2),
+``target_accept`` (NUTS step-size target; default 0.8).
+"""
 
 PyMCHierarchicalConfigType = StructType(
     [
@@ -104,6 +148,15 @@ PyMCHierarchicalConfigType = StructType(
         ("target_accept", OptionType(FloatType)),
     ]
 )
+"""Configuration for hierarchical Bayesian model training.
+
+Fields: ``prior`` (group-level coefficient prior; ignored for ``partial``
+pooling which always uses ``Normal(0,10)`` / ``HalfNormal(5)``
+hyperpriors; default ``Normal(0, 10)``), ``likelihood`` (default
+``normal``), ``pooling`` (default ``partial``), ``samples`` (default
+1000), ``tune`` (default 1000), ``chains`` (default 2),
+``target_accept`` (default 0.8).
+"""
 
 PyMCLayerSpecType = StructType(
     [
@@ -114,6 +167,15 @@ PyMCLayerSpecType = StructType(
         ("likelihood", OptionType(PyMCLikelihoodType)),
     ]
 )
+"""Specification for a single layer in a multi-layer joint model.
+
+Fields: ``name`` (identifier used for the likelihood node in the PyMC
+model), ``input`` (key into the named-data array for the feature matrix),
+``output`` (key into the named-data array for the target matrix),
+``parameter`` (name of the coefficient variable - used to look up priors
+and masks), ``likelihood`` (per-layer observation model; default
+``normal``).
+"""
 
 PyMCNamedPriorType = StructType(
     [
@@ -121,6 +183,11 @@ PyMCNamedPriorType = StructType(
         ("prior", PyMCPriorSpecType),
     ]
 )
+"""A prior specification keyed by parameter name.
+
+Fields: ``name`` (matches a ``parameter`` field in ``PyMCLayerSpecType``),
+``prior`` (``PyMCPriorSpecType`` - distribution + hyperparameters).
+"""
 
 PyMCNamedMaskType = StructType(
     [
@@ -128,6 +195,13 @@ PyMCNamedMaskType = StructType(
         ("mask", MatrixType(BooleanType)),
     ]
 )
+"""A binary coefficient mask keyed by parameter name.
+
+Fields: ``name`` (matches a ``parameter`` field in ``PyMCLayerSpecType``),
+``mask`` (``Matrix<Boolean>`` of shape ``(n_features, n_targets)``
+element-wise multiplied onto the coefficient matrix before the dot
+product - use to enforce structural zeros).
+"""
 
 PyMCMultiLayerConfigType = StructType(
     [
@@ -142,6 +216,17 @@ PyMCMultiLayerConfigType = StructType(
         ("fallback_l1_alpha", OptionType(FloatType)),
     ]
 )
+"""Configuration for multi-layer joint Bayesian estimation.
+
+Fields: ``layers`` (ordered list of ``PyMCLayerSpecType``), ``priors``
+(per-parameter prior overrides; unmatched parameters default to
+``Normal(0, 10)``), ``masks`` (per-parameter structural zero masks),
+``samples`` (default 1000), ``tune`` (default 1000), ``chains`` (default
+2), ``target_accept`` (default 0.8), ``force_full_mcmc`` (disable the
+``MultiTaskLasso`` fallback for models with more than 10 000 parameters;
+default ``false``), ``fallback_l1_alpha`` (L1 regularisation strength when
+the fallback triggers; default 0.01).
+"""
 
 PyMCNamedDataType = StructType(
     [
@@ -149,6 +234,12 @@ PyMCNamedDataType = StructType(
         ("data", MatrixType(FloatType)),
     ]
 )
+"""A named data matrix for use as a multi-layer input or output.
+
+Fields: ``name`` (referenced by ``PyMCLayerSpecType.input`` /
+``PyMCLayerSpecType.output``), ``data`` (``Matrix<Float>`` - the actual
+feature or target matrix).
+"""
 
 PyMCPredictConfigType = StructType(
     [
@@ -156,6 +247,12 @@ PyMCPredictConfigType = StructType(
         ("n_samples", OptionType(IntegerType)),
     ]
 )
+"""Configuration for posterior prediction and distribution sampling.
+
+Fields: ``layer`` (multi-layer only - name of the layer whose coefficient
+is used for prediction; defaults to the first layer), ``n_samples``
+(number of posterior draws to average or return; default 100).
+"""
 
 PyMCParameterEstimateType = StructType(
     [
@@ -170,6 +267,15 @@ PyMCParameterEstimateType = StructType(
         ("ess", FloatType),
     ]
 )
+"""Posterior summary for one element of a parameter matrix.
+
+Fields: ``index_row`` / ``index_col`` (zero-based element position),
+``mean`` (posterior mean), ``median`` (posterior median), ``sd`` (posterior
+standard deviation), ``ci_lower`` / ``ci_upper`` (2.5th and 97.5th
+percentile credible interval), ``rhat`` (Gelman-Rubin convergence
+statistic - values near 1.0 indicate convergence), ``ess`` (effective
+sample size).
+"""
 
 PyMCParameterSummaryType = StructType(
     [
@@ -179,6 +285,13 @@ PyMCParameterSummaryType = StructType(
         ("estimates", ArrayType(PyMCParameterEstimateType)),
     ]
 )
+"""Full posterior summary for a named parameter.
+
+Fields: ``parameter`` (variable name in the PyMC model), ``shape_rows`` /
+``shape_cols`` (matrix dimensions of the parameter), ``estimates``
+(``Array<PyMCParameterEstimateType>`` - one entry per element in
+row-major order).
+"""
 
 PyMCParameterDiagType = StructType(
     [
@@ -188,6 +301,14 @@ PyMCParameterDiagType = StructType(
         ("n_divergent", IntegerType),
     ]
 )
+"""Convergence diagnostics summary for a single parameter.
+
+Fields: ``parameter`` (variable name), ``rhat_max`` (maximum R-hat across
+all elements - values above 1.1 indicate poor convergence), ``ess_min``
+(minimum effective sample size across all elements), ``n_divergent``
+(total divergent NUTS transitions for the model - same across all
+parameters in a result).
+"""
 
 PyMCDiagnosticsResultType = StructType(
     [
@@ -197,6 +318,15 @@ PyMCDiagnosticsResultType = StructType(
         ("warnings", ArrayType(StringType)),
     ]
 )
+"""MCMC convergence diagnostic report for a trained model.
+
+Fields: ``converged`` (``true`` when all R-hat < 1.1 and no divergent
+transitions), ``n_divergences`` (total divergent NUTS transitions across
+all chains), ``parameters`` (``Array<PyMCParameterDiagType>`` - per-parameter
+diagnostics), ``warnings`` (human-readable messages for each non-converged
+parameter and for divergences; L1-fallback models return a single
+informational warning).
+"""
 
 PyMCObservedFitType = StructType(
     [
@@ -206,6 +336,14 @@ PyMCObservedFitType = StructType(
         ("coverage_95", FloatType),
     ]
 )
+"""Posterior predictive fit metrics for one target column.
+
+Fields: ``name`` (``"target_<t>"`` where ``t`` is the zero-based column
+index), ``mae`` (mean absolute error of the posterior mean prediction),
+``correlation`` (Pearson correlation between posterior mean and observed),
+``coverage_95`` (fraction of observed values falling inside the 2.5–97.5
+posterior predictive interval).
+"""
 
 PyMCModelBlobType = VariantType(
     [
@@ -243,6 +381,20 @@ PyMCModelBlobType = VariantType(
         ),
     ]
 )
+"""Serialised model blob produced by the PyMC train functions.
+
+Cases:
+- ``pymc_regression`` - Bayesian linear regression blob:
+  ``data`` (cloudpickled ``InferenceData``), ``n_features``,
+  ``n_targets``, ``include_intercept``.
+- ``pymc_hierarchical`` - hierarchical model blob:
+  ``data`` (cloudpickled ``InferenceData``), ``n_features``,
+  ``n_targets``, ``n_groups`` (distinct group count after remapping).
+- ``pymc_multi_layer`` - multi-layer joint model blob:
+  ``data`` (cloudpickled ``InferenceData`` or L1 point-estimate
+  coefficients), ``layer_names``, ``parameter_names``
+  (``Array<String>`` - ordered lists from the layer specs).
+"""
 
 
 # ============================================================================
@@ -366,11 +518,55 @@ def _get_mcmc_config(config):
     output=PyMCModelBlobType,
 )
 def pymc_train_regression_impl(
-    X: EastArray,
-    Y: EastArray,
+    X: EastMatrix,
+    Y: EastMatrix,
     config: EastStruct,
 ) -> EastVariant:
-    """Train a Bayesian linear regression model."""
+    """Fit a Bayesian linear regression model with NUTS sampling.
+
+    Builds a PyMC model with a configurable coefficient prior and likelihood,
+    samples the posterior with NUTS, and serialises the inference data into a
+    ``pymc_regression`` blob for downstream prediction and diagnostics.
+
+    Args:
+        X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix,
+            shape ``(n_samples, n_features)``.
+        Y: ``Matrix<Float>`` (``EastMatrix``) - target matrix,
+            shape ``(n_samples, n_targets)``.
+        config: ``PyMCRegressionConfigType`` (``EastStruct``) with fields:
+
+            - ``prior`` (``Option<PyMCPriorSpecType>``): coefficient prior;
+              defaults to ``Normal(mu=0, sigma=10)`` when absent. Each spec has:
+
+              - ``distribution`` (``PyMCPriorDistributionType``): one of
+                ``normal``, ``halfnormal``, ``lognormal``, ``halfcauchy``,
+                ``exponential``, ``uniform``, ``horseshoe``.
+              - ``params`` (``PyMCPriorParamsType``): ``mu``
+                (``Option<Matrix<Float>>``), ``sigma``
+                (``Option<Matrix<Float>>``), ``tau`` (``Option<Float>``),
+                ``lower`` / ``upper`` (``Option<Float>``).
+
+            - ``likelihood`` (``Option<PyMCLikelihoodType>``): one of
+              ``normal`` (default), ``studentt``, ``poisson``.
+            - ``include_intercept`` (``Option<Boolean>``): fit a per-target
+              intercept term (default ``True``).
+            - ``samples`` (``Option<Integer>``): posterior draws (default 1000).
+            - ``tune`` (``Option<Integer>``): warm-up steps (default 1000).
+            - ``chains`` (``Option<Integer>``): parallel MCMC chains
+              (default 2).
+            - ``target_accept`` (``Option<Float>``): NUTS step-size target
+              (default 0.8).
+
+    Returns:
+        ``PyMCModelBlobType`` (``EastVariant`` tagged ``pymc_regression``):
+        ``{data: Blob (cloudpickle), n_features: Integer, n_targets: Integer,
+        include_intercept: Boolean}``.
+
+    Raises:
+        NotImplementedError: the ``pymc`` extra is not installed.
+        RuntimeError: ``X`` and ``Y`` have different row counts or sampling
+            fails.
+    """
     _check_pymc_support()
     import pymc as pm
 
@@ -445,12 +641,53 @@ def pymc_train_regression_impl(
     output=PyMCModelBlobType,
 )
 def pymc_train_hierarchical_impl(
-    X: EastArray,
-    Y: EastArray,
+    X: EastMatrix,
+    Y: EastMatrix,
     groups: EastArray,
     config: EastStruct,
 ) -> EastVariant:
-    """Train a hierarchical Bayesian model."""
+    """Fit a hierarchical Bayesian model with group-level pooling.
+
+    Supports three pooling modes: ``full`` (single shared coefficient),
+    ``none`` (independent per-group coefficients), and ``partial`` (partial
+    pooling via Normal hyperpriors on a shared mean and scale).
+
+    Args:
+        X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix,
+            shape ``(n_samples, n_features)``.
+        Y: ``Matrix<Float>`` (``EastMatrix``) - target matrix,
+            shape ``(n_samples, n_targets)``.
+        groups: ``Vector<Integer>`` (``EastArray``) - integer group label per
+            row; remapped to ``0..n_groups-1`` internally.
+        config: ``PyMCHierarchicalConfigType`` (``EastStruct``) with fields:
+
+            - ``prior`` (``Option<PyMCPriorSpecType>``): coefficient prior
+              applied at the group level; defaults to
+              ``Normal(mu=0, sigma=10)``. See
+              :func:`pymc_train_regression_impl` for the full prior spec.
+              Ignored for ``partial`` pooling (hyperpriors are always
+              ``Normal(0, 10)`` / ``HalfNormal(5)``).
+            - ``likelihood`` (``Option<PyMCLikelihoodType>``): one of
+              ``normal`` (default), ``studentt``, ``poisson``.
+            - ``pooling`` (``Option<PyMCPoolingType>``): ``none``,
+              ``partial`` (default), or ``full``.
+            - ``samples`` (``Option<Integer>``): posterior draws (default 1000).
+            - ``tune`` (``Option<Integer>``): warm-up steps (default 1000).
+            - ``chains`` (``Option<Integer>``): parallel MCMC chains
+              (default 2).
+            - ``target_accept`` (``Option<Float>``): NUTS step-size target
+              (default 0.8).
+
+    Returns:
+        ``PyMCModelBlobType`` (``EastVariant`` tagged ``pymc_hierarchical``):
+        ``{data: Blob (cloudpickle), n_features: Integer, n_targets: Integer,
+        n_groups: Integer}``.
+
+    Raises:
+        NotImplementedError: the ``pymc`` extra is not installed.
+        RuntimeError: row-count mismatches between ``X``, ``Y``, and
+            ``groups``, or sampling fails.
+    """
     _check_pymc_support()
     import pymc as pm
 
@@ -558,7 +795,62 @@ def pymc_train_multi_layer_impl(
     data: EastArray,
     config: EastStruct,
 ) -> EastVariant:
-    """Train a multi-layer joint estimation model."""
+    """Fit a multi-layer joint Bayesian estimation model.
+
+    Builds one linear sub-model per layer spec (``input -> output`` via a
+    named coefficient matrix), assigns per-parameter priors and optional
+    binary masks, then jointly samples all layers. Falls back to
+    ``MultiTaskLasso`` when the total parameter count exceeds 10 000 and
+    ``force_full_mcmc`` is not set.
+
+    Args:
+        data: ``Array<PyMCNamedDataType>`` (``EastArray``) - list of
+            ``{name: String, data: Matrix<Float>}`` structs; each layer
+            spec's ``input`` and ``output`` fields reference names from this
+            list.
+        config: ``PyMCMultiLayerConfigType`` (``EastStruct``) with fields:
+
+            - ``layers`` (``Array<PyMCLayerSpecType>``): ordered list of
+              layer specs. Each spec has:
+
+              - ``name`` (``String``): identifier used for the likelihood node.
+              - ``input`` (``String``): key in ``data`` for the feature matrix.
+              - ``output`` (``String``): key in ``data`` for the target matrix.
+              - ``parameter`` (``String``): name of the coefficient variable in
+                the model (used to look up priors and masks).
+              - ``likelihood`` (``Option<PyMCLikelihoodType>``): per-layer
+                likelihood (defaults to ``normal``).
+
+            - ``priors`` (``Option<Array<PyMCNamedPriorType>>``): list of
+              ``{name: String, prior: PyMCPriorSpecType}``; matched to layer
+              parameters by name. Missing entries use
+              ``Normal(mu=0, sigma=10)``.
+            - ``masks`` (``Option<Array<PyMCNamedMaskType>>``): list of
+              ``{name: String, mask: Matrix<Boolean>}``; element-wise
+              multiplied onto the coefficient matrix before the dot product.
+            - ``samples`` (``Option<Integer>``): posterior draws (default 1000).
+            - ``tune`` (``Option<Integer>``): warm-up steps (default 1000).
+            - ``chains`` (``Option<Integer>``): parallel MCMC chains
+              (default 2).
+            - ``target_accept`` (``Option<Float>``): NUTS step-size target
+              (default 0.8).
+            - ``force_full_mcmc`` (``Option<Boolean>``): disable the L1
+              fallback even for large models (default ``False``).
+            - ``fallback_l1_alpha`` (``Option<Float>``): ``MultiTaskLasso``
+              regularisation strength used when the L1 fallback triggers
+              (default 0.01).
+
+    Returns:
+        ``PyMCModelBlobType`` (``EastVariant`` tagged ``pymc_multi_layer``):
+        ``{data: Blob (cloudpickle), layer_names: Array<String>,
+        parameter_names: Array<String>}``. The blob encodes either a
+        full MCMC ``InferenceData`` or L1 point-estimate coefficients.
+
+    Raises:
+        NotImplementedError: the ``pymc`` extra is not installed.
+        RuntimeError: a layer's ``input`` or ``output`` name is missing from
+            ``data``, or sampling / L1 fitting fails.
+    """
     _check_pymc_support()
     import pymc as pm
 
@@ -686,10 +978,41 @@ def pymc_train_multi_layer_impl(
 )
 def pymc_predict_impl(
     model_blob: EastVariant,
-    X: EastArray,
+    X: EastMatrix,
     config: EastStruct,
-) -> EastArray:
-    """Make point predictions (posterior mean)."""
+) -> EastMatrix:
+    """Predict using the posterior mean of a trained PyMC model.
+
+    Draws up to ``n_samples`` posterior parameter samples, computes
+    per-draw predictions, and returns their mean. For hierarchical models
+    with ``none`` or ``partial`` pooling, group-level coefficients are
+    averaged across groups before prediction.
+
+    For multi-layer models, ``layer`` selects which layer's coefficient
+    matrix to use (defaults to the first layer).
+
+    Args:
+        model_blob: ``PyMCModelBlobType`` (``EastVariant``) from
+            :func:`pymc_train_regression_impl`,
+            :func:`pymc_train_hierarchical_impl`, or
+            :func:`pymc_train_multi_layer_impl`.
+        X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix,
+            shape ``(n_obs, n_features)``.
+        config: ``PyMCPredictConfigType`` (``EastStruct``) with fields:
+
+            - ``layer`` (``Option<String>``): multi-layer only - name of
+              the layer to predict with (defaults to first layer).
+            - ``n_samples`` (``Option<Integer>``): number of posterior
+              draws to average over (default 100).
+
+    Returns:
+        ``Matrix<Float>`` (``EastMatrix``) - posterior mean predictions,
+        shape ``(n_obs, n_targets)``.
+
+    Raises:
+        NotImplementedError: the ``pymc`` extra is not installed.
+        RuntimeError: named ``layer`` not found in a multi-layer model.
+    """
     _check_pymc_support()
 
     model_data = _deserialize_model(model_blob.value["data"])
@@ -787,10 +1110,37 @@ def pymc_predict_impl(
 )
 def pymc_predict_distribution_impl(
     model_blob: EastVariant,
-    X: EastArray,
+    X: EastMatrix,
     config: EastStruct,
-) -> EastArray:
-    """Make predictions returning full posterior distribution samples."""
+) -> EastMatrix:
+    """Return the full posterior predictive distribution as a sample matrix.
+
+    Unlike :func:`pymc_predict_impl`, this function does not average across
+    draws. Each row in the output corresponds to one posterior sample. Target
+    dimensions are flattened into columns so the result is always 2-D.
+
+    For multi-layer models, ``layer`` selects the coefficient to use;
+    an L1-fallback model returns a single-row matrix (no posterior variation).
+
+    Args:
+        model_blob: ``PyMCModelBlobType`` (``EastVariant``) from any train
+            function.
+        X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix,
+            shape ``(n_obs, n_features)``.
+        config: ``PyMCPredictConfigType`` (``EastStruct``) with fields:
+
+            - ``layer`` (``Option<String>``): multi-layer only - layer name
+              (defaults to first layer).
+            - ``n_samples`` (``Option<Integer>``): posterior draws to return
+              (default 100).
+
+    Returns:
+        ``Matrix<Float>`` (``EastMatrix``) - posterior predictive samples,
+        shape ``(n_posterior_samples, n_obs * n_targets)``.
+
+    Raises:
+        NotImplementedError: the ``pymc`` extra is not installed.
+    """
     _check_pymc_support()
     model_data = _deserialize_model(model_blob.value["data"])
     X_np = X.to_numpy()
@@ -882,7 +1232,28 @@ def pymc_predict_distribution_impl(
 def pymc_posterior_summary_impl(
     model_blob: EastVariant,
 ) -> EastArray:
-    """Get posterior parameter summaries."""
+    """Summarise the posterior distribution for each model parameter.
+
+    Computes per-element mean, median, standard deviation, 95% credible
+    interval, R-hat, and ESS across all chains and draws. For L1-fallback
+    multi-layer models, returns point estimates with ``sd=0`` and
+    ``rhat=1.0``.
+
+    Args:
+        model_blob: ``PyMCModelBlobType`` (``EastVariant``) from any train
+            function.
+
+    Returns:
+        ``Array<PyMCParameterSummaryType>`` (``EastArray``) - one entry per
+        named parameter. Each entry is
+        ``{parameter: String, shape_rows: Integer, shape_cols: Integer,
+        estimates: Array<PyMCParameterEstimateType>}``. Each estimate has
+        ``{index_row, index_col, mean, median, sd, ci_lower, ci_upper,
+        rhat, ess}`` (all ``Float`` except integer indices).
+
+    Raises:
+        NotImplementedError: the ``pymc`` extra is not installed.
+    """
     _check_pymc_support()
     import arviz as az
 
@@ -1025,8 +1396,31 @@ def pymc_posterior_samples_impl(
     model_blob: EastVariant,
     param_name: str,
     n_samples: int,
-) -> EastArray:
-    """Extract raw posterior samples for a named parameter."""
+) -> EastMatrix:
+    """Extract raw posterior samples for a named parameter as a flat matrix.
+
+    Randomly subsamples (with replacement when ``n_samples`` exceeds the
+    available draws) from the merged chain-draw pool. Parameter dimensions
+    beyond the first are flattened into columns.
+
+    For L1-fallback multi-layer models, ``n_samples`` identical rows are
+    returned (coefficient has no posterior variation).
+
+    Args:
+        model_blob: ``PyMCModelBlobType`` (``EastVariant``) from any train
+            function.
+        param_name: ``String`` - name of the posterior variable to extract
+            (e.g. ``"beta"``, ``"intercept"``).
+        n_samples: ``Integer`` - number of posterior rows to return.
+
+    Returns:
+        ``Matrix<Float>`` (``EastMatrix``) - shape
+        ``(n_samples, prod(param_shape))``.
+
+    Raises:
+        NotImplementedError: the ``pymc`` extra is not installed.
+        RuntimeError: ``param_name`` is not present in the model's posterior.
+    """
     _check_pymc_support()
     model_data = _deserialize_model(model_blob.value["data"])
     param_name = str(param_name)
@@ -1072,7 +1466,32 @@ def pymc_posterior_samples_impl(
 def pymc_diagnostics_impl(
     model_blob: EastVariant,
 ) -> EastStruct:
-    """Run convergence diagnostics on a trained model."""
+    """Run MCMC convergence diagnostics on a trained model.
+
+    Reports per-parameter R-hat (convergence) and ESS (effective sample
+    size), counts divergent transitions from ``sample_stats``, and sets
+    ``converged=True`` only when all R-hat values are below 1.1 and there
+    are no divergences. L1-fallback models always return ``converged=True``
+    with an explanatory warning.
+
+    Args:
+        model_blob: ``PyMCModelBlobType`` (``EastVariant``) from any train
+            function.
+
+    Returns:
+        ``PyMCDiagnosticsResultType`` (``EastStruct``):
+
+        - ``converged`` (``Boolean``): all R-hat < 1.1 and no divergences.
+        - ``n_divergences`` (``Integer``): total divergent NUTS transitions.
+        - ``parameters`` (``Array<PyMCParameterDiagType>``): one entry per
+          variable with ``{parameter: String, rhat_max: Float,
+          ess_min: Float, n_divergent: Integer}``.
+        - ``warnings`` (``Array<String>``): human-readable convergence
+          issues (one per non-converged parameter plus one for divergences).
+
+    Raises:
+        NotImplementedError: the ``pymc`` extra is not installed.
+    """
     _check_pymc_support()
 
     model_data = _deserialize_model(model_blob.value["data"])
@@ -1150,10 +1569,31 @@ def pymc_diagnostics_impl(
 )
 def pymc_posterior_predictive_check_impl(
     model_blob: EastVariant,
-    X: EastArray,
-    Y_observed: EastArray,
+    X: EastMatrix,
+    Y_observed: EastMatrix,
 ) -> EastArray:
-    """Posterior predictive check against observed data."""
+    """Compare posterior predictive distribution against observed targets.
+
+    Draws up to 100 posterior samples, computes per-target MAE, Pearson
+    correlation, and 95% predictive interval coverage. For L1-fallback
+    multi-layer models, uses the first layer's point-estimate coefficient.
+
+    Args:
+        model_blob: ``PyMCModelBlobType`` (``EastVariant``) from any train
+            function.
+        X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix used for
+            prediction, shape ``(n_obs, n_features)``.
+        Y_observed: ``Matrix<Float>`` (``EastMatrix``) - observed targets to
+            compare against, shape ``(n_obs, n_targets)``.
+
+    Returns:
+        ``Array<PyMCObservedFitType>`` (``EastArray``) - one entry per target
+        column, each ``{name: String ("target_<t>"), mae: Float,
+        correlation: Float, coverage_95: Float}``.
+
+    Raises:
+        NotImplementedError: the ``pymc`` extra is not installed.
+    """
     _check_pymc_support()
     model_data = _deserialize_model(model_blob.value["data"])
     X_np = X.to_numpy()

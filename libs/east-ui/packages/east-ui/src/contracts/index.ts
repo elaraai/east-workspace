@@ -37,3 +37,11 @@ export {
 export {
     SliceAffordanceType, type SliceAffordanceLiteral, SliceAffordance,
 } from "./slice-affordances.js";
+
+export {
+    LibraryRefType,
+    CellRefType,
+    DragSinkType, type DragSinkLiteral,
+    DragEdgeType, type DragEdgeLiteral,
+    DragEventType,
+} from "./drag.js";

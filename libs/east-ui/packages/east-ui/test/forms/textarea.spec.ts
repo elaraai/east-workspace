@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Textarea, Style } from "@elaraai/east-ui";
+import { Textarea, Style } from "@elaraai/east-ui/internal";
 import * as ex from "./textarea.examples.js";
 
 describeEast("Textarea", (test) => {

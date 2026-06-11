@@ -2,9 +2,11 @@
 # Copyright (c) 2025 Elara AI Pty Ltd
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
-"""XML platform functions for East.
+"""XML parsing and serialization platform functions for East.
 
-Provides XML parsing and serialization for East programs.
+The ``*_impl`` functions are plain Python callables taking and returning East
+values - import them directly from a project's own ``@platform_function`` to
+reuse the implementations without an IR round-trip.
 """
 
 import re
@@ -17,7 +19,7 @@ from .types import XmlNodeType, XmlParseConfigType, XmlSerializeConfigType
 
 
 def parse_xml(xml: str, preserve_whitespace: bool, decode_entities: bool) -> EastStruct:
-    """Parse XML string into XmlNode structure."""
+    """Parse an XML string into an ``XmlNodeType`` structure."""
     # Skip UTF-8 BOM if present
     if xml and ord(xml[0]) == 0xFEFF:
         xml = xml[1:]
@@ -42,7 +44,6 @@ def parse_xml(xml: str, preserve_whitespace: bool, decode_entities: bool) -> Eas
         text = text.replace("&amp;", "&")
         text = text.replace("&quot;", '"')
         text = text.replace("&apos;", "'")
-        # Decode numeric entities
         text = re.sub(r"&#(\d+);", lambda m: chr(int(m.group(1))), text)
         text = re.sub(r"&#x([0-9a-fA-F]+);", lambda m: chr(int(m.group(1), 16)), text)
         return text
@@ -50,12 +51,10 @@ def parse_xml(xml: str, preserve_whitespace: bool, decode_entities: bool) -> Eas
     def parse_element() -> EastStruct:
         nonlocal pos
 
-        # Expect '<'
         if pos >= length or xml[pos] != "<":
             raise Exception(f"Expected '<' at position {pos}")
         advance()
 
-        # Parse tag name
         tag_start = pos
         while pos < length and re.match(r"[a-zA-Z0-9:_-]", xml[pos]):
             advance()
@@ -64,19 +63,16 @@ def parse_xml(xml: str, preserve_whitespace: bool, decode_entities: bool) -> Eas
         if not tag:
             raise Exception(f"Invalid tag name at position {pos}")
 
-        # Parse attributes
         attributes: EastDict = EastDict(StringType, StringType)
 
         while pos < length:
             skip_whitespace()
 
-            # Check for end of opening tag
             if pos < length and xml[pos] == ">":
                 break
             if pos + 1 < length and xml[pos : pos + 2] == "/>":
                 break
 
-            # Parse attribute name
             attr_name_start = pos
             while pos < length and re.match(r"[a-zA-Z0-9:_-]", xml[pos]):
                 advance()
@@ -87,14 +83,12 @@ def parse_xml(xml: str, preserve_whitespace: bool, decode_entities: bool) -> Eas
 
             skip_whitespace()
 
-            # Expect '='
             if pos >= length or xml[pos] != "=":
                 raise Exception(f"Expected '=' after attribute name at position {pos}")
             advance()
 
             skip_whitespace()
 
-            # Parse attribute value
             if pos >= length or xml[pos] not in "\"'":
                 raise Exception(f"Expected quote for attribute value at position {pos}")
 
@@ -109,11 +103,10 @@ def parse_xml(xml: str, preserve_whitespace: bool, decode_entities: bool) -> Eas
                 raise Exception(f"Unclosed attribute value at position {pos}")
 
             attr_value = decode_xml_entities(xml[value_start:pos])
-            advance()  # skip closing quote
+            advance()
 
             attributes[attr_name] = attr_value
 
-        # Check for self-closing tag
         if pos + 1 < length and xml[pos : pos + 2] == "/>":
             advance(2)
             return EastStruct(
@@ -126,22 +119,18 @@ def parse_xml(xml: str, preserve_whitespace: bool, decode_entities: bool) -> Eas
                 }
             )
 
-        # Expect '>'
         if pos >= length or xml[pos] != ">":
             raise Exception(f"Expected '>' at position {pos}")
         advance()
 
-        # Parse children
         children: EastArray = EastArray(
             VariantType([("TEXT", StringType), ("ELEMENT", XmlNodeType)]), []
         )
 
         while pos < length:
-            # Check for closing tag
             if pos + 1 < length and xml[pos : pos + 2] == "</":
                 advance(2)
 
-                # Parse closing tag name
                 close_tag_start = pos
                 while pos < length and re.match(r"[a-zA-Z0-9:_-]", xml[pos]):
                     advance()
@@ -161,7 +150,6 @@ def parse_xml(xml: str, preserve_whitespace: bool, decode_entities: bool) -> Eas
 
                 break
 
-            # Check for CDATA section
             if pos + 8 < length and xml[pos : pos + 9] == "<![CDATA[":
                 advance(9)
 
@@ -173,7 +161,7 @@ def parse_xml(xml: str, preserve_whitespace: bool, decode_entities: bool) -> Eas
                     raise Exception(f"Unclosed CDATA section at position {pos}")
 
                 cdata_text = xml[cdata_start:pos]
-                advance(3)  # skip ']]>'
+                advance(3)
 
                 if not preserve_whitespace:
                     cdata_text = cdata_text.strip()
@@ -181,7 +169,6 @@ def parse_xml(xml: str, preserve_whitespace: bool, decode_entities: bool) -> Eas
                 if cdata_text:
                     children.append(EastVariant("TEXT", cdata_text))
 
-            # Check for comment
             elif pos + 3 < length and xml[pos : pos + 4] == "<!--":
                 advance(4)
 
@@ -191,15 +178,12 @@ def parse_xml(xml: str, preserve_whitespace: bool, decode_entities: bool) -> Eas
                 if pos + 2 >= length:
                     raise Exception(f"Unclosed comment at position {pos}")
 
-                advance(3)  # skip '-->'
-                # Comments are ignored
+                advance(3)
 
-            # Check for nested element
             elif pos < length and xml[pos] == "<":
                 child_element = parse_element()
                 children.append(EastVariant("ELEMENT", child_element))
 
-            # Parse text content
             else:
                 text_start = pos
                 while pos < length and xml[pos] != "<":
@@ -222,18 +206,15 @@ def parse_xml(xml: str, preserve_whitespace: bool, decode_entities: bool) -> Eas
             }
         )
 
-    # Skip XML declaration and processing instructions
     while pos < length:
         skip_whitespace()
 
         if pos + 1 < length and xml[pos : pos + 2] == "<?":
-            # Skip processing instruction
             while pos + 1 < length and xml[pos : pos + 2] != "?>":
                 advance()
             if pos + 1 < length:
                 advance(2)
         elif pos + 3 < length and xml[pos : pos + 4] == "<!--":
-            # Skip comment
             advance(4)
             while pos + 2 < length and xml[pos : pos + 3] != "-->":
                 advance()
@@ -251,7 +232,7 @@ def parse_xml(xml: str, preserve_whitespace: bool, decode_entities: bool) -> Eas
 
 
 def serialize_xml(node: EastStruct, config: EastStruct) -> str:
-    """Serialize XmlNode structure to XML string."""
+    """Serialize an ``XmlNodeType`` structure to an XML string."""
     indent_opt = config["indent"]
     indent_str = indent_opt.value if indent_opt.type == "some" else ""
     use_indent = len(indent_str) > 0
@@ -276,13 +257,11 @@ def serialize_xml(node: EastStruct, config: EastStruct) -> str:
 
         result = current_indent + "<" + node["tag"]
 
-        # Serialize attributes
         for name, value in node["attributes"].items():
             result += f' {name}="{encode_xml_entities(value)}"'
 
         children = node["children"]
 
-        # Check if element has children
         if len(children) == 0:
             if self_closing:
                 result += "/>"
@@ -292,13 +271,11 @@ def serialize_xml(node: EastStruct, config: EastStruct) -> str:
 
         result += ">"
 
-        # Check if children are all text
         all_text = all(child.type == "TEXT" for child in children)
 
         if not all_text and use_indent:
             result += "\n"
 
-        # Serialize children
         for child in children:
             if child.type == "TEXT":
                 text = encode_xml_entities(child.value)
@@ -309,7 +286,6 @@ def serialize_xml(node: EastStruct, config: EastStruct) -> str:
                 else:
                     result += text
             else:
-                # ELEMENT
                 result += serialize_element(child.value, depth + 1)
                 if use_indent:
                     result += "\n"
@@ -337,7 +313,35 @@ def serialize_xml(node: EastStruct, config: EastStruct) -> str:
     output=XmlNodeType,
 )
 def xml_parse_impl(blob: EastBlob, config: EastStruct) -> EastStruct:
-    """Parse XML data from a binary blob."""
+    """Parse an XML document from a UTF-8 binary blob.
+
+    The parser handles element nesting, attributes, CDATA sections, and
+    text nodes. Processing instructions and comments are discarded.
+
+    Args:
+        blob: ``Blob`` (``EastBlob``) - UTF-8 encoded XML bytes (a
+            leading UTF-8 BOM is stripped automatically).
+        config: ``XmlParseConfigType`` (``EastStruct``) with fields:
+
+            - ``preserveWhitespace`` (``Boolean``): when ``False``,
+              text content is stripped of leading/trailing whitespace
+              and empty text nodes are dropped.
+            - ``decodeEntities`` (``Boolean``): when ``True``, standard
+              XML entities (``&lt;``, ``&gt;``, ``&amp;``, ``&quot;``,
+              ``&apos;``) and numeric character references are decoded
+              in text and attribute values.
+
+    Returns:
+        ``XmlNodeType`` (``EastStruct``): the root element with
+        ``tag`` (``String``), ``attributes`` (``Dict<String, String>``),
+        and ``children``
+        (``Array<Variant<TEXT: String, ELEMENT: XmlNodeType>>``).
+
+    Raises:
+        RuntimeError: ``blob`` is not valid UTF-8, the XML is
+            malformed (mismatched tags, unclosed sections, empty
+            document), or parsing fails for any other reason.
+    """
     try:
         xml_str = bytes(blob).decode("utf-8")
         preserve_whitespace = config["preserveWhitespace"]
@@ -353,7 +357,28 @@ def xml_parse_impl(blob: EastBlob, config: EastStruct) -> EastStruct:
     output=BlobType,
 )
 def xml_serialize_impl(node: EastStruct, config: EastStruct) -> EastBlob:
-    """Serialize XML node to bytes."""
+    """Serialize an ``XmlNodeType`` element tree to a UTF-8 binary blob.
+
+    Args:
+        node: ``XmlNodeType`` (``EastStruct``) - the root element to
+            serialize; see ``XmlNodeType`` for structure.
+        config: ``XmlSerializeConfigType`` (``EastStruct``) with fields:
+
+            - ``indent`` (``Option<String>``): indent string per depth
+              level (e.g. ``"  "``); no indentation when absent or empty.
+            - ``includeXmlDeclaration`` (``Boolean``): prepend
+              ``<?xml version="1.0" encoding="UTF-8"?>\\n``.
+            - ``encodeEntities`` (``Boolean``): encode ``<``, ``>``,
+              ``&``, ``"``, ``'`` in text content and attribute values.
+            - ``selfClosingTags`` (``Boolean``): write empty elements as
+              ``<tag/>`` rather than ``<tag></tag>``.
+
+    Returns:
+        ``Blob`` (``EastBlob``) - the UTF-8 encoded XML bytes.
+
+    Raises:
+        RuntimeError: serialization fails.
+    """
     try:
         xml_str = serialize_xml(node, config)
         return EastBlob(xml_str.encode("utf-8"))

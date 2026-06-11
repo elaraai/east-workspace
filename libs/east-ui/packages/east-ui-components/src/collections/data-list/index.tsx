@@ -9,7 +9,7 @@ import {
     type DataListRootProps,
 } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { DataList } from "@elaraai/east-ui";
+import { DataList } from "@elaraai/east-ui/internal";
 import { EastChakraComponent } from "../../component";
 import { getSomeorUndefined } from "../../utils";
 

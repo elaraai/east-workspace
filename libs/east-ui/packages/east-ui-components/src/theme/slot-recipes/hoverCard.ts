@@ -9,7 +9,9 @@ import { defineSlotRecipe } from "@chakra-ui/react";
 
 export const hoverCardSlotRecipe = defineSlotRecipe({
     className: "elara-hover-card",
-    slots: ["trigger", "positioner", "content", "arrow", "arrowTip"],
+    /* `title` / `description` extend Chakra's HoverCard anatomy — same
+     * mono-eyebrow heading as Popover ("same visual" per spec). */
+    slots: ["trigger", "positioner", "content", "arrow", "arrowTip", "title", "description"],
     base: {
         content: {
             background: "bg.surface",
@@ -18,9 +20,13 @@ export const hoverCardSlotRecipe = defineSlotRecipe({
             borderColor: "border.strong",
             boxShadow: "md",
             padding: "14px 16px",
+            /* Same chrome and sizing rule as Popover — fit to content
+             * within the spec band, not Chakra's fixed default width. */
+            width: "fit-content",
             minWidth: "240px",
-            maxWidth: "320px",
+            maxWidth: "360px",
             fontSize: "{fontSizes.control}",
+            lineHeight: "{lineHeights.normal}",
             color: "fg",
         },
         arrow: {
@@ -30,6 +36,20 @@ export const hoverCardSlotRecipe = defineSlotRecipe({
         },
         arrowTip: {
             borderColor: "border.strong",
+        },
+        title: {
+            fontFamily: "mono",
+            fontSize: "10px",
+            fontWeight: "600",
+            letterSpacing: "0.14em",
+            lineHeight: "normal",
+            textTransform: "uppercase",
+            color: "fg.subtle",
+            marginBottom: "8px",
+        },
+        description: {
+            fontSize: "{fontSizes.control}",
+            color: "fg.muted",
         },
     },
     variants: {

@@ -167,13 +167,11 @@ export type CopyButtonType = typeof CopyButtonType;
  * @property disabled - Disabled state
  * @property style - Visual-presentation sub-struct
  */
-export interface CopyButtonOptions {
+export interface CopyButtonOptions extends CopyButtonStyle {
     /** Optional label text rendered next to the copy icon */
     label?: SubtypeExprOrValue<StringType>;
     /** Duration in ms for the "Copied!" state (e.g. `"2000"`) */
     timeout?: SubtypeExprOrValue<StringType>;
     /** Disabled state — renderer blocks interaction */
     disabled?: SubtypeExprOrValue<BooleanType>;
-    /** Visual-presentation sub-struct (presets + colour escape hatches) */
-    style?: CopyButtonStyle;
 }

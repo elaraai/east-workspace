@@ -6,8 +6,9 @@
 import { memo, useMemo } from "react";
 import { Badge as ChakraBadge, type BadgeProps } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Badge } from "@elaraai/east-ui";
+import { Badge } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
+import { useDensity } from "../../contracts/density";
 
 const badgeEqual = equalFor(Badge.Types.Badge);
 
@@ -71,5 +72,12 @@ export interface EastChakraBadgeProps {
 /** Renders an East UI Badge value using Chakra v3 `Badge`. */
 export const EastChakraBadge = memo(function EastChakraBadge({ value }: EastChakraBadgeProps) {
     const props = useMemo(() => toChakraBadge(value), [value]);
-    return <ChakraBadge {...props}>{value.value}</ChakraBadge>;
+    const inheritedDensity = useDensity();
+    const localDensity = useMemo(() => getSomeorUndefined(value.density)?.type, [value.density]);
+    const density = localDensity ?? inheritedDensity;
+    return (
+        <ChakraBadge {...props} {...(density !== undefined ? ({ density } as BadgeProps) : {})}>
+            {value.value}
+        </ChakraBadge>
+    );
 }, (prev, next) => badgeEqual(prev.value, next.value));

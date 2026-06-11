@@ -6,7 +6,7 @@
 import { memo, useMemo } from "react";
 import { Tooltip as ChakraTooltip } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Tooltip } from "@elaraai/east-ui";
+import { Tooltip } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 

@@ -62,11 +62,9 @@ export interface StickyStyle {
 /**
  * Sticky options — passed to `Sticky.Root(content, opts)`.
  */
-export interface StickyOptions {
+export interface StickyOptions extends StickyStyle {
     /** CSS length for the sticky offset (`"0"`, `"12px"`, `"var(--header-height)"`). Default `"0"`. */
     offset?: SubtypeExprOrValue<StringType>;
     /** Whether the region sticks to its parent scroll ancestor (default) or the viewport. */
     boundary?: SubtypeExprOrValue<StickyBoundaryType> | StickyBoundaryLiteral;
-    /** Style escape hatches. */
-    style?: StickyStyle;
 }

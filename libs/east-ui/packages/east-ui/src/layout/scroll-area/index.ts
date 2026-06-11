@@ -67,10 +67,10 @@ function createScrollArea(
 ): ExprType<UIComponentType> {
     const content_expr = East.value(content, UIComponentType);
 
-    const orientationValue = options?.style?.orientation
-        ? (typeof options.style.orientation === "string"
-            ? East.value(variant(options.style.orientation, null), ScrollAreaOrientationType)
-            : options.style.orientation)
+    const orientationValue = options?.orientation
+        ? (typeof options.orientation === "string"
+            ? East.value(variant(options.orientation, null), ScrollAreaOrientationType)
+            : options.orientation)
         : undefined;
 
     const scrollbarStyleValue = options?.scrollbarStyle
@@ -79,11 +79,11 @@ function createScrollArea(
             : options.scrollbarStyle)
         : undefined;
 
-    const hasStyle = !!options?.style && (
+    const hasStyle = !!options && (
         orientationValue !== undefined ||
-        options.style.thumbColor !== undefined ||
-        options.style.trackColor !== undefined ||
-        options.style.background !== undefined
+        options.thumbColor !== undefined ||
+        options.trackColor !== undefined ||
+        options.background !== undefined
     );
 
     return East.value(variant("ScrollArea", {
@@ -92,9 +92,9 @@ function createScrollArea(
         style: hasStyle
             ? variant("some", East.value({
                 orientation: orientationValue ? variant("some", orientationValue) : variant("none", null),
-                thumbColor: options!.style!.thumbColor ? variant("some", options!.style!.thumbColor) : variant("none", null),
-                trackColor: options!.style!.trackColor ? variant("some", options!.style!.trackColor) : variant("none", null),
-                background: options!.style!.background ? variant("some", options!.style!.background) : variant("none", null),
+                thumbColor: options!.thumbColor ? variant("some", options!.thumbColor) : variant("none", null),
+                trackColor: options!.trackColor ? variant("some", options!.trackColor) : variant("none", null),
+                background: options!.background ? variant("some", options!.background) : variant("none", null),
             }, ScrollAreaStyleType))
             : variant("none", null),
     }), UIComponentType);

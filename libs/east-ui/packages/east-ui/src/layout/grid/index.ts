@@ -23,6 +23,7 @@ import {
     type GridStyle,
 } from "./types.js";
 import {
+    DensityType,
     JustifyContentType,
     AlignItemsType,
 } from "../../style.js";
@@ -198,8 +199,16 @@ function GridRoot(
             ? East.value(variant(style.autoFlow, null), GridAutoFlowType)
             : style.autoFlow)
         : undefined;
+
+    const densityValue = style?.density
+        ? (typeof style.density === "string"
+            ? East.value(variant(style.density, null), DensityType)
+            : style.density)
+        : undefined;
+
     return East.value(variant("Grid", {
         items: items_expr,
+        density: densityValue ? variant("some", densityValue) : variant("none", null),
         style: style ?
             variant("some", {
                 width: toStringOption(style.width),
@@ -229,9 +238,11 @@ function GridRoot(
 
 export const GridType: StructType<{
     items: ArrayType<GridItemType>,
+    density: OptionType<DensityType>,
     style: OptionType<GridStyleType>,
 }> = StructType({
     items: ArrayType(GridItemType),
+    density: OptionType(DensityType),
     style: OptionType(GridStyleType),
 })
 

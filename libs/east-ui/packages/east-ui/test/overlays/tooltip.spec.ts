@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Tooltip, Button, Text } from "@elaraai/east-ui";
+import { Tooltip, Button, Text } from "@elaraai/east-ui/internal";
 import * as ex from "./tooltip.examples.js";
 
 describeEast("Tooltip", (test) => {
@@ -19,8 +19,8 @@ describeEast("Tooltip", (test) => {
 
     test("creates basic tooltip with button trigger", $ => {
         const tooltip = $.let(Tooltip.Root(
-            Button.Root("Hover me"),
-            "This is a tooltip"
+            "This is a tooltip",
+            { trigger: Button.Root("Hover me") }
         ));
 
         $(Assert.equal(tooltip.unwrap().getTag(), "Tooltip"));
@@ -30,8 +30,8 @@ describeEast("Tooltip", (test) => {
 
     test("creates tooltip with text trigger", $ => {
         const tooltip = $.let(Tooltip.Root(
-            Text.Root("Hover for info"),
-            "Additional information"
+            "Additional information",
+            { trigger: Text.Root("Hover for info") }
         ));
 
         $(Assert.equal(tooltip.unwrap().unwrap("Tooltip").content, "Additional information"));
@@ -40,8 +40,8 @@ describeEast("Tooltip", (test) => {
 
     test("creates tooltip with default options", $ => {
         const tooltip = $.let(Tooltip.Root(
-            Button.Root("Help"),
-            "Help text"
+            "Help text",
+            { trigger: Button.Root("Help") }
         ));
 
         $(Assert.equal(tooltip.unwrap().unwrap("Tooltip").style.hasTag("none"), true));
@@ -53,9 +53,8 @@ describeEast("Tooltip", (test) => {
 
     test("creates tooltip with top placement", $ => {
         const tooltip = $.let(Tooltip.Root(
-            Button.Root("Hover"),
             "Tooltip above",
-            { placement: "top" }
+            { trigger: Button.Root("Hover"), placement: "top" }
         ));
         const sv = tooltip.unwrap().unwrap("Tooltip").style.unwrap("some");
         $(Assert.equal(sv.placement.unwrap("some").hasTag("top"), true));
@@ -63,9 +62,8 @@ describeEast("Tooltip", (test) => {
 
     test("creates tooltip with bottom placement", $ => {
         const tooltip = $.let(Tooltip.Root(
-            Button.Root("Hover"),
             "Tooltip below",
-            { placement: "bottom" }
+            { trigger: Button.Root("Hover"), placement: "bottom" }
         ));
         const sv = tooltip.unwrap().unwrap("Tooltip").style.unwrap("some");
         $(Assert.equal(sv.placement.unwrap("some").hasTag("bottom"), true));
@@ -73,9 +71,8 @@ describeEast("Tooltip", (test) => {
 
     test("creates tooltip with left placement", $ => {
         const tooltip = $.let(Tooltip.Root(
-            Button.Root("Hover"),
             "Tooltip left",
-            { placement: "left" }
+            { trigger: Button.Root("Hover"), placement: "left" }
         ));
         const sv = tooltip.unwrap().unwrap("Tooltip").style.unwrap("some");
         $(Assert.equal(sv.placement.unwrap("some").hasTag("left"), true));
@@ -83,9 +80,8 @@ describeEast("Tooltip", (test) => {
 
     test("creates tooltip with right placement", $ => {
         const tooltip = $.let(Tooltip.Root(
-            Button.Root("Hover"),
             "Tooltip right",
-            { placement: "right" }
+            { trigger: Button.Root("Hover"), placement: "right" }
         ));
         const sv = tooltip.unwrap().unwrap("Tooltip").style.unwrap("some");
         $(Assert.equal(sv.placement.unwrap("some").hasTag("right"), true));
@@ -93,9 +89,8 @@ describeEast("Tooltip", (test) => {
 
     test("creates tooltip with top-start placement", $ => {
         const tooltip = $.let(Tooltip.Root(
-            Button.Root("Hover"),
             "Tooltip top start",
-            { placement: "top-start" }
+            { trigger: Button.Root("Hover"), placement: "top-start" }
         ));
         const sv = tooltip.unwrap().unwrap("Tooltip").style.unwrap("some");
         $(Assert.equal(sv.placement.unwrap("some").hasTag("top-start"), true));
@@ -103,9 +98,8 @@ describeEast("Tooltip", (test) => {
 
     test("creates tooltip with bottom-end placement", $ => {
         const tooltip = $.let(Tooltip.Root(
-            Button.Root("Hover"),
             "Tooltip bottom end",
-            { placement: "bottom-end" }
+            { trigger: Button.Root("Hover"), placement: "bottom-end" }
         ));
         const sv = tooltip.unwrap().unwrap("Tooltip").style.unwrap("some");
         $(Assert.equal(sv.placement.unwrap("some").hasTag("bottom-end"), true));
@@ -117,9 +111,8 @@ describeEast("Tooltip", (test) => {
 
     test("creates tooltip with arrow", $ => {
         const tooltip = $.let(Tooltip.Root(
-            Button.Root("Hover"),
             "Tooltip with arrow",
-            { hasArrow: true }
+            { trigger: Button.Root("Hover"), hasArrow: true }
         ));
         const sv = tooltip.unwrap().unwrap("Tooltip").style.unwrap("some");
         $(Assert.equal(sv.hasArrow.unwrap("some"), true));
@@ -127,9 +120,8 @@ describeEast("Tooltip", (test) => {
 
     test("creates tooltip without arrow", $ => {
         const tooltip = $.let(Tooltip.Root(
-            Button.Root("Hover"),
             "Tooltip without arrow",
-            { hasArrow: false }
+            { trigger: Button.Root("Hover"), hasArrow: false }
         ));
         const sv = tooltip.unwrap().unwrap("Tooltip").style.unwrap("some");
         $(Assert.equal(sv.hasArrow.unwrap("some"), false));
@@ -141,9 +133,8 @@ describeEast("Tooltip", (test) => {
 
     test("creates tooltip with placement and arrow", $ => {
         const tooltip = $.let(Tooltip.Root(
-            Button.Root("Save"),
             "Save your changes",
-            { placement: "bottom", hasArrow: true }
+            { trigger: Button.Root("Save"), placement: "bottom", hasArrow: true }
         ));
         const sv = tooltip.unwrap().unwrap("Tooltip").style.unwrap("some");
         $(Assert.equal(sv.placement.unwrap("some").hasTag("bottom"), true));
@@ -152,9 +143,8 @@ describeEast("Tooltip", (test) => {
 
     test("creates tooltip with all options", $ => {
         const tooltip = $.let(Tooltip.Root(
-            Button.Root("Delete"),
             "This action cannot be undone",
-            { placement: "top", hasArrow: true }
+            { trigger: Button.Root("Delete"), placement: "top", hasArrow: true }
         ));
         const t = tooltip.unwrap().unwrap("Tooltip");
         const sv = t.style.unwrap("some");
@@ -169,9 +159,8 @@ describeEast("Tooltip", (test) => {
 
     test("creates help tooltip on form field", $ => {
         const tooltip = $.let(Tooltip.Root(
-            Text.Root("?"),
             "Enter your full legal name as it appears on your ID",
-            { placement: "right", hasArrow: true }
+            { trigger: Text.Root("?"), placement: "right", hasArrow: true }
         ));
         const t = tooltip.unwrap().unwrap("Tooltip");
         const sv = t.style.unwrap("some");
@@ -181,9 +170,8 @@ describeEast("Tooltip", (test) => {
 
     test("creates action button tooltip", $ => {
         const tooltip = $.let(Tooltip.Root(
-            Button.Root("Submit"),
             "Submit your application for review",
-            { placement: "top" }
+            { trigger: Button.Root("Submit"), placement: "top" }
         ));
 
         $(Assert.equal(tooltip.unwrap().unwrap("Tooltip").trigger.unwrap().unwrap("Button").label.unwrap().unwrap("Text").value, "Submit"));
@@ -191,9 +179,8 @@ describeEast("Tooltip", (test) => {
 
     test("creates info tooltip", $ => {
         const tooltip = $.let(Tooltip.Root(
-            Text.Root("Terms & Conditions"),
             "Click to read our full terms and conditions",
-            { placement: "bottom-start" }
+            { trigger: Text.Root("Terms & Conditions"), placement: "bottom-start" }
         ));
         const sv = tooltip.unwrap().unwrap("Tooltip").style.unwrap("some");
         $(Assert.equal(sv.placement.unwrap("some").hasTag("bottom-start"), true));

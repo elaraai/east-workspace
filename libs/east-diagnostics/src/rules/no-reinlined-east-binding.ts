@@ -3,9 +3,10 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import type * as ts from "typescript";
-import type { EastRule, TsModule } from "../types.js";
+import type { EastRule } from "../types.js";
 import { isEastExprType } from "../east-type.js";
 import { matchBlockBuilderCall } from "../block-builder.js";
+import { enclosingBlockScope } from "../block-scope.js";
 
 const NAME = "no-reinlined-east-binding";
 const CODE = 990010;
@@ -20,26 +21,9 @@ const CODE = 990010;
 //
 // Scoped to the hazard: a single use is a harmless alias / single-pass argument,
 // and inline composition (`Stack.VStack([A(), B(), …])`) never binds, so neither
-// trips. Re-inlining only duplicates within one East function tree, so the count
-// is bucketed per enclosing East.function body.
-function enclosingEastFunctionCall(node: ts.Node, t: TsModule): ts.CallExpression | undefined {
-  let current = node.parent;
-  while (current !== undefined) {
-    if (t.isCallExpression(current)) {
-      const callee = current.expression;
-      if (
-        t.isPropertyAccessExpression(callee) &&
-        t.isIdentifier(callee.expression) &&
-        callee.expression.text === "East" &&
-        (callee.name.text === "function" || callee.name.text === "asyncFunction")
-      ) {
-        return current;
-      }
-    }
-    current = current.parent;
-  }
-  return undefined;
-}
+// trips. Re-inlining only duplicates within one East block tree, so the count is
+// bucketed per enclosing East block scope (an `East.function` body or, for JSX
+// authoring, a `<Reactive>{$ => …}}` / `ui(…)` BlockBuilder callback).
 
 export const noReinlinedEastBinding: EastRule = {
   name: NAME,
@@ -72,7 +56,7 @@ export const noReinlinedEastBinding: EastRule = {
     const visit = (n: ts.Node): void => {
       if (t.isIdentifier(n) && n !== node.name && n.text === name) {
         if (ctx.checker.getSymbolAtLocation(n) === declSymbol) {
-          const body = enclosingEastFunctionCall(n, t);
+          const body = enclosingBlockScope(n, ctx);
           if (body !== undefined) perBody.set(body, (perBody.get(body) ?? 0) + 1);
         }
       }

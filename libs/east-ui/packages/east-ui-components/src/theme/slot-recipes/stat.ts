@@ -59,6 +59,31 @@ export const statSlotRecipe = defineSlotRecipe({
             md: { valueText: { fontSize: "26px" } },               // spec scorecard sc-val
             lg: { valueText: { fontSize: "{fontSizes.4xl}" } },    // 36px
         },
+        // Density cascade — value/label/help text tighten with the
+        // chipRail/trace rhythm so a stat block shares a surface with chips
+        // and traces without dwarfing them. No default: an undensified stat
+        // keeps the `size` look. Declared after `size` so density wins the
+        // merge.
+        density: {
+            condensed: {
+                root: { gap: "2px" },
+                valueText: { fontSize: "14px" },
+                label: { fontSize: "8.5px" },
+                helpText: { fontSize: "9px" },
+            },
+            compact: {
+                root: { gap: "3px" },
+                valueText: { fontSize: "18px" },
+                label: { fontSize: "9.5px" },
+                helpText: { fontSize: "10px" },
+            },
+            comfortable: {
+                root: { gap: "{spacing.1}" },
+                valueText: { fontSize: "26px" },
+                label: { fontSize: "11px" },
+                helpText: { fontSize: "12.5px" },
+            },
+        },
     },
     defaultVariants: {
         size: "md",

@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Button, Style } from "@elaraai/east-ui";
+import { Button, Style } from "@elaraai/east-ui/internal";
 import * as ex from "./button.examples.js";
 
 describeEast("Button", (test) => {
@@ -41,28 +41,28 @@ describeEast("Button", (test) => {
     // =========================================================================
 
     test("creates solid button", $ => {
-        const button = $.let(Button.Root("Solid", { style: { variant: "solid" } }));
+        const button = $.let(Button.Root("Solid", { variant: "solid" }));
         const style = button.unwrap().unwrap("Button").style.unwrap("some");
         $(Assert.equal(style.variant.unwrap("some").hasTag("solid"), true));
     });
 
     test("creates subtle button", $ => {
-        const button = $.let(Button.Root("Subtle", { style: { variant: "subtle" } }));
+        const button = $.let(Button.Root("Subtle", { variant: "subtle" }));
         $(Assert.equal(button.unwrap().unwrap("Button").style.unwrap("some").variant.unwrap("some").hasTag("subtle"), true));
     });
 
     test("creates outline button", $ => {
-        const button = $.let(Button.Root("Outline", { style: { variant: "outline" } }));
+        const button = $.let(Button.Root("Outline", { variant: "outline" }));
         $(Assert.equal(button.unwrap().unwrap("Button").style.unwrap("some").variant.unwrap("some").hasTag("outline"), true));
     });
 
     test("creates ghost button", $ => {
-        const button = $.let(Button.Root("Ghost", { style: { variant: "ghost" } }));
+        const button = $.let(Button.Root("Ghost", { variant: "ghost" }));
         $(Assert.equal(button.unwrap().unwrap("Button").style.unwrap("some").variant.unwrap("some").hasTag("ghost"), true));
     });
 
     test("creates plain button (new variant)", $ => {
-        const button = $.let(Button.Root("Plain", { style: { variant: "plain" } }));
+        const button = $.let(Button.Root("Plain", { variant: "plain" }));
         $(Assert.equal(button.unwrap().unwrap("Button").style.unwrap("some").variant.unwrap("some").hasTag("plain"), true));
     });
 
@@ -71,22 +71,22 @@ describeEast("Button", (test) => {
     // =========================================================================
 
     test("creates button with blue color palette", $ => {
-        const button = $.let(Button.Root("Blue", { style: { colorPalette: "blue" } }));
+        const button = $.let(Button.Root("Blue", { colorPalette: "blue" }));
         $(Assert.equal(button.unwrap().unwrap("Button").style.unwrap("some").colorPalette.unwrap("some").hasTag("blue"), true));
     });
 
     test("creates button with red color palette", $ => {
-        const button = $.let(Button.Root("Red", { style: { colorPalette: "red" } }));
+        const button = $.let(Button.Root("Red", { colorPalette: "red" }));
         $(Assert.equal(button.unwrap().unwrap("Button").style.unwrap("some").colorPalette.unwrap("some").hasTag("red"), true));
     });
 
     test("creates button with green color palette", $ => {
-        const button = $.let(Button.Root("Green", { style: { colorPalette: "green" } }));
+        const button = $.let(Button.Root("Green", { colorPalette: "green" }));
         $(Assert.equal(button.unwrap().unwrap("Button").style.unwrap("some").colorPalette.unwrap("some").hasTag("green"), true));
     });
 
     test("creates button with Style.ColorScheme helper", $ => {
-        const button = $.let(Button.Root("Teal", { style: { colorPalette: Style.ColorScheme("teal") } }));
+        const button = $.let(Button.Root("Teal", { colorPalette: Style.ColorScheme("teal") }));
         $(Assert.equal(button.unwrap().unwrap("Button").style.unwrap("some").colorPalette.unwrap("some").hasTag("teal"), true));
     });
 
@@ -95,27 +95,27 @@ describeEast("Button", (test) => {
     // =========================================================================
 
     test("creates extra small button", $ => {
-        const button = $.let(Button.Root("XS", { style: { size: "xs" } }));
+        const button = $.let(Button.Root("XS", { size: "xs" }));
         $(Assert.equal(button.unwrap().unwrap("Button").style.unwrap("some").size.unwrap("some").hasTag("xs"), true));
     });
 
     test("creates small button", $ => {
-        const button = $.let(Button.Root("Small", { style: { size: "sm" } }));
+        const button = $.let(Button.Root("Small", { size: "sm" }));
         $(Assert.equal(button.unwrap().unwrap("Button").style.unwrap("some").size.unwrap("some").hasTag("sm"), true));
     });
 
     test("creates medium button", $ => {
-        const button = $.let(Button.Root("Medium", { style: { size: "md" } }));
+        const button = $.let(Button.Root("Medium", { size: "md" }));
         $(Assert.equal(button.unwrap().unwrap("Button").style.unwrap("some").size.unwrap("some").hasTag("md"), true));
     });
 
     test("creates large button", $ => {
-        const button = $.let(Button.Root("Large", { style: { size: "lg" } }));
+        const button = $.let(Button.Root("Large", { size: "lg" }));
         $(Assert.equal(button.unwrap().unwrap("Button").style.unwrap("some").size.unwrap("some").hasTag("lg"), true));
     });
 
     test("creates button with Style.Size helper", $ => {
-        const button = $.let(Button.Root("Sized", { style: { size: Style.Size("md") } }));
+        const button = $.let(Button.Root("Sized", { size: Style.Size("md") }));
         $(Assert.equal(button.unwrap().unwrap("Button").style.unwrap("some").size.unwrap("some").hasTag("md"), true));
     });
 
@@ -176,14 +176,14 @@ describeEast("Button", (test) => {
     // =========================================================================
 
     test("creates button with color escape hatch", $ => {
-        const button = $.let(Button.Root("Branded", { style: { color: "#1a2234", background: "#e7efff" } }));
+        const button = $.let(Button.Root("Branded", { color: "#1a2234", background: "#e7efff" }));
         const s = button.unwrap().unwrap("Button").style.unwrap("some");
         $(Assert.equal(s.color.unwrap("some"), "#1a2234"));
         $(Assert.equal(s.background.unwrap("some"), "#e7efff"));
     });
 
     test("creates button with borderColor + hoverBackground", $ => {
-        const button = $.let(Button.Root("Hover me", { style: { borderColor: "#3d5cff", hoverBackground: "#1f362d" } }));
+        const button = $.let(Button.Root("Hover me", { borderColor: "#3d5cff", hoverBackground: "#1f362d" }));
         const s = button.unwrap().unwrap("Button").style.unwrap("some");
         $(Assert.equal(s.borderColor.unwrap("some"), "#3d5cff"));
         $(Assert.equal(s.hoverBackground.unwrap("some"), "#1f362d"));
@@ -197,11 +197,9 @@ describeEast("Button", (test) => {
         const button = $.let(Button.Root("Full Style", {
             loading: false,
             disabled: false,
-            style: {
-                variant: "solid",
-                colorPalette: "blue",
-                size: "md",
-            },
+            variant: "solid",
+            colorPalette: "blue",
+            size: "md",
         }));
         const b = button.unwrap().unwrap("Button");
         $(Assert.equal(b.loading.unwrap("some"), false));
@@ -223,13 +221,8 @@ describeEast("Button", (test) => {
         $(Assert.equal(b.endIcon.hasTag("none"), true));
     });
 
-    test("button with empty style object keeps visual fields as none", $ => {
-        const button = $.let(Button.Root("Empty Style", { style: {} }));
-        const s = button.unwrap().unwrap("Button").style.unwrap("some");
-        $(Assert.equal(s.variant.hasTag("none"), true));
-        $(Assert.equal(s.colorPalette.hasTag("none"), true));
-        $(Assert.equal(s.size.hasTag("none"), true));
-        $(Assert.equal(s.color.hasTag("none"), true));
-        $(Assert.equal(s.background.hasTag("none"), true));
+    test("button with no visual style options has none style", $ => {
+        const button = $.let(Button.Root("Empty Style", {}));
+        $(Assert.equal(button.unwrap().unwrap("Button").style.hasTag("none"), true));
     });
 }, { platformFns: TestImpl });

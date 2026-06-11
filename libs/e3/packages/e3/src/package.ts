@@ -8,7 +8,6 @@
  */
 
 import type {
-  MergeDatasets,
   PackageDef,
   PackageItem,
   TaskDef,
@@ -45,11 +44,18 @@ import type {
  * const helloTask = pkg.tasks.say_hello;
  * ```
  */
-export function package_<TItems extends (PackageItem | PackageDef<any>)[]>(
+// NOTE: the return is deliberately `PackageDef<Record<string, unknown>>`, NOT
+// `PackageDef<MergeDatasets<TItems>>`. The precise merged-datasets map (used only
+// for the optional `pkg.datasets.tasks.x.output` typed-access convenience) inlines
+// every task's full dataset type; with rich task outputs that map exceeds tsc's
+// type-serialization limit, so `export default e3.package(...)` failed with TS7056
+// and forced authors to hand-annotate. Access datasets via the exported
+// task/input consts (`myTask.output`, `myInput.path`) instead — fully typed.
+export function package_(
   name: string,
   version: string,
-  ...items: TItems
-): PackageDef<MergeDatasets<TItems>> {
+  ...items: (PackageItem | PackageDef<any>)[]
+): PackageDef<Record<string, unknown>> {
   // Recursively collect all items and their transitive dependencies
   const all_items = new Set<PackageItem>();
   const visited = new Set<PackageItem>();

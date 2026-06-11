@@ -9,8 +9,6 @@ import {
     type EastType,
     East,
     Expr,
-    FloatType,
-    IntegerType,
     StringType,
     LiteralValueType,
     OptionType,
@@ -20,7 +18,7 @@ import {
     none,
 } from "@elaraai/east";
 
-import { SizeType } from "../../style.js";
+import { DensityType, SizeType } from "../../style.js";
 import { UIComponentType } from "../../component.js";
 import { TickFormatType } from "../../format/types.js";
 import { IconType } from "../icon/types.js";
@@ -66,6 +64,7 @@ export {
  * @property delta - Optional delta / change pill (UIComponent)
  * @property info - Optional ⓘ trigger beside the label (UIComponent)
  * @property indicator - Optional composite direction + sentiment + icon struct
+ * @property density - Density override; shares the cascade with `ChipRail` / `Trace` so mixed display cells align
  * @property style - Optional visual style sub-struct
  */
 const StatType: StructType<{
@@ -77,6 +76,7 @@ const StatType: StructType<{
     delta: OptionType<UIComponentType>,
     info: OptionType<UIComponentType>,
     indicator: OptionType<StatIndicatorType>,
+    density: OptionType<DensityType>,
     style: OptionType<StatStyleType>,
 }> = StructType({
     label: StringType,
@@ -87,6 +87,7 @@ const StatType: StructType<{
     delta: OptionType(UIComponentType),
     info: OptionType(UIComponentType),
     indicator: OptionType(StatIndicatorType),
+    density: OptionType(DensityType),
     style: OptionType(StatStyleType),
 });
 type StatType = typeof StatType;
@@ -191,12 +192,9 @@ function buildIndicator(
  * Creates a Stat component value — a key metric tile with label, value,
  * and optional trend / baseline / delta / info slots.
  *
- * @param label - Metric label
- * @param value - Primary value — a scalar (number / bigint / string or an
- *   East `Float` / `Integer` / `String` expression). Pass `style.format` to
- *   format a numeric value.
- * @param style - Optional content slots (`helpText` / `baseline` / `delta` /
- *   `info` / `indicator`), `format`, + visual style fields (see {@link StatStyle})
+ * @param options - Required `label` + `value`, optional content slots
+ *   (`helpText` / `baseline` / `delta` / `info` / `indicator`), `format`,
+ *   and visual style fields (see {@link StatStyle})
  * @returns An East expression of type `UIComponentType`
  *
  * @remarks
@@ -219,7 +217,9 @@ function buildIndicator(
  * import { Stat, UIComponentType } from "@elaraai/east-ui";
  *
  * const example = East.function([], UIComponentType, $ => {
- *     return Stat.Root("Revenue", "$45,231", {
+ *     return Stat.Root({
+ *         label: "Revenue",
+ *         value: "$45,231",
  *         helpText: "+20.1% vs last month",
  *         indicator: { direction: "up", sentiment: "positive" },
  *     });
@@ -227,12 +227,16 @@ function buildIndicator(
  * ```
  */
 function createStat(
-    label: SubtypeExprOrValue<StringType>,
-    value: SubtypeExprOrValue<FloatType | IntegerType | StringType>,
-    style?: StatStyle,
+    options: StatStyle,
 ): ExprType<UIComponentType> {
-    const indicatorValue = buildIndicator(style?.indicator);
-    const styleValue = buildStatStyle(style);
+    const { label, value } = options;
+    const indicatorValue = buildIndicator(options.indicator);
+    const styleValue = buildStatStyle(options);
+    const densityValue = options.density !== undefined
+        ? (typeof options.density === "string"
+            ? East.value(variant(options.density, null), DensityType)
+            : options.density)
+        : undefined;
 
     // Wrap the scalar value as a LiteralValueType, tagged by its East type
     // (Integer / Float / String) — mirrors the Table cell-value pattern.
@@ -243,12 +247,13 @@ function createStat(
     return East.value(variant("Stat", {
         label,
         value: valueLiteral,
-        format: style?.format !== undefined ? some(style.format) : none,
-        helpText: style?.helpText !== undefined ? some(style.helpText) : none,
-        baseline: style?.baseline !== undefined ? some(style.baseline as SubtypeExprOrValue<UIComponentType>) : none,
-        delta: style?.delta !== undefined ? some(style.delta as SubtypeExprOrValue<UIComponentType>) : none,
-        info: style?.info !== undefined ? some(style.info as SubtypeExprOrValue<UIComponentType>) : none,
+        format: options.format !== undefined ? some(options.format) : none,
+        helpText: options.helpText !== undefined ? some(options.helpText) : none,
+        baseline: options.baseline !== undefined ? some(options.baseline as SubtypeExprOrValue<UIComponentType>) : none,
+        delta: options.delta !== undefined ? some(options.delta as SubtypeExprOrValue<UIComponentType>) : none,
+        info: options.info !== undefined ? some(options.info as SubtypeExprOrValue<UIComponentType>) : none,
         indicator: indicatorValue ? some(indicatorValue) : none,
+        density: densityValue ? some(densityValue) : none,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
@@ -257,7 +262,7 @@ function createStat(
  * Stat — key-metric tile primitive.
  *
  * @remarks
- * Use `Stat.Root(label, value, options?)`. For indicator semantics, pass
+ * Use `Stat.Root({ label, value, ... })`. For indicator semantics, pass
  * either a direction literal or a `{ direction, sentiment?, icon? }`
  * struct — the factory handles paired-icon injection when
  * `sentiment` is set without an explicit `icon`.
@@ -278,9 +283,7 @@ export const Stat: StatNamespace = {
     /**
      * Creates a Stat component value.
      *
-     * @param label - Metric label
-     * @param value - Primary value (UIComponent)
-     * @param style - Optional content + visual style fields
+     * @param options - Required `label` + `value`, optional content + visual style fields
      * @returns An East expression of type `UIComponentType`
      *
      * @example
@@ -289,7 +292,9 @@ export const Stat: StatNamespace = {
      * import { Stat, Format, UIComponentType } from "@elaraai/east-ui";
      *
      * const example = East.function([], UIComponentType, $ => {
-     *     return Stat.Root("Error rate", 0.0042, {
+     *     return Stat.Root({
+     *         label: "Error rate",
+     *         value: 0.0042,
      *         format: Format.Percent({ maximumFractionDigits: 2n }),
      *         helpText: "−0.08 pp vs last week",
      *         indicator: { direction: "down", sentiment: "positive" },
@@ -312,7 +317,9 @@ export const Stat: StatNamespace = {
      * import { Stat, UIComponentType } from "@elaraai/east-ui";
      *
      * const example = East.function([], UIComponentType, $ => {
-     *     return Stat.Root("Latency p99", "42 ms", {
+     *     return Stat.Root({
+     *         label: "Latency p99",
+     *         value: "42 ms",
      *         indicator: Stat.Indicator("down", { sentiment: "positive" }),
      *     });
      * });
@@ -335,6 +342,7 @@ export const Stat: StatNamespace = {
          * @property delta - Optional delta / change pill (UIComponent)
          * @property info - Optional ⓘ trigger beside the label (UIComponent)
          * @property indicator - Optional composite direction + sentiment + icon struct
+         * @property density - Density override; shares the cascade with `ChipRail` / `Trace` so mixed display cells align
          * @property style - Optional visual style sub-struct (see `Style`)
          */
         Stat: StatType,

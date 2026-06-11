@@ -6,7 +6,7 @@
 import { memo, useMemo, useCallback, useState, useEffect } from "react";
 import { TagsInput as ChakraTagsInput, type TagsInputRootProps } from "@chakra-ui/react";
 import { equalFor, some, none, type ValueTypeOf } from "@elaraai/east";
-import { TagsInput } from "@elaraai/east-ui";
+import { TagsInput } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 
 // Pre-define equality function at module level

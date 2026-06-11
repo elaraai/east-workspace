@@ -44,7 +44,7 @@ import {
     type DataManifest,
     type DataBindModeLiteral,
     DataBindModeType,
-} from "@elaraai/e3-ui";
+} from "@elaraai/e3-ui/internal";
 import {
     registerReactiveTracker,
     registerPlatformImplementation,

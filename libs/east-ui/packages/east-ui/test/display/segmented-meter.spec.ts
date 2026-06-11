@@ -4,13 +4,14 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { SegmentedMeter } from "@elaraai/east-ui";
+import { SegmentedMeter } from "@elaraai/east-ui/internal";
 import * as ex from "./segmented-meter.examples.js";
 
 describeEast("SegmentedMeter", (test) => {
     Assert.examples(test, {
         segmentedMeterBasic: ex.segmentedMeterBasic,
         segmentedMeterOutsideLabels: ex.segmentedMeterOutsideLabels,
+        segmentedMeterDensities: ex.segmentedMeterDensities,
         segmentedMeterResidual: ex.segmentedMeterResidual,
     });
 
@@ -30,7 +31,7 @@ describeEast("SegmentedMeter", (test) => {
         const m = $.let(SegmentedMeter.Root([
             { value: 50, tone: "info", label: "A" },
         ]));
-        const seg = m.unwrap().unwrap("SegmentedMeter").segments.get(0n);
+        const seg = $.let(m.unwrap().unwrap("SegmentedMeter").segments.get(0n));
         $(Assert.equal(seg.value, 50.0));
         $(Assert.equal(seg.tone.unwrap("some").hasTag("info"), true));
         $(Assert.equal(seg.label.unwrap("some"), "A"));

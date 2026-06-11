@@ -18,41 +18,77 @@ export default defineConfig(({ command }) => {
       react(),
       exampleSourcesPlugin({
         testDir: path.resolve(__dirname, '../east-ui/test'),
+        e3TestDir: path.resolve(__dirname, '../e3-ui/test'),
+        rootDir: __dirname,
       }),
     ],
-    base: '/east-workspace/',
+    base: '/',
     define: {
       'process.env': {},
       'process.argv': '[]',
     },
-    resolve: dev
-      ? {
-          /* Regex-anchored ($) so the base-specifier alias does not also
-           * swallow subpaths — `@elaraai/east-ui-components/fonts` must reach
-           * its own source entry, not `…/src/index.ts/fonts`. */
-          alias: [
-            {
-              find: /^@elaraai\/east-ui-components$/,
-              replacement: path.resolve(__dirname, '../east-ui-components/src/index.ts'),
-            },
-            {
-              find: /^@elaraai\/east-ui-components\/fonts$/,
-              replacement: path.resolve(__dirname, '../east-ui-components/src/fonts.ts'),
-            },
-            /* east-ui (the IR layer) also from source so dev never serves a
-             * stale `dist` — adding an IR field (e.g. a Gantt status) shows up
-             * live without rebuilding. Anchored ($) so subpaths
-             * (…/internal, …/…examples) still resolve through package exports. */
-            {
-              find: /^@elaraai\/east-ui$/,
-              replacement: path.resolve(__dirname, '../east-ui/src/index.ts'),
-            },
-          ],
-          /* The renderer source joins the app module graph across the pnpm
-           * symlink boundary — pin one React copy so hooks don't duplicate. */
-          dedupe: ['react', 'react-dom', '@chakra-ui/react'],
-        }
-      : {},
+    resolve: {
+      alias: [
+        /* The e3 example files `import * as e3 from '@elaraai/e3'` only to
+         * call `e3.input(...)`. The full `@elaraai/e3` entry pulls in yazl
+         * (→ node stream/events/util), which breaks in the browser — alias
+         * to the snapshot harness's browser-safe shim in dev AND build.
+         * Anchored ($) so `@elaraai/e3-ui` / `@elaraai/e3-types` pass. */
+        {
+          find: /^@elaraai\/e3$/,
+          replacement: path.resolve(__dirname, '../e3-ui-components/snapshot/e3-shim.ts'),
+        },
+        /* Dev server (`command === 'serve'`) resolves the renderers and IR
+         * layers from TypeScript source so edits hot-reload; `vite build`
+         * resolves the published `dist/` through package exports.
+         * Regex-anchored ($) so the base-specifier alias does not also
+         * swallow subpaths — `@elaraai/east-ui-components/fonts` must reach
+         * its own source entry, not `…/src/index.ts/fonts`. */
+        ...(dev
+          ? [
+              {
+                find: /^@elaraai\/east-ui-components$/,
+                replacement: path.resolve(__dirname, '../east-ui-components/src/index.ts'),
+              },
+              {
+                find: /^@elaraai\/east-ui-components\/fonts$/,
+                replacement: path.resolve(__dirname, '../east-ui-components/src/fonts.ts'),
+              },
+              /* e3-ui-components' bind-runtime registers its platform impl
+               * through this subpath — it must hit the same source registry
+               * instance EastFunction reads, not a second dist copy. */
+              {
+                find: /^@elaraai\/east-ui-components\/platform$/,
+                replacement: path.resolve(__dirname, '../east-ui-components/src/platform.ts'),
+              },
+              {
+                find: /^@elaraai\/east-ui$/,
+                replacement: path.resolve(__dirname, '../east-ui/src/index.ts'),
+              },
+              {
+                find: /^@elaraai\/e3-ui-components$/,
+                replacement: path.resolve(__dirname, '../e3-ui-components/src/index.ts'),
+              },
+              {
+                find: /^@elaraai\/e3-ui$/,
+                replacement: path.resolve(__dirname, '../e3-ui/src/index.ts'),
+              },
+              /* e3-ui-components reaches the IR through this subpath; the
+               * example files use the bare specifier. Both must resolve to
+               * the same source instance or East's reference-based type /
+               * platform-declaration identity splits and `Data.bind` IR
+               * stops matching its registered implementation. */
+              {
+                find: /^@elaraai\/e3-ui\/internal$/,
+                replacement: path.resolve(__dirname, '../e3-ui/src/internal.ts'),
+              },
+            ]
+          : []),
+      ],
+      /* The renderer source joins the app module graph across the pnpm
+       * symlink boundary — pin one React copy so hooks don't duplicate. */
+      ...(dev ? { dedupe: ['react', 'react-dom', '@chakra-ui/react'] } : {}),
+    },
     build: {
       commonjsOptions: {
         defaultIsModuleExports: true,
@@ -67,7 +103,14 @@ export default defineConfig(({ command }) => {
       // bundle to the same module instance — otherwise types like
       // `DateTimeFormatTokenType` get duplicated across imports and East's
       // reference-based type-identity comparison fails at compile time.
-      include: ['sorted-btree', '@elaraai/east', '@elaraai/east/internal', '@elaraai/east-ui', '@elaraai/east-ui/internal', 'react-dom/client', '@chakra-ui/react'],
+      include: [
+        'sorted-btree',
+        '@elaraai/east', '@elaraai/east/internal',
+        '@elaraai/east-ui', '@elaraai/east-ui/internal',
+        '@elaraai/e3-ui',
+        'react-dom/client', '@chakra-ui/react',
+        '@xyflow/react', 'cytoscape', 'cytoscape-cose-bilkent',
+      ],
     },
     server: {
       port: 3000,

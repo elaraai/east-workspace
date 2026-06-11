@@ -45,6 +45,15 @@ RoutingFirstSolutionType = VariantType(
         ("first_unbound_min_value", NullType),
     ]
 )
+"""Construction heuristic used to build the initial routing solution.
+
+Cases: ``path_cheapest_arc`` (default — greedily extend routes by cheapest
+arc), ``savings`` (Clarke-Wright savings algorithm), ``christofides``
+(Christofides approximation, TSP only), ``parallel_cheapest_insertion``
+(insert cheapest unrouted node in parallel), ``local_cheapest_insertion``
+(insert cheapest node locally), ``first_unbound_min_value`` (assign first
+unbound variable to its minimum value).
+"""
 
 RoutingMetaheuristicType = VariantType(
     [
@@ -54,6 +63,13 @@ RoutingMetaheuristicType = VariantType(
         ("tabu_search", NullType),
     ]
 )
+"""Local-search metaheuristic applied after the initial solution is built.
+
+Cases: ``greedy_descent`` (accept only improvements), ``guided_local_search``
+(penalize frequently used arcs to escape local optima), ``simulated_annealing``
+(probabilistic acceptance with cooling), ``tabu_search`` (forbid recently
+visited moves).
+"""
 
 RoutingTimeWindowType = StructType(
     [
@@ -61,6 +77,11 @@ RoutingTimeWindowType = StructType(
         ("end", IntegerType),
     ]
 )
+"""Time window for a single routing node.
+
+Fields: ``start`` (``Integer`` earliest arrival time), ``end`` (``Integer``
+latest arrival time) in the same units as the time matrix.
+"""
 
 RoutingPickupDeliveryType = StructType(
     [
@@ -68,6 +89,11 @@ RoutingPickupDeliveryType = StructType(
         ("delivery", IntegerType),
     ]
 )
+"""A paired pickup-and-delivery stop constraint.
+
+Fields: ``pickup`` (``Integer`` node index), ``delivery`` (``Integer`` node
+index) — must be served by the same vehicle in that order.
+"""
 
 RoutingModelType = StructType(
     [
@@ -81,6 +107,18 @@ RoutingModelType = StructType(
         ("pickup_deliveries", OptionType(ArrayType(RoutingPickupDeliveryType))),
     ]
 )
+"""Declarative description of a vehicle routing problem.
+
+Fields: ``distance_matrix`` (``Array<Array<Integer>>`` N x N integer cost
+matrix), ``num_vehicles`` (fleet size), ``depot`` (start/end node index for
+all vehicles), ``demands`` (per-node demand — required together with
+``vehicle_capacities`` for CVRP), ``vehicle_capacities`` (per-vehicle
+capacity — length must match ``num_vehicles``), ``time_matrix``
+(``Array<Array<Integer>>`` travel-time matrix — required together with
+``time_windows`` for VRPTW), ``time_windows``
+(``Array<RoutingTimeWindowType>`` per-node time constraints), ``pickup_deliveries``
+(``Array<RoutingPickupDeliveryType>`` pickup-delivery pairs for VRPPD).
+"""
 
 RoutingConfigType = StructType(
     [
@@ -89,6 +127,12 @@ RoutingConfigType = StructType(
         ("max_time_seconds", OptionType(FloatType)),
     ]
 )
+"""Solver configuration for a routing solve call.
+
+Fields: ``first_solution`` (construction heuristic, default
+``path_cheapest_arc``), ``metaheuristic`` (local-search improvement
+strategy), ``max_time_seconds`` (wall-clock time limit in seconds).
+"""
 
 RoutingRouteType = StructType(
     [
@@ -97,6 +141,12 @@ RoutingRouteType = StructType(
         ("distance", IntegerType),
     ]
 )
+"""The route assigned to one vehicle in a routing solution.
+
+Fields: ``vehicle`` (``Integer`` vehicle index), ``nodes``
+(``Array<Integer>`` ordered visit sequence including depot at start and
+end), ``distance`` (``Integer`` total arc cost for this vehicle's route).
+"""
 
 RoutingResultType = StructType(
     [
@@ -106,6 +156,13 @@ RoutingResultType = StructType(
         ("wall_time", FloatType),
     ]
 )
+"""Result returned by ``google_or_routing_solve``.
+
+Fields: ``status`` (``GoogleOrStatusType``), ``total_distance``
+(``Integer`` sum of all vehicle route costs), ``routes``
+(``Array<RoutingRouteType>`` one entry per vehicle), ``wall_time``
+(``Float`` seconds).
+"""
 
 
 
@@ -173,14 +230,60 @@ def routing_solve_impl(
     model_data: EastStruct,
     config: EastStruct,
 ) -> EastStruct:
-    """Solve a vehicle routing problem.
+    """Solve a vehicle routing problem using OR-Tools' routing library.
+
+    Supports TSP (single vehicle), CVRP (capacity constraints), VRPTW (time
+    windows), and VRPPD (pickup-and-delivery pairs). Constraints are added
+    only when the corresponding optional fields in ``model_data`` are present.
 
     Args:
-        model_data: Routing model (distances, vehicles, constraints)
-        config: Solver configuration (strategy, metaheuristic, time limit)
+        model_data: ``RoutingModelType`` (``EastStruct``) with fields:
+
+            - ``distance_matrix`` (``Array<Array<Integer>>``): square N x N
+              integer distance matrix where entry [i][j] is the cost of
+              traveling from node i to node j.
+            - ``num_vehicles`` (``Integer``): fleet size.
+            - ``depot`` (``Integer``): index of the depot node (start/end of
+              every vehicle route).
+            - ``demands`` (``Option<Array<Integer>>``): per-node demand (index
+              matches matrix rows); required when ``vehicle_capacities`` is
+              also set.
+            - ``vehicle_capacities`` (``Option<Array<Integer>>``): per-vehicle
+              capacity; length must match ``num_vehicles``.
+            - ``time_matrix`` (``Option<Array<Array<Integer>>>``): travel time
+              matrix; must be set together with ``time_windows`` to activate
+              the time-window dimension.
+            - ``time_windows`` (``Option<Array<RoutingTimeWindowType>>``):
+              per-node ``{start, end: Integer}`` time window constraints.
+            - ``pickup_deliveries``
+              (``Option<Array<RoutingPickupDeliveryType>>``): pairs of node
+              indices ``{pickup, delivery: Integer}`` that must be served by
+              the same vehicle with pickup before delivery.
+
+        config: ``RoutingConfigType`` (``EastStruct``) with fields:
+
+            - ``first_solution`` (``Option<RoutingFirstSolutionType>``):
+              construction heuristic - ``path_cheapest_arc`` (default),
+              ``savings``, ``christofides``,
+              ``parallel_cheapest_insertion``,
+              ``local_cheapest_insertion``, ``first_unbound_min_value``.
+            - ``metaheuristic`` (``Option<RoutingMetaheuristicType>``):
+              improvement strategy - ``greedy_descent``,
+              ``guided_local_search``, ``simulated_annealing``,
+              ``tabu_search``.
+            - ``max_time_seconds`` (``Option<Float>``): wall-clock time limit
+              in seconds.
 
     Returns:
-        EastStruct with status, total_distance, routes, wall_time
+        ``RoutingResultType`` (``EastStruct``): ``status``
+        (``GoogleOrStatusType``), ``total_distance`` (``Integer`` sum over
+        all vehicle routes), ``routes`` (``Array<RoutingRouteType>`` - one
+        per vehicle; each ``{vehicle: Integer, nodes: Array<Integer>,
+        distance: Integer}`` including the return to depot), ``wall_time``
+        (``Float`` seconds).
+
+    Raises:
+        NotImplementedError: the ``google-or`` extra (ortools) is not installed.
     """
     _check_google_or_support()
     from ortools.constraint_solver import pywrapcp, routing_enums_pb2

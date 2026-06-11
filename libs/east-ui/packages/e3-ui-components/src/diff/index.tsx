@@ -64,7 +64,7 @@ import {
     variant,
 } from "@elaraai/east";
 import type { TreePath } from "@elaraai/e3-types";
-import { Diff, DiffBindingType } from "@elaraai/e3-ui";
+import { Diff, DiffBindingType } from "@elaraai/e3-ui/internal";
 import { implementUIComponent } from "@elaraai/east-ui-components";
 
 import {

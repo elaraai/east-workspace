@@ -1,451 +1,332 @@
 ---
 name: east-ui
-description: "Type-safe UI component library for the East language. Use when writing East programs that define user interfaces with declarative components. Triggers for: (1) Writing East programs with @elaraai/east-ui, (2) Layout with Box, Flex, Stack, Grid, Splitter, ScrollArea, Sticky, ChipRail, (3) Forms with Input, Textarea, Select, Combobox, Checkbox, Switch, Slider, RadioGroup, RadioCardGroup, TagsInput, FileUpload, Field, DateRangeInput, TimeRangeInput, TimeScaleControl, (4) Data display with Table, TreeView, DataList, Gantt, Planner, Matrix, Pagination, (5) Charts with Chart.Root assembling Chart.Line/Bar/Area/Scatter/Band layers plus Chart.refLine/refBand/refDot annotations, Sparkline, (6) Overlays with Dialog, Drawer, Popover, Menu, Tooltip, HoverCard, ToggleTip, ActionBar, CoachMark, CommandPalette, (7) Feedback with Alert, Banner, Status, Toast, Progress, ProgressCircle, Spinner, Skeleton, EmptyState, (8) Disclosure with Tabs, Accordion, Carousel, Collapsible, SegmentGroup, OptionList, Steps, Timeline, ShowMore, (9) Navigation with Breadcrumb, NavList, (10) Reactive UI via Reactive.Root + State.bind for state-driven re-renders."
+description: "Type-safe UI component library for the East language, authored as JSX tags. Use when writing East programs that define user interfaces. Triggers for: (1) Authoring `.tsx` component trees with `@elaraai/east-ui` tags, (2) Layout with <Box>, <Flex>, <Stack>/<VStack>/<HStack>, <Grid>, <Splitter>, <ScrollArea>, <Sticky>, (3) Forms with <Input>, <Textarea>, <Select>, <Combobox>, <Checkbox>, <Switch>, <Slider>, <RadioGroup>, <RadioCardGroup>, <TagsInput>, <FileUpload>, <Field>, <DateRangeInput>, <TimeRangeInput>, (4) Data display with <Table>, <TreeView>, <DataList>, <Gantt>, <Planner>, <Matrix>, <Pagination>, <ChipRail>, <Trace>, (5) Charts with <Chart layers={Chart.Line/Bar/Area/Scatter/Band(...)}/> plus Chart.refLine/refBand/refDot, <Sparkline>, (6) Overlays with <Dialog>, <Drawer>, <Popover>, <Menu>, <Tooltip>, <HoverCard>, <ToggleTip>, <ActionBar>, <CommandPalette>, (7) Feedback with <Banner>, <Status>, <Progress>, <Skeleton>, <EmptyState>, (8) Disclosure with <Tabs>, <Accordion>, <Carousel>, <Collapsible>, <SegmentGroup>, <OptionList>, (9) Navigation with <Breadcrumb>, <NavList>, (10) Reactive UI via <Reactive>{$ => …}</Reactive> + State.bind."
 ---
 
 # East UI
 
-Type-safe UI component library for the East language. Components return data structures describing UI layouts, enabling portable rendering across environments.
+A type-safe UI component library for the East language. The public surface is
+**JSX tags** — capitalized, React-style components that desugar to East IR. No
+React at runtime: a `<Button>` evaluates to the identical
+`ExprType<UIComponentType>` value, which serializes and renders anywhere.
 
 ## Quick Start
 
-```typescript
-import { East } from "@elaraai/east";
-import { Stack, Text, Button, UIComponentType } from "@elaraai/east-ui";
+```tsx
+/** @jsxImportSource @elaraai/east-ui */
+import { East, IntegerType, NullType, example } from "@elaraai/east";
+import { VStack, HStack, Text, Button, UIComponentType } from "@elaraai/east-ui";
 
-const MyComponent = East.function([], UIComponentType, $ => {
-    return Stack.VStack([
-        Text.Root("Hello, World!", { fontSize: "lg", fontWeight: "bold" }),
-        Button.Root("Click Me", { variant: "solid", colorPalette: "blue" }),
-    ], { gap: "4" });
-});
+const MyComponent = East.function([], UIComponentType, (_$) => (
+    <VStack gap="4" padding="6">
+        <Text textStyle="heading-md" fontWeight="bold">Hello, World!</Text>
+        <HStack gap="2">
+            <Button variant="outline">Cancel</Button>
+            <Button variant="solid" colorPalette="blue">Save</Button>
+        </HStack>
+    </VStack>
+));
 
 const ir = MyComponent.toIR();
 ```
 
-## Decision Tree: Which Component to Use
+Three things make a file JSX-capable:
+1. The per-file pragma `/** @jsxImportSource @elaraai/east-ui */` (first line).
+2. One tag import line from `@elaraai/east-ui`.
+3. A `.tsx` extension.
 
-Each entry is `Component → .Factory()` followed by a one-line purpose and (where applicable) the meaningful variant tags. **Every public component in `src/` is listed.**
+**Tags vs factories.** Each tag desugars 1:1 to a factory call —
+`<Button variant="solid">Save</Button>` builds the same IR as
+`Button.Root("Save", { variant: "solid" })`. The factories are an implementation
+detail under `@elaraai/east-ui/internal` (used by renderers/tests). **Author with
+tags**; props are exactly the factory's flat options bag.
+
+## Decision Tree: Which Tag to Use
+
+Every public tag is listed with its purpose, notable props/variants, and any
+data-builders / nested tags. **Props are the factory's flat option bag** — no
+nested `style` object. Children are always UI components; non-UI sub-structures
+(columns, layers, cells, header fields) are **config props or typed callbacks**,
+never child sub-tags.
 
 ```
-Task → What do you need?
+Task → Which tag?
 │
-├─ Layout (arrange content on the page)
-│   ├─ Box — generic block container; padding / margin / bg / borderRadius / display
-│   │   └─ .Root(children, style)
-│   ├─ Flex — flexbox; direction / justify / align / wrap / gap
-│   │   └─ .Root(children, style)
-│   ├─ Stack — flex with sensible defaults; HStack / VStack shorthands set direction
-│   │   ├─ .Root(children, style)
-│   │   ├─ .HStack(children, style)
-│   │   └─ .VStack(children, style)
-│   ├─ Grid — CSS grid; templateColumns / templateRows / gap; .Item gives row/col span
-│   │   ├─ .Root(children, style)
-│   │   └─ .Item(child, span)
-│   ├─ Splitter — resizable panels (horizontal / vertical); each panel carries { id, minSize, maxSize, collapsible, defaultCollapsed }
-│   │   └─ .Root(panels, style)
-│   ├─ Separator — 1px rule; orientation: horizontal | vertical; variants: subtle | brand | dashed | strong
-│   │   └─ .Root(style)
-│   ├─ ScrollArea — styled-scrollbar scroll container with overflow x/y controls
-│   │   └─ .Root(children, style)
-│   ├─ Sticky — position-sticky wrapper with top/bottom offset
-│   │   └─ .Root(children, style)
-│   └─ ChipRail — horizontal flex-wrap rail for chip-shaped children (e.g. filter pills)
-│       └─ .Root(chips, style)
+├─ Layout (arrange content)
+│   ├─ <Box> — generic block; padding / margin / background / borderRadius / display
+│   ├─ <Flex> — flexbox; direction / justify / align / wrap / gap
+│   ├─ <Stack> / <VStack> / <HStack> — flex with defaults; gap / align / justify
+│   ├─ <Grid> — CSS grid; templateColumns / templateRows / gap
+│   ├─ <Splitter> — resizable panels; panels carry { id, minSize, maxSize, collapsible }
+│   ├─ <Separator> — 1px rule; orientation; variant: subtle | brand | dashed | strong
+│   ├─ <ScrollArea> — styled-scrollbar scroll container; overflow x/y
+│   └─ <Sticky> — position-sticky wrapper; top / bottom offset
 │
 ├─ Typography (display text)
-│   ├─ Text — inline/block text; semantic textStyle preset, fontWeight / fontStyle / textAlign / textTransform / lineClamp / colour slots
-│   │   └─ .Root(text, style)
-│   ├─ Heading — display-tier heading; textStyle preset + fontWeight / fontFamily / lineHeight / letterSpacing
-│   │   └─ .Root(text, style)
-│   ├─ Link — clickable hyperlink; variants drive underline-on-hover behaviour; color / hoverColor / visitedColor slots
-│   │   └─ .Root(text, href, style)
-│   ├─ Code — inline `<code>` token; variant + colorPalette; mono font
-│   │   └─ .Root(text, style)
-│   ├─ CodeBlock — multi-line code block; header bg, line numbers, highlight-line bg, max-height + overflow
-│   │   └─ .Root(text, style)
-│   ├─ List — bulleted/numbered list; variants: ordered | unordered | dot (brand bullet); marker + gap controls
-│   │   └─ .Root(items, style)
-│   ├─ Highlight — highlights `query` substring inside `text` (background-tinted spans)
-│   │   └─ .Root(text, query, style)
-│   ├─ Mark — semantic `<mark>` span (brand-tinted by default); variants for severity
-│   │   └─ .Root(text, style)
-│   ├─ Note — inset callout / quote; emphasis: brand | warn | danger; accentColor + bg + border slots
-│   │   └─ .Root(children, style)
-│   └─ Numeric — tabular-num formatted number; textStyle preset + sentiment-derived color (signColor for ±)
-│       └─ .Root(value, options)
+│   ├─ <Text> — inline/block text; textStyle preset, fontWeight / fontStyle / textAlign / lineClamp
+│   │   └─ Text.Presets.Eyebrow/MonoLabel/… — opinionated typographic presets
+│   ├─ <Heading> — display heading; textStyle preset + weight / family / lineHeight
+│   ├─ <Link href="…"> — hyperlink; underline-on-hover variants; color slots
+│   ├─ <Code> — inline `<code>` token; variant + colorPalette
+│   ├─ <CodeBlock> — multi-line code; header bg, line numbers, highlight line
+│   ├─ <List> — bulleted/numbered list; variant: ordered | unordered | dot
+│   ├─ <Highlight query="…"> — tints `query` substrings inside the text
+│   ├─ <Mark> — semantic `<mark>` span; severity variants
+│   ├─ <Note> — inset callout/quote; emphasis: brand | warn | danger
+│   └─ <Numeric> — tabular-num number; textStyle preset + sentiment colour
 │
 ├─ Buttons (user actions)
-│   ├─ Button — clickable button; variants: solid | subtle | outline | ghost | plain; colorPalette: gray | red | green | blue | brand | ...
-│   │   └─ .Root(label, options)
-│   ├─ IconButton — icon-only button; same variants/sizes as Button
-│   │   └─ .Root(icon, options)
-│   ├─ CloseButton — × dismiss button used by Dialog / Drawer / Toast
-│   │   └─ .Root(options)
-│   ├─ CopyButton — copies `value` to clipboard via Platform.Clipboard, shows ✓ feedback
-│   │   └─ .Root(value, options)
-│   ├─ Toggle — pressable on/off button (NOT a form toggle — see Switch); reports pressed state
-│   │   └─ .Root(label, options)
-│   └─ ButtonGroup — row/col cluster; `attached: true` shares borders, `gap` separates; takes any UIComponent children
-│       └─ .Root(buttons, options)
+│   ├─ <Button> — variant: solid | subtle | outline | ghost | plain; colorPalette; size; onClick
+│   ├─ <IconButton> — icon-only button; same variants/sizes
+│   ├─ <CloseButton> — × dismiss button
+│   ├─ <CopyButton value="…"> — copies to clipboard, ✓ feedback
+│   ├─ <Toggle> — pressable on/off button (NOT a form toggle — see <Switch>)
+│   └─ <ButtonGroup> — row/col cluster; attached shares borders, gap separates
 │
 ├─ Forms (user input)
-│   ├─ Input — typed text inputs; variants: outline | subtle | flushed; colour slots include placeholderColor + focusBorderColor
-│   │   ├─ .String(options)
-│   │   ├─ .Integer(options)
-│   │   ├─ .Float(options)
-│   │   └─ .DateTime(options)               – date / datetime with precision
-│   ├─ Textarea — multi-line text input; resize: none | vertical | horizontal | both
-│   │   └─ .Root(options)
-│   ├─ Select — single-select dropdown; size + color/background/borderColor
-│   │   └─ .Root(items, options)
-│   ├─ Combobox — typeahead/filter select; size + color slots; supports async item providers
-│   │   ├─ .Root(items, options)
-│   │   └─ .Item(value, label)
-│   ├─ Checkbox — boolean checkbox; colorPalette + fillColor / checkColor / borderColor
-│   │   └─ .Root(label, options)
-│   ├─ Switch — form-style on/off toggle (binds boolean); onColor / offColor / thumbColor
-│   │   └─ .Root(options)
-│   ├─ Slider — range slider; orientation, variant, colorPalette, marks; track/fill/thumb colour slots
-│   │   └─ .Root(options)
-│   ├─ RadioGroup — single-select radio list; orientation: horizontal | vertical
-│   │   └─ .Root(items, options)
-│   ├─ RadioCardGroup — radio buttons rendered as picker cards; orientation + descriptionColor + selected-card colours
-│   │   └─ .Root(cards, options)
-│   ├─ TagsInput — typeahead chip input; inherits Input variants; tagBackground / tagColor / tagBorderColor for chips
-│   │   └─ .Root(options)
-│   ├─ FileUpload — drop-zone file picker; dropzoneBackground / dropzoneBorderColor / activeBackground (drag-over)
-│   │   └─ .Root(options)
-│   ├─ Field — form-field wrapper; orientation, labelColor + helperTextColor + requiredIndicatorColor + per-severity colours (error/warning/info)
-│   │   └─ .Root(label, control, options)
-│   ├─ DateRangeInput — start–end date pair with preset chips; inherits Input variants
-│   │   └─ .Root(options)
-│   ├─ TimeRangeInput — start–end time pair; inherits Input variants
-│   │   └─ .Root(options)
-│   └─ TimeScaleControl — day / week / month / quarter scale picker; activeColor / activeBackground for selected scale
-│       └─ .Root(options)
+│   ├─ <Input> — typed text inputs; variant: outline | subtle | flushed
+│   │   └─ nested: <Input.String> <Input.Integer> <Input.Float> <Input.DateTime>
+│   ├─ <Textarea> — multi-line; resize: none | vertical | horizontal | both
+│   ├─ <Select items={[Select.Item(value, label)]}> — single-select dropdown
+│   ├─ <Combobox items={[Combobox.Item(value, label)]}> — typeahead/filter select
+│   ├─ <Checkbox> — boolean checkbox; colorPalette + fill/check/border slots
+│   ├─ <Switch> — form on/off toggle (binds boolean)
+│   ├─ <Slider> — range slider; orientation, variant, colorPalette, marks
+│   ├─ <RadioGroup items={…}> — single-select radio list; orientation
+│   ├─ <RadioCardGroup cards={…}> — radios rendered as picker cards
+│   ├─ <TagsInput> — typeahead chip input
+│   ├─ <FileUpload> — drop-zone file picker
+│   ├─ <Field label="…" > control </Field> — form-field wrapper; orientation, helper/error text
+│   ├─ <DateRangeInput> — start–end date pair with preset chips
+│   └─ <TimeRangeInput> — start–end time pair
 │
-├─ Collections (display data sets)
-│   ├─ Table — sortable / column-pinnable / virtualized table; variants: line | outline; size: sm | md | lg; selectionMode: single | multiple; striped, stickyHeader, showColumnBorder
-│   │   └─ .Root(data, columns, style)
-│   ├─ DataList — label/value pair list; orientation: horizontal | vertical; labelColor / valueColor slots
-│   │   └─ .Root(items, style)
-│   ├─ TreeView — expandable hierarchical tree with selection; size + variant + caretColor + connectorColor + selectedBackground
-│   │   └─ .Root(nodes, options)
-│   ├─ Gantt — Gantt chart; reuses Table chrome; showToday marker, gridColor, task/milestone defaults
-│   │   └─ .Root(tasks, options)
-│   ├─ Planner — discrete rows × ordered-slot scheduler; reuses Table header chrome; committed / proposed / rejected event states, conflict markers, now-line
-│   │   ├─ .Point(data, config) / .Span(data, config)  – config: axis, columns, events, markers, groupBy, now, density, slotMinWidth, onSelectRow
-│   │   ├─ .axis.time() / .number({ buckets }) / .ordinal({ range })
-│   │   ├─ .event({ slot, endSlot, label, state, bucket, popover })
-│   │   └─ .marker({ slot, status, message })           – conflict / status flag on a slot
-│   ├─ Matrix — row × column grid of status-coloured segment bars; reuses Table header + Slice legend chrome
-│   │   ├─ .Root(data, config)              – config: columns, rowKey, cell, rowHeader/rowValue/rowSublabel, groupBy, orientation, legend, onSegmentChange…
-│   │   ├─ .cell({ segments, markers, slot, popover, orientation })
-│   │   ├─ .segment({ fill, weight, label, min, max, step })  – fill: brand/success/warning/danger/info/neutral/slack/free
-│   │   └─ .marker({ status, message, at, label })            – Planner-parity cell status flag (ring tint + corner icon)
-│   └─ Pagination — page-number control; siblings + boundaries control ellipsis windows; active colour slots
-│       └─ .Root(options)
+├─ Collections (display data sets) — structured data on `data=` / `columns=` / `items=` props
+│   ├─ <Table data={rows} columns={…} /> — sortable / pinnable / virtualized;
+│   │     columns is a keyed config (["a","b"] or { a: { header, width } }); variant: line | outline;
+│   │     selectionMode; striped, stickyHeader. Generic pass-through — column/cell inference preserved.
+│   ├─ <DataList items={[DataList.Item(label, value)]} /> — label/value pairs; orientation
+│   ├─ <TreeView nodes={…} /> — expandable hierarchical tree with selection
+│   ├─ <Gantt /> — Gantt chart; builders Gantt.Task(…), Gantt.Milestone(…); showToday marker
+│   ├─ <Planner.Point …> / <Planner.Span …> — discrete rows × ordered-slot scheduler
+│   │     └─ Planner.axis.time()/.number({buckets})/.ordinal({range}), Planner.event(…), Planner.marker(…)
+│   ├─ <Matrix data={…} columns={…} cell={(r, col) => Matrix.cell({ segments, markers })} />
+│   │     └─ Matrix.segment({ fill, weight, label }), Matrix.marker({ status, message }), Matrix.column(…)
+│   └─ <Pagination /> — page-number control; siblings + boundaries control ellipsis
 │
-├─ Charts (visualize data) — `import { Chart } from "@elaraai/east-ui"`
-│   ├─ Chart.Root(layer | layer[], options?)  – assemble mark + annotation layers into one chart;
-│   │                                            the x-scale is inferred from the x accessor's type
-│   │                                            (String → band, Integer/Float → linear, DateTime → time)
+├─ Charts (visualize data) — layers are a config array of factory values, never child tags
+│   ├─ <Chart layers={…} x={…} y={…} grid legend tooltip /> — assemble mark + annotation layers;
+│   │     x-scale inferred from the x accessor type (String → band, number → linear, DateTime → time)
 │   ├─ Marks: Chart.Line / Chart.Bar / Chart.Area / Chart.Scatter (rows, encoding, style?)
-│   │   ├─ encoding: { x, y }  ·  { x, y, by } (one series per category)  ·  { x, columns: { Name: r => r.field } } (wide)
-│   │   ├─ Chart.Scatter encoding also takes { x, y, size } – per-point bubble size (area-proportional)
-│   │   └─ Chart.Band(rows, { x, low, high }, style?) – filled low/high range (e.g. confidence band)
-│   ├─ Annotations: Chart.refLine({ y } | { x })  ·  Chart.refBand({ y:[lo,hi] } | { x:[lo,hi] })  ·  Chart.refDot({ x, y, label })
-│   ├─ style: { color, curve, width, dash, dots, fillOpacity, stack, axis:"left"|"right", order }  (Scatter adds size)
-│   ├─ options: { height, width, x/y/y2:{ label, format, domain, scale }, grid, legend, tooltip, stackOffset:"expand" }
-│   ├─ Chart.format.{ number, currency, percent, compact, date, time, datetime } – axis tick formats
-│   ├─ Sparkline — inline trend visualisation (line | area); 28–36 px tall, fits beside Stat / in a Card row
-│   │   └─ .Root(values, style)
-│   └─ Slice.Chart.{ Line, Bar, Area, Scatter }(slice, { x, value, xScale?, brush?, legend? }) – slice-bound;
-│                                                a brush on a time/linear chart sets the slice's range
+│   │     encoding: { x, y } · { x, y, by } (split) · { x, columns: { Name: r => r.field } } (wide)
+│   │     Chart.Band(rows, { x, low, high }, style?) — filled range (e.g. confidence band)
+│   ├─ Annotations: Chart.refLine({ y }|{ x }) · Chart.refBand({ y:[lo,hi] }) · Chart.refDot({ x, y, label })
+│   ├─ Chart.format.{ number, currency, percent, compact, date, time, datetime } — axis tick formats
+│   ├─ <Sparkline> — inline trend (line | area), fits beside a <Stat>
+│   └─ <Slice.Chart.Line/Bar/Area/Scatter> — slice-bound chart; a brush sets the slice's range
 │
 ├─ Display (show information)
-│   ├─ Badge — pill/tag label; colorPalette + variants (solid | subtle | outline); border + sizing controls
-│   │   └─ .Root(label, options)
-│   ├─ Tag — removable chip with close-trigger slot; same variant model as Badge
-│   │   └─ .Root(label, options)
-│   ├─ Avatar — user avatar (image with initials fallback); size + colorPalette
-│   │   └─ .Root(options)
-│   ├─ AvatarGroup — overlapping avatar cluster with "+N more" overflow; size + borderColor
-│   │   └─ .Root(avatars, options)
-│   ├─ Icon — FontAwesome icon; size variant + colour
-│   │   └─ .Root(name, options)
-│   ├─ Kbd — keyboard shortcut chip (e.g. ⌘ K); variant + shadowColor
-│   │   └─ .Root(keys, options)
-│   ├─ Stat — metric tile with label / value / change indicator (up | down | flat); size + per-slot colour overrides
-│   │   └─ .Root(label, value, options)
-│   ├─ MetricChip — compact mono delta chip; sentiment: pos | neg | flat
-│   │   └─ .Root(value, options)
-│   ├─ Meter — horizontal capacity bar with sentiment colour; thickness preset + track/fill colours
-│   │   └─ .Root(value, options)
-│   ├─ SegmentedMeter — multi-segment meter (e.g. decomposed confidence); labels position + caption colour
-│   │   └─ .Root(segments, options)
-│   ├─ BarStrip — ranked horizontal-bar list (axis-free; fits inside Stat / Card); orientation + thickness + valueColor
-│   │   └─ .Root(items, options)
-│   └─ EditableChip — chip whose text becomes inline input on click; trigger-icon + border colour
-│       └─ .Root(value, options)
+│   ├─ <Badge> — pill/tag label; colorPalette + variant: solid | subtle | outline
+│   ├─ <Tag> — removable chip with close trigger
+│   ├─ <Avatar> / <AvatarGroup> — user avatar / overlapping cluster with "+N more"
+│   ├─ <Icon name="…"> — FontAwesome icon; size + colour
+│   ├─ <Kbd> — keyboard-shortcut chip (⌘ K)
+│   ├─ <Stat label="…" value={…}> — metric tile with label / value / change indicator
+│   ├─ <MetricChip> — compact mono delta chip; sentiment: pos | neg | flat
+│   ├─ <Meter> — horizontal capacity bar with sentiment colour
+│   ├─ <SegmentedMeter> — multi-segment meter (e.g. decomposed confidence)
+│   ├─ <BarStrip> — ranked horizontal-bar list (axis-free; fits inside a <Stat>)
+│   ├─ <EditableChip> — chip whose text becomes inline input on click
+│   ├─ <ChipRail> — horizontal rail of mixed chip-shaped children (<Tag>/<Badge>/<MetricChip>/<Avatar>/…); separator dot | line; provides its density to the children
+│   └─ <Trace> — read-only inline heatmap (tracks × steps) with a now-line; sits flush beside a <ChipRail> at the same density in table cells
 │
 ├─ Feedback (status & async signals)
-│   ├─ Alert — inline message; status: info | success | warning | error | neutral; variants: solid | subtle | outline; iconColor slot
-│   │   └─ .Root(title, options)
-│   ├─ Banner — page-spanning notice; status: stale | partial | change | error | guard; reuses Alert variants + accentColor stripe
-│   │   └─ .Root(message, options)
-│   ├─ Status — dot + uppercase label (no fill); status: success | warning | danger | info | neutral; dotColor override
-│   │   └─ .Root(label, options)
-│   ├─ Toast — ephemeral overlay through host Toaster singleton; .make builds a value, .emit pushes it
-│   │   ├─ .make(status, title, options)
-│   │   └─ .emit(toast)
-│   ├─ Progress — linear progress bar; variants (determinate / indeterminate), striped, animated, colorPalette
-│   │   └─ .Root(value, options)
-│   ├─ ProgressCircle — circular progress indicator; thin-stroke brand ring
-│   │   └─ .Root(value, options)
-│   ├─ Spinner — indeterminate loading spinner; size preset
-│   │   └─ .Root(options)
-│   ├─ Skeleton — shimmer placeholder; width/height/fontSize + shimmerColor
-│   │   └─ .Root(options)
-│   └─ EmptyState — zero-data state with glyph, description, optional checklist + actions; size + iconColor
-│       └─ .Root(title, options)
+│   ├─ <Banner> — page-spanning notice; status: stale | partial | change | error | guard
+│   ├─ <Status label="…" status="success"> — dot + uppercase label (no fill)
+│   ├─ <Progress> — linear progress bar; determinate / indeterminate, striped, colorPalette
+│   ├─ <Skeleton> — shimmer placeholder
+│   └─ <EmptyState> — zero-data state with glyph, description, optional actions
 │
-├─ Disclosure (reveal / switch content)
-│   ├─ Tabs — content tabs; variants: line | subtle | enclosed | outline | plain | ink | brand-tint; size sm | md | lg
-│   │   ├─ .Root(items, options)
-│   │   └─ .Item(value, trigger, content)
-│   ├─ Accordion — expandable sections; single or multi-open; variants: enclosed | plain | subtle
-│   │   ├─ .Root(items, options)
-│   │   └─ .Item(value, trigger, content)
-│   ├─ Carousel — paginated slide carousel; orientation, padding, indicator + control colour slots
-│   │   └─ .Root(slides, options)
-│   ├─ Collapsible — single show/hide section (no group); trigger + content colour slots
-│   │   └─ .Root(trigger, content, options)
-│   ├─ SegmentGroup — single-select segmented toggle (mode/context switcher); orientation + colorPalette + active/inactive colours
-│   │   ├─ .Root(value, items, options)
-│   │   └─ .Item(value, label)
-│   ├─ OptionList — keyboard-navigable single-select list (rows with description + trailing slot + disabled); selectedBackground + impactColor
-│   │   ├─ .Root(options_array, opts)
-│   │   └─ .Option(id, label, opts)
-│   ├─ Steps — stepper rail; orientation: horizontal | vertical; .Status: pending | active | completed | error | skipped; per-status colours + connectorColor
-│   │   ├─ .Root(items, options)
-│   │   └─ .Item(value, title, options)
-│   ├─ Timeline — vertical decision-journal timeline; per-item status colours + indicatorColor + connectorColor
-│   │   ├─ .Root(items, options)
-│   │   └─ .Item(value, title, options)
-│   └─ Disclosure — the "Show more / Show less" toggle (src/disclosure/show-more)
-│       └─ .Root(trigger, options)
+├─ Disclosure (reveal / switch content) — item metadata is config, not child tags
+│   ├─ <Tabs items={[Tabs.Item(value, title, body)]} defaultValue="…" /> — variant: line | subtle | enclosed | …
+│   ├─ <Accordion items={[Accordion.Item(value, trigger, body)]} /> — single/multi-open
+│   ├─ <Carousel> — paginated slide carousel
+│   ├─ <Collapsible> — single show/hide section
+│   ├─ <SegmentGroup items={[…]}> — compact single-select mode switcher (no panels)
+│   ├─ <OptionList> — keyboard-navigable single-select list (rows + description)
+│   └─ <Disclosure> — "Show more / Show less" toggle
 │
 ├─ Navigation
-│   ├─ Breadcrumb — ancestor trail with separator (chevron / slash); variant + size + colorPalette
-│   │   └─ .Root(items, options)
-│   └─ NavList — sidebar nav list; orientation + sectionLabelColor + active item slots (activeBackground, activeIndicatorColor) + badge slots
-│       └─ .Root(sections, style)
+│   ├─ <Breadcrumb items={…} /> — ancestor trail; separator chevron / slash
+│   └─ <NavList sections={…} /> — sidebar nav; active item slots + badges
 │
-├─ Overlays (floating content)
-│   ├─ Dialog — modal dialog; style carries title, size, placement; trigger + body slots
-│   │   └─ .Root(trigger, body, style)
-│   ├─ Drawer — side drawer panel; side: top | right | bottom | left; trigger + body slots
-│   │   └─ .Root(trigger, body, style)
-│   ├─ Popover — click-triggered floating panel; style.placement controls anchor position
-│   │   └─ .Root(trigger, body, style)
-│   ├─ HoverCard — hover-triggered preview card (delayed open/close)
-│   │   └─ .Root(trigger, body, style)
-│   ├─ Tooltip — hover tooltip; mono uppercase small text (content: string, not UIComponent)
-│   │   └─ .Root(trigger, content, style)
-│   ├─ ToggleTip — click-toggle tooltip (sticky until dismissed); accepts richer content than Tooltip
-│   │   └─ .Root(trigger, content, style)
-│   ├─ Menu — dropdown / context menu; style.placement controls anchor; supports menu separators
-│   │   ├─ .Root(trigger, items, style)
-│   │   └─ .Item(value, label, disabled?)
-│   ├─ CommandPalette — ⌘K command palette overlay with search input + groups; size + input/item/group-label colour slots
-│   │   └─ .Root(commands, style)
-│   ├─ ActionBar — sticky bottom action bar (bulk selection / batch ops); onSelect + onOpenChange callbacks
-│   │   └─ .Root(items, style)
-│   └─ CoachMark — first-run onboarding callout (live-pulse dot); placement + arrowColor
-│       └─ .Root(target, title, body, style)
+├─ Overlays (floating content) — `trigger` is a UIComponent prop; body is children
+│   ├─ <Dialog trigger={<Button>…</Button>} title="…"> body </Dialog> — modal
+│   ├─ <Drawer trigger={…} side="right"> body </Drawer> — side panel
+│   ├─ <Popover trigger={…}> body </Popover> — click-triggered floating panel
+│   ├─ <HoverCard trigger={…}> body </HoverCard> — hover preview card
+│   ├─ <Tooltip trigger={…} content="…"> — hover tooltip (content is a string)
+│   ├─ <ToggleTip trigger={…}> — click-toggle tooltip (sticky)
+│   ├─ <Menu trigger={…} items={[Menu.Item(value, label), Menu.Separator()]}> — dropdown/context menu
+│   ├─ <CommandPalette commands={…}> — ⌘K palette with search + groups
+│   └─ <ActionBar items={…}> — sticky bottom bulk-action bar
 │
-├─ Container (content wrapper)
-│   └─ Card — titled card with header / body / footer; variants: elevated | outline | subtle
-│       └─ .Root(children, options)
+├─ Container
+│   └─ <Card header={{ eyebrow, title, description }} footer={{ … }}> body </Card>
+│         header/footer are strict option objects the factory composes; variant: elevated | outline | subtle
 │
 ├─ Reactive (state-driven re-render)
-│   └─ Reactive — wraps a free `() => UIComponent` so it re-renders when read State keys change; all `State.bind` reads must live inside the inner function body
-│       └─ .Root(fn)
+│   └─ <Reactive>{$ => { …State.bind reads…; return <…/>; }}</Reactive>
+│         re-renders when read State keys change; all State.bind reads live inside the builder block
 │
 └─ State (typed reactive store)
-    └─ State.bind([T], key, defaultValue)   – returns `{ read, write, has }` closures; initialises the key on first
-                                              bind; `read()` tracks the dependency so Reactive.Root re-renders when
-                                              the value changes
+    └─ State.bind([T], key, defaultValue) → { read, write, has } closures;
+       read() tracks the dependency so <Reactive> re-renders when the value changes
 ```
 
-## Common Types
+## Key Patterns
 
-| Type | Definition | Description |
-|------|------------|-------------|
-| `UIComponentType` | `VariantType({ box, flex, text, button, ... })` | Recursive type for all UI components |
-| `SizeType` | `xs \| sm \| md \| lg \| xl` | Component size |
-| `ColorSchemeType` | `gray \| red \| orange \| yellow \| green \| teal \| blue \| cyan \| purple \| pink \| brand` | Colour palette |
-| `FontWeightType` | `normal \| medium \| semibold \| bold` | Text weight |
-| `FlexDirectionType` | `row \| column \| row-reverse \| column-reverse` | Flex direction |
-| `JustifyContentType` | `flex-start \| flex-end \| center \| space-between \| space-around \| space-evenly` | Flex justify |
-| `AlignItemsType` | `flex-start \| flex-end \| center \| stretch \| baseline` | Flex align |
-| `OrientationType` | `horizontal \| vertical` | Used by Separator, Steps, Splitter, Carousel |
-| `AlertStatusType` | `info \| success \| warning \| error \| neutral` | Used by Alert, Toast |
-| `StepStatusType` | `pending \| active \| completed \| error \| skipped` | Used by Steps, Timeline |
-| `StatusValueType` | `success \| warning \| danger \| info \| neutral` | Used by Status (dot + word) |
+### Reactive interactivity — builder children
 
-## Available Components (flat index)
+`<Reactive>` takes a **builder function** `{$ => …}` (not a nested
+`East.function`). All `State.bind` reads live inside it so the component
+re-renders when the bound key changes.
 
-| Category | Components |
-|----------|------------|
-| Layout | `Box`, `Flex`, `Stack`, `Grid`, `Splitter`, `Separator`, `ScrollArea`, `Sticky`, `ChipRail` |
-| Typography | `Text`, `Heading`, `Link`, `Code`, `CodeBlock`, `List`, `Highlight`, `Mark`, `Note`, `Numeric` |
-| Buttons | `Button`, `IconButton`, `CloseButton`, `CopyButton`, `Toggle`, `ButtonGroup` |
-| Forms | `Input`, `Textarea`, `Select`, `Combobox`, `Checkbox`, `Switch`, `Slider`, `RadioGroup`, `RadioCardGroup`, `TagsInput`, `FileUpload`, `Field`, `DateRangeInput`, `TimeRangeInput`, `TimeScaleControl` |
-| Collections | `Table`, `DataList`, `TreeView`, `Gantt`, `Planner`, `Matrix`, `Pagination` |
-| Charts | `Chart.Root` + `Chart.Line/Bar/Area/Scatter/Band` layers, `Chart.refLine/refBand/refDot`, `Chart.format.*`, `Sparkline`, `Slice.Chart.*` |
-| Display | `Badge`, `Tag`, `Avatar`, `AvatarGroup`, `Icon`, `Kbd`, `Stat`, `MetricChip`, `Meter`, `SegmentedMeter`, `BarStrip`, `EditableChip` |
-| Feedback | `Alert`, `Banner`, `Status`, `Toast`, `Progress`, `ProgressCircle`, `Spinner`, `Skeleton`, `EmptyState` |
-| Disclosure | `Tabs`, `Accordion`, `Carousel`, `Collapsible`, `SegmentGroup`, `OptionList`, `Steps`, `Timeline`, `Disclosure (ShowMore)` |
-| Navigation | `Breadcrumb`, `NavList` |
-| Overlays | `Dialog`, `Drawer`, `Popover`, `HoverCard`, `Tooltip`, `ToggleTip`, `Menu`, `CommandPalette`, `ActionBar`, `CoachMark` |
-| Container | `Card` |
-| Reactive | `Reactive.Root` |
-| State | `State.bind` (returns `{ read, write, has }` closures) |
-
-## Pairings / when components overlap
-
-A short guide for the components that look similar — pick by intent:
-
-- **Switch vs Toggle vs Checkbox** – `Switch` binds a boolean form value (settings page). `Toggle` is a pressable on/off button (toolbar). `Checkbox` binds a boolean form value (in a list).
-- **SegmentGroup vs Tabs vs RadioGroup** – `SegmentGroup` is a compact mode/context switcher (no content panels). `Tabs` is a content switcher (one panel per tab). `RadioGroup` is a form input (binds a value).
-- **Alert vs Banner vs Status vs Toast** – `Alert` is an inline message inside a card. `Banner` is a page-spanning notice for staleness / partial-data / change-since-visit. `Status` is a dot + word (no fill). `Toast` is an ephemeral overlay through the host Toaster.
-- **OptionList vs Select vs Combobox vs RadioGroup** – `OptionList` is a visible single-select list (alternatives explorer). `Select` is a closed dropdown. `Combobox` is a typeahead-filtered Select. `RadioGroup` is a form input.
-- **Meter vs Progress vs SegmentedMeter** – `Progress` shows task completion (determinate / indeterminate). `Meter` shows a static value against a range (with sentiment colour). `SegmentedMeter` decomposes a meter into multiple stacked segments.
-- **BarStrip vs Chart.Bar** – `BarStrip` is a small ranked horizontal-bar list (no axes). `Chart.Bar` is a bar layer inside `Chart.Root` — a full chart with axes and legend.
-- **Stat vs MetricChip** – `Stat` is a tile with hero number + label + change. `MetricChip` is a compact inline mono delta pill.
-- **Steps vs Timeline** – `Steps` is a horizontal progress rail (linear flow). `Timeline` is a vertical decision-journal log (chronological entries).
-- **Card vs Box** – `Box` is structural-only. `Card` carries chrome (header, body, footer, border).
-
-## Common Patterns
-
-### Basic Layout with Stack
-
-```typescript
-import { Stack, Text, Button, UIComponentType } from "@elaraai/east-ui";
-
-const layout = East.function([], UIComponentType, $ => {
-    return Stack.VStack([
-        Text.Root("Title", { fontSize: "xl", fontWeight: "bold" }),
-        Text.Root("Description text here"),
-        Stack.HStack([
-            Button.Root("Cancel", { variant: "outline" }),
-            Button.Root("Submit", { variant: "solid", colorPalette: "blue" }),
-        ], { gap: "2" }),
-    ], { gap: "4", padding: "6" });
-});
-```
-
-### Reactive counter (canonical interactive pattern)
-
-```typescript
+```tsx
+/** @jsxImportSource @elaraai/east-ui */
 import { East, IntegerType, NullType } from "@elaraai/east";
-import { Stack, Button, Text, Reactive, State, UIComponentType } from "@elaraai/east-ui";
+import { VStack, Text, Button, Reactive, State, UIComponentType } from "@elaraai/east-ui";
 
-const counter = East.function([], UIComponentType, (_$) => {
-    return Reactive.Root(East.function([], UIComponentType, $ => {
-        // bind once — initialises "count" to 0n on first run and exposes
-        // read/write closures tied to that key.
-        const countBind = $.let(State.bind([IntegerType], "count", 0n));
-        const count     = $.let(countBind.read());
-
-        const increment = $.const(East.function([], NullType, $ => {
-            $(countBind.write(count.add(1n)));
+const counter = East.function([], UIComponentType, (_$) => (
+    <Reactive>{$ => {
+        const count = $.let(State.bind([IntegerType], "count", 0n));
+        const value = $.let(count.read());
+        const inc = $.const(East.function([], NullType, $ => {
+            $(count.write(count.read().add(1n)));
         }));
-
-        return Stack.VStack([
-            Text.Root(East.str`Count: ${count}`, { fontSize: "lg" }),
-            Button.Root("+1", { onClick: increment }),
-        ], { gap: "3" });
-    }));
-});
+        return (
+            <VStack gap="3">
+                <Text textStyle="body-lg">{East.str`Count: ${value}`}</Text>
+                <Button onClick={inc}>+1</Button>
+            </VStack>
+        );
+    }}</Reactive>
+));
 ```
 
-### Data table with columns
+### Two callback families
 
-```typescript
-import { Table, UIComponentType } from "@elaraai/east-ui";
+- **Build-time accessors** — `(row) => SubtypeExprOrValue<Scalar>` for chart
+  encodings (`x`/`y`/`by`/`columns`) and table column `value`. Passed through
+  verbatim; they return field expressions used while building the IR.
+- **East-function handlers** — `onClick`, `onChange`, per-row builders. Pass an
+  `East.function(...)` value or a typed arrow; the factory lifts it.
 
-const dataTable = East.function([], UIComponentType, $ => {
-    return Table.Root(
-        [
-            { id: 1n, name: "Alice", email: "alice@example.com" },
-            { id: 2n, name: "Bob",   email: "bob@example.com"   },
-        ],
-        [
-            { header: "ID",    accessorKey: "id"    },
-            { header: "Name",  accessorKey: "name"  },
-            { header: "Email", accessorKey: "email" },
-        ],
-        { variant: "line", showColumnBorder: true }
-    );
-});
+### Text is East, not JSX text nodes
+
+Children are `SubtypeExprOrValue<StringType>` — interpolate East-side, never with
+JSX braces between text:
+
+```tsx
+<Text>{East.str`Hello ${name}`}</Text>   // correct
+// <Text>Hello {name}</Text>             // wrong — not East
 ```
 
-### Line chart
+### Conditionals are East
 
-```typescript
-import { East, ArrayType, StructType, StringType, IntegerType } from "@elaraai/east";
-import { Chart, UIComponentType } from "@elaraai/east-ui";
+Use `cond.ifElse(<A/>, <B/>)` (a `UIComponentType`), never JS `{cond && <El/>}`
+or ternaries returning `null` — those aren't East values.
 
-const chart = East.function([], UIComponentType, $ => {
-    const rows = $.const([
-        { month: "Jan", revenue: 186n, profit: 80n },
-        { month: "Feb", revenue: 305n, profit: 120n },
-        { month: "Mar", revenue: 237n, profit: 95n },
-    ], ArrayType(StructType({ month: StringType, revenue: IntegerType, profit: IntegerType })));
-    // Compose layers: revenue bars + a profit line. Encodings bind data by typed
-    // accessor; the x type (String) infers a band scale. Currency-formatted y-axis.
-    return Chart.Root([
-        Chart.Bar(rows, { x: r => r.month, y: r => r.revenue }, { key: "Revenue", color: "teal.solid" }),
-        Chart.Line(rows, { x: r => r.month, y: r => r.profit }, { key: "Profit", color: "purple.solid", dots: true }),
-    ], { y: { format: Chart.format.currency({ compact: true }) }, legend: true, tooltip: true, grid: true });
-});
+### Data-driven components keep data on config props
+
+Tables, charts, matrices, lists and item-parents take structured data on
+`data=` / `columns=` / `items=` / `layers=` props; per-row builders are typed
+callbacks returning factory values (`cell={(r, col) => Matrix.cell({…})}`).
+Non-UI sub-structures are never child sub-tags.
+
+```tsx
+// Table — columns config, inference preserved
+<Table
+    data={[{ name: "Alice", role: "Admin" }, { name: "Bob", role: "User" }]}
+    columns={{ name: { header: "Name" }, role: { header: "Role" } }}
+    striped variant="line"
+/>
+
+// Chart — layers config array
+<Box height="220px" width="100%">
+    <Chart
+        layers={[
+            Chart.Bar(rows, { x: r => r.month, y: r => r.revenue }, { name: "Revenue", color: "teal.solid" }),
+            Chart.Line(rows, { x: r => r.month, y: r => r.profit }, { name: "Profit", color: "purple.solid", dots: true }),
+        ]}
+        y={{ format: Chart.format.currency({ compact: true }) }}
+        legend grid tooltip
+    />
+</Box>
 ```
 
-### Dialog overlay
+### Overlays — trigger prop + body children
 
-```typescript
-import { Dialog, Button, Text, UIComponentType } from "@elaraai/east-ui";
-
-const dialogExample = East.function([], UIComponentType, $ => {
-    return Dialog.Root(
-        Button.Root("Open Dialog"),
-        [Text.Root("Are you sure you want to proceed?")],
-        { title: "Confirm Action", size: "md" }
-    );
-});
+```tsx
+<Dialog trigger={<Button>Open</Button>} title="Confirm" description="Proceed?">
+    <Text>This appears as a modal overlay.</Text>
+    <HStack gap="2" justify="flex-end">
+        <Button variant="outline">Cancel</Button>
+        <Button variant="solid">Confirm</Button>
+    </HStack>
+</Dialog>
 ```
 
-### Status dot + word (no tint)
+### Density cascade — one prop tightens a whole surface
 
-```typescript
-import { Stack, Status, Text, UIComponentType } from "@elaraai/east-ui";
+Display components (`<Tag>`, `<Badge>`, `<Kbd>`, `<MetricChip>`, `<EditableChip>`,
+`<Meter>`, `<BarStrip>`, `<SegmentedMeter>`, `<Stat>`, `<Avatar>`, `<Trace>`,
+`<ChipRail>`) take `density="condensed" | "compact" | "comfortable"` and inherit
+it from the nearest providing surface — a `<Table>` / `<Gantt>` / `<Planner>` /
+`<Matrix>` / `<ChipRail>` with `density` set, or any layout container
+(`<Box>` / `<Stack>` / `<Flex>` / `<Grid>` / `<Card>`) given a `density` prop.
+All densified components share one sizing rhythm, so mixed table cells (a tag
+beside a trace beside a meter) line up; an explicit `density` on a component
+wins over the cascade. `<Badge>` and `<Kbd>` scale on a smaller micro-label
+tier so they stay subordinate to tags at every density.
 
-const live = East.function([], UIComponentType, $ => {
-    return Stack.HStack([
-        Status.Root("Live",     { status: "success" }),
-        Status.Root("Warning",  { status: "warning" }),
-        Status.Root("Error",    { status: "danger"  }),
-        Status.Root("Idle",     { status: "neutral" }),
-    ], { gap: "4" });
-});
+```tsx
+// One prop on the Table sizes every chip, trace and meter in its cells.
+<Table density="compact" data={lines} columns={{ /* render cells with <Tag>, <Trace>, <Meter>… */ }} />
+
+// Or scope it to a row:
+<HStack density="condensed" gap="2">
+    <Tag>Shiraz</Tag>
+    <Badge>WK 12</Badge>
+    <Meter value={72.0} tone="success" />
+</HStack>
 ```
+
+### Picking between similar components
+
+- **Switch vs Toggle vs Checkbox** — `<Switch>` binds a boolean form value;
+  `<Toggle>` is a pressable toolbar button; `<Checkbox>` binds a boolean in a list.
+- **SegmentGroup vs Tabs vs RadioGroup** — `<SegmentGroup>` is a compact mode
+  switcher (no panels); `<Tabs>` switches content panels; `<RadioGroup>` is a form input.
+- **Banner vs Status vs Progress** — `<Banner>` spans the page for staleness /
+  partial-data; `<Status>` is a dot + word; `<Progress>` shows task completion.
+- **Meter vs Progress vs SegmentedMeter** — `<Meter>` is a static value vs a
+  range; `<Progress>` is completion; `<SegmentedMeter>` decomposes a meter.
+- **Stat vs MetricChip** — `<Stat>` is a tile with hero number; `<MetricChip>` is
+  a compact inline delta pill.
+- **Tag vs Badge** — `<Tag>` is an operator-set keyword / filter pill (body
+  font, optionally closable); `<Badge>` is a mono uppercase micro-label for
+  status / taxonomy (ok / warn / danger / count) that stays a tier smaller
+  than tags at the same density.
+- **BarStrip vs Chart.Bar** — `<BarStrip>` is a small ranked bar list (no axes);
+  `Chart.Bar` is a layer inside `<Chart>` with axes and legend.
+- **Card vs Box** — `<Box>` is structural-only; `<Card>` carries chrome.
 
 ## Related skills
 
 - **east** — the language UI component bodies are written in.
-- **e3-ui** — bind components to live workspace data (`Data.bind`) and ship them as reactive `ui()` e3 tasks; pair it with east-ui whenever the UI reads, writes, or commits real data.
+- **e3-ui** — bind components to live workspace data (`Data.bind`) and ship them
+  as reactive `ui()` e3 tasks; pair it with east-ui whenever the UI reads,
+  writes, or commits real data.
 - **e3** — the engine that runs UI tasks.
+</content>
+</invoke>

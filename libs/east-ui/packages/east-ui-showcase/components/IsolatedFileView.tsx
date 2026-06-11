@@ -38,10 +38,22 @@ export function IsolatedFileView({ entries }: { entries: readonly CatalogEntry[]
                                 {example.description}
                             </Text>
                             <Box layerStyle="frame" p="6" bg="bg.surface" minH="160px">
-                                <EastFunction
-                                    ir={example.fn.toIR() as EastFunctionProps["ir"]}
-                                    storageKey={`snapshot-${pathKey}-${example.name}`}
-                                />
+                                {example.tier === "live" ? (
+                                    <EastFunction
+                                        ir={example.fn.toIR() as EastFunctionProps["ir"]}
+                                        storageKey={`snapshot-${pathKey}-${example.name}`}
+                                    />
+                                ) : (
+                                    <Box
+                                        as="pre"
+                                        fontFamily="mono"
+                                        fontSize="12px"
+                                        whiteSpace="pre-wrap"
+                                        color="fg"
+                                    >
+                                        {example.source.raw}
+                                    </Box>
+                                )}
                             </Box>
                         </Box>
                     ))}

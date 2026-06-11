@@ -2,7 +2,11 @@
 # Copyright (c) 2025 Elara AI Pty Ltd
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
-"""Transfer module - FTP and SFTP file transfer."""
+"""Transfer module - FTP and SFTP file transfer.
+
+The ``*_impl`` functions are plain Python callables taking and returning East
+values and can be called directly from project code without an IR round-trip.
+"""
 
 from east_py_io.transfer.ftp_impl import (
     ftp_close_all_impl,

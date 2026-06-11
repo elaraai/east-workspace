@@ -6,7 +6,7 @@
 import { memo, useState, useEffect, useMemo, useCallback } from "react";
 import { Box, Combobox as ChakraCombobox, Portal, createListCollection, useSlotRecipe } from "@chakra-ui/react";
 import { type ValueTypeOf, some, none } from "@elaraai/east";
-import { Slice } from "@elaraai/east-ui";
+import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { useSliceDensity } from "../density";
 import { useSliceReactivity } from "../use-slice-reactivity";
@@ -34,7 +34,8 @@ export const EastChakraSliceSearch = memo(function EastChakraSliceSearch({ value
     const recent = value.recent ?? [];
     useSliceReactivity(slice.key);
     const density = useSliceDensity(getSomeorUndefined(value.density)?.type as ("compact" | "focused" | undefined));
-    const compact = density === "compact";
+    // `editor` renders the flat compact form; its edit surfaces inline via the editor-density disclosure.
+    const compact = density !== "focused";
     const matches = slice.matches();
 
     const externalQuery = getSomeorUndefined(slice.read().search) ?? "";

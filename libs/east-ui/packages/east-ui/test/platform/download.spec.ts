@@ -5,7 +5,7 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { East, NullType } from "@elaraai/east";
-import { Download } from "@elaraai/east-ui";
+import { Download } from "@elaraai/east-ui/internal";
 import * as ex from "./download.examples.js";
 
 describeEast("Download", (test) => {

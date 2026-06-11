@@ -4,13 +4,14 @@
  */
 
 import { memo, useMemo } from "react";
-import { Stat as ChakraStat, HStack, Box } from "@chakra-ui/react";
+import { Stat as ChakraStat, type StatRootProps, HStack, Box } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-svg-core";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Stat } from "@elaraai/east-ui";
+import { Stat } from "@elaraai/east-ui/internal";
 import { EastChakraComponent } from "../../component";
 import { getSomeorUndefined } from "../../utils";
+import { useDensity } from "../../contracts/density";
 import { formatTick } from "../../typography/numeric/format-tick";
 
 const statEqual = equalFor(Stat.Types.Stat);
@@ -62,6 +63,9 @@ export const EastChakraStat = memo(function EastChakraStat({ value, storageKey }
     const info = useMemo(() => getSomeorUndefined(value.info), [value.info]);
     const indicator = useMemo(() => getSomeorUndefined(value.indicator), [value.indicator]);
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
+    const inheritedDensity = useDensity();
+    const localDensity = useMemo(() => getSomeorUndefined(value.density)?.type, [value.density]);
+    const density = localDensity ?? inheritedDensity;
 
     // The value is a scalar `LiteralValueType` variant; numeric tags run
     // through the shared tick formatter, strings render verbatim.
@@ -96,7 +100,7 @@ export const EastChakraStat = memo(function EastChakraStat({ value, storageKey }
         : (sentiment ? SENTIMENT_PALETTE[sentiment] : undefined);
 
     return (
-        <ChakraStat.Root size={size}>
+        <ChakraStat.Root size={size} {...(density !== undefined ? ({ density } as StatRootProps) : {})}>
             <HStack gap="1" align="baseline">
                 <ChakraStat.Label color={labelColor}>{value.label}</ChakraStat.Label>
                 {info && (

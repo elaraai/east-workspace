@@ -54,6 +54,7 @@ When using a git dependency in `pyproject.toml`:
 | **ALNS** | `alns` | alns |
 | **PyMC** | `pymc` | pymc, cloudpickle |
 | **Simulation** | *(none)* | *(core only — numpy)* |
+| **Causal** | `causal` | dowhy, econml, PyALE, pandas, matplotlib, scikit-learn, cloudpickle |
 
 ## Quick Start
 
@@ -119,6 +120,12 @@ const optimize = East.function([], MADS.Types.ResultType, $ => {
 | Module | Description | Use Cases |
 |--------|-------------|-----------|
 | **PyMC** | Bayesian inference with PyMC | Bayesian linear regression, hierarchical models, multi-layer joint estimation, posterior analysis |
+
+### Causal Inference
+
+| Module | Description | Use Cases |
+|--------|-------------|-----------|
+| **Causal** | Causal inference with DoWhy, EconML, and PyALE | Backdoor-adjusted effect estimation, refutation tests, heterogeneous treatment effects (CATE), ALE dose-response curves |
 
 ### Simulation
 

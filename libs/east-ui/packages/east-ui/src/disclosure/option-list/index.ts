@@ -172,15 +172,17 @@ function createOptionListOption(
  *
  * @property selectedId - Currently-selected option id
  * @property onSelect - Callback fired with the option id when a row is chosen
- * @property style - Optional visual presentation style
+ * @property itemColor - Option label colour
+ * @property itemHoverBackground - Row hover background colour
+ * @property selectedBackground - Selected-row background colour
+ * @property borderColor - List border colour
+ * @property impactColor - Trailing impact / metric colour
  */
-export interface OptionListOptions {
+export interface OptionListOptions extends OptionListStyle {
     /** Currently-selected option id */
     selectedId?: SubtypeExprOrValue<StringType>;
     /** Callback fired with the option id when a row is chosen */
     onSelect?: SubtypeExprOrValue<FunctionType<[StringType], NullType>>;
-    /** Optional visual presentation style */
-    style?: OptionListStyle;
 }
 
 /**
@@ -211,12 +213,15 @@ function createOptionListRoot(
     options: SubtypeExprOrValue<ArrayType<OptionListItemType>>,
     opts?: OptionListOptions,
 ): ExprType<UIComponentType> {
-    const styleValue = opts?.style ? buildOptionListStyle(opts.style) : undefined;
+    const { selectedId, onSelect, ...visual } = opts ?? {};
+
+    const hasVisual = Object.values(visual).some(field => field !== undefined);
+    const styleValue = hasVisual ? buildOptionListStyle(visual) : undefined;
 
     return East.value(variant("OptionList", {
         options: options as never,
-        selectedId: opts?.selectedId !== undefined ? some(opts.selectedId) : none,
-        onSelect: opts?.onSelect !== undefined ? some(opts.onSelect) : none,
+        selectedId: selectedId !== undefined ? some(selectedId) : none,
+        onSelect: onSelect !== undefined ? some(onSelect) : none,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }

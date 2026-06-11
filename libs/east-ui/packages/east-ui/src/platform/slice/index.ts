@@ -86,6 +86,7 @@ import {
 } from "@elaraai/east";
 
 import { ChartXType } from "../../charts/spec/types.js";
+import { SliceAffordanceType } from "../../contracts/slice-affordances.js";
 
 // ============================================================================
 // DateTimeRange — generic { from, to } interval
@@ -226,7 +227,22 @@ function sliceFieldSpecFor<T>(rowType: T) {
  * @property searchFieldIds    - Fields the typeahead search applies to
  * @property breakdownFieldIds - Fields available as breakdown dimensions
  */
-const SliceConfigType = StructType({
+/**
+ * Materialise the concrete `SliceConfig` East type for a row type — for
+ * payloads that carry a slice config across an encoding boundary (e.g. a
+ * `DecisionQueue`'s queue-owned slice). The module-scope `SliceConfigType`
+ * keeps the `"T"` placeholder for the `slice_bind` declaration.
+ */
+export function sliceConfigTypeFor<T extends EastType>(rowType: T) {
+    return StructType({
+        fields:            DictType(StringType, sliceFieldSpecFor(rowType)),
+        rangeFieldId:      OptionType(StringType),
+        searchFieldIds:    ArrayType(StringType),
+        breakdownFieldIds: ArrayType(StringType),
+    });
+}
+
+export const SliceConfigType = StructType({
     fields:            DictType(StringType, SliceFieldSpecType),
     rangeFieldId:      OptionType(StringType),
     searchFieldIds:    ArrayType(StringType),
@@ -711,9 +727,9 @@ export type SliceSeriesArrayType = typeof SliceSeriesArrayType;
 
 /**
  * Render density for a `Slice.*` affordance. `compact` = the one-row eyebrow
- * form used inside a `Slice.Frame`; `focused` = the standalone configuration
+ * form used inside a chrome rail; `focused` = the standalone configuration
  * surface. Components default to `focused` standalone and `compact` when the
- * surrounding `Slice.Frame` sets the density.
+ * surrounding rail sets the density.
  */
 export const SliceDensityType = VariantType({
     compact: NullType,
@@ -802,13 +818,13 @@ export const SliceBindType = StructType({
         dimensions: FunctionType([], SliceDimensionArrayType),
         /** Every filterable field → `[{ fieldId, label, kind }]`; feeds the predicate builder. */
         fields: FunctionType([], SliceFieldDescriptorArrayType),
-        /** Field ids the typeahead searches over — `Slice.Frame` shows Search when non-empty. */
+        /** Field ids the typeahead searches over — the chrome rail shows Search when non-empty. */
         searchFieldIds: FunctionType([], ArrayType(StringType)),
-        /** Field id `Slice.Range` narrows on — `Slice.Frame` shows Range when `some`. */
+        /** Field id `Slice.Range` narrows on — the chrome rail shows Range when `some`. */
         rangeFieldId: FunctionType([], OptionType(StringType)),
 
         // --- data-derived results (computed over the collection bound at `Slice.bind`) ---
-        /** Total bound rows, before any narrowing — used by the `Slice.Frame` footer ("N of M"). */
+        /** Total bound rows, before any narrowing — used by the chrome footer ("N of M"). */
         totalCount: FunctionType([], IntegerType),
         /** Count of bound rows passing every active narrowing — used by Filter / Summary. */
         resultCount: FunctionType([], IntegerType),
@@ -835,6 +851,30 @@ const slice_bind = East.genericPlatform("slice_bind", ["T"],
     SliceBindType,
     { optional: true },
 );
+
+/**
+ * The narrowed rows for a bound slice — every row bound at `Slice.bind`
+ * that passes the active narrowing. The explicit, typed data feed for
+ * consumers: `rows={Slice.rows([EventType], slice)}`. A component's `slice`
+ * chrome option never narrows data itself.
+ */
+const slice_rows = East.genericPlatform("slice_rows", ["T"],
+    [SliceBindType],
+    ArrayType("T"),
+    { optional: true },
+);
+
+/**
+ * The slice-chrome payload every slice-accepting component carries — the
+ * bound handle plus the affordances its rail mounts. Chrome only: the
+ * component's data is always fed explicitly (`Slice.rows([RowType], slice)`).
+ */
+export const SliceChromeType = StructType({
+    slice: SliceBindType,
+    affordances: ArrayType(SliceAffordanceType),
+});
+/** Type alias for {@link SliceChromeType}. */
+export type SliceChromeType = typeof SliceChromeType;
 
 // ============================================================================
 // slice_apply_* — pure narrowing engine (no state, no React)
@@ -967,6 +1007,9 @@ export const Slice = {
      * ```
      */
     bind: slice_bind,
+
+    /** Narrowed rows for a bound slice — the typed data feed (`Slice.rows([RowType], slice)`). */
+    rows: slice_rows,
 
     /**
      * Pure narrowing engine. State + config + data → narrowed data.

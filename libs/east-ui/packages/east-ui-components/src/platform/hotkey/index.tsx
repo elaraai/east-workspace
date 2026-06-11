@@ -5,7 +5,7 @@
 
 import { memo, useEffect } from "react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Hotkey } from "@elaraai/east-ui";
+import { Hotkey } from "@elaraai/east-ui/internal";
 
 const hotkeyEqual = equalFor(Hotkey.Types.Hotkey);
 

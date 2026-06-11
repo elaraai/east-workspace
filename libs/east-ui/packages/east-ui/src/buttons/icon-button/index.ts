@@ -11,7 +11,6 @@ import {
     none,
 } from "@elaraai/east";
 
-import type { IconName, IconPrefix } from "@fortawesome/fontawesome-common-types";
 
 import { UIComponentType } from "../../component.js";
 import { SizeType, ColorSchemeType } from "../../style.js";
@@ -41,20 +40,16 @@ export {
 /**
  * Creates an IconButton component.
  *
- * @param prefix - Font Awesome prefix (e.g. `fas`, `far`, `fab`)
- * @param name - Font Awesome icon name (e.g. `xmark`, `bars`, `save`)
- * @param label - REQUIRED aria-label for the button (used verbatim by the renderer)
- * @param options - Main-level fields plus optional `style` sub-struct
+ * @param options - A single flat options bag. `prefix` / `name` (icon identity)
+ *   and `label` (a11y) are required; state / behaviour / visual fields sit flat.
  * @returns An East expression representing the IconButton component
  *
  * @remarks
  * IconButton renders an icon-only button — useful for toolbar actions, close
- * buttons, and other icon-only interactive elements. The `label` positional
- * argument is REQUIRED so that screen readers always have an accessible name;
- * omitting it is a TypeScript compile error.
- *
- * content + state + behaviour are top-level
- * options; visual-presentation lives inside `options.style`.
+ * buttons, and other icon-only interactive elements. `label` is REQUIRED so
+ * screen readers always have an accessible name; omitting it is a compile error.
+ * Every option sits flat on the bag; the factory composes the visual fields into
+ * the nested IR `style` struct internally.
  *
  * @example
  * ```ts
@@ -63,35 +58,36 @@ export {
  *
  * // Simple close affordance
  * const close = East.function([], UIComponentType, _$ =>
- *     IconButton.Root("fas", "xmark", "Close", { style: { variant: "ghost" } }),
+ *     IconButton.Root({ prefix: "fas", name: "xmark", label: "Close", variant: "ghost" }),
  * );
  *
  * // Loading IconButton with a custom spinner
  * const refresh = East.function([], UIComponentType, _$ =>
- *     IconButton.Root("fas", "rotate", "Refresh", {
+ *     IconButton.Root({
+ *         prefix: "fas", name: "rotate", label: "Refresh",
  *         loading: true,
  *         loadingIcon: { prefix: "fas", name: "spinner" },
- *         style: { variant: "subtle", colorPalette: "blue" },
+ *         variant: "subtle", colorPalette: "blue",
  *     }),
  * );
  * ```
  */
 function createIconButton(
-    prefix: IconPrefix,
-    name: IconName,
-    label: string,
-    options?: IconButtonOptions,
+    options: IconButtonOptions,
 ): ExprType<UIComponentType> {
-    const styleValue = options?.style ? buildIconButtonStyle(options.style) : undefined;
+    const { prefix, name, label, loadingIcon, loading, disabled, onClick, ...visual } = options;
+    const styleValue = Object.values(visual).some(field => field !== undefined)
+        ? buildIconButtonStyle(options)
+        : undefined;
 
     return East.value(variant("IconButton", {
         prefix: prefix as string,
         name: name as string,
         label,
-        loadingIcon: options?.loadingIcon ? some(toIconValue(options.loadingIcon)) : none,
-        loading: options?.loading !== undefined ? some(options.loading) : none,
-        disabled: options?.disabled !== undefined ? some(options.disabled) : none,
-        onClick: options?.onClick ? some(options.onClick) : none,
+        loadingIcon: loadingIcon ? some(toIconValue(loadingIcon)) : none,
+        loading: loading !== undefined ? some(loading) : none,
+        disabled: disabled !== undefined ? some(disabled) : none,
+        onClick: onClick ? some(onClick) : none,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
@@ -152,25 +148,22 @@ function isIconPayload(x: unknown): x is IconPayload {
  * IconButton primitive — icon-only pressable affordance with required aria-label.
  *
  * @remarks
- * Use `IconButton.Root(prefix, name, label, options)` to create an icon
- * button, or access `IconButton.Types.IconButton` for the East type. The
- * positional `label` enforces an accessible name at compile time.
+ * Use `IconButton.Root(options)` to create an icon button, or access
+ * `IconButton.Types.IconButton` for the East type. The required `label` field
+ * enforces an accessible name at compile time.
  */
 export const IconButton = {
     /**
      * Creates an IconButton component.
      *
-     * @param prefix - Font Awesome prefix (e.g. `fas`, `far`, `fab`)
-     * @param name - Font Awesome icon name (e.g. `xmark`, `bars`, `save`)
-     * @param label - REQUIRED aria-label for screen readers
-     * @param options - Main-level fields plus optional `style` sub-struct
+     * @param options - A single flat options bag; `prefix` / `name` / `label`
+     *   are required, plus optional state / behaviour / visual fields.
      * @returns An East expression representing the IconButton component
      *
      * @remarks
-     * The renderer emits `label` as the button's `aria-label`. Omitting it is
-     * a TypeScript compile error (positional argument). Content + state +
-     * behaviour are top-level options; visual presentation lives inside
-     * `options.style`.
+     * The renderer emits `label` as the button's `aria-label`. Omitting it is a
+     * TypeScript compile error (required field). Every option sits flat; the
+     * factory composes the visual fields into the nested IR `style` struct.
      *
      * @example
      * ```ts
@@ -179,15 +172,16 @@ export const IconButton = {
      *
      * // Close affordance
      * const close = East.function([], UIComponentType, _$ =>
-     *     IconButton.Root("fas", "xmark", "Close", { style: { variant: "ghost" } }),
+     *     IconButton.Root({ prefix: "fas", name: "xmark", label: "Close", variant: "ghost" }),
      * );
      *
      * // Loading button with custom spinner icon
      * const refresh = East.function([], UIComponentType, _$ =>
-     *     IconButton.Root("fas", "rotate", "Refresh", {
+     *     IconButton.Root({
+     *         prefix: "fas", name: "rotate", label: "Refresh",
      *         loading: true,
      *         loadingIcon: { prefix: "fas", name: "spinner" },
-     *         style: { variant: "subtle", colorPalette: "blue" },
+     *         variant: "subtle", colorPalette: "blue",
      *     }),
      * );
      *

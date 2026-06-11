@@ -18,7 +18,7 @@ import {
     StructType,
     ArrayType,
 } from "@elaraai/east";
-import { Slice, SliceApplyImpl } from "@elaraai/east-ui";
+import { Slice, SliceApplyImpl } from "@elaraai/east-ui/internal";
 import * as ex from "./slice.examples.js";
 
 // ---------------------------------------------------------------------------

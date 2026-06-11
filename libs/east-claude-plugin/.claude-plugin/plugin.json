@@ -10,6 +10,16 @@
   "homepage": "https://github.com/elaraai/east",
   "repository": "https://github.com/elaraai/east-workspace",
   "hooks": [],
+  "lspServers": {
+    "east": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/.build/daemon/lsp.js"],
+      "extensionToLanguage": {
+        ".ts": "typescript",
+        ".tsx": "typescriptreact"
+      }
+    }
+  },
   "license": "AGPL-3.0",
   "keywords": [
     "east",

@@ -2,12 +2,40 @@
 # Copyright (c) 2025 Elara AI Pty Ltd
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
-"""LightGBM platform functions for East Data Science."""
+"""LightGBM fast gradient boosting for East - regression and classification.
+
+The ``*_impl`` functions are plain Python callables taking and returning East
+values - import them directly from a project's own ``@platform_function`` to
+reuse the implementations without an IR round-trip. The East type definitions
+(config, blob, and result types) are re-exported here for building inputs with
+``coerce_to`` and validating outputs.
+"""
 
 from east_py_datascience.lightgbm.lightgbm_impl import (
     lightgbm_impl,
+    lightgbm_predict_class_impl,
+    lightgbm_predict_impl,
+    lightgbm_predict_proba_impl,
+    lightgbm_train_classifier_impl,
+    lightgbm_train_regressor_impl,
+)
+from east_py_datascience.types import (
+    LightGBMConfigType,
+    LightGBMModelBlobType,
+    ModelBlobType,
 )
 
 __all__ = [
+    # Platform registration
     "lightgbm_impl",
+    # Directly-callable implementations
+    "lightgbm_train_regressor_impl",
+    "lightgbm_train_classifier_impl",
+    "lightgbm_predict_impl",
+    "lightgbm_predict_class_impl",
+    "lightgbm_predict_proba_impl",
+    # East type definitions
+    "LightGBMConfigType",
+    "LightGBMModelBlobType",
+    "ModelBlobType",
 ]

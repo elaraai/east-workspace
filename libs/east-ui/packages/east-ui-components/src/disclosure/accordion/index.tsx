@@ -13,7 +13,7 @@ import {
     type AccordionItemProps,
 } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Accordion } from "@elaraai/east-ui";
+import { Accordion } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 

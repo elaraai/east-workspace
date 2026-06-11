@@ -4,7 +4,7 @@
  */
 
 export { scaffold } from "./scaffold.js";
-export type { ProjectKind, ScaffoldOptions, ScaffoldResult } from "./scaffold.js";
+export type { Features, ProjectKind, ScaffoldOptions, ScaffoldResult } from "./scaffold.js";
 export { deriveNames } from "./names.js";
 export type { ProjectNames } from "./names.js";
 export { runCreateCli } from "./cli.js";

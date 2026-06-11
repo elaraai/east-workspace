@@ -49,7 +49,7 @@ export const eastRules = createRule<Options, MessageIds>({
         const sourceFile = program.getSourceFile(context.filename);
         if (sourceFile === undefined) return;
 
-        const diagnostics = runEastRules(ts, sourceFile, program.getTypeChecker(), options);
+        const diagnostics = runEastRules(ts, program, sourceFile, program.getTypeChecker(), options);
         for (const d of diagnostics) {
           const start = sourceFile.getLineAndCharacterOfPosition(d.start);
           const end = sourceFile.getLineAndCharacterOfPosition(d.start + d.length);

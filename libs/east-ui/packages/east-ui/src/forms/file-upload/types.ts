@@ -47,6 +47,38 @@ export type FileCaptureType = typeof FileCaptureType;
 export type FileCaptureLiteral = "user" | "environment";
 
 // ============================================================================
+// File Upload Orientation
+// ============================================================================
+
+/**
+ * Layout orientation of the dropzone content.
+ *
+ * @remarks
+ * `vertical` stacks the icon above the prompt text (the prominent drop target);
+ * `horizontal` lays the icon and prompt out in a single row (a compact inline
+ * picker that fits in a tight band).
+ *
+ * @property vertical - Icon stacked above the prompt (default)
+ * @property horizontal - Icon and prompt inline on one row
+ */
+export const FileUploadOrientationType = VariantType({
+    /** Icon stacked above the prompt (default) */
+    vertical: NullType,
+    /** Icon and prompt inline on one row */
+    horizontal: NullType,
+});
+
+/**
+ * Type representing the FileUploadOrientation structure.
+ */
+export type FileUploadOrientationType = typeof FileUploadOrientationType;
+
+/**
+ * String literal type for orientation values.
+ */
+export type FileUploadOrientationLiteral = "vertical" | "horizontal";
+
+// ============================================================================
 // File Info Types for Callbacks
 // ============================================================================
 
@@ -164,6 +196,8 @@ export const FileUploadType = StructType({
     dropzoneText: OptionType(StringType),
     /** Text for the upload trigger button */
     triggerText: OptionType(StringType),
+    /** Dropzone layout orientation (`vertical` stack / `horizontal` inline) */
+    orientation: OptionType(FileUploadOrientationType),
     /** Callback triggered when files are accepted */
     onFileAccept: OptionType(FunctionType([ArrayType(FileInfoType)], NullType)),
     /** Callback triggered when files are rejected */
@@ -227,6 +261,8 @@ export interface FileUploadStyle {
     dropzoneText?: SubtypeExprOrValue<StringType>;
     /** Text for the upload trigger button */
     triggerText?: SubtypeExprOrValue<StringType>;
+    /** Dropzone layout orientation — `vertical` stacks icon over prompt (default), `horizontal` lays them inline. */
+    orientation?: SubtypeExprOrValue<FileUploadOrientationType> | FileUploadOrientationLiteral;
     /** Callback triggered when files are accepted */
     onFileAccept?: SubtypeExprOrValue<FunctionType<[ArrayType<FileInfoType>], NullType>>;
     /** Callback triggered when files are rejected */

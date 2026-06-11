@@ -69,4 +69,14 @@ export const sliderSlotRecipe = defineSlotRecipe({
             color: "fg.muted",
         },
     },
+    variants: {
+        // Chakra's default recipe sizes the track from `--slider-track-size`
+        // inside the orientation variant (per size), which outranks a base
+        // `track.height`. Pin the cross-axis to 4px here so it holds at every
+        // size — the thumb keeps its base 14px, giving the spec's 14:4 ratio.
+        orientation: {
+            horizontal: { track: { height: "4px" } },
+            vertical: { track: { width: "4px" } },
+        },
+    },
 });

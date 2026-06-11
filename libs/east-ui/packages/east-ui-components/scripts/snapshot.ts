@@ -48,12 +48,12 @@ function categoryOf(pathKey: string): string {
     return seg.charAt(0).toUpperCase() + seg.slice(1);
 }
 
-/** pathKeys for `east-ui/test/<cat>/<name>.examples.ts` (skip top-level). */
+/** pathKeys for `east-ui/test/<cat>/<name>.examples.{ts,tsx}` (skip top-level). */
 async function discoverPathKeys(): Promise<string[]> {
     const entries = await fs.readdir(TEST_DIR, { recursive: true });
     return entries
-        .filter(f => f.endsWith('.examples.ts'))
-        .map(f => f.replace(/\\/g, '/').replace(/\.examples\.ts$/, ''))
+        .filter(f => /\.examples\.tsx?$/.test(f))
+        .map(f => f.replace(/\\/g, '/').replace(/\.examples\.tsx?$/, ''))
         .filter(k => k.includes('/'))
         .sort();
 }

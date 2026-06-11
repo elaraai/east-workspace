@@ -119,6 +119,30 @@ export const globalCss = defineGlobalStyles({
         margin: "0",
     },
 
+    /* ─── Drag & drop stages (drag-drop-visuals) ─────────────────────────
+     * The DragLayerProvider drives these via data attributes; surfaces get
+     * the treatment for free by registering cells/sinks. */
+    "[data-dragging]": {
+        opacity: "0.4",
+    },
+    "[data-drag-ghost]": {
+        opacity: "0.8",
+    },
+    /* Valid destinations are marked before the drop (indicators precede).
+     * A flat wash, not an outline — adjacent grid cells would double their
+     * outlines along shared edges. */
+    "[data-drag-cell][data-drop-valid]": {
+        background: "{colors.brand.50}",
+    },
+    /* Only the active cell carries the outline, inset clear of its
+     * neighbours' borders. */
+    "[data-drag-cell][data-drop-active], [data-drag-sink][data-drop-active]": {
+        background: "bg.brand.subtle",
+        outline: "2px solid",
+        outlineColor: "{colors.brand.600}",
+        outlineOffset: "-3px",
+    },
+
     /* Reduced motion — replace transitions with instant.
      * See `reducedMotionRules` above for why this is extracted. */
     "@media (prefers-reduced-motion: reduce)": reducedMotionRules,

@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Highlight } from "@elaraai/east-ui";
+import { Highlight } from "@elaraai/east-ui/internal";
 import * as ex from "./highlight.examples.js";
 
 describeEast("Highlight", (test) => {
@@ -23,19 +23,19 @@ describeEast("Highlight", (test) => {
     // =========================================================================
 
     test("creates highlight with value and single query", $ => {
-        const highlight = $.let(Highlight.Root("Hello World", ["World"]));
+        const highlight = $.let(Highlight.Root("Hello World", { query: ["World"] }));
 
         $(Assert.equal(highlight.unwrap().unwrap("Highlight").value, "Hello World"));
     });
 
     test("creates highlight with multiple queries", $ => {
-        const highlight = $.let(Highlight.Root("The quick brown fox", ["quick", "fox"]));
+        const highlight = $.let(Highlight.Root("The quick brown fox", { query: ["quick", "fox"] }));
 
         $(Assert.equal(highlight.unwrap().unwrap("Highlight").value, "The quick brown fox"));
     });
 
     test("creates highlight with no style — style is none", $ => {
-        const highlight = $.let(Highlight.Root("Search results", ["results"]));
+        const highlight = $.let(Highlight.Root("Search results", { query: ["results"] }));
 
         $(Assert.equal(highlight.unwrap().unwrap("Highlight").value, "Search results"));
         $(Assert.equal(highlight.unwrap().unwrap("Highlight").style.hasTag("none"), true));
@@ -46,7 +46,8 @@ describeEast("Highlight", (test) => {
     // =========================================================================
 
     test("creates highlight with colour", $ => {
-        const highlight = $.let(Highlight.Root("Important text", ["Important"], {
+        const highlight = $.let(Highlight.Root("Important text", {
+            query: ["Important"],
             color: "yellow.800",
         }));
 
@@ -56,7 +57,8 @@ describeEast("Highlight", (test) => {
     });
 
     test("creates highlight with background fill", $ => {
-        const highlight = $.let(Highlight.Root("Important text", ["Important"], {
+        const highlight = $.let(Highlight.Root("Important text", {
+            query: ["Important"],
             background: "yellow.200",
         }));
 
@@ -66,7 +68,8 @@ describeEast("Highlight", (test) => {
     });
 
     test("creates highlight with colour + background pair", $ => {
-        const highlight = $.let(Highlight.Root("Success message", ["Success"], {
+        const highlight = $.let(Highlight.Root("Success message", {
+            query: ["Success"],
             color: "green.900",
             background: "green.100",
         }));
@@ -83,8 +86,7 @@ describeEast("Highlight", (test) => {
     test("creates search result highlight", $ => {
         const highlight = $.let(Highlight.Root(
             "React is a JavaScript library for building user interfaces",
-            ["React", "JavaScript"],
-            { background: "blue.100" }
+            { query: ["React", "JavaScript"], background: "blue.100" },
         ));
 
         $(Assert.equal(highlight.unwrap().unwrap("Highlight").value, "React is a JavaScript library for building user interfaces"));
@@ -94,8 +96,7 @@ describeEast("Highlight", (test) => {
     test("creates keyword highlight", $ => {
         const highlight = $.let(Highlight.Root(
             "The error occurred at line 42",
-            ["error"],
-            { background: "red.100" }
+            { query: ["error"], background: "red.100" },
         ));
 
         $(Assert.equal(highlight.unwrap().unwrap("Highlight").value, "The error occurred at line 42"));
@@ -103,7 +104,7 @@ describeEast("Highlight", (test) => {
     });
 
     test("creates empty query array", $ => {
-        const highlight = $.let(Highlight.Root("No highlights", []));
+        const highlight = $.let(Highlight.Root("No highlights", { query: [] }));
 
         $(Assert.equal(highlight.unwrap().unwrap("Highlight").value, "No highlights"));
         $(Assert.equal(highlight.unwrap().unwrap("Highlight").style.hasTag("none"), true));

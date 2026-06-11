@@ -176,17 +176,30 @@ def _check_type_compatibility(field_type: Any, expected_east: str) -> tuple[bool
     output=ConnectionHandleType,
 )
 async def access_open_impl(config: EastStruct) -> str:
-    """Open a Microsoft Access database file.
+    """Open a Microsoft Access database file and return a connection handle.
+
+    Supports ``.mdb`` (Access 97/2000/2002/2003) and ``.accdb``
+    (Access 2007 and later) formats via access-parser.  Password-protected
+    databases are not yet supported by access-parser.
 
     Args:
-        config: Access connection configuration with path and optional password
+        config: ``AccessConfigType`` (``EastStruct``) with fields:
+
+            - ``path`` (``String``): file-system path to the ``.mdb`` or
+              ``.accdb`` file.
+            - ``password`` (``Option<String>``): database password (reserved -
+              not forwarded to access-parser).
 
     Returns:
-        Connection handle (opaque string)
+        ``String`` - opaque connection handle, passed to
+        ``access_tables_impl`` / ``access_query_factory`` /
+        ``access_close_impl``.
 
     Raises:
-        NotImplementedError: If access-parser is not installed
-        Exception: If database open fails
+        NotImplementedError: the ``access`` extra (access-parser) is not
+            installed.
+        Exception: access-parser fails to open the file (bad path,
+            unsupported format, corrupt database).
     """
     _check_access_support()
     from access_parser import AccessParser  # type: ignore[import-untyped]
@@ -214,17 +227,20 @@ async def access_open_impl(config: EastStruct) -> str:
     output=AccessTablesResultType,
 )
 async def access_tables_impl(handle: str) -> EastStruct:
-    """List all table names in the database.
+    """List the names of all user tables in the database.
 
     Args:
-        handle: Connection handle
+        handle: ``String`` - connection handle from ``access_open_impl``.
 
     Returns:
-        Struct with tables array containing table names
+        ``AccessTablesResultType`` (``EastStruct``): ``{tables:
+        Array<String>}`` - table names in catalog order.
 
     Raises:
-        NotImplementedError: If access-parser is not installed
-        Exception: If operation fails or handle is invalid
+        NotImplementedError: the ``access`` extra (access-parser) is not
+            installed.
+        Exception: the handle is unknown, or access-parser fails to read the
+            catalog.
     """
     _check_access_support()
 
@@ -242,27 +258,54 @@ async def access_tables_impl(handle: str) -> EastStruct:
 
 
 def access_query_factory(row_type: Any) -> Any:
-    """Factory for access_query that captures the type parameter.
+    """Return a typed ``access_query`` implementation for a given row struct type.
+
+    Called by the ``@generic_platform_function`` decorator with the resolved
+    ``T`` type argument.  The returned coroutine validates Access column types
+    against ``T`` using ``_ACCESS_TYPE_MAP`` before converting each row.
+    Corrupt memo/overflow records are silently skipped via ``_safe_parse_row``.
 
     Args:
-        row_type: Row type parameter (East IR type format)
+        row_type: East ``StructType`` describing one result row.
 
     Returns:
-        Async implementation function for access_query
+        Async callable ``(handle, options) -> EastArray(T)`` implementing
+        ``access_query<T>``.
     """
 
     async def access_query_impl(handle: str, options: EastStruct) -> EastArray:
-        """Query data from an Access table with typed results.
+        """Query an Access table and return rows typed as ``Array<T>``.
+
+        Validates Access column type codes against ``T`` and applies
+        ``rowOffset`` / ``rowLimit`` slicing.  Nullable columns must be
+        declared as ``Option<...>`` in ``T``.
 
         Args:
-            handle: Connection handle
-            options: Query options with table name and optional columns/offset/limit
+            handle: ``String`` - connection handle from
+                ``access_open_impl``.
+            options: ``AccessQueryOptionsType`` (``EastStruct``) with
+                fields:
+
+                - ``table`` (``String``): table name.
+                - ``columns`` (``Option<Array<String>>``): restrict to these
+                  columns (default: all).
+                - ``rowOffset`` (``Option<Integer>``): skip this many rows
+                  (default 0).
+                - ``rowLimit`` (``Option<Integer>``): maximum rows to return
+                  (default: all remaining).
 
         Returns:
-            Array of rows matching the type parameter T
+            ``Array<T>`` (``EastArray``) - one ``EastStruct`` per result row,
+            fields coerced to the types declared in ``T``.
 
         Raises:
-            Exception: If query fails or types don't match
+            NotImplementedError: the ``access`` extra (access-parser) is not
+                installed.
+            Exception: the handle is unknown, the table is not found,
+                ``T`` is not a ``StructType``, a required column is missing,
+                a column type is incompatible with the corresponding ``T``
+                field, or a non-optional field contains ``NULL`` or an
+                unparseable value.
         """
         _check_access_support()
 
@@ -410,13 +453,16 @@ def _access_query_factory(_platform_list: Any, T: Any) -> Any:  # noqa: N803
     output=NullType,
 )
 async def access_close_impl(handle: str) -> None:
-    """Close an Access database connection.
+    """Release an Access database connection handle.
+
+    access-parser does not require an explicit close call; this removes the
+    internal reference so the parser object can be garbage-collected.
 
     Args:
-        handle: Connection handle
+        handle: ``String`` - connection handle from ``access_open_impl``.
 
     Raises:
-        Exception: If handle is invalid
+        Exception: the handle is unknown.
     """
     try:
         if handle not in _access_connections:
@@ -434,9 +480,9 @@ async def access_close_impl(handle: str) -> None:
     output=NullType,
 )
 async def access_close_all_impl() -> None:
-    """Close all Access connections.
+    """Release every open Access connection handle managed by this process.
 
-    Useful for test cleanup.
+    Clears the internal connection map; useful for test teardown.
     """
     _access_connections.clear()
 

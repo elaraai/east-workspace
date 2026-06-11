@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Avatar, Style } from "@elaraai/east-ui";
+import { Avatar, Style } from "@elaraai/east-ui/internal";
 import * as ex from "./avatar.examples.js";
 
 describeEast("Avatar", (test) => {
@@ -12,6 +12,7 @@ describeEast("Avatar", (test) => {
         avatarBasic: ex.avatarBasic,
         avatarSizes: ex.avatarSizes,
         avatarColors: ex.avatarColors,
+        avatarDensities: ex.avatarDensities,
     });
 
     // =========================================================================

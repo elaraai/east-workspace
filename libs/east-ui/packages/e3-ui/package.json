@@ -9,21 +9,21 @@
       "types": "./dist/src/index.d.ts",
       "default": "./dist/src/index.js"
     },
-    "./ui": {
-      "types": "./dist/src/ui.d.ts",
-      "default": "./dist/src/ui.js"
+    "./internal": {
+      "types": "./dist/src/internal.d.ts",
+      "default": "./dist/src/internal.js"
     },
-    "./examples/data": {
-      "types": "./dist/test/data.examples.d.ts",
-      "default": "./dist/test/data.examples.js"
+    "./jsx-runtime": {
+      "types": "./dist/src/runtime/runtime.d.ts",
+      "default": "./dist/src/runtime/runtime.js"
     },
-    "./examples/diff": {
-      "types": "./dist/test/diff.examples.d.ts",
-      "default": "./dist/test/diff.examples.js"
+    "./jsx-dev-runtime": {
+      "types": "./dist/src/runtime/runtime.d.ts",
+      "default": "./dist/src/runtime/runtime.js"
     },
-    "./examples/ontology": {
-      "types": "./dist/test/ontology.examples.d.ts",
-      "default": "./dist/test/ontology.examples.js"
+    "./examples/*": {
+      "types": "./dist/test/*.examples.d.ts",
+      "default": "./dist/test/*.examples.js"
     }
   },
   "files": [

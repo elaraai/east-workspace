@@ -6,7 +6,7 @@ import type { AST } from "../ast.js";
 import { ast_to_ir } from "../ast_to_ir.js";
 import { EastIR } from "../eastir.js";
 import type { FunctionIR } from "../ir.js";
-import { get_location_id } from "../location.js";
+import { get_location_id, with_source_map } from "../location.js";
 import type { SourceMap } from "../location.js";
 import { FunctionType, type EastType } from "../types.js";
 import { valueOrExprToAstTyped } from "./ast.js";
@@ -51,9 +51,13 @@ export class FunctionExpr<I extends any[], O extends any> extends Expr<FunctionT
   * Note that the function must be a "free" function, with no captures.
   */
   toIR(): EastIR<I, O> {
-    const ir = ast_to_ir(this[AstSymbol]) as FunctionIR;
+    const source_map = (this as any)[SourceMapSymbol] as SourceMap | null ?? null;
+    // Establish the ambient source map so a TypeMismatchError thrown during
+    // type-checking resolves its own location from the loc_ids in this AST.
+    const build = (): FunctionIR => ast_to_ir(this[AstSymbol]) as FunctionIR;
+    const ir = source_map !== null ? with_source_map(source_map, build) : build();
     const result = new EastIR<I, O>(ir);
-    result.source_map = (this as any)[SourceMapSymbol] as SourceMap | null ?? null;
+    result.source_map = source_map;
     return result;
   }
 }

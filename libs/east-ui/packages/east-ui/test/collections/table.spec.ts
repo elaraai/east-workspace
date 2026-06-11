@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Table, Badge, Text, Stack, Style, UIComponentType } from "@elaraai/east-ui";
+import { Table, Badge, Text, Stack, Style, UIComponentType } from "@elaraai/east-ui/internal";
 import { East, IntegerType, NullType, ArrayType } from "@elaraai/east";
 import * as ex from "./table.examples.js";
 

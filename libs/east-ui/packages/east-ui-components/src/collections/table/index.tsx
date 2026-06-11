@@ -8,6 +8,7 @@ import { usePersistedState } from "../../hooks/usePersistedState";
 import {
     Table as ChakraTable,
     Box,
+    chakra,
     HStack,
     Text,
     Skeleton,
@@ -29,11 +30,15 @@ import {
     type RowSelectionState,
 } from "@tanstack/react-table";
 import { compareFor, equalFor, printFor, variant, type ValueTypeOf } from "@elaraai/east";
-import { Table, type UIComponentType } from "@elaraai/east-ui";
+import { Table, type UIComponentType } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
+import { Slice as SliceInternal } from "@elaraai/east-ui/internal";
+import { SliceRailCluster } from "../../slice/rail";
+import { useSliceReactivity } from "../../slice/use-slice-reactivity";
 import { RowStateManager, type RowKey, type RowState } from "../../utils/RowStateManager";
 import { useRowStatusBg, useDensityHeights } from "../shared/helpers";
+import { DensityProvider } from "../../contracts/density";
 
 // Pre-define equality function at module level
 const tableRootEqual = equalFor(Table.Types.Root);
@@ -140,7 +145,7 @@ interface TablePersistedState {
  * - Column resizing
  * - Row loading state indicators
  */
-export const EastChakraTable = memo(function EastChakraTable({
+const TableCore = function TableCore({
     value,
     height = "100%",
     rowHeight = 36,
@@ -151,7 +156,8 @@ export const EastChakraTable = memo(function EastChakraTable({
     loadingDelay = 0,
     enableColumnResizing: enableColumnResizingProp,
     storageKey,
-}: EastChakraTableProps) {
+    hidePaginationBand,
+}: EastChakraTableProps & { hidePaginationBand?: boolean }) {
     const props = useMemo(() => toChakraTableRoot(value), [value]);
     const tableContainerRef = useRef<HTMLDivElement>(null);
 
@@ -202,10 +208,10 @@ export const EastChakraTable = memo(function EastChakraTable({
     // a row-height + cell-padding pair used by every body row.
     const densityTag = getSomeorUndefined(value.density)?.type;
     // Density → recipe size variant (drives cell/header padding via the
-    // `table` slot recipe) + a row height for the virtualizer. compact→sm,
-    // cozy/default→md, comfortable→lg; an explicit `style.size` is honoured
-    // when no density is set.
-    const tableSize: "sm" | "md" | "lg" = densityTag === "compact" ? "sm"
+    // `table` slot recipe) + a row height for the virtualizer.
+    // condensed/compact→sm, comfortable→lg; an explicit `style.size` is
+    // honoured when no density is set.
+    const tableSize: "sm" | "md" | "lg" = densityTag === "compact" || densityTag === "condensed" ? "sm"
         : densityTag === "comfortable" ? "lg"
         : ((props.size as "sm" | "md" | "lg" | undefined) ?? "md");
     // Row + header height come from the shared `sizes.density` tokens (the
@@ -674,7 +680,7 @@ export const EastChakraTable = memo(function EastChakraTable({
         };
     };
 
-    return (
+    const tableContent = (
         <Box
             ref={tableContainerRef}
             height={(style ? getSomeorUndefined(style.height) : undefined) ?? height}
@@ -1276,7 +1282,7 @@ export const EastChakraTable = memo(function EastChakraTable({
             {/* Embedded pagination — rendered beneath the table when
                 `value.pagination` is defined. Calls the East-side
                 onChange (when present) with the new page (1-based). */}
-            {paginationConfig && (
+            {paginationConfig && !hidePaginationBand && (
                 <HStack gap="2" justify="flex-end" px="3" py="2" borderTop="1px solid" borderColor="border.subtle">
                     <Text fontSize="sm" color="fg.muted">
                         Page {currentPage + 1} of {totalPages} ({value.rows.length} total)
@@ -1321,6 +1327,97 @@ export const EastChakraTable = memo(function EastChakraTable({
                     </button>
                 </HStack>
             )}
+        </Box>
+    );
+
+    // A density set on the table cascades to display components rendered in
+    // its cells (Tag, Trace, ChipRail, …) so a whole surface tightens with one
+    // prop; cells without a density keep their standalone look when the table
+    // has none.
+    return densityTag !== undefined
+        ? <DensityProvider value={densityTag}>{tableContent}</DensityProvider>
+        : tableContent;
+};
+
+/**
+ * The exported Table renderer. Without `slice` it renders the bare table.
+ * With the `slice` chrome option it renders the frame chassis itself — a
+ * header rail mounting the listed affordances (the shared `SliceRailCluster`
+ * ladder) and a derived-count footer. Chrome only: the rows are whatever the
+ * host fed (`Slice.rows([RowType], slice)` upstream); the table never
+ * narrows its own data.
+ */
+export const EastChakraTable = memo(function EastChakraTable(props: EastChakraTableProps) {
+    const chrome = getSomeorUndefined(props.value.slice as never) as
+        { slice: unknown; affordances: ReadonlyArray<{ type: string }> } | undefined;
+    const slice = chrome?.slice as ValueTypeOf<typeof SliceInternal.Types.Bind> | undefined;
+    useSliceReactivity(slice?.key);
+    const frameStyles = useSlotRecipe({ key: "sliceFrame" })();
+    if (chrome === undefined || slice === undefined) return <TableCore {...props} />;
+
+    const state = slice.read();
+    const configuredKinds = chrome.affordances.map(a => a.type);
+    const affordanceKinds = state.cohorts.length > 0 && !configuredKinds.includes("cohort")
+        ? [...configuredKinds, "cohort"]
+        : configuredKinds;
+    const total = Number(slice.totalCount() as bigint);
+    const result = Number(slice.resultCount() as bigint);
+    const pct = total > 0 ? Math.round((1 - result / total) * 100) : 0;
+
+    // With pagination enabled the pager joins the chrome footer (count left,
+    // pager right) — one band, not two.
+    const paginationConfig = getSomeorUndefined(props.value.pagination) as undefined | {
+        pageSize: bigint; page: bigint; onPageChange?: (page: bigint) => void;
+    };
+    const pageSize = paginationConfig ? Number(paginationConfig.pageSize) : 0;
+    const currentPage = paginationConfig ? Number(paginationConfig.page) : 0;
+    const totalPages = paginationConfig ? Math.max(1, Math.ceil(props.value.rows.length / pageSize)) : 1;
+    const pagerOnChange = paginationConfig?.onPageChange;
+
+    return (
+        <Box css={frameStyles.root}>
+            <Box css={frameStyles.frameEyebrow}>
+                <SliceRailCluster slice={slice} affordanceKinds={affordanceKinds} />
+            </Box>
+            <Box css={frameStyles.frameBody}>
+                <TableCore {...props} hidePaginationBand />
+            </Box>
+            <Box css={frameStyles.frameFooter}>
+                <Box as="span" css={frameStyles.frameFooterStat}>{result.toLocaleString()}</Box>
+                <Box as="span">{`rows · of ${total.toLocaleString()}`}</Box>
+                {pct > 0 && <Box as="span" css={frameStyles.frameFooterDelta}>{`· −${pct}%`}</Box>}
+                {paginationConfig && (
+                    <Box display="inline-flex" alignItems="center" gap="{spacing.1.5}" marginLeft="auto">
+                        <Box as="span">{`page ${currentPage + 1} of ${totalPages}`}</Box>
+                        <chakra.button
+                            type="button"
+                            aria-label="Previous page"
+                            disabled={currentPage <= 0}
+                            cursor={currentPage <= 0 ? "not-allowed" : "pointer"}
+                            opacity={currentPage <= 0 ? 0.4 : 1}
+                            onClick={() => {
+                                if (currentPage <= 0 || !pagerOnChange) return;
+                                queueMicrotask(() => pagerOnChange(BigInt(currentPage - 1)));
+                            }}
+                        >
+                            <FontAwesomeIcon icon={faChevronLeft} style={{ width: 9, height: 9 }} />
+                        </chakra.button>
+                        <chakra.button
+                            type="button"
+                            aria-label="Next page"
+                            disabled={currentPage >= totalPages - 1}
+                            cursor={currentPage >= totalPages - 1 ? "not-allowed" : "pointer"}
+                            opacity={currentPage >= totalPages - 1 ? 0.4 : 1}
+                            onClick={() => {
+                                if (currentPage >= totalPages - 1 || !pagerOnChange) return;
+                                queueMicrotask(() => pagerOnChange(BigInt(currentPage + 1)));
+                            }}
+                        >
+                            <FontAwesomeIcon icon={faChevronRight} style={{ width: 9, height: 9 }} />
+                        </chakra.button>
+                    </Box>
+                )}
+            </Box>
         </Box>
     );
 }, (prev, next) => tableRootEqual(prev.value, next.value));

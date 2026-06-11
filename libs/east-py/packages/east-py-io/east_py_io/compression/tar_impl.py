@@ -2,9 +2,12 @@
 # Copyright (c) 2025 Elara AI Pty Ltd
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
-"""Tar platform functions for East.
+"""TAR archive platform functions for East.
 
-Provides tar archive creation and extraction for East programs.
+The ``*_impl`` functions are plain Python callables taking and returning East
+values - import them directly from a project's own ``@platform_function`` to
+reuse the implementations without an IR round-trip. The East type definitions
+are re-exported from ``east_py_io.compression``.
 """
 
 import io
@@ -19,13 +22,22 @@ from .types import TarEntriesType, TarExtractedType
 
 @platform_function(name="tar_create", inputs=[TarEntriesType], output=BlobType)
 async def tar_create_impl(entries: EastArray) -> EastBlob:
-    """Create a tar archive from entries.
+    """Create a TAR archive from an array of named file entries.
 
     Args:
-        entries: Array of {name, data} entries to archive
+        entries: ``Array<TarEntryType>`` (``EastArray``) - each element is
+            an ``EastStruct`` with fields:
+
+            - ``name`` (``String``): path/filename stored inside the
+              archive; must not be empty.
+            - ``data`` (``Blob``): file content.
 
     Returns:
-        Tar archive as blob
+        ``Blob`` (``EastBlob``) - the uncompressed TAR archive bytes.
+
+    Raises:
+        RuntimeError: any entry has an empty ``name``, or archive
+            creation fails.
     """
     try:
         output = io.BytesIO()
@@ -50,13 +62,21 @@ async def tar_create_impl(entries: EastArray) -> EastBlob:
 
 @platform_function(name="tar_extract", inputs=[BlobType], output=TarExtractedType)
 async def tar_extract_impl(data: EastBlob) -> EastDict:
-    """Extract all files from a tar archive.
+    """Extract all regular files from a TAR archive.
 
     Args:
-        data: Tar archive blob
+        data: ``Blob`` (``EastBlob``) - the TAR archive to extract
+            (uncompressed; gzip/bz2 streams are auto-detected by
+            ``tarfile.open`` in ``r`` mode).
 
     Returns:
-        Dict mapping file names to their data
+        ``Dict<String, Blob>`` (``EastDict``) mapping each member
+        filename to its content. Directory entries and symlinks are
+        omitted.
+
+    Raises:
+        RuntimeError: ``data`` is not a valid TAR archive or extraction
+            fails.
     """
     try:
         result: EastDict = EastDict(StringType, BlobType)

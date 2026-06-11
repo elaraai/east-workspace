@@ -29,6 +29,13 @@ GoogleOrStatusType = VariantType(
         ("model_invalid", NullType),
     ]
 )
+"""Solver outcome status shared across all OR-Tools platform functions.
+
+Cases: ``optimal`` (proven optimal solution found), ``feasible`` (valid but
+not proven optimal), ``infeasible`` (no feasible solution exists),
+``not_solved`` (timed out or aborted without a solution), ``model_invalid``
+(the model description is malformed or the requested backend is unavailable).
+"""
 
 
 # ============================================================================

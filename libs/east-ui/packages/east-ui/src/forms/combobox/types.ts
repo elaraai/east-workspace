@@ -154,3 +154,17 @@ export interface ComboboxStyle {
     /** Callback triggered when dropdown opens/closes */
     onOpenChange?: SubtypeExprOrValue<FunctionType<[BooleanType], NullType>>;
 }
+
+/**
+ * TypeScript options bag for `Combobox.Root` — the flat `ComboboxStyle`
+ * fields plus the required `value` and `items`.
+ *
+ * @property value - Current input / selected value (empty string when none)
+ * @property items - Array of options created with `Combobox.Item`
+ */
+export interface ComboboxOptions extends ComboboxStyle {
+    /** Current input / selected value (empty string when none) — required. */
+    value: SubtypeExprOrValue<StringType>;
+    /** Array of options created with `Combobox.Item` — required. */
+    items: SubtypeExprOrValue<ArrayType<ComboboxItemType>>;
+}

@@ -69,6 +69,7 @@ async function seedCache(mod: Record<string, unknown>): Promise<void> {
 }
 
 mountSnapshot({
-    modules: import.meta.glob<Record<string, unknown>>('../../e3-ui/test/*.examples.ts'),
+    modules: import.meta.glob<Record<string, unknown>>('../../e3-ui/test/**/*.examples.{ts,tsx}'),
+    keyOf: (fp) => fp.replace(/^.*\/e3-ui\/test\//, '').replace(/\.examples\.tsx?$/, ''),
     prepare: seedCache,
 });

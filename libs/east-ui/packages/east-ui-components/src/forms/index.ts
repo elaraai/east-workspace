@@ -46,12 +46,6 @@ export {
     type EastChakraRadioCardGroupProps,
 } from "./radio-card-group/index.js";
 
-// TimeScaleControl
-export {
-    EastChakraTimeScaleControl,
-    type TimeScaleControlValue,
-    type EastChakraTimeScaleControlProps,
-} from "./time-scale-control/index.js";
 
 // TimeRangeInput
 export {
@@ -132,3 +126,15 @@ export {
     type FileUploadValue,
     type EastChakraFileUploadProps,
 } from "./file-upload/index.js";
+
+// ClauseBuilder — shared field → operator → value authoring row + clause chip
+export {
+    ClauseBuilder,
+    ClauseChip,
+    type ClauseBuilderProps,
+    type ClauseChipProps,
+    type ClauseFieldSpec,
+    type ClauseOpSpec,
+    type ClauseSubmitValue,
+    type ClauseKind,
+} from "./clause-builder/index.js";

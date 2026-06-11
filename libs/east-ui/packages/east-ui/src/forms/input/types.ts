@@ -100,6 +100,7 @@ export function InputVariant(inputVariant: "outline" | "subtle" | "flushed"): Ex
  * @property borderColor - Explicit border colour
  * @property focusBorderColor - Explicit border colour while focused
  * @property placeholderColor - Explicit placeholder text colour
+ * @property autoFocus - Focus the input when it first mounts
  */
 export const InputStyleType = StructType({
     variant: OptionType(InputVariantType),
@@ -109,6 +110,7 @@ export const InputStyleType = StructType({
     borderColor: OptionType(StringType),
     focusBorderColor: OptionType(StringType),
     placeholderColor: OptionType(StringType),
+    autoFocus: OptionType(BooleanType),
 });
 
 /**
@@ -142,6 +144,8 @@ export interface InputStyle {
     focusBorderColor?: SubtypeExprOrValue<StringType>;
     /** Explicit placeholder text colour. */
     placeholderColor?: SubtypeExprOrValue<StringType>;
+    /** Focus the input when it first mounts. */
+    autoFocus?: SubtypeExprOrValue<BooleanType>;
 }
 
 // ============================================================================

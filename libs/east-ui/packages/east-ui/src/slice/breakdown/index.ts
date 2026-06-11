@@ -20,7 +20,9 @@ export { SliceBreakdownPickerType } from "./types.js";
 
 /** Options for `Slice.Breakdown`. */
 export interface SliceBreakdownOptions {
-    /** Render density — defaults to the surrounding `Slice.Frame`, else `focused`. */
+    /** The bound slice (from `Slice.bind`). */
+    slice: SubtypeExprOrValue<SliceBindType>;
+    /** Render density — defaults to the surrounding rail, else `focused`. */
     density?: "compact" | "focused";
 }
 
@@ -44,18 +46,17 @@ export interface SliceBreakdownOptions {
  * const view = East.function([], UIComponentType, _$ =>
  *     Reactive.Root(East.function([], UIComponentType, $ => {
  *         const slice = $.let(Slice.bind([EventType], "demo.events", cfg, Slice.state(), events));
- *         return Slice.Breakdown.Root(slice);
+ *         return Slice.Breakdown.Root({ slice });
  *     })),
  * );
  * ```
  */
 function createSliceBreakdown(
-    slice: SubtypeExprOrValue<SliceBindType>,
-    options?: SliceBreakdownOptions,
+    options: SliceBreakdownOptions,
 ): ExprType<UIComponentType> {
     return East.value(variant("SliceBreakdown", {
-        slice,
-        density: options?.density !== undefined ? some(variant(options.density, null)) : none,
+        slice: options.slice,
+        density: options.density !== undefined ? some(variant(options.density, null)) : none,
     }), UIComponentType);
 }
 

@@ -17,35 +17,52 @@ from east.types.values import EastArray, EastBlob
 
 @platform_function(name="fs_read_file", inputs=[StringType], output=StringType)
 def fs_read_file_impl(path: str) -> str:
-    """Read entire file contents as UTF-8 text.
+    """Read the entire contents of a file as UTF-8 text.
 
     Args:
-        path: File path to read
+        path: ``String`` (``str``) - path to the file.
 
     Returns:
-        File contents as UTF-8 string
+        ``String`` (``str``) - complete file contents decoded as UTF-8.
+
+    Raises:
+        RuntimeError: If the file cannot be read or is not valid UTF-8.
     """
     return Path(path).read_text(encoding="utf-8")
 
 
 @platform_function(name="fs_write_file", inputs=[StringType, StringType], output=NullType)
 def fs_write_file_impl(path: str, content: str) -> None:
-    """Write UTF-8 string to file.
+    """Write a UTF-8 string to a file, replacing any existing content.
 
     Args:
-        path: File path to write
-        content: Content to write
+        path: ``String`` (``str``) - path to the file.
+        content: ``String`` (``str``) - text to write.
+
+    Returns:
+        ``Null`` (``None``).
+
+    Raises:
+        RuntimeError: If the file cannot be written.
     """
     Path(path).write_text(content, encoding="utf-8")
 
 
 @platform_function(name="fs_append_file", inputs=[StringType, StringType], output=NullType)
 def fs_append_file_impl(path: str, content: str) -> None:
-    """Append UTF-8 string to end of file.
+    """Append a UTF-8 string to the end of a file.
+
+    Creates the file if it does not exist.
 
     Args:
-        path: File path to append to
-        content: Content to append
+        path: ``String`` (``str``) - path to the file.
+        content: ``String`` (``str``) - text to append.
+
+    Returns:
+        ``Null`` (``None``).
+
+    Raises:
+        RuntimeError: If the file cannot be opened for appending.
     """
     with open(path, "a", encoding="utf-8") as f:
         f.write(content)
@@ -56,69 +73,90 @@ def fs_delete_file_impl(path: str) -> None:
     """Delete a file.
 
     Args:
-        path: File path to delete
+        path: ``String`` (``str``) - path to the file to delete.
+
+    Returns:
+        ``Null`` (``None``).
+
+    Raises:
+        RuntimeError: If the file does not exist or cannot be removed.
     """
     os.remove(path)
 
 
 @platform_function(name="fs_exists", inputs=[StringType], output=BooleanType)
 def fs_exists_impl(path: str) -> bool:
-    """Check if file or directory exists.
+    """Check whether a file or directory exists at the given path.
 
     Args:
-        path: Path to check
+        path: ``String`` (``str``) - path to check.
 
     Returns:
-        True if path exists
+        ``Boolean`` (``bool``) - ``True`` if the path exists.
     """
     return os.path.exists(path)
 
 
 @platform_function(name="fs_is_file", inputs=[StringType], output=BooleanType)
 def fs_is_file_impl(path: str) -> bool:
-    """Check if path is a regular file.
+    """Check whether a path points to a regular file.
 
     Args:
-        path: Path to check
+        path: ``String`` (``str``) - path to check.
 
     Returns:
-        True if path exists and is a regular file
+        ``Boolean`` (``bool``) - ``True`` if the path exists and is a regular
+        file (not a directory or symlink to one).
     """
     return os.path.isfile(path)
 
 
 @platform_function(name="fs_is_directory", inputs=[StringType], output=BooleanType)
 def fs_is_directory_impl(path: str) -> bool:
-    """Check if path is a directory.
+    """Check whether a path points to a directory.
 
     Args:
-        path: Path to check
+        path: ``String`` (``str``) - path to check.
 
     Returns:
-        True if path exists and is a directory
+        ``Boolean`` (``bool``) - ``True`` if the path exists and is a
+        directory.
     """
     return os.path.isdir(path)
 
 
 @platform_function(name="fs_create_directory", inputs=[StringType], output=NullType)
 def fs_create_directory_impl(path: str) -> None:
-    """Create directory with all necessary parent directories.
+    """Create a directory, including all necessary parent directories.
+
+    Does nothing if the directory already exists.
 
     Args:
-        path: Directory path to create
+        path: ``String`` (``str``) - directory path to create.
+
+    Returns:
+        ``Null`` (``None``).
+
+    Raises:
+        RuntimeError: If the path exists and is not a directory, or if
+            creation fails due to permissions.
     """
     os.makedirs(path, exist_ok=True)
 
 
 @platform_function(name="fs_read_directory", inputs=[StringType], output=ArrayType(StringType))
 def fs_read_directory_impl(path: str) -> EastArray:
-    """List files and directories within a directory.
+    """List the names of entries within a directory.
 
     Args:
-        path: Directory path to read
+        path: ``String`` (``str``) - directory path to read.
 
     Returns:
-        Array of names (not full paths)
+        ``Array<String>`` (``EastArray``) - entry names (not full paths),
+        in arbitrary order.
+
+    Raises:
+        RuntimeError: If the path does not exist or is not a directory.
     """
     entries = os.listdir(path)
     return EastArray(StringType, entries)
@@ -126,24 +164,33 @@ def fs_read_directory_impl(path: str) -> EastArray:
 
 @platform_function(name="fs_read_file_bytes", inputs=[StringType], output=BlobType)
 def fs_read_file_bytes_impl(path: str) -> EastBlob:
-    """Read entire file contents as raw binary data.
+    """Read the entire contents of a file as raw binary data.
 
     Args:
-        path: File path to read
+        path: ``String`` (``str``) - path to the file.
 
     Returns:
-        File contents as EastBlob
+        ``Blob`` (``EastBlob``) - complete raw file contents.
+
+    Raises:
+        RuntimeError: If the file cannot be read.
     """
     return EastBlob(Path(path).read_bytes())
 
 
 @platform_function(name="fs_write_file_bytes", inputs=[StringType, BlobType], output=NullType)
 def fs_write_file_bytes_impl(path: str, content: bytes) -> None:
-    """Write raw binary data to file.
+    """Write raw binary data to a file, replacing any existing content.
 
     Args:
-        path: File path to write
-        content: Binary content to write
+        path: ``String`` (``str``) - path to the file.
+        content: ``Blob`` (``bytes``) - binary data to write.
+
+    Returns:
+        ``Null`` (``None``).
+
+    Raises:
+        RuntimeError: If the file cannot be written.
     """
     Path(path).write_bytes(content)
 
@@ -152,4 +199,17 @@ def fs_write_file_bytes_impl(path: str, content: bytes) -> None:
 fs_impl = platform_functions(__name__)
 
 
-__all__ = ["fs_impl"]
+__all__ = [
+    "fs_impl",
+    "fs_read_file_impl",
+    "fs_write_file_impl",
+    "fs_append_file_impl",
+    "fs_delete_file_impl",
+    "fs_exists_impl",
+    "fs_is_file_impl",
+    "fs_is_directory_impl",
+    "fs_create_directory_impl",
+    "fs_read_directory_impl",
+    "fs_read_file_bytes_impl",
+    "fs_write_file_bytes_impl",
+]

@@ -12,7 +12,7 @@ import {
     type TabsContentProps,
 } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Tabs } from "@elaraai/east-ui";
+import { Tabs } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 

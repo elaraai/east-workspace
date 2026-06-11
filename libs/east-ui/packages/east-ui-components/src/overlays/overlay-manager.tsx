@@ -5,7 +5,7 @@
 
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
 import { type PlatformFunction } from "@elaraai/east/internal";
-import { dialog_open, drawer_open } from "@elaraai/east-ui";
+import { dialog_open, drawer_open } from "@elaraai/east-ui/internal";
 import { DialogContent, type DialogOpenInputValue } from "./dialog/index.js";
 import { DrawerContent, type DrawerOpenInputValue } from "./drawer/index.js";
 
@@ -223,7 +223,7 @@ export const DrawerOpenImpl: PlatformFunction = drawer_open.implement((input) =>
  *
  * @example
  * ```ts
- * import { State } from "@elaraai/east-ui";
+ * import { State } from "@elaraai/east-ui/internal";
  * import { OverlayImpl } from "@elaraai/east-ui-components";
  *
  * const compiled = myFunction.toIR().compile([...State.Implementation, ...OverlayImpl]);

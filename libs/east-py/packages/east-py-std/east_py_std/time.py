@@ -18,23 +18,28 @@ from east.types.types import DateTimeType, IntegerType, NullType, StringType
 
 @platform_function(name="time_now", inputs=[], output=IntegerType)
 def time_now_impl() -> int:
-    """Get current Unix timestamp in milliseconds.
+    """Return the current wall-clock time as a Unix timestamp in milliseconds.
 
     Returns:
-        Current time as milliseconds since Unix epoch (January 1, 1970 UTC)
+        ``Integer`` (``int``) - milliseconds elapsed since the Unix epoch
+        (1970-01-01 00:00:00 UTC).
     """
     return int(time.time() * 1000)
 
 
 @platform_function(name="time_sleep", inputs=[IntegerType], output=NullType)
 async def time_sleep_impl(ms: int) -> None:
-    """Sleep for specified number of milliseconds.
+    """Suspend execution for the given number of milliseconds.
 
     Args:
-        ms: Number of milliseconds to sleep (must be non-negative)
+        ms: ``Integer`` (``int``) - duration in milliseconds; must be
+            non-negative.
+
+    Returns:
+        ``Null`` (``None``).
 
     Raises:
-        ValueError: If ms is negative
+        ValueError: If ``ms`` is negative.
     """
     if ms < 0:
         raise ValueError(f"Sleep duration must be non-negative, got {ms}")
@@ -47,21 +52,22 @@ async def time_sleep_impl(ms: int) -> None:
     output=IntegerType,
 )
 def time_get_timezone_offset_impl(dt: datetime, zone_name: str) -> int:
-    """Get the UTC offset in minutes for an IANA timezone at a given UTC datetime.
+    """Return the UTC offset in minutes for an IANA timezone at a given instant.
 
-    Returns the number of minutes that the given timezone is ahead of (positive)
-    or behind (negative) UTC at the specified instant. This accounts for DST
-    transitions.
+    The offset is positive when the timezone is ahead of UTC and negative when
+    behind. DST transitions are accounted for via the supplied UTC datetime.
 
     Args:
-        dt: UTC datetime object
-        zone_name: IANA timezone name (e.g., "Australia/Sydney", "America/New_York")
+        dt: ``DateTime`` (``datetime``) - the UTC instant at which to evaluate
+            the offset.
+        zone_name: ``String`` (``str``) - IANA timezone name (e.g.,
+            ``"Australia/Sydney"``, ``"America/New_York"``).
 
     Returns:
-        UTC offset in minutes
+        ``Integer`` (``int``) - UTC offset in whole minutes.
 
     Raises:
-        ValueError: If the timezone name is not a valid IANA timezone
+        ValueError: If ``zone_name`` is not a recognised IANA timezone.
     """
     try:
         tz = ZoneInfo(zone_name)
@@ -89,4 +95,9 @@ def time_get_timezone_offset_impl(dt: datetime, zone_name: str) -> int:
 time_impl = platform_functions(__name__)
 
 
-__all__ = ["time_impl"]
+__all__ = [
+    "time_impl",
+    "time_now_impl",
+    "time_sleep_impl",
+    "time_get_timezone_offset_impl",
+]

@@ -2,6 +2,7 @@
   "exclude": ["dist"],
   "compilerOptions": {
     "outDir": "./dist",
+    "rootDir": "./src",
     "module": "nodenext",
     "target": "esnext",
     "lib": ["esnext", "es2024"],
@@ -13,12 +14,14 @@
     "exactOptionalPropertyTypes": true,
     "strict": true,
     "jsx": "react-jsx",
+    "jsxImportSource": "@elaraai/east-ui",
     "verbatimModuleSyntax": true,
     "isolatedModules": true,
     "noUncheckedSideEffectImports": true,
     "moduleDetection": "force",
     "skipLibCheck": true,
     "noErrorTruncation": true,
-    "incremental": true
+    "incremental": true,
+    "plugins": [{ "name": "@elaraai/tsserver-plugin-east" }]
   }
 }

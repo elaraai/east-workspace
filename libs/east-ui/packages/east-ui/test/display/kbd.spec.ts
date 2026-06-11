@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Kbd } from "@elaraai/east-ui";
+import { Kbd } from "@elaraai/east-ui/internal";
 import * as ex from "./kbd.examples.js";
 
 describeEast("Kbd", (test) => {
@@ -12,6 +12,7 @@ describeEast("Kbd", (test) => {
         kbdSingle: ex.kbdSingle,
         kbdChord: ex.kbdChord,
         kbdStyled: ex.kbdStyled,
+        kbdDensities: ex.kbdDensities,
     });
 
     test("creates a single-key Kbd", $ => {

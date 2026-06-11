@@ -109,12 +109,14 @@ export type ButtonLabelInput =
     | SubtypeExprOrValue<UIComponentType>;
 
 /**
- * TypeScript options bag for `Button.Root`.
+ * TypeScript options bag for `Button.Root` — a single flat bag.
  *
  * @remarks
  * Content (`startIcon`, `endIcon`, `loadingText`, `loadingIcon`), state
- * (`loading`, `disabled`) and behaviour (`onClick`) live at the top level
- * of this bag. Visual presentation lives inside the nested `style` object.
+ * (`loading`, `disabled`), behaviour (`onClick`) and the visual fields (from
+ * {@link ButtonStyle} — `variant`, `colorPalette`, `size`, colour hatches) all
+ * sit flat at the top level. The factory composes the visual fields into the
+ * nested IR `style` struct internally.
  *
  * @property startIcon - Leading icon slot (rendered before the label)
  * @property endIcon - Trailing icon slot (rendered after the label)
@@ -123,9 +125,8 @@ export type ButtonLabelInput =
  * @property loading - Loading state — renderer shows a spinner and blocks clicks
  * @property disabled - Disabled state — renderer greys out and blocks clicks
  * @property onClick - Click-handler callback
- * @property style - Visual-presentation sub-struct
  */
-export interface ButtonOptions {
+export interface ButtonOptions extends ButtonStyle {
     /** Leading icon slot (rendered before the label) */
     startIcon?: IconPayload | SubtypeExprOrValue<IconType>;
     /** Trailing icon slot (rendered after the label) */
@@ -140,25 +141,22 @@ export interface ButtonOptions {
     disabled?: SubtypeExprOrValue<BooleanType>;
     /** Click-handler callback (zero-arg East function) */
     onClick?: SubtypeExprOrValue<FunctionType<[], NullType>>;
-    /** Visual-presentation sub-struct (presets + colour escape hatches) */
-    style?: ButtonStyle;
 }
 
 /**
  * Creates a Button component.
  *
  * @param label - String (coerced to `Text.Root(s)`) or any UIComponentType expression
- * @param options - Main-level fields plus optional `style` sub-struct
+ * @param options - A single flat options bag (content / state / behaviour /
+ *   visual fields)
  * @returns An East expression representing the Button component
  *
  * @remarks
  * Button is an interactive component for triggering actions. It supports
  * rich labels, leading/trailing icons, a distinct loading state with
  * optional custom loading text + loading icon, colour escape hatches, and
- * five visual variants.
- *
- * content + state + behaviour are top-level
- * options; visual-presentation lives inside `options.style`.
+ * five visual variants. Every option sits flat on the bag; the factory
+ * composes the visual fields into the nested IR `style` struct internally.
  *
  * @example
  * ```ts
@@ -167,7 +165,7 @@ export interface ButtonOptions {
  *
  * // Simple primary action button
  * const save = East.function([], UIComponentType, _$ =>
- *     Button.Root("Save Changes", { style: { variant: "solid", colorPalette: "blue" } }),
+ *     Button.Root("Save Changes", { variant: "solid", colorPalette: "blue" }),
  * );
  *
  * // Start + end icons + ghost variant with escape-hatch hover colour
@@ -175,7 +173,8 @@ export interface ButtonOptions {
  *     Button.Root("Continue", {
  *         startIcon: { prefix: "fas", name: "check" },
  *         endIcon: { prefix: "fas", name: "arrow-right" },
- *         style: { variant: "ghost", hoverBackground: "#eef2ff" },
+ *         variant: "ghost",
+ *         hoverBackground: "#eef2ff",
  *     }),
  * );
  *
@@ -195,7 +194,7 @@ export interface ButtonOptions {
  *             Text.Root("Accept"),
  *             Text.Root("→ log to MES", { color: "fg.muted" }),
  *         ]),
- *         { style: { variant: "solid", colorPalette: "green" } },
+ *         { variant: "solid", colorPalette: "green" },
  *     ),
  * );
  * ```
@@ -208,17 +207,20 @@ function createButton(
         ? Text.Root(label)
         : label as ExprType<UIComponentType>;
 
-    const styleValue = options?.style ? buildButtonStyle(options.style) : undefined;
+    const opts: ButtonOptions = options ?? {};
+    const { startIcon, endIcon, loadingText, loadingIcon, loading, disabled, onClick, ...visual } = opts;
+    const hasVisual = Object.values(visual).some(field => field !== undefined);
+    const styleValue = hasVisual ? buildButtonStyle(opts) : undefined;
 
     return East.value(variant("Button", {
         label: labelExpr,
-        startIcon: options?.startIcon ? some(toIconValue(options.startIcon)) : none,
-        endIcon: options?.endIcon ? some(toIconValue(options.endIcon)) : none,
-        loadingText: options?.loadingText !== undefined ? some(options.loadingText) : none,
-        loadingIcon: options?.loadingIcon ? some(toIconValue(options.loadingIcon)) : none,
-        loading: options?.loading !== undefined ? some(options.loading) : none,
-        disabled: options?.disabled !== undefined ? some(options.disabled) : none,
-        onClick: options?.onClick ? some(options.onClick) : none,
+        startIcon: startIcon ? some(toIconValue(startIcon)) : none,
+        endIcon: endIcon ? some(toIconValue(endIcon)) : none,
+        loadingText: loadingText !== undefined ? some(loadingText) : none,
+        loadingIcon: loadingIcon ? some(toIconValue(loadingIcon)) : none,
+        loading: loading !== undefined ? some(loading) : none,
+        disabled: disabled !== undefined ? some(disabled) : none,
+        onClick: onClick ? some(onClick) : none,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
@@ -299,8 +301,8 @@ export const Button = {
      * optional custom loading text + loading icon, colour escape hatches, and
      * five visual variants (solid / subtle / outline / ghost / plain).
      *
-     * content + state + behaviour are top-level
-     * options; visual-presentation lives inside `options.style`.
+     * Every option sits flat on the bag; the factory composes the visual fields
+     * into the nested IR `style` struct internally.
      *
      * @example
      * ```ts
@@ -309,7 +311,7 @@ export const Button = {
      *
      * // Primary action button
      * const save = East.function([], UIComponentType, _$ =>
-     *     Button.Root("Save Changes", { style: { variant: "solid", colorPalette: "blue" } }),
+     *     Button.Root("Save Changes", { variant: "solid", colorPalette: "blue" }),
      * );
      *
      * // Start + end icons + ghost variant with hover escape-hatch
@@ -317,7 +319,8 @@ export const Button = {
      *     Button.Root("Continue", {
      *         startIcon: { prefix: "fas", name: "check" },
      *         endIcon: { prefix: "fas", name: "arrow-right" },
-     *         style: { variant: "ghost", hoverBackground: "#eef2ff" },
+     *         variant: "ghost",
+     *         hoverBackground: "#eef2ff",
      *     }),
      * );
      *
@@ -337,7 +340,7 @@ export const Button = {
      *             Text.Root("Accept"),
      *             Text.Root("→ log to MES", { color: "fg.muted" }),
      *         ]),
-     *         { style: { variant: "solid", colorPalette: "green" } },
+     *         { variant: "solid", colorPalette: "green" },
      *     ),
      * );
      * ```

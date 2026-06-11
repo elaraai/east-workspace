@@ -6,7 +6,7 @@
 import { memo, useMemo } from "react";
 import { Link as ChakraLink, type LinkProps } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Link } from "@elaraai/east-ui";
+import { Link } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 
 // Pre-define the equality function at module level

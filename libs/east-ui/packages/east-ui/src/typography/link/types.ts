@@ -106,10 +106,12 @@ export type LinkType = typeof LinkType;
  * Style configuration for Link components.
  *
  * Flat at the factory boundary for ergonomics; the IR wraps visual fields
- * inside `LinkType.style` (see `LinkVisualStyleType`). `external` is state,
- * accepted at the factory and forwarded to the main struct.
+ * inside `LinkType.style` (see `LinkVisualStyleType`). `href` is required and
+ * `external` is state — both forwarded to the main struct.
  */
 export type LinkStyle = {
+    /** URL the link points to (required). */
+    href: SubtypeExprOrValue<StringType>;
     /** Whether to open in new tab (state — not visual) */
     external?: SubtypeExprOrValue<BooleanType> | boolean;
     /** Visual style variant */

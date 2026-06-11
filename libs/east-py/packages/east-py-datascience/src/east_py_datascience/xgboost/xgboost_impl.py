@@ -14,7 +14,7 @@ import warnings
 import numpy as np
 from east.runtime.platform import platform_function, platform_functions
 from east.types.types import FloatType, IntegerType, MatrixType, VectorType
-from east.types.values import EastArray, EastBlob, EastMatrix, EastStruct, EastVariant, EastVector
+from east.types.values import EastBlob, EastMatrix, EastStruct, EastVariant, EastVector
 
 from east_py_datascience.types import (
     ModelBlobType,
@@ -209,11 +209,68 @@ def _check_xgboost_support() -> None:
     output=ModelBlobType,
 )
 def xgboost_train_regressor_impl(
-    X: EastArray,
-    y: EastArray,
+    X: EastMatrix,
+    y: EastVector,
     config: EastStruct,
 ) -> EastVariant:
-    """Train XGBoost regressor and return model blob."""
+    """Train an XGBoost regressor and return a serialized model blob.
+
+    Supports optional per-sample weighting and categorical features with an
+    explicit or inferred category space.
+
+    Args:
+        X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix, one row per
+            sample.
+        y: ``Vector<Float>`` (``EastVector``) - continuous target values; must
+            have the same number of rows as ``X``.
+        config: ``XGBoostConfigType`` (``EastStruct``) with fields:
+
+            - ``n_estimators`` (``Option<Integer>``): number of boosting rounds
+              (default 100).
+            - ``max_depth`` (``Option<Integer>``): maximum tree depth (default
+              6).
+            - ``learning_rate`` (``Option<Float>``): shrinkage step size
+              (default 0.3).
+            - ``min_child_weight`` (``Option<Integer>``): minimum sum of
+              instance weights in a leaf (default 1).
+            - ``subsample`` (``Option<Float>``): row subsampling ratio per tree
+              (default 1.0).
+            - ``colsample_bytree`` (``Option<Float>``): column subsampling ratio
+              per tree (default 1.0).
+            - ``reg_alpha`` (``Option<Float>``): L1 regularization on weights
+              (default 0.0).
+            - ``reg_lambda`` (``Option<Float>``): L2 regularization on weights
+              (default 1.0).
+            - ``gamma`` (``Option<Float>``): minimum loss reduction required to
+              make a split (default 0.0).
+            - ``random_state`` (``Option<Integer>``): random seed (default
+              None).
+            - ``n_jobs`` (``Option<Integer>``): parallel threads; -1 uses all
+              cores (default -1).
+            - ``sample_weight`` (``Option<Vector<Float>>``): per-sample weights;
+              must match row count of ``X`` (default uniform).
+            - ``categorical_features`` (``Option<Vector<Integer>>``): zero-based
+              column indices treated as categorical (default None).
+            - ``categorical_n`` (``Option<Vector<Integer>>``): number of
+              categories per categorical feature; must match length of
+              ``categorical_features``; values outside [0, n) become NaN
+              (default infer from data).
+            - ``max_cat_to_onehot`` (``Option<Integer>``): threshold below which
+              XGBoost uses one-hot encoding for a categorical (default 4).
+            - ``max_cat_threshold`` (``Option<Integer>``): max categories before
+              using a partition-based split (default 64).
+
+    Returns:
+        ``ModelBlobType`` (``EastVariant``) tagged ``xgboost_regressor``:
+        ``{data: Blob (cloudpickle), n_features: Integer,
+        categorical_features: Option<Vector<Integer>>,
+        categorical_n: Option<Vector<Integer>>}``.
+
+    Raises:
+        NotImplementedError: the ``xgboost`` extra is not installed.
+        RuntimeError: shape mismatch, invalid categorical indices, or training
+            failure.
+    """
     _check_xgboost_support()
     import xgboost as xgb
 
@@ -324,11 +381,36 @@ def xgboost_train_regressor_impl(
     output=ModelBlobType,
 )
 def xgboost_train_classifier_impl(
-    X: EastArray,
-    y: EastArray,
+    X: EastMatrix,
+    y: EastVector,
     config: EastStruct,
 ) -> EastVariant:
-    """Train XGBoost classifier and return model blob."""
+    """Train an XGBoost classifier and return a serialized model blob.
+
+    Class labels are remapped to contiguous 0-indexed integers internally;
+    the original labels are stored in the blob so predictions are remapped
+    back on inference.
+
+    Args:
+        X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix, one row per
+            sample.
+        y: ``Vector<Integer>`` (``EastVector``) - integer class labels; must
+            have the same number of rows as ``X``.
+        config: ``XGBoostConfigType`` (``EastStruct``) - see
+            :func:`xgboost_train_regressor_impl` for field descriptions.
+            All fields apply identically.
+
+    Returns:
+        ``ModelBlobType`` (``EastVariant``) tagged ``xgboost_classifier``:
+        ``{data: Blob (cloudpickle of {model, classes}), n_features: Integer,
+        n_classes: Integer, categorical_features: Option<Vector<Integer>>,
+        categorical_n: Option<Vector<Integer>>}``.
+
+    Raises:
+        NotImplementedError: the ``xgboost`` extra is not installed.
+        RuntimeError: shape mismatch, invalid categorical indices, or training
+            failure.
+    """
     _check_xgboost_support()
     import xgboost as xgb
 
@@ -451,9 +533,25 @@ def xgboost_train_classifier_impl(
 )
 def xgboost_predict_impl(
     model_blob: EastVariant,
-    X: EastArray,
-) -> EastArray:
-    """Make predictions with XGBoost regressor."""
+    X: EastMatrix,
+) -> EastVector:
+    """Predict continuous values with a trained XGBoost regressor.
+
+    Args:
+        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+            ``xgboost_regressor`` - as returned by
+            :func:`xgboost_train_regressor_impl`.
+        X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix; must have the
+            same number of columns the model was trained with.
+
+    Returns:
+        ``Vector<Float>`` (``EastVector``) - one predicted value per row.
+
+    Raises:
+        NotImplementedError: the ``xgboost`` extra is not installed.
+        RuntimeError: wrong model blob type, invalid input data, or prediction
+            failure.
+    """
     _check_xgboost_support()
     if model_blob.type != "xgboost_regressor":
         raise RuntimeError(
@@ -493,9 +591,29 @@ def xgboost_predict_impl(
 )
 def xgboost_predict_class_impl(
     model_blob: EastVariant,
-    X: EastArray,
-) -> EastArray:
-    """Predict class labels with XGBoost classifier."""
+    X: EastMatrix,
+) -> EastVector:
+    """Predict class labels with a trained XGBoost classifier.
+
+    Predictions are remapped from the internal 0-indexed labels back to the
+    original class labels seen during training.
+
+    Args:
+        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+            ``xgboost_classifier`` - as returned by
+            :func:`xgboost_train_classifier_impl`.
+        X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix; must have the
+            same number of columns the model was trained with.
+
+    Returns:
+        ``Vector<Integer>`` (``EastVector``) - one predicted class label per
+        row, using the original label values from training.
+
+    Raises:
+        NotImplementedError: the ``xgboost`` extra is not installed.
+        RuntimeError: wrong model blob type, invalid input data, or prediction
+            failure.
+    """
     _check_xgboost_support()
     if model_blob.type != "xgboost_classifier":
         raise RuntimeError(
@@ -542,9 +660,30 @@ def xgboost_predict_class_impl(
 )
 def xgboost_predict_proba_impl(
     model_blob: EastVariant,
-    X: EastArray,
-) -> EastArray:
-    """Get class probabilities from XGBoost classifier."""
+    X: EastMatrix,
+) -> EastMatrix:
+    """Get class probability estimates from a trained XGBoost classifier.
+
+    Probabilities are in the order of the 0-indexed internal class labels,
+    which corresponds to the sorted order of the original labels seen at
+    training.
+
+    Args:
+        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+            ``xgboost_classifier`` - as returned by
+            :func:`xgboost_train_classifier_impl`.
+        X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix; must have the
+            same number of columns the model was trained with.
+
+    Returns:
+        ``Matrix<Float>`` (``EastMatrix``) - shape ``(n_samples, n_classes)``
+        where each row sums to 1.0.
+
+    Raises:
+        NotImplementedError: the ``xgboost`` extra is not installed.
+        RuntimeError: wrong model blob type, invalid input data, or prediction
+            failure.
+    """
     _check_xgboost_support()
     if model_blob.type != "xgboost_classifier":
         raise RuntimeError(
@@ -587,11 +726,66 @@ def xgboost_predict_proba_impl(
     output=ModelBlobType,
 )
 def xgboost_train_quantile_impl(
-    X: EastArray,
-    y: EastArray,
+    X: EastMatrix,
+    y: EastVector,
     config: EastStruct,
 ) -> EastVariant:
-    """Train XGBoost quantile regression models (one per quantile)."""
+    """Train one XGBoost quantile regressor per requested quantile.
+
+    Uses XGBoost's ``reg:quantileerror`` objective with ``quantile_alpha``
+    set per model. All models share the same hyperparameters.
+
+    Args:
+        X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix, one row per
+            sample.
+        y: ``Vector<Float>`` (``EastVector``) - continuous target values; must
+            have the same number of rows as ``X``.
+        config: ``XGBoostQuantileConfigType`` (``EastStruct``) with fields:
+
+            - ``quantiles`` (``Vector<Float>``): quantile levels to predict;
+              each must be strictly in (0, 1).
+            - ``n_estimators`` (``Option<Integer>``): boosting rounds per model
+              (default 100).
+            - ``max_depth`` (``Option<Integer>``): maximum tree depth (default
+              6).
+            - ``learning_rate`` (``Option<Float>``): step size (default 0.3).
+            - ``min_child_weight`` (``Option<Integer>``): minimum leaf weight
+              (default 1).
+            - ``subsample`` (``Option<Float>``): row subsampling ratio (default
+              1.0).
+            - ``colsample_bytree`` (``Option<Float>``): column subsampling ratio
+              (default 1.0).
+            - ``reg_alpha`` (``Option<Float>``): L1 regularization (default
+              0.0).
+            - ``reg_lambda`` (``Option<Float>``): L2 regularization (default
+              1.0).
+            - ``gamma`` (``Option<Float>``): minimum loss reduction for a split
+              (default 0.0).
+            - ``random_state`` (``Option<Integer>``): random seed (default
+              None).
+            - ``n_jobs`` (``Option<Integer>``): parallel threads (default -1).
+            - ``sample_weight`` (``Option<Vector<Float>>``): per-sample weights
+              (default uniform).
+            - ``categorical_features`` (``Option<Vector<Integer>>``): column
+              indices to treat as categorical (default None).
+            - ``categorical_n`` (``Option<Vector<Integer>>``): category count
+              per categorical feature (default infer from data).
+            - ``max_cat_to_onehot`` (``Option<Integer>``): one-hot threshold
+              (default 4).
+            - ``max_cat_threshold`` (``Option<Integer>``): partition-split
+              threshold (default 64).
+
+    Returns:
+        ``ModelBlobType`` (``EastVariant``) tagged ``xgboost_quantile``:
+        ``{data: Blob (cloudpickle of {q: model} dict), quantiles:
+        Vector<Float>, n_features: Integer, categorical_features:
+        Option<Vector<Integer>>, categorical_n: Option<Vector<Integer>>}``.
+
+    Raises:
+        NotImplementedError: the ``xgboost`` extra is not installed.
+        RuntimeError: quantile out of range, shape mismatch, or training
+            failure.
+    """
     _check_xgboost_support()
     import xgboost as xgb
 
@@ -726,9 +920,28 @@ def xgboost_train_quantile_impl(
 )
 def xgboost_predict_quantile_impl(
     model_blob: EastVariant,
-    X: EastArray,
+    X: EastMatrix,
 ) -> EastStruct:
-    """Predict quantiles with XGBoost quantile regressor."""
+    """Predict all quantile levels with a trained XGBoost quantile model.
+
+    Args:
+        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+            ``xgboost_quantile`` - as returned by
+            :func:`xgboost_train_quantile_impl`.
+        X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix; must have the
+            same number of columns the model was trained with.
+
+    Returns:
+        ``XGBoostQuantilePredictResultType`` (``EastStruct``):
+        ``quantiles`` (``Vector<Float>``, sorted) and ``predictions``
+        (``Matrix<Float>`` of shape ``(n_samples, n_quantiles)`` where column
+        ``i`` corresponds to ``quantiles[i]``).
+
+    Raises:
+        NotImplementedError: the ``xgboost`` extra is not installed.
+        RuntimeError: wrong model blob type, invalid input data, or prediction
+            failure.
+    """
     _check_xgboost_support()
     if model_blob.type != "xgboost_quantile":
         raise RuntimeError(

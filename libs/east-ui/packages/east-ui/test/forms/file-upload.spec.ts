@@ -4,12 +4,13 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { FileUpload } from "@elaraai/east-ui";
+import { FileUpload } from "@elaraai/east-ui/internal";
 import * as ex from "./file-upload.examples.js";
 
 describeEast("FileUpload", (test) => {
     Assert.examples(test, {
         fileUploadBasic: ex.fileUploadBasic,
+        fileUploadOrientation: ex.fileUploadOrientation,
         fileUploadInteractive: ex.fileUploadInteractive,
         fileUploadOnFileReject: ex.fileUploadOnFileReject,
     });
@@ -165,6 +166,15 @@ describeEast("FileUpload", (test) => {
         }));
 
         $(Assert.equal(upload.unwrap().unwrap("FileUpload").name.unwrap("some"), "document"));
+    });
+
+    test("creates file upload with horizontal orientation", $ => {
+        const upload = $.let(FileUpload.Root({
+            orientation: "horizontal",
+        }));
+
+        $(Assert.equal(upload.unwrap().unwrap("FileUpload").orientation.hasTag("some"), true));
+        $(Assert.equal(upload.unwrap().unwrap("FileUpload").orientation.unwrap("some").hasTag("horizontal"), true));
     });
 
     // =========================================================================

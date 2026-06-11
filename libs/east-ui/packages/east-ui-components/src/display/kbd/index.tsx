@@ -4,10 +4,11 @@
  */
 
 import { memo, useMemo, Fragment } from "react";
-import { Kbd as ChakraKbd, HStack, Text as ChakraText } from "@chakra-ui/react";
+import { Kbd as ChakraKbd, type KbdProps, HStack, Text as ChakraText } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Kbd } from "@elaraai/east-ui";
+import { Kbd } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
+import { useDensity } from "../../contracts/density";
 
 const kbdEqual = equalFor(Kbd.Types.Kbd);
 
@@ -24,6 +25,9 @@ export interface EastChakraKbdProps {
  */
 export const EastChakraKbd = memo(function EastChakraKbd({ value }: EastChakraKbdProps) {
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
+    const inheritedDensity = useDensity();
+    const localDensity = useMemo(() => getSomeorUndefined(value.density)?.type, [value.density]);
+    const density = localDensity ?? inheritedDensity;
 
     /* Default to the spec-conformant `flat` variant — no drop shadow.
      * pattern_spec `.kbd` is a flat 3 px chip; the `raised` Chakra default
@@ -49,6 +53,7 @@ export const EastChakraKbd = memo(function EastChakraKbd({ value }: EastChakraKb
                         color={color}
                         background={background}
                         borderColor={borderColor}
+                        {...(density !== undefined ? ({ density } as KbdProps) : {})}
                     >
                         {key}
                     </ChakraKbd>

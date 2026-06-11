@@ -1382,19 +1382,34 @@ import { East } from "@elaraai/east";
 import { Menu, Button, UIComponentType } from "@elaraai/east-ui";
 
 const example = East.function([], UIComponentType, $ => {
-    return Menu.Root(Button.Root("Actions"), [
-        Menu.Item("edit", "Edit"),
-        Menu.Separator(),
-        Menu.Item("delete", "Delete"),
-    ]);
+    return Menu.Root({
+        trigger: Button.Root("Actions"),
+        items: [
+            Menu.GroupLabel("Actions"),
+            Menu.Item("edit", "Edit · rename", { icon: "pen" }),
+            Menu.Item("duplicate", "Duplicate", { icon: "copy", command: "⌘D" }),
+            Menu.Separator(),
+            Menu.Item("archive", "Archive", { icon: "trash", destructive: true }),
+        ],
+    });
 });
 ```
 
 | Signature | Description | Example |
 |-----------|-------------|---------|
-| `Menu.Root(trigger: UIComponent, items: MenuItem[], style?: MenuStyle): ExprType<UIComponentType>` | Create menu | `Menu.Root(Button.Root("..."), [...])` |
-| `Menu.Item(value: string, label: string, disabled?: boolean): MenuItem` | Create menu item | `Menu.Item("edit", "Edit")` |
+| `Menu.Root(options: MenuOptions): ExprType<UIComponentType>` | Create menu | `Menu.Root({ trigger, items })` |
+| `Menu.Item(value: string, label: string, options?: MenuItemOptions): MenuItem` | Create menu item | `Menu.Item("edit", "Edit", { icon: "pen" })` |
+| `Menu.GroupLabel(label: string): MenuItem` | Create group heading (mono uppercase eyebrow) | `Menu.GroupLabel("Actions")` |
 | `Menu.Separator(): MenuItem` | Create separator | `Menu.Separator()` |
+
+**MenuItemOptions Properties:**
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `disabled` | `SubtypeExprOrValue<BooleanType>` | Disabled state |
+| `icon` | `SubtypeExprOrValue<StringType>` | Font Awesome solid icon name shown before the label |
+| `command` | `SubtypeExprOrValue<StringType>` | Keyboard accelerator shown right-aligned in mono |
+| `destructive` | `SubtypeExprOrValue<BooleanType>` | Destructive action — negative ink, place last after a separator |
 
 **MenuStyle Properties:**
 

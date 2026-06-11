@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { AvatarGroup } from "@elaraai/east-ui";
+import { AvatarGroup } from "@elaraai/east-ui/internal";
 import * as ex from "./avatar-group.examples.js";
 
 describeEast("AvatarGroup", (test) => {
@@ -12,6 +12,7 @@ describeEast("AvatarGroup", (test) => {
         avatarGroupBasic: ex.avatarGroupBasic,
         avatarGroupOverflow: ex.avatarGroupOverflow,
         avatarGroupLarge: ex.avatarGroupLarge,
+        avatarGroupDensities: ex.avatarGroupDensities,
     });
 
     test("creates an AvatarGroup with three avatars", $ => {
@@ -46,7 +47,7 @@ describeEast("AvatarGroup", (test) => {
         const g = $.let(AvatarGroup.Root([
             { name: "Kai", src: "https://example.com/kai.jpg" },
         ]));
-        const a = g.unwrap().unwrap("AvatarGroup").avatars.get(0n);
+        const a = $.let(g.unwrap().unwrap("AvatarGroup").avatars.get(0n));
         $(Assert.equal(a.name.unwrap("some"), "Kai"));
         $(Assert.equal(a.src.unwrap("some"), "https://example.com/kai.jpg"));
     });

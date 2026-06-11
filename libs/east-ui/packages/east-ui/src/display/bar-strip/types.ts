@@ -15,8 +15,8 @@ import {
     VariantType,
 } from "@elaraai/east";
 
-import { StatusTokenType, OrientationType } from "../../style.js";
-import type { StatusTokenLiteral, OrientationLiteral } from "../../style.js";
+import { StatusTokenType, OrientationType, DensityType } from "../../style.js";
+import type { StatusTokenLiteral, OrientationLiteral, DensityLiteral } from "../../style.js";
 
 // ============================================================================
 // BarStrip Sort
@@ -108,6 +108,7 @@ export type BarStripStyleType = typeof BarStripStyleType;
  * @property showValues - Whether to render trailing value text (default true)
  * @property sort - Sort direction applied at factory time
  * @property maxItems - Optional row limit (clips items after sort)
+ * @property density - Density override; shares the cascade with `ChipRail` / `Trace` so mixed display cells align
  * @property orientation - Geometric orientation
  * @property thickness - Row thickness preset
  * @property trackColor - Explicit track colour override
@@ -121,6 +122,13 @@ export interface BarStripOptions {
     sort?: SubtypeExprOrValue<BarStripSortType> | BarStripSortLiteral;
     /** Optional row limit (clips items after sort). */
     maxItems?: SubtypeExprOrValue<IntegerType>;
+    /**
+     * Density override (main-struct). Inherited from the enclosing surface
+     * (Table, ChipRail, …) when omitted; an explicit value wins over both the
+     * cascade and `thickness`, sizing rows to match rails and traces at the
+     * same density.
+     */
+    density?: SubtypeExprOrValue<DensityType> | DensityLiteral;
     /** Geometric orientation. */
     orientation?: SubtypeExprOrValue<OrientationType> | OrientationLiteral;
     /** Row thickness preset (xs / sm / md). */

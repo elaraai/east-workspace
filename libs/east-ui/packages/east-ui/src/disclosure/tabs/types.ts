@@ -254,21 +254,19 @@ export interface TabsItemOptions {
  * TypeScript options bag for `Tabs.Root`.
  *
  * @remarks
- * State (`value` / `defaultValue`) and behaviour (`onValueChange`) live at
- * the top level. Visual presentation lives inside the nested `style` object.
+ * State (`value` / `defaultValue`), behaviour (`onValueChange`), and the
+ * visual style fields (inherited from {@link TabsStyle}) all sit in one flat
+ * bag; the factory composes the nested IR style sub-struct.
  *
  * @property value - Controlled selected tab value
  * @property defaultValue - Initial selected tab value (uncontrolled)
  * @property onValueChange - Callback invoked with the new selected tab value
- * @property style - Visual-presentation sub-struct
  */
-export interface TabsOptions {
+export interface TabsOptions extends TabsStyle {
     /** Controlled selected tab value */
     value?: SubtypeExprOrValue<StringType>;
     /** Initial selected tab value (uncontrolled) */
     defaultValue?: SubtypeExprOrValue<StringType>;
     /** Callback invoked with the new selected tab value */
     onValueChange?: SubtypeExprOrValue<FunctionType<[StringType], NullType>>;
-    /** Visual-presentation sub-struct */
-    style?: TabsStyle;
 }

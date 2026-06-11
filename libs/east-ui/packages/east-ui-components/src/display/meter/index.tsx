@@ -6,9 +6,10 @@
 import { memo, useMemo } from "react";
 import { Box, useSlotRecipe } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Meter } from "@elaraai/east-ui";
+import { Meter } from "@elaraai/east-ui/internal";
 import { EastChakraComponent } from "../../component";
 import { getSomeorUndefined } from "../../utils";
+import { useDensity } from "../../contracts/density";
 
 const meterEqual = equalFor(Meter.Types.Meter);
 
@@ -30,6 +31,9 @@ export const EastChakraMeter = memo(function EastChakraMeter({ value, storageKey
     const max = useMemo(() => getSomeorUndefined(value.max) ?? 100, [value.max]);
     const tone = useMemo(() => getSomeorUndefined(value.tone)?.type, [value.tone]);
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
+    const inheritedDensity = useDensity();
+    const localDensity = useMemo(() => getSomeorUndefined(value.density)?.type, [value.density]);
+    const density = localDensity ?? inheritedDensity;
 
     const thickness = style ? getSomeorUndefined(style.thickness)?.type : undefined;
     const fillColor = style ? getSomeorUndefined(style.fillColor) : undefined;
@@ -38,7 +42,7 @@ export const EastChakraMeter = memo(function EastChakraMeter({ value, storageKey
     const borderRadius = style ? getSomeorUndefined(style.borderRadius) : undefined;
     const showValue = (style ? getSomeorUndefined(style.showValue) : undefined) ?? true;
 
-    const styles = useSlotRecipe({ key: "meter" })({ thickness, tone });
+    const styles = useSlotRecipe({ key: "meter" })({ thickness, tone, density });
 
     const clamped = Math.max(0, Math.min(Number(value.value) / Number(max), 1));
     const percent = `${(clamped * 100).toFixed(2)}%`;

@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Button, ButtonGroup } from "@elaraai/east-ui";
+import { Button, ButtonGroup } from "@elaraai/east-ui/internal";
 import * as ex from "./button-group.examples.js";
 
 describeEast("ButtonGroup", (test) => {
@@ -28,7 +28,7 @@ describeEast("ButtonGroup", (test) => {
     });
 
     test("creates attached button group", $ => {
-        const g = $.let(ButtonGroup.Root([Button.Root("A")], { style: { attached: true } }));
+        const g = $.let(ButtonGroup.Root([Button.Root("A")], { attached: true }));
         $(Assert.equal(
             g.unwrap().unwrap("ButtonGroup").style.unwrap("some").attached.unwrap("some"),
             true,
@@ -36,7 +36,7 @@ describeEast("ButtonGroup", (test) => {
     });
 
     test("creates button group with gap", $ => {
-        const g = $.let(ButtonGroup.Root([Button.Root("A")], { style: { gap: "2" } }));
+        const g = $.let(ButtonGroup.Root([Button.Root("A")], { gap: "2" }));
         $(Assert.equal(
             g.unwrap().unwrap("ButtonGroup").style.unwrap("some").gap.unwrap("some"),
             "2",
@@ -44,7 +44,7 @@ describeEast("ButtonGroup", (test) => {
     });
 
     test("creates button group with shared borderColor", $ => {
-        const g = $.let(ButtonGroup.Root([Button.Root("A")], { style: { borderColor: "#3d5cff" } }));
+        const g = $.let(ButtonGroup.Root([Button.Root("A")], { borderColor: "#3d5cff" }));
         $(Assert.equal(
             g.unwrap().unwrap("ButtonGroup").style.unwrap("some").borderColor.unwrap("some"),
             "#3d5cff",
@@ -53,14 +53,12 @@ describeEast("ButtonGroup", (test) => {
 
     test("creates fully-configured attached group", $ => {
         const g = $.let(ButtonGroup.Root([
-            Button.Root("1d", { style: { variant: "outline", size: "sm" } }),
-            Button.Root("1w", { style: { variant: "outline", size: "sm" } }),
-            Button.Root("1m", { style: { variant: "outline", size: "sm" } }),
+            Button.Root("1d", { variant: "outline", size: "sm" }),
+            Button.Root("1w", { variant: "outline", size: "sm" }),
+            Button.Root("1m", { variant: "outline", size: "sm" }),
         ], {
-            style: {
-                attached: true,
-                borderColor: "#14b8a6",
-            },
+            attached: true,
+            borderColor: "#14b8a6",
         }));
         const s = g.unwrap().unwrap("ButtonGroup").style.unwrap("some");
         $(Assert.equal(g.unwrap().unwrap("ButtonGroup").buttons.size(), 3n));

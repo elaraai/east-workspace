@@ -16,7 +16,8 @@ import {
     none,
 } from "@elaraai/east";
 
-import { OverflowType } from "../../style.js";
+import { DensityType, OverflowType } from "../../style.js";
+import type { DensityLiteral } from "../../style.js";
 import { UIComponentType } from "../../component.js";
 import {
     StateValueType,
@@ -56,6 +57,7 @@ export {
  * @property body - Array of body UIComponents
  * @property footer - Optional footer UIComponent
  * @property state - Optional runtime state (drives fallback body render)
+ * @property density - Optional density the card provides to its content via the density cascade
  * @property style - Optional visual-only style sub-struct
  */
 export const CardType: StructType<{
@@ -63,12 +65,14 @@ export const CardType: StructType<{
     body: ArrayType<UIComponentType>,
     footer: OptionType<UIComponentType>,
     state: OptionType<StateValueType>,
+    density: OptionType<DensityType>,
     style: OptionType<CardStyleType>,
 }> = StructType({
     header: OptionType(UIComponentType),
     body: ArrayType(UIComponentType),
     footer: OptionType(UIComponentType),
     state: OptionType(StateValueType),
+    density: OptionType(DensityType),
     style: OptionType(CardStyleType),
 });
 
@@ -83,27 +87,44 @@ export type CardType = typeof CardType;
  * TypeScript options bag for `Card.Root`.
  *
  * @remarks
- * Accepts both the new nested `style: {...}` sub-struct (0 preferred)
- * and legacy flat fields inherited from `CardStyle` for backward
- * compatibility. Flat fields are folded into the style sub-struct at the
- * factory boundary; the explicit `style` object takes precedence when both
- * are supplied.
+ * `header` / `footer` / `state` sit alongside the visual style fields
+ * (inherited from `CardStyle`) in one flat bag; the factory composes the
+ * nested IR style sub-struct.
  *
- * @property header - Optional header — a bare string renders as the mono eyebrow,
- *   or use `Card.Header({ eyebrow, title, meta, description })` for the composed shape
- * @property footer - Optional footer UIComponent (use `Card.Footer(...)` for the composed shape)
+ * @property header - Optional header options (`eyebrow` / `title` / `meta` / `description`) — composed into the header strip
+ * @property footer - Optional footer options (`content` + trailing `actions`)
  * @property state - Runtime state literal or expression — drives the fallback-body contract
+ * @property density - Density the card provides to its content via the density cascade
  * @property style - Optional visual-only style (preferred shape)
  */
 export interface CardOptions extends CardStyle {
-    /** Optional header. A bare string becomes the mono eyebrow; use `Card.Header(...)` for eyebrow + title + meta. */
-    header?: string | ExprType<UIComponentType>;
-    /** Optional footer component. Use `Card.Footer(...)` to compose content + actions. */
-    footer?: ExprType<UIComponentType>;
+    /** Optional header options — `eyebrow` / `title` / `meta` / `description`, composed into the header strip. */
+    header?: CardHeaderOptions;
+    /** Optional footer — `content` components + a trailing `actions` row. */
+    footer?: CardFooterInput;
     /** Runtime state — `"ready" | "loading" | "empty" | "error" | "stale" | "disabled" | "permission-denied"`. */
     state?: StateValueLiteral | SubtypeExprOrValue<StateValueType>;
-    /** Optional visual-only style (preferred over the inherited flat fields). */
-    style?: CardStyle;
+    /**
+     * Density the card provides to its content via the density cascade.
+     * Display components inside (Tag, Badge, Meter, Trace, …) inherit it
+     * unless they carry their own density; the card frame itself is visually
+     * unchanged. When omitted, the card is transparent to the cascade and an
+     * enclosing surface's density flows through.
+     */
+    density?: SubtypeExprOrValue<DensityType> | DensityLiteral;
+}
+
+/**
+ * TypeScript footer input for `Card.Root` — content row + optional trailing actions.
+ *
+ * @property content - Footer content components, rendered on the left
+ * @property actions - Trailing action buttons, rendered as a row on the right
+ */
+export interface CardFooterInput {
+    /** Footer content components, rendered on the left. */
+    content?: SubtypeExprOrValue<ArrayType<UIComponentType>>;
+    /** Trailing action buttons, rendered as a row on the right. */
+    actions?: SubtypeExprOrValue<ArrayType<UIComponentType>>;
 }
 
 // ============================================================================
@@ -146,8 +167,7 @@ function buildCardStyle(style: CardStyle): ExprType<CardStyleType> {
  * Creates a Card container with content slots + runtime state + visual style.
  *
  * @param children - Array of body UIComponents
- * @param options - Optional `header` / `footer` / `state` / `style` and (for
- *   backward compatibility) legacy flat visual fields
+ * @param options - Optional `header` / `footer` / `state` + visual style fields
  * @returns An East expression representing the Card component
  *
  * @remarks
@@ -157,7 +177,7 @@ function buildCardStyle(style: CardStyle): ExprType<CardStyleType> {
  * `libs/east-ui-components/src/container/card/index.tsx` for the dispatch table.
  * A bare-string `header` renders as the mono eyebrow; `Card.Header(...)` composes
  * the eyebrow + brand title + meta. Layout / dimension fields and colour escape
- * hatches live in `style: {...}`; flat fields continue to work as a shorthand.
+ * hatches are flat props on the options bag.
  *
  * @example
  * ```ts
@@ -166,11 +186,7 @@ function buildCardStyle(style: CardStyle): ExprType<CardStyleType> {
  *
  * const example = East.function([], UIComponentType, $ => {
  *     return Card.Root([Text.Root("Body copy")], {
- *         header: Card.Header({
- *             eyebrow: "Forecast · SE region",
- *             title: "Per plan week",
- *             meta: "14s ago",
- *         }),
+ *         header: { eyebrow: "Forecast · SE region", title: "Per plan week", meta: "14s ago" },
  *     });
  * });
  * ```
@@ -179,50 +195,49 @@ function createCard(
     children: SubtypeExprOrValue<ArrayType<UIComponentType>>,
     options?: CardOptions,
 ): ExprType<UIComponentType> {
-    const flatStyle: CardStyle = {};
-    let hasFlat = false;
-    const copy = <K extends keyof CardStyle>(k: K) => {
-        const v = (options as CardStyle | undefined)?.[k];
-        if (v !== undefined) {
-            (flatStyle as Record<string, unknown>)[k] = v as unknown;
-            hasFlat = true;
-        }
-    };
-    copy("height");
-    copy("minHeight");
-    copy("maxHeight");
-    copy("width");
-    copy("minWidth");
-    copy("maxWidth");
-    copy("flex");
-    copy("overflow");
-    copy("background");
-    copy("borderColor");
-    copy("headerBackground");
-    copy("footerBackground");
-    copy("accentColor");
+    const { header, footer, state, density, ...visual } = options ?? {};
 
-    const resolvedStyle: CardStyle | undefined = options?.style
-        ? { ...flatStyle, ...options.style }
-        : (hasFlat ? flatStyle : undefined);
+    const hasVisual = Object.values(visual).some(field => field !== undefined);
+    const styleValue = hasVisual ? buildCardStyle(visual) : undefined;
 
-    const styleValue = resolvedStyle ? buildCardStyle(resolvedStyle) : undefined;
+    const stateValue = typeof state === "string"
+        ? East.value(variant(state, null), StateValueType)
+        : state as ExprType<StateValueType> | undefined;
 
-    const stateValue = typeof options?.state === "string"
-        ? East.value(variant(options.state, null), StateValueType)
-        : options?.state as ExprType<StateValueType> | undefined;
+    const densityValue = density
+        ? (typeof density === "string"
+            ? East.value(variant(density, null), DensityType)
+            : density)
+        : undefined;
 
-    const headerComp = typeof options?.header === "string"
-        ? CardHeader({ eyebrow: options.header })
-        : options?.header;
+    const headerComp = header ? CardHeader(header) : undefined;
+    const footerComp = footer ? composeFooter(footer) : undefined;
 
     return East.value(variant("Card", {
         header: headerComp ? some(headerComp) : none,
         body: children,
-        footer: options?.footer ? some(options.footer) : none,
+        footer: footerComp ? some(footerComp) : none,
         state: stateValue ? some(stateValue) : none,
+        density: densityValue ? some(densityValue) : none,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
+}
+
+/**
+ * Internal — composes a {@link CardFooterInput} into the footer UIComponent:
+ * the content row on the left, the trailing actions row on the right.
+ */
+function composeFooter(footer: CardFooterInput): ExprType<UIComponentType> {
+    const actionsRow = footer.actions !== undefined
+        ? Stack.HStack(footer.actions, { gap: "2", justify: "flex-end" })
+        : undefined;
+    const contentRow = footer.content !== undefined
+        ? Stack.HStack(footer.content, { gap: "3", align: "center" })
+        : undefined;
+    if (contentRow !== undefined && actionsRow !== undefined) {
+        return Stack.HStack([contentRow, actionsRow], { gap: "3", align: "center", justify: "space-between" });
+    }
+    return actionsRow ?? contentRow ?? Box.Root(East.value([], ArrayType(UIComponentType)));
 }
 
 // ============================================================================
@@ -368,14 +383,14 @@ export function CardActions(
  * @property description - Optional secondary description below the title
  */
 export interface CardHeaderOptions {
-    /** Mono uppercase eyebrow label (left). Strings are styled automatically. */
-    eyebrow?: TextInput;
+    /** Mono uppercase eyebrow label (left). Styled automatically. */
+    eyebrow?: SubtypeExprOrValue<StringType>;
     /** Optional trailing meta on the right of the eyebrow row. */
-    meta?: TextInput;
+    meta?: SubtypeExprOrValue<StringType>;
     /** Optional brand-font card title rendered below the eyebrow. */
-    title?: string | ExprType<UIComponentType>;
+    title?: SubtypeExprOrValue<StringType>;
     /** Optional secondary description line below the title. */
-    description?: TextInput;
+    description?: SubtypeExprOrValue<StringType>;
 }
 
 /**
@@ -405,15 +420,13 @@ export function CardHeader(options: CardHeaderOptions): ExprType<UIComponentType
     // the renderer header strip so the eyebrow row hits the spec 11px exactly,
     // while the title's own heading textStyle overrides size + family.
     if (options.eyebrow !== undefined || options.meta !== undefined) {
-        const eyebrowComp = options.eyebrow !== undefined
-            ? (typeof options.eyebrow === "string"
-                ? Text.Root(options.eyebrow, { fontWeight: "semibold", textTransform: "uppercase", letterSpacing: "0.18em", color: "fg" })
-                : options.eyebrow as ExprType<UIComponentType>)
-            : Text.Root("", { fontWeight: "semibold", textTransform: "uppercase", letterSpacing: "0.18em", color: "fg" });
+        const eyebrowComp = Text.Root(options.eyebrow ?? "", {
+            fontWeight: "semibold", textTransform: "uppercase", letterSpacing: "0.18em", color: "fg",
+        });
         if (options.meta !== undefined) {
-            const metaComp = typeof options.meta === "string"
-                ? Text.Root(options.meta, { fontWeight: "medium", textTransform: "uppercase", letterSpacing: "0.12em", color: "fg.muted" })
-                : options.meta as ExprType<UIComponentType>;
+            const metaComp = Text.Root(options.meta, {
+                fontWeight: "medium", textTransform: "uppercase", letterSpacing: "0.12em", color: "fg.muted",
+            });
             children.push(Stack.HStack([eyebrowComp, metaComp], {
                 gap: "3",
                 align: "center",
@@ -426,12 +439,10 @@ export function CardHeader(options: CardHeaderOptions): ExprType<UIComponentType
     }
 
     if (options.title !== undefined) {
-        children.push(typeof options.title === "string"
-            ? Heading.Root(options.title, { textStyle: "heading-lg" })
-            : options.title);
+        children.push(Heading.Root(options.title, { textStyle: "heading-lg" }));
     }
     if (options.description !== undefined) {
-        children.push(CardDescription(options.description));
+        children.push(Text.Root(options.description, { textStyle: "caption", color: "fg.muted" }));
     }
 
     return children.length === 1
@@ -566,12 +577,9 @@ export function CardSection(
  * Card.Root(
  *     [Card.Body([Text.Root("Body copy")])],
  *     {
- *         header: Card.Header({
- *             title: "Per plan week",
- *             description: "Scenario vs baseline",
- *             actions: Card.Actions([Button.Root("Export")]),
- *         }),
- *         style: { variant: "elevated", elevation: "raised" },
+ *         header: { title: "Per plan week", description: "Scenario vs baseline" },
+ *         footer: { actions: [Button.Root("Export")] },
+ *         state: "ready",
  *     },
  * );
  * ```
@@ -581,7 +589,7 @@ export const Card = {
      * Creates a Card container with content slots + runtime state + visual style.
      *
      * @param children - Array of body UIComponents
-     * @param options - Optional `header` / `footer` / `state` / `style` + legacy flat fields
+     * @param options - Optional `header` / `footer` / `state` + visual style fields
      *
      * @example
      * ```ts

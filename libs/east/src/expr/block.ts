@@ -6,6 +6,7 @@
 import { type AST, type IfElseAST, type Label, type TryCatchAST, type VariableAST } from "../ast.js";
 import { ensure_source_map, get_current_source_map, get_location, get_location_id, printLocations } from "../location.js";
 import { type EastType, FunctionType, isSubtype, NullType, printType, isTypeEqual, StringType, NeverType, VariantType, BooleanType, TypeUnion, IntegerType, StructType, ArrayType, type ValueTypeOf, AsyncFunctionType, type RefType, type SetType, type DictType, type RecursiveType, type RecursiveTypeMarker, assignTypeId } from "../types.js";
+import { typeMismatchError } from "../type_diff.js";
 
 import type { ExprType, SubtypeExprOrValue, TypeOf } from "./types.js";
 import { AstSymbol, Expr, SourceMapSymbol, TypeSymbol } from "./expr.js";
@@ -119,7 +120,7 @@ export function from(value: any, type?: EastType): Expr<any> {
     if (type) {
       const t = Expr.type(value);
       if (!isSubtype(t, type)) {
-        throw new Error(`Expression expected to have type ${printType(type)} but got type ${printType(t)}`)
+        throw typeMismatchError(t, type, { loc_id: get_location_id() });
       }
     }
     return value;
@@ -1860,7 +1861,7 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
     let ast: AST;
     if (value instanceof Expr) {
       if (type && !isSubtype(Expr.type(value), type)) {
-        throw new Error(`Expression expected to have type ${printType(type)} but got type ${printType(Expr.type(value))}`);
+        throw typeMismatchError(Expr.type(value), type, { loc_id: get_location_id() });
       }
       ast = Expr.ast(value);
     } else {
@@ -1893,7 +1894,7 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
     let ast: AST;
     if (value instanceof Expr) {
       if (type && !isSubtype(Expr.type(value), type)) {
-        throw new Error(`Expression expected to have type ${printType(type)} but got type ${printType(Expr.type(value))}`);
+        throw typeMismatchError(Expr.type(value), type, { loc_id: get_location_id() });
       }
       ast = Expr.ast(value);
     } else {
@@ -1962,7 +1963,7 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
     const expAst = expr instanceof Expr ? Expr.ast(expr) : valueOrExprToAst(expr);
 
     if (!isSubtype(expAst.type, return_type as EastType)) {
-      throw new Error(`Return expected to have type ${printType(return_type as EastType)}, got ${printType(expAst.type)}`);
+      throw typeMismatchError(expAst.type, return_type as EastType, { loc_id: get_location_id() });
     }
 
     // Deduplicate: if the expression is already the last statement (e.g., from $()),

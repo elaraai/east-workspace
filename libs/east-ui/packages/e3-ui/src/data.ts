@@ -111,6 +111,28 @@ export const DataBindHandleType = <T extends EastType | string>(t: T) => StructT
     binding:       DiffBindingType,
 });
 
+/**
+ * The TypeScript type of a {@link Data.bind} handle bound to source type `T`
+ * — i.e. the return of `Data.bind([T], …)`.
+ *
+ * @remarks
+ * Unlike the bare `binding` field (a {@link DiffBindingType} descriptor that is
+ * type-erased at the IR level — `{ source, patch, mode }` paths only), this
+ * carries `T` **structurally**, in the signatures of its `read` / `write` /
+ * `source` fields. Because the type information lives in the East type — not a
+ * phantom TS brand — it survives `$.let` / `$.const` and ordinary expression
+ * plumbing, so a component that requires `BoundValue<SomeType>` gives the
+ * developer a compile error when handed a handle bound to any other type.
+ *
+ * Type-specific components take a `BoundValue<…>` (e.g. `Ontology` requires
+ * `BoundValue<OntologyType>`); the type-agnostic {@link Diff} keeps taking the
+ * bare `binding` descriptors, since it displays pending changes for a
+ * heterogeneous set of bindings.
+ *
+ * @typeParam T - The East type of the bound dataset value.
+ */
+export type BoundValue<T extends EastType> = ExprType<ReturnType<typeof DataBindHandleType<T>>>;
+
 // ============================================================================
 // Platform function — single unified definition.
 // ============================================================================
@@ -240,7 +262,7 @@ export const Data = {
         types: [T],
         source: TreePath,
         options?: DataBindOptions,
-    ): ExprType<ReturnType<typeof DataBindHandleType<T>>> {
+    ): BoundValue<T> {
         // Source / patch paths must be statically known so manifest
         // derivation (`deriveManifest`) can preload them. We wrap each
         // explicitly via `East.value(...)` to force a single literal
@@ -251,6 +273,6 @@ export const Data = {
         const patchValue = options?.patch === undefined
             ? East.value(none, OptionType(TreePathType))
             : East.value(some(options.patch), OptionType(TreePathType));
-        return bindPlatformFn(types, sourceValue, patchValue, modeValue) as ExprType<ReturnType<typeof DataBindHandleType<T>>>;
+        return bindPlatformFn(types, sourceValue, patchValue, modeValue) as BoundValue<T>;
     },
 } as const;

@@ -4,9 +4,9 @@
  */
 
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
-import { Box, Button, Dialog as ChakraDialog, Input as ChakraInput, Kbd, Portal, Text, VStack } from "@chakra-ui/react";
+import { Box, Button, Dialog as ChakraDialog, Kbd, Portal, Text, chakra, useSlotRecipe } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { CommandPalette } from "@elaraai/east-ui";
+import { CommandPalette } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 
 const commandPaletteEqual = equalFor(CommandPalette.Types.CommandPalette);
@@ -126,6 +126,8 @@ export const EastChakraCommandPalette = memo(function EastChakraCommandPalette({
 
     let renderIndex = 0;
 
+    const paletteStyles = useSlotRecipe({ key: "commandPalette" })();
+
     // Render a visible trigger button so the palette is discoverable in
     // isolation (showcase / standalone demos) — clicking it opens the
     // dialog. The global hotkey listener still works for keyboard users.
@@ -155,74 +157,56 @@ export const EastChakraCommandPalette = memo(function EastChakraCommandPalette({
             placement="center"
         >
             <Portal>
-                <ChakraDialog.Backdrop />
+                <ChakraDialog.Backdrop css={paletteStyles.backdrop} />
                 <ChakraDialog.Positioner>
-                    <ChakraDialog.Content bg={background} borderColor={borderColor} aria-label="Command palette">
-                        <Box p="3" borderBottomWidth="1px" borderBottomStyle="solid" borderBottomColor="border">
-                            <ChakraInput
-                                ref={inputRef}
-                                placeholder={placeholder}
-                                value={query}
-                                onChange={handleInputChange}
-                                onKeyDown={handleKey}
-                                bg={inputBackground}
-                                color={inputColor}
-                                variant="flushed"
-                                size="md"
-                            />
-                        </Box>
-                        <Box maxH="400px" overflowY="auto" p="2">
+                    <ChakraDialog.Content css={paletteStyles.content} bg={background} borderColor={borderColor} aria-label="Command palette">
+                        <chakra.input
+                            ref={inputRef}
+                            css={paletteStyles.input}
+                            placeholder={placeholder}
+                            value={query}
+                            onChange={handleInputChange}
+                            onKeyDown={handleKey}
+                            bg={inputBackground}
+                            color={inputColor}
+                        />
+                        <Box css={paletteStyles.list}>
                             {filtered.length === 0 ? (
-                                <Box p="4" textAlign="center" color="fg.muted" fontSize="sm">
+                                <Box css={paletteStyles.empty}>
                                     No commands found
                                 </Box>
                             ) : (
-                                <VStack gap="1" align="stretch">
-                                    {Array.from(groups.entries()).map(([groupName, items]) => (
-                                        <Box key={groupName || "_default"}>
-                                            {groupName && (
-                                                <Text
-                                                    fontSize="xs"
-                                                    fontWeight="medium"
-                                                    color={groupLabelColor ?? "fg.muted"}
-                                                    px="2"
-                                                    py="1"
-                                                    textTransform="uppercase"
-                                                    letterSpacing="wide"
+                                Array.from(groups.entries()).map(([groupName, items]) => (
+                                    <Box key={groupName || "_default"}>
+                                        {groupName && (
+                                            <Text css={paletteStyles.groupLabel} color={groupLabelColor}>
+                                                {groupName}
+                                            </Text>
+                                        )}
+                                        {items.map((cmd) => {
+                                            const idx = renderIndex++;
+                                            const isHighlighted = idx === highlighted;
+                                            return (
+                                                <Box
+                                                    key={cmd.id}
+                                                    css={paletteStyles.item}
+                                                    onMouseEnter={() => setHighlighted(idx)}
+                                                    onClick={runHighlighted}
+                                                    {...(isHighlighted ? { "data-highlighted": "" } : {})}
+                                                    bg={isHighlighted ? selectedBackground : undefined}
+                                                    color={isHighlighted ? (selectedColor ?? itemColor) : itemColor}
                                                 >
-                                                    {groupName}
-                                                </Text>
-                                            )}
-                                            {items.map((cmd) => {
-                                                const idx = renderIndex++;
-                                                const isHighlighted = idx === highlighted;
-                                                return (
-                                                    <Box
-                                                        key={cmd.id}
-                                                        onMouseEnter={() => setHighlighted(idx)}
-                                                        onClick={runHighlighted}
-                                                        px="3"
-                                                        py="2"
-                                                        borderRadius="sm"
-                                                        cursor="pointer"
-                                                        display="flex"
-                                                        justifyContent="space-between"
-                                                        alignItems="center"
-                                                        bg={isHighlighted ? (selectedBackground ?? "bg.subtle") : "transparent"}
-                                                        color={isHighlighted ? selectedColor : itemColor}
-                                                    >
-                                                        <Text fontSize="sm">{cmd.label}</Text>
-                                                        {cmd.shortcut && (
-                                                            <Text fontSize="xs" color="fg.muted" fontFamily="mono">
-                                                                {cmd.shortcut}
-                                                            </Text>
-                                                        )}
-                                                    </Box>
-                                                );
-                                            })}
-                                        </Box>
-                                    ))}
-                                </VStack>
+                                                    <Text css={paletteStyles.itemText}>{cmd.label}</Text>
+                                                    {cmd.shortcut && (
+                                                        <Text css={paletteStyles.itemKbd}>
+                                                            {cmd.shortcut}
+                                                        </Text>
+                                                    )}
+                                                </Box>
+                                            );
+                                        })}
+                                    </Box>
+                                ))
                             )}
                         </Box>
                     </ChakraDialog.Content>

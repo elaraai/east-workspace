@@ -4,17 +4,23 @@
  */
 
 /**
- * @elaraai/e3-ui — e3 + UI bridge (render-side, browser-safe).
+ * @elaraai/e3-ui — e3 + UI bridge.
  *
- * Provides:
+ * The public surface is the e3-specific JSX **tags** plus the platform
+ * helpers:
+ * - `<Diff>` — review pending changes for any combination of bindings.
+ * - `<Ontology>` — graph editor over an `OntologyType`-bound dataset.
  * - `Data.bind` — workspace-scoped reactive dataset binding.
- * - `Diff` — review pending changes for any combination of bindings.
- * - `Ontology` — graph editor over an `OntologyType`-bound dataset.
- * - `DataManifestType` — manifest type for reads/writes metadata.
+ * - `ui()` — declare a first-class UI task.
  *
- * The author-side `ui()` factory lives at `@elaraai/e3-ui/ui` because it
- * pulls in `@elaraai/e3` (which depends on Node-only modules like yazl).
- * Separating it keeps this entry tree-shakeable for browser bundles.
+ * east-ui tags (`<VStack>`, `<Text>`, …) are imported from `@elaraai/east-ui`
+ * — this package does not re-export them. The underlying factories
+ * (`Diff.Root(…)`) live under `@elaraai/e3-ui/internal` for renderers and tests.
+ *
+ * @remarks
+ * `ui()` pulls in `@elaraai/e3` (Node-only). Browser bundles that only need
+ * `Data` / `<Diff>` / `<Ontology>` / types should import from
+ * `@elaraai/e3-ui/internal`, which is e3-free.
  *
  * @packageDocumentation
  */
@@ -24,22 +30,26 @@ export {
     DataBindModeType,
     type DataBindModeLiteral,
     DiffBindingType,
+    type BoundValue,
     DataBindHandleType,
     type DataBindOptions,
     bindPlatformFn,
 } from './data.js';
 export { DataManifestType, type DataManifest, encodeManifest, decodeManifest } from './manifest.js';
 export { deriveManifest } from './derive.js';
+export { ui } from './ui.js';
+
+// e3 `<Diff>` tag + its types
+export { Diff } from './runtime/diff.js';
 export {
-    Diff,
-    DiffComponent,
     DiffPayloadType,
     DiffStyleType,
     type DiffOptions,
 } from './diff.js';
+
+// e3 `<Ontology>` tag + its types
+export { Ontology } from './runtime/ontology.js';
 export {
-    Ontology,
-    OntologyComponent,
     OntologyPayloadType,
     OntologyStyleType,
     type OntologyOptions,
@@ -50,3 +60,46 @@ export {
     OntologyMetadataType,
     OntologyType,
 } from './ontology.js';
+
+// Decision platform types + factory
+export { Decision } from './decision/index.js';
+export {
+    DecisionType,
+    DecisionOptionType,
+    UrgencyType,
+    type UrgencyLiteral,
+    StakesLevelType,
+    type StakesLevelLiteral,
+    EvidenceType,
+    AnswerType,
+    type AnswerLiteral,
+    VerdictType,
+    ReferenceType,
+    JudgementInputType,
+    DecisionConstraintType,
+    PromptType,
+    LeverType,
+    judgementInputType,
+    type PromptInput,
+    type LeverInput,
+    type DecisionInput,
+    type DecisionOptionInput,
+    type EvidenceInput,
+    type DecisionReferenceInput,
+    type DecisionJudgementInput,
+} from './decision/types.js';
+export {
+    decisionBind,
+    decisionBindPlatformFn,
+    DecisionHandleType,
+    DecisionHandleRefType,
+    CommitStateType,
+    JudgementsType,
+    type DecisionHandle,
+    type DecisionBindOptions,
+} from './decision/bind.js';
+// e3 `<DecisionQueue>` tag (+ author-facing options type)
+export { DecisionQueue } from './runtime/decision/queue.js';
+export { type DecisionQueueOptions } from './decision/queue.js';
+export { DecisionJournal } from './runtime/decision/journal.js';
+export { type DecisionJournalOptions } from './decision/journal.js';

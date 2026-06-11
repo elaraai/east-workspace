@@ -401,6 +401,33 @@ export {
     SimulationResultType,
 } from "./simulation/simulation.js";
 
+// Causal - Causal inference (DoWhy, EconML, ALE)
+export {
+    Causal,
+    causal_effect,
+    causal_refute,
+    causal_dml_train,
+    causal_dml_effect,
+    causal_dml_ate,
+    causal_ale,
+    CausalTypes,
+    CausalWeightingSchemeType,
+    CausalEstimatorType,
+    CausalTargetUnitsType,
+    PropensityTrimType,
+    CausalBootstrapConfigType,
+    CausalEffectConfigType,
+    CausalRefuterType,
+    CausalNuisanceModelType,
+    CausalDMLConfigType,
+    CausalALEConfigType,
+    CausalDMLModelBlobType,
+    CausalEffectResultType,
+    CausalRefuteResultType,
+    CausalATEResultType,
+    ALEResultType,
+} from "./causal/causal.js";
+
 // Shared types
 export {
     VectorType as SharedVectorType,

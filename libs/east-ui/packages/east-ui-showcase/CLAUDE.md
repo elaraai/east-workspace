@@ -4,6 +4,16 @@ Showcase + development app for East UI components. Hosts both the
 runtime demo and the **snapshot pipeline** that turns every east-ui
 example into standalone HTML / PNG.
 
+The app also showcases the **e3-ui** examples ("e3 Components" nav
+section): `main.tsx` seeds an in-memory reactive-dataset cache from each
+example's `e3.input` defaults (mirroring the e3-ui-components snapshot
+harness), and `vite.config.ts` aliases `@elaraai/e3` to the harness's
+browser-safe shim. In dev, `@elaraai/e3-ui` (bare *and* `/internal`) and
+`@elaraai/east-ui-components` (bare, `/fonts`, `/platform`) must all
+resolve to source together — a split resolves East's reference-based
+identities into two instances and `Data.bind` stops matching its
+registered platform implementation.
+
 Per `[Always visually verify]` memory: after every east-ui example or
 component change, rebuild + re-snapshot + Read the PNG. The
 `dist-examples/` and `dist-design/` directories (gitignored) are

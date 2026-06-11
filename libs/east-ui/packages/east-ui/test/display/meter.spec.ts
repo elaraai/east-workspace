@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Meter, Text } from "@elaraai/east-ui";
+import { Meter, Text } from "@elaraai/east-ui/internal";
 import * as ex from "./meter.examples.js";
 
 describeEast("Meter", (test) => {
@@ -12,6 +12,7 @@ describeEast("Meter", (test) => {
         meterBasic: ex.meterBasic,
         meterSuccess: ex.meterSuccess,
         meterWarning: ex.meterWarning,
+        meterDensities: ex.meterDensities,
         meterCustomMax: ex.meterCustomMax,
     });
 

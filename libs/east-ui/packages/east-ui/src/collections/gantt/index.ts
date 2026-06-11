@@ -46,6 +46,8 @@ import {
     type LabelInput,
 } from "../../style.js";
 import { UIComponentType } from "../../component.js";
+import { SliceChromeType } from "../../platform/slice/index.js";
+import { SliceAffordanceType } from "../../contracts/slice-affordances.js";
 import { DensityType } from "../../style/interaction.js";
 import {
     TableCellType,
@@ -240,6 +242,7 @@ export const GanttRootType: StructType<{
     onMilestoneClick: OptionType<FunctionType<[GanttMilestoneClickEventType], NullType>>,
     onMilestoneDoubleClick: OptionType<FunctionType<[GanttMilestoneClickEventType], NullType>>,
     onMilestoneDrag: OptionType<FunctionType<[GanttMilestoneDragEventType], NullType>>,
+    slice: OptionType<typeof SliceChromeType>,
     style: OptionType<GanttStyleType>,
 }> = StructType({
     rows: ArrayType(GanttRowType),
@@ -262,6 +265,7 @@ export const GanttRootType: StructType<{
     onMilestoneClick: OptionType(FunctionType([GanttMilestoneClickEventType], NullType)),
     onMilestoneDoubleClick: OptionType(FunctionType([GanttMilestoneClickEventType], NullType)),
     onMilestoneDrag: OptionType(FunctionType([GanttMilestoneDragEventType], NullType)),
+    slice: OptionType(SliceChromeType),
     style: OptionType(GanttStyleType),
 });
 
@@ -531,14 +535,14 @@ type DataFields<T extends SubtypeExprOrValue<ArrayType<StructType>>> = ExtractSt
 type DataRowType<T extends SubtypeExprOrValue<ArrayType<StructType>>> = ExtractRowType<TypeOf<T>>;
 
 // Column specification can be array of keys or object config
-type ColumnSpec<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
+export type ColumnSpec<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
     | (keyof DataFields<NoInfer<T>>)[]
     | { [K in keyof DataFields<NoInfer<T>>]?: TableColumnConfig<DataFields<NoInfer<T>>[K], DataRowType<NoInfer<T>>> };
 
 // Every key in the data struct is a valid column key. Deriving from T (rather
 // than the columns object) keeps inference reliable when the column configs
 // contain render functions or complex field types.
-type DataFieldKeys<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
+export type DataFieldKeys<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
     Extract<keyof DataFields<NoInfer<T>>, string>;
 
 // ============================================================================
@@ -573,12 +577,9 @@ type DataFieldKeys<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
  * });
  * ```
  */
-function createGantt<
-    T extends SubtypeExprOrValue<ArrayType<StructType>>,
-    C extends ColumnSpec<T> = ColumnSpec<T>,
->(
+function createGantt<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
     data: T,
-    columns: C,
+    columns: ColumnSpec<T>,
     rowSpec: (row: ExprType<TypeOf<T> extends ArrayType<infer E> ? E : never>) => {
         tasks?: SubtypeExprOrValue<ArrayType<GanttTaskType>>;
         milestones?: SubtypeExprOrValue<ArrayType<GanttMilestoneType>>;
@@ -750,6 +751,16 @@ function createGantt<
         showToday: style!.showToday !== undefined ? some(style!.showToday) : none,
     }, GanttStyleType) : undefined;
 
+    const sliceChromeValue = style?.slice !== undefined
+        ? East.value({
+            slice: style.slice,
+            affordances: East.value(
+                (style.affordances ?? ["filter", "search", "range"]).map(a => variant(a, null)),
+                ArrayType(SliceAffordanceType),
+            ),
+        }, SliceChromeType)
+        : undefined;
+
     return East.value(variant("Gantt", {
         rows: rows_mapped,
         columns: columns_expr,
@@ -773,6 +784,7 @@ function createGantt<
         onMilestoneClick: style?.onMilestoneClick ? some(style.onMilestoneClick) : none,
         onMilestoneDoubleClick: style?.onMilestoneDoubleClick ? some(style.onMilestoneDoubleClick) : none,
         onMilestoneDrag: style?.onMilestoneDrag ? some(style.onMilestoneDrag) : none,
+        slice: sliceChromeValue ? some(sliceChromeValue) : none,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }

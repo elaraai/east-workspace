@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { CodeBlock } from "@elaraai/east-ui";
+import { CodeBlock } from "@elaraai/east-ui/internal";
 import * as ex from "./code-block.examples.js";
 
 describeEast("CodeBlock", (test) => {

@@ -12,6 +12,7 @@ import {
 } from "@elaraai/east";
 
 import {
+    DensityType,
     FlexDirectionType,
     JustifyContentType,
     AlignItemsType,
@@ -27,6 +28,7 @@ import {
     FontVariantNumericType,
 } from "../../style.js";
 import type {
+    DensityLiteral,
     FlexDirectionLiteral,
     JustifyContentLiteral,
     AlignItemsLiteral,
@@ -69,6 +71,14 @@ import { PaddingType, MarginType } from "../style.js";
  * @property overflowY - Vertical overflow behavior (visible, hidden, scroll, auto)
  */
 export type StackStyle = {
+    /**
+     * Density the stack provides to its children via the density cascade.
+     * Display components inside (Tag, Badge, Meter, Trace, …) inherit it
+     * unless they carry their own density; the stack itself is visually
+     * unchanged. When omitted, the stack is transparent to the cascade and an
+     * enclosing surface's density flows through.
+     */
+    density?: SubtypeExprOrValue<DensityType> | DensityLiteral;
     /** Stack direction (row or column) */
     direction?: SubtypeExprOrValue<FlexDirectionType> | FlexDirectionLiteral;
     /** Gap between children (Chakra UI spacing token or CSS value) */

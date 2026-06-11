@@ -20,6 +20,7 @@ export * from './error.js';
 export * from './ir.js';
 export { OutOfScopeException } from './ast_to_ir.js';
 export * from './type_of_type.js';
+export * from './type_diff.js';
 export * from './types.js';
 export * from './fuzz.js';
 export { decodeBeast2For, encodeBeast2For, compileFunctionIR, compileAsyncFunctionIR, type Beast2DecodeOptions } from './serialization/beast2/index.js';

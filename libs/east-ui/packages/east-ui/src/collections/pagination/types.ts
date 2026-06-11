@@ -5,6 +5,7 @@
 
 import {
     type SubtypeExprOrValue,
+    FunctionType,
     IntegerType,
     NullType,
     OptionType,
@@ -101,6 +102,43 @@ export const PaginationStyleType = StructType({
 export type PaginationStyleType = typeof PaginationStyleType;
 
 // ============================================================================
+// PaginationType — standalone mirror of the inline variant in component.ts
+// ============================================================================
+
+/**
+ * Standalone East StructType mirror of the inline `Pagination` variant
+ * in `component.ts`.
+ *
+ * @remarks
+ * Main carries content (`page` / `pageSize` / `count`) and behaviour
+ * (`onPageChange`); `style` carries visual fields only. Lives in `types.ts`
+ * (a leaf with no `component.ts` import) so `component.ts` can reference it
+ * without a circular dependency.
+ *
+ * @property page - Current 0-based page index
+ * @property pageSize - Number of items per page
+ * @property count - Total item count (drives the page-number range)
+ * @property onPageChange - Callback fired when the user picks a new page
+ * @property style - Optional visual style sub-struct
+ */
+export const PaginationType: StructType<{
+    page: IntegerType,
+    pageSize: IntegerType,
+    count: IntegerType,
+    onPageChange: FunctionType<[IntegerType], NullType>,
+    style: OptionType<PaginationStyleType>,
+}> = StructType({
+    page: IntegerType,
+    pageSize: IntegerType,
+    count: IntegerType,
+    onPageChange: FunctionType([IntegerType], NullType),
+    style: OptionType(PaginationStyleType),
+});
+
+/** Type alias for PaginationType. */
+export type PaginationType = typeof PaginationType;
+
+// ============================================================================
 // Pagination TS options bag
 // ============================================================================
 
@@ -122,6 +160,14 @@ export type PaginationStyleType = typeof PaginationStyleType;
  * @property boundaries - Number of boundary page triggers shown at the start/end
  */
 export interface PaginationOptions {
+    /** Current 0-based page index — required. */
+    page: SubtypeExprOrValue<IntegerType>;
+    /** Number of items per page — required. */
+    pageSize: SubtypeExprOrValue<IntegerType>;
+    /** Total item count (drives the page range) — required. */
+    count: SubtypeExprOrValue<IntegerType>;
+    /** Callback fired with the new 0-based page index — required. */
+    onPageChange: SubtypeExprOrValue<FunctionType<[IntegerType], NullType>>;
     /** Size preset. Default `"md"`. */
     size?: SubtypeExprOrValue<PaginationSizeType> | PaginationSizeLiteral;
     /** Visual variant. Default `"subtle"`. */

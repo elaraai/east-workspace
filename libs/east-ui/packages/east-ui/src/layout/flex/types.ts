@@ -12,6 +12,7 @@ import {
 } from "@elaraai/east";
 
 import {
+    DensityType,
     FlexDirectionType,
     JustifyContentType,
     AlignItemsType,
@@ -27,6 +28,7 @@ import {
     FontVariantNumericType,
 } from "../../style.js";
 import type {
+    DensityLiteral,
     FlexDirectionLiteral,
     JustifyContentLiteral,
     AlignItemsLiteral,
@@ -76,6 +78,14 @@ import { PaddingType, MarginType } from "../style.js";
  * @property borderRadius - Border radius (Chakra UI radius token or CSS value)
  */
 export type FlexStyle = {
+    /**
+     * Density the flex container provides to its children via the density
+     * cascade. Display components inside (Tag, Badge, Meter, Trace, …)
+     * inherit it unless they carry their own density; the container itself is
+     * visually unchanged. When omitted, the container is transparent to the
+     * cascade and an enclosing surface's density flows through.
+     */
+    density?: SubtypeExprOrValue<DensityType> | DensityLiteral;
     /** Flex direction (row, column, row-reverse, column-reverse) */
     direction?: SubtypeExprOrValue<FlexDirectionType> | FlexDirectionLiteral;
     /** Flex wrap behavior (nowrap, wrap, wrap-reverse) */

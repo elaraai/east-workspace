@@ -25,7 +25,7 @@
 import { useCallback, useMemo, useSyncExternalStore } from 'react';
 import { type ValueTypeOf } from '@elaraai/east';
 import type { TreePath } from '@elaraai/e3-types';
-import { DiffBindingType } from '@elaraai/e3-ui';
+import { DiffBindingType } from '@elaraai/e3-ui/internal';
 import {
     defaultBindRuntime,
     getBindingTypes,

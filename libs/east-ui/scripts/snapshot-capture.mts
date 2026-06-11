@@ -92,6 +92,10 @@ export async function captureFiles(cfg: CaptureConfig): Promise<{ captured: numb
         ...(cfg.configFile ? { configFile: cfg.configFile } : {}),
         server: { port: 0, strictPort: false, host: '127.0.0.1' },
         logLevel: 'warn',
+        // The IR packages rebuild without version bumps, which Vite's dep
+        // cache keys on — force re-optimization so snapshots never render a
+        // stale prebundle.
+        optimizeDeps: { force: true },
     });
     await server.listen();
     const addr = server.httpServer?.address();
@@ -133,6 +137,17 @@ export async function captureFiles(cfg: CaptureConfig): Promise<{ captured: numb
                 await page.waitForTimeout(500);
                 await page.reload({ waitUntil: 'networkidle', timeout: 30_000 });
                 await page.evaluate(() => document.fonts.ready);
+                // Wait for the snapshot app to boot past its "Loading…" state
+                // (cold Vite can compile a newly-seen example module slower than
+                // the skeleton wait), then for any in-component skeletons to clear.
+                try {
+                    await page.waitForFunction(
+                        () => document.querySelector('[data-snapshot-boot]') === null,
+                        { timeout: 25_000, polling: 100 },
+                    );
+                } catch {
+                    console.warn(`[snapshot]   ${target.outName}: still booting at timeout`);
+                }
                 try {
                     await page.waitForFunction(
                         () => document.querySelectorAll('.elara-skeleton').length === 0,

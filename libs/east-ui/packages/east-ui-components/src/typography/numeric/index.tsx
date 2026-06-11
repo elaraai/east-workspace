@@ -11,7 +11,7 @@
 import { memo, useMemo } from "react";
 import { Box, Text as ChakraText } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Numeric } from "@elaraai/east-ui";
+import { Numeric } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { formatTick } from "./format-tick";
 

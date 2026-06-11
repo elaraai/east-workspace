@@ -122,6 +122,10 @@ export type RadioCardGroupStyleType = typeof RadioCardGroupStyleType;
  * @property selectedBorderColor - Explicit border colour for selected cards
  */
 export interface RadioCardGroupStyle {
+    /** Currently selected card value (empty string when none) — required. */
+    value: SubtypeExprOrValue<StringType>;
+    /** Array of card entries `{ value, label, description?, disabled? }` — required. */
+    items: RadioCardItemInput[];
     /** Optional form-control name (groups radios in the same form). */
     name?: SubtypeExprOrValue<StringType>;
     /** Whether the entire group is disabled. */

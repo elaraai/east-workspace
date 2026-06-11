@@ -18,7 +18,7 @@ describe("Icon", (test) => {
     // =========================================================================
 
     test("creates solid icon with name", $ => {
-        const icon = $.let(Icon.Root("fas", "user"));
+        const icon = $.let(Icon.Root({ prefix: "fas", name: "user" }));
 
         $(Assert.equal(icon.unwrap().unwrap("Icon").prefix, "fas"));
         $(Assert.equal(icon.unwrap().unwrap("Icon").name, "user"));
@@ -31,20 +31,20 @@ describe("Icon", (test) => {
     // =========================================================================
 
     test("decorative icon — label absent", $ => {
-        const icon = $.let(Icon.Root("fas", "star"));
+        const icon = $.let(Icon.Root({ prefix: "fas", name: "star" }));
 
         $(Assert.equal(icon.unwrap().unwrap("Icon").label.hasTag("none"), true));
     });
 
     test("meaningful icon — label present", $ => {
-        const icon = $.let(Icon.Root("fas", "user", { label: "User profile" }));
+        const icon = $.let(Icon.Root({ prefix: "fas", name: "user", label: "User profile" }));
 
         $(Assert.equal(icon.unwrap().unwrap("Icon").label.hasTag("some"), true));
         $(Assert.equal(icon.unwrap().unwrap("Icon").label.unwrap("some"), "User profile"));
     });
 
     test("icon with label plus style fields", $ => {
-        const icon = $.let(Icon.Root("fas", "heart", { label: "Favourite", size: "lg", color: "red.500" }));
+        const icon = $.let(Icon.Root({ prefix: "fas", name: "heart", label: "Favourite", size: "lg", color: "red.500" }));
 
         $(Assert.equal(icon.unwrap().unwrap("Icon").label.unwrap("some"), "Favourite"));
         $(Assert.equal(icon.unwrap().unwrap("Icon").style.unwrap("some").size.unwrap("some").hasTag("lg"), true));
@@ -52,34 +52,34 @@ describe("Icon", (test) => {
     });
 
     test("icon with background tile colour", $ => {
-        const icon = $.let(Icon.Root("fas", "user", { background: "blue.100", borderRadius: "full" }));
+        const icon = $.let(Icon.Root({ prefix: "fas", name: "user", background: "blue.100", borderRadius: "full" }));
 
         $(Assert.equal(icon.unwrap().unwrap("Icon").style.unwrap("some").background.unwrap("some"), "blue.100"));
         $(Assert.equal(icon.unwrap().unwrap("Icon").style.unwrap("some").borderRadius.unwrap("some"), "full"));
     });
 
     test("creates regular icon", $ => {
-        const icon = $.let(Icon.Root("far", "heart"));
+        const icon = $.let(Icon.Root({ prefix: "far", name: "heart" }));
 
         $(Assert.equal(icon.unwrap().unwrap("Icon").prefix, "far"));
         $(Assert.equal(icon.unwrap().unwrap("Icon").name, "heart"));
     });
 
     test("creates brands icon", $ => {
-        const icon = $.let(Icon.Root("fab", "github"));
+        const icon = $.let(Icon.Root({ prefix: "fab", name: "github" }));
 
         $(Assert.equal(icon.unwrap().unwrap("Icon").prefix, "fab"));
         $(Assert.equal(icon.unwrap().unwrap("Icon").name, "github"));
     });
 
     test("creates folder icon", $ => {
-        const icon = $.let(Icon.Root("fas", "folder"));
+        const icon = $.let(Icon.Root({ prefix: "fas", name: "folder" }));
 
         $(Assert.equal(icon.unwrap().unwrap("Icon").name, "folder"));
     });
 
     test("creates chevron icon", $ => {
-        const icon = $.let(Icon.Root("fas", "chevron-right"));
+        const icon = $.let(Icon.Root({ prefix: "fas", name: "chevron-right" }));
 
         $(Assert.equal(icon.unwrap().unwrap("Icon").name, "chevron-right"));
     });
@@ -89,37 +89,37 @@ describe("Icon", (test) => {
     // =========================================================================
 
     test("creates icon with xs size", $ => {
-        const icon = $.let(Icon.Root("fas", "user", { size: "xs" }));
+        const icon = $.let(Icon.Root({ prefix: "fas", name: "user", size: "xs" }));
 
         $(Assert.equal(icon.unwrap().unwrap("Icon").style.unwrap("some").size.unwrap("some").hasTag("xs"), true));
     });
 
     test("creates icon with sm size", $ => {
-        const icon = $.let(Icon.Root("fas", "user", { size: "sm" }));
+        const icon = $.let(Icon.Root({ prefix: "fas", name: "user", size: "sm" }));
 
         $(Assert.equal(icon.unwrap().unwrap("Icon").style.unwrap("some").size.unwrap("some").hasTag("sm"), true));
     });
 
     test("creates icon with md size", $ => {
-        const icon = $.let(Icon.Root("fas", "user", { size: "md" }));
+        const icon = $.let(Icon.Root({ prefix: "fas", name: "user", size: "md" }));
 
         $(Assert.equal(icon.unwrap().unwrap("Icon").style.unwrap("some").size.unwrap("some").hasTag("md"), true));
     });
 
     test("creates icon with lg size", $ => {
-        const icon = $.let(Icon.Root("fas", "user", { size: "lg" }));
+        const icon = $.let(Icon.Root({ prefix: "fas", name: "user", size: "lg" }));
 
         $(Assert.equal(icon.unwrap().unwrap("Icon").style.unwrap("some").size.unwrap("some").hasTag("lg"), true));
     });
 
     test("creates icon with xl size", $ => {
-        const icon = $.let(Icon.Root("fas", "user", { size: "xl" }));
+        const icon = $.let(Icon.Root({ prefix: "fas", name: "user", size: "xl" }));
 
         $(Assert.equal(icon.unwrap().unwrap("Icon").style.unwrap("some").size.unwrap("some").hasTag("xl"), true));
     });
 
     test("creates icon with 2xl size", $ => {
-        const icon = $.let(Icon.Root("fas", "user", { size: "2xl" }));
+        const icon = $.let(Icon.Root({ prefix: "fas", name: "user", size: "2xl" }));
 
         $(Assert.equal(icon.unwrap().unwrap("Icon").style.unwrap("some").size.unwrap("some").hasTag("2xl"), true));
     });
@@ -129,13 +129,13 @@ describe("Icon", (test) => {
     // =========================================================================
 
     test("creates icon with color", $ => {
-        const icon = $.let(Icon.Root("fas", "heart", { color: "red.500" }));
+        const icon = $.let(Icon.Root({ prefix: "fas", name: "heart", color: "red.500" }));
 
         $(Assert.equal(icon.unwrap().unwrap("Icon").style.unwrap("some").color.unwrap("some"), "red.500"));
     });
 
     test("creates icon with CSS color", $ => {
-        const icon = $.let(Icon.Root("fas", "star", { color: "#FFD700" }));
+        const icon = $.let(Icon.Root({ prefix: "fas", name: "star", color: "#FFD700" }));
 
         $(Assert.equal(icon.unwrap().unwrap("Icon").style.unwrap("some").color.unwrap("some"), "#FFD700"));
     });
@@ -145,13 +145,13 @@ describe("Icon", (test) => {
     // =========================================================================
 
     test("creates icon with blue color palette", $ => {
-        const icon = $.let(Icon.Root("fas", "info", { colorPalette: "blue" }));
+        const icon = $.let(Icon.Root({ prefix: "fas", name: "info", colorPalette: "blue" }));
 
         $(Assert.equal(icon.unwrap().unwrap("Icon").style.unwrap("some").colorPalette.unwrap("some").hasTag("blue"), true));
     });
 
     test("creates icon with red color palette", $ => {
-        const icon = $.let(Icon.Root("fas", "circle-exclamation", { colorPalette: "red" }));
+        const icon = $.let(Icon.Root({ prefix: "fas", name: "circle-exclamation", colorPalette: "red" }));
 
         $(Assert.equal(icon.unwrap().unwrap("Icon").style.unwrap("some").colorPalette.unwrap("some").hasTag("red"), true));
     });
@@ -161,7 +161,7 @@ describe("Icon", (test) => {
     // =========================================================================
 
     test("creates icon with all style properties", $ => {
-        const icon = $.let(Icon.Root("fas", "check", {
+        const icon = $.let(Icon.Root({ prefix: "fas", name: "check",
             size: "lg",
             color: "green.500",
             colorPalette: "green",
@@ -179,14 +179,14 @@ describe("Icon", (test) => {
     // =========================================================================
 
     test("creates folder-open icon for tree view", $ => {
-        const icon = $.let(Icon.Root("far", "folder-open"));
+        const icon = $.let(Icon.Root({ prefix: "far", name: "folder-open" }));
 
         $(Assert.equal(icon.unwrap().unwrap("Icon").prefix, "far"));
         $(Assert.equal(icon.unwrap().unwrap("Icon").name, "folder-open"));
     });
 
     test("creates file icon for tree view", $ => {
-        const icon = $.let(Icon.Root("far", "file", { size: "sm" }));
+        const icon = $.let(Icon.Root({ prefix: "far", name: "file", size: "sm" }));
 
         $(Assert.equal(icon.unwrap().unwrap("Icon").prefix, "far"));
         $(Assert.equal(icon.unwrap().unwrap("Icon").name, "file"));
@@ -194,7 +194,7 @@ describe("Icon", (test) => {
     });
 
     test("creates code file icon for tree view", $ => {
-        const icon = $.let(Icon.Root("fas", "file-code", { color: "blue.500" }));
+        const icon = $.let(Icon.Root({ prefix: "fas", name: "file-code", color: "blue.500" }));
 
         $(Assert.equal(icon.unwrap().unwrap("Icon").name, "file-code"));
         $(Assert.equal(icon.unwrap().unwrap("Icon").style.unwrap("some").color.unwrap("some"), "blue.500"));

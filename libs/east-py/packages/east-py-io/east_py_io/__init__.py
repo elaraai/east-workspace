@@ -76,7 +76,13 @@ from east_py_io.storage import (
     S3ConfigType,
     S3ListResultType,
     S3ObjectMetadataType,
+    s3_delete_object_impl,
+    s3_get_object_impl,
+    s3_head_object_impl,
     s3_impl,
+    s3_list_objects_impl,
+    s3_presign_url_impl,
+    s3_put_object_impl,
 )
 
 # Transfer module
@@ -119,11 +125,17 @@ platform = [
 __all__ = [
     "__version__",
     "platform",
-    # Storage types
+    # Storage types and implementations
     "S3ConfigType",
     "S3ObjectMetadataType",
     "S3ListResultType",
     "s3_impl",
+    "s3_put_object_impl",
+    "s3_get_object_impl",
+    "s3_head_object_impl",
+    "s3_delete_object_impl",
+    "s3_list_objects_impl",
+    "s3_presign_url_impl",
     # SQL types
     "SqliteConfigType",
     "PostgresConfigType",

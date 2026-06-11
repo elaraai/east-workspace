@@ -2,7 +2,12 @@
 # Copyright (c) 2025 Elara AI Pty Ltd
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
-"""Format module - XLSX and XML file processing."""
+"""Format module - XLSX and XML file processing.
+
+The ``*_impl`` functions are plain Python callables taking and returning East
+values - import them directly from a project's own ``@platform_function`` to
+reuse the implementations without an IR round-trip.
+"""
 
 from east_py_io.format.types import (
     LiteralValueType,

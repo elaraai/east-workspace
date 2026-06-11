@@ -12,7 +12,7 @@ import { far } from "@fortawesome/free-regular-svg-icons";
 import { fab } from "@fortawesome/free-brands-svg-icons";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-common-types";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { IconButton, Icon } from "@elaraai/east-ui";
+import { IconButton, Icon } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 
 library.add(fas, far, fab);

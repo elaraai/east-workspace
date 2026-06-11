@@ -2,7 +2,14 @@
 # Copyright (c) 2025 Elara AI Pty Ltd
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
-"""Simulated Annealing platform functions for East Data Science."""
+"""Simulated annealing discrete optimization for East - combinatorial search via simanneal.
+
+The ``*_impl`` functions are plain Python callables taking and returning East
+values - import them directly from a project's own ``@platform_function`` to
+reuse the implementations without an IR round-trip. The East type definitions
+(state, function, config, and result types) are re-exported here for building
+inputs with ``coerce_to`` and validating outputs.
+"""
 
 from east_py_datascience.simanneal.simanneal import (
     AnnealConfigType,
@@ -13,10 +20,19 @@ from east_py_datascience.simanneal.simanneal import (
     PermutationEnergyType,
     SubsetEnergyType,
     simanneal_impl,
+    simanneal_optimize_impl,
+    simanneal_optimize_permutation_impl,
+    simanneal_optimize_subset_impl,
 )
 
 __all__ = [
+    # Platform registration
     "simanneal_impl",
+    # Directly-callable implementations
+    "simanneal_optimize_impl",
+    "simanneal_optimize_permutation_impl",
+    "simanneal_optimize_subset_impl",
+    # East type definitions
     "DiscreteStateType",
     "EnergyFunctionType",
     "MoveFunctionType",

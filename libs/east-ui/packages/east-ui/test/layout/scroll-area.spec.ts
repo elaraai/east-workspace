@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { ScrollArea, Text } from "@elaraai/east-ui";
+import { ScrollArea, Text } from "@elaraai/east-ui/internal";
 import * as ex from "./scroll-area.examples.js";
 
 describeEast("ScrollArea", (test) => {
@@ -28,19 +28,19 @@ describeEast("ScrollArea", (test) => {
     // =========================================================================
 
     test("creates a scroll area with vertical orientation", $ => {
-        const sa = $.let(ScrollArea.Root(Text.Root("Content"), { style: { orientation: "vertical" } }));
+        const sa = $.let(ScrollArea.Root(Text.Root("Content"), { orientation: "vertical" }));
         const sv = sa.unwrap().unwrap("ScrollArea").style.unwrap("some");
         $(Assert.equal(sv.orientation.unwrap("some").hasTag("vertical"), true));
     });
 
     test("creates a scroll area with horizontal orientation", $ => {
-        const sa = $.let(ScrollArea.Root(Text.Root("Content"), { style: { orientation: "horizontal" } }));
+        const sa = $.let(ScrollArea.Root(Text.Root("Content"), { orientation: "horizontal" }));
         const sv = sa.unwrap().unwrap("ScrollArea").style.unwrap("some");
         $(Assert.equal(sv.orientation.unwrap("some").hasTag("horizontal"), true));
     });
 
     test("creates a scroll area with both orientation", $ => {
-        const sa = $.let(ScrollArea.Root(Text.Root("Content"), { style: { orientation: "both" } }));
+        const sa = $.let(ScrollArea.Root(Text.Root("Content"), { orientation: "both" }));
         const sv = sa.unwrap().unwrap("ScrollArea").style.unwrap("some");
         $(Assert.equal(sv.orientation.unwrap("some").hasTag("both"), true));
     });
@@ -67,11 +67,9 @@ describeEast("ScrollArea", (test) => {
 
     test("creates a scroll area with all style hatches", $ => {
         const sa = $.let(ScrollArea.Root(Text.Root("Content"), {
-            style: {
-                thumbColor: "gray.400",
-                trackColor: "gray.100",
-                background: "white",
-            },
+            thumbColor: "gray.400",
+            trackColor: "gray.100",
+            background: "white",
         }));
 
         $(Assert.equal(sa.unwrap().unwrap("ScrollArea").style.hasTag("some"), true));

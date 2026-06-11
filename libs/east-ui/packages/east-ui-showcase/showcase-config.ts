@@ -6,33 +6,30 @@
 /**
  * Showcase configuration. No hardcoded category lists, no hardcoded
  * pathKey lists — everything is derived from `../east-ui/test/<cat>/*.examples.ts`
- * at build time. This file holds only the small bits that *can't* be inferred
- * from the filesystem: a default layout and optional per-component overrides.
+ * at build time. Entries flow full-width in document order and size to
+ * their content, so this file holds only the section / pseudo-category
+ * names and the pathKey → category mapping.
  *
  * Add a new example: drop `test/<category>/<component>.examples.ts`. Done.
  *
  * @packageDocumentation
  */
 
-/** Grid layout for one example card. `columns` = preferred column count
- *  (1 wide, 2 half, 3 third); `bodyHeight` = pixels for the card body. */
-export interface ShowcaseLayout {
-    columns: 1 | 2 | 3;
-    bodyHeight: number;
-}
+/** Sidebar section labels. East / e3 Components = renderable `.tsx`
+ *  examples (e3 ones run against the in-memory dataset cache seeded in
+ *  `main.tsx`); Code Reference = static `.ts` examples shown as code
+ *  blocks. */
+export const SECTION_EAST = "East Components";
+export const SECTION_E3 = "e3 Components";
+export const SECTION_CODE = "Code Reference";
 
-export const DEFAULT_LAYOUT: ShowcaseLayout = { columns: 2, bodyHeight: 280 };
-
-/** Optional per-pathKey layout overrides. Anything not listed uses
- *  `DEFAULT_LAYOUT`. Add entries only for cards that genuinely need
- *  more / less room than the default (charts, tables, dashboards). */
-const LAYOUT_OVERRIDES: Readonly<Record<string, Partial<ShowcaseLayout>>> = {
-    "integration/sales-dashboard": { columns: 1, bodyHeight: 680 },
+/** Pseudo-categories — the "All" page per section that concatenates every
+ *  category into one document, keyed by section label. */
+export const ALL_PAGES: Readonly<Record<string, string>> = {
+    [SECTION_EAST]: "All east components",
+    [SECTION_E3]: "All e3 components",
+    [SECTION_CODE]: "All reference",
 };
-
-export function layoutFor(pathKey: string): ShowcaseLayout {
-    return { ...DEFAULT_LAYOUT, ...(LAYOUT_OVERRIDES[pathKey] ?? {}) };
-}
 
 /** Title-case the first path segment of a pathKey to use as a category name.
  *  `"buttons/button"` → `"Buttons"`. */

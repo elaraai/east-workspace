@@ -5,6 +5,7 @@
 
 import { type ReactNode } from "react";
 import { Popover as ChakraPopover, Portal, Box, chakra, useSlotRecipe } from "@chakra-ui/react";
+import { useSliceDensity } from "../density";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faXmark } from "@fortawesome/free-solid-svg-icons";
 
@@ -38,12 +39,41 @@ export function SliceEditPopover({
     open, onOpenChange, trigger, label, size = "sm", footLeft, footActions, children,
 }: SliceEditPopoverProps) {
     const styles = useSlotRecipe({ key: "sliceEdit" })({ size });
+    const density = useSliceDensity();
+    if (density === "editor") {
+        // Inside the sectioned editor the popover is forbidden — the editor
+        // is the terminal surface. The same trigger toggles an inline
+        // disclosure in flow instead (the editor body scrolls as it grows).
+        return (
+            <Box display="flex" flexDirection="column" gap="{spacing.1.5}" minWidth="0" width="full">
+                <chakra.span display="inline-flex" onClick={() => onOpenChange(!open)}>{trigger}</chakra.span>
+                {open && (
+                    <Box borderTopWidth="1px" borderColor="border.subtle" paddingTop="{spacing.2}">
+                        <Box as="span" textStyle="caption.eyebrow" color="fg.subtle">{label}</Box>
+                        <Box css={styles.body} padding="0" paddingTop="{spacing.2}" maxHeight="none">{children}</Box>
+                        {(footLeft !== undefined || footActions !== undefined) && (
+                            <Box css={styles.foot} padding="0" paddingTop="{spacing.2}" borderTopWidth="0">
+                                {footLeft}
+                                <Box css={styles.footActions}>{footActions}</Box>
+                            </Box>
+                        )}
+                    </Box>
+                )}
+            </Box>
+        );
+    }
     return (
         <ChakraPopover.Root
             open={open}
             onOpenChange={(d) => onOpenChange(d.open)}
             positioning={{ placement: "bottom" }}
             lazyMount
+            onInteractOutside={(e) => {
+                // Portalled select / combobox listboxes render at body level;
+                // interacting with them must not dismiss the editor.
+                const target = e.detail.originalEvent?.target as Element | null | undefined;
+                if (target?.closest?.('[data-scope="select"], [data-scope="combobox"]')) e.preventDefault();
+            }}
         >
             <ChakraPopover.Trigger asChild>
                 <chakra.span display="inline-flex">{trigger}</chakra.span>

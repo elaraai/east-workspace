@@ -16,9 +16,10 @@ import {
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faInbox, faTriangleExclamation, faLock, faClock } from "@fortawesome/free-solid-svg-icons";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Card } from "@elaraai/east-ui";
+import { Card } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
+import { DensityProvider } from "../../contracts/density.js";
 
 const cardEqual = equalFor(Card.Types.Card);
 
@@ -146,6 +147,8 @@ export const EastChakraCard = memo(function EastChakraCard({ value, storageKey }
     const state = getSomeorUndefined(value.state);
     const stateTag: StateTag = state?.type ?? "ready";
 
+    const localDensity = useMemo(() => getSomeorUndefined(value.density)?.type, [value.density]);
+
     const style = getSomeorUndefined(value.style);
     const background = style ? getSomeorUndefined(style.background) : undefined;
     const borderColor = style ? getSomeorUndefined(style.borderColor) : undefined;
@@ -161,7 +164,7 @@ export const EastChakraCard = memo(function EastChakraCard({ value, storageKey }
     // The one container shape: 1px subtle border, 10px radius, no shadow.
     const defaultBorderColor = borderColor ?? "border.subtle";
 
-    return (
+    const content = (
         <ChakraCard.Root
             {...props}
             borderRadius="10px"
@@ -236,4 +239,8 @@ export const EastChakraCard = memo(function EastChakraCard({ value, storageKey }
             )}
         </ChakraCard.Root>
     );
+
+    return localDensity !== undefined
+        ? <DensityProvider value={localDensity}>{content}</DensityProvider>
+        : content;
 }, (prev, next) => cardEqual(prev.value, next.value) && prev.storageKey === next.storageKey);

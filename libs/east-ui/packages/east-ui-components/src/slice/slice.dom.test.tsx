@@ -69,9 +69,17 @@ function fakeSlice(init: Record<string, unknown> = {}) {
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 (globalThis as any).ResizeObserver ??= ResizeObserverStub;
 (Element.prototype as any).scrollIntoView ??= () => {};
+(Element.prototype as any).scrollTo ??= () => {};
 
 const ui = (node: React.ReactElement) => render(<ChakraProvider value={system}>{node}</ChakraProvider>);
 afterEach(cleanup);
+
+/** Drive an Ark `Select` (the shared ClauseBuilder controls): open the
+ *  labelled trigger, pick the named option from the portalled list. */
+async function pickOption(user: ReturnType<typeof userEvent.setup>, triggerLabel: string, optionName: string) {
+    await user.click(screen.getByLabelText(triggerLabel));
+    await user.click(await screen.findByRole("option", { name: optionName }));
+}
 
 describe("Slice.Cohort — edits happen in the Slice.Edit popover (never inline)", () => {
     test("editOpen pre-opens the editor; adding a clause + Apply keeps both clauses", async () => {
@@ -84,10 +92,14 @@ describe("Slice.Cohort — edits happen in the Slice.Edit popover (never inline)
 
         expect(screen.getByText(/region = EU/)).toBeTruthy();   // existing clause shown in the popover
 
-        fireEvent.change(screen.getByLabelText("Field"), { target: { value: "sessions" } });
-        fireEvent.change(screen.getByLabelText("Operator"), { target: { value: "gte" } });
-        // The value field is now a typed IntegerInput (spinbutton); it commits on a microtask.
-        await act(async () => { fireEvent.change(screen.getByRole("spinbutton"), { target: { value: "30" } }); });
+        const user = userEvent.setup();
+        await pickOption(user, "Field", "Sessions");
+        await pickOption(user, "Operator", "≥");
+        // The value field is a typed IntegerInput (an Ark NumberInput
+        // spinbutton). Paste the value in one event — per-key typing races
+        // Zag's rAF state sync under jsdom and intermittently drops digits.
+        await user.click(screen.getByRole("spinbutton"));
+        await user.paste("30");
         fireEvent.click(screen.getByText("Add"));
         fireEvent.click(screen.getByText("Apply"));
 
@@ -114,10 +126,12 @@ describe("Slice.Cohort — edits happen in the Slice.Edit popover (never inline)
         const value: any = { slice, createdBy: none, lastEdited: none, reevaluateEvery: none, density: none, editOpen: some(true) };
         ui(<EastChakraSliceCohort value={value} />);
 
+        const user = userEvent.setup();
         fireEvent.change(screen.getByLabelText("Cohort name"), { target: { value: "Big EU" } });
-        fireEvent.change(screen.getByLabelText("Field"), { target: { value: "sessions" } });
-        fireEvent.change(screen.getByLabelText("Operator"), { target: { value: "gte" } });
-        await act(async () => { fireEvent.change(screen.getByRole("spinbutton"), { target: { value: "30" } }); });
+        await pickOption(user, "Field", "Sessions");
+        await pickOption(user, "Operator", "≥");
+        await user.click(screen.getByRole("spinbutton"));
+        await user.paste("30");
         fireEvent.click(screen.getByText("Add"));
         fireEvent.click(screen.getByText("Apply"));
 
@@ -135,9 +149,11 @@ describe("Slice.Filter — add-filter builder applies (in a Slice.Edit popover)"
         const value: any = { slice, unit: some("events"), density: none, editOpen: some(true) };
         ui(<EastChakraSliceFilter value={value} />);
 
-        fireEvent.change(screen.getByLabelText("Field"), { target: { value: "sessions" } });
-        fireEvent.change(screen.getByLabelText("Operator"), { target: { value: "gte" } });
-        await act(async () => { fireEvent.change(screen.getByRole("spinbutton"), { target: { value: "20" } }); });
+        const user = userEvent.setup();
+        await pickOption(user, "Field", "Sessions");
+        await pickOption(user, "Operator", "≥");
+        await user.click(screen.getByRole("spinbutton"));
+        await user.paste("20");
         fireEvent.click(screen.getByText("Add"));
 
         const filters = slice.read().filters;

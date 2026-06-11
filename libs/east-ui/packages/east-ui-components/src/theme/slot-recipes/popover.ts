@@ -18,9 +18,13 @@ export const popoverSlotRecipe = defineSlotRecipe({
             borderColor: "border.strong",
             boxShadow: "md",
             padding: "14px 16px",
+            /* Chakra's default recipe fixes width at --popover-size (320px);
+             * the spec sizes to content within 240–360. */
+            width: "fit-content",
             minWidth: "240px",
             maxWidth: "360px",
             fontSize: "{fontSizes.control}",
+            lineHeight: "{lineHeights.normal}",
             color: "fg",
             overflow: "visible",
         },
@@ -37,6 +41,7 @@ export const popoverSlotRecipe = defineSlotRecipe({
             fontSize: "10px",
             fontWeight: "600",
             letterSpacing: "0.14em",
+            lineHeight: "normal",
             textTransform: "uppercase",
             color: "fg.subtle",
             marginBottom: "8px",

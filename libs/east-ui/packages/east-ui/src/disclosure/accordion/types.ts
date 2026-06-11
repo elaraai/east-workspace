@@ -153,17 +153,23 @@ export interface AccordionItemOptions {
  *
  * @remarks
  * Config (`multiple`, `collapsible`), state (`value`, `defaultValue`), and
- * behaviour (`onValueChange`) live at the top level. Visual presentation
- * lives inside the nested `style` object.
+ * behaviour (`onValueChange`) sit alongside the visual style fields in one
+ * flat bag; the factory composes the nested IR style sub-struct.
  *
  * @property multiple - Allow multiple items open simultaneously
  * @property collapsible - Allow every item to be closed
  * @property value - Controlled expanded-value list
  * @property defaultValue - Initial expanded-value list (uncontrolled)
  * @property onValueChange - Callback invoked with the new expanded-value list
- * @property style - Visual-presentation sub-struct
+ * @property variant - Visual variant (enclosed, plain, subtle)
+ * @property size - Size token (xs / sm / md / lg)
+ * @property background - Root container background
+ * @property borderColor - Item border (used by `enclosed`)
+ * @property triggerBackground - Trigger background (unpressed)
+ * @property triggerHoverBackground - Trigger background on hover
+ * @property contentBackground - Expanded content panel background
  */
-export interface AccordionOptions {
+export interface AccordionOptions extends AccordionStyle {
     /** Allow multiple items open simultaneously */
     multiple?: SubtypeExprOrValue<BooleanType>;
     /** Allow every item to be closed */
@@ -174,6 +180,4 @@ export interface AccordionOptions {
     defaultValue?: SubtypeExprOrValue<ArrayType<StringType>>;
     /** Callback invoked with the new expanded-value list */
     onValueChange?: SubtypeExprOrValue<FunctionType<[ArrayType<StringType>], NullType>>;
-    /** Visual-presentation sub-struct (variant / size / colour escape hatches) */
-    style?: AccordionStyle;
 }

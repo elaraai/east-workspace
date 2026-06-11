@@ -13,17 +13,25 @@
       "types": "./dist/src/internal.d.ts",
       "default": "./dist/src/internal.js"
     },
-    "./examples/buttons": {
-      "types": "./dist/test/buttons/button.examples.d.ts",
-      "default": "./dist/test/buttons/button.examples.js"
+    "./jsx-runtime": {
+      "types": "./dist/src/runtime/runtime.d.ts",
+      "default": "./dist/src/runtime/runtime.js"
     },
-    "./examples/format": {
-      "types": "./dist/test/format/format.examples.d.ts",
-      "default": "./dist/test/format/format.examples.js"
+    "./jsx-dev-runtime": {
+      "types": "./dist/src/runtime/runtime.d.ts",
+      "default": "./dist/src/runtime/runtime.js"
+    },
+    "./examples/buttons": {
+      "types": "./dist/test/buttons/index.d.ts",
+      "default": "./dist/test/buttons/index.js"
     },
     "./examples/platform": {
-      "types": "./dist/test/platform/platform.examples.d.ts",
-      "default": "./dist/test/platform/platform.examples.js"
+      "types": "./dist/test/platform/index.d.ts",
+      "default": "./dist/test/platform/index.js"
+    },
+    "./examples/platform/*": {
+      "types": "./dist/test/platform/*.examples.d.ts",
+      "default": "./dist/test/platform/*.examples.js"
     },
     "./examples/patterns/*": {
       "types": "./dist/test/patterns/*.examples.d.ts",
@@ -42,8 +50,8 @@
       "default": "./dist/test/layout/index.js"
     },
     "./examples/container": {
-      "types": "./dist/test/container/card.examples.d.ts",
-      "default": "./dist/test/container/card.examples.js"
+      "types": "./dist/test/container/index.d.ts",
+      "default": "./dist/test/container/index.js"
     },
     "./examples/display": {
       "types": "./dist/test/display/index.d.ts",
@@ -62,8 +70,8 @@
       "default": "./dist/test/navigation/*.examples.js"
     },
     "./examples/navigation": {
-      "types": "./dist/test/navigation/breadcrumb.examples.d.ts",
-      "default": "./dist/test/navigation/breadcrumb.examples.js"
+      "types": "./dist/test/navigation/index.d.ts",
+      "default": "./dist/test/navigation/index.js"
     },
     "./examples/disclosure": {
       "types": "./dist/test/disclosure/index.d.ts",

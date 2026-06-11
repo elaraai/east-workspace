@@ -11,8 +11,8 @@ import {
     FloatType,
 } from "@elaraai/east";
 
-import { BorderStyleType, BorderWidthType, OverflowType, SizeType, ColorSchemeType, StyleVariantType, JustifyContentType, AlignItemsType } from "../../style.js";
-import type { BorderStyleLiteral, BorderWidthLiteral, OverflowLiteral, SizeLiteral, ColorSchemeLiteral, StyleVariantLiteral, JustifyContentLiteral, AlignItemsLiteral } from "../../style.js";
+import { BorderStyleType, BorderWidthType, DensityType, OverflowType, SizeType, ColorSchemeType, StyleVariantType, JustifyContentType, AlignItemsType } from "../../style.js";
+import type { BorderStyleLiteral, BorderWidthLiteral, DensityLiteral, OverflowLiteral, SizeLiteral, ColorSchemeLiteral, StyleVariantLiteral, JustifyContentLiteral, AlignItemsLiteral } from "../../style.js";
 import { PaddingType, MarginType } from "../../layout/style.js";
 
 // ============================================================================
@@ -97,10 +97,12 @@ export type BadgeStyleType = typeof BadgeStyleType;
  * the factory wraps flat style fields into the nested `style` shape.
  *
  * @property value - The badge text content
+ * @property density - Density override; shares the cascade with `ChipRail` / `Trace` so mixed display cells align
  * @property style - Optional style sub-struct (see `BadgeStyleType`)
  */
 export const BadgeType = StructType({
     value: StringType,
+    density: OptionType(DensityType),
     style: OptionType(BadgeStyleType),
 });
 
@@ -128,6 +130,13 @@ export interface BadgeStyle {
     colorPalette?: SubtypeExprOrValue<ColorSchemeType> | ColorSchemeLiteral;
     /** Badge size token */
     size?: SubtypeExprOrValue<SizeType> | SizeLiteral;
+    /**
+     * Density override (main-struct). Inherited from the enclosing surface
+     * (Table, ChipRail, …) when omitted; an explicit value wins over both the
+     * cascade and `size`, sizing the badge to match rails and traces at the
+     * same density.
+     */
+    density?: SubtypeExprOrValue<DensityType> | DensityLiteral;
     /** CSS opacity (0–1) */
     opacity?: SubtypeExprOrValue<FloatType>;
     /** Explicit text colour override */

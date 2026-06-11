@@ -17,10 +17,12 @@ import {
 
 import {
     AlignItemsType,
+    DensityType,
     JustifyContentType,
 } from "../../style.js";
 import type {
     AlignItemsLiteral,
+    DensityLiteral,
     JustifyContentLiteral,
 } from "../../style.js";
 import { PaddingType } from "../style.js";
@@ -174,6 +176,14 @@ export type GridStyleType = typeof GridStyleType;
  * @property autoFlow - How auto-placed items are inserted
  */
 export interface GridStyle {
+    /**
+     * Density the grid provides to its items via the density cascade.
+     * Display components inside (Tag, Badge, Meter, Trace, …) inherit it
+     * unless they carry their own density; the grid itself is visually
+     * unchanged. When omitted, the grid is transparent to the cascade and an
+     * enclosing surface's density flows through.
+     */
+    density?: SubtypeExprOrValue<DensityType> | DensityLiteral;
     /** Width (Chakra UI size token or CSS value) */
     width?: SubtypeExprOrValue<StringType>;
     /** Height (Chakra UI size token or CSS value) */

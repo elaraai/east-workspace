@@ -6,9 +6,10 @@
 import { memo, useMemo } from "react";
 import { Box, useSlotRecipe } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { BarStrip } from "@elaraai/east-ui";
+import { BarStrip } from "@elaraai/east-ui/internal";
 import { EastChakraComponent } from "../../component";
 import { getSomeorUndefined } from "../../utils";
+import { useDensity } from "../../contracts/density";
 
 const barStripEqual = equalFor(BarStrip.Types.BarStrip);
 
@@ -39,6 +40,9 @@ export const EastChakraBarStrip = memo(function EastChakraBarStrip({ value, stor
     const showValues = useMemo(() => getSomeorUndefined(value.showValues) ?? true, [value.showValues]);
     const sortTag = useMemo(() => getSomeorUndefined(value.sort)?.type ?? "none", [value.sort]);
     const maxItems = useMemo(() => getSomeorUndefined(value.maxItems), [value.maxItems]);
+    const inheritedDensity = useDensity();
+    const localDensity = useMemo(() => getSomeorUndefined(value.density)?.type, [value.density]);
+    const density = localDensity ?? inheritedDensity;
 
     const thickness = style ? getSomeorUndefined(style.thickness)?.type : undefined;
     const trackColor = style ? getSomeorUndefined(style.trackColor) : undefined;
@@ -46,7 +50,7 @@ export const EastChakraBarStrip = memo(function EastChakraBarStrip({ value, stor
     const valueColor = style ? getSomeorUndefined(style.valueColor) : undefined;
     const borderRadius = style ? getSomeorUndefined(style.borderRadius) : undefined;
 
-    const styles = useSlotRecipe({ key: "barStrip" })({ thickness });
+    const styles = useSlotRecipe({ key: "barStrip" })({ thickness, density });
 
     const items = useMemo(() => {
         let arr = [...value.items] as typeof value.items;

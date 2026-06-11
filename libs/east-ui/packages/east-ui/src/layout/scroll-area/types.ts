@@ -72,9 +72,7 @@ export interface ScrollAreaStyle {
     background?: SubtypeExprOrValue<StringType>;
 }
 
-export interface ScrollAreaOptions {
+export interface ScrollAreaOptions extends ScrollAreaStyle {
     /** Scrollbar visual style; default `overlay`. */
     scrollbarStyle?: SubtypeExprOrValue<ScrollbarStyleType> | ScrollbarStyleLiteral;
-    /** Style escape hatches (includes `orientation`). */
-    style?: ScrollAreaStyle;
 }

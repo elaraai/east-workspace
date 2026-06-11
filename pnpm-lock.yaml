@@ -801,6 +801,12 @@ importers:
         specifier: workspace:*
         version: link:../east-ui
     devDependencies:
+      '@elaraai/east-c-cli':
+        specifier: workspace:*
+        version: link:../../../east-c/packages/east-c-cli
+      '@elaraai/east-node-cli':
+        specifier: workspace:*
+        version: link:../../../east-node/packages/east-node-cli
       '@types/node':
         specifier: ^22
         version: 22.19.15
@@ -949,6 +955,9 @@ importers:
       d3-time:
         specifier: ^3.1.0
         version: 3.1.0
+      rbush:
+        specifier: ^4.0.1
+        version: 4.0.1
       react-markdown:
         specifier: ^9.0.0
         version: 9.1.0(@types/react@19.2.14)(react@19.2.4)
@@ -989,6 +998,9 @@ importers:
       '@types/node':
         specifier: ^22.18.1
         version: 22.19.15
+      '@types/rbush':
+        specifier: ^4.0.0
+        version: 4.0.0
       '@types/react':
         specifier: ^19.0.0
         version: 19.2.14
@@ -1068,6 +1080,9 @@ importers:
       '@elaraai/east-ui-components':
         specifier: workspace:*
         version: link:../east-ui-components
+      '@elaraai/tsserver-plugin-east':
+        specifier: workspace:*
+        version: link:../../../tsserver-plugin-east
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
@@ -1183,6 +1198,18 @@ importers:
       '@chakra-ui/react':
         specifier: ^3.0.0
         version: 3.34.0(@emotion/react@11.14.0(@types/react@19.2.14)(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@elaraai/e3':
+        specifier: workspace:*
+        version: link:../../../e3/packages/e3
+      '@elaraai/e3-types':
+        specifier: workspace:*
+        version: link:../../../e3/packages/e3-types
+      '@elaraai/e3-ui':
+        specifier: workspace:*
+        version: link:../e3-ui
+      '@elaraai/e3-ui-components':
+        specifier: workspace:*
+        version: link:../e3-ui-components
       '@elaraai/east':
         specifier: workspace:*
         version: link:../../../east
@@ -1284,6 +1311,21 @@ importers:
       eslint:
         specifier: ^9.34.0
         version: 9.39.4
+      typescript:
+        specifier: ~5.9.2
+        version: 5.9.3
+
+  libs/tsserver-plugin-east:
+    devDependencies:
+      '@elaraai/east':
+        specifier: workspace:*
+        version: link:../east
+      '@elaraai/east-diagnostics':
+        specifier: workspace:*
+        version: link:../east-diagnostics
+      esbuild:
+        specifier: ^0.27.3
+        version: 0.27.7
       typescript:
         specifier: ~5.9.2
         version: 5.9.3
@@ -3332,6 +3374,9 @@ packages:
   '@types/pg@8.20.0':
     resolution: {integrity: sha512-bEPFOaMAHTEP1EzpvHTbmwR8UsFyHSKsRisLIHVMXnpNefSbGA1bD6CVy+qKjGSqmZqNqBDV2azOBo8TgkcVow==}
 
+  '@types/rbush@4.0.0':
+    resolution: {integrity: sha512-+N+2H39P8X+Hy1I5mC6awlTX54k3FhiUmvt7HWzGJZvF+syUAAxP/stwppS8JE84YHqFgRMv6fCy31202CMFxQ==}
+
   '@types/react-dom@19.2.3':
     resolution: {integrity: sha512-jp2L/eY6fn+KgVVQAOqYItbF0VY/YApe5Mz2F0aykSO8gx31bYCZyvSeYxCHKvzHG5eZjc+zyaS5BrBWya2+kQ==}
     peerDependencies:
@@ -4076,6 +4121,7 @@ packages:
   basic-ftp@5.2.0:
     resolution: {integrity: sha512-VoMINM2rqJwJgfdHq6RiUudKt2BV+FY5ZFezP/ypmwayk68+NzzAQy4XXLlqsGD4MCzq3DrmNFD/uUmBJuGoXw==}
     engines: {node: '>=10.0.0'}
+    deprecated: Security vulnerability fixed in 5.2.1, please upgrade
 
   bcrypt-pbkdf@1.0.2:
     resolution: {integrity: sha512-qeFIXtP4MSoi6NLqO12WfqARWWuCKi2Rn/9hJLEmtB5yTNr9DqFWkJRCf2qShWzPeAMRnOgCrq0sg/KLv5ES9w==}
@@ -6041,6 +6087,9 @@ packages:
   queue-microtask@1.2.3:
     resolution: {integrity: sha512-NuaNSa6flKT5JaSYQzJok04JzTL1CA6aGhv5rfLW3PgqA+M2ChpZQnAC8h8i4ZFkBS8X5RqkDBHA7r4hej3K9A==}
 
+  quickselect@3.0.0:
+    resolution: {integrity: sha512-XdjUArbK4Bm5fLLvlm5KpTFOiOThgfWWI4axAZDWg4E/0mKdZyI9tNEfds27qCi1ze/vwTR16kvmmGhRra3c2g==}
+
   range-parser@1.2.1:
     resolution: {integrity: sha512-Hrgsx+orqoygnmhFbKaHE6c296J+HTAQXoxEF6gNupROmmGJRoyzfG3ccAveqCBrwr/2yxQ5BVd/GTl5agOwSg==}
     engines: {node: '>= 0.6'}
@@ -6048,6 +6097,9 @@ packages:
   raw-body@3.0.2:
     resolution: {integrity: sha512-K5zQjDllxWkf7Z5xJdV0/B0WTNqx6vxG70zJE4N0kBs4LovmEYWJzQGxC9bS9RAKu3bgM40lrd5zoLJ12MQ5BA==}
     engines: {node: '>= 0.10'}
+
+  rbush@4.0.1:
+    resolution: {integrity: sha512-IP0UpfeWQujYC8Jg162rMNc01Rf0gWMMAb2Uxus/Q0qOFw4lCcq6ZnQEZwUoJqWyUGJ9th7JjwI4yIWo+uvoAQ==}
 
   rc-config-loader@4.1.4:
     resolution: {integrity: sha512-3GiwEzklkbXTDp52UR5nT8iXgYAx1V9ZG/kDZT7p60u2GCv2XTwQq4NzinMoMpNtXhmt3WkhYXcj6HH8HdwCEQ==}
@@ -9506,6 +9558,8 @@ snapshots:
       pg-protocol: 1.13.0
       pg-types: 2.2.0
 
+  '@types/rbush@4.0.0': {}
+
   '@types/react-dom@19.2.3(@types/react@19.2.14)':
     dependencies:
       '@types/react': 19.2.14
@@ -12949,6 +13003,8 @@ snapshots:
 
   queue-microtask@1.2.3: {}
 
+  quickselect@3.0.0: {}
+
   range-parser@1.2.1: {}
 
   raw-body@3.0.2:
@@ -12957,6 +13013,10 @@ snapshots:
       http-errors: 2.0.1
       iconv-lite: 0.7.2
       unpipe: 1.0.0
+
+  rbush@4.0.1:
+    dependencies:
+      quickselect: 3.0.0
 
   rc-config-loader@4.1.4:
     dependencies:

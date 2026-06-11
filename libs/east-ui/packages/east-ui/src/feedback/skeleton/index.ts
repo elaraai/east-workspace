@@ -38,24 +38,29 @@ export {
 /**
  * TypeScript options bag for `Skeleton.Root`.
  *
+ * @property shape - Visual shape — "text" / "rect" / "circle"
  * @property lines - Number of text lines (only used when `shape === "text"`)
  * @property count - Repeat the skeleton `count` times (wrapped in a VStack)
- * @property style - Optional visual-only style (includes `fontSize` for text shape)
+ * @property width - Skeleton width (CSS length)
+ * @property height - Skeleton height (CSS length)
+ * @property fontSize - Text line font-size (only meaningful when `shape === "text"`)
+ * @property background - Base colour
+ * @property shimmerColor - Shimmer animation highlight colour
  */
-export interface SkeletonOptions {
+export interface SkeletonOptions extends SkeletonStyle {
+    /** Visual shape — "text" / "rect" / "circle" — required. */
+    shape: SkeletonShapeLiteral | SubtypeExprOrValue<SkeletonShapeType>;
     /** Number of text lines (only used when `shape === "text"`) */
     lines?: SubtypeExprOrValue<IntegerType>;
     /** Repeat the skeleton `count` times (wrapped in a VStack) */
     count?: SubtypeExprOrValue<IntegerType>;
-    /** Optional visual-only style (includes `fontSize` for text shape) */
-    style?: SkeletonStyle;
 }
 
 /**
  * Creates a Skeleton placeholder.
  *
- * @param shape - Visual shape — "text" / "rect" / "circle"
- * @param options - Optional `lines` / `count` / `style` (visual fields including `fontSize`)
+ * @param options - Required `shape`, optional `lines` / `count` / visual
+ *   style fields (including `fontSize`)
  * @returns An East expression representing the Skeleton component
  *
  * @example
@@ -64,24 +69,26 @@ export interface SkeletonOptions {
  * import { Skeleton, UIComponentType } from "@elaraai/east-ui";
  *
  * const loading = East.function([], UIComponentType, _$ =>
- *     Skeleton.Root("text", { lines: 3n }),
+ *     Skeleton.Root({ shape: "text", lines: 3n }),
  * );
  * ```
  */
 function createSkeletonRoot(
-    shape: SkeletonShapeLiteral | SubtypeExprOrValue<SkeletonShapeType>,
-    options?: SkeletonOptions,
+    options: SkeletonOptions,
 ): ExprType<UIComponentType> {
+    const { shape, lines, count, ...visual } = options;
+
     const shapeValue = typeof shape === "string"
         ? East.value(variant(shape, null), SkeletonShapeType)
         : shape as ExprType<SkeletonShapeType>;
 
-    const styleValue = options?.style ? buildSkeletonStyle(options.style) : undefined;
+    const hasVisual = Object.values(visual).some(field => field !== undefined);
+    const styleValue = hasVisual ? buildSkeletonStyle(visual) : undefined;
 
     return East.value(variant("Skeleton", {
         shape: shapeValue,
-        lines: options?.lines !== undefined ? some(options.lines) : none,
-        count: options?.count !== undefined ? some(options.count) : none,
+        lines: lines !== undefined ? some(lines) : none,
+        count: count !== undefined ? some(count) : none,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
@@ -107,12 +114,12 @@ export const Skeleton = {
     /**
      * Creates a Skeleton.
      *
-     * @param shape - "text" / "rect" / "circle"
-     * @param options - Optional `lines` / `count` / `style` (visual fields including `fontSize`)
+     * @param options - Required `shape`, optional `lines` / `count` / visual
+     *   style fields (including `fontSize`)
      *
      * @example
      * ```ts
-     * Skeleton.Root("rect", { style: { width: "100%", height: "120px" } });
+     * Skeleton.Root({ shape: "rect", width: "100%", height: "120px" });
      * ```
      */
     Root: createSkeletonRoot,

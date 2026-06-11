@@ -6,9 +6,8 @@
 /**
  * Tooltip slot recipe — dark ink chip per spec.
  *
- * `bg: fg.default` / `color: bg.surface` / mono 11 / 4 px radius / 8 px
- * horizontal padding / 4 px vertical. Matches the dark on-hover affordance
- * used by the pattern-spec for keystroke hints.
+ * `bg: fg.default` / `color: bg.surface` / mono 11. Tooltips are text-only
+ * explanations of what a number is; structured content belongs in a Popover.
  *
  * @packageDocumentation
  */
@@ -24,13 +23,13 @@ export const tooltipSlotRecipe = defineSlotRecipe({
             fontSize: "11px",
             background: "fg.default",
             color: "bg.surface",
-            paddingX: "{spacing.2}",
-            paddingY: "{spacing.1}",
+            paddingX: "{spacing.3}",
+            paddingY: "{spacing.2}",
             borderWidth: "0",
             borderRadius: "{radii.sm}",
             boxShadow: "sm",
-            maxWidth: "240px",
-            lineHeight: "{lineHeights.normal}",
+            maxWidth: "280px",
+            lineHeight: "1.5",
         },
         arrow: {
             "--arrow-background": "colors.fg.default",

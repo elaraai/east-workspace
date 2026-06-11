@@ -5,7 +5,7 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { East, IntegerType, NullType } from "@elaraai/east";
-import { Pagination, UIComponentType } from "@elaraai/east-ui";
+import { Pagination, UIComponentType } from "@elaraai/east-ui/internal";
 import * as ex from "./pagination.examples.js";
 
 describeEast("Pagination", (test) => {
@@ -22,7 +22,7 @@ describeEast("Pagination", (test) => {
 
     test("creates pagination with main-struct fields", $ => {
         const noop = $.const(East.function([IntegerType], NullType, (_$, _p) => { }));
-        const p = $.let(Pagination.Root(0n, 20n, 500n, noop), UIComponentType);
+        const p = $.let(Pagination.Root({ page: 0n, pageSize: 20n, count: 500n, onPageChange: noop }), UIComponentType);
 
         $(Assert.equal(p.unwrap().unwrap("Pagination").page, 0n));
         $(Assert.equal(p.unwrap().unwrap("Pagination").pageSize, 20n));
@@ -32,7 +32,7 @@ describeEast("Pagination", (test) => {
 
     test("creates pagination at a non-zero page", $ => {
         const noop = $.const(East.function([IntegerType], NullType, (_$, _p) => { }));
-        const p = $.let(Pagination.Root(5n, 10n, 100n, noop), UIComponentType);
+        const p = $.let(Pagination.Root({ page: 5n, pageSize: 10n, count: 100n, onPageChange: noop }), UIComponentType);
 
         $(Assert.equal(p.unwrap().unwrap("Pagination").page, 5n));
         $(Assert.equal(p.unwrap().unwrap("Pagination").pageSize, 10n));
@@ -45,7 +45,7 @@ describeEast("Pagination", (test) => {
 
     test("applies size preset via style struct", $ => {
         const noop = $.const(East.function([IntegerType], NullType, (_$, _p) => { }));
-        const p = $.let(Pagination.Root(0n, 10n, 100n, noop, { size: "lg" }), UIComponentType);
+        const p = $.let(Pagination.Root({ page: 0n, pageSize: 10n, count: 100n, onPageChange: noop, size: "lg" }), UIComponentType);
 
         $(Assert.equal(
             p.unwrap().unwrap("Pagination").style.unwrap("some").size.unwrap("some").hasTag("lg"),
@@ -55,7 +55,7 @@ describeEast("Pagination", (test) => {
 
     test("applies variant via style struct", $ => {
         const noop = $.const(East.function([IntegerType], NullType, (_$, _p) => { }));
-        const p = $.let(Pagination.Root(0n, 10n, 100n, noop, { variant: "outline" }), UIComponentType);
+        const p = $.let(Pagination.Root({ page: 0n, pageSize: 10n, count: 100n, onPageChange: noop, variant: "outline" }), UIComponentType);
 
         $(Assert.equal(
             p.unwrap().unwrap("Pagination").style.unwrap("some").variant.unwrap("some").hasTag("outline"),
@@ -70,7 +70,7 @@ describeEast("Pagination", (test) => {
     test("applies siblings and boundaries", $ => {
         const noop = $.const(East.function([IntegerType], NullType, (_$, _p) => { }));
         const p = $.let(
-            Pagination.Root(0n, 10n, 500n, noop, { siblings: 2n, boundaries: 3n }),
+            Pagination.Root({ page: 0n, pageSize: 10n, count: 500n, onPageChange: noop, siblings: 2n, boundaries: 3n }),
             UIComponentType,
         );
 
@@ -85,7 +85,7 @@ describeEast("Pagination", (test) => {
 
     test("applies colour escape hatches", $ => {
         const noop = $.const(East.function([IntegerType], NullType, (_$, _p) => { }));
-        const p = $.let(Pagination.Root(0n, 10n, 100n, noop, {
+        const p = $.let(Pagination.Root({ page: 0n, pageSize: 10n, count: 100n, onPageChange: noop,
             color: "gray.700",
             background: "white",
             activeBackground: "blue.500",

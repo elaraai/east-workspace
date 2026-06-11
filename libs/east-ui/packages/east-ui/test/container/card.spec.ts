@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Card, Text, Heading, Button, Stack } from "@elaraai/east-ui";
+import { Card, Text, Button } from "@elaraai/east-ui/internal";
 import * as ex from "./card.examples.js";
 
 describeEast("Card", (test) => {
@@ -44,28 +44,30 @@ describeEast("Card", (test) => {
         $(Assert.equal(card.unwrap().unwrap("Card").header.hasTag("none"), true));
     });
 
-    test("creates card with header", $ => {
+    test("creates card with title header", $ => {
         const card = $.let(Card.Root([], {
-            header: Heading.Root("Card Title"),
+            header: { title: "Card Title" },
         }));
 
+        // A title-only header composes to a single Heading.
         $(Assert.equal(card.unwrap().unwrap("Card").header.hasTag("some"), true));
         $(Assert.equal(card.unwrap().unwrap("Card").header.unwrap("some").unwrap().unwrap("Heading").value, "Card Title"));
     });
 
     test("creates card with header and footer", $ => {
         const card = $.let(Card.Root([], {
-            header: Heading.Root("Product Name"),
-            footer: Button.Root("Buy Now"),
+            header: { title: "Product Name" },
+            footer: { actions: [Button.Root("Buy Now")] },
         }));
 
         $(Assert.equal(card.unwrap().unwrap("Card").header.unwrap("some").unwrap().unwrap("Heading").value, "Product Name"));
+        // An actions footer composes to a Stack row.
         $(Assert.equal(card.unwrap().unwrap("Card").footer.hasTag("some"), true));
-        $(Assert.equal(card.unwrap().unwrap("Card").footer.unwrap("some").unwrap().unwrap("Button").label.unwrap().unwrap("Text").value, "Buy Now"));
+        $(Assert.equal(card.unwrap().unwrap("Card").footer.unwrap("some").unwrap().hasTag("Stack"), true));
     });
 
-    test("string header round-trips as a composed eyebrow header", $ => {
-        const card = $.let(Card.Root([], { header: "Run summary" }));
+    test("eyebrow header composes the mono eyebrow strip", $ => {
+        const card = $.let(Card.Root([], { header: { eyebrow: "Run summary" } }));
         $(Assert.equal(card.unwrap().unwrap("Card").header.hasTag("some"), true));
     });
 
@@ -73,37 +75,36 @@ describeEast("Card", (test) => {
     // Complex Header/Footer
     // =========================================================================
 
-    test("creates card with VStack header", $ => {
+    test("title + description header composes to a VStack", $ => {
         const card = $.let(Card.Root([
             Text.Root("Body content"),
         ], {
-            header: Stack.VStack([
-                Heading.Root("Title"),
-                Text.Root("Description"),
-            ]),
+            header: { title: "Title", description: "Description" },
         }));
 
         $(Assert.equal(card.unwrap().unwrap("Card").header.hasTag("some"), true));
         $(Assert.equal(card.unwrap().unwrap("Card").header.unwrap("some").unwrap().hasTag("Stack"), true));
     });
 
-    test("creates card with HStack footer", $ => {
+    test("actions footer composes to a Stack row", $ => {
         const card = $.let(Card.Root([
             Text.Root("Body content"),
         ], {
-            footer: Stack.HStack([
-                Button.Root("Cancel", { style: { variant: "outline" } }),
-                Button.Root("Save"),
-            ]),
+            footer: {
+                actions: [
+                    Button.Root("Cancel", { variant: "outline" }),
+                    Button.Root("Save"),
+                ],
+            },
         }));
 
         $(Assert.equal(card.unwrap().unwrap("Card").footer.hasTag("some"), true));
         $(Assert.equal(card.unwrap().unwrap("Card").footer.unwrap("some").unwrap().hasTag("Stack"), true));
     });
 
-    test("Card.Header composes eyebrow + title + meta", $ => {
+    test("eyebrow + title + meta header composes", $ => {
         const card = $.let(Card.Root([], {
-            header: Card.Header({ eyebrow: "Forecast", title: "Per plan week", meta: "14s ago" }),
+            header: { eyebrow: "Forecast", title: "Per plan week", meta: "14s ago" },
         }));
         $(Assert.equal(card.unwrap().unwrap("Card").header.hasTag("some"), true));
     });
@@ -179,14 +180,14 @@ describeEast("Card", (test) => {
         const card = $.let(Card.Root([
             Text.Root("Main content goes here"),
         ], {
-            header: Heading.Root("Full Card"),
-            footer: Button.Root("Action"),
+            header: { title: "Full Card" },
+            footer: { actions: [Button.Root("Action")] },
             height: "400px",
             minHeight: "200px",
         }));
 
         $(Assert.equal(card.unwrap().unwrap("Card").header.unwrap("some").unwrap().unwrap("Heading").value, "Full Card"));
-        $(Assert.equal(card.unwrap().unwrap("Card").footer.unwrap("some").unwrap().unwrap("Button").label.unwrap().unwrap("Text").value, "Action"));
+        $(Assert.equal(card.unwrap().unwrap("Card").footer.unwrap("some").unwrap().hasTag("Stack"), true));
         $(Assert.equal(card.unwrap().unwrap("Card").style.unwrap("some").height.unwrap("some"), "400px"));
         $(Assert.equal(card.unwrap().unwrap("Card").style.unwrap("some").minHeight.unwrap("some"), "200px"));
     });
@@ -195,11 +196,8 @@ describeEast("Card", (test) => {
         const card = $.let(Card.Root([
             Text.Root("$99.99"),
         ], {
-            header: Stack.VStack([
-                Heading.Root("Product Name"),
-                Text.Root("Product category"),
-            ]),
-            footer: Button.Root("Add to Cart"),
+            header: { title: "Product Name", description: "Product category" },
+            footer: { actions: [Button.Root("Add to Cart")] },
         }));
 
         $(Assert.equal(card.unwrap().unwrap("Card").header.hasTag("some"), true));
@@ -210,7 +208,7 @@ describeEast("Card", (test) => {
         const card = $.let(Card.Root([
             Text.Root("Important details displayed here in the card body."),
         ], {
-            header: Heading.Root("Information"),
+            header: { title: "Information" },
         }));
 
         $(Assert.equal(card.unwrap().unwrap("Card").header.unwrap("some").unwrap().unwrap("Heading").value, "Information"));
@@ -221,7 +219,7 @@ describeEast("Card", (test) => {
             Text.Root("First line"),
             Text.Root("Second line"),
         ], {
-            header: Heading.Root("Multi-content Card"),
+            header: { title: "Multi-content Card" },
         }));
 
         $(Assert.equal(card.unwrap().unwrap("Card").header.unwrap("some").unwrap().unwrap("Heading").value, "Multi-content Card"));
@@ -231,7 +229,7 @@ describeEast("Card", (test) => {
         const card = $.let(Card.Root([
             Text.Root("This card fills available space"),
         ], {
-            header: Heading.Root("Flexible Card"),
+            header: { title: "Flexible Card" },
             height: "100%",
             flex: "1",
             overflow: "auto",
@@ -241,4 +239,4 @@ describeEast("Card", (test) => {
         $(Assert.equal(card.unwrap().unwrap("Card").style.unwrap("some").flex.unwrap("some"), "1"));
         $(Assert.equal(card.unwrap().unwrap("Card").style.unwrap("some").overflow.unwrap("some").hasTag("auto"), true));
     });
-}, {   platformFns: TestImpl,});
+}, { platformFns: TestImpl });

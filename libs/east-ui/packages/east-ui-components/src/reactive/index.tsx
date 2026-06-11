@@ -5,7 +5,7 @@
 
 import { useRef, useMemo, useSyncExternalStore, useCallback } from "react";
 import type { ValueTypeOf } from "@elaraai/east";
-import type { UIComponentType } from "@elaraai/east-ui";
+import type { UIComponentType } from "@elaraai/east-ui/internal";
 import { EastChakraComponent } from "../component.js";
 import {
     getReactiveTrackers,

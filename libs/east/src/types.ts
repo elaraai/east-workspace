@@ -7,6 +7,9 @@ import { SortedMap } from "./containers/sortedmap.js";
 import { SortedSet } from "./containers/sortedset.js";
 import { type variant, variant_symbol } from "./containers/variant.js";
 import { isMatrix, type matrix } from "./containers/matrix.js";
+import { EastError } from "./error.js";
+import type { Location } from "./location.js";
+import type { TypeDiff } from "./type_diff.js";
 
 // =============================================================================
 // Type identity — every EastType gets a unique integer ID via a Symbol property.
@@ -76,18 +79,37 @@ function internStore(hash: number, type: any): void {
  * Used by type union, intersection, and equality operations when types
  * cannot be combined or compared as requested.
  */
-export class TypeMismatchError extends Error {
+export class TypeMismatchError extends EastError {
   path: string[];
   readonly reason: string;
-  constructor(reason: string, options?: ErrorOptions) {
-    super(reason, options);
+  /** The type that was supplied (set on assignability failures, e.g. `coerce_to`). */
+  readonly actual?: EastType;
+  /** The type that was required. */
+  readonly expected?: EastType;
+  /** Structured, localized differences. Build via `typeMismatchError` in type_diff.ts. */
+  readonly diffs?: TypeDiff[];
+  constructor(reason: string, options: ErrorOptions & { location?: Location[]; actual?: EastType; expected?: EastType; diffs?: TypeDiff[] } = {}) {
+    const baseOptions: { cause?: any; location?: Location[] } = {};
+    if (options.cause !== undefined) baseOptions.cause = options.cause;
+    if (options.location !== undefined) baseOptions.location = options.location;
+    super(reason, baseOptions);
     this.name = "TypeMismatchError";
     this.reason = reason;
     this.path = [];
+    if (options.actual !== undefined) this.actual = options.actual;
+    if (options.expected !== undefined) this.expected = options.expected;
+    if (options.diffs !== undefined) this.diffs = options.diffs;
   }
   addPathSegment(segment: string): void {
     this.path.unshift(segment);
-    this.message = `at ${this.path.join("")}: ${this.reason}`;
+    const msg = `at ${this.path.join("")}: ${this.reason}`;
+    this.message = msg;
+    this.eastMessage = msg;
+  }
+  // EastError.toString() omits the class name; restore the `Name: …` prefix while
+  // keeping its `  at file:line:col` frame formatting.
+  override toString(): string {
+    return `${this.name}: ${super.toString()}`;
   }
 }
 

@@ -7,9 +7,12 @@ import {
     type ExprType,
     type SubtypeExprOrValue,
     East, OptionType,
+    StringType,
     StructType,
     ArrayType,
-    variant
+    variant,
+    some,
+    none,
 } from "@elaraai/east";
 
 import { UIComponentType } from "../../component.js";
@@ -36,20 +39,26 @@ export type { HoverCardSizeLiteral, PlacementLiteral } from "./types.js";
  * East StructType for HoverCard component.
  *
  * @remarks
- * HoverCard displays rich content when hovering over a trigger element.
- * Similar to Tooltip but with more structured content (e.g., user profiles).
+ * HoverCard displays rich content when hovering over a trigger element —
+ * the same visual as Popover, opened on hover/focus instead of click.
  *
  * @property trigger - The UI component that shows the hover card on hover
  * @property body - Array of UI components for hover card content
+ * @property title - Optional hover card title (mono uppercase eyebrow)
+ * @property description - Optional hover card description
  * @property style - Optional style configuration
  */
 export const HoverCardType: StructType<{
     trigger: UIComponentType,
     body: ArrayType<UIComponentType>,
+    title: OptionType<StringType>,
+    description: OptionType<StringType>,
     style: OptionType<HoverCardStyleType>,
 }> = StructType({
     trigger: UIComponentType,
     body: ArrayType(UIComponentType),
+    title: OptionType(StringType),
+    description: OptionType(StringType),
     style: OptionType(HoverCardStyleType),
 });
 
@@ -65,9 +74,8 @@ export type HoverCardType = typeof HoverCardType;
 /**
  * Creates a HoverCard component with a trigger and body content.
  *
- * @param trigger - The UI component that shows the hover card on hover
  * @param body - Array of UI components for hover card content
- * @param style - Optional styling configuration
+ * @param options - Required `trigger` + optional visual style fields
  * @returns An East expression representing the hover card component
  *
  * @remarks
@@ -80,50 +88,58 @@ export type HoverCardType = typeof HoverCardType;
  * import { HoverCard, Text, Avatar, UIComponentType } from "@elaraai/east-ui";
  *
  * const example = East.function([], UIComponentType, $ => {
- *     return HoverCard.Root(
- *         Text.Root("@username"),
- *         [
- *             Avatar.Root({ name: "John Doe" }),
- *             Text.Root("Software Engineer"),
- *         ],
- *         { openDelay: 200n }
- *     );
+ *     return HoverCard.Root([
+ *         Avatar.Root({ name: "John Doe" }),
+ *         Text.Root("Software Engineer"),
+ *     ], { trigger: Text.Root("@username"), openDelay: 200n });
  * });
  * ```
  */
+export interface HoverCardOptions extends HoverCardStyle {
+    /** The UI component that shows the hover card on hover — required. */
+    trigger: SubtypeExprOrValue<UIComponentType>;
+    /** Optional title — rendered as the mono uppercase eyebrow, same as Popover. */
+    title?: SubtypeExprOrValue<StringType>;
+    /** Optional description shown under the title. */
+    description?: SubtypeExprOrValue<StringType>;
+}
+
 function createHoverCard(
-    trigger: SubtypeExprOrValue<UIComponentType>,
     body: SubtypeExprOrValue<ArrayType<UIComponentType>>,
-    style?: HoverCardStyle
+    options: HoverCardOptions,
 ): ExprType<UIComponentType> {
-    const sizeValue = style?.size
+    const { trigger, title, description, ...style } = options;
+
+    const sizeValue = style.size
         ? (typeof style.size === "string"
             ? East.value(variant(style.size, null), HoverCardSizeType)
             : style.size)
         : undefined;
 
-    const placementValue = style?.placement
+    const placementValue = style.placement
         ? (typeof style.placement === "string"
             ? East.value(variant(style.placement, null), PlacementType)
             : style.placement)
         : undefined;
 
-    const hasStyle = sizeValue || placementValue || style?.hasArrow !== undefined ||
-        style?.openDelay !== undefined || style?.closeDelay !== undefined || style?.onOpenChange !== undefined;
+    const hasStyle = sizeValue || placementValue || style.hasArrow !== undefined ||
+        style.openDelay !== undefined || style.closeDelay !== undefined || style.onOpenChange !== undefined;
 
     return East.value(variant("HoverCard", {
         trigger: trigger,
         body: body,
+        title: title !== undefined ? some(title) : none,
+        description: description !== undefined ? some(description) : none,
         style: hasStyle
-            ? variant("some", East.value({
-                size: sizeValue ? variant("some", sizeValue) : variant("none", null),
-                placement: placementValue ? variant("some", placementValue) : variant("none", null),
-                hasArrow: style?.hasArrow !== undefined ? variant("some", style.hasArrow) : variant("none", null),
-                openDelay: style?.openDelay !== undefined ? variant("some", style.openDelay) : variant("none", null),
-                closeDelay: style?.closeDelay !== undefined ? variant("some", style.closeDelay) : variant("none", null),
-                onOpenChange: style?.onOpenChange !== undefined ? variant("some", style.onOpenChange) : variant("none", null),
+            ? some(East.value({
+                size: sizeValue ? some(sizeValue) : none,
+                placement: placementValue ? some(placementValue) : none,
+                hasArrow: style.hasArrow !== undefined ? some(style.hasArrow) : none,
+                openDelay: style.openDelay !== undefined ? some(style.openDelay) : none,
+                closeDelay: style.closeDelay !== undefined ? some(style.closeDelay) : none,
+                onOpenChange: style.onOpenChange !== undefined ? some(style.onOpenChange) : none,
             }, HoverCardStyleType))
-            : variant("none", null),
+            : none,
     }), UIComponentType);
 }
 
@@ -131,15 +147,14 @@ function createHoverCard(
  * HoverCard component for rich hover previews.
  *
  * @remarks
- * Use `HoverCard.Root(trigger, body, style)` to create a hover card, or access `HoverCard.Types` for East types.
+ * Use `HoverCard.Root(body, { trigger, ... })` to create a hover card, or access `HoverCard.Types` for East types.
  */
 export const HoverCard = {
     /**
      * Creates a HoverCard component with a trigger and body content.
      *
-     * @param trigger - The UI component that shows the hover card on hover
      * @param body - Array of UI components for hover card content
-     * @param style - Optional styling configuration
+     * @param options - Required `trigger` + optional visual style fields
      * @returns An East expression representing the hover card component
      *
      * @remarks
@@ -152,14 +167,10 @@ export const HoverCard = {
      * import { HoverCard, Text, Avatar, UIComponentType } from "@elaraai/east-ui";
      *
      * const example = East.function([], UIComponentType, $ => {
-     *     return HoverCard.Root(
-     *         Text.Root("@username"),
-     *         [
-     *             Avatar.Root({ name: "John Doe" }),
-     *             Text.Root("Software Engineer"),
-     *         ],
-     *         { openDelay: 200n }
-     *     );
+     *     return HoverCard.Root([
+     *         Avatar.Root({ name: "John Doe" }),
+     *         Text.Root("Software Engineer"),
+     *     ], { trigger: Text.Root("@username"), openDelay: 200n });
      * });
      * ```
      */
@@ -169,11 +180,13 @@ export const HoverCard = {
          * East StructType for HoverCard component.
          *
          * @remarks
-         * HoverCard displays rich content when hovering over a trigger element.
-         * Similar to Tooltip but with more structured content (e.g., user profiles).
+         * HoverCard displays rich content when hovering over a trigger element —
+         * the same visual as Popover, opened on hover/focus instead of click.
          *
          * @property trigger - The UI component that shows the hover card on hover
          * @property body - Array of UI components for hover card content
+         * @property title - Optional hover card title (mono uppercase eyebrow)
+         * @property description - Optional hover card description
          * @property style - Optional style configuration
          */
         HoverCard: HoverCardType,

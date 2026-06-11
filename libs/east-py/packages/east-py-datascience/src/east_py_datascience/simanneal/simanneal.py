@@ -38,18 +38,40 @@ DiscreteStateType = VariantType(
         ("bool_array", VectorType(BooleanType)),
     ]
 )
+"""A discrete solution state for simulated annealing.
+
+Cases: ``int_array`` (``Vector<Integer>`` — permutation or integer labels),
+``bool_array`` (``Vector<Boolean>`` — binary inclusion mask).
+"""
 
 # Energy function type: state -> score
 EnergyFunctionType = FunctionType([DiscreteStateType], FloatType)
+"""Energy (cost) function signature for general discrete annealing.
+
+Receives ``DiscreteStateType`` and returns ``Float``; lower energy is better.
+"""
 
 # Move function type: state -> neighbor
 MoveFunctionType = FunctionType([DiscreteStateType], DiscreteStateType)
+"""Neighbor-generation function signature for general discrete annealing.
+
+Receives ``DiscreteStateType`` and returns a new ``DiscreteStateType``
+neighbor; must preserve the variant tag (``int_array`` or ``bool_array``).
+"""
 
 # Permutation energy function type
 PermutationEnergyType = FunctionType([VectorType(IntegerType)], FloatType)
+"""Energy function signature for permutation problems.
+
+Receives ``Vector<Integer>`` (the current permutation) and returns ``Float``.
+"""
 
 # Subset energy function type
 SubsetEnergyType = FunctionType([VectorType(BooleanType)], FloatType)
+"""Energy function signature for subset-selection problems.
+
+Receives ``Vector<Boolean>`` (inclusion mask) and returns ``Float``.
+"""
 
 # Annealing configuration
 AnnealConfigType = StructType(
@@ -62,6 +84,16 @@ AnnealConfigType = StructType(
         ("random_state", OptionType(IntegerType)),
     ]
 )
+"""Temperature schedule and runtime configuration for simulated annealing.
+
+Fields: ``t_max`` (starting temperature, default auto-detected),
+``t_min`` (stopping temperature, default auto-detected),
+``steps`` (total annealing steps, default auto-detected),
+``updates`` (progress log frequency; 0 = silent, default 0),
+``auto_schedule`` (run auto-calibration for this many minutes and use the
+resulting schedule — overrides ``t_max``/``t_min``/``steps``),
+``random_state`` (seed for Python's ``random`` module).
+"""
 
 # Annealing result
 AnnealResultType = StructType(
@@ -72,6 +104,13 @@ AnnealResultType = StructType(
         ("success", BooleanType),
     ]
 )
+"""Outcome of a simulated annealing run.
+
+Fields: ``best_state`` (``DiscreteStateType`` best solution found),
+``best_energy`` (``Float`` energy at that state), ``steps_taken``
+(``Integer`` total steps completed), ``success`` (``Boolean`` true when the
+annealer produced a valid result).
+"""
 
 
 # ============================================================================
@@ -123,7 +162,52 @@ def simanneal_optimize_impl(
     move_fn: Callable[[EastVariant], EastVariant],
     config: EastStruct,
 ) -> EastStruct:
-    """Run simulated annealing with custom energy and move functions."""
+    """Run simulated annealing on a discrete state with custom energy and move functions.
+
+    Wraps the ``simanneal`` library's ``Annealer`` to optimize an arbitrary
+    ``DiscreteStateType`` value. The caller supplies domain-specific energy and
+    move callables; the annealer manages the temperature schedule and acceptance
+    criterion.
+
+    Args:
+        initial_state: ``DiscreteStateType`` (``EastVariant``) - starting
+            state, either:
+
+            - ``int_array`` wrapping ``Vector<Integer>``, or
+            - ``bool_array`` wrapping ``Vector<Boolean>``.
+
+        energy_fn: ``Function<[DiscreteStateType], Float>`` (callable) -
+            called at each step to score the current state; lower is better
+            (the annealer minimizes energy).
+        move_fn: ``Function<[DiscreteStateType], DiscreteStateType>``
+            (callable) - called at each step to propose a neighbor; must
+            return a new ``DiscreteStateType`` with the same variant tag as
+            ``initial_state``.
+        config: ``AnnealConfigType`` (``EastStruct``) with fields:
+
+            - ``t_max`` (``Option<Float>``): starting temperature (default
+              auto-detected by ``simanneal``).
+            - ``t_min`` (``Option<Float>``): stopping temperature (default
+              auto-detected).
+            - ``steps`` (``Option<Integer>``): total annealing steps (default
+              auto-detected).
+            - ``updates`` (``Option<Integer>``): progress update frequency;
+              0 = silent (default 0).
+            - ``auto_schedule`` (``Option<Float>``): when present, run
+              auto-calibration for this many minutes and use the resulting
+              schedule (overrides ``t_max``/``t_min``/``steps``).
+            - ``random_state`` (``Option<Integer>``): seed for Python's
+              ``random`` module before the run.
+
+    Returns:
+        ``AnnealResultType`` (``EastStruct``): ``best_state``
+        (``DiscreteStateType``), ``best_energy`` (``Float``),
+        ``steps_taken`` (``Integer``), ``success`` (``Boolean`` true when
+        the annealer found a valid solution).
+
+    Raises:
+        NotImplementedError: the ``simanneal`` extra is not installed.
+    """
     _check_simanneal_support()
     from simanneal import Annealer
 
@@ -210,7 +294,31 @@ def simanneal_optimize_permutation_impl(
     energy_fn: Callable[[EastVector], float],
     config: EastStruct,
 ) -> EastStruct:
-    """Run simulated annealing on a permutation using swap moves."""
+    """Run simulated annealing on a permutation using random two-element swaps.
+
+    Specialization of :func:`simanneal_optimize_impl` for permutation problems
+    (e.g. TSP, job scheduling). The state is maintained as a NumPy array
+    internally; ``energy_fn`` receives a ``Vector<Integer>`` view at each
+    evaluation. The move operator swaps two randomly selected indices.
+
+    Args:
+        initial_perm: ``Vector<Integer>`` (``EastVector``) - initial
+            permutation; elements are arbitrary integer labels.
+        energy_fn: ``Function<[Vector<Integer>], Float>`` (callable) - scores
+            the current permutation; lower energy is preferred.
+        config: ``AnnealConfigType`` (``EastStruct``) - see
+            :func:`simanneal_optimize_impl` for all fields (``t_max``,
+            ``t_min``, ``steps``, ``updates``, ``auto_schedule``,
+            ``random_state``).
+
+    Returns:
+        ``AnnealResultType`` (``EastStruct``): ``best_state`` tagged
+        ``int_array`` (``Vector<Integer>``), ``best_energy`` (``Float``),
+        ``steps_taken`` (``Integer``), ``success`` (``Boolean``).
+
+    Raises:
+        NotImplementedError: the ``simanneal`` extra is not installed.
+    """
     _check_simanneal_support()
     from simanneal import Annealer
 
@@ -312,7 +420,32 @@ def simanneal_optimize_subset_impl(
     energy_fn: Callable[[EastVector], float],
     config: EastStruct,
 ) -> EastStruct:
-    """Run simulated annealing on a subset selection using bit-flip moves."""
+    """Run simulated annealing on a binary subset selection using bit-flip moves.
+
+    Specialization of :func:`simanneal_optimize_impl` for subset-selection
+    problems (e.g. feature selection, portfolio construction). The state is a
+    boolean mask over items; at each step a random bit is flipped. The state is
+    maintained internally as a NumPy boolean array; ``energy_fn`` receives a
+    ``Vector<Boolean>`` view at each evaluation.
+
+    Args:
+        initial_selection: ``Vector<Boolean>`` (``EastVector``) - initial
+            inclusion mask; length = total number of candidate items.
+        energy_fn: ``Function<[Vector<Boolean>], Float>`` (callable) - scores
+            the current selection mask; lower energy is preferred.
+        config: ``AnnealConfigType`` (``EastStruct``) - see
+            :func:`simanneal_optimize_impl` for all fields (``t_max``,
+            ``t_min``, ``steps``, ``updates``, ``auto_schedule``,
+            ``random_state``).
+
+    Returns:
+        ``AnnealResultType`` (``EastStruct``): ``best_state`` tagged
+        ``bool_array`` (``Vector<Boolean>``), ``best_energy`` (``Float``),
+        ``steps_taken`` (``Integer``), ``success`` (``Boolean``).
+
+    Raises:
+        NotImplementedError: the ``simanneal`` extra is not installed.
+    """
     _check_simanneal_support()
     from simanneal import Annealer
 

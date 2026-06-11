@@ -4,9 +4,9 @@
  */
 
 import { memo, useMemo, useCallback, type ReactNode } from "react";
-import { Dialog as ChakraDialog, Portal, Box as ChakraBox } from "@chakra-ui/react";
+import { Dialog as ChakraDialog, Portal, Box as ChakraBox, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Dialog } from "@elaraai/east-ui";
+import { Dialog } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 
@@ -82,6 +82,9 @@ export interface DialogContentProps {
  */
 export function DialogContent({ value, storageKey, trigger, open, onClose, onExitComplete: onExitCompleteCallback }: DialogContentProps) {
     const props = useMemo(() => toChakraDialog(value), [value]);
+    // The theme recipe adds an `eyebrow` slot beyond Chakra's built-in
+    // Dialog anatomy, so widen the inferred slot map.
+    const dialogStyles = useSlotRecipe({ key: "dialog" })() as Record<string, SystemStyleObject>;
 
     const eyebrow = useMemo(() => getSomeorUndefined(value.eyebrow), [value.eyebrow]);
     const title = useMemo(() => getSomeorUndefined(value.title), [value.title]);
@@ -147,14 +150,7 @@ export function DialogContent({ value, storageKey, trigger, open, onClose, onExi
                 <ChakraDialog.Positioner>
                     <ChakraDialog.Content maxW={DIALOG_SIZE_MAX[(props.size as string) ?? "md"] ?? "480px"}>
                         {eyebrow && (
-                            <ChakraBox
-                                fontFamily="mono"
-                                fontSize="10px"
-                                fontWeight="600"
-                                letterSpacing="0.18em"
-                                textTransform="uppercase"
-                                color="fg.muted"
-                            >
+                            <ChakraBox css={dialogStyles.eyebrow}>
                                 {eyebrow}
                             </ChakraBox>
                         )}
@@ -162,9 +158,11 @@ export function DialogContent({ value, storageKey, trigger, open, onClose, onExi
                         {description && (
                             <ChakraDialog.Description>{description}</ChakraDialog.Description>
                         )}
-                        {value.body.map((child, index) => (
-                            <EastChakraComponent key={index} value={child} storageKey={`${storageKey}.${index}`} />
-                        ))}
+                        <ChakraDialog.Body>
+                            {value.body.map((child, index) => (
+                                <EastChakraComponent key={index} value={child} storageKey={`${storageKey}.${index}`} />
+                            ))}
+                        </ChakraDialog.Body>
                     </ChakraDialog.Content>
                 </ChakraDialog.Positioner>
             </Portal>

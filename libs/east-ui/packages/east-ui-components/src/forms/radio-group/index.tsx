@@ -6,7 +6,7 @@
 import { memo, useCallback, useState, useEffect } from "react";
 import { RadioGroup as ChakraRadioGroup, HStack, VStack } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { RadioGroup } from "@elaraai/east-ui";
+import { RadioGroup } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 
 const radioGroupEqual = equalFor(RadioGroup.Types.Root);
@@ -64,11 +64,11 @@ export const EastChakraRadioGroup = memo(function EastChakraRadioGroup({ value }
                 {value.items.map((item) => {
                     const itemDisabled = getSomeorUndefined(item.disabled) ?? false;
                     const label = getSomeorUndefined(item.label) ?? item.value;
-                    // Chakra v3 RadioGroup: the indicator's checked-fill comes
-                    // from `bg`, the unchecked ring from `borderColor`, the
-                    // text from the parent Item's `color`. Inline `style`
-                    // would lose to Chakra's CSS classes; using props instead
-                    // lets emotion compose the override.
+                    // The radio is outlined-with-dot, never a filled disc:
+                    // `fillColor` is the selected accent (checked ring + dot, via
+                    // `_checked`), `borderColor` the unchecked ring, `color` the
+                    // label. Props (not inline `style`) so emotion composes over
+                    // the recipe's checked rules.
                     return (
                         <ChakraRadioGroup.Item
                             key={item.value}
@@ -78,8 +78,8 @@ export const EastChakraRadioGroup = memo(function EastChakraRadioGroup({ value }
                         >
                             <ChakraRadioGroup.ItemHiddenInput />
                             <ChakraRadioGroup.ItemIndicator
-                                bg={fillColor}
                                 borderColor={borderColor}
+                                {...(fillColor ? { _checked: { color: fillColor, borderColor: fillColor } } : {})}
                             />
                             <ChakraRadioGroup.ItemText>
                                 {label}

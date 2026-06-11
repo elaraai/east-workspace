@@ -17,6 +17,7 @@ import {
 } from "@elaraai/east";
 
 import { StatusTokenType } from "../../style/interaction.js";
+import { DensityType } from "../../style.js";
 import { UIComponentType } from "../../component.js";
 import {
     SegmentedMeterSegmentType,
@@ -54,17 +55,20 @@ export {
  * @property segments - Array of segment data
  * @property caption - Optional caption UIComponent
  * @property max - Optional total reference
+ * @property density - Density override; shares the cascade with `ChipRail` / `Trace` so mixed display cells align
  * @property style - Optional visual style sub-struct
  */
 export const SegmentedMeterType: StructType<{
     segments: ArrayType<SegmentedMeterSegmentType>,
     caption: OptionType<UIComponentType>,
     max: OptionType<FloatType>,
+    density: OptionType<DensityType>,
     style: OptionType<SegmentedMeterStyleType>,
 }> = StructType({
     segments: ArrayType(SegmentedMeterSegmentType),
     caption: OptionType(UIComponentType),
     max: OptionType(FloatType),
+    density: OptionType(DensityType),
     style: OptionType(SegmentedMeterStyleType),
 });
 
@@ -162,12 +166,18 @@ function createSegmentedMeter(
     options?: SegmentedMeterOptions,
 ): ExprType<UIComponentType> {
     const segmentValues = segments.map(buildSegment);
+    const densityValue = options?.density !== undefined
+        ? (typeof options.density === "string"
+            ? East.value(variant(options.density, null), DensityType)
+            : options.density)
+        : undefined;
     const styleValue = buildSegmentedMeterStyle(options);
 
     return East.value(variant("SegmentedMeter", {
         segments: East.value(segmentValues, ArrayType(SegmentedMeterSegmentType)),
         caption: options?.caption !== undefined ? some(options.caption as SubtypeExprOrValue<UIComponentType>) : none,
         max: options?.max !== undefined ? some(options.max) : none,
+        density: densityValue ? some(densityValue) : none,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
@@ -220,6 +230,7 @@ export const SegmentedMeter: SegmentedMeterNamespace = {
          * @property segments - Array of segment data
          * @property caption - Optional caption UIComponent
          * @property max - Optional total reference
+         * @property density - Density override; shares the cascade with `ChipRail` / `Trace` so mixed display cells align
          * @property style - Optional visual style sub-struct
          */
         SegmentedMeter: SegmentedMeterType,

@@ -5,7 +5,7 @@
 
 import { East, NullType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Planner } from "@elaraai/east-ui";
+import { Planner } from "@elaraai/east-ui/internal";
 import * as ex from "./planner.examples.js";
 
 describeEast("Planner", (test) => {

@@ -11,7 +11,7 @@ import {
     none,
 } from "@elaraai/east";
 
-import { ColorSchemeType, StyleVariantType, SizeType, OverflowType } from "../../style.js";
+import { ColorSchemeType, DensityType, StyleVariantType, SizeType, OverflowType } from "../../style.js";
 import { PaddingType, MarginType } from "../../layout/style.js";
 import { UIComponentType } from "../../component.js";
 import { AvatarType, AvatarStyleType, type AvatarStyle } from "./types.js";
@@ -143,9 +143,15 @@ function buildAvatarStyle(style: AvatarStyle | undefined): ExprType<AvatarStyleT
  */
 function createAvatar(options?: AvatarStyle): ExprType<UIComponentType> {
     const styleValue = buildAvatarStyle(options);
+    const densityValue = options?.density !== undefined
+        ? (typeof options.density === "string"
+            ? East.value(variant(options.density, null), DensityType)
+            : options.density)
+        : undefined;
     return East.value(variant("Avatar", {
         src: options?.src !== undefined ? some(options.src) : none,
         name: options?.name !== undefined ? some(options.name) : none,
+        density: densityValue ? some(densityValue) : none,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
@@ -187,6 +193,7 @@ export const Avatar = {
          *
          * @property src - Image URL (main-struct content)
          * @property name - User name for initials fallback (main-struct content)
+         * @property density - Density override; shares the cascade with `ChipRail` / `Trace` so mixed display cells align
          * @property style - Optional visual style sub-struct (see `Style`)
          */
         Avatar: AvatarType,

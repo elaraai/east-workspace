@@ -17,7 +17,7 @@ import {
     none,
 } from "@elaraai/east";
 
-import { SizeType } from "../../style.js";
+import { DensityType, SizeType } from "../../style.js";
 import { UIComponentType } from "../../component.js";
 import { IconType } from "../icon/types.js";
 import {
@@ -47,6 +47,7 @@ export {
  * @property trigger - Optional trailing icon (defaults to `faChevronDown`)
  * @property disabled - Disabled state
  * @property onClick - Click callback
+ * @property density - Density override; shares the cascade with `ChipRail` / `Trace` so mixed display cells align
  * @property style - Optional visual style sub-struct
  */
 export const EditableChipType: StructType<{
@@ -54,12 +55,14 @@ export const EditableChipType: StructType<{
     trigger: OptionType<IconType>,
     disabled: OptionType<BooleanType>,
     onClick: OptionType<FunctionType<[], NullType>>,
+    density: OptionType<DensityType>,
     style: OptionType<EditableChipStyleType>,
 }> = StructType({
     label: UIComponentType,
     trigger: OptionType(IconType),
     disabled: OptionType(BooleanType),
     onClick: OptionType(FunctionType([], NullType)),
+    density: OptionType(DensityType),
     style: OptionType(EditableChipStyleType),
 });
 
@@ -130,12 +133,18 @@ function createEditableChip(
     options?: EditableChipOptions,
 ): ExprType<UIComponentType> {
     const styleValue = buildEditableChipStyle(options);
+    const densityValue = options?.density !== undefined
+        ? (typeof options.density === "string"
+            ? East.value(variant(options.density, null), DensityType)
+            : options.density)
+        : undefined;
 
     return East.value(variant("EditableChip", {
         label,
         trigger: options?.trigger !== undefined ? some(options.trigger as SubtypeExprOrValue<IconType>) : none,
         disabled: options?.disabled !== undefined ? some(options.disabled) : none,
         onClick: options?.onClick !== undefined ? some(options.onClick) : none,
+        density: densityValue ? some(densityValue) : none,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
@@ -184,6 +193,7 @@ export const EditableChip: EditableChipNamespace = {
          * @property trigger - Optional trailing icon (defaults to `faChevronDown`)
          * @property disabled - Disabled state
          * @property onClick - Click callback
+         * @property density - Density override shared with `ChipRail` / `Trace`
          * @property style - Optional visual style sub-struct
          */
         EditableChip: EditableChipType,

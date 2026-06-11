@@ -30,3 +30,7 @@ test/**
 # Misc
 *.vsix
 .vscode/**
+
+# NOTE: the east-tsserver-plugin under node_modules/ is added to the vsix by
+# scripts/build-tsserver-plugin.mjs --inject (vsce --no-dependencies excludes
+# node_modules unconditionally; negation patterns don't apply there).

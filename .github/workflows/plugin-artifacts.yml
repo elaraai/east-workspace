@@ -11,6 +11,7 @@ on:
     paths:
       - 'libs/**/SKILL.md'
       - 'libs/**/*.examples.ts'
+      - 'libs/**/*.examples.tsx'
       - 'libs/east-claude-plugin/hooks/**'
       - 'libs/east-claude-plugin/lib/**'
       - 'libs/east-claude-plugin/mcp/**'
@@ -23,6 +24,7 @@ on:
     paths:
       - 'libs/**/SKILL.md'
       - 'libs/**/*.examples.ts'
+      - 'libs/**/*.examples.tsx'
       - 'libs/east-claude-plugin/hooks/**'
       - 'libs/east-claude-plugin/lib/**'
       - 'libs/east-claude-plugin/mcp/**'

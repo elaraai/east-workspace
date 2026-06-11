@@ -5,9 +5,7 @@
 
 import {
     type ExprType,
-    type SubtypeExprOrValue,
     East,
-    IntegerType,
     variant,
     some,
     none,
@@ -35,9 +33,8 @@ export {
  * Creates a `TimeRangeInput` — paired start / end time-of-day fields
  * with optional presets.
  *
- * @param startValue - Start of range, **minutes since midnight** (0–1439)
- * @param endValue - End of range, **minutes since midnight** (0–1439)
- * @param style - Optional styling + behaviour configuration
+ * @param options - Required `startValue` + `endValue` (**minutes since
+ *   midnight**, 0–1439), optional styling + behaviour configuration
  * @returns An East expression representing the TimeRangeInput
  *
  * @remarks
@@ -59,47 +56,47 @@ export {
  * const example = East.function([], UIComponentType, $ => {
  *     const start = $.let(360n, IntegerType);  // 06:00
  *     const end = $.let(840n, IntegerType);    // 14:00
- *     return TimeRangeInput.Root(start, end, { step: 15n });
+ *     return TimeRangeInput.Root({ startValue: start, endValue: end, step: 15n });
  * });
  * ```
  */
 function createTimeRangeInput(
-    startValue: SubtypeExprOrValue<IntegerType>,
-    endValue: SubtypeExprOrValue<IntegerType>,
-    style?: TimeRangeInputStyle,
+    options: TimeRangeInputStyle,
 ): ExprType<UIComponentType> {
-    const variantValue = style?.variant
-        ? (typeof style.variant === "string"
-            ? East.value(variant(style.variant, null), InputVariantType)
-            : style.variant)
+    const { startValue, endValue } = options;
+
+    const variantValue = options.variant
+        ? (typeof options.variant === "string"
+            ? East.value(variant(options.variant, null), InputVariantType)
+            : options.variant)
         : undefined;
-    const sizeValue = style?.size
-        ? (typeof style.size === "string"
-            ? East.value(variant(style.size, null), SizeType)
-            : style.size)
+    const sizeValue = options.size
+        ? (typeof options.size === "string"
+            ? East.value(variant(options.size, null), SizeType)
+            : options.size)
         : undefined;
 
-    const hasStyle = !!style && (
+    const hasStyle = (
         variantValue !== undefined ||
         sizeValue !== undefined ||
-        style.color !== undefined ||
-        style.background !== undefined ||
-        style.borderColor !== undefined ||
-        style.focusBorderColor !== undefined
+        options.color !== undefined ||
+        options.background !== undefined ||
+        options.borderColor !== undefined ||
+        options.focusBorderColor !== undefined
     );
 
     const styleValue = hasStyle ? East.value({
         variant: variantValue ? some(variantValue) : none,
         size: sizeValue ? some(sizeValue) : none,
-        color: style!.color !== undefined ? some(style!.color) : none,
-        background: style!.background !== undefined ? some(style!.background) : none,
-        borderColor: style!.borderColor !== undefined ? some(style!.borderColor) : none,
-        focusBorderColor: style!.focusBorderColor !== undefined ? some(style!.focusBorderColor) : none,
+        color: options.color !== undefined ? some(options.color) : none,
+        background: options.background !== undefined ? some(options.background) : none,
+        borderColor: options.borderColor !== undefined ? some(options.borderColor) : none,
+        focusBorderColor: options.focusBorderColor !== undefined ? some(options.focusBorderColor) : none,
     }, TimeRangeInputStyleType) : undefined;
 
-    const presetsExpr = style?.presets
+    const presetsExpr = options.presets
         ? East.value(
-            style.presets.map(p => East.value({
+            options.presets.map(p => East.value({
                 label: p.label,
                 start: p.start,
                 end: p.end,
@@ -110,12 +107,12 @@ function createTimeRangeInput(
     return East.value(variant("TimeRangeInput", {
         startValue,
         endValue,
-        min: style?.min !== undefined ? some(style.min) : none,
-        max: style?.max !== undefined ? some(style.max) : none,
-        step: style?.step !== undefined ? some(style.step) : none,
+        min: options.min !== undefined ? some(options.min) : none,
+        max: options.max !== undefined ? some(options.max) : none,
+        step: options.step !== undefined ? some(options.step) : none,
         presets: presetsExpr ? some(presetsExpr) : none,
-        disabled: style?.disabled !== undefined ? some(style.disabled) : none,
-        onChange: style?.onChange ? some(style.onChange) : none,
+        disabled: options.disabled !== undefined ? some(options.disabled) : none,
+        onChange: options.onChange ? some(options.onChange) : none,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
@@ -133,7 +130,7 @@ interface TimeRangeInputNamespace {
  * `TimeRangeInput` namespace — paired start / end time-of-day inputs.
  *
  * @remarks
- * Use `TimeRangeInput.Root(startValue, endValue, options?)` to
+ * Use `TimeRangeInput.Root({ startValue, endValue, ... })` to
  * construct. Values are **minutes since midnight** (0–1439). Access
  * IR types via `TimeRangeInput.Types.Root`,
  * `TimeRangeInput.Types.Style`, `TimeRangeInput.Types.Preset`.

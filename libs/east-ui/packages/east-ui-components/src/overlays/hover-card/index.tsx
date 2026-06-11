@@ -4,9 +4,9 @@
  */
 
 import { memo, useMemo, useCallback } from "react";
-import { HoverCard as ChakraHoverCard, Portal } from "@chakra-ui/react";
+import { Box as ChakraBox, HoverCard as ChakraHoverCard, Portal, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { HoverCard } from "@elaraai/east-ui";
+import { HoverCard } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 
@@ -26,6 +26,11 @@ export interface EastChakraHoverCardProps {
  */
 export const EastChakraHoverCard = memo(function EastChakraHoverCard({ value, storageKey }: EastChakraHoverCardProps) {
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
+    const title = useMemo(() => getSomeorUndefined(value.title), [value.title]);
+    const description = useMemo(() => getSomeorUndefined(value.description), [value.description]);
+    // The theme recipe adds `title` / `description` slots beyond Chakra's
+    // HoverCard anatomy, so widen the inferred slot map.
+    const cardStyles = useSlotRecipe({ key: "hoverCard" })() as Record<string, SystemStyleObject>;
     const placement = useMemo(() => style ? getSomeorUndefined(style.placement)?.type : undefined, [style]);
     const size = useMemo(() => style ? getSomeorUndefined(style.size)?.type : undefined, [style]);
     const hasArrow = useMemo(() => style ? getSomeorUndefined(style.hasArrow) : undefined, [style]);
@@ -63,11 +68,15 @@ export const EastChakraHoverCard = memo(function EastChakraHoverCard({ value, st
             <Portal>
                 <ChakraHoverCard.Positioner>
                     <ChakraHoverCard.Content>
-                        {hasArrow && (
+                        {/* The 12px arrow is part of the spec chrome — on unless
+                            explicitly disabled. */}
+                        {hasArrow !== false && (
                             <ChakraHoverCard.Arrow>
                                 <ChakraHoverCard.ArrowTip />
                             </ChakraHoverCard.Arrow>
                         )}
+                        {title && <ChakraBox css={cardStyles.title}>{title}</ChakraBox>}
+                        {description && <ChakraBox css={cardStyles.description}>{description}</ChakraBox>}
                         {value.body.map((child, index) => (
                             <EastChakraComponent key={index} value={child} storageKey={`${storageKey}.${index}`} />
                         ))}

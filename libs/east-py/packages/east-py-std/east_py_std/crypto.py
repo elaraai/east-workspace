@@ -5,6 +5,9 @@
 """Cryptographic platform functions for East.
 
 Provides cryptographic operations for East programs running in Python.
+The ``*_impl`` functions are plain Python callables taking and returning East
+values - import them directly from a project's own ``@platform_function`` to
+reuse the implementations without an IR round-trip.
 """
 
 import hashlib
@@ -21,13 +24,15 @@ def crypto_random_bytes_impl(length: int) -> EastBlob:
     """Generate cryptographically secure random bytes.
 
     Args:
-        length: Number of random bytes to generate
+        length: ``Integer`` (``int``) - number of random bytes to generate;
+            must be non-negative.
 
     Returns:
-        Cryptographically secure random bytes
+        ``Blob`` (``EastBlob``) - ``length`` bytes drawn from the OS entropy
+        source via :func:`secrets.token_bytes`.
 
     Raises:
-        ValueError: If length is negative
+        ValueError: If ``length`` is negative.
     """
     if length < 0:
         raise ValueError(f"Length must be non-negative, got {length}")
@@ -36,36 +41,38 @@ def crypto_random_bytes_impl(length: int) -> EastBlob:
 
 @platform_function(name="crypto_hash_sha256", inputs=[StringType], output=StringType)
 def crypto_hash_sha256_impl(data: str) -> str:
-    """Compute SHA-256 hash of UTF-8 string.
+    """Compute the SHA-256 hash of a UTF-8 string.
 
     Args:
-        data: UTF-8 string to hash
+        data: ``String`` (``str``) - input string encoded as UTF-8 before
+            hashing.
 
     Returns:
-        64-character lowercase hexadecimal hash string
+        ``String`` (``str``) - 64-character lowercase hexadecimal digest.
     """
     return hashlib.sha256(data.encode("utf-8")).hexdigest()
 
 
 @platform_function(name="crypto_hash_sha256_bytes", inputs=[BlobType], output=BlobType)
 def crypto_hash_sha256_bytes_impl(data: EastBlob) -> EastBlob:
-    """Compute SHA-256 hash of binary data.
+    """Compute the SHA-256 hash of binary data.
 
     Args:
-        data: Binary data to hash
+        data: ``Blob`` (``EastBlob``) - raw bytes to hash.
 
     Returns:
-        32-byte SHA-256 hash
+        ``Blob`` (``EastBlob``) - 32-byte binary SHA-256 digest.
     """
     return EastBlob(hashlib.sha256(data).digest())
 
 
 @platform_function(name="crypto_uuid", inputs=[], output=StringType)
 def crypto_uuid_impl() -> str:
-    """Generate a version 4 UUID.
+    """Generate a random version 4 UUID.
 
     Returns:
-        36-character UUID string in standard format (8-4-4-4-12)
+        ``String`` (``str``) - 36-character UUID string in standard
+        8-4-4-4-12 hyphenated format (e.g. ``"550e8400-e29b-41d4-a716-446655440000"``).
     """
     return str(uuid.uuid4())
 
@@ -74,4 +81,10 @@ def crypto_uuid_impl() -> str:
 crypto_impl = platform_functions(__name__)
 
 
-__all__ = ["crypto_impl"]
+__all__ = [
+    "crypto_impl",
+    "crypto_random_bytes_impl",
+    "crypto_hash_sha256_impl",
+    "crypto_hash_sha256_bytes_impl",
+    "crypto_uuid_impl",
+]

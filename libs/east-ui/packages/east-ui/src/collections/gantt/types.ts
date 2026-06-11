@@ -20,6 +20,8 @@ import {
 import { TableCellClickEventType, TableRowClickEventType, TableSortEventType } from "../table/types.js";
 
 import { StatusTokenType, DensityType, type DensityLiteral } from "../../style/interaction.js";
+import { SliceBindType } from "../../platform/slice/index.js";
+import { type SliceAffordanceLiteral } from "../../contracts/slice-affordances.js";
 
 // Re-export shared content primitives for ergonomic discovery via Gantt.Types.*.
 export { AlignType, LabelInputType, type AlignLiteral, type LabelInput } from "../../style.js";
@@ -382,6 +384,16 @@ export type GanttStyleType = typeof GanttStyleType;
 export interface GanttStyle<ColumnKeys extends string = string> {
     /** Column keys to freeze (pin left). Frozen columns appear first and stay visible during horizontal scroll. */
     frozen?: ColumnKeys[];
+    /**
+     * Slice chrome — pass the bound handle and the Gantt renders its own
+     * header rail mounting the `affordances` (default
+     * `["filter", "search", "range"]`). With `"brush"` listed, dragging a
+     * window on the timeline writes the slice's range. Chrome only: feed the
+     * narrowed rows explicitly via `Slice.rows([RowType], slice)`.
+     */
+    slice?: SubtypeExprOrValue<SliceBindType>;
+    /** Rail affordances when `slice` is set. Default `["filter", "search", "range"]`. */
+    affordances?: SliceAffordanceLiteral[];
     /** Time-axis configuration — explicit `{ min, max }` window, tick-label `format`, and header `tier`. Omit to fit the domain to the data with an auto-chosen tick interval. */
     axis?: GanttAxisInput;
     /** CSS height for the Gantt container (e.g., "500px", "100%") */

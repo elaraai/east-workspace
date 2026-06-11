@@ -15,7 +15,7 @@
  * Run via `make start-diff` or `make diff`.
  */
 
-import * as examples from '@elaraai/e3-ui/examples/diff';
+import * as examples from '@elaraai/e3-ui/examples/diff/diff';
 import pkgInfo from '../package.json' with { type: 'json' };
 import { buildShowcasePackage } from './utils.js';
 

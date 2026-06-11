@@ -21,7 +21,7 @@ import {
     NodeKindType as EastNodeKindType,
     LinkKindType as EastLinkKindType,
     OntologyType as EastOntologyType,
-} from '@elaraai/e3-ui';
+} from '@elaraai/e3-ui/internal';
 
 /** JS string-union of every `NodeKindType` variant tag. */
 export type OntologyNodeKind = ValueTypeOf<typeof EastNodeKindType>['type'];

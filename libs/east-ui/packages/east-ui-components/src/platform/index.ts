@@ -67,7 +67,7 @@ export { DownloadImpl } from "./download/index.js";
 export { ShareImpl } from "./share/index.js";
 
 // Slice — stateful narrowing platform (bind) + pure apply engine
-export { SliceImpl, SliceApplyImpl } from "./slice/index.js";
+export { SliceImpl, SliceApplyImpl, buildSliceHandle, DEFAULT_SLICE_STATE, boundRangeDomain } from "./slice/index.js";
 
 // =============================================================================
 // StateRuntime Namespace
@@ -77,10 +77,12 @@ import {
     StateImpl,
     getStore,
     initializeStore,
+    trackKey,
 } from "./state-runtime.js";
 
 export const StateRuntime = {
     Implementation: StateImpl,
     getStore,
     initializeStore,
+    trackKey,
 } as const;

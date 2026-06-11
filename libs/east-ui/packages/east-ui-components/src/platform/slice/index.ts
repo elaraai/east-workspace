@@ -25,7 +25,7 @@
 import { none, type variant } from "@elaraai/east";
 import { encodeBeast2For, decodeBeast2For } from "@elaraai/east";
 import { type PlatformFunction, type EastTypeValue } from "@elaraai/east/internal";
-import { Slice, SliceApplyImpl, sliceDimensions, sliceFields, sliceMatches, sliceBreakdown, sliceSeries } from "@elaraai/east-ui";
+import { Slice, SliceApplyImpl, sliceDimensions, sliceFields, sliceMatches, sliceBreakdown, sliceSeries } from "@elaraai/east-ui/internal";
 import { getStore, trackKey } from "../state-runtime.js";
 import { registerPlatformImplementation } from "../registry.js";
 
@@ -55,7 +55,7 @@ interface SliceCohortLike {
 const encodeState = encodeBeast2For(Slice.Types.State);
 const decodeState = decodeBeast2For(Slice.Types.State);
 
-const DEFAULT_STATE: SliceStateLike = {
+export const DEFAULT_SLICE_STATE: SliceStateLike = {
     range:         none,
     compare:       none,
     filters:       [],
@@ -69,7 +69,7 @@ const DEFAULT_STATE: SliceStateLike = {
 
 function readState(key: string): SliceStateLike {
     const encoded = getStore().read(key);
-    if (encoded === undefined) return DEFAULT_STATE;
+    if (encoded === undefined) return DEFAULT_SLICE_STATE;
     return decodeState(encoded) as SliceStateLike;
 }
 
@@ -88,20 +88,85 @@ function updateState(key: string, fn: (s: SliceStateLike) => SliceStateLike): nu
     return null;
 }
 
+/** Bound data + config per slice key — what `Slice.rows` narrows from. The
+ *  rows entry may be a getter so long-lived handles (a DecisionQueue's
+ *  handle-owned slice) always see the live collection. */
+const boundByKey = new Map<string, { rows: Row[] | (() => Row[]); cfg: Parameters<typeof sliceMatches>[1] }>();
+
+function boundRows(entry: { rows: Row[] | (() => Row[]) }): Row[] {
+    return typeof entry.rows === "function" ? entry.rows() : entry.rows;
+}
+
+/**
+ * The bound rows' domain over the slice's range field — feeds the standalone
+ * `Slice.Rail` brush strip (track = full domain, window = applied range).
+ * Values are epoch ms for datetime fields, plain numbers for float/integer.
+ */
+export function boundRangeDomain(key: string): { kind: "datetime" | "float"; min: number; max: number } | undefined {
+    const bound = boundByKey.get(key);
+    if (bound === undefined) return undefined;
+    const boundRowsList = boundRows(bound);
+    if (boundRowsList.length === 0) return undefined;
+    const cfg = bound.cfg as unknown as {
+        rangeFieldId: { type: string; value: string };
+        fields: Map<string, { type: string; value: { accessor: (r: unknown) => unknown } }>;
+    };
+    if (cfg.rangeFieldId.type !== "some") return undefined;
+    const field = cfg.fields.get(cfg.rangeFieldId.value);
+    if (field === undefined) return undefined;
+    const kind = field.type === "datetime" ? "datetime" as const : "float" as const;
+    let min = Infinity;
+    let max = -Infinity;
+    for (const r of boundRowsList) {
+        const v = field.value.accessor(r);
+        const n = v instanceof Date ? v.getTime() : Number(v);
+        if (n < min) min = n;
+        if (n > max) max = n;
+    }
+    if (!Number.isFinite(min) || !Number.isFinite(max)) return undefined;
+    return { kind, min, max };
+}
+
+/**
+ * Build a live slice handle outside the platform-function path — for
+ * components that own their slice internally (a `DecisionQueue`'s rows
+ * arrive via binding descriptors, so the host can't bind one). Same
+ * closure construction as the `Slice.bind` impl; the key registers in the
+ * shared store, so the rail / editor / `Slice.rows` all interoperate.
+ */
+export function buildSliceHandle(key: unknown, config: unknown, initial: unknown, data: unknown | (() => unknown), toMatch: unknown) {
+    return bindImpl(key, config, initial, data, toMatch);
+}
+
 export const SliceImpl: PlatformFunction[] = [
-    Slice.bind.implement((_T: EastTypeValue) => (key: unknown, config: unknown, initial: unknown, data: unknown, toMatch: unknown) => {
+    Slice.rows.implement((_T: EastTypeValue) => (handle: unknown) => {
+        const k = (handle as { key: string }).key;
+        const bound = boundByKey.get(k);
+        if (bound === undefined) return [];
+        trackKey(k);
+        const state = readState(k);
+        const now = new Date();
+        return boundRows(bound).filter(r => sliceMatches(state as never, bound.cfg, r, now));
+    }),
+    Slice.bind.implement((_T: EastTypeValue) => bindImpl),
+];
+
+function bindImpl(key: unknown, config: unknown, initial: unknown, data: unknown, toMatch: unknown) {
+    {
         const k = key as string;
         const cfg = config as Parameters<typeof sliceMatches>[1];
-        const rows = (data as Row[] | undefined) ?? [];
+        const rowsSource = data as Row[] | (() => Row[]) | undefined;
+        const liveRows = (): Row[] => (typeof rowsSource === "function" ? rowsSource() : rowsSource) ?? [];
         // `toMatch` arrives as `option<(row) => Match>`; unwrap the callable.
         const toMatchFn = (toMatch as variant | undefined)?.type === "some"
             ? (toMatch as { value: (r: Row) => Match }).value
             : undefined;
         /* Synthetic single-narrowing state, for per-aspect counts. */
-        const only = (patch: Partial<SliceStateLike>): SliceStateLike => ({ ...DEFAULT_STATE, ...patch });
+        const only = (patch: Partial<SliceStateLike>): SliceStateLike => ({ ...DEFAULT_SLICE_STATE, ...patch });
 
         /* First bind seeds the key with the caller-supplied initial state. */
         if (!getStore().has(k)) writeState(k, initial as SliceStateLike);
+        boundByKey.set(k, { rows: (typeof rowsSource === "function" ? rowsSource : liveRows()), cfg } as never);
 
         return {
             key: k,
@@ -214,20 +279,20 @@ export const SliceImpl: PlatformFunction[] = [
             rangeFieldId: () => (config as { rangeFieldId: variant }).rangeFieldId,
 
             // --- data-derived results (computed over the bound `rows`) ---
-            totalCount: () => BigInt(rows.length),
+            totalCount: () => BigInt(liveRows().length),
             resultCount: () => {
                 trackKey(k);
                 const s = readState(k);
                 const now = new Date();
-                return BigInt(rows.filter(r => sliceMatches(s as never, cfg, r, now)).length);
+                return BigInt(liveRows().filter(r => sliceMatches(s as never, cfg, r, now)).length);
             },
             groups: () => {
                 trackKey(k);
-                return sliceBreakdown(readState(k) as never, cfg, rows, new Date());
+                return sliceBreakdown(readState(k) as never, cfg, liveRows(), new Date());
             },
             series: (xFieldId: unknown, valueFieldId: unknown) => {
                 trackKey(k);
-                return sliceSeries(readState(k) as never, cfg, rows, xFieldId as string, valueFieldId as string, new Date());
+                return sliceSeries(readState(k) as never, cfg, liveRows(), xFieldId as string, valueFieldId as string, new Date());
             },
             matches: () => {
                 trackKey(k);
@@ -235,8 +300,8 @@ export const SliceImpl: PlatformFunction[] = [
                 if (toMatchFn === undefined) return [];
                 const now = new Date();
                 const hits = s.search.type === "some"
-                    ? rows.filter(r => sliceMatches(only({ search: s.search }), cfg, r, now))
-                    : rows;
+                    ? liveRows().filter(r => sliceMatches(only({ search: s.search }), cfg, r, now))
+                    : liveRows();
                 return hits.map(toMatchFn);
             },
             cohortCounts: () => {
@@ -245,13 +310,13 @@ export const SliceImpl: PlatformFunction[] = [
                 const now = new Date();
                 const out = new Map<string, bigint>();
                 for (const c of s.cohorts) {
-                    out.set(c.id, BigInt(rows.filter(r => sliceMatches(only({ filters: c.filters }), cfg, r, now)).length));
+                    out.set(c.id, BigInt(liveRows().filter(r => sliceMatches(only({ filters: c.filters }), cfg, r, now)).length));
                 }
                 return out;
             },
         };
-    }),
-];
+    }
+}
 
 registerPlatformImplementation(SliceImpl);
 registerPlatformImplementation(SliceApplyImpl);

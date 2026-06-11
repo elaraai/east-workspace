@@ -388,6 +388,13 @@ TorchTrainOutputType = StructType(
         ("result", TorchTrainResultType),
     ]
 )
+"""Combined output of a single- or multi-output MLP training run.
+
+Fields: ``model`` (variant ``torch_mlp`` - ``{data: Blob (cloudpickle),
+n_features: Integer, hidden_layers: Array<Integer>, output_dim: Integer}``),
+``result`` (``TorchTrainResultType`` - per-epoch ``train_losses``,
+``val_losses``, and ``best_epoch``).
+"""
 
 
 # ============================================================================
@@ -401,12 +408,63 @@ TorchTrainOutputType = StructType(
     output=TorchTrainOutputType,
 )
 def torch_mlp_train_impl(
-    X: EastArray,
-    y: EastArray,
+    X: EastMatrix,
+    y: EastVector,
     mlp_config: EastStruct,
     train_config: EastStruct,
 ) -> EastStruct:
-    """Create and train PyTorch MLP model (single output)."""
+    """Train a single-output PyTorch MLP and return the model blob with training metrics.
+
+    Builds a fully-connected network from ``mlp_config``, splits the data into
+    train/val, runs the training loop, and returns the serialized model together
+    with per-epoch losses.
+
+    Args:
+        X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix (n_samples x n_features).
+        y: ``Vector<Float>`` (``EastVector``) - scalar target per sample.
+        mlp_config: ``TorchMLPConfigType`` (``EastStruct``) with fields:
+
+            - ``hidden_layers`` (``Array<Integer>``): sizes of hidden layers,
+              e.g. ``[64, 32]``.
+            - ``activation`` (``Option<TorchActivationType>``): ``relu``
+              (default), ``tanh``, ``sigmoid``, or ``leaky_relu``.
+            - ``output_activation`` (``Option<TorchOutputActivationType>``):
+              ``none`` (default), ``softmax``, or ``sigmoid``.
+            - ``dropout`` (``Option<Float>``): dropout rate (default 0.0).
+            - ``output_dim`` (``Option<Integer>``): output units; inferred as 1
+              for single-output training (default 1).
+            - ``output_constraints``: unused for this function.
+
+        train_config: ``TorchTrainConfigType`` (``EastStruct``) with fields:
+
+            - ``epochs`` (``Option<Integer>``): training epochs (default 100).
+            - ``batch_size`` (``Option<Integer>``): mini-batch size (default 32).
+            - ``learning_rate`` (``Option<Float>``): step size (default 0.001).
+            - ``loss`` (``Option<TorchLossType>``): ``mse`` (default), ``mae``,
+              ``cross_entropy``, ``kl_div``, ``bce``, or ``bce_with_logits``.
+            - ``optimizer`` (``Option<TorchOptimizerType>``): ``adam``
+              (default), ``sgd``, ``adamw``, or ``rmsprop``.
+            - ``early_stopping`` (``Option<Integer>``): patience; 0 = disabled
+              (default 0).
+            - ``validation_split`` (``Option<Float>``): fraction held out for
+              validation (default 0.2).
+            - ``random_state`` (``Option<Integer>``): seed for reproducibility.
+
+    Returns:
+        ``TorchTrainOutputType`` (``EastStruct``) with fields:
+
+        - ``model`` (``EastVariant`` tagged ``torch_mlp``): serialized model
+          blob with ``data`` (``Blob``), ``n_features``, ``hidden_layers``
+          (``Array<Integer>``), and ``output_dim`` (``Integer``).
+        - ``result`` (``TorchTrainResultType``): ``train_losses``
+          (``Vector<Float>``), ``val_losses`` (``Vector<Float>``), and
+          ``best_epoch`` (``Integer``).
+
+    Raises:
+        NotImplementedError: the ``torch`` extra is not installed.
+        RuntimeError: X/y shape mismatch, model build failure, or training
+            failure.
+    """
     _check_torch_support()
     try:
         X_np = X.to_numpy()
@@ -425,15 +483,36 @@ def torch_mlp_train_impl(
     output=TorchTrainOutputType,
 )
 def torch_mlp_train_multi_impl(
-    X: EastArray,
-    y: EastArray,
+    X: EastMatrix,
+    y: EastMatrix,
     mlp_config: EastStruct,
     train_config: EastStruct,
 ) -> EastStruct:
-    """Create and train PyTorch MLP model (multi-output).
+    """Train a multi-output PyTorch MLP and return the model blob with training metrics.
 
-    Supports multi-output regression and autoencoders where y is a matrix.
-    Output dimension is inferred from y.shape[1] unless overridden in config.
+    Identical to :func:`torch_mlp_train_impl` except that ``y`` is a matrix;
+    the output dimension defaults to ``y.shape[1]`` and can be overridden by
+    ``mlp_config["output_dim"]``. Suitable for multi-output regression and
+    autoencoder reconstruction tasks.
+
+    Args:
+        X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix (n_samples x n_features).
+        y: ``Matrix<Float>`` (``EastMatrix``) - target matrix
+           (n_samples x n_outputs).
+        mlp_config: ``TorchMLPConfigType`` (``EastStruct``) - see
+            :func:`torch_mlp_train_impl`.  ``output_dim`` overrides the
+            inferred ``y.shape[1]`` when set.
+        train_config: ``TorchTrainConfigType`` (``EastStruct``) - see
+            :func:`torch_mlp_train_impl`.
+
+    Returns:
+        ``TorchTrainOutputType`` (``EastStruct``) - same layout as
+        :func:`torch_mlp_train_impl`.
+
+    Raises:
+        NotImplementedError: the ``torch`` extra is not installed.
+        RuntimeError: X/y shape mismatch, model build failure, or training
+            failure.
     """
     _check_torch_support()
     try:
@@ -454,9 +533,28 @@ def torch_mlp_train_multi_impl(
 )
 def torch_mlp_predict_impl(
     model_blob: EastVariant,
-    X: EastArray,
-) -> EastArray:
-    """Make predictions with PyTorch MLP (single output)."""
+    X: EastMatrix,
+) -> EastVector:
+    """Predict with a trained single-output PyTorch MLP.
+
+    Runs the model in eval mode (no gradient) and returns the scalar
+    output per sample. If the network output tensor has shape (n, 1) it is
+    flattened to (n,).
+
+    Args:
+        model_blob: ``ModelBlobType`` (``EastVariant`` tagged ``torch_mlp``)
+            from :func:`torch_mlp_train_impl` or :func:`torch_mlp_train_multi_impl`.
+        X: ``Matrix<Float>`` (``EastMatrix``) - input features
+           (n_samples x n_features).
+
+    Returns:
+        ``Vector<Float>`` (``EastVector``) - one predicted value per sample.
+
+    Raises:
+        NotImplementedError: the ``torch`` extra is not installed.
+        RuntimeError: model blob is not tagged ``torch_mlp``,
+            deserialization fails, or inference fails.
+    """
     _check_torch_support()
     import torch
 
@@ -508,15 +606,27 @@ def torch_mlp_predict_impl(
 )
 def torch_mlp_predict_multi_impl(
     model_blob: EastVariant,
-    X: EastArray,
-) -> EastArray:
-    """Make predictions with PyTorch MLP (multi-output).
+    X: EastMatrix,
+) -> EastMatrix:
+    """Predict with a trained multi-output PyTorch MLP.
 
-    Returns a matrix where each row contains the predicted outputs for a sample.
+    Runs the model in eval mode and returns the full output matrix.
+    If the network output is 1-D it is reshaped to (n, 1).
 
     Args:
-        model_blob: Trained MLP model blob
-        X: Input features (n_samples x n_features)
+        model_blob: ``ModelBlobType`` (``EastVariant`` tagged ``torch_mlp``)
+            from :func:`torch_mlp_train_multi_impl`.
+        X: ``Matrix<Float>`` (``EastMatrix``) - input features
+           (n_samples x n_features).
+
+    Returns:
+        ``Matrix<Float>`` (``EastMatrix``) - predicted values
+        (n_samples x output_dim).
+
+    Raises:
+        NotImplementedError: the ``torch`` extra is not installed.
+        RuntimeError: model blob is not tagged ``torch_mlp``,
+            deserialization fails, or inference fails.
     """
     _check_torch_support()
     import torch
@@ -569,29 +679,41 @@ def torch_mlp_predict_multi_impl(
 )
 def torch_mlp_encode_impl(
     model_blob: EastVariant,
-    X: EastArray,
+    X: EastMatrix,
     layer_index: int,
-) -> EastArray:
-    """Extract intermediate layer activations (embeddings) from MLP.
+) -> EastMatrix:
+    """Extract intermediate-layer activations (embeddings) from an MLP.
 
-    For autoencoders, this allows extracting the bottleneck representation.
-    The layer_index specifies which layer's output to return (0-indexed).
+    Runs the forward pass up to and including the activation after hidden
+    layer ``layer_index``, returning the resulting activations. Useful for
+    extracting the bottleneck of an autoencoder.
 
-    For an autoencoder with architecture [input -> 8 -> 2 -> 8 -> output]:
-    - layer_index=0: output after first Linear+Activation (8 features)
-    - layer_index=1: output after second Linear+Activation (2 features) <- bottleneck
-    - layer_index=2: output after third Linear+Activation (8 features)
+    Each "layer" in ``hidden_layers`` corresponds to one
+    ``Linear + Activation [+ Dropout]`` block. For a network trained with
+    ``hidden_layers=[8, 2, 8]``:
 
-    Note: Each "layer" in hidden_layers corresponds to Linear+Activation(+Dropout),
-    so layer_index=1 means after the 2nd hidden layer block.
+    - ``layer_index=0``: output after the first block (8 features).
+    - ``layer_index=1``: output after the second block (2 features -
+      bottleneck).
+    - ``layer_index=2``: output after the third block (8 features).
 
     Args:
-        model_blob: Trained MLP model blob
-        X: Input feature matrix (n_samples x n_features)
-        layer_index: Which hidden layer's output to return (0-indexed)
+        model_blob: ``ModelBlobType`` (``EastVariant`` tagged ``torch_mlp``)
+            from :func:`torch_mlp_train_impl` or
+            :func:`torch_mlp_train_multi_impl`.
+        X: ``Matrix<Float>`` (``EastMatrix``) - input features
+           (n_samples x n_features).
+        layer_index: ``Integer`` - 0-indexed hidden layer whose activations
+            to return. Must be in ``[0, len(hidden_layers) - 1]``.
 
     Returns:
-        Matrix of intermediate activations (n_samples x hidden_dim at that layer)
+        ``Matrix<Float>`` (``EastMatrix``) - activations
+        (n_samples x hidden_dim at ``layer_index``).
+
+    Raises:
+        NotImplementedError: the ``torch`` extra is not installed.
+        RuntimeError: model blob is not tagged ``torch_mlp``,
+            ``layer_index`` is out of range, or encoding fails.
     """
     import torch
 
@@ -674,28 +796,43 @@ def torch_mlp_encode_impl(
 )
 def torch_mlp_decode_impl(
     model_blob: EastVariant,
-    embeddings: EastArray,
+    embeddings: EastMatrix,
     layer_index: int,
-) -> EastArray:
-    """Decode embeddings back through the decoder portion of an MLP.
+) -> EastMatrix:
+    """Decode embeddings through the decoder portion of an MLP.
 
-    For autoencoders, this takes bottleneck activations and runs them through
-    the decoder to reconstruct the output. This is the complement to mlpEncode.
+    The complement to :func:`torch_mlp_encode_impl`. Takes activations that
+    originate from hidden layer ``layer_index`` and applies all subsequent
+    layers (skipping layer ``layer_index`` and its activation/dropout), ending
+    at the final output.
 
-    For an autoencoder with architecture [input -> 8 -> 2 -> 8 -> output]:
-    - layer_index=1: Start from the 2-dim bottleneck, run through layers 2+ to output
-    - layer_index=0: Start from the 8-dim first layer, run through layers 1+ to output
+    Primary use-case: compute a weighted blend of bottleneck embeddings from
+    :func:`torch_mlp_encode_impl`, then decode to reconstruct the output
+    distribution.
 
-    Use case: Compute weighted average of origin embeddings, then decode to
-    get the reconstructed blend weight distribution.
+    For a network with ``hidden_layers=[8, 2, 8]``:
+
+    - ``layer_index=1``: start from the 2-dim bottleneck, run layers 2+ to output.
+    - ``layer_index=0``: start from the 8-dim activations, run layers 1+ to output.
 
     Args:
-        model_blob: Trained MLP model blob
-        embeddings: Embedding matrix (n_samples x hidden_dim at layer_index)
-        layer_index: Which hidden layer the embeddings come from (0-indexed)
+        model_blob: ``ModelBlobType`` (``EastVariant`` tagged ``torch_mlp``)
+            from :func:`torch_mlp_train_impl` or
+            :func:`torch_mlp_train_multi_impl`.
+        embeddings: ``Matrix<Float>`` (``EastMatrix``) - activations at
+            ``layer_index`` (n_samples x hidden_dim at that layer).
+        layer_index: ``Integer`` - 0-indexed hidden layer the embeddings come
+            from. Must be in ``[0, len(hidden_layers) - 1]``.
 
     Returns:
-        Decoded output matrix (n_samples x output_dim)
+        ``Matrix<Float>`` (``EastMatrix``) - decoded output
+        (n_samples x output_dim).
+
+    Raises:
+        NotImplementedError: the ``torch`` extra is not installed.
+        RuntimeError: model blob is not tagged ``torch_mlp``,
+            ``layer_index`` is out of range, embedding dimension does not
+            match the expected hidden-layer width, or decoding fails.
     """
     _check_torch_support()
     import torch

@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { OptionList, Text } from "@elaraai/east-ui";
+import { OptionList, Text } from "@elaraai/east-ui/internal";
 import * as ex from "./option-list.examples.js";
 
 describeEast("OptionList", (test) => {
@@ -91,13 +91,11 @@ describeEast("OptionList", (test) => {
 
     test("creates list with colour slots", $ => {
         const list = $.let(OptionList.Root([OptionList.Option("a", "A")], {
-            style: {
-                itemColor: "#111827",
-                itemHoverBackground: "#f8fafc",
-                selectedBackground: "#eef2ff",
-                borderColor: "#e5e7eb",
-                impactColor: "#dc2626",
-            },
+            itemColor: "#111827",
+            itemHoverBackground: "#f8fafc",
+            selectedBackground: "#eef2ff",
+            borderColor: "#e5e7eb",
+            impactColor: "#dc2626",
         }));
         const s = list.unwrap().unwrap("OptionList").style.unwrap("some");
         $(Assert.equal(s.itemColor.unwrap("some"), "#111827"));

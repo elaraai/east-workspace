@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Collapsible, Text } from "@elaraai/east-ui";
+import { Collapsible, Text } from "@elaraai/east-ui/internal";
 import * as ex from "./collapsible.examples.js";
 
 describeEast("Collapsible", (test) => {
@@ -16,7 +16,7 @@ describeEast("Collapsible", (test) => {
     });
 
     test("creates collapsible with string trigger (coerced to Text.Root)", $ => {
-        const c = $.let(Collapsible.Root("Toggle", Text.Root("Content")));
+        const c = $.let(Collapsible.Root(Text.Root("Content"), { trigger: "Toggle" }));
         const v = c.unwrap().unwrap("Collapsible");
         $(Assert.equal(v.trigger.unwrap().unwrap("Text").value, "Toggle"));
         $(Assert.equal(v.content.unwrap().unwrap("Text").value, "Content"));
@@ -27,8 +27,8 @@ describeEast("Collapsible", (test) => {
 
     test("creates collapsible with rich UIComp trigger", $ => {
         const c = $.let(Collapsible.Root(
-            Text.Root("Rich", { fontWeight: "bold" }),
             Text.Root("Body"),
+            { trigger: Text.Root("Rich", { fontWeight: "bold" }) },
         ));
         $(Assert.equal(
             c.unwrap().unwrap("Collapsible").trigger.unwrap().unwrap("Text").value,
@@ -37,23 +37,21 @@ describeEast("Collapsible", (test) => {
     });
 
     test("creates collapsible with defaultOpen true", $ => {
-        const c = $.let(Collapsible.Root("Open", Text.Root("Content"), { defaultOpen: true }));
+        const c = $.let(Collapsible.Root(Text.Root("Content"), { trigger: "Open", defaultOpen: true }));
         $(Assert.equal(c.unwrap().unwrap("Collapsible").defaultOpen.unwrap("some"), true));
     });
 
     test("creates collapsible with defaultOpen false", $ => {
-        const c = $.let(Collapsible.Root("Open", Text.Root("Content"), { defaultOpen: false }));
+        const c = $.let(Collapsible.Root(Text.Root("Content"), { trigger: "Open", defaultOpen: false }));
         $(Assert.equal(c.unwrap().unwrap("Collapsible").defaultOpen.unwrap("some"), false));
     });
 
     test("creates collapsible with full colour escape hatches", $ => {
-        const c = $.let(Collapsible.Root("T", Text.Root("C"), {
-            style: {
-                background: "#ffffff",
-                borderColor: "#e5e7eb",
-                triggerColor: "#1a2234",
-                contentColor: "#374151",
-            },
+        const c = $.let(Collapsible.Root(Text.Root("C"), { trigger: "T",
+            background: "#ffffff",
+            borderColor: "#e5e7eb",
+            triggerColor: "#1a2234",
+            contentColor: "#374151",
         }));
         const s = c.unwrap().unwrap("Collapsible").style.unwrap("some");
         $(Assert.equal(s.background.unwrap("some"), "#ffffff"));

@@ -15,8 +15,8 @@ import {
     FloatType,
 } from "@elaraai/east";
 
-import { BorderStyleType, BorderWidthType, ColorSchemeType, OverflowType, StyleVariantType } from "../../style.js";
-import type { BorderStyleLiteral, BorderWidthLiteral, ColorSchemeLiteral, OverflowLiteral, StyleVariantLiteral } from "../../style.js";
+import { BorderStyleType, BorderWidthType, ColorSchemeType, DensityType, OverflowType, StyleVariantType } from "../../style.js";
+import type { BorderStyleLiteral, BorderWidthLiteral, ColorSchemeLiteral, DensityLiteral, OverflowLiteral, StyleVariantLiteral } from "../../style.js";
 import { PaddingType, MarginType } from "../../layout/style.js";
 
 // ============================================================================
@@ -123,12 +123,14 @@ export type TagStyleType = typeof TagStyleType;
  * @property label - Tag text
  * @property closable - Whether a close button is rendered
  * @property onClose - Click callback on the close button
+ * @property density - Density override; shares the cascade with `ChipRail` / `Trace` so mixed display cells align
  * @property style - Optional visual style sub-struct
  */
 export const TagType = StructType({
     label: StringType,
     closable: OptionType(BooleanType),
     onClose: OptionType(FunctionType([], NullType)),
+    density: OptionType(DensityType),
     style: OptionType(TagStyleType),
 });
 
@@ -157,6 +159,13 @@ export interface TagStyle {
     closable?: SubtypeExprOrValue<BooleanType>;
     /** Callback triggered when close button is clicked (main-struct behaviour) */
     onClose?: SubtypeExprOrValue<FunctionType<[], NullType>>;
+    /**
+     * Density override (main-struct). Inherited from the enclosing surface
+     * (Table, ChipRail, …) when omitted; an explicit value wins over both the
+     * cascade and `size`, sizing the tag to match rails and traces at the
+     * same density.
+     */
+    density?: SubtypeExprOrValue<DensityType> | DensityLiteral;
     /** CSS opacity (0–1) */
     opacity?: SubtypeExprOrValue<FloatType>;
     /** Explicit text colour override */

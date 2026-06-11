@@ -12,6 +12,7 @@ import {
 } from "@elaraai/east";
 
 import {
+    DensityType,
     DisplayType,
     FlexDirectionType,
     JustifyContentType,
@@ -27,6 +28,7 @@ import {
     FontVariantNumericType,
 } from "../../style.js";
 import type {
+    DensityLiteral,
     DisplayLiteral,
     FlexDirectionLiteral,
     JustifyContentLiteral,
@@ -89,6 +91,14 @@ import { PaddingType, MarginType } from "../style.js";
  * @property animation - Named animation preset (AnimationPresetType); renderer degrades to `none` under `prefers-reduced-motion`
  */
 export type BoxStyle = {
+    /**
+     * Density the box provides to its children via the density cascade.
+     * Display components inside (Tag, Badge, Meter, Trace, …) inherit it
+     * unless they carry their own density; the box itself is visually
+     * unchanged. When omitted, the box is transparent to the cascade and an
+     * enclosing surface's density flows through.
+     */
+    density?: SubtypeExprOrValue<DensityType> | DensityLiteral;
     /** CSS display property */
     display?: SubtypeExprOrValue<DisplayType> | DisplayLiteral;
     /** Width (Chakra UI size token or CSS value) */

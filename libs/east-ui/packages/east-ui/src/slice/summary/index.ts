@@ -16,7 +16,7 @@ export { SliceSummaryType } from "./types.js";
  * status bar bound to a slice. The result count comes from `slice.resultCount()`
  * (over the rows bound at `Slice.bind`); nothing else to wire.
  *
- * @param slice - The bound slice (from `Slice.bind`)
+ * @param options - The summary configuration ({@link SliceSummaryOptions})
  * @returns An East expression of type `UIComponentType`
  *
  * @example
@@ -27,15 +27,25 @@ export { SliceSummaryType } from "./types.js";
  * const view = East.function([], UIComponentType, _$ =>
  *     Reactive.Root(East.function([], UIComponentType, $ => {
  *         const slice = $.let(Slice.bind([EventType], "demo.events", cfg, Slice.state(), events));
- *         return Slice.Summary.Root(slice);
+ *         return Slice.Summary.Root({ slice });
  *     })),
  * );
  * ```
  */
 function createSliceSummary(
-    slice: SubtypeExprOrValue<SliceBindType>,
+    options: SliceSummaryOptions,
 ): ExprType<UIComponentType> {
-    return East.value(variant("SliceSummary", { slice }), UIComponentType);
+    return East.value(variant("SliceSummary", { slice: options.slice }), UIComponentType);
+}
+
+/**
+ * Options for `Slice.Summary`.
+ *
+ * @property slice - The bound slice (from `Slice.bind`)
+ */
+export interface SliceSummaryOptions {
+    /** The bound slice (from `Slice.bind`). */
+    slice: SubtypeExprOrValue<SliceBindType>;
 }
 
 /** `Slice.Summary` — result/filter-count status bar. */

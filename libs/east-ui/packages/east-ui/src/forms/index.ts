@@ -43,16 +43,6 @@ export {
     type RadioCardItemInput,
 } from "./radio-card-group/index.js";
 
-export {
-    TimeScaleControl,
-    TimeScaleControlType,
-    TimeScaleControlStyleType,
-    TimeScaleControlVariantType,
-    TimeScaleType,
-    type TimeScaleControlStyle,
-    type TimeScaleLiteral,
-    type TimeScaleControlVariantLiteral,
-} from "./time-scale-control/index.js";
 
 export {
     TimeRangeInput,

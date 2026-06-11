@@ -184,9 +184,9 @@ function createAccordionItem(
  * @returns An East expression representing the Accordion component
  *
  * @remarks
- * `multiple` / `collapsible` (config),
- * `value` / `defaultValue` (state), and `onValueChange` (behaviour) are
- * top-level options — visual presentation lives inside `options.style`.
+ * `multiple` / `collapsible` (config), `value` / `defaultValue` (state),
+ * `onValueChange` (behaviour), and the visual style fields all sit in one
+ * flat options bag.
  *
  * @example
  * ```ts
@@ -201,7 +201,7 @@ function createAccordionItem(
  *     ], {
  *         multiple: true,
  *         collapsible: true,
- *         style: { variant: "enclosed" },
+ *         variant: "enclosed",
  *     }),
  * );
  *
@@ -216,7 +216,7 @@ function createAccordionItem(
  *         return Accordion.Root([
  *             Accordion.Item("a", "Section A", [Text.Root("A")]),
  *             Accordion.Item("b", "Section B", [Text.Root("B")]),
- *         ], { multiple: true, value: expanded, onValueChange, style: { variant: "enclosed" } });
+ *         ], { multiple: true, value: expanded, onValueChange, variant: "enclosed" });
  *     })),
  * );
  * ```
@@ -225,7 +225,10 @@ function createAccordionRoot(
     items: SubtypeExprOrValue<ArrayType<AccordionItemType>>,
     options?: AccordionOptions,
 ): ExprType<UIComponentType> {
-    const styleValue = options?.style ? buildAccordionStyle(options.style) : undefined;
+    const { multiple, collapsible, value, defaultValue, onValueChange, ...visual } = options ?? {};
+
+    const hasVisual = Object.values(visual).some(field => field !== undefined);
+    const styleValue = hasVisual ? buildAccordionStyle(visual) : undefined;
 
     // The inline `Accordion` variant in `component.ts` defines `items` using
     // the recursive `node` parameter for the trigger/content UIComp fields.
@@ -234,11 +237,11 @@ function createAccordionRoot(
     // same thing — cast at the variant-construction boundary.
     return East.value(variant("Accordion", {
         items: items as never,
-        multiple: options?.multiple !== undefined ? some(options.multiple) : none,
-        collapsible: options?.collapsible !== undefined ? some(options.collapsible) : none,
-        value: options?.value !== undefined ? some(options.value) : none,
-        defaultValue: options?.defaultValue !== undefined ? some(options.defaultValue) : none,
-        onValueChange: options?.onValueChange ? some(options.onValueChange) : none,
+        multiple: multiple !== undefined ? some(multiple) : none,
+        collapsible: collapsible !== undefined ? some(collapsible) : none,
+        value: value !== undefined ? some(value) : none,
+        defaultValue: defaultValue !== undefined ? some(defaultValue) : none,
+        onValueChange: onValueChange ? some(onValueChange) : none,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
@@ -290,8 +293,8 @@ export const Accordion = {
      *
      * @remarks
      * See {@link createAccordionRoot} for full semantics. `multiple` /
-     * `collapsible` / `value` / `defaultValue` / `onValueChange` are top-level
-     * options; `style` holds visual presets and colour slots.
+     * `collapsible` / `value` / `defaultValue` / `onValueChange` sit alongside
+     * the visual style fields (variant / size / colour slots) in one flat bag.
      *
      * @example
      * ```ts
@@ -305,7 +308,7 @@ export const Accordion = {
      *     ], {
      *         multiple: true,
      *         collapsible: true,
-     *         style: { variant: "enclosed" },
+     *         variant: "enclosed",
      *     }),
      * );
      * ```

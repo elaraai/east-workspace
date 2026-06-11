@@ -8,8 +8,13 @@ import { dirname, join, resolve } from "node:path";
 import type * as ts from "typescript";
 import type { EastDiagnostic, EastDiagnosticCategory, EastRule, EastRulesOptions, TsModule } from "./types.js";
 import { runEastRules } from "./run.js";
+import { getEastModule } from "./east-module.js";
+import { ASSIGNABILITY_CODES, rewriteEastAssignability } from "./type-diff-rewrite.js";
 
 const MAX_MESSAGE_LENGTH = 300;
+// Rewritten East type diffs are already pruned/capped by renderTypeDiff; allow
+// them more room than raw native messages.
+const MAX_REWRITTEN_LENGTH = 600;
 
 export interface DiagnosticsServiceOptions {
   rules?: readonly EastRule[];
@@ -26,6 +31,11 @@ export interface DiagnosticsService {
    * first real `diagnose` doesn't pay the cold program+checker build. Returns
    * `false` when there is no tsconfig above `fromDir`. */
   warm(fromDir: string): boolean;
+  /** Provide in-memory content for a file (an LSP buffer); takes precedence
+   * over the on-disk content until cleared. */
+  setOverlay(filePath: string, content: string): void;
+  /** Drop the overlay for a file, reverting to on-disk content. */
+  clearOverlay(filePath: string): void;
   dispose(): void;
 }
 
@@ -64,6 +74,10 @@ function toCategory(t: TsModule, category: ts.DiagnosticCategory): EastDiagnosti
 
 export function createDiagnosticsService(options: DiagnosticsServiceOptions = {}): DiagnosticsService {
   const projects = new Map<string, Project>();
+  // Keyed by resolved path, shared across projects. analyze() bumps the file's
+  // version on every call, so overlay changes are picked up by the next
+  // diagnose without separate invalidation.
+  const overlays = new Map<string, string>();
 
   function getProject(tsconfigPath: string): Project {
     const existing = projects.get(tsconfigPath);
@@ -87,13 +101,15 @@ export function createDiagnosticsService(options: DiagnosticsServiceOptions = {}
       getScriptVersion: (f) => String(project.versions.get(resolve(f)) ?? 0),
       getScriptSnapshot: (f) => {
         const path = resolve(f);
+        const overlay = overlays.get(path);
+        if (overlay !== undefined) return t.ScriptSnapshot.fromString(overlay);
         if (!existsSync(path)) return undefined;
         return t.ScriptSnapshot.fromString(readFileSync(path, "utf-8"));
       },
       getCurrentDirectory: () => projectDir,
       getCompilationSettings: () => parsed.options,
       getDefaultLibFileName: (o) => t.getDefaultLibFilePath(o),
-      fileExists: t.sys.fileExists,
+      fileExists: (f) => overlays.has(resolve(f)) || t.sys.fileExists(f),
       readFile: t.sys.readFile,
       readDirectory: t.sys.readDirectory,
       directoryExists: t.sys.directoryExists,
@@ -125,21 +141,34 @@ export function createDiagnosticsService(options: DiagnosticsServiceOptions = {}
       ...project.service.getSemanticDiagnostics(file),
       ...project.service.getSyntacticDiagnostics(file),
     ];
+    const projectDir = dirname(tsconfigPath);
     const nativeDiagnostics: EastDiagnostic[] = native.flatMap((d) => {
       if (d.start === undefined || d.length === undefined) return [];
-      const message = t.flattenDiagnosticMessageText(d.messageText, " ");
+      let message = t.flattenDiagnosticMessageText(d.messageText, " ");
+      let maxLength = MAX_MESSAGE_LENGTH;
+      if (ASSIGNABILITY_CODES.has(d.code)) {
+        const east = getEastModule(projectDir);
+        const rewritten = east !== undefined
+          ? rewriteEastAssignability(t, program, sourceFile, d, east)
+          : undefined;
+        if (rewritten !== undefined) {
+          message = rewritten;
+          maxLength = MAX_REWRITTEN_LENGTH;
+        }
+      }
       return [{
         ruleName: "tsc",
         code: d.code,
         start: d.start,
         length: d.length,
-        messageText: message.length > MAX_MESSAGE_LENGTH ? `${message.slice(0, MAX_MESSAGE_LENGTH)}…` : message,
+        messageText: message.length > maxLength ? `${message.slice(0, maxLength)}…` : message,
         category: toCategory(t, d.category),
       }];
     });
 
     const ruleDiagnostics = runEastRules(
       t,
+      program,
       sourceFile,
       program.getTypeChecker(),
       options.rulesOptions ?? {},
@@ -177,8 +206,15 @@ export function createDiagnosticsService(options: DiagnosticsServiceOptions = {}
       else project.service.getProgram();
       return true;
     },
+    setOverlay(filePath, content) {
+      overlays.set(resolve(filePath), content);
+    },
+    clearOverlay(filePath) {
+      overlays.delete(resolve(filePath));
+    },
     dispose() {
       projects.clear();
+      overlays.clear();
     },
   };
 }

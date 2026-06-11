@@ -8,9 +8,6 @@ import {
     OptionType,
     StructType,
     StringType,
-    BooleanType,
-    FunctionType,
-    NullType,
 } from "@elaraai/east";
 
 // ============================================================================
@@ -51,20 +48,4 @@ export interface CollapsibleStyle {
     triggerColor?: SubtypeExprOrValue<StringType>;
     /** Content text colour */
     contentColor?: SubtypeExprOrValue<StringType>;
-}
-
-/**
- * TypeScript options bag for `Collapsible.Root`.
- *
- * @property defaultOpen - Whether the collapsible starts expanded
- * @property onOpenChange - Callback invoked with the new open state
- * @property style - Visual-presentation sub-struct
- */
-export interface CollapsibleOptions {
-    /** Whether the collapsible starts expanded */
-    defaultOpen?: SubtypeExprOrValue<BooleanType>;
-    /** Callback invoked with the new open state */
-    onOpenChange?: SubtypeExprOrValue<FunctionType<[BooleanType], NullType>>;
-    /** Visual-presentation sub-struct */
-    style?: CollapsibleStyle;
 }

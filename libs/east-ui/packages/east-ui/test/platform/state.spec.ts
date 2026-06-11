@@ -5,7 +5,7 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { East, NullType, IntegerType } from "@elaraai/east";
-import { State } from "@elaraai/east-ui";
+import { State } from "@elaraai/east-ui/internal";
 import * as ex from "./state.examples.js";
 
 describeEast("State", (test) => {

@@ -15,7 +15,7 @@
  * Run via `make start-ontology` or `make ontology`.
  */
 
-import * as examples from '@elaraai/e3-ui/examples/ontology';
+import * as examples from '@elaraai/e3-ui/examples/ontology/ontology';
 import pkgInfo from '../package.json' with { type: 'json' };
 import { buildShowcasePackage } from './utils.js';
 

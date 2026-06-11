@@ -4,11 +4,11 @@
  */
 
 import { memo, useMemo, useCallback, useState, type ReactNode } from "react";
-import { Drawer as ChakraDrawer, Portal, IconButton, HStack, type DrawerRootProps } from "@chakra-ui/react";
+import { Box as ChakraBox, Drawer as ChakraDrawer, Portal, IconButton, type DrawerRootProps, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faExpand, faCompress } from "@fortawesome/free-solid-svg-icons";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Drawer } from "@elaraai/east-ui";
+import { Drawer } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 
@@ -73,9 +73,13 @@ export function DrawerContent({ value, storageKey, trigger, open, onClose, onExi
     const props = useMemo(() => toChakraDrawer(value), [value]);
     const [isFullscreen, setIsFullscreen] = useState(false);
 
-    // Extract title and description from value
+    // Extract header fields from value
+    const eyebrow = useMemo(() => getSomeorUndefined(value.eyebrow), [value.eyebrow]);
     const title = useMemo(() => getSomeorUndefined(value.title), [value.title]);
     const description = useMemo(() => getSomeorUndefined(value.description), [value.description]);
+    // The theme recipe adds an `eyebrow` slot beyond Chakra's Drawer
+    // anatomy, so widen the inferred slot map.
+    const drawerStyles = useSlotRecipe({ key: "drawer" })() as Record<string, SystemStyleObject>;
 
     // Extract callback functions from style
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
@@ -125,8 +129,14 @@ export function DrawerContent({ value, storageKey, trigger, open, onClose, onExi
                 <ChakraDrawer.Backdrop />
                 <ChakraDrawer.Positioner>
                     <ChakraDrawer.Content>
-                        {/* Header buttons positioned together */}
-                        <HStack position="absolute" top="2" right="2" gap="1" zIndex="1">
+                        <ChakraDrawer.Header>
+                            <ChakraBox flex="1" minWidth="0">
+                                {eyebrow && <ChakraBox css={drawerStyles.eyebrow}>{eyebrow}</ChakraBox>}
+                                {title && <ChakraDrawer.Title>{title}</ChakraDrawer.Title>}
+                                {description && (
+                                    <ChakraDrawer.Description>{description}</ChakraDrawer.Description>
+                                )}
+                            </ChakraBox>
                             <IconButton
                                 aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
                                 onClick={toggleFullscreen}
@@ -135,22 +145,8 @@ export function DrawerContent({ value, storageKey, trigger, open, onClose, onExi
                             >
                                 <FontAwesomeIcon icon={isFullscreen ? faCompress : faExpand} />
                             </IconButton>
-                            {/* <IconButton
-                                aria-label="Close"
-                                onClick={() => handleOpenChange({ open: false })}
-                                variant="ghost"
-                                size="sm"
-                            >
-                                <FontAwesomeIcon icon={faXmark} />
-                            </IconButton> */}
-                        </HStack>
-                        <ChakraDrawer.Header>
-                            {title && <ChakraDrawer.Title>{title}</ChakraDrawer.Title>}
                         </ChakraDrawer.Header>
                         <ChakraDrawer.Body>
-                            {description && (
-                                <ChakraDrawer.Description mb="4">{description}</ChakraDrawer.Description>
-                            )}
                             {value.body.map((child, index) => (
                                 <EastChakraComponent key={index} value={child} storageKey={`${storageKey}.${index}`} />
                             ))}
@@ -173,10 +169,11 @@ export const EastChakraDrawer = memo(function EastChakraDrawer({ value, storageK
     // Convert DrawerValue to DrawerOpenInputValue format (without trigger)
     const openInputValue = useMemo((): DrawerOpenInputValue => ({
         body: value.body,
+        eyebrow: value.eyebrow,
         title: value.title,
         description: value.description,
         style: value.style,
-    }), [value.body, value.title, value.description, value.style]);
+    }), [value.body, value.eyebrow, value.title, value.description, value.style]);
 
     return (
         <DrawerContent

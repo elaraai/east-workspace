@@ -41,7 +41,7 @@ import {
 } from '@elaraai/east';
 import { EastUI, DensityType, type DensityLiteral, type UIComponentType } from '@elaraai/east-ui';
 
-import { DiffBindingType } from './data.js';
+import { DiffBindingType, type BoundValue } from './data.js';
 
 // ============================================================================
 // Ontology value schema — nodes, links, metadata.
@@ -299,10 +299,10 @@ export const OntologyComponent = EastUI.component('Ontology', OntologyPayloadTyp
 /**
  * Options for {@link Ontology.Root}.
  *
- * @property binding - The binding to surface. Pass `view.binding` from a
- *   {@link Data.bind} handle whose source dataset is typed as
- *   {@link OntologyType}, or hand-build a descriptor of shape
- *   {@link DiffBindingType}.
+ * @property value - The bound dataset to surface. Pass the
+ *   {@link Data.bind} handle (`value={view}`) whose source dataset is typed as
+ *   {@link OntologyType}. The handle's East type carries the source type, so a
+ *   handle bound to any non-`OntologyType` dataset is a compile error here.
  * @property readonly - Render without mutation surfaces. The footer
  *   commit-bar and property drawer still render. Defaults to false.
  * @property hideMiniMap - Suppress the minimap overlay. Defaults to false.
@@ -315,8 +315,11 @@ export const OntologyComponent = EastUI.component('Ontology', OntologyPayloadTyp
  *   {@link OntologyStyleType}.
  */
 export interface OntologyOptions {
-    /** Binding to surface. Typically `view.binding`. */
-    binding: SubtypeExprOrValue<DiffBindingType>;
+    /** The bound dataset to surface — pass the `Data.bind([OntologyType], …)`
+     *  handle itself (e.g. `value={view}`). Its East type carries the source
+     *  type, so a handle bound to any non-`OntologyType` dataset is a compile
+     *  error here. */
+    value: BoundValue<OntologyType>;
     /** Render without mutation surfaces. Defaults to false. */
     readonly?: SubtypeExprOrValue<OptionType<BooleanType>>;
     /** Suppress the minimap overlay. Defaults to false. */
@@ -339,7 +342,7 @@ export interface OntologyOptions {
  * commit pipeline that powers {@link Diff}.
  *
  * @remarks
- * Use `Ontology.Root({ binding: view.binding })` to render the editor.
+ * Use `Ontology.Root({ value: view })` to render the editor.
  * The `Component` property is the internal {@link EastUI.component}
  * carrier that renderers register against — most callers shouldn't need
  * it.
@@ -349,7 +352,7 @@ export const Ontology = {
      * Build an Ontology editor. Renders the bound graph as a ReactFlow
      * canvas with node/link mutation surfaces wired through the binding.
      *
-     * @param options - {@link OntologyOptions}. Only `binding` is required;
+     * @param options - {@link OntologyOptions}. Only `value` is required;
      *   the rest default to absent / interactive.
      * @returns An East expression of {@link UIComponentType} representing
      *   the Ontology editor.
@@ -368,19 +371,20 @@ export const Ontology = {
      * const editor = East.function([], UIComponentType, (_$) =>
      *   Reactive.Root(East.function([], UIComponentType, $ => {
      *     const view = $.let(Data.bind([OntologyType], ontologyInput.path));
-     *     return Ontology.Root({ binding: view.binding });
+     *     return Ontology.Root({ value: view });
      *   })),
      * );
      * ```
      */
     Root(options: OntologyOptions): ExprType<UIComponentType> {
+        const view = options.value;
         const density = options.density === undefined
             ? none
             : typeof options.density === 'string'
                 ? some(East.value(variant(options.density, null), DensityType))
                 : options.density;
         return OntologyComponent.Root({
-            binding:     options.binding,
+            binding:     view.binding,
             readonly:    options.readonly    ?? none,
             hideMiniMap: options.hideMiniMap ?? none,
             hideSearch:  options.hideSearch  ?? none,
@@ -398,4 +402,22 @@ export const Ontology = {
      * factory) and never touch this directly.
      */
     Component: OntologyComponent,
+    Types: {
+        /** Rendered Ontology payload struct (binding + style). */
+        Payload: OntologyPayloadType,
+        /** Visual-presentation sub-struct (density, readonly, …). */
+        Style: OntologyStyleType,
+        /** The bound graph value type. */
+        Ontology: OntologyType,
+        /** Node struct. */
+        Node: NodeType,
+        /** Link struct. */
+        Link: LinkType,
+        /** Node-kind variant enum. */
+        NodeKind: NodeKindType,
+        /** Link-kind variant enum. */
+        LinkKind: LinkKindType,
+        /** Optional ontology metadata struct. */
+        Metadata: OntologyMetadataType,
+    },
 } as const;

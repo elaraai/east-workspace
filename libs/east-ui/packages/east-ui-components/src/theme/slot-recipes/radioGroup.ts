@@ -44,8 +44,11 @@ export const radioGroupSlotRecipe = defineSlotRecipe({
             transitionDuration: "{durations.fast}",
             color: "transparent",
             "& .dot": {
+                // Chakra's radiomark shrinks the dot with `scale: 0.4`; reset it
+                // so the fixed mark renders full-size, not ~2.4px.
                 width: "6px",
                 height: "6px",
+                scale: "1",
                 borderRadius: "{radii.full}",
                 background: "currentColor",
             },
@@ -66,11 +69,31 @@ export const radioGroupSlotRecipe = defineSlotRecipe({
             userSelect: "none",
         },
     },
+    variants: {
+        // Chakra's radiomark sizes the control from its size variant (md =
+        // boxSize 5 = 20px), which outranks a base width/height — pin each to
+        // the spec scale; md is the canonical 14px circle.
+        size: {
+            sm: { itemControl: { boxSize: "12px" } },
+            md: { itemControl: { boxSize: "14px" } },
+            lg: { itemControl: { boxSize: "16px" } },
+        },
+        // The default `solid` variant fills the checked circle with
+        // colorPalette.solid and tints the dot with `contrast`. Keep it outlined
+        // — surface circle, brand ring, brand dot — so the mark reads on paper.
+        variant: {
+            solid: {
+                itemControl: {
+                    "&:is([data-state=checked])": {
+                        background: "bg.surface",
+                        borderColor: "{colors.brand.600}",
+                        color: "{colors.brand.600}",
+                    },
+                },
+            },
+        },
+    },
     defaultVariants: {
-        /* `colorPalette` defaults to brand so the inner dot inherits the
-         * brand-d hue via `color: {colors.brand.600}` on the `_checked`
-         * base rule above. The base styles enforce the outlined-with-dot
-         * pattern directly — no `variants.variant` cascade is needed. */
         colorPalette: "brand",
     },
 });

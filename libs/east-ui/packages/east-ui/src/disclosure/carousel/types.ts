@@ -105,7 +105,7 @@ export interface CarouselStyle {
  * @property onIndexChange - Callback invoked when the active slide changes
  * @property style - Visual-presentation sub-struct
  */
-export interface CarouselOptions {
+export interface CarouselOptions extends CarouselStyle {
     /** Controlled current slide index */
     index?: SubtypeExprOrValue<IntegerType>;
     /** Initial slide index (uncontrolled) */
@@ -128,6 +128,4 @@ export interface CarouselOptions {
     spacing?: SubtypeExprOrValue<StringType>;
     /** Callback invoked when the active slide changes */
     onIndexChange?: SubtypeExprOrValue<FunctionType<[IntegerType], NullType>>;
-    /** Visual-presentation sub-struct */
-    style?: CarouselStyle;
 }

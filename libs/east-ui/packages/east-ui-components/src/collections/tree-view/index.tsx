@@ -10,7 +10,7 @@ import {
     createTreeCollection,
 } from "@chakra-ui/react";
 import { equalFor, match, some, none, type OptionType, type VariantType, type ValueTypeOf } from "@elaraai/east";
-import { TreeView, Icon } from "@elaraai/east-ui";
+import { TreeView, Icon } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraIcon } from "../../display/icon";
 

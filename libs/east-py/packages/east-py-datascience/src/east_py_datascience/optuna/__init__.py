@@ -2,7 +2,14 @@
 # Copyright (c) 2025 Elara AI Pty Ltd
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
-"""Optuna platform functions for East Data Science."""
+"""Optuna Bayesian optimization for East - TPE-sampled hyperparameter search.
+
+The ``*_impl`` functions are plain Python callables taking and returning East
+values - import them directly from a project's own ``@platform_function`` to
+reuse the implementations without an IR round-trip. The East type definitions
+(search space, config, and result types) are re-exported here for building
+inputs with ``coerce_to`` and validating outputs.
+"""
 
 from east_py_datascience.optuna.optuna import (
     NamedParamType,
@@ -15,10 +22,15 @@ from east_py_datascience.optuna.optuna import (
     StudyResultType,
     TrialResultType,
     optuna_impl,
+    optuna_optimize_impl,
 )
 
 __all__ = [
+    # Platform registration
     "optuna_impl",
+    # Directly-callable implementations
+    "optuna_optimize_impl",
+    # East type definitions
     "ParamValueType",
     "ParamSpaceKindType",
     "ParamSpaceType",

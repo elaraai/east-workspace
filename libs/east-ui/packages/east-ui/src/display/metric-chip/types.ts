@@ -12,8 +12,8 @@ import {
     VariantType,
 } from "@elaraai/east";
 
-import { SizeType } from "../../style.js";
-import type { SizeLiteral } from "../../style.js";
+import { DensityType, SizeType } from "../../style.js";
+import type { DensityLiteral, SizeLiteral } from "../../style.js";
 
 // ============================================================================
 // MetricChip Tone — semantic classification (drives default colour)
@@ -111,12 +111,14 @@ export type MetricChipStyleType = typeof MetricChipStyleType;
  * TypeScript options bag for `MetricChip.Root`.
  *
  * @remarks
- * `tone` is a required main-struct field and sits on the factory
- * signature directly. This interface carries optional `unit` + `icon`
- * content slots plus every visual style field.
+ * `tone` is required (it drives the default palette and lands on the main
+ * `MetricChipType` struct). This interface also carries optional `unit` +
+ * `icon` content slots plus every visual style field.
  *
+ * @property tone - Required semantic tone classification (drives the default palette)
  * @property unit - Optional unit suffix rendered after the value (e.g. "%", "ms")
  * @property icon - Optional leading icon (IconType value)
+ * @property density - Density override; shares the cascade with `ChipRail` / `Trace` so mixed display cells align
  * @property emphasis - Visual preset (subtle / solid / outline)
  * @property size - Size preset
  * @property color - Explicit text colour override
@@ -125,10 +127,19 @@ export type MetricChipStyleType = typeof MetricChipStyleType;
  * @property iconColor - Explicit icon colour override
  */
 export interface MetricChipOptions {
+    /** Semantic tone classification (required) — drives the default palette. */
+    tone: SubtypeExprOrValue<MetricChipToneType> | MetricChipToneLiteral;
     /** Optional unit suffix rendered after the value (e.g. `"%"`, `"ms"`). */
     unit?: SubtypeExprOrValue<StringType>;
     /** Optional leading icon (IconType expression). */
     icon?: unknown;
+    /**
+     * Density override (main-struct). Inherited from the enclosing surface
+     * (Table, ChipRail, …) when omitted; an explicit value wins over both the
+     * cascade and `size`, sizing the chip to match rails and traces at the
+     * same density.
+     */
+    density?: SubtypeExprOrValue<DensityType> | DensityLiteral;
     /** Visual emphasis preset (subtle / solid / outline). */
     emphasis?: SubtypeExprOrValue<MetricChipEmphasisType> | MetricChipEmphasisLiteral;
     /** Size preset. */

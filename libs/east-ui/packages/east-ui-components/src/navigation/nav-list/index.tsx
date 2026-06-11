@@ -11,7 +11,7 @@ import { fas } from "@fortawesome/free-solid-svg-icons";
 import { far } from "@fortawesome/free-regular-svg-icons";
 import { fab } from "@fortawesome/free-brands-svg-icons";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { NavList } from "@elaraai/east-ui";
+import { NavList } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 
 library.add(fas, far, fab);

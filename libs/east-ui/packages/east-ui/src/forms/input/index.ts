@@ -78,7 +78,8 @@ function buildInputStyle(style: InputStyle | undefined): ExprType<InputStyleType
         style.background !== undefined ||
         style.borderColor !== undefined ||
         style.focusBorderColor !== undefined ||
-        style.placeholderColor !== undefined
+        style.placeholderColor !== undefined ||
+        style.autoFocus !== undefined
     );
 
     if (!has) return undefined;
@@ -91,6 +92,7 @@ function buildInputStyle(style: InputStyle | undefined): ExprType<InputStyleType
         borderColor: style!.borderColor !== undefined ? some(style!.borderColor) : none,
         focusBorderColor: style!.focusBorderColor !== undefined ? some(style!.focusBorderColor) : none,
         placeholderColor: style!.placeholderColor !== undefined ? some(style!.placeholderColor) : none,
+        autoFocus: style!.autoFocus !== undefined ? some(style!.autoFocus) : none,
     }, InputStyleType);
 }
 

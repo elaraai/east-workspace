@@ -42,7 +42,7 @@ export {
  * Creates a CopyButton component that copies `value` to the clipboard.
  *
  * @param value - The text value to copy
- * @param options - Main-level fields plus optional `style` sub-struct
+ * @param options - Required `value` plus optional content / state / visual style fields
  * @returns An East expression representing the CopyButton component
  *
  * @remarks
@@ -50,10 +50,7 @@ export {
  * absent it emits an icon-only affordance (aria-label "Copy to clipboard").
  * `timeout` controls how long the "Copied!" confirmation state persists
  * (milliseconds, stringified). The confirmation glyph can be tinted via
- * `style.successColor`.
- *
- * content + state + config are top-level
- * options; visual presentation lives inside `options.style`.
+ * `successColor`.
  *
  * @example
  * ```ts
@@ -83,13 +80,17 @@ function createCopyButton(
     value: SubtypeExprOrValue<StringType>,
     options?: CopyButtonOptions,
 ): ExprType<UIComponentType> {
-    const styleValue = options?.style ? buildCopyButtonStyle(options.style) : undefined;
+    const opts: CopyButtonOptions = options ?? {};
+    const { label, timeout, disabled, ...visual } = opts;
+    const styleValue = Object.values(visual).some(field => field !== undefined)
+        ? buildCopyButtonStyle(opts)
+        : undefined;
 
     return East.value(variant("CopyButton", {
         value,
-        label: options?.label !== undefined ? some(options.label) : none,
-        timeout: options?.timeout !== undefined ? some(options.timeout) : none,
-        disabled: options?.disabled !== undefined ? some(options.disabled) : none,
+        label: label !== undefined ? some(label) : none,
+        timeout: timeout !== undefined ? some(timeout) : none,
+        disabled: disabled !== undefined ? some(disabled) : none,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
@@ -130,8 +131,7 @@ function buildCopyButtonStyle(style: CopyButtonStyle): ExprType<CopyButtonStyleT
  *
  * @remarks
  * Use `CopyButton.Root(value, options)` to create a copy button, or access
- * `CopyButton.Types.CopyButton` for the East type. content + state + config are top-level options; visual
- * presentation lives inside `options.style`.
+ * `CopyButton.Types.CopyButton` for the East type.
  */
 export const CopyButton = {
     /**

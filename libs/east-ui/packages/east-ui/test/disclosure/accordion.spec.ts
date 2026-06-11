@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Accordion, Text } from "@elaraai/east-ui";
+import { Accordion, Text } from "@elaraai/east-ui/internal";
 import * as ex from "./accordion.examples.js";
 
 describeEast("Accordion", (test) => {
@@ -145,7 +145,7 @@ describeEast("Accordion", (test) => {
     test("creates enclosed variant accordion (inside style)", $ => {
         const accordion = $.let(Accordion.Root([
             Accordion.Item("item", "Section", [Text.Root("Content")]),
-        ], { style: { variant: "enclosed" } }));
+        ], { variant: "enclosed" }));
         $(Assert.equal(
             accordion.unwrap().unwrap("Accordion").style.unwrap("some").variant.unwrap("some").hasTag("enclosed"),
             true,
@@ -155,7 +155,7 @@ describeEast("Accordion", (test) => {
     test("creates plain variant accordion", $ => {
         const accordion = $.let(Accordion.Root([
             Accordion.Item("item", "Section", [Text.Root("Content")]),
-        ], { style: { variant: "plain" } }));
+        ], { variant: "plain" }));
         $(Assert.equal(
             accordion.unwrap().unwrap("Accordion").style.unwrap("some").variant.unwrap("some").hasTag("plain"),
             true,
@@ -165,7 +165,7 @@ describeEast("Accordion", (test) => {
     test("creates subtle variant accordion", $ => {
         const accordion = $.let(Accordion.Root([
             Accordion.Item("item", "Section", [Text.Root("Content")]),
-        ], { style: { variant: "subtle" } }));
+        ], { variant: "subtle" }));
         $(Assert.equal(
             accordion.unwrap().unwrap("Accordion").style.unwrap("some").variant.unwrap("some").hasTag("subtle"),
             true,
@@ -175,7 +175,7 @@ describeEast("Accordion", (test) => {
     test("creates accordion with AccordionVariant helper", $ => {
         const accordion = $.let(Accordion.Root([
             Accordion.Item("item", "Section", [Text.Root("Content")]),
-        ], { style: { variant: Accordion.Variant("enclosed") } }));
+        ], { variant: Accordion.Variant("enclosed") }));
         $(Assert.equal(
             accordion.unwrap().unwrap("Accordion").style.unwrap("some").variant.unwrap("some").hasTag("enclosed"),
             true,
@@ -190,14 +190,12 @@ describeEast("Accordion", (test) => {
         const accordion = $.let(Accordion.Root([
             Accordion.Item("item", "Section", [Text.Root("Content")]),
         ], {
-            style: {
-                size: "lg",
-                background: "#ffffff",
-                borderColor: "#e5e7eb",
-                triggerBackground: "#f9fafb",
-                triggerHoverBackground: "#eef2ff",
-                contentBackground: "#ffffff",
-            },
+            size: "lg",
+            background: "#ffffff",
+            borderColor: "#e5e7eb",
+            triggerBackground: "#f9fafb",
+            triggerHoverBackground: "#eef2ff",
+            contentBackground: "#ffffff",
         }));
         const s = accordion.unwrap().unwrap("Accordion").style.unwrap("some");
         $(Assert.equal(s.size.unwrap("some").hasTag("lg"), true));
@@ -220,7 +218,7 @@ describeEast("Accordion", (test) => {
             multiple: true,
             collapsible: true,
             defaultValue: ["a"],
-            style: { variant: "enclosed", size: "md" },
+            variant: "enclosed", size: "md",
         }));
         const a = accordion.unwrap().unwrap("Accordion");
         $(Assert.equal(a.multiple.unwrap("some"), true));

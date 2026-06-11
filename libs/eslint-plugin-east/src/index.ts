@@ -12,7 +12,7 @@ const rules: Record<string, Rule.RuleModule> = {
 };
 
 const plugin: ESLint.Plugin = {
-  meta: { name: "@elaraai/eslint-plugin-east", version: "0.0.1" },
+  meta: { name: "@elaraai/eslint-plugin-east", version: "1.0.4" },
   rules,
 };
 

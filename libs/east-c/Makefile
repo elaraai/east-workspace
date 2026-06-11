@@ -27,11 +27,25 @@ rebuild: clean build
 clean:
 	@rm -rf build
 
-## Install east-c CLI to ~/.local/bin
+REPO_ROOT := $(abspath $(CURDIR)/../..)
+
+## Install east-c CLI to ~/.local/bin and wire the workspace node_modules/.bin
+## so the e3 runner resolves `east-c` in-repo.
 install-cli: build
 	install -d $(HOME)/.local/bin
 	install build/packages/east-c-cli/east-c $(HOME)/.local/bin/east-c
 	@echo "Installed east-c to $(HOME)/.local/bin/east-c"
+	@# The e3 runner finds runtimes via node_modules/.bin (prepended to PATH),
+	@# which shadows ~/.local/bin. The published @elaraai/east-c-cli is a thin
+	@# launcher whose bin is provided by the per-platform packages at release —
+	@# absent in a dev checkout — so point .bin/east-c straight at the built
+	@# binary here (overwriting any stale shim). node_modules/.bin is never
+	@# published, so this changes nothing about the package.
+	@if [ -d "$(REPO_ROOT)/node_modules/.bin" ] || [ -d "$(REPO_ROOT)/node_modules" ]; then \
+		mkdir -p "$(REPO_ROOT)/node_modules/.bin"; \
+		ln -sf "$(abspath build/packages/east-c-cli/east-c)" "$(REPO_ROOT)/node_modules/.bin/east-c"; \
+		echo "Linked east-c -> $(REPO_ROOT)/node_modules/.bin/east-c"; \
+	fi
 
 # ── Tests (compliance) ───────────────────────────────────────────────
 

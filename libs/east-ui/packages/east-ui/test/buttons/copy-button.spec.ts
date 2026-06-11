@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { CopyButton } from "@elaraai/east-ui";
+import { CopyButton } from "@elaraai/east-ui/internal";
 import * as ex from "./copy-button.examples.js";
 
 describeEast("CopyButton", (test) => {
@@ -56,7 +56,7 @@ describeEast("CopyButton", (test) => {
     // =========================================================================
 
     test("creates copy button with solid variant", $ => {
-        const btn = $.let(CopyButton.Root("x", { style: { variant: "solid" } }));
+        const btn = $.let(CopyButton.Root("x", { variant: "solid" }));
         $(Assert.equal(
             btn.unwrap().unwrap("CopyButton").style.unwrap("some").variant.unwrap("some").hasTag("solid"),
             true,
@@ -64,7 +64,7 @@ describeEast("CopyButton", (test) => {
     });
 
     test("creates copy button with outline variant", $ => {
-        const btn = $.let(CopyButton.Root("x", { style: { variant: "outline" } }));
+        const btn = $.let(CopyButton.Root("x", { variant: "outline" }));
         $(Assert.equal(
             btn.unwrap().unwrap("CopyButton").style.unwrap("some").variant.unwrap("some").hasTag("outline"),
             true,
@@ -76,7 +76,7 @@ describeEast("CopyButton", (test) => {
     // =========================================================================
 
     test("creates copy button with size + colorPalette inside style", $ => {
-        const btn = $.let(CopyButton.Root("x", { style: { size: "sm", colorPalette: "blue" } }));
+        const btn = $.let(CopyButton.Root("x", { size: "sm", colorPalette: "blue" }));
         const s = btn.unwrap().unwrap("CopyButton").style.unwrap("some");
         $(Assert.equal(s.size.unwrap("some").hasTag("sm"), true));
         $(Assert.equal(s.colorPalette.unwrap("some").hasTag("blue"), true));
@@ -88,13 +88,11 @@ describeEast("CopyButton", (test) => {
 
     test("creates copy button with colour escape hatches + successColor", $ => {
         const btn = $.let(CopyButton.Root("x", {
-            style: {
-                color: "#ffffff",
-                background: "#1a2234",
-                borderColor: "#3d5cff",
-                hoverBackground: "#25345a",
-                successColor: "#2e7d32",
-            },
+            color: "#ffffff",
+            background: "#1a2234",
+            borderColor: "#3d5cff",
+            hoverBackground: "#25345a",
+            successColor: "#2e7d32",
         }));
         const s = btn.unwrap().unwrap("CopyButton").style.unwrap("some");
         $(Assert.equal(s.color.unwrap("some"), "#ffffff"));
@@ -113,12 +111,10 @@ describeEast("CopyButton", (test) => {
             label: "Copy value",
             timeout: "2500",
             disabled: false,
-            style: {
-                variant: "outline",
-                colorPalette: "teal",
-                size: "md",
-                successColor: "#2e7d32",
-            },
+            variant: "outline",
+            colorPalette: "teal",
+            size: "md",
+            successColor: "#2e7d32",
         }));
         const b = btn.unwrap().unwrap("CopyButton");
         $(Assert.equal(b.value, "the-value"));

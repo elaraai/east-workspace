@@ -10,7 +10,9 @@ import {
     StringType, OptionType,
     StructType,
     ArrayType,
-    variant
+    variant,
+    some,
+    none,
 } from "@elaraai/east";
 
 import { UIComponentType } from "../../component.js";
@@ -72,9 +74,8 @@ export type PopoverType = typeof PopoverType;
 /**
  * Creates a Popover component with a trigger and body content.
  *
- * @param trigger - The UI component that opens the popover
  * @param body - Array of UI components for popover content
- * @param style - Optional styling configuration
+ * @param options - Required `trigger` + optional `title` / `description` / visual style fields
  * @returns An East expression representing the popover component
  *
  * @remarks
@@ -87,48 +88,53 @@ export type PopoverType = typeof PopoverType;
  * import { Popover, Button, Text, UIComponentType } from "@elaraai/east-ui";
  *
  * const example = East.function([], UIComponentType, $ => {
- *     return Popover.Root(
- *         Button.Root("Edit"),
- *         [Text.Root("Edit your profile")],
- *         { title: "Edit Profile" }
- *     );
+ *     return Popover.Root([Text.Root("Edit your profile")], {
+ *         trigger: Button.Root("Edit"),
+ *         title: "Edit Profile",
+ *     });
  * });
  * ```
  */
+export interface PopoverOptions extends PopoverStyle {
+    /** The UI component that opens the popover — required. */
+    trigger: SubtypeExprOrValue<UIComponentType>;
+}
+
 function createPopover(
-    trigger: SubtypeExprOrValue<UIComponentType>,
     body: SubtypeExprOrValue<ArrayType<UIComponentType>>,
-    style?: PopoverStyle
+    options: PopoverOptions,
 ): ExprType<UIComponentType> {
-    const sizeValue = style?.size
+    const { trigger, ...style } = options;
+
+    const sizeValue = style.size
         ? (typeof style.size === "string"
             ? East.value(variant(style.size, null), PopoverSizeType)
             : style.size)
         : undefined;
 
-    const placementValue = style?.placement
+    const placementValue = style.placement
         ? (typeof style.placement === "string"
             ? East.value(variant(style.placement, null), PlacementType)
             : style.placement)
         : undefined;
 
-    const hasStyle = sizeValue || placementValue || style?.hasArrow !== undefined ||
-        style?.gutter !== undefined || style?.onOpenChange !== undefined;
+    const hasStyle = sizeValue || placementValue || style.hasArrow !== undefined ||
+        style.gutter !== undefined || style.onOpenChange !== undefined;
 
     return East.value(variant("Popover", {
         trigger: trigger,
         body: body,
-        title: style?.title !== undefined ? variant("some", style.title) : variant("none", null),
-        description: style?.description !== undefined ? variant("some", style.description) : variant("none", null),
+        title: style.title !== undefined ? some(style.title) : none,
+        description: style.description !== undefined ? some(style.description) : none,
         style: hasStyle
-            ? variant("some", East.value({
-                size: sizeValue ? variant("some", sizeValue) : variant("none", null),
-                placement: placementValue ? variant("some", placementValue) : variant("none", null),
-                hasArrow: style?.hasArrow !== undefined ? variant("some", style.hasArrow) : variant("none", null),
-                gutter: style?.gutter !== undefined ? variant("some", style.gutter) : variant("none", null),
-                onOpenChange: style?.onOpenChange !== undefined ? variant("some", style.onOpenChange) : variant("none", null),
+            ? some(East.value({
+                size: sizeValue ? some(sizeValue) : none,
+                placement: placementValue ? some(placementValue) : none,
+                hasArrow: style.hasArrow !== undefined ? some(style.hasArrow) : none,
+                gutter: style.gutter !== undefined ? some(style.gutter) : none,
+                onOpenChange: style.onOpenChange !== undefined ? some(style.onOpenChange) : none,
             }, PopoverStyleType))
-            : variant("none", null),
+            : none,
     }), UIComponentType);
 }
 
@@ -136,15 +142,14 @@ function createPopover(
  * Popover component for floating interactive content.
  *
  * @remarks
- * Use `Popover.Root(trigger, body, style)` to create a popover, or access `Popover.Types` for East types.
+ * Use `Popover.Root(body, { trigger, ... })` to create a popover, or access `Popover.Types` for East types.
  */
 export const Popover = {
     /**
      * Creates a Popover component with a trigger and body content.
      *
-     * @param trigger - The UI component that opens the popover
      * @param body - Array of UI components for popover content
-     * @param style - Optional styling configuration
+     * @param options - Required `trigger` + optional `title` / `description` / visual style fields
      * @returns An East expression representing the popover component
      *
      * @remarks
@@ -157,11 +162,10 @@ export const Popover = {
      * import { Popover, Button, Text, UIComponentType } from "@elaraai/east-ui";
      *
      * const example = East.function([], UIComponentType, $ => {
-     *     return Popover.Root(
-     *         Button.Root("Show Info"),
-     *         [Text.Root("Popover content here")],
-     *         { title: "Information" }
-     *     );
+     *     return Popover.Root([Text.Root("Popover content here")], {
+     *         trigger: Button.Root("Show Info"),
+     *         title: "Information",
+     *     });
      * });
      * ```
      */

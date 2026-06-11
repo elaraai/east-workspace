@@ -15,7 +15,7 @@ import {
     type IconDefinition,
 } from "@fortawesome/free-solid-svg-icons";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Matrix } from "@elaraai/east-ui";
+import { Matrix } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { usePersistedState } from "../../hooks/usePersistedState";
 import { EastChakraComponent } from "../../component";
@@ -23,6 +23,7 @@ import {
     getHeaderCellStyle, getCellStyle, useColumnSizeVars, ColumnResizeHandle, ColumnDividerBar,
 } from "../shared/column-pinning";
 import { useDensityHeights } from "../shared/helpers";
+import { DensityProvider } from "../../contracts/density";
 
 const matrixRootEqual = equalFor(Matrix.Types.Root);
 
@@ -311,6 +312,7 @@ const ROW_HEADER_DEFAULT = 180;
 
 /** Renders an East Matrix value as a CSS-grid of status-coloured segment bars. */
 export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageKey }: EastChakraMatrixProps) {
+    const densityTag = getSomeorUndefined(value.density)?.type;
     const size = sizeFromDensity(value);
     const recipe = useSlotRecipe({ key: "matrix" });
     const tableRecipe = useSlotRecipe({ key: "table" });
@@ -445,7 +447,7 @@ export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageK
         return out;
     }, [value.rows]);
 
-    return (
+    const matrixContent = (
         <Box css={base.root}>
             {/* Header: the row-header column header (corner) + the column axis. */}
             <Box css={base.header} data-slot="header" display="grid" gridTemplateColumns={`${leftPaneWidth} 1fr`} minWidth={gridMinWidth} height={`${headerH}px`}>
@@ -584,4 +586,10 @@ export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageK
             )}
         </Box>
     );
+
+    // A density set on the matrix cascades to display components rendered in
+    // its cells, matching the Table behaviour.
+    return densityTag !== undefined
+        ? <DensityProvider value={densityTag}>{matrixContent}</DensityProvider>
+        : matrixContent;
 }, (prev, next) => matrixRootEqual(prev.value, next.value) && prev.storageKey === next.storageKey);

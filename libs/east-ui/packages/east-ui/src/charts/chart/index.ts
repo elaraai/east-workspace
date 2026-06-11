@@ -40,6 +40,8 @@ import {
 } from "@elaraai/east";
 
 import { UIComponentType } from "../../component.js";
+import { SliceBindType, SliceChromeType } from "../../platform/slice/index.js";
+import { SliceAffordanceType, type SliceAffordanceLiteral } from "../../contracts/slice-affordances.js";
 import {
     ChartSpecType,
     ChartXType,
@@ -103,7 +105,6 @@ type CategoryAccessor<Row extends EastType> = (row: ExprType<Row>) => SubtypeExp
 type CoordScalar = StringType | IntegerType | FloatType | DateTimeType;
 
 /** Internal accessor over an untyped row; the typed accessors above narrow to this. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyAccessor = (row: any) => SubtypeExprOrValue<CoordScalar>;
 
 /**
@@ -553,6 +554,17 @@ export interface ChartOptions {
     tooltip?: boolean;
     /** Stacking offset for stacked layers (`expand` = percent stacking). */
     stackOffset?: "none" | "expand";
+    /**
+     * Slice chrome — pass the bound handle and the chart renders its own
+     * header rail mounting the `affordances` (default
+     * `["breakdown", "range"]`). With `"brush"` listed (and a continuous x)
+     * dragging the plot writes the slice's range; with a breakdown active the
+     * colour-matched legend renders below the plot. Chrome only: layer data
+     * is fed explicitly (`Slice.rows` / `Chart.Series`).
+     */
+    slice?: SubtypeExprOrValue<SliceBindType>;
+    /** Rail affordances when `slice` is set. Default `["breakdown", "range"]`. */
+    affordances?: SliceAffordanceLiteral[];
 }
 
 /** Translate an {@link AxisOptions} domain into a {@link ChartDomainType} expr. */
@@ -596,6 +608,16 @@ function createChartRoot(layers: ChartLayer | ChartLayer[], options?: ChartOptio
         ...(dualAxis ? [chartAxisRight(compact({ label: opts.y2?.label, domain: domainExpr(opts.y2?.domain), tickFormat: opts.y2?.format }))] : []),
     ];
 
+    const sliceChrome = opts.slice !== undefined
+        ? East.value({
+            slice: opts.slice,
+            affordances: East.value(
+                (opts.affordances ?? ["breakdown", "range"]).map(a => variant(a, null)),
+                ArrayType(SliceAffordanceType),
+            ),
+        }, SliceChromeType)
+        : undefined;
+
     const spec = chartFrame(children, {
         height: opts.height ?? 240,
         ...(opts.width !== undefined ? { width: opts.width } : {}),
@@ -604,8 +626,43 @@ function createChartRoot(layers: ChartLayer | ChartLayer[], options?: ChartOptio
         ...(dualAxis ? { yScale2: "linear" as const } : {}),
         tooltip: opts.tooltip === true,
         legend: opts.legend === true,
+        ...(sliceChrome !== undefined ? { slice: sliceChrome } : {}),
     });
     return East.value(variant("VisxChart", spec), UIComponentType);
+}
+
+/** Options for {@link Chart.Series} — the slice-parameterized layer. */
+export interface ChartSliceSeriesOptions {
+    /** Field id whose value positions each point on the x-axis. */
+    x: string;
+    /** Numeric field id summed into each series point. */
+    value: string;
+    /** The mark drawn per series. Default `"line"`. */
+    mark?: "line" | "bar" | "area" | "scatter";
+}
+
+/**
+ * The slice-parameterized layer: pivots the narrowed rows by the slice's
+ * active breakdown into one coloured series per dimension value (colours
+ * assigned by the slice, matching the legend) and draws them as `mark`.
+ * Compose it with ordinary layers in the same `Chart`:
+ *
+ * ```tsx
+ * <Chart layers={[Chart.Series(slice, { x: "month", value: "sessions" })]} slice={slice} />
+ * ```
+ */
+function createSliceSeries(
+    slice: SubtypeExprOrValue<SliceBindType>,
+    options: ChartSliceSeriesOptions,
+): SeriesLayer {
+    const handle = East.value(slice, SliceBindType);
+    return {
+        kind: "series",
+        mark: options.mark ?? "line",
+        data: handle.series(options.x, options.value),
+        xScale: "band",
+        style: {},
+    };
 }
 
 // ============================================================================
@@ -648,6 +705,8 @@ export const Chart = {
     Scatter: <Row extends EastType>(rows: ChartRows<Row>, encoding: ScatterEncoding<Row>, style?: ScatterStyle): SeriesLayer => createScatter(rows, encoding, style),
     /** Band (area-range) layer over a `{ x, low, high }` encoding. */
     Band: <Row extends EastType>(rows: ChartRows<Row>, encoding: BandEncoding<Row>, style?: MarkStyle): BandLayer => createBand(rows, encoding, style),
+    /** Slice-parameterized layer — one coloured series per active-breakdown value (see {@link createSliceSeries}). */
+    Series: createSliceSeries,
     /** Reference-line annotation layer. */
     refLine: createRefLine,
     /** Reference-band annotation layer. */

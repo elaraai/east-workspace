@@ -19,8 +19,7 @@ import { SliceLegend } from "./legend/index.js";
 import { SliceBreakdown } from "./breakdown/index.js";
 import { SliceSearch } from "./search/index.js";
 import { SliceCohort } from "./cohort/index.js";
-import { SliceFrame } from "./frame/index.js";
-import { SliceChart } from "./chart/index.js";
+import { SliceRail } from "./rail/index.js";
 
 export { SliceSummaryType } from "./summary/types.js";
 export { SliceRangePickerType } from "./range/types.js";
@@ -47,8 +46,6 @@ export const Slice = {
     Search: SliceSearch,
     /** Saved-segment chips + focused-cohort predicate detail. */
     Cohort: SliceCohort,
-    /** Container that houses a slice consumer (Table / Chart) with eyebrow + derived footer. */
-    Frame: SliceFrame,
-    /** Slice-bound visx charts (Line / Bar / Area) split by the active breakdown. */
-    Chart: SliceChart,
+    /** The slice affordance cluster as a standalone strip — place above components reading `slice.rows()`. */
+    Rail: SliceRail,
 } as const;

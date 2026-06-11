@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { TimeRangeInput } from "@elaraai/east-ui";
+import { TimeRangeInput } from "@elaraai/east-ui/internal";
 import { East, IntegerType, NullType } from "@elaraai/east";
 import * as ex from "./time-range-input.examples.js";
 
@@ -21,7 +21,7 @@ describeEast("TimeRangeInput", (test) => {
     test("creates range with start + end minutes", $ => {
         const start = $.let(360n, IntegerType);
         const end = $.let(840n, IntegerType);
-        const r = $.let(TimeRangeInput.Root(start, end));
+        const r = $.let(TimeRangeInput.Root({ startValue: start, endValue: end }));
         $(Assert.equal(r.unwrap().unwrap("TimeRangeInput").startValue, 360n));
         $(Assert.equal(r.unwrap().unwrap("TimeRangeInput").endValue, 840n));
     });
@@ -29,14 +29,14 @@ describeEast("TimeRangeInput", (test) => {
     test("step round-trips on main", $ => {
         const start = $.let(0n, IntegerType);
         const end = $.let(60n, IntegerType);
-        const r = $.let(TimeRangeInput.Root(start, end, { step: 15n }));
+        const r = $.let(TimeRangeInput.Root({ startValue: start, endValue: end, step: 15n }));
         $(Assert.equal(r.unwrap().unwrap("TimeRangeInput").step.unwrap("some"), 15n));
     });
 
     test("min/max round-trip on main", $ => {
         const start = $.let(360n, IntegerType);
         const end = $.let(840n, IntegerType);
-        const r = $.let(TimeRangeInput.Root(start, end, { min: 0n, max: 1440n }));
+        const r = $.let(TimeRangeInput.Root({ startValue: start, endValue: end, min: 0n, max: 1440n }));
         $(Assert.equal(r.unwrap().unwrap("TimeRangeInput").min.unwrap("some"), 0n));
         $(Assert.equal(r.unwrap().unwrap("TimeRangeInput").max.unwrap("some"), 1440n));
     });
@@ -44,7 +44,7 @@ describeEast("TimeRangeInput", (test) => {
     test("presets array round-trips", $ => {
         const start = $.let(360n, IntegerType);
         const end = $.let(840n, IntegerType);
-        const r = $.let(TimeRangeInput.Root(start, end, {
+        const r = $.let(TimeRangeInput.Root({ startValue: start, endValue: end,
             presets: [
                 { label: "Morning", start: 360n, end: 840n },
                 { label: "Afternoon", start: 840n, end: 1320n },
@@ -61,7 +61,7 @@ describeEast("TimeRangeInput", (test) => {
     test("disabled flag round-trips on main", $ => {
         const start = $.let(360n, IntegerType);
         const end = $.let(840n, IntegerType);
-        const r = $.let(TimeRangeInput.Root(start, end, { disabled: true }));
+        const r = $.let(TimeRangeInput.Root({ startValue: start, endValue: end, disabled: true }));
         $(Assert.equal(r.unwrap().unwrap("TimeRangeInput").disabled.unwrap("some"), true));
     });
 
@@ -69,14 +69,14 @@ describeEast("TimeRangeInput", (test) => {
         const start = $.let(360n, IntegerType);
         const end = $.let(840n, IntegerType);
         const onChange = East.function([IntegerType, IntegerType], NullType, (_$, _s, _e) => { /* noop */ });
-        const r = $.let(TimeRangeInput.Root(start, end, { onChange }));
+        const r = $.let(TimeRangeInput.Root({ startValue: start, endValue: end, onChange }));
         $(Assert.equal(r.unwrap().unwrap("TimeRangeInput").onChange.hasTag("some"), true));
     });
 
     test("variant + size + colour overrides round-trip via style", $ => {
         const start = $.let(540n, IntegerType);
         const end = $.let(1020n, IntegerType);
-        const r = $.let(TimeRangeInput.Root(start, end, {
+        const r = $.let(TimeRangeInput.Root({ startValue: start, endValue: end,
             variant: "subtle",
             size: "sm",
             color: "fg",
@@ -96,7 +96,7 @@ describeEast("TimeRangeInput", (test) => {
     test("style absent when no visual fields set", $ => {
         const start = $.let(360n, IntegerType);
         const end = $.let(840n, IntegerType);
-        const r = $.let(TimeRangeInput.Root(start, end));
+        const r = $.let(TimeRangeInput.Root({ startValue: start, endValue: end }));
         $(Assert.equal(r.unwrap().unwrap("TimeRangeInput").style.hasTag("none"), true));
     });
 }, { platformFns: TestImpl });

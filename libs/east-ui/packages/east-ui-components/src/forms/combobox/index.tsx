@@ -7,7 +7,7 @@ import { memo, useState, useMemo, useCallback, useEffect } from "react";
 import { Portal } from "@chakra-ui/react";
 import { Combobox as ChakraCombobox, createListCollection } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Combobox } from "@elaraai/east-ui";
+import { Combobox } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 
 // Pre-define equality function at module level

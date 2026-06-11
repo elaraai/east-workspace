@@ -19,7 +19,7 @@ import {
     none,
 } from "@elaraai/east";
 
-import { StatusTokenType, OrientationType } from "../../style.js";
+import { StatusTokenType, OrientationType, DensityType } from "../../style.js";
 import { UIComponentType } from "../../component.js";
 import {
     BarStripStyleType,
@@ -81,6 +81,7 @@ export type BarStripItemType = typeof BarStripItemType;
  * @property showValues - Whether to render trailing value text
  * @property sort - Sort direction (applied at factory time for the IR)
  * @property maxItems - Optional row limit
+ * @property density - Density override; shares the cascade with `ChipRail` / `Trace` so mixed display cells align
  * @property style - Optional visual style sub-struct
  */
 export const BarStripType: StructType<{
@@ -88,12 +89,14 @@ export const BarStripType: StructType<{
     showValues: OptionType<BooleanType>,
     sort: OptionType<BarStripSortType>,
     maxItems: OptionType<IntegerType>,
+    density: OptionType<DensityType>,
     style: OptionType<BarStripStyleType>,
 }> = StructType({
     items: ArrayType(BarStripItemType),
     showValues: OptionType(BooleanType),
     sort: OptionType(BarStripSortType),
     maxItems: OptionType(IntegerType),
+    density: OptionType(DensityType),
     style: OptionType(BarStripStyleType),
 });
 
@@ -193,6 +196,11 @@ function createBarStrip(
             ? East.value(variant(options.sort, null), BarStripSortType)
             : options.sort)
         : undefined;
+    const densityValue = options?.density !== undefined
+        ? (typeof options.density === "string"
+            ? East.value(variant(options.density, null), DensityType)
+            : options.density)
+        : undefined;
     const styleValue = buildBarStripStyle(options);
 
     return East.value(variant("BarStrip", {
@@ -200,6 +208,7 @@ function createBarStrip(
         showValues: options?.showValues !== undefined ? some(options.showValues) : none,
         sort: sortValue ? some(sortValue) : none,
         maxItems: options?.maxItems !== undefined ? some(options.maxItems) : none,
+        density: densityValue ? some(densityValue) : none,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
@@ -251,6 +260,7 @@ export const BarStrip: BarStripNamespace = {
          * @property showValues - Whether to render trailing value text
          * @property sort - Sort direction
          * @property maxItems - Optional row limit
+         * @property density - Density override; shares the cascade with `ChipRail` / `Trace` so mixed display cells align
          * @property style - Optional visual style sub-struct
          */
         BarStrip: BarStripType,

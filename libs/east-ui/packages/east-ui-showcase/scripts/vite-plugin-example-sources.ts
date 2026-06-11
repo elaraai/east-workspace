@@ -2,17 +2,24 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Licensed under AGPL-3.0. See LICENSE file for details.
  *
- * Vite plugin that captures the authored source of `example({ fn, ... })`
- * declarations in `*.examples.ts` files and exposes them via the virtual
- * module `virtual:example-sources`.
+ * Vite plugin that captures `example({ fn, ... })` declarations in
+ * `*.examples.ts` files and exposes them via the virtual module
+ * `virtual:example-sources`. Two exports:
+ *
+ * - `exampleSources` — the authored `fn` source (raw + highlighted HTML)
+ *   for the live `east-ui` examples, keyed `pathKey → name`. Backs the
+ *   source-code toggle on rendered cards.
+ * - `codeExamples` — a flat list of non-UI examples (the `CODE_EXAMPLE_ROOTS`
+ *   packages) with their `fn` source plus extracted `keywords` /
+ *   `description` / `returns`. These packages can't run in the browser, so
+ *   they're read statically and shown as code blocks in "Code Reference".
  *
  * @remarks
- * - Globs `include` under `cwd`, parses each with the TypeScript compiler
- *   API, extracts the `fn` property's source text for every top-level
- *   `export const X = example({...})`.
- * - Runs the captured text through Prettier (parser: "typescript") at
- *   build time so the showcase displays normalised formatting.
- * - HMR: the virtual module is invalidated when any matched file changes.
+ * - Parses each file with the TypeScript compiler API.
+ * - `fn` source is normalised through Prettier, then highlighted with
+ *   highlight.js — both at build time.
+ * - HMR: the virtual module is invalidated when any matched file under a
+ *   watched root changes.
  */
 
 import type { Plugin, ViteDevServer } from "vite";
@@ -23,13 +30,21 @@ import { format } from "prettier";
 import hljs from "highlight.js/lib/core";
 import typescriptLang from "highlight.js/lib/languages/typescript";
 import { discoverExampleFiles } from "./discover-example-files";
+import { CODE_EXAMPLE_ROOTS } from "./example-roots";
 
 hljs.registerLanguage("typescript", typescriptLang);
 
 export interface ExampleSourcesOptions {
-    /** Absolute path to the test root — the directory containing
-     *  `<category>/<component>.examples.ts` files. */
+    /** Absolute path to the live `east-ui` test root — the directory
+     *  containing `<category>/<component>.examples.ts` files. */
     testDir: string;
+    /** Absolute path to the live `e3-ui` test root. Its example files are
+     *  flat (`data.examples.tsx`), so their captured sources are keyed
+     *  `e3/<stem>` — matching the catalog's e3 pathKeys. */
+    e3TestDir?: string;
+    /** Absolute path to the showcase package root. `CODE_EXAMPLE_ROOTS`
+     *  `dir` values are resolved against this, exactly like `testDir`. */
+    rootDir: string;
 }
 
 const VIRTUAL_ID = "virtual:example-sources";
@@ -42,7 +57,36 @@ export interface CapturedSource {
     html: string;
 }
 
-async function extractAndFormat(filePath: string, code: string): Promise<Record<string, CapturedSource>> {
+/** One statically-read non-UI example: source + the metadata needed to
+ *  list and filter it in the Code Reference section, never executed. */
+export interface CodeExample {
+    /** Source package label, e.g. `east-py-datascience`. */
+    package: string;
+    /** `package/relative/path` (no extension) — unique per example file. */
+    pathKey: string;
+    /** Path within the package's test dir (no extension), e.g. `sql/sqlite`. */
+    file: string;
+    /** Exported `const` name of the example. */
+    name: string;
+    keywords: string[];
+    description: string;
+    /** Source text of the example's `returns` value (prettier-formatted). */
+    returns: string;
+    /** The example's `fn` body, formatted + highlighted. */
+    source: CapturedSource;
+}
+
+/** Raw (unformatted) capture of one `example({...})` declaration. */
+interface RawExample {
+    fn: string;
+    keywords: string[];
+    description: string;
+    returns: string;
+}
+
+/** Walk a file's AST and pull the raw text of every top-level
+ *  `export const X = example({ fn, keywords, description, returns })`. */
+function extractRaw(filePath: string, code: string): Record<string, RawExample> {
     const sf = ts.createSourceFile(
         filePath,
         code,
@@ -50,7 +94,13 @@ async function extractAndFormat(filePath: string, code: string): Promise<Record<
         /*setParentNodes*/ true,
         ts.ScriptKind.TSX,
     );
-    const raw: Record<string, string> = {};
+    const out: Record<string, RawExample> = {};
+
+    const prop = (obj: ts.ObjectLiteralExpression, key: string): ts.Expression | undefined =>
+        obj.properties.find(
+            (p): p is ts.PropertyAssignment =>
+                ts.isPropertyAssignment(p) && ts.isIdentifier(p.name) && p.name.text === key,
+        )?.initializer;
 
     const visit = (node: ts.Node) => {
         if (
@@ -68,71 +118,131 @@ async function extractAndFormat(filePath: string, code: string): Promise<Record<
                     ts.isObjectLiteralExpression(decl.initializer.arguments[0])
                 ) {
                     const obj = decl.initializer.arguments[0];
-                    const fnProp = obj.properties.find(
-                        (p): p is ts.PropertyAssignment =>
-                            ts.isPropertyAssignment(p) &&
-                            ts.isIdentifier(p.name) &&
-                            p.name.text === "fn",
-                    );
-                    if (fnProp) {
-                        raw[decl.name.text] = fnProp.initializer.getText(sf);
-                    }
+                    const fn = prop(obj, "fn");
+                    if (!fn) continue;
+
+                    const keywordsExpr = prop(obj, "keywords");
+                    const keywords =
+                        keywordsExpr && ts.isArrayLiteralExpression(keywordsExpr)
+                            ? keywordsExpr.elements
+                                  .filter(ts.isStringLiteralLike)
+                                  .map((e) => e.text)
+                            : [];
+
+                    const descExpr = prop(obj, "description");
+                    const description =
+                        descExpr && ts.isStringLiteralLike(descExpr) ? descExpr.text : "";
+
+                    const returnsExpr = prop(obj, "returns");
+                    const returns = returnsExpr ? returnsExpr.getText(sf) : "";
+
+                    out[decl.name.text] = { fn: fn.getText(sf), keywords, description, returns };
                 }
             }
         }
         ts.forEachChild(node, visit);
     };
     visit(sf);
-
-    const captured: Record<string, CapturedSource> = {};
-    for (const [name, src] of Object.entries(raw)) {
-        let formatted = src;
-        try {
-            const wrapped = `const __fn = ${src};`;
-            const out = await format(wrapped, {
-                parser: "typescript",
-                tabWidth: 4,
-                printWidth: 92,
-                singleQuote: false,
-            });
-            formatted = out
-                .replace(/^\s*const\s+__fn\s*=\s*/, "")
-                .replace(/;\s*$/, "")
-                .trimEnd();
-        } catch {
-            // Prettier failed (bad input?) — fall through with raw src.
-        }
-
-        let html = "";
-        try {
-            html = hljs.highlight(formatted, { language: "typescript" }).value;
-        } catch {
-            // Highlighter failed — emit escaped text so the renderer still works.
-            html = formatted
-                .replace(/&/g, "&amp;")
-                .replace(/</g, "&lt;")
-                .replace(/>/g, "&gt;");
-        }
-        captured[name] = { raw: formatted, html };
-    }
-    return captured;
+    return out;
 }
 
-async function buildMap(opts: ExampleSourcesOptions): Promise<Record<string, Record<string, CapturedSource>>> {
-    const discovered = await discoverExampleFiles({ testDir: opts.testDir });
-    const sources: Record<string, Record<string, CapturedSource>> = {};
+/** Prettier-format an expression snippet by wrapping it in an assignment
+ *  (the only way Prettier will format a bare expression), then unwrap. */
+async function formatExpr(src: string): Promise<string> {
+    try {
+        const out = await format(`const __x = ${src};`, {
+            parser: "typescript",
+            tabWidth: 4,
+            printWidth: 92,
+            singleQuote: false,
+        });
+        return out
+            .replace(/^\s*const\s+__x\s*=\s*/, "")
+            .replace(/;\s*$/, "")
+            .trimEnd();
+    } catch {
+        // Prettier failed (bad input?) — fall back to the raw source.
+        return src;
+    }
+}
 
+function highlight(src: string): string {
+    try {
+        return hljs.highlight(src, { language: "typescript" }).value;
+    } catch {
+        return src.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+}
+
+async function capture(src: string): Promise<CapturedSource> {
+    const raw = await formatExpr(src);
+    return { raw, html: highlight(raw) };
+}
+
+/** Live source map: `pathKey → name → fn source`. `keyPrefix` namespaces
+ *  flat roots (the e3-ui tree → `e3/<stem>`) against east-ui's
+ *  `<category>/<component>` keys. */
+async function buildSources(
+    testDir: string,
+    includeTopLevel = false,
+    keyPrefix = "",
+): Promise<Record<string, Record<string, CapturedSource>>> {
+    const discovered = await discoverExampleFiles({ testDir, includeTopLevel });
+    const sources: Record<string, Record<string, CapturedSource>> = {};
     for (const { filePath, pathKey } of discovered) {
         const code = await fs.readFile(filePath, "utf8");
-        const extracted = await extractAndFormat(filePath, code);
-        if (Object.keys(extracted).length === 0) continue;
-        sources[pathKey] = extracted;
+        const raw = extractRaw(filePath, code);
+        const names = Object.keys(raw);
+        if (names.length === 0) continue;
+        const captured: Record<string, CapturedSource> = {};
+        for (const name of names) captured[name] = await capture(raw[name].fn);
+        sources[keyPrefix + pathKey] = captured;
     }
     return sources;
 }
 
+/** Flat list of non-UI examples across every `CODE_EXAMPLE_ROOTS` package.
+ *  Only `.examples.ts` files are taken here: by convention a `.tsx` example
+ *  returns renderable UI and goes on the live `import.meta.glob` path, while
+ *  a plain `.ts` example is shown as a code block. */
+async function buildCodeExamples(rootDir: string): Promise<CodeExample[]> {
+    const out: CodeExample[] = [];
+    for (const root of CODE_EXAMPLE_ROOTS) {
+        const testDir = path.resolve(rootDir, root.dir);
+        const discovered = await discoverExampleFiles({ testDir, includeTopLevel: true });
+        for (const { filePath, pathKey } of discovered) {
+            if (!filePath.endsWith(".examples.ts")) continue;
+            const code = await fs.readFile(filePath, "utf8");
+            const raw = extractRaw(filePath, code);
+            for (const [name, ex] of Object.entries(raw)) {
+                out.push({
+                    package: root.package,
+                    pathKey: `${root.package}/${pathKey}`,
+                    file: pathKey,
+                    name,
+                    keywords: ex.keywords,
+                    description: ex.description,
+                    returns: ex.returns ? await formatExpr(ex.returns) : "",
+                    source: await capture(ex.fn),
+                });
+            }
+        }
+    }
+    out.sort((a, b) => a.pathKey.localeCompare(b.pathKey) || a.name.localeCompare(b.name));
+    return out;
+}
+
 export function exampleSourcesPlugin(opts: ExampleSourcesOptions): Plugin {
     let server: ViteDevServer | undefined;
+
+    /* Absolute roots whose `.examples.*` changes should invalidate the
+     * virtual module — the live `east-ui` + `e3-ui` trees plus every
+     * code-reference root. */
+    const watchedDirs = [
+        opts.testDir,
+        ...(opts.e3TestDir ? [opts.e3TestDir] : []),
+        ...CODE_EXAMPLE_ROOTS.map((r) => path.resolve(opts.rootDir, r.dir)),
+    ];
 
     return {
         name: "example-sources",
@@ -144,19 +254,32 @@ export function exampleSourcesPlugin(opts: ExampleSourcesOptions): Plugin {
 
         async load(id) {
             if (id !== RESOLVED_ID) return;
-            const sources = await buildMap(opts);
-            return `export const exampleSources = ${JSON.stringify(sources, null, 2)};\n`;
+            const [eastSources, e3Sources, codeExamples] = await Promise.all([
+                buildSources(opts.testDir),
+                opts.e3TestDir ? buildSources(opts.e3TestDir, true, "e3/") : Promise.resolve({}),
+                buildCodeExamples(opts.rootDir),
+            ]);
+            const exampleSources = { ...eastSources, ...e3Sources };
+            return (
+                `export const exampleSources = ${JSON.stringify(exampleSources, null, 2)};\n` +
+                `export const codeExamples = ${JSON.stringify(codeExamples, null, 2)};\n`
+            );
         },
 
         configureServer(devServer) {
             server = devServer;
+            /* Code-reference roots live outside this package and are never
+             * imported into the module graph, so chokidar won't watch them
+             * on its own — add them explicitly for HMR. */
+            server.watcher.add(watchedDirs);
             const onChange = (file: string) => {
                 if (!server) return;
                 /* `file` is absolute, normalised by chokidar. Reload only when a
                  * matched example file changed (vs. unrelated files in the same
                  * watch tree). */
                 const abs = path.resolve(file);
-                if (abs.startsWith(opts.testDir) && abs.endsWith(".examples.ts")) {
+                const isExample = abs.endsWith(".examples.ts") || abs.endsWith(".examples.tsx");
+                if (isExample && watchedDirs.some((d) => abs.startsWith(d))) {
                     const mod = server.moduleGraph.getModuleById(RESOLVED_ID);
                     if (mod) server.reloadModule(mod);
                 }

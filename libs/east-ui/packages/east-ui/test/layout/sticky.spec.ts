@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Sticky, Text } from "@elaraai/east-ui";
+import { Sticky, Text } from "@elaraai/east-ui/internal";
 import * as ex from "./sticky.examples.js";
 
 describeEast("Sticky", (test) => {
@@ -60,11 +60,9 @@ describeEast("Sticky", (test) => {
         const sticky = $.let(Sticky.Root(Text.Root("Header"), {
             offset: "0",
             boundary: "parent",
-            style: {
-                background: "white",
-                borderColor: "gray.200",
-                shadowColor: "shadows.raised",
-            },
+            background: "white",
+            borderColor: "gray.200",
+            shadowColor: "shadows.raised",
         }));
 
         $(Assert.equal(sticky.unwrap().unwrap("Sticky").style.hasTag("some"), true));

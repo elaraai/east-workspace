@@ -11,6 +11,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { fieldChrome } from "../field-chrome.js";
 
 export const selectSlotRecipe = defineSlotRecipe({
     className: "elara-select",
@@ -22,30 +23,13 @@ export const selectSlotRecipe = defineSlotRecipe({
     ],
     base: {
         trigger: {
+            ...fieldChrome,
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "space-between",
             gap: "{spacing.2}",
             width: "100%",
-            background: "bg.surface",
-            color: "fg",
-            borderWidth: "1px",
-            borderColor: "border.strong",
-            borderRadius: "{radii.sm}",
-            paddingX: "10px",
-            paddingY: "7px",
-            fontSize: "{fontSizes.control}",
-            fontFamily: "body",
             cursor: "pointer",
-            transitionProperty: "border-color, box-shadow",
-            transitionDuration: "{durations.fast}",
-            _hover: { borderColor: "fg.subtle" },
-            _focusVisible: {
-                borderColor: "{colors.brand.600}",
-                boxShadow: "none",
-                outline: "none",
-            },
-            _disabled: { background: "bg.subtle", color: "fg.muted", cursor: "not-allowed" },
         },
         valueText: {
             flex: 1,

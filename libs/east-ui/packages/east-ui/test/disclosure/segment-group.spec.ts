@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { SegmentGroup, Text } from "@elaraai/east-ui";
+import { SegmentGroup, Text } from "@elaraai/east-ui/internal";
 import * as ex from "./segment-group.examples.js";
 
 describeEast("SegmentGroup", (test) => {
@@ -41,10 +41,10 @@ describeEast("SegmentGroup", (test) => {
     // =========================================================================
 
     test("creates segment group with value + items only", $ => {
-        const sg = $.let(SegmentGroup.Root("a", [
+        const sg = $.let(SegmentGroup.Root({ value: "a", items: [
             SegmentGroup.Item("a", "A"),
             SegmentGroup.Item("b", "B"),
-        ]));
+        ] }));
         const s = sg.unwrap().unwrap("SegmentGroup");
         $(Assert.equal(s.value, "a"));
         $(Assert.equal(s.items.size(), 2n));
@@ -57,9 +57,9 @@ describeEast("SegmentGroup", (test) => {
     // =========================================================================
 
     test("creates segment group with size inside style", $ => {
-        const sg = $.let(SegmentGroup.Root("a", [
+        const sg = $.let(SegmentGroup.Root({ value: "a", items: [
             SegmentGroup.Item("a", "A"),
-        ], { style: { size: "sm" } }));
+        ], size: "sm" }));
         $(Assert.equal(
             sg.unwrap().unwrap("SegmentGroup").style.unwrap("some").size.unwrap("some").hasTag("sm"),
             true,
@@ -67,9 +67,9 @@ describeEast("SegmentGroup", (test) => {
     });
 
     test("creates segment group with colorPalette", $ => {
-        const sg = $.let(SegmentGroup.Root("a", [
+        const sg = $.let(SegmentGroup.Root({ value: "a", items: [
             SegmentGroup.Item("a", "A"),
-        ], { style: { colorPalette: "blue" } }));
+        ], colorPalette: "blue" }));
         $(Assert.equal(
             sg.unwrap().unwrap("SegmentGroup").style.unwrap("some").colorPalette.unwrap("some").hasTag("blue"),
             true,
@@ -77,9 +77,9 @@ describeEast("SegmentGroup", (test) => {
     });
 
     test("creates vertical segment group", $ => {
-        const sg = $.let(SegmentGroup.Root("a", [
+        const sg = $.let(SegmentGroup.Root({ value: "a", items: [
             SegmentGroup.Item("a", "A"),
-        ], { style: { orientation: "vertical" } }));
+        ], orientation: "vertical" }));
         $(Assert.equal(
             sg.unwrap().unwrap("SegmentGroup").style.unwrap("some").orientation.unwrap("some").hasTag("vertical"),
             true,
@@ -91,16 +91,14 @@ describeEast("SegmentGroup", (test) => {
     // =========================================================================
 
     test("creates segment group with full colour escape hatches", $ => {
-        const sg = $.let(SegmentGroup.Root("a", [
+        const sg = $.let(SegmentGroup.Root({ value: "a", items: [
             SegmentGroup.Item("a", "A"),
-        ], {
-            style: {
-                background: "#f9fafb",
-                borderColor: "#e5e7eb",
-                activeBackground: "#1a2234",
-                activeColor: "#ffffff",
-                inactiveColor: "#6b7280",
-            },
+        ], 
+            background: "#f9fafb",
+            borderColor: "#e5e7eb",
+            activeBackground: "#1a2234",
+            activeColor: "#ffffff",
+            inactiveColor: "#6b7280",
         }));
         const s = sg.unwrap().unwrap("SegmentGroup").style.unwrap("some");
         $(Assert.equal(s.background.unwrap("some"), "#f9fafb"));
@@ -115,17 +113,15 @@ describeEast("SegmentGroup", (test) => {
     // =========================================================================
 
     test("creates fully-configured segment group", $ => {
-        const sg = $.let(SegmentGroup.Root("demand", [
+        const sg = $.let(SegmentGroup.Root({ value: "demand", items: [
             SegmentGroup.Item("summary", "Summary"),
             SegmentGroup.Item("demand", "Demand"),
             SegmentGroup.Item("coverage", "Coverage"),
-        ], {
-            style: {
-                size: "sm",
-                colorPalette: "teal",
-                orientation: "horizontal",
-                activeBackground: "#14b8a6",
-            },
+        ], 
+            size: "sm",
+            colorPalette: "teal",
+            orientation: "horizontal",
+            activeBackground: "#14b8a6",
         }));
         const s = sg.unwrap().unwrap("SegmentGroup");
         $(Assert.equal(s.value, "demand"));

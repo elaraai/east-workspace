@@ -170,7 +170,7 @@ export type MatrixColumnType = typeof MatrixColumnType;
  * The shape `Matrix.Root` produces and the renderer consumes: `rows` × `columns`
  * with a status-coloured segment bar per cell, an optional `rowHeader` over the
  * left identity column, a default `orientation`, an optional `legend`, and the
- * `onCell/Segment*` callbacks. Drop it into a `Slice.Frame` for filter / search
+ * `onCell/Segment*` callbacks. Pair it with a `Slice.Rail` for filter / search
  * / breakdown / range.
  *
  * @property rows - Row data
@@ -379,14 +379,35 @@ function createCell(input: MatrixCellInput): ExprType<MatrixCellType> {
  * @property label - Optional header label (plain string or {@link LabelInput}); defaults to `key`
  */
 export interface MatrixColumnInput {
-    /** Stable column key. */
-    key: string;
+    /** Stable column key (cells are keyed against it). */
+    key: SubtypeExprOrValue<StringType>;
     /** Optional header label; defaults to `key`. */
     label?: SubtypeExprOrValue<StringType> | LabelInput;
 }
 
+/**
+ * Builds a Matrix column (one x-axis pivot column) East value from flat input —
+ * the constructor for the `columns` array.
+ *
+ * @param input - Column configuration ({@link MatrixColumnInput})
+ * @returns An East expression of {@link MatrixColumnType}
+ *
+ * @remarks
+ * Internal builder behind `Matrix.column`; that namespace property carries the
+ * documented example. Because the result is an East value (not a TS object), a
+ * `columns` array of these is a genuine `ArrayType<MatrixColumnType>` — so the
+ * x-axis can be data-driven (built with `.map` from upstream data) just as
+ * readily as written out literally.
+ */
+function createColumn(input: MatrixColumnInput): ExprType<MatrixColumnType> {
+    return East.value({
+        key: input.key,
+        label: input.label !== undefined ? some(buildLabel(input.label)) : none,
+    }, MatrixColumnType);
+}
+
 // Infer the row struct type R from the data argument, mirroring Planner/Gantt.
-type RowElement<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
+export type RowElement<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
     TypeOf<T> extends ArrayType<infer S> ? (S extends StructType ? S : never) : never;
 
 /**
@@ -410,10 +431,14 @@ type RowElement<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
  * @property onSegmentChange - Segment drag-resize callback (presence ⇒ handles)
  */
 export interface MatrixConfig<R extends StructType> {
-    /** The x-axis column definitions. */
-    columns: MatrixColumnInput[];
+    /**
+     * The x-axis column definitions — an array of `Matrix.column(...)` values,
+     * or any East `ArrayType<MatrixColumnType>` expression (the x-axis can be
+     * data-driven).
+     */
+    columns: SubtypeExprOrValue<ArrayType<MatrixColumnType>>;
     /** Per-(row, column) cell builder. Return `Matrix.cell(...)`. */
-    cell: (row: ExprType<R>, columnKey: string) => SubtypeExprOrValue<MatrixCellType>;
+    cell: (row: ExprType<R>, column: ExprType<MatrixColumnType>) => SubtypeExprOrValue<MatrixCellType>;
     /** Stable row-key accessor. */
     rowKey: (row: ExprType<R>) => SubtypeExprOrValue<StringType>;
     /** Optional header label for the row-header (left) column. */
@@ -451,7 +476,7 @@ export interface MatrixConfig<R extends StructType> {
  * @remarks
  * Data + accessors (Planner parity): `columns` declares the x-axis, `cell`
  * builds each `(row, column)` cell with `Matrix.cell(...)`, `groupBy` groups
- * rows. Drop the result into a `Slice.Frame` to get filter / search /
+ * rows. Pair the result with a `Slice.Rail` to get filter / search /
  * breakdown / range for free.
  *
  * @example
@@ -481,16 +506,13 @@ function createMatrix<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
     const data_expr = East.value(data) as ExprType<ArrayType<StructType>>;
     const cfg = config as unknown as MatrixConfig<StructType>;
 
-    const columns_mapped = cfg.columns.map(c => East.value({
-        key: c.key,
-        label: c.label !== undefined ? some(buildLabel(c.label)) : none,
-    }, MatrixColumnType));
+    const columns_expr = East.value(cfg.columns, ArrayType(MatrixColumnType));
 
     const rows = data_expr.map(($, row) => {
-        const cells = $.let(new Map(), DictType(StringType, MatrixCellType));
-        for (const col of cfg.columns) {
-            $(cells.insert(col.key, cfg.cell(row, col.key)));
-        }
+        const cells = $.let(columns_expr.toDict(
+            ($, col) => col.key,
+            ($, col) => East.value(cfg.cell(row, col), MatrixCellType),
+        ));
         return East.value({
             key: cfg.rowKey(row),
             value: cfg.rowValue !== undefined ? cfg.rowValue(row) : cfg.rowKey(row),
@@ -513,7 +535,7 @@ function createMatrix<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
 
     return East.value(variant("Matrix", {
         rows,
-        columns: East.value(columns_mapped, ArrayType(MatrixColumnType)),
+        columns: columns_expr,
         rowHeader: cfg.rowHeader !== undefined ? some(cfg.rowHeader) : none,
         orientation: variant(cfg.orientation ?? "horizontal", null),
         legend,
@@ -742,6 +764,7 @@ const MatrixTypes: MatrixTypesShape = {
 
 interface MatrixNamespace {
     Root: typeof createMatrix;
+    column: typeof createColumn;
     segment: typeof createSegment;
     marker: typeof createMarker;
     cell: typeof createCell;
@@ -754,7 +777,7 @@ interface MatrixNamespace {
  * @remarks
  * Build with `Matrix.Root(data, config)`; assemble cells with `Matrix.cell`,
  * segments with `Matrix.segment`, status flags with `Matrix.marker`. Frame it
- * in `Slice.Frame` for filter / search / breakdown / range.
+ * with a `Slice.Rail` for filter / search / breakdown / range.
  */
 const MatrixImpl: MatrixNamespace = {
     /**
@@ -768,7 +791,7 @@ const MatrixImpl: MatrixNamespace = {
      * @remarks
      * Data + accessors (Planner parity): `columns` declares the x-axis, `cell`
      * builds each `(row, column)` cell with `Matrix.cell(...)`, `groupBy` groups
-     * rows. Drop the result into a `Slice.Frame` to get filter / search /
+     * rows. Pair the result with a `Slice.Rail` to get filter / search /
      * breakdown / range for free.
      *
      * @example
@@ -780,7 +803,7 @@ const MatrixImpl: MatrixNamespace = {
      *     Matrix.Root(
      *         [{ name: "Alice", booked: 0.7 }, { name: "Bob", booked: 0.4 }],
      *         {
-     *             columns: [{ key: "mon", label: "Mon" }, { key: "tue", label: "Tue" }],
+     *             columns: [Matrix.column({ key: "mon", label: "Mon" }), Matrix.column({ key: "tue", label: "Tue" })],
      *             rowKey: r => r.name,
      *             cell: (r, _col) => Matrix.cell({ segments: [
      *                 Matrix.segment({ fill: "brand", weight: r.booked }),
@@ -792,6 +815,36 @@ const MatrixImpl: MatrixNamespace = {
      * ```
      */
     Root: createMatrix,
+    /**
+     * Builds a Matrix column (one x-axis pivot column) East value from flat input.
+     *
+     * @param input - Column configuration ({@link MatrixColumnInput})
+     * @returns An East expression of {@link MatrixColumnType}
+     *
+     * @remarks
+     * The constructor for the `columns` array. Because it returns an East value,
+     * the x-axis can be data-driven — `data.map(($, d) => Matrix.column({ key: d.id }))`
+     * — as readily as written out literally.
+     *
+     * @example
+     * ```ts
+     * import { East } from "@elaraai/east";
+     * import { Matrix, UIComponentType } from "@elaraai/east-ui";
+     *
+     * const example = East.function([], UIComponentType, _$ =>
+     *     Matrix.Root(
+     *         [{ name: "Alice", booked: 0.7 }],
+     *         {
+     *             columns: [Matrix.column({ key: "mon", label: "Mon" })],
+     *             rowKey: r => r.name,
+     *             cell: (r, col) => Matrix.cell({ segments: [
+     *                 Matrix.segment({ fill: "brand", weight: r.booked }),
+     *             ]}),
+     *         },
+     *     ));
+     * ```
+     */
+    column: createColumn,
     /**
      * Builds a Matrix segment East value from flat input.
      *

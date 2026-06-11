@@ -123,13 +123,11 @@ export type CloseButtonType = typeof CloseButtonType;
  * @property onClick - Click-handler callback
  * @property style - Visual-presentation sub-struct
  */
-export interface CloseButtonOptions {
+export interface CloseButtonOptions extends CloseButtonStyle {
     /** Optional aria-label — renderer defaults to "Close" when absent */
     label?: SubtypeExprOrValue<StringType>;
     /** Disabled state — renderer blocks interaction */
     disabled?: SubtypeExprOrValue<BooleanType>;
     /** Click-handler callback (zero-arg East function) */
     onClick?: SubtypeExprOrValue<FunctionType<[], NullType>>;
-    /** Visual-presentation sub-struct */
-    style?: CloseButtonStyle;
 }

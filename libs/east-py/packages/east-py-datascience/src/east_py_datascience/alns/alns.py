@@ -43,6 +43,12 @@ SimulatedAnnealingConfigType = StructType(
         ("step", OptionType(FloatType)),
     ]
 )
+"""Temperature schedule parameters for the simulated-annealing acceptance criterion.
+
+Fields: ``start_temperature`` (initial temperature, default 100.0),
+``end_temperature`` (cooling stops here, default 0.01),
+``step`` (multiplicative cooling factor per iteration, default 0.99).
+"""
 
 # Record-to-record config
 RecordToRecordConfigType = StructType(
@@ -50,6 +56,11 @@ RecordToRecordConfigType = StructType(
         ("threshold", OptionType(FloatType)),
     ]
 )
+"""Configuration for the record-to-record acceptance criterion.
+
+Fields: ``threshold`` (accept candidates whose objective is within this
+absolute distance of the best-known objective, default 0.05).
+"""
 
 # Acceptance criterion variant
 AcceptanceCriterionType = VariantType(
@@ -59,6 +70,14 @@ AcceptanceCriterionType = VariantType(
         ("record_to_record", RecordToRecordConfigType),
     ]
 )
+"""Candidate-acceptance policy used inside the ALNS loop.
+
+Cases: ``simulated_annealing`` ``{start_temperature (100.0),
+end_temperature (0.01), step (0.99)}`` (default — probabilistic acceptance
+with geometric cooling), ``hill_climbing`` (accept only strict
+improvements), ``record_to_record`` ``{threshold (0.05)}`` (accept when
+within threshold of the best).
+"""
 
 # Roulette wheel config
 RouletteWheelConfigType = StructType(
@@ -67,6 +86,13 @@ RouletteWheelConfigType = StructType(
         ("decay", OptionType(FloatType)),
     ]
 )
+"""Configuration for roulette-wheel operator-selection weight updates.
+
+Fields: ``scores`` (reward points for each outcome — new global best,
+better than current, accepted, rejected — default [33, 9, 3, 0]),
+``decay`` (exponential decay factor applied to existing weights each
+iteration, default 0.8).
+"""
 
 # Operator selection variant
 OperatorSelectionType = VariantType(
@@ -74,6 +100,12 @@ OperatorSelectionType = VariantType(
         ("roulette_wheel", RouletteWheelConfigType),
     ]
 )
+"""Strategy for selecting destroy/repair operators each iteration.
+
+Cases: ``roulette_wheel`` ``{scores ([33,9,3,0]), decay (0.8)}`` (the only
+currently supported strategy; weights are updated proportionally to
+outcome scores).
+"""
 
 # Stop criterion variant
 StopCriterionType = VariantType(
@@ -83,6 +115,13 @@ StopCriterionType = VariantType(
         ("no_improvement", IntegerType),
     ]
 )
+"""Termination criterion for the ALNS loop.
+
+Cases: ``max_iterations`` (``Integer`` — stop after N iterations, default
+1000), ``max_runtime`` (``Float`` — stop after N wall-clock seconds),
+``no_improvement`` (``Integer`` — stop after N consecutive iterations with
+no improvement to the global best).
+"""
 
 # ALNS configuration
 ALNSConfigType = StructType(
@@ -93,10 +132,27 @@ ALNSConfigType = StructType(
         ("seed", OptionType(IntegerType)),
     ]
 )
+"""Top-level configuration for an ALNS run.
+
+Fields: ``stop`` (termination criterion, default ``max_iterations`` 1000),
+``acceptance`` (candidate-acceptance policy, default ``simulated_annealing``
+with defaults), ``operator_selection`` (default ``roulette_wheel`` with
+defaults), ``seed`` (NumPy RNG seed for operator selection and acceptance
+randomness, default 42).
+"""
 
 
 def ALNSResultType(solution_type: Any) -> StructType:
-    """Create ALNS result type for a given solution type."""
+    """Create ALNS result type for a given solution type.
+
+    Fields: ``best_solution`` (``S`` best solution found),
+    ``best_objective`` (``Float`` objective at that solution),
+    ``iterations`` (``Integer`` total iterations completed),
+    ``runtime`` (``Float`` wall-clock seconds),
+    ``success`` (``Boolean`` true when ALNS completed normally; false on
+    exception, in which case the initial solution is returned with
+    ``best_objective = inf``).
+    """
     return StructType(
         [
             ("best_solution", solution_type),
@@ -158,21 +214,71 @@ def alns_optimize_impl(
     repair_operators: EastArray,
     config: EastStruct,
 ) -> EastStruct:
-    """Run ALNS optimization using the alns library.
+    """Run Adaptive Large Neighborhood Search optimization.
 
-    Note: East-compiled functions are callable from Python. When you define
-    `East.function([SolutionType], SolutionType, ...)` and compile it, the
-    result is a Python callable that accepts/returns East values.
+    Generic over the solution type ``S`` - the caller supplies East callables
+    for objective evaluation, destruction, and repair; this function drives the
+    ALNS meta-heuristic via the ``alns`` library. Operator selection weights
+    are updated by roulette-wheel scoring; the acceptance criterion controls
+    which candidate solutions are retained.
+
+    Type contract for ``S``:
+        - ``initial_solution``, ``destroy_operators[i](s)``, and
+          ``repair_operators[i](s)`` all produce values of the same East type
+          ``S``.
+        - ``objective_fn(s)`` returns a ``Float`` (lower = better).
+        - Type safety is enforced at the TypeScript/IR level; ``alns_optimize_impl``
+          receives plain East values at runtime.
 
     Args:
-        initial_solution: Initial solution (user-defined struct)
-        objective_fn: Objective function (S -> Float)
-        destroy_operators: Array of destroy operators (S -> S)
-        repair_operators: Array of repair operators (S -> S)
-        config: ALNS configuration
+        initial_solution: ``S`` - starting solution; any East value type (struct,
+            variant, vector, etc.) that your operators can consume and produce.
+        objective_fn: ``Function<[S], Float>`` (callable) - evaluates the
+            objective for a given solution; called once per accepted state.
+            Lower objective values are considered better.
+        destroy_operators: ``Array<Function<[S], S>>`` (``EastArray``) - each
+            callable partially destroys the current solution.  Must contain at
+            least one operator.
+        repair_operators: ``Array<Function<[S], S>>`` (``EastArray``) - each
+            callable repairs a destroyed solution back into feasibility.  Must
+            contain at least one operator.
+        config: ``ALNSConfigType`` (``EastStruct``) with fields:
+
+            - ``stop`` (``Option<StopCriterionType>``): termination rule, one of:
+
+                - ``max_iterations`` (``Integer``): stop after N iterations
+                  (default 1000).
+                - ``max_runtime`` (``Float``): stop after N seconds.
+                - ``no_improvement`` (``Integer``): stop after N iterations
+                  with no improvement.
+
+            - ``acceptance`` (``Option<AcceptanceCriterionType>``): candidate
+              acceptance policy, one of:
+
+                - ``simulated_annealing`` ``{start_temperature (100.0),
+                  end_temperature (0.01), step (0.99)}``: probabilistic
+                  acceptance (default).
+                - ``hill_climbing`` - only accept strict improvements.
+                - ``record_to_record`` ``{threshold (0.05)}``: accept when
+                  objective is within ``threshold`` of the record.
+
+            - ``operator_selection`` (``Option<OperatorSelectionType>``):
+              currently only ``roulette_wheel`` ``{scores ([33,9,3,0]),
+              decay (0.8)}``.  Scores correspond to (new global best,
+              better than current, accepted, rejected).
+            - ``seed`` (``Option<Integer>``): NumPy RNG seed for operator
+              selection and acceptance randomness (default 42).
 
     Returns:
-        EastStruct with best_solution, best_objective, iterations, runtime, success
+        ``ALNSResultType(S)`` (``EastStruct``): ``best_solution`` (``S``),
+        ``best_objective`` (``Float``), ``iterations`` (``Integer`` total
+        iterations completed), ``runtime`` (``Float`` wall-clock seconds),
+        ``success`` (``Boolean`` true when the alns library completed
+        normally; false on exception, in which case ``initial_solution``
+        is returned with ``best_objective = inf``).
+
+    Raises:
+        NotImplementedError: the ``alns`` extra is not installed.
     """
     _check_alns_support()
     import alns

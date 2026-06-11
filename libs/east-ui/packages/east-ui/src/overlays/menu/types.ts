@@ -4,6 +4,7 @@
  */
 
 import {
+    type ExprType,
     type SubtypeExprOrValue,
     OptionType,
     StructType,
@@ -14,6 +15,7 @@ import {
 } from "@elaraai/east";
 
 import { PlacementType, type PlacementLiteral } from "../tooltip/types.js";
+import { type IconName } from "../../display/icon/types.js";
 
 // Re-export PlacementType for convenience
 export { PlacementType, type PlacementLiteral } from "../tooltip/types.js";
@@ -26,9 +28,13 @@ export { PlacementType, type PlacementLiteral } from "../tooltip/types.js";
  * Menu item variant type.
  *
  * @remarks
- * Menu items can be either an Item (clickable menu entry) or a Separator (visual divider).
+ * Menu items can be an Item (clickable menu entry), a GroupLabel (uppercase
+ * mono eyebrow naming the section below it), or a Separator (visual divider).
+ * Destructive items render in the negative ink and belong at the bottom of
+ * the menu, after a separator.
  *
- * @property Item - A clickable menu item with value, label, and optional disabled state
+ * @property Item - A clickable menu item with value, label, and optional icon / accelerator / disabled / destructive state
+ * @property GroupLabel - An uppercase eyebrow heading for the items that follow
  * @property Separator - A visual separator between menu items
  */
 export const MenuItemType = VariantType({
@@ -40,8 +46,17 @@ export const MenuItemType = VariantType({
         label: StringType,
         /** Whether the item is disabled */
         disabled: OptionType(BooleanType),
-        /** Callback function when the item is selected */
-        // onClick: FunctionType([], NullType, null),
+        /** Font Awesome solid icon name rendered before the label (e.g. `"pen"`, `"copy"`) */
+        icon: OptionType(StringType),
+        /** Keyboard accelerator shown right-aligned in mono (e.g. `"⌘D"`) */
+        command: OptionType(StringType),
+        /** Whether the action is destructive — renders in the negative ink */
+        destructive: OptionType(BooleanType),
+    }),
+    /** An uppercase eyebrow heading for the items that follow */
+    GroupLabel: StructType({
+        /** Heading text — rendered uppercase in the mono eyebrow style */
+        label: StringType,
     }),
     /** A visual separator between items */
     Separator: NullType,
@@ -51,6 +66,25 @@ export const MenuItemType = VariantType({
  * Type representing the MenuItem structure.
  */
 export type MenuItemType = typeof MenuItemType;
+
+/**
+ * TypeScript interface for the optional fields of a menu item.
+ *
+ * @property disabled - Whether the item is disabled
+ * @property icon - Font Awesome solid icon name rendered before the label
+ * @property command - Keyboard accelerator shown right-aligned in mono
+ * @property destructive - Whether the action is destructive (negative ink)
+ */
+export interface MenuItemOptions {
+    /** Whether the item is disabled */
+    disabled?: SubtypeExprOrValue<typeof BooleanType>;
+    /** Font Awesome solid icon name rendered before the label (the icon set is `fas`-only per the spec) */
+    icon?: IconName | ExprType<StringType>;
+    /** Keyboard accelerator shown right-aligned in mono (e.g. `"⌘D"`) */
+    command?: SubtypeExprOrValue<typeof StringType>;
+    /** Whether the action is destructive — renders in the negative ink */
+    destructive?: SubtypeExprOrValue<typeof BooleanType>;
+}
 
 // ============================================================================
 // Menu Style Type

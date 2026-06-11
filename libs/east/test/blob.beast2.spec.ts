@@ -60,247 +60,101 @@ await describe("Blob (Beast v2)", (test) => {
   test("Beast v2 - Null", $ => {
     const value = $.let(East.value(null, NullType));
     const encoded = $.let(East.Blob.encodeBeast(value, 'v2'));
-    $(assert.equal(encoded, East.value(new Uint8Array([
-      137, 69, 97, 115, 116, 13, 10, 4, // magic v4
-      3, 0, 1, 0,                         // type table: len=3, root=0, count=1, Null
-      1, 0,                               // string table: empty
-      1, 0,                               // source map: empty
-      1, 0,                               // value table: empty
-    ]), BlobType)));
+    $(assert.equal(East.str`${encoded}`, "0x89456173740d0a0403000100010001000100"));
     $(assert.equal(encoded.decodeBeast(NullType, 'v2'), value));
   });
 
   test("Beast v2 - Boolean", $ => {
     const f = $.let(East.value(false, BooleanType));
-    $(assert.equal(East.Blob.encodeBeast(f, 'v2'), East.value(new Uint8Array([
-      137, 69, 97, 115, 116, 13, 10, 4, // magic v4
-      3, 0, 1, 4,                         // type table: len=3, root=0, count=1, Boolean
-      1, 0,                               // string table: empty
-      1, 0,                               // source map: empty
-      1, 0,                               // value table: empty
-      0,                                   // value: false
-    ]), BlobType)));
+    $(assert.equal(East.str`${East.Blob.encodeBeast(f, 'v2')}`, "0x89456173740d0a040300010401000100010000"));
     $(assert.equal(East.Blob.encodeBeast(f, 'v2').decodeBeast(BooleanType, 'v2'), f));
 
     const t = $.let(East.value(true, BooleanType));
-    $(assert.equal(East.Blob.encodeBeast(t, 'v2'), East.value(new Uint8Array([
-      137, 69, 97, 115, 116, 13, 10, 4, // magic v4
-      3, 0, 1, 4,                         // type table
-      1, 0,                               // string table: empty
-      1, 0,                               // source map: empty
-      1, 0,                               // value table: empty
-      1,                                   // value: true
-    ]), BlobType)));
+    $(assert.equal(East.str`${East.Blob.encodeBeast(t, 'v2')}`, "0x89456173740d0a040300010401000100010001"));
     $(assert.equal(East.Blob.encodeBeast(t, 'v2').decodeBeast(BooleanType, 'v2'), t));
   });
 
   test("Beast v2 - Integer zigzag", $ => {
     const zero = $.let(East.value(0n, IntegerType));
-    $(assert.equal(East.Blob.encodeBeast(zero, 'v2'), East.value(new Uint8Array([
-      137, 69, 97, 115, 116, 13, 10, 4, // magic v4
-      3, 0, 1, 2,                         // type table: Integer
-      1, 0,                               // string table: empty
-      1, 0,                               // source map: empty
-      1, 0,                               // value table: empty
-      0,                                   // zigzag(0)
-    ]), BlobType)));
+    $(assert.equal(East.str`${East.Blob.encodeBeast(zero, 'v2')}`, "0x89456173740d0a040300010201000100010000"));
     $(assert.equal(East.Blob.encodeBeast(zero, 'v2').decodeBeast(IntegerType, 'v2'), zero));
 
     const neg1 = $.let(East.value(-1n, IntegerType));
-    $(assert.equal(East.Blob.encodeBeast(neg1, 'v2'), East.value(new Uint8Array([
-      137, 69, 97, 115, 116, 13, 10, 4, // magic v4
-      3, 0, 1, 2,                         // type table: Integer
-      1, 0,                               // string table: empty
-      1, 0,                               // source map: empty
-      1, 0,                               // value table: empty
-      1,                                   // zigzag(-1)
-    ]), BlobType)));
+    $(assert.equal(East.str`${East.Blob.encodeBeast(neg1, 'v2')}`, "0x89456173740d0a040300010201000100010001"));
     $(assert.equal(East.Blob.encodeBeast(neg1, 'v2').decodeBeast(IntegerType, 'v2'), neg1));
 
     const pos1 = $.let(East.value(1n, IntegerType));
-    $(assert.equal(East.Blob.encodeBeast(pos1, 'v2'), East.value(new Uint8Array([
-      137, 69, 97, 115, 116, 13, 10, 4, // magic v4
-      3, 0, 1, 2,                         // type table: Integer
-      1, 0,                               // string table: empty
-      1, 0,                               // source map: empty
-      1, 0,                               // value table: empty
-      2,                                   // zigzag(1)
-    ]), BlobType)));
+    $(assert.equal(East.str`${East.Blob.encodeBeast(pos1, 'v2')}`, "0x89456173740d0a040300010201000100010002"));
     $(assert.equal(East.Blob.encodeBeast(pos1, 'v2').decodeBeast(IntegerType, 'v2'), pos1));
 
     const pos42 = $.let(East.value(42n, IntegerType));
-    $(assert.equal(East.Blob.encodeBeast(pos42, 'v2'), East.value(new Uint8Array([
-      137, 69, 97, 115, 116, 13, 10, 4, // magic v4
-      3, 0, 1, 2,                         // type table: Integer
-      1, 0,                               // string table: empty
-      1, 0,                               // source map: empty
-      1, 0,                               // value table: empty
-      84,
-    ]), BlobType)));
+    $(assert.equal(East.str`${East.Blob.encodeBeast(pos42, 'v2')}`, "0x89456173740d0a040300010201000100010054"));
     $(assert.equal(East.Blob.encodeBeast(pos42, 'v2').decodeBeast(IntegerType, 'v2'), pos42));
   });
 
   test("Beast v2 - Integer boundary", $ => {
     const maxInt = $.let(East.value(9223372036854775807n, IntegerType));
-    $(assert.equal(East.Blob.encodeBeast(maxInt, 'v2'), East.value(new Uint8Array([
-      137, 69, 97, 115, 116, 13, 10, 4, // magic v4
-      3, 0, 1, 2,                         // type table: Integer
-      1, 0,                               // string table: empty
-      1, 0,                               // source map: empty
-      1, 0,                               // value table: empty
-      254, 255, 255, 255, 255, 255, 255, 255, 255, 1, // zigzag(max_int64)
-    ]), BlobType)));
+    $(assert.equal(East.str`${East.Blob.encodeBeast(maxInt, 'v2')}`, "0x89456173740d0a0403000102010001000100feffffffffffffffff01"));
     $(assert.equal(East.Blob.encodeBeast(maxInt, 'v2').decodeBeast(IntegerType, 'v2'), maxInt));
 
     const minInt = $.let(East.value(-9223372036854775808n, IntegerType));
-    $(assert.equal(East.Blob.encodeBeast(minInt, 'v2'), East.value(new Uint8Array([
-      137, 69, 97, 115, 116, 13, 10, 4, // magic v4
-      3, 0, 1, 2,                         // type table: Integer
-      1, 0,                               // string table: empty
-      1, 0,                               // source map: empty
-      1, 0,                               // value table: empty
-      255, 255, 255, 255, 255, 255, 255, 255, 255, 1, // zigzag(min_int64)
-    ]), BlobType)));
+    $(assert.equal(East.str`${East.Blob.encodeBeast(minInt, 'v2')}`, "0x89456173740d0a0403000102010001000100ffffffffffffffffff01"));
     $(assert.equal(East.Blob.encodeBeast(minInt, 'v2').decodeBeast(IntegerType, 'v2'), minInt));
   });
 
   test("Beast v2 - Float", $ => {
     const zero = $.let(East.value(0.0, FloatType));
-    $(assert.equal(East.Blob.encodeBeast(zero, 'v2'), East.value(new Uint8Array([
-      137, 69, 97, 115, 116, 13, 10, 4, // magic v4
-      3, 0, 1, 3,                         // type table: Float
-      1, 0,                               // string table: empty
-      1, 0,                               // source map: empty
-      1, 0,                               // value table: empty
-      0, 0, 0, 0, 0, 0, 0, 0,             // float64 0.0
-    ]), BlobType)));
+    $(assert.equal(East.str`${East.Blob.encodeBeast(zero, 'v2')}`, "0x89456173740d0a04030001030100010001000000000000000000"));
     $(assert.equal(East.Blob.encodeBeast(zero, 'v2').decodeBeast(FloatType, 'v2'), zero));
 
     const one = $.let(East.value(1.0, FloatType));
-    $(assert.equal(East.Blob.encodeBeast(one, 'v2'), East.value(new Uint8Array([
-      137, 69, 97, 115, 116, 13, 10, 4, // magic v4
-      3, 0, 1, 3,                         // type table: Float
-      1, 0,                               // string table: empty
-      1, 0,                               // source map: empty
-      1, 0,                               // value table: empty
-      0, 0, 0, 0, 0, 0, 240, 63,          // float64 1.0
-    ]), BlobType)));
+    $(assert.equal(East.str`${East.Blob.encodeBeast(one, 'v2')}`, "0x89456173740d0a0403000103010001000100000000000000f03f"));
     $(assert.equal(East.Blob.encodeBeast(one, 'v2').decodeBeast(FloatType, 'v2'), one));
 
     const pi = $.let(East.value(3.14, FloatType));
-    $(assert.equal(East.Blob.encodeBeast(pi, 'v2'), East.value(new Uint8Array([
-      137, 69, 97, 115, 116, 13, 10, 4, // magic v4
-      3, 0, 1, 3,                         // type table: Float
-      1, 0,                               // string table: empty
-      1, 0,                               // source map: empty
-      1, 0,                               // value table: empty
-      31, 133, 235, 81, 184, 30, 9, 64,   // float64 3.14
-    ]), BlobType)));
+    $(assert.equal(East.str`${East.Blob.encodeBeast(pi, 'v2')}`, "0x89456173740d0a04030001030100010001001f85eb51b81e0940"));
     $(assert.equal(East.Blob.encodeBeast(pi, 'v2').decodeBeast(FloatType, 'v2'), pi));
 
     const negInf = $.let(East.value(-Infinity, FloatType));
-    $(assert.equal(East.Blob.encodeBeast(negInf, 'v2'), East.value(new Uint8Array([
-      137, 69, 97, 115, 116, 13, 10, 4, // magic v4
-      3, 0, 1, 3,                         // type table: Float
-      1, 0,                               // string table: empty
-      1, 0,                               // source map: empty
-      1, 0,                               // value table: empty
-      0, 0, 0, 0, 0, 0, 240, 255,         // float64 -Infinity
-    ]), BlobType)));
+    $(assert.equal(East.str`${East.Blob.encodeBeast(negInf, 'v2')}`, "0x89456173740d0a0403000103010001000100000000000000f0ff"));
     $(assert.equal(East.Blob.encodeBeast(negInf, 'v2').decodeBeast(FloatType, 'v2'), negInf));
 
     const posInf = $.let(East.value(Infinity, FloatType));
-    $(assert.equal(East.Blob.encodeBeast(posInf, 'v2'), East.value(new Uint8Array([
-      137, 69, 97, 115, 116, 13, 10, 4, // magic v4
-      3, 0, 1, 3,                         // type table: Float
-      1, 0,                               // string table: empty
-      1, 0,                               // source map: empty
-      1, 0,                               // value table: empty
-      0, 0, 0, 0, 0, 0, 240, 127,         // float64 +Infinity
-    ]), BlobType)));
+    $(assert.equal(East.str`${East.Blob.encodeBeast(posInf, 'v2')}`, "0x89456173740d0a0403000103010001000100000000000000f07f"));
     $(assert.equal(East.Blob.encodeBeast(posInf, 'v2').decodeBeast(FloatType, 'v2'), posInf));
 
     const nan = $.let(East.value(NaN, FloatType));
-    $(assert.equal(East.Blob.encodeBeast(nan, 'v2'), East.value(new Uint8Array([
-      137, 69, 97, 115, 116, 13, 10, 4, // magic v4
-      3, 0, 1, 3,                         // type table: Float
-      1, 0,                               // string table: empty
-      1, 0,                               // source map: empty
-      1, 0,                               // value table: empty
-      0, 0, 0, 0, 0, 0, 248, 127,         // float64 NaN
-    ]), BlobType)));
+    $(assert.equal(East.str`${East.Blob.encodeBeast(nan, 'v2')}`, "0x89456173740d0a0403000103010001000100000000000000f87f"));
     $(assert.equal(East.Blob.encodeBeast(nan, 'v2').decodeBeast(FloatType, 'v2'), nan));
   });
 
   test("Beast v2 - String", $ => {
     const empty = $.let(East.value("", StringType));
-    $(assert.equal(East.Blob.encodeBeast(empty, 'v2'), East.value(new Uint8Array([
-      137, 69, 97, 115, 116, 13, 10, 4, // magic v4
-      3, 0, 1, 1,                         // type table: String
-      2, 1, 0,                             // string table: 1 entry, ""
-      1, 0,                               // source map: empty
-      1, 0,                               // value table: empty
-      0,                                   // string index 0
-    ]), BlobType)));
+    $(assert.equal(East.str`${East.Blob.encodeBeast(empty, 'v2')}`, "0x89456173740d0a04030001010201000100010000"));
     $(assert.equal(East.Blob.encodeBeast(empty, 'v2').decodeBeast(StringType, 'v2'), empty));
 
     const hello = $.let(East.value("hello", StringType));
-    $(assert.equal(East.Blob.encodeBeast(hello, 'v2'), East.value(new Uint8Array([
-      137, 69, 97, 115, 116, 13, 10, 4, // magic v4
-      3, 0, 1, 1,                         // type table: String
-      7, 1, 5, 104, 101, 108, 108, 111,   // string table: "hello"
-      1, 0,                               // source map: empty
-      1, 0,                               // value table: empty
-      0,                                   // string index 0
-    ]), BlobType)));
+    $(assert.equal(East.str`${East.Blob.encodeBeast(hello, 'v2')}`, "0x89456173740d0a040300010107010568656c6c6f0100010000"));
     $(assert.equal(East.Blob.encodeBeast(hello, 'v2').decodeBeast(StringType, 'v2'), hello));
 
     const utf8 = $.let(East.value("héllo", StringType));
-    $(assert.equal(East.Blob.encodeBeast(utf8, 'v2'), East.value(new Uint8Array([
-      137, 69, 97, 115, 116, 13, 10, 4, // magic v4
-      3, 0, 1, 1,                         // type table: String
-      8, 1, 6, 104, 195, 169, 108, 108, 111, // string table: "héllo"
-      1, 0,                               // source map: empty
-      1, 0,                               // value table: empty
-      0,                                   // string index 0
-    ]), BlobType)));
+    $(assert.equal(East.str`${East.Blob.encodeBeast(utf8, 'v2')}`, "0x89456173740d0a040300010108010668c3a96c6c6f0100010000"));
     $(assert.equal(East.Blob.encodeBeast(utf8, 'v2').decodeBeast(StringType, 'v2'), utf8));
   });
 
   test("Beast v2 - DateTime", $ => {
     const epoch = $.let(East.value(new Date(0), DateTimeType));
-    $(assert.equal(East.Blob.encodeBeast(epoch, 'v2'), East.value(new Uint8Array([
-      137, 69, 97, 115, 116, 13, 10, 4, // magic v4
-      3, 0, 1, 5,                         // type table: DateTime
-      1, 0,                               // string table: empty
-      1, 0,                               // source map: empty
-      1, 0,                               // value table: empty
-      0,                                   // zigzag(0) = epoch
-    ]), BlobType)));
+    $(assert.equal(East.str`${East.Blob.encodeBeast(epoch, 'v2')}`, "0x89456173740d0a040300010501000100010000"));
     $(assert.equal(East.Blob.encodeBeast(epoch, 'v2').decodeBeast(DateTimeType, 'v2'), epoch));
 
     const ts = $.let(East.value(new Date("2025-01-15T10:30:00.000Z"), DateTimeType));
-    $(assert.equal(East.Blob.encodeBeast(ts, 'v2'), East.value(new Uint8Array([
-      137, 69, 97, 115, 116, 13, 10, 4, // magic v4
-      3, 0, 1, 5,                         // type table: DateTime
-      1, 0,                               // string table: empty
-      1, 0,                               // source map: empty
-      1, 0,                               // value table: empty
-      128, 177, 154, 152, 141, 101,        // zigzag(timestamp)
-    ]), BlobType)));
+    $(assert.equal(East.str`${East.Blob.encodeBeast(ts, 'v2')}`, "0x89456173740d0a040300010501000100010080b19a988d65"));
     $(assert.equal(East.Blob.encodeBeast(ts, 'v2').decodeBeast(DateTimeType, 'v2'), ts));
   });
 
   test("Beast v2 - Blob", $ => {
     const empty = $.let(East.value(new Uint8Array([]), BlobType));
-    $(assert.equal(East.Blob.encodeBeast(empty, 'v2'), East.value(new Uint8Array([
-      137, 69, 97, 115, 116, 13, 10, 4, // magic v4
-      3, 0, 1, 6,                         // type table: Blob
-      1, 0,                               // string table: empty
-      1, 0,                               // source map: empty
-      1, 0,                               // value table: empty
-      0,                                   // blob length 0
-    ]), BlobType)));
+    $(assert.equal(East.str`${East.Blob.encodeBeast(empty, 'v2')}`, "0x89456173740d0a040300010601000100010000"));
     $(assert.equal(East.Blob.encodeBeast(empty, 'v2').decodeBeast(BlobType, 'v2'), empty));
 
     const data = $.let(East.value(new Uint8Array([1, 2, 3]), BlobType));
@@ -321,14 +175,7 @@ await describe("Blob (Beast v2)", (test) => {
 
   test("Beast v2 - Array(Integer)", $ => {
     const empty = $.let(East.value([], ArrayType(IntegerType)));
-    $(assert.equal(East.Blob.encodeBeast(empty, 'v2'), East.value(new Uint8Array([
-      137, 69, 97, 115, 116, 13, 10, 4, // magic v4
-      5, 1, 2, 2, 10, 0,                  // type table: Array(Integer)
-      1, 0,                               // string table: empty
-      1, 0,                               // source map: empty
-      5, 1, 3, 10, 0, 0,                  // value table: 1 entry, len=3, Array(type0), count=0
-      0,                                   // value stream: table ref 0
-    ]), BlobType)));
+    $(assert.equal(East.str`${East.Blob.encodeBeast(empty, 'v2')}`, "0x89456173740d0a04050102020a00010001000501030a000000"));
     $(assert.equal(East.Blob.encodeBeast(empty, 'v2').decodeBeast(ArrayType(IntegerType), 'v2'), empty));
 
     const arr = $.let(East.value([1n, 2n, 3n], ArrayType(IntegerType)));
@@ -358,40 +205,19 @@ await describe("Blob (Beast v2)", (test) => {
 
   test("Beast v2 - Set(Integer)", $ => {
     const s = $.let(East.value(new Set([1n, 2n, 3n]), SetType(IntegerType)));
-    $(assert.equal(East.Blob.encodeBeast(s, 'v2'), East.value(new Uint8Array([
-      137, 69, 97, 115, 116, 13, 10, 4,           // magic v4
-      5, 1, 2, 2, 12, 0,                           // type table: Set(Integer)
-      1, 0,                                         // string table: empty
-      1, 0,                                         // source map: empty
-      8, 1, 6, 12, 0, 3, 2, 4, 6,                  // value table: 1 entry, Set(Integer), {1,2,3}
-      0,                                             // value stream: table ref 0
-    ]), BlobType)));
+    $(assert.equal(East.str`${East.Blob.encodeBeast(s, 'v2')}`, "0x89456173740d0a04050102020c00010001000801060c000302040600"));
     $(assert.equal(East.Blob.encodeBeast(s, 'v2').decodeBeast(SetType(IntegerType), 'v2'), s));
   });
 
   test("Beast v2 - Dict(String, Integer)", $ => {
     const d = $.let(East.value(new Map([["x", 1n], ["y", 2n]]), DictType(StringType, IntegerType)));
-    $(assert.equal(East.Blob.encodeBeast(d, 'v2'), East.value(new Uint8Array([
-      137, 69, 97, 115, 116, 13, 10, 4,           // magic v4
-      7, 2, 3, 1, 2, 11, 0, 1,                     // type table: Dict(String, Integer)
-      5, 2, 1, 120, 1, 121,                         // string table: "x","y"
-      1, 0,                                         // source map: empty
-      10, 1, 8, 11, 0, 1, 2, 0, 2, 1, 4,           // value table: 1 entry, Dict, {x:1, y:2}
-      0,                                             // value stream: table ref 0
-    ]), BlobType)));
+    $(assert.equal(East.str`${East.Blob.encodeBeast(d, 'v2')}`, "0x89456173740d0a0407020301020b000105020178017901000a01080b0001020002010400"));
     $(assert.equal(East.Blob.encodeBeast(d, 'v2').decodeBeast(DictType(StringType, IntegerType), 'v2'), d));
   });
 
   test("Beast v2 - Ref(Integer)", $ => {
     const r = $.let(East.value(ref(42n), RefType(IntegerType)));
-    $(assert.equal(East.Blob.encodeBeast(r, 'v2'), East.value(new Uint8Array([
-      137, 69, 97, 115, 116, 13, 10, 4,           // magic v4
-      5, 1, 2, 2, 13, 0,                           // type table: Ref(Integer)
-      1, 0,                                         // string table: empty
-      1, 0,                                         // source map: empty
-      5, 1, 3, 13, 0, 84,                           // value table: 1 entry, Ref(Integer), 42
-      0,                                             // value stream: table ref 0
-    ]), BlobType)));
+    $(assert.equal(East.str`${East.Blob.encodeBeast(r, 'v2')}`, "0x89456173740d0a04050102020d00010001000501030d005400"));
     $(assert.equal(East.Blob.encodeBeast(r, 'v2').decodeBeast(RefType(IntegerType), 'v2'), r));
   });
 
@@ -402,28 +228,14 @@ await describe("Blob (Beast v2)", (test) => {
   test("Beast v2 - Struct", $ => {
     const type = StructType({ name: StringType, age: IntegerType });
     const value = $.let(East.value({ name: "Alice", age: 30n }, type));
-    $(assert.equal(East.Blob.encodeBeast(value, 'v2'), East.value(new Uint8Array([
-      137, 69, 97, 115, 116, 13, 10, 4,                         // magic v4
-      17, 2, 3, 1, 2, 9, 2, 4, 110, 97, 109, 101, 0, 3, 97, 103, 101, 1, // type table: Struct{name:String, age:Integer}
-      7, 1, 5, 65, 108, 105, 99, 101,                           // string table: "Alice"
-      1, 0,                                                       // source map: empty
-      1, 0,                                                       // value table: empty
-      0, 60,                                                      // value: string_idx=0, zigzag(30)=60
-    ]), BlobType)));
+    $(assert.equal(East.str`${East.Blob.encodeBeast(value, 'v2')}`, "0x89456173740d0a0411020301020902046e616d65000361676501070105416c69636501000100003c"));
     $(assert.equal(East.Blob.encodeBeast(value, 'v2').decodeBeast(type, 'v2'), value));
   });
 
   test("Beast v2 - Empty struct", $ => {
     const type = StructType({});
     const value = $.let(East.value({}, type));
-    $(assert.equal(East.Blob.encodeBeast(value, 'v2'), East.value(new Uint8Array([
-      137, 69, 97, 115, 116, 13, 10, 4,   // magic v4
-      4, 0, 1, 9, 0,                       // type table: Struct{}
-      1, 0,                                 // string table: empty
-      1, 0,                                 // source map: empty
-      1, 0,                                 // value table: empty
-                                             // value: (empty struct, no fields)
-    ]), BlobType)));
+    $(assert.equal(East.str`${East.Blob.encodeBeast(value, 'v2')}`, "0x89456173740d0a040400010900010001000100"));
     $(assert.equal(East.Blob.encodeBeast(value, 'v2').decodeBeast(type, 'v2'), value));
   });
 
@@ -435,25 +247,11 @@ await describe("Blob (Beast v2)", (test) => {
     const OptType = VariantType({ none: NullType, some: IntegerType });
 
     const noneVal = $.let(East.value(none, OptType));
-    $(assert.equal(East.Blob.encodeBeast(noneVal, 'v2'), East.value(new Uint8Array([
-      137, 69, 97, 115, 116, 13, 10, 4,                                     // magic v4
-      18, 2, 3, 0, 2, 8, 2, 4, 110, 111, 110, 101, 0, 4, 115, 111, 109, 101, 1, // type table: Variant{none:Null, some:Integer}
-      1, 0,                                                                   // string table: empty
-      1, 0,                                                                   // source map: empty
-      1, 0,                                                                   // value table: empty
-      0,                                                                       // value: case 0 (none)
-    ]), BlobType)));
+    $(assert.equal(East.str`${East.Blob.encodeBeast(noneVal, 'v2')}`, "0x89456173740d0a0412020300020802046e6f6e650004736f6d650101000100010000"));
     $(assert.equal(East.Blob.encodeBeast(noneVal, 'v2').decodeBeast(OptType, 'v2'), noneVal));
 
     const someVal = $.let(East.value(some(42n), OptType));
-    $(assert.equal(East.Blob.encodeBeast(someVal, 'v2'), East.value(new Uint8Array([
-      137, 69, 97, 115, 116, 13, 10, 4,                                     // magic v4
-      18, 2, 3, 0, 2, 8, 2, 4, 110, 111, 110, 101, 0, 4, 115, 111, 109, 101, 1, // type table
-      1, 0,                                                                   // string table: empty
-      1, 0,                                                                   // source map: empty
-      1, 0,                                                                   // value table: empty
-      1, 84,                                                                   // value: case 1 (some), zigzag(42)=84
-    ]), BlobType)));
+    $(assert.equal(East.str`${East.Blob.encodeBeast(someVal, 'v2')}`, "0x89456173740d0a0412020300020802046e6f6e650004736f6d65010100010001000154"));
     $(assert.equal(East.Blob.encodeBeast(someVal, 'v2').decodeBeast(OptType, 'v2'), someVal));
   });
 
@@ -468,28 +266,14 @@ await describe("Blob (Beast v2)", (test) => {
     }));
 
     const nilVal = $.let(East.value(variant("nil"), ListType));
-    $(assert.equal(East.Blob.encodeBeast(nilVal, 'v2'), East.value(new Uint8Array([
-      137, 69, 97, 115, 116, 13, 10, 4,           // magic v4
-      33, 0, 5, 18, 4, 2, 9, 2, 4, 104, 101, 97, 100, 1, 4, 116, 97, 105, 108, 0, 0, 8, 2, 4, 99, 111, 110, 115, 2, 3, 110, 105, 108, 3, // type table: Recursive(Variant{cons:{head:Int,tail:self}, nil:Null})
-      1, 0,                                         // string table: empty
-      1, 0,                                         // source map: empty
-      1, 0,                                         // value table: empty
-      1,                                             // value: case 1 (nil)
-    ]), BlobType)));
+    $(assert.equal(East.str`${East.Blob.encodeBeast(nilVal, 'v2')}`, "0x89456173740d0a042100051204020902046865616401047461696c0000080204636f6e7302036e696c0301000100010001"));
     $(assert.equal(East.Blob.encodeBeast(nilVal, 'v2').decodeBeast(ListType, 'v2'), nilVal));
 
     const listVal = $.let(East.value(
       variant("cons", { head: 1n, tail: variant("cons", { head: 2n, tail: variant("nil") }) }),
       ListType,
     ));
-    $(assert.equal(East.Blob.encodeBeast(listVal, 'v2'), East.value(new Uint8Array([
-      137, 69, 97, 115, 116, 13, 10, 4,           // magic v4
-      33, 0, 5, 18, 4, 2, 9, 2, 4, 104, 101, 97, 100, 1, 4, 116, 97, 105, 108, 0, 0, 8, 2, 4, 99, 111, 110, 115, 2, 3, 110, 105, 108, 3, // type table
-      1, 0,                                         // string table: empty
-      1, 0,                                         // source map: empty
-      1, 0,                                         // value table: empty
-      0, 2, 0, 4, 1,                                // cons{head:1, tail:cons{head:2, tail:nil}}
-    ]), BlobType)));
+    $(assert.equal(East.str`${East.Blob.encodeBeast(listVal, 'v2')}`, "0x89456173740d0a042100051204020902046865616401047461696c0000080204636f6e7302036e696c030100010001000002000401"));
     $(assert.equal(East.Blob.encodeBeast(listVal, 'v2').decodeBeast(ListType, 'v2'), listVal));
   });
 
@@ -499,60 +283,25 @@ await describe("Blob (Beast v2)", (test) => {
 
   test("Beast v2 - Vector<Float>", $ => {
     const v = $.let(East.Vector.fromArray([1.0, 2.5, 3.7]));
-    $(assert.equal(East.Blob.encodeBeast(v, 'v2'), East.value(new Uint8Array([
-      137, 69, 97, 115, 116, 13, 10, 4,   // magic v4
-      5, 1, 2, 3, 14, 0,                   // type table: Vector(Float)
-      1, 0,                                 // string table: empty
-      1, 0,                                 // source map: empty
-      1, 0,                                 // value table: empty
-      3,                                     // vector length: 3
-      0, 0, 0, 0, 0, 0, 240, 63,           // float64 1.0
-      0, 0, 0, 0, 0, 0, 4, 64,             // float64 2.5
-      154, 153, 153, 153, 153, 153, 13, 64, // float64 3.7
-    ]), BlobType)));
+    $(assert.equal(East.str`${East.Blob.encodeBeast(v, 'v2')}`, "0x89456173740d0a04050102030e0001000100010003000000000000f03f00000000000004409a99999999990d40"));
     $(assert.equal(East.Blob.encodeBeast(v, 'v2').decodeBeast(VectorType(FloatType), 'v2'), v));
   });
 
   test("Beast v2 - Vector<Integer>", $ => {
     const v = $.let(East.Vector.fromArray([10n, 20n, 30n]));
-    $(assert.equal(East.Blob.encodeBeast(v, 'v2'), East.value(new Uint8Array([
-      137, 69, 97, 115, 116, 13, 10, 4,   // magic v4
-      5, 1, 2, 2, 14, 0,                   // type table: Vector(Integer)
-      1, 0,                                 // string table: empty
-      1, 0,                                 // source map: empty
-      1, 0,                                 // value table: empty
-      3,                                     // vector length: 3
-      10, 0, 0, 0, 0, 0, 0, 0,             // int64 10
-      20, 0, 0, 0, 0, 0, 0, 0,             // int64 20
-      30, 0, 0, 0, 0, 0, 0, 0,             // int64 30
-    ]), BlobType)));
+    $(assert.equal(East.str`${East.Blob.encodeBeast(v, 'v2')}`, "0x89456173740d0a04050102020e00010001000100030a0000000000000014000000000000001e00000000000000"));
     $(assert.equal(East.Blob.encodeBeast(v, 'v2').decodeBeast(VectorType(IntegerType), 'v2'), v));
   });
 
   test("Beast v2 - Vector<Boolean>", $ => {
     const v = $.let(East.Vector.fromArray([true, false, true]));
-    $(assert.equal(East.Blob.encodeBeast(v, 'v2'), East.value(new Uint8Array([
-      137, 69, 97, 115, 116, 13, 10, 4,   // magic v4
-      5, 1, 2, 4, 14, 0,                   // type table: Vector(Boolean)
-      1, 0,                                 // string table: empty
-      1, 0,                                 // source map: empty
-      1, 0,                                 // value table: empty
-      3,                                     // vector length: 3
-      1, 0, 1,                              // bool: true, false, true
-    ]), BlobType)));
+    $(assert.equal(East.str`${East.Blob.encodeBeast(v, 'v2')}`, "0x89456173740d0a04050102040e0001000100010003010001"));
     $(assert.equal(East.Blob.encodeBeast(v, 'v2').decodeBeast(VectorType(BooleanType), 'v2'), v));
   });
 
   test("Beast v2 - Vector empty", $ => {
     const v = $.let(East.Vector.zeros(0n));
-    $(assert.equal(East.Blob.encodeBeast(v, 'v2'), East.value(new Uint8Array([
-      137, 69, 97, 115, 116, 13, 10, 4,   // magic v4
-      5, 1, 2, 3, 14, 0,                   // type table: Vector(Float)
-      1, 0,                                 // string table: empty
-      1, 0,                                 // source map: empty
-      1, 0,                                 // value table: empty
-      0,                                     // vector length: 0
-    ]), BlobType)));
+    $(assert.equal(East.str`${East.Blob.encodeBeast(v, 'v2')}`, "0x89456173740d0a04050102030e0001000100010000"));
     $(assert.equal(East.Blob.encodeBeast(v, 'v2').decodeBeast(VectorType(FloatType), 'v2'), v));
   });
 
@@ -562,62 +311,25 @@ await describe("Blob (Beast v2)", (test) => {
 
   test("Beast v2 - Matrix<Float> 2x2", $ => {
     const m = $.let(East.Matrix.fromArray([[1.0, 2.0], [3.0, 4.0]]));
-    $(assert.equal(East.Blob.encodeBeast(m, 'v2'), East.value(new Uint8Array([
-      137, 69, 97, 115, 116, 13, 10, 4,   // magic v4
-      5, 1, 2, 3, 15, 0,                   // type table: Matrix(Float)
-      1, 0,                                 // string table: empty
-      1, 0,                                 // source map: empty
-      1, 0,                                 // value table: empty
-      2, 2,                                  // rows=2, cols=2
-      0, 0, 0, 0, 0, 0, 240, 63,           // 1.0
-      0, 0, 0, 0, 0, 0, 0, 64,             // 2.0
-      0, 0, 0, 0, 0, 0, 8, 64,             // 3.0
-      0, 0, 0, 0, 0, 0, 16, 64,            // 4.0
-    ]), BlobType)));
+    $(assert.equal(East.str`${East.Blob.encodeBeast(m, 'v2')}`, "0x89456173740d0a04050102030f000100010001000202000000000000f03f000000000000004000000000000008400000000000001040"));
     $(assert.equal(East.Blob.encodeBeast(m, 'v2').decodeBeast(MatrixType(FloatType), 'v2'), m));
   });
 
   test("Beast v2 - Matrix<Integer> 2x2", $ => {
     const m = $.let(East.Matrix.fromArray([[10n, 20n], [30n, 40n]]));
-    $(assert.equal(East.Blob.encodeBeast(m, 'v2'), East.value(new Uint8Array([
-      137, 69, 97, 115, 116, 13, 10, 4,   // magic v4
-      5, 1, 2, 2, 15, 0,                   // type table: Matrix(Integer)
-      1, 0,                                 // string table: empty
-      1, 0,                                 // source map: empty
-      1, 0,                                 // value table: empty
-      2, 2,                                  // rows=2, cols=2
-      10, 0, 0, 0, 0, 0, 0, 0,             // int64 10
-      20, 0, 0, 0, 0, 0, 0, 0,             // int64 20
-      30, 0, 0, 0, 0, 0, 0, 0,             // int64 30
-      40, 0, 0, 0, 0, 0, 0, 0,             // int64 40
-    ]), BlobType)));
+    $(assert.equal(East.str`${East.Blob.encodeBeast(m, 'v2')}`, "0x89456173740d0a04050102020f0001000100010002020a0000000000000014000000000000001e000000000000002800000000000000"));
     $(assert.equal(East.Blob.encodeBeast(m, 'v2').decodeBeast(MatrixType(IntegerType), 'v2'), m));
   });
 
   test("Beast v2 - Matrix<Boolean> 2x2", $ => {
     const m = $.let(East.Matrix.fromArray([[true, false], [false, true]]));
-    $(assert.equal(East.Blob.encodeBeast(m, 'v2'), East.value(new Uint8Array([
-      137, 69, 97, 115, 116, 13, 10, 4,   // magic v4
-      5, 1, 2, 4, 15, 0,                   // type table: Matrix(Boolean)
-      1, 0,                                 // string table: empty
-      1, 0,                                 // source map: empty
-      1, 0,                                 // value table: empty
-      2, 2,                                  // rows=2, cols=2
-      1, 0, 0, 1,                           // true, false, false, true
-    ]), BlobType)));
+    $(assert.equal(East.str`${East.Blob.encodeBeast(m, 'v2')}`, "0x89456173740d0a04050102040f00010001000100020201000001"));
     $(assert.equal(East.Blob.encodeBeast(m, 'v2').decodeBeast(MatrixType(BooleanType), 'v2'), m));
   });
 
   test("Beast v2 - Matrix empty", $ => {
     const m = $.let(East.Matrix.zeros(0n, 0n));
-    $(assert.equal(East.Blob.encodeBeast(m, 'v2'), East.value(new Uint8Array([
-      137, 69, 97, 115, 116, 13, 10, 4,   // magic v4
-      5, 1, 2, 3, 15, 0,                   // type table: Matrix(Float)
-      1, 0,                                 // string table: empty
-      1, 0,                                 // source map: empty
-      1, 0,                                 // value table: empty
-      0, 0,                                  // rows=0, cols=0
-    ]), BlobType)));
+    $(assert.equal(East.str`${East.Blob.encodeBeast(m, 'v2')}`, "0x89456173740d0a04050102030f000100010001000000"));
     $(assert.equal(East.Blob.encodeBeast(m, 'v2').decodeBeast(MatrixType(FloatType), 'v2'), m));
   });
 
@@ -630,141 +342,7 @@ await describe("Blob (Beast v2)", (test) => {
     const fn = $.let(East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n)));
     const blob = $.let(East.Blob.encodeBeast(fn, 'v2'));
 
-    $(assert.equal(blob, East.value(new Uint8Array([
-            137, 69, 97, 115, 116, 13, 10, 4, 181, 12, 1, 54, 2, 16, 1, 0,
-            0, 18, 53, 18, 13, 10, 3, 9, 2, 6, 105, 110, 112, 117, 116, 115,
-            4, 6, 111, 117, 116, 112, 117, 116, 3, 0, 9, 2, 3, 107, 101, 121,
-            3, 5, 118, 97, 108, 117, 101, 3, 9, 2, 2, 105, 100, 0, 5, 105,
-            110, 110, 101, 114, 3, 8, 2, 3, 114, 101, 102, 0, 7, 119, 114, 97,
-            112, 112, 101, 114, 8, 1, 9, 2, 4, 110, 97, 109, 101, 10, 4, 116,
-            121, 112, 101, 3, 10, 11, 8, 19, 5, 65, 114, 114, 97, 121, 3, 13,
-            65, 115, 121, 110, 99, 70, 117, 110, 99, 116, 105, 111, 110, 5, 4, 66,
-            108, 111, 98, 6, 7, 66, 111, 111, 108, 101, 97, 110, 6, 8, 68, 97,
-            116, 101, 84, 105, 109, 101, 6, 4, 68, 105, 99, 116, 7, 5, 70, 108,
-            111, 97, 116, 6, 8, 70, 117, 110, 99, 116, 105, 111, 110, 5, 7, 73,
-            110, 116, 101, 103, 101, 114, 6, 6, 77, 97, 116, 114, 105, 120, 3, 5,
-            78, 101, 118, 101, 114, 6, 4, 78, 117, 108, 108, 6, 9, 82, 101, 99,
-            117, 114, 115, 105, 118, 101, 9, 3, 82, 101, 102, 3, 3, 83, 101, 116,
-            3, 6, 83, 116, 114, 105, 110, 103, 6, 6, 83, 116, 114, 117, 99, 116,
-            12, 7, 86, 97, 114, 105, 97, 110, 116, 12, 6, 86, 101, 99, 116, 111,
-            114, 3, 9, 3, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99, 95, 105,
-            100, 0, 5, 118, 97, 108, 117, 101, 2, 9, 4, 4, 116, 121, 112, 101,
-            3, 6, 108, 111, 99, 95, 105, 100, 0, 8, 118, 97, 114, 105, 97, 98,
-            108, 101, 2, 5, 118, 97, 108, 117, 101, 2, 10, 2, 9, 5, 4, 116,
-            121, 112, 101, 3, 6, 108, 111, 99, 95, 105, 100, 0, 8, 99, 97, 112,
-            116, 117, 114, 101, 115, 16, 10, 112, 97, 114, 97, 109, 101, 116, 101, 114,
-            115, 16, 4, 98, 111, 100, 121, 2, 9, 3, 4, 116, 121, 112, 101, 3,
-            6, 108, 111, 99, 95, 105, 100, 0, 10, 115, 116, 97, 116, 101, 109, 101,
-            110, 116, 115, 16, 9, 2, 4, 110, 97, 109, 101, 10, 6, 108, 111, 99,
-            95, 105, 100, 0, 9, 3, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99,
-            95, 105, 100, 0, 5, 108, 97, 98, 101, 108, 19, 9, 5, 4, 116, 121,
-            112, 101, 3, 6, 108, 111, 99, 95, 105, 100, 0, 7, 98, 117, 105, 108,
-            116, 105, 110, 10, 15, 116, 121, 112, 101, 95, 112, 97, 114, 97, 109, 101,
-            116, 101, 114, 115, 4, 9, 97, 114, 103, 117, 109, 101, 110, 116, 115, 16,
-            9, 4, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99, 95, 105, 100, 0,
-            8, 102, 117, 110, 99, 116, 105, 111, 110, 2, 9, 97, 114, 103, 117, 109,
-            101, 110, 116, 115, 16, 9, 3, 4, 116, 121, 112, 101, 3, 6, 108, 111,
-            99, 95, 105, 100, 0, 7, 109, 101, 115, 115, 97, 103, 101, 2, 9, 7,
-            4, 116, 121, 112, 101, 3, 6, 108, 111, 99, 95, 105, 100, 0, 5, 97,
-            114, 114, 97, 121, 2, 5, 108, 97, 98, 101, 108, 19, 3, 107, 101, 121,
-            2, 5, 118, 97, 108, 117, 101, 2, 4, 98, 111, 100, 121, 2, 9, 7,
-            4, 116, 121, 112, 101, 3, 6, 108, 111, 99, 95, 105, 100, 0, 4, 100,
-            105, 99, 116, 2, 5, 108, 97, 98, 101, 108, 19, 3, 107, 101, 121, 2,
-            5, 118, 97, 108, 117, 101, 2, 4, 98, 111, 100, 121, 2, 9, 6, 4,
-            116, 121, 112, 101, 3, 6, 108, 111, 99, 95, 105, 100, 0, 3, 115, 101,
-            116, 2, 5, 108, 97, 98, 101, 108, 19, 3, 107, 101, 121, 2, 4, 98,
-            111, 100, 121, 2, 9, 4, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99,
-            95, 105, 100, 0, 5, 102, 105, 101, 108, 100, 10, 6, 115, 116, 114, 117,
-            99, 116, 2, 9, 2, 9, 112, 114, 101, 100, 105, 99, 97, 116, 101, 2,
-            4, 98, 111, 100, 121, 2, 10, 28, 9, 4, 4, 116, 121, 112, 101, 3,
-            6, 108, 111, 99, 95, 105, 100, 0, 3, 105, 102, 115, 29, 9, 101, 108,
-            115, 101, 95, 98, 111, 100, 121, 2, 9, 3, 4, 99, 97, 115, 101, 10,
-            8, 118, 97, 114, 105, 97, 98, 108, 101, 2, 4, 98, 111, 100, 121, 2,
-            10, 31, 9, 4, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99, 95, 105,
-            100, 0, 7, 118, 97, 114, 105, 97, 110, 116, 2, 5, 99, 97, 115, 101,
-            115, 32, 9, 3, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99, 95, 105,
-            100, 0, 6, 118, 97, 108, 117, 101, 115, 16, 9, 2, 3, 107, 101, 121,
-            2, 5, 118, 97, 108, 117, 101, 2, 10, 35, 9, 3, 4, 116, 121, 112,
-            101, 3, 6, 108, 111, 99, 95, 105, 100, 0, 6, 118, 97, 108, 117, 101,
-            115, 36, 9, 5, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99, 95, 105,
-            100, 0, 6, 118, 97, 108, 117, 101, 115, 16, 4, 114, 111, 119, 115, 0,
-            4, 99, 111, 108, 115, 0, 4, 9, 7, 4, 116, 121, 112, 101, 3, 6,
-            108, 111, 99, 95, 105, 100, 0, 4, 110, 97, 109, 101, 10, 15, 116, 121,
-            112, 101, 95, 112, 97, 114, 97, 109, 101, 116, 101, 114, 115, 4, 9, 97,
-            114, 103, 117, 109, 101, 110, 116, 115, 16, 5, 97, 115, 121, 110, 99, 39,
-            8, 111, 112, 116, 105, 111, 110, 97, 108, 39, 9, 2, 4, 110, 97, 109,
-            101, 10, 5, 118, 97, 108, 117, 101, 2, 10, 41, 9, 3, 4, 116, 121,
-            112, 101, 3, 6, 108, 111, 99, 95, 105, 100, 0, 6, 102, 105, 101, 108,
-            100, 115, 42, 9, 7, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99, 95,
-            105, 100, 0, 8, 116, 114, 121, 95, 98, 111, 100, 121, 2, 10, 99, 97,
-            116, 99, 104, 95, 98, 111, 100, 121, 2, 7, 109, 101, 115, 115, 97, 103,
-            101, 2, 5, 115, 116, 97, 99, 107, 2, 12, 102, 105, 110, 97, 108, 108,
-            121, 95, 98, 111, 100, 121, 2, 6, 5, 3, 8, 7, 4, 66, 108, 111,
-            98, 45, 7, 66, 111, 111, 108, 101, 97, 110, 39, 8, 68, 97, 116, 101,
-            84, 105, 109, 101, 46, 5, 70, 108, 111, 97, 116, 47, 7, 73, 110, 116,
-            101, 103, 101, 114, 0, 4, 78, 117, 108, 108, 6, 6, 83, 116, 114, 105,
-            110, 103, 10, 9, 3, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99, 95,
-            105, 100, 0, 5, 118, 97, 108, 117, 101, 48, 9, 5, 4, 116, 121, 112,
-            101, 3, 6, 108, 111, 99, 95, 105, 100, 0, 4, 110, 97, 109, 101, 10,
-            7, 109, 117, 116, 97, 98, 108, 101, 39, 8, 99, 97, 112, 116, 117, 114,
-            101, 100, 39, 9, 4, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99, 95,
-            105, 100, 0, 4, 99, 97, 115, 101, 10, 5, 118, 97, 108, 117, 101, 2,
-            9, 5, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99, 95, 105, 100, 0,
-            9, 112, 114, 101, 100, 105, 99, 97, 116, 101, 2, 5, 108, 97, 98, 101,
-            108, 19, 4, 98, 111, 100, 121, 2, 8, 34, 2, 65, 115, 14, 6, 65,
-            115, 115, 105, 103, 110, 15, 13, 65, 115, 121, 110, 99, 70, 117, 110, 99,
-            116, 105, 111, 110, 17, 5, 66, 108, 111, 99, 107, 18, 5, 66, 114, 101,
-            97, 107, 20, 7, 66, 117, 105, 108, 116, 105, 110, 21, 4, 67, 97, 108,
-            108, 22, 9, 67, 97, 108, 108, 65, 115, 121, 110, 99, 22, 8, 67, 111,
-            110, 116, 105, 110, 117, 101, 20, 5, 69, 114, 114, 111, 114, 23, 8, 70,
-            111, 114, 65, 114, 114, 97, 121, 24, 7, 70, 111, 114, 68, 105, 99, 116,
-            25, 6, 70, 111, 114, 83, 101, 116, 26, 8, 70, 117, 110, 99, 116, 105,
-            111, 110, 17, 8, 71, 101, 116, 70, 105, 101, 108, 100, 27, 6, 73, 102,
-            69, 108, 115, 101, 30, 3, 76, 101, 116, 15, 5, 77, 97, 116, 99, 104,
-            33, 8, 78, 101, 119, 65, 114, 114, 97, 121, 34, 7, 78, 101, 119, 68,
-            105, 99, 116, 37, 9, 78, 101, 119, 77, 97, 116, 114, 105, 120, 38, 6,
-            78, 101, 119, 82, 101, 102, 14, 6, 78, 101, 119, 83, 101, 116, 34, 9,
-            78, 101, 119, 86, 101, 99, 116, 111, 114, 34, 8, 80, 108, 97, 116, 102,
-            111, 114, 109, 40, 6, 82, 101, 116, 117, 114, 110, 14, 6, 83, 116, 114,
-            117, 99, 116, 43, 8, 84, 114, 121, 67, 97, 116, 99, 104, 44, 15, 85,
-            110, 119, 114, 97, 112, 82, 101, 99, 117, 114, 115, 105, 118, 101, 14, 5,
-            86, 97, 108, 117, 101, 49, 8, 86, 97, 114, 105, 97, 98, 108, 101, 50,
-            7, 86, 97, 114, 105, 97, 110, 116, 51, 5, 87, 104, 105, 108, 101, 52,
-            13, 87, 114, 97, 112, 82, 101, 99, 117, 114, 115, 105, 118, 101, 14, 120,
-            7, 4, 95, 54, 49, 51, 15, 73, 110, 116, 101, 103, 101, 114, 77, 117,
-            108, 116, 105, 112, 108, 121, 15, 115, 114, 99, 47, 108, 111, 99, 97, 116,
-            105, 111, 110, 46, 116, 115, 15, 115, 114, 99, 47, 101, 120, 112, 114, 47,
-            97, 115, 116, 46, 116, 115, 17, 115, 114, 99, 47, 101, 120, 112, 114, 47,
-            98, 108, 111, 99, 107, 46, 116, 115, 22, 116, 101, 115, 116, 47, 112, 108,
-            97, 116, 102, 111, 114, 109, 115, 46, 115, 112, 101, 99, 46, 116, 115, 24,
-            116, 101, 115, 116, 47, 98, 108, 111, 98, 46, 98, 101, 97, 115, 116, 50,
-            46, 115, 112, 101, 99, 46, 116, 115, 209, 2, 7, 16, 2, 193, 1, 15,
-            2, 156, 2, 17, 3, 155, 1, 109, 4, 212, 9, 17, 4, 210, 9, 26,
-            5, 157, 1, 24, 4, 162, 3, 13, 2, 143, 2, 27, 4, 154, 3, 10,
-            5, 152, 1, 44, 4, 162, 3, 13, 2, 136, 2, 16, 2, 144, 2, 10,
-            4, 154, 3, 10, 5, 151, 1, 32, 6, 37, 7, 14, 2, 193, 1, 15,
-            2, 156, 2, 17, 4, 236, 9, 15, 5, 157, 1, 24, 4, 162, 3, 13,
-            2, 143, 2, 27, 4, 154, 3, 10, 5, 152, 1, 44, 4, 162, 3, 13,
-            2, 136, 2, 16, 2, 144, 2, 10, 4, 154, 3, 10, 5, 151, 1, 32,
-            6, 37, 7, 12, 2, 193, 1, 15, 2, 156, 2, 17, 4, 218, 3, 17,
-            2, 143, 2, 27, 4, 154, 3, 10, 5, 152, 1, 44, 4, 162, 3, 13,
-            2, 136, 2, 16, 2, 144, 2, 10, 4, 154, 3, 10, 5, 151, 1, 32,
-            6, 37, 7, 12, 2, 193, 1, 15, 2, 156, 2, 17, 4, 230, 3, 15,
-            2, 143, 2, 27, 4, 154, 3, 10, 5, 152, 1, 44, 4, 162, 3, 13,
-            2, 136, 2, 16, 2, 144, 2, 10, 4, 154, 3, 10, 5, 151, 1, 32,
-            6, 37, 7, 12, 2, 193, 1, 15, 2, 156, 2, 17, 3, 155, 1, 109,
-            4, 212, 9, 17, 4, 210, 9, 26, 5, 152, 1, 20, 4, 162, 3, 13,
-            2, 136, 2, 16, 2, 144, 2, 10, 4, 154, 3, 10, 5, 151, 1, 32,
-            6, 37, 7, 10, 2, 193, 1, 15, 2, 156, 2, 17, 4, 236, 9, 15,
-            5, 152, 1, 20, 4, 162, 3, 13, 2, 136, 2, 16, 2, 144, 2, 10,
-            4, 154, 3, 10, 5, 151, 1, 32, 6, 37, 7, 8, 2, 193, 1, 15,
-            2, 156, 2, 17, 4, 230, 3, 15, 2, 136, 2, 16, 2, 144, 2, 10,
-            4, 154, 3, 10, 5, 151, 1, 32, 6, 37, 7, 39, 5, 4, 10, 3,
-            1, 8, 3, 10, 2, 0, 9, 10, 2, 1, 30, 8, 2, 0, 0, 0,
-            3, 10, 3, 0, 14, 10, 2, 2, 30, 8, 2, 0, 0, 0, 29, 8,
-            4, 4, 4, 13, 7, 0, 8, 10, 1, 2, 5, 8, 6, 1, 3, 4,
-            0
-          ]), BlobType)));
+    $(assert.equal(East.str`${blob}`, "0x89456173740d0a04b50c013602100100001235120d0a03090206696e7075747304066f757470757403000902036b6579030576616c75650309020269640005696e6e65720308020372656600077772617070657208010902046e616d650a0474797065030a0b0813054172726179030d4173796e6346756e6374696f6e0504426c6f620607426f6f6c65616e06084461746554696d650604446963740705466c6f6174060846756e6374696f6e0507496e746567657206064d617472697803054e6576657206044e756c6c0609526563757273697665090352656603035365740306537472696e6706065374727563740c0756617269616e740c06566563746f72030903047479706503066c6f635f6964000576616c7565020904047479706503066c6f635f696400087661726961626c65020576616c7565020a020905047479706503066c6f635f696400086361707475726573100a706172616d65746572731004626f6479020903047479706503066c6f635f6964000a73746174656d656e7473100902046e616d650a066c6f635f6964000903047479706503066c6f635f696400056c6162656c130905047479706503066c6f635f696400076275696c74696e0a0f747970655f706172616d65746572730409617267756d656e7473100904047479706503066c6f635f6964000866756e6374696f6e0209617267756d656e7473100903047479706503066c6f635f696400076d657373616765020907047479706503066c6f635f69640005617272617902056c6162656c13036b6579020576616c75650204626f6479020907047479706503066c6f635f696400046469637402056c6162656c13036b6579020576616c75650204626f6479020906047479706503066c6f635f6964000373657402056c6162656c13036b65790204626f6479020904047479706503066c6f635f696400056669656c640a06737472756374020902097072656469636174650204626f6479020a1c0904047479706503066c6f635f696400036966731d09656c73655f626f647902090304636173650a087661726961626c650204626f6479020a1f0904047479706503066c6f635f6964000776617269616e7402056361736573200903047479706503066c6f635f6964000676616c756573100902036b6579020576616c7565020a230903047479706503066c6f635f6964000676616c756573240905047479706503066c6f635f6964000676616c7565731004726f77730004636f6c7300040907047479706503066c6f635f696400046e616d650a0f747970655f706172616d65746572730409617267756d656e747310056173796e6327086f7074696f6e616c270902046e616d650a0576616c7565020a290903047479706503066c6f635f696400066669656c64732a0907047479706503066c6f635f696400087472795f626f6479020a63617463685f626f647902076d6573736167650205737461636b020c66696e616c6c795f626f647902060503080704426c6f622d07426f6f6c65616e27084461746554696d652e05466c6f61742f07496e746567657200044e756c6c0606537472696e670a0903047479706503066c6f635f6964000576616c7565300905047479706503066c6f635f696400046e616d650a076d757461626c6527086361707475726564270904047479706503066c6f635f69640004636173650a0576616c7565020905047479706503066c6f635f6964000970726564696361746502056c6162656c1304626f64790208220241730e0641737369676e0f0d4173796e6346756e6374696f6e1105426c6f636b1205427265616b14074275696c74696e150443616c6c160943616c6c4173796e631608436f6e74696e756514054572726f721708466f7241727261791807466f72446963741906466f725365741a0846756e6374696f6e11084765744669656c641b064966456c73651e034c65740f054d6174636821084e6577417272617922074e65774469637425094e65774d617472697826064e65775265660e064e657753657422094e6577566563746f722208506c6174666f726d280652657475726e0e065374727563742b0854727943617463682c0f556e777261705265637572736976650e0556616c756531085661726961626c65320756617269616e7433055768696c65340d577261705265637572736976650e7807045f3631330f496e74656765724d756c7469706c790f7372632f6c6f636174696f6e2e74730f7372632f657870722f6173742e7473117372632f657870722f626c6f636b2e747316746573742f706c6174666f726d732e737065632e747318746573742f626c6f622e6265617374322e737065632e7473d102071002c1010f029c0211039b016d04d5091104d3091a059d011804a3030d028f021b049b030a0598012c04a3030d028802100290020a049b030a059701200625070e02c1010f029c021104ed090f059d011804a3030d028f021b049b030a0598012c04a3030d028802100290020a049b030a059701200625070c02c1010f029c021104db0311028f021b049b030a0598012c04a3030d028802100290020a049b030a059701200625070c02c1010f029c021104e7030f028f021b049b030a0598012c04a3030d028802100290020a049b030a059701200625070c02c1010f029c0211039b016d04d5091104d3091a0598011404a3030d028802100290020a049b030a059701200625070a02c1010f029c021104ed090f0598011404a3030d028802100290020a049b030a059701200625070802c1010f029c021104e7030f028802100290020a049b030a059701200625072705040a030108030a0200090a02011e0802000000030a03000e0a02021e08020000001d080404040d0700080a010205080601030400"));
     const decoded = $.let(blob.decodeBeast(FnType, 'v2'));
     $(assert.equal(decoded(21n), 42n));
   });
@@ -775,141 +353,7 @@ await describe("Blob (Beast v2)", (test) => {
     const fn = $.let(East.function([IntegerType], IntegerType, ($, x) => x.add(offset)));
     const blob = $.let(East.Blob.encodeBeast(fn, 'v2'));
 
-    $(assert.equal(blob, East.value(new Uint8Array([
-            137, 69, 97, 115, 116, 13, 10, 4, 181, 12, 1, 54, 2, 16, 1, 0,
-            0, 18, 53, 18, 13, 10, 3, 9, 2, 6, 105, 110, 112, 117, 116, 115,
-            4, 6, 111, 117, 116, 112, 117, 116, 3, 0, 9, 2, 3, 107, 101, 121,
-            3, 5, 118, 97, 108, 117, 101, 3, 9, 2, 2, 105, 100, 0, 5, 105,
-            110, 110, 101, 114, 3, 8, 2, 3, 114, 101, 102, 0, 7, 119, 114, 97,
-            112, 112, 101, 114, 8, 1, 9, 2, 4, 110, 97, 109, 101, 10, 4, 116,
-            121, 112, 101, 3, 10, 11, 8, 19, 5, 65, 114, 114, 97, 121, 3, 13,
-            65, 115, 121, 110, 99, 70, 117, 110, 99, 116, 105, 111, 110, 5, 4, 66,
-            108, 111, 98, 6, 7, 66, 111, 111, 108, 101, 97, 110, 6, 8, 68, 97,
-            116, 101, 84, 105, 109, 101, 6, 4, 68, 105, 99, 116, 7, 5, 70, 108,
-            111, 97, 116, 6, 8, 70, 117, 110, 99, 116, 105, 111, 110, 5, 7, 73,
-            110, 116, 101, 103, 101, 114, 6, 6, 77, 97, 116, 114, 105, 120, 3, 5,
-            78, 101, 118, 101, 114, 6, 4, 78, 117, 108, 108, 6, 9, 82, 101, 99,
-            117, 114, 115, 105, 118, 101, 9, 3, 82, 101, 102, 3, 3, 83, 101, 116,
-            3, 6, 83, 116, 114, 105, 110, 103, 6, 6, 83, 116, 114, 117, 99, 116,
-            12, 7, 86, 97, 114, 105, 97, 110, 116, 12, 6, 86, 101, 99, 116, 111,
-            114, 3, 9, 3, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99, 95, 105,
-            100, 0, 5, 118, 97, 108, 117, 101, 2, 9, 4, 4, 116, 121, 112, 101,
-            3, 6, 108, 111, 99, 95, 105, 100, 0, 8, 118, 97, 114, 105, 97, 98,
-            108, 101, 2, 5, 118, 97, 108, 117, 101, 2, 10, 2, 9, 5, 4, 116,
-            121, 112, 101, 3, 6, 108, 111, 99, 95, 105, 100, 0, 8, 99, 97, 112,
-            116, 117, 114, 101, 115, 16, 10, 112, 97, 114, 97, 109, 101, 116, 101, 114,
-            115, 16, 4, 98, 111, 100, 121, 2, 9, 3, 4, 116, 121, 112, 101, 3,
-            6, 108, 111, 99, 95, 105, 100, 0, 10, 115, 116, 97, 116, 101, 109, 101,
-            110, 116, 115, 16, 9, 2, 4, 110, 97, 109, 101, 10, 6, 108, 111, 99,
-            95, 105, 100, 0, 9, 3, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99,
-            95, 105, 100, 0, 5, 108, 97, 98, 101, 108, 19, 9, 5, 4, 116, 121,
-            112, 101, 3, 6, 108, 111, 99, 95, 105, 100, 0, 7, 98, 117, 105, 108,
-            116, 105, 110, 10, 15, 116, 121, 112, 101, 95, 112, 97, 114, 97, 109, 101,
-            116, 101, 114, 115, 4, 9, 97, 114, 103, 117, 109, 101, 110, 116, 115, 16,
-            9, 4, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99, 95, 105, 100, 0,
-            8, 102, 117, 110, 99, 116, 105, 111, 110, 2, 9, 97, 114, 103, 117, 109,
-            101, 110, 116, 115, 16, 9, 3, 4, 116, 121, 112, 101, 3, 6, 108, 111,
-            99, 95, 105, 100, 0, 7, 109, 101, 115, 115, 97, 103, 101, 2, 9, 7,
-            4, 116, 121, 112, 101, 3, 6, 108, 111, 99, 95, 105, 100, 0, 5, 97,
-            114, 114, 97, 121, 2, 5, 108, 97, 98, 101, 108, 19, 3, 107, 101, 121,
-            2, 5, 118, 97, 108, 117, 101, 2, 4, 98, 111, 100, 121, 2, 9, 7,
-            4, 116, 121, 112, 101, 3, 6, 108, 111, 99, 95, 105, 100, 0, 4, 100,
-            105, 99, 116, 2, 5, 108, 97, 98, 101, 108, 19, 3, 107, 101, 121, 2,
-            5, 118, 97, 108, 117, 101, 2, 4, 98, 111, 100, 121, 2, 9, 6, 4,
-            116, 121, 112, 101, 3, 6, 108, 111, 99, 95, 105, 100, 0, 3, 115, 101,
-            116, 2, 5, 108, 97, 98, 101, 108, 19, 3, 107, 101, 121, 2, 4, 98,
-            111, 100, 121, 2, 9, 4, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99,
-            95, 105, 100, 0, 5, 102, 105, 101, 108, 100, 10, 6, 115, 116, 114, 117,
-            99, 116, 2, 9, 2, 9, 112, 114, 101, 100, 105, 99, 97, 116, 101, 2,
-            4, 98, 111, 100, 121, 2, 10, 28, 9, 4, 4, 116, 121, 112, 101, 3,
-            6, 108, 111, 99, 95, 105, 100, 0, 3, 105, 102, 115, 29, 9, 101, 108,
-            115, 101, 95, 98, 111, 100, 121, 2, 9, 3, 4, 99, 97, 115, 101, 10,
-            8, 118, 97, 114, 105, 97, 98, 108, 101, 2, 4, 98, 111, 100, 121, 2,
-            10, 31, 9, 4, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99, 95, 105,
-            100, 0, 7, 118, 97, 114, 105, 97, 110, 116, 2, 5, 99, 97, 115, 101,
-            115, 32, 9, 3, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99, 95, 105,
-            100, 0, 6, 118, 97, 108, 117, 101, 115, 16, 9, 2, 3, 107, 101, 121,
-            2, 5, 118, 97, 108, 117, 101, 2, 10, 35, 9, 3, 4, 116, 121, 112,
-            101, 3, 6, 108, 111, 99, 95, 105, 100, 0, 6, 118, 97, 108, 117, 101,
-            115, 36, 9, 5, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99, 95, 105,
-            100, 0, 6, 118, 97, 108, 117, 101, 115, 16, 4, 114, 111, 119, 115, 0,
-            4, 99, 111, 108, 115, 0, 4, 9, 7, 4, 116, 121, 112, 101, 3, 6,
-            108, 111, 99, 95, 105, 100, 0, 4, 110, 97, 109, 101, 10, 15, 116, 121,
-            112, 101, 95, 112, 97, 114, 97, 109, 101, 116, 101, 114, 115, 4, 9, 97,
-            114, 103, 117, 109, 101, 110, 116, 115, 16, 5, 97, 115, 121, 110, 99, 39,
-            8, 111, 112, 116, 105, 111, 110, 97, 108, 39, 9, 2, 4, 110, 97, 109,
-            101, 10, 5, 118, 97, 108, 117, 101, 2, 10, 41, 9, 3, 4, 116, 121,
-            112, 101, 3, 6, 108, 111, 99, 95, 105, 100, 0, 6, 102, 105, 101, 108,
-            100, 115, 42, 9, 7, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99, 95,
-            105, 100, 0, 8, 116, 114, 121, 95, 98, 111, 100, 121, 2, 10, 99, 97,
-            116, 99, 104, 95, 98, 111, 100, 121, 2, 7, 109, 101, 115, 115, 97, 103,
-            101, 2, 5, 115, 116, 97, 99, 107, 2, 12, 102, 105, 110, 97, 108, 108,
-            121, 95, 98, 111, 100, 121, 2, 6, 5, 3, 8, 7, 4, 66, 108, 111,
-            98, 45, 7, 66, 111, 111, 108, 101, 97, 110, 39, 8, 68, 97, 116, 101,
-            84, 105, 109, 101, 46, 5, 70, 108, 111, 97, 116, 47, 7, 73, 110, 116,
-            101, 103, 101, 114, 0, 4, 78, 117, 108, 108, 6, 6, 83, 116, 114, 105,
-            110, 103, 10, 9, 3, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99, 95,
-            105, 100, 0, 5, 118, 97, 108, 117, 101, 48, 9, 5, 4, 116, 121, 112,
-            101, 3, 6, 108, 111, 99, 95, 105, 100, 0, 4, 110, 97, 109, 101, 10,
-            7, 109, 117, 116, 97, 98, 108, 101, 39, 8, 99, 97, 112, 116, 117, 114,
-            101, 100, 39, 9, 4, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99, 95,
-            105, 100, 0, 4, 99, 97, 115, 101, 10, 5, 118, 97, 108, 117, 101, 2,
-            9, 5, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99, 95, 105, 100, 0,
-            9, 112, 114, 101, 100, 105, 99, 97, 116, 101, 2, 5, 108, 97, 98, 101,
-            108, 19, 4, 98, 111, 100, 121, 2, 8, 34, 2, 65, 115, 14, 6, 65,
-            115, 115, 105, 103, 110, 15, 13, 65, 115, 121, 110, 99, 70, 117, 110, 99,
-            116, 105, 111, 110, 17, 5, 66, 108, 111, 99, 107, 18, 5, 66, 114, 101,
-            97, 107, 20, 7, 66, 117, 105, 108, 116, 105, 110, 21, 4, 67, 97, 108,
-            108, 22, 9, 67, 97, 108, 108, 65, 115, 121, 110, 99, 22, 8, 67, 111,
-            110, 116, 105, 110, 117, 101, 20, 5, 69, 114, 114, 111, 114, 23, 8, 70,
-            111, 114, 65, 114, 114, 97, 121, 24, 7, 70, 111, 114, 68, 105, 99, 116,
-            25, 6, 70, 111, 114, 83, 101, 116, 26, 8, 70, 117, 110, 99, 116, 105,
-            111, 110, 17, 8, 71, 101, 116, 70, 105, 101, 108, 100, 27, 6, 73, 102,
-            69, 108, 115, 101, 30, 3, 76, 101, 116, 15, 5, 77, 97, 116, 99, 104,
-            33, 8, 78, 101, 119, 65, 114, 114, 97, 121, 34, 7, 78, 101, 119, 68,
-            105, 99, 116, 37, 9, 78, 101, 119, 77, 97, 116, 114, 105, 120, 38, 6,
-            78, 101, 119, 82, 101, 102, 14, 6, 78, 101, 119, 83, 101, 116, 34, 9,
-            78, 101, 119, 86, 101, 99, 116, 111, 114, 34, 8, 80, 108, 97, 116, 102,
-            111, 114, 109, 40, 6, 82, 101, 116, 117, 114, 110, 14, 6, 83, 116, 114,
-            117, 99, 116, 43, 8, 84, 114, 121, 67, 97, 116, 99, 104, 44, 15, 85,
-            110, 119, 114, 97, 112, 82, 101, 99, 117, 114, 115, 105, 118, 101, 14, 5,
-            86, 97, 108, 117, 101, 49, 8, 86, 97, 114, 105, 97, 98, 108, 101, 50,
-            7, 86, 97, 114, 105, 97, 110, 116, 51, 5, 87, 104, 105, 108, 101, 52,
-            13, 87, 114, 97, 112, 82, 101, 99, 117, 114, 115, 105, 118, 101, 14, 120,
-            8, 4, 95, 54, 50, 57, 4, 95, 54, 51, 48, 10, 73, 110, 116, 101,
-            103, 101, 114, 65, 100, 100, 15, 115, 114, 99, 47, 108, 111, 99, 97, 116,
-            105, 111, 110, 46, 116, 115, 15, 115, 114, 99, 47, 101, 120, 112, 114, 47,
-            97, 115, 116, 46, 116, 115, 17, 115, 114, 99, 47, 101, 120, 112, 114, 47,
-            98, 108, 111, 99, 107, 46, 116, 115, 22, 116, 101, 115, 116, 47, 112, 108,
-            97, 116, 102, 111, 114, 109, 115, 46, 115, 112, 101, 99, 46, 116, 115, 24,
-            116, 101, 115, 116, 47, 98, 108, 111, 98, 46, 98, 101, 97, 115, 116, 50,
-            46, 115, 112, 101, 99, 46, 116, 115, 209, 2, 7, 16, 3, 193, 1, 15,
-            3, 156, 2, 17, 4, 155, 1, 109, 5, 212, 9, 17, 5, 210, 9, 26,
-            6, 157, 1, 24, 5, 162, 3, 13, 3, 143, 2, 27, 5, 154, 3, 10,
-            6, 152, 1, 44, 5, 162, 3, 13, 3, 136, 2, 16, 3, 144, 2, 10,
-            5, 154, 3, 10, 6, 151, 1, 32, 7, 37, 7, 14, 3, 193, 1, 15,
-            3, 156, 2, 17, 5, 236, 9, 15, 6, 157, 1, 24, 5, 162, 3, 13,
-            3, 143, 2, 27, 5, 154, 3, 10, 6, 152, 1, 44, 5, 162, 3, 13,
-            3, 136, 2, 16, 3, 144, 2, 10, 5, 154, 3, 10, 6, 151, 1, 32,
-            7, 37, 7, 12, 3, 193, 1, 15, 3, 156, 2, 17, 5, 218, 3, 17,
-            3, 143, 2, 27, 5, 154, 3, 10, 6, 152, 1, 44, 5, 162, 3, 13,
-            3, 136, 2, 16, 3, 144, 2, 10, 5, 154, 3, 10, 6, 151, 1, 32,
-            7, 37, 7, 12, 3, 193, 1, 15, 3, 156, 2, 17, 5, 230, 3, 15,
-            3, 143, 2, 27, 5, 154, 3, 10, 6, 152, 1, 44, 5, 162, 3, 13,
-            3, 136, 2, 16, 3, 144, 2, 10, 5, 154, 3, 10, 6, 151, 1, 32,
-            7, 37, 7, 12, 3, 193, 1, 15, 3, 156, 2, 17, 4, 155, 1, 109,
-            5, 212, 9, 17, 5, 210, 9, 26, 6, 152, 1, 20, 5, 162, 3, 13,
-            3, 136, 2, 16, 3, 144, 2, 10, 5, 154, 3, 10, 6, 151, 1, 32,
-            7, 37, 7, 10, 3, 193, 1, 15, 3, 156, 2, 17, 5, 236, 9, 15,
-            6, 152, 1, 20, 5, 162, 3, 13, 3, 136, 2, 16, 3, 144, 2, 10,
-            5, 154, 3, 10, 6, 151, 1, 32, 7, 37, 7, 8, 3, 193, 1, 15,
-            3, 156, 2, 17, 5, 230, 3, 15, 3, 136, 2, 16, 3, 144, 2, 10,
-            5, 154, 3, 10, 6, 151, 1, 32, 7, 37, 7, 46, 5, 4, 10, 3,
-            1, 8, 9, 10, 2, 1, 30, 8, 4, 0, 0, 1, 9, 10, 2, 1,
-            30, 8, 8, 1, 0, 0, 3, 10, 3, 0, 15, 10, 2, 2, 30, 8,
-            8, 1, 0, 0, 30, 8, 4, 0, 0, 1, 13, 7, 0, 8, 14, 1,
-            2, 5, 8, 10, 2, 3, 4, 1, 20
-          ]), BlobType)));
+    $(assert.equal(East.str`${blob}`, "0x89456173740d0a04b50c013602100100001235120d0a03090206696e7075747304066f757470757403000902036b6579030576616c75650309020269640005696e6e65720308020372656600077772617070657208010902046e616d650a0474797065030a0b0813054172726179030d4173796e6346756e6374696f6e0504426c6f620607426f6f6c65616e06084461746554696d650604446963740705466c6f6174060846756e6374696f6e0507496e746567657206064d617472697803054e6576657206044e756c6c0609526563757273697665090352656603035365740306537472696e6706065374727563740c0756617269616e740c06566563746f72030903047479706503066c6f635f6964000576616c7565020904047479706503066c6f635f696400087661726961626c65020576616c7565020a020905047479706503066c6f635f696400086361707475726573100a706172616d65746572731004626f6479020903047479706503066c6f635f6964000a73746174656d656e7473100902046e616d650a066c6f635f6964000903047479706503066c6f635f696400056c6162656c130905047479706503066c6f635f696400076275696c74696e0a0f747970655f706172616d65746572730409617267756d656e7473100904047479706503066c6f635f6964000866756e6374696f6e0209617267756d656e7473100903047479706503066c6f635f696400076d657373616765020907047479706503066c6f635f69640005617272617902056c6162656c13036b6579020576616c75650204626f6479020907047479706503066c6f635f696400046469637402056c6162656c13036b6579020576616c75650204626f6479020906047479706503066c6f635f6964000373657402056c6162656c13036b65790204626f6479020904047479706503066c6f635f696400056669656c640a06737472756374020902097072656469636174650204626f6479020a1c0904047479706503066c6f635f696400036966731d09656c73655f626f647902090304636173650a087661726961626c650204626f6479020a1f0904047479706503066c6f635f6964000776617269616e7402056361736573200903047479706503066c6f635f6964000676616c756573100902036b6579020576616c7565020a230903047479706503066c6f635f6964000676616c756573240905047479706503066c6f635f6964000676616c7565731004726f77730004636f6c7300040907047479706503066c6f635f696400046e616d650a0f747970655f706172616d65746572730409617267756d656e747310056173796e6327086f7074696f6e616c270902046e616d650a0576616c7565020a290903047479706503066c6f635f696400066669656c64732a0907047479706503066c6f635f696400087472795f626f6479020a63617463685f626f647902076d6573736167650205737461636b020c66696e616c6c795f626f647902060503080704426c6f622d07426f6f6c65616e27084461746554696d652e05466c6f61742f07496e746567657200044e756c6c0606537472696e670a0903047479706503066c6f635f6964000576616c7565300905047479706503066c6f635f696400046e616d650a076d757461626c6527086361707475726564270904047479706503066c6f635f69640004636173650a0576616c7565020905047479706503066c6f635f6964000970726564696361746502056c6162656c1304626f64790208220241730e0641737369676e0f0d4173796e6346756e6374696f6e1105426c6f636b1205427265616b14074275696c74696e150443616c6c160943616c6c4173796e631608436f6e74696e756514054572726f721708466f7241727261791807466f72446963741906466f725365741a0846756e6374696f6e11084765744669656c641b064966456c73651e034c65740f054d6174636821084e6577417272617922074e65774469637425094e65774d617472697826064e65775265660e064e657753657422094e6577566563746f722208506c6174666f726d280652657475726e0e065374727563742b0854727943617463682c0f556e777261705265637572736976650e0556616c756531085661726961626c65320756617269616e7433055768696c65340d577261705265637572736976650e7808045f363239045f3633300a496e74656765724164640f7372632f6c6f636174696f6e2e74730f7372632f657870722f6173742e7473117372632f657870722f626c6f636b2e747316746573742f706c6174666f726d732e737065632e747318746573742f626c6f622e6265617374322e737065632e7473d102071003c1010f039c0211049b016d05d5091105d3091a069d011805a3030d038f021b059b030a0698012c05a3030d038802100390020a059b030a069701200725070e03c1010f039c021105ed090f069d011805a3030d038f021b059b030a0698012c05a3030d038802100390020a059b030a069701200725070c03c1010f039c021105db0311038f021b059b030a0698012c05a3030d038802100390020a059b030a069701200725070c03c1010f039c021105e7030f038f021b059b030a0698012c05a3030d038802100390020a059b030a069701200725070c03c1010f039c0211049b016d05d5091105d3091a0698011405a3030d038802100390020a059b030a069701200725070a03c1010f039c021105ed090f0698011405a3030d038802100390020a059b030a069701200725070803c1010f039c021105e7030f038802100390020a059b030a069701200725072e05040a030108090a02011e0804000001090a02011e0808010000030a03000f0a02021e08080100001e08040000010d0700080e010205080a0203040114"));
     const decoded = $.let(blob.decodeBeast(FnType, 'v2'));
     $(assert.equal(decoded(32n), 42n));
   });
@@ -920,142 +364,7 @@ await describe("Blob (Beast v2)", (test) => {
     const fn = $.let(East.function([IntegerType], IntegerType, ($, i) => arr.get(i)));
     const blob = $.let(East.Blob.encodeBeast(fn, 'v2'));
 
-    $(assert.equal(blob, East.value(new Uint8Array([
-            137, 69, 97, 115, 116, 13, 10, 4, 181, 12, 1, 54, 2, 16, 1, 0,
-            0, 18, 53, 18, 13, 10, 3, 9, 2, 6, 105, 110, 112, 117, 116, 115,
-            4, 6, 111, 117, 116, 112, 117, 116, 3, 0, 9, 2, 3, 107, 101, 121,
-            3, 5, 118, 97, 108, 117, 101, 3, 9, 2, 2, 105, 100, 0, 5, 105,
-            110, 110, 101, 114, 3, 8, 2, 3, 114, 101, 102, 0, 7, 119, 114, 97,
-            112, 112, 101, 114, 8, 1, 9, 2, 4, 110, 97, 109, 101, 10, 4, 116,
-            121, 112, 101, 3, 10, 11, 8, 19, 5, 65, 114, 114, 97, 121, 3, 13,
-            65, 115, 121, 110, 99, 70, 117, 110, 99, 116, 105, 111, 110, 5, 4, 66,
-            108, 111, 98, 6, 7, 66, 111, 111, 108, 101, 97, 110, 6, 8, 68, 97,
-            116, 101, 84, 105, 109, 101, 6, 4, 68, 105, 99, 116, 7, 5, 70, 108,
-            111, 97, 116, 6, 8, 70, 117, 110, 99, 116, 105, 111, 110, 5, 7, 73,
-            110, 116, 101, 103, 101, 114, 6, 6, 77, 97, 116, 114, 105, 120, 3, 5,
-            78, 101, 118, 101, 114, 6, 4, 78, 117, 108, 108, 6, 9, 82, 101, 99,
-            117, 114, 115, 105, 118, 101, 9, 3, 82, 101, 102, 3, 3, 83, 101, 116,
-            3, 6, 83, 116, 114, 105, 110, 103, 6, 6, 83, 116, 114, 117, 99, 116,
-            12, 7, 86, 97, 114, 105, 97, 110, 116, 12, 6, 86, 101, 99, 116, 111,
-            114, 3, 9, 3, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99, 95, 105,
-            100, 0, 5, 118, 97, 108, 117, 101, 2, 9, 4, 4, 116, 121, 112, 101,
-            3, 6, 108, 111, 99, 95, 105, 100, 0, 8, 118, 97, 114, 105, 97, 98,
-            108, 101, 2, 5, 118, 97, 108, 117, 101, 2, 10, 2, 9, 5, 4, 116,
-            121, 112, 101, 3, 6, 108, 111, 99, 95, 105, 100, 0, 8, 99, 97, 112,
-            116, 117, 114, 101, 115, 16, 10, 112, 97, 114, 97, 109, 101, 116, 101, 114,
-            115, 16, 4, 98, 111, 100, 121, 2, 9, 3, 4, 116, 121, 112, 101, 3,
-            6, 108, 111, 99, 95, 105, 100, 0, 10, 115, 116, 97, 116, 101, 109, 101,
-            110, 116, 115, 16, 9, 2, 4, 110, 97, 109, 101, 10, 6, 108, 111, 99,
-            95, 105, 100, 0, 9, 3, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99,
-            95, 105, 100, 0, 5, 108, 97, 98, 101, 108, 19, 9, 5, 4, 116, 121,
-            112, 101, 3, 6, 108, 111, 99, 95, 105, 100, 0, 7, 98, 117, 105, 108,
-            116, 105, 110, 10, 15, 116, 121, 112, 101, 95, 112, 97, 114, 97, 109, 101,
-            116, 101, 114, 115, 4, 9, 97, 114, 103, 117, 109, 101, 110, 116, 115, 16,
-            9, 4, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99, 95, 105, 100, 0,
-            8, 102, 117, 110, 99, 116, 105, 111, 110, 2, 9, 97, 114, 103, 117, 109,
-            101, 110, 116, 115, 16, 9, 3, 4, 116, 121, 112, 101, 3, 6, 108, 111,
-            99, 95, 105, 100, 0, 7, 109, 101, 115, 115, 97, 103, 101, 2, 9, 7,
-            4, 116, 121, 112, 101, 3, 6, 108, 111, 99, 95, 105, 100, 0, 5, 97,
-            114, 114, 97, 121, 2, 5, 108, 97, 98, 101, 108, 19, 3, 107, 101, 121,
-            2, 5, 118, 97, 108, 117, 101, 2, 4, 98, 111, 100, 121, 2, 9, 7,
-            4, 116, 121, 112, 101, 3, 6, 108, 111, 99, 95, 105, 100, 0, 4, 100,
-            105, 99, 116, 2, 5, 108, 97, 98, 101, 108, 19, 3, 107, 101, 121, 2,
-            5, 118, 97, 108, 117, 101, 2, 4, 98, 111, 100, 121, 2, 9, 6, 4,
-            116, 121, 112, 101, 3, 6, 108, 111, 99, 95, 105, 100, 0, 3, 115, 101,
-            116, 2, 5, 108, 97, 98, 101, 108, 19, 3, 107, 101, 121, 2, 4, 98,
-            111, 100, 121, 2, 9, 4, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99,
-            95, 105, 100, 0, 5, 102, 105, 101, 108, 100, 10, 6, 115, 116, 114, 117,
-            99, 116, 2, 9, 2, 9, 112, 114, 101, 100, 105, 99, 97, 116, 101, 2,
-            4, 98, 111, 100, 121, 2, 10, 28, 9, 4, 4, 116, 121, 112, 101, 3,
-            6, 108, 111, 99, 95, 105, 100, 0, 3, 105, 102, 115, 29, 9, 101, 108,
-            115, 101, 95, 98, 111, 100, 121, 2, 9, 3, 4, 99, 97, 115, 101, 10,
-            8, 118, 97, 114, 105, 97, 98, 108, 101, 2, 4, 98, 111, 100, 121, 2,
-            10, 31, 9, 4, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99, 95, 105,
-            100, 0, 7, 118, 97, 114, 105, 97, 110, 116, 2, 5, 99, 97, 115, 101,
-            115, 32, 9, 3, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99, 95, 105,
-            100, 0, 6, 118, 97, 108, 117, 101, 115, 16, 9, 2, 3, 107, 101, 121,
-            2, 5, 118, 97, 108, 117, 101, 2, 10, 35, 9, 3, 4, 116, 121, 112,
-            101, 3, 6, 108, 111, 99, 95, 105, 100, 0, 6, 118, 97, 108, 117, 101,
-            115, 36, 9, 5, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99, 95, 105,
-            100, 0, 6, 118, 97, 108, 117, 101, 115, 16, 4, 114, 111, 119, 115, 0,
-            4, 99, 111, 108, 115, 0, 4, 9, 7, 4, 116, 121, 112, 101, 3, 6,
-            108, 111, 99, 95, 105, 100, 0, 4, 110, 97, 109, 101, 10, 15, 116, 121,
-            112, 101, 95, 112, 97, 114, 97, 109, 101, 116, 101, 114, 115, 4, 9, 97,
-            114, 103, 117, 109, 101, 110, 116, 115, 16, 5, 97, 115, 121, 110, 99, 39,
-            8, 111, 112, 116, 105, 111, 110, 97, 108, 39, 9, 2, 4, 110, 97, 109,
-            101, 10, 5, 118, 97, 108, 117, 101, 2, 10, 41, 9, 3, 4, 116, 121,
-            112, 101, 3, 6, 108, 111, 99, 95, 105, 100, 0, 6, 102, 105, 101, 108,
-            100, 115, 42, 9, 7, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99, 95,
-            105, 100, 0, 8, 116, 114, 121, 95, 98, 111, 100, 121, 2, 10, 99, 97,
-            116, 99, 104, 95, 98, 111, 100, 121, 2, 7, 109, 101, 115, 115, 97, 103,
-            101, 2, 5, 115, 116, 97, 99, 107, 2, 12, 102, 105, 110, 97, 108, 108,
-            121, 95, 98, 111, 100, 121, 2, 6, 5, 3, 8, 7, 4, 66, 108, 111,
-            98, 45, 7, 66, 111, 111, 108, 101, 97, 110, 39, 8, 68, 97, 116, 101,
-            84, 105, 109, 101, 46, 5, 70, 108, 111, 97, 116, 47, 7, 73, 110, 116,
-            101, 103, 101, 114, 0, 4, 78, 117, 108, 108, 6, 6, 83, 116, 114, 105,
-            110, 103, 10, 9, 3, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99, 95,
-            105, 100, 0, 5, 118, 97, 108, 117, 101, 48, 9, 5, 4, 116, 121, 112,
-            101, 3, 6, 108, 111, 99, 95, 105, 100, 0, 4, 110, 97, 109, 101, 10,
-            7, 109, 117, 116, 97, 98, 108, 101, 39, 8, 99, 97, 112, 116, 117, 114,
-            101, 100, 39, 9, 4, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99, 95,
-            105, 100, 0, 4, 99, 97, 115, 101, 10, 5, 118, 97, 108, 117, 101, 2,
-            9, 5, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99, 95, 105, 100, 0,
-            9, 112, 114, 101, 100, 105, 99, 97, 116, 101, 2, 5, 108, 97, 98, 101,
-            108, 19, 4, 98, 111, 100, 121, 2, 8, 34, 2, 65, 115, 14, 6, 65,
-            115, 115, 105, 103, 110, 15, 13, 65, 115, 121, 110, 99, 70, 117, 110, 99,
-            116, 105, 111, 110, 17, 5, 66, 108, 111, 99, 107, 18, 5, 66, 114, 101,
-            97, 107, 20, 7, 66, 117, 105, 108, 116, 105, 110, 21, 4, 67, 97, 108,
-            108, 22, 9, 67, 97, 108, 108, 65, 115, 121, 110, 99, 22, 8, 67, 111,
-            110, 116, 105, 110, 117, 101, 20, 5, 69, 114, 114, 111, 114, 23, 8, 70,
-            111, 114, 65, 114, 114, 97, 121, 24, 7, 70, 111, 114, 68, 105, 99, 116,
-            25, 6, 70, 111, 114, 83, 101, 116, 26, 8, 70, 117, 110, 99, 116, 105,
-            111, 110, 17, 8, 71, 101, 116, 70, 105, 101, 108, 100, 27, 6, 73, 102,
-            69, 108, 115, 101, 30, 3, 76, 101, 116, 15, 5, 77, 97, 116, 99, 104,
-            33, 8, 78, 101, 119, 65, 114, 114, 97, 121, 34, 7, 78, 101, 119, 68,
-            105, 99, 116, 37, 9, 78, 101, 119, 77, 97, 116, 114, 105, 120, 38, 6,
-            78, 101, 119, 82, 101, 102, 14, 6, 78, 101, 119, 83, 101, 116, 34, 9,
-            78, 101, 119, 86, 101, 99, 116, 111, 114, 34, 8, 80, 108, 97, 116, 102,
-            111, 114, 109, 40, 6, 82, 101, 116, 117, 114, 110, 14, 6, 83, 116, 114,
-            117, 99, 116, 43, 8, 84, 114, 121, 67, 97, 116, 99, 104, 44, 15, 85,
-            110, 119, 114, 97, 112, 82, 101, 99, 117, 114, 115, 105, 118, 101, 14, 5,
-            86, 97, 108, 117, 101, 49, 8, 86, 97, 114, 105, 97, 98, 108, 101, 50,
-            7, 86, 97, 114, 105, 97, 110, 116, 51, 5, 87, 104, 105, 108, 101, 52,
-            13, 87, 114, 97, 112, 82, 101, 99, 117, 114, 115, 105, 118, 101, 14, 118,
-            8, 4, 95, 54, 52, 54, 4, 95, 54, 52, 55, 8, 65, 114, 114, 97,
-            121, 71, 101, 116, 15, 115, 114, 99, 47, 108, 111, 99, 97, 116, 105, 111,
-            110, 46, 116, 115, 15, 115, 114, 99, 47, 101, 120, 112, 114, 47, 97, 115,
-            116, 46, 116, 115, 17, 115, 114, 99, 47, 101, 120, 112, 114, 47, 98, 108,
-            111, 99, 107, 46, 116, 115, 22, 116, 101, 115, 116, 47, 112, 108, 97, 116,
-            102, 111, 114, 109, 115, 46, 115, 112, 101, 99, 46, 116, 115, 24, 116, 101,
-            115, 116, 47, 98, 108, 111, 98, 46, 98, 101, 97, 115, 116, 50, 46, 115,
-            112, 101, 99, 46, 116, 115, 209, 2, 7, 16, 3, 193, 1, 15, 3, 156,
-            2, 17, 4, 155, 1, 109, 5, 212, 9, 17, 5, 210, 9, 26, 6, 157,
-            1, 24, 5, 162, 3, 13, 3, 143, 2, 27, 5, 154, 3, 10, 6, 152,
-            1, 44, 5, 162, 3, 13, 3, 136, 2, 16, 3, 144, 2, 10, 5, 154,
-            3, 10, 6, 151, 1, 32, 7, 37, 7, 14, 3, 193, 1, 15, 3, 156,
-            2, 17, 5, 236, 9, 15, 6, 157, 1, 24, 5, 162, 3, 13, 3, 143,
-            2, 27, 5, 154, 3, 10, 6, 152, 1, 44, 5, 162, 3, 13, 3, 136,
-            2, 16, 3, 144, 2, 10, 5, 154, 3, 10, 6, 151, 1, 32, 7, 37,
-            7, 12, 3, 193, 1, 15, 3, 156, 2, 17, 5, 218, 3, 17, 3, 143,
-            2, 27, 5, 154, 3, 10, 6, 152, 1, 44, 5, 162, 3, 13, 3, 136,
-            2, 16, 3, 144, 2, 10, 5, 154, 3, 10, 6, 151, 1, 32, 7, 37,
-            7, 12, 3, 193, 1, 15, 3, 156, 2, 17, 5, 230, 3, 15, 3, 143,
-            2, 27, 5, 154, 3, 10, 6, 152, 1, 44, 5, 162, 3, 13, 3, 136,
-            2, 16, 3, 144, 2, 10, 5, 154, 3, 10, 6, 151, 1, 32, 7, 37,
-            7, 12, 3, 193, 1, 15, 3, 156, 2, 17, 4, 155, 1, 109, 5, 212,
-            9, 17, 5, 210, 9, 26, 6, 152, 1, 20, 5, 162, 3, 13, 3, 136,
-            2, 16, 3, 144, 2, 10, 5, 154, 3, 10, 6, 151, 1, 32, 7, 37,
-            7, 10, 3, 193, 1, 15, 3, 156, 2, 17, 5, 236, 9, 15, 6, 152,
-            1, 20, 5, 162, 3, 13, 3, 136, 2, 16, 3, 144, 2, 10, 5, 154,
-            3, 10, 6, 151, 1, 32, 7, 37, 7, 8, 3, 193, 1, 15, 3, 156,
-            2, 17, 5, 230, 3, 15, 3, 136, 2, 16, 3, 144, 2, 10, 5, 154,
-            3, 10, 6, 151, 1, 32, 7, 37, 7, 56, 6, 4, 10, 3, 1, 8,
-            10, 10, 2, 1, 30, 0, 8, 4, 0, 0, 1, 9, 10, 2, 1, 30,
-            8, 8, 1, 0, 0, 4, 10, 3, 1, 8, 16, 10, 2, 2, 30, 0,
-            8, 4, 0, 0, 1, 30, 8, 8, 1, 0, 0, 6, 10, 0, 3, 20,
-            40, 60, 13, 7, 0, 8, 16, 1, 2, 5, 8, 12, 2, 3, 4, 1,
-            5
-          ]), BlobType)));
+    $(assert.equal(East.str`${blob}`, "0x89456173740d0a04b50c013602100100001235120d0a03090206696e7075747304066f757470757403000902036b6579030576616c75650309020269640005696e6e65720308020372656600077772617070657208010902046e616d650a0474797065030a0b0813054172726179030d4173796e6346756e6374696f6e0504426c6f620607426f6f6c65616e06084461746554696d650604446963740705466c6f6174060846756e6374696f6e0507496e746567657206064d617472697803054e6576657206044e756c6c0609526563757273697665090352656603035365740306537472696e6706065374727563740c0756617269616e740c06566563746f72030903047479706503066c6f635f6964000576616c7565020904047479706503066c6f635f696400087661726961626c65020576616c7565020a020905047479706503066c6f635f696400086361707475726573100a706172616d65746572731004626f6479020903047479706503066c6f635f6964000a73746174656d656e7473100902046e616d650a066c6f635f6964000903047479706503066c6f635f696400056c6162656c130905047479706503066c6f635f696400076275696c74696e0a0f747970655f706172616d65746572730409617267756d656e7473100904047479706503066c6f635f6964000866756e6374696f6e0209617267756d656e7473100903047479706503066c6f635f696400076d657373616765020907047479706503066c6f635f69640005617272617902056c6162656c13036b6579020576616c75650204626f6479020907047479706503066c6f635f696400046469637402056c6162656c13036b6579020576616c75650204626f6479020906047479706503066c6f635f6964000373657402056c6162656c13036b65790204626f6479020904047479706503066c6f635f696400056669656c640a06737472756374020902097072656469636174650204626f6479020a1c0904047479706503066c6f635f696400036966731d09656c73655f626f647902090304636173650a087661726961626c650204626f6479020a1f0904047479706503066c6f635f6964000776617269616e7402056361736573200903047479706503066c6f635f6964000676616c756573100902036b6579020576616c7565020a230903047479706503066c6f635f6964000676616c756573240905047479706503066c6f635f6964000676616c7565731004726f77730004636f6c7300040907047479706503066c6f635f696400046e616d650a0f747970655f706172616d65746572730409617267756d656e747310056173796e6327086f7074696f6e616c270902046e616d650a0576616c7565020a290903047479706503066c6f635f696400066669656c64732a0907047479706503066c6f635f696400087472795f626f6479020a63617463685f626f647902076d6573736167650205737461636b020c66696e616c6c795f626f647902060503080704426c6f622d07426f6f6c65616e27084461746554696d652e05466c6f61742f07496e746567657200044e756c6c0606537472696e670a0903047479706503066c6f635f6964000576616c7565300905047479706503066c6f635f696400046e616d650a076d757461626c6527086361707475726564270904047479706503066c6f635f69640004636173650a0576616c7565020905047479706503066c6f635f6964000970726564696361746502056c6162656c1304626f64790208220241730e0641737369676e0f0d4173796e6346756e6374696f6e1105426c6f636b1205427265616b14074275696c74696e150443616c6c160943616c6c4173796e631608436f6e74696e756514054572726f721708466f7241727261791807466f72446963741906466f725365741a0846756e6374696f6e11084765744669656c641b064966456c73651e034c65740f054d6174636821084e6577417272617922074e65774469637425094e65774d617472697826064e65775265660e064e657753657422094e6577566563746f722208506c6174666f726d280652657475726e0e065374727563742b0854727943617463682c0f556e777261705265637572736976650e0556616c756531085661726961626c65320756617269616e7433055768696c65340d577261705265637572736976650e7608045f363436045f3634370841727261794765740f7372632f6c6f636174696f6e2e74730f7372632f657870722f6173742e7473117372632f657870722f626c6f636b2e747316746573742f706c6174666f726d732e737065632e747318746573742f626c6f622e6265617374322e737065632e7473d102071003c1010f039c0211049b016d05d5091105d3091a069d011805a3030d038f021b059b030a0698012c05a3030d038802100390020a059b030a069701200725070e03c1010f039c021105ed090f069d011805a3030d038f021b059b030a0698012c05a3030d038802100390020a059b030a069701200725070c03c1010f039c021105db0311038f021b059b030a0698012c05a3030d038802100390020a059b030a069701200725070c03c1010f039c021105e7030f038f021b059b030a0698012c05a3030d038802100390020a059b030a069701200725070c03c1010f039c0211049b016d05d5091105d3091a0698011405a3030d038802100390020a059b030a069701200725070a03c1010f039c021105ed090f0698011405a3030d038802100390020a059b030a069701200725070803c1010f039c021105e7030f038802100390020a059b030a069701200725073806040a0301080a0a02011e000804000001090a02011e0808010000040a030108100a02021e0008040000011e0808010000060a000314283c0d07000810010205080c0203040105"));
     const decoded = $.let(blob.decodeBeast(FnType, 'v2'));
     $(assert.equal(decoded(1n), 20n));
   });
@@ -1069,145 +378,7 @@ await describe("Blob (Beast v2)", (test) => {
     ], ArrFnType);
     const blob = $.let(East.Blob.encodeBeast(fns, 'v2'));
 
-    $(assert.equal(blob, East.value(new Uint8Array([
-            137, 69, 97, 115, 116, 13, 10, 4, 183, 12, 2, 55, 2, 16, 1, 0,
-            0, 10, 1, 18, 54, 18, 14, 10, 4, 9, 2, 6, 105, 110, 112, 117,
-            116, 115, 5, 6, 111, 117, 116, 112, 117, 116, 4, 0, 9, 2, 3, 107,
-            101, 121, 4, 5, 118, 97, 108, 117, 101, 4, 9, 2, 2, 105, 100, 0,
-            5, 105, 110, 110, 101, 114, 4, 8, 2, 3, 114, 101, 102, 0, 7, 119,
-            114, 97, 112, 112, 101, 114, 9, 1, 9, 2, 4, 110, 97, 109, 101, 11,
-            4, 116, 121, 112, 101, 4, 10, 12, 8, 19, 5, 65, 114, 114, 97, 121,
-            4, 13, 65, 115, 121, 110, 99, 70, 117, 110, 99, 116, 105, 111, 110, 6,
-            4, 66, 108, 111, 98, 7, 7, 66, 111, 111, 108, 101, 97, 110, 7, 8,
-            68, 97, 116, 101, 84, 105, 109, 101, 7, 4, 68, 105, 99, 116, 8, 5,
-            70, 108, 111, 97, 116, 7, 8, 70, 117, 110, 99, 116, 105, 111, 110, 6,
-            7, 73, 110, 116, 101, 103, 101, 114, 7, 6, 77, 97, 116, 114, 105, 120,
-            4, 5, 78, 101, 118, 101, 114, 7, 4, 78, 117, 108, 108, 7, 9, 82,
-            101, 99, 117, 114, 115, 105, 118, 101, 10, 3, 82, 101, 102, 4, 3, 83,
-            101, 116, 4, 6, 83, 116, 114, 105, 110, 103, 7, 6, 83, 116, 114, 117,
-            99, 116, 13, 7, 86, 97, 114, 105, 97, 110, 116, 13, 6, 86, 101, 99,
-            116, 111, 114, 4, 9, 3, 4, 116, 121, 112, 101, 4, 6, 108, 111, 99,
-            95, 105, 100, 0, 5, 118, 97, 108, 117, 101, 3, 9, 4, 4, 116, 121,
-            112, 101, 4, 6, 108, 111, 99, 95, 105, 100, 0, 8, 118, 97, 114, 105,
-            97, 98, 108, 101, 3, 5, 118, 97, 108, 117, 101, 3, 10, 3, 9, 5,
-            4, 116, 121, 112, 101, 4, 6, 108, 111, 99, 95, 105, 100, 0, 8, 99,
-            97, 112, 116, 117, 114, 101, 115, 17, 10, 112, 97, 114, 97, 109, 101, 116,
-            101, 114, 115, 17, 4, 98, 111, 100, 121, 3, 9, 3, 4, 116, 121, 112,
-            101, 4, 6, 108, 111, 99, 95, 105, 100, 0, 10, 115, 116, 97, 116, 101,
-            109, 101, 110, 116, 115, 17, 9, 2, 4, 110, 97, 109, 101, 11, 6, 108,
-            111, 99, 95, 105, 100, 0, 9, 3, 4, 116, 121, 112, 101, 4, 6, 108,
-            111, 99, 95, 105, 100, 0, 5, 108, 97, 98, 101, 108, 20, 9, 5, 4,
-            116, 121, 112, 101, 4, 6, 108, 111, 99, 95, 105, 100, 0, 7, 98, 117,
-            105, 108, 116, 105, 110, 11, 15, 116, 121, 112, 101, 95, 112, 97, 114, 97,
-            109, 101, 116, 101, 114, 115, 5, 9, 97, 114, 103, 117, 109, 101, 110, 116,
-            115, 17, 9, 4, 4, 116, 121, 112, 101, 4, 6, 108, 111, 99, 95, 105,
-            100, 0, 8, 102, 117, 110, 99, 116, 105, 111, 110, 3, 9, 97, 114, 103,
-            117, 109, 101, 110, 116, 115, 17, 9, 3, 4, 116, 121, 112, 101, 4, 6,
-            108, 111, 99, 95, 105, 100, 0, 7, 109, 101, 115, 115, 97, 103, 101, 3,
-            9, 7, 4, 116, 121, 112, 101, 4, 6, 108, 111, 99, 95, 105, 100, 0,
-            5, 97, 114, 114, 97, 121, 3, 5, 108, 97, 98, 101, 108, 20, 3, 107,
-            101, 121, 3, 5, 118, 97, 108, 117, 101, 3, 4, 98, 111, 100, 121, 3,
-            9, 7, 4, 116, 121, 112, 101, 4, 6, 108, 111, 99, 95, 105, 100, 0,
-            4, 100, 105, 99, 116, 3, 5, 108, 97, 98, 101, 108, 20, 3, 107, 101,
-            121, 3, 5, 118, 97, 108, 117, 101, 3, 4, 98, 111, 100, 121, 3, 9,
-            6, 4, 116, 121, 112, 101, 4, 6, 108, 111, 99, 95, 105, 100, 0, 3,
-            115, 101, 116, 3, 5, 108, 97, 98, 101, 108, 20, 3, 107, 101, 121, 3,
-            4, 98, 111, 100, 121, 3, 9, 4, 4, 116, 121, 112, 101, 4, 6, 108,
-            111, 99, 95, 105, 100, 0, 5, 102, 105, 101, 108, 100, 11, 6, 115, 116,
-            114, 117, 99, 116, 3, 9, 2, 9, 112, 114, 101, 100, 105, 99, 97, 116,
-            101, 3, 4, 98, 111, 100, 121, 3, 10, 29, 9, 4, 4, 116, 121, 112,
-            101, 4, 6, 108, 111, 99, 95, 105, 100, 0, 3, 105, 102, 115, 30, 9,
-            101, 108, 115, 101, 95, 98, 111, 100, 121, 3, 9, 3, 4, 99, 97, 115,
-            101, 11, 8, 118, 97, 114, 105, 97, 98, 108, 101, 3, 4, 98, 111, 100,
-            121, 3, 10, 32, 9, 4, 4, 116, 121, 112, 101, 4, 6, 108, 111, 99,
-            95, 105, 100, 0, 7, 118, 97, 114, 105, 97, 110, 116, 3, 5, 99, 97,
-            115, 101, 115, 33, 9, 3, 4, 116, 121, 112, 101, 4, 6, 108, 111, 99,
-            95, 105, 100, 0, 6, 118, 97, 108, 117, 101, 115, 17, 9, 2, 3, 107,
-            101, 121, 3, 5, 118, 97, 108, 117, 101, 3, 10, 36, 9, 3, 4, 116,
-            121, 112, 101, 4, 6, 108, 111, 99, 95, 105, 100, 0, 6, 118, 97, 108,
-            117, 101, 115, 37, 9, 5, 4, 116, 121, 112, 101, 4, 6, 108, 111, 99,
-            95, 105, 100, 0, 6, 118, 97, 108, 117, 101, 115, 17, 4, 114, 111, 119,
-            115, 0, 4, 99, 111, 108, 115, 0, 4, 9, 7, 4, 116, 121, 112, 101,
-            4, 6, 108, 111, 99, 95, 105, 100, 0, 4, 110, 97, 109, 101, 11, 15,
-            116, 121, 112, 101, 95, 112, 97, 114, 97, 109, 101, 116, 101, 114, 115, 5,
-            9, 97, 114, 103, 117, 109, 101, 110, 116, 115, 17, 5, 97, 115, 121, 110,
-            99, 40, 8, 111, 112, 116, 105, 111, 110, 97, 108, 40, 9, 2, 4, 110,
-            97, 109, 101, 11, 5, 118, 97, 108, 117, 101, 3, 10, 42, 9, 3, 4,
-            116, 121, 112, 101, 4, 6, 108, 111, 99, 95, 105, 100, 0, 6, 102, 105,
-            101, 108, 100, 115, 43, 9, 7, 4, 116, 121, 112, 101, 4, 6, 108, 111,
-            99, 95, 105, 100, 0, 8, 116, 114, 121, 95, 98, 111, 100, 121, 3, 10,
-            99, 97, 116, 99, 104, 95, 98, 111, 100, 121, 3, 7, 109, 101, 115, 115,
-            97, 103, 101, 3, 5, 115, 116, 97, 99, 107, 3, 12, 102, 105, 110, 97,
-            108, 108, 121, 95, 98, 111, 100, 121, 3, 6, 5, 3, 8, 7, 4, 66,
-            108, 111, 98, 46, 7, 66, 111, 111, 108, 101, 97, 110, 40, 8, 68, 97,
-            116, 101, 84, 105, 109, 101, 47, 5, 70, 108, 111, 97, 116, 48, 7, 73,
-            110, 116, 101, 103, 101, 114, 0, 4, 78, 117, 108, 108, 7, 6, 83, 116,
-            114, 105, 110, 103, 11, 9, 3, 4, 116, 121, 112, 101, 4, 6, 108, 111,
-            99, 95, 105, 100, 0, 5, 118, 97, 108, 117, 101, 49, 9, 5, 4, 116,
-            121, 112, 101, 4, 6, 108, 111, 99, 95, 105, 100, 0, 4, 110, 97, 109,
-            101, 11, 7, 109, 117, 116, 97, 98, 108, 101, 40, 8, 99, 97, 112, 116,
-            117, 114, 101, 100, 40, 9, 4, 4, 116, 121, 112, 101, 4, 6, 108, 111,
-            99, 95, 105, 100, 0, 4, 99, 97, 115, 101, 11, 5, 118, 97, 108, 117,
-            101, 3, 9, 5, 4, 116, 121, 112, 101, 4, 6, 108, 111, 99, 95, 105,
-            100, 0, 9, 112, 114, 101, 100, 105, 99, 97, 116, 101, 3, 5, 108, 97,
-            98, 101, 108, 20, 4, 98, 111, 100, 121, 3, 8, 34, 2, 65, 115, 15,
-            6, 65, 115, 115, 105, 103, 110, 16, 13, 65, 115, 121, 110, 99, 70, 117,
-            110, 99, 116, 105, 111, 110, 18, 5, 66, 108, 111, 99, 107, 19, 5, 66,
-            114, 101, 97, 107, 21, 7, 66, 117, 105, 108, 116, 105, 110, 22, 4, 67,
-            97, 108, 108, 23, 9, 67, 97, 108, 108, 65, 115, 121, 110, 99, 23, 8,
-            67, 111, 110, 116, 105, 110, 117, 101, 21, 5, 69, 114, 114, 111, 114, 24,
-            8, 70, 111, 114, 65, 114, 114, 97, 121, 25, 7, 70, 111, 114, 68, 105,
-            99, 116, 26, 6, 70, 111, 114, 83, 101, 116, 27, 8, 70, 117, 110, 99,
-            116, 105, 111, 110, 18, 8, 71, 101, 116, 70, 105, 101, 108, 100, 28, 6,
-            73, 102, 69, 108, 115, 101, 31, 3, 76, 101, 116, 16, 5, 77, 97, 116,
-            99, 104, 34, 8, 78, 101, 119, 65, 114, 114, 97, 121, 35, 7, 78, 101,
-            119, 68, 105, 99, 116, 38, 9, 78, 101, 119, 77, 97, 116, 114, 105, 120,
-            39, 6, 78, 101, 119, 82, 101, 102, 15, 6, 78, 101, 119, 83, 101, 116,
-            35, 9, 78, 101, 119, 86, 101, 99, 116, 111, 114, 35, 8, 80, 108, 97,
-            116, 102, 111, 114, 109, 41, 6, 82, 101, 116, 117, 114, 110, 15, 6, 83,
-            116, 114, 117, 99, 116, 44, 8, 84, 114, 121, 67, 97, 116, 99, 104, 45,
-            15, 85, 110, 119, 114, 97, 112, 82, 101, 99, 117, 114, 115, 105, 118, 101,
-            15, 5, 86, 97, 108, 117, 101, 50, 8, 86, 97, 114, 105, 97, 98, 108,
-            101, 51, 7, 86, 97, 114, 105, 97, 110, 116, 52, 5, 87, 104, 105, 108,
-            101, 53, 13, 87, 114, 97, 112, 82, 101, 99, 117, 114, 115, 105, 118, 101,
-            15, 136, 1, 9, 10, 73, 110, 116, 101, 103, 101, 114, 65, 100, 100, 15,
-            73, 110, 116, 101, 103, 101, 114, 77, 117, 108, 116, 105, 112, 108, 121, 4,
-            95, 54, 54, 51, 4, 95, 54, 54, 52, 15, 115, 114, 99, 47, 108, 111,
-            99, 97, 116, 105, 111, 110, 46, 116, 115, 15, 115, 114, 99, 47, 101, 120,
-            112, 114, 47, 97, 115, 116, 46, 116, 115, 17, 115, 114, 99, 47, 101, 120,
-            112, 114, 47, 98, 108, 111, 99, 107, 46, 116, 115, 22, 116, 101, 115, 116,
-            47, 112, 108, 97, 116, 102, 111, 114, 109, 115, 46, 115, 112, 101, 99, 46,
-            116, 115, 24, 116, 101, 115, 116, 47, 98, 108, 111, 98, 46, 98, 101, 97,
-            115, 116, 50, 46, 115, 112, 101, 99, 46, 116, 115, 209, 2, 7, 16, 4,
-            193, 1, 15, 4, 156, 2, 17, 5, 155, 1, 109, 6, 212, 9, 17, 6,
-            210, 9, 26, 7, 157, 1, 24, 6, 162, 3, 13, 4, 143, 2, 27, 6,
-            154, 3, 10, 7, 152, 1, 44, 6, 162, 3, 13, 4, 136, 2, 16, 4,
-            144, 2, 10, 6, 154, 3, 10, 7, 151, 1, 32, 8, 37, 7, 14, 4,
-            193, 1, 15, 4, 156, 2, 17, 6, 236, 9, 15, 7, 157, 1, 24, 6,
-            162, 3, 13, 4, 143, 2, 27, 6, 154, 3, 10, 7, 152, 1, 44, 6,
-            162, 3, 13, 4, 136, 2, 16, 4, 144, 2, 10, 6, 154, 3, 10, 7,
-            151, 1, 32, 8, 37, 7, 12, 4, 193, 1, 15, 4, 156, 2, 17, 6,
-            218, 3, 17, 4, 143, 2, 27, 6, 154, 3, 10, 7, 152, 1, 44, 6,
-            162, 3, 13, 4, 136, 2, 16, 4, 144, 2, 10, 6, 154, 3, 10, 7,
-            151, 1, 32, 8, 37, 7, 12, 4, 193, 1, 15, 4, 156, 2, 17, 6,
-            230, 3, 15, 4, 143, 2, 27, 6, 154, 3, 10, 7, 152, 1, 44, 6,
-            162, 3, 13, 4, 136, 2, 16, 4, 144, 2, 10, 6, 154, 3, 10, 7,
-            151, 1, 32, 8, 37, 7, 12, 4, 193, 1, 15, 4, 156, 2, 17, 5,
-            155, 1, 109, 6, 212, 9, 17, 6, 210, 9, 26, 7, 152, 1, 20, 6,
-            162, 3, 13, 4, 136, 2, 16, 4, 144, 2, 10, 6, 154, 3, 10, 7,
-            151, 1, 32, 8, 37, 7, 10, 4, 193, 1, 15, 4, 156, 2, 17, 6,
-            236, 9, 15, 7, 152, 1, 20, 6, 162, 3, 13, 4, 136, 2, 16, 4,
-            144, 2, 10, 6, 154, 3, 10, 7, 151, 1, 32, 8, 37, 7, 8, 4,
-            193, 1, 15, 4, 156, 2, 17, 6, 230, 3, 15, 4, 136, 2, 16, 4,
-            144, 2, 10, 6, 154, 3, 10, 7, 151, 1, 32, 8, 37, 7, 104, 10,
-            31, 10, 1, 2, 13, 7, 1, 8, 10, 2, 3, 5, 8, 6, 0, 4,
-            5, 0, 13, 7, 1, 8, 20, 6, 7, 5, 8, 16, 1, 8, 9, 0,
-            4, 10, 4, 1, 8, 3, 10, 3, 0, 9, 10, 3, 1, 30, 8, 2,
-            2, 0, 0, 3, 10, 4, 0, 14, 10, 3, 2, 30, 8, 2, 2, 0,
-            0, 29, 8, 4, 4, 2, 3, 10, 3, 0, 9, 10, 3, 1, 30, 8,
-            12, 3, 0, 0, 3, 10, 4, 0, 14, 10, 3, 2, 30, 8, 12, 3,
-            0, 0, 29, 8, 14, 4, 4, 0
-          ]), BlobType)));
+    $(assert.equal(East.str`${blob}`, "0x89456173740d0a04b70c023702100100000a011236120e0a04090206696e7075747305066f757470757404000902036b6579040576616c75650409020269640005696e6e65720408020372656600077772617070657209010902046e616d650b0474797065040a0c0813054172726179040d4173796e6346756e6374696f6e0604426c6f620707426f6f6c65616e07084461746554696d650704446963740805466c6f6174070846756e6374696f6e0607496e746567657207064d617472697804054e6576657207044e756c6c07095265637572736976650a0352656604035365740406537472696e6707065374727563740d0756617269616e740d06566563746f72040903047479706504066c6f635f6964000576616c7565030904047479706504066c6f635f696400087661726961626c65030576616c7565030a030905047479706504066c6f635f696400086361707475726573110a706172616d65746572731104626f6479030903047479706504066c6f635f6964000a73746174656d656e7473110902046e616d650b066c6f635f6964000903047479706504066c6f635f696400056c6162656c140905047479706504066c6f635f696400076275696c74696e0b0f747970655f706172616d65746572730509617267756d656e7473110904047479706504066c6f635f6964000866756e6374696f6e0309617267756d656e7473110903047479706504066c6f635f696400076d657373616765030907047479706504066c6f635f69640005617272617903056c6162656c14036b6579030576616c75650304626f6479030907047479706504066c6f635f696400046469637403056c6162656c14036b6579030576616c75650304626f6479030906047479706504066c6f635f6964000373657403056c6162656c14036b65790304626f6479030904047479706504066c6f635f696400056669656c640b06737472756374030902097072656469636174650304626f6479030a1d0904047479706504066c6f635f696400036966731e09656c73655f626f647903090304636173650b087661726961626c650304626f6479030a200904047479706504066c6f635f6964000776617269616e7403056361736573210903047479706504066c6f635f6964000676616c756573110902036b6579030576616c7565030a240903047479706504066c6f635f6964000676616c756573250905047479706504066c6f635f6964000676616c7565731104726f77730004636f6c7300040907047479706504066c6f635f696400046e616d650b0f747970655f706172616d65746572730509617267756d656e747311056173796e6328086f7074696f6e616c280902046e616d650b0576616c7565030a2a0903047479706504066c6f635f696400066669656c64732b0907047479706504066c6f635f696400087472795f626f6479030a63617463685f626f647903076d6573736167650305737461636b030c66696e616c6c795f626f647903060503080704426c6f622e07426f6f6c65616e28084461746554696d652f05466c6f61743007496e746567657200044e756c6c0706537472696e670b0903047479706504066c6f635f6964000576616c7565310905047479706504066c6f635f696400046e616d650b076d757461626c6528086361707475726564280904047479706504066c6f635f69640004636173650b0576616c7565030905047479706504066c6f635f6964000970726564696361746503056c6162656c1404626f64790308220241730f0641737369676e100d4173796e6346756e6374696f6e1205426c6f636b1305427265616b15074275696c74696e160443616c6c170943616c6c4173796e631708436f6e74696e756515054572726f721808466f7241727261791907466f72446963741a06466f725365741b0846756e6374696f6e12084765744669656c641c064966456c73651f034c657410054d6174636822084e6577417272617923074e65774469637426094e65774d617472697827064e65775265660f064e657753657423094e6577566563746f722308506c6174666f726d290652657475726e0f065374727563742c0854727943617463682d0f556e777261705265637572736976650f0556616c756532085661726961626c65330756617269616e7434055768696c65350d577261705265637572736976650f8801090a496e74656765724164640f496e74656765724d756c7469706c79045f363633045f3636340f7372632f6c6f636174696f6e2e74730f7372632f657870722f6173742e7473117372632f657870722f626c6f636b2e747316746573742f706c6174666f726d732e737065632e747318746573742f626c6f622e6265617374322e737065632e7473d102071004c1010f049c0211059b016d06d5091106d3091a079d011806a3030d048f021b069b030a0798012c06a3030d048802100490020a069b030a079701200825070e04c1010f049c021106ed090f079d011806a3030d048f021b069b030a0798012c06a3030d048802100490020a069b030a079701200825070c04c1010f049c021106db0311048f021b069b030a0798012c06a3030d048802100490020a069b030a079701200825070c04c1010f049c021106e7030f048f021b069b030a0798012c06a3030d048802100490020a069b030a079701200825070c04c1010f049c0211059b016d06d5091106d3091a0798011406a3030d048802100490020a069b030a079701200825070a04c1010f049c021106ed090f0798011406a3030d048802100490020a069b030a079701200825070804c1010f049c021106e7030f048802100490020a069b030a07970120082507680a1f0a01020d0701080a0203050806000405000d07010814060705081001080900040a040108030a0300090a03011e0802020000030a04000e0a03021e08020200001d08040402030a0300090a03011e080c030000030a04000e0a03021e080c0300001d080e040400"));
     const decoded = $.let(blob.decodeBeast(ArrFnType, 'v2'));
     $(assert.equal(decoded.get(0n)(5n), 6n));
     $(assert.equal(decoded.get(1n)(5n), 10n));
@@ -1221,143 +392,7 @@ await describe("Blob (Beast v2)", (test) => {
     const fn = $.let(East.function([], IntegerType, (_$) => a.add(b).add(c)));
     const blob = $.let(East.Blob.encodeBeast(fn, 'v2'));
 
-    $(assert.equal(blob, East.value(new Uint8Array([
-            137, 69, 97, 115, 116, 13, 10, 4, 180, 12, 1, 54, 2, 16, 0, 0,
-            18, 53, 18, 13, 10, 3, 9, 2, 6, 105, 110, 112, 117, 116, 115, 4,
-            6, 111, 117, 116, 112, 117, 116, 3, 0, 9, 2, 3, 107, 101, 121, 3,
-            5, 118, 97, 108, 117, 101, 3, 9, 2, 2, 105, 100, 0, 5, 105, 110,
-            110, 101, 114, 3, 8, 2, 3, 114, 101, 102, 0, 7, 119, 114, 97, 112,
-            112, 101, 114, 8, 1, 9, 2, 4, 110, 97, 109, 101, 10, 4, 116, 121,
-            112, 101, 3, 10, 11, 8, 19, 5, 65, 114, 114, 97, 121, 3, 13, 65,
-            115, 121, 110, 99, 70, 117, 110, 99, 116, 105, 111, 110, 5, 4, 66, 108,
-            111, 98, 6, 7, 66, 111, 111, 108, 101, 97, 110, 6, 8, 68, 97, 116,
-            101, 84, 105, 109, 101, 6, 4, 68, 105, 99, 116, 7, 5, 70, 108, 111,
-            97, 116, 6, 8, 70, 117, 110, 99, 116, 105, 111, 110, 5, 7, 73, 110,
-            116, 101, 103, 101, 114, 6, 6, 77, 97, 116, 114, 105, 120, 3, 5, 78,
-            101, 118, 101, 114, 6, 4, 78, 117, 108, 108, 6, 9, 82, 101, 99, 117,
-            114, 115, 105, 118, 101, 9, 3, 82, 101, 102, 3, 3, 83, 101, 116, 3,
-            6, 83, 116, 114, 105, 110, 103, 6, 6, 83, 116, 114, 117, 99, 116, 12,
-            7, 86, 97, 114, 105, 97, 110, 116, 12, 6, 86, 101, 99, 116, 111, 114,
-            3, 9, 3, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99, 95, 105, 100,
-            0, 5, 118, 97, 108, 117, 101, 2, 9, 4, 4, 116, 121, 112, 101, 3,
-            6, 108, 111, 99, 95, 105, 100, 0, 8, 118, 97, 114, 105, 97, 98, 108,
-            101, 2, 5, 118, 97, 108, 117, 101, 2, 10, 2, 9, 5, 4, 116, 121,
-            112, 101, 3, 6, 108, 111, 99, 95, 105, 100, 0, 8, 99, 97, 112, 116,
-            117, 114, 101, 115, 16, 10, 112, 97, 114, 97, 109, 101, 116, 101, 114, 115,
-            16, 4, 98, 111, 100, 121, 2, 9, 3, 4, 116, 121, 112, 101, 3, 6,
-            108, 111, 99, 95, 105, 100, 0, 10, 115, 116, 97, 116, 101, 109, 101, 110,
-            116, 115, 16, 9, 2, 4, 110, 97, 109, 101, 10, 6, 108, 111, 99, 95,
-            105, 100, 0, 9, 3, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99, 95,
-            105, 100, 0, 5, 108, 97, 98, 101, 108, 19, 9, 5, 4, 116, 121, 112,
-            101, 3, 6, 108, 111, 99, 95, 105, 100, 0, 7, 98, 117, 105, 108, 116,
-            105, 110, 10, 15, 116, 121, 112, 101, 95, 112, 97, 114, 97, 109, 101, 116,
-            101, 114, 115, 4, 9, 97, 114, 103, 117, 109, 101, 110, 116, 115, 16, 9,
-            4, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99, 95, 105, 100, 0, 8,
-            102, 117, 110, 99, 116, 105, 111, 110, 2, 9, 97, 114, 103, 117, 109, 101,
-            110, 116, 115, 16, 9, 3, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99,
-            95, 105, 100, 0, 7, 109, 101, 115, 115, 97, 103, 101, 2, 9, 7, 4,
-            116, 121, 112, 101, 3, 6, 108, 111, 99, 95, 105, 100, 0, 5, 97, 114,
-            114, 97, 121, 2, 5, 108, 97, 98, 101, 108, 19, 3, 107, 101, 121, 2,
-            5, 118, 97, 108, 117, 101, 2, 4, 98, 111, 100, 121, 2, 9, 7, 4,
-            116, 121, 112, 101, 3, 6, 108, 111, 99, 95, 105, 100, 0, 4, 100, 105,
-            99, 116, 2, 5, 108, 97, 98, 101, 108, 19, 3, 107, 101, 121, 2, 5,
-            118, 97, 108, 117, 101, 2, 4, 98, 111, 100, 121, 2, 9, 6, 4, 116,
-            121, 112, 101, 3, 6, 108, 111, 99, 95, 105, 100, 0, 3, 115, 101, 116,
-            2, 5, 108, 97, 98, 101, 108, 19, 3, 107, 101, 121, 2, 4, 98, 111,
-            100, 121, 2, 9, 4, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99, 95,
-            105, 100, 0, 5, 102, 105, 101, 108, 100, 10, 6, 115, 116, 114, 117, 99,
-            116, 2, 9, 2, 9, 112, 114, 101, 100, 105, 99, 97, 116, 101, 2, 4,
-            98, 111, 100, 121, 2, 10, 28, 9, 4, 4, 116, 121, 112, 101, 3, 6,
-            108, 111, 99, 95, 105, 100, 0, 3, 105, 102, 115, 29, 9, 101, 108, 115,
-            101, 95, 98, 111, 100, 121, 2, 9, 3, 4, 99, 97, 115, 101, 10, 8,
-            118, 97, 114, 105, 97, 98, 108, 101, 2, 4, 98, 111, 100, 121, 2, 10,
-            31, 9, 4, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99, 95, 105, 100,
-            0, 7, 118, 97, 114, 105, 97, 110, 116, 2, 5, 99, 97, 115, 101, 115,
-            32, 9, 3, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99, 95, 105, 100,
-            0, 6, 118, 97, 108, 117, 101, 115, 16, 9, 2, 3, 107, 101, 121, 2,
-            5, 118, 97, 108, 117, 101, 2, 10, 35, 9, 3, 4, 116, 121, 112, 101,
-            3, 6, 108, 111, 99, 95, 105, 100, 0, 6, 118, 97, 108, 117, 101, 115,
-            36, 9, 5, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99, 95, 105, 100,
-            0, 6, 118, 97, 108, 117, 101, 115, 16, 4, 114, 111, 119, 115, 0, 4,
-            99, 111, 108, 115, 0, 4, 9, 7, 4, 116, 121, 112, 101, 3, 6, 108,
-            111, 99, 95, 105, 100, 0, 4, 110, 97, 109, 101, 10, 15, 116, 121, 112,
-            101, 95, 112, 97, 114, 97, 109, 101, 116, 101, 114, 115, 4, 9, 97, 114,
-            103, 117, 109, 101, 110, 116, 115, 16, 5, 97, 115, 121, 110, 99, 39, 8,
-            111, 112, 116, 105, 111, 110, 97, 108, 39, 9, 2, 4, 110, 97, 109, 101,
-            10, 5, 118, 97, 108, 117, 101, 2, 10, 41, 9, 3, 4, 116, 121, 112,
-            101, 3, 6, 108, 111, 99, 95, 105, 100, 0, 6, 102, 105, 101, 108, 100,
-            115, 42, 9, 7, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99, 95, 105,
-            100, 0, 8, 116, 114, 121, 95, 98, 111, 100, 121, 2, 10, 99, 97, 116,
-            99, 104, 95, 98, 111, 100, 121, 2, 7, 109, 101, 115, 115, 97, 103, 101,
-            2, 5, 115, 116, 97, 99, 107, 2, 12, 102, 105, 110, 97, 108, 108, 121,
-            95, 98, 111, 100, 121, 2, 6, 5, 3, 8, 7, 4, 66, 108, 111, 98,
-            45, 7, 66, 111, 111, 108, 101, 97, 110, 39, 8, 68, 97, 116, 101, 84,
-            105, 109, 101, 46, 5, 70, 108, 111, 97, 116, 47, 7, 73, 110, 116, 101,
-            103, 101, 114, 0, 4, 78, 117, 108, 108, 6, 6, 83, 116, 114, 105, 110,
-            103, 10, 9, 3, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99, 95, 105,
-            100, 0, 5, 118, 97, 108, 117, 101, 48, 9, 5, 4, 116, 121, 112, 101,
-            3, 6, 108, 111, 99, 95, 105, 100, 0, 4, 110, 97, 109, 101, 10, 7,
-            109, 117, 116, 97, 98, 108, 101, 39, 8, 99, 97, 112, 116, 117, 114, 101,
-            100, 39, 9, 4, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99, 95, 105,
-            100, 0, 4, 99, 97, 115, 101, 10, 5, 118, 97, 108, 117, 101, 2, 9,
-            5, 4, 116, 121, 112, 101, 3, 6, 108, 111, 99, 95, 105, 100, 0, 9,
-            112, 114, 101, 100, 105, 99, 97, 116, 101, 2, 5, 108, 97, 98, 101, 108,
-            19, 4, 98, 111, 100, 121, 2, 8, 34, 2, 65, 115, 14, 6, 65, 115,
-            115, 105, 103, 110, 15, 13, 65, 115, 121, 110, 99, 70, 117, 110, 99, 116,
-            105, 111, 110, 17, 5, 66, 108, 111, 99, 107, 18, 5, 66, 114, 101, 97,
-            107, 20, 7, 66, 117, 105, 108, 116, 105, 110, 21, 4, 67, 97, 108, 108,
-            22, 9, 67, 97, 108, 108, 65, 115, 121, 110, 99, 22, 8, 67, 111, 110,
-            116, 105, 110, 117, 101, 20, 5, 69, 114, 114, 111, 114, 23, 8, 70, 111,
-            114, 65, 114, 114, 97, 121, 24, 7, 70, 111, 114, 68, 105, 99, 116, 25,
-            6, 70, 111, 114, 83, 101, 116, 26, 8, 70, 117, 110, 99, 116, 105, 111,
-            110, 17, 8, 71, 101, 116, 70, 105, 101, 108, 100, 27, 6, 73, 102, 69,
-            108, 115, 101, 30, 3, 76, 101, 116, 15, 5, 77, 97, 116, 99, 104, 33,
-            8, 78, 101, 119, 65, 114, 114, 97, 121, 34, 7, 78, 101, 119, 68, 105,
-            99, 116, 37, 9, 78, 101, 119, 77, 97, 116, 114, 105, 120, 38, 6, 78,
-            101, 119, 82, 101, 102, 14, 6, 78, 101, 119, 83, 101, 116, 34, 9, 78,
-            101, 119, 86, 101, 99, 116, 111, 114, 34, 8, 80, 108, 97, 116, 102, 111,
-            114, 109, 40, 6, 82, 101, 116, 117, 114, 110, 14, 6, 83, 116, 114, 117,
-            99, 116, 43, 8, 84, 114, 121, 67, 97, 116, 99, 104, 44, 15, 85, 110,
-            119, 114, 97, 112, 82, 101, 99, 117, 114, 115, 105, 118, 101, 14, 5, 86,
-            97, 108, 117, 101, 49, 8, 86, 97, 114, 105, 97, 98, 108, 101, 50, 7,
-            86, 97, 114, 105, 97, 110, 116, 51, 5, 87, 104, 105, 108, 101, 52, 13,
-            87, 114, 97, 112, 82, 101, 99, 117, 114, 115, 105, 118, 101, 14, 125, 9,
-            4, 95, 54, 56, 54, 4, 95, 54, 56, 55, 4, 95, 54, 56, 56, 10,
-            73, 110, 116, 101, 103, 101, 114, 65, 100, 100, 15, 115, 114, 99, 47, 108,
-            111, 99, 97, 116, 105, 111, 110, 46, 116, 115, 15, 115, 114, 99, 47, 101,
-            120, 112, 114, 47, 97, 115, 116, 46, 116, 115, 17, 115, 114, 99, 47, 101,
-            120, 112, 114, 47, 98, 108, 111, 99, 107, 46, 116, 115, 22, 116, 101, 115,
-            116, 47, 112, 108, 97, 116, 102, 111, 114, 109, 115, 46, 115, 112, 101, 99,
-            46, 116, 115, 24, 116, 101, 115, 116, 47, 98, 108, 111, 98, 46, 98, 101,
-            97, 115, 116, 50, 46, 115, 112, 101, 99, 46, 116, 115, 209, 2, 7, 16,
-            4, 193, 1, 15, 4, 156, 2, 17, 5, 155, 1, 109, 6, 212, 9, 17,
-            6, 210, 9, 26, 7, 157, 1, 24, 6, 162, 3, 13, 4, 143, 2, 27,
-            6, 154, 3, 10, 7, 152, 1, 44, 6, 162, 3, 13, 4, 136, 2, 16,
-            4, 144, 2, 10, 6, 154, 3, 10, 7, 151, 1, 32, 8, 37, 7, 14,
-            4, 193, 1, 15, 4, 156, 2, 17, 6, 236, 9, 15, 7, 157, 1, 24,
-            6, 162, 3, 13, 4, 143, 2, 27, 6, 154, 3, 10, 7, 152, 1, 44,
-            6, 162, 3, 13, 4, 136, 2, 16, 4, 144, 2, 10, 6, 154, 3, 10,
-            7, 151, 1, 32, 8, 37, 7, 12, 4, 193, 1, 15, 4, 156, 2, 17,
-            6, 218, 3, 17, 4, 143, 2, 27, 6, 154, 3, 10, 7, 152, 1, 44,
-            6, 162, 3, 13, 4, 136, 2, 16, 4, 144, 2, 10, 6, 154, 3, 10,
-            7, 151, 1, 32, 8, 37, 7, 12, 4, 193, 1, 15, 4, 156, 2, 17,
-            6, 230, 3, 15, 4, 143, 2, 27, 6, 154, 3, 10, 7, 152, 1, 44,
-            6, 162, 3, 13, 4, 136, 2, 16, 4, 144, 2, 10, 6, 154, 3, 10,
-            7, 151, 1, 32, 8, 37, 7, 12, 4, 193, 1, 15, 4, 156, 2, 17,
-            5, 155, 1, 109, 6, 212, 9, 17, 6, 210, 9, 26, 7, 152, 1, 20,
-            6, 162, 3, 13, 4, 136, 2, 16, 4, 144, 2, 10, 6, 154, 3, 10,
-            7, 151, 1, 32, 8, 37, 7, 10, 4, 193, 1, 15, 4, 156, 2, 17,
-            6, 236, 9, 15, 7, 152, 1, 20, 6, 162, 3, 13, 4, 136, 2, 16,
-            4, 144, 2, 10, 6, 154, 3, 10, 7, 151, 1, 32, 8, 37, 7, 8,
-            4, 193, 1, 15, 4, 156, 2, 17, 6, 230, 3, 15, 4, 136, 2, 16,
-            4, 144, 2, 10, 6, 154, 3, 10, 7, 151, 1, 32, 8, 37, 7, 71,
-            7, 3, 10, 3, 0, 21, 10, 2, 3, 30, 8, 4, 0, 0, 1, 30,
-            8, 10, 1, 0, 1, 30, 8, 16, 2, 0, 1, 3, 10, 2, 0, 3,
-            10, 3, 0, 15, 10, 2, 2, 5, 8, 20, 3, 5, 6, 30, 8, 16,
-            2, 0, 1, 3, 10, 3, 0, 15, 10, 2, 2, 30, 8, 4, 0, 0,
-            1, 30, 8, 10, 1, 0, 1, 13, 7, 0, 8, 26, 1, 2, 5, 8,
-            22, 3, 3, 4, 3, 20, 40, 24
-          ]), BlobType)));
+    $(assert.equal(East.str`${blob}`, "0x89456173740d0a04b40c0136021000001235120d0a03090206696e7075747304066f757470757403000902036b6579030576616c75650309020269640005696e6e65720308020372656600077772617070657208010902046e616d650a0474797065030a0b0813054172726179030d4173796e6346756e6374696f6e0504426c6f620607426f6f6c65616e06084461746554696d650604446963740705466c6f6174060846756e6374696f6e0507496e746567657206064d617472697803054e6576657206044e756c6c0609526563757273697665090352656603035365740306537472696e6706065374727563740c0756617269616e740c06566563746f72030903047479706503066c6f635f6964000576616c7565020904047479706503066c6f635f696400087661726961626c65020576616c7565020a020905047479706503066c6f635f696400086361707475726573100a706172616d65746572731004626f6479020903047479706503066c6f635f6964000a73746174656d656e7473100902046e616d650a066c6f635f6964000903047479706503066c6f635f696400056c6162656c130905047479706503066c6f635f696400076275696c74696e0a0f747970655f706172616d65746572730409617267756d656e7473100904047479706503066c6f635f6964000866756e6374696f6e0209617267756d656e7473100903047479706503066c6f635f696400076d657373616765020907047479706503066c6f635f69640005617272617902056c6162656c13036b6579020576616c75650204626f6479020907047479706503066c6f635f696400046469637402056c6162656c13036b6579020576616c75650204626f6479020906047479706503066c6f635f6964000373657402056c6162656c13036b65790204626f6479020904047479706503066c6f635f696400056669656c640a06737472756374020902097072656469636174650204626f6479020a1c0904047479706503066c6f635f696400036966731d09656c73655f626f647902090304636173650a087661726961626c650204626f6479020a1f0904047479706503066c6f635f6964000776617269616e7402056361736573200903047479706503066c6f635f6964000676616c756573100902036b6579020576616c7565020a230903047479706503066c6f635f6964000676616c756573240905047479706503066c6f635f6964000676616c7565731004726f77730004636f6c7300040907047479706503066c6f635f696400046e616d650a0f747970655f706172616d65746572730409617267756d656e747310056173796e6327086f7074696f6e616c270902046e616d650a0576616c7565020a290903047479706503066c6f635f696400066669656c64732a0907047479706503066c6f635f696400087472795f626f6479020a63617463685f626f647902076d6573736167650205737461636b020c66696e616c6c795f626f647902060503080704426c6f622d07426f6f6c65616e27084461746554696d652e05466c6f61742f07496e746567657200044e756c6c0606537472696e670a0903047479706503066c6f635f6964000576616c7565300905047479706503066c6f635f696400046e616d650a076d757461626c6527086361707475726564270904047479706503066c6f635f69640004636173650a0576616c7565020905047479706503066c6f635f6964000970726564696361746502056c6162656c1304626f64790208220241730e0641737369676e0f0d4173796e6346756e6374696f6e1105426c6f636b1205427265616b14074275696c74696e150443616c6c160943616c6c4173796e631608436f6e74696e756514054572726f721708466f7241727261791807466f72446963741906466f725365741a0846756e6374696f6e11084765744669656c641b064966456c73651e034c65740f054d6174636821084e6577417272617922074e65774469637425094e65774d617472697826064e65775265660e064e657753657422094e6577566563746f722208506c6174666f726d280652657475726e0e065374727563742b0854727943617463682c0f556e777261705265637572736976650e0556616c756531085661726961626c65320756617269616e7433055768696c65340d577261705265637572736976650e7d09045f363836045f363837045f3638380a496e74656765724164640f7372632f6c6f636174696f6e2e74730f7372632f657870722f6173742e7473117372632f657870722f626c6f636b2e747316746573742f706c6174666f726d732e737065632e747318746573742f626c6f622e6265617374322e737065632e7473d102071004c1010f049c0211059b016d06d5091106d3091a079d011806a3030d048f021b069b030a0798012c06a3030d048802100490020a069b030a079701200825070e04c1010f049c021106ed090f079d011806a3030d048f021b069b030a0798012c06a3030d048802100490020a069b030a079701200825070c04c1010f049c021106db0311048f021b069b030a0798012c06a3030d048802100490020a069b030a079701200825070c04c1010f049c021106e7030f048f021b069b030a0798012c06a3030d048802100490020a069b030a079701200825070c04c1010f049c0211059b016d06d5091106d3091a0798011406a3030d048802100490020a069b030a079701200825070a04c1010f049c021106ed090f0798011406a3030d048802100490020a069b030a079701200825070804c1010f049c021106e7030f048802100490020a069b030a079701200825074707030a0300150a02031e08040000011e080a0100011e0810020001030a0200030a03000f0a02020508140305061e0810020001030a03000f0a02021e08040000011e080a0100010d0700081a010205081603030403142818"));
     const decoded = $.let(blob.decodeBeast(FnType, 'v2'));
     $(assert.equal(decoded(), 42n));
   });
@@ -1381,148 +416,7 @@ await describe("Blob (Beast v2)", (test) => {
 
     const blob = $.let(East.Blob.encodeBeast(buttonVal, 'v2'));
 
-    $(assert.equal(blob, East.value(new Uint8Array([
-            137, 69, 97, 115, 116, 13, 10, 4, 227, 12, 0, 58, 18, 5, 1, 16,
-            0, 0, 9, 2, 5, 108, 97, 98, 101, 108, 1, 7, 111, 110, 67, 108,
-            105, 99, 107, 2, 9, 1, 7, 99, 111, 110, 116, 101, 110, 116, 1, 8,
-            2, 6, 98, 117, 116, 116, 111, 110, 3, 4, 116, 101, 120, 116, 4, 18,
-            57, 18, 17, 10, 7, 9, 2, 6, 105, 110, 112, 117, 116, 115, 8, 6,
-            111, 117, 116, 112, 117, 116, 7, 0, 9, 2, 3, 107, 101, 121, 7, 5,
-            118, 97, 108, 117, 101, 7, 2, 9, 2, 2, 105, 100, 12, 5, 105, 110,
-            110, 101, 114, 7, 8, 2, 3, 114, 101, 102, 12, 7, 119, 114, 97, 112,
-            112, 101, 114, 13, 9, 2, 4, 110, 97, 109, 101, 1, 4, 116, 121, 112,
-            101, 7, 10, 15, 8, 19, 5, 65, 114, 114, 97, 121, 7, 13, 65, 115,
-            121, 110, 99, 70, 117, 110, 99, 116, 105, 111, 110, 9, 4, 66, 108, 111,
-            98, 10, 7, 66, 111, 111, 108, 101, 97, 110, 10, 8, 68, 97, 116, 101,
-            84, 105, 109, 101, 10, 4, 68, 105, 99, 116, 11, 5, 70, 108, 111, 97,
-            116, 10, 8, 70, 117, 110, 99, 116, 105, 111, 110, 9, 7, 73, 110, 116,
-            101, 103, 101, 114, 10, 6, 77, 97, 116, 114, 105, 120, 7, 5, 78, 101,
-            118, 101, 114, 10, 4, 78, 117, 108, 108, 10, 9, 82, 101, 99, 117, 114,
-            115, 105, 118, 101, 14, 3, 82, 101, 102, 7, 3, 83, 101, 116, 7, 6,
-            83, 116, 114, 105, 110, 103, 10, 6, 83, 116, 114, 117, 99, 116, 16, 7,
-            86, 97, 114, 105, 97, 110, 116, 16, 6, 86, 101, 99, 116, 111, 114, 7,
-            9, 3, 4, 116, 121, 112, 101, 7, 6, 108, 111, 99, 95, 105, 100, 12,
-            5, 118, 97, 108, 117, 101, 6, 9, 4, 4, 116, 121, 112, 101, 7, 6,
-            108, 111, 99, 95, 105, 100, 12, 8, 118, 97, 114, 105, 97, 98, 108, 101,
-            6, 5, 118, 97, 108, 117, 101, 6, 10, 6, 9, 5, 4, 116, 121, 112,
-            101, 7, 6, 108, 111, 99, 95, 105, 100, 12, 8, 99, 97, 112, 116, 117,
-            114, 101, 115, 20, 10, 112, 97, 114, 97, 109, 101, 116, 101, 114, 115, 20,
-            4, 98, 111, 100, 121, 6, 9, 3, 4, 116, 121, 112, 101, 7, 6, 108,
-            111, 99, 95, 105, 100, 12, 10, 115, 116, 97, 116, 101, 109, 101, 110, 116,
-            115, 20, 9, 2, 4, 110, 97, 109, 101, 1, 6, 108, 111, 99, 95, 105,
-            100, 12, 9, 3, 4, 116, 121, 112, 101, 7, 6, 108, 111, 99, 95, 105,
-            100, 12, 5, 108, 97, 98, 101, 108, 23, 9, 5, 4, 116, 121, 112, 101,
-            7, 6, 108, 111, 99, 95, 105, 100, 12, 7, 98, 117, 105, 108, 116, 105,
-            110, 1, 15, 116, 121, 112, 101, 95, 112, 97, 114, 97, 109, 101, 116, 101,
-            114, 115, 8, 9, 97, 114, 103, 117, 109, 101, 110, 116, 115, 20, 9, 4,
-            4, 116, 121, 112, 101, 7, 6, 108, 111, 99, 95, 105, 100, 12, 8, 102,
-            117, 110, 99, 116, 105, 111, 110, 6, 9, 97, 114, 103, 117, 109, 101, 110,
-            116, 115, 20, 9, 3, 4, 116, 121, 112, 101, 7, 6, 108, 111, 99, 95,
-            105, 100, 12, 7, 109, 101, 115, 115, 97, 103, 101, 6, 9, 7, 4, 116,
-            121, 112, 101, 7, 6, 108, 111, 99, 95, 105, 100, 12, 5, 97, 114, 114,
-            97, 121, 6, 5, 108, 97, 98, 101, 108, 23, 3, 107, 101, 121, 6, 5,
-            118, 97, 108, 117, 101, 6, 4, 98, 111, 100, 121, 6, 9, 7, 4, 116,
-            121, 112, 101, 7, 6, 108, 111, 99, 95, 105, 100, 12, 4, 100, 105, 99,
-            116, 6, 5, 108, 97, 98, 101, 108, 23, 3, 107, 101, 121, 6, 5, 118,
-            97, 108, 117, 101, 6, 4, 98, 111, 100, 121, 6, 9, 6, 4, 116, 121,
-            112, 101, 7, 6, 108, 111, 99, 95, 105, 100, 12, 3, 115, 101, 116, 6,
-            5, 108, 97, 98, 101, 108, 23, 3, 107, 101, 121, 6, 4, 98, 111, 100,
-            121, 6, 9, 4, 4, 116, 121, 112, 101, 7, 6, 108, 111, 99, 95, 105,
-            100, 12, 5, 102, 105, 101, 108, 100, 1, 6, 115, 116, 114, 117, 99, 116,
-            6, 9, 2, 9, 112, 114, 101, 100, 105, 99, 97, 116, 101, 6, 4, 98,
-            111, 100, 121, 6, 10, 32, 9, 4, 4, 116, 121, 112, 101, 7, 6, 108,
-            111, 99, 95, 105, 100, 12, 3, 105, 102, 115, 33, 9, 101, 108, 115, 101,
-            95, 98, 111, 100, 121, 6, 9, 3, 4, 99, 97, 115, 101, 1, 8, 118,
-            97, 114, 105, 97, 98, 108, 101, 6, 4, 98, 111, 100, 121, 6, 10, 35,
-            9, 4, 4, 116, 121, 112, 101, 7, 6, 108, 111, 99, 95, 105, 100, 12,
-            7, 118, 97, 114, 105, 97, 110, 116, 6, 5, 99, 97, 115, 101, 115, 36,
-            9, 3, 4, 116, 121, 112, 101, 7, 6, 108, 111, 99, 95, 105, 100, 12,
-            6, 118, 97, 108, 117, 101, 115, 20, 9, 2, 3, 107, 101, 121, 6, 5,
-            118, 97, 108, 117, 101, 6, 10, 39, 9, 3, 4, 116, 121, 112, 101, 7,
-            6, 108, 111, 99, 95, 105, 100, 12, 6, 118, 97, 108, 117, 101, 115, 40,
-            9, 5, 4, 116, 121, 112, 101, 7, 6, 108, 111, 99, 95, 105, 100, 12,
-            6, 118, 97, 108, 117, 101, 115, 20, 4, 114, 111, 119, 115, 12, 4, 99,
-            111, 108, 115, 12, 4, 9, 7, 4, 116, 121, 112, 101, 7, 6, 108, 111,
-            99, 95, 105, 100, 12, 4, 110, 97, 109, 101, 1, 15, 116, 121, 112, 101,
-            95, 112, 97, 114, 97, 109, 101, 116, 101, 114, 115, 8, 9, 97, 114, 103,
-            117, 109, 101, 110, 116, 115, 20, 5, 97, 115, 121, 110, 99, 43, 8, 111,
-            112, 116, 105, 111, 110, 97, 108, 43, 9, 2, 4, 110, 97, 109, 101, 1,
-            5, 118, 97, 108, 117, 101, 6, 10, 45, 9, 3, 4, 116, 121, 112, 101,
-            7, 6, 108, 111, 99, 95, 105, 100, 12, 6, 102, 105, 101, 108, 100, 115,
-            46, 9, 7, 4, 116, 121, 112, 101, 7, 6, 108, 111, 99, 95, 105, 100,
-            12, 8, 116, 114, 121, 95, 98, 111, 100, 121, 6, 10, 99, 97, 116, 99,
-            104, 95, 98, 111, 100, 121, 6, 7, 109, 101, 115, 115, 97, 103, 101, 6,
-            5, 115, 116, 97, 99, 107, 6, 12, 102, 105, 110, 97, 108, 108, 121, 95,
-            98, 111, 100, 121, 6, 6, 5, 3, 8, 7, 4, 66, 108, 111, 98, 49,
-            7, 66, 111, 111, 108, 101, 97, 110, 43, 8, 68, 97, 116, 101, 84, 105,
-            109, 101, 50, 5, 70, 108, 111, 97, 116, 51, 7, 73, 110, 116, 101, 103,
-            101, 114, 12, 4, 78, 117, 108, 108, 10, 6, 83, 116, 114, 105, 110, 103,
-            1, 9, 3, 4, 116, 121, 112, 101, 7, 6, 108, 111, 99, 95, 105, 100,
-            12, 5, 118, 97, 108, 117, 101, 52, 9, 5, 4, 116, 121, 112, 101, 7,
-            6, 108, 111, 99, 95, 105, 100, 12, 4, 110, 97, 109, 101, 1, 7, 109,
-            117, 116, 97, 98, 108, 101, 43, 8, 99, 97, 112, 116, 117, 114, 101, 100,
-            43, 9, 4, 4, 116, 121, 112, 101, 7, 6, 108, 111, 99, 95, 105, 100,
-            12, 4, 99, 97, 115, 101, 1, 5, 118, 97, 108, 117, 101, 6, 9, 5,
-            4, 116, 121, 112, 101, 7, 6, 108, 111, 99, 95, 105, 100, 12, 9, 112,
-            114, 101, 100, 105, 99, 97, 116, 101, 6, 5, 108, 97, 98, 101, 108, 23,
-            4, 98, 111, 100, 121, 6, 8, 34, 2, 65, 115, 18, 6, 65, 115, 115,
-            105, 103, 110, 19, 13, 65, 115, 121, 110, 99, 70, 117, 110, 99, 116, 105,
-            111, 110, 21, 5, 66, 108, 111, 99, 107, 22, 5, 66, 114, 101, 97, 107,
-            24, 7, 66, 117, 105, 108, 116, 105, 110, 25, 4, 67, 97, 108, 108, 26,
-            9, 67, 97, 108, 108, 65, 115, 121, 110, 99, 26, 8, 67, 111, 110, 116,
-            105, 110, 117, 101, 24, 5, 69, 114, 114, 111, 114, 27, 8, 70, 111, 114,
-            65, 114, 114, 97, 121, 28, 7, 70, 111, 114, 68, 105, 99, 116, 29, 6,
-            70, 111, 114, 83, 101, 116, 30, 8, 70, 117, 110, 99, 116, 105, 111, 110,
-            21, 8, 71, 101, 116, 70, 105, 101, 108, 100, 31, 6, 73, 102, 69, 108,
-            115, 101, 34, 3, 76, 101, 116, 19, 5, 77, 97, 116, 99, 104, 37, 8,
-            78, 101, 119, 65, 114, 114, 97, 121, 38, 7, 78, 101, 119, 68, 105, 99,
-            116, 41, 9, 78, 101, 119, 77, 97, 116, 114, 105, 120, 42, 6, 78, 101,
-            119, 82, 101, 102, 18, 6, 78, 101, 119, 83, 101, 116, 38, 9, 78, 101,
-            119, 86, 101, 99, 116, 111, 114, 38, 8, 80, 108, 97, 116, 102, 111, 114,
-            109, 44, 6, 82, 101, 116, 117, 114, 110, 18, 6, 83, 116, 114, 117, 99,
-            116, 47, 8, 84, 114, 121, 67, 97, 116, 99, 104, 48, 15, 85, 110, 119,
-            114, 97, 112, 82, 101, 99, 117, 114, 115, 105, 118, 101, 18, 5, 86, 97,
-            108, 117, 101, 53, 8, 86, 97, 114, 105, 97, 98, 108, 101, 54, 7, 86,
-            97, 114, 105, 97, 110, 116, 55, 5, 87, 104, 105, 108, 101, 56, 13, 87,
-            114, 97, 112, 82, 101, 99, 117, 114, 115, 105, 118, 101, 18, 156, 1, 13,
-            6, 98, 117, 116, 116, 111, 110, 4, 116, 101, 120, 116, 5, 108, 97, 98,
-            101, 108, 7, 111, 110, 67, 108, 105, 99, 107, 7, 99, 111, 110, 116, 101,
-            110, 116, 4, 95, 55, 48, 52, 8, 67, 108, 105, 99, 107, 32, 109, 101,
-            8, 99, 108, 105, 99, 107, 101, 100, 33, 15, 115, 114, 99, 47, 108, 111,
-            99, 97, 116, 105, 111, 110, 46, 116, 115, 15, 115, 114, 99, 47, 101, 120,
-            112, 114, 47, 97, 115, 116, 46, 116, 115, 17, 115, 114, 99, 47, 101, 120,
-            112, 114, 47, 98, 108, 111, 99, 107, 46, 116, 115, 22, 116, 101, 115, 116,
-            47, 112, 108, 97, 116, 102, 111, 114, 109, 115, 46, 115, 112, 101, 99, 46,
-            116, 115, 24, 116, 101, 115, 116, 47, 98, 108, 111, 98, 46, 98, 101, 97,
-            115, 116, 50, 46, 115, 112, 101, 99, 46, 116, 115, 209, 2, 7, 16, 8,
-            193, 1, 15, 8, 156, 2, 17, 9, 155, 1, 109, 10, 212, 9, 17, 10,
-            210, 9, 26, 11, 157, 1, 24, 10, 162, 3, 13, 8, 143, 2, 27, 10,
-            154, 3, 10, 11, 152, 1, 44, 10, 162, 3, 13, 8, 136, 2, 16, 8,
-            144, 2, 10, 10, 154, 3, 10, 11, 151, 1, 32, 12, 37, 7, 14, 8,
-            193, 1, 15, 8, 156, 2, 17, 10, 236, 9, 15, 11, 157, 1, 24, 10,
-            162, 3, 13, 8, 143, 2, 27, 10, 154, 3, 10, 11, 152, 1, 44, 10,
-            162, 3, 13, 8, 136, 2, 16, 8, 144, 2, 10, 10, 154, 3, 10, 11,
-            151, 1, 32, 12, 37, 7, 12, 8, 193, 1, 15, 8, 156, 2, 17, 10,
-            218, 3, 17, 8, 143, 2, 27, 10, 154, 3, 10, 11, 152, 1, 44, 10,
-            162, 3, 13, 8, 136, 2, 16, 8, 144, 2, 10, 10, 154, 3, 10, 11,
-            151, 1, 32, 12, 37, 7, 12, 8, 193, 1, 15, 8, 156, 2, 17, 10,
-            230, 3, 15, 8, 143, 2, 27, 10, 154, 3, 10, 11, 152, 1, 44, 10,
-            162, 3, 13, 8, 136, 2, 16, 8, 144, 2, 10, 10, 154, 3, 10, 11,
-            151, 1, 32, 12, 37, 7, 12, 8, 193, 1, 15, 8, 156, 2, 17, 9,
-            155, 1, 109, 10, 212, 9, 17, 10, 210, 9, 26, 11, 152, 1, 20, 10,
-            162, 3, 13, 8, 136, 2, 16, 8, 144, 2, 10, 10, 154, 3, 10, 11,
-            151, 1, 32, 12, 37, 7, 10, 8, 193, 1, 15, 8, 156, 2, 17, 10,
-            236, 9, 15, 11, 152, 1, 20, 10, 162, 3, 13, 8, 136, 2, 16, 8,
-            144, 2, 10, 10, 154, 3, 10, 11, 151, 1, 32, 12, 37, 7, 8, 8,
-            193, 1, 15, 8, 156, 2, 17, 10, 230, 3, 15, 8, 136, 2, 16, 8,
-            144, 2, 10, 10, 154, 3, 10, 11, 151, 1, 32, 12, 37, 7, 57, 7,
-            3, 10, 7, 0, 9, 10, 15, 2, 0, 16, 2, 1, 16, 4, 12, 10,
-            15, 2, 2, 15, 3, 7, 3, 12, 0, 222, 2, 3, 10, 7, 0, 5,
-            10, 15, 1, 4, 15, 14, 10, 6, 1, 30, 12, 1, 222, 2, 17, 1,
-            4, 5, 0, 1, 3, 10, 6, 0, 0, 6, 13, 7, 0, 12, 1, 222,
-            2, 17, 1, 10, 5, 6, 30, 12, 1, 222, 2, 17, 1, 4, 5, 0,
-            1, 1, 1, 7
-          ]), BlobType)));
+    $(assert.equal(East.str`${blob}`, "0x89456173740d0a04e30c003a1205011000000902056c6162656c01076f6e436c69636b02090107636f6e74656e7401080206627574746f6e03047465787404123912110a07090206696e7075747308066f757470757407000902036b6579070576616c7565070209020269640c05696e6e6572070802037265660c07777261707065720d0902046e616d65010474797065070a0f0813054172726179070d4173796e6346756e6374696f6e0904426c6f620a07426f6f6c65616e0a084461746554696d650a04446963740b05466c6f61740a0846756e6374696f6e0907496e74656765720a064d617472697807054e657665720a044e756c6c0a095265637572736976650e0352656607035365740706537472696e670a06537472756374100756617269616e741006566563746f72070903047479706507066c6f635f69640c0576616c7565060904047479706507066c6f635f69640c087661726961626c65060576616c7565060a060905047479706507066c6f635f69640c086361707475726573140a706172616d65746572731404626f6479060903047479706507066c6f635f69640c0a73746174656d656e7473140902046e616d6501066c6f635f69640c0903047479706507066c6f635f69640c056c6162656c170905047479706507066c6f635f69640c076275696c74696e010f747970655f706172616d65746572730809617267756d656e7473140904047479706507066c6f635f69640c0866756e6374696f6e0609617267756d656e7473140903047479706507066c6f635f69640c076d657373616765060907047479706507066c6f635f69640c05617272617906056c6162656c17036b6579060576616c75650604626f6479060907047479706507066c6f635f69640c046469637406056c6162656c17036b6579060576616c75650604626f6479060906047479706507066c6f635f69640c0373657406056c6162656c17036b65790604626f6479060904047479706507066c6f635f69640c056669656c640106737472756374060902097072656469636174650604626f6479060a200904047479706507066c6f635f69640c036966732109656c73655f626f6479060903046361736501087661726961626c650604626f6479060a230904047479706507066c6f635f69640c0776617269616e7406056361736573240903047479706507066c6f635f69640c0676616c756573140902036b6579060576616c7565060a270903047479706507066c6f635f69640c0676616c756573280905047479706507066c6f635f69640c0676616c7565731404726f77730c04636f6c730c040907047479706507066c6f635f69640c046e616d65010f747970655f706172616d65746572730809617267756d656e747314056173796e632b086f7074696f6e616c2b0902046e616d65010576616c7565060a2d0903047479706507066c6f635f69640c066669656c64732e0907047479706507066c6f635f69640c087472795f626f6479060a63617463685f626f647906076d6573736167650605737461636b060c66696e616c6c795f626f647906060503080704426c6f623107426f6f6c65616e2b084461746554696d653205466c6f61743307496e74656765720c044e756c6c0a06537472696e67010903047479706507066c6f635f69640c0576616c7565340905047479706507066c6f635f69640c046e616d6501076d757461626c652b0863617074757265642b0904047479706507066c6f635f69640c0463617365010576616c7565060905047479706507066c6f635f69640c0970726564696361746506056c6162656c1704626f6479060822024173120641737369676e130d4173796e6346756e6374696f6e1505426c6f636b1605427265616b18074275696c74696e190443616c6c1a0943616c6c4173796e631a08436f6e74696e756518054572726f721b08466f7241727261791c07466f72446963741d06466f725365741e0846756e6374696f6e15084765744669656c641f064966456c736522034c657413054d6174636825084e6577417272617926074e65774469637429094e65774d61747269782a064e657752656612064e657753657426094e6577566563746f722608506c6174666f726d2c0652657475726e12065374727563742f085472794361746368300f556e77726170526563757273697665120556616c756535085661726961626c65360756617269616e7437055768696c65380d57726170526563757273697665129c010d06627574746f6e0474657874056c6162656c076f6e436c69636b07636f6e74656e74045f37303408436c69636b206d6508636c69636b6564210f7372632f6c6f636174696f6e2e74730f7372632f657870722f6173742e7473117372632f657870722f626c6f636b2e747316746573742f706c6174666f726d732e737065632e747318746573742f626c6f622e6265617374322e737065632e7473d102071008c1010f089c0211099b016d0ad509110ad3091a0b9d01180aa3030d088f021b0a9b030a0b98012c0aa3030d088802100890020a0a9b030a0b9701200c25070e08c1010f089c02110aed090f0b9d01180aa3030d088f021b0a9b030a0b98012c0aa3030d088802100890020a0a9b030a0b9701200c25070c08c1010f089c02110adb0311088f021b0a9b030a0b98012c0aa3030d088802100890020a0a9b030a0b9701200c25070c08c1010f089c02110ae7030f088f021b0a9b030a0b98012c0aa3030d088802100890020a0a9b030a0b9701200c25070c08c1010f089c0211099b016d0ad509110ad3091a0b9801140aa3030d088802100890020a0a9b030a0b9701200c25070a08c1010f089c02110aed090f0b9801140aa3030d088802100890020a0a9b030a0b9701200c25070808c1010f089c02110ae7030f088802100890020a0a9b030a0b9701200c25073907030a0700090a0f020010020110040c0a0f02020f0307030c00de02030a0700050a0f01040f0e0a06011e0c01de02110104050001030a060000060d07000c01de0211010a05061e0c01de02110104050001010107"));
     const decoded = $.let(blob.decodeBeast(ComponentType, 'v2'));
     $(assert.equal(decoded, buttonVal));
   });
@@ -1544,148 +438,7 @@ await describe("Blob (Beast v2)", (test) => {
 
     const blob = $.let(East.Blob.encodeBeast(containerVal, 'v2'));
 
-    $(assert.equal(blob, East.value(new Uint8Array([
-            137, 69, 97, 115, 116, 13, 10, 4, 224, 12, 0, 58, 18, 6, 10, 0,
-            2, 16, 1, 2, 0, 9, 2, 8, 99, 104, 105, 108, 100, 114, 101, 110,
-            1, 6, 114, 101, 110, 100, 101, 114, 3, 1, 8, 2, 9, 99, 111, 110,
-            116, 97, 105, 110, 101, 114, 4, 4, 108, 101, 97, 102, 5, 18, 57, 18,
-            17, 10, 8, 9, 2, 6, 105, 110, 112, 117, 116, 115, 9, 6, 111, 117,
-            116, 112, 117, 116, 8, 0, 9, 2, 3, 107, 101, 121, 8, 5, 118, 97,
-            108, 117, 101, 8, 9, 2, 2, 105, 100, 2, 5, 105, 110, 110, 101, 114,
-            8, 8, 2, 3, 114, 101, 102, 2, 7, 119, 114, 97, 112, 112, 101, 114,
-            13, 9, 2, 4, 110, 97, 109, 101, 5, 4, 116, 121, 112, 101, 8, 10,
-            15, 8, 19, 5, 65, 114, 114, 97, 121, 8, 13, 65, 115, 121, 110, 99,
-            70, 117, 110, 99, 116, 105, 111, 110, 10, 4, 66, 108, 111, 98, 11, 7,
-            66, 111, 111, 108, 101, 97, 110, 11, 8, 68, 97, 116, 101, 84, 105, 109,
-            101, 11, 4, 68, 105, 99, 116, 12, 5, 70, 108, 111, 97, 116, 11, 8,
-            70, 117, 110, 99, 116, 105, 111, 110, 10, 7, 73, 110, 116, 101, 103, 101,
-            114, 11, 6, 77, 97, 116, 114, 105, 120, 8, 5, 78, 101, 118, 101, 114,
-            11, 4, 78, 117, 108, 108, 11, 9, 82, 101, 99, 117, 114, 115, 105, 118,
-            101, 14, 3, 82, 101, 102, 8, 3, 83, 101, 116, 8, 6, 83, 116, 114,
-            105, 110, 103, 11, 6, 83, 116, 114, 117, 99, 116, 16, 7, 86, 97, 114,
-            105, 97, 110, 116, 16, 6, 86, 101, 99, 116, 111, 114, 8, 9, 3, 4,
-            116, 121, 112, 101, 8, 6, 108, 111, 99, 95, 105, 100, 2, 5, 118, 97,
-            108, 117, 101, 7, 9, 4, 4, 116, 121, 112, 101, 8, 6, 108, 111, 99,
-            95, 105, 100, 2, 8, 118, 97, 114, 105, 97, 98, 108, 101, 7, 5, 118,
-            97, 108, 117, 101, 7, 10, 7, 9, 5, 4, 116, 121, 112, 101, 8, 6,
-            108, 111, 99, 95, 105, 100, 2, 8, 99, 97, 112, 116, 117, 114, 101, 115,
-            20, 10, 112, 97, 114, 97, 109, 101, 116, 101, 114, 115, 20, 4, 98, 111,
-            100, 121, 7, 9, 3, 4, 116, 121, 112, 101, 8, 6, 108, 111, 99, 95,
-            105, 100, 2, 10, 115, 116, 97, 116, 101, 109, 101, 110, 116, 115, 20, 9,
-            2, 4, 110, 97, 109, 101, 5, 6, 108, 111, 99, 95, 105, 100, 2, 9,
-            3, 4, 116, 121, 112, 101, 8, 6, 108, 111, 99, 95, 105, 100, 2, 5,
-            108, 97, 98, 101, 108, 23, 9, 5, 4, 116, 121, 112, 101, 8, 6, 108,
-            111, 99, 95, 105, 100, 2, 7, 98, 117, 105, 108, 116, 105, 110, 5, 15,
-            116, 121, 112, 101, 95, 112, 97, 114, 97, 109, 101, 116, 101, 114, 115, 9,
-            9, 97, 114, 103, 117, 109, 101, 110, 116, 115, 20, 9, 4, 4, 116, 121,
-            112, 101, 8, 6, 108, 111, 99, 95, 105, 100, 2, 8, 102, 117, 110, 99,
-            116, 105, 111, 110, 7, 9, 97, 114, 103, 117, 109, 101, 110, 116, 115, 20,
-            9, 3, 4, 116, 121, 112, 101, 8, 6, 108, 111, 99, 95, 105, 100, 2,
-            7, 109, 101, 115, 115, 97, 103, 101, 7, 9, 7, 4, 116, 121, 112, 101,
-            8, 6, 108, 111, 99, 95, 105, 100, 2, 5, 97, 114, 114, 97, 121, 7,
-            5, 108, 97, 98, 101, 108, 23, 3, 107, 101, 121, 7, 5, 118, 97, 108,
-            117, 101, 7, 4, 98, 111, 100, 121, 7, 9, 7, 4, 116, 121, 112, 101,
-            8, 6, 108, 111, 99, 95, 105, 100, 2, 4, 100, 105, 99, 116, 7, 5,
-            108, 97, 98, 101, 108, 23, 3, 107, 101, 121, 7, 5, 118, 97, 108, 117,
-            101, 7, 4, 98, 111, 100, 121, 7, 9, 6, 4, 116, 121, 112, 101, 8,
-            6, 108, 111, 99, 95, 105, 100, 2, 3, 115, 101, 116, 7, 5, 108, 97,
-            98, 101, 108, 23, 3, 107, 101, 121, 7, 4, 98, 111, 100, 121, 7, 9,
-            4, 4, 116, 121, 112, 101, 8, 6, 108, 111, 99, 95, 105, 100, 2, 5,
-            102, 105, 101, 108, 100, 5, 6, 115, 116, 114, 117, 99, 116, 7, 9, 2,
-            9, 112, 114, 101, 100, 105, 99, 97, 116, 101, 7, 4, 98, 111, 100, 121,
-            7, 10, 32, 9, 4, 4, 116, 121, 112, 101, 8, 6, 108, 111, 99, 95,
-            105, 100, 2, 3, 105, 102, 115, 33, 9, 101, 108, 115, 101, 95, 98, 111,
-            100, 121, 7, 9, 3, 4, 99, 97, 115, 101, 5, 8, 118, 97, 114, 105,
-            97, 98, 108, 101, 7, 4, 98, 111, 100, 121, 7, 10, 35, 9, 4, 4,
-            116, 121, 112, 101, 8, 6, 108, 111, 99, 95, 105, 100, 2, 7, 118, 97,
-            114, 105, 97, 110, 116, 7, 5, 99, 97, 115, 101, 115, 36, 9, 3, 4,
-            116, 121, 112, 101, 8, 6, 108, 111, 99, 95, 105, 100, 2, 6, 118, 97,
-            108, 117, 101, 115, 20, 9, 2, 3, 107, 101, 121, 7, 5, 118, 97, 108,
-            117, 101, 7, 10, 39, 9, 3, 4, 116, 121, 112, 101, 8, 6, 108, 111,
-            99, 95, 105, 100, 2, 6, 118, 97, 108, 117, 101, 115, 40, 9, 5, 4,
-            116, 121, 112, 101, 8, 6, 108, 111, 99, 95, 105, 100, 2, 6, 118, 97,
-            108, 117, 101, 115, 20, 4, 114, 111, 119, 115, 2, 4, 99, 111, 108, 115,
-            2, 4, 9, 7, 4, 116, 121, 112, 101, 8, 6, 108, 111, 99, 95, 105,
-            100, 2, 4, 110, 97, 109, 101, 5, 15, 116, 121, 112, 101, 95, 112, 97,
-            114, 97, 109, 101, 116, 101, 114, 115, 9, 9, 97, 114, 103, 117, 109, 101,
-            110, 116, 115, 20, 5, 97, 115, 121, 110, 99, 43, 8, 111, 112, 116, 105,
-            111, 110, 97, 108, 43, 9, 2, 4, 110, 97, 109, 101, 5, 5, 118, 97,
-            108, 117, 101, 7, 10, 45, 9, 3, 4, 116, 121, 112, 101, 8, 6, 108,
-            111, 99, 95, 105, 100, 2, 6, 102, 105, 101, 108, 100, 115, 46, 9, 7,
-            4, 116, 121, 112, 101, 8, 6, 108, 111, 99, 95, 105, 100, 2, 8, 116,
-            114, 121, 95, 98, 111, 100, 121, 7, 10, 99, 97, 116, 99, 104, 95, 98,
-            111, 100, 121, 7, 7, 109, 101, 115, 115, 97, 103, 101, 7, 5, 115, 116,
-            97, 99, 107, 7, 12, 102, 105, 110, 97, 108, 108, 121, 95, 98, 111, 100,
-            121, 7, 6, 5, 3, 8, 7, 4, 66, 108, 111, 98, 49, 7, 66, 111,
-            111, 108, 101, 97, 110, 43, 8, 68, 97, 116, 101, 84, 105, 109, 101, 50,
-            5, 70, 108, 111, 97, 116, 51, 7, 73, 110, 116, 101, 103, 101, 114, 2,
-            4, 78, 117, 108, 108, 11, 6, 83, 116, 114, 105, 110, 103, 5, 9, 3,
-            4, 116, 121, 112, 101, 8, 6, 108, 111, 99, 95, 105, 100, 2, 5, 118,
-            97, 108, 117, 101, 52, 9, 5, 4, 116, 121, 112, 101, 8, 6, 108, 111,
-            99, 95, 105, 100, 2, 4, 110, 97, 109, 101, 5, 7, 109, 117, 116, 97,
-            98, 108, 101, 43, 8, 99, 97, 112, 116, 117, 114, 101, 100, 43, 9, 4,
-            4, 116, 121, 112, 101, 8, 6, 108, 111, 99, 95, 105, 100, 2, 4, 99,
-            97, 115, 101, 5, 5, 118, 97, 108, 117, 101, 7, 9, 5, 4, 116, 121,
-            112, 101, 8, 6, 108, 111, 99, 95, 105, 100, 2, 9, 112, 114, 101, 100,
-            105, 99, 97, 116, 101, 7, 5, 108, 97, 98, 101, 108, 23, 4, 98, 111,
-            100, 121, 7, 8, 34, 2, 65, 115, 18, 6, 65, 115, 115, 105, 103, 110,
-            19, 13, 65, 115, 121, 110, 99, 70, 117, 110, 99, 116, 105, 111, 110, 21,
-            5, 66, 108, 111, 99, 107, 22, 5, 66, 114, 101, 97, 107, 24, 7, 66,
-            117, 105, 108, 116, 105, 110, 25, 4, 67, 97, 108, 108, 26, 9, 67, 97,
-            108, 108, 65, 115, 121, 110, 99, 26, 8, 67, 111, 110, 116, 105, 110, 117,
-            101, 24, 5, 69, 114, 114, 111, 114, 27, 8, 70, 111, 114, 65, 114, 114,
-            97, 121, 28, 7, 70, 111, 114, 68, 105, 99, 116, 29, 6, 70, 111, 114,
-            83, 101, 116, 30, 8, 70, 117, 110, 99, 116, 105, 111, 110, 21, 8, 71,
-            101, 116, 70, 105, 101, 108, 100, 31, 6, 73, 102, 69, 108, 115, 101, 34,
-            3, 76, 101, 116, 19, 5, 77, 97, 116, 99, 104, 37, 8, 78, 101, 119,
-            65, 114, 114, 97, 121, 38, 7, 78, 101, 119, 68, 105, 99, 116, 41, 9,
-            78, 101, 119, 77, 97, 116, 114, 105, 120, 42, 6, 78, 101, 119, 82, 101,
-            102, 18, 6, 78, 101, 119, 83, 101, 116, 38, 9, 78, 101, 119, 86, 101,
-            99, 116, 111, 114, 38, 8, 80, 108, 97, 116, 102, 111, 114, 109, 44, 6,
-            82, 101, 116, 117, 114, 110, 18, 6, 83, 116, 114, 117, 99, 116, 47, 8,
-            84, 114, 121, 67, 97, 116, 99, 104, 48, 15, 85, 110, 119, 114, 97, 112,
-            82, 101, 99, 117, 114, 115, 105, 118, 101, 18, 5, 86, 97, 108, 117, 101,
-            53, 8, 86, 97, 114, 105, 97, 98, 108, 101, 54, 7, 86, 97, 114, 105,
-            97, 110, 116, 55, 5, 87, 104, 105, 108, 101, 56, 13, 87, 114, 97, 112,
-            82, 101, 99, 117, 114, 115, 105, 118, 101, 18, 156, 1, 13, 6, 99, 104,
-            105, 108, 100, 49, 9, 99, 111, 110, 116, 97, 105, 110, 101, 114, 4, 108,
-            101, 97, 102, 8, 99, 104, 105, 108, 100, 114, 101, 110, 6, 114, 101, 110,
-            100, 101, 114, 4, 95, 55, 50, 50, 4, 95, 55, 50, 51, 8, 114, 101,
-            110, 100, 101, 114, 101, 100, 15, 115, 114, 99, 47, 108, 111, 99, 97, 116,
-            105, 111, 110, 46, 116, 115, 15, 115, 114, 99, 47, 101, 120, 112, 114, 47,
-            97, 115, 116, 46, 116, 115, 17, 115, 114, 99, 47, 101, 120, 112, 114, 47,
-            98, 108, 111, 99, 107, 46, 116, 115, 22, 116, 101, 115, 116, 47, 112, 108,
-            97, 116, 102, 111, 114, 109, 115, 46, 115, 112, 101, 99, 46, 116, 115, 24,
-            116, 101, 115, 116, 47, 98, 108, 111, 98, 46, 98, 101, 97, 115, 116, 50,
-            46, 115, 112, 101, 99, 46, 116, 115, 209, 2, 7, 16, 8, 193, 1, 15,
-            8, 156, 2, 17, 9, 155, 1, 109, 10, 212, 9, 17, 10, 210, 9, 26,
-            11, 157, 1, 24, 10, 162, 3, 13, 8, 143, 2, 27, 10, 154, 3, 10,
-            11, 152, 1, 44, 10, 162, 3, 13, 8, 136, 2, 16, 8, 144, 2, 10,
-            10, 154, 3, 10, 11, 151, 1, 32, 12, 37, 7, 14, 8, 193, 1, 15,
-            8, 156, 2, 17, 10, 236, 9, 15, 11, 157, 1, 24, 10, 162, 3, 13,
-            8, 143, 2, 27, 10, 154, 3, 10, 11, 152, 1, 44, 10, 162, 3, 13,
-            8, 136, 2, 16, 8, 144, 2, 10, 10, 154, 3, 10, 11, 151, 1, 32,
-            12, 37, 7, 12, 8, 193, 1, 15, 8, 156, 2, 17, 10, 218, 3, 17,
-            8, 143, 2, 27, 10, 154, 3, 10, 11, 152, 1, 44, 10, 162, 3, 13,
-            8, 136, 2, 16, 8, 144, 2, 10, 10, 154, 3, 10, 11, 151, 1, 32,
-            12, 37, 7, 12, 8, 193, 1, 15, 8, 156, 2, 17, 10, 230, 3, 15,
-            8, 143, 2, 27, 10, 154, 3, 10, 11, 152, 1, 44, 10, 162, 3, 13,
-            8, 136, 2, 16, 8, 144, 2, 10, 10, 154, 3, 10, 11, 151, 1, 32,
-            12, 37, 7, 12, 8, 193, 1, 15, 8, 156, 2, 17, 9, 155, 1, 109,
-            10, 212, 9, 17, 10, 210, 9, 26, 11, 152, 1, 20, 10, 162, 3, 13,
-            8, 136, 2, 16, 8, 144, 2, 10, 10, 154, 3, 10, 11, 151, 1, 32,
-            12, 37, 7, 10, 8, 193, 1, 15, 8, 156, 2, 17, 10, 236, 9, 15,
-            11, 152, 1, 20, 10, 162, 3, 13, 8, 136, 2, 16, 8, 144, 2, 10,
-            10, 154, 3, 10, 11, 151, 1, 32, 12, 37, 7, 8, 8, 193, 1, 15,
-            8, 156, 2, 17, 10, 230, 3, 15, 8, 136, 2, 16, 8, 144, 2, 10,
-            10, 154, 3, 10, 11, 151, 1, 32, 12, 37, 7, 68, 7, 5, 10, 0,
-            1, 1, 0, 4, 10, 8, 1, 8, 8, 10, 15, 2, 1, 16, 3, 2,
-            15, 16, 10, 15, 2, 3, 0, 12, 0, 232, 2, 4, 7, 4, 12, 0,
-            232, 2, 4, 10, 8, 1, 8, 14, 10, 7, 1, 30, 12, 1, 232, 2,
-            17, 2, 10, 5, 0, 1, 9, 10, 7, 1, 30, 8, 14, 6, 0, 0,
-            0, 0, 13, 7, 1, 12, 1, 232, 2, 17, 2, 18, 5, 6, 30, 12,
-            1, 232, 2, 17, 2, 10, 5, 0, 1, 1, 1, 7
-          ]), BlobType)));
+    $(assert.equal(East.str`${blob}`, "0x89456173740d0a04e00c003a12060a0002100102000902086368696c6472656e010672656e6465720301080209636f6e7461696e657204046c65616605123912110a08090206696e7075747309066f757470757408000902036b6579080576616c75650809020269640205696e6e6572080802037265660207777261707065720d0902046e616d65050474797065080a0f0813054172726179080d4173796e6346756e6374696f6e0a04426c6f620b07426f6f6c65616e0b084461746554696d650b04446963740c05466c6f61740b0846756e6374696f6e0a07496e74656765720b064d617472697808054e657665720b044e756c6c0b095265637572736976650e0352656608035365740806537472696e670b06537472756374100756617269616e741006566563746f72080903047479706508066c6f635f6964020576616c7565070904047479706508066c6f635f696402087661726961626c65070576616c7565070a070905047479706508066c6f635f696402086361707475726573140a706172616d65746572731404626f6479070903047479706508066c6f635f6964020a73746174656d656e7473140902046e616d6505066c6f635f6964020903047479706508066c6f635f696402056c6162656c170905047479706508066c6f635f696402076275696c74696e050f747970655f706172616d65746572730909617267756d656e7473140904047479706508066c6f635f6964020866756e6374696f6e0709617267756d656e7473140903047479706508066c6f635f696402076d657373616765070907047479706508066c6f635f69640205617272617907056c6162656c17036b6579070576616c75650704626f6479070907047479706508066c6f635f696402046469637407056c6162656c17036b6579070576616c75650704626f6479070906047479706508066c6f635f6964020373657407056c6162656c17036b65790704626f6479070904047479706508066c6f635f696402056669656c640506737472756374070902097072656469636174650704626f6479070a200904047479706508066c6f635f696402036966732109656c73655f626f6479070903046361736505087661726961626c650704626f6479070a230904047479706508066c6f635f6964020776617269616e7407056361736573240903047479706508066c6f635f6964020676616c756573140902036b6579070576616c7565070a270903047479706508066c6f635f6964020676616c756573280905047479706508066c6f635f6964020676616c7565731404726f77730204636f6c7302040907047479706508066c6f635f696402046e616d65050f747970655f706172616d65746572730909617267756d656e747314056173796e632b086f7074696f6e616c2b0902046e616d65050576616c7565070a2d0903047479706508066c6f635f696402066669656c64732e0907047479706508066c6f635f696402087472795f626f6479070a63617463685f626f647907076d6573736167650705737461636b070c66696e616c6c795f626f647907060503080704426c6f623107426f6f6c65616e2b084461746554696d653205466c6f61743307496e746567657202044e756c6c0b06537472696e67050903047479706508066c6f635f6964020576616c7565340905047479706508066c6f635f696402046e616d6505076d757461626c652b0863617074757265642b0904047479706508066c6f635f6964020463617365050576616c7565070905047479706508066c6f635f6964020970726564696361746507056c6162656c1704626f6479070822024173120641737369676e130d4173796e6346756e6374696f6e1505426c6f636b1605427265616b18074275696c74696e190443616c6c1a0943616c6c4173796e631a08436f6e74696e756518054572726f721b08466f7241727261791c07466f72446963741d06466f725365741e0846756e6374696f6e15084765744669656c641f064966456c736522034c657413054d6174636825084e6577417272617926074e65774469637429094e65774d61747269782a064e657752656612064e657753657426094e6577566563746f722608506c6174666f726d2c0652657475726e12065374727563742f085472794361746368300f556e77726170526563757273697665120556616c756535085661726961626c65360756617269616e7437055768696c65380d57726170526563757273697665129c010d066368696c643109636f6e7461696e6572046c656166086368696c6472656e0672656e646572045f373232045f3732330872656e64657265640f7372632f6c6f636174696f6e2e74730f7372632f657870722f6173742e7473117372632f657870722f626c6f636b2e747316746573742f706c6174666f726d732e737065632e747318746573742f626c6f622e6265617374322e737065632e7473d102071008c1010f089c0211099b016d0ad509110ad3091a0b9d01180aa3030d088f021b0a9b030a0b98012c0aa3030d088802100890020a0a9b030a0b9701200c25070e08c1010f089c02110aed090f0b9d01180aa3030d088f021b0a9b030a0b98012c0aa3030d088802100890020a0a9b030a0b9701200c25070c08c1010f089c02110adb0311088f021b0a9b030a0b98012c0aa3030d088802100890020a0a9b030a0b9701200c25070c08c1010f089c02110ae7030f088f021b0a9b030a0b98012c0aa3030d088802100890020a0a9b030a0b9701200c25070c08c1010f089c0211099b016d0ad509110ad3091a0b9801140aa3030d088802100890020a0a9b030a0b9701200c25070a08c1010f089c02110aed090f0b9801140aa3030d088802100890020a0a9b030a0b9701200c25070808c1010f089c02110ae7030f088802100890020a0a9b030a0b9701200c25074407050a00010100040a080108080a0f02011003020f100a0f0203000c00e8020407040c00e802040a0801080e0a07011e0c01e80211020a050001090a07011e080e06000000000d07010c01e80211021205061e0c01e80211020a050001010107"));
     const decoded = $.let(blob.decodeBeast(NodeType, 'v2'));
     $(assert.equal(decoded, containerVal));
   });

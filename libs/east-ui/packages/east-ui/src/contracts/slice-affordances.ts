@@ -15,7 +15,7 @@ import { East, NullType, variant, VariantType, type ExprType } from "@elaraai/ea
  *
  * @remarks
  * The developer lists which affordances appear (and in what order) via
- * `Slice.Frame.Root(slice, body, { affordances: [...] })`. The renderer mounts
+ * `Slice.Frame.Root(body, { slice, affordances: [...] })`. The renderer mounts
  * the matching `Slice.*` component in compact density and places it by kind:
  *
  * | Affordance | Zone | Compact form |
@@ -34,6 +34,10 @@ import { East, NullType, variant, VariantType, type ExprType } from "@elaraai/ea
  * @property breakdown - Split-by-dimension chips (left zone)
  * @property range - Time-range pill (right zone)
  * @property cohort - Saved-segment pills (left zone)
+ * @property brush - Drag-a-window gesture writing the slice's range. Hosts
+ *   render it natively: a Chart brushes the plot's continuous x, a Gantt the
+ *   timeline, a standalone `Slice.Rail` the mini brush strip. Hosts with no
+ *   continuous axis reject it at the factory.
  */
 export const SliceAffordanceType = VariantType({
     filter: NullType,
@@ -41,13 +45,14 @@ export const SliceAffordanceType = VariantType({
     breakdown: NullType,
     range: NullType,
     cohort: NullType,
+    brush: NullType,
 });
 
 /** Type representing slice affordance variant values. */
 export type SliceAffordanceType = typeof SliceAffordanceType;
 
 /** String literal type for slice affordances. */
-export type SliceAffordanceLiteral = "filter" | "search" | "breakdown" | "range" | "cohort";
+export type SliceAffordanceLiteral = "filter" | "search" | "breakdown" | "range" | "cohort" | "brush";
 
 /**
  * Creates a slice affordance variant expression.
@@ -59,9 +64,9 @@ export type SliceAffordanceLiteral = "filter" | "search" | "breakdown" | "range"
  * ```ts
  * import { SliceAffordance } from "@elaraai/east-ui/contracts";
  *
- * Slice.Frame.Root(slice, body, { affordances: [SliceAffordance("filter"), SliceAffordance("search")] });
+ * Slice.Frame.Root(body, { slice, affordances: [SliceAffordance("filter"), SliceAffordance("search")] });
  * // or, equivalently, the string shorthand:
- * Slice.Frame.Root(slice, body, { affordances: ["filter", "search"] });
+ * Slice.Frame.Root(body, { slice, affordances: ["filter", "search"] });
  * ```
  */
 export function SliceAffordance(affordance: SliceAffordanceLiteral): ExprType<SliceAffordanceType> {

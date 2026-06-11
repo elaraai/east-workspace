@@ -1,15 +1,15 @@
 import { East } from "@elaraai/east";
 import { describeEast, Assert } from "@elaraai/east-node-std";
-import { greetFn } from "./index.js";
+import { reorderFn } from "./index.js";
 
 describeEast("__DISPLAY_NAME__", (test) => {
-  test("greet returns greeting message", ($) => {
-    const result = $.let(greetFn("World"));
-    $(Assert.equal(result, East.value("Hello, World!")));
+  test("reorders up to the target when below it", ($) => {
+    const qty = $.let(reorderFn(12n, 50n));
+    $(Assert.equal(qty, East.value(38n)));
   });
 
-  test("greet with custom name", ($) => {
-    const result = $.let(greetFn("East"));
-    $(Assert.equal(result, East.value("Hello, East!")));
+  test("never recommends a negative reorder", ($) => {
+    const qty = $.let(reorderFn(80n, 50n));
+    $(Assert.equal(qty, East.value(0n)));
   });
 }, { exportOnly: true });

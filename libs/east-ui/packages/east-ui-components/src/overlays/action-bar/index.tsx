@@ -6,7 +6,7 @@
 import { memo, useMemo, useCallback } from "react";
 import { ActionBar as ChakraActionBar, Portal, Button } from "@chakra-ui/react";
 import { equalFor, match, type ValueTypeOf } from "@elaraai/east";
-import { ActionBar } from "@elaraai/east-ui";
+import { ActionBar } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 
 // Pre-define equality function at module level

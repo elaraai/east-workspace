@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { join, dirname } from "node:path";
+import { join, dirname, resolve } from "node:path";
 
 const PACKAGE_SKILL_MAP: Record<string, string> = {
   "@elaraai/east": "east",
@@ -25,6 +25,30 @@ export async function findPackageJson(startDir: string): Promise<PackageJson | n
     } catch {
       const parent = dirname(dir);
       if (parent === dir) return null;
+      dir = parent;
+    }
+  }
+}
+
+// First-party `@elaraai/*` library SOURCE: the file's nearest package.json names
+// an `@elaraai/*` package and the file sits under that package's `src/`. Such
+// code is the libraries' own implementation (component factories, encoders) which
+// legitimately uses East-construction patterns the rules flag — it is not the
+// user solution code the plugin exists to review. An end-user's solution (any
+// non-`@elaraai/*` package) and the monorepo's examples (under `test/`, not
+// `src/`) are NOT first-party src, so they are still reviewed.
+export async function isElaraaiPackageSrc(filePath: string): Promise<boolean> {
+  const file = resolve(filePath);
+  let dir = dirname(file);
+  for (;;) {
+    try {
+      const content = await readFile(join(dir, "package.json"), "utf-8");
+      const { name } = JSON.parse(content) as { name?: string };
+      if (typeof name !== "string" || !name.startsWith("@elaraai/")) return false;
+      return /[/\\]src[/\\]/.test(file.slice(dir.length));
+    } catch {
+      const parent = dirname(dir);
+      if (parent === dir) return false;
       dir = parent;
     }
   }

@@ -23,7 +23,9 @@
     "@elaraai/east-node-io": "workspace:*",
     "@elaraai/east-py-datascience": "workspace:*",
     "@elaraai/e3": "workspace:*",
-    "@elaraai/e3-types": "workspace:*"
+    "@elaraai/e3-types": "workspace:*",
+    "@elaraai/east-ui": "workspace:*",
+    "@elaraai/e3-ui": "workspace:*"
   },
   "devDependencies": {
     "@elaraai/e3-cli": "workspace:*",
@@ -34,6 +36,8 @@
     "eslint": "^9",
     "@typescript-eslint/eslint-plugin": "^8",
     "@typescript-eslint/parser": "^8",
+    "@elaraai/eslint-plugin-east": "workspace:*",
+    "@elaraai/tsserver-plugin-east": "workspace:*",
     "cross-env": "^7",
     "rimraf": "^6"
   },

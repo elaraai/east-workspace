@@ -14,11 +14,12 @@
  */
 
 import { task, type DatasetDef, type Runner, type TaskDef } from '@elaraai/e3';
-import type { UIComponentType } from '@elaraai/east-ui';
-import type {
-  EastType,
-  CallableFunctionExpr,
-  CallableAsyncFunctionExpr,
+import { UIComponentType } from '@elaraai/east-ui';
+import {
+  type EastType,
+  type CallableFunctionExpr,
+  type CallableAsyncFunctionExpr,
+  type variant,
 } from '@elaraai/east';
 import type { TreePath } from '@elaraai/e3-types';
 import { encodeManifest } from './manifest.js';
@@ -62,15 +63,28 @@ import { deriveManifest } from './derive.js';
  * ```
  */
 export function ui<
+  Name extends string,
   Inputs extends readonly DatasetDef[],
   O extends EastType = typeof UIComponentType,
 >(
-  name: string,
+  name: Name,
   inputs: [...Inputs],
   fn: CallableFunctionExpr<any, O> | CallableAsyncFunctionExpr<any, O>,
   options?: {
     runner?: Runner,
   },
+): TaskDef<O, [variant<'field', 'tasks'>, variant<'field', Name>, variant<'field', 'output'>]> {
+  return buildUiTask(name, inputs, fn, options) as TaskDef<
+    O,
+    [variant<'field', 'tasks'>, variant<'field', Name>, variant<'field', 'output'>]
+  >;
+}
+
+function buildUiTask(
+  name: string,
+  inputs: readonly DatasetDef[],
+  fn: CallableFunctionExpr<any, EastType> | CallableAsyncFunctionExpr<any, EastType>,
+  options?: { runner?: Runner },
 ): TaskDef {
   const derived = deriveManifest(fn);
   const inputPaths: TreePath[] = inputs.map(i => i.path);

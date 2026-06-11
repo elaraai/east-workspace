@@ -59,11 +59,7 @@ export interface ButtonGroupStyle {
 }
 
 /**
- * TypeScript options bag for `ButtonGroup.Root`.
- *
- * @property style - Visual-presentation sub-struct
+ * TypeScript options bag for `ButtonGroup.Root` — a single flat bag of visual
+ * fields (alias of {@link ButtonGroupStyle}; ButtonGroup has no behaviour/state).
  */
-export interface ButtonGroupOptions {
-    /** Visual-presentation sub-struct */
-    style?: ButtonGroupStyle;
-}
+export type ButtonGroupOptions = ButtonGroupStyle;

@@ -44,6 +44,11 @@ MADSBoundsType = StructType(
         ("upper", VectorType(FloatType)),
     ]
 )
+"""Per-dimension bounds for the MADS search domain.
+
+Fields: ``lower`` (``Vector<Float>`` lower bounds per dimension),
+``upper`` (``Vector<Float>`` upper bounds per dimension).
+"""
 
 # MADS constraint type (variant where tag indicates kind)
 MADSConstraintType = VariantType(
@@ -52,6 +57,12 @@ MADSConstraintType = VariantType(
         ("pb", ScalarObjectiveType),  # Progressive barrier
     ]
 )
+"""A single NOMAD constraint with its handling strategy.
+
+Cases: ``eb`` (``Function<[Vector<Float>], Float>`` - extreme barrier; trial
+rejected when value > 0), ``pb`` (``Function<[Vector<Float>], Float>`` -
+progressive barrier; violations accumulated in barrier parameter).
+"""
 
 # MADS direction type
 MADSDirectionType = VariantType(
@@ -62,6 +73,12 @@ MADSDirectionType = VariantType(
         ("single", StructType([])),
     ]
 )
+"""Poll direction strategy for NOMAD's mesh exploration.
+
+Cases: ``ortho_2n`` (2n orthogonal directions, default), ``ortho_n_plus_1``
+(n+1 directions), ``lt_2n`` (less than 2n, dynamic), ``single`` (one
+direction per poll).
+"""
 
 # MADS configuration
 MADSConfigType = StructType(
@@ -74,6 +91,15 @@ MADSConfigType = StructType(
         ("seed", OptionType(IntegerType)),
     ]
 )
+"""Solver configuration for a MADS run.
+
+Fields: ``max_bb_eval`` (maximum blackbox evaluations, default 100),
+``display_degree`` (NOMAD verbosity 0-4, default 0 silent),
+``direction_type`` (poll direction strategy, default ``ortho_2n``),
+``initial_mesh_size`` (Delta^0, default NOMAD heuristic),
+``min_mesh_size`` (termination mesh size Delta_min),
+``seed`` (NOMAD random seed for reproducibility).
+"""
 
 # MADS single-objective result
 MADSResultType = StructType(
@@ -84,6 +110,14 @@ MADSResultType = StructType(
         ("success", BooleanType),
     ]
 )
+"""Outcome of a MADS single-objective optimization run.
+
+Fields: ``x_best`` (``Vector<Float>`` best feasible point found),
+``f_best`` (``Float`` objective value at that point),
+``bb_eval`` (``Integer`` total blackbox evaluations consumed),
+``success`` (``Boolean`` true when a feasible solution was found and
+``f_best != inf``).
+"""
 
 
 # ============================================================================
@@ -153,17 +187,58 @@ def mads_optimize_impl(
     constraints: EastVariant | None,
     config: EastStruct,
 ) -> EastStruct:
-    """Run MADS single-objective optimization using PyNomadBBO.
+    """Run MADS single-objective derivative-free optimization via PyNomadBBO.
+
+    Minimizes ``objective_fn`` over a bounded continuous domain using the
+    Mesh Adaptive Direct Search (NOMAD) algorithm. Constraint functions are
+    evaluated as part of the blackbox and handled via extreme-barrier or
+    progressive-barrier strategies.
 
     Args:
-        objective_fn: Objective function to minimize (Vector -> Float)
-        x0: Initial starting point
-        bounds: Lower and upper bounds for each dimension
-        constraints: Optional array of constraint functions
-        config: Optimization configuration
+        objective_fn: ``Function<[Vector<Float>], Float>`` (callable) -
+            blackbox to minimize; receives the current point as a
+            ``Vector<Float>`` and returns a scalar.
+        x0: ``Vector<Float>`` (``EastVector``) - initial starting point;
+            length sets the problem dimension.
+        bounds: ``MADSBoundsType`` (``EastStruct``) with fields:
+
+            - ``lower`` (``Vector<Float>``): per-dimension lower bounds.
+            - ``upper`` (``Vector<Float>``): per-dimension upper bounds.
+
+        constraints: ``Option<Array<MADSConstraintType>>`` (``EastVariant``) -
+            optional constraint functions.  Each ``MADSConstraintType`` is a
+            variant:
+
+            - ``eb`` (``Function<[Vector<Float>], Float>``): extreme-barrier
+              constraint; trial is rejected whenever the function value > 0.
+            - ``pb`` (``Function<[Vector<Float>], Float>``): progressive-barrier
+              constraint; violations are summed into the barrier parameter.
+
+        config: ``MADSConfigType`` (``EastStruct``) with fields:
+
+            - ``max_bb_eval`` (``Option<Integer>``): maximum blackbox
+              evaluations (default 100).
+            - ``display_degree`` (``Option<Integer>``): NOMAD verbosity level
+              0-4 (default 0, silent).
+            - ``direction_type`` (``Option<MADSDirectionType>``): poll
+              direction strategy - ``ortho_2n`` (default), ``ortho_n_plus_1``,
+              ``lt_2n``, or ``single``.
+            - ``initial_mesh_size`` (``Option<Float>``): initial mesh size
+              parameter Delta^0 (default NOMAD heuristic).
+            - ``min_mesh_size`` (``Option<Float>``): termination mesh size
+              Delta_min.
+            - ``seed`` (``Option<Integer>``): NOMAD random seed for
+              reproducible runs.
 
     Returns:
-        EastStruct with x_best, f_best, bb_eval, success
+        ``MADSResultType`` (``EastStruct``): ``x_best`` (``Vector<Float>``
+        best feasible point), ``f_best`` (``Float`` objective at that point),
+        ``bb_eval`` (``Integer`` total evaluations consumed), ``success``
+        (``Boolean`` true when a feasible solution was found and
+        ``f_best != inf``).
+
+    Raises:
+        NotImplementedError: the ``mads`` extra (PyNomadBBO) is not installed.
     """
     _check_mads_support()
     import numpy as np

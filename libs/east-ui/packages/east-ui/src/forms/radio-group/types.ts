@@ -4,6 +4,7 @@
  */
 
 import {
+    type ExprType,
     type SubtypeExprOrValue,
     ArrayType,
     OptionType,
@@ -119,6 +120,15 @@ export type RadioGroupStyleType = typeof RadioGroupStyleType;
  * @property borderColor - Explicit border colour override for unselected radios
  */
 export interface RadioGroupStyle {
+    /** Currently selected item value (empty string when none) — required. */
+    value: SubtypeExprOrValue<StringType>;
+    /**
+     * Array of items — required. Either a plain array of `{ value, label?,
+     * disabled? }` inputs, or an East expression of `ArrayType(RadioItemType)`
+     * (e.g. a `.map(...)` over bound data, with each element built via
+     * `East.value({...}, RadioGroup.Types.Item)`).
+     */
+    items: RadioItemInput[] | ExprType<ArrayType<RadioItemType>>;
     /** Optional form-control name (groups radios in the same form). */
     name?: SubtypeExprOrValue<StringType>;
     /** Whether the entire group is disabled. */

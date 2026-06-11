@@ -94,18 +94,16 @@ type ToggleLabelInput =
  * (a binary-settings input) and `Checkbox`.
  *
  * @param label - String (coerced to `Text.Root(s)`) or any UIComponentType expression
- * @param pressed - Current pressed state (required — Toggle has no internal state)
- * @param options - Main-level fields plus optional `style` sub-struct
+ * @param options - A single flat options bag; `pressed` is required, plus
+ *   optional `icon` / `disabled` / `onChange` / visual fields.
  * @returns An East expression representing the Toggle component
  *
  * @remarks
  * The renderer emits `aria-pressed={pressed}` and `data-pressed={pressed}` so
  * themes / CSS can distinguish the pressed state. `onChange` is invoked with
  * the new value (`!pressed`) on click — callers typically wire this to
- * `State.bind` inside a `Reactive.Root` body.
- *
- * content + state + behaviour at top level;
- * visual presentation inside `options.style`.
+ * `State.bind` inside a `Reactive.Root` body. Every option sits flat; the
+ * factory composes the visual fields into the nested IR `style` struct.
  *
  * @example
  * ```ts
@@ -119,37 +117,40 @@ type ToggleLabelInput =
  *         const onChange = $.const(East.function([BooleanType], NullType, ($, next) => {
  *             $(bind.write(next));
  *         }));
- *         return Toggle.Root("Show gridlines", pressed, { onChange });
+ *         return Toggle.Root("Show gridlines", { pressed, onChange });
  *     })),
  * );
  * ```
  */
 function createToggle(
     label: ToggleLabelInput,
-    pressed: SubtypeExprOrValue<BooleanType>,
-    options?: ToggleOptions,
+    options: ToggleOptions,
 ): ExprType<UIComponentType> {
     const labelExpr: ExprType<UIComponentType> = typeof label === "string"
         ? Text.Root(label)
         : label as ExprType<UIComponentType>;
 
-    const iconValue = options?.icon
+    const { pressed, icon, disabled, onChange, ...visual } = options;
+
+    const iconValue = icon
         ? East.value({
-            prefix: options.icon.prefix,
-            name: options.icon.name,
+            prefix: icon.prefix,
+            name: icon.name,
             label: none,
             style: none,
         }, IconType)
         : undefined;
 
-    const styleValue = options?.style ? buildToggleStyle(options.style) : undefined;
+    const styleValue = Object.values(visual).some(field => field !== undefined)
+        ? buildToggleStyle(options)
+        : undefined;
 
     return East.value(variant("Toggle", {
         label: labelExpr,
         icon: iconValue ? some(iconValue) : none,
         pressed,
-        disabled: options?.disabled !== undefined ? some(options.disabled) : none,
-        onChange: options?.onChange ? some(options.onChange) : none,
+        disabled: disabled !== undefined ? some(disabled) : none,
+        onChange: onChange ? some(onChange) : none,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
@@ -182,16 +183,16 @@ function buildToggleStyle(style: ToggleStyle): ExprType<ToggleStyleType> {
  * Toggle primitive — two-state pressable affordance.
  *
  * @remarks
- * Use `Toggle.Root(label, pressed, options?)` to create a toggle, or access
- * `Toggle.Types.Toggle` for the East type.
+ * Use `Toggle.Root(label, options)` to create a toggle (`options.pressed` is
+ * required), or access `Toggle.Types.Toggle` for the East type.
  */
 export const Toggle = {
     /**
      * Creates a Toggle component.
      *
      * @param label - String (coerced to `Text.Root(s)`) or any UIComponentType expression
-     * @param pressed - Current pressed state (required)
-     * @param options - Main-level fields plus optional `style` sub-struct
+     * @param options - A single flat options bag; `pressed` is required, plus
+     *   optional `icon` / `disabled` / `onChange` / visual fields.
      * @returns An East expression representing the Toggle component
      *
      * @remarks
@@ -204,9 +205,10 @@ export const Toggle = {
      * import { Toggle, UIComponentType } from "@elaraai/east-ui";
      *
      * const presentational = East.function([], UIComponentType, _$ =>
-     *     Toggle.Root("Show gridlines", true, {
+     *     Toggle.Root("Show gridlines", {
+     *         pressed: true,
      *         icon: { prefix: "fas", name: "table-cells" },
-     *         style: { variant: "subtle", size: "sm" },
+     *         variant: "subtle", size: "sm",
      *     }),
      * );
      * ```

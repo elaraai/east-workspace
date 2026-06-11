@@ -9,7 +9,7 @@
 import { memo, useMemo } from "react";
 import { Separator as ChakraSeparator, type SeparatorProps } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Separator } from "@elaraai/east-ui";
+import { Separator } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 

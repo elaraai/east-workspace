@@ -59,6 +59,27 @@ export const meterSlotRecipe = defineSlotRecipe({
             info:    { fill: { background: "fg.info" } },
             neutral: { fill: { background: "fg.muted" } },
         },
+        // Density cascade — track + value text scale with the chipRail/trace
+        // rhythm so a meter sits comfortably beside chips at the same density.
+        // No default: an undensified meter keeps the `thickness` look.
+        // Declared after `thickness` so density wins the merge.
+        density: {
+            condensed: {
+                root: { gap: "{spacing.1.5}" },
+                track: { height: "3px" },
+                value: { fontSize: "9px" },
+            },
+            compact: {
+                root: { gap: "{spacing.2}" },
+                track: { height: "5px" },
+                value: { fontSize: "10px" },
+            },
+            comfortable: {
+                root: { gap: "{spacing.3}" },
+                track: { height: "8px" },
+                value: { fontSize: "12.5px" },
+            },
+        },
     },
     defaultVariants: {
         thickness: "md",

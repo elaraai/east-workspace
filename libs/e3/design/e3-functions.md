@@ -164,7 +164,7 @@ runner choice is baked into the task at author time and the function IR is passe
 as `input[0]`. A function does not need this: it stores `runner` (the
 `RunnerType` variant, §4) and the executor builds the argv **directly** at call
 time via the shared `runnerToArgv` resolver (§5). This is simpler than tasks and
-is what enables a **request-time runner override** and **cloud `custom`-gating**.
+is what enables a **request-time runner override**.
 
 Keeping `FunctionDef` **out** of the `PackageItem` union (so the `export_` dep-walk
 and its exhaustive `else`-throw stay intact) is correct, but it is **not free** —
@@ -231,8 +231,8 @@ export const FunctionObjectType = StructType({
   inputTypes: ArrayType(EastTypeType),
   /** Return type — used to decode the result `value` blob client-side. */
   outputType: EastTypeType,
-  /** Author-chosen runtime; resolved to argv by runnerToArgv. Carries `custom`
-   *  for author-trusted local use; gated at the cloud API (see cloud doc). */
+  /** Author-chosen runtime; resolved to argv by runnerToArgv. One of the known
+   *  runtime tags — there is no raw-argv runner for functions (see §11). */
   runner:     RunnerType,
 });
 export type FunctionObject = ValueTypeOf<typeof FunctionObjectType>;
@@ -243,23 +243,16 @@ export type FunctionObject = ValueTypeOf<typeof FunctionObjectType>;
 export const PackageObjectType = StructType({
   tasks:     DictType(StringType, StringType),  // name -> TaskObject hash (existing)
   data:      PackageDataType,                    // existing
-  functions: DictType(StringType, StringType),  // name -> FunctionObject hash (NEW — MUST be appended last; see §4.1)
+  functions: DictType(StringType, StringType),  // name -> FunctionObject hash (NEW — appended last)
 });
 ```
 
-⚠️ **Field order is load-bearing — append `functions` LAST, never insert it
-between `tasks` and `data`.** BEAST2 encodes struct fields **positionally in
-declaration order**, with no per-field tag/length/end-marker (`east` beast2 codec:
-encode iterates fields in order; decode reads positionally). If `functions` were
-placed in the middle (`{tasks, functions, data}`), decoding an **old** `{tasks,
-data}` payload under the new type would read `tasks` correctly, then read the old
-`data` struct's leading bytes **as** the `functions` Dict — which can
-*succeed-with-garbage* (e.g. `data.structure`'s leading variant tag `0x00` reads as
-the Dict's end-marker → empty `functions`, then `data` misaligns) instead of
-throwing. The tolerant dual-decode in §4.1 depends on old bytes **failing
-cleanly**; only an *appended* field guarantees that (the decoder runs past
-end-of-buffer when it reaches `functions` → buffer-underflow throw → safe
-fallback). Treat this as a hard rule: **append-only, never insert.**
+`PackageObjectType` is a BEAST2 `StructType` with no schema version, so adding
+`functions` is a wire-format change. Append it as the **last** field (BEAST2 encodes
+struct fields positionally, in declaration order), never between `tasks` and `data`,
+so the addition stays additive. This is a **hard format bump with no tolerant decode
+of old bytes**: any package exported before this change must be re-exported and
+re-deployed — acceptable only because no long-lived deployments predate the feature.
 
 `EastTypeType` is the same homoiconic type value the structure already stores at
 `value.type`, so `inputTypes`/`outputType` introduce no new representation.
@@ -268,51 +261,7 @@ lets `describe` (§7.2) and signature validation work from the small function
 object without loading the IR bundle, and gives dynamic callers (CLI literal
 parsing, non-TS clients) the types they need to encode arguments.
 
-### 4.1 ⚠️ Backward-compatibility (breaking wire change) — REQUIRED handling
-
-`PackageObjectType` is a BEAST2 `StructType`; adding `functions` changes the
-on-disk encoding. **Already-exported package bundles and already-deployed
-workspaces reference a `PackageObject` hash whose bytes lack the field** and will
-fail to decode under the new type. The implementer MUST handle this; do **not**
-silently break existing repos. Two options:
-
-- **(Recommended) Tolerant dual-decode.** Add a helper
-  `decodePackageObject(bytes): PackageObject` in `packages/e3-types` (or e3-core):
-  attempt the new type; on decode failure decode against a retained
-  `PackageObjectTypeV1` (`{tasks, data}`) and lift with `functions = new Map()`.
-  New exports always write the new (append-last) shape; encode sites always use
-  the new type. This is only sound because `functions` is appended last (§4
-  rule).
-- **(Alternative) Re-export migration.** Treat it as a hard format bump: require
-  `e3 package export` + re-deploy for every package. Simpler code, breaks existing
-  deployments until re-deployed — acceptable only if no long-lived deployments
-  exist.
-
-Pick one explicitly in the PR; recommended is dual-decode (zero disruption).
-
-**This is NOT a single `packageRead` choke point — every decode site must route
-through `decodePackageObject`.** `PackageObjectType` is decoded inline at ~10
-independent sites in e3-core (most NOT via `packageRead`), **plus the API client
-and server**, and version skew goes both ways (new CLI ↔ old repo, old CLI ↔ new
-repo), so the client must dual-decode too. The PR checklist must cover all of:
-
-- **e3-core** (~10): `packages.ts` (×2: `packageRead` + `packageExport`),
-  `tasks.ts`, `workspaces.ts` (decode + the matching encode), `workspaceStatus.ts`,
-  `dataflow.ts`, `trees.ts` (×2), `LocalOrchestrator.ts`, `dataflow/steps.ts` —
-  including the two `await import('@elaraai/e3-types')` dynamic-import sites.
-- **e3-api-server** `handlers/packages.ts` — `getPackage` re-encodes via
-  `sendSuccess(PackageObjectType, pkg)` under the **new** type; an old-CLI client
-  must tolerate the trailing field.
-- **e3-api-client** `packages.ts` — decodes `PackageObjectType` itself (through the
-  generic `get()` transport, so it can't reuse a server-side read helper; give the
-  client its own tolerant decode).
-- **e3-cli** `commands/run.ts` (and the new `call.ts`) via `packageRead`.
-
-Verify with `grep -rn 'PackageObjectType' packages/` in **both** repos (e3 and —
-separately — e3-cloud, see the cloud doc §6). New encode sites always write the
-append-last shape.
-
-### 4.2 ⚠️ GC reachability (REQUIRED) — function bodies must survive `gc`
+### 4.1 ⚠️ GC reachability (REQUIRED) — function bodies must survive `gc`
 
 "Persists nothing" (§1.1) applies to the *result* of a call. The function **body**
 is durable: it is deployed, content-addressed, and must survive garbage
@@ -341,7 +290,6 @@ export const RunnerType = VariantType({
   east_node: StructType({ platforms: ArrayType(StringType) }),
   east_py:   StructType({ platforms: ArrayType(StringType) }),
   east_c:    StructType({ platforms: ArrayType(StringType) }),
-  custom:    StructType({ command: ArrayType(StringType) }),  // raw argv
 });
 export type RunnerValue = ValueTypeOf<typeof RunnerType>;
 
@@ -353,17 +301,22 @@ export function runnerToArgv(r: RunnerValue): string[] {
     case 'east_node': return ['east-node', 'run', ...flags(r.value.platforms)];
     case 'east_py':   return ['east-py',   'run', ...flags(r.value.platforms)];
     case 'east_c':    return ['east-c',    'run', ...flags(r.value.platforms)];
-    case 'custom':    return [...r.value.command];
   }
 }
 // flags(ps) = ps.flatMap(p => ['-p', p])
 ```
 
-The SDK `Runner` union (`packages/e3/src/runner.ts`) maps 1:1 to `RunnerType`;
-add a small `runnerToVariant(r: Runner): RunnerValue` in the SDK so
-`e3.function`/`export` can store the variant. It must **coalesce
+The SDK `Runner` union (`packages/e3/src/runner.ts`) has a fourth `custom`
+(raw-argv) runtime that the wire `RunnerType` deliberately **omits** (see §11):
+functions run only on a fixed runtime image. Add a small
+`runnerToVariant(r: Runner): RunnerValue` in the SDK so `e3.function`/`export` can
+store the variant; it maps the three known runtimes and **rejects a `custom`
+runner** (tasks keep `custom` via the unchanged `commandIr`/`runnerToCommand`
+path — only functions drop it). Prefer typing `e3.function`'s `config.runner` as
+`Exclude<Runner, { runtime: 'custom' }>` so the rejection is a compile error, with
+`runnerToVariant`'s throw as the runtime backstop. It must **coalesce
 `platforms ?? []`** (the SDK makes `platforms` optional, but `RunnerType` requires
-it) and collapse `{custom: name}` platform entries to their string — exactly like
+it) and collapse `{custom: name}` *platform* entries to their string — exactly like
 `runnerToCommand` (`runner.ts:79-84`). Variant tags use underscores (`east_node`)
 mapped to the binary name (`east-node`) inside `runnerToArgv`.
 `platforms` stays `Array<String>` — a platform is just a `-p <name>` flag on the
@@ -371,12 +324,11 @@ wire; the SDK's `Platform<Known> | {custom}` distinction is authoring sugar that
 collapses to a string.
 
 **Why a variant, not the resolved `Array<String>` prefix:** a resolved-argv field
-lets any caller choose the executable and every flag — arbitrary command
-execution by construction. The variant pins the executable to a known runtime for
-the named tags and isolates the dangerous case behind the single `custom` tag,
-which the cloud API rejects (the runner image is fixed; `custom` argv runs with
-the container's IAM). It is also 1:1 with the SDK `Runner`, so resolution lives in
-one place.
+lets any caller choose the executable and every flag — arbitrary command execution
+by construction. The variant pins the executable to a known runtime for **every**
+tag, so a function call can never name its own executable — there is no
+arbitrary-argv case to gate. It also stays close to the SDK `Runner` (minus its
+`custom` runtime), so resolution lives in one place.
 
 ```ts
 // packages/e3-types/src/api.ts  — execution request/result types (shared by
@@ -413,7 +365,7 @@ export const ExecuteResultType = StructType({
 /** Named function call. Positional args, one beast2-encoded value per param. */
 export const FunctionCallRequestType = StructType({
   args:   ArrayType(BlobType),
-  runner: OptionType(RunnerType),       // optional override; `custom` gated server-side
+  runner: OptionType(RunnerType),       // optional override; only the known runtimes
   limits: OptionType(ExecuteLimitsType),
 });
 

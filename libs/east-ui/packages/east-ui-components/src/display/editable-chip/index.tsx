@@ -9,9 +9,10 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPen } from "@fortawesome/free-solid-svg-icons";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-svg-core";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { EditableChip } from "@elaraai/east-ui";
+import { EditableChip } from "@elaraai/east-ui/internal";
 import { EastChakraComponent } from "../../component";
 import { getSomeorUndefined } from "../../utils";
+import { useDensity } from "../../contracts/density";
 
 const editableChipEqual = equalFor(EditableChip.Types.EditableChip);
 
@@ -49,9 +50,12 @@ export const EastChakraEditableChip = memo(function EastChakraEditableChip({ val
     }, [onClickFn, disabled]);
 
     const sizeTag = style ? getSomeorUndefined(style.size)?.type ?? "sm" : "sm";
+    const inheritedDensity = useDensity();
+    const localDensity = useMemo(() => getSomeorUndefined(value.density)?.type, [value.density]);
+    const density = localDensity ?? inheritedDensity;
 
     const recipe = useSlotRecipe({ key: "editableChip" });
-    const styles = recipe({ size: sizeTag });
+    const styles = recipe({ size: sizeTag, density });
 
     const rootCss = useMemo(() => {
         const borderRadius = style ? getSomeorUndefined(style.borderRadius) : undefined;

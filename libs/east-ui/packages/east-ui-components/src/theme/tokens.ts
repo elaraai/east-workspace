@@ -173,6 +173,8 @@ export const tokens = defineTokens({
         xl: { value: "0 20px 25px -5px rgba(17, 27, 34, 0.12), 0 8px 10px -6px rgba(17, 27, 34, 0.10)" },
         // Focus ring — 3 px brand-tinted.
         focus: { value: "0 0 0 3px rgba(72, 142, 151, 0.35)" },
+        // Focus ring for invalid controls — 3 px danger-tinted.
+        focusError: { value: "0 0 0 3px rgba(184, 90, 74, 0.25)" },
     },
     durations: {
         fast:   { value: "120ms" },

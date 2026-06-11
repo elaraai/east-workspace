@@ -71,11 +71,15 @@ export const semanticTokens = defineSemanticTokens({
         },
 
         /* ─── Foreground ────────────────────────────────────── */
+        /* `fg` / `fg.muted` / `fg.subtle` / `fg.inverse` collide with
+         * Chakra's built-ins, which define a `_light` value — the override
+         * MUST use `_light` (not `base`) or Chakra's default wins (e.g.
+         * titles rendered Chakra near-black instead of the brand ink). */
         fg: {
-            DEFAULT: { value: { base: "{colors.brand.900}", _dark: "{colors.gray.100}" } },
-            muted:   { value: { base: "{colors.gray.600}", _dark: "{colors.gray.400}" } },
-            subtle:  { value: { base: "{colors.gray.500}", _dark: "{colors.gray.500}" } },
-            inverse: { value: { base: "{colors.white}",     _dark: "{colors.brand.900}" } },
+            DEFAULT: { value: { _light: "{colors.brand.900}", _dark: "{colors.gray.100}" } },
+            muted:   { value: { _light: "{colors.gray.600}", _dark: "{colors.gray.400}" } },
+            subtle:  { value: { _light: "{colors.gray.500}", _dark: "{colors.gray.500}" } },
+            inverse: { value: { _light: "{colors.white}",     _dark: "{colors.brand.900}" } },
 
             /* Alias for renderer code that uses `fg.default` semantically. */
             default: { value: { base: "{colors.brand.900}", _dark: "{colors.gray.100}" } },
@@ -124,5 +128,19 @@ export const semanticTokens = defineSemanticTokens({
             DEFAULT: { value: { base: "{colors.brand.600}", _dark: "{colors.brand.300}" } },
             hover:   { value: { base: "{colors.brand.700}", _dark: "{colors.brand.200}" } },
         },
+    },
+
+    /* ─── Shadows ─────────────────────────────────────────────
+     *
+     * Chakra defines its elevation scale as SEMANTIC tokens, which outrank
+     * the plain `tokens.shadows` definitions — without these overrides every
+     * `boxShadow: "md"` etc. resolves to Chakra's default shadows, not the
+     * spec's cool-ink ones in `tokens.ts`. Must mirror that scale here. */
+    shadows: {
+        xs: { value: "0 1px 2px rgba(17, 27, 34, 0.05)" },
+        sm: { value: "0 1px 2px rgba(17, 27, 34, 0.06), 0 1px 3px rgba(17, 27, 34, 0.08)" },
+        md: { value: "0 4px 6px -1px rgba(17, 27, 34, 0.08), 0 2px 4px -2px rgba(17, 27, 34, 0.06)" },
+        lg: { value: "0 10px 15px -3px rgba(17, 27, 34, 0.10), 0 4px 6px -4px rgba(17, 27, 34, 0.08)" },
+        xl: { value: "0 20px 25px -5px rgba(17, 27, 34, 0.12), 0 8px 10px -6px rgba(17, 27, 34, 0.10)" },
     },
 });

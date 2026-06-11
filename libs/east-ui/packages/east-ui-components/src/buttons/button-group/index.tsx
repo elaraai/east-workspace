@@ -6,7 +6,7 @@
 import { memo, useMemo } from "react";
 import { Group as ChakraGroup, type GroupProps } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { ButtonGroup } from "@elaraai/east-ui";
+import { ButtonGroup } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 import { EastChakraButton } from "../button";

@@ -5,7 +5,7 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { East, NullType } from "@elaraai/east";
-import { EditableChip, Text } from "@elaraai/east-ui";
+import { EditableChip, Text } from "@elaraai/east-ui/internal";
 import * as ex from "./editable-chip.examples.js";
 
 describeEast("EditableChip", (test) => {
@@ -14,6 +14,7 @@ describeEast("EditableChip", (test) => {
         editableChipWithCallback: ex.editableChipWithCallback,
         editableChipDisabled: ex.editableChipDisabled,
         editableChipStyled: ex.editableChipStyled,
+        editableChipDensities: ex.editableChipDensities,
         editableChipReactive: ex.editableChipReactive,
     });
 

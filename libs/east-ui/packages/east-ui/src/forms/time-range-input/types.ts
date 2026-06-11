@@ -105,6 +105,10 @@ export type TimeRangeInputStyleType = typeof TimeRangeInputStyleType;
  * @property focusBorderColor - Explicit border colour while focused
  */
 export interface TimeRangeInputStyle {
+    /** Start of range, minutes since midnight (0–1439) — required. */
+    startValue: SubtypeExprOrValue<IntegerType>;
+    /** End of range, minutes since midnight (0–1439) — required. */
+    endValue: SubtypeExprOrValue<IntegerType>;
     /** Lower-bound minute value (0–1439). */
     min?: SubtypeExprOrValue<IntegerType>;
     /** Upper-bound minute value (0–1439). */

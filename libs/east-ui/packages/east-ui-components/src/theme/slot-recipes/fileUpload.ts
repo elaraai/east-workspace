@@ -4,7 +4,8 @@
  */
 
 /**
- * FileUpload slot recipe — dashed dropzone over `bg.canvas`.
+ * FileUpload slot recipe — content-sized dashed dropzone + bordered file rows.
+ * Dropzone content layout (stacked vs inline) is driven by the renderer.
  *
  * @packageDocumentation
  */
@@ -19,19 +20,21 @@ export const fileUploadSlotRecipe = defineSlotRecipe({
         "itemSizeText", "itemDeleteTrigger", "itemContent", "fileText",
     ],
     base: {
-        /* bsys §FileUpload (L2352-2400): full-width 1.5px dashed dropzone over
-         * paper-2 background. Centred: arrow icon · primary text · mono caption. */
         root: { display: "flex", flexDirection: "column", gap: "{spacing.3}", width: "100%" },
         label: { textStyle: "caption.eyebrow" },
         dropzone: {
             width: "100%",
+            // Chakra's default dropzone forces a tall fixed min-height; the spec
+            // box is content-sized, so drop the min and let it stay compact — a
+            // flex parent can still stretch it when a large drop target is wanted.
+            minHeight: "0",
             borderWidth: "1.5px",
             borderStyle: "dashed",
             borderColor: "border.strong",
             borderRadius: "{radii.lg}",
             paddingX: "{spacing.6}",
             paddingY: "{spacing.6}",
-            background: "bg.subtle",
+            background: "bg.panel",
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
@@ -44,19 +47,11 @@ export const fileUploadSlotRecipe = defineSlotRecipe({
             _hover: { borderColor: "border.brand", background: "bg.brand.subtle" },
             "&[data-accept]": { borderColor: "border.brand", background: "bg.brand.subtle" },
         },
-        dropzoneContent: {
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "{spacing.2}",
-            textAlign: "center",
-        },
         itemGroup: { display: "flex", flexDirection: "column", gap: "{spacing.1}" },
         item: {
             display: "flex",
             alignItems: "center",
-            gap: "{spacing.2}",
+            gap: "{spacing.3}",
             paddingX: "{spacing.3}",
             paddingY: "{spacing.2}",
             borderWidth: "1px",

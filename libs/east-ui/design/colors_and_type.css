@@ -51,7 +51,7 @@
   --bg-tertiary:  var(--gray-100);
   --bg-inverse:   var(--brand-900);
 
-  --fg-primary:   var(--brand-900);   /* headings, body — matches spec.css --ink */
+  --fg-primary:   var(--gray-900);    /* headings, body */
   --fg-secondary: var(--gray-600);    /* secondary text */
   --fg-muted:     var(--gray-500);    /* labels, captions */
   --fg-inverse:   #ffffff;

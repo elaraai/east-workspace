@@ -4,7 +4,10 @@
 #
 """SFTP platform functions for East.
 
-Provides SFTP file transfer operations for East programs.
+Provides SFTP file transfer operations for East programs.  The ``*_impl``
+functions are plain Python callables taking and returning East values - import
+them directly from a project's own ``@platform_function`` to reuse the
+implementations without an IR round-trip.
 """
 
 import importlib.util
@@ -17,7 +20,7 @@ _HAS_SFTP_SUPPORT = importlib.util.find_spec("asyncssh") is not None
 
 
 def _check_sftp_support() -> None:
-    """Check if SFTP support is available."""
+    """Raise if the sftp extra (asyncssh) isn't installed."""
     if not _HAS_SFTP_SUPPORT:
         raise NotImplementedError(
             "SFTP support requires the 'sftp' extra. "
@@ -38,7 +41,31 @@ _connections: dict[str, tuple[Any, Any]] = {}
     output=ConnectionHandleType,
 )
 async def sftp_connect_impl(config: EastStruct) -> str:
-    """Connect to an SFTP server."""
+    """Open a connection to an SFTP server and return a session handle.
+
+    Connects with a private key when ``privateKey`` is present; falls back
+    to password authentication otherwise.  Host key checking is disabled
+    (``known_hosts=None``).
+
+    Args:
+        config: ``SftpConfigType`` (``EastStruct``) with fields:
+
+            - ``host`` (``String``): server hostname or IP.
+            - ``port`` (``Integer``): server port (typically 22).
+            - ``username`` (``String``): login username.
+            - ``password`` (``Option<String>``): password; used when
+              ``privateKey`` is absent.
+            - ``privateKey`` (``Option<String>``): PEM-encoded private key;
+              preferred over password when both are present.
+
+    Returns:
+        ``ConnectionHandleType`` (``String``) - opaque UUID identifying the
+        live session; pass to all subsequent ``sftp_*`` calls.
+
+    Raises:
+        NotImplementedError: the ``sftp`` extra (asyncssh) is not installed.
+        Exception: connection or authentication failure.
+    """
     _check_sftp_support()
     import asyncssh
 
@@ -53,7 +80,6 @@ async def sftp_connect_impl(config: EastStruct) -> str:
         private_key_opt = config["privateKey"]
         private_key = private_key_opt.value if private_key_opt.type == "some" else None
 
-        # Connect with password or key
         if private_key:
             conn = await asyncssh.connect(
                 host,
@@ -87,7 +113,20 @@ async def sftp_connect_impl(config: EastStruct) -> str:
     output=NullType,
 )
 async def sftp_put_impl(handle: str, remote_path: str, data: EastBlob) -> None:
-    """Upload a file to SFTP server."""
+    """Upload a file to an SFTP server.
+
+    Args:
+        handle: ``ConnectionHandleType`` (``String``) - session handle from
+            :func:`sftp_connect_impl`.
+        remote_path: ``String`` - destination path on the server.
+        data: ``Blob`` (``EastBlob``) - binary content to upload.
+
+    Returns:
+        ``Null`` on success.
+
+    Raises:
+        Exception: invalid handle, or upload failure.
+    """
     try:
         if handle not in _connections:
             raise Exception(f"Invalid connection handle: {handle}")
@@ -106,7 +145,19 @@ async def sftp_put_impl(handle: str, remote_path: str, data: EastBlob) -> None:
     output=BlobType,
 )
 async def sftp_get_impl(handle: str, remote_path: str) -> EastBlob:
-    """Download a file from SFTP server."""
+    """Download a file from an SFTP server.
+
+    Args:
+        handle: ``ConnectionHandleType`` (``String``) - session handle from
+            :func:`sftp_connect_impl`.
+        remote_path: ``String`` - source path on the server.
+
+    Returns:
+        ``Blob`` (``EastBlob``) - raw file content.
+
+    Raises:
+        Exception: invalid handle, or download failure.
+    """
     try:
         if handle not in _connections:
             raise Exception(f"Invalid connection handle: {handle}")
@@ -126,7 +177,22 @@ async def sftp_get_impl(handle: str, remote_path: str) -> EastBlob:
     output=FileListType,
 )
 async def sftp_list_impl(handle: str, remote_path: str) -> EastArray:
-    """List files in a directory on SFTP server."""
+    """List entries in a directory on an SFTP server.
+
+    Args:
+        handle: ``ConnectionHandleType`` (``String``) - session handle from
+            :func:`sftp_connect_impl`.
+        remote_path: ``String`` - directory path to list.
+
+    Returns:
+        ``Array<FileEntryType>`` (``EastArray``) - one ``FileEntryType``
+        struct per entry: ``name`` (``String``), ``path`` (``String``),
+        ``size`` (``Integer``), ``isDirectory`` (``Boolean``),
+        ``modifiedTime`` (``String`` - mtime as a numeric string, or empty).
+
+    Raises:
+        Exception: invalid handle, or listing failure.
+    """
     import asyncssh
 
     try:
@@ -160,7 +226,19 @@ async def sftp_list_impl(handle: str, remote_path: str) -> EastArray:
     output=NullType,
 )
 async def sftp_delete_impl(handle: str, remote_path: str) -> None:
-    """Delete a file from SFTP server."""
+    """Delete a file on an SFTP server.
+
+    Args:
+        handle: ``ConnectionHandleType`` (``String``) - session handle from
+            :func:`sftp_connect_impl`.
+        remote_path: ``String`` - path of the file to delete.
+
+    Returns:
+        ``Null`` on success.
+
+    Raises:
+        Exception: invalid handle, or deletion failure.
+    """
     try:
         if handle not in _connections:
             raise Exception(f"Invalid connection handle: {handle}")
@@ -177,7 +255,20 @@ async def sftp_delete_impl(handle: str, remote_path: str) -> None:
     output=NullType,
 )
 async def sftp_close_impl(handle: str) -> None:
-    """Close SFTP connection."""
+    """Close a single SFTP session gracefully.
+
+    Exits the SFTP subsystem then closes the underlying SSH connection.
+
+    Args:
+        handle: ``ConnectionHandleType`` (``String``) - session handle from
+            :func:`sftp_connect_impl`.
+
+    Returns:
+        ``Null`` on success.
+
+    Raises:
+        Exception: invalid handle, or close failure.
+    """
     try:
         if handle not in _connections:
             raise Exception(f"Invalid connection handle: {handle}")
@@ -196,7 +287,14 @@ async def sftp_close_impl(handle: str) -> None:
     output=NullType,
 )
 async def sftp_close_all_impl() -> None:
-    """Close all SFTP connections."""
+    """Close all open SFTP sessions.
+
+    Exits each SFTP subsystem and closes its SSH connection.  Errors on
+    individual sessions are suppressed.
+
+    Returns:
+        ``Null`` on success.
+    """
     for conn, sftp in _connections.values():
         try:
             sftp.exit()

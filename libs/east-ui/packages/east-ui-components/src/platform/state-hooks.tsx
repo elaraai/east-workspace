@@ -14,7 +14,7 @@ import {
     type ReactNode,
 } from "react";
 import { Skeleton } from "@chakra-ui/react";
-import { UIComponentType } from "@elaraai/east-ui";
+import { UIComponentType } from "@elaraai/east-ui/internal";
 import { type UIStoreInterface } from "./state-store.js";
 import { getStore } from "./state-runtime.js";
 import { EastChakraComponent } from "../component.js";
@@ -158,7 +158,7 @@ export interface EastComponentProps {
  * @example
  * ```tsx
  * import { East, IntegerType, NullType, some } from "@elaraai/east";
- * import { State, Button, Reactive, UIComponentType } from "@elaraai/east-ui";
+ * import { State, Button, Reactive, UIComponentType } from "@elaraai/east-ui/internal";
  * import { EastComponent, UIStoreProvider, StateImpl } from "@elaraai/east-ui-components";
  *
  * // Define an East function with reactive parts
@@ -242,7 +242,7 @@ export interface EastFunctionProps {
  * ```tsx
  * import { East } from "@elaraai/east";
  * import { EastFunction } from "@elaraai/east-ui-components";
- * import { Button, Reactive, UIComponentType } from "@elaraai/east-ui";
+ * import { Button, Reactive, UIComponentType } from "@elaraai/east-ui/internal";
  *
  * // Define the UI function with reactive parts
  * const myUI = East.function([], UIComponentType, $ => {
@@ -285,7 +285,11 @@ export function EastFunction({ ir, storageKey }: EastFunctionProps) {
     }, [ir]);
 
     if (state.kind === "loading") {
-        return <Skeleton h="full" w="full" />;
+        /* `h="full"` resolves to 0 inside auto-height containers (e.g. a
+         * content-hugging frame), which would hide the skeleton exactly when
+         * it's needed — `minH` keeps it visible there while `full` still
+         * fills fixed-height hosts. */
+        return <Skeleton h="full" w="full" minH="56px" />;
     }
     if (state.kind === "error") {
         const info = toEastErrorInfo(state.error);

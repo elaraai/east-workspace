@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Numeric, Format } from "@elaraai/east-ui";
+import { Numeric, Format } from "@elaraai/east-ui/internal";
 import * as ex from "./numeric.examples.js";
 
 describeEast("Numeric", (test) => {

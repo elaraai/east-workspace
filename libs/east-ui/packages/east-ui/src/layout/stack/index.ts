@@ -15,6 +15,7 @@ import {
 } from "@elaraai/east";
 
 import {
+    DensityType,
     FlexDirectionType,
     JustifyContentType,
     AlignItemsType,
@@ -44,13 +45,16 @@ export { StackStyleType, type StackStyle } from "./types.js";
  * Stack is a container component that arranges children in a single direction.
  *
  * @property children - Array of child UI components
+ * @property density - Optional density the stack provides to its children via the density cascade
  * @property style - Optional styling configuration wrapped in OptionType
  */
 export const StackType: StructType<{
     children: ArrayType<UIComponentType>,
+    density: OptionType<DensityType>,
     style: OptionType<StackStyleType>,
 }> = StructType({
     children: ArrayType(UIComponentType),
+    density: OptionType(DensityType),
     style: OptionType(StackStyleType),
 });
 
@@ -90,6 +94,12 @@ function createStack(
     children: SubtypeExprOrValue<ArrayType<UIComponentType>>,
     style?: StackStyle
 ): ExprType<UIComponentType> {
+    const densityValue = style?.density
+        ? (typeof style.density === "string"
+            ? East.value(variant(style.density, null), DensityType)
+            : style.density)
+        : undefined;
+
     const directionValue = style?.direction
         ? (typeof style.direction === "string"
             ? East.value(variant(style.direction, null), FlexDirectionType)
@@ -204,6 +214,7 @@ function createStack(
 
     return East.value(variant("Stack", {
         children: children,
+        density: densityValue ? variant("some", densityValue) : variant("none", null),
         style: style ? variant("some", East.value({
             direction: directionValue ? variant("some", directionValue) : variant("none", null),
             gap: style.gap ? variant("some", style.gap) : variant("none", null),

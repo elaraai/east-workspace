@@ -7,8 +7,9 @@ import { memo, useCallback, useState, useEffect, useMemo, useRef } from "react";
 import { HStack, VStack, Wrap, Button, Text, Box } from "@chakra-ui/react";
 import { CalendarDate, Time, type DateValue } from "@internationalized/date";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { DateRangeInput } from "@elaraai/east-ui";
+import { DateRangeInput } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
+import { fieldChrome, fieldFocusRing } from "../../theme/field-chrome";
 import {
     CompoundDateField,
     CompoundDateInput,
@@ -129,27 +130,18 @@ export const EastChakraDateRangeInput = memo(function EastChakraDateRangeInput({
     }, [onChangeFn]);
 
     const fontSize = sizeTag === "sm" || sizeTag === "xs" ? "sm" : sizeTag === "lg" ? "lg" : "md";
-    const px = sizeTag === "sm" || sizeTag === "xs" ? 2 : sizeTag === "lg" ? 4 : 3;
-    const py = sizeTag === "sm" || sizeTag === "xs" ? 1 : sizeTag === "lg" ? 2.5 : 1.5;
 
     const fieldShell = {
+        ...fieldChrome,
         display: "inline-flex",
         alignItems: "center",
-        gap: 2,
-        borderWidth: "1px",
-        borderStyle: "solid",
-        borderColor: borderColor ?? "border",
-        borderRadius: "md",
-        bg: background,
-        color: colour,
-        px,
-        py,
-        fontSize,
+        gap: "{spacing.2}",
+        ...(background !== undefined ? { background } : {}),
+        ...(colour !== undefined ? { color: colour } : {}),
+        ...(borderColor !== undefined ? { borderColor } : {}),
         opacity: disabled ? 0.6 : 1,
-        _focusWithin: focusBorderColor
-            ? { borderColor: focusBorderColor }
-            : { borderColor: "brand.500" },
-    } as const;
+        _focusWithin: focusBorderColor ? { borderColor: focusBorderColor } : fieldFocusRing,
+    };
 
     const renderField = (
         bits: DateTimeBits,
@@ -159,7 +151,7 @@ export const EastChakraDateRangeInput = memo(function EastChakraDateRangeInput({
     ) => {
         if (precision === "time") {
             return (
-                <Box {...fieldShell}>
+                <Box css={fieldShell}>
                     <TimeField value={bits.time} onChange={onTimeChange} isReadOnly={disabled} aria-label={`${ariaPrefix} time`}>
                         <TimeInput>
                             {({ segment }) => <TimeSegment segment={segment} />}
@@ -170,7 +162,7 @@ export const EastChakraDateRangeInput = memo(function EastChakraDateRangeInput({
         }
         if (precision === "date") {
             return (
-                <Box {...fieldShell}>
+                <Box css={fieldShell}>
                     <CompoundDateField value={bits.calendar} onChange={onDateChange} isReadOnly={disabled} aria-label={`${ariaPrefix} date`}>
                         <CompoundDateInput>
                             {({ segment }) => <CompoundDateSegment segment={segment} />}
@@ -180,7 +172,7 @@ export const EastChakraDateRangeInput = memo(function EastChakraDateRangeInput({
             );
         }
         return (
-            <Box {...fieldShell}>
+            <Box css={fieldShell}>
                 <CompoundDateField value={bits.calendar} onChange={onDateChange} isReadOnly={disabled} aria-label={`${ariaPrefix} date`}>
                     <CompoundDateInput>
                         {({ segment }) => <CompoundDateSegment segment={segment} />}

@@ -5,13 +5,7 @@
 
 import {
     type ExprType,
-    type SubtypeExprOrValue,
     East,
-    FunctionType,
-    IntegerType,
-    NullType,
-    OptionType,
-    StructType,
     variant,
     some,
     none,
@@ -22,6 +16,7 @@ import {
     PaginationSizeType,
     PaginationVariantType,
     PaginationStyleType,
+    PaginationType,
     type PaginationOptions,
 } from "./types.js";
 
@@ -29,44 +24,9 @@ export {
     PaginationSizeType,
     PaginationVariantType,
     PaginationStyleType,
+    PaginationType,
     type PaginationOptions,
 } from "./types.js";
-
-// ============================================================================
-// PaginationType — standalone mirror of the inline variant in component.ts
-// ============================================================================
-
-/**
- * Standalone East StructType mirror of the inline `Pagination` variant
- * in `component.ts`.
- *
- * @remarks
- * Per the 0 main/style type-shape convention, main carries content
- * (`page` / `pageSize` / `count`) and behaviour (`onPageChange`);
- * `style` carries visual fields only.
- *
- * @property page - Current 0-based page index
- * @property pageSize - Number of items per page
- * @property count - Total item count (drives the page-number range)
- * @property onPageChange - Callback fired when the user picks a new page
- * @property style - Optional visual style sub-struct
- */
-export const PaginationType: StructType<{
-    page: IntegerType,
-    pageSize: IntegerType,
-    count: IntegerType,
-    onPageChange: FunctionType<[IntegerType], NullType>,
-    style: OptionType<PaginationStyleType>,
-}> = StructType({
-    page: IntegerType,
-    pageSize: IntegerType,
-    count: IntegerType,
-    onPageChange: FunctionType([IntegerType], NullType),
-    style: OptionType(PaginationStyleType),
-});
-
-/** Type alias for PaginationType. */
-export type PaginationType = typeof PaginationType;
 
 // ============================================================================
 // Helpers
@@ -116,11 +76,8 @@ function buildPaginationStyle(options: PaginationOptions | undefined): ExprType<
  * Creates a Pagination component value — a standalone page-navigation
  * control.
  *
- * @param page - Current 0-based page index
- * @param pageSize - Number of items per page
- * @param count - Total item count (drives the page range)
- * @param onPageChange - Callback fired with the new 0-based page index
- * @param options - Optional visual style
+ * @param options - Required `page` / `pageSize` / `count` / `onPageChange`,
+ *   optional visual style fields
  * @returns An East expression of type `UIComponentType`
  *
  * @remarks
@@ -143,18 +100,15 @@ function buildPaginationStyle(options: PaginationOptions | undefined): ExprType<
  *         const onChange = $.const(East.function([IntegerType], NullType, ($, next) => {
  *             $(State.write([IntegerType], "page", next));
  *         }));
- *         return Pagination.Root(page, 20n, 500n, onChange, { size: "md" });
+ *         return Pagination.Root({ page, pageSize: 20n, count: 500n, onPageChange: onChange, size: "md" });
  *     }));
  * });
  * ```
  */
 function createPagination(
-    page: SubtypeExprOrValue<IntegerType>,
-    pageSize: SubtypeExprOrValue<IntegerType>,
-    count: SubtypeExprOrValue<IntegerType>,
-    onPageChange: SubtypeExprOrValue<FunctionType<[IntegerType], NullType>>,
-    options?: PaginationOptions,
+    options: PaginationOptions,
 ): ExprType<UIComponentType> {
+    const { page, pageSize, count, onPageChange } = options;
     const styleValue = buildPaginationStyle(options);
 
     return East.value(variant("Pagination", {
@@ -184,7 +138,7 @@ interface PaginationNamespace {
  * Pagination — standalone page navigation primitive.
  *
  * @remarks
- * Use `Pagination.Root(page, pageSize, count, onPageChange, options?)`.
+ * Use `Pagination.Root({ page, pageSize, count, onPageChange, ... })`.
  * Consumed by Table internally and usable standalone beneath paged
  * collections (BarStrip, etc.).
  */
@@ -192,11 +146,8 @@ export const Pagination: PaginationNamespace = {
     /**
      * Creates a Pagination component value.
      *
-     * @param page - Current 0-based page index
-     * @param pageSize - Number of items per page
-     * @param count - Total item count
-     * @param onPageChange - Callback fired with the new 0-based page index
-     * @param options - Optional visual style (size / variant / colour slots / siblings / boundaries)
+     * @param options - Required `page` / `pageSize` / `count` / `onPageChange`,
+     *   optional visual style (size / variant / colour slots / siblings / boundaries)
      * @returns An East expression of type `UIComponentType`
      *
      * @example
@@ -213,7 +164,7 @@ export const Pagination: PaginationNamespace = {
      *         const onChange = $.const(East.function([IntegerType], NullType, ($, next) => {
      *             $(State.write([IntegerType], "page", next));
      *         }));
-     *         return Pagination.Root(page, 20n, 500n, onChange, { size: "md", variant: "outline" });
+     *         return Pagination.Root({ page, pageSize: 20n, count: 500n, onPageChange: onChange, size: "md", variant: "outline" });
      *     }));
      * });
      * ```

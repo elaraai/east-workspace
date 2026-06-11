@@ -12,7 +12,7 @@ import {
     none,
 } from "@elaraai/east";
 
-import { SizeType, ColorSchemeType, OverflowType, StyleVariantType } from "../../style.js";
+import { SizeType, ColorSchemeType, DensityType, OverflowType, StyleVariantType } from "../../style.js";
 import { PaddingType, MarginType } from "../../layout/style.js";
 import { UIComponentType } from "../../component.js";
 import { AvatarType, AvatarStyleType, type AvatarStyle } from "../avatar/types.js";
@@ -179,9 +179,16 @@ function buildAvatar(style: AvatarStyle): ExprType<AvatarType> {
         }, AvatarStyleType)
         : undefined;
 
+    const densityValue = style.density !== undefined
+        ? (typeof style.density === "string"
+            ? East.value(variant(style.density, null), DensityType)
+            : style.density)
+        : undefined;
+
     return East.value({
         src: style.src !== undefined ? some(style.src) : none,
         name: style.name !== undefined ? some(style.name) : none,
+        density: densityValue ? some(densityValue) : none,
         style: styleExpr ? some(styleExpr) : none,
     }, AvatarType);
 }
@@ -192,10 +199,16 @@ function createAvatarGroup(
 ): ExprType<UIComponentType> {
     const avatarValues = avatars.map(buildAvatar);
     const styleValue = buildAvatarGroupStyle(options);
+    const densityValue = options?.density !== undefined
+        ? (typeof options.density === "string"
+            ? East.value(variant(options.density, null), DensityType)
+            : options.density)
+        : undefined;
 
     return East.value(variant("AvatarGroup", {
         avatars: East.value(avatarValues, ArrayType(AvatarType)),
         max: options?.max !== undefined ? some(options.max) : none,
+        density: densityValue ? some(densityValue) : none,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
@@ -240,6 +253,7 @@ export const AvatarGroup: AvatarGroupNamespace = {
          *
          * @property avatars - Array of Avatar values
          * @property max - Optional overflow threshold
+         * @property density - Density override; shares the cascade with `ChipRail` / `Trace` so mixed display cells align
          * @property style - Optional visual style sub-struct
          */
         AvatarGroup: AvatarGroupType,

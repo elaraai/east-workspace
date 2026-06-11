@@ -6,7 +6,7 @@
 import { memo, useMemo } from "react";
 import { Mark as ChakraMark, type MarkProps } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Mark } from "@elaraai/east-ui";
+import { Mark } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 
 // Pre-define the equality function at module level

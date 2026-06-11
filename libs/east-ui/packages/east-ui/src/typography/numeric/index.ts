@@ -48,7 +48,7 @@ export {
  * @returns An East expression representing the Numeric component
  */
 function createNumeric(
-    value: SubtypeExprOrValue<FloatType> | number,
+    value: SubtypeExprOrValue<FloatType>,
     style?: NumericStyle,
 ): ExprType<UIComponentType> {
     const valueExpr = typeof value === "number"

@@ -5,6 +5,7 @@
 import type { AST, Label, VariableAST } from "./ast.js";
 import type { IR, IRLabel, VariableIR } from "./ir.js";
 import { toEastTypeValue, type LiteralValue } from "./type_of_type.js";
+import { typeMismatchError } from "./type_diff.js";
 import { ArrayType, DictType, type EastType, FunctionType, getTypeId, isSubtype, isTypeEqual, NeverType, NullType, printType, RefType, SetType, StructType, VariantType, VectorType, MatrixType } from "./types.js";
 import { variant } from "./containers/variant.js";
 import { applyTypeParameters, Builtins } from "./builtins.js";
@@ -55,9 +56,7 @@ export function coerce_to(
   if (isTypeEqual(source_type, target_type)) return value_ir;
 
   if (!isSubtype(source_type, target_type)) {
-    throw new Error(
-      `Cannot coerce value of type ${printType(source_type)} to ${printType(target_type)} at loc_id ${loc_id}`
-    );
+    throw typeMismatchError(source_type, target_type, { loc_id });
   }
 
   const sid = getTypeId(source_type);
@@ -150,12 +149,6 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       });
 
       if (!isTypeEqual(ast.value.type, ast.variable.type)) {
-        if (!isSubtype(ast.value.type, ast.variable.type)) {
-          throw new Error(
-            `Cannot initialize variable of type ${printType(ast.variable.type)} ` +
-            `with value of type ${printType(ast.value.type)} at loc_id ${ast.loc_id}`
-          );
-        }
         value = coerce_to(value, ast.value.type, ast.variable.type, ast.loc_id);
       }
 
@@ -179,12 +172,6 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       let value = ast_to_ir(ast.value, ctx);
 
       if (!isTypeEqual(ast.value.type, ast.variable.type)) {
-        if (!isSubtype(ast.value.type, ast.variable.type)) {
-          throw new Error(
-            `Cannot assign value of type ${printType(ast.value.type)} ` +
-            `to variable of type ${printType(ast.variable.type)} at loc_id ${ast.loc_id}`
-          );
-        }
         value = coerce_to(value, ast.value.type, ast.variable.type, ast.loc_id);
       }
 
@@ -233,11 +220,6 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
           const expectedType = applyTypeParameters(builtin_def.inputs[i]!, type_map, [], []);
 
           if (arg.type.type !== "Never" && !isTypeEqual(arg.type, expectedType)) {
-            if (!isSubtype(arg.type, expectedType)) {
-              throw new Error(
-                `Builtin ${builtin_name} with type parameters [${ast.type_parameters.map(tp => printType(tp)).join(", ")}] argument ${i} of type ${printType(arg.type)} is not compatible with expected type ${printType(expectedType)} at loc_id ${ast.loc_id}`
-              );
-            }
             arg_ir = coerce_to(arg_ir, arg.type, expectedType, ast.loc_id);
           }
 
@@ -269,14 +251,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
             throw new Error(`Struct type does not have field '${name}' at loc_id ${ast.loc_id}`);
           }
           if (!isTypeEqual(fieldAst.type, expectedType)) {
-            if (isSubtype(fieldAst.type, expectedType)) {
-              value = coerce_to(value, fieldAst.type, expectedType, ast.loc_id);
-            } else {
-              throw new Error(
-                `Cannot assign field '${name}' of type ${printType((ast.type as StructType).fields[name]!)} ` +
-                `with value of type ${printType(fieldAst.type)} at loc_id ${ast.loc_id}`
-              );
-            }
+            value = coerce_to(value, fieldAst.type, expectedType, ast.loc_id);
           }
           return { name, value };
         }),
@@ -291,15 +266,11 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
     } else if (ast.ast_type === "Variant") {
       const expectedType = (ast.type as VariantType).cases[ast.case];
       let value = ast_to_ir(ast.value, ctx);
+      if (!expectedType) {
+        throw new Error(`Variant type does not have case '${ast.case}' at loc_id ${ast.loc_id}`);
+      }
       if (!isTypeEqual(ast.value.type, expectedType)) {
-        if (isSubtype(ast.value.type, expectedType)) {
-          value = coerce_to(value, ast.value.type, expectedType, ast.loc_id);
-        } else {
-          throw new Error(
-            `Cannot assign case '${ast.case}' of type ${printType(expectedType)} ` +
-            `with value of type ${printType(ast.value.type)} at loc_id ${ast.loc_id}`
-          );
-        }
+        value = coerce_to(value, ast.value.type, expectedType, ast.loc_id);
       }
       return variant("Variant", {
         type: toEastTypeValue(ast.type),
@@ -405,11 +376,6 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
           const expectedType = (ast.function.type as FunctionType).inputs[i];
 
           if (!isTypeEqual(argument.type, expectedType)) {
-            if (!isSubtype(argument.type, expectedType)) {
-              throw new Error(
-                `Argument ${i} of type ${printType(argument.type)} is not compatible with expected type ${printType(expectedType)} at loc_id ${ast.loc_id}`
-              );
-            }
             arg = coerce_to(arg, argument.type, expectedType, ast.loc_id);
           }
 
@@ -432,11 +398,6 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
           const expectedType = (ast.function.type as FunctionType).inputs[i];
 
           if (!isTypeEqual(argument.type, expectedType)) {
-            if (!isSubtype(argument.type, expectedType)) {
-              throw new Error(
-                `Argument ${i} of type ${printType(argument.type)} is not compatible with expected type ${printType(expectedType)} at loc_id ${ast.loc_id}`
-              );
-            }
             arg = coerce_to(arg, argument.type, expectedType, ast.loc_id);
           }
 
@@ -447,11 +408,6 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       const valueType = (ast.type as RefType).value;
       let value = ast_to_ir(ast.value, ctx);
       if (!isTypeEqual(ast.value.type, valueType)) {
-        if (!isSubtype(ast.value.type, valueType)) {
-          throw new Error(
-            `Ref value of type ${printType(ast.value.type)} is not compatible with expected type ${printType(valueType)} at loc_id ${ast.loc_id}`
-          );
-        }
         value = coerce_to(value, ast.value.type, valueType, ast.loc_id);
       }
 
@@ -465,14 +421,9 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       return variant("NewArray", {
         type: toEastTypeValue(ast.type),
         loc_id: ast.loc_id,
-        values: ast.values.map((v, i) => {
+        values: ast.values.map((v) => {
           let value = ast_to_ir(v, ctx);
           if (!isTypeEqual(v.type, valueType)) {
-            if (!isSubtype(v.type, valueType)) {
-              throw new Error(
-                `Array value at entry ${i} of type ${printType(v.type)} is not compatible with expected type ${printType(valueType)} at loc_id ${ast.loc_id}`
-              );
-            }
             value = coerce_to(value, v.type, valueType, ast.loc_id);
           }
 
@@ -484,14 +435,9 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       return variant("NewSet", {
         type: toEastTypeValue(ast.type),
         loc_id: ast.loc_id,
-        values: ast.values.map((k, i) => {
+        values: ast.values.map((k) => {
           let key = ast_to_ir(k, ctx);
           if (!isTypeEqual(k.type, keyType)) {
-            if (!isSubtype(k.type, keyType)) {
-              throw new Error(
-                `Set key at entry ${i} of type ${printType(k.type)} is not compatible with expected type ${printType(keyType)} at loc_id ${ast.loc_id}`
-              );
-            }
             key = coerce_to(key, k.type, keyType, ast.loc_id);
           }
 
@@ -504,24 +450,14 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       return variant("NewDict", {
         type: toEastTypeValue(ast.type),
         loc_id: ast.loc_id,
-        values: ast.values.map(([k, v], i) => {
+        values: ast.values.map(([k, v]) => {
           let key = ast_to_ir(k, ctx);
           if (!isTypeEqual(k.type, keyType)) {
-            if (!isSubtype(k.type, keyType)) {
-              throw new Error(
-                `Dict key at entry ${i} of type ${printType(k.type)} is not compatible with expected type ${printType(keyType)} at loc_id ${ast.loc_id}`
-              );
-            }
             key = coerce_to(key, k.type, keyType, ast.loc_id);
           }
 
           let value = ast_to_ir(v, ctx);
           if (!isTypeEqual(v.type, valueType)) {
-            if (!isSubtype(v.type, valueType)) {
-              throw new Error(
-                `Dict value at entry ${i} of type ${printType(v.type)} is not compatible with expected type ${printType(valueType)} at loc_id ${ast.loc_id}`
-              );
-            }
             value = coerce_to(value, v.type, valueType, ast.loc_id);
           };
 
@@ -548,11 +484,6 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
         ctx.n_loops = ctx_branch.n_loops;
 
         if (branch.body.type.type !== "Never" && !isTypeEqual(branch.body.type, ast.type)) {
-          if (!isSubtype(branch.body.type, ast.type)) {
-            throw new Error(
-              `If branch body of type ${printType(branch.body.type)} is not compatible with expected type ${printType(ast.type)} at loc_id ${ast.loc_id}`
-            );
-          }
           branch_body = coerce_to(branch_body, branch.body.type, ast.type, ast.loc_id);
         }
 
@@ -575,11 +506,6 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       ctx.n_loops = ctx_else.n_loops;
 
       if (ast.else_body.type.type !== "Never" && !isTypeEqual(ast.else_body.type, ast.type)) {
-        if (!isSubtype(ast.else_body.type, ast.type)) {
-          throw new Error(
-            `Else branch body of type ${printType(ast.else_body.type)} is not compatible with expected type ${printType(ast.type)} at loc_id ${ast.loc_id}`
-          );
-        }
         else_body = coerce_to(else_body, ast.else_body.type, ast.type, ast.loc_id);
       }
 
@@ -912,11 +838,6 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
         ctx.n_loops = ctx2.n_loops;
 
         if (v.body.type.type !== "Never" && !isTypeEqual(v.body.type, ast.type)) {
-          if (!isSubtype(v.body.type, ast.type)) {
-            throw new Error(
-              `Match case '${k}' body of type ${printType(v.body.type)} is not compatible with expected type ${printType(ast.type)} at loc_id ${ast.loc_id}`
-            );
-          }
           body = coerce_to(body, v.body.type, ast.type, ast.loc_id);
         }
 
@@ -983,7 +904,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       });
     } else if (ast.ast_type === "Return") {
       if (!isSubtype(ast.value.type, ctx.output)) {
-        throw new Error(`Attempted to return value of type ${printType(ast.value.type)} at loc_id ${ast.loc_id}, but function expected return type of ${printType(ctx.output)}`)
+        throw typeMismatchError(ast.value.type, ctx.output, { loc_id: ast.loc_id });
       }
 
       return variant("Return", {
@@ -996,14 +917,9 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       return variant("NewVector", {
         type: toEastTypeValue(ast.type),
         loc_id: ast.loc_id,
-        values: ast.values.map((v, i) => {
+        values: ast.values.map((v) => {
           let value = ast_to_ir(v, ctx);
           if (!isTypeEqual(v.type, elementType)) {
-            if (!isSubtype(v.type, elementType)) {
-              throw new Error(
-                `Vector value at entry ${i} of type ${printType(v.type)} is not compatible with expected type ${printType(elementType)} at loc_id ${ast.loc_id}`
-              );
-            }
             value = coerce_to(value, v.type, elementType, ast.loc_id);
           }
           return value;
@@ -1016,14 +932,9 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
         loc_id: ast.loc_id,
         rows: BigInt(ast.rows),
         cols: BigInt(ast.cols),
-        values: ast.values.map((v, i) => {
+        values: ast.values.map((v) => {
           let value = ast_to_ir(v, ctx);
           if (!isTypeEqual(v.type, elementType)) {
-            if (!isSubtype(v.type, elementType)) {
-              throw new Error(
-                `Matrix value at entry ${i} of type ${printType(v.type)} is not compatible with expected type ${printType(elementType)} at loc_id ${ast.loc_id}`
-              );
-            }
             value = coerce_to(value, v.type, elementType, ast.loc_id);
           }
           return value;

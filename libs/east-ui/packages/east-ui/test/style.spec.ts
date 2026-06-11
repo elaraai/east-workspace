@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Style } from "@elaraai/east-ui";
+import { Style } from "@elaraai/east-ui/internal";
 import * as ex from "./style.examples.js";
 
 // -----------------------------------------------------------------------------
