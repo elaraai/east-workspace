@@ -1,6 +1,11 @@
 # Design: e3 functions — named package callables + graph-free execution
 
-> Status: **proposed (review-ready)** · 2026-06-02
+> Status: **implemented (PR-1, e3 monorepo)** · 2026-06-11
+> Implementation notes: the §14 migration open question was resolved as
+> **dual-decode** (`decodePackageObject` in e3-types, used by every e3-core
+> package-read path) — old bundles decode with `functions` defaulted empty.
+> Function-not-found reuses the `task_not_found` wire tag (adding a new
+> ErrorType tag would reorder its sorted variants — a breaking wire change).
 > Audience: e3 maintainers + an implementing agent. This is the **local/shared**
 > spec (e3 monorepo). The AWS cloud implementation is specified in the companion
 > doc `e3-cloud/design/e3-functions-cloud.md`, which depends on the published

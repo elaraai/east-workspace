@@ -8,6 +8,7 @@
  */
 
 import type {
+  FunctionDef,
   PackageDef,
   PackageItem,
   TaskDef,
@@ -54,11 +55,14 @@ import type {
 export function package_(
   name: string,
   version: string,
-  ...items: (PackageItem | PackageDef<any>)[]
+  ...items: (PackageItem | FunctionDef | PackageDef<any>)[]
 ): PackageDef<Record<string, unknown>> {
   // Recursively collect all items and their transitive dependencies
   const all_items = new Set<PackageItem>();
   const visited = new Set<PackageItem>();
+  // Functions have no deps and never enter the data tree — collected by
+  // name, separately from all_items.
+  const functions: Record<string, FunctionDef> = {};
 
   function collect(item: PackageItem): void {
     if (visited.has(item)) return;
@@ -78,6 +82,9 @@ export function package_(
       for (const dep of item.contents) {
         all_items.add(dep);
       }
+      Object.assign(functions, item.functions);
+    } else if (item.kind === "function") {
+      functions[item.name] = item;
     } else {
       collect(item);
     }
@@ -131,5 +138,6 @@ export function package_(
     version,
     datasets: datasets as any,
     contents: [...all_items],
+    functions,
   };
 }

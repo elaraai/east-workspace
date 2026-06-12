@@ -15,7 +15,7 @@
  * - **Task**: A computation with input/output paths (stored separately)
  */
 
-import { StructType, StringType, IntegerType, VariantType, NullType, DictType, ValueTypeOf } from '@elaraai/east';
+import { StructType, StringType, IntegerType, VariantType, NullType, DictType, ValueTypeOf, decodeBeast2For } from '@elaraai/east';
 import { DatasetRefType } from './dataset-ref.js';
 import { StructureType } from './structure.js';
 
@@ -77,10 +77,49 @@ export const PackageObjectType = StructType({
   tasks: DictType(StringType, StringType),
   /** Data structure and initial values */
   data: PackageDataType,
+  /** Functions defined in this package: name -> FunctionObject hash.
+   *  BEAST2 encodes struct fields positionally in declaration order, so this
+   *  field MUST stay last — never insert between `tasks` and `data`. */
+  functions: DictType(StringType, StringType),
 });
 export type PackageObjectType = typeof PackageObjectType;
 
 export type PackageObject = ValueTypeOf<typeof PackageObjectType>;
+
+/**
+ * The pre-`functions` package object wire shape, kept only so
+ * {@link decodePackageObject} can read packages exported before functions
+ * existed.
+ */
+const LegacyPackageObjectType = StructType({
+  tasks: DictType(StringType, StringType),
+  data: PackageDataType,
+});
+
+const decodeCurrent = decodeBeast2For(PackageObjectType);
+const decodeLegacy = decodeBeast2For(LegacyPackageObjectType);
+
+/**
+ * Decode a `PackageObject` from BEAST2 bytes, tolerating the pre-`functions`
+ * wire format (dual-decode migration).
+ *
+ * Every package-read path — local AND cloud — must use this instead of
+ * `decodeBeast2For(PackageObjectType)` directly, so packages exported before
+ * the `functions` field existed keep decoding. Old bytes decode with
+ * `functions` defaulted to an empty map.
+ */
+export function decodePackageObject(data: Uint8Array): PackageObject {
+  try {
+    return decodeCurrent(data);
+  } catch (err) {
+    try {
+      const legacy = decodeLegacy(data);
+      return { tasks: legacy.tasks, data: legacy.data, functions: new Map() };
+    } catch {
+      throw err; // neither shape — surface the current-format error
+    }
+  }
+}
 
 // =============================================================================
 // Package Transfer Types

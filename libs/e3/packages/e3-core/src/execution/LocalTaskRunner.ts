@@ -14,21 +14,7 @@
  */
 
 import * as fs from 'fs/promises';
-import { existsSync } from 'fs';
 import * as path from 'path';
-import crossSpawn from 'cross-spawn';
-import { spawn as nodeSpawn } from 'child_process';
-// On Windows, pnpm's workspace bins are `.cmd` / `.ps1` files, not real
-// executables. Node's `spawn(name, ...)` doesn't honour PATHEXT and
-// won't find `east-node.cmd` from a bare `east-node` invocation;
-// blanket `shell: true` works for that case but joins args into a
-// shell-parsed string, which then breaks commands like
-// `bash -c 'exit 42'` (the customTask path's bash wrapper). cross-spawn
-// targets exactly this gap — PATHEXT-aware resolution + correct arg
-// quoting for `.cmd`/`.bat`, passthrough for real binaries on POSIX.
-const spawn: typeof nodeSpawn = (process.platform === 'win32'
-  ? (crossSpawn as unknown as typeof nodeSpawn)
-  : nodeSpawn);
 import { tmpdir } from 'os';
 import { decodeBeast2For, variant } from '@elaraai/east';
 import { type ExecutionStatus, TaskObjectType, type TaskObject } from '@elaraai/e3-types';
@@ -37,6 +23,12 @@ import { uuidv7 } from '../uuid.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 import type { TaskRunner, TaskExecuteOptions, TaskResult } from './interfaces.js';
 import { getBootId, getPidStartTime } from './processHelpers.js';
+import { marshalInputsToDir, spawnAndCapture } from './processExec.js';
+import { runDetached, type DetachedSpec, type DetachedResult, type DetachedRunOptions } from './runDetached.js';
+
+// Re-exported from processExec.js (where the implementation moved) for
+// backwards compatibility — exported for testing, not public API.
+export { collectNodeModulesBins } from './processExec.js';
 
 /**
  * Options for task execution
@@ -114,6 +106,15 @@ export class LocalTaskRunner implements TaskRunner {
     }
 
     return taskResult;
+  }
+
+  async runDetached(spec: DetachedSpec, options?: DetachedRunOptions): Promise<DetachedResult> {
+    return runDetached(spec, {
+      signal: options?.signal,
+      // Anchor the runner-binary PATH walk at the repo's parent (the
+      // project dir), matching the tracked path's walk-up in spawnAndCapture.
+      runnerSearchDir: options?.runnerSearchDir ?? path.dirname(this.repo),
+    });
   }
 }
 
@@ -208,13 +209,7 @@ export async function taskExecute(
 
   try {
     // Step 5: Marshal inputs to scratch dir
-    const inputPaths: string[] = [];
-    for (let i = 0; i < inputHashes.length; i++) {
-      const inputPath = path.join(scratchDir, `input-${i}.beast2`);
-      const inputData = await storage.objects.read(repo, inputHashes[i]!);
-      await fs.writeFile(inputPath, inputData);
-      inputPaths.push(inputPath);
-    }
+    const inputPaths = await marshalInputsToDir(storage, repo, scratchDir, inputHashes);
 
     // Step 6: Evaluate command IR to get exec args
     const outputPath = path.join(scratchDir, 'output.beast2');
@@ -376,28 +371,11 @@ export async function taskExecute(
 }
 
 /**
- * Walk up from `startDir` and return every `node_modules/.bin` directory
- * found, ordered from nearest to furthest. Used to prepend each to a
- * spawned task's PATH so the runner CLI resolves no matter which level
- * of the monorepo a binary was hoisted to — pnpm puts shared bins at the
- * workspace root, package-local bins next to their consumer.
+ * Run a command and capture output.
  *
- * Exported for testing; not part of the package's public API.
- */
-export function collectNodeModulesBins(startDir: string): string[] {
-  const bins: string[] = [];
-  let dir = path.resolve(startDir);
-  while (true) {
-    const candidate = path.join(dir, 'node_modules', '.bin');
-    if (existsSync(candidate)) bins.push(candidate);
-    const parent = path.dirname(dir);
-    if (parent === dir) return bins;
-    dir = parent;
-  }
-}
-
-/**
- * Run a command and capture output
+ * Composes the persistence-free `spawnAndCapture` (processExec.ts) with the
+ * tracked path's storage writes: `storage.logs.append` for both streams and
+ * the `running` execution status (with pid) once the child has spawned.
  */
 async function runCommand(
   storage: StorageBackend,
@@ -411,187 +389,62 @@ async function runCommand(
   scratchDir: string,
   options: ExecuteOptions
 ): Promise<{ exitCode: number | null; error: string | null }> {
-  const [cmd, ...cmdArgs] = args;
-
-  // Process Lifecycle Management
-  // ============================
-  // We use detached: true to create a new process group, allowing us to kill
-  // the entire process tree by signaling the negative PID (process group leader).
-  //
-  // LIMITATION: Process groups are flat, not hierarchical. If a task spawns a
-  // subprocess that creates its own process group (via setsid, daemonization,
-  // or another detached spawn), that subprocess will escape our kill signal.
-  // This is a fundamental Unix limitation - process groups were designed for
-  // terminal job control (Ctrl+C/Ctrl+Z), not process tree management.
-  //
-  // For most tasks (shell scripts, pipelines, normal child processes) this works
-  // fine. A task would have to intentionally call setsid() to escape.
-  //
-  // Potential improvements for hosted e3:
-  // - Linux cgroups: Hierarchical containment with no escape. Requires root or
-  //   systemd integration (systemd-run --scope). Used by Docker/Kubernetes.
-  // - PR_SET_CHILD_SUBREAPER: Makes e3 adopt orphaned processes instead of init,
-  //   allowing tracking and cleanup. Requires polling to detect orphans.
-  // - Firecracker/microVMs: Complete isolation with hardware virtualization.
-  //   The VM boundary provides bulletproof containment. Best for multi-tenant.
-  // Runners (`east-node`, `east-c`) are typically installed as project
-  // devDeps and exposed on `node_modules/.bin`. `npm run`/`pnpm` set that
-  // up automatically; bare `e3 dataflow run` does not. Collect every
-  // `node_modules/.bin` walking up from BOTH the repo and process.cwd()
-  // and prepend the lot (deduped) so the spawn finds the installed runner
-  // regardless of where in a monorepo the project sits — the nearest .bin
-  // often lacks the runner (it's hoisted to the workspace root), so we
-  // can't stop at the first hit.
-  //
-  // Pass env ONLY when we have something to add. Without `env`, the child
-  // inherits process.env directly — exactly what we want when no augment
-  // is available (the fuzz harness spawns from inside /tmp where the walk
-  // finds nothing; the inherited PATH is the proven-working state).
-  const seen = new Set<string>();
-  const projectBins = [
-    ...collectNodeModulesBins(path.dirname(repo)),
-    ...collectNodeModulesBins(process.cwd()),
-  ].filter((b) => (seen.has(b) ? false : (seen.add(b), true)));
-  const spawnOpts: Parameters<typeof spawn>[2] = {
-    // Run in the per-execution scratch dir, not the e3 process's cwd. Tasks
-    // address inputs/outputs by absolute path and resolve their runner via
-    // PATH, so cwd isn't part of the task contract — and inheriting the
-    // caller's cwd pins it. On Windows a live process's cwd can't be removed,
-    // so a `detached` task that outlives a killed parent (e.g. after SIGKILL)
-    // would hold the repo/project dir open and block its cleanup (EBUSY).
-    cwd: scratchDir,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    detached: true,
-    windowsHide: true,
-  };
-  if (projectBins.length > 0) {
-    const pathSep = process.platform === 'win32' ? ';' : ':';
-    spawnOpts.env = {
-      ...process.env,
-      PATH: `${projectBins.join(pathSep)}${pathSep}${process.env.PATH ?? ''}`,
-    };
-  }
-  const child = spawn(cmd, cmdArgs, spawnOpts);
-
-  // Set up event listeners IMMEDIATELY before any async work
-  // to avoid missing events if the process completes quickly. Capture the
-  // tail of the child's stderr so non-zero exits carry a useful diagnostic
-  // instead of just an exit code — `storage.logs` has the full log but
-  // callers (fuzz harness, e3 CLI status, ...) usually only see the error
-  // string. 64 KiB tail covers the typical stack-trace / "module not found"
-  // failures without ballooning memory on chatty tasks.
-  const STDERR_TAIL_BYTES = 64 * 1024;
-  let stderrTail = '';
-  const captureStderrTail = (chunk: string) => {
-    stderrTail = (stderrTail + chunk).slice(-STDERR_TAIL_BYTES);
-  };
-
-  const resultPromise = new Promise<{ exitCode: number | null; error: string | null }>((resolve) => {
-    child.on('error', (err) => {
-      resolve({ exitCode: null, error: `Failed to spawn: ${err.message}` });
-    });
-
-    child.on('close', (code) => {
-      if (code === 0) {
-        resolve({ exitCode: code, error: null });
-      } else {
-        const tail = stderrTail.trim();
-        const detail = tail ? `\nstderr:\n${tail}` : '';
-        resolve({ exitCode: code, error: `Exit code: ${code}${detail}` });
-      }
-    });
-  });
-
   // Use promise chains to ensure sequential log writes without overlapping
   let stdoutWriteChain = Promise.resolve();
   let stderrWriteChain = Promise.resolve();
 
-  // Tee stdout - use storage.logs.append for log persistence
-  child.stdout?.on('data', (data: Buffer) => {
-    const str = data.toString('utf-8');
-    // Chain writes sequentially to avoid overlapping
-    stdoutWriteChain = stdoutWriteChain.then(async () => {
-      try {
-        await storage.logs.append(repo, taskHash, inHash, executionId, 'stdout', str);
-      } catch (err) {
-        console.warn(`Failed to append stdout log: ${err instanceof Error ? err.message : String(err)}`);
+  const result = await spawnAndCapture(args, scratchDir, {
+    timeoutMs: options.timeout,
+    signal: options.signal,
+    // Runners (`east-node`, `east-c`) are typically installed as project
+    // devDeps and exposed on `node_modules/.bin`. Walk up from BOTH the
+    // repo and process.cwd() — the nearest .bin often lacks the runner
+    // (it's hoisted to the workspace root).
+    searchDirs: [path.dirname(repo), process.cwd()],
+    // Tee stdout - use storage.logs.append for log persistence
+    onStdout: (str) => {
+      stdoutWriteChain = stdoutWriteChain.then(async () => {
+        try {
+          await storage.logs.append(repo, taskHash, inHash, executionId, 'stdout', str);
+        } catch (err) {
+          console.warn(`Failed to append stdout log: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      });
+      if (options.onStdout) {
+        options.onStdout(str);
       }
-    });
-    if (options.onStdout) {
-      options.onStdout(str);
-    }
-  });
-
-  // Tee stderr — persist to storage.logs AND capture the tail in memory so
-  // the close-handler above can include it in the task's error message.
-  child.stderr?.on('data', (data: Buffer) => {
-    const str = data.toString('utf-8');
-    captureStderrTail(str);
-    // Chain writes sequentially to avoid overlapping
-    stderrWriteChain = stderrWriteChain.then(async () => {
-      try {
-        await storage.logs.append(repo, taskHash, inHash, executionId, 'stderr', str);
-      } catch (err) {
-        console.warn(`Failed to append stderr log: ${err instanceof Error ? err.message : String(err)}`);
+    },
+    // Tee stderr — persist to storage.logs; spawnAndCapture keeps the
+    // in-memory tail that the error message includes on non-zero exit.
+    onStderr: (str) => {
+      stderrWriteChain = stderrWriteChain.then(async () => {
+        try {
+          await storage.logs.append(repo, taskHash, inHash, executionId, 'stderr', str);
+        } catch (err) {
+          console.warn(`Failed to append stderr log: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      });
+      if (options.onStderr) {
+        options.onStderr(str);
       }
-    });
-    if (options.onStderr) {
-      options.onStderr(str);
-    }
+    },
+    // Write running status with actual child PID
+    onSpawned: async (pid) => {
+      const pidStartTime = await getPidStartTime(pid ?? -1);
+      const status: ExecutionStatus = variant('running', {
+        executionId,
+        inputHashes,
+        startedAt: new Date(),
+        pid: BigInt(pid ?? -1),
+        pidStartTime: BigInt(pidStartTime ?? -1),
+        bootId,
+      });
+      await storage.refs.executionWrite(repo, taskHash, inHash, executionId, status);
+    },
   });
-
-  // Helper to kill the entire process group (child and all its descendants).
-  // With detached: true, child.pid is the process group leader, so killing
-  // -child.pid sends the signal to all processes in that group.
-  const killProcessGroup = () => {
-    if (child.pid) {
-      try {
-        process.kill(-child.pid, 'SIGKILL');
-      } catch {
-        // Process may have already exited
-      }
-    }
-  };
-
-  // Handle timeout
-  let timeoutId: NodeJS.Timeout | undefined;
-  if (options.timeout) {
-    timeoutId = setTimeout(killProcessGroup, options.timeout);
-  }
-
-  // Handle abort signal
-  if (options.signal) {
-    if (options.signal.aborted) {
-      // Already aborted before we started
-      killProcessGroup();
-    } else {
-      options.signal.addEventListener('abort', killProcessGroup, { once: true });
-    }
-  }
-
-  // Write running status with actual child PID
-  const pidStartTime = await getPidStartTime(child.pid!);
-  const status: ExecutionStatus = variant('running', {
-    executionId,
-    inputHashes,
-    startedAt: new Date(),
-    pid: BigInt(child.pid ?? -1),
-    pidStartTime: BigInt(pidStartTime ?? -1),
-    bootId,
-  });
-  await storage.refs.executionWrite(repo, taskHash, inHash, executionId, status);
-
-  // Wait for process to complete
-  const result = await resultPromise;
 
   // Wait for any pending log writes to complete
   await Promise.all([stdoutWriteChain, stderrWriteChain]);
 
-  // Cleanup
-  if (timeoutId) clearTimeout(timeoutId);
-  if (options.signal) {
-    options.signal.removeEventListener('abort', killProcessGroup);
-  }
-
-  return result;
+  return { exitCode: result.exitCode, error: result.error };
 }

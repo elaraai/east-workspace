@@ -51,6 +51,52 @@ export async function createPackageZip(
 }
 
 /**
+ * Create a package with named functions for testing `e3.function` calls.
+ *
+ * Creates a package with:
+ * - Input: "value" (Integer, default 10)
+ * - Task: "compute" - multiplies input by 2 (so the package is deployable)
+ * - Function: "add" - (Integer, Integer) -> Integer
+ * - Function: "slow" - (Integer) -> Integer, sleeps 30s (for timeout/cancel tests)
+ *
+ * @param tempDir - Directory to write the zip file
+ * @param name - Package name
+ * @param version - Package version
+ * @returns Path to the created zip file
+ */
+export async function createFunctionPackageZip(
+  tempDir: string,
+  name: string,
+  version: string
+): Promise<string> {
+  mkdirSync(tempDir, { recursive: true });
+
+  const input = e3.input('value', IntegerType, 10n);
+  const compute = e3.task(
+    'compute',
+    [input],
+    East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n))
+  );
+  const add = e3.function(
+    'add',
+    East.function([IntegerType, IntegerType], IntegerType, ($, a, b) => a.add(b))
+  );
+  const slow = e3.function(
+    'slow',
+    East.asyncFunction([IntegerType], IntegerType, ($, x) => {
+      $(Time.sleep(30_000n));
+      return $.return(x);
+    })
+  );
+  const pkg = e3.package(name, version, compute, add, slow);
+
+  const zipPath = join(tempDir, `${name}-${version}.zip`);
+  await e3.export(pkg, zipPath);
+
+  return zipPath;
+}
+
+/**
  * Create a package with multiple inputs for testing.
  *
  * Creates a package with:

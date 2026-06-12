@@ -11,13 +11,13 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import { existsSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
-import { StringType, StructType, encodeBeast2For, variant } from '@elaraai/east';
+import { East, IntegerType, StringType, StructType, decodeBeast2For, encodeBeast2For, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
-import { WorkspaceStateType, PackageObjectType, TaskObjectType, DataRefType, DatasetRefType } from '@elaraai/e3-types';
+import { WorkspaceStateType, PackageObjectType, TaskObjectType, FunctionObjectType, DataRefType, DatasetRefType } from '@elaraai/e3-types';
 import type { WorkspaceState, PackageObject, TaskObject } from '@elaraai/e3-types';
 import { repoGc, collectAllRoots, markReachable, sweepBatch } from './storage/local/gc.js';
 import { objectWrite, objectRead } from './storage/local/LocalObjectStore.js';
-import { packageImport, packageRemove } from './packages.js';
+import { packageImport, packageRemove, packageRead } from './packages.js';
 import { ObjectNotFoundError } from './errors.js';
 import { createTestRepo, removeTestRepo, createTempDir, removeTempDir } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
@@ -156,6 +156,47 @@ describe('gc', () => {
     });
   });
 
+  describe('with function objects', () => {
+    it('function bodies survive gc (PackageObject -> FunctionObject -> bodyIr)', async () => {
+      // Deploy a package containing a function, gc, then verify the
+      // FunctionObject and its bodyIr object are retained and decodable.
+      const double = e3.function(
+        'double',
+        East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n))
+      );
+      const pkg = e3.package('fn-gc', '1.0.0', double);
+      const zipPath = join(tempDir, 'fn-gc.zip');
+      await e3.export(pkg, zipPath);
+      await packageImport(storage, testRepoPath, zipPath);
+
+      const result = await repoGc(storage, testRepoPath, { minAge: 0 });
+      assert.strictEqual(result.deletedObjects, 0);
+
+      // The function body must still be readable after gc
+      const pkgObject = await packageRead(storage, testRepoPath, 'fn-gc', '1.0.0');
+      const fnHash = pkgObject.functions.get('double');
+      assert.ok(fnHash, 'functions map lost');
+      const fnObject = decodeBeast2For(FunctionObjectType)(Buffer.from(await objectRead(testRepoPath, fnHash!)));
+      const bodyIr = await objectRead(testRepoPath, fnObject.bodyIr);
+      assert.ok(bodyIr.length > 0, 'bodyIr object lost');
+    });
+
+    it('function objects are deleted once the package is removed', async () => {
+      const double = e3.function(
+        'double',
+        East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n))
+      );
+      const pkg = e3.package('fn-gc-rm', '1.0.0', double);
+      const zipPath = join(tempDir, 'fn-gc-rm.zip');
+      await e3.export(pkg, zipPath);
+      const importResult = await packageImport(storage, testRepoPath, zipPath);
+
+      await packageRemove(storage, testRepoPath, 'fn-gc-rm', '1.0.0');
+      const result = await repoGc(storage, testRepoPath, { minAge: 0 });
+      assert.strictEqual(result.deletedObjects, importResult.objectCount);
+    });
+  });
+
   describe('with staging files', () => {
     it('deletes orphaned .partial files', async () => {
       // Create a fake .partial staging file
@@ -269,6 +310,7 @@ describe('gc', () => {
             ['data', variant('value', { hash: hashValue, versions: new Map() })],
           ]),
         },
+        functions: new Map(),
       } as PackageObject));
 
       // Create a package ref pointing to the package
@@ -298,6 +340,7 @@ describe('gc', () => {
           structure: variant('struct', new Map()),
           refs: new Map(),
         },
+        functions: new Map(),
       } as PackageObject));
 
       // Unreachable orphan object
@@ -475,6 +518,7 @@ describe('gc', () => {
           structure: variant('struct', new Map()),
           refs: new Map(),
         },
+        functions: new Map(),
       } as PackageObject);
       const pkgHash = 'a'.repeat(64);
 

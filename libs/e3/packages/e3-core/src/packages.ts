@@ -15,8 +15,8 @@ import { createWriteStream } from 'fs';
 import yauzl from 'yauzl';
 import yazl from 'yazl';
 import { decodeBeast2For, encodeBeast2For } from '@elaraai/east';
-import { PackageObjectType, TaskObjectType, DataflowRunType, ExecutionStatusType, DatasetRefType } from '@elaraai/e3-types';
-import type { PackageObject, TaskObject } from '@elaraai/e3-types';
+import { TaskObjectType, FunctionObjectType, DataflowRunType, ExecutionStatusType, DatasetRefType, decodePackageObject } from '@elaraai/e3-types';
+import type { PackageObject, TaskObject, FunctionObject } from '@elaraai/e3-types';
 import {
   PackageNotFoundError,
   PackageInvalidError,
@@ -310,9 +310,8 @@ export async function packageRead(
 ): Promise<PackageObject> {
   const hash = await packageResolve(storage, repo, name, version);
   const data = await storage.objects.read(repo, hash);
-  const decoder = decodeBeast2For(PackageObjectType);
   try {
-    return decoder(Buffer.from(data));
+    return decodePackageObject(Buffer.from(data));
   } catch (err: any) {
     throw new Error(`Failed to decode package ${name}@${version} (hash: ${hash}, size: ${data.byteLength} bytes): ${err.message}`);
   }
@@ -422,8 +421,7 @@ export async function packageExport(
 
   // Load and parse the package object
   const packageData = await storage.objects.read(repo, packageHash);
-  const decoder = decodeBeast2For(PackageObjectType);
-  const packageObject: PackageObject = decoder(Buffer.from(packageData));
+  const packageObject: PackageObject = decodePackageObject(Buffer.from(packageData));
 
   // Collect all task objects and their commandIr references
   const taskDecoder = decodeBeast2For(TaskObjectType);
@@ -437,6 +435,17 @@ export async function packageExport(
     // Recursively collect any objects referenced by the IR
     const irData = await storage.objects.read(repo, taskObject.commandIr);
     await collectTreeChildren(irData);
+  }
+
+  // Collect all function objects and their bodyIr references
+  const fnDecoder = decodeBeast2For(FunctionObjectType);
+  for (const fnHash of packageObject.functions.values()) {
+    await addObject(fnHash);
+    const fnData = await storage.objects.read(repo, fnHash);
+    const fnObject: FunctionObject = fnDecoder(Buffer.from(fnData));
+    await addObject(fnObject.bodyIr);
+    const fnIrData = await storage.objects.read(repo, fnObject.bodyIr);
+    await collectTreeChildren(fnIrData);
   }
 
   // Collect value objects from inline per-dataset refs and write data/ ref files

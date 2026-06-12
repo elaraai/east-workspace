@@ -28,7 +28,7 @@ import { buildWorkspaceIndex } from '../path-resolver.js';
 /** Top-level subcommand names. */
 const TOP_LEVEL = [
   'repo', 'package', 'workspace', 'dataset', 'task', 'dataflow', 'auth',
-  'run', 'watch', 'convert', 'completion',
+  'run', 'call', 'watch', 'convert', 'completion',
 ];
 
 /** Subcommand names per noun group. */

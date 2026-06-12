@@ -39,6 +39,7 @@ import { getCommand } from './commands/get.js';
 import { setCommand } from './commands/set.js';
 import { startCommand } from './commands/start.js';
 import { runCommand } from './commands/run.js';
+import { callCommand } from './commands/call.js';
 import { logsCommand } from './commands/logs.js';
 import { datasetStatusCommand } from './commands/dataset-status.js';
 import { findCommand } from './commands/find.js';
@@ -291,6 +292,19 @@ program
   .option('-o, --output <path>', 'Output file path')
   .option('--force', 'Force re-execution even if cached')
   .action(runCommand);
+
+// ---------------------------------------------------------------------------
+// call — named package functions (graph-free, persists nothing)
+// ---------------------------------------------------------------------------
+program
+  .command('call')
+  .description('Call a named package function (function: pkg.fn or pkg@version.fn)')
+  .argument('<repo>', 'Repository path or URL')
+  .argument('<fn>', 'Function specifier: pkg.fn or pkg@version.fn (with --workspace: fn)')
+  .argument('[args...]', 'Arguments: .east literals or .beast2/.json/.east file paths')
+  .option('-w, --workspace <ws>', 'Call against the package deployed in a workspace')
+  .option('-o, --output <path>', 'Write the result to a .beast2 file instead of printing')
+  .action(callCommand);
 
 // ---------------------------------------------------------------------------
 // watch — source first, workspace second

@@ -29,7 +29,7 @@ import {
   type EastType,
   type EastTypeValue,
 } from '@elaraai/east';
-import { DataRefType, PackageObjectType, WorkspaceStateType, type DataRef, type DatasetRef, type Structure, type TreePath, type VersionVector } from '@elaraai/e3-types';
+import { DataRefType, WorkspaceStateType, decodePackageObject, type DataRef, type DatasetRef, type Structure, type TreePath, type VersionVector } from '@elaraai/e3-types';
 import { packageRead } from './packages.js';
 import {
   WorkspaceNotFoundError,
@@ -221,8 +221,7 @@ export async function workspaceSetDataset(
 
     // Read the deployed package object to get the structure
     const pkgData = await storage.objects.read(repo, wsState.packageHash);
-    const decoder = decodeBeast2For(PackageObjectType);
-    const pkgObject = decoder(Buffer.from(pkgData));
+    const pkgObject = decodePackageObject(Buffer.from(pkgData));
     const rootStructure = pkgObject.data.structure;
 
     // Validate that the path leads to a value structure and check writable
@@ -311,8 +310,7 @@ async function getWorkspaceStructure(
 
   // Read the deployed package object using the stored hash
   const pkgData = await storage.objects.read(repo, wsState.packageHash);
-  const decoder = decodeBeast2For(PackageObjectType);
-  const pkgObject = decoder(Buffer.from(pkgData));
+  const pkgObject = decodePackageObject(Buffer.from(pkgData));
 
   return {
     rootStructure: pkgObject.data.structure,

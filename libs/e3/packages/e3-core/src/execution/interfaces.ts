@@ -17,6 +17,7 @@
  */
 
 import type { StorageBackend, LockHandle } from '../storage/interfaces.js';
+import type { DetachedSpec, DetachedResult, DetachedRunOptions } from './runDetached.js';
 
 // =============================================================================
 // Task Execution
@@ -78,6 +79,17 @@ export interface TaskRunner {
     inputHashes: string[],
     options?: TaskExecuteOptions
   ): Promise<TaskResult>;
+
+  /**
+   * Run a body IR detached from the dataflow graph (function / one-shot
+   * call): marshal the arg bytes, run on the spec's runner, return the
+   * result inline. Writes nothing durable — no output object, no execution
+   * record, no logs.
+   *
+   * @param spec - Body IR, arg bytes, runner, and limits
+   * @param options - Cancellation + runner search anchor
+   */
+  runDetached(spec: DetachedSpec, options?: DetachedRunOptions): Promise<DetachedResult>;
 }
 
 // =============================================================================

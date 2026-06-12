@@ -7,8 +7,8 @@ import * as path from 'node:path';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { serve, type ServerType } from '@hono/node-server';
-import { LocalStorage, RepoAlreadyExistsError, RepoNotFoundError, InMemoryTransferBackend } from '@elaraai/e3-core';
-import type { StorageBackend, TransferBackend } from '@elaraai/e3-core';
+import { LocalStorage, LocalTaskRunner, RepoAlreadyExistsError, RepoNotFoundError, InMemoryTransferBackend } from '@elaraai/e3-core';
+import type { StorageBackend, TaskRunner, TransferBackend } from '@elaraai/e3-core';
 import { createAuthMiddleware, type AuthConfig } from './middleware/auth.js';
 import { createOidcProvider, type OidcProvider, type OidcConfig } from './auth/index.js';
 import { sendError, sendSuccessWithStatus, sendSuccess } from './beast2.js';
@@ -24,6 +24,7 @@ import { createObjectRoutes } from './routes/objects.js';
 import { createTransferRoutes } from './routes/transfer.js';
 import { createPackageTransferRoutes } from './routes/package-transfer.js';
 import { createDataEndpoints } from './routes/data.js';
+import { createPackageFunctionRoutes, createWorkspaceFunctionRoutes, createOneShotRoutes } from './routes/functions.js';
 
 export type { AuthConfig } from './middleware/auth.js';
 export type { OidcConfig } from './auth/index.js';
@@ -353,8 +354,23 @@ export async function createServer(config: ServerConfig): Promise<Server> {
   app.route('/api/repos/:repo', pkgTransfer.repoApi);
   app.route('/api/repos/:repo/packages', pkgTransfer.pkgApi);
 
+  // Per-repo task runner for function / one-shot calls (cached — the
+  // runner is stateless apart from its repo anchor)
+  const runners = new Map<string, TaskRunner>();
+  const getRunner = (repoPath: string): TaskRunner => {
+    let runner = runners.get(repoPath);
+    if (!runner) {
+      runner = new LocalTaskRunner(repoPath);
+      runners.set(repoPath, runner);
+    }
+    return runner;
+  };
+
   // Package routes: /api/repos/:repo/packages/*
   app.route('/api/repos/:repo/packages', createPackageRoutes(storage, getRepoPath));
+
+  // Package-scoped function routes: /api/repos/:repo/packages/:pkg/:version/functions/*
+  app.route('/api/repos/:repo/packages/:pkg/:version/functions', createPackageFunctionRoutes(storage, getRepoPath, getRunner));
 
   // Workspace routes: /api/repos/:repo/workspaces/*
   app.route('/api/repos/:repo/workspaces', createWorkspaceRoutes(storage, getRepoPath, transferBackend));
@@ -367,6 +383,12 @@ export async function createServer(config: ServerConfig): Promise<Server> {
 
   // Task routes: /api/repos/:repo/workspaces/:ws/tasks/*
   app.route('/api/repos/:repo/workspaces/:ws/tasks', createTaskRoutes(storage, getRepoPath));
+
+  // Workspace-scoped function routes: /api/repos/:repo/workspaces/:ws/functions/*
+  app.route('/api/repos/:repo/workspaces/:ws/functions', createWorkspaceFunctionRoutes(storage, getRepoPath, getRunner));
+
+  // One-shot routes (role-gated): /api/repos/:repo/workspaces/:ws/one-shot/*
+  app.route('/api/repos/:repo/workspaces/:ws/one-shot', createOneShotRoutes(storage, getRepoPath, getRunner));
 
   // Execution/Dataflow routes: /api/repos/:repo/workspaces/:ws/dataflow/*
   app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(storage, getRepoPath));

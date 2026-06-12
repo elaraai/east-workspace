@@ -17,7 +17,7 @@
 
 import { decodeBeast2For, variant } from '@elaraai/east';
 import {
-  PackageObjectType,
+  decodePackageObject,
   TaskObjectType,
   WorkspaceStateType,
   pathToString,
@@ -231,8 +231,7 @@ async function buildDependencyGraph(
   const state = await readWorkspaceState(storage, repo, ws);
 
   const pkgData = await storage.objects.read(repo, state.packageHash);
-  const pkgDecoder = decodeBeast2For(PackageObjectType);
-  const pkgObject = pkgDecoder(Buffer.from(pkgData));
+  const pkgObject = decodePackageObject(Buffer.from(pkgData));
 
   const taskNodes = new Map<string, TaskNode>();
   const outputToTask = new Map<string, string>();

@@ -21,8 +21,8 @@ import { createWriteStream } from 'fs';
 import * as fs from 'fs/promises';
 import yazl from 'yazl';
 import { decodeBeast2For, encodeBeast2For, variant } from '@elaraai/east';
-import { PackageObjectType, WorkspaceStateType, TaskObjectType, DataflowRunType, DatasetRefType } from '@elaraai/e3-types';
-import type { PackageObject, WorkspaceState, TaskObject, DatasetRef } from '@elaraai/e3-types';
+import { PackageObjectType, WorkspaceStateType, TaskObjectType, FunctionObjectType, DataflowRunType, DatasetRefType, decodePackageObject } from '@elaraai/e3-types';
+import type { PackageObject, WorkspaceState, TaskObject, FunctionObject, DatasetRef } from '@elaraai/e3-types';
 import { packageResolve, packageRead } from './packages.js';
 import { writeRefsFromPackage } from './dataset-refs.js';
 import {
@@ -390,8 +390,7 @@ export async function workspaceExport(
 
   // Read the deployed package object using the stored hash
   const deployedPkgData = await storage.objects.read(repo, state.packageHash);
-  const decoder = decodeBeast2For(PackageObjectType);
-  const deployedPkgObject = decoder(Buffer.from(deployedPkgData));
+  const deployedPkgObject = decodePackageObject(Buffer.from(deployedPkgData));
 
   // Determine output name and version
   const finalName = outputName ?? state.packageName;
@@ -408,13 +407,15 @@ export async function workspaceExport(
     }
   }
 
-  // Create new PackageObject with inline refs
+  // Create new PackageObject with inline refs (functions carry through
+  // unchanged — they have no dataset state)
   const newPkgObject: PackageObject = {
     tasks: deployedPkgObject.tasks,
     data: {
       structure: deployedPkgObject.data.structure,
       refs: workspaceRefs,
     },
+    functions: deployedPkgObject.functions,
   };
 
   // Encode and store the new package object
@@ -471,6 +472,17 @@ export async function workspaceExport(
     await addObject(taskObject.commandIr);
     const irData = await storage.objects.read(repo, taskObject.commandIr);
     await collectTreeChildren(irData);
+  }
+
+  // Collect all function objects and their bodyIr references
+  const fnDecoder = decodeBeast2For(FunctionObjectType);
+  for (const fnHash of newPkgObject.functions.values()) {
+    await addObject(fnHash);
+    const fnData = await storage.objects.read(repo, fnHash);
+    const fnObject: FunctionObject = fnDecoder(Buffer.from(fnData));
+    await addObject(fnObject.bodyIr);
+    const fnIrData = await storage.objects.read(repo, fnObject.bodyIr);
+    await collectTreeChildren(fnIrData);
   }
 
   // Write ref files to zip and collect value objects

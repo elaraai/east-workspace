@@ -14,8 +14,9 @@
  * - **Task**: A transformation that reads input datasets and produces an output dataset
  */
 
-import type { EastType, EastIR, ValueTypeOf, variant } from '@elaraai/east';
+import type { EastType, EastIR, AsyncEastIR, ValueTypeOf, variant } from '@elaraai/east';
 import type { TreePath } from '@elaraai/e3-types';
+import type { Runner } from './runner.js';
 
 /**
  * A tree definition.
@@ -83,6 +84,38 @@ export interface TaskDef<TOutput extends EastType = EastType, Path extends TreeP
   readonly taskKind?: string;
   /** Opaque extension metadata (beast2-encoded) */
   readonly metadata?: Uint8Array;
+}
+
+/**
+ * A function definition.
+ *
+ * Functions are named, typed callables stored in a package and invoked by
+ * name with argument values (CLI / HTTP API). Unlike a task, a function is
+ * not wired to datasets, is not part of the dataflow graph, and triggers no
+ * recomputation. Its result is returned inline to the caller and nothing is
+ * persisted.
+ *
+ * @typeParam Inputs - The East types of the positional parameters
+ * @typeParam Output - The East type of the return value
+ */
+export interface FunctionDef<
+  Inputs extends readonly EastType[] = readonly EastType[],
+  Output extends EastType = EastType,
+> {
+  readonly kind: 'function';
+  /** Function name (unique within the package) */
+  readonly name: string;
+  // EastIR/AsyncEastIR constrain their first param to a MUTABLE any[]; a readonly
+  // generic is rejected (TS2344). Type the field loosely and cast fn.toIR(),
+  // exactly as task.ts does for its function_ir.
+  readonly body: EastIR<any, any> | AsyncEastIR<any, any>;
+  /** Positional parameter types (the East function's signature) */
+  readonly inputTypes: Inputs;
+  /** Return type */
+  readonly outputType: Output;
+  /** Runtime the body runs on; defaults to DEFAULT_RUNNER */
+  readonly runner: Runner;
+  // NO deps, NO datasets, NO trees — not in the dataflow graph
 }
 
 /**
@@ -154,4 +187,7 @@ export interface PackageDef<Datasets extends Record<string, any>> {
   readonly datasets: Datasets;
   /** All contents of the package (trees, datasets, tasks) */
   readonly contents: Array<PackageItem>;
+  /** Named functions, by name. Functions are not part of `contents` —
+   *  they have no deps and never enter the data tree. */
+  readonly functions: Record<string, FunctionDef>;
 }

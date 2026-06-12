@@ -16,7 +16,7 @@
 
 import { decodeBeast2For, variant } from '@elaraai/east';
 import {
-  PackageObjectType,
+  decodePackageObject,
   TaskObjectType,
   WorkspaceStateType,
   pathToString,
@@ -199,8 +199,7 @@ export async function workspaceStatus(
 
   // Read package object to get tasks and structure
   const pkgData = await storage.objects.read(repo, state.packageHash);
-  const pkgDecoder = decodeBeast2For(PackageObjectType);
-  const pkgObject = pkgDecoder(Buffer.from(pkgData));
+  const pkgObject = decodePackageObject(Buffer.from(pkgData));
 
   // Build task nodes
   const taskNodes = new Map<string, TaskNode>();

@@ -16,7 +16,7 @@
 
 import { decodeBeast2For } from '@elaraai/east';
 import {
-  PackageObjectType,
+  decodePackageObject,
   TaskObjectType,
   WorkspaceStateType,
   type TaskObject,
@@ -114,8 +114,7 @@ async function readWorkspaceState(storage: StorageBackend, repo: string, ws: str
 async function getWorkspacePackageObject(storage: StorageBackend, repo: string, ws: string) {
   const state = await readWorkspaceState(storage, repo, ws);
   const pkgData = await storage.objects.read(repo, state.packageHash);
-  const decoder = decodeBeast2For(PackageObjectType);
-  return decoder(Buffer.from(pkgData));
+  return decodePackageObject(Buffer.from(pkgData));
 }
 
 /**

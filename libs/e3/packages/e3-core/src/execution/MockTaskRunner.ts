@@ -5,6 +5,7 @@
 
 import type { StorageBackend } from '../storage/interfaces.js';
 import type { TaskRunner, TaskExecuteOptions, TaskResult } from './interfaces.js';
+import type { DetachedSpec, DetachedResult, DetachedRunOptions } from './runDetached.js';
 
 /**
  * Record of a single task execution call.
@@ -73,5 +74,30 @@ export class MockTaskRunner implements TaskRunner {
       return typeof configured === 'function' ? await configured(inputHashes) : configured;
     }
     return this.defaultResult;
+  }
+
+  private detachedResult: DetachedResult = {
+    kind: 'success',
+    value: new Uint8Array(),
+    stdout: '',
+    stderr: '',
+    stdoutTruncated: false,
+    stderrTruncated: false,
+  };
+  private detachedCalls: DetachedSpec[] = [];
+
+  /** Set the result returned by runDetached. */
+  setDetachedResult(result: DetachedResult): void {
+    this.detachedResult = result;
+  }
+
+  /** Get all recorded runDetached calls. */
+  getDetachedCalls(): readonly DetachedSpec[] {
+    return this.detachedCalls;
+  }
+
+  runDetached(spec: DetachedSpec, _options?: DetachedRunOptions): Promise<DetachedResult> {
+    this.detachedCalls.push(spec);
+    return Promise.resolve(this.detachedResult);
   }
 }

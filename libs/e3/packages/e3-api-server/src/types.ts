@@ -92,6 +92,17 @@ export {
   PackageTransferInitRequestType,
   PackageTransferInitResponseType,
   PackageJobResponseType,
+  // Function / one-shot execution
+  RunnerType,
+  ExecuteLimitsType,
+  DiagnosticType,
+  ExecuteResultType,
+  FunctionCallRequestType,
+  FunctionSignatureType,
+  CallStartResultType,
+  CallStatusType,
+  CallStatusResultType,
+  OneShotRequestType,
   // Graph types (from dataflow.ts, structurally identical to old API GraphTaskType)
   DataflowGraphType,
   DataflowGraphTaskType,
@@ -137,6 +148,16 @@ export type {
   TransferUploadRequest,
   TransferUploadResponse,
   TransferDoneResponse,
+  RunnerValue,
+  ExecuteLimits,
+  Diagnostic,
+  ExecuteResult,
+  FunctionCallRequest,
+  FunctionSignature,
+  CallStartResult,
+  CallStatus,
+  CallStatusResult,
+  OneShotRequest,
   DataflowGraph,
   DataflowGraphTask,
 } from '@elaraai/e3-types';
@@ -215,6 +236,16 @@ import {
   PackageTransferInitRequestType,
   PackageTransferInitResponseType,
   PackageJobResponseType,
+  RunnerType as _RunnerType,
+  ExecuteLimitsType as _ExecuteLimitsType,
+  DiagnosticType as _DiagnosticType,
+  ExecuteResultType as _ExecuteResultType,
+  FunctionCallRequestType as _FunctionCallRequestType,
+  FunctionSignatureType as _FunctionSignatureType,
+  CallStartResultType as _CallStartResultType,
+  CallStatusType as _CallStatusType,
+  CallStatusResultType as _CallStatusResultType,
+  OneShotRequestType as _OneShotRequestType,
 } from '@elaraai/e3-types';
 
 export const ApiTypes = {
@@ -314,4 +345,16 @@ export const ApiTypes = {
   PackageTransferInitRequestType,
   PackageTransferInitResponseType,
   PackageJobResponseType,
+
+  // Function / one-shot execution
+  RunnerType: _RunnerType,
+  ExecuteLimitsType: _ExecuteLimitsType,
+  DiagnosticType: _DiagnosticType,
+  ExecuteResultType: _ExecuteResultType,
+  FunctionCallRequestType: _FunctionCallRequestType,
+  FunctionSignatureType: _FunctionSignatureType,
+  CallStartResultType: _CallStartResultType,
+  CallStatusType: _CallStatusType,
+  CallStatusResultType: _CallStatusResultType,
+  OneShotRequestType: _OneShotRequestType,
 } as const;

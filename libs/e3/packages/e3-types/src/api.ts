@@ -35,6 +35,7 @@ import {
 } from '@elaraai/east';
 
 import { StructureType, TreePathType } from './structure.js';
+import { RunnerType } from './runner.js';
 
 // =============================================================================
 // Error Types
@@ -724,6 +725,112 @@ export const DatasetStatusDetailType = StructType({
 });
 
 // =============================================================================
+// Function / one-shot execution types
+// =============================================================================
+// Shared by the named-function path AND one-shot execution. The result of a
+// call is an in-memory, bounded value returned inline — never promoted to a
+// durable artifact.
+
+/**
+ * Execution limits for a function/one-shot call.
+ *
+ * @property timeoutMs - Wall-clock limit; over it the call is killed and returns `timed_out`
+ * @property maxResultBytes - Inline result cap; over it the call returns `too_large`
+ * @property maxLogBytes - Per-stream stdout/stderr tail cap
+ */
+export const ExecuteLimitsType = StructType({
+  timeoutMs:      OptionType(IntegerType),
+  maxResultBytes: OptionType(IntegerType),
+  maxLogBytes:    OptionType(IntegerType),
+});
+
+/**
+ * A diagnostic attached to an `invalid` call outcome.
+ */
+export const DiagnosticType = StructType({
+  message:  StringType,
+  filename: OptionType(StringType),
+  line:     OptionType(IntegerType),
+  column:   OptionType(IntegerType),
+});
+
+/**
+ * The terminal result of a function/one-shot call.
+ *
+ * - `success`: beast2-encoded result value; decode with the function's `outputType`
+ * - `failed`: process exited non-zero (see stderr)
+ * - `invalid`: signature/IR error; nothing ran
+ * - `too_large`: result over `maxResultBytes`; deploy a task and read it with `datasetGet`
+ * - `timed_out`: exceeded `timeoutMs` / the server's sync deadline guard
+ */
+export const ExecuteResultType = StructType({
+  outcome: VariantType({
+    success:   StructType({ value: BlobType }),
+    failed:    StructType({ exitCode: IntegerType }),
+    invalid:   StructType({ diagnostics: ArrayType(DiagnosticType) }),
+    too_large: StructType({ bytes: IntegerType, limit: IntegerType }),
+    timed_out: StructType({ ms: IntegerType }),
+  }),
+  stdout: StringType,
+  stderr: StringType,
+  stdoutTruncated: BooleanType,
+  stderrTruncated: BooleanType,
+});
+
+/** Named function call. Positional args, one beast2-encoded value per param. */
+export const FunctionCallRequestType = StructType({
+  args:   ArrayType(BlobType),
+  runner: OptionType(RunnerType),       // optional override; only the known runtimes
+  limits: OptionType(ExecuteLimitsType),
+});
+
+/** A function signature, returned by `describe` so dynamic callers can encode args. */
+export const FunctionSignatureType = StructType({
+  name:       StringType,
+  inputTypes: ArrayType(EastTypeType),
+  outputType: EastTypeType,
+  runner:     RunnerType,
+});
+
+/** Async launch → id; poll returns status + the result once terminal. */
+export const CallStartResultType = StructType({ callId: StringType });
+
+/** A function-specific status — do NOT reuse AsyncOperationStatusType, which has
+ *  only running|succeeded|failed and cannot represent a cancelled call (and
+ *  mutating it would reorder its sorted variant tags, a breaking change for the
+ *  GC/repo-delete consumers that share it). */
+export const CallStatusType = VariantType({
+  running:   NullType,
+  succeeded: NullType,
+  failed:    NullType,
+  cancelled: NullType,
+});
+
+export const CallStatusResultType = StructType({
+  status: CallStatusType,
+  result: OptionType(ExecuteResultType),    // present once terminal (succeeded/failed)
+  error:  OptionType(StringType),
+});
+
+/**
+ * One-shot execution request: run an anonymous function whose IR is supplied
+ * at call time, optionally bound to existing workspace datasets, returning
+ * the result inline and persisting nothing.
+ *
+ * SECURITY: one-shot evaluates a caller-supplied IR — remote code execution
+ * with the server's authority. Gate behind an elevated role.
+ */
+export const OneShotRequestType = StructType({
+  bodyIr: BlobType,                       // anonymous EastIR, not deployed
+  args:   ArrayType(VariantType({         // each arg: an inline value OR a live dataset
+    value:   BlobType,
+    dataset: TreePathType,                // workspace-scoped; resolved + pinned by content hash at launch
+  })),
+  runner: RunnerType,
+  limits: OptionType(ExecuteLimitsType),
+});
+
+// =============================================================================
 // Value type aliases
 // =============================================================================
 
@@ -761,3 +868,12 @@ export type ExecutionListItem = ValueTypeOf<typeof ExecutionListItemType>;
 export type TreeKind = ValueTypeOf<typeof TreeKindType>;
 export type ListEntry = ValueTypeOf<typeof ListEntryType>;
 export type DatasetStatusDetail = ValueTypeOf<typeof DatasetStatusDetailType>;
+export type ExecuteLimits = ValueTypeOf<typeof ExecuteLimitsType>;
+export type Diagnostic = ValueTypeOf<typeof DiagnosticType>;
+export type ExecuteResult = ValueTypeOf<typeof ExecuteResultType>;
+export type FunctionCallRequest = ValueTypeOf<typeof FunctionCallRequestType>;
+export type FunctionSignature = ValueTypeOf<typeof FunctionSignatureType>;
+export type CallStartResult = ValueTypeOf<typeof CallStartResultType>;
+export type CallStatus = ValueTypeOf<typeof CallStatusType>;
+export type CallStatusResult = ValueTypeOf<typeof CallStatusResultType>;
+export type OneShotRequest = ValueTypeOf<typeof OneShotRequestType>;

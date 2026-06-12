@@ -117,6 +117,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
         refs: new Map(),
       },
       tasks: tasksMap,
+      functions: new Map(),
     };
     const pkgHash = await objectWrite(repoPath, pkgEncoder(pkgObj));
 
