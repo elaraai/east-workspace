@@ -38,6 +38,7 @@ import { EastChakraChipRail } from "./display/chip-rail";
 import { EastChakraAccordion } from "./disclosure/accordion";
 import { EastChakraCarousel } from "./disclosure/carousel";
 import { EastChakraTabs } from "./disclosure/tabs";
+import { EastChakraStory, EastChakraStoryStep, EastChakraStoryProgress } from "./disclosure/story";
 import { EastChakraSegmentGroup } from "./disclosure/segment-group";
 import { EastChakraCollapsible } from "./disclosure/collapsible";
 import { EastChakraDisclosure } from "./disclosure/show-more";
@@ -246,6 +247,9 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
             Accordion: (v) => <EastChakraAccordion value={v} storageKey={childKey(storageKey, "Accordion")} />,
             Carousel: (v) => <EastChakraCarousel value={v} storageKey={childKey(storageKey, "Carousel")} />,
             Tabs: (v) => <EastChakraTabs value={v} storageKey={childKey(storageKey, "Tabs")} />,
+            Story: (v) => <EastChakraStory value={v} storageKey={childKey(storageKey, "Story")} />,
+            StoryStep: (v) => <EastChakraStoryStep value={v} storageKey={childKey(storageKey, "StoryStep")} />,
+            StoryProgress: (v) => <EastChakraStoryProgress value={v} storageKey={childKey(storageKey, "StoryProgress")} />,
             SegmentGroup: (v) => <EastChakraSegmentGroup value={v} storageKey={childKey(storageKey, "SegmentGroup")} />,
             Collapsible: (v) => <EastChakraCollapsible value={v} storageKey={childKey(storageKey, "Collapsible")} />,
             Disclosure: (v) => <EastChakraDisclosure value={v} storageKey={childKey(storageKey, "Disclosure")} />,

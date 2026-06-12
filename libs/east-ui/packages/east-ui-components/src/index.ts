@@ -114,6 +114,12 @@ export {
     type TabsItemValue,
     type EastChakraTabsProps,
     type EastChakraTabsItemProps,
+    EastChakraStory,
+    EastChakraStoryStep,
+    EastChakraStoryProgress,
+    type EastChakraStoryProps,
+    type EastChakraStoryStepProps,
+    type EastChakraStoryProgressProps,
 } from "./disclosure/index.js";
 
 // Collections

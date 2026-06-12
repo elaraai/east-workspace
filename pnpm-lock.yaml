@@ -605,6 +605,13 @@ importers:
       '@elaraai/east':
         specifier: workspace:*
         version: link:../east
+    devDependencies:
+      playwright:
+        specifier: ^1.49.0
+        version: 1.59.1
+      vite:
+        specifier: ^6.0.0
+        version: 6.4.1(@types/node@22.19.15)(tsx@4.21.0)
 
   libs/east-ui/packages/e3-ui:
     dependencies:
