@@ -298,7 +298,6 @@ cdef _eastc.EastType* _convert_struct_type(object fields) except NULL:
         rec_ptr = <uintptr_t>_type_ctx[ctx_idx]
         if rec_ptr != 0:
             _eastc.east_recursive_type_set(<_eastc.EastType*>rec_ptr, result)
-            _eastc.east_recursive_type_finalize(<_eastc.EastType*>rec_ptr)
             return <_eastc.EastType*>rec_ptr
 
         return result
@@ -352,7 +351,6 @@ cdef _eastc.EastType* _convert_variant_type(object cases) except NULL:
         rec_ptr = <uintptr_t>_type_ctx[ctx_idx]
         if rec_ptr != 0:
             _eastc.east_recursive_type_set(<_eastc.EastType*>rec_ptr, result)
-            _eastc.east_recursive_type_finalize(<_eastc.EastType*>rec_ptr)
             # Return the wrapper — it wraps the result and is the canonical type
             return <_eastc.EastType*>rec_ptr
 
@@ -406,7 +404,6 @@ cdef _eastc.EastType* _convert_single_child_type(object child_py, int kind) exce
         rec_ptr = <uintptr_t>_type_ctx[ctx_idx]
         if rec_ptr != 0:
             _eastc.east_recursive_type_set(<_eastc.EastType*>rec_ptr, result)
-            _eastc.east_recursive_type_finalize(<_eastc.EastType*>rec_ptr)
             return <_eastc.EastType*>rec_ptr
         return result
     except:
@@ -444,7 +441,6 @@ cdef _eastc.EastType* _convert_dict_type(object value) except NULL:
         rec_ptr = <uintptr_t>_type_ctx[ctx_idx]
         if rec_ptr != 0:
             _eastc.east_recursive_type_set(<_eastc.EastType*>rec_ptr, result)
-            _eastc.east_recursive_type_finalize(<_eastc.EastType*>rec_ptr)
             return <_eastc.EastType*>rec_ptr
         return result
     except:
@@ -851,17 +847,43 @@ cdef object _c_function_to_py(_eastc.EastValue *val, _eastc.EastType *c_type, di
 
 # ─── Helper: C type → Python EastType (EastVariant) ───────────────────────
 
-# Completed cache: C type pointer → fully built Python type.
+# Completed cache: C type pointer → fully built Python type. Scoped to a
+# single top-level conversion (cleared by _c_type_tag_to_py_type): entries
+# are keyed by the raw pointer with no identity revalidation (unlike the
+# forward _type_cache), so they must never outlive one reconstruction —
+# pointer addresses are reused after east_type_release, and a cached
+# recursive subtree's Recursive(depth) is only valid relative to the
+# conversion stack it was built under.
 cdef dict _py_type_cache = {}
 
 # In-progress stack: list of C type pointers (as uintptr_t) currently being
 # converted. When a RECURSIVE node resolves to a pointer already on this
 # stack, we return Recursive(depth) instead of recursing infinitely.
 # Same principle as east-c's type_equal_ctx assumption stack.
+# Scoped to a single top-level conversion alongside _py_type_cache.
 cdef list _type_convert_stack = []
 
 cdef object _c_type_tag_to_py_type(_eastc.EastType *c_type):
     """Convert a C EastType* to a Python EastVariant type descriptor.
+
+    Top-level entry point: scopes the reverse caches (_py_type_cache,
+    _type_convert_stack) to this single conversion, clearing them on entry
+    and exit so pointer-keyed entries never outlive one reconstruction.
+    Recursive sub-conversions go through _c_type_tag_to_py_type_inner
+    instead — the within-call cache must be preserved across them, as it
+    handles shared subtrees and cycle detection.
+    """
+    _py_type_cache.clear()
+    _type_convert_stack.clear()
+    try:
+        return _c_type_tag_to_py_type_inner(c_type)
+    finally:
+        _py_type_cache.clear()
+        _type_convert_stack.clear()
+
+
+cdef object _c_type_tag_to_py_type_inner(_eastc.EastType *c_type):
+    """Convert one node within the current top-level conversion's scope.
 
     Uses a conversion stack to detect cycles from recursive types and
     emit proper Recursive(depth) references.
@@ -885,11 +907,12 @@ cdef object _c_type_tag_to_py_type_impl(_eastc.EastType *c_type, uintptr_t key):
     cdef _eastc.EastTypeKind kind = c_type.kind
 
     # RECURSIVE wrapper: resolve to inner node (don't push onto stack —
-    # only Struct/Variant push, matching py_type_to_c's _type_ctx)
+    # the wrapper is not a container level in the replace_markers depth
+    # model; the cycle is detected at the inner node's pointer)
     if kind == _eastc.EAST_TYPE_RECURSIVE:
         if c_type.data.recursive.node == NULL:
             return EastVariant("Recursive", 1)
-        return _c_type_tag_to_py_type(c_type.data.recursive.node)
+        return _c_type_tag_to_py_type_inner(c_type.data.recursive.node)
 
     # Primitives (no children, no cycle risk)
     if kind == _eastc.EAST_TYPE_NULL:
@@ -909,46 +932,77 @@ cdef object _c_type_tag_to_py_type_impl(_eastc.EastType *c_type, uintptr_t key):
     elif kind == _eastc.EAST_TYPE_NEVER:
         return EastVariant("Never", None)
 
-    # Simple compound types — no stack push needed (recursive self-references
-    # only occur through Struct/Variant fields, not through element types)
+    # Containers — each pushes one recursion-stack level around child
+    # conversion, matching the depth model in replace_markers (types.py, the
+    # source of truth) and the forward bridge's _type_ctx, which pushes for
+    # every container level. A recursive back-edge THROUGH a container (e.g.
+    # Variant{document: Dict<String, self>}) must count the container level,
+    # or Recursive(depth) binds to the wrong scope.
     if kind == _eastc.EAST_TYPE_ARRAY:
-        elem = _c_type_tag_to_py_type(c_type.data.element)
+        _type_convert_stack.append(key)
+        try:
+            elem = _c_type_tag_to_py_type_inner(c_type.data.element)
+        finally:
+            _type_convert_stack.pop()
         result = EastVariant("Array", elem)
         _py_type_cache[key] = result
         return result
     elif kind == _eastc.EAST_TYPE_SET:
-        elem = _c_type_tag_to_py_type(c_type.data.element)
+        _type_convert_stack.append(key)
+        try:
+            elem = _c_type_tag_to_py_type_inner(c_type.data.element)
+        finally:
+            _type_convert_stack.pop()
         result = EastVariant("Set", elem)
         _py_type_cache[key] = result
         return result
     elif kind == _eastc.EAST_TYPE_VECTOR:
-        elem = _c_type_tag_to_py_type(c_type.data.element)
+        _type_convert_stack.append(key)
+        try:
+            elem = _c_type_tag_to_py_type_inner(c_type.data.element)
+        finally:
+            _type_convert_stack.pop()
         result = EastVariant("Vector", elem)
         _py_type_cache[key] = result
         return result
     elif kind == _eastc.EAST_TYPE_MATRIX:
-        elem = _c_type_tag_to_py_type(c_type.data.element)
+        _type_convert_stack.append(key)
+        try:
+            elem = _c_type_tag_to_py_type_inner(c_type.data.element)
+        finally:
+            _type_convert_stack.pop()
         result = EastVariant("Matrix", elem)
         _py_type_cache[key] = result
         return result
     elif kind == _eastc.EAST_TYPE_REF:
-        elem = _c_type_tag_to_py_type(c_type.data.element)
+        _type_convert_stack.append(key)
+        try:
+            elem = _c_type_tag_to_py_type_inner(c_type.data.element)
+        finally:
+            _type_convert_stack.pop()
         result = EastVariant("Ref", elem)
         _py_type_cache[key] = result
         return result
     elif kind == _eastc.EAST_TYPE_DICT:
-        k = _c_type_tag_to_py_type(c_type.data.dict.key)
-        v = _c_type_tag_to_py_type(c_type.data.dict.value)
+        # Dict is ONE level: key and value share a single pushed entry,
+        # matching replace_markers and the forward _convert_dict_type.
+        _type_convert_stack.append(key)
+        try:
+            k = _c_type_tag_to_py_type_inner(c_type.data.dict.key)
+            v = _c_type_tag_to_py_type_inner(c_type.data.dict.value)
+        finally:
+            _type_convert_stack.pop()
         result = EastVariant("Dict", EastStruct({"key": k, "value": v}))
         _py_type_cache[key] = result
         return result
 
-    # Function/AsyncFunction — no stack push (py_type_to_c doesn't push for these)
+    # Function/AsyncFunction — no stack push (replace_markers and the forward
+    # _convert_function_type keep depth flat across the function boundary)
     if kind == _eastc.EAST_TYPE_FUNCTION or kind == _eastc.EAST_TYPE_ASYNC_FUNCTION:
         inputs = []
         for i in range(c_type.data.function.num_inputs):
-            inputs.append(_c_type_tag_to_py_type(c_type.data.function.inputs[i]))
-        output = _c_type_tag_to_py_type(c_type.data.function.output)
+            inputs.append(_c_type_tag_to_py_type_inner(c_type.data.function.inputs[i]))
+        output = _c_type_tag_to_py_type_inner(c_type.data.function.output)
         from east.types.type_of_type import EastTypeType
         if kind == _eastc.EAST_TYPE_FUNCTION:
             result = EastVariant("Function", EastStruct({
@@ -963,22 +1017,23 @@ cdef object _c_type_tag_to_py_type_impl(_eastc.EastType *c_type, uintptr_t key):
         _py_type_cache[key] = result
         return result
 
-    # Struct/Variant — push onto stack (Recursive(depth) counts these entries,
-    # matching py_type_to_c's _type_ctx which only pushes for Struct/Variant)
+    # Struct/Variant — push onto stack, one level for all fields/cases
+    # (Recursive(depth) counts these entries, like every container above,
+    # matching replace_markers and py_type_to_c's _type_ctx)
     _type_convert_stack.append(key)
     try:
         if kind == _eastc.EAST_TYPE_STRUCT:
             fields = []
             for i in range(c_type.data.struct_.num_fields):
                 name = c_type.data.struct_.fields[i].name.decode("utf-8")
-                ftype = _c_type_tag_to_py_type(c_type.data.struct_.fields[i].type)
+                ftype = _c_type_tag_to_py_type_inner(c_type.data.struct_.fields[i].type)
                 fields.append(EastStruct({"name": name, "type": ftype}))
             result = EastVariant("Struct", fields)
         elif kind == _eastc.EAST_TYPE_VARIANT:
             cases = []
             for i in range(c_type.data.variant.num_cases):
                 name = c_type.data.variant.cases[i].name.decode("utf-8")
-                ctype = _c_type_tag_to_py_type(c_type.data.variant.cases[i].type)
+                ctype = _c_type_tag_to_py_type_inner(c_type.data.variant.cases[i].type)
                 cases.append(EastStruct({"name": name, "type": ctype}))
             result = EastVariant("Variant", cases)
         else:
@@ -1528,7 +1583,11 @@ cpdef void _proxy_type_release(uintptr_t ptr):
 
 
 cpdef object c_type_ptr_to_py_type(uintptr_t ptr):
-    """Convert a C type pointer to a Python EastType object."""
+    """Convert a C type pointer to a Python EastType object.
+
+    The reverse type caches are scoped to this single conversion (see
+    _c_type_tag_to_py_type) — nothing is memoized across calls.
+    """
     return _c_type_tag_to_py_type(<_eastc.EastType*>ptr)
 
 
