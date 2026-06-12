@@ -6,13 +6,20 @@
 import { East, FloatType, IntegerType, NullType, example } from "@elaraai/east";
 import { Button, HStack, Reactive, Stat, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Func } from "@elaraai/e3-ui";
+import e3 from "@elaraai/e3";
+
+// The package-side function definitions. `Func.bind` takes the def itself —
+// name, parameter types and return type all come from it, so the binding
+// can never drift from the deployed signature.
+const forecastFn = e3.function("forecast", East.function([IntegerType, FloatType], FloatType, (_$, _periods, growth) => growth));
+const rebalanceFn = e3.function("rebalance", East.function([FloatType], FloatType, (_$, target) => target));
 
 export const funcBindCall = example({
-    keywords: ["Func", "bind", "call", "Reactive", "Button", "pending", "read", "RPC"],
-    description: "Bind a named function; a button launches it and a stat shows the result",
+    keywords: ["Func", "bind", "call", "Reactive", "Button", "pending", "read", "RPC", "FunctionDef"],
+    description: "Bind an e3.function def; a button launches it and a stat shows the result",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const forecast = $.let(Func.bind([[IntegerType, FloatType], FloatType], "forecast"));
+            const forecast = $.let(Func.bind(forecastFn));
             const run = $.const(East.function([], NullType, $ => {
                 $(forecast.call(12n, 1.05));
             }));
@@ -32,7 +39,7 @@ export const funcBindStatus = example({
     description: "Render the call lifecycle (idle / running / succeeded / failed / cancelled) and the failure message",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const forecast = $.let(Func.bind([[IntegerType, FloatType], FloatType], "forecast"));
+            const forecast = $.let(Func.bind(forecastFn));
             const run = $.const(East.function([], NullType, $ => {
                 $(forecast.call(12n, 1.05));
             }));
@@ -59,7 +66,7 @@ export const funcBindCancel = example({
     description: "Cancel stops waiting for the in-flight call (the server still finishes it)",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const rebalance = $.let(Func.bind([[FloatType], FloatType], "rebalance"));
+            const rebalance = $.let(Func.bind(rebalanceFn));
             const run = $.const(East.function([], NullType, $ => {
                 $(rebalance.call(0.5));
             }));
@@ -79,13 +86,13 @@ export const funcBindCancel = example({
 
 export const funcBindSharedChannel = example({
     keywords: ["Func", "bind", "shared", "channel", "binding", "name"],
-    description: "Handles bound to the same name share one channel: one launches, another observes",
+    description: "Handles bound to the same function share one channel: one launches, another observes",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            // Two independent binds of the same function name observe the
-            // same tracked call — `binding.name` is the channel key.
-            const launcher = $.let(Func.bind([[IntegerType, FloatType], FloatType], "forecast"));
-            const observer = $.let(Func.bind([[IntegerType, FloatType], FloatType], "forecast"));
+            // Two independent binds of the same function observe the same
+            // tracked call — `binding.name` is the channel key.
+            const launcher = $.let(Func.bind(forecastFn));
+            const observer = $.let(Func.bind(forecastFn));
             const run = $.const(East.function([], NullType, $ => {
                 $(launcher.call(12n, 1.05));
             }));
@@ -100,3 +107,4 @@ export const funcBindSharedChannel = example({
     )),
     inputs: [],
 });
+

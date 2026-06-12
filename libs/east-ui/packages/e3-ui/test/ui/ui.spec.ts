@@ -62,7 +62,7 @@ describe("ui()", () => {
         const threshold = input("threshold", FloatType, 100.0);
         const dashboard = ui("dashboard", [], East.function([], UIComponentType, (_$) =>
             Reactive.Root(East.function([], UIComponentType, $ => {
-                const t = $.let(Data.bind([FloatType], threshold.path));
+                const t = $.let(Data.bind(threshold));
                 const v = $.let(t.read());
                 return Text.Root(East.print(v));
             }))
@@ -78,7 +78,7 @@ describe("ui()", () => {
         const dashboard = ui("dashboard", [threshold],
             East.function([FloatType], UIComponentType, (_$, _t) =>
                 Reactive.Root(East.function([], UIComponentType, $ => {
-                    const t = $.let(Data.bind([FloatType], threshold.path));
+                    const t = $.let(Data.bind(threshold));
                     return Text.Root(East.print($.let(t.read())));
                 }))
             )

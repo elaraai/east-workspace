@@ -18,7 +18,7 @@ export const dataBindFloat = example({
     description: "Bind to a Float dataset and display its current value",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const thresh = $.let(Data.bind([FloatType], thresholdInput.path));
+            const thresh = $.let(Data.bind(thresholdInput));
             const value = $.let(thresh.read());
             return <Stat label="Threshold" value={value} />;
         }}</Reactive>
@@ -31,7 +31,7 @@ export const dataBindSliderWriteback = example({
     description: "Slider whose value is bound to a dataset — onChange writes back",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const thresh = $.let(Data.bind([FloatType], thresholdInput.path));
+            const thresh = $.let(Data.bind(thresholdInput));
             const value = $.let(thresh.read());
             return (
                 <Slider
@@ -52,7 +52,7 @@ export const dataBindInteger = example({
     description: "Integer dataset bound to a number input with writeback",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const count = $.let(Data.bind([IntegerType], countInput.path));
+            const count = $.let(Data.bind(countInput));
             const value = $.let(count.read());
             return <Input.Integer value={value} onChange={count.write} />;
         }}</Reactive>
@@ -65,7 +65,7 @@ export const dataBindStringReset = example({
     description: "String dataset with a reset button that writes an empty string",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const name = $.let(Data.bind([StringType], nameInput.path));
+            const name = $.let(Data.bind(nameInput));
             const value = $.let(name.read());
             const reset = $.const(East.function([], NullType, $ => {
                 $(name.write(""));
@@ -86,7 +86,7 @@ export const dataBindHasGuard = example({
     description: "Use has() to gate UI on whether a dataset has been written",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const thresh = $.let(Data.bind([FloatType], thresholdInput.path));
+            const thresh = $.let(Data.bind(thresholdInput));
             const ready = $.let(thresh.has());
             const message = $.let("(no data)");
             $.if(ready, $ => {
@@ -103,7 +103,7 @@ export const dataBindStagedFloat = example({
     description: "Stage edits to a Float dataset; read returns overlay (buffered or server)",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const thresh = $.let(Data.bind([FloatType], thresholdInput.path, { mode: "staged" }));
+            const thresh = $.let(Data.bind(thresholdInput, { mode: "staged" }));
             const value = $.let(thresh.read(), FloatType);
             return <Stat label="Threshold (live)" value={value} />;
         }}</Reactive>
@@ -116,7 +116,7 @@ export const dataBindStagedSliderWrite = example({
     description: "Slider whose onChange writes to the staged buffer instead of the server",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const thresh = $.let(Data.bind([FloatType], thresholdInput.path, { mode: "staged" }));
+            const thresh = $.let(Data.bind(thresholdInput, { mode: "staged" }));
             const value = $.let(thresh.read(), FloatType);
             return <Slider value={value} min={0} max={100} onChange={thresh.write} />;
         }}</Reactive>
@@ -129,7 +129,7 @@ export const dataBindStagedCommitDiscard = example({
     description: "Two buttons that commit or discard the staged buffer for a path",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const thresh = $.let(Data.bind([FloatType], thresholdInput.path, { mode: "staged" }));
+            const thresh = $.let(Data.bind(thresholdInput, { mode: "staged" }));
             const commit = $.const(East.function([], NullType, $ => {
                 $(thresh.commit());
             }), FunctionType([], NullType));
@@ -153,7 +153,7 @@ export const dataBindStagedOriginalVsRead = example({
     description: "Show server snapshot (original) and overlay (read) side by side",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const thresh = $.let(Data.bind([FloatType], thresholdInput.path, { mode: "staged", patch: thresholdPatchInput.path }));
+            const thresh = $.let(Data.bind(thresholdInput, { mode: "staged", patch: thresholdPatchInput }));
             const live = $.let(thresh.read(), FloatType);
             const server = $.let(thresh.source(), FloatType);
             return (

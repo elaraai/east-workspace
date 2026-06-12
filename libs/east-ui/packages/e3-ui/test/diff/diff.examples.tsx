@@ -138,10 +138,10 @@ export const workforcePolicyEditor = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
-                const maxHours = $.let(Data.bind([FloatType], maxWeeklyHoursInput.path));
-                const otThresh = $.let(Data.bind([FloatType], overtimeThresholdInput.path));
-                const restGap  = $.let(Data.bind([FloatType], restGapHoursInput.path));
-                const penalty  = $.let(Data.bind([FloatType], holidayPenaltyInput.path));
+                const maxHours = $.let(Data.bind(maxWeeklyHoursInput));
+                const otThresh = $.let(Data.bind(overtimeThresholdInput));
+                const restGap  = $.let(Data.bind(restGapHoursInput));
+                const penalty  = $.let(Data.bind(holidayPenaltyInput));
                 return (
                     <Card>
                         <VStack gap="5" align="stretch">
@@ -189,11 +189,11 @@ export const serviceConfigForm = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
-                const svcName     = $.let(Data.bind([StringType],   serviceNameInput.path));
-                const replicas    = $.let(Data.bind([IntegerType],  replicasInput.path));
-                const autoScale   = $.let(Data.bind([BooleanType],  autoScaleInput.path));
-                const region      = $.let(Data.bind([StringType],   regionInput.path));
-                const deployAfter = $.let(Data.bind([DateTimeType], deployAfterInput.path));
+                const svcName     = $.let(Data.bind(serviceNameInput));
+                const replicas    = $.let(Data.bind(replicasInput));
+                const autoScale   = $.let(Data.bind(autoScaleInput));
+                const region      = $.let(Data.bind(regionInput));
+                const deployAfter = $.let(Data.bind(deployAfterInput));
                 return (
                     <Card>
                         <VStack gap="4" align="stretch">
@@ -254,7 +254,7 @@ export const rosterTableEditor = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
-                const roster = $.let(Data.bind([RosterArrayType], rosterInput.path));
+                const roster = $.let(Data.bind(rosterInput));
                 // Get the roster array fresh inside the render closures to ensure edits to sibling
                 const rosterArray = $.let(roster.read(), RosterArrayType);
                 return (
@@ -330,10 +330,10 @@ export const pricingRulesEditor = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
-                const listPrice    = $.let(Data.bind([FloatType],   listPriceInput.path));
-                const discountPct  = $.let(Data.bind([FloatType],   discountPctInput.path));
-                const minOrderQty  = $.let(Data.bind([IntegerType], minOrderQtyInput.path));
-                const currency     = $.let(Data.bind([StringType],  currencyCodeInput.path));
+                const listPrice    = $.let(Data.bind(listPriceInput));
+                const discountPct  = $.let(Data.bind(discountPctInput));
+                const minOrderQty  = $.let(Data.bind(minOrderQtyInput));
+                const currency     = $.let(Data.bind(currencyCodeInput));
                 return (
                     <Card>
                         <VStack gap="5" align="stretch">
@@ -381,7 +381,7 @@ export const featureFlagsEditor = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
-                const flags = $.let(Data.bind([SetType(StringType)], featureFlagsInput.path));
+                const flags = $.let(Data.bind(featureFlagsInput));
                 const flagsRead = $.let(flags.read(), SetType(StringType));
                 return (
                     <Card>
@@ -454,7 +454,7 @@ export const regionalPricingEditor = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
-                const prices = $.let(Data.bind([DictType(StringType, FloatType)], regionalPricesInput.path));
+                const prices = $.let(Data.bind(regionalPricesInput));
                 const pricesRead = $.let(prices.read(), DictType(StringType, FloatType));
                 return (
                     <Card>
@@ -522,7 +522,7 @@ export const deploymentStatusEditor = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
-                const status = $.let(Data.bind([DeploymentStatusType], deploymentStatusInput.path));
+                const status = $.let(Data.bind(deploymentStatusInput));
                 const statusRead = $.let(status.read(), DeploymentStatusType);
                 return (
                     <Card>
@@ -556,7 +556,7 @@ export const diffDefaults = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
-                const view = $.let(Data.bind([FloatType], maxWeeklyHoursInput.path));
+                const view = $.let(Data.bind(maxWeeklyHoursInput));
                 return <Diff bindings={[view.binding]} />;
             }}</Reactive>
         );
@@ -591,8 +591,8 @@ export const mergeConflictDemo = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
-                const staged = $.let(Data.bind([FloatType], mergeDemoHoursInput.path));
-                const direct = $.let(Data.bind([FloatType], mergeDemoHoursInput.path, { mode: "direct" }));
+                const staged = $.let(Data.bind(mergeDemoHoursInput));
+                const direct = $.let(Data.bind(mergeDemoHoursInput, { mode: "direct" }));
                 const stagedValue = $.let(staged.read(), FloatType);
                 const serverValue = $.let(direct.read(), FloatType);
                 return (
@@ -647,10 +647,10 @@ export const pricingRulesEditorCompact = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
-                const listPrice    = $.let(Data.bind([FloatType],   listPriceInput.path));
-                const discountPct  = $.let(Data.bind([FloatType],   discountPctInput.path));
-                const minOrderQty  = $.let(Data.bind([IntegerType], minOrderQtyInput.path));
-                const currency     = $.let(Data.bind([StringType],  currencyCodeInput.path));
+                const listPrice    = $.let(Data.bind(listPriceInput));
+                const discountPct  = $.let(Data.bind(discountPctInput));
+                const minOrderQty  = $.let(Data.bind(minOrderQtyInput));
+                const currency     = $.let(Data.bind(currencyCodeInput));
                 return (
                     <Card>
                         <VStack gap="5" align="stretch">
@@ -686,10 +686,10 @@ export const pricingRulesEditorCondensed = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
-                const listPrice    = $.let(Data.bind([FloatType],   listPriceInput.path));
-                const discountPct  = $.let(Data.bind([FloatType],   discountPctInput.path));
-                const minOrderQty  = $.let(Data.bind([IntegerType], minOrderQtyInput.path));
-                const currency     = $.let(Data.bind([StringType],  currencyCodeInput.path));
+                const listPrice    = $.let(Data.bind(listPriceInput));
+                const discountPct  = $.let(Data.bind(discountPctInput));
+                const minOrderQty  = $.let(Data.bind(minOrderQtyInput));
+                const currency     = $.let(Data.bind(currencyCodeInput));
                 return (
                     <Card>
                         <VStack gap="5" align="stretch">
@@ -790,10 +790,8 @@ export const policyOverlayEditor = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
-                const view = $.let(Data.bind(
-                    [FloatType],
-                    maxWeeklyHoursInput.path,
-                    { mode: "direct", patch: maxWeeklyHoursPatchInput.path },
+                const view = $.let(Data.bind(maxWeeklyHoursInput,
+                    { mode: "direct", patch: maxWeeklyHoursPatchInput },
                 ));
                 return (
                     <Card>
@@ -829,10 +827,8 @@ export const regionalPricingOverlayDrift = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
-                const view = $.let(Data.bind(
-                    [DictType(StringType, FloatType)],
-                    regionalPricesInput.path,
-                    { mode: "direct", patch: regionalPricesDriftPatchInput.path },
+                const view = $.let(Data.bind(regionalPricesInput,
+                    { mode: "direct", patch: regionalPricesDriftPatchInput },
                 ));
                 return (
                     <Card>
@@ -868,10 +864,8 @@ export const rosterOverlayDrift = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
-                const view = $.let(Data.bind(
-                    [RosterArrayType],
-                    rosterInput.path,
-                    { mode: "direct", patch: rosterDriftPatchInput.path },
+                const view = $.let(Data.bind(rosterInput,
+                    { mode: "direct", patch: rosterDriftPatchInput },
                 ));
                 return (
                     <Card>
@@ -902,10 +896,8 @@ export const rosterTableEditorOverlay = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
-                const view = $.let(Data.bind(
-                    [RosterArrayType],
-                    rosterInput.path,
-                    { mode: "direct", patch: rosterPatchInput.path },
+                const view = $.let(Data.bind(rosterInput,
+                    { mode: "direct", patch: rosterPatchInput },
                 ));
                 const rosterArray = $.let(view.read(), RosterArrayType);
                 return (
@@ -987,10 +979,8 @@ export const policyStagedPatchEditor = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
-                const view = $.let(Data.bind(
-                    [FloatType],
-                    maxWeeklyHoursInput.path,
-                    { mode: "staged", patch: maxWeeklyHoursPatchInput.path },
+                const view = $.let(Data.bind(maxWeeklyHoursInput,
+                    { mode: "staged", patch: maxWeeklyHoursPatchInput },
                 ));
                 return (
                     <Card>
@@ -1021,10 +1011,8 @@ export const rosterStagedPatchEditor = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
-                const view = $.let(Data.bind(
-                    [RosterArrayType],
-                    rosterInput.path,
-                    { mode: "staged", patch: rosterPatchInput.path },
+                const view = $.let(Data.bind(rosterInput,
+                    { mode: "staged", patch: rosterPatchInput },
                 ));
                 const rosterArray = $.let(view.read(), RosterArrayType);
                 return (

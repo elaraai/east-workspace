@@ -3,6 +3,11 @@
 > Status: **draft for review** · 2026-06-12 · updated for the sync-only
 > function surface (PR #27: async call endpoints removed; the sync path's
 > server-owned deadline is the contract).
+> **DX amendment (implemented):** `Func.bind(fn)` takes the `FunctionDef`
+> returned by `e3.function` — name, `inputTypes`, and `outputType` all come
+> from the def (no explicit `[[Inputs…], Output], name` form; same for
+> `Data.bind(dataset)`). Signature spellings below predate this and read
+> as the def-form equivalent.
 > Audience: e3-ui maintainers + an implementing agent. Companion to
 > `e3-functions.md` (the `e3.function` execution primitive this binds to) and
 > `e3-ui.md` (the `e3.ui()` / `Data.bind` surface this extends). Implementation

@@ -30,6 +30,7 @@ import {
     type EastType,
     type ExprType,
 } from '@elaraai/east';
+import type { FunctionDef } from '@elaraai/e3';
 
 // ============================================================================
 // Status + error types
@@ -210,6 +211,67 @@ export const funcBindPlatformFn = East.genericPlatform(
 // ============================================================================
 
 /**
+ * Bind an `e3.function` to a reactive call handle.
+ *
+ * Takes the {@link FunctionDef} returned by `e3.function` — the binding's
+ * name, parameter types and return type are all taken from the def, the
+ * same way task wiring takes a dataset's path and type from its
+ * `DatasetDef`. The binding is correct by construction: it cannot drift
+ * from the deployed function's signature, because both come from the same
+ * object.
+ *
+ * @typeParam Inputs - Positional parameter East types (from the def).
+ * @typeParam Output - Return East type (from the def).
+ * @param fn - The `e3.function` definition to bind.
+ * @returns A handle struct described by {@link FuncBindHandleType} —
+ *   `call` / `read` / `status` / `error` / `pending` / `cancel` /
+ *   `binding`.
+ *
+ * @remarks
+ * The launch/observe split is the same shape `Data.bind` uses for
+ * `write` (sync IR, async effects behind the platform): `call` never
+ * blocks, and everything you'd want back from the call arrives through
+ * `read` / `status` / `error` on the next reactive render. All handles
+ * bound to the same function in the same workspace share one tracked
+ * channel — one component can launch while another renders the spinner.
+ *
+ * @example
+ * ```ts
+ * import { East, FloatType, IntegerType, NullType } from "@elaraai/east";
+ * import { Button, Reactive, Stat, UIComponentType, VStack } from "@elaraai/east-ui";
+ * import { Func } from "@elaraai/e3-ui";
+ * import e3 from "@elaraai/e3";
+ *
+ * const forecastFn = e3.function('forecast',
+ *     East.function([IntegerType, FloatType], FloatType, ($, periods, growth) => ...));
+ *
+ * // Mirrors `funcBindCall` in test/func/func.examples.tsx.
+ * const funcBindCall = East.function([], UIComponentType, _$ => {
+ *     return Reactive.Root(East.function([], UIComponentType, $ => {
+ *         const forecast = $.let(Func.bind(forecastFn));
+ *         const run = $.const(East.function([], NullType, $ => {
+ *             $(forecast.call(12n, 1.05));
+ *         }));
+ *         return VStack.Root([
+ *             Button.Root("Run forecast", { onClick: run, loading: forecast.pending() }),
+ *             Stat.Root({ label: "Forecast", value: East.print(forecast.read()) }),
+ *         ], { gap: "3" });
+ *     }));
+ * });
+ * ```
+ */
+function bindFunction<Inputs extends EastType[], Output extends EastType>(
+    fn: FunctionDef<Inputs, Output>,
+): BoundFunc<Inputs, Output> {
+    const handleType = FuncBindHandleType([...fn.inputTypes], fn.outputType);
+    // The name must be a single literal Value IR node — the only shape
+    // manifest derivation (`derive.ts`) handles. `fn.name` is a static JS
+    // string at IR-build time, so this holds by construction.
+    const nameValue = East.value(fn.name, StringType);
+    return funcBindPlatformFn([handleType], nameValue) as BoundFunc<Inputs, Output>;
+}
+
+/**
  * The Func namespace — reactive function (RPC) binding for e3 UI tasks.
  *
  * @remarks
@@ -224,66 +286,5 @@ export const funcBindPlatformFn = East.genericPlatform(
  * progresses.
  */
 export const Func = {
-    /**
-     * Bind a named workspace function to a reactive call handle.
-     *
-     * @typeParam Inputs - Positional parameter East types.
-     * @typeParam Output - Return East type.
-     * @param types - `[[...Inputs], Output]`, mirroring `East.function`'s
-     *   shape. Must match the deployed `e3.function`'s signature — the
-     *   runtime validates against the workspace's function list and parks
-     *   the binding in `failed` / `invalid` on mismatch.
-     * @param name - The function's name in the deployed package. Must be a
-     *   statically-known string so manifest derivation can record it;
-     *   computed East-side expressions are not supported.
-     * @returns A handle struct described by {@link FuncBindHandleType} —
-     *   `call` / `read` / `status` / `error` / `pending` / `cancel` /
-     *   `binding`.
-     *
-     * @remarks
-     * The launch/observe split is the same shape `Data.bind` uses for
-     * `write` (sync IR, async effects behind the platform): `call` never
-     * blocks, and everything you'd want back from the call arrives through
-     * `read` / `status` / `error` on the next reactive render. All handles
-     * bound to the same function name in the same workspace share one
-     * tracked channel — one component can launch while another renders the
-     * spinner.
-     *
-     * @example
-     * ```ts
-     * import { East, FloatType, IntegerType, NullType } from "@elaraai/east";
-     * import { Button, Reactive, Stat, UIComponentType, VStack } from "@elaraai/east-ui";
-     * import { Func } from "@elaraai/e3-ui";
-     *
-     * // Package side: e3.function('forecast', East.function([IntegerType, FloatType], FloatType, ...))
-     *
-     * // Mirrors `funcBindCall` in test/func/func.examples.tsx.
-     * const funcBindCall = East.function([], UIComponentType, _$ => {
-     *     return Reactive.Root(East.function([], UIComponentType, $ => {
-     *         const forecast = $.let(Func.bind([[IntegerType, FloatType], FloatType], "forecast"));
-     *         const run = $.const(East.function([], NullType, $ => {
-     *             $(forecast.call(12n, 1.05));
-     *         }));
-     *         return VStack.Root([
-     *             Button.Root("Run forecast", { onClick: run, loading: forecast.pending() }),
-     *             Stat.Root({ label: "Forecast", value: East.print(forecast.read()) }),
-     *         ], { gap: "3" });
-     *     }));
-     * });
-     * ```
-     */
-    bind<Inputs extends EastType[], Output extends EastType>(
-        types: [[...Inputs], Output],
-        name: string,
-    ): BoundFunc<Inputs, Output> {
-        if (!name) {
-            throw new Error('Func.bind requires a non-empty function name');
-        }
-        const [inputs, output] = types;
-        const handleType = FuncBindHandleType(inputs, output);
-        // The name must be a single literal Value IR node — the only shape
-        // manifest derivation (`derive.ts`) handles.
-        const nameValue = East.value(name, StringType);
-        return funcBindPlatformFn([handleType], nameValue) as BoundFunc<Inputs, Output>;
-    },
+    bind: bindFunction,
 } as const;

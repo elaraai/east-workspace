@@ -95,9 +95,9 @@ A new platform binding in `@elaraai/e3-ui`, the Decide sibling of
 `<Reactive>` block:
 
 ```tsx
-const rosterView = $.let(Data.bind([ArrayType(Decision.Types.Decision)], rosterTask.output, { patch: rosterPatch.path }));
-const ordersView = $.let(Data.bind([ArrayType(Decision.Types.Decision)], ordersTask.output, { patch: ordersPatch.path }));
-const judgementsView = $.let(Data.bind([DictType(StringType, Decision.Types.JudgementInput)], judgementsInput.path, { mode: 'staged' }));
+const rosterView = $.let(Data.bind(rosterTask.output, { patch: rosterPatch }));
+const ordersView = $.let(Data.bind(ordersTask.output, { patch: ordersPatch }));
+const judgementsView = $.let(Data.bind(judgementsInput, { mode: 'staged' }));
 const handle = $.let(Decision.bind({
     decisions: [rosterView, ordersView],   // diff bindings — source ⊕ patch each
     judgements: judgementsView,            // staged binding — commit / discard / status for free
