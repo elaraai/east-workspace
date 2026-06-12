@@ -42,3 +42,14 @@ export {
   getDataflowGraph,
   getTaskLogs,
 } from './dataflow.js';
+
+export {
+  listPackageFunctions,
+  describePackageFunction,
+  callFunctionSync,
+  callFunctionAsync,
+  getCallStatus,
+  cancelCall,
+  callOneShotSync,
+  callOneShotAsync,
+} from './functions.js';

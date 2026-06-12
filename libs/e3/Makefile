@@ -1,7 +1,7 @@
 # e3 — East Execution Engine
 # Dependencies are managed by pnpm from the monorepo root.
 
-.PHONY: all build test lint clean dev link fuzz fuzz-quick fuzz-stress fuzz-build help
+.PHONY: all build test lint clean dev link help
 
 # Default target
 all: build
@@ -13,8 +13,8 @@ build:
 
 ## Run all tests
 # --workspace-concurrency=1 runs one package's test script at a time. The
-# integration and fuzz suites each spawn many e3 / east-node subprocesses;
-# running them in parallel starves CPU on smaller CI runners (Windows
+# integration suite spawns many e3 / east-node subprocesses; running
+# packages in parallel starves CPU on smaller CI runners (Windows
 # especially), inflating wall-clock and causing nondeterministic timeouts.
 # Serial execution trades a little speed for reproducible timing.
 test:
@@ -46,26 +46,6 @@ dev: build
 link:
 	cd packages/e3-cli && pnpm link --global
 
-## Build fuzz tests
-fuzz-build:
-	@echo "Building fuzz tests..."
-	pnpm --filter=e3-fuzz run build
-
-## Run fuzz tests (100 iterations)
-fuzz: fuzz-build
-	@echo "Running fuzz tests..."
-	pnpm --filter=e3-fuzz run fuzz
-
-## Run quick fuzz tests (10 iterations)
-fuzz-quick: fuzz-build
-	@echo "Running quick fuzz tests..."
-	pnpm --filter=e3-fuzz run fuzz:quick
-
-## Run stress fuzz tests (1000 iterations)
-fuzz-stress: fuzz-build
-	@echo "Running stress fuzz tests..."
-	pnpm --filter=e3-fuzz run fuzz:stress
-
 ## Show available targets
 help:
 	@echo "e3 - East Execution Engine"
@@ -75,10 +55,6 @@ help:
 	@echo "  lint        - Run linters"
 	@echo "  clean       - Clean build artifacts"
 	@echo "  dev         - Build for development"
-	@echo ""
-	@echo "  fuzz        - Run fuzz tests (100 iterations)"
-	@echo "  fuzz-quick  - Run quick fuzz tests (10 iterations)"
-	@echo "  fuzz-stress - Run stress fuzz tests (1000 iterations)"
 	@echo ""
 	@echo "Dependencies are managed by pnpm from the monorepo root."
 	@echo "Run 'pnpm install' from the workspace root to install deps."

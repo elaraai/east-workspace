@@ -981,10 +981,9 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     repo: string,
     packageHash: string
   ): Promise<Structure> {
-    const { PackageObjectType } = await import('@elaraai/e3-types');
+    const { decodePackageObject } = await import('@elaraai/e3-types');
     const pkgData = await storage.objects.read(repo, packageHash);
-    const pkgDecoder = decodeBeast2For(PackageObjectType);
-    const pkgObject = pkgDecoder(Buffer.from(pkgData));
+    const pkgObject = decodePackageObject(Buffer.from(pkgData));
     return pkgObject.data.structure;
   }
 

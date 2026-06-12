@@ -35,3 +35,22 @@ export {
 // TaskRunner implementations
 export { LocalTaskRunner } from './LocalTaskRunner.js';
 export { MockTaskRunner, type MockTaskCall } from './MockTaskRunner.js';
+
+// Graph-free execution (functions / one-shot)
+export {
+  runDetached,
+  type DetachedSpec,
+  type DetachedResult,
+  type DetachedRunOptions,
+} from './runDetached.js';
+
+// Persistence-free process helpers (shared by tracked + detached paths)
+export {
+  marshalInputsToDir,
+  marshalBytesToDir,
+  readOutputFile,
+  buildRunnerArgv,
+  spawnAndCapture,
+  type SpawnAndCaptureOptions,
+  type SpawnAndCaptureResult,
+} from './processExec.js';

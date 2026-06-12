@@ -44,6 +44,16 @@ export type {
   TreeKind,
   ListEntry,
   DatasetStatusDetail,
+  RunnerValue,
+  ExecuteLimits,
+  Diagnostic,
+  ExecuteResult,
+  FunctionCallRequest,
+  FunctionSignature,
+  CallStartResult,
+  CallStatus,
+  CallStatusResult,
+  OneShotRequest,
 } from './types.js';
 
 // HTTP utilities and auth
@@ -99,6 +109,26 @@ export {
 // Tasks
 export { taskList, taskGet, taskExecutionList } from './tasks.js';
 
+// Functions / one-shot
+export {
+  functionList,
+  functionDescribe,
+  functionCall,
+  functionCallLaunch,
+  functionCallPoll,
+  functionCallCancel,
+  workspaceFunctionList,
+  workspaceFunctionDescribe,
+  workspaceFunctionCall,
+  workspaceFunctionCallLaunch,
+  workspaceFunctionCallPoll,
+  workspaceFunctionCallCancel,
+  oneShotExecute,
+  oneShotLaunch,
+  oneShotPoll,
+  oneShotCancel,
+} from './functions.js';
+
 // Executions
 export {
   dataflowExecute,
@@ -145,4 +175,6 @@ export {
   platform_dataflow_execute,
   platform_dataflow_graph,
   platform_task_logs,
+  platform_function_call,
+  platform_one_shot_execute,
 } from './platform.js';

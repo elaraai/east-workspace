@@ -21,6 +21,9 @@ import {
   RepositoryStatusType,
   GcRequestType,
   GcResultType,
+  FunctionCallRequestType,
+  ExecuteResultType,
+  OneShotRequestType,
   PackageListItemType,
   PackageImportResultType,
   WorkspaceInfoType,
@@ -68,6 +71,10 @@ import {
   dataflowGraph,
   taskLogs,
 } from './executions.js';
+import {
+  workspaceFunctionCall,
+  oneShotExecute,
+} from './functions.js';
 
 // =============================================================================
 // Repository Platform Functions
@@ -241,6 +248,25 @@ export const platform_task_logs = East.asyncPlatform(
   'e3_task_logs',
   [StringType, StringType, StringType, StringType, LogOptionsType, StringType],  // url, repo, workspace, task, options, token
   LogChunkType
+);
+
+// =============================================================================
+// Function / One-shot Platform Functions
+// =============================================================================
+
+/** Call a named function of a workspace's deployed package, run to
+ *  completion, returning the inline ExecuteResult. */
+export const platform_function_call = East.asyncPlatform(
+  'e3_function_call',
+  [StringType, StringType, StringType, StringType, FunctionCallRequestType, StringType],  // url, repo, workspace, fn, request, token
+  ExecuteResultType
+);
+
+/** Run an anonymous one-shot IR against a workspace (role-gated server-side). */
+export const platform_one_shot_execute = East.asyncPlatform(
+  'e3_one_shot_execute',
+  [StringType, StringType, StringType, OneShotRequestType, StringType],  // url, repo, workspace, request, token
+  ExecuteResultType
 );
 
 // =============================================================================
@@ -560,6 +586,33 @@ const PlatformImpl: PlatformFunction[] = [
       }
     }
   ),
+
+  // Functions / one-shot
+  platform_function_call.implement(
+    async (url: string, repo: string, workspace: string, fn: string, request: ValueTypeOf<typeof FunctionCallRequestType>, token: string) => {
+      try {
+        return await workspaceFunctionCall(url, repo, workspace, fn, request, { token });
+      } catch (err: any) {
+        throw new EastError(`Failed to call function ${fn} in ${workspace}: ${err.message}`, {
+          location: [{ filename: 'e3_function_call', line: 0n, column: 0n }],
+          cause: err,
+        });
+      }
+    }
+  ),
+
+  platform_one_shot_execute.implement(
+    async (url: string, repo: string, workspace: string, request: ValueTypeOf<typeof OneShotRequestType>, token: string) => {
+      try {
+        return await oneShotExecute(url, repo, workspace, request, { token });
+      } catch (err: any) {
+        throw new EastError(`Failed to execute one-shot in ${workspace}: ${err.message}`, {
+          location: [{ filename: 'e3_one_shot_execute', line: 0n, column: 0n }],
+          cause: err,
+        });
+      }
+    }
+  ),
 ];
 
 // =============================================================================
@@ -603,6 +656,10 @@ export const Platform = {
   dataflowGraph: platform_dataflow_graph,
   taskLogs: platform_task_logs,
 
+  // Functions / one-shot
+  functionCall: platform_function_call,
+  oneShotExecute: platform_one_shot_execute,
+
   Implementation: PlatformImpl,
 
   Types: {
@@ -620,6 +677,9 @@ export const Platform = {
     DataflowResult: DataflowResultType,
     LogChunk: LogChunkType,
     LogOptions: LogOptionsType,
+    FunctionCallRequest: FunctionCallRequestType,
+    ExecuteResult: ExecuteResultType,
+    OneShotRequest: OneShotRequestType,
   },
 } as const;
 

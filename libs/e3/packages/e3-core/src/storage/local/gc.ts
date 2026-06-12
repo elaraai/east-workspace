@@ -181,6 +181,17 @@ function isTaskObjectShape(type: any): boolean {
 }
 
 /**
+ * Check if a decoded EastTypeValue represents a FunctionObject.
+ * FunctionObject is a Struct with fields: bodyIr, inputTypes, outputType, runner
+ */
+function isFunctionObjectShape(type: any): boolean {
+  if (type.type !== 'Struct') return false;
+  const fields = type.value as { name: string; type: any }[];
+  const names = new Set(fields.map(f => f.name));
+  return names.has('bodyIr') && names.has('inputTypes') && names.has('outputType') && names.has('runner');
+}
+
+/**
  * Check if a field type is a DataRef (Variant with cases: unassigned, null, value, tree).
  */
 function isDataRefFieldType(fieldType: any): boolean {
@@ -212,9 +223,15 @@ function extractChildren(
   const children: { hash: string; isLeaf: boolean }[] = [];
 
   if (isPackageObjectShape(t)) {
-    const pkg = value as { tasks: Map<string, string>; data: { structure: unknown; refs?: Map<string, { type: string; value: any }> } };
+    const pkg = value as { tasks: Map<string, string>; data: { structure: unknown; refs?: Map<string, { type: string; value: any }> }; functions?: Map<string, string> };
     for (const taskHash of pkg.tasks.values()) {
       children.push({ hash: taskHash, isLeaf: false });
+    }
+    // Function objects (absent on pre-`functions` packages)
+    if (pkg.functions instanceof Map) {
+      for (const fnHash of pkg.functions.values()) {
+        children.push({ hash: fnHash, isLeaf: false });
+      }
     }
     // Extract value hashes from inline per-dataset refs
     if (pkg.data.refs instanceof Map) {
@@ -230,6 +247,12 @@ function extractChildren(
   if (isTaskObjectShape(t)) {
     const task = value as { commandIr: string };
     children.push({ hash: task.commandIr, isLeaf: true }); // IR is a leaf
+    return children;
+  }
+
+  if (isFunctionObjectShape(t)) {
+    const fn = value as { bodyIr: string };
+    children.push({ hash: fn.bodyIr, isLeaf: true }); // IR is a leaf
     return children;
   }
 

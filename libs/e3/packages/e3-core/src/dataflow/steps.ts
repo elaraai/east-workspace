@@ -221,7 +221,7 @@ async function getWorkspaceStructure(
   workspace: string
 ): Promise<Structure> {
   const { decodeBeast2For } = await import('@elaraai/east');
-  const { PackageObjectType, WorkspaceStateType } = await import('@elaraai/e3-types');
+  const { decodePackageObject, WorkspaceStateType } = await import('@elaraai/e3-types');
 
   const wsData = await storage.refs.workspaceRead(repo, workspace);
   if (wsData === null || wsData.length === 0) {
@@ -231,8 +231,7 @@ async function getWorkspaceStructure(
   const wsState = wsDecoder(wsData);
 
   const pkgData = await storage.objects.read(repo, wsState.packageHash);
-  const pkgDecoder = decodeBeast2For(PackageObjectType);
-  const pkgObject = pkgDecoder(Buffer.from(pkgData));
+  const pkgObject = decodePackageObject(Buffer.from(pkgData));
 
   return pkgObject.data.structure;
 }

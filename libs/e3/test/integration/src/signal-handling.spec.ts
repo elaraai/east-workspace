@@ -80,8 +80,10 @@ describe('signal handling', () => {
       await proc.result;
       const elapsed = Date.now() - startTime;
 
-      // CLI should exit quickly (not wait for the 30 second sleep)
-      assert.ok(elapsed < 5000, `CLI should exit quickly, but took ${elapsed}ms`);
+      // CLI should exit promptly (not wait out the 30 second sleep). 15s
+      // bounds the assertion well under the sleep while tolerating loaded
+      // CI runners — 5s raced on slow machines.
+      assert.ok(elapsed < 15000, `CLI should exit quickly, but took ${elapsed}ms`);
 
       // Give a moment for any cleanup
       await new Promise(resolve => setTimeout(resolve, 300));
@@ -187,19 +189,20 @@ describe('signal handling', () => {
       // Wait for CLI to exit
       await proc.result;
 
-      // Give a moment for filesystem to flush
-      await new Promise(resolve => setTimeout(resolve, 100));
-
-      // Read the execution state file
+      // Poll for the persisted state instead of a fixed flush wait — a
+      // fixed 100ms raced the write on slow CI disks.
       const statePath = join(repoDir, 'workspaces', 'ws', 'execution.beast2');
-      assert.ok(existsSync(statePath), 'Execution state file should exist');
-
-      const stateData = readFileSync(statePath);
       const decode = decodeBeast2For(DataflowExecutionStateType);
-      const state = decode(stateData);
-
-      // Verify the status is 'cancelled'
-      assert.strictEqual(state.status, 'cancelled', `Execution status should be 'cancelled', got '${state.status}'`);
+      const readStatus = (): string | null => {
+        if (!existsSync(statePath)) return null;
+        try {
+          return decode(readFileSync(statePath)).status;
+        } catch {
+          return null; // partially-written file
+        }
+      };
+      await waitFor(() => readStatus() === 'cancelled', 10000);
+      assert.strictEqual(readStatus(), 'cancelled', 'Execution status should be cancelled');
     });
 
     // Skipped on Windows for the same reason as the previous test — `child.kill('SIGINT')`
@@ -235,9 +238,21 @@ describe('signal handling', () => {
       // Send SIGINT (triggers immediate persistence)
       proc.kill('SIGINT');
 
-      // Wait long enough for the signal handler to fire and complete persistence
-      // (the async chain: read → decode → mutate → encode → write → rename needs time under CI load)
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Poll until the handler has persisted 'cancelled', THEN deliver the
+      // impatient SIGKILL — this is the scenario's real precondition (first
+      // Ctrl-C persisted before the second lands) and replaces a fixed
+      // 500ms wait that raced the handler under CI load.
+      const statePath = join(repoDir, 'workspaces', 'ws', 'execution.beast2');
+      const decode = decodeBeast2For(DataflowExecutionStateType);
+      const readStatus = (): string | null => {
+        if (!existsSync(statePath)) return null;
+        try {
+          return decode(readFileSync(statePath)).status;
+        } catch {
+          return null; // partially-written file
+        }
+      };
+      await waitFor(() => readStatus() === 'cancelled', 10000);
 
       // Send SIGKILL to forcibly terminate (simulating impatient user)
       proc.kill('SIGKILL');
@@ -245,19 +260,8 @@ describe('signal handling', () => {
       // Wait for process to exit
       await proc.result;
 
-      // Give filesystem time to flush
-      await new Promise(resolve => setTimeout(resolve, 100));
-
-      // Read the execution state file
-      const statePath = join(repoDir, 'workspaces', 'ws', 'execution.beast2');
-      assert.ok(existsSync(statePath), 'Execution state file should exist');
-
-      const stateData = readFileSync(statePath);
-      const decode = decodeBeast2For(DataflowExecutionStateType);
-      const state = decode(stateData);
-
-      // Verify the status is 'cancelled' - the immediate persistence should have completed
-      assert.strictEqual(state.status, 'cancelled', `Execution status should be 'cancelled', got '${state.status}'`);
+      // The persisted status must survive the SIGKILL
+      assert.strictEqual(readStatus(), 'cancelled', 'Execution status should be cancelled');
     });
 
     it('can restart dataflow after SIGKILL without --force', async () => {
@@ -290,7 +294,7 @@ describe('signal handling', () => {
       await proc1.result;
 
       // Give a moment for any cleanup
-      await new Promise(resolve => setTimeout(resolve, 200));
+      await new Promise(resolve => setTimeout(resolve, 500));
 
       // Start a new execution - should work without --force
       const proc2 = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
@@ -317,14 +321,18 @@ describe('signal handling', () => {
   });
 
   describe('workspace locking', () => {
-    it('rejects deploy while dataflow is running', async () => {
+    it('rejects deploy/remove/start while a dataflow is running', async () => {
+      // One running dataflow, three lock assertions — deploy, remove, and a
+      // second start must all be refused while the workspace lock is held.
+      // (Lock semantics are unit-tested in LocalLockService.spec.ts and via
+      // the API in e3-api-tests dataflow suite; this covers the CLI surface.)
       const input = e3.input('input', StringType, 'hello');
 
       const slowTask = e3.customTask(
         'slow',
         [input],
         StringType,
-        ($, inputs, output) => East.str`sleep 10 && cp ${inputs.get(0n)} ${output}`
+        ($, inputs, output) => East.str`sleep 30 && cp ${inputs.get(0n)} ${output}`
       );
 
       const pkg = e3.package('lock-test', '1.0.0', slowTask);
@@ -336,111 +344,28 @@ describe('signal handling', () => {
       await runE3Command(['workspace', 'create', repoDir, 'ws'], testDir);
       await runE3Command(['workspace', 'deploy', repoDir, 'ws', 'lock-test@1.0.0'], testDir);
 
-      // Start a slow task
+      // Start a slow task and wait for it to hold the lock
       const startProc = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
-
-      // Wait for task to start
       await waitFor(() => startProc.getStdout().includes('[START]'), 30000);
 
-      // Try to deploy while dataflow is running - should fail with lock error
-      const deployResult = await runE3Command(
-        ['workspace', 'deploy', repoDir, 'ws', 'lock-test@1.0.0'],
-        testDir
-      );
+      const expectLocked = (name: string, result: { exitCode: number; stdout: string; stderr: string }) => {
+        const output = result.stdout + result.stderr;
+        assert.ok(
+          output.toLowerCase().includes('lock') || result.exitCode !== 0,
+          `${name} should fail due to lock. Got: exitCode=${result.exitCode}, output=${output}`
+        );
+      };
 
-      // Should fail with lock error message
-      const output = deployResult.stdout + deployResult.stderr;
-      assert.ok(
-        output.toLowerCase().includes('lock') || deployResult.exitCode !== 0,
-        `Deploy should fail due to lock. Got: exitCode=${deployResult.exitCode}, output=${output}`
-      );
+      expectLocked('deploy', await runE3Command(
+        ['workspace', 'deploy', repoDir, 'ws', 'lock-test@1.0.0'], testDir));
+      expectLocked('remove', await runE3Command(
+        ['workspace', 'remove', repoDir, 'ws'], testDir));
+      expectLocked('second start', await runE3Command(
+        ['dataflow', 'run', repoDir, 'ws'], testDir));
 
       // Clean up - abort the running task
       startProc.kill('SIGINT');
       await startProc.result;
-    });
-
-    it('rejects remove while dataflow is running', async () => {
-      const input = e3.input('input', StringType, 'hello');
-
-      const slowTask = e3.customTask(
-        'slow',
-        [input],
-        StringType,
-        ($, inputs, output) => East.str`sleep 10 && cp ${inputs.get(0n)} ${output}`
-      );
-
-      const pkg = e3.package('lock-test-2', '1.0.0', slowTask);
-
-      await e3.export(pkg, packageZipPath);
-
-      await runE3Command(['repo', 'create', repoDir], testDir);
-      await runE3Command(['package', 'import', repoDir, packageZipPath], testDir);
-      await runE3Command(['workspace', 'create', repoDir, 'ws'], testDir);
-      await runE3Command(['workspace', 'deploy', repoDir, 'ws', 'lock-test-2@1.0.0'], testDir);
-
-      // Start a slow task
-      const startProc = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
-
-      // Wait for task to start
-      await waitFor(() => startProc.getStdout().includes('[START]'), 30000);
-
-      // Try to remove while dataflow is running - should fail with lock error
-      const removeResult = await runE3Command(
-        ['workspace', 'remove', repoDir, 'ws'],
-        testDir
-      );
-
-      // Should fail with lock error message
-      const output = removeResult.stdout + removeResult.stderr;
-      assert.ok(
-        output.toLowerCase().includes('lock') || removeResult.exitCode !== 0,
-        `Remove should fail due to lock. Got: exitCode=${removeResult.exitCode}, output=${output}`
-      );
-
-      // Clean up - abort the running task
-      startProc.kill('SIGINT');
-      await startProc.result;
-    });
-
-    it('rejects start while another start is running', async () => {
-      const input = e3.input('input', StringType, 'hello');
-
-      const slowTask = e3.customTask(
-        'slow',
-        [input],
-        StringType,
-        ($, inputs, output) => East.str`sleep 10 && cp ${inputs.get(0n)} ${output}`
-      );
-
-      const pkg = e3.package('lock-test-3', '1.0.0', slowTask);
-
-      await e3.export(pkg, packageZipPath);
-
-      await runE3Command(['repo', 'create', repoDir], testDir);
-      await runE3Command(['package', 'import', repoDir, packageZipPath], testDir);
-      await runE3Command(['workspace', 'create', repoDir, 'ws'], testDir);
-      await runE3Command(['workspace', 'deploy', repoDir, 'ws', 'lock-test-3@1.0.0'], testDir);
-
-      // Start first dataflow
-      const startProc1 = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
-
-      // Wait for task to start
-      await waitFor(() => startProc1.getStdout().includes('[START]'), 30000);
-
-      // Try to start another dataflow - should fail with lock error
-      const startResult2 = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
-
-      // Should fail with lock error message
-      const output = startResult2.stdout + startResult2.stderr;
-      assert.ok(
-        output.toLowerCase().includes('lock') || startResult2.exitCode !== 0,
-        `Second start should fail due to lock. Got: exitCode=${startResult2.exitCode}, output=${output}`
-      );
-
-      // Clean up - abort the running task
-      startProc1.kill('SIGINT');
-      await startProc1.result;
     });
   });
 });

@@ -43,6 +43,7 @@ import {
   createSlowDiamondPackageZip,
 } from '../fixtures.js';
 import { waitFor } from '../cli.js';
+import type { RequestOptions } from '@elaraai/e3-api-client';
 
 /** Helper: import package, create workspace, deploy */
 function withDeployed(
@@ -71,6 +72,30 @@ function withDeployed(
  *
  * @param setup - Factory that creates a fresh test context per test
  */
+
+/**
+ * Poll until the workspace's current execution reports `running`.
+ *
+ * Replaces fixed 500ms waits: on a loaded CI runner the orchestrator may
+ * not have started within a fixed window (flaky lock assertions), while on
+ * a fast machine the fixed wait was pure dead time.
+ */
+async function waitForRunning(
+  baseUrl: string,
+  repoName: string,
+  workspace: string,
+  opts: RequestOptions
+): Promise<void> {
+  await waitFor(async () => {
+    try {
+      const state = await dataflowExecution(baseUrl, repoName, workspace, {}, opts);
+      return state.status.type === 'running';
+    } catch {
+      return false; // execution record not created yet
+    }
+  }, 30000);
+}
+
 export function dataflowTests(setup: TestSetup<TestContext>): void {
   const withSimpleExec = withDeployed(setup, createPackageZip, 'exec-pkg', 'exec-ws');
   const withDiamond = withDeployed(setup, createDiamondPackageZip, 'diamond-pkg', 'diamond-ws');
@@ -474,8 +499,8 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         // Start first execution (non-blocking)
         await dataflowStart(ctx.config.baseUrl, ctx.repoName, 'slow-ws', { force: true }, opts);
 
-        // Wait a moment for execution to start
-        await new Promise(r => setTimeout(r, 500));
+        // Wait until the execution is actually running (holds the lock)
+        await waitForRunning(ctx.config.baseUrl, ctx.repoName, 'slow-ws', opts);
 
         // Try to start second execution - should fail with lock error
         try {
@@ -499,8 +524,8 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         // Start first execution (non-blocking)
         await dataflowStart(ctx.config.baseUrl, ctx.repoName, 'slow-ws', { force: true }, opts);
 
-        // Wait a moment for execution to start
-        await new Promise(r => setTimeout(r, 500));
+        // Wait until the execution is actually running (holds the lock)
+        await waitForRunning(ctx.config.baseUrl, ctx.repoName, 'slow-ws', opts);
 
         // Try blocking execute - should fail with lock error
         try {
@@ -523,15 +548,25 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         // Start slow execution
         await dataflowStart(ctx.config.baseUrl, ctx.repoName, 'slow-ws', { force: true }, opts);
 
-        // Wait for it to start
-        await new Promise(r => setTimeout(r, 500));
+        // Wait until the execution is actually running
+        await waitForRunning(ctx.config.baseUrl, ctx.repoName, 'slow-ws', opts);
 
         // Cancel it
         await dataflowCancel(ctx.config.baseUrl, ctx.repoName, 'slow-ws', opts);
 
-        // Verify execution state is aborted
-        const state = await dataflowExecution(ctx.config.baseUrl, ctx.repoName, 'slow-ws', {}, opts);
-        assert.strictEqual(state.status.type, 'aborted');
+        // The cancel response does not synchronise with the orchestrator's
+        // state write — poll for the terminal state instead of reading once
+        // (a single immediate read raced it and saw 'running' on slow CI).
+        // If this ever times out, that's a real bug: a cancel delivered
+        // right after start (possibly before the first task spawn) was not
+        // honoured.
+        let finalStatus = '';
+        await waitFor(async () => {
+          const state = await dataflowExecution(ctx.config.baseUrl, ctx.repoName, 'slow-ws', {}, opts);
+          finalStatus = state.status.type;
+          return finalStatus !== 'running';
+        }, 60000);
+        assert.strictEqual(finalStatus, 'aborted');
       });
 
       it('dataflowCancel returns error when no execution is running', async (t) => {
@@ -558,8 +593,8 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         // Start slow execution (30s sleep task)
         await dataflowStart(ctx.config.baseUrl, ctx.repoName, 'slow-ws', { force: true }, opts);
 
-        // Wait for execution to start
-        await new Promise(r => setTimeout(r, 500));
+        // Wait until the execution is actually running (holds the lock)
+        await waitForRunning(ctx.config.baseUrl, ctx.repoName, 'slow-ws', opts);
 
         // datasetSet should succeed concurrently — not blocked by the dataflow lock
         const encode = encodeBeast2For(StringType);
@@ -624,8 +659,16 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         // Start execution (non-blocking) — x defaults to 1
         await dataflowStart(ctx.config.baseUrl, ctx.repoName, 'sdiamond-ws', { force: true }, opts);
 
-        // Wait for tasks to start running, then change input
-        await new Promise(r => setTimeout(r, 1000));
+        // Wait for the test's TRUE precondition before changing the input:
+        // at least one task has actually STARTED (a `start` event exists),
+        // not merely "the execution is running" — on slow runners (Windows
+        // CI) tasks take seconds to spawn after the run begins, and a set
+        // that lands before any task starts isn't a mid-flight change at
+        // all. The 3s task sleeps bound how late the set can land.
+        await waitFor(async () => {
+          const state = await dataflowExecution(ctx.config.baseUrl, ctx.repoName, 'sdiamond-ws', {}, opts);
+          return state.events.some((e) => e.type === 'start');
+        }, 60000);
         await datasetSet(ctx.config.baseUrl, ctx.repoName, 'sdiamond-ws', inputPath, encode(19n), opts);
 
         // Wait for the reactive re-execution to reach a fixpoint AND the merge
@@ -648,7 +691,10 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
             if (err instanceof ApiError && err.code === 'dataset_unassigned') return false;
             throw err;
           }
-        }, 60000, 500);
+        // 180s: two generations of 3s-sleep branches + joins, where a cold
+        // Windows CI runner spends seconds per east-node spawn (60s measured
+        // 61.9s — thin margin, not a hang).
+        }, 180000, 500);
 
         // merge must be x*5 for some consistent x (waitFor throws if it never settles)
         assert.strictEqual(

@@ -21,3 +21,13 @@ export { createAuthMiddleware, type AuthConfig } from './middleware/auth.js';
 
 // Export BEAST2 helpers for custom integrations
 export { sendSuccess, sendError, sendSuccessWithStatus, decodeBeast2, decodeBody } from './beast2.js';
+
+// Export function-call state for Lambda reuse / tests
+export {
+  createFunctionCall,
+  completeFunctionCall,
+  failFunctionCall,
+  getFunctionCall,
+  cancelFunctionCall,
+  clearAllFunctionCalls,
+} from './function-call-state.js';

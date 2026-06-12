@@ -297,6 +297,20 @@ export class LocalRefStore implements RefStore {
     }
   }
 
+  async executionListLatest(repo: string, taskHash: string): Promise<Array<{ inputsHash: string; status: ExecutionStatus }>> {
+    // Local FS: compose from per-inputsHash lookups, in parallel — directory
+    // reads are cheap here; the single-round-trip contract matters for
+    // remote backends.
+    const inputsHashes = await this.executionListForTask(repo, taskHash);
+    const entries = await Promise.all(
+      inputsHashes.map(async (inputsHash) => {
+        const status = await this.executionGetLatest(repo, taskHash, inputsHash);
+        return status ? { inputsHash, status } : null;
+      })
+    );
+    return entries.filter((e): e is { inputsHash: string; status: ExecutionStatus } => e !== null);
+  }
+
   // -------------------------------------------------------------------------
   // Dataflow Run History
   // -------------------------------------------------------------------------

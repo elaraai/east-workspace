@@ -17,9 +17,10 @@ import * as fs from 'node:fs';
 import { createHash } from 'node:crypto';
 import yazl from 'yazl';
 import { variant, encodeBeast2For, encodeEastIR, EastIR, AsyncEastIR, printIdentifier, SortedMap, toEastTypeValue } from '@elaraai/east';
-import type { Structure, PackageObject, DatasetRef } from '@elaraai/e3-types';
-import { DatasetRefType, PackageObjectType, TaskObjectType } from '@elaraai/e3-types';
+import type { Structure, PackageObject, DatasetRef, FunctionObject } from '@elaraai/e3-types';
+import { DatasetRefType, PackageObjectType, TaskObjectType, FunctionObjectType } from '@elaraai/e3-types';
 import type { PackageDef, PackageItem } from './types.js';
+import { runnerToVariant } from './runner.js';
 
 /**
  * Exports a package to a .zip bundle.
@@ -177,6 +178,27 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
     }
   }
 
+  // Write function objects (functions are not in pkg.contents — they have
+  // no deps and never enter the data tree). Mirrors how tasks are written:
+  // body IR as a content object, then a small FunctionObject pointing at it.
+  const functions = new SortedMap<string, string>(); // name -> function object hash
+  const functionEncoder = encodeBeast2For(FunctionObjectType);
+  for (const [fname, fdef] of Object.entries(pkg.functions)) {
+    const bodyIrData = encodeEastIR(fdef.body);
+    const bodyIrHash = addObject(zipfile, Buffer.from(bodyIrData));
+
+    // The FunctionObject stores homoiconic type VALUES (EastTypeType), not
+    // the raw TS EastType definitions Expr.type yields.
+    const fnObject: FunctionObject = {
+      bodyIr: bodyIrHash,
+      inputTypes: fdef.inputTypes.map((t) => toEastTypeValue(t)),
+      outputType: toEastTypeValue(fdef.outputType),
+      runner: runnerToVariant(fdef.runner),
+    };
+    const fnHash = addObject(zipfile, Buffer.from(functionEncoder(fnObject)));
+    functions.set(fname, fnHash);
+  }
+
   // Get the root structure
   const rootStructure = structures.get('');
   if (!rootStructure) {
@@ -190,6 +212,7 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
       structure: rootStructure,
       refs,
     },
+    functions,
   };
   const packageObjectEncoder = encodeBeast2For(PackageObjectType);
   const packageObjectData = packageObjectEncoder(packageObject);

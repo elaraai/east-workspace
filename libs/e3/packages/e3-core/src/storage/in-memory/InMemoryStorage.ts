@@ -258,6 +258,15 @@ class InMemoryRefStore implements RefStore {
     return [...seen];
   }
 
+  async executionListLatest(repo: string, taskHash: string): Promise<Array<{ inputsHash: string; status: ExecutionStatus }>> {
+    const result: Array<{ inputsHash: string; status: ExecutionStatus }> = [];
+    for (const inputsHash of await this.executionListForTask(repo, taskHash)) {
+      const status = await this.executionGetLatest(repo, taskHash, inputsHash);
+      if (status) result.push({ inputsHash, status });
+    }
+    return result;
+  }
+
   // Dataflow run operations
   async dataflowRunGet(repo: string, workspace: string, runId: string): Promise<DataflowRun | null> {
     return this.getDataflowRuns(repo).get(this.makeDataflowRunKey(workspace, runId)) ?? null;

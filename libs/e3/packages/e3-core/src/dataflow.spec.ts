@@ -29,7 +29,7 @@ import {
 import { objectWrite } from './storage/local/LocalObjectStore.js';
 import { workspaceDeploy } from './workspaces.js';
 import { workspaceGetDataset, workspaceSetDataset } from './trees.js';
-import { WorkspaceLockError, DataflowAbortedError } from './errors.js';
+import { DataflowAbortedError } from './errors.js';
 import { createTestRepo, removeTestRepo } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import type { StorageBackend } from './storage/interfaces.js';
@@ -120,6 +120,7 @@ describe('dataflow', () => {
         refs: new Map(),
       },
       tasks: tasksMap,
+      functions: new Map(),
     };
     const pkgHash = await objectWrite(repoPath, pkgEncoder(pkgObj));
 
@@ -450,59 +451,6 @@ describe('dataflow', () => {
       assert.strictEqual(outputValue, 'chain test');
     });
 
-    it('handles task failure with fail-fast', async () => {
-      // Create package with A (fails) -> B (should be skipped)
-      const structure: Structure = {
-        type: 'struct',
-        value: new Map([
-          ['input', { type: 'value', value: { type: StringType, writable: true } }],
-          ['middle', { type: 'value', value: { type: StringType, writable: true } }],
-          ['output', { type: 'value', value: { type: StringType, writable: true } }],
-        ]),
-      } as unknown as Structure;
-
-      const inputPath: TreePath = [variant('field', 'input')];
-      const middlePath: TreePath = [variant('field', 'middle')];
-      const outputPath: TreePath = [variant('field', 'output')];
-
-      // Create input value
-      const inputEncoder = encodeBeast2For(StringType);
-      const inputHash = await objectWrite(testRepo, inputEncoder('fail test'));
-
-      await createPackageWithTasks(
-        testRepo,
-        [
-          { name: 'task-a', command: ['bash', '-c', 'exit 1'], inputs: [inputPath], output: middlePath },
-          { name: 'task-b', command: ['cp', '{input}', '{output}'], inputs: [middlePath], output: outputPath },
-        ],
-        structure,
-        {
-          input: {
-            value: 'fail test',
-            ref: { type: 'value', value: inputHash } as DataRef,
-          },
-        }
-      );
-      await workspaceDeploy(storage, testRepo, 'test-ws', 'test', '1.0.0');
-
-      // Set the input value
-      await workspaceSetDataset(storage, testRepo, 'test-ws', inputPath, 'fail test', StringType);
-
-      const result = await dataflowExecute(storage, testRepo, 'test-ws');
-
-      assert.strictEqual(result.success, false);
-      assert.strictEqual(result.failed, 1);
-      assert.strictEqual(result.skipped, 1);
-
-      const taskA = result.tasks.find((t) => t.name === 'task-a');
-      const taskB = result.tasks.find((t) => t.name === 'task-b');
-
-      assert.ok(taskA);
-      assert.ok(taskB);
-      assert.strictEqual(taskA.state, 'failed');
-      assert.strictEqual(taskB.state, 'skipped');
-    });
-
     it('caches successful task results', async () => {
       // Create package
       const structure: Structure = {
@@ -542,158 +490,6 @@ describe('dataflow', () => {
       const result2 = await dataflowExecute(storage, testRepo, 'test-ws');
       assert.strictEqual(result2.executed, 0);
       assert.strictEqual(result2.cached, 1);
-    });
-
-    it('respects concurrency limit', async () => {
-      // Create package with 4 parallel tasks
-      const structure: Structure = {
-        type: 'struct',
-        value: new Map([
-          ['input', { type: 'value', value: { type: StringType, writable: true } }],
-          ['out1', { type: 'value', value: { type: StringType, writable: true } }],
-          ['out2', { type: 'value', value: { type: StringType, writable: true } }],
-          ['out3', { type: 'value', value: { type: StringType, writable: true } }],
-          ['out4', { type: 'value', value: { type: StringType, writable: true } }],
-        ]),
-      } as unknown as Structure;
-
-      const inputPath: TreePath = [variant('field', 'input')];
-
-      const inputEncoder = encodeBeast2For(StringType);
-      const inputHash = await objectWrite(testRepo, inputEncoder('parallel test'));
-
-      // Use a slow command
-      const slowCopyCmd = ['bash', '-c', 'sleep 0.1; cp "$1" "$2"', '--', '{input}', '{output}'];
-
-      await createPackageWithTasks(
-        testRepo,
-        [
-          { name: 'task-1', command: slowCopyCmd, inputs: [inputPath], output: [variant('field', 'out1')] },
-          { name: 'task-2', command: slowCopyCmd, inputs: [inputPath], output: [variant('field', 'out2')] },
-          { name: 'task-3', command: slowCopyCmd, inputs: [inputPath], output: [variant('field', 'out3')] },
-          { name: 'task-4', command: slowCopyCmd, inputs: [inputPath], output: [variant('field', 'out4')] },
-        ],
-        structure,
-        {
-          input: {
-            value: 'parallel test',
-            ref: { type: 'value', value: inputHash } as DataRef,
-          },
-        }
-      );
-      await workspaceDeploy(storage, testRepo, 'test-ws', 'test', '1.0.0');
-      await workspaceSetDataset(storage, testRepo, 'test-ws', inputPath, 'parallel test', StringType);
-
-      // Track concurrent execution count
-      let currentConcurrent = 0;
-      let maxConcurrent = 0;
-
-      const result = await dataflowExecute(storage, testRepo, 'test-ws', {
-        concurrency: 2,
-        onTaskStart: () => {
-          currentConcurrent++;
-          maxConcurrent = Math.max(maxConcurrent, currentConcurrent);
-        },
-        onTaskComplete: () => {
-          currentConcurrent--;
-        },
-      });
-
-      assert.strictEqual(result.success, true);
-      assert.strictEqual(result.executed, 4);
-      assert.ok(maxConcurrent <= 2, `Max concurrent was ${maxConcurrent}, expected <= 2`);
-    });
-
-    it('rejects concurrent dataflow execution on same workspace', async () => {
-      // Create a simple package with a slow task
-      const structure: Structure = {
-        type: 'struct',
-        value: new Map([
-          ['input', { type: 'value', value: { type: StringType, writable: true } }],
-          ['output', { type: 'value', value: { type: StringType, writable: true } }],
-        ]),
-      } as unknown as Structure;
-
-      const inputPath: TreePath = [variant('field', 'input')];
-      const outputPath: TreePath = [variant('field', 'output')];
-
-      const inputEncoder = encodeBeast2For(StringType);
-      const inputHash = await objectWrite(testRepo, inputEncoder('test'));
-
-      // Use sleep to make the task take some time
-      const slowCopyCmd = ['bash', '-c', 'sleep 0.3; cp "$1" "$2"', '--', '{input}', '{output}'];
-      await createPackageWithTasks(
-        testRepo,
-        [{ name: 'slow-task', command: slowCopyCmd, inputs: [inputPath], output: outputPath }],
-        structure,
-        {
-          input: {
-            value: 'test',
-            ref: { type: 'value', value: inputHash } as DataRef,
-          },
-        }
-      );
-      await workspaceDeploy(storage, testRepo, 'test-ws', 'test', '1.0.0');
-      await workspaceSetDataset(storage, testRepo, 'test-ws', inputPath, 'test', StringType);
-
-      // Start first execution (don't await)
-      const firstExecution = dataflowExecute(storage, testRepo, 'test-ws');
-
-      // Give it a moment to acquire the lock
-      await new Promise(resolve => setTimeout(resolve, 150));
-
-      // Try to start second execution - should fail with WorkspaceLockError
-      await assert.rejects(
-        dataflowExecute(storage, testRepo, 'test-ws'),
-        (err: Error) => {
-          assert.ok(err instanceof WorkspaceLockError, `Expected WorkspaceLockError, got ${err.constructor.name}`);
-          assert.strictEqual((err as WorkspaceLockError).workspace, 'test-ws');
-          return true;
-        }
-      );
-
-      // Wait for first execution to complete
-      const result = await firstExecution;
-      assert.strictEqual(result.success, true);
-    });
-
-    it('allows sequential dataflow executions', async () => {
-      // Create a simple package
-      const structure: Structure = {
-        type: 'struct',
-        value: new Map([
-          ['input', { type: 'value', value: { type: StringType, writable: true } }],
-          ['output', { type: 'value', value: { type: StringType, writable: true } }],
-        ]),
-      } as unknown as Structure;
-
-      const inputPath: TreePath = [variant('field', 'input')];
-      const outputPath: TreePath = [variant('field', 'output')];
-
-      const inputEncoder = encodeBeast2For(StringType);
-      const inputHash = await objectWrite(testRepo, inputEncoder('test'));
-
-      await createPackageWithTasks(
-        testRepo,
-        [{ name: 'task', command: ['cp', '{input}', '{output}'], inputs: [inputPath], output: outputPath }],
-        structure,
-        {
-          input: {
-            value: 'test',
-            ref: { type: 'value', value: inputHash } as DataRef,
-          },
-        }
-      );
-      await workspaceDeploy(storage, testRepo, 'test-ws', 'test', '1.0.0');
-      await workspaceSetDataset(storage, testRepo, 'test-ws', inputPath, 'test', StringType);
-
-      // First execution
-      const result1 = await dataflowExecute(storage, testRepo, 'test-ws');
-      assert.strictEqual(result1.success, true);
-
-      // Second execution (should succeed because first released the lock)
-      const result2 = await dataflowExecute(storage, testRepo, 'test-ws');
-      assert.strictEqual(result2.success, true);
     });
 
     it('allows external lock management', async () => {

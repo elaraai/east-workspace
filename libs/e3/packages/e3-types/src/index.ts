@@ -67,12 +67,26 @@ export {
   type DatasetSchema,
 } from './structure.js';
 
+// Runner wire types (functions)
+export {
+  RunnerType,
+  type RunnerValue,
+  runnerToArgv,
+} from './runner.js';
+
+// Function objects
+export {
+  FunctionObjectType,
+  type FunctionObject,
+} from './function.js';
+
 // Package objects
 export {
   PackageDataType,
   type PackageData,
   PackageObjectType,
   type PackageObject,
+  decodePackageObject,
   // Backwards compatibility
   PackageDatasetsType,
   type PackageDatasets,
@@ -203,6 +217,16 @@ export {
   ListEntryType,
   // Dataset Status Detail
   DatasetStatusDetailType,
+  // Function / one-shot execution
+  ExecuteLimitsType,
+  DiagnosticType,
+  ExecuteResultType,
+  FunctionCallRequestType,
+  FunctionSignatureType,
+  CallStartResultType,
+  CallStatusType,
+  CallStatusResultType,
+  OneShotRequestType,
   // Type aliases
   type Error,
   type RepositoryStatus,
@@ -238,6 +262,15 @@ export {
   type TreeKind,
   type ListEntry,
   type DatasetStatusDetail,
+  type ExecuteLimits,
+  type Diagnostic,
+  type ExecuteResult,
+  type FunctionCallRequest,
+  type FunctionSignature,
+  type CallStartResult,
+  type CallStatus,
+  type CallStatusResult,
+  type OneShotRequest,
 } from './api.js';
 
 // Dataflow execution state

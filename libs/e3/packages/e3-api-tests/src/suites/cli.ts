@@ -11,13 +11,14 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { IntegerType, decodeBeast2For } from '@elaraai/east';
 
 import type { TestContext } from '../context.js';
 import type { TestSetup } from '../setup.js';
 import { runE3Command } from '../cli.js';
-import { createPackageZip } from '../fixtures.js';
+import { createPackageZip, createFunctionPackageZip } from '../fixtures.js';
 
 /**
  * Register CLI operation tests.
@@ -215,6 +216,46 @@ export function cliTests(
 
         // Clean up
         await runE3Command(['workspace', 'remove', remoteUrl, wsName], workDir, { env });
+      });
+    });
+
+    describe('call command', { concurrency: false }, () => {
+      const withFunctionPackage = async (t: Parameters<typeof withCli>[0]) => {
+        const ctx = await withCli(t);
+        const zipPath = await createFunctionPackageZip(ctx.tempDir, 'call-cli-pkg', '1.0.0');
+        const env = getCredentialsEnv();
+        await runE3Command(['package', 'import', ctx.remoteUrl, zipPath], ctx.workDir, { env });
+        return Object.assign(ctx, { env });
+      };
+
+      it('calls a function with literal args and prints the result', async (t) => {
+        const { remoteUrl, workDir, env } = await withFunctionPackage(t);
+        const result = await runE3Command(['call', remoteUrl, 'call-cli-pkg.add', '2', '3'], workDir, { env });
+
+        assert.strictEqual(result.exitCode, 0, `Failed: ${result.stderr}`);
+        assert.match(result.stdout, /\b5\b/);
+      });
+
+      it('writes the result to a file with -o', async (t) => {
+        const ctx = await withFunctionPackage(t);
+        const outPath = join(ctx.workDir, 'result.beast2');
+        const result = await runE3Command(
+          ['call', ctx.remoteUrl, 'call-cli-pkg.add', '20', '22', '-o', outPath],
+          ctx.workDir,
+          { env: ctx.env }
+        );
+
+        assert.strictEqual(result.exitCode, 0, `Failed: ${result.stderr}`);
+        const decoded = decodeBeast2For(IntegerType)(readFileSync(outPath));
+        assert.strictEqual(decoded, 42n);
+      });
+
+      it('sets a non-zero exit code on arity mismatch', async (t) => {
+        const { remoteUrl, workDir, env } = await withFunctionPackage(t);
+        const result = await runE3Command(['call', remoteUrl, 'call-cli-pkg.add', '2'], workDir, { env });
+
+        assert.notStrictEqual(result.exitCode, 0);
+        assert.match(result.stderr, /argument/i);
       });
     });
   });

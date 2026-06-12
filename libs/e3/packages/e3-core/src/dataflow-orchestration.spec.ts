@@ -117,6 +117,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
         refs: new Map(),
       },
       tasks: tasksMap,
+      functions: new Map(),
     };
     const pkgHash = await objectWrite(repoPath, pkgEncoder(pkgObj));
 
@@ -1050,6 +1051,469 @@ describe('dataflow orchestration with MockTaskRunner', () => {
       assert.strictEqual(callCount, 1);
       assert.strictEqual(result.reexecuted, 0);
     });
+  });
+
+  describe('diamond interleavings (deterministic)', () => {
+    // The classic dataflow hazards — join synchronisation, mid-flight root
+    // changes, mixed-version joins, fan-in failure — tested with NO sleeps:
+    // MockTaskRunner task bodies are promise-gated / perform their mutation
+    // synchronously inside a task execution, so every interleaving is a
+    // fixed, repeatable schedule (CI-speed independent).
+
+    /** Build the diamond: input → left, input → right, (left,right) → merge. */
+    async function createDiamond() {
+      const structure: Structure = {
+        type: 'struct',
+        value: new Map([
+          ['input', { type: 'value', value: { type: StringType, writable: true } }],
+          ['left_out', { type: 'value', value: { type: StringType, writable: true } }],
+          ['right_out', { type: 'value', value: { type: StringType, writable: true } }],
+          ['merge_out', { type: 'value', value: { type: StringType, writable: true } }],
+        ]),
+      } as unknown as Structure;
+
+      const inputPath: TreePath = [variant('field', 'input')];
+      const leftPath: TreePath = [variant('field', 'left_out')];
+      const rightPath: TreePath = [variant('field', 'right_out')];
+      const mergePath: TreePath = [variant('field', 'merge_out')];
+
+      const taskHashes = await createPackageWithTasks(
+        testRepo,
+        [
+          { name: 'left', command: ['echo'], inputs: [inputPath], output: leftPath },
+          { name: 'right', command: ['echo'], inputs: [inputPath], output: rightPath },
+          { name: 'merge', command: ['echo'], inputs: [leftPath, rightPath], output: mergePath },
+        ],
+        structure,
+      );
+      await workspaceDeploy(storage, testRepo, 'test-ws', 'test', '1.0.0');
+      await workspaceSetDataset(storage, testRepo, 'test-ws', inputPath, 'v1', StringType);
+      return { taskHashes, inputPath };
+    }
+
+    /** Update the diamond's root input ref to a fresh value (mid-flight mutation). */
+    async function mutateInput(value: string): Promise<void> {
+      const newHash = await datasetWrite(storage, testRepo, value, StringType);
+      const ref: DatasetRef = variant('value', { hash: newHash, versions: new Map() });
+      await storage.datasets.write(testRepo, 'test-ws', 'input', ref);
+    }
+
+    it('merge waits for BOTH branches even when one is held in-flight', async () => {
+      const { taskHashes } = await createDiamond();
+      const leftHash = taskHashes.get('left')!;
+      const rightHash = taskHashes.get('right')!;
+      const mergeHash = taskHashes.get('merge')!;
+
+      // Hold `left` open until `right` has fully completed — the exact
+      // schedule where a premature join would fire with a missing branch.
+      let releaseLeft!: () => void;
+      const leftGate = new Promise<void>((res) => { releaseLeft = res; });
+      let rightCompleted = false;
+      let mergeStarted = false;
+
+      mockRunner.setResult(leftHash, async () => {
+        await leftGate;
+        return { state: 'success' as const, cached: false, outputHash: 'left-v1' };
+      });
+      mockRunner.setResult(rightHash, async () => {
+        rightCompleted = true;
+        releaseLeft();
+        return { state: 'success' as const, cached: false, outputHash: 'right-v1' };
+      });
+      mockRunner.setResult(mergeHash, async (inputHashes) => {
+        mergeStarted = true;
+        // The join must see both branch outputs, never a partial set
+        assert.deepStrictEqual([...inputHashes].sort(), ['left-v1', 'right-v1']);
+        assert.strictEqual(rightCompleted, true, 'merge started before right completed');
+        return { state: 'success' as const, cached: false, outputHash: 'merge-v1' };
+      });
+
+      const result = await dataflowExecute(storage, testRepo, 'test-ws', {
+        runner: mockRunner,
+        concurrency: 4,
+      });
+
+      assert.strictEqual(result.success, true);
+      assert.strictEqual(mergeStarted, true);
+      assert.strictEqual(result.executed, 3);
+    });
+
+    it('never joins mixed versions when the root changes mid-flight', async () => {
+      // The version-vector hazard: input changes while the branches run.
+      // A broken engine merges left@v1 with right@v2 (or vice versa); a
+      // correct one re-executes both branches and joins a matching pair.
+      const { taskHashes } = await createDiamond();
+      const leftHash = taskHashes.get('left')!;
+      const rightHash = taskHashes.get('right')!;
+      const mergeHash = taskHashes.get('merge')!;
+
+      let leftCalls = 0;
+      let rightCalls = 0;
+      const mergeCalls: string[][] = [];
+
+      mockRunner.setResult(leftHash, async () => {
+        leftCalls++;
+        if (leftCalls === 1) {
+          // Root input changes WHILE left is executing — deterministic,
+          // no sleeps: the mutation happens inside the task body.
+          await mutateInput('v2');
+        }
+        return { state: 'success' as const, cached: false, outputHash: `left-v${leftCalls}` };
+      });
+      mockRunner.setResult(rightHash, async () => {
+        rightCalls++;
+        return { state: 'success' as const, cached: false, outputHash: `right-v${rightCalls}` };
+      });
+      mockRunner.setResult(mergeHash, async (inputHashes) => {
+        mergeCalls.push([...inputHashes]);
+        return { state: 'success' as const, cached: false, outputHash: `merge-v${mergeCalls.length}` };
+      });
+
+      const result = await dataflowExecute(storage, testRepo, 'test-ws', {
+        runner: mockRunner,
+        concurrency: 4,
+      });
+
+      assert.strictEqual(result.success, true);
+      // Both branches re-ran after the root change
+      assert.strictEqual(leftCalls, 2, 'left should re-execute after root change');
+      assert.strictEqual(rightCalls, 2, 'right should re-execute after root change');
+      assert.ok(result.reexecuted >= 2, `expected >=2 re-executions, got ${result.reexecuted}`);
+
+      // THE invariant: every merge call joined a matching version pair
+      assert.ok(mergeCalls.length >= 1, 'merge never ran');
+      for (const inputs of mergeCalls) {
+        const versions = new Set(inputs.map((h) => h.split('-v')[1]));
+        assert.strictEqual(versions.size, 1, `merge joined mixed versions: ${inputs.join(', ')}`);
+      }
+      // And the final join used the post-change branch outputs
+      const final = mergeCalls[mergeCalls.length - 1]!;
+      assert.deepStrictEqual([...final].sort(), ['left-v2', 'right-v2']);
+    });
+
+    it('skips the join when one branch fails and preserves the surviving branch', async () => {
+      const { taskHashes } = await createDiamond();
+      const leftHash = taskHashes.get('left')!;
+      const rightHash = taskHashes.get('right')!;
+      const mergeHash = taskHashes.get('merge')!;
+
+      let mergeRan = false;
+      mockRunner.setResult(leftHash, { state: 'failed', cached: false, exitCode: 1 });
+      mockRunner.setResult(rightHash, { state: 'success', cached: false, outputHash: 'right-v1' });
+      mockRunner.setResult(mergeHash, async () => {
+        mergeRan = true;
+        return { state: 'success' as const, cached: false, outputHash: 'merge-v1' };
+      });
+
+      const result = await dataflowExecute(storage, testRepo, 'test-ws', {
+        runner: mockRunner,
+        concurrency: 4,
+      });
+
+      assert.strictEqual(result.success, false);
+      assert.strictEqual(mergeRan, false, 'merge must not run when a parent branch failed');
+      assert.strictEqual(result.failed, 1);
+      assert.strictEqual(result.skipped, 1);
+
+      // The surviving branch's output is preserved in the workspace
+      const rightRef = await storage.datasets.read(testRepo, 'test-ws', 'right_out');
+      assert.strictEqual(rightRef?.type, 'value');
+    });
+
+    it('conflicting writes to two roots during execution converge to a consistent fixpoint', async () => {
+      // Two independent roots, each mutated while the OTHER root's task is
+      // running — the cross-invalidation case. Deterministic: mutations
+      // happen inside the first execution of each task.
+      const structure: Structure = {
+        type: 'struct',
+        value: new Map([
+          ['x', { type: 'value', value: { type: StringType, writable: true } }],
+          ['y', { type: 'value', value: { type: StringType, writable: true } }],
+          ['a_out', { type: 'value', value: { type: StringType, writable: true } }],
+          ['b_out', { type: 'value', value: { type: StringType, writable: true } }],
+          ['merge_out', { type: 'value', value: { type: StringType, writable: true } }],
+        ]),
+      } as unknown as Structure;
+
+      const xPath: TreePath = [variant('field', 'x')];
+      const yPath: TreePath = [variant('field', 'y')];
+      const aPath: TreePath = [variant('field', 'a_out')];
+      const bPath: TreePath = [variant('field', 'b_out')];
+
+      const taskHashes = await createPackageWithTasks(
+        testRepo,
+        [
+          { name: 'ta', command: ['echo'], inputs: [xPath], output: aPath },
+          { name: 'tb', command: ['echo'], inputs: [yPath], output: bPath },
+          { name: 'merge', command: ['echo'], inputs: [aPath, bPath], output: [variant('field', 'merge_out')] },
+        ],
+        structure,
+      );
+      await workspaceDeploy(storage, testRepo, 'test-ws', 'test', '1.0.0');
+      await workspaceSetDataset(storage, testRepo, 'test-ws', xPath, 'x1', StringType);
+      await workspaceSetDataset(storage, testRepo, 'test-ws', yPath, 'y1', StringType);
+
+      const writeRoot = async (refPath: string, value: string) => {
+        const newHash = await datasetWrite(storage, testRepo, value, StringType);
+        const ref: DatasetRef = variant('value', { hash: newHash, versions: new Map() });
+        await storage.datasets.write(testRepo, 'test-ws', refPath, ref);
+      };
+
+      let taCalls = 0;
+      let tbCalls = 0;
+      const mergeCalls: string[][] = [];
+      mockRunner.setResult(taskHashes.get('ta')!, async () => {
+        taCalls++;
+        if (taCalls === 1) await writeRoot('y', 'y2'); // mutate the OTHER root
+        return { state: 'success' as const, cached: false, outputHash: `a-v${taCalls}` };
+      });
+      mockRunner.setResult(taskHashes.get('tb')!, async () => {
+        tbCalls++;
+        if (tbCalls === 1) await writeRoot('x', 'x2'); // mutate the OTHER root
+        return { state: 'success' as const, cached: false, outputHash: `b-v${tbCalls}` };
+      });
+      mockRunner.setResult(taskHashes.get('merge')!, async (inputHashes) => {
+        mergeCalls.push([...inputHashes]);
+        return { state: 'success' as const, cached: false, outputHash: `m-v${mergeCalls.length}` };
+      });
+
+      const result = await dataflowExecute(storage, testRepo, 'test-ws', {
+        runner: mockRunner,
+        concurrency: 4,
+      });
+
+      assert.strictEqual(result.success, true);
+      // Each task re-ran for its own root's change
+      assert.strictEqual(taCalls, 2, 'ta should re-execute after x changed');
+      assert.strictEqual(tbCalls, 2, 'tb should re-execute after y changed');
+      // The final join saw the post-change outputs of BOTH branches
+      const final = mergeCalls[mergeCalls.length - 1]!;
+      assert.deepStrictEqual([...final].sort(), ['a-v2', 'b-v2']);
+    });
+    it('re-joins a consistent pair when the root changes while the join itself is running', async () => {
+      // The change lands during MERGE's execution (not a branch's): the
+      // in-progress join finishes with the v1 pair, then the engine must
+      // re-execute both branches AND the join with the v2 pair.
+      const { taskHashes } = await createDiamond();
+      let leftCalls = 0;
+      let rightCalls = 0;
+      const mergeCalls: string[][] = [];
+
+      mockRunner.setResult(taskHashes.get('left')!, async () => {
+        leftCalls++;
+        return { state: 'success' as const, cached: false, outputHash: `left-v${leftCalls}` };
+      });
+      mockRunner.setResult(taskHashes.get('right')!, async () => {
+        rightCalls++;
+        return { state: 'success' as const, cached: false, outputHash: `right-v${rightCalls}` };
+      });
+      mockRunner.setResult(taskHashes.get('merge')!, async (inputHashes) => {
+        mergeCalls.push([...inputHashes]);
+        if (mergeCalls.length === 1) {
+          await mutateInput('v2'); // root changes while the join runs
+        }
+        return { state: 'success' as const, cached: false, outputHash: `merge-v${mergeCalls.length}` };
+      });
+
+      const result = await dataflowExecute(storage, testRepo, 'test-ws', {
+        runner: mockRunner,
+        concurrency: 4,
+      });
+
+      assert.strictEqual(result.success, true);
+      assert.strictEqual(leftCalls, 2, 'left should re-execute after the change');
+      assert.strictEqual(rightCalls, 2, 'right should re-execute after the change');
+      assert.strictEqual(mergeCalls.length, 2, 'join should re-execute after the change');
+      assert.deepStrictEqual([...mergeCalls[1]!].sort(), ['left-v2', 'right-v2']);
+    });
+
+    it('converges to the LAST value when the root changes repeatedly during one run', async () => {
+      // Two successive changes inside one run — the fixpoint loop must keep
+      // re-executing until the graph reflects the final value, and stop.
+      const { taskHashes } = await createDiamond();
+      let leftCalls = 0;
+      let rightCalls = 0;
+      const mergeCalls: string[][] = [];
+
+      mockRunner.setResult(taskHashes.get('left')!, async () => {
+        leftCalls++;
+        if (leftCalls === 1) await mutateInput('v2');
+        if (leftCalls === 2) await mutateInput('v3');
+        return { state: 'success' as const, cached: false, outputHash: `left-v${leftCalls}` };
+      });
+      mockRunner.setResult(taskHashes.get('right')!, async () => {
+        rightCalls++;
+        return { state: 'success' as const, cached: false, outputHash: `right-v${rightCalls}` };
+      });
+      mockRunner.setResult(taskHashes.get('merge')!, async (inputHashes) => {
+        mergeCalls.push([...inputHashes]);
+        return { state: 'success' as const, cached: false, outputHash: `merge-v${mergeCalls.length}` };
+      });
+
+      const result = await dataflowExecute(storage, testRepo, 'test-ws', {
+        runner: mockRunner,
+        concurrency: 4,
+      });
+
+      assert.strictEqual(result.success, true);
+      assert.strictEqual(leftCalls, 3, 'left should run for v1, v2, v3');
+      const final = mergeCalls[mergeCalls.length - 1]!;
+      assert.deepStrictEqual([...final].sort(), [`left-v${leftCalls}`, `right-v${rightCalls}`]);
+      // No mixed-version join at any point
+      for (const inputs of mergeCalls) {
+        const lv = inputs.find((h) => h.startsWith('left-'))!.split('-v')[1];
+        const rv = inputs.find((h) => h.startsWith('right-'))!.split('-v')[1];
+        assert.strictEqual(lv, rv, `merge joined mixed versions: ${inputs.join(', ')}`);
+      }
+    });
+
+    it('partially invalidates: a change feeding one branch does not re-run the other', async () => {
+      // Two independent roots: x→ta→a, y→tb→b, (a,b)→merge. Changing y while
+      // ta runs must re-execute ONLY tb and the join — ta's work stands.
+      // Over-invalidation here is the efficiency regression that makes big
+      // real-world dataflows re-run everything on every edit.
+      const structure: Structure = {
+        type: 'struct',
+        value: new Map([
+          ['x', { type: 'value', value: { type: StringType, writable: true } }],
+          ['y', { type: 'value', value: { type: StringType, writable: true } }],
+          ['a_out', { type: 'value', value: { type: StringType, writable: true } }],
+          ['b_out', { type: 'value', value: { type: StringType, writable: true } }],
+          ['merge_out', { type: 'value', value: { type: StringType, writable: true } }],
+        ]),
+      } as unknown as Structure;
+
+      const xPath: TreePath = [variant('field', 'x')];
+      const yPath: TreePath = [variant('field', 'y')];
+      const aPath: TreePath = [variant('field', 'a_out')];
+      const bPath: TreePath = [variant('field', 'b_out')];
+
+      const taskHashes = await createPackageWithTasks(
+        testRepo,
+        [
+          { name: 'ta', command: ['echo'], inputs: [xPath], output: aPath },
+          { name: 'tb', command: ['echo'], inputs: [yPath], output: bPath },
+          { name: 'merge', command: ['echo'], inputs: [aPath, bPath], output: [variant('field', 'merge_out')] },
+        ],
+        structure,
+      );
+      await workspaceDeploy(storage, testRepo, 'test-ws', 'test', '1.0.0');
+      await workspaceSetDataset(storage, testRepo, 'test-ws', xPath, 'x1', StringType);
+      await workspaceSetDataset(storage, testRepo, 'test-ws', yPath, 'y1', StringType);
+
+      let taCalls = 0;
+      let tbCalls = 0;
+      const mergeCalls: string[][] = [];
+      mockRunner.setResult(taskHashes.get('ta')!, async () => {
+        taCalls++;
+        if (taCalls === 1) {
+          const newHash = await datasetWrite(storage, testRepo, 'y2', StringType);
+          const ref: DatasetRef = variant('value', { hash: newHash, versions: new Map() });
+          await storage.datasets.write(testRepo, 'test-ws', 'y', ref);
+        }
+        return { state: 'success' as const, cached: false, outputHash: `a-v${taCalls}` };
+      });
+      mockRunner.setResult(taskHashes.get('tb')!, async () => {
+        tbCalls++;
+        return { state: 'success' as const, cached: false, outputHash: `b-v${tbCalls}` };
+      });
+      mockRunner.setResult(taskHashes.get('merge')!, async (inputHashes) => {
+        mergeCalls.push([...inputHashes]);
+        return { state: 'success' as const, cached: false, outputHash: `m-v${mergeCalls.length}` };
+      });
+
+      const result = await dataflowExecute(storage, testRepo, 'test-ws', {
+        runner: mockRunner,
+        concurrency: 4,
+      });
+
+      assert.strictEqual(result.success, true);
+      assert.strictEqual(taCalls, 1, 'ta must NOT re-run for a change to y (over-invalidation)');
+      assert.strictEqual(tbCalls, 2, 'tb should re-run for the y change');
+      const final = mergeCalls[mergeCalls.length - 1]!;
+      assert.deepStrictEqual([...final].sort(), ['a-v1', 'b-v2']);
+    });
+
+    it('propagates a mid-flight change transitively through a double diamond', async () => {
+      // diamond1 (input → l1,r1 → m1) feeding diamond2 (m1 → l2,r2 → m2):
+      // a root change during l1 must cascade re-execution through BOTH
+      // fan-out/fan-in layers, and m2 must join a consistent final pair.
+      const fields: Array<[string, unknown]> = [
+        ['input', { type: 'value', value: { type: StringType, writable: true } }],
+        ['l1_out', { type: 'value', value: { type: StringType, writable: true } }],
+        ['r1_out', { type: 'value', value: { type: StringType, writable: true } }],
+        ['m1_out', { type: 'value', value: { type: StringType, writable: true } }],
+        ['l2_out', { type: 'value', value: { type: StringType, writable: true } }],
+        ['r2_out', { type: 'value', value: { type: StringType, writable: true } }],
+        ['m2_out', { type: 'value', value: { type: StringType, writable: true } }],
+      ];
+      const structure: Structure = {
+        type: 'struct',
+        value: new Map(fields),
+      } as unknown as Structure;
+      const path = (name: string): TreePath => [variant('field', name)];
+
+      const taskHashes = await createPackageWithTasks(
+        testRepo,
+        [
+          { name: 'l1', command: ['echo'], inputs: [path('input')], output: path('l1_out') },
+          { name: 'r1', command: ['echo'], inputs: [path('input')], output: path('r1_out') },
+          { name: 'm1', command: ['echo'], inputs: [path('l1_out'), path('r1_out')], output: path('m1_out') },
+          { name: 'l2', command: ['echo'], inputs: [path('m1_out')], output: path('l2_out') },
+          { name: 'r2', command: ['echo'], inputs: [path('m1_out')], output: path('r2_out') },
+          { name: 'm2', command: ['echo'], inputs: [path('l2_out'), path('r2_out')], output: path('m2_out') },
+        ],
+        structure,
+      );
+      await workspaceDeploy(storage, testRepo, 'test-ws', 'test', '1.0.0');
+      await workspaceSetDataset(storage, testRepo, 'test-ws', path('input'), 'v1', StringType);
+
+      // Exact downstream call counts are schedule-dependent (a join that
+      // wasn't ready yet when the change was detected legitimately runs
+      // once, with the new inputs). The schedule-independent invariant is:
+      // every join's LAST call consumed its parents' LATEST outputs.
+      const calls = new Map<string, number>();
+      const lastInputs = new Map<string, string[]>();
+      const counted = (name: string, hash: string, extra?: (n: number) => Promise<void>) => {
+        mockRunner.setResult(hash, async (inputHashes) => {
+          const n = (calls.get(name) ?? 0) + 1;
+          calls.set(name, n);
+          lastInputs.set(name, [...inputHashes]);
+          if (extra) await extra(n);
+          return { state: 'success' as const, cached: false, outputHash: `${name}-v${n}` };
+        });
+      };
+      counted('l1', taskHashes.get('l1')!, async (n) => {
+        if (n === 1) await mutateInput('v2');
+      });
+      for (const name of ['r1', 'm1', 'l2', 'r2', 'm2']) {
+        counted(name, taskHashes.get(name)!);
+      }
+
+      const result = await dataflowExecute(storage, testRepo, 'test-ws', {
+        runner: mockRunner,
+        concurrency: 4,
+      });
+
+      assert.strictEqual(result.success, true);
+      // The task that observed the change must have re-executed
+      assert.strictEqual(calls.get('l1'), 2, 'l1 should re-execute after the root change');
+      // Transitive freshness: each join's last call used its parents' final outputs
+      const latest = (name: string) => `${name}-v${calls.get(name)}`;
+      assert.deepStrictEqual(
+        [...lastInputs.get('m1')!].sort(),
+        [latest('l1'), latest('r1')].sort(),
+        'first join must consume the latest branch outputs'
+      );
+      assert.deepStrictEqual(lastInputs.get('l2'), [latest('m1')], 'second fan-out must consume the latest m1');
+      assert.deepStrictEqual(lastInputs.get('r2'), [latest('m1')]);
+      assert.deepStrictEqual(
+        [...lastInputs.get('m2')!].sort(),
+        [latest('l2'), latest('r2')].sort(),
+        'final join must consume the latest second-layer outputs'
+      );
+    });
+
   });
 
   describe('DataflowRun recording', () => {

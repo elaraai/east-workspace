@@ -318,34 +318,6 @@ importers:
         specifier: ^5.7.2
         version: 5.9.3
 
-  libs/e3/test/fuzz:
-    dependencies:
-      '@elaraai/e3':
-        specifier: workspace:*
-        version: link:../../packages/e3
-      '@elaraai/e3-cli':
-        specifier: workspace:*
-        version: link:../../packages/e3-cli
-      '@elaraai/e3-core':
-        specifier: workspace:*
-        version: link:../../packages/e3-core
-      '@elaraai/east':
-        specifier: workspace:*
-        version: link:../../../east
-    devDependencies:
-      '@elaraai/east-node-cli':
-        specifier: workspace:*
-        version: link:../../../east-node/packages/east-node-cli
-      '@elaraai/east-node-std':
-        specifier: workspace:*
-        version: link:../../../east-node/packages/east-node-std
-      '@types/node':
-        specifier: ^22.0.0
-        version: 22.19.15
-      typescript:
-        specifier: ^5.6.0
-        version: 5.9.3
-
   libs/e3/test/integration:
     dependencies:
       '@elaraai/e3':

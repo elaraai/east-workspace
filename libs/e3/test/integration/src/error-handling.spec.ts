@@ -98,91 +98,48 @@ describe('error handling', () => {
   });
 
   describe('repository not found', () => {
-    it('returns error when listing workspaces on non-existent repo', async () => {
+    it('returns errors (not empty listings) for every command against a non-existent repo', async () => {
+      // One server+login setup, four CLI surfaces. The underlying API error
+      // paths are covered per-endpoint in e3-api-tests; this asserts the CLI
+      // renders them as failures rather than empty success output.
       const nonExistentUrl = `${serverUrl}/repos/nonexistent-repo`;
-      const result = await runE3Command(
-        ['workspace', 'list', nonExistentUrl],
-        tempDir,
-        { env: authEnv() }
-      );
 
-      assert.notStrictEqual(result.exitCode, 0, 'Should fail for non-existent repo');
-      // Should show error message, NOT "No workspaces"
-      assert.doesNotMatch(result.stdout, /No workspaces/i, 'Should not show "No workspaces" for non-existent repo');
-      assert.match(result.stderr + result.stdout, /not found|error/i, 'Should indicate error');
-    });
+      const wsList = await runE3Command(['workspace', 'list', nonExistentUrl], tempDir, { env: authEnv() });
+      assert.notStrictEqual(wsList.exitCode, 0, 'workspace list should fail for non-existent repo');
+      assert.doesNotMatch(wsList.stdout, /No workspaces/i, 'Should not show "No workspaces" for non-existent repo');
+      assert.match(wsList.stderr + wsList.stdout, /not found|error/i, 'workspace list should indicate error');
 
-    it('returns error when listing packages on non-existent repo', async () => {
-      const nonExistentUrl = `${serverUrl}/repos/nonexistent-repo`;
-      const result = await runE3Command(
-        ['package', 'list', nonExistentUrl],
-        tempDir,
-        { env: authEnv() }
-      );
+      const pkgList = await runE3Command(['package', 'list', nonExistentUrl], tempDir, { env: authEnv() });
+      assert.notStrictEqual(pkgList.exitCode, 0, 'package list should fail for non-existent repo');
+      assert.doesNotMatch(pkgList.stdout, /No packages/i, 'Should not show "No packages" for non-existent repo');
 
-      assert.notStrictEqual(result.exitCode, 0, 'Should fail for non-existent repo');
-      // Should show error message, NOT "No packages"
-      assert.doesNotMatch(result.stdout, /No packages/i, 'Should not show "No packages" for non-existent repo');
-      assert.match(result.stderr + result.stdout, /not found|error/i, 'Should indicate error');
-    });
+      const wsCreate = await runE3Command(['workspace', 'create', nonExistentUrl, 'test-ws'], tempDir, { env: authEnv() });
+      assert.notStrictEqual(wsCreate.exitCode, 0, 'workspace create should fail for non-existent repo');
 
-    it('returns error when creating workspace on non-existent repo', async () => {
-      const nonExistentUrl = `${serverUrl}/repos/nonexistent-repo`;
-      const result = await runE3Command(
-        ['workspace', 'create', nonExistentUrl, 'test-ws'],
-        tempDir,
-        { env: authEnv() }
-      );
-
-      assert.notStrictEqual(result.exitCode, 0, 'Should fail for non-existent repo');
-      assert.match(result.stderr + result.stdout, /not found|error/i, 'Should indicate error');
-    });
-
-    it('returns error when getting repo status on non-existent repo', async () => {
-      const nonExistentUrl = `${serverUrl}/repos/nonexistent-repo`;
-      const result = await runE3Command(
-        ['repo', 'status', nonExistentUrl],
-        tempDir,
-        { env: authEnv() }
-      );
-
-      assert.notStrictEqual(result.exitCode, 0, 'Should fail for non-existent repo');
-      assert.match(result.stderr + result.stdout, /not found|error/i, 'Should indicate error');
+      const status = await runE3Command(['repo', 'status', nonExistentUrl], tempDir, { env: authEnv() });
+      assert.notStrictEqual(status.exitCode, 0, 'repo status should fail for non-existent repo');
+      assert.match(status.stderr + status.stdout, /not found|error/i, 'repo status should indicate error');
     });
   });
 
-  describe('workspace not found', () => {
-    it('returns error when getting status of non-existent workspace', async () => {
-      const result = await runE3Command(
-        ['workspace', 'status', remoteUrl, 'nonexistent-ws'],
-        tempDir,
-        { env: authEnv() }
-      );
+  describe('workspace and package not found', () => {
+    it('returns errors for operations on non-existent workspaces and packages', async () => {
+      const wsStatus = await runE3Command(['workspace', 'status', remoteUrl, 'nonexistent-ws'], tempDir, { env: authEnv() });
+      assert.notStrictEqual(wsStatus.exitCode, 0, 'workspace status should fail for non-existent workspace');
+      assert.match(wsStatus.stderr + wsStatus.stdout, /not found|does not exist|error/i, 'Should indicate error');
 
-      assert.notStrictEqual(result.exitCode, 0, 'Should fail for non-existent workspace');
-      assert.match(result.stderr + result.stdout, /not found|does not exist|error/i, 'Should indicate error');
-    });
+      const wsRemove = await runE3Command(['workspace', 'remove', remoteUrl, 'nonexistent-ws'], tempDir, { env: authEnv() });
+      assert.notStrictEqual(wsRemove.exitCode, 0, 'workspace remove should fail for non-existent workspace');
 
-    it('returns error when deploying to non-existent workspace', async () => {
-      const result = await runE3Command(
-        ['workspace', 'deploy', remoteUrl, 'nonexistent-ws', 'some-pkg@1.0.0'],
-        tempDir,
-        { env: authEnv() }
-      );
+      const pkgRemove = await runE3Command(['package', 'remove', remoteUrl, 'nonexistent-pkg@1.0.0'], tempDir, { env: authEnv() });
+      assert.notStrictEqual(pkgRemove.exitCode, 0, 'package remove should fail for non-existent package');
 
-      assert.notStrictEqual(result.exitCode, 0, 'Should fail for non-existent workspace');
-      assert.match(result.stderr + result.stdout, /not found|does not exist|error/i, 'Should indicate error');
-    });
-
-    it('returns error when removing non-existent workspace', async () => {
-      const result = await runE3Command(
-        ['workspace', 'remove', remoteUrl, 'nonexistent-ws'],
-        tempDir,
-        { env: authEnv() }
-      );
-
-      assert.notStrictEqual(result.exitCode, 0, 'Should fail for non-existent workspace');
-      assert.match(result.stderr + result.stdout, /not found|does not exist|error/i, 'Should indicate error');
+      // Deploying a non-existent package to a REAL workspace
+      const createResult = await runE3Command(['workspace', 'create', remoteUrl, 'test-ws'], tempDir, { env: authEnv() });
+      assert.strictEqual(createResult.exitCode, 0, `Failed to create workspace: ${createResult.stderr}`);
+      const deploy = await runE3Command(['workspace', 'deploy', remoteUrl, 'test-ws', 'nonexistent-pkg@1.0.0'], tempDir, { env: authEnv() });
+      assert.notStrictEqual(deploy.exitCode, 0, 'deploy should fail for non-existent package');
+      assert.match(deploy.stderr + deploy.stdout, /not found|does not exist|error/i, 'Should indicate error');
     });
   });
 
@@ -197,39 +154,6 @@ describe('error handling', () => {
 
       assert.notStrictEqual(result.exitCode, 0, 'Should fail without credentials');
       assert.match(result.stderr + result.stdout, /auth|unauthorized|credentials|login/i, 'Should indicate auth error');
-    });
-  });
-
-  describe('package not found', () => {
-    it('returns error when removing non-existent package', async () => {
-      const result = await runE3Command(
-        ['package', 'remove', remoteUrl, 'nonexistent-pkg@1.0.0'],
-        tempDir,
-        { env: authEnv() }
-      );
-
-      assert.notStrictEqual(result.exitCode, 0, 'Should fail for non-existent package');
-      assert.match(result.stderr + result.stdout, /not found|does not exist|error/i, 'Should indicate error');
-    });
-
-    it('returns error when deploying non-existent package to workspace', async () => {
-      // First create a workspace
-      const createResult = await runE3Command(
-        ['workspace', 'create', remoteUrl, 'test-ws'],
-        tempDir,
-        { env: authEnv() }
-      );
-      assert.strictEqual(createResult.exitCode, 0, `Failed to create workspace: ${createResult.stderr}`);
-
-      // Try to deploy non-existent package
-      const result = await runE3Command(
-        ['workspace', 'deploy', remoteUrl, 'test-ws', 'nonexistent-pkg@1.0.0'],
-        tempDir,
-        { env: authEnv() }
-      );
-
-      assert.notStrictEqual(result.exitCode, 0, 'Should fail for non-existent package');
-      assert.match(result.stderr + result.stdout, /not found|does not exist|error/i, 'Should indicate error');
     });
   });
 });

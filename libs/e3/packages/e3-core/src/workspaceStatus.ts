@@ -16,7 +16,7 @@
 
 import { decodeBeast2For, variant } from '@elaraai/east';
 import {
-  PackageObjectType,
+  decodePackageObject,
   TaskObjectType,
   WorkspaceStateType,
   pathToString,
@@ -199,8 +199,7 @@ export async function workspaceStatus(
 
   // Read package object to get tasks and structure
   const pkgData = await storage.objects.read(repo, state.packageHash);
-  const pkgDecoder = decodeBeast2For(PackageObjectType);
-  const pkgObject = pkgDecoder(Buffer.from(pkgData));
+  const pkgObject = decodePackageObject(Buffer.from(pkgData));
 
   // Build task nodes
   const taskNodes = new Map<string, TaskNode>();
@@ -249,17 +248,25 @@ export async function workspaceStatus(
   const taskIsStale = new Map<string, boolean>();
   const taskStatus = new Map<string, TaskStatus>();
 
-  // First pass: determine which tasks have valid cached executions
-  for (const [taskName, node] of taskNodes) {
-    const status = await computeTaskStatus(
-      storage,
-      repo,
-      ws,
-      node,
-      outputToTask,
-      taskNodes,
-      taskIsStale
-    );
+  // First pass: determine which tasks have valid cached executions.
+  // Tasks are independent here (computeTaskStatus reads nothing cross-task),
+  // so run them concurrently — wall clock becomes the slowest task's lookups
+  // instead of the sum over all tasks.
+  const firstPass = await Promise.all(
+    [...taskNodes].map(async ([taskName, node]) => {
+      const status = await computeTaskStatus(
+        storage,
+        repo,
+        ws,
+        node,
+        outputToTask,
+        taskNodes,
+        taskIsStale
+      );
+      return [taskName, status] as const;
+    })
+  );
+  for (const [taskName, status] of firstPass) {
     taskStatus.set(taskName, status);
     taskIsStale.set(taskName, status.type !== 'up-to-date');
   }
@@ -512,13 +519,13 @@ async function checkInProgress(
   repo: string,
   taskHash: string
 ): Promise<TaskStatus | null> {
-  // List all inputsHashes for this task
-  const inputsHashes = await storage.refs.executionListForTask(repo, taskHash);
+  // One backend round trip for the latest status of every inputsHash.
+  // (Previously executionListForTask + executionGetLatest per entry — an
+  // N+1 that made status requests O(repo history) on remote backends.)
+  const latest = await storage.refs.executionListLatest(repo, taskHash);
 
-  for (const inHash of inputsHashes) {
-    // Check the latest execution for this inputsHash
-    const status = await storage.refs.executionGetLatest(repo, taskHash, inHash);
-    if (status?.type === 'running') {
+  for (const { status } of latest) {
+    if (status.type === 'running') {
       // Found a running execution - verify process is actually alive
       const pid = Number(status.value.pid);
       const pidStartTime = Number(status.value.pidStartTime);
