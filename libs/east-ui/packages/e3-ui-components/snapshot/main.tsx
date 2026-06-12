@@ -19,12 +19,14 @@ import '@elaraai/east-ui-components/fonts';
 // self-injects the xyflow stylesheet via emotion, so no separate CSS import
 // is needed here.
 import '@elaraai/e3-ui-components';
-import { encodeBeast2For } from '@elaraai/east';
+import { encodeBeast2For, FloatType, IntegerType } from '@elaraai/east';
 import type { DatasetDef } from '@elaraai/e3';
 import type { TreePath } from '@elaraai/e3-types';
 import {
     ReactiveDatasetCache,
     initializeReactiveDatasetCache,
+    initializeFunctionApi,
+    createInMemoryFunctionApi,
     datasetCacheKey,
     type DatasetApi,
 } from '@elaraai/e3-ui-components';
@@ -65,6 +67,24 @@ async function seedCache(mod: Record<string, unknown>): Promise<void> {
     const cache = new ReactiveDatasetCache({ workspace: WORKSPACE }, api);
     cache.setScheduler((notify) => queueMicrotask(notify));
     initializeReactiveDatasetCache(cache);
+
+    // Offline implementations for the named functions the `Func.bind`
+    // examples call — the function-side mirror of the dataset seeding.
+    initializeFunctionApi(createInMemoryFunctionApi([
+        {
+            name: 'forecast',
+            inputTypes: [IntegerType, FloatType],
+            outputType: FloatType,
+            fn: (periods, growth) => Number(periods as bigint) * (growth as number) * 100,
+        },
+        {
+            name: 'rebalance',
+            inputTypes: [FloatType],
+            outputType: FloatType,
+            fn: (x) => 1 - (x as number),
+        },
+    ]), WORKSPACE);
+
     await Promise.all(inputPaths.map(path => cache.preload(WORKSPACE, path)));
 }
 
