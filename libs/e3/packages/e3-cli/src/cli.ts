@@ -18,6 +18,7 @@
  *   dataflow  run
  *   auth      login | logout | status | token | whoami
  *   run       <pkg.task> <inputs...> -o <out>     (ad-hoc)
+ *   call      <pkg.fn> [args...] [-o <out>]       (named functions)
  *   watch     <source> [<ws>]
  *   convert   <input> [...]
  *

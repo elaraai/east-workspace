@@ -1,6 +1,6 @@
 ---
 name: e3
-description: "East Execution Engine (e3) - durable dataflow execution for East programs. Use when: (1) Authoring e3 packages with @elaraai/e3 (e3.input, e3.task, e3.customTask, e3.ui, e3.package, e3.export), (2) Running e3 CLI commands (e3 repo, e3 workspace, e3 package, e3 dataset, e3 task, e3 dataflow run, e3 watch, e3 auth), (3) Working with workspaces and packages, (4) Content-addressable caching and reactive dataflow execution."
+description: "East Execution Engine (e3) - durable dataflow execution for East programs. Use when: (1) Authoring e3 packages with @elaraai/e3 (e3.input, e3.task, e3.customTask, e3.function, e3.ui, e3.package, e3.export), (2) Running e3 CLI commands (e3 repo, e3 workspace, e3 package, e3 dataset, e3 task, e3 dataflow run, e3 call, e3 watch, e3 auth), (3) Working with workspaces and packages, (4) Content-addressable caching and reactive dataflow execution."
 ---
 
 # East Execution Engine (e3)
@@ -57,6 +57,7 @@ Task → What do you need?
 │   ├─ Input dataset        → e3.input(name, type, default?)
 │   ├─ East function task   → e3.task(name, [inputs], fn, config?)
 │   ├─ Shell command task   → e3.customTask(name, [inputs], outputType, cmd)
+│   ├─ Named function (RPC) → e3.function(name, fn, config?)
 │   ├─ Chain task outputs   → secondTask([firstTask.output], ...)
 │   ├─ Bundle               → e3.package(name, version, ...items)
 │   └─ Export to zip        → e3.export(pkg, zipPath)
@@ -99,6 +100,7 @@ Task → What do you need?
 ├─ Development workflow
 │   ├─ Watch + auto-deploy  → e3 watch <src.ts> <repo> <ws> [--start]
 │   ├─ Ad-hoc task run      → e3 run <repo> <pkg.task> [inputs...] -o <output>
+│   ├─ Call a function      → e3 call <repo> <pkg.fn> [args...] [-o <output>]
 │   └─ Convert formats      → e3 convert [input] --from <fmt> --to <fmt>
 │
 └─ Remote servers / auth
@@ -181,6 +183,33 @@ const process = e3.customTask(
     East.str`python script.py -i ${input_paths.get(0n)} -o ${output_path}`
 );
 ```
+
+### e3.function(name, fn, config?)
+
+Define a named function: invoked by name with argument values (CLI `e3 call`
+or HTTP API), result returned inline. Unlike a task it is NOT wired to
+datasets, not part of the dataflow graph, and a call persists nothing —
+e3's "stored procedure". The signature is inferred from the East function.
+
+```typescript
+const add = e3.function(
+  'add',
+  East.function([IntegerType, IntegerType], IntegerType, ($, a, b) => a.add(b))
+);
+
+// Runner selection: known runtimes only (no `runtime: 'custom'` for functions)
+const forecast = e3.function(
+  'forecast',
+  East.function([IntegerType, FloatType], FloatType, ($, periods, rate) => ...),
+  { runner: { runtime: 'east-py', platforms: ['east-py-datascience'] } }
+);
+
+const pkg = e3.package('planning', '1.0.0', someTask, add, forecast);
+```
+
+Use a task when the result should be a dataset others react to; use a
+function for on-demand compute returned to the caller (results are capped
+at 1 MB inline — bigger results belong in a task output dataset).
 
 ### e3.package(name, version, ...items)
 
@@ -273,6 +302,18 @@ After a successful run the output paths are printed in flat form, ready to read 
 ```bash
 e3 run <repo> <pkg.task> [inputs...] -o <output>     # task spec uses dots: pkg.task or pkg@1.0.0.task
 ```
+
+### Call (named functions)
+
+```bash
+e3 call <repo> <pkg.fn> [args...] [-o out.beast2]     # function spec uses dots: pkg.fn or pkg@1.0.0.fn
+e3 call <repo> -w <ws> <fn> [args...]                 # against a workspace's deployed package
+```
+
+Each argument is an `.east` literal (`5`, `"hello"`, `[1.0, 2.0]`) or a
+`.beast2`/`.json`/`.east` file path, parsed against the declared parameter
+type. The decoded result prints to stdout (or `-o` writes raw beast2).
+Calls are graph-free: no datasets read or written, repository unchanged.
 
 ### Watch
 

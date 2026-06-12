@@ -212,6 +212,29 @@ const processData = e3.customTask(
 );
 ```
 
+### `e3.function(name, fn, config?)`
+
+Define a named function — invoked by name with argument values, result
+returned inline to the caller. Unlike a task it is not wired to datasets and
+is not part of the dataflow graph; calling it writes nothing to the
+repository. Think "stored procedure" for on-demand compute.
+
+```typescript
+const add = e3.function(
+  'add',
+  East.function([IntegerType, IntegerType], IntegerType, ($, a, b) => a.add(b))
+);
+
+const pkg = e3.package('myapp', '1.0.0', someTask, add);
+```
+
+The signature (parameter and return types) is inferred from the East
+function. The optional `config.runner` selects a known runtime
+(`east-node`, `east-py`, `east-c`) — the raw-argv `custom` runtime is not
+available for functions. Results are returned inline and capped (1 MB by
+default over the API); results that don't fit belong in a task output
+dataset instead.
+
 ### `e3.package(name, version, ...items)`
 
 Bundles inputs and tasks into a package. Dependencies are collected automatically.
@@ -334,6 +357,21 @@ e3 run <repo> <pkg@1.0.0.task> <in.beast2> -o <out.beast2>
 ```
 
 Task spec uses dots: `pkg.task` (or `pkg@version.task`). Slashes are no longer accepted.
+
+### Call (named functions)
+
+```bash
+e3 call <repo> <pkg.fn> [args...]            # call by package: pkg.fn or pkg@1.0.0.fn
+e3 call <repo> -w <ws> <fn> [args...]        # call the workspace's deployed package
+e3 call <repo> <pkg.fn> 2 3 -o sum.beast2    # write raw result to a file
+```
+
+Arguments are `.east` literals (`5`, `"hello"`, `[1.0, 2.0]`) or paths to
+`.beast2` / `.json` / `.east` files, parsed against the function's declared
+parameter types. On success the decoded result prints to stdout; failures
+(wrong arity, runtime error, timeout, over-size result) exit non-zero with
+a diagnostic. Calls are graph-free — they trigger no dataflow and leave the
+repository byte-for-byte unchanged.
 
 ### Watch / Live Development
 
