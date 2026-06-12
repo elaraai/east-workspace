@@ -84,7 +84,7 @@ export const UITaskPreview = memo(function UITaskPreview({
     const manifest = useMemo(() => {
         if (!details || !isUI) return null;
         const meta = getTaskMetadata(details);
-        return meta ? decodeManifest(meta) : { paths: [] };
+        return meta ? decodeManifest(meta) : { paths: [], functions: [] };
     }, [details, isUI]);
 
     const outputPath = details ? treePathToString(details.output as TreePath) : null;

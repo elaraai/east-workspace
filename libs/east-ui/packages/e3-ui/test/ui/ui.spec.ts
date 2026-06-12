@@ -43,7 +43,7 @@ describe("ui()", () => {
     test("derives an empty manifest when fn does not call Data.bind and no inputs", () => {
         const dashboard = ui("dashboard", [], blankUI);
         assert.ok(dashboard.metadata, "metadata should be set");
-        assert.ok(manifestEqual(decodeManifest(dashboard.metadata), { paths: [] }),
+        assert.ok(manifestEqual(decodeManifest(dashboard.metadata), { paths: [], functions: [] }),
             "expected empty manifest");
     });
 
