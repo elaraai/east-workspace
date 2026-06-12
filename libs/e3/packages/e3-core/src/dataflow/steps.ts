@@ -896,6 +896,32 @@ export function stepCancel(
   return event;
 }
 
+/**
+ * Prepare the execution state for a yield checkpoint (or crash recovery).
+ *
+ * Resets all `in_progress` tasks to `pending` so the persisted state is
+ * resumable: a resumed loop re-launches them via stepGetReady, and tasks
+ * that actually finished in the meantime are served from the execution
+ * cache. `deferred` tasks are also reset — deferral is a launch-time
+ * decision and the version-vector conflict may have resolved since; the
+ * consistency check at re-launch re-defers if it genuinely persists.
+ * The execution status stays 'running' — yield is a pause, not a
+ * terminal state.
+ *
+ * @param state - Execution state to mutate
+ * @returns Names of tasks that were reset to pending
+ */
+export function stepYield(state: DataflowExecutionState): { reset: string[] } {
+  const reset: string[] = [];
+  for (const [name, taskState] of state.tasks) {
+    if (taskState.status === 'in_progress' || taskState.status === 'deferred') {
+      (taskState as Mutable<TaskState>).status = 'pending';
+      reset.push(name);
+    }
+  }
+  return { reset };
+}
+
 // =============================================================================
 // Tree Update Step Function
 // =============================================================================

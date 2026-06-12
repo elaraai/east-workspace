@@ -83,6 +83,31 @@ export interface OrchestratorStartOptions {
   onTaskInvalidated?: (taskName: string, reason: string) => void;
   /** Called when a task is deferred due to inconsistent input versions */
   onTaskDeferred?: (taskName: string, conflictPath: string) => void;
+  /**
+   * Polled by the execution loop (before each launch and each wait).
+   * Return true to checkpoint: the loop stops launching, resets in-flight
+   * tasks to pending, persists the state (still 'running'), releases locks,
+   * and resolves wait() with `{ yielded: true }`. Continue the execution
+   * later with resume(). Used by bounded-lifetime hosts (e.g. a Lambda
+   * approaching its time limit); requires a state store to be useful.
+   */
+  shouldYield?: () => boolean;
+}
+
+/**
+ * Options for resuming a yielded (or crashed) execution.
+ *
+ * Execution config (concurrency, force, filter) comes from the persisted
+ * state and cannot be changed; runtime collaborators (runner, callbacks,
+ * signal, shouldYield) are provided fresh by the resuming host.
+ */
+export interface ResumeOptions extends OrchestratorStartOptions {
+  /**
+   * Dataflow run ID to continue recording under. Pass the runId returned
+   * by the original start()'s FinalizeResult/DataflowRun so the run record
+   * stays continuous across yields; a fresh UUID is generated if omitted.
+   */
+  runId?: string;
 }
 
 /**
@@ -131,6 +156,33 @@ export interface DataflowOrchestrator {
     repo: string,
     workspace: string,
     options?: OrchestratorStartOptions
+  ): Promise<ExecutionHandle>;
+
+  /**
+   * Resume an execution that yielded (see OrchestratorStartOptions.shouldYield)
+   * or whose host died mid-run. Reads the persisted state, resets any tasks
+   * stranded in_progress back to pending (their finished work is recovered
+   * via the execution cache), re-acquires locks, and continues the loop.
+   *
+   * Optional: only orchestrators with a state store can support it.
+   *
+   * @param storage - Storage backend
+   * @param repo - Repository identifier
+   * @param workspace - Workspace name
+   * @param executionId - ID of the persisted execution to resume
+   * @param options - Runtime options (runner, callbacks, runId continuity)
+   * @returns Execution handle (same id as the original execution)
+   *
+   * @throws {DataflowError} If there is no state store, the execution is
+   *   unknown, or its status is not 'running'
+   * @throws {WorkspaceLockError} If workspace is locked by another process
+   */
+  resume?(
+    storage: StorageBackend,
+    repo: string,
+    workspace: string,
+    executionId: string,
+    options?: ResumeOptions
   ): Promise<ExecutionHandle>;
 
   /**
