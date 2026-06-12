@@ -143,8 +143,6 @@ describe('workspaceStatus crash detection', () => {
     // remote backends (DynamoDB) this turned long-lived repos' status pages
     // into multi-minute requests. It must now be one listing call per task,
     // with no per-history lookups.
-    const bootId = await getBootId();
-
     // Seed history: completed executions for 50 distinct past input combos
     for (let i = 0; i < 50; i++) {
       const executionId = uuidv7();

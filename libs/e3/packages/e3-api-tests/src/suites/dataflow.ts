@@ -554,9 +554,19 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         // Cancel it
         await dataflowCancel(ctx.config.baseUrl, ctx.repoName, 'slow-ws', opts);
 
-        // Verify execution state is aborted
-        const state = await dataflowExecution(ctx.config.baseUrl, ctx.repoName, 'slow-ws', {}, opts);
-        assert.strictEqual(state.status.type, 'aborted');
+        // The cancel response does not synchronise with the orchestrator's
+        // state write — poll for the terminal state instead of reading once
+        // (a single immediate read raced it and saw 'running' on slow CI).
+        // If this ever times out, that's a real bug: a cancel delivered
+        // right after start (possibly before the first task spawn) was not
+        // honoured.
+        let finalStatus = '';
+        await waitFor(async () => {
+          const state = await dataflowExecution(ctx.config.baseUrl, ctx.repoName, 'slow-ws', {}, opts);
+          finalStatus = state.status.type;
+          return finalStatus !== 'running';
+        }, 60000);
+        assert.strictEqual(finalStatus, 'aborted');
       });
 
       it('dataflowCancel returns error when no execution is running', async (t) => {
