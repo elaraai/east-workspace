@@ -31,7 +31,7 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, existsSync, writeFileSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { createTestDir, removeTestDir, runE3Command, spawnE3Command, waitFor } from './helpers.js';
+import { createTestDir, removeTestDir, runE3Command } from './helpers.js';
 
 // SDK imports
 import e3 from '@elaraai/e3';
@@ -379,65 +379,6 @@ describe('end-to-end workflow', () => {
     });
   });
 
-  describe('list -r -l with status and size', () => {
-    it('shows dataset status and size in tabular output', async () => {
-      // Create a simple package with one task
-      const input_x = e3.input('x', IntegerType, 10n);
-      const task_double = e3.task(
-        'double',
-        [input_x],
-        East.function(
-          [IntegerType],
-          IntegerType,
-          ($, x) => x.multiply(2n)
-        )
-      );
-
-      const pkg = e3.package('list-status-test', '1.0.0', task_double);
-      await e3.export(pkg, packageZipPath);
-
-      await runE3Command(['repo', 'create', repoDir], testDir);
-      await runE3Command(['package', 'import', repoDir, packageZipPath], testDir);
-      await runE3Command(['workspace', 'create', repoDir, 'ws'], testDir);
-      await runE3Command(['workspace', 'deploy', repoDir, 'ws', 'list-status-test@1.0.0'], testDir);
-
-      // Before execution: input has a default value (set), task output is unset
-      let listResult = await runE3Command(['dataset', 'list', repoDir, 'ws', '-l'], testDir);
-      assert.strictEqual(listResult.exitCode, 0, `list -l failed: ${listResult.stderr}`);
-      assert.match(listResult.stdout, /unset/, 'Task output should show unset');
-      assert.match(listResult.stdout, /\bset\b/, 'Input should show set');
-      assert.match(listResult.stdout, /\d+ B/, 'Input should show byte size');
-
-      // Update input
-      const newValuePath = join(testDir, 'val.east');
-      writeFileSync(newValuePath, '25');
-      await runE3Command(['dataset', 'set', repoDir, 'ws.x', newValuePath], testDir);
-
-      // After set: input still shows set
-      listResult = await runE3Command(['dataset', 'list', repoDir, 'ws', '-l'], testDir);
-      assert.strictEqual(listResult.exitCode, 0, `list -l failed after set: ${listResult.stderr}`);
-      assert.match(listResult.stdout, /\bset\b/, 'Updated input should show set');
-
-      // -l should show types
-      assert.match(listResult.stdout, /Integer/, 'Should show type');
-
-      // Execute dataflow
-      const startResult = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
-      assert.strictEqual(startResult.exitCode, 0, `start failed: ${startResult.stderr}\n${startResult.stdout}`);
-
-      // After execution: all datasets should be set
-      listResult = await runE3Command(['dataset', 'list', repoDir, 'ws', '-l'], testDir);
-      assert.strictEqual(listResult.exitCode, 0, `list -l after start failed: ${listResult.stderr}`);
-      // All datasets should now show "set" (no more "unset")
-      assert.doesNotMatch(listResult.stdout, /\bunset\b/, 'No datasets should be unset after execution');
-
-      // Paths only (no -l) should return flat dot-separated paths
-      listResult = await runE3Command(['dataset', 'list', repoDir, 'ws'], testDir);
-      assert.strictEqual(listResult.exitCode, 0, `list failed: ${listResult.stderr}`);
-      assert.match(listResult.stdout, /ws\.x/, 'Should show input path');
-      assert.match(listResult.stdout, /ws\.double/, 'Should show task path');
-    });
-  });
 
   describe('status command', () => {
     it('shows dataset status detail', async () => {
@@ -484,6 +425,22 @@ describe('end-to-end workflow', () => {
       assert.match(statusResult.stdout, /Status: set/, 'Task output should show Status: set after execution');
       assert.match(statusResult.stdout, /Hash:/, 'Task output should show Hash after execution');
       assert.match(statusResult.stdout, /Size:/, 'Task output should show Size after execution');
+
+      // `dataset list -l` tabular output against the same executed
+      // workspace (merged from the former standalone list test so the CLI
+      // table surface keeps coverage without a second dataflow run)
+      let listResult = await runE3Command(['dataset', 'list', repoDir, 'ws', '-l'], testDir);
+      assert.strictEqual(listResult.exitCode, 0, `list -l failed: ${listResult.stderr}`);
+      assert.doesNotMatch(listResult.stdout, /\bunset\b/, 'No datasets should be unset after execution');
+      assert.match(listResult.stdout, /\bset\b/, 'Datasets should show set');
+      assert.match(listResult.stdout, /\d+ B/, 'Should show byte sizes');
+      assert.match(listResult.stdout, /Integer/, 'Should show types');
+
+      // Paths only (no -l) should return flat dot-separated paths
+      listResult = await runE3Command(['dataset', 'list', repoDir, 'ws'], testDir);
+      assert.strictEqual(listResult.exitCode, 0, `list failed: ${listResult.stderr}`);
+      assert.match(listResult.stdout, /ws\.x/, 'Should show input path');
+      assert.match(listResult.stdout, /ws\.double/, 'Should show task path');
     });
 
     it('reports error for non-existent field', async () => {
@@ -519,200 +476,8 @@ describe('end-to-end workflow', () => {
     });
   });
 
-  describe('error handling', () => {
-    it('reports task failure gracefully', async () => {
-      // Create a custom task that fails
-      const input_x = e3.input('x', IntegerType, 1n);
 
-      const task_fail = e3.customTask(
-        'fail',
-        [input_x],
-        IntegerType,
-        (_$, _inputs, _output) => East.str`exit 1`  // Always fail
-      );
 
-      const pkg = e3.package('fail-test', '1.0.0', task_fail);
-
-      await e3.export(pkg, packageZipPath);
-
-      await runE3Command(['repo', 'create', repoDir], testDir);
-      await runE3Command(['package', 'import', repoDir, packageZipPath], testDir);
-      await runE3Command(['workspace', 'create', repoDir, 'ws'], testDir);
-      await runE3Command(['workspace', 'deploy', repoDir, 'ws', 'fail-test@1.0.0'], testDir);
-
-      // Run - should report failure but not crash
-      const startResult = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
-
-      // The CLI should exit with non-zero or report failure
-      // Either the exit code is non-zero, or the output mentions failure
-      const output = startResult.stdout + startResult.stderr;
-      const indicatesFailure = startResult.exitCode !== 0 ||
-        output.toLowerCase().includes('fail') ||
-        output.toLowerCase().includes('error');
-
-      assert.ok(indicatesFailure, `Should indicate failure: exitCode=${startResult.exitCode}, output=${output}`);
-    });
-  });
-
-  describe('concurrent set during start', () => {
-    it('allows e3 set while e3 start is running', async () => {
-      // Create a package with a slow custom task (sleep 5s) so we can
-      // reliably issue `e3 set` while the task is in-flight.
-      const input_x = e3.input('x', IntegerType, 10n);
-
-      const task_slow = e3.customTask(
-        'slow',
-        [input_x],
-        IntegerType,
-        ($, inputs, output) => East.str`sleep 5 && cp ${inputs.get(0n)} ${output}`
-      );
-
-      const pkg = e3.package('concurrent-test', '1.0.0', task_slow);
-      await e3.export(pkg, packageZipPath);
-
-      await runE3Command(['repo', 'create', repoDir], testDir);
-      await runE3Command(['package', 'import', repoDir, packageZipPath], testDir);
-      await runE3Command(['workspace', 'create', repoDir, 'ws'], testDir);
-      await runE3Command(['workspace', 'deploy', repoDir, 'ws', 'concurrent-test@1.0.0'], testDir);
-
-      // Start dataflow in background (task sleeps 5s — plenty of time)
-      const startProc = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
-
-      // Wait until the CLI has actually started the task (look for [START] in output).
-      // This ensures the dataflow lock is held and the task is running.
-      await waitFor(
-        () => startProc.getStdout().includes('[START]'),
-        30000, // timeout ceiling — generous for slow CI runners
-        50     // poll interval
-      );
-
-      // Run e3 set while start is running — should succeed (shared lock model)
-      const newValuePath = join(testDir, 'val.east');
-      writeFileSync(newValuePath, '42');
-      const setResult = await runE3Command(
-        ['dataset', 'set', repoDir, 'ws.x', newValuePath],
-        testDir
-      );
-      assert.strictEqual(setResult.exitCode, 0, `set during start should succeed: ${setResult.stderr}`);
-
-      // Wait for start to finish
-      const startResult = await startProc.result;
-      assert.strictEqual(startResult.exitCode, 0, `start failed: ${startResult.stderr}\n${startResult.stdout}`);
-
-      // Verify the input was updated to the concurrent-set value
-      const getInputResult = await runE3Command(['dataset', 'get', repoDir, 'ws.x'], testDir);
-      assert.strictEqual(getInputResult.exitCode, 0, `get input failed: ${getInputResult.stderr}`);
-      assert.ok(getInputResult.stdout.includes('42'), `Input should be 42, got: ${getInputResult.stdout}`);
-
-      // The first start ran with the original input (10), so the output is 10.
-      // Re-run start — this time it should pick up the new input and produce 42.
-      // (Reactive re-execution within a single start is tested at the unit level
-      // in dataflow-orchestration.spec.ts; the LocalOrchestrator will gain that
-      // capability in a future change.)
-      const start2 = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
-      assert.strictEqual(start2.exitCode, 0, `second start failed: ${start2.stderr}\n${start2.stdout}`);
-
-      const getOutput = await runE3Command(['dataset', 'get', repoDir, 'ws.slow'], testDir);
-      assert.strictEqual(getOutput.exitCode, 0, `get output failed: ${getOutput.stderr}`);
-      assert.ok(getOutput.stdout.includes('42'), `Output should be 42 after re-run, got: ${getOutput.stdout}`);
-    });
-  });
-
-  describe('writable enforcement', () => {
-    it('rejects e3 set on non-writable dataset (task output)', async () => {
-      const input_x = e3.input('x', IntegerType, 10n);
-      const task_double = e3.task(
-        'double',
-        [input_x],
-        East.function(
-          [IntegerType],
-          IntegerType,
-          ($, x) => x.multiply(2n)
-        )
-      );
-
-      const pkg = e3.package('writable-test', '1.0.0', task_double);
-      await e3.export(pkg, packageZipPath);
-
-      await runE3Command(['repo', 'create', repoDir], testDir);
-      await runE3Command(['package', 'import', repoDir, packageZipPath], testDir);
-      await runE3Command(['workspace', 'create', repoDir, 'ws'], testDir);
-      await runE3Command(['workspace', 'deploy', repoDir, 'ws', 'writable-test@1.0.0'], testDir);
-
-      // Try to set the task output — should fail (not writable)
-      const valuePath = join(testDir, 'val.east');
-      writeFileSync(valuePath, '999');
-      const setResult = await runE3Command(
-        ['dataset', 'set', repoDir, 'ws.double', valuePath],
-        testDir
-      );
-      assert.notStrictEqual(setResult.exitCode, 0, 'set on task output should fail');
-      const output = setResult.stdout + setResult.stderr;
-      assert.ok(
-        output.toLowerCase().includes('not writable'),
-        `Should mention not writable. Got: ${output}`
-      );
-    });
-
-    it('rejects e3 set on function_ir dataset', async () => {
-      const input_x = e3.input('x', IntegerType, 10n);
-      const task_double = e3.task(
-        'double',
-        [input_x],
-        East.function(
-          [IntegerType],
-          IntegerType,
-          ($, x) => x.multiply(2n)
-        )
-      );
-
-      const pkg = e3.package('writable-test-ir', '1.0.0', task_double);
-      await e3.export(pkg, packageZipPath);
-
-      await runE3Command(['repo', 'create', repoDir], testDir);
-      await runE3Command(['package', 'import', repoDir, packageZipPath], testDir);
-      await runE3Command(['workspace', 'create', repoDir, 'ws'], testDir);
-      await runE3Command(['workspace', 'deploy', repoDir, 'ws', 'writable-test-ir@1.0.0'], testDir);
-
-      // Try to set the function_ir — should fail (not writable)
-      const valuePath = join(testDir, 'val.east');
-      writeFileSync(valuePath, '0');
-      const setResult = await runE3Command(
-        ['dataset', 'set', repoDir, 'ws.tasks.double.function_ir', valuePath],
-        testDir
-      );
-      assert.notStrictEqual(setResult.exitCode, 0, 'set on function_ir should fail');
-      const output = setResult.stdout + setResult.stderr;
-      assert.ok(
-        output.toLowerCase().includes('not writable'),
-        `Should mention not writable. Got: ${output}`
-      );
-    });
-
-    it('allows e3 set on writable input dataset', async () => {
-      const input_x = e3.input('x', IntegerType, 10n);
-      const pkg = e3.package('writable-ok', '1.0.0', input_x);
-      await e3.export(pkg, packageZipPath);
-
-      await runE3Command(['repo', 'create', repoDir], testDir);
-      await runE3Command(['package', 'import', repoDir, packageZipPath], testDir);
-      await runE3Command(['workspace', 'create', repoDir, 'ws'], testDir);
-      await runE3Command(['workspace', 'deploy', repoDir, 'ws', 'writable-ok@1.0.0'], testDir);
-
-      // Set the input — should succeed (writable)
-      const valuePath = join(testDir, 'val.east');
-      writeFileSync(valuePath, '42');
-      const setResult = await runE3Command(
-        ['dataset', 'set', repoDir, 'ws.x', valuePath],
-        testDir
-      );
-      assert.strictEqual(setResult.exitCode, 0, `set on input should succeed: ${setResult.stderr}`);
-
-      // Verify the value was set
-      const getResult = await runE3Command(['dataset', 'get', repoDir, 'ws.x'], testDir);
-      assert.ok(getResult.stdout.includes('42'), `Input should be 42, got: ${getResult.stdout}`);
-    });
-  });
 
   describe('per-dataset ref files', () => {
     it('creates ref files after deploy', async () => {

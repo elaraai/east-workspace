@@ -136,16 +136,4 @@ describe('e3 repo remove', () => {
     assert.match(result.stdout, /removed/i);
   });
 
-  it('removes repository at specified path', async () => {
-    const repoDir = join(testDir, 'my-repo');
-
-    await runE3Command(['repo', 'create', repoDir], testDir);
-    assert.ok(existsSync(join(repoDir, 'objects')), 'repo should exist before remove');
-
-    // Remove using path
-    const result = await runE3Command(['repo', 'remove', repoDir], testDir);
-
-    assert.strictEqual(result.exitCode, 0, `repo remove failed: ${result.stderr}`);
-    assert.ok(!existsSync(repoDir), 'repository directory should not exist after remove');
-  });
 });

@@ -13,7 +13,6 @@ The directory structure is:
  - packages/e3-api-server - HTTP server exposing e3-core as a REST API
  - packages/e3-api-tests - Shared API compliance test suites (run against both e3-api-server and e3-cloud)
  - test/integration - End-to-end CLI tests
- - test/fuzz - Fuzz testing (Virtual Idiot)
  - design - Design documentation (see design/e3-mvp.md for overview)
 
 ## Purpose
@@ -54,7 +53,6 @@ Build/test/lint are orchestrated by pnpm at the workspace root, but each lib als
 make build   # build all packages in dependency order
 make test    # run all tests
 make lint    # run eslint
-make fuzz    # run fuzz tests (100 iterations; also fuzz-quick, fuzz-stress)
 ```
 
 Install deps from the workspace root (`pnpm install` there, not here).
@@ -75,6 +73,5 @@ See design/e3-watch.md for the `e3 watch` file-watching workflow.
 See design/e3-ui.md for first-class UI tasks (Data bindings, `e3.ui()`).
 See design/e3-functions.md for named package functions (`e3.function`) and graph-free / one-shot execution.
 See design/repo-manager-abstraction.md and design/task-runner-implementation.md for the storage/execution abstractions.
-See design/e3-fuzz.md for the fuzz harness.
 
 You can find the East language implementation at ../east

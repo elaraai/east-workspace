@@ -34,6 +34,7 @@ import {
 } from '@elaraai/east';
 import {
   packageRead,
+  packageGetLatestVersion,
   workspaceGetPackage,
   LocalStorage,
   LocalTaskRunner,
@@ -44,6 +45,7 @@ import {
   functionCall,
   workspaceFunctionDescribe,
   workspaceFunctionCall,
+  packageList as packageListRemote,
   type ExecuteResult,
 } from '@elaraai/e3-api-client';
 import { parseRepoLocation, formatError, exitError } from '../utils.js';
@@ -192,6 +194,13 @@ async function callLocal(
   } else {
     pkgName = spec.name!;
     version = spec.version!;
+    if (version === 'latest') {
+      const resolved = await packageGetLatestVersion(storage, repoPath, pkgName);
+      if (!resolved) {
+        exitError(`Package '${pkgName}' not found`);
+      }
+      version = resolved;
+    }
   }
 
   const pkg = await packageRead(storage, repoPath, pkgName, version);
@@ -259,9 +268,21 @@ async function callRemote(
 ): Promise<void> {
   const opts = { token };
 
+  let version = spec.version;
+  if (!workspace && version === 'latest') {
+    const versions = (await packageListRemote(baseUrl, repo, opts))
+      .filter((p) => p.name === spec.name)
+      .map((p) => p.version)
+      .sort();
+    if (versions.length === 0) {
+      exitError(`Package '${spec.name}' not found`);
+    }
+    version = versions[versions.length - 1]!;
+  }
+
   const signature = workspace
     ? await workspaceFunctionDescribe(baseUrl, repo, workspace, spec.fn, opts)
-    : await functionDescribe(baseUrl, repo, spec.name!, spec.version!, spec.fn, opts);
+    : await functionDescribe(baseUrl, repo, spec.name!, version!, spec.fn, opts);
 
   if (rawArgs.length !== signature.inputTypes.length) {
     exitError(`Function '${spec.fn}' expects ${signature.inputTypes.length} argument(s), got ${rawArgs.length}`);
@@ -274,7 +295,7 @@ async function callRemote(
   const request = { args, runner: none, limits: none };
   const result = workspace
     ? await workspaceFunctionCall(baseUrl, repo, workspace, spec.fn, request, opts)
-    : await functionCall(baseUrl, repo, spec.name!, spec.version!, spec.fn, request, opts);
+    : await functionCall(baseUrl, repo, spec.name!, version!, spec.fn, request, opts);
 
   await renderResult(result, signature.outputType, outputPath);
 }

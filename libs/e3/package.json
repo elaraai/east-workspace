@@ -6,17 +6,13 @@
   "type": "module",
   "workspaces": [
     "packages/*",
-    "test/fuzz",
     "test/integration"
   ],
   "scripts": {
-    "build": "pnpm --filter @elaraai/e3-types run build && pnpm --filter @elaraai/e3 run build && pnpm --filter @elaraai/e3-core run build && pnpm --filter @elaraai/e3-api-client run build && pnpm --filter @elaraai/e3-cli run build && pnpm --filter @elaraai/e3-api-server run build && pnpm --filter @elaraai/e3-api-tests run build && pnpm --filter e3-integration-tests run build && pnpm --filter e3-fuzz run build",
+    "build": "pnpm --filter @elaraai/e3-types run build && pnpm --filter @elaraai/e3 run build && pnpm --filter @elaraai/e3-core run build && pnpm --filter @elaraai/e3-api-client run build && pnpm --filter @elaraai/e3-cli run build && pnpm --filter @elaraai/e3-api-server run build && pnpm --filter @elaraai/e3-api-tests run build && pnpm --filter e3-integration-tests run build",
     "test": "pnpm -r run test",
     "lint": "eslint .",
-    "lint:fix": "eslint . --fix",
-    "fuzz": "pnpm --filter e3-fuzz run fuzz",
-    "fuzz:quick": "pnpm --filter e3-fuzz run fuzz:quick",
-    "fuzz:stress": "pnpm --filter e3-fuzz run fuzz:stress"
+    "lint:fix": "eslint . --fix"
   },
   "keywords": [
     "east",

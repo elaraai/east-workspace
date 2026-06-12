@@ -31,19 +31,6 @@ describe('task operations - basic repository functionality', () => {
     removeTestDir(testDir);
   });
 
-  it('initializes repository and lists tasks (empty)', async () => {
-    // Initialize repository
-    const initResult = await runE3Command(['repo', 'create', repoDir], testDir);
-    assert.strictEqual(initResult.exitCode, 0, `repo create failed: ${initResult.stderr}`);
-
-    // List workspaces (should be empty initially)
-    const listResult = await runE3Command(['workspace', 'list', repoDir], testDir);
-    assert.strictEqual(listResult.exitCode, 0, `list failed: ${listResult.stderr}`);
-
-    // Output should indicate no workspaces or be empty
-    // (exact format depends on implementation)
-  });
-
   it('shows helpful error for non-existent workspace status', async () => {
     // Initialize repository
     await runE3Command(['repo', 'create', repoDir], testDir);

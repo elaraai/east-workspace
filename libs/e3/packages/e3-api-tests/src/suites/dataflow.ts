@@ -43,6 +43,7 @@ import {
   createSlowDiamondPackageZip,
 } from '../fixtures.js';
 import { waitFor } from '../cli.js';
+import type { RequestOptions } from '@elaraai/e3-api-client';
 
 /** Helper: import package, create workspace, deploy */
 function withDeployed(
@@ -71,6 +72,30 @@ function withDeployed(
  *
  * @param setup - Factory that creates a fresh test context per test
  */
+
+/**
+ * Poll until the workspace's current execution reports `running`.
+ *
+ * Replaces fixed 500ms waits: on a loaded CI runner the orchestrator may
+ * not have started within a fixed window (flaky lock assertions), while on
+ * a fast machine the fixed wait was pure dead time.
+ */
+async function waitForRunning(
+  baseUrl: string,
+  repoName: string,
+  workspace: string,
+  opts: RequestOptions
+): Promise<void> {
+  await waitFor(async () => {
+    try {
+      const state = await dataflowExecution(baseUrl, repoName, workspace, {}, opts);
+      return state.status.type === 'running';
+    } catch {
+      return false; // execution record not created yet
+    }
+  }, 30000);
+}
+
 export function dataflowTests(setup: TestSetup<TestContext>): void {
   const withSimpleExec = withDeployed(setup, createPackageZip, 'exec-pkg', 'exec-ws');
   const withDiamond = withDeployed(setup, createDiamondPackageZip, 'diamond-pkg', 'diamond-ws');
@@ -474,8 +499,8 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         // Start first execution (non-blocking)
         await dataflowStart(ctx.config.baseUrl, ctx.repoName, 'slow-ws', { force: true }, opts);
 
-        // Wait a moment for execution to start
-        await new Promise(r => setTimeout(r, 500));
+        // Wait until the execution is actually running (holds the lock)
+        await waitForRunning(ctx.config.baseUrl, ctx.repoName, 'slow-ws', opts);
 
         // Try to start second execution - should fail with lock error
         try {
@@ -499,8 +524,8 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         // Start first execution (non-blocking)
         await dataflowStart(ctx.config.baseUrl, ctx.repoName, 'slow-ws', { force: true }, opts);
 
-        // Wait a moment for execution to start
-        await new Promise(r => setTimeout(r, 500));
+        // Wait until the execution is actually running (holds the lock)
+        await waitForRunning(ctx.config.baseUrl, ctx.repoName, 'slow-ws', opts);
 
         // Try blocking execute - should fail with lock error
         try {
@@ -523,8 +548,8 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         // Start slow execution
         await dataflowStart(ctx.config.baseUrl, ctx.repoName, 'slow-ws', { force: true }, opts);
 
-        // Wait for it to start
-        await new Promise(r => setTimeout(r, 500));
+        // Wait until the execution is actually running
+        await waitForRunning(ctx.config.baseUrl, ctx.repoName, 'slow-ws', opts);
 
         // Cancel it
         await dataflowCancel(ctx.config.baseUrl, ctx.repoName, 'slow-ws', opts);
@@ -558,8 +583,8 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         // Start slow execution (30s sleep task)
         await dataflowStart(ctx.config.baseUrl, ctx.repoName, 'slow-ws', { force: true }, opts);
 
-        // Wait for execution to start
-        await new Promise(r => setTimeout(r, 500));
+        // Wait until the execution is actually running (holds the lock)
+        await waitForRunning(ctx.config.baseUrl, ctx.repoName, 'slow-ws', opts);
 
         // datasetSet should succeed concurrently — not blocked by the dataflow lock
         const encode = encodeBeast2For(StringType);
@@ -624,8 +649,12 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         // Start execution (non-blocking) — x defaults to 1
         await dataflowStart(ctx.config.baseUrl, ctx.repoName, 'sdiamond-ws', { force: true }, opts);
 
-        // Wait for tasks to start running, then change input
-        await new Promise(r => setTimeout(r, 1000));
+        // Wait until the execution is running, then give the left/right tasks a
+        // beat to actually spawn before changing the input mid-flight. (The
+        // 3s task sleeps bound how late the set can land; polling for
+        // `running` instead of a fixed 1s start-wait adapts to slow runners.)
+        await waitForRunning(ctx.config.baseUrl, ctx.repoName, 'sdiamond-ws', opts);
+        await new Promise(r => setTimeout(r, 500));
         await datasetSet(ctx.config.baseUrl, ctx.repoName, 'sdiamond-ws', inputPath, encode(19n), opts);
 
         // Wait for the reactive re-execution to reach a fixpoint AND the merge
