@@ -32,6 +32,11 @@ import {
     clearReactiveDatasetCache,
     clearBindingRegistry,
 } from "./bind-runtime.js";
+import {
+    createDefaultFunctionApi,
+    initializeFunctionApi,
+    clearFunctionApi,
+} from "./func-runtime.js";
 import { useE3Config } from "./e3-config.js";
 
 // =============================================================================
@@ -102,6 +107,17 @@ export function ReactiveDatasetProvider({
         cache.setScheduler((notify) => queueMicrotask(notify));
     }, [cache]);
 
+    // Same wiring for `Func.bind` — the function runtime shares the
+    // workspace scope and server identity with the dataset cache.
+    useMemo(() => {
+        if (e3.workspace !== undefined) {
+            initializeFunctionApi(
+                createDefaultFunctionApi(e3.apiUrl, e3.repo ?? "default", () => tokenRef.current),
+                e3.workspace,
+            );
+        }
+    }, [e3.apiUrl, e3.repo, e3.workspace]);
+
     // Cleanup on cache change or unmount.
     useEffect(() => {
         return () => {
@@ -112,6 +128,7 @@ export function ReactiveDatasetProvider({
             // destroyed instance, leaking a network call against a
             // workspace the user has navigated away from.
             clearReactiveDatasetCache();
+            clearFunctionApi();
             cache.destroy();
             // Drop binding-registry entries for this workspace so a long
             // session navigating across workspaces doesn't leak metadata

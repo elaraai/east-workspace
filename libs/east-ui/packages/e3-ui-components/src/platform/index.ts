@@ -65,6 +65,23 @@ export {
     clearPendingWrites,
 } from "./bind-runtime.js";
 
+// `Func.bind` runtime — workspace-scoped named-function (RPC) calls.
+export {
+    FuncRuntime,
+    defaultFuncRuntime,
+    FuncPlatform,
+    createScopedFuncPlatform,
+    createDefaultFunctionApi,
+    initializeFunctionApi,
+    clearFunctionApi,
+    funcChannelKey,
+    signatureOfHandleType,
+    createInMemoryFunctionApi,
+    type InMemoryFunctionDef,
+    type FunctionApi,
+    type FunctionCallArgs,
+} from "./func-runtime.js";
+
 // E3 server-identity context (apiUrl / repo / workspace / token).
 // Mounted as the outermost e3-related provider; every hook in this
 // package that talks to e3 reads from it.

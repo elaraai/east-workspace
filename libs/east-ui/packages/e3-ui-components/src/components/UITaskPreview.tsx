@@ -38,6 +38,7 @@ import {
 } from '../platform/dataset-hooks.js';
 import { useE3Config, type E3Config } from '../platform/e3-config.js';
 import { createScopedBindPlatform } from '../platform/bind-runtime.js';
+import { createScopedFuncPlatform } from '../platform/func-runtime.js';
 import { useTaskDetails, getTaskKind, getTaskMetadata } from '../hooks/useTaskDetails.js';
 import { useDatasetStatus } from '../hooks/useDatasetStatus.js';
 import { useDatasetValue } from '../hooks/useDatasetValue.js';
@@ -105,6 +106,7 @@ export const UITaskPreview = memo(function UITaskPreview({
                 ? [
                     ...StateImpl,
                     ...createScopedBindPlatform(manifest),
+                    ...createScopedFuncPlatform(manifest.functions),
                     ...OverlayImpl,
                 ]
                 : undefined,

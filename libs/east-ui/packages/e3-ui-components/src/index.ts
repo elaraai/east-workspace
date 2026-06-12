@@ -10,6 +10,7 @@
 // bulletproof under bundlers that ignore or partially honour that field.
 // =============================================================================
 import './platform/bind-runtime.js';      // → registerPlatformImplementation(BindPlatform)
+import './platform/func-runtime.js';      // → registerPlatformImplementation(FuncPlatform)
 import './diff/index.js';                 // → implementUIComponent(Diff.Component, EastChakraDiff)
 import './ontology/index.js';             // → implementUIComponent(Ontology.Component, EastChakraOntology)
 import './decision/queue.js';             // → implementUIComponent(DecisionQueue.Component, EastChakraDecisionQueue)
