@@ -95,8 +95,8 @@ export const decisionJournalResolved = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
-                const decisions = $.let(Data.bind([ArrayType(Decision.Types.Decision)], journalDecisions.path, { mode: 'direct' }));
-                const judgements = $.let(Data.bind([Decision.Types.Judgements()], journalJudgements.path, { mode: 'direct' }));
+                const decisions = $.let(Data.bind(journalDecisions, { mode: 'direct' }));
+                const judgements = $.let(Data.bind(journalJudgements, { mode: 'direct' }));
                 const handle = $.let(Decision.bind({ decisions: [decisions], judgements }));
                 return <DecisionJournal handle={handle} heading="Decision journal · SE region" />;
             }}</Reactive>
@@ -115,8 +115,8 @@ export const decisionJournalScroll = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
-                const decisions = $.let(Data.bind([ArrayType(Decision.Types.Decision)], journalDecisions.path, { mode: 'direct' }));
-                const judgements = $.let(Data.bind([Decision.Types.Judgements()], journalJudgements.path, { mode: 'direct' }));
+                const decisions = $.let(Data.bind(journalDecisions, { mode: 'direct' }));
+                const judgements = $.let(Data.bind(journalJudgements, { mode: 'direct' }));
                 const handle = $.let(Decision.bind({ decisions: [decisions], judgements }));
                 return <DecisionJournal handle={handle} heading="Decision journal · SE region" maxHeight="180px" />;
             }}</Reactive>

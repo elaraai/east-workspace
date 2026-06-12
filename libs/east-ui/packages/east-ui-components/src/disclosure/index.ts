@@ -35,6 +35,15 @@ export {
 } from "./tabs";
 
 export {
+    EastChakraStory,
+    EastChakraStoryStep,
+    EastChakraStoryProgress,
+    type EastChakraStoryProps,
+    type EastChakraStoryStepProps,
+    type EastChakraStoryProgressProps,
+} from "./story";
+
+export {
     EastChakraSegmentGroup,
     toChakraSegmentGroup,
     type SegmentGroupValue,

@@ -605,6 +605,13 @@ importers:
       '@elaraai/east':
         specifier: workspace:*
         version: link:../east
+    devDependencies:
+      playwright:
+        specifier: ^1.49.0
+        version: 1.59.1
+      vite:
+        specifier: ^6.0.0
+        version: 6.4.1(@types/node@22.19.15)(tsx@4.21.0)
 
   libs/east-ui/packages/e3-ui:
     dependencies:
@@ -654,6 +661,9 @@ importers:
       '@fortawesome/react-fontawesome':
         specifier: ^3.1.1
         version: 3.3.0(@fortawesome/fontawesome-svg-core@7.2.0)(react@19.2.4)
+      '@tanstack/query-core':
+        specifier: ^5.62.0
+        version: 5.96.1
       '@tanstack/react-virtual':
         specifier: ^3.11.2
         version: 3.13.23(react-dom@19.2.4(react@19.2.4))(react@19.2.4)

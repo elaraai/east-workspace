@@ -7,20 +7,33 @@
  * ReactiveDatasetCache for managing e3 dataset caching and reactivity.
  *
  * @remarks
- * Hand-rolled cache + subscription layer over `@elaraai/e3-api-client`.
- * The cache is a `Map<string, Uint8Array>` keyed by `(workspace, path)`;
- * change notifications go to per-key subscribers and a single global
- * subscriber set, with an optional `setScheduler` hook to defer flush
- * out of React render. Hash-based polling against `workspaceStatus`
- * detects server-side changes; only when a hash changes do we issue a
- * full content fetch.
+ * Built on `@tanstack/query-core`: a {@link QueryClient} owns the content
+ * bytes (one query per `(workspace, path)`, structured keys, in-flight
+ * dedup + cancellation), while a thin subscription shim maintains the
+ * string-keyed `subscribe` / `getKeyVersion` contract the platform
+ * runtimes (`bind-runtime`, reactive trackers, Diff) consume, with an
+ * optional `setScheduler` hook to defer notification flushes out of React
+ * render.
+ *
+ * Server-side change detection is hash-based polling against
+ * `workspaceStatus`: only when a dataset's hash moves do we issue a full
+ * content fetch. Writes are optimistic and **serialized per key** —
+ * concurrent writes to one dataset apply their bytes synchronously
+ * (latest wins) but hit the server in order, and a failure only rolls
+ * back to the last server-confirmed baseline when no later write has
+ * taken ownership of the key. A write also cancels any in-flight content
+ * fetch for its key so a stale fetch can never clobber the optimistic
+ * bytes, and poll-driven fetch results are discarded when a write
+ * supersedes them mid-flight (write-epoch guard).
  *
  * Independent from `@tanstack/react-query`. Other hooks in this package
- * (status / repos) use TanStack on their own keys; this cache does not.
+ * (status / repos) use TanStack's React layer on their own keys; this
+ * cache shares only the framework-agnostic core.
  *
  * @packageDocumentation
  */
 
+import { CancelledError, QueryClient } from "@tanstack/query-core";
 import { variant } from "@elaraai/east";
 import {
     datasetGet,
@@ -63,7 +76,10 @@ export const realClock: Clock = {
  * scaffold dummy URLs.
  */
 export interface DatasetApi {
-    get(workspace: string, path: TreePath): Promise<Uint8Array>;
+    /** Fetch a dataset's content. `hash` is the server's content hash
+     *  when it exposes one (`null` otherwise) — the cache records it so
+     *  the next status poll doesn't refetch content it already has. */
+    get(workspace: string, path: TreePath): Promise<{ data: Uint8Array; hash: string | null }>;
     set(workspace: string, path: TreePath, value: Uint8Array): Promise<void>;
     launchDataflow(workspace: string): Promise<void>;
     listRoot(workspace: string): Promise<string[]>;
@@ -85,7 +101,7 @@ export function createDefaultDatasetApi(
     return {
         async get(workspace, path) {
             const result = await datasetGet(apiUrl, repo, workspace, path, opts());
-            return result.data;
+            return { data: result.data, hash: result.hash ?? null };
         },
         async set(workspace, path, value) {
             await datasetSet(apiUrl, repo, workspace, path, value, opts());
@@ -152,6 +168,13 @@ export interface ReactiveDatasetCacheInterface {
     list(workspace: string, path: TreePath): Promise<string[]>;
     /** Set polling interval for a dataset */
     setRefetchInterval(workspace: string, path: TreePath, intervalMs: number): void;
+    /**
+     * Stop polling a dataset previously registered with
+     * {@link setRefetchInterval}. The workspace's shared poller stops
+     * entirely once its last path is cleared — without this, a long-lived
+     * session accumulates watched paths (and network traffic) forever.
+     */
+    clearRefetchInterval(workspace: string, path: TreePath): void;
     /** Subscribe to changes on a specific key */
     subscribe(key: string, callback: () => void): () => void;
     /** Subscribe to all changes */
@@ -172,6 +195,11 @@ export interface ReactiveDatasetCacheInterface {
 
 /**
  * Convert a dataset path to a string key for caching.
+ *
+ * @remarks
+ * Dot-joined to match the server's own path encoding (workspaceStatus
+ * reports `.a.b` paths) — field names containing `.` are ambiguous at
+ * the e3 wire level itself, so the cache doesn't try to out-encode it.
  */
 export function datasetPathToString(path: TreePath): string {
     return path.map(p => p.value).join(".");
@@ -192,13 +220,24 @@ function toTreePath(path: TreePath): TreePath {
     return path as TreePath;
 }
 
+/** The last server-confirmed state of a key, captured when its write
+ *  pipeline goes idle → busy; failures roll back to this. */
+interface WriteBaseline {
+    value: Uint8Array | undefined;
+    /** `undefined` = hash unknown (entry absent); `null` = known-absent. */
+    hash: string | null | undefined;
+    status: PlatformDatasetStatus | undefined;
+}
+
 /**
  * ReactiveDatasetCache manages dataset caching and reactivity.
  *
  * @remarks
- * Combines TanStack Query for network operations with a local
- * subscription system for reactive updates. Uses e3-api-client
- * for all e3 API interactions.
+ * Content bytes live in a `@tanstack/query-core` {@link QueryClient}
+ * (structured query keys, fetch dedup + cancellation); statuses, content
+ * hashes, write pipelines, the workspace-status poll loop, and the
+ * string-keyed subscription shim are cache-owned. See the module remarks
+ * for the write/poll race rules.
  *
  * This differs from raw `@elaraai/e3-api-client` dataset functions which
  * are for direct API calls without reactive binding or caching.
@@ -210,17 +249,30 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
         workspace: string | undefined;
     };
 
-    // Local cache for synchronous access
-    private cache: Map<string, Uint8Array> = new Map();
+    // Content store — one query per (workspace, path). `staleTime` and
+    // `gcTime` are Infinity: content only changes when the hash-poll says
+    // so (we invalidate explicitly), and the platform closures need
+    // synchronous reads of everything ever loaded (no observer-based GC).
+    private readonly client: QueryClient;
 
-    // Hash tracking for efficient change detection
-    // Maps cache key -> last known e3 content hash
+    // Hash tracking for efficient change detection.
+    // Maps cache key -> last known e3 content hash (`null` = known-absent).
     private knownHashes: Map<string, string | null> = new Map();
 
     // Per-key platform status (unset | stale | up-to-date). Defaults to
     // unset until either a poll returns a server status or a local write
     // optimistically marks it stale.
     private statuses: Map<string, PlatformDatasetStatus> = new Map();
+
+    // Write pipeline (per key): writes apply optimistically + synchronously
+    // (latest wins) but reach the server serialized, and only the newest
+    // failed write rolls back — to the last server-confirmed baseline.
+    // The epoch also discards poll-driven fetch results that a write
+    // superseded mid-flight.
+    private writeEpochs: Map<string, number> = new Map();
+    private writeChains: Map<string, Promise<void>> = new Map();
+    private writeBaselines: Map<string, WriteBaseline> = new Map();
+    private pendingWriteCounts: Map<string, number> = new Map();
 
     // Subscription management
     private keySubscribers: Map<string, Set<() => void>> = new Map();
@@ -248,9 +300,6 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
     private batchDepth: number = 0;
     private changedKeys: Set<string> = new Set();
 
-    // Pending fetches for deduplication
-    private pendingFetches: Map<string, Promise<Uint8Array>> = new Map();
-
     // Scheduler for deferred notifications
     private scheduler: ((notify: () => void) => void) | undefined;
     private flushScheduled = false;
@@ -259,6 +308,17 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
         this.config = { workspace: config.workspace };
         this.api = api;
         this.clock = clock;
+        this.client = new QueryClient({
+            defaultOptions: {
+                queries: { retry: false, staleTime: Infinity, gcTime: Infinity },
+            },
+        });
+        this.client.mount();
+    }
+
+    /** Structured query key for a dataset's content. */
+    private contentKey(workspace: string, path: TreePath): readonly unknown[] {
+        return ["dataset", workspace, ...path.map(p => p.value)];
     }
 
     /**
@@ -276,16 +336,14 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
      * Read a dataset value synchronously from cache.
      */
     read(workspace: string, path: TreePath): Uint8Array | undefined {
-        const key = datasetCacheKey(workspace, path);
-        return this.cache.get(key);
+        return this.client.getQueryData<Uint8Array>(this.contentKey(workspace, path));
     }
 
     /**
      * Check if a dataset is cached.
      */
     has(workspace: string, path: TreePath): boolean {
-        const key = datasetCacheKey(workspace, path);
-        return this.cache.has(key);
+        return this.read(workspace, path) !== undefined;
     }
 
     /**
@@ -299,47 +357,99 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
 
     /**
      * Write a dataset value (async - mutates remotely).
+     *
+     * @remarks
+     * Optimistic and synchronous: the bytes are readable via {@link read}
+     * before this method's first await. Concurrent writes to the same key
+     * are serialized server-side (issue order preserved); on failure, only
+     * the newest write rolls the key back — to the last server-confirmed
+     * baseline, not to a possibly-superseded optimistic intermediate.
      */
-    async write(workspace: string, path: TreePath, value: Uint8Array): Promise<void> {
-        if (this.destroyed) return;
+    write(workspace: string, path: TreePath, value: Uint8Array): Promise<void> {
+        if (this.destroyed) return Promise.resolve();
         const key = datasetCacheKey(workspace, path);
+        const queryKey = this.contentKey(workspace, path);
+
+        // Abort any in-flight content fetch for this key NOW — a stale
+        // fetch result must never apply over the optimistic bytes. (The
+        // returned promise only awaits teardown; the abort is immediate.)
+        void this.client.cancelQueries({ queryKey, exact: true });
+
+        // Baseline = last server-confirmed state, captured when this key's
+        // write pipeline goes idle → busy.
+        const pendingCount = this.pendingWriteCounts.get(key) ?? 0;
+        if (pendingCount === 0) {
+            this.writeBaselines.set(key, {
+                value: this.client.getQueryData<Uint8Array>(queryKey),
+                hash: this.knownHashes.has(key) ? this.knownHashes.get(key) : undefined,
+                status: this.statuses.get(key),
+            });
+        }
+        this.pendingWriteCounts.set(key, pendingCount + 1);
+        const myEpoch = (this.writeEpochs.get(key) ?? 0) + 1;
+        this.writeEpochs.set(key, myEpoch);
 
         // Optimistic update — bytes go into the cache synchronously,
-        // status flips to `stale` until the server confirms. On any
-        // failure we restore everything atomically.
-        const previous = this.cache.get(key);
-        const previousHash = this.knownHashes.get(key);
-        const previousStatus = this.statuses.get(key);
-        this.cache.set(key, value);
+        // status flips to `stale` until the server confirms.
+        this.client.setQueryData(queryKey, value);
         this.knownHashes.delete(key);
         this.statuses.set(key, variant('stale', null));
         this.notifyChange(key);
 
-        try {
-            await this.api.set(workspace, toTreePath(path), value);
+        // Server set, serialized after any earlier writes to this key.
+        const prevTail = this.writeChains.get(key) ?? Promise.resolve();
+        const run = prevTail.then(async () => {
+            try {
+                await this.api.set(workspace, toTreePath(path), value);
+                if (this.destroyed) return;
 
-            // Trigger a poll to refresh the hash + authoritative status.
-            if (this.workspacePollers.has(workspace)) {
-                void this.pollWorkspaceStatus(workspace);
-            }
-        } catch (error) {
-            if (previous !== undefined) {
-                this.cache.set(key, previous);
-                if (previousHash !== undefined) {
-                    this.knownHashes.set(key, previousHash);
+                // Confirmed — this value is the new rollback baseline for
+                // any still-pending later writes.
+                this.writeBaselines.set(key, {
+                    value,
+                    hash: undefined,
+                    status: variant('stale', null),
+                });
+
+                // Trigger a poll to refresh the hash + authoritative status.
+                if (this.workspacePollers.has(workspace)) {
+                    void this.pollWorkspaceStatus(workspace);
                 }
-            } else {
-                this.cache.delete(key);
-                this.knownHashes.delete(key);
+            } catch (error) {
+                // Roll back only if no later write owns the key's state.
+                if (!this.destroyed && this.writeEpochs.get(key) === myEpoch) {
+                    const baseline = this.writeBaselines.get(key);
+                    if (baseline?.value !== undefined) {
+                        this.client.setQueryData(queryKey, baseline.value);
+                    } else {
+                        this.client.removeQueries({ queryKey, exact: true });
+                    }
+                    if (baseline?.hash !== undefined) {
+                        this.knownHashes.set(key, baseline.hash);
+                    } else {
+                        this.knownHashes.delete(key);
+                    }
+                    if (baseline?.status !== undefined) {
+                        this.statuses.set(key, baseline.status);
+                    } else {
+                        this.statuses.delete(key);
+                    }
+                    this.notifyChange(key);
+                }
+                throw error;
+            } finally {
+                const remaining = (this.pendingWriteCounts.get(key) ?? 1) - 1;
+                if (remaining <= 0) {
+                    this.pendingWriteCounts.delete(key);
+                    this.writeBaselines.delete(key);
+                } else {
+                    this.pendingWriteCounts.set(key, remaining);
+                }
             }
-            if (previousStatus !== undefined) {
-                this.statuses.set(key, previousStatus);
-            } else {
-                this.statuses.delete(key);
-            }
-            this.notifyChange(key);
-            throw error;
-        }
+        });
+        // The chain tail must never reject (later writes chain onto it).
+        this.writeChains.set(key, run.then(() => undefined, () => undefined));
+        return run;
     }
 
     /**
@@ -350,47 +460,49 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
      */
     async writeAndStart(workspace: string, path: TreePath, value: Uint8Array): Promise<void> {
         await this.write(workspace, path, value);
+        if (this.destroyed) return;
         await this.api.launchDataflow(workspace);
     }
 
     /**
-     * Preload a dataset into cache.
+     * Preload a dataset into cache. Concurrent preloads of the same key
+     * share one fetch (query-core dedup); a write racing the fetch cancels
+     * it, so a preload can never clobber optimistic bytes.
      */
     async preload(workspace: string, path: TreePath): Promise<void> {
         if (this.destroyed) return;
         const key = datasetCacheKey(workspace, path);
+        const queryKey = this.contentKey(workspace, path);
 
-        // Check if already cached
-        if (this.cache.has(key)) return;
+        // Already cached (including optimistically) — nothing to do.
+        if (this.client.getQueryData(queryKey) !== undefined) return;
 
-        // Check if already loading
-        const pending = this.pendingFetches.get(key);
-        if (pending) {
-            await pending;
+        let fetchedHash: string | null = null;
+        try {
+            await this.client.fetchQuery({
+                queryKey,
+                queryFn: async () => {
+                    const result = await this.fetchDataset(workspace, path);
+                    fetchedHash = result.hash;
+                    return result.data;
+                },
+            });
+        } catch (error) {
+            // A write cancelled the fetch — its optimistic bytes win.
+            if (isCancelledError(error)) return;
+            throw error;
+        }
+        if (this.destroyed) {
+            this.client.removeQueries({ queryKey, exact: true });
             return;
         }
-
-        // Start fetch
-        const fetchPromise = this.fetchDataset(workspace, path);
-        this.pendingFetches.set(key, fetchPromise);
-
-        try {
-            const data = await fetchPromise;
-            // Bail if we destroyed during the await — otherwise we'd
-            // repopulate the cleared map and notify subscribers that
-            // were torn down on unmount.
-            if (this.destroyed) return;
-            // Only update if not already set (another fetch might have completed)
-            if (!this.cache.has(key)) {
-                this.cache.set(key, data);
-                this.notifyChange(key);
-            }
-        } finally {
-            this.pendingFetches.delete(key);
-        }
+        // Record the content hash so the next status poll doesn't refetch
+        // bytes we already hold.
+        this.knownHashes.set(key, fetchedHash);
+        this.notifyChange(key);
     }
 
-    private fetchDataset(workspace: string, path: TreePath): Promise<Uint8Array> {
+    private fetchDataset(workspace: string, path: TreePath): Promise<{ data: Uint8Array; hash: string | null }> {
         return this.api.get(workspace, toTreePath(path));
     }
 
@@ -413,6 +525,8 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
      * 3. Only fetches full content when hash changes
      *
      * Multiple subscriptions to the same workspace share a single poller.
+     * Pair with {@link clearRefetchInterval} on unmount so the poller can
+     * stop when nothing is watching.
      */
     setRefetchInterval(workspace: string, path: TreePath, intervalMs: number): void {
         const pathStr = datasetPathToString(path);
@@ -446,6 +560,20 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
     }
 
     /**
+     * Stop polling a dataset; the workspace poller is torn down when its
+     * last watched path is cleared.
+     */
+    clearRefetchInterval(workspace: string, path: TreePath): void {
+        const poller = this.workspacePollers.get(workspace);
+        if (!poller) return;
+        poller.paths.delete(datasetPathToString(path));
+        if (poller.paths.size === 0) {
+            poller.handle?.clear();
+            this.workspacePollers.delete(workspace);
+        }
+    }
+
+    /**
      * Poll workspace status and reconcile the cache with the server.
      * Concurrent calls for the same workspace dedupe to a single fetch.
      */
@@ -464,6 +592,15 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
         const poller = this.workspacePollers.get(workspace);
         if (!poller || poller.paths.size === 0) return;
 
+        // Capture each watched key's write epoch BEFORE the status fetch:
+        // any write that lands after this point owns its key's state, and
+        // this poll's (potentially pre-write) content must not apply.
+        const epochsAtStart = new Map<string, number>();
+        for (const pathStr of poller.paths) {
+            const key = pathStr ? `${workspace}.${pathStr}` : workspace;
+            epochsAtStart.set(key, this.writeEpochs.get(key) ?? 0);
+        }
+
         let status;
         try {
             status = await this.api.workspaceStatus(workspace);
@@ -473,20 +610,26 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
         }
         if (this.destroyed) return;
 
+        // Index once — the path loop below must not rescan the dataset
+        // list per watched path.
+        const infoByPath = new Map<string, DatasetStatusInfo>();
+        for (const info of status.datasets) infoByPath.set(info.path, info);
+
         // First pass — apply status updates synchronously, collect paths
         // that need a content fetch. Doing these in two passes lets us
         // batch the hash/status notifications under one `flush()` and
         // run the fetches in parallel.
         type PendingFetch =
             | { kind: "fetch"; key: string; path: TreePath; pathStr: string; newHash: string }
-            | { kind: "clear"; key: string };
+            | { kind: "clear"; key: string; path: TreePath };
         const pending: PendingFetch[] = [];
 
         this.batch(() => {
             for (const pathStr of poller.paths) {
                 const e3Path = pathStr ? `.${pathStr}` : "";
-                const info = status.datasets.find((d: DatasetStatusInfo) => d.path === e3Path);
+                const info = infoByPath.get(e3Path);
                 const key = pathStr ? `${workspace}.${pathStr}` : workspace;
+                const path = this.stringToPath(pathStr);
                 const currentHash = info?.hash?.type === "some" ? info.hash.value : null;
                 const knownHash = this.knownHashes.get(key);
 
@@ -498,17 +641,18 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
                     }
                 }
 
-                if (currentHash !== knownHash || !this.cache.has(key)) {
+                // Skip content reconciliation for keys with writes in
+                // flight — the write pipeline owns them.
+                if ((this.writeEpochs.get(key) ?? 0) !== epochsAtStart.get(key)
+                    || (this.pendingWriteCounts.get(key) ?? 0) > 0) {
+                    continue;
+                }
+
+                if (currentHash !== knownHash || !this.has(workspace, path)) {
                     if (currentHash !== null) {
-                        pending.push({
-                            kind: "fetch",
-                            key,
-                            pathStr,
-                            path: this.stringToPath(pathStr),
-                            newHash: currentHash,
-                        });
-                    } else if (this.cache.has(key)) {
-                        pending.push({ kind: "clear", key });
+                        pending.push({ kind: "fetch", key, pathStr, path, newHash: currentHash });
+                    } else if (this.has(workspace, path)) {
+                        pending.push({ kind: "clear", key, path });
                     }
                 }
             }
@@ -516,12 +660,13 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
 
         if (pending.length === 0) return;
 
-        // Run all fetches in parallel — N paths with hash changes used
-        // to cost N serialized round-trips. Errors per path are isolated.
+        // Run all fetches in parallel; per-path errors are isolated. The
+        // results apply under the write-epoch guard: a key written while
+        // the fetch was in flight keeps its optimistic bytes.
         const fetched = await Promise.allSettled(
             pending.map(p => p.kind === "fetch"
-                ? this.fetchDataset(workspace, p.path).then(data => ({ p, data }))
-                : Promise.resolve({ p, data: null as Uint8Array | null }),
+                ? this.fetchDataset(workspace, p.path).then(result => ({ p, result }))
+                : Promise.resolve({ p, result: null as { data: Uint8Array; hash: string | null } | null }),
             ),
         );
         if (this.destroyed) return;
@@ -534,12 +679,16 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
                     console.error(`Failed to fetch dataset ${p.key}:`, result.reason);
                     continue;
                 }
+                if ((this.writeEpochs.get(p.key) ?? 0) !== epochsAtStart.get(p.key)) {
+                    continue; // superseded by a write mid-flight
+                }
+                const queryKey = this.contentKey(workspace, p.path);
                 if (p.kind === "fetch") {
-                    this.cache.set(p.key, result.value.data!);
-                    this.knownHashes.set(p.key, p.newHash);
+                    this.client.setQueryData(queryKey, result.value.result!.data);
+                    this.knownHashes.set(p.key, result.value.result!.hash ?? p.newHash);
                     this.notifyChange(p.key);
                 } else {
-                    this.cache.delete(p.key);
+                    this.client.removeQueries({ queryKey, exact: true });
                     this.knownHashes.set(p.key, null);
                     this.notifyChange(p.key);
                 }
@@ -580,8 +729,11 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
             }
             subs.add(callback);
             return () => {
-                subs!.delete(callback);
-                if (subs!.size === 0) {
+                subs.delete(callback);
+                // Only drop the key's registration if it still points at
+                // OUR set — a stale disposer called twice must not tear
+                // down a newer subscriber set under the same key.
+                if (subs.size === 0 && this.keySubscribers.get(key) === subs) {
                     this.keySubscribers.delete(key);
                 }
             };
@@ -680,9 +832,10 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
     }
 
     /**
-     * Cleanup resources. After `destroy()` returns, in-flight fetches
-     * and polls that are still mid-await won't write to the cache —
-     * `this.destroyed` short-circuits their post-await branches.
+     * Cleanup resources. After `destroy()` returns, in-flight fetches,
+     * polls, and writes that are still mid-await won't write to the cache —
+     * `this.destroyed` short-circuits their post-await branches, and the
+     * query client's in-flight fetches are torn down with it.
      */
     destroy(): void {
         this.destroyed = true;
@@ -693,13 +846,23 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
         this.inFlightPolls.clear();
         this.keySubscribers.clear();
         this.globalSubscribers.clear();
-        this.cache.clear();
         this.knownHashes.clear();
         this.statuses.clear();
         this.keyVersions.clear();
         this.changedKeys.clear();
-        this.pendingFetches.clear();
+        this.writeEpochs.clear();
+        this.writeChains.clear();
+        this.writeBaselines.clear();
+        this.pendingWriteCounts.clear();
+        this.client.clear();
+        this.client.unmount();
     }
+}
+
+/** True when `error` is query-core's cancellation rejection (a racing
+ *  write aborted the fetch). */
+function isCancelledError(error: unknown): boolean {
+    return error instanceof CancelledError;
 }
 
 /**
@@ -716,4 +879,3 @@ export function createReactiveDatasetCache(
 ): ReactiveDatasetCache {
     return new ReactiveDatasetCache(config, api, clock);
 }
-

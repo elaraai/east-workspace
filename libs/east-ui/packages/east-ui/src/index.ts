@@ -98,7 +98,7 @@ export { DataList, Matrix, Pagination, Table, TreeView, Gantt, Planner, Library,
 export { Chart, Sparkline } from "./runtime/charts/index.js";
 
 // Disclosure
-export { Accordion, Carousel, Collapsible, Disclosure, OptionList, SegmentGroup, Tabs } from "./runtime/disclosure/index.js";
+export { Accordion, Carousel, Collapsible, Disclosure, OptionList, SegmentGroup, Story, Tabs } from "./runtime/disclosure/index.js";
 
 // Overlays
 export { Tooltip, Menu, Dialog, Drawer, Popover, HoverCard, ActionBar, ToggleTip, CommandPalette } from "./runtime/overlays/index.js";

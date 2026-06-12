@@ -52,6 +52,13 @@ import {
     ChipRailStyleType,
 } from "./display/chip-rail/types.js";
 
+// Story (disclosure)
+import {
+    StoryActiveBindingType,
+    StoryProgressBindingType,
+    StoryStyleType,
+} from "./disclosure/story/types.js";
+
 // Buttons
 import { ButtonStyleType } from "./buttons/button/types.js";
 import { IconButtonType } from "./buttons/icon-button/types.js";
@@ -834,6 +841,54 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         defaultValue: OptionType(StringType),
         onValueChange: OptionType(FunctionType([StringType], NullType)),
         style: OptionType(TabsStyleType),
+    }),
+
+    /**
+     * Story — scroll-driven narrative: prose steps in a rail beside one
+     * persistent sticky stage that evolves through keyframes
+     * (design/story.html §2.7 Narrate). `steps` are `StoryStep` children
+     * (soft contract — the renderer skips non-step children with a dev
+     * warning). State (`active` / `progress` bindings, `activeStep`
+     * override) + behaviour (`onStepEnter` / `onStepExit`) live on main;
+     * layout presets live inside `style`. `title` opts into the sticky
+     * one-row Story.Progress chrome.
+     */
+    Story: StructType({
+        steps: ArrayType(node),
+        active: OptionType(StoryActiveBindingType),
+        progress: OptionType(StoryProgressBindingType),
+        activeStep: OptionType(StringType),
+        title: OptionType(StringType),
+        onStepEnter: OptionType(FunctionType([StringType], NullType)),
+        onStepExit: OptionType(FunctionType([StringType], NullType)),
+        style: OptionType(StoryStyleType),
+    }),
+
+    /**
+     * StoryStep — one narrative beat: spine node · eyebrow · title · body
+     * (the children, filling the step's scroll runway) and an optional
+     * `stage` keyframe shown in the sticky slot while active. A real
+     * component so conditional steps (`cond.ifElse(stepA, stepB)`) are
+     * legal; rendered standalone it degrades to a plain rail block.
+     */
+    StoryStep: StructType({
+        id: StringType,
+        eyebrow: OptionType(StringType),
+        title: OptionType(StringType),
+        stage: OptionType(node),
+        body: ArrayType(node),
+    }),
+
+    /**
+     * StoryProgress — the one-row chrome strip (eyebrow title · per-step
+     * dots · counter · prev/next). Mounts standalone anywhere because it
+     * only talks to the `active` binding; dots and prev/next write it and
+     * the Story's rail treats the write as navigation.
+     */
+    StoryProgress: StructType({
+        count: IntegerType,
+        active: OptionType(StoryActiveBindingType),
+        title: OptionType(StringType),
     }),
 
     /**

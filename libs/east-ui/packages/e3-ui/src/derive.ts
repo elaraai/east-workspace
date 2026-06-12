@@ -8,7 +8,8 @@
  *
  * Finds every `Data.bind(...)` platform call (the walker recurses into
  * nested `FunctionIR` bodies) and reads its source + (optional) patch
- * path arguments.
+ * path arguments, plus every `Func.bind(...)` platform call and reads
+ * its literal function name.
  *
  * Both arguments are required to be statically known JS-side
  * `TreePath`s — the public `Data.bind` factory enforces this through
@@ -32,14 +33,22 @@ import type { DataManifest } from './manifest.js';
 /** Platform-fn name we extract paths from. */
 const DATA_BIND = "data_bind";
 
+/** Platform-fn name we extract bound function names from. */
+const FUNCTION_BIND = "function_bind";
+
 /** Walk `fn`'s IR and derive its bound-path manifest. */
 export function deriveManifest(
     fn: { toIR(): { ir: IR } },
 ): DataManifest {
     const paths: TreePath[] = [];
+    const functions: string[] = [];
     walkIR(fn.toIR().ir, (node) => {
         if (node.type !== 'Platform') return;
         const platform = node as PlatformIR;
+        if (platform.value.name === FUNCTION_BIND) {
+            functions.push(readFunctionName(platform.value.arguments[0] as IR));
+            return;
+        }
         if (platform.value.name !== DATA_BIND) return;
 
         // arg[0] — source: always a NewArray of Variant("field", Value(string)).
@@ -62,7 +71,25 @@ export function deriveManifest(
             );
         }
     });
-    return { paths: dedupePaths(paths) };
+    return { paths: dedupePaths(paths), functions: [...new Set(functions)] };
+}
+
+/**
+ * Read a literal function name from a `Value` IR node — the only shape
+ * `Func.bind` produces (its TS signature requires a JS string).
+ */
+function readFunctionName(ir: IR): string {
+    if (ir.type !== 'Value') {
+        throw new Error(
+            `Func.bind: the function name must be a literal string; got dynamic IR (${ir.type}). ` +
+            `Pass a JS string, not a computed expression.`,
+        );
+    }
+    const name = literalValueOf(ir as ValueIR);
+    if (typeof name !== 'string') {
+        throw new Error(`Func.bind: the function name must be a string literal; got ${typeof name}.`);
+    }
+    return name;
 }
 
 /**

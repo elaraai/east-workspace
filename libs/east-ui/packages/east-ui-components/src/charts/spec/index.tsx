@@ -654,8 +654,8 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
             const sizeScale = maxSize > 0 ? scaleSqrt<number>({ domain: [0, maxSize], range: [0, 16] }) : undefined;
             const sizeR = sizeScale ? (v: number) => Math.max(3, sizeScale(v) ?? 3) : undefined;
 
-            const render = (w: number) => {
-                const svgH = f.height - legendH;
+            const render = (w: number, hOverride?: number) => {
+                const svgH = (hOverride ?? f.height) - legendH;
                 const innerW = Math.max(0, w - margin.left - margin.right);
                 const innerH = Math.max(0, svgH - margin.top - margin.bottom);
 
@@ -767,6 +767,12 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
                     </Box>
                 );
             };
+            // height <= 0 is the "fill parent" sentinel (Chart `height: "fill"`):
+            // measure the parent's height as well as its width. Requires a
+            // parent with a definite height (a sized Box, a Story stage, ...).
+            if (f.height <= 0) {
+                return <ParentSize>{({ width, height }) => render(width || 320, height || 240)}</ParentSize>;
+            }
             return explicitW !== undefined ? render(explicitW) : <ParentSize>{({ width }) => render(width || 320)}</ParentSize>;
         },
     }, null);

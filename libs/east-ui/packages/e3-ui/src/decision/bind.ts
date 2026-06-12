@@ -88,7 +88,7 @@ export type CommitStateType = typeof CommitStateType;
 /**
  * Build the judgements dataset type for a constraint contract — staged
  * judgements keyed by case id. Bind it with
- * `Data.bind([Decision.Types.Judgements(Contract)], judgementsInput.path)`.
+ * `Data.bind(judgementsInput)`.
  */
 export function judgementsType<C extends EastType = DecisionConstraintType>(constraint?: C) {
     return DictType(StringType, judgementInputType(constraint));
@@ -215,10 +215,10 @@ export const decisionBindPlatformFn = East.genericPlatform(
  * Options for {@link decisionBind}.
  *
  * @property decisions - The bound decision views — one
- *   `Data.bind([ArrayType(Decision.Types.Decision)], …)` handle per
+ *   `Data.bind(…)` handle per
  *   reasoning task (source ⊕ patch each)
  * @property judgements - The bound judgements view —
- *   `Data.bind([Decision.Types.Judgements(Contract)], …)` (the staged
+ *   `Data.bind(…)` (the staged
  *   operator input)
  * @property slice - Optional initial state for the handle-owned slice over
  *   the queue (`Slice.state({ filters: [...] })`). Seeded once; the
@@ -251,8 +251,8 @@ export interface DecisionBindOptions<C extends EastType = DecisionConstraintType
  *
  * @example
  * ```tsx
- * const rosterView = $.let(Data.bind([ArrayType(Decision.Types.Decision)], rosterOut.path, { patch: rosterPatch.path }));
- * const judgementsView = $.let(Data.bind([Decision.Types.Judgements(RosterConstraint)], judgementsInput.path));
+ * const rosterView = $.let(Data.bind(rosterOut, { patch: rosterPatch }));
+ * const judgementsView = $.let(Data.bind(judgementsInput));
  * const handle = $.let(Decision.bind([RosterConstraint], { decisions: [rosterView], judgements: judgementsView }));
  * ```
  */

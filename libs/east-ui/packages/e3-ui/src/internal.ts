@@ -27,6 +27,15 @@ export {
     type DataBindOptions,
     bindPlatformFn,
 } from './data.js';
+export {
+    Func,
+    FuncStatusType,
+    FuncErrorType,
+    FuncBindingType,
+    FuncBindHandleType,
+    type BoundFunc,
+    funcBindPlatformFn,
+} from './func.js';
 export { DataManifestType, type DataManifest, encodeManifest, decodeManifest } from './manifest.js';
 export { deriveManifest } from './derive.js';
 export {
@@ -48,6 +57,9 @@ export {
     LinkType,
     OntologyMetadataType,
     OntologyType,
+    type OntologyStructType,
+    OntologyViewType,
+    type OntologyViewLiteral,
 } from './ontology.js';
 export { Decision } from './decision/index.js';
 export {

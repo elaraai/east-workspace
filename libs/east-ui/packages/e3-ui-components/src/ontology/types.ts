@@ -86,20 +86,21 @@ export function flattenOntology(ontology: Ontology): { nodes: FlatNode[]; links:
  * entries here.
  */
 export const ValidLinks: Record<OntologyNodeKind, Record<OntologyNodeKind, OntologyLinkKind | null>> = {
-    objective:   { objective: 'drives',   kpi: 'defines',  decision: 'informs', process: 'drives',    resource: 'drives',     data: 'gets_data_from',    policy: 'informs',  document: 'references', computation: 'informs',  group: null },
-    kpi:         { objective: 'measures', kpi: 'results_in', decision: 'informs', process: 'measures', resource: 'measures',  data: 'gets_data_from',    policy: null,       document: 'references', computation: 'gets_data_from', group: null },
-    decision:    { objective: 'drives',   kpi: 'drives',   decision: 'informs', process: 'drives',    resource: 'drives',     data: 'inserts_data_into', policy: 'executes', document: 'references', computation: 'uses',     group: null },
-    process:     { objective: 'drives',   kpi: 'results_in', decision: 'informs', process: 'executes', resource: 'produces',   data: 'inserts_data_into', policy: 'executes', document: 'references', computation: 'uses',     group: null },
-    resource:    { objective: 'drives',   kpi: 'results_in', decision: 'informs', process: 'used_by',  resource: null,         data: 'inserts_data_into', policy: null,       document: 'references', computation: 'uses',     group: null },
-    data:        { objective: 'informs',  kpi: 'informs',  decision: 'informs', process: 'informs',   resource: 'informs',    data: 'gets_data_from',    policy: 'validates',document: 'references', computation: 'informs',  group: null },
-    policy:      { objective: 'drives',   kpi: 'defines',  decision: 'constrains', process: 'constrains', resource: 'constrains', data: 'constrains',     policy: 'informs',  document: 'references', computation: 'constrains', group: null },
-    document:    { objective: 'defines',  kpi: 'defines',  decision: 'informs', process: 'defines',   resource: 'defines',    data: 'defines',           policy: 'defines',  document: 'references', computation: 'defines',  group: 'defines' },
-    computation: { objective: 'measures', kpi: 'produces', decision: 'informs', process: 'simulates', resource: 'simulates',  data: 'produces',          policy: 'validates',document: 'references', computation: 'uses',     group: null },
-    group:       { objective: 'contains', kpi: 'contains', decision: 'contains', process: 'contains',  resource: 'contains',   data: 'contains',          policy: 'contains', document: 'contains',   computation: 'contains', group: 'contains' },
+    objective:   { objective: 'drives',   kpi: 'defines',  decision: 'informs', process: 'drives',    resource: 'drives',     agent: 'informs',  data: 'gets_data_from',    policy: 'informs',  document: 'references', computation: 'informs',  group: null },
+    kpi:         { objective: 'measures', kpi: 'results_in', decision: 'informs', process: 'measures', resource: 'measures',  agent: 'measures', data: 'gets_data_from',    policy: null,       document: 'references', computation: 'gets_data_from', group: null },
+    decision:    { objective: 'drives',   kpi: 'drives',   decision: 'informs', process: 'drives',    resource: 'drives',     agent: 'informs',  data: 'inserts_data_into', policy: 'executes', document: 'references', computation: 'uses',     group: null },
+    process:     { objective: 'drives',   kpi: 'results_in', decision: 'informs', process: 'executes', resource: 'produces',  agent: 'uses',     data: 'inserts_data_into', policy: 'executes', document: 'references', computation: 'uses',     group: null },
+    resource:    { objective: 'drives',   kpi: 'results_in', decision: 'informs', process: 'used_by',  resource: null,        agent: 'used_by',  data: 'inserts_data_into', policy: null,       document: 'references', computation: 'uses',     group: null },
+    agent:       { objective: 'drives',   kpi: 'drives',   decision: 'executes', process: 'executes', resource: 'uses',       agent: 'informs',  data: 'inserts_data_into', policy: 'executes', document: 'references', computation: 'uses',     group: null },
+    data:        { objective: 'informs',  kpi: 'informs',  decision: 'informs', process: 'informs',   resource: 'informs',    agent: 'informs',  data: 'gets_data_from',    policy: 'validates',document: 'references', computation: 'informs',  group: null },
+    policy:      { objective: 'drives',   kpi: 'defines',  decision: 'constrains', process: 'constrains', resource: 'constrains', agent: 'constrains', data: 'constrains',  policy: 'informs',  document: 'references', computation: 'constrains', group: null },
+    document:    { objective: 'defines',  kpi: 'defines',  decision: 'informs', process: 'defines',   resource: 'defines',    agent: 'defines',  data: 'defines',           policy: 'defines',  document: 'references', computation: 'defines',  group: 'defines' },
+    computation: { objective: 'measures', kpi: 'produces', decision: 'informs', process: 'simulates', resource: 'simulates',  agent: 'informs',  data: 'produces',          policy: 'validates',document: 'references', computation: 'uses',     group: null },
+    group:       { objective: 'contains', kpi: 'contains', decision: 'contains', process: 'contains',  resource: 'contains',  agent: 'contains', data: 'contains',          policy: 'contains', document: 'contains',   computation: 'contains', group: 'contains' },
 };
 
 /** All node kinds in display order. */
 export const ALL_NODE_KINDS: OntologyNodeKind[] = [
-    'objective', 'kpi', 'decision', 'process', 'resource',
+    'objective', 'kpi', 'decision', 'process', 'resource', 'agent',
     'data', 'policy', 'document', 'computation', 'group',
 ];

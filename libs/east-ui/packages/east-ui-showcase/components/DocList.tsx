@@ -101,12 +101,22 @@ function estimateItem(item: DocItem): number {
  * with dynamic measurement, plus a sticky right-hand "on this page" TOC
  * (spec `.toc` recipe, mirrored to the right edge).
  */
+/** A deep-link scroll request: jump to a group head (`name` omitted) or a
+ *  specific example. `nonce` retriggers the jump for identical targets. */
+export interface DocScrollTarget {
+    pathKey: string;
+    name?: string;
+    nonce: number;
+}
+
 export function DocList({
     entries,
     showCategories = false,
+    scrollTarget,
 }: {
     entries: readonly CatalogEntry[];
     showCategories?: boolean;
+    scrollTarget?: DocScrollTarget;
 }) {
     const { items, sections } = useMemo(
         () => buildItems(entries, showCategories),
@@ -124,10 +134,29 @@ export function DocList({
     });
 
     /* Reset scroll on entry-set change so switching to a shorter category
-     * doesn't leave the viewport pinned at an out-of-range offset. */
+     * doesn't leave the viewport pinned at an out-of-range offset. (A
+     * pending deep-link target supersedes the reset below.) */
     useEffect(() => {
         parentRef.current?.scrollTo({ top: 0 });
     }, [entries]);
+
+    /* Deep-link jump: resolve the target to a virtualizer index. Rows are
+     * virtualized, so DOM anchors can't work — scrollToIndex is the only
+     * reliable navigation. Runs after the reset effect (declared later),
+     * and re-runs via `nonce` when the same hash is re-activated. */
+    useEffect(() => {
+        if (!scrollTarget) return;
+        const index = items.findIndex(item => scrollTarget.name !== undefined
+            ? item.kind === "entry" && item.groupKey === scrollTarget.pathKey && item.entry.name === scrollTarget.name
+            : item.kind === "head" && item.pathKey === scrollTarget.pathKey);
+        if (index < 0) return;
+        /* Double rAF: let the virtualizer mount + measure the first window
+         * before jumping, so dynamic row heights don't land us short. */
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+            virtualizer.scrollToIndex(index, { align: "start" });
+        }));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [scrollTarget, items]);
 
     const virtualItems = virtualizer.getVirtualItems();
     const offset = virtualizer.scrollOffset ?? 0;

@@ -19,13 +19,10 @@ const ontologyInput = e3.input('ontology_spec', OntologyType, {
 
 describeEast('Ontology', (test) => {
     Assert.examples(test, {
-        simpleOntologyEditor:    ex.simpleOntologyEditor,
         supplyChainOntology:     ex.supplyChainOntology,
-        governanceOntology:      ex.governanceOntology,
-        readonlyOntologyViewer:  ex.readonlyOntologyViewer,
         compactDensityOntology:  ex.compactDensityOntology,
         ontologyWithDiff:        ex.ontologyWithDiff,
-        multiBindingDashboard:   ex.multiBindingDashboard,
+        ontologyTableCycleView:  ex.ontologyTableCycleView,
     });
 
     test('Ontology.Component is declared as an optional EastUI component', $ => {
@@ -36,7 +33,7 @@ describeEast('Ontology', (test) => {
     test('Ontology.Root produces a ReactiveComponent-tagged UIComponentType', $ => {
         const tree = $.let(
             Reactive.Root(East.function([], UIComponentType, $ => {
-                const view = $.let(Data.bind([OntologyType], ontologyInput.path));
+                const view = $.let(Data.bind(ontologyInput));
                 return Ontology.Root({ value: view });
             })),
             UIComponentType,

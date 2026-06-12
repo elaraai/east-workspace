@@ -214,6 +214,7 @@ function renderAnnotated(el) {
     const xs = scaleLinear({ domain: [0, data.length - 1], range: [0, innerW] });
     const yMin = cfg.yMin != null ? cfg.yMin : Math.min(...data);
     const yMax = cfg.yMax != null ? cfg.yMax : Math.max(...data);
+    const yUnit = cfg.yUnit != null ? cfg.yUnit : "ms";
     const ys = scaleLinear({ domain: [yMin, yMax], range: [innerH, 0] });
 
     const kindColor = { deploy: C.brand, incident: C.neg, release: C.brand, note: C.ink3 };
@@ -231,9 +232,9 @@ function renderAnnotated(el) {
                 strokeOpacity: a.kind === "incident" ? 0.7 : 0.45,
             })),
             // y axis labels
-            h("text", { x: pad.left - 6, y: pad.top + 8,           textAnchor: "end", fontFamily: MONO_FONT, fontSize: 9.5, fill: C.ink4 }, `${yMax}ms`),
-            h("text", { x: pad.left - 6, y: pad.top + innerH/2,    textAnchor: "end", fontFamily: MONO_FONT, fontSize: 9.5, fill: C.ink4 }, `${Math.round((yMin + yMax)/2)}ms`),
-            h("text", { x: pad.left - 6, y: pad.top + innerH,      textAnchor: "end", fontFamily: MONO_FONT, fontSize: 9.5, fill: C.ink4 }, `${yMin}ms`),
+            h("text", { x: pad.left - 6, y: pad.top + 8,           textAnchor: "end", fontFamily: MONO_FONT, fontSize: 9.5, fill: C.ink4 }, `${yMax}${yUnit}`),
+            h("text", { x: pad.left - 6, y: pad.top + innerH/2,    textAnchor: "end", fontFamily: MONO_FONT, fontSize: 9.5, fill: C.ink4 }, `${Math.round((yMin + yMax)/2)}${yUnit}`),
+            h("text", { x: pad.left - 6, y: pad.top + innerH,      textAnchor: "end", fontFamily: MONO_FONT, fontSize: 9.5, fill: C.ink4 }, `${yMin}${yUnit}`),
             // baseline + axes
             h(Line, { from: { x: pad.left, y: pad.top + innerH }, to: { x: pad.left + innerW, y: pad.top + innerH }, stroke: C.rule }),
             h(Line, { from: { x: pad.left, y: pad.top }, to: { x: pad.left, y: pad.top + innerH }, stroke: C.rule }),

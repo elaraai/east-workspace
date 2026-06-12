@@ -173,8 +173,8 @@ export const decisionQueueCase = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
-                const decisions = $.let(Data.bind([ArrayType(Decision.Types.Decision)], queueDecisions.path, { mode: 'direct' }));
-                const judgements = $.let(Data.bind([Decision.Types.Judgements(RosterConstraint)], queueJudgements.path, { mode: 'direct' }));
+                const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));
+                const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));
                 const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));
                 // "the overdue case" — a predicate, not an id or a position.
                 const urgent = $.let(decisions.read().firstMap(($, d) =>
@@ -235,8 +235,8 @@ export const decisionQueueJudgement = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
-                const decisions = $.let(Data.bind([ArrayType(Decision.Types.Decision)], queueDecisions.path, { mode: 'direct' }));
-                const judgements = $.let(Data.bind([Decision.Types.Judgements(RosterConstraint)], queueJudgements.path, { mode: 'direct' }));
+                const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));
+                const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));
                 const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));
                 const urgent = $.let(decisions.read().firstMap(($, d) =>
                     d.urgency.hasTag('overdue').ifElse(() => some(d), () => none)));
@@ -264,8 +264,8 @@ export const decisionQueueOptions = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
-                const decisions = $.let(Data.bind([ArrayType(Decision.Types.Decision)], queueDecisions.path, { mode: 'direct' }));
-                const judgements = $.let(Data.bind([Decision.Types.Judgements(RosterConstraint)], queueJudgements.path, { mode: 'direct' }));
+                const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));
+                const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));
                 const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));
                 const urgent = $.let(decisions.read().firstMap(($, d) =>
                     d.urgency.hasTag('overdue').ifElse(() => some(d), () => none)));
@@ -295,8 +295,8 @@ export const decisionQueueNarrow = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
-                const decisions = $.let(Data.bind([ArrayType(Decision.Types.Decision)], queueDecisions.path, { mode: 'direct' }));
-                const judgements = $.let(Data.bind([Decision.Types.Judgements(RosterConstraint)], queueJudgements.path, { mode: 'direct' }));
+                const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));
+                const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));
                 const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));
                 const urgent = $.let(decisions.read().firstMap(($, d) =>
                     d.urgency.hasTag('overdue').ifElse(() => some(d), () => none)));
@@ -326,8 +326,8 @@ export const decisionQueueScroll = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
-                const decisions = $.let(Data.bind([ArrayType(Decision.Types.Decision)], queueDecisions.path, { mode: 'direct' }));
-                const judgements = $.let(Data.bind([Decision.Types.Judgements(RosterConstraint)], queueJudgements.path, { mode: 'direct' }));
+                const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));
+                const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));
                 const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));
                 return <DecisionQueue handle={handle} heading="Decisions waiting" maxHeight="220px" />;
             }}</Reactive>
@@ -349,8 +349,8 @@ export const decisionQueueSlice = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
-                const decisions = $.let(Data.bind([ArrayType(Decision.Types.Decision)], queueDecisions.path, { mode: 'direct' }));
-                const judgements = $.let(Data.bind([Decision.Types.Judgements(RosterConstraint)], queueJudgements.path, { mode: 'direct' }));
+                const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));
+                const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));
                 const handle = $.let(Decision.bind([RosterConstraint], {
                     decisions: [decisions],
                     judgements,

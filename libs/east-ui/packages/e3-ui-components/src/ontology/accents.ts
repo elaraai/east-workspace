@@ -37,6 +37,7 @@ export const NODE_KIND_ACCENT: Record<OntologyNodeKind, string> = {
     decision:    '#2b4b55', // brand.700
     objective:   '#253333', // gray.800
     kpi:         '#2f7a5b', // status.pos
+    agent:       '#6d5a7a', // color-mix(brand.700 45%, status.warn 15%, gray.500) — plum, people/role tone
     data:        '#b8862d', // status.warn
     resource:    '#56727a', // color-mix(brand.600 30%, gray.500)
     policy:      '#8d7a5f', // color-mix(status.warn 50%, gray.600)

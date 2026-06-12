@@ -496,9 +496,9 @@ const policy  = e3.input("workforce_policy", PolicyType, defaultPolicy);
 
 export const assistant = ui("assistant", [], East.function([], UIComponentType, _$ =>
   Reactive.Root(East.function([], UIComponentType, $ => {
-    const convo   = $.let(Data.bind([ConversationType], thread.path, { mode: "direct" }));
-    const rosterB = $.let(Data.bind([RosterType], roster.path, { mode: "staged" }));   // writes reviewed
-    const policyB = $.let(Data.bind([PolicyType], policy.path));                        // read-only context
+    const convo   = $.let(Data.bind(thread, { mode: "direct" }));
+    const rosterB = $.let(Data.bind(roster, { mode: "staged" }));   // writes reviewed
+    const policyB = $.let(Data.bind(policy));                        // read-only context
     return ClaudeChat.Root({
       conversation: convo.binding,
       config: { model: "claude-opus-4-7", instructions: "Help operators tune the roster.", thinking: some(true) },
@@ -651,7 +651,7 @@ created — there is no separate per-tool apply policy:
 - **`patch` present** → writes target the patch dataset; `commit` applies it to
   source. Identical matrix to `Diff`.
 
-So the safety posture is chosen at `Data.bind([T], path, { mode: "staged" })`
+So the safety posture is chosen at `Data.bind(path, { mode: "staged" })`
 time, and the chat honours it. The review surface is literally
 `Diff.Root({ bindings: writableToolBindings })` composed beside the thread —
 *composition over invention*. (Tier-2 e3 tasks are gated by workspace promotion

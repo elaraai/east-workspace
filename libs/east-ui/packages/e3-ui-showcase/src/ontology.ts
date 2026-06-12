@@ -20,25 +20,13 @@ import pkgInfo from '../package.json' with { type: 'json' };
 import { buildShowcasePackage } from './utils.js';
 
 const {
-    simpleOntologyInput,
     supplyChainOntologyInput,
-    governanceOntologyInput,
-    readonlyOntologyInput,
-    compactOntologyInput,
-    ontologyWithDiffInput,
-    dashboardLeftInput,
-    dashboardRightInput,
+    tradingCycleOntologyInput,
 } = examples;
 
 export default await buildShowcasePackage('ontology', pkgInfo.version, examples, {
     extras: [
-        simpleOntologyInput,
         supplyChainOntologyInput,
-        governanceOntologyInput,
-        readonlyOntologyInput,
-        compactOntologyInput,
-        ontologyWithDiffInput,
-        dashboardLeftInput,
-        dashboardRightInput,
+        tradingCycleOntologyInput,
     ],
 });

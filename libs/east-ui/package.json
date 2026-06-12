@@ -33,5 +33,9 @@
   },
   "dependencies": {
     "@elaraai/east": "workspace:*"
+  },
+  "devDependencies": {
+    "playwright": "^1.49.0",
+    "vite": "^6.0.0"
   }
 }

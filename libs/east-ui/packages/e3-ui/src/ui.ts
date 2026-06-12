@@ -50,7 +50,7 @@ import { deriveManifest } from './derive.js';
  * // No compute-time inputs (fn arg list is []), reactive bindings only:
  * const dashboard = ui('dashboard', [], East.function([], UIComponentType, (_$) =>
  *   Reactive.Root(East.function([], UIComponentType, $ => {
- *     const t = $.let(Data.bind([FloatType], threshold.path));
+ *     const t = $.let(Data.bind(threshold));
  *     return Slider.Root($.let(t.read()), { onChange: t.write });
  *   }))
  * ));
@@ -102,7 +102,7 @@ function buildUiTask(
   return task(name, inputs as any, fn as any, {
     runner: options?.runner ?? { runtime: 'east-c' } as Runner,
     kind: 'ui',
-    metadata: encodeManifest({ paths }),
+    metadata: encodeManifest({ paths, functions: derived.functions }),
   });
 }
 

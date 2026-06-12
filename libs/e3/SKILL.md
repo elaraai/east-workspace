@@ -197,7 +197,7 @@ const add = e3.function(
   East.function([IntegerType, IntegerType], IntegerType, ($, a, b) => a.add(b))
 );
 
-// Runner selection: known runtimes only (no `runtime: 'custom'` for functions)
+// Runner selection — same typed Runner as tasks (custom included)
 const forecast = e3.function(
   'forecast',
   East.function([IntegerType, FloatType], FloatType, ($, periods, rate) => ...),
@@ -208,8 +208,10 @@ const pkg = e3.package('planning', '1.0.0', someTask, add, forecast);
 ```
 
 Use a task when the result should be a dataset others react to; use a
-function for on-demand compute returned to the caller (results are capped
-at 1 MB inline — bigger results belong in a task output dataset).
+function for on-demand compute returned to the caller. Calls are
+synchronous and bounded — the server enforces a wall-clock deadline and
+results are capped at 1 MB inline; long compute and bigger outputs belong
+in a task.
 
 ### e3.package(name, version, ...items)
 

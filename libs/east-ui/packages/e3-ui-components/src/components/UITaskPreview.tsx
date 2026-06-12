@@ -38,6 +38,7 @@ import {
 } from '../platform/dataset-hooks.js';
 import { useE3Config, type E3Config } from '../platform/e3-config.js';
 import { createScopedBindPlatform } from '../platform/bind-runtime.js';
+import { createScopedFuncPlatform } from '../platform/func-runtime.js';
 import { useTaskDetails, getTaskKind, getTaskMetadata } from '../hooks/useTaskDetails.js';
 import { useDatasetStatus } from '../hooks/useDatasetStatus.js';
 import { useDatasetValue } from '../hooks/useDatasetValue.js';
@@ -84,7 +85,7 @@ export const UITaskPreview = memo(function UITaskPreview({
     const manifest = useMemo(() => {
         if (!details || !isUI) return null;
         const meta = getTaskMetadata(details);
-        return meta ? decodeManifest(meta) : { paths: [] };
+        return meta ? decodeManifest(meta) : { paths: [], functions: [] };
     }, [details, isUI]);
 
     const outputPath = details ? treePathToString(details.output as TreePath) : null;
@@ -105,18 +106,25 @@ export const UITaskPreview = memo(function UITaskPreview({
                 ? [
                     ...StateImpl,
                     ...createScopedBindPlatform(manifest),
+                    ...createScopedFuncPlatform(manifest.functions),
                     ...OverlayImpl,
                 ]
                 : undefined,
         [manifest],
     );
 
-    // Register manifest paths with workspace poller for live updates.
+    // Register manifest paths with workspace poller for live updates;
+    // unregister on unmount so the poller stops when nothing watches.
     useEffect(() => {
         if (!cache || !manifest || !workspace) return;
         for (const path of manifest.paths) {
             cache.setRefetchInterval(workspace, path, pollInterval);
         }
+        return () => {
+            for (const path of manifest.paths) {
+                cache.clearRefetchInterval(workspace, path);
+            }
+        };
     }, [cache, manifest, workspace, pollInterval]);
 
     // Fetch the output value (no size gate — UI is wanted in full).

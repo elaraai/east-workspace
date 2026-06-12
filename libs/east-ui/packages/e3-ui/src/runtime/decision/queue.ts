@@ -11,7 +11,7 @@ import { DecisionQueue as DecisionQueueFactory } from "../../decision/queue.js";
 /**
  * Decision queue — surfaces an `ArrayType(DecisionType)`-bound dataset as a
  * prioritised, actionable list (the entry surface for Decide). Pass the
- * `Data.bind([ArrayType(Decision.Types.Decision)], …, { patch })` handle as
+ * `Data.bind(…, { patch })` handle as
  * `value`; Apply / Modify write back through the binding (Modify's edit diffs
  * into the patch overlay).
  *
@@ -24,11 +24,7 @@ import { DecisionQueue as DecisionQueueFactory } from "../../decision/queue.js";
  *
  * const surface = East.function([], UIComponentType, _$ => (
  *     <Reactive>{$ => {
- *         const view = $.let(Data.bind(
- *             [ArrayType(Decision.Types.Decision)],
- *             decisionsTask.output.path,
- *             { mode: "direct", patch: decisionPatch.path },
- *         ));
+ *         const view = $.let(Data.bind(decisionsTask, { mode: "direct", patch: decisionPatch }));
  *         return (
  *             <DecisionQueue
  *                 value={view}

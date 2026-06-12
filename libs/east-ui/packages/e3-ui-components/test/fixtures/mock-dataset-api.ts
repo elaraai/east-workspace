@@ -104,7 +104,7 @@ export function createMockDatasetApi(): MockDatasetApi {
             await gateAndCheck("get");
             const entry = seeded.get(pathKey(workspace, path));
             if (!entry) throw new Error(`MockDatasetApi.get: nothing seeded at ${pathKey(workspace, path)}`);
-            return entry.value;
+            return { data: entry.value, hash: entry.hash };
         },
 
         async set(workspace, path, value) {

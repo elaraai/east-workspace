@@ -536,8 +536,10 @@ export interface AxisOptions {
 
 /** Options for {@link createChartRoot}. */
 export interface ChartOptions {
-    /** Plot height in px. */
-    height?: SubtypeExprOrValue<FloatType>;
+    /** Plot height in px, or `"fill"` to grow to the parent's height
+     *  (requires a parent with a definite height — a sized `Box`, a Story
+     *  stage, a Grid cell). Default 240. */
+    height?: SubtypeExprOrValue<FloatType> | "fill";
     /** Plot width in px; omit for responsive. */
     width?: SubtypeExprOrValue<FloatType>;
     /** X-axis configuration. */
@@ -619,7 +621,7 @@ function createChartRoot(layers: ChartLayer | ChartLayer[], options?: ChartOptio
         : undefined;
 
     const spec = chartFrame(children, {
-        height: opts.height ?? 240,
+        height: opts.height === "fill" ? 0 : (opts.height ?? 240),
         ...(opts.width !== undefined ? { width: opts.width } : {}),
         xScale,
         yScale: "linear",

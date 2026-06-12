@@ -16,10 +16,12 @@ import "@elaraai/e3-ui-components";
 import {
     ReactiveDatasetCache,
     initializeReactiveDatasetCache,
+    initializeFunctionApi,
+    createInMemoryFunctionApi,
     datasetCacheKey,
     type DatasetApi,
 } from "@elaraai/e3-ui-components";
-import { encodeBeast2For } from "@elaraai/east";
+import { encodeBeast2For, FloatType, IntegerType } from "@elaraai/east";
 import type { DatasetDef } from "@elaraai/e3";
 import type { TreePath } from "@elaraai/e3-types";
 import { App } from "./App";
@@ -31,6 +33,25 @@ import { AppErrorBoundary } from "./components/ErrorOverlay";
 const store = new UIStore();
 
 const WORKSPACE = "showcase";
+
+/** Offline implementations for the named functions the `Func.bind`
+ *  examples call — the function-side mirror of the dataset seeding. */
+function exampleFunctionApi() {
+    return createInMemoryFunctionApi([
+        {
+            name: "forecast",
+            inputTypes: [IntegerType, FloatType],
+            outputType: FloatType,
+            fn: (periods, growth) => Number(periods as bigint) * (growth as number) * 100,
+        },
+        {
+            name: "rebalance",
+            inputTypes: [FloatType],
+            outputType: FloatType,
+            fn: (x) => 1 - (x as number),
+        },
+    ]);
+}
 
 /** An export is a seedable input iff it's a `DatasetDef` with a default. */
 function isSeedableInput(x: unknown): x is DatasetDef & { default: NonNullable<DatasetDef["default"]> } {
@@ -58,7 +79,7 @@ async function seedE3DatasetCache(): Promise<void> {
         async get(ws, path) {
             const bytes = seed.get(datasetCacheKey(ws, path));
             if (!bytes) throw new Error(`no seed for ${datasetCacheKey(ws, path)}`);
-            return bytes;
+            return { data: bytes, hash: null };
         },
         async set(ws, path, value) { seed.set(datasetCacheKey(ws, path), value); },
         async launchDataflow() { /* offline — nothing to launch */ },
@@ -70,6 +91,7 @@ async function seedE3DatasetCache(): Promise<void> {
     const cache = new ReactiveDatasetCache({ workspace: WORKSPACE }, api);
     cache.setScheduler((notify) => queueMicrotask(notify));
     initializeReactiveDatasetCache(cache);
+    initializeFunctionApi(exampleFunctionApi(), WORKSPACE);
     await Promise.all(inputPaths.map(path => cache.preload(WORKSPACE, path)));
 }
 

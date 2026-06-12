@@ -42,7 +42,7 @@ describeEast("Diff", (test) => {
     test("Diff.Root produces a ReactiveComponent-tagged UIComponentType", $ => {
         const tree = $.let(
             Reactive.Root(East.function([], UIComponentType, $ => {
-                const view = $.let(Data.bind([FloatType], policyInput.path));
+                const view = $.let(Data.bind(policyInput));
                 return Diff.Root({ bindings: [view.binding] });
             })),
             UIComponentType,

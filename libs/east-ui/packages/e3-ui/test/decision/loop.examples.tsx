@@ -131,9 +131,9 @@ export const decisionLoop = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
-                const roster = $.let(Data.bind([ArrayType(Decision.Types.Decision)], loopRosterDecisions.path, { mode: 'direct' }));
-                const orders = $.let(Data.bind([ArrayType(Decision.Types.Decision)], loopOrderDecisions.path, { mode: 'direct' }));
-                const judgements = $.let(Data.bind([Decision.Types.Judgements(LoopConstraint)], loopJudgements.path, { mode: 'direct' }));
+                const roster = $.let(Data.bind(loopRosterDecisions, { mode: 'direct' }));
+                const orders = $.let(Data.bind(loopOrderDecisions, { mode: 'direct' }));
+                const judgements = $.let(Data.bind(loopJudgements, { mode: 'direct' }));
                 const handle = $.let(Decision.bind([LoopConstraint], { decisions: [roster, orders], judgements }));
                 const gated = $.let(roster.read().firstMap(($, d) =>
                     d.urgency.hasTag('overdue').ifElse(() => some(d), () => none)));

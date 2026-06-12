@@ -11,6 +11,7 @@
  * - `<Diff>` — review pending changes for any combination of bindings.
  * - `<Ontology>` — graph editor over an `OntologyType`-bound dataset.
  * - `Data.bind` — workspace-scoped reactive dataset binding.
+ * - `Func.bind` — workspace-scoped named-function (RPC) call binding.
  * - `ui()` — declare a first-class UI task.
  *
  * east-ui tags (`<VStack>`, `<Text>`, …) are imported from `@elaraai/east-ui`
@@ -35,6 +36,15 @@ export {
     type DataBindOptions,
     bindPlatformFn,
 } from './data.js';
+export {
+    Func,
+    FuncStatusType,
+    FuncErrorType,
+    FuncBindingType,
+    FuncBindHandleType,
+    type BoundFunc,
+    funcBindPlatformFn,
+} from './func.js';
 export { DataManifestType, type DataManifest, encodeManifest, decodeManifest } from './manifest.js';
 export { deriveManifest } from './derive.js';
 export { ui } from './ui.js';
@@ -59,6 +69,9 @@ export {
     LinkType,
     OntologyMetadataType,
     OntologyType,
+    type OntologyStructType,
+    OntologyViewType,
+    type OntologyViewLiteral,
 } from './ontology.js';
 
 // Decision platform types + factory

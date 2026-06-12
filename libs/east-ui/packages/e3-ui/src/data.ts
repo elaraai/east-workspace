@@ -23,7 +23,8 @@ import {
     type EastType,
     type ExprType,
 } from '@elaraai/east';
-import { TreePathType, DatasetStatusType, type TreePath } from '@elaraai/e3-types';
+import { TreePathType, DatasetStatusType } from '@elaraai/e3-types';
+import type { DatasetDef, TaskDef } from '@elaraai/e3';
 
 // ============================================================================
 // Mode + binding descriptor types — shared with the Diff component.
@@ -113,7 +114,7 @@ export const DataBindHandleType = <T extends EastType | string>(t: T) => StructT
 
 /**
  * The TypeScript type of a {@link Data.bind} handle bound to source type `T`
- * — i.e. the return of `Data.bind([T], …)`.
+ * — i.e. the return of `Data.bind(dataset)` for a `DatasetDef<T>`.
  *
  * @remarks
  * Unlike the bare `binding` field (a {@link DiffBindingType} descriptor that is
@@ -172,16 +173,98 @@ export const bindPlatformFn = East.genericPlatform(
  * @property mode - Operating mode. `"staged"` (default) buffers edits
  *   locally and commits on demand; `"direct"` writes through immediately.
  * @property patch - When supplied, the binding's commit / live writes
- *   target this patch dataset (typed `PatchType(T)`). Must be a static
- *   {@link TreePath} so manifest derivation can preload it; computed
- *   East-side path expressions are not supported. When omitted, writes
- *   target the source itself.
+ *   target this patch dataset (typed `PatchType(T)`) instead of the
+ *   source. Its path comes from the def, so it is statically known for
+ *   manifest derivation by construction.
  */
 export interface DataBindOptions {
     /** Operating mode — `"staged"` (default) or `"direct"`. */
     mode?:  DataBindModeLiteral;
-    /** Optional separate patch dataset path. Must be statically known. */
-    patch?: TreePath;
+    /** Optional separate patch dataset (typed `PatchType(T)`) — the
+     *  binding's commit / live writes target it instead of the source. */
+    patch?: DatasetDef;
+}
+
+/**
+ * Bind a dataset to a reactive view of its current value, with optional
+ * local staging or a separate server-backed patch dataset.
+ *
+ * Takes the {@link DatasetDef} returned by `e3.input` (or a {@link TaskDef},
+ * which binds its output dataset) — the binding's path and value type are
+ * both taken from the def, the same way task wiring does.
+ *
+ * @typeParam T - The East type of the source dataset value (from the def).
+ * @param dataset - The dataset (or task) definition to bind.
+ * @param options - {@link DataBindOptions}. When omitted, defaults to
+ *   `{ mode: "staged" }` (no separate patch dataset, edits buffered
+ *   locally until commit).
+ * @returns A handle struct described by {@link DataBindHandleType} —
+ *   `read` / `write` / `writeAndStart` / `source` / `pending` /
+ *   `commit` / `discard` / `has` / `status` / `binding`.
+ *
+ * @remarks
+ * Per-mode semantics matrix (rows are `mode × patch`, columns are
+ * methods):
+ *
+ * | mode    | patch   | `read()`                            | `write(v)`                              | `commit()`                                          | `discard()`                  | `pending()`         |
+ * |---------|---------|-------------------------------------|-----------------------------------------|-----------------------------------------------------|------------------------------|---------------------|
+ * | direct  | absent  | source                              | dataset write                           | no-op                                               | no-op                        | always false        |
+ * | direct  | present | apply(source, patch dataset)        | write diff(source, v) → patch dataset   | apply patch → source; clear patch dataset           | clear patch dataset          | patch non-trivial   |
+ * | staged  | absent  | buffered ?? source                  | update buffer (pin snapshot first time) | apply buffer → source; drop buffer                  | drop buffer                  | buffer non-empty    |
+ * | staged  | present | buffered ?? apply(source, patch)    | update buffer                           | write diff(source, buffer) → patch dataset; drop buffer | drop buffer (patch intact) | buffer non-empty  |
+ *
+ * `writeAndStart(v)` kicks the workspace dataflow after the write — only
+ * meaningful for `mode = "direct"` without a `patch` dataset; in other
+ * modes it falls back to `write(v)` (the workspace dataflow is triggered
+ * on `commit` instead).
+ *
+ * The `binding` field surfaces this binding's descriptor as a
+ * {@link DiffBindingType} value — pass it directly to
+ * {@link Diff.Root}'s `bindings` array to surface the in-flight change
+ * in a Diff card.
+ *
+ * Use inside `Reactive.Root` so `read` / `pending` / `status` re-fire
+ * on every dataset or staging-buffer change.
+ *
+ * @example
+ * ```ts
+ * import { East, FloatType, NullType } from "@elaraai/east";
+ * import { Reactive, Slider, UIComponentType } from "@elaraai/east-ui";
+ * import { Data, Diff } from "@elaraai/e3-ui";
+ * import * as e3 from "@elaraai/e3";
+ *
+ * const thresholdInput = e3.input("threshold", FloatType, 38.0);
+ *
+ * // Mirrors `dataBindStaged` in test/data.examples.ts.
+ * const dataBindStaged = East.function([], UIComponentType, _$ => {
+ *     return Reactive.Root(East.function([], UIComponentType, $ => {
+ *         const view = $.let(Data.bind(thresholdInput));
+ *         const value = $.let(view.read(), FloatType);
+ *         return Slider.Root(value, {
+ *             min: 30.0, max: 60.0, step: 1.0,
+ *             onChangeEnd: East.function([FloatType], NullType, ($, v) => {
+ *                  $(view.write(v));
+ *             }),
+ *         });
+ *     }));
+ * });
+ * ```
+ */
+function bindData<T extends EastType>(
+    dataset: DatasetDef<T> | TaskDef<T>,
+    options?: DataBindOptions,
+): BoundValue<T> {
+    // A TaskDef binds its output dataset; a DatasetDef binds itself.
+    const def = dataset.kind === 'task' ? dataset.output : dataset;
+    // Source / patch paths come from the defs, so they are statically known
+    // by construction — manifest derivation (`deriveManifest`) needs each as
+    // a single literal `Value` IR node, which `East.value(...)` forces.
+    const sourceValue = East.value(def.path, TreePathType);
+    const modeValue = East.value(variant(options?.mode ?? "staged", null), DataBindModeType);
+    const patchValue = options?.patch === undefined
+        ? East.value(none, OptionType(TreePathType))
+        : East.value(some(options.patch.path), OptionType(TreePathType));
+    return bindPlatformFn([def.type as T], sourceValue, patchValue, modeValue) as BoundValue<T>;
 }
 
 /**
@@ -196,83 +279,5 @@ export interface DataBindOptions {
  * datasets change.
  */
 export const Data = {
-    /**
-     * Bind a dataset path to a reactive view of its current value, with
-     * optional local staging or a separate server-backed patch dataset.
-     *
-     * @typeParam T - The East type of the source dataset value.
-     * @param types - Single-element type-args tuple `[T]`.
-     * @param source - The source dataset path.
-     * @param options - {@link DataBindOptions}. When omitted, defaults to
-     *   `{ mode: "staged" }` (no separate patch dataset, edits buffered
-     *   locally until commit).
-     * @returns A handle struct described by {@link DataBindHandleType} —
-     *   `read` / `write` / `writeAndStart` / `source` / `pending` /
-     *   `commit` / `discard` / `has` / `status` / `binding`.
-     *
-     * @remarks
-     * Per-mode semantics matrix (rows are `mode × patch`, columns are
-     * methods):
-     *
-     * | mode    | patch   | `read()`                            | `write(v)`                              | `commit()`                                          | `discard()`                  | `pending()`         |
-     * |---------|---------|-------------------------------------|-----------------------------------------|-----------------------------------------------------|------------------------------|---------------------|
-     * | direct  | absent  | source                              | dataset write                           | no-op                                               | no-op                        | always false        |
-     * | direct  | present | apply(source, patch dataset)        | write diff(source, v) → patch dataset   | apply patch → source; clear patch dataset           | clear patch dataset          | patch non-trivial   |
-     * | staged  | absent  | buffered ?? source                  | update buffer (pin snapshot first time) | apply buffer → source; drop buffer                  | drop buffer                  | buffer non-empty    |
-     * | staged  | present | buffered ?? apply(source, patch)    | update buffer                           | write diff(source, buffer) → patch dataset; drop buffer | drop buffer (patch intact) | buffer non-empty  |
-     *
-     * `writeAndStart(v)` kicks the workspace dataflow after the write — only
-     * meaningful for `mode = "direct"` without a `patch` dataset; in other
-     * modes it falls back to `write(v)` (the workspace dataflow is triggered
-     * on `commit` instead).
-     *
-     * The `binding` field surfaces this binding's descriptor as a
-     * {@link DiffBindingType} value — pass it directly to
-     * {@link Diff.Root}'s `bindings` array to surface the in-flight change
-     * in a Diff card.
-     *
-     * Use inside `Reactive.Root` so `read` / `pending` / `status` re-fire
-     * on every dataset or staging-buffer change.
-     *
-     * @example
-     * ```ts
-     * import { East, FloatType, NullType } from "@elaraai/east";
-     * import { Reactive, Slider, UIComponentType } from "@elaraai/east-ui";
-     * import { Data, Diff } from "@elaraai/e3-ui";
-     * import * as e3 from "@elaraai/e3";
-     *
-     * const thresholdInput = e3.input("threshold", FloatType, 38.0);
-     *
-     * // Mirrors `dataBindStaged` in test/data.examples.ts.
-     * const dataBindStaged = East.function([], UIComponentType, _$ => {
-     *     return Reactive.Root(East.function([], UIComponentType, $ => {
-     *         const view = $.let(Data.bind([FloatType], thresholdInput.path));
-     *         const value = $.let(view.read(), FloatType);
-     *         return Slider.Root(value, {
-     *             min: 30.0, max: 60.0, step: 1.0,
-     *             onChangeEnd: East.function([FloatType], NullType, ($, v) => { 
-     *                  $(view.write(v)); 
-     *             }),
-     *         });
-     *     }));
-     * });
-     * ```
-     */
-    bind<T extends EastType>(
-        types: [T],
-        source: TreePath,
-        options?: DataBindOptions,
-    ): BoundValue<T> {
-        // Source / patch paths must be statically known so manifest
-        // derivation (`deriveManifest`) can preload them. We wrap each
-        // explicitly via `East.value(...)` to force a single literal
-        // `Value` IR node — the only IR shape `derive.ts` needs to
-        // handle.
-        const sourceValue = East.value(source, TreePathType);
-        const modeValue = East.value(variant(options?.mode ?? "staged", null), DataBindModeType);
-        const patchValue = options?.patch === undefined
-            ? East.value(none, OptionType(TreePathType))
-            : East.value(some(options.patch), OptionType(TreePathType));
-        return bindPlatformFn(types, sourceValue, patchValue, modeValue) as BoundValue<T>;
-    },
+    bind: bindData,
 } as const;

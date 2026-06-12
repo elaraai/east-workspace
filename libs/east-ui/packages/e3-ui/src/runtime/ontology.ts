@@ -22,7 +22,7 @@ import { Ontology as OntologyFactory } from "../ontology.js";
  *
  * const editor = East.function([], UIComponentType, _$ => (
  *     <Reactive>{$ => {
- *         const view = $.let(Data.bind([OntologyType], ontologyInput.path));
+ *         const view = $.let(Data.bind(ontologyInput));
  *         return <Ontology value={view} />;
  *     }}</Reactive>
  * ));
