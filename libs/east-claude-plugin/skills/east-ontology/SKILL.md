@@ -19,6 +19,7 @@ A business creates value by **activities** that convert/exchange **resources** i
 | Resource | `resource` | Something tracked + consumed/produced (inventory, money, employees, a forecast) |
 | KPI | `kpi` | A quantitative measure of an activity's performance (fill rate, P99 latency) |
 | Decision | `decision` | A choice about how to use resources in an activity to hit a KPI |
+| Agent / role | `agent` | A person, team, or system role that executes activities and owns decisions |
 | Objective | `objective` | A strategic goal — a function of resources ("maximise profit", "NPS ≥ 60") |
 | Policy | `policy` | A rule constraining an activity (FEFO picking, least-privilege access) |
 | Data / system | `data` | A dataset, signal, or system feeding an activity (WMS stream, SAP, carrier API) |
@@ -40,6 +41,8 @@ Resources may be physical or abstract, ephemeral or long-lasting. Focus on **pri
 | `kpi --measures--> process` (or `resource`) | KPI quantifies the activity |
 | `kpi --drives--> objective` | KPI moves a strategic goal |
 | `decision --drives--> process` (or `kpi` / `objective`) | decision steers the activity toward goals |
+| `agent --executes--> process` (or `decision`) | the role that performs the activity / makes the call |
+| `kpi --measures--> agent` | KPI quantifies a team's performance |
 | `data --informs--> process` | a system/signal feeds the activity ("facilitated by") |
 | `process --inserts_data_into--> data` | activity writes back to a system |
 | `data --gets_data_from--> data` (or other) | a read dependency between signals |
@@ -60,6 +63,7 @@ Run this with the stakeholder; it mirrors the workshop sequence. Capture **probl
 4. MEASURE    → How is each measured? → `kpi` + measures / results_in
 5. FACILITATE → Which data/systems feed it? → `data` + informs / gets_data_from
 6. DRIVE      → What decision sets how resources are used? → `decision` + drives
+6b. OWN       → Who executes it / makes that call? → `agent` + executes
 7. OBJECTIVES → What goals do the KPIs serve? → `objective` + kpi drives objective
 8. CONSTRAIN  → What rules limit activities? → `policy` + constrains (+ `document` defines)
 9. PRIORITISE → Which decisions, if improved, move objectives most? → the AI/opt backlog
@@ -71,9 +75,9 @@ Start from the **biggest pain points** — don't try to model the whole business
 
 Before drawing the graph, fill one row per activity. Each row mechanically expands into nodes + links:
 
-| Activity | Uses (resources) | Produces (resources) | Measured by (KPIs) | Facilitated by (data/systems) | Driven by (decision) |
-|---|---|---|---|---|---|
-| Source raw milk | farm supplier base, demand forecast | raw-milk availability, supply contracts | fortnightly farmgate vs benchmark | SAP, supplier system | how much milk to contract, by region/term |
+| Activity | Uses (resources) | Produces (resources) | Measured by (KPIs) | Facilitated by (data/systems) | Driven by (decision) | Owned by (agent) |
+|---|---|---|---|---|---|---|
+| Source raw milk | farm supplier base, demand forecast | raw-milk availability, supply contracts | fortnightly farmgate vs benchmark | SAP, supplier system | how much milk to contract, by region/term | procurement team |
 
 Row → one `process` node, one `resource` per cell entry (dedup across rows by `id`), and a link per relationship using the canonical directions above. Decisions and objectives come last and attach with `drives`.
 
@@ -111,7 +115,7 @@ const ontology = e3.input('supply_chain', OntologyType, {
 
 const editor = East.function([], UIComponentType, (_$) =>
   Reactive.Root(East.function([], UIComponentType, $ => {
-    const view = $.let(Data.bind([OntologyType], ontology.path));
+    const view = $.let(Data.bind(ontology));
     return Ontology.Root({ binding: view.binding });
   })),
 );
@@ -119,11 +123,15 @@ const editor = East.function([], UIComponentType, (_$) =>
 
 ### `Ontology.Root` options
 
-`Ontology.Root({ binding, ... })` — only `binding` is required (pass `view.binding` from a `Data.bind` over an `OntologyType` dataset). Options: `readonly` (hide mutation surfaces; commit-bar + drawer still render), `hideMiniMap`, `hideSearch`, `density` (`'comfortable'` | `'compact'` | `'condensed'`), `onCommitted` / `onDiscarded`, `style` (per-surface colour escape hatches — see `OntologyStyleType`).
+`Ontology.Root({ value, ... })` — only `value` is required (pass the `Data.bind` handle over an `OntologyType` dataset). Options: `readonly` (hide mutation surfaces; commit-bar + drawer still render), `hideMiniMap`, `hideSearch`, `density` (`'comfortable'` | `'compact'` | `'condensed'`), `defaultView` (`'graph'` | `'table'` — the header's segmented control switches at runtime either way), `onCommitted` / `onDiscarded`, `style` (per-surface colour escape hatches — see `OntologyStyleType`).
+
+### The table view
+
+The editor's header has a segmented `Graph | Table` control. The table is a value-driver-tree projection of the same bound value: rows are `process` nodes **grouped by the objective they serve** (via KPI `drives` paths), ordered by **value-chain stage** (topological order of `uses`/`produces` resource flow, with cycles — e.g. cash → materials → goods → cash — condensed, sharing a stage, and flagged ↺). Each row shows uses/produces/KPIs/data/**decisions**/policies plus owning agents; expanding a row reveals what feeds it and what it feeds (with the carrying resources) and completeness warnings (no inputs, no outputs, no KPI, no decision). Hovering any chip highlights every occurrence of that node across the table.
 
 ### Edit modes, commit, and Diff
 
-The editor uses the same staged-buffer machinery as `Diff`. `Data.bind([OntologyType], path)` **without `mode`** stages edits — the footer commit-bar applies or discards them, and you can stack a `Diff.Root({ bindings: [view.binding] })` beside the editor to review the pending node/link patch before commit. Pass `{ mode: 'direct' }` to write each mutation straight back instead (good for read-mostly demos). For a locked view, `readonly: some(true)`.
+The editor uses the same staged-buffer machinery as `Diff`. `Data.bind(dataset)` **without `mode`** stages edits — the footer commit-bar applies or discards them, and you can stack a `Diff.Root({ bindings: [view.binding] })` beside the editor to review the pending node/link patch before commit. Pass `{ mode: 'direct' }` to write each mutation straight back instead (good for read-mostly demos). For a locked view, `readonly: some(true)`.
 
 ## Validation
 

@@ -57,6 +57,9 @@ export {
     LinkType,
     OntologyMetadataType,
     OntologyType,
+    type OntologyStructType,
+    OntologyViewType,
+    type OntologyViewLiteral,
 } from './ontology.js';
 export { Decision } from './decision/index.js';
 export {

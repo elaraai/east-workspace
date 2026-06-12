@@ -33,8 +33,8 @@ import { Global } from '@emotion/react';
 // same self-contained model as east-ui-components.
 // @ts-expect-error — `?inline` returns the stylesheet as a string at build time.
 import xyflowCss from '@xyflow/react/dist/style.css?inline';
-import { Box, HStack, Input, Menu, Portal, Text } from '@chakra-ui/react';
-import { FiSearch, FiX } from 'react-icons/fi';
+import { Box, HStack, Input, Menu, Portal, SegmentGroup, Text } from '@chakra-ui/react';
+import { FiList, FiSearch, FiShare2, FiX } from 'react-icons/fi';
 import { none, some, variant, type ValueTypeOf } from '@elaraai/east';
 import { Ontology } from '@elaraai/e3-ui/internal';
 import { implementUIComponent } from '@elaraai/east-ui-components';
@@ -42,6 +42,7 @@ import { implementUIComponent } from '@elaraai/east-ui-components';
 import { OntologyNode, type OntologyFlowNodeData } from './OntologyNode.js';
 import { OntologyEdge } from './OntologyEdge.js';
 import { NodePropertiesDrawer } from './NodePropertiesDrawer.js';
+import { OntologyTable } from './OntologyTable.js';
 import {
     ALL_NODE_KINDS,
     ValidLinks,
@@ -252,6 +253,7 @@ function OntologyEditorBody({
             decision:    '#2b4b55',
             objective:   '#253333',
             kpi:         '#2f7a5b',
+            agent:       '#6d5a7a',
             data:        '#b8862d',
             resource:    '#56727a',
             policy:      '#8d7a5f',
@@ -451,6 +453,10 @@ const EastChakraOntology = memo(function EastChakraOntology({ value }: EastChakr
     const readonly = getOpt(value.readonly) ?? false;
     const hideMiniMap = getOpt(value.hideMiniMap) ?? false;
     const hideSearch = getOpt(value.hideSearch) ?? false;
+    const defaultView = getOpt(value.defaultView)?.type ?? 'graph';
+    const [view, setView] = useState<'graph' | 'table'>(defaultView);
+    // Node selected from the table view — opens the shared properties drawer.
+    const [tableSelectedId, setTableSelectedId] = useState<string | null>(null);
 
     const handlers = useMemo<OntologyMutationHandlers>(() => {
         const transform = (fn: (curr: OntologyValue) => OntologyValue) => {
@@ -539,6 +545,7 @@ const EastChakraOntology = memo(function EastChakraOntology({ value }: EastChakr
 
     const nodeCount = ontology.nodes.length;
     const linkCount = ontology.links.length;
+    const getNode = (id: string): OntologyNodeValue | undefined => ontology.nodes.find(n => n.id === id);
 
     return (
         <Box
@@ -570,24 +577,63 @@ const EastChakraOntology = memo(function EastChakraOntology({ value }: EastChakr
                         {nodeCount} NODES · {linkCount} LINKS
                     </Text>
                 </HStack>
-                {pending && (
-                    <Text fontFamily="mono" fontSize="2xs" letterSpacing="wider" textTransform="uppercase" color="ink.warning">
-                        Unsaved changes
-                    </Text>
-                )}
+                <HStack gap="3">
+                    {pending && (
+                        <Text fontFamily="mono" fontSize="2xs" letterSpacing="wider" textTransform="uppercase" color="ink.warning">
+                            Unsaved changes
+                        </Text>
+                    )}
+                    {/* Graph | Table — both are projections of the same bound
+                        value; the staged buffer and commit machinery are
+                        view-agnostic. */}
+                    <SegmentGroup.Root
+                        size="xs"
+                        value={view}
+                        onValueChange={(e: { value: string | null }) => {
+                            if (e.value === 'graph' || e.value === 'table') setView(e.value);
+                        }}
+                    >
+                        <SegmentGroup.Indicator />
+                        <SegmentGroup.Item value="graph">
+                            <SegmentGroup.ItemText>
+                                <HStack gap="1.5"><FiShare2 size={11} /> Graph</HStack>
+                            </SegmentGroup.ItemText>
+                            <SegmentGroup.ItemHiddenInput />
+                        </SegmentGroup.Item>
+                        <SegmentGroup.Item value="table">
+                            <SegmentGroup.ItemText>
+                                <HStack gap="1.5"><FiList size={11} /> Table</HStack>
+                            </SegmentGroup.ItemText>
+                            <SegmentGroup.ItemHiddenInput />
+                        </SegmentGroup.Item>
+                    </SegmentGroup.Root>
+                </HStack>
             </HStack>
 
-            {/* canvas body */}
+            {/* body — graph canvas or process table */}
             <Box flex="1" position="relative" bg="bg.panel" minH="0">
-                <ReactFlowProvider>
-                    <OntologyEditorBody
-                        ontology={ontology}
-                        readonly={readonly}
-                        hideMiniMap={hideMiniMap}
-                        hideSearch={hideSearch}
-                        handlers={handlers}
-                    />
-                </ReactFlowProvider>
+                {view === 'graph' ? (
+                    <ReactFlowProvider>
+                        <OntologyEditorBody
+                            ontology={ontology}
+                            readonly={readonly}
+                            hideMiniMap={hideMiniMap}
+                            hideSearch={hideSearch}
+                            handlers={handlers}
+                        />
+                    </ReactFlowProvider>
+                ) : (
+                    <>
+                        <OntologyTable ontology={ontology} onSelectNode={setTableSelectedId} />
+                        <NodePropertiesDrawer
+                            nodeId={tableSelectedId}
+                            getNode={getNode}
+                            onClose={() => setTableSelectedId(null)}
+                            onUpdate={readonly ? null : handlers.updateNode}
+                            onDelete={readonly ? null : (id) => { handlers.deleteNodes(new Set([id])); setTableSelectedId(null); }}
+                        />
+                    </>
+                )}
             </Box>
         </Box>
     );

@@ -21,7 +21,7 @@ import { Box, Text, VStack } from '@chakra-ui/react';
 import type { ComponentType } from 'react';
 import {
     FiTarget, FiBarChart, FiCheckCircle, FiSettings, FiBox,
-    FiDatabase, FiShield, FiFileText, FiCpu, FiFolder,
+    FiDatabase, FiShield, FiFileText, FiCpu, FiFolder, FiUser,
 } from 'react-icons/fi';
 import type { OntologyNodeKind } from './types.js';
 import { NODE_KIND_ACCENT } from './accents.js';
@@ -32,6 +32,7 @@ const NODE_ICONS: Record<OntologyNodeKind, ComponentType<{ size?: number }>> = {
     decision:    FiCheckCircle,
     process:     FiSettings,
     resource:    FiBox,
+    agent:       FiUser,
     data:        FiDatabase,
     policy:      FiShield,
     document:    FiFileText,

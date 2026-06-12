@@ -54,6 +54,8 @@ import { DiffBindingType, type BoundValue } from './data.js';
  * @property resource - A consumable or capacity tracked by the business.
  * @property kpi - A measurable indicator.
  * @property decision - A point at which the business chooses among options.
+ * @property agent - A person, team, or system role that executes processes
+ *   and owns decisions (REA's third leg: resources, events, agents).
  * @property data - A dataset or signal flowing through the business.
  * @property objective - A strategic goal the business pursues.
  * @property policy - A rule constraining other elements.
@@ -66,6 +68,7 @@ export const NodeKindType = VariantType({
     resource: NullType,
     kpi: NullType,
     decision: NullType,
+    agent: NullType,
     data: NullType,
     objective: NullType,
     policy: NullType,
@@ -177,11 +180,32 @@ export type OntologyMetadataType = typeof OntologyMetadataType;
  *   warnings in the editor.
  * @property metadata - Optional versioning + provenance metadata.
  */
-export const OntologyType = StructType({
+const OntologyTypeImpl = StructType({
     nodes: ArrayType(NodeType),
     links: ArrayType(LinkType),
     metadata: OptionType(OntologyMetadataType),
 });
+
+/**
+ * The structural type of {@link OntologyType}, as a named interface.
+ *
+ * Same declaration-emit fix as `UIComponentNode` in east-ui: the struct
+ * literal's inferred type is a large anonymous structural type (every
+ * node/link variant spelled out). Type aliases lose their name through
+ * generic inference, so a downstream `export const x = e3.input('o',
+ * OntologyType, …)` compiled with declaration emit would serialize the
+ * whole structure inline into the `.d.ts`. An interface is a symbol, so
+ * the declaration emitter references it by name instead.
+ *
+ * The interface wraps the whole `StructType` (not its fields record):
+ * `StructType`'s `Record<string, …>` fields constraint rejects closed
+ * interfaces, but the struct value type itself extends cleanly.
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- the empty interface is the point: it attaches a symbol the declaration emitter can reference by name
+export interface OntologyStructType extends OntologyTypeImpl {}
+type OntologyTypeImpl = typeof OntologyTypeImpl;
+
+export const OntologyType: OntologyStructType = OntologyTypeImpl;
 /** Type alias for {@link OntologyType}. */
 export type OntologyType = typeof OntologyType;
 
@@ -236,6 +260,26 @@ export const OntologyStyleType = StructType({
 /** Type alias for {@link OntologyStyleType}. */
 export type OntologyStyleType = typeof OntologyStyleType;
 
+/**
+ * The Ontology editor's display mode — the segmented control in the header
+ * switches between them. Both are projections of the same bound value and
+ * share the staged-buffer + commit machinery.
+ *
+ * @property graph - The ReactFlow node/link canvas (default).
+ * @property table - The process table: rows are `process` nodes grouped by
+ *   the `objective` they serve and ordered by topological value-chain stage
+ *   (derived from `uses` / `produces` resource flow).
+ */
+export const OntologyViewType = VariantType({
+    graph: NullType,
+    table: NullType,
+});
+/** Type alias for {@link OntologyViewType}. */
+export type OntologyViewType = typeof OntologyViewType;
+
+/** String literal form of {@link OntologyViewType}. */
+export type OntologyViewLiteral = 'graph' | 'table';
+
 // ============================================================================
 // Re-export the binding descriptor — same opaque carrier the Diff card uses.
 // ============================================================================
@@ -280,6 +324,8 @@ export const OntologyPayloadType = StructType({
     onCommitted:  OptionType(FunctionType([], NullType)),
     onDiscarded:  OptionType(FunctionType([], NullType)),
     style:        OptionType(OntologyStyleType),
+    /** Initial display mode — graph canvas (default) or process table. */
+    defaultView:  OptionType(OntologyViewType),
 });
 /** Type alias for {@link OntologyPayloadType}. */
 export type OntologyPayloadType = typeof OntologyPayloadType;
@@ -315,7 +361,7 @@ export const OntologyComponent = EastUI.component('Ontology', OntologyPayloadTyp
  *   {@link OntologyStyleType}.
  */
 export interface OntologyOptions {
-    /** The bound dataset to surface — pass the `Data.bind([OntologyType], …)`
+    /** The bound dataset to surface — pass the `Data.bind(…)`
      *  handle itself (e.g. `value={view}`). Its East type carries the source
      *  type, so a handle bound to any non-`OntologyType` dataset is a compile
      *  error here. */
@@ -334,6 +380,10 @@ export interface OntologyOptions {
     onDiscarded?: SubtypeExprOrValue<OptionType<FunctionType<[], NullType>>>;
     /** Visual style escape hatches — see {@link OntologyStyleType}. */
     style?: SubtypeExprOrValue<OptionType<OntologyStyleType>>;
+    /** Initial display mode — `'graph'` (canvas, default) or `'table'`
+     *  (objective-grouped process table). The header's segmented control
+     *  switches between them at runtime either way. */
+    defaultView?: SubtypeExprOrValue<OptionType<OntologyViewType>> | OntologyViewLiteral;
 }
 
 /**
@@ -370,7 +420,7 @@ export const Ontology = {
      *
      * const editor = East.function([], UIComponentType, (_$) =>
      *   Reactive.Root(East.function([], UIComponentType, $ => {
-     *     const view = $.let(Data.bind([OntologyType], ontologyInput.path));
+     *     const view = $.let(Data.bind(ontologyInput));
      *     return Ontology.Root({ value: view });
      *   })),
      * );
@@ -383,6 +433,11 @@ export const Ontology = {
             : typeof options.density === 'string'
                 ? some(East.value(variant(options.density, null), DensityType))
                 : options.density;
+        const defaultView = options.defaultView === undefined
+            ? none
+            : typeof options.defaultView === 'string'
+                ? some(East.value(variant(options.defaultView, null), OntologyViewType))
+                : options.defaultView;
         return OntologyComponent.Root({
             binding:     view.binding,
             readonly:    options.readonly    ?? none,
@@ -392,6 +447,7 @@ export const Ontology = {
             onCommitted: options.onCommitted ?? none,
             onDiscarded: options.onDiscarded ?? none,
             style:       options.style       ?? none,
+            defaultView,
         });
     },
     /**
@@ -419,5 +475,7 @@ export const Ontology = {
         LinkKind: LinkKindType,
         /** Optional ontology metadata struct. */
         Metadata: OntologyMetadataType,
+        /** Display-mode variant enum (graph | table). */
+        View: OntologyViewType,
     },
 } as const;

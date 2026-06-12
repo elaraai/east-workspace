@@ -69,6 +69,9 @@ export {
     LinkType,
     OntologyMetadataType,
     OntologyType,
+    type OntologyStructType,
+    OntologyViewType,
+    type OntologyViewLiteral,
 } from './ontology.js';
 
 // Decision platform types + factory
