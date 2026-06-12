@@ -619,7 +619,9 @@ jobs:
           DRY=${{ inputs.dry_run && '--dry-run' || '' }}
           for target in linux-x64 linux-arm64 darwin-arm64 darwin-x64 win32-x64; do
             # npm pack folds the scope into the filename (elaraai- prefix).
-            TGZ="c-npm/elaraai-east-c-cli-${target}-${VERSION}.tgz"
+            # Leading ./ is required: without it npm parses the single-slash
+            # path as a GitHub owner/repo shorthand and tries git ls-remote.
+            TGZ="./c-npm/elaraai-east-c-cli-${target}-${VERSION}.tgz"
             if [ ! -f "$TGZ" ]; then
               echo "::error::Missing artifact $TGZ"
               exit 1
