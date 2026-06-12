@@ -96,9 +96,6 @@ export {
   ExecuteResultType,
   FunctionCallRequestType,
   FunctionSignatureType,
-  CallStartResultType,
-  CallStatusType,
-  CallStatusResultType,
   OneShotRequestType,
   // Graph types (from dataflow.ts, structurally identical to old API GraphTaskType)
   DataflowGraphType,
@@ -153,9 +150,6 @@ export type {
   ExecuteResult,
   FunctionCallRequest,
   FunctionSignature,
-  CallStartResult,
-  CallStatus,
-  CallStatusResult,
   OneShotRequest,
   DataflowGraph,
   DataflowGraphTask,
@@ -238,9 +232,6 @@ import {
   ExecuteResultType as _ExecuteResultType,
   FunctionCallRequestType as _FunctionCallRequestType,
   FunctionSignatureType as _FunctionSignatureType,
-  CallStartResultType as _CallStartResultType,
-  CallStatusType as _CallStatusType,
-  CallStatusResultType as _CallStatusResultType,
   OneShotRequestType as _OneShotRequestType,
 } from '@elaraai/e3-types';
 
@@ -346,8 +337,5 @@ export const ApiTypes = {
   ExecuteResultType: _ExecuteResultType,
   FunctionCallRequestType: _FunctionCallRequestType,
   FunctionSignatureType: _FunctionSignatureType,
-  CallStartResultType: _CallStartResultType,
-  CallStatusType: _CallStatusType,
-  CallStatusResultType: _CallStatusResultType,
   OneShotRequestType: _OneShotRequestType,
 } as const;

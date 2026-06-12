@@ -50,9 +50,6 @@ export type {
   ExecuteResult,
   FunctionCallRequest,
   FunctionSignature,
-  CallStartResult,
-  CallStatus,
-  CallStatusResult,
   OneShotRequest,
 } from './types.js';
 
@@ -114,19 +111,10 @@ export {
   functionList,
   functionDescribe,
   functionCall,
-  functionCallLaunch,
-  functionCallPoll,
-  functionCallCancel,
   workspaceFunctionList,
   workspaceFunctionDescribe,
   workspaceFunctionCall,
-  workspaceFunctionCallLaunch,
-  workspaceFunctionCallPoll,
-  workspaceFunctionCallCancel,
   oneShotExecute,
-  oneShotLaunch,
-  oneShotPoll,
-  oneShotCancel,
 } from './functions.js';
 
 // Executions

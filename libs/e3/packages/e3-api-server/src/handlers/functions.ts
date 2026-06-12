@@ -30,20 +30,11 @@ import { errorToVariant } from '../errors.js';
 import {
   FunctionSignatureType,
   ExecuteResultType,
-  CallStartResultType,
-  CallStatusResultType,
   type ExecuteResult,
   type ExecuteLimits,
   type FunctionCallRequest,
   type OneShotRequest,
 } from '../types.js';
-import {
-  createFunctionCall,
-  completeFunctionCall,
-  failFunctionCall,
-  getFunctionCall,
-  cancelFunctionCall,
-} from '../function-call-state.js';
 
 // =============================================================================
 // Limits (server-owned, clamped)
@@ -336,60 +327,8 @@ export async function callFunctionSync(
   }
 }
 
-/**
- * Call a named function asynchronously: resolve up front (so a missing
- * function is a request error, not a failed call), then fire the run
- * detached and return 202 `{callId}` for polling.
- */
-export async function callFunctionAsync(
-  storage: StorageBackend,
-  repoPath: string,
-  runner: TaskRunner,
-  pkgName: string,
-  version: string,
-  fnName: string,
-  req: FunctionCallRequest
-): Promise<Response> {
-  try {
-    const fnObj = await resolveFunction(storage, repoPath, pkgName, version, fnName);
-    const { callId, abort } = createFunctionCall();
 
-    void (async () => {
-      try {
-        const result = await executeFunction(storage, repoPath, runner, fnObj, req, false, abort.signal);
-        completeFunctionCall(callId, result);
-      } catch (err) {
-        failFunctionCall(callId, err instanceof Error ? err.message : String(err));
-      }
-    })();
 
-    return sendSuccessWithStatus(CallStartResultType, { callId }, 202);
-  } catch (err) {
-    return sendError(CallStartResultType, errorToVariant(err));
-  }
-}
-
-/**
- * Poll an async call's status (and result, once terminal).
- */
-export function getCallStatus(callId: string): Response {
-  const status = getFunctionCall(callId);
-  if (!status) {
-    return sendError(CallStatusResultType, variant('execution_not_found', { task: callId }));
-  }
-  return sendSuccess(CallStatusResultType, status);
-}
-
-/**
- * Cancel an in-flight async call (kills the runner's process group).
- */
-export function cancelCall(callId: string): Response {
-  const found = cancelFunctionCall(callId);
-  if (!found) {
-    return sendError(NullType, variant('execution_not_found', { task: callId }));
-  }
-  return sendSuccess(NullType, null);
-}
 
 // =============================================================================
 // One-shot handlers (workspace-scoped; anonymous caller-supplied IR)
@@ -416,32 +355,3 @@ export async function callOneShotSync(
   }
 }
 
-/**
- * Launch a one-shot asynchronously → 202 `{callId}`. Dataset args are
- * resolved + pinned inside the detached run at launch time.
- */
-export async function callOneShotAsync(
-  storage: StorageBackend,
-  repoPath: string,
-  runner: TaskRunner,
-  workspace: string,
-  req: OneShotRequest
-): Promise<Response> {
-  try {
-    await workspaceGetPackage(storage, repoPath, workspace);
-    const { callId, abort } = createFunctionCall();
-
-    void (async () => {
-      try {
-        const result = await executeOneShot(storage, repoPath, workspace, runner, req, false, abort.signal);
-        completeFunctionCall(callId, result);
-      } catch (err) {
-        failFunctionCall(callId, err instanceof Error ? err.message : String(err));
-      }
-    })();
-
-    return sendSuccessWithStatus(CallStartResultType, { callId }, 202);
-  } catch (err) {
-    return sendError(CallStartResultType, errorToVariant(err));
-  }
-}

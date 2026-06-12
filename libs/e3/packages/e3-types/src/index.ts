@@ -223,9 +223,6 @@ export {
   ExecuteResultType,
   FunctionCallRequestType,
   FunctionSignatureType,
-  CallStartResultType,
-  CallStatusType,
-  CallStatusResultType,
   OneShotRequestType,
   // Type aliases
   type Error,
@@ -267,9 +264,6 @@ export {
   type ExecuteResult,
   type FunctionCallRequest,
   type FunctionSignature,
-  type CallStartResult,
-  type CallStatus,
-  type CallStatusResult,
   type OneShotRequest,
 } from './api.js';
 

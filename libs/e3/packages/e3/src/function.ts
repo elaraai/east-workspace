@@ -43,7 +43,8 @@ import { DEFAULT_RUNNER, runnerToVariant, type FunctionRunner } from './runner.j
  * @param fn - The East function body. Pure compute — no dataset reads; may
  *   be async (platform calls / IO).
  * @param config - Optional runner selection. Only the known runtimes are
- *   allowed (no `custom` raw-argv runner — see {@link FunctionRunner}).
+ *   allowed — including `custom` (symmetric with tasks; the command must
+ *   speak the runner CLI convention, see {@link FunctionRunner}).
  * @returns A FunctionDef to pass to `e3.package`
  *
  * @example

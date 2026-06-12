@@ -246,6 +246,7 @@ export function task(
     deps: collectDeps(taskTree, output, input_datasets),
     taskKind: config?.kind,
     metadata: config?.metadata,
+    runner: config?.runner ?? DEFAULT_RUNNER,
   };
 
   // Add the task to the output's deps so downstream tasks collect this task's deps

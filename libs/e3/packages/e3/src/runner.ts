@@ -77,28 +77,24 @@ export type Runner =
   | { runtime: 'custom';    command: NonEmpty<string> };
 
 /**
- * A {@link Runner} restricted to the known runtimes — the only runners an
- * `e3.function` may use. The `custom` (raw-argv) runtime is task-only: a
- * function's runner is stored on the wire and resolvable at call time, so
- * allowing raw argv would be arbitrary command execution by construction.
+ * Functions accept the same runners as tasks (symmetric model). `custom`
+ * commands must speak the runner CLI convention (`<command…> -i <arg>…
+ * -o <out> <ir>`), since the server appends that suffix at call time.
+ * Kept as an alias for source compatibility.
  */
-export type FunctionRunner = Exclude<Runner, { runtime: 'custom' }>;
+export type FunctionRunner = Runner;
 
 /**
  * Convert a {@link Runner} to its wire-format {@link RunnerValue} variant
  * (used by `e3.function` / `e3.export`). Rejects the `custom` runtime —
- * prefer typing call sites as {@link FunctionRunner} so the rejection is a
- * compile error; this throw is the runtime backstop.
  */
 export function runnerToVariant(r: Runner): RunnerValue {
-  if (r.runtime === 'custom') {
-    throw new Error(
-      "e3.function does not support the 'custom' runner — functions run only on a known runtime (east-node, east-py, east-c)",
-    );
-  }
   // The SDK makes `platforms` optional and allows `{ custom: name }` entries;
   // the wire type requires a plain string array — collapse both here, exactly
   // like runnerToCommand.
+  if (r.runtime === 'custom') {
+    return variant('custom', { command: [...r.command] });
+  }
   const platforms = (r.platforms ?? []).map((p) => (typeof p === 'string' ? p : p.custom));
   switch (r.runtime) {
     case 'east-node': return variant('east_node', { platforms });

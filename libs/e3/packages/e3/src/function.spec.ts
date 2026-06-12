@@ -101,13 +101,13 @@ describe('function_', () => {
     ), /non-empty name/);
   });
 
-  it('rejects a custom runner at definition time', () => {
-    assert.throws(() => function_(
-      'bad',
+  it('accepts a custom runner (symmetric with tasks)', () => {
+    const f = function_(
+      'custom-ok',
       East.function([IntegerType], IntegerType, ($, x) => x),
-      // Cast: the typed signature already forbids this — verify the runtime backstop
-      { runner: { runtime: 'custom', command: ['python3'] } as never }
-    ), /custom/);
+      { runner: { runtime: 'custom', command: ['python3', 'my-runner.py'] } }
+    );
+    assert.equal(f.runner.runtime, 'custom');
   });
 });
 
@@ -130,10 +130,10 @@ describe('runnerToVariant', () => {
     );
   });
 
-  it('rejects the custom runtime', () => {
-    assert.throws(
-      () => runnerToVariant({ runtime: 'custom', command: ['bash', '-c', 'true'] }),
-      /custom/
+  it('maps the custom runtime to the wire custom variant', () => {
+    assert.deepStrictEqual(
+      runnerToVariant({ runtime: 'custom', command: ['bash', '-c', 'true'] }),
+      variant('custom', { command: ['bash', '-c', 'true'] })
     );
   });
 });

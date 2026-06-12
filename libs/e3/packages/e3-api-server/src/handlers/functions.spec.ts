@@ -3,7 +3,7 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { describe, it, beforeEach, afterEach } from 'node:test';
+import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { Hono } from 'hono';
 import {
@@ -22,17 +22,12 @@ import {
   listPackageFunctions,
   describePackageFunction,
   callFunctionSync,
-  callFunctionAsync,
-  getCallStatus,
 } from './functions.js';
 import { createOneShotRoutes } from '../routes/functions.js';
-import { clearAllFunctionCalls } from '../function-call-state.js';
 import {
   ResponseType,
   FunctionSignatureType,
   ExecuteResultType,
-  CallStartResultType,
-  CallStatusResultType,
   OneShotRequestType,
   type FunctionCallRequest,
 } from '../types.js';
@@ -83,10 +78,6 @@ describe('function handlers', () => {
     storage = new InMemoryStorage();
     runner = new MockTaskRunner();
     await seedPackage(storage);
-  });
-
-  afterEach(() => {
-    clearAllFunctionCalls();
   });
 
   it('listPackageFunctions surfaces the signature', async () => {
@@ -149,41 +140,6 @@ describe('function handlers', () => {
     assert.equal(runner.getDetachedCalls().length, 0, 'nothing should have executed');
   });
 
-  it('async launch returns 202 and polls to a terminal result', async () => {
-    runner.setDetachedResult({
-      kind: 'success', value: encodeInt(42n),
-      stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false,
-    });
-
-    const launch = await callFunctionAsync(
-      storage, REPO, runner, PKG, VERSION, 'double',
-      callRequest([encodeInt(21n)])
-    );
-    assert.equal(launch.status, 202);
-    const start = await decodeResponse<any>(launch, CallStartResultType);
-    assert.equal(start.type, 'success');
-    const callId = start.value.callId as string;
-
-    // Poll until terminal (the mock completes almost immediately)
-    let status: any;
-    for (let i = 0; i < 100; i++) {
-      const response = getCallStatus(callId);
-      status = await decodeResponse<any>(response, CallStatusResultType);
-      assert.equal(status.type, 'success');
-      if (status.value.status.type !== 'running') break;
-      await new Promise((r) => setTimeout(r, 10));
-    }
-    assert.equal(status.value.status.type, 'succeeded');
-    assert.equal(status.value.result.type, 'some');
-    assert.equal(status.value.result.value.outcome.type, 'success');
-  });
-
-  it('polling an unknown callId returns execution_not_found', async () => {
-    const response = getCallStatus('00000000-0000-0000-0000-000000000000');
-    const result = await decodeResponse<any>(response, CallStatusResultType);
-    assert.equal(result.type, 'error');
-    assert.equal((result.value as { type: string }).type, 'execution_not_found');
-  });
 });
 
 describe('one-shot role gate', () => {

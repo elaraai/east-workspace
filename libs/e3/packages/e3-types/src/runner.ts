@@ -19,17 +19,22 @@
 import { VariantType, StructType, ArrayType, StringType, ValueTypeOf } from '@elaraai/east';
 
 /**
- * Wire representation of a function's runner.
+ * Wire representation of a runner — shared by tasks and functions
+ * (symmetric: both carry `runner: RunnerType`).
  *
- * Each tag names a known runtime binary; `platforms` are passed as `-p`
- * flags. There is deliberately no raw-argv case: a resolved-argv field would
- * let any caller choose the executable and every flag — arbitrary command
- * execution by construction.
+ * The known-runtime tags name a runtime binary; `platforms` are passed as
+ * `-p` flags. `custom` carries a raw argv prefix: for functions it is the
+ * executed command (the standard `-i/-o/<ir>` suffix is appended, so the
+ * command must speak the runner CLI convention); for tasks it is routing
+ * metadata only — a task's `commandIr` remains authoritative for execution.
+ * Package authors can already execute arbitrary commands via custom tasks,
+ * so `custom` grants no capability that tasks don't have.
  */
 export const RunnerType = VariantType({
   east_node: StructType({ platforms: ArrayType(StringType) }),
   east_py:   StructType({ platforms: ArrayType(StringType) }),
   east_c:    StructType({ platforms: ArrayType(StringType) }),
+  custom:    StructType({ command: ArrayType(StringType) }),
 });
 export type RunnerType = typeof RunnerType;
 
@@ -52,5 +57,6 @@ export function runnerToArgv(r: RunnerValue): string[] {
     case 'east_node': return ['east-node', 'run', ...flags(r.value.platforms)];
     case 'east_py':   return ['east-py',   'run', ...flags(r.value.platforms)];
     case 'east_c':    return ['east-c',    'run', ...flags(r.value.platforms)];
+    case 'custom':    return [...r.value.command];
   }
 }
