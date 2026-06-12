@@ -141,8 +141,13 @@ jobs:
             package.json
             libs/**/package.json
             libs/east-py/packages/*/pyproject.toml
+            libs/east-c/VERSION
             .claude-plugin/marketplace.json
             libs/east-claude-plugin/.claude-plugin/plugin.json
+          # The .claude-plugin/ dirs are hidden; without this the uploader
+          # silently drops plugin.json and the release commits version drift
+          # (exactly what happened at v1.0.4 and v1.0.5).
+          include-hidden-files: true
           retention-days: 7
 
   # ────────────────────────────────────────────────────────────────────────
@@ -689,6 +694,15 @@ jobs:
         run: |
           git config user.name "elara-ci[bot]"
           git config user.email "elara-ci[bot]@users.noreply.github.com"
+
+      # Guard: the bump ran in `prepare`; this job only sees what survived the
+      # artifact round-trip. Re-check alignment here so a dropped manifest
+      # fails the release instead of committing drift.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify manifests aligned
+        run: node scripts/check-version-drift.mjs
 
       - name: Commit + tag + push
         run: |
