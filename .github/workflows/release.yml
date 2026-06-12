@@ -389,8 +389,13 @@ jobs:
           # resolves the one co-installed copy in east/.
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: >-
             auditwheel repair --exclude libeast-c.so -w {dest_dir} {wheel}
-          CIBW_REPAIR_WHEEL_COMMAND_MACOS: >-
-            delocate-wheel --exclude libeast-c --require-archs {delocate_archs} -w {dest_dir} {wheel}
+          # delocate resolves the FULL dependency tree before --exclude applies, so
+          # the datascience wheel — which deliberately ships without libeast-c (the
+          # core wheel carries the one copy) — hits an unresolvable
+          # @rpath/libeast-c.dylib and needs --ignore-missing-dependencies. Core
+          # keeps strict resolution: its libeast-c is in-wheel, so a missing dep
+          # there is a real packaging bug.
+          CIBW_REPAIR_WHEEL_COMMAND_MACOS: ${{ matrix.pkg.name == 'east-py' && 'delocate-wheel --exclude libeast-c --require-archs {delocate_archs} -w {dest_dir} {wheel}' || 'delocate-wheel --exclude libeast-c --ignore-missing-dependencies --require-archs {delocate_archs} -w {dest_dir} {wheel}' }}
           # cibuildwheel doesn't bundle delvewheel; install it for the repair step.
           CIBW_BEFORE_BUILD_WINDOWS: pip install delvewheel
           # Core SHIPS east_c_shared.dll inside east/ — keep it un-vendored and its
@@ -570,7 +575,10 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: c-npm-${{ matrix.target }}
-          path: east-c-cli-*.tgz
+          # npm pack folds the scope into the filename:
+          # @elaraai/east-c-cli-<t> → elaraai-east-c-cli-<t>-<v>.tgz
+          path: elaraai-east-c-cli-*.tgz
+          if-no-files-found: error
 
   # ────────────────────────────────────────────────────────────────────────
   # 5b. publish-c-npm: publishes the @elaraai/east-c-cli launcher + the 5
@@ -610,7 +618,8 @@ jobs:
           TAG="${{ needs.prepare.outputs.npm_tag }}"
           DRY=${{ inputs.dry_run && '--dry-run' || '' }}
           for target in linux-x64 linux-arm64 darwin-arm64 darwin-x64 win32-x64; do
-            TGZ="c-npm/east-c-cli-${target}-${VERSION}.tgz"
+            # npm pack folds the scope into the filename (elaraai- prefix).
+            TGZ="c-npm/elaraai-east-c-cli-${target}-${VERSION}.tgz"
             if [ ! -f "$TGZ" ]; then
               echo "::error::Missing artifact $TGZ"
               exit 1
