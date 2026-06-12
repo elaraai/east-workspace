@@ -146,6 +146,13 @@ export interface FinalizeResult {
   reexecuted: number;
   /** Total duration in milliseconds */
   duration: number;
+  /**
+   * True if the execution yielded (checkpointed) rather than completed.
+   * The persisted state remains 'running' and can be continued with
+   * orchestrator.resume(). When set, `success` is false and the counters
+   * reflect progress so far.
+   */
+  yielded?: boolean;
 }
 
 /**

@@ -24,6 +24,8 @@ import {
   type DatasetRef,
 } from '@elaraai/e3-types';
 import { dataflowExecute } from './dataflow.js';
+import { LocalOrchestrator } from './dataflow/orchestrator/LocalOrchestrator.js';
+import { InMemoryStateStore } from './dataflow/state-store/InMemoryStateStore.js';
 import { datasetWrite } from './trees.js';
 import { objectWrite } from './storage/local/LocalObjectStore.js';
 import { workspaceDeploy } from './workspaces.js';
@@ -1778,6 +1780,254 @@ describe('dataflow orchestration with MockTaskRunner', () => {
       assert.strictEqual(result2.executed, 0);
       // MockRunner should not have been called — cache resolved inline
       assert.strictEqual(mockRunner.getCalls().length, 0);
+    });
+  });
+
+  describe('yield and resume', () => {
+    /**
+     * Build the standard A -> B -> C chain fixture and return its task hashes.
+     */
+    async function createChainFixture(): Promise<Map<string, string>> {
+      const structure: Structure = {
+        type: 'struct',
+        value: new Map([
+          ['input', { type: 'value', value: { type: StringType, writable: true } }],
+          ['middle1', { type: 'value', value: { type: StringType, writable: true } }],
+          ['middle2', { type: 'value', value: { type: StringType, writable: true } }],
+          ['output', { type: 'value', value: { type: StringType, writable: true } }],
+        ]),
+      } as unknown as Structure;
+
+      const inputPath: TreePath = [variant('field', 'input')];
+      const middle1Path: TreePath = [variant('field', 'middle1')];
+      const middle2Path: TreePath = [variant('field', 'middle2')];
+      const outputPath: TreePath = [variant('field', 'output')];
+
+      const taskHashes = await createPackageWithTasks(
+        testRepo,
+        [
+          { name: 'task-a', command: ['echo'], inputs: [inputPath], output: middle1Path },
+          { name: 'task-b', command: ['echo'], inputs: [middle1Path], output: middle2Path },
+          { name: 'task-c', command: ['echo'], inputs: [middle2Path], output: outputPath },
+        ],
+        structure,
+      );
+      await workspaceDeploy(storage, testRepo, 'test-ws', 'test', '1.0.0');
+      await workspaceSetDataset(storage, testRepo, 'test-ws', inputPath, 'test', StringType);
+      return taskHashes;
+    }
+
+    it('yields at the checkpoint and resumes to completion', async () => {
+      const taskHashes = await createChainFixture();
+      const stateStore = new InMemoryStateStore();
+      const orchestrator = new LocalOrchestrator(stateStore);
+
+      // task-a completes immediately; task-b hangs until released, so the
+      // yield deterministically catches it in_progress.
+      let releaseB!: () => void;
+      const bGate = new Promise<void>((resolve) => { releaseB = resolve; });
+      mockRunner.setResult(taskHashes.get('task-a')!, {
+        state: 'success', cached: false, outputHash: 'output-task-a',
+      });
+      mockRunner.setResult(taskHashes.get('task-b')!, async () => {
+        await bGate;
+        return { state: 'success', cached: false, outputHash: 'output-task-b' };
+      });
+      mockRunner.setResult(taskHashes.get('task-c')!, {
+        state: 'success', cached: false, outputHash: 'output-task-c',
+      });
+
+      // Request the yield once task-a has completed.
+      let yieldRequested = false;
+      const handle = await orchestrator.start(storage, testRepo, 'test-ws', {
+        runner: mockRunner,
+        shouldYield: () => yieldRequested,
+        onTaskComplete: (r) => { if (r.name === 'task-a') yieldRequested = true; },
+      });
+
+      const result1 = await orchestrator.wait(handle);
+      assert.strictEqual(result1.yielded, true);
+      assert.strictEqual(result1.success, false);
+      assert.strictEqual(result1.executed, 1); // task-a only
+
+      // Persisted state: still running, task-a completed, nothing in_progress
+      const persisted = await stateStore.read(testRepo, 'test-ws', handle.id);
+      assert.ok(persisted);
+      assert.strictEqual(persisted.status, 'running');
+      assert.strictEqual(persisted.tasks.get('task-a')!.status, 'completed');
+      assert.strictEqual(persisted.tasks.get('task-b')!.status, 'pending');
+      assert.strictEqual(persisted.tasks.get('task-c')!.status, 'pending');
+
+      // Resume — task-b runs normally this time. No lock retry needed: wait()
+      // resolves a yield only after the locks are released.
+      releaseB();
+      // Let the abandoned task-b promise settle; its completion handler only
+      // mutates the dead incarnation's in-memory state (persist suppressed).
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      mockRunner.setResult(taskHashes.get('task-b')!, {
+        state: 'success', cached: false, outputHash: 'output-task-b',
+      });
+      const handle2 = await orchestrator.resume(storage, testRepo, 'test-ws', handle.id, {
+        runner: mockRunner,
+      });
+      assert.strictEqual(handle2.id, handle.id);
+
+      const result2 = await orchestrator.wait(handle2);
+      assert.strictEqual(result2.success, true);
+      assert.ok(!result2.yielded);
+
+      const final = await stateStore.read(testRepo, 'test-ws', handle.id);
+      assert.strictEqual(final!.status, 'completed');
+      for (const name of ['task-a', 'task-b', 'task-c']) {
+        assert.strictEqual(final!.tasks.get(name)!.status, 'completed');
+      }
+
+      // task-a ran exactly once — completed work is not re-executed on resume
+      const aCalls = mockRunner.getCalls().filter(c => c.taskHash === taskHashes.get('task-a'));
+      assert.strictEqual(aCalls.length, 1);
+    });
+
+    it('continues the DataflowRun record across resume via runId', async () => {
+      const taskHashes = await createChainFixture();
+      const stateStore = new InMemoryStateStore();
+      const orchestrator = new LocalOrchestrator(stateStore);
+
+      for (const [name, hash] of taskHashes) {
+        mockRunner.setResult(hash, {
+          state: 'success', cached: false, outputHash: `output-${name}`,
+        });
+      }
+
+      // Yield as soon as task-a completes
+      let yieldRequested = false;
+      const handle = await orchestrator.start(storage, testRepo, 'test-ws', {
+        runner: mockRunner,
+        shouldYield: () => yieldRequested,
+        onTaskComplete: (r) => { if (r.name === 'task-a') yieldRequested = true; },
+      });
+      const result1 = await orchestrator.wait(handle);
+      assert.strictEqual(result1.yielded, true);
+
+      // Resume under the original runId
+      const handle2 = await orchestrator.resume(storage, testRepo, 'test-ws', handle.id, {
+        runner: mockRunner,
+        runId: result1.runId,
+      });
+      const result2 = await orchestrator.wait(handle2);
+      assert.strictEqual(result2.success, true);
+      assert.strictEqual(result2.runId, result1.runId);
+
+      // The final run record is written under the original runId and covers
+      // tasks completed before the yield, not just this incarnation.
+      const run = await storage.refs.dataflowRunGet(testRepo, 'test-ws', result1.runId);
+      assert.ok(run);
+      assert.strictEqual(run.status.type, 'completed');
+      for (const name of ['task-a', 'task-b', 'task-c']) {
+        assert.ok(run.taskExecutions.has(name), `run record should include ${name}`);
+      }
+    });
+
+    it('recovers an execution stranded in_progress by a dead host', async () => {
+      const taskHashes = await createChainFixture();
+      const stateStore = new InMemoryStateStore();
+      const orchestrator = new LocalOrchestrator(stateStore);
+
+      for (const [name, hash] of taskHashes) {
+        mockRunner.setResult(hash, {
+          state: 'success', cached: false, outputHash: `output-${name}`,
+        });
+      }
+
+      // Take a clean yield first to get a valid persisted 'running' state...
+      let yieldRequested = false;
+      const handle = await orchestrator.start(storage, testRepo, 'test-ws', {
+        runner: mockRunner,
+        shouldYield: () => yieldRequested,
+        onTaskComplete: () => { yieldRequested = true; },
+      });
+      await orchestrator.wait(handle);
+
+      // ...then simulate a crash: strand task-b in_progress (a dead host
+      // never runs stepYield, so this is what resume() actually sees).
+      const state = await stateStore.read(testRepo, 'test-ws', handle.id);
+      assert.ok(state);
+      (state.tasks.get('task-b')! as { status: string }).status = 'in_progress';
+      await stateStore.update(state);
+
+      const handle2 = await orchestrator.resume(storage, testRepo, 'test-ws', handle.id, {
+        runner: mockRunner,
+      });
+      const result = await orchestrator.wait(handle2);
+      assert.strictEqual(result.success, true);
+
+      const final = await stateStore.read(testRepo, 'test-ws', handle.id);
+      assert.strictEqual(final!.status, 'completed');
+    });
+
+    it('rejects resume without a state store', async () => {
+      await createChainFixture();
+      const orchestrator = new LocalOrchestrator();
+      await assert.rejects(
+        orchestrator.resume(storage, testRepo, 'test-ws', '1', { runner: mockRunner }),
+        /no state store/
+      );
+    });
+
+    it('rejects resume of an unknown execution', async () => {
+      await createChainFixture();
+      const orchestrator = new LocalOrchestrator(new InMemoryStateStore());
+      await assert.rejects(
+        orchestrator.resume(storage, testRepo, 'test-ws', '999', { runner: mockRunner }),
+        /not found/
+      );
+    });
+
+    it('rejects resume of a completed execution', async () => {
+      const taskHashes = await createChainFixture();
+      const stateStore = new InMemoryStateStore();
+      const orchestrator = new LocalOrchestrator(stateStore);
+
+      for (const [name, hash] of taskHashes) {
+        mockRunner.setResult(hash, {
+          state: 'success', cached: false, outputHash: `output-${name}`,
+        });
+      }
+
+      const handle = await orchestrator.start(storage, testRepo, 'test-ws', { runner: mockRunner });
+      const result = await orchestrator.wait(handle);
+      assert.strictEqual(result.success, true);
+
+      await assert.rejects(
+        orchestrator.resume(storage, testRepo, 'test-ws', handle.id, { runner: mockRunner }),
+        /status is 'completed'/
+      );
+    });
+
+    it('finalizes normally when shouldYield is true but the dataflow is already complete', async () => {
+      const taskHashes = await createChainFixture();
+      const stateStore = new InMemoryStateStore();
+      const orchestrator = new LocalOrchestrator(stateStore);
+
+      for (const [name, hash] of taskHashes) {
+        mockRunner.setResult(hash, {
+          state: 'success', cached: false, outputHash: `output-${name}`,
+        });
+      }
+
+      // Yield only requested after the last task completes — the loop's
+      // done-check runs before the checkpoint, so it must finalize.
+      let completedCount = 0;
+      const handle = await orchestrator.start(storage, testRepo, 'test-ws', {
+        runner: mockRunner,
+        shouldYield: () => completedCount >= 3,
+        onTaskComplete: () => { completedCount++; },
+      });
+      const result = await orchestrator.wait(handle);
+      assert.strictEqual(result.success, true);
+      assert.ok(!result.yielded);
+
+      const final = await stateStore.read(testRepo, 'test-ws', handle.id);
+      assert.strictEqual(final!.status, 'completed');
     });
   });
 });

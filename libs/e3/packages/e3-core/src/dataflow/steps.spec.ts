@@ -14,7 +14,7 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import { some, none, variant, StringType, encodeBeast2For } from '@elaraai/east';
 import type { TreePath, Structure } from '@elaraai/e3-types';
-import { stepInvalidateTasks, stepDetectInputChanges, stepCheckVersionConsistency } from './steps.js';
+import { stepInvalidateTasks, stepDetectInputChanges, stepCheckVersionConsistency, stepYield } from './steps.js';
 import type { DataflowExecutionState, TaskState, Mutable } from './types.js';
 import type { DataflowGraph } from '../dataflow.js';
 import { createTestRepo, removeTestRepo } from '../test-helpers.js';
@@ -88,6 +88,60 @@ function makeTaskState(name: string, status: TaskState['status']): TaskState {
     duration: none,
   } as TaskState;
 }
+
+describe('stepYield', () => {
+  const graph: DataflowGraph = {
+    tasks: [
+      { name: 'task-a', hash: 'hash-a', inputs: ['.input'], output: '.out_a', dependsOn: [] },
+      { name: 'task-b', hash: 'hash-b', inputs: ['.out_a'], output: '.out_b', dependsOn: ['task-a'] },
+      { name: 'task-c', hash: 'hash-c', inputs: ['.out_b'], output: '.out_c', dependsOn: ['task-b'] },
+    ],
+  };
+
+  it('resets in_progress and deferred tasks to pending', () => {
+    const tasks = new Map<string, TaskState>();
+    tasks.set('task-a', makeTaskState('task-a', 'in_progress'));
+    tasks.set('task-b', makeTaskState('task-b', 'deferred'));
+    tasks.set('task-c', makeTaskState('task-c', 'pending'));
+
+    const state = makeState(graph, tasks);
+    const { reset } = stepYield(state);
+
+    assert.deepStrictEqual(reset.sort(), ['task-a', 'task-b']);
+    assert.strictEqual(state.tasks.get('task-a')!.status, 'pending');
+    assert.strictEqual(state.tasks.get('task-b')!.status, 'pending');
+    assert.strictEqual(state.tasks.get('task-c')!.status, 'pending');
+    // Yield is a pause, not a terminal state
+    assert.strictEqual(state.status, 'running');
+  });
+
+  it('leaves terminal and pending tasks untouched', () => {
+    const tasks = new Map<string, TaskState>();
+    tasks.set('task-a', makeTaskState('task-a', 'completed'));
+    tasks.set('task-b', makeTaskState('task-b', 'failed'));
+    tasks.set('task-c', makeTaskState('task-c', 'skipped'));
+
+    const state = makeState(graph, tasks);
+    const { reset } = stepYield(state);
+
+    assert.deepStrictEqual(reset, []);
+    assert.strictEqual(state.tasks.get('task-a')!.status, 'completed');
+    assert.strictEqual(state.tasks.get('task-b')!.status, 'failed');
+    assert.strictEqual(state.tasks.get('task-c')!.status, 'skipped');
+  });
+
+  it('is idempotent', () => {
+    const tasks = new Map<string, TaskState>();
+    tasks.set('task-a', makeTaskState('task-a', 'in_progress'));
+
+    const state = makeState(graph, tasks);
+    stepYield(state);
+    const { reset } = stepYield(state);
+
+    assert.deepStrictEqual(reset, []);
+    assert.strictEqual(state.tasks.get('task-a')!.status, 'pending');
+  });
+});
 
 describe('stepInvalidateTasks', () => {
   it('does not invalidate failed tasks', () => {

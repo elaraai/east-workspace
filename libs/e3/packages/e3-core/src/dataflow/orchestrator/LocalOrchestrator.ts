@@ -29,6 +29,7 @@ import type {
   ExecutionHandle,
   ExecutionStatus,
   OrchestratorStartOptions,
+  ResumeOptions,
 } from './interfaces.js';
 import { stateToStatus } from './interfaces.js';
 import type { ExecutionStateStore } from '../state-store/interfaces.js';
@@ -49,6 +50,7 @@ import {
   stepIsComplete,
   stepFinalize,
   stepCancel,
+  stepYield,
   stepApplyTreeUpdate,
   stepDetectInputChanges,
   stepInvalidateTasks,
@@ -118,6 +120,14 @@ interface RunningExecution {
   externalLock: boolean;
   options: OrchestratorStartOptions;
   aborted: boolean;
+  /** Set when a yield checkpoint has been taken — suppresses further persists */
+  yielded: boolean;
+  /**
+   * Yield result, resolved into completionPromise from the loop's `finally`
+   * (after locks are released) so a caller awaiting wait() can resume()
+   * immediately without racing the lock release.
+   */
+  yieldResult?: FinalizeResult;
   runningTasks: Map<string, Promise<void>>;
   /** Mutex to serialize state mutations from concurrent task completions */
   mutex: AsyncMutex;
@@ -216,58 +226,14 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         await this.stateStore.create(state);
       }
 
-      // Create completion promise
-      let resolveCompletion!: (result: FinalizeResult) => void;
-      let rejectCompletion!: (error: Error) => void;
-      const completionPromise = new Promise<FinalizeResult>((resolve, reject) => {
-        resolveCompletion = resolve;
-        rejectCompletion = reject;
-      });
-
-      // Create running execution state
-      const execution: RunningExecution = {
-        state,
-        lock: dataflowLock,
+      return this.beginExecution(storage, repo, state, {
+        dataflowLock,
         sharedLock,
         externalLock,
         options,
-        aborted: false,
-        runningTasks: new Map(),
-        mutex: new AsyncMutex(),
         runId: uuidv7(),
         taskExecutions: new Map(),
-        completionPromise,
-        resolveCompletion,
-        rejectCompletion,
-      };
-
-      const key = this.executionKey(repo, workspace, executionId);
-      this.executions.set(key, execution);
-
-      // Listen for abort signal to persist cancellation immediately.
-      if (options.signal) {
-        const onAbort = () => {
-          execution.aborted = true;
-          if (this.stateStore) {
-            void this.stateStore.updateStatus(
-              repo,
-              workspace,
-              executionId,
-              'cancelled',
-              { error: 'Execution was cancelled' }
-            ).catch(() => { /* ignore errors during shutdown */ });
-          }
-        };
-        options.signal.addEventListener('abort', onAbort, { once: true });
-        execution.abortCleanup = () => options.signal!.removeEventListener('abort', onAbort);
-      }
-
-      // Start the execution loop (non-blocking)
-      this.runExecutionLoop(storage, repo, execution).catch(err => {
-        rejectCompletion(err);
       });
-
-      return { id: executionId, repo, workspace };
     } catch (err) {
       // Always release the dataflow lock on initialization failure
       await dataflowLock!.release();
@@ -277,6 +243,174 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       }
       throw err;
     }
+  }
+
+  /**
+   * Resume an execution that yielded (shouldYield checkpoint) or whose host
+   * died mid-run. See DataflowOrchestrator.resume.
+   */
+  async resume(
+    storage: StorageBackend,
+    repo: string,
+    workspace: string,
+    executionId: string,
+    options: ResumeOptions = {}
+  ): Promise<ExecutionHandle> {
+    if (!this.stateStore) {
+      throw new DataflowError('Cannot resume: orchestrator has no state store');
+    }
+
+    // Same dual-lock model as start()
+    const externalLock = !!options.lock;
+
+    let sharedLock: LockHandle | null = null;
+    let dataflowLock: LockHandle | null = null;
+
+    if (externalLock) {
+      sharedLock = options.lock!;
+      dataflowLock = await storage.locks.acquire(repo, `${workspace}#dataflow`, variant('dataflow', null));
+      if (!dataflowLock) {
+        throw new WorkspaceLockError(workspace);
+      }
+    } else {
+      sharedLock = await storage.locks.acquire(repo, workspace, variant('dataflow', null), { mode: 'shared' });
+      if (!sharedLock) {
+        throw new WorkspaceLockError(workspace);
+      }
+      dataflowLock = await storage.locks.acquire(repo, `${workspace}#dataflow`, variant('dataflow', null));
+      if (!dataflowLock) {
+        await sharedLock.release();
+        throw new WorkspaceLockError(workspace);
+      }
+    }
+
+    try {
+      const state = await this.stateStore.read(repo, workspace, executionId);
+      if (!state) {
+        throw new DataflowError(`Execution ${executionId} not found for workspace '${workspace}'`);
+      }
+      if (state.status !== 'running') {
+        throw new DataflowError(
+          `Cannot resume execution ${executionId}: status is '${state.status}', expected 'running'`
+        );
+      }
+
+      // Crash recovery: tasks stranded in_progress by a dead host are reset
+      // to pending (a clean yield already did this — then it's a no-op).
+      // Work they actually finished is recovered via the execution cache.
+      stepYield(state);
+      await this.stateStore.update(state);
+
+      // Re-seed DataflowRun task executions for already-completed tasks so
+      // the final run record covers the whole execution, not just this
+      // incarnation. Output VVs come from the persisted version vectors.
+      const taskExecutions = new Map<string, TaskExecutionRecord>();
+      const graph = state.graph.type === 'some' ? state.graph.value : null;
+      if (graph) {
+        for (const task of graph.tasks) {
+          const ts = state.tasks.get(task.name);
+          if (ts && ts.status === 'completed') {
+            taskExecutions.set(task.name, {
+              executionId: state.id,
+              cached: ts.cached.type === 'some' ? ts.cached.value : false,
+              outputVersions: new Map(state.versionVectors.get(task.output) ?? []),
+              executionCount: 1n,
+            });
+          }
+        }
+      }
+
+      return this.beginExecution(storage, repo, state, {
+        dataflowLock,
+        sharedLock,
+        externalLock,
+        options,
+        runId: options.runId ?? uuidv7(),
+        taskExecutions,
+      });
+    } catch (err) {
+      await dataflowLock!.release();
+      if (!externalLock && sharedLock) {
+        await sharedLock.release();
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Shared tail of start() and resume(): register the RunningExecution,
+   * wire the abort listener, and kick off the loop (non-blocking).
+   */
+  private beginExecution(
+    storage: StorageBackend,
+    repo: string,
+    state: DataflowExecutionState,
+    init: {
+      dataflowLock: LockHandle;
+      sharedLock: LockHandle | null;
+      externalLock: boolean;
+      options: OrchestratorStartOptions;
+      runId: string;
+      taskExecutions: Map<string, TaskExecutionRecord>;
+    }
+  ): ExecutionHandle {
+    const { options } = init;
+    const workspace = state.workspace;
+    const executionId = state.id;
+
+    // Create completion promise
+    let resolveCompletion!: (result: FinalizeResult) => void;
+    let rejectCompletion!: (error: Error) => void;
+    const completionPromise = new Promise<FinalizeResult>((resolve, reject) => {
+      resolveCompletion = resolve;
+      rejectCompletion = reject;
+    });
+
+    // Create running execution state
+    const execution: RunningExecution = {
+      state,
+      lock: init.dataflowLock,
+      sharedLock: init.sharedLock,
+      externalLock: init.externalLock,
+      options,
+      aborted: false,
+      yielded: false,
+      runningTasks: new Map(),
+      mutex: new AsyncMutex(),
+      runId: init.runId,
+      taskExecutions: init.taskExecutions,
+      completionPromise,
+      resolveCompletion,
+      rejectCompletion,
+    };
+
+    const key = this.executionKey(repo, workspace, executionId);
+    this.executions.set(key, execution);
+
+    // Listen for abort signal to persist cancellation immediately.
+    if (options.signal) {
+      const onAbort = () => {
+        execution.aborted = true;
+        if (this.stateStore) {
+          void this.stateStore.updateStatus(
+            repo,
+            workspace,
+            executionId,
+            'cancelled',
+            { error: 'Execution was cancelled' }
+          ).catch(() => { /* ignore errors during shutdown */ });
+        }
+      };
+      options.signal.addEventListener('abort', onAbort, { once: true });
+      execution.abortCleanup = () => options.signal!.removeEventListener('abort', onAbort);
+    }
+
+    // Start the execution loop (non-blocking)
+    this.runExecutionLoop(storage, repo, execution).catch(err => {
+      rejectCompletion(err);
+    });
+
+    return { id: executionId, repo, workspace };
   }
 
   async wait(handle: ExecutionHandle): Promise<FinalizeResult> {
@@ -672,6 +806,15 @@ export class LocalOrchestrator implements DataflowOrchestrator {
           execution.runningTasks.set(taskName, taskPromise);
         }
 
+        // Yield checkpoint: stop here rather than waiting on running tasks —
+        // anything they finish is recovered from the execution cache on
+        // resume. Skipped on failure/abort: the loop is about to finalize
+        // those terminally anyway.
+        if (!hasFailure && !checkAborted() && options.shouldYield?.()) {
+          await this.checkpointYield(execution);
+          return;
+        }
+
         // Wait for at least one task to complete if we can't launch more
         if (execution.runningTasks.size > 0) {
           await Promise.race(execution.runningTasks.values());
@@ -836,7 +979,45 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       // Clean up execution state
       const key = this.executionKey(repo, state.workspace, state.id);
       this.executions.delete(key);
+
+      // Resolve a yield only after locks are released, so a caller doing
+      // `await wait()` then `resume()` can't race the lock release.
+      if (execution.yieldResult) {
+        execution.resolveCompletion(execution.yieldResult);
+      }
     }
+  }
+
+  /**
+   * Take a yield checkpoint: reset in-flight tasks to pending, persist the
+   * still-'running' state, and stage the yielded FinalizeResult (resolved
+   * from the loop's finally, after locks are released).
+   *
+   * Runs under the mutex so completion handlers already queued ahead of it
+   * land their results first (and ARE included in the checkpoint); handlers
+   * settling after it only mutate memory — persistState is suppressed by
+   * the yielded flag, keeping the checkpoint as the last persisted word.
+   */
+  private async checkpointYield(execution: RunningExecution): Promise<void> {
+    const { state } = execution;
+    execution.yielded = true;
+    await execution.mutex.runExclusive(async () => {
+      stepYield(state);
+      if (this.stateStore) {
+        await this.stateStore.update(state);
+      }
+    });
+    execution.yieldResult = {
+      success: false,
+      runId: execution.runId,
+      executed: Number(state.executed),
+      cached: Number(state.cached),
+      failed: Number(state.failed),
+      skipped: Number(state.skipped),
+      reexecuted: Number(state.reexecuted),
+      duration: Date.now() - state.startedAt.getTime(),
+      yielded: true,
+    };
   }
 
   /**
@@ -997,6 +1178,9 @@ export class LocalOrchestrator implements DataflowOrchestrator {
   ): Promise<void> {
     if (!this.stateStore) return;
     if (execution.aborted && state.status !== 'cancelled') return;
+    // After a yield checkpoint the checkpoint write is the last word —
+    // late-settling completion handlers must not overwrite it.
+    if (execution.yielded) return;
     await this.stateStore.update(state);
   }
 
