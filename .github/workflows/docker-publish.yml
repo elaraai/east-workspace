@@ -2,13 +2,18 @@ name: Build and Push Docker Images
 
 on:
   push:
+    # Every release tag builds images pinned to that release's npm versions.
+    # (No `paths` filter — it suppressed tag builds whenever the release
+    # commit didn't touch docker/**, leaving image tags behind npm releases.)
     tags: ['v*']
-    paths:
-      - 'docker/**'
   workflow_dispatch:
     inputs:
+      version:
+        description: 'Exact @elaraai package version to bake (e.g. 1.0.5). Empty = resolve from the release channel.'
+        required: false
+        type: string
       release_type:
-        description: 'Release channel'
+        description: 'Release channel (used when version is empty)'
         required: true
         default: 'latest'
         type: choice
@@ -67,8 +72,29 @@ jobs:
           CHANNEL="${{ inputs.release_type || 'latest' }}"
           echo "channel=${CHANNEL}" >> $GITHUB_OUTPUT
 
-          # Query npm for versions based on channel
-          if [[ "$CHANNEL" == "beta" ]]; then
+          # Packages release in lockstep: pin every package to ONE version.
+          # Tag push -> the tag's version; dispatch -> explicit input;
+          # otherwise resolve the channel's current version from npm.
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            PINNED="${GITHUB_REF_NAME#v}"
+          else
+            PINNED="${{ inputs.version }}"
+          fi
+
+          if [[ -n "$PINNED" ]]; then
+            # Wait for npm propagation (tag push can race npm publish)
+            for i in $(seq 1 30); do
+              if npm view "@elaraai/east@${PINNED}" version >/dev/null 2>&1; then break; fi
+              echo "Waiting for @elaraai/east@${PINNED} on npm... ($i/30)"
+              sleep 10
+            done
+            npm view "@elaraai/east@${PINNED}" version >/dev/null
+            EAST_VERSION="$PINNED"
+            EAST_NODE_STD_VERSION="$PINNED"
+            EAST_NODE_IO_VERSION="$PINNED"
+            EAST_NODE_CLI_VERSION="$PINNED"
+            EAST_UI_VERSION="$PINNED"
+          elif [[ "$CHANNEL" == "beta" ]]; then
             EAST_VERSION=$(npm view @elaraai/east dist-tags.beta 2>/dev/null || npm view @elaraai/east version)
             EAST_NODE_STD_VERSION=$(npm view @elaraai/east-node-std dist-tags.beta 2>/dev/null || npm view @elaraai/east-node-std version)
             EAST_NODE_IO_VERSION=$(npm view @elaraai/east-node-io dist-tags.beta 2>/dev/null || npm view @elaraai/east-node-io version)
@@ -82,13 +108,14 @@ jobs:
             EAST_UI_VERSION=$(npm view @elaraai/east-ui version)
           fi
 
+          echo "pinned=${PINNED}" >> $GITHUB_OUTPUT
           echo "east=${EAST_VERSION}" >> $GITHUB_OUTPUT
           echo "east_node_std=${EAST_NODE_STD_VERSION}" >> $GITHUB_OUTPUT
           echo "east_node_io=${EAST_NODE_IO_VERSION}" >> $GITHUB_OUTPUT
           echo "east_node_cli=${EAST_NODE_CLI_VERSION}" >> $GITHUB_OUTPUT
           echo "east_ui=${EAST_UI_VERSION}" >> $GITHUB_OUTPUT
 
-          echo "Package versions (${CHANNEL}):"
+          echo "Package versions (${PINNED:-$CHANNEL}):"
           echo "  @elaraai/east: ${EAST_VERSION}"
           echo "  @elaraai/east-node-std: ${EAST_NODE_STD_VERSION}"
           echo "  @elaraai/east-node-io: ${EAST_NODE_IO_VERSION}"
@@ -113,6 +140,7 @@ jobs:
           images: ${{ env.REGISTRY }}/elaraai/east-node
           tags: |
             type=ref,event=tag
+            type=raw,value=${{ steps.versions.outputs.pinned }},enable=${{ steps.versions.outputs.pinned != '' }}
             type=raw,value=${{ steps.versions.outputs.channel }},enable=true
             type=raw,value=latest,enable=${{ inputs.release_type == 'latest' || github.ref_type == 'tag' }}
             type=sha,prefix=
@@ -158,8 +186,35 @@ jobs:
           CHANNEL="${{ inputs.release_type || 'latest' }}"
           echo "channel=${CHANNEL}" >> $GITHUB_OUTPUT
 
-          # Query npm for versions based on channel
-          if [[ "$CHANNEL" == "beta" ]]; then
+          # Packages release in lockstep: pin every package to ONE version.
+          # Tag push -> the tag's version; dispatch -> explicit input;
+          # otherwise resolve the channel's current version from npm.
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            PINNED="${GITHUB_REF_NAME#v}"
+          else
+            PINNED="${{ inputs.version }}"
+          fi
+
+          if [[ -n "$PINNED" ]]; then
+            # Wait for npm propagation (tag push can race npm publish)
+            for i in $(seq 1 30); do
+              if npm view "@elaraai/e3@${PINNED}" version >/dev/null 2>&1; then break; fi
+              echo "Waiting for @elaraai/e3@${PINNED} on npm... ($i/30)"
+              sleep 10
+            done
+            npm view "@elaraai/e3@${PINNED}" version >/dev/null
+            EAST_VERSION="$PINNED"
+            EAST_NODE_STD_VERSION="$PINNED"
+            EAST_NODE_IO_VERSION="$PINNED"
+            EAST_NODE_CLI_VERSION="$PINNED"
+            EAST_UI_VERSION="$PINNED"
+            E3_VERSION="$PINNED"
+            E3_TYPES_VERSION="$PINNED"
+            E3_CORE_VERSION="$PINNED"
+            E3_CLI_VERSION="$PINNED"
+            E3_API_CLIENT_VERSION="$PINNED"
+            E3_API_SERVER_VERSION="$PINNED"
+          elif [[ "$CHANNEL" == "beta" ]]; then
             # Node.js packages
             EAST_VERSION=$(npm view @elaraai/east dist-tags.beta 2>/dev/null || npm view @elaraai/east version)
             EAST_NODE_STD_VERSION=$(npm view @elaraai/east-node-std dist-tags.beta 2>/dev/null || npm view @elaraai/east-node-std version)
@@ -190,6 +245,7 @@ jobs:
           fi
 
           # Output versions
+          echo "pinned=${PINNED}" >> $GITHUB_OUTPUT
           echo "east=${EAST_VERSION}" >> $GITHUB_OUTPUT
           echo "east_node_std=${EAST_NODE_STD_VERSION}" >> $GITHUB_OUTPUT
           echo "east_node_io=${EAST_NODE_IO_VERSION}" >> $GITHUB_OUTPUT
@@ -233,6 +289,7 @@ jobs:
           images: ${{ env.REGISTRY }}/elaraai/e3
           tags: |
             type=ref,event=tag
+            type=raw,value=${{ steps.versions.outputs.pinned }},enable=${{ steps.versions.outputs.pinned != '' }}
             type=raw,value=${{ steps.versions.outputs.channel }},enable=true
             type=raw,value=latest,enable=${{ inputs.release_type == 'latest' || github.ref_type == 'tag' }}
             type=sha,prefix=
