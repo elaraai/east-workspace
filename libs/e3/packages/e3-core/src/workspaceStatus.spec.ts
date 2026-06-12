@@ -135,4 +135,51 @@ describe('workspaceStatus crash detection', () => {
     const status = await taskStatus();
     assert.equal(status.type, 'in-progress', `expected in-progress, got ${status.type}`);
   });
+
+  it('status cost does not scale with execution history (one listing per task)', async () => {
+    // Regression guard for the O(history) N+1: checkInProgress previously did
+    // executionListForTask + executionGetLatest per historical inputsHash,
+    // making a status request O(tasks x history) backend round trips — on
+    // remote backends (DynamoDB) this turned long-lived repos' status pages
+    // into multi-minute requests. It must now be one listing call per task,
+    // with no per-history lookups.
+    const bootId = await getBootId();
+
+    // Seed history: completed executions for 50 distinct past input combos
+    for (let i = 0; i < 50; i++) {
+      const executionId = uuidv7();
+      const status: ExecutionStatus = variant('failed', {
+        executionId,
+        inputHashes: [],
+        startedAt: new Date(),
+        completedAt: new Date(),
+        exitCode: 1n,
+      });
+      await storage.refs.executionWrite(repoPath, taskHash, `${'0'.repeat(60)}${String(i).padStart(4, '0')}`, executionId, status);
+    }
+
+    // Count ref-store round trips during one status request
+    const counts: Record<string, number> = {};
+    const refs = storage.refs;
+    const countingRefs = new Proxy(refs, {
+      get(target, prop, receiver) {
+        const value = Reflect.get(target, prop, receiver);
+        if (typeof value !== 'function') return value;
+        return (...args: unknown[]) => {
+          counts[String(prop)] = (counts[String(prop)] ?? 0) + 1;
+          return (value as (...a: unknown[]) => unknown).apply(target, args);
+        };
+      },
+    });
+    const countingStorage = { ...storage, refs: countingRefs } as StorageBackend;
+
+    await workspaceStatus(countingStorage, repoPath, WS);
+
+    assert.equal(counts['executionListLatest'] ?? 0, 1, 'one latest-listing per task');
+    assert.ok(
+      (counts['executionGetLatest'] ?? 0) <= 1,
+      `per-history lookups crept back in: executionGetLatest called ${counts['executionGetLatest']} times`
+    );
+    assert.equal(counts['executionListForTask'] ?? 0, 0, 'status no longer lists history without statuses');
+  });
 });

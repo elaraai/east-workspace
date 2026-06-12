@@ -324,6 +324,23 @@ export interface RefStore {
    */
   executionListForTask(repo: string, taskHash: string): Promise<string[]>;
 
+  /**
+   * List the latest execution status for every inputsHash of a task.
+   *
+   * Semantically equivalent to executionListForTask + executionGetLatest per
+   * entry, but exposed as one call so backends can serve the whole set in a
+   * single round trip. This matters for remote stores: workspaceStatus calls
+   * this once per task, and composing it client-side from N individual
+   * lookups made status requests O(repo history) network round trips — the
+   * DynamoDB backend's listing query already fetches the status bytes it
+   * would then re-fetch one by one.
+   *
+   * @param repo - Repository identifier
+   * @param taskHash - Task object hash
+   * @returns Latest execution status per inputsHash (order unspecified)
+   */
+  executionListLatest(repo: string, taskHash: string): Promise<Array<{ inputsHash: string; status: ExecutionStatus }>>;
+
   // -------------------------------------------------------------------------
   // Dataflow Run History
   // -------------------------------------------------------------------------
