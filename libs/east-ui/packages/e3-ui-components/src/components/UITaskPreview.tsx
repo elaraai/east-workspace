@@ -111,12 +111,18 @@ export const UITaskPreview = memo(function UITaskPreview({
         [manifest],
     );
 
-    // Register manifest paths with workspace poller for live updates.
+    // Register manifest paths with workspace poller for live updates;
+    // unregister on unmount so the poller stops when nothing watches.
     useEffect(() => {
         if (!cache || !manifest || !workspace) return;
         for (const path of manifest.paths) {
             cache.setRefetchInterval(workspace, path, pollInterval);
         }
+        return () => {
+            for (const path of manifest.paths) {
+                cache.clearRefetchInterval(workspace, path);
+            }
+        };
     }, [cache, manifest, workspace, pollInterval]);
 
     // Fetch the output value (no size gate — UI is wanted in full).

@@ -53,7 +53,7 @@ async function seedCache(mod: Record<string, unknown>): Promise<void> {
         async get(ws, path) {
             const bytes = seed.get(datasetCacheKey(ws, path));
             if (!bytes) throw new Error(`no seed for ${datasetCacheKey(ws, path)}`);
-            return bytes;
+            return { data: bytes, hash: null };
         },
         async set(ws, path, value) { seed.set(datasetCacheKey(ws, path), value); },
         async launchDataflow() { /* offline — nothing to launch */ },
