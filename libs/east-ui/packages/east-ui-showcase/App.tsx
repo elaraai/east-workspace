@@ -36,7 +36,7 @@ import {
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faMagnifyingGlass, faChevronLeft, faChevronRight } from "@fortawesome/free-solid-svg-icons";
 import { LogoCollapsed, LogoFull } from "./components/ElaraLogo";
-import { DocList } from "./components/DocList";
+import { DocList, type DocScrollTarget } from "./components/DocList";
 import { catalog, navSections, type CatalogEntry } from "./catalog";
 import { ALL_PAGES, SECTION_EAST } from "./showcase-config";
 
@@ -77,6 +77,36 @@ function sectionForAllPage(selected: string): string | undefined {
 /** Entries for the current page. The All pseudo-categories concatenate a
  *  whole section, ordered (category, pathKey) to match the sidebar; the
  *  stable sort preserves each file's example order. */
+/** Resolve a location.hash to a selection + optional scroll target.
+ *
+ *  Grammar (all derived from catalog pathKeys, so URLs stay slug-clean):
+ *    #<pathKey>/<exampleName>  → category + scroll to that example
+ *    #<pathKey>                → category + scroll to the group head
+ *    #<categorySlug>           → category only (e.g. #disclosure)
+ */
+function resolveHash(raw: string): { category: string; pathKey?: string; name?: string } | undefined {
+    const h = decodeURIComponent(raw.replace(/^#\/?/, "")).replace(/\/+$/, "");
+    if (!h) return undefined;
+    const exact = catalog.find(e => `${e.pathKey}/${e.name}` === h);
+    if (exact) return { category: exact.category, pathKey: exact.pathKey, name: exact.name };
+    const group = catalog.find(e => e.pathKey === h);
+    if (group) return { category: group.category, pathKey: group.pathKey };
+    const lower = h.toLowerCase();
+    const cat = catalog.find(e =>
+        e.category.toLowerCase() === lower || e.pathKey.split("/", 1)[0] === lower);
+    if (cat) return { category: cat.category };
+    const all = Object.values(ALL_PAGES).find(p => p.toLowerCase().replace(/\s+/g, "-") === lower);
+    if (all) return { category: all };
+    return undefined;
+}
+
+/** The hash slug written when a category is selected from the sidebar. */
+function hashForCategory(category: string): string {
+    const entry = catalog.find(e => e.category === category);
+    if (entry) return entry.pathKey.split("/", 1)[0];
+    return category.toLowerCase().replace(/\s+/g, "-");
+}
+
 function entriesFor(selected: string): CatalogEntry[] {
     const section = sectionForAllPage(selected);
     if (section !== undefined) {
@@ -89,8 +119,35 @@ function entriesFor(selected: string): CatalogEntry[] {
 
 export function App() {
     const [search, setSearch] = useState("");
-    const [selectedCategory, setSelectedCategory] = useState<string>(ALL_PAGES[SECTION_EAST]);
+    const initial = useMemo(() => resolveHash(window.location.hash), []);
+    const [selectedCategory, setSelectedCategory] = useState<string>(
+        initial?.category ?? ALL_PAGES[SECTION_EAST]);
+    const [scrollTarget, setScrollTarget] = useState<DocScrollTarget | undefined>(
+        initial?.pathKey ? { pathKey: initial.pathKey, name: initial.name, nonce: 0 } : undefined);
     const isAllPage = sectionForAllPage(selectedCategory) !== undefined;
+
+    /* Deep links: the hash is the single source of shareable state. The
+     * anchor on each example writes `#<pathKey>/<name>`; landing on (or
+     * navigating to) such a URL selects the category and scrolls the
+     * example into view. */
+    useEffect(() => {
+        const onHashChange = () => {
+            const resolved = resolveHash(window.location.hash);
+            if (!resolved) return;
+            setSelectedCategory(resolved.category);
+            setScrollTarget(prev => resolved.pathKey
+                ? { pathKey: resolved.pathKey, name: resolved.name, nonce: (prev?.nonce ?? 0) + 1 }
+                : undefined);
+        };
+        window.addEventListener("hashchange", onHashChange);
+        return () => window.removeEventListener("hashchange", onHashChange);
+    }, []);
+
+    const selectCategory = useCallback((cat: string) => {
+        setSelectedCategory(cat);
+        setScrollTarget(undefined);
+        history.replaceState(null, "", `#${hashForCategory(cat)}`);
+    }, []);
 
     const scoped = useMemo(() => entriesFor(selectedCategory), [selectedCategory]);
     const filtered = useMemo(() => {
@@ -107,7 +164,7 @@ export function App() {
         /* h=100vh locks the shell to the viewport — the Main content area
          * scrolls internally; the page itself never overflows. */
         <Flex h="100dvh" w="100%" overflow="hidden" bg="bg.canvas" align="stretch">
-            <Sidebar selected={selectedCategory} onSelect={setSelectedCategory} />
+            <Sidebar selected={selectedCategory} onSelect={selectCategory} />
             <Flex flex="1" minW={0} direction="column" h="100vh">
                 <Header
                     category={selectedCategory}
@@ -121,7 +178,7 @@ export function App() {
                 <Box flex="1" minH={0} display="flex" flexDirection="column">
                     {filtered.length === 0
                         ? <Text color="fg.muted" px="24px" py="32px">No examples match your search.</Text>
-                        : <DocList entries={filtered} showCategories={isAllPage} />}
+                        : <DocList entries={filtered} showCategories={isAllPage} scrollTarget={scrollTarget} />}
                 </Box>
             </Flex>
         </Flex>

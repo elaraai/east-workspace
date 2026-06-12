@@ -73,7 +73,18 @@ export function PatternEntry({ entry }: { entry: CatalogEntry }) {
     return (
         <Box borderTopWidth="1px" borderTopColor="border.subtle" pt="20px" pb="36px">
             <Flex align="baseline" gap="3" wrap="wrap" minW={0}>
-                <Text textStyle="mono.label">{entry.name}</Text>
+                {/* Deep link: #<pathKey>/<name> — shareable URL that selects
+                  * the category and scrolls this example into view. */}
+                <chakra.a
+                    href={`#${entry.pathKey}/${entry.name}`}
+                    textStyle="mono.label"
+                    textDecoration="none"
+                    color="inherit"
+                    css={{ "&:hover .anchor": { opacity: 1 } }}
+                >
+                    {entry.name}
+                    <chakra.span className="anchor" opacity={0} transition="opacity 120ms" color="brand.600" ml="6px">#</chakra.span>
+                </chakra.a>
                 <HStack gap="1" wrap="wrap">
                     {entry.keywords.slice(0, 4).map(k => (
                         <Tag.Root key={k} size="sm" variant="dashed">
