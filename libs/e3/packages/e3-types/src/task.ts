@@ -18,6 +18,7 @@
 
 import { StructType, StringType, ArrayType, BlobType, OptionType, ValueTypeOf } from '@elaraai/east';
 import { TreePathType } from './structure.js';
+import { RunnerType } from './runner.js';
 
 /**
  * Task object stored in the object store.
@@ -64,6 +65,15 @@ export const TaskObjectType = StructType({
   kind: OptionType(StringType),
   /** Opaque extension metadata (beast2-encoded). Interpreted by the kind-specific consumer. */
   metadata: OptionType(BlobType),
+  /**
+   * The task's runner, as routing metadata (symmetric with
+   * FunctionObject.runner). For `custom` runners, `commandIr` remains
+   * authoritative for execution — the wire command is informational.
+   *
+   * NOTE: added as a hard cutover (no dual decoder) — packages exported by
+   * older SDKs must be re-exported.
+   */
+  runner: RunnerType,
 });
 export type TaskObjectType = typeof TaskObjectType;
 

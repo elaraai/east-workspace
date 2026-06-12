@@ -7,7 +7,7 @@
  * Named function + one-shot execution test suite.
  *
  * Exercises the graph-free execution path end-to-end against a real server
- * + real east-node runner: list/describe, sync + async calls, limits
+ * + real east-node runner: list/describe, sync calls, limits
  * (too_large / timed_out), cancellation, both scopes (package + workspace),
  * runner override, one-shot with value and dataset args, and the
  * "persists nothing" guarantee.
@@ -32,24 +32,12 @@ import {
   functionList,
   functionDescribe,
   functionCall,
-  functionCallLaunch,
-  functionCallPoll,
-  functionCallCancel,
   workspaceFunctionCall,
-  workspaceFunctionCallLaunch,
-  workspaceFunctionCallPoll,
-  workspaceFunctionCallCancel,
   oneShotExecute,
-  oneShotLaunch,
-  oneShotPoll,
-  oneShotCancel,
   type ExecuteResult,
-  type CallStatusResult,
   type FunctionCallRequest,
-  type RequestOptions,
 } from '@elaraai/e3-api-client';
 
-import { Time } from '@elaraai/east-node-std';
 import type { TestContext } from '../context.js';
 import type { TestSetup } from '../setup.js';
 import { createFunctionPackageZip } from '../fixtures.js';
@@ -69,34 +57,6 @@ function successValue(result: ExecuteResult): bigint {
   return decodeInt((result.outcome.value as { value: Uint8Array }).value);
 }
 
-async function pollUntilTerminal(
-  baseUrl: string,
-  repo: string,
-  fn: string,
-  callId: string,
-  opts: RequestOptions
-): Promise<CallStatusResult> {
-  const deadline = Date.now() + 60_000;
-  for (;;) {
-    const status = await functionCallPoll(baseUrl, repo, PKG, VERSION, fn, callId, opts);
-    if (status.status.type !== 'running') return status;
-    if (Date.now() > deadline) throw new Error('async call did not reach a terminal state');
-    await new Promise((r) => setTimeout(r, 200));
-  }
-}
-
-
-async function pollCall(
-  poll: () => Promise<CallStatusResult>
-): Promise<CallStatusResult> {
-  const deadline = Date.now() + 60_000;
-  for (;;) {
-    const status = await poll();
-    if (status.status.type !== 'running') return status;
-    if (Date.now() > deadline) throw new Error('async call did not reach a terminal state');
-    await new Promise((r) => setTimeout(r, 200));
-  }
-}
 
 /**
  * Register named-function and one-shot tests.
@@ -211,41 +171,6 @@ export function functionTests(setup: TestSetup<TestContext>): void {
       assert.equal(result.outcome.type, 'timed_out');
     });
 
-    it('async launch returns a callId and polls to the result', async (t) => {
-      const ctx = await withFunctions(t);
-      const opts = await ctx.opts();
-
-      const { callId } = await functionCallLaunch(
-        ctx.config.baseUrl, ctx.repoName, PKG, VERSION, 'add',
-        request([encodeInt(20n), encodeInt(22n)]),
-        opts
-      );
-      assert.ok(callId.length > 0);
-
-      const status = await pollUntilTerminal(ctx.config.baseUrl, ctx.repoName, 'add', callId, opts);
-      assert.equal(status.status.type, 'succeeded');
-      assert.equal(status.result.type, 'some');
-      assert.equal(successValue(status.result.value as ExecuteResult), 42n);
-    });
-
-    it('cancel aborts an in-flight async call', async (t) => {
-      const ctx = await withFunctions(t);
-      const opts = await ctx.opts();
-
-      const { callId } = await functionCallLaunch(
-        ctx.config.baseUrl, ctx.repoName, PKG, VERSION, 'slow',
-        request([encodeInt(1n)]),
-        opts
-      );
-
-      // Give the runner a moment to start, then cancel
-      await new Promise((r) => setTimeout(r, 500));
-      await functionCallCancel(ctx.config.baseUrl, ctx.repoName, PKG, VERSION, 'slow', callId, opts);
-
-      const status = await functionCallPoll(ctx.config.baseUrl, ctx.repoName, PKG, VERSION, 'slow', callId, opts);
-      assert.equal(status.status.type, 'cancelled');
-    });
-
     it('workspace-scoped calls give identical results to package-scoped', async (t) => {
       const ctx = await withFunctions(t);
       const opts = await ctx.opts();
@@ -324,95 +249,5 @@ export function functionTests(setup: TestSetup<TestContext>): void {
       assert.equal(successValue(result), 30n);
     });
 
-    it('workspace-scoped async launch/poll round-trips', async (t) => {
-      const ctx = await withFunctions(t);
-      const opts = await ctx.opts();
-
-      await ctx.createWorkspace('fn-async-ws');
-      await ctx.deployPackage('fn-async-ws', `${PKG}@${VERSION}`);
-
-      const { callId } = await workspaceFunctionCallLaunch(
-        ctx.config.baseUrl, ctx.repoName, 'fn-async-ws', 'add',
-        request([encodeInt(30n), encodeInt(12n)]),
-        opts
-      );
-      const status = await pollCall(() =>
-        workspaceFunctionCallPoll(ctx.config.baseUrl, ctx.repoName, 'fn-async-ws', 'add', callId, opts));
-      assert.equal(status.status.type, 'succeeded');
-      assert.equal(status.result.type, 'some');
-      assert.equal(successValue(status.result.value as ExecuteResult), 42n);
-    });
-
-    it('workspace-scoped cancel aborts an in-flight call', async (t) => {
-      const ctx = await withFunctions(t);
-      const opts = await ctx.opts();
-
-      await ctx.createWorkspace('fn-cancel-ws');
-      await ctx.deployPackage('fn-cancel-ws', `${PKG}@${VERSION}`);
-
-      const { callId } = await workspaceFunctionCallLaunch(
-        ctx.config.baseUrl, ctx.repoName, 'fn-cancel-ws', 'slow',
-        request([encodeInt(1n)]),
-        opts
-      );
-      await new Promise((r) => setTimeout(r, 500));
-      await workspaceFunctionCallCancel(ctx.config.baseUrl, ctx.repoName, 'fn-cancel-ws', 'slow', callId, opts);
-
-      const status = await workspaceFunctionCallPoll(ctx.config.baseUrl, ctx.repoName, 'fn-cancel-ws', 'slow', callId, opts);
-      assert.equal(status.status.type, 'cancelled');
-    });
-
-    it('one-shot async launch/poll round-trips', async (t) => {
-      const ctx = await withFunctions(t);
-      const opts = await ctx.opts();
-
-      await ctx.createWorkspace('oneshot-async-ws');
-      await ctx.deployPackage('oneshot-async-ws', `${PKG}@${VERSION}`);
-
-      const quadruple = East.function([IntegerType], IntegerType, ($, x) => x.multiply(4n));
-      const { callId } = await oneShotLaunch(
-        ctx.config.baseUrl, ctx.repoName, 'oneshot-async-ws',
-        {
-          bodyIr: encodeEastIR(quadruple.toIR()),
-          args: [variant('value', encodeInt(5n))],
-          runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }),
-          limits: none,
-        },
-        opts
-      );
-      const status = await pollCall(() =>
-        oneShotPoll(ctx.config.baseUrl, ctx.repoName, 'oneshot-async-ws', callId, opts));
-      assert.equal(status.status.type, 'succeeded');
-      assert.equal(status.result.type, 'some');
-      assert.equal(successValue(status.result.value as ExecuteResult), 20n);
-    });
-
-    it('one-shot cancel aborts an in-flight call', async (t) => {
-      const ctx = await withFunctions(t);
-      const opts = await ctx.opts();
-
-      await ctx.createWorkspace('oneshot-cancel-ws');
-      await ctx.deployPackage('oneshot-cancel-ws', `${PKG}@${VERSION}`);
-
-      const slow = East.asyncFunction([IntegerType], IntegerType, ($, x) => {
-        $(Time.sleep(30_000n));
-        return $.return(x);
-      });
-      const { callId } = await oneShotLaunch(
-        ctx.config.baseUrl, ctx.repoName, 'oneshot-cancel-ws',
-        {
-          bodyIr: encodeEastIR(slow.toIR()),
-          args: [variant('value', encodeInt(1n))],
-          runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }),
-          limits: none,
-        },
-        opts
-      );
-      await new Promise((r) => setTimeout(r, 500));
-      await oneShotCancel(ctx.config.baseUrl, ctx.repoName, 'oneshot-cancel-ws', callId, opts);
-
-      const status = await oneShotPoll(ctx.config.baseUrl, ctx.repoName, 'oneshot-cancel-ws', callId, opts);
-      assert.equal(status.status.type, 'cancelled');
-    });
   });
 }

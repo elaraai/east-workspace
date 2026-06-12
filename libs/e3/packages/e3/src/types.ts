@@ -84,6 +84,12 @@ export interface TaskDef<TOutput extends EastType = EastType, Path extends TreeP
   readonly taskKind?: string;
   /** Opaque extension metadata (beast2-encoded) */
   readonly metadata?: Uint8Array;
+  /**
+   * The typed runner this task resolves to. Undefined for custom-command
+   * tasks (customTask) — export serializes that as `runner: none` so
+   * orchestrators route it to a full environment.
+   */
+  readonly runner?: Runner;
 }
 
 /**

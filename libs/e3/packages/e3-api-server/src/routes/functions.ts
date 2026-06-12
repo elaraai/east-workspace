@@ -29,17 +29,12 @@ import {
   FunctionCallRequestType,
   OneShotRequestType,
   ExecuteResultType,
-  CallStartResultType,
 } from '../types.js';
 import {
   listPackageFunctions,
   describePackageFunction,
   callFunctionSync,
-  callFunctionAsync,
-  getCallStatus,
-  cancelCall,
   callOneShotSync,
-  callOneShotAsync,
 } from '../handlers/functions.js';
 
 /** Roles allowed to use one-shot execution when auth is configured. */
@@ -50,6 +45,7 @@ const ONE_SHOT_ROLES = ['admin', 'owner'];
  * passes LocalTaskRunner), mirroring the orchestrator runner-injection seam.
  */
 export type GetRunner = (repoPath: string) => TaskRunner;
+
 
 /**
  * Package-scoped function routes, mounted at
@@ -83,27 +79,6 @@ export function createPackageFunctionRoutes(
     } catch (err) {
       return sendError(ExecuteResultType, errorToVariant(err));
     }
-  });
-
-  // POST /:fn/async - Launch asynchronously (202 {callId})
-  app.post('/:fn/async', async (c) => {
-    const repoPath = getRepoPath(c.req.param('repo')!);
-    try {
-      const req = await decodeBody(c, FunctionCallRequestType);
-      return await callFunctionAsync(storage, repoPath, getRunner(repoPath), c.req.param('pkg')!, c.req.param('version')!, c.req.param('fn')!, req);
-    } catch (err) {
-      return sendError(CallStartResultType, errorToVariant(err));
-    }
-  });
-
-  // GET /:fn/calls/:callId - Poll an async call
-  app.get('/:fn/calls/:callId', (c) => {
-    return getCallStatus(c.req.param('callId')!);
-  });
-
-  // DELETE /:fn/calls/:callId - Cancel an async call
-  app.delete('/:fn/calls/:callId', (c) => {
-    return cancelCall(c.req.param('callId')!);
   });
 
   return app;
@@ -156,24 +131,6 @@ export function createWorkspaceFunctionRoutes(
     }
   });
 
-  app.post('/:fn/async', async (c) => {
-    try {
-      const { repoPath, name, version } = await deployed(c);
-      const req = await decodeBody(c, FunctionCallRequestType);
-      return await callFunctionAsync(storage, repoPath, getRunner(repoPath), name, version, c.req.param('fn')!, req);
-    } catch (err) {
-      return sendError(CallStartResultType, errorToVariant(err));
-    }
-  });
-
-  app.get('/:fn/calls/:callId', (c) => {
-    return getCallStatus(c.req.param('callId')!);
-  });
-
-  app.delete('/:fn/calls/:callId', (c) => {
-    return cancelCall(c.req.param('callId')!);
-  });
-
   return app;
 }
 
@@ -208,24 +165,6 @@ export function createOneShotRoutes(
     } catch (err) {
       return sendError(ExecuteResultType, errorToVariant(err));
     }
-  });
-
-  app.post('/async', async (c) => {
-    const repoPath = getRepoPath(c.req.param('repo')!);
-    try {
-      const req = await decodeBody(c, OneShotRequestType);
-      return await callOneShotAsync(storage, repoPath, getRunner(repoPath), c.req.param('ws')!, req);
-    } catch (err) {
-      return sendError(CallStartResultType, errorToVariant(err));
-    }
-  });
-
-  app.get('/calls/:callId', (c) => {
-    return getCallStatus(c.req.param('callId')!);
-  });
-
-  app.delete('/calls/:callId', (c) => {
-    return cancelCall(c.req.param('callId')!);
   });
 
   return app;

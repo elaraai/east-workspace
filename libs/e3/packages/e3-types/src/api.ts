@@ -792,26 +792,6 @@ export const FunctionSignatureType = StructType({
   runner:     RunnerType,
 });
 
-/** Async launch → id; poll returns status + the result once terminal. */
-export const CallStartResultType = StructType({ callId: StringType });
-
-/** A function-specific status — do NOT reuse AsyncOperationStatusType, which has
- *  only running|succeeded|failed and cannot represent a cancelled call (and
- *  mutating it would reorder its sorted variant tags, a breaking change for the
- *  GC/repo-delete consumers that share it). */
-export const CallStatusType = VariantType({
-  running:   NullType,
-  succeeded: NullType,
-  failed:    NullType,
-  cancelled: NullType,
-});
-
-export const CallStatusResultType = StructType({
-  status: CallStatusType,
-  result: OptionType(ExecuteResultType),    // present once terminal (succeeded/failed)
-  error:  OptionType(StringType),
-});
-
 /**
  * One-shot execution request: run an anonymous function whose IR is supplied
  * at call time, optionally bound to existing workspace datasets, returning
@@ -873,7 +853,4 @@ export type Diagnostic = ValueTypeOf<typeof DiagnosticType>;
 export type ExecuteResult = ValueTypeOf<typeof ExecuteResultType>;
 export type FunctionCallRequest = ValueTypeOf<typeof FunctionCallRequestType>;
 export type FunctionSignature = ValueTypeOf<typeof FunctionSignatureType>;
-export type CallStartResult = ValueTypeOf<typeof CallStartResultType>;
-export type CallStatus = ValueTypeOf<typeof CallStatusType>;
-export type CallStatusResult = ValueTypeOf<typeof CallStatusResultType>;
 export type OneShotRequest = ValueTypeOf<typeof OneShotRequestType>;

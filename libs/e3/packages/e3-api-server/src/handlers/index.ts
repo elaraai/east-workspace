@@ -47,9 +47,5 @@ export {
   listPackageFunctions,
   describePackageFunction,
   callFunctionSync,
-  callFunctionAsync,
-  getCallStatus,
-  cancelCall,
   callOneShotSync,
-  callOneShotAsync,
 } from './functions.js';

@@ -163,6 +163,10 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
         output: item.output.path,
         kind: item.taskKind ? variant('some', item.taskKind) : variant('none', null),
         metadata: item.metadata ? variant('some', item.metadata) : variant('none', null),
+        // Routing metadata (commandIr stays authoritative for execution).
+        // customTask leaves TaskDef.runner undefined -> opaque custom
+        // (empty command: the wire field is informational for custom tasks).
+        runner: item.runner ? runnerToVariant(item.runner) : variant('custom', { command: [] as string[] }),
       };
 
       // Serialize and add to zip
