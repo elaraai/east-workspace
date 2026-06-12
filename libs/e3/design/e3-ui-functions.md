@@ -332,6 +332,36 @@ New `src/platform/func-runtime.ts`, registered alongside `bind-runtime.ts` via
 `registerPlatformImplementation` + `registerReactiveTracker`
 (`east-ui-components/platform`).
 
+### 7.0 Reuse of the existing binding infrastructure
+
+`FuncRuntime` is a sibling of `BindRuntime`, not a fork of it — the
+dataset-specific semantics (staging buffers, patch datasets, the commit
+matrix) don't apply, but everything around them is shared:
+
+- **Reactive notification core.** `ReactiveDatasetCache` privately owns the
+  subscriber/key-version machinery (`keySubscribers`, `globalSubscribers`,
+  `keyVersions`, `notifyChange`, `setScheduler`, `batch` —
+  `dataset-store.ts:226-255`). Extract it into a small shared base,
+  `ReactiveKeyStore` (same `subscribe` overloads / `getSnapshot` /
+  `getKeyVersion` / `setScheduler` / `batch` surface as the existing
+  interface), as a **mechanical refactor with no behaviour change**;
+  `ReactiveDatasetCache` extends it, and `FuncRuntime` keeps its call
+  entries in one too. No second hand-rolled subscriber set.
+- **Reactive tracking.** The same `registerReactiveTracker` registration
+  `BindRuntime` uses — func reads push their `func:…` keys into the tracking
+  context so `Reactive.Root` re-renders pick up dataset and function keys
+  uniformly.
+- **API seam + config.** The workspace identity and client wiring come from
+  the same `E3Config` / provider the dataset store uses; like the store's
+  `DatasetApi`, the runtime talks through a narrow `FunctionApi` interface
+  (`list`, `call`) so tests stub it and the showcase harness (§8) swaps in
+  an in-memory implementation — that *is* the mock runtime.
+- **Codec memoization.** Extract the structural-type-keyed `SortedMap`
+  memoizer from `getBindingHelpers` (`bind-runtime.ts:106`) into a shared
+  `memoizeByEastType` helper used by both runtimes.
+- **Lifecycle conventions.** Process-global default instance + constructible
+  for test isolation, exactly like `BindRuntime` / `getStagedStore`.
+
 ### 7.1 Call registry
 
 A `FuncRuntime` class (process-global default instance, constructible for
@@ -388,9 +418,10 @@ East IR. Two existing surfaces gain awareness:
 - **Task preview / inspector** (`e3-ui-components`): show a UI task's bound
   functions from its manifest next to its bound paths.
 - **Showcase harness** (`east-ui-showcase` / `e3-ui-showcase` seeding): the
-  in-memory cache used by snapshots gets a mock `FuncRuntime` whose `call`
-  resolves against locally-registered example implementations, so examples
-  render deterministic `succeeded` states without a server.
+  harness supplies an in-memory `FunctionApi` (§7.0) whose `call` resolves
+  against locally-registered example implementations, so examples render
+  deterministic `succeeded` states without a server — the same seam the
+  dataset cache already uses for its snapshot seeding.
 
 ## 9. Testing
 
@@ -429,8 +460,8 @@ East IR. Two existing surfaces gain awareness:
 | # | Package | Work |
 |---|---|---|
 | 1 | `e3-ui` | `src/func.ts` (types, platform fn, `Func` namespace), export from `index.ts`/`internal.ts`; `manifest.ts` field + dual-decode; `derive.ts` walks `function_bind`. |
-| 2 | `e3-ui-components` | `src/platform/func-runtime.ts` (registry, closures, codecs), registration in `src/index.ts`; mock runtime for the showcase harness. |
-| 3 | tests | per §9. |
+| 2 | `e3-ui-components` | Refactor-first: extract `ReactiveKeyStore` from `ReactiveDatasetCache` and `memoizeByEastType` from `getBindingHelpers` (§7.0, no behaviour change); then `src/platform/func-runtime.ts` (registry, closures, `FunctionApi` seam), registration in `src/index.ts`; in-memory `FunctionApi` for the showcase harness. |
+| 3 | tests | per §9, plus existing `bind-runtime` suites stay green through the §7.0 refactor. |
 | 4 | docs | `e3-ui` SKILL/USAGE updates (coordinate — plugin skill files). |
 
 Definition of done: `cd libs/east-ui && make build && make lint && make test`
