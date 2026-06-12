@@ -14,14 +14,15 @@
 
 `Data.bind` gives a UI task a reactive handle on a **dataset**. This design
 adds the same move for a **named package function**: `Func.bind` returns a
-handle struct that lets East UI code
+handle struct with one entry point and the familiar binding observation
+surface —
 
-- **launch** the function fire-and-forget from a sync UI callback
-  (`call(...)`) with reactive **status / result / error** tracking — the RPC
-  with-a-spinner shape every dashboard action needs, and
-- carry **the actual callable** (`fn`) as a first-class East **async
-  function** `AsyncFunctionType(Inputs, Output)`, awaitable wherever async
-  East code runs, for direct request/response composition.
+- `call(args…)` **launches** the function fire-and-forget from any sync UI
+  callback (onClick) and returns immediately;
+- `read()` returns `Option(Output)` — the last successful result;
+- `status()` / `pending()` / `error()` track the call lifecycle reactively,
+  driving spinners and error surfaces through `Reactive.Root` exactly like
+  `Data.bind`'s `status` / `pending`.
 
 Like `Data.bind`, the binding is declared with statically-known identity (the
 function name), is derivable into the UI task's manifest by a static IR walk,
@@ -35,8 +36,7 @@ state (which no longer exists).
 UI (East IR)                       browser runtime                       e3 server
 Func.bind([[I…], O], "forecast")   function_bind platform impl
   .call(12n, 1.05)      ────────►  encode args → POST (fire-&-forget) ─►  POST …/workspaces/<ws>/functions/forecast
-  .status()/.result()   ◄────────  in-flight registry (reactive)          (sync; server-owned deadline)
-  .fn(12n, 1.05)        ────────►  awaited POST, decode, return ───────►  POST …/workspaces/<ws>/functions/forecast
+  .read()/.status()     ◄────────  in-flight registry (reactive)          (sync; server-owned deadline)
 ```
 
 **Scope framing** (inherited from the sync-only decision): an `e3.function`
@@ -69,9 +69,9 @@ Goals:
 2. Reactive call lifecycle: `idle → running → succeeded | failed | cancelled`,
    driving spinners/disabled states through `Reactive.Root` like every other
    e3-ui binding.
-3. The handle carries the function itself as an East value
-   (`AsyncFunctionType(Inputs, Output)`) so calls compose inside async East
-   code, not only through the tracked launcher.
+3. The result is read back through the binding (`read()` →
+   `Option(Output)`), structurally typed so components reject handles bound
+   to the wrong signature at compile time.
 4. Static derivability: a UI task's bound functions appear in its manifest the
    same way its bound dataset paths do.
 5. Early type safety: a bound signature that disagrees with the deployed
@@ -79,6 +79,11 @@ Goals:
 
 Non-goals (v1):
 
+- **A raw awaitable callable on the handle** (`fn: AsyncFunctionType`):
+  today's UI callback slots are sync (`FunctionType([], NullType)`, e.g.
+  `Button.onClick`, `east-ui/src/component.ts:294`), so an async callable has
+  no surface to be awaited from; `call` + reactive `read` covers the UI
+  shape. Revisit alongside async UI callbacks (§10).
 - **One-shot execution** from the UI (`oneShotExecute`): role-gated remote
   code execution; deliberately excluded until there's a concrete need.
 - **Runner overrides / limits** per call from the UI: the deployed function's
@@ -120,40 +125,38 @@ future `{ channel }` option is sketched in §10).
 ### 4.2 The handle struct
 
 ```ts
-// All fields exist regardless of state; closures are sync except `fn`.
+// All fields exist regardless of state; all closures are sync.
 export const FuncBindHandleType = <I extends EastType[], O extends EastType>(
   inputs: [...I], output: O,
 ) => StructType({
-  /** Tracked fire-and-forget launch. Encodes args, issues the sync call
-   *  without awaiting it, and returns immediately — callable from any sync
-   *  UI callback (onClick). Latest-wins: launching while a tracked call is
-   *  in flight abandons the previous one (see §7.2). */
+  /** The one entry point: encode args, issue the call fire-and-forget,
+   *  return null immediately — callable from any sync UI callback
+   *  (onClick). Latest-wins: calling while a tracked call is in flight
+   *  abandons the previous one (see §7.2). Observe the outcome through
+   *  `read` / `status` / `error`. */
   call:    FunctionType(inputs, NullType),
 
-  /** The actual function, as an East value. Awaitable direct RPC: returns
-   *  the decoded Output on success, raises EastError on any failure. Does
-   *  NOT touch the tracked status channel — it is the raw callable. */
-  fn:      AsyncFunctionType(inputs, output),
+  /** Last successful result. `none` until the first `succeeded` call;
+   *  survives until the next launch overwrites it. */
+  read:    FunctionType([], OptionType(output)),
 
-  /** Lifecycle of the tracked channel (the most recent `call`). */
+  /** Lifecycle of the most recent `call`. */
   status:  FunctionType([], FuncStatusType),
 
-  /** Last successful tracked result. Survives until the next launch. */
-  result:  FunctionType([], OptionType(output)),
-
-  /** Last tracked failure, with the server's outcome detail. */
+  /** Last failure, with the server's outcome detail. `none` unless
+   *  status is `failed`. */
   error:   FunctionType([], OptionType(FuncErrorType)),
 
-  /** True while a tracked call is in flight. (== status is `running`.) */
+  /** True while a call is in flight. (== status is `running`.) */
   pending: FunctionType([], BooleanType),
 
-  /** Stop waiting for the in-flight tracked call (no-op when idle or
-   *  terminal). Client-side only: there is no server-side cancel — the
-   *  server runs the call to completion or its deadline regardless; the
-   *  late response is discarded (§7.2). */
+  /** Stop waiting for the in-flight call (no-op when idle or terminal).
+   *  Client-side only: there is no server-side cancel — the server runs
+   *  the call to completion or its deadline regardless; the late response
+   *  is discarded (§7.2). */
   cancel:  FunctionType([], NullType),
 
-  /** Descriptor — name + declared signature, for diff/inspector surfaces. */
+  /** Descriptor — the bound name, for inspector surfaces. */
   binding: FuncBindingType,
 });
 
@@ -161,10 +164,14 @@ export type BoundFunc<I extends EastType[], O extends EastType> =
   ExprType<ReturnType<typeof FuncBindHandleType<I, O>>>;
 ```
 
-As with `DataBindHandleType`, the value types live **structurally** in the
-field signatures (`fn`, `result`), so a component requiring
-`BoundFunc<[IntegerType], FloatType>` rejects a handle bound to any other
-signature at compile time, and the information survives `$.let` plumbing.
+The field set is deliberately the function-shaped subset of
+`DataBindHandleType`'s vocabulary — `read` / `status` / `pending` mean the
+same kind of thing they mean on a dataset binding, plus the call-specific
+`call` / `error` / `cancel`. As with `DataBindHandleType`, the value types
+live **structurally** in the field signatures (`call`, `read`), so a
+component requiring `BoundFunc<[IntegerType], FloatType>` rejects a handle
+bound to any other signature at compile time, and the information survives
+`$.let` plumbing.
 
 ### 4.3 Status and error types
 
@@ -228,7 +235,7 @@ const dashboard = e3.ui('dashboard', East.function([], UIComponentType, _$ =>
       forecastFn.status().match({
         idle:      _ => Text.Root("Not run yet"),
         running:   _ => Text.Root("Running…"),
-        succeeded: _ => Text.Root(East.str`Forecast: ${forecastFn.result().unwrap("some")}`),
+        succeeded: _ => Text.Root(East.str`Forecast: ${forecastFn.read().unwrap("some")}`),
         failed:    _ => Alert.Root("error", forecastFn.error().unwrap("some").message),
         cancelled: _ => Text.Root("Cancelled"),
       }),
@@ -236,23 +243,11 @@ const dashboard = e3.ui('dashboard', East.function([], UIComponentType, _$ =>
   }))));
 ```
 
-Direct composition through `fn` (anywhere async East code runs):
-
-```ts
-const seeded = $.let(East.asyncFunction([FloatType], FloatType, async ($, growth) => {
-  const base = $.let(await forecastFn.fn(12n, growth), FloatType);
-  return base.multiply(1.1);
-}));
-```
-
-**Honest limitation:** today's UI callback slots are sync
-(`FunctionType([], NullType)` — e.g. `Button.onClick`,
-`east-ui/src/component.ts:294`), so `fn` cannot be awaited *directly inside an
-onClick*. `call` covers that surface. `fn` exists for (a) composition inside
-other async East functions, and (b) forward-compatibility: if/when east-ui
-grows async callback support, the handle already carries the right value. This
-split — sync tracked launcher + async raw callable — is the same shape
-`Data.bind` uses for `write` (sync IR, async effects behind the platform).
+The launch/observe split is the same shape `Data.bind` uses for `write`
+(sync IR, async effects behind the platform, observed reactively): `call`
+never blocks the UI thread or the East interpreter, and everything you'd
+want back from the call arrives through `read` / `status` / `error` on the
+next reactive render.
 
 ## 5. Addressing, manifest, and validation
 
@@ -298,11 +293,10 @@ of truth. On first use of each bound name, the runtime fetches the workspace's
 signatures (`workspaceFunctionList`, cached per workspace) and compares the
 declared signature with `equalFor(EastTypeType)` — the same structural-type
 agreement check `bind-runtime.ts` applies to duplicate dataset bindings. A
-mismatch (or unknown name) parks the tracked channel in
-`failed` with `kind: invalid` and a message naming both signatures; `fn`
-raises the same as an `EastError`. Calls are never sent with a mismatched
-signature — the server would reject them anyway, but the client-side check
-produces a better message and works offline.
+mismatch (or unknown name) parks the binding in `failed` with
+`kind: invalid` and a message naming both signatures. Calls are never sent
+with a mismatched signature — the server would reject them anyway, but the
+client-side check produces a better message and works offline.
 
 ## 6. Platform function (`@elaraai/e3-ui`)
 
@@ -319,12 +313,13 @@ export const funcBindPlatformFn = East.genericPlatform(
 
 The factory instantiates `H = FuncBindHandleType(inputs, output)` and applies
 `funcBindPlatformFn([H], East.value(name, StringType))`. The runtime
-implementation recovers `Inputs` / `Output` by **introspecting `H`** (the
-`fn` field is `AsyncFunctionType(inputs, output)`) — no duplicate signature
-arguments to drift out of sync. This is the one structural difference from
-`data_bind` (which is generic over the bare `T` and rebuilds its fixed handle
-shape around it): the handle's shape *is* the signature here, so the handle
-type is the honest generic.
+implementation recovers the signature by **introspecting `H`** — `Inputs`
+from the `call` field's `FunctionType` and `Output` from the `read` field's
+`OptionType` — so there are no duplicate signature arguments to drift out of
+sync. This is the one structural difference from `data_bind` (which is
+generic over the bare `T` and rebuilds its fixed handle shape around it):
+the handle's shape *is* the signature here, so the handle type is the honest
+generic.
 
 `optional: true` keeps the IR analyzable without an implementation (tests,
 export) exactly like `data_bind` (`e3-ui/src/data.ts:146-163`) — and, as with
@@ -366,9 +361,8 @@ All handles bound to the same name in the same workspace **share the entry**
 
 | field | behaviour |
 |---|---|
-| `call(args…)` | Encode each arg with `encodeBeast2For(inputTypes[i])`; bump `launchSeq`; issue `workspaceFunctionCall({ args, runner: none, limits: none })` **without awaiting**; set `running`; return `null` immediately. On settle: if the response's seq is still current, map it to `succeeded` / `failed` (per the §4.3 outcome mapping) and notify; otherwise discard (latest-wins — a relaunch or `cancel` superseded it). Launch/transport failures → `failed` with `kind: transport`. |
-| `fn(args…)` | `await workspaceFunctionCall(...)`; `success` → decode `value` blob with `decodeBeast2For(outputType)` and return it; any other outcome → raise `EastError` carrying the §4.3 message. No registry interaction. |
-| `status()` / `result()` / `error()` / `pending()` | Read the registry entry (tracked via `registerReactiveTracker` on `key`, so `Reactive.Root` re-renders on transitions). |
+| `call(args…)` | Encode each arg with `encodeBeast2For(inputTypes[i])`; bump `launchSeq`; issue `workspaceFunctionCall({ args, runner: none, limits: none })` **without awaiting**; set `running`; return `null` immediately. On settle: if the response's seq is still current, map it to `succeeded` (decode `outcome.success.value` with `decodeBeast2For(outputType)` into `result`) or `failed` (per the §4.3 outcome mapping) and notify; otherwise discard (latest-wins — a relaunch or `cancel` superseded it). Launch/transport failures → `failed` with `kind: transport`. |
+| `read()` / `status()` / `error()` / `pending()` | Read the registry entry (tracked via `registerReactiveTracker` on `key`, so `Reactive.Root` re-renders on transitions). `read` returns `some(result)` only after at least one `succeeded` call. |
 | `cancel()` | Bump `launchSeq` (orphaning the in-flight promise) and set `cancelled`; notify. Client-side only — the server runs the call to completion or its deadline either way; the late response is discarded by the seq check. No-op when not `running`. |
 | `binding` | Constant descriptor `{ name }`. |
 
@@ -417,14 +411,16 @@ East IR. Two existing surfaces gain awareness:
 - **`{ channel: string }` bind option** — independent tracked channels for
   the same function (key becomes `func:<ws>:<name>:<channel>`), for surfaces
   that fan out the same RPC with different arguments.
+- **Raw awaitable callable** — an `fn: AsyncFunctionType(Inputs, Output)`
+  field on the handle for direct request/response composition. Only earns
+  its place once east-ui callbacks can be async (`onClick:
+  AsyncFunctionType([], NullType)`) — an east-ui-wide change with its own
+  design; until then it has no surface to be awaited from.
 - **Abortable requests** — plumb an `AbortSignal` through api-client
   `RequestOptions` so `cancel()` frees the connection instead of only
   abandoning the wait.
 - **One-shot binding** (`Func.oneShot`) — caller-supplied IR with
   dataset-bound args; needs the role-gating story first.
-- **Async UI callbacks** — let `onClick` accept
-  `AsyncFunctionType([], NullType)` so `fn` is directly awaitable from
-  handlers; an east-ui-wide change with its own design.
 - **Call timeline** — surfacing launch/duration history; belongs with the
   Decision journal components.
 
