@@ -47,6 +47,7 @@ with contextlib.suppress(ImportError):
 import east.types as _types  # noqa: E402
 from east.namespace import East  # noqa: E402
 from east.runtime.errors import EastError  # noqa: E402
+from east.runtime.memo import configure_memo, memoize  # noqa: E402
 from east.runtime.platform import (  # noqa: E402
     GenericPlatformFunction,
     PlatformFunction,
@@ -91,4 +92,6 @@ __all__ = [
     "platform_function",
     "generic_platform_function",
     "platform_functions",
+    "memoize",
+    "configure_memo",
 ]
