@@ -129,19 +129,23 @@ export const schematicFacility = example({
             some(variant("neutral", null)),
         ], ArrayType(OptionType(StatusTokenType)));
         // One generated grid block per zone — geometry and pseudo-random
-        // fill computed with East expressions over the unit index.
+        // fill computed with East expressions over the unit index. Blocks
+        // mix row spacing (tight ⇢ sparse) and add hash jitter so the
+        // semantic-zoom declutter has real density variation to chew on.
         const block = $.const(East.function(
-            [StringType, FloatType, FloatType, IntegerType, IntegerType, FloatType],
+            [StringType, FloatType, FloatType, IntegerType, IntegerType, FloatType, FloatType],
             ArrayType(UnitType),
-            (_$, prefix, x0, y0, count, cols, cap) =>
+            (_$, prefix, x0, y0, count, cols, spacing, cap) =>
                 East.Array.generate(count, UnitType, ($, i) => {
                     const col = $.let(i.remainder(cols));
                     const row = $.let(i.subtract(col).divide(cols));
                     const fill = $.let(i.add(1n).multiply(7919n).remainder(100n).toFloat().divide(100.0).multiply(cap));
+                    const jx = $.let(i.multiply(2654435761n).remainder(97n).toFloat().divide(97.0).subtract(0.5).multiply(spacing.multiply(0.3)));
+                    const jy = $.let(i.multiply(40503n).remainder(89n).toFloat().divide(89.0).subtract(0.5).multiply(spacing.multiply(0.3)));
                     return {
                         key: East.str`${prefix}-${East.print(i.add(1n))}`,
-                        x: x0.add(col.toFloat().multiply(3.1)),
-                        y: y0.add(row.toFloat().multiply(3.1)),
+                        x: x0.add(col.toFloat().multiply(spacing)).add(jx),
+                        y: y0.add(row.toFloat().multiply(spacing)).add(jy),
                         kind: East.str`${East.Float.printFixed(cap, 0n)} t cell`,
                         fill,
                         cap,
@@ -151,12 +155,12 @@ export const schematicFacility = example({
                 }),
         ));
         const units = $.let(
-            block("IN", 3.0, 3.5, 16n, 8n, 20.0)
-                .concat(block("PA", 33.0, 3.5, 84n, 14n, 40.0))
-                .concat(block("PB", 33.0, 27.5, 84n, 14n, 40.0))
-                .concat(block("ST", 3.0, 15.5, 80n, 8n, 12.0))
-                .concat(block("QA", 81.0, 3.5, 30n, 5n, 60.0))
-                .concat(block("OUT", 81.0, 27.5, 30n, 5n, 24.0)));
+            block("IN", 3.0, 3.5, 16n, 8n, 3.1, 20.0)
+                .concat(block("PA", 33.0, 3.5, 84n, 14n, 3.1, 40.0))
+                .concat(block("PB", 33.0, 27.5, 84n, 21n, 2.0, 40.0))
+                .concat(block("ST", 3.0, 15.5, 80n, 10n, 1.6, 12.0))
+                .concat(block("QA", 81.0, 3.5, 30n, 5n, 3.6, 60.0))
+                .concat(block("OUT", 81.0, 27.5, 12n, 4n, 4.8, 24.0)));
         const areas = $.const([
             { id: "inbound", name: "Inbound", x: 1.0, y: 1.0, w: 28.0, h: 10.0 },
             { id: "hall-a", name: "Process Hall A", x: 31.0, y: 1.0, w: 46.0, h: 22.0 },

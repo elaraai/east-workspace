@@ -102,7 +102,9 @@ interface NavZone {
 }
 
 /** Nest zones by smallest-containing-rect and place items into their
- * smallest containing zone — the drawing IS the hierarchy. */
+ * smallest containing zone — the drawing IS the hierarchy. Hatch zones
+ * are annotations (walkways, exclusion strips), not containers: they
+ * never host items. */
 function buildNavTree(zones: readonly SchematicZoneValue[], items: readonly SchematicItemValue[]): { roots: NavZone[]; floor: SchematicItemValue[]; zoneOf: Map<string, string>; parentOf: Map<string, string> } {
     const nodes = new Map<string, NavZone>();
     const sorted = [...zones].sort((a, b) => (a.width * a.height) - (b.width * b.height));
@@ -121,16 +123,98 @@ function buildNavTree(zones: readonly SchematicZoneValue[], items: readonly Sche
             parentOf.set(zone.key, parent.key);
         } else roots.push(nodes.get(zone.key)!);
     }
+    const hosts = sorted.filter(z => z.pattern.type === "outline");
     const floor: SchematicItemValue[] = [];
     const zoneOf = new Map<string, string>();
     for (const item of items) {
-        const host = sorted.find(z => contains(z, item.x, item.y));
+        const host = hosts.find(z => contains(z, item.x, item.y));
         if (host !== undefined) {
             nodes.get(host.key)!.items.push(item);
             zoneOf.set(item.key, host.key);
         } else floor.push(item);
     }
     return { roots, floor, zoneOf, parentOf };
+}
+
+type LodTier = "card" | "label" | "dot";
+
+/** Screen-px footprint of an item rendered at `tier`, centred on the
+ * item. Translation-invariant, so collisions depend on ppu alone. */
+function tierSize(item: SchematicItemValue, tier: LodTier, ppu: number): { w: number; h: number } {
+    if (tier === "label") return { w: item.label.length * 6 + 28, h: 22 };
+    const sublabel = item.sublabel.type === "some" ? item.sublabel.value : undefined;
+    const explicit = item.width.type === "some" ? item.width.value * ppu : undefined;
+    const w = explicit ?? Math.max(
+        88,
+        item.label.length * 6.6 + (item.icon.type === "some" ? 16 : 0) + (item.status.type === "some" ? 13 : 0) + 20,
+        (sublabel?.length ?? 0) * 5.4 + 20,
+    );
+    const h = 24
+        + (sublabel !== undefined ? 13 : 0)
+        + (item.meter.type === "some" ? 8 : 0)
+        + (item.metric.type === "some" ? 15 : 0);
+    return { w, h };
+}
+
+/** Per-item semantic-zoom tier. The global ppu band picks the richest
+ * candidate form; a symmetric nearest-neighbour test then demotes items
+ * (card ⇢ labelled dot ⇢ dot). Symmetry is the point: an item only
+ * keeps a form if it AND its neighbours would fit at that form, so a
+ * uniformly dense row degrades as one block instead of checkerboarding
+ * into random survivors, while isolated items keep full cards at the
+ * same zoom. Neighbourhoods come from per-item R-tree queries. */
+type CenterBox = { minX: number; minY: number; maxX: number; maxY: number; item: SchematicItemValue };
+
+/** World-coordinate R-tree over item centres — built once per visible
+ * set; zooming only changes the (1/ppu-scaled) query boxes. */
+function buildCenterTree(items: readonly SchematicItemValue[]): RBush<CenterBox> {
+    const tree = new RBush<CenterBox>();
+    tree.load(items.map(item => ({ minX: item.x, minY: item.y, maxX: item.x, maxY: item.y, item })));
+    return tree;
+}
+
+function declutterTiers(items: readonly SchematicItemValue[], tree: RBush<CenterBox>, baseLod: LodTier, ppu: number, selected: string | null): Map<string, LodTier> {
+    const tiers = new Map<string, LodTier>();
+    if (baseLod === "dot") {
+        for (const item of items) tiers.set(item.key, "dot");
+        return tiers;
+    }
+    const GAP = 6;
+    let maxW = 0, maxH = 0;
+    const sizes = new Map<string, { card: { w: number; h: number }; label: { w: number; h: number } }>();
+    for (const item of items) {
+        const card = tierSize(item, "card", ppu);
+        const label = tierSize(item, "label", ppu);
+        sizes.set(item.key, { card, label });
+        maxW = Math.max(maxW, card.w);
+        maxH = Math.max(maxH, card.h);
+    }
+    // Clear of every neighbour when self renders at `tier` and each
+    // neighbour at its own already-decided tier (or `tier` while undecided).
+    const clear = (item: SchematicItemValue, tier: "card" | "label"): boolean => {
+        const self = sizes.get(item.key)![tier];
+        const reachX = ((self.w + maxW) / 2 + GAP) / ppu, reachY = ((self.h + maxH) / 2 + GAP) / ppu;
+        for (const hit of tree.search({ minX: item.x - reachX, minY: item.y - reachY, maxX: item.x + reachX, maxY: item.y + reachY })) {
+            if (hit.item.key === item.key) continue;
+            const neighbourTier = tiers.get(hit.item.key);
+            if (neighbourTier === "dot") continue;
+            const other = sizes.get(hit.item.key) ?? { card: tierSize(hit.item, "card", ppu), label: tierSize(hit.item, "label", ppu) };
+            const otherSize = other[neighbourTier === "label" ? "label" : tier];
+            if (Math.abs(hit.item.x - item.x) * ppu < (self.w + otherSize.w) / 2 + GAP
+                && Math.abs(hit.item.y - item.y) * ppu < (self.h + otherSize.h) / 2 + GAP) return false;
+        }
+        return true;
+    };
+    if (baseLod === "card") {
+        for (const item of items) if (clear(item, "card")) tiers.set(item.key, "card");
+    }
+    for (const item of items) {
+        if (!tiers.has(item.key)) tiers.set(item.key, clear(item, "label") ? "label" : "dot");
+    }
+    // The selected item is an explicit pointer — it never demotes below
+    // the zoom band's richest form.
+    if (selected !== null && tiers.has(selected)) tiers.set(selected, baseLod);
+    return tiers;
 }
 
 interface ItemBox { minX: number; minY: number; maxX: number; maxY: number; item: SchematicItemValue }
@@ -148,7 +232,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value }: 
 
     const onSelectFn = useMemo(() => getSomeorUndefined(value.onSelect), [value.onSelect]);
     const scaleUnit = getSomeorUndefined(value.scaleUnit);
-    const showGrid = getSomeorUndefined(value.grid) ?? false;
+    const showGrid = getSomeorUndefined(value.grid) ?? true;
     const showNavigator = getSomeorUndefined(value.navigator) ?? value.zones.length > 0;
     const showMinimap = getSomeorUndefined(value.minimap) ?? value.items.length >= MINIMAP_AUTO;
 
@@ -203,6 +287,19 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value }: 
     }, [index, size, ppu, view]);
 
     const nav = useMemo(() => buildNavTree(value.zones, value.items), [value.zones, value.items]);
+
+    // Duplicate zone labels are real (tank farms repeat a code) — the
+    // navigator needs a unique handle per row, so repeats get an ordinal.
+    const zoneDisplay = useMemo(() => {
+        const counts = new Map<string, number>();
+        const out = new Map<string, string>();
+        for (const zone of value.zones) {
+            const n = (counts.get(zone.label) ?? 0) + 1;
+            counts.set(zone.label, n);
+            out.set(zone.key, n > 1 ? `${zone.label} · ${n}` : zone.label);
+        }
+        return out;
+    }, [value.zones]);
 
     // Selection stepping order: zones alphabetical (natural-numeric), each
     // zone's items alphabetical within it, nested zones after their
@@ -326,24 +423,43 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value }: 
     // Viewport spy: the zone dominating the view — scored by how much of
     // the smaller of (zone, viewport) the overlap covers, so it tracks both
     // "zoomed into a corner of a big hall" and "hall fills the view".
-    const currentZone = useMemo(() => {
-        if (size === null || ppu === 0) return undefined;
+    // Hysteresis keeps it stable on score boundaries: the incumbent holds
+    // until it clearly loses, a challenger must clearly win — otherwise a
+    // view sitting on the threshold flaps the accordion every frame.
+    const [currentZone, setCurrentZone] = useState<string | undefined>(undefined);
+    useEffect(() => {
+        const SPY_ENTER = 0.3, SPY_STAY = 0.18, SPY_MARGIN = 0.15;
+        if (size === null || ppu === 0 || view.zoom <= 1.05) {
+            setCurrentZone(undefined);
+            return;
+        }
         const vx0 = -view.tx / ppu, vy0 = -view.ty / ppu;
         const vx1 = (size.w - view.tx) / ppu, vy1 = (size.h - view.ty) / ppu;
         const viewArea = (vx1 - vx0) * (vy1 - vy0);
-        let best: string | undefined;
-        let bestScore = 0.25;
-        for (const z of value.zones) {
+        const scoreOf = (z: SchematicZoneValue) => {
             const ix = Math.max(0, Math.min(vx1, z.x + z.width) - Math.max(vx0, z.x));
             const iy = Math.max(0, Math.min(vy1, z.y + z.height) - Math.max(vy0, z.y));
-            const score = (ix * iy) / Math.min(viewArea, z.width * z.height);
+            return (ix * iy) / Math.min(viewArea, z.width * z.height);
+        };
+        let best: string | undefined;
+        let bestScore = 0;
+        for (const z of value.zones) {
+            const score = scoreOf(z);
             if (score > bestScore) { best = z.key; bestScore = score; }
         }
-        // At full fit every zone scores 1 — only spy once actually zoomed in.
-        return view.zoom > 1.05 ? best : undefined;
+        setCurrentZone(prev => {
+            if (prev !== undefined) {
+                const holder = value.zones.find(z => z.key === prev);
+                const holderScore = holder !== undefined ? scoreOf(holder) : 0;
+                if (holderScore >= SPY_STAY && (best === prev || bestScore < holderScore + SPY_MARGIN)) return prev;
+            }
+            return bestScore >= SPY_ENTER ? best : undefined;
+        });
     }, [size, ppu, view, value.zones]);
 
-    const lod = ppu >= LOD_CARD_PPU ? "card" : ppu >= LOD_LABEL_PPU ? "label" : "dot";
+    const lod: LodTier = ppu >= LOD_CARD_PPU ? "card" : ppu >= LOD_LABEL_PPU ? "label" : "dot";
+    const centerTree = useMemo(() => buildCenterTree(visibleItems), [visibleItems]);
+    const tiers = useMemo(() => declutterTiers(visibleItems, centerTree, lod, ppu, selected), [visibleItems, centerTree, lod, ppu, selected]);
     const lowerQuery = query.trim().toLowerCase();
     const searchHits = useMemo(() => lowerQuery === "" ? [] : value.items
         .filter(i => i.key.toLowerCase().includes(lowerQuery) || i.label.toLowerCase().includes(lowerQuery))
@@ -381,6 +497,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value }: 
     const renderNavZone = (node: NavZone, depth: number): React.ReactNode => {
         const open = openPath.has(node.zone.key);
         const count = node.items.length + node.children.reduce((n, c) => n + c.items.length, 0);
+        const expandable = node.items.length > 0 || node.children.length > 0;
         return (
             <Box key={node.zone.key}>
                 <Box
@@ -388,19 +505,25 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value }: 
                     style={{ paddingLeft: `${8 + depth * 14}px` }}
                     {...(node.zone.key === currentZone ? { "data-current": "" } : {})}
                 >
-                    <Box
-                        as="button"
-                        css={styles.navCaret}
-                        aria-label={open ? "Collapse zone" : "Expand zone"}
-                        data-open={open ? "" : undefined}
-                        onClick={() => toggleZone(node.zone.key)}
-                    >
-                        <FontAwesomeIcon icon={faCaretRight} />
-                    </Box>
+                    {expandable ? (
+                        <Box
+                            as="button"
+                            css={styles.navCaret}
+                            aria-label={open ? "Collapse zone" : "Expand zone"}
+                            data-open={open ? "" : undefined}
+                            onClick={() => toggleZone(node.zone.key)}
+                        >
+                            <FontAwesomeIcon icon={faCaretRight} />
+                        </Box>
+                    ) : (
+                        <Box css={styles.navCaret} aria-hidden="true" style={{ visibility: "hidden" }}>
+                            <FontAwesomeIcon icon={faCaretRight} />
+                        </Box>
+                    )}
                     <Box as="button" css={styles.navZoneLabel} onClick={() => flyToZone(node.zone)}>
-                        {node.zone.label}
+                        {zoneDisplay.get(node.zone.key) ?? node.zone.label}
                     </Box>
-                    <Box as="span" css={styles.navCount}>{count}</Box>
+                    {count > 0 && <Box as="span" css={styles.navCount}>{count}</Box>}
                 </Box>
                 {open && node.children.map(child => renderNavZone(child, depth + 1))}
                 {open && node.items.map(item => (
@@ -516,7 +639,9 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value }: 
                                         ...hatchVars,
                                     }}
                                 >
-                                    <Box as="span" css={styles.zoneLabel} data-pattern={pattern.type}>{zone.label}</Box>
+                                    {zone.width * ppu >= zone.label.length * 6.2 + 24 && (
+                                        <Box as="span" css={styles.zoneLabel} data-pattern={pattern.type}>{zone.label}</Box>
+                                    )}
                                 </Box>
                             );
                         })}
@@ -554,7 +679,8 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value }: 
                         {visibleItems.map(item => {
                             const tone = statusTone(item.status);
                             const isSelected = selected === item.key;
-                            if (lod === "dot") {
+                            const tier = tiers.get(item.key) ?? lod;
+                            if (tier === "dot") {
                                 return (
                                     <Box
                                         key={item.key}
@@ -563,10 +689,11 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value }: 
                                         {...(isSelected ? { "data-selected": "" } : {})}
                                         style={{ left: wx(item.x), top: wy(item.y) }}
                                         onClick={() => flyToItem(item)}
+                                        onPointerDown={e => e.stopPropagation()}
                                     />
                                 );
                             }
-                            if (lod === "label") {
+                            if (tier === "label") {
                                 return (
                                     <Box
                                         key={item.key}
@@ -574,6 +701,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value }: 
                                         {...(isSelected ? { "data-selected": "" } : {})}
                                         style={{ left: wx(item.x), top: wy(item.y) }}
                                         onClick={() => flyToItem(item)}
+                                        onPointerDown={e => e.stopPropagation()}
                                     >
                                         <Box as="span" css={styles.statusDot} data-tone={tone ?? "neutral"} />
                                         {item.label}
@@ -628,21 +756,25 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value }: 
                                 </>
                             )}
                         </Box>
-                        {scaleUnit !== undefined && scaleLen > 0 && (
-                            <Box css={styles.scaleBar}>
-                                <Box
-                                    as="svg"
-                                    css={styles.scaleRuler}
-                                    {...{ width: scaleLen * ppu, height: 9, viewBox: `0 0 ${scaleLen * ppu} 9` }}
-                                >
-                                    <path
-                                        d={`M 0.5 0 V 8.5 H ${scaleLen * ppu - 0.5} V 0 M ${(scaleLen * ppu) / 2} 8.5 V 4`}
-                                        fill="none"
-                                    />
+                        {scaleUnit !== undefined && scaleLen > 0 && (() => {
+                            const len = scaleLen * ppu;
+                            const quarter = (k: number, h: number) => `M ${(len * k) / 4} 6.5 V ${h}`;
+                            return (
+                                <Box css={styles.scaleBar}>
+                                    <Box as="span" css={styles.scaleLabel}>{scaleLen} {scaleUnit}</Box>
+                                    <Box
+                                        as="svg"
+                                        css={styles.scaleRuler}
+                                        {...{ width: len, height: 7, viewBox: `0 0 ${len} 7` }}
+                                    >
+                                        <path
+                                            d={`M 0.5 0 V 6.5 H ${len - 0.5} V 0 ${quarter(1, 3)} ${quarter(2, 1.5)} ${quarter(3, 3)}`}
+                                            fill="none"
+                                        />
+                                    </Box>
                                 </Box>
-                                <Box as="span" css={styles.scaleLabel}>{scaleLen} {scaleUnit}</Box>
-                            </Box>
-                        )}
+                            );
+                        })()}
                         {showMinimap && (
                             <Box
                                 css={styles.minimap}
