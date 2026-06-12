@@ -332,30 +332,56 @@ New `src/platform/func-runtime.ts`, registered alongside `bind-runtime.ts` via
 `registerPlatformImplementation` + `registerReactiveTracker`
 (`east-ui-components/platform`).
 
-### 7.0 Reuse of the existing binding infrastructure
+### 7.0 Shared core: rebase the cache machinery on `@tanstack/query-core`
 
-`FuncRuntime` is a sibling of `BindRuntime`, not a fork of it — the
-dataset-specific semantics (staging buffers, patch datasets, the commit
-matrix) don't apply, but everything around them is shared:
+**Plan of record** (supersedes an earlier `ReactiveKeyStore`-extraction
+sketch): both the existing dataset cache and the new function runtime sit on
+`@tanstack/query-core` — the framework-agnostic engine under TanStack Query,
+which is **already a dependency of this package** (the sibling status/repo
+hooks use TanStack Query 5.x), so this adds no new supply chain.
 
-- **Reactive notification core.** `ReactiveDatasetCache` privately owns the
-  subscriber/key-version machinery (`keySubscribers`, `globalSubscribers`,
-  `keyVersions`, `notifyChange`, `setScheduler`, `batch` —
-  `dataset-store.ts:226-255`). Extract it into a small shared base,
-  `ReactiveKeyStore` (same `subscribe` overloads / `getSnapshot` /
-  `getKeyVersion` / `setScheduler` / `batch` surface as the existing
-  interface), as a **mechanical refactor with no behaviour change**;
-  `ReactiveDatasetCache` extends it, and `FuncRuntime` keeps its call
-  entries in one too. No second hand-rolled subscriber set.
+The motivation is a review of the hand-rolled `ReactiveDatasetCache`
+(`dataset-store.ts`), which found real races and lifecycle leaks — all of
+them problems query-core already solves:
+
+| # | Finding (hand-rolled cache) | query-core mechanism |
+|---|---|---|
+| 1 | A poll racing a `write()` can refetch and **resurrect the pre-write value** (optimistic write deletes `knownHashes`, in-flight/lagging status poll sees hash "changed", refetches old content over the optimistic bytes) | mutation lifecycle: `onMutate` snapshot → optimistic `setQueryData` → `onSettled` invalidate; invalidation discards in-flight stale fetches |
+| 2 | Concurrent `write()`s to one key corrupt each other's **rollback snapshots** (B's `previous` is A's optimistic value) | per-mutation context snapshots + documented optimistic-update rollback pattern |
+| 3 | **Double-unsubscribe disconnects unrelated subscribers** (stale captured `Set` deletes the key's *new* subscriber set) | `QueryCache`/`QueryObserver` subscription management |
+| 4 | **Cache-key ambiguity** — `"${workspace}.${path.join('.')}"` collides across workspace/path splits and dot-containing fields | structured array query keys, no string joins |
+| 5 | **Pollers only grow** — paths never removed, intervals never lengthen, polling never stops while the page lives | per-query `refetchInterval` + observer counts + `gcTime`: polling stops when the last observer goes |
+| 6 | **No retry/backoff/abort** — failed polls re-hammer at full cadence; a hung fetch wedges the dedup map forever | built-in retries with exponential backoff, `AbortSignal` to fetchers, online/offline pause |
+| 7 | `write()` ignores `destroyed` after its await; assorted smaller leaks | client teardown via `queryClient.clear()` / unmount semantics |
+
+What stays custom (the genuinely e3-specific part):
+
+- **Hash-based reconciliation** — one `workspaceStatus` poll *query* per
+  workspace; its success handler diffs dataset hashes and **invalidates**
+  the per-dataset content queries that moved (content fetches stay
+  hash-gated, exactly today's two-tier design).
+- **Sync read shim** — `queryClient.getQueryData` is synchronous, so the
+  East platform closures (`read` / `has` / `status`) keep working unchanged.
+- **`subscribe` / `getKeyVersion` adapter** — a thin layer over
+  `QueryCache.subscribe` events maintaining the existing key-version
+  contract, so `bind-runtime`, the reactive tracker, and
+  `ReactiveDatasetCacheInterface` consumers see **no interface change**.
+- **`DatasetApi` seam** — unchanged; query/mutation functions call through
+  it, tests keep stubbing it.
+
+`FuncRuntime` then reuses the same client: a tracked call is a query-core
+**mutation** (its `idle/pending/success/error` machine maps 1:1 onto
+`FuncStatusType`, with `cancelled` layered on via latest-wins supersession),
+and the remaining shared pieces follow the existing conventions:
+
 - **Reactive tracking.** The same `registerReactiveTracker` registration
   `BindRuntime` uses — func reads push their `func:…` keys into the tracking
   context so `Reactive.Root` re-renders pick up dataset and function keys
   uniformly.
-- **API seam + config.** The workspace identity and client wiring come from
-  the same `E3Config` / provider the dataset store uses; like the store's
-  `DatasetApi`, the runtime talks through a narrow `FunctionApi` interface
-  (`list`, `call`) so tests stub it and the showcase harness (§8) swaps in
-  an in-memory implementation — that *is* the mock runtime.
+- **API seam + config.** Workspace identity and client wiring come from the
+  same `E3Config` / provider; like `DatasetApi`, a narrow `FunctionApi`
+  interface (`list`, `call`) is what tests stub and the showcase harness
+  (§8) swaps for an in-memory implementation.
 - **Codec memoization.** Extract the structural-type-keyed `SortedMap`
   memoizer from `getBindingHelpers` (`bind-runtime.ts:106`) into a shared
   `memoizeByEastType` helper used by both runtimes.
@@ -459,9 +485,10 @@ East IR. Two existing surfaces gain awareness:
 
 | # | Package | Work |
 |---|---|---|
+| 0 | `e3-ui-components` | **Rebase `ReactiveDatasetCache` on `@tanstack/query-core`** (§7.0): interface-preserving rewrite of `dataset-store.ts`; explicit `@tanstack/query-core` dependency; existing dataset/bind suites stay green; new regression tests for review findings #1–#7. |
 | 1 | `e3-ui` | `src/func.ts` (types, platform fn, `Func` namespace), export from `index.ts`/`internal.ts`; `manifest.ts` field + dual-decode; `derive.ts` walks `function_bind`. |
-| 2 | `e3-ui-components` | Refactor-first: extract `ReactiveKeyStore` from `ReactiveDatasetCache` and `memoizeByEastType` from `getBindingHelpers` (§7.0, no behaviour change); then `src/platform/func-runtime.ts` (registry, closures, `FunctionApi` seam), registration in `src/index.ts`; in-memory `FunctionApi` for the showcase harness. |
-| 3 | tests | per §9, plus existing `bind-runtime` suites stay green through the §7.0 refactor. |
+| 2 | `e3-ui-components` | `src/platform/func-runtime.ts` (mutation-backed registry, closures, `FunctionApi` seam, `memoizeByEastType` extraction), registration in `src/index.ts`; in-memory `FunctionApi` for the showcase harness. |
+| 3 | tests | per §9 — all runnable headless under `make test` (stubbed `FunctionApi`/`DatasetApi`, fake clocks; no server, no browser). |
 | 4 | docs | `e3-ui` SKILL/USAGE updates (coordinate — plugin skill files). |
 
 Definition of done: `cd libs/east-ui && make build && make lint && make test`
