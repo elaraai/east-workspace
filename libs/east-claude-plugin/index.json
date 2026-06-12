@@ -1,15 +1,15 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1321,
-    "totalFiles": 173,
+    "totalEntries": 1335,
+    "totalFiles": 175,
     "packages": {
       "east": 489,
       "east-node-std": 42,
       "east-node-io": 63,
       "east-py-datascience": 86,
-      "east-ui": 592,
-      "e3-ui": 42,
+      "east-ui": 602,
+      "e3-ui": 46,
       "e3": 7
     }
   },
@@ -17531,6 +17531,223 @@
       "source": "// Branded Disclosure with custom body + trigger colours\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Disclosure lines={2n} color=\"#374151\" triggerColor=\"#3d5cff\">\n                {\"Branded narrative text that clamps to the configured number of lines and reveals the full content on demand. Useful when the theme's default link colour doesn't fit.\"}\n            </Disclosure>\n        );\n    })"
     },
     {
+      "id": "east-ui:story.examples.tsx:storyBasic",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/disclosure/story.examples.tsx",
+      "suite": "",
+      "test": "The spec",
+      "keywords": [
+        "Story",
+        "Step",
+        "stage",
+        "Chart",
+        "narrative",
+        "scrollytelling"
+      ],
+      "imports": [
+        "import { ArrayType, East, FloatType, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Badge, Box, Button, Card, Chart, HStack, MetricChip, Reactive, Story, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// The spec\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const orders = $.const([\n            { week: \"wk 1\", actual: 820n, forecast: 825n }, { week: \"wk 2\", actual: 860n, forecast: 862n },\n            { week: \"wk 3\", actual: 880n, forecast: 886n }, { week: \"wk 4\", actual: 930n, forecast: 898n },\n            { week: \"wk 5\", actual: 1060n, forecast: 922n }, { week: \"wk 6\", actual: 1115n, forecast: 946n },\n            { week: \"wk 7\", actual: 1150n, forecast: 970n }, { week: \"wk 8\", actual: 1185n, forecast: 994n },\n        ], ArrayType(StructType({ week: StringType, actual: IntegerType, forecast: IntegerType })));\n        const uplift = $.const([\n            { region: \"NA\", half: \"wk 1–4\", orders: 846n }, { region: \"NA\", half: \"wk 5–8\", orders: 1110n },\n            { region: \"EU\", half: \"wk 1–4\", orders: 612n }, { region: \"EU\", half: \"wk 5–8\", orders: 668n },\n            { region: \"APAC\", half: \"wk 1–4\", orders: 418n }, { region: \"APAC\", half: \"wk 5–8\", orders: 426n },\n        ], ArrayType(StructType({ region: StringType, half: StringType, orders: IntegerType })));\n        return (\n            <Story title=\"Q4 demand review\" stageHeight={340} height={440}>\n                <Story.Step id=\"demand\" eyebrow=\"Demand\" title=\"Demand ran hot\"\n                            stage={<Box height=\"100%\" width=\"100%\">\n                                <Chart height=\"fill\" layers={Chart.Line(orders, { x: r => r.week, y: r => r.actual }, { key: \"actual\", color: \"teal.solid\" })} grid />\n                            </Box>}>\n                    <Text>Orders climbed steadily from week 4 and never gave the gain back — the exit rate is 34% above the start of the quarter.</Text>\n                    <MetricChip tone=\"positive\"><Text>▲ +34% vs start of Q4</Text></MetricChip>\n                </Story.Step>\n                <Story.Step id=\"forecast\" eyebrow=\"Forecast\" title=\"The plan missed the turn\"\n                            stage={<Box height=\"100%\" width=\"100%\">\n                                <Chart height=\"fill\" layers={[\n                                    Chart.Line(orders, { x: r => r.week, y: r => r.actual }, { key: \"actual\", color: \"teal.solid\" }),\n                                    Chart.Line(orders, { x: r => r.week, y: r => r.forecast }, { key: \"forecast\", color: \"gray.solid\", dash: \"4 3\" }),\n                                ]} grid legend />\n                            </Box>}>\n                    <Text>The committed forecast (dashed) tracked well until week 4, then kept its old slope. By week 8 the gap is 18% — that gap is the whole story.</Text>\n                    <MetricChip tone=\"negative\"><Text>▼ forecast −18% at wk 8</Text></MetricChip>\n                </Story.Step>\n                <Story.Step id=\"promo\" eyebrow=\"Cause\" title=\"One event explains the spike\"\n                            stage={<Box height=\"100%\" width=\"100%\">\n                                <Chart height=\"fill\" layers={[\n                                    Chart.Line(orders, { x: r => r.week, y: r => r.actual }, { key: \"actual\", color: \"teal.solid\" }),\n                                    Chart.refDot({ x: \"wk 4\", y: 930, label: \"promo live\" }),\n                                ]} grid />\n                            </Box>}>\n                    <Text>The week-4 inflection lands on the retail promo going live. Demand stepped up and stayed up — a level shift, not a transient.</Text>\n                    <Badge colorPalette=\"teal\">promo live · Nov 14</Badge>\n                </Story.Step>\n                <Story.Step id=\"regions\" eyebrow=\"Where\" title=\"The gap wasn't uniform\"\n                            stage={<Box height=\"100%\" width=\"100%\">\n                                <Chart height=\"fill\" layers={Chart.Bar(uplift, { x: r => r.region, y: r => r.orders, by: r => r.half })} grid legend />\n                            </Box>}>\n                    <Text>NA absorbed nearly all of the uplift; EU moved modestly; APAC ran flat. Re-forecast NA only — touching the others adds noise, not signal.</Text>\n                    <HStack gap=\"2\">\n                        <MetricChip tone=\"positive\"><Text>▲ NA +29%</Text></MetricChip>\n                        <MetricChip tone=\"neutral\"><Text>≈ APAC +2%</Text></MetricChip>\n                    </HStack>\n                </Story.Step>\n            </Story>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:story.examples.tsx:storyRailRight",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/disclosure/story.examples.tsx",
+      "suite": "",
+      "test": "Mirrored layout: stage left, prose right",
+      "keywords": [
+        "Story",
+        "layout",
+        "rail-right",
+        "mirror",
+        "Chart"
+      ],
+      "imports": [
+        "import { ArrayType, East, FloatType, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Badge, Box, Button, Card, Chart, HStack, MetricChip, Reactive, Story, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Mirrored layout: stage left, prose right\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const orders = $.const([\n            { week: \"wk 1\", actual: 820n, forecast: 825n }, { week: \"wk 2\", actual: 860n, forecast: 862n },\n            { week: \"wk 3\", actual: 880n, forecast: 886n }, { week: \"wk 4\", actual: 930n, forecast: 898n },\n            { week: \"wk 5\", actual: 1060n, forecast: 922n }, { week: \"wk 6\", actual: 1115n, forecast: 946n },\n        ], ArrayType(StructType({ week: StringType, actual: IntegerType, forecast: IntegerType })));\n        return (\n            <Story layout=\"rail-right\" title=\"Q4 demand review\" stageHeight={340} height={440}>\n                <Story.Step id=\"demand\" eyebrow=\"Demand\" title=\"Demand ran hot\"\n                            stage={<Box height=\"100%\" width=\"100%\">\n                                <Chart height=\"fill\" layers={Chart.Line(orders, { x: r => r.week, y: r => r.actual }, { key: \"actual\", color: \"teal.solid\" })} grid />\n                            </Box>}>\n                    <Text>Orders climbed steadily from week 4 and never gave the gain back.</Text>\n                </Story.Step>\n                <Story.Step id=\"forecast\" eyebrow=\"Forecast\" title=\"The plan missed the turn\"\n                            stage={<Box height=\"100%\" width=\"100%\">\n                                <Chart height=\"fill\" layers={[\n                                    Chart.Line(orders, { x: r => r.week, y: r => r.actual }, { key: \"actual\", color: \"teal.solid\" }),\n                                    Chart.Line(orders, { x: r => r.week, y: r => r.forecast }, { key: \"forecast\", color: \"gray.solid\", dash: \"4 3\" }),\n                                ]} grid legend />\n                            </Box>}>\n                    <Text>The committed forecast (dashed) kept its old slope after the week-4 turn.</Text>\n                </Story.Step>\n            </Story>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:story.examples.tsx:storyStacked",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/disclosure/story.examples.tsx",
+      "suite": "",
+      "test": "Stacked layout: stage on top, prose beneath (the forced sub-720px shape)",
+      "keywords": [
+        "Story",
+        "layout",
+        "stacked",
+        "responsive",
+        "narrow"
+      ],
+      "imports": [
+        "import { ArrayType, East, FloatType, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Badge, Box, Button, Card, Chart, HStack, MetricChip, Reactive, Story, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Stacked layout: stage on top, prose beneath (the forced sub-720px shape)\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const uplift = $.const([\n            { region: \"NA\", half: \"wk 1–4\", orders: 846n }, { region: \"NA\", half: \"wk 5–8\", orders: 1110n },\n            { region: \"EU\", half: \"wk 1–4\", orders: 612n }, { region: \"EU\", half: \"wk 5–8\", orders: 668n },\n            { region: \"APAC\", half: \"wk 1–4\", orders: 418n }, { region: \"APAC\", half: \"wk 5–8\", orders: 426n },\n        ], ArrayType(StructType({ region: StringType, half: StringType, orders: IntegerType })));\n        return (\n            <Story layout=\"stacked\" title=\"Q4 demand review\" stageHeight={200} height={440}>\n                <Story.Step id=\"regions\" eyebrow=\"Where\" title=\"The gap wasn't uniform\"\n                            stage={<Box height=\"100%\" width=\"100%\">\n                                <Chart height=\"fill\" layers={Chart.Bar(uplift, { x: r => r.region, y: r => r.orders, by: r => r.half })} grid legend />\n                            </Box>}>\n                    <Text>NA absorbed nearly all of the uplift; EU moved modestly; APAC ran flat.</Text>\n                </Story.Step>\n                <Story.Step id=\"action\" eyebrow=\"Action\" title=\"Re-forecast NA only\">\n                    <Text>Touching the other regions adds noise, not signal.</Text>\n                    <MetricChip tone=\"positive\"><Text>▲ NA +29%</Text></MetricChip>\n                </Story.Step>\n            </Story>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:story.examples.tsx:storyStepBasic",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/disclosure/story.examples.tsx",
+      "suite": "",
+      "test": "One narrative beat: id, eyebrow, title, and a rail body",
+      "keywords": [
+        "Story",
+        "Step",
+        "eyebrow",
+        "title",
+        "body",
+        "beat"
+      ],
+      "imports": [
+        "import { ArrayType, East, FloatType, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Badge, Box, Button, Card, Chart, HStack, MetricChip, Reactive, Story, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// One narrative beat: id, eyebrow, title, and a rail body\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Story.Step id=\"demand\" eyebrow=\"Demand\" title=\"Demand ran hot\">\n            <Text>Orders climbed from week 4 and never gave the gain back.</Text>\n        </Story.Step>\n    ))"
+    },
+    {
+      "id": "east-ui:story.examples.tsx:storyProgressStandalone",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/disclosure/story.examples.tsx",
+      "suite": "",
+      "test": "Standalone progress chrome: title, dots, counter, prev/next",
+      "keywords": [
+        "Story",
+        "Progress",
+        "chrome",
+        "dots",
+        "counter",
+        "standalone"
+      ],
+      "imports": [
+        "import { ArrayType, East, FloatType, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Badge, Box, Button, Card, Chart, HStack, MetricChip, Reactive, Story, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Standalone progress chrome: title, dots, counter, prev/next\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Story.Progress count={4} title=\"Q4 demand review\" />\n    ))"
+    },
+    {
+      "id": "east-ui:story.examples.tsx:storyStepLengths",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/disclosure/story.examples.tsx",
+      "suite": "",
+      "test": "compact step runway: less scroll per beat for short, punchy stories",
+      "keywords": [
+        "Story",
+        "stepLength",
+        "compact",
+        "runway",
+        "pacing"
+      ],
+      "imports": [
+        "import { ArrayType, East, FloatType, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Badge, Box, Button, Card, Chart, HStack, MetricChip, Reactive, Story, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// compact step runway: less scroll per beat for short, punchy stories\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const orders = $.const([\n            { week: \"wk 1\", actual: 820n }, { week: \"wk 2\", actual: 860n },\n            { week: \"wk 3\", actual: 880n }, { week: \"wk 4\", actual: 930n },\n            { week: \"wk 5\", actual: 1060n }, { week: \"wk 6\", actual: 1115n },\n        ], ArrayType(StructType({ week: StringType, actual: IntegerType })));\n        return (\n            <Story stepLength=\"compact\" stageHeight={320} height={440}>\n                <Story.Step id=\"one\" eyebrow=\"01\" title=\"Quick beat\"\n                            stage={<Box height=\"100%\" width=\"100%\">\n                                <Chart height=\"fill\" layers={Chart.Line(orders, { x: r => r.week, y: r => r.actual }, { color: \"teal.solid\" })} grid />\n                            </Box>}>\n                    <Text>compact = 36vh of runway per step; default = 52vh; long = 72vh.</Text>\n                </Story.Step>\n                <Story.Step id=\"two\" eyebrow=\"02\" title=\"Another quick beat\">\n                    <Text>Step length sets pacing — the runway the reader scrolls through per keyframe.</Text>\n                </Story.Step>\n            </Story>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:story.examples.tsx:storyCardKeyframe",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/disclosure/story.examples.tsx",
+      "suite": "",
+      "test": "Keyframes own their framing (compose Card); a final step carries the call to action",
+      "keywords": [
+        "Story",
+        "stage",
+        "Card",
+        "framing",
+        "Button",
+        "CTA"
+      ],
+      "imports": [
+        "import { ArrayType, East, FloatType, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Badge, Box, Button, Card, Chart, HStack, MetricChip, Reactive, Story, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Keyframes own their framing (compose Card); a final step carries the call to action\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const uplift = $.const([\n            { region: \"NA\", half: \"wk 1–4\", orders: 846n }, { region: \"NA\", half: \"wk 5–8\", orders: 1110n },\n            { region: \"EU\", half: \"wk 1–4\", orders: 612n }, { region: \"EU\", half: \"wk 5–8\", orders: 668n },\n        ], ArrayType(StructType({ region: StringType, half: StringType, orders: IntegerType })));\n        const openRun = $.const(East.function([], NullType, _$ => {\n            // Route to the Observe surface with the slice pre-bound.\n        }));\n        return (\n            <Story stageHeight={380} height={440}>\n                <Story.Step id=\"finding\" eyebrow=\"Finding\" title=\"NA absorbed the uplift\"\n                            stage={<Card header={{ title: \"Uplift by region\", description: \"wk 1–4 vs wk 5–8\" }}>\n                                <Box height=\"260px\" width=\"100%\">\n                                    <Chart height=\"fill\" layers={Chart.Bar(uplift, { x: r => r.region, y: r => r.orders, by: r => r.half })} grid legend />\n                                </Box>\n                            </Card>}>\n                    <Text>A keyframe that wants the Card treatment composes Card like anywhere else — the stage itself owns no chrome.</Text>\n                </Story.Step>\n                <Story.Step id=\"cta\" eyebrow=\"Next\" title=\"Re-forecast NA only\">\n                    <Text>Interactive bodies are allowed — the last step routinely carries the call to action.</Text>\n                    <Button onClick={openRun}>Open the run →</Button>\n                </Story.Step>\n            </Story>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:story.examples.tsx:storyActiveStepStatic",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/disclosure/story.examples.tsx",
+      "suite": "",
+      "test": "Static override: activeStep forces one deterministic keyframe",
+      "keywords": [
+        "Story",
+        "activeStep",
+        "static",
+        "snapshot",
+        "deterministic"
+      ],
+      "imports": [
+        "import { ArrayType, East, FloatType, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Badge, Box, Button, Card, Chart, HStack, MetricChip, Reactive, Story, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Static override: activeStep forces one deterministic keyframe\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const orders = $.const([\n            { week: \"wk 1\", actual: 820n, forecast: 825n }, { week: \"wk 2\", actual: 860n, forecast: 862n },\n            { week: \"wk 3\", actual: 880n, forecast: 886n }, { week: \"wk 4\", actual: 930n, forecast: 898n },\n            { week: \"wk 5\", actual: 1060n, forecast: 922n }, { week: \"wk 6\", actual: 1115n, forecast: 946n },\n        ], ArrayType(StructType({ week: StringType, actual: IntegerType, forecast: IntegerType })));\n        return (\n            <Story activeStep=\"forecast\" stageHeight={320}>\n                <Story.Step id=\"demand\" title=\"Demand ran hot\"\n                            stage={<Box height=\"100%\" width=\"100%\">\n                                <Chart height=\"fill\" layers={Chart.Line(orders, { x: r => r.week, y: r => r.actual }, { color: \"teal.solid\" })} grid />\n                            </Box>}>\n                    <Text>Beat one.</Text>\n                </Story.Step>\n                <Story.Step id=\"forecast\" title=\"The plan missed the turn\"\n                            stage={<Box height=\"100%\" width=\"100%\">\n                                <Chart height=\"fill\" layers={[\n                                    Chart.Line(orders, { x: r => r.week, y: r => r.actual }, { key: \"actual\", color: \"teal.solid\" }),\n                                    Chart.Line(orders, { x: r => r.week, y: r => r.forecast }, { key: \"forecast\", color: \"gray.solid\", dash: \"4 3\" }),\n                                ]} grid legend />\n                            </Box>}>\n                    <Text>Beat two — rendered active without scroll; the snapshot pipeline renders one PNG per step.</Text>\n                </Story.Step>\n            </Story>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:story.examples.tsx:storyConditionalStep",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/disclosure/story.examples.tsx",
+      "suite": "",
+      "test": "Steps are values — a conditional step via ifElse is legal",
+      "keywords": [
+        "Story",
+        "Step",
+        "conditional",
+        "ifElse",
+        "runtime children"
+      ],
+      "imports": [
+        "import { ArrayType, East, FloatType, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Badge, Box, Button, Card, Chart, HStack, MetricChip, Reactive, Story, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Steps are values — a conditional step via ifElse is legal\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const detailed = $.let(East.value(true));\n        const detailStep = $.let(\n            <Story.Step id=\"detail\" title=\"Detail\"><Text>The detailed beat.</Text></Story.Step>,\n            UIComponentType,\n        );\n        const summaryStep = $.let(\n            <Story.Step id=\"summary\" title=\"Summary\"><Text>The summary beat.</Text></Story.Step>,\n            UIComponentType,\n        );\n        return (\n            <Story height={320}>\n                <Story.Step id=\"always\" title=\"Always\">\n                    <Text>Always shown.</Text>\n                </Story.Step>\n                {detailed.ifElse(_$ => detailStep, _$ => summaryStep)}\n            </Story>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:story.examples.tsx:storyReactive",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/disclosure/story.examples.tsx",
+      "suite": "",
+      "test": "Bound narrative position: external surfaces read and drive the active step",
+      "keywords": [
+        "Story",
+        "Reactive",
+        "State",
+        "bind",
+        "active",
+        "progress",
+        "onStepEnter",
+        "interactive"
+      ],
+      "imports": [
+        "import { ArrayType, East, FloatType, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Badge, Box, Button, Card, Chart, HStack, MetricChip, Reactive, Story, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Bound narrative position: external surfaces read and drive the active step\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const active = $.let(State.bind([IntegerType], \"q4-review.step\", 0n));\n            const scrub = $.let(State.bind([FloatType], \"q4-review.progress\", 0.0));\n            const next = $.const(East.function([], NullType, $ => {\n                $(active.write(active.read().add(1n)));\n            }));\n            const entered = $.let(State.bind([StringType], \"q4-review.lastEntered\", \"\"));\n            const onStepEnter = $.const(East.function([StringType], NullType, ($, id) => {\n                $(entered.write(id));\n            }));\n            const orders = $.const([\n                { week: \"wk 1\", actual: 820n, forecast: 825n }, { week: \"wk 2\", actual: 860n, forecast: 862n },\n                { week: \"wk 3\", actual: 880n, forecast: 886n }, { week: \"wk 4\", actual: 930n, forecast: 898n },\n                { week: \"wk 5\", actual: 1060n, forecast: 922n }, { week: \"wk 6\", actual: 1115n, forecast: 946n },\n            ], ArrayType(StructType({ week: StringType, actual: IntegerType, forecast: IntegerType })));\n            return (\n                <VStack gap=\"6\">\n                    <Story active={active} progress={scrub} title=\"Q4 demand review\" height={440}\n                           onStepEnter={onStepEnter}>\n                        <Story.Step id=\"demand\" eyebrow=\"Demand\" title=\"Demand ran hot\"\n                                    stage={<Box height=\"100%\" width=\"100%\">\n                                        <Chart height=\"fill\" layers={Chart.Line(orders, { x: r => r.week, y: r => r.actual }, { color: \"teal.solid\" })} grid />\n                                    </Box>}>\n                            <Text>Orders climbed steadily.</Text>\n                        </Story.Step>\n                        <Story.Step id=\"forecast\" eyebrow=\"Forecast\" title=\"The plan missed the turn\"\n                                    stage={<Box height=\"100%\" width=\"100%\">\n                                        <Chart height=\"fill\" layers={[\n                                            Chart.Line(orders, { x: r => r.week, y: r => r.actual }, { key: \"actual\", color: \"teal.solid\" }),\n                                            Chart.Line(orders, { x: r => r.week, y: r => r.forecast }, { key: \"forecast\", color: \"gray.solid\", dash: \"4 3\" }),\n                                        ]} grid legend />\n                                    </Box>}>\n                            <Text>The forecast missed the turn.</Text>\n                        </Story.Step>\n                    </Story>\n                    <HStack gap=\"3\">\n                        <Text>{East.str`Reviewing beat ${active.read().add(1n)} of 2`}</Text>\n                        <Button onClick={next}>Skip ahead →</Button>\n                    </HStack>\n                    <Story.Progress count={2} active={active} title=\"Q4 demand review\" />\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
       "id": "east-ui:tabs.examples.tsx:tabsBasic",
       "skill": "east-ui",
       "package": "east-ui",
@@ -26858,6 +27075,95 @@
         "import * as e3 from \"@elaraai/e3\";"
       ],
       "source": "// Editable roster — edits buffered locally; Apply publishes a fresh patch to a server-backed patch dataset\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Reactive>{$ => {\n                const view = $.let(Data.bind(\n                    [RosterArrayType],\n                    rosterInput.path,\n                    { mode: \"staged\", patch: rosterPatchInput.path },\n                ));\n                const rosterArray = $.let(view.read(), RosterArrayType);\n                return (\n                    <Card>\n                        <VStack gap=\"5\" align=\"stretch\">\n                            <Text textStyle=\"heading-md\">Worker roster (staged + patch)</Text>\n                            <Text>Edits buffer locally until Apply, which publishes a draft patch to the patch dataset for review.</Text>\n                            <Table data={rosterArray} columns={{\n                                name: { header: \"Name\" },\n                                rate: {\n                                    header: \"Hourly rate ($)\",\n                                    render: East.function(\n                                        [Table.Types.CellRenderContext],\n                                        UIComponentType,\n                                        ($, ctx) => {\n                                            const idx = $.let(ctx.rowIndex, IntegerType);\n                                            const row = $.let(rosterArray.get(idx), RosterEntryType);\n                                            return (\n                                                <Input.Float value={row.rate} min={15.0} max={80.0} step={0.25}\n                                                    onChange={East.function([FloatType], NullType, ($, v) => {\n                                                        const fresh = $.let(view.read(), RosterArrayType);\n                                                        $(view.write(fresh.map(($, r, i) =>\n                                                            i.equal(idx).ifElse(_$ => ({ ...r, rate: v }), () => r),\n                                                        )));\n                                                    })} />\n                                            );\n                                        },\n                                    ),\n                                },\n                                shiftLength: {\n                                    header: \"Shift length (h)\",\n                                    render: East.function(\n                                        [Table.Types.CellRenderContext],\n                                        UIComponentType,\n                                        ($, ctx) => {\n                                            const idx = $.let(ctx.rowIndex, IntegerType);\n                                            const row = $.let(rosterArray.get(idx), RosterEntryType);\n                                            return (\n                                                <Input.Integer value={row.shiftLength} min={4n} max={12n}\n                                                    onChange={East.function([IntegerType], NullType, ($, v) => {\n                                                        const fresh = $.let(view.read(), RosterArrayType);\n                                                        $(view.write(fresh.map(($, r, i) =>\n                                                            i.equal(idx).ifElse(_$ => ({ ...r, shiftLength: v }), () => r),\n                                                        )));\n                                                    })} />\n                                            );\n                                        },\n                                    ),\n                                },\n                            }} variant=\"line\" striped />\n                            <Diff bindings={[view.binding]} hideUnchanged={some(true)} />\n                        </VStack>\n                    </Card>\n                );\n            }}</Reactive>\n        );\n    })"
+    },
+    {
+      "id": "e3-ui:func.examples.tsx:funcBindCall",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/func/func.examples.tsx",
+      "suite": "",
+      "test": "Bind a named function; a button launches it and a stat shows the result",
+      "keywords": [
+        "Func",
+        "bind",
+        "call",
+        "Reactive",
+        "Button",
+        "pending",
+        "read",
+        "RPC"
+      ],
+      "imports": [
+        "import { East, FloatType, IntegerType, NullType, example } from \"@elaraai/east\";",
+        "import { Button, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { Func } from \"@elaraai/e3-ui\";"
+      ],
+      "source": "// Bind a named function; a button launches it and a stat shows the result\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const forecast = $.let(Func.bind([[IntegerType, FloatType], FloatType], \"forecast\"));\n            const run = $.const(East.function([], NullType, $ => {\n                $(forecast.call(12n, 1.05));\n            }));\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <Button onClick={run} loading={forecast.pending()}>Run forecast</Button>\n                    <Stat label=\"Forecast\" value={East.print(forecast.read())} />\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:func.examples.tsx:funcBindStatus",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/func/func.examples.tsx",
+      "suite": "",
+      "test": "Render the call lifecycle (idle / running / succeeded / failed / cancelled) and the failure message",
+      "keywords": [
+        "Func",
+        "bind",
+        "status",
+        "getTag",
+        "error",
+        "lifecycle"
+      ],
+      "imports": [
+        "import { East, FloatType, IntegerType, NullType, example } from \"@elaraai/east\";",
+        "import { Button, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { Func } from \"@elaraai/e3-ui\";"
+      ],
+      "source": "// Render the call lifecycle (idle / running / succeeded / failed / cancelled) and the failure message\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const forecast = $.let(Func.bind([[IntegerType, FloatType], FloatType], \"forecast\"));\n            const run = $.const(East.function([], NullType, $ => {\n                $(forecast.call(12n, 1.05));\n            }));\n            // The status tag doubles as the display string.\n            const statusLine = $.let(forecast.status().getTag().upperCase());\n            const detail = $.let(forecast.error().match({\n                some: (_$, e) => e.message,\n                none: _$ => East.print(forecast.read()),\n            }));\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <Button onClick={run} loading={forecast.pending()}>Run forecast</Button>\n                    <Text.MonoLabel>{statusLine}</Text.MonoLabel>\n                    <Text color=\"fg.muted\">{detail}</Text>\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:func.examples.tsx:funcBindCancel",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/func/func.examples.tsx",
+      "suite": "",
+      "test": "Cancel stops waiting for the in-flight call (the server still finishes it)",
+      "keywords": [
+        "Func",
+        "bind",
+        "cancel",
+        "pending",
+        "abort"
+      ],
+      "imports": [
+        "import { East, FloatType, IntegerType, NullType, example } from \"@elaraai/east\";",
+        "import { Button, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { Func } from \"@elaraai/e3-ui\";"
+      ],
+      "source": "// Cancel stops waiting for the in-flight call (the server still finishes it)\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const rebalance = $.let(Func.bind([[FloatType], FloatType], \"rebalance\"));\n            const run = $.const(East.function([], NullType, $ => {\n                $(rebalance.call(0.5));\n            }));\n            return (\n                <HStack gap=\"3\">\n                    <Button onClick={run} loading={rebalance.pending()}>Rebalance</Button>\n                    <Button variant=\"outline\" onClick={rebalance.cancel}\n                            disabled={rebalance.pending().not()}>\n                        Cancel\n                    </Button>\n                </HStack>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:func.examples.tsx:funcBindSharedChannel",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/func/func.examples.tsx",
+      "suite": "",
+      "test": "Handles bound to the same name share one channel: one launches, another observes",
+      "keywords": [
+        "Func",
+        "bind",
+        "shared",
+        "channel",
+        "binding",
+        "name"
+      ],
+      "imports": [
+        "import { East, FloatType, IntegerType, NullType, example } from \"@elaraai/east\";",
+        "import { Button, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { Func } from \"@elaraai/e3-ui\";"
+      ],
+      "source": "// Handles bound to the same name share one channel: one launches, another observes\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            // Two independent binds of the same function name observe the\n            // same tracked call — `binding.name` is the channel key.\n            const launcher = $.let(Func.bind([[IntegerType, FloatType], FloatType], \"forecast\"));\n            const observer = $.let(Func.bind([[IntegerType, FloatType], FloatType], \"forecast\"));\n            const run = $.const(East.function([], NullType, $ => {\n                $(launcher.call(12n, 1.05));\n            }));\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <Button onClick={run} loading={launcher.pending()}>Run forecast</Button>\n                    <Stat label={East.str`Result of ${observer.binding.name}`}\n                          value={East.print(observer.read())} />\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "e3-ui:ontology.examples.tsx:simpleOntologyEditor",
