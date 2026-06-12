@@ -483,7 +483,6 @@ TypeTableResult read_type_table_section(const uint8_t *data, size_t len, size_t 
              * and the wrapper will also release it during its own cleanup.
              * The extra retain balances the table's release. */
             east_type_retain(types[inner_idx]);
-            east_recursive_type_finalize(types[i]);
             EastType *interned = east_recursive_type_intern(types[i]);
             if (interned != types[i]) {
                 /* Intern returned a pre-existing canonical — the wrapper we

@@ -99,7 +99,6 @@ struct EastType {
         // Matches TypeScript RecursiveType({ type: "Recursive", node: ... })
         struct {
             EastType *node;
-            int internal_refs; // number of back-references from inner tree
         } recursive;
     } data;
 };
@@ -114,7 +113,9 @@ extern EAST_DATA EastType east_string_type;
 extern EAST_DATA EastType east_datetime_type;
 extern EAST_DATA EastType east_blob_type;
 
-// Constructors (return ref_count=1)
+// Constructors. All constructed types are interned in a page-based arena and
+// immortal (ref_count = -1): east_type_retain/east_type_release are no-ops on
+// them, and they are reclaimed wholesale by east_type_registry_clear().
 EastType *east_array_type(EastType *elem);
 EastType *east_set_type(EastType *elem);
 EastType *east_dict_type(EastType *key, EastType *val);
@@ -133,21 +134,19 @@ EastType *east_async_function_type(EastType **inputs, size_t num_inputs, EastTyp
 
 // Recursive type: wrapper with inner node.
 // Usage: create wrapper first, then build inner type using wrapper as self-ref,
-// then call east_recursive_type_set to close the cycle, then call
-// east_recursive_type_finalize to adjust refcounts for cycle-aware cleanup.
+// then call east_recursive_type_set to close the cycle. The wrapper is
+// arena-immortal like every other constructed type, so the back-references in
+// the inner tree need no cycle-aware cleanup — the arena reclaims everything
+// in east_type_registry_clear().
 EastType *east_recursive_type_new(void);
 void east_recursive_type_set(EastType *rec, EastType *node);
-// Must be called after east_recursive_type_set to enable automatic cycle breaking.
-// Intern a finalized recursive type: if a structurally identical one exists,
-// returns the canonical pointer. Otherwise registers as new canonical.
-// Call after east_recursive_type_finalize at serialization boundaries.
+// Intern a recursive type: if a structurally identical one exists, returns
+// the canonical pointer. Otherwise registers as new canonical.
+// Call after east_recursive_type_set at serialization boundaries.
 EastType *east_recursive_type_intern(EastType *rec);
 
 // Free the global type registry. Call at shutdown for clean leak reports.
 void east_type_registry_clear(void);
-
-// Counts internal back-references and adjusts refcount so only external refs are tracked.
-void east_recursive_type_finalize(EastType *rec);
 
 // Ref counting
 void east_type_retain(EastType *t);
