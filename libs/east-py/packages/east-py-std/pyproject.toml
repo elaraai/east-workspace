@@ -1,6 +1,6 @@
 [project]
 name = "elaraai-east-py-std"
-version = "1.0.4"
+version = "1.0.5"
 description = "Standard platform functions for East programming language (Python)"
 readme = "README.md"
 requires-python = ">=3.11"

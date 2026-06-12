@@ -1,6 +1,6 @@
 {
   "name": "@elaraai/eslint-plugin-east",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "description": "ESLint plugin surfacing East-specific idiom diagnostics (the east-diagnostics rule set) in the editor and CI.",
@@ -12,13 +12,24 @@
       "default": "./dist/src/index.js"
     }
   },
-  "files": ["dist/src", "!dist/src/**/*.spec.*", "README.md", "LICENSE.md"],
+  "files": [
+    "dist/src",
+    "!dist/src/**/*.spec.*",
+    "README.md",
+    "LICENSE.md"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/elaraai/east-workspace.git",
     "directory": "libs/eslint-plugin-east"
   },
-  "keywords": ["east", "elara", "eslint", "eslintplugin", "lint"],
+  "keywords": [
+    "east",
+    "elara",
+    "eslint",
+    "eslintplugin",
+    "lint"
+  ],
   "author": "Elara AI Pty Ltd",
   "scripts": {
     "build": "tsc",
