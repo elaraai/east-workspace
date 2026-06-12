@@ -649,12 +649,16 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         // Start execution (non-blocking) — x defaults to 1
         await dataflowStart(ctx.config.baseUrl, ctx.repoName, 'sdiamond-ws', { force: true }, opts);
 
-        // Wait until the execution is running, then give the left/right tasks a
-        // beat to actually spawn before changing the input mid-flight. (The
-        // 3s task sleeps bound how late the set can land; polling for
-        // `running` instead of a fixed 1s start-wait adapts to slow runners.)
-        await waitForRunning(ctx.config.baseUrl, ctx.repoName, 'sdiamond-ws', opts);
-        await new Promise(r => setTimeout(r, 500));
+        // Wait for the test's TRUE precondition before changing the input:
+        // at least one task has actually STARTED (a `start` event exists),
+        // not merely "the execution is running" — on slow runners (Windows
+        // CI) tasks take seconds to spawn after the run begins, and a set
+        // that lands before any task starts isn't a mid-flight change at
+        // all. The 3s task sleeps bound how late the set can land.
+        await waitFor(async () => {
+          const state = await dataflowExecution(ctx.config.baseUrl, ctx.repoName, 'sdiamond-ws', {}, opts);
+          return state.events.some((e) => e.type === 'start');
+        }, 60000);
         await datasetSet(ctx.config.baseUrl, ctx.repoName, 'sdiamond-ws', inputPath, encode(19n), opts);
 
         // Wait for the reactive re-execution to reach a fixpoint AND the merge
@@ -677,7 +681,10 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
             if (err instanceof ApiError && err.code === 'dataset_unassigned') return false;
             throw err;
           }
-        }, 60000, 500);
+        // 180s: two generations of 3s-sleep branches + joins, where a cold
+        // Windows CI runner spends seconds per east-node spawn (60s measured
+        // 61.9s — thin margin, not a hang).
+        }, 180000, 500);
 
         // merge must be x*5 for some consistent x (waitFor throws if it never settles)
         assert.strictEqual(
