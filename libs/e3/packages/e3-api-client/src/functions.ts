@@ -15,7 +15,6 @@
  * persisted server-side by a call.
  */
 
-import { NullType } from '@elaraai/east';
 import type {
   FunctionSignature,
   FunctionCallRequest,
@@ -29,7 +28,7 @@ import {
   OneShotRequestType,
 } from './types.js';
 import { ArrayType } from '@elaraai/east';
-import { get, post, del, type RequestOptions } from './http.js';
+import { get, post, type RequestOptions } from './http.js';
 
 const enc = encodeURIComponent;
 

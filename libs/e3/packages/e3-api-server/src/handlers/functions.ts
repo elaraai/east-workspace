@@ -16,7 +16,7 @@
  * routes/functions.ts).
  */
 
-import { ArrayType, NullType, decodeBeast2For, variant, none } from '@elaraai/east';
+import { ArrayType, decodeBeast2For, variant, none } from '@elaraai/east';
 import {
   packageRead,
   workspaceGetPackage,
@@ -25,7 +25,7 @@ import {
 } from '@elaraai/e3-core';
 import type { StorageBackend, TaskRunner, DetachedResult } from '@elaraai/e3-core';
 import { FunctionObjectType, type FunctionObject, type RunnerValue, type TreePath } from '@elaraai/e3-types';
-import { sendSuccess, sendError, sendSuccessWithStatus } from '../beast2.js';
+import { sendSuccess, sendError } from '../beast2.js';
 import { errorToVariant } from '../errors.js';
 import {
   FunctionSignatureType,

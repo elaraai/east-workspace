@@ -36,10 +36,8 @@ import {
   oneShotExecute,
   type ExecuteResult,
   type FunctionCallRequest,
-  type RequestOptions,
 } from '@elaraai/e3-api-client';
 
-import { Time } from '@elaraai/east-node-std';
 import type { TestContext } from '../context.js';
 import type { TestSetup } from '../setup.js';
 import { createFunctionPackageZip } from '../fixtures.js';
