@@ -75,16 +75,18 @@ npm install -g \
 if [ "$INSTALL_EAST_C" = true ]; then
     echo "Installing east-c..."
     npm install -g "@elaraai/east-c-cli@${EAST_C_CLI_VERSION}"
-    case "$(uname -m)" in
-        x86_64)         EAST_C_PLATFORM="linux-x64" ;;
-        aarch64|arm64)  EAST_C_PLATFORM="linux-arm64" ;;
-        *) echo "Unsupported arch for east-c: $(uname -m)" >&2; exit 1 ;;
-    esac
-    EAST_C_BIN="$(npm root -g)/@elaraai/east-c-cli-${EAST_C_PLATFORM}/east-c"
-    if [ ! -x "$EAST_C_BIN" ]; then
-        echo "east-c binary not found at $EAST_C_BIN (optional dep @elaraai/east-c-cli-${EAST_C_PLATFORM} missing)" >&2
+    # The prebuilt binary lives in the per-platform optional dep
+    # (@elaraai/east-c-cli-<arch>/east-c). npm nests it under east-c-cli for a
+    # -g install but hoists it for a local install, and the <arch> suffix
+    # varies — so locate it with `find` rather than a hardcoded path.
+    EAST_C_BIN="$(find "$(npm root -g)" -type f -name east-c -path '*@elaraai/east-c-cli-*' 2>/dev/null | head -1)"
+    if [ -z "$EAST_C_BIN" ]; then
+        echo "east-c binary not found after installing @elaraai/east-c-cli@${EAST_C_CLI_VERSION}" >&2
+        echo "Contents of $(npm root -g)/@elaraai:" >&2
+        ls -la "$(npm root -g)/@elaraai/" >&2 || true
         exit 1
     fi
+    chmod +x "$EAST_C_BIN"
     ln -sf "$EAST_C_BIN" /usr/local/bin/east-c
 fi
 
