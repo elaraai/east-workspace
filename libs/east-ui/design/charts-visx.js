@@ -501,15 +501,23 @@ function renderArea(el) {
 // AreaRange — band between two bounding lines (forecast confidence).
 // data-spec-arearange='{"lo":[…],"hi":[…],"mid":[…]}'
 // ---------------------------------------------------------------------------
+// data-spec-arearange='{"lo":[…],"hi":[…],"mid":[…], "xTicks":["0h",…], "yTicks":["0","+3","+6"], "zero":0, "tone":"pos"}'
+// xTicks / yTicks / zero / tone are all optional; without them it draws a bare band (back-compatible).
 function renderAreaRange(el) {
     const cfg = JSON.parse(el.getAttribute("data-spec-arearange"));
     const { lo, hi, mid } = cfg;
-    const [w, hPx] = size(el, 80);
-    const pad = { left: 2, right: 2, top: 4, bottom: 16 };
+    const xTicks = cfg.xTicks || [];
+    const yTicks = cfg.yTicks || [];           // [min, mid, max] as strings
+    const marks = cfg.marks || [];             // [{ at: dataIndex, label, tone }] vertical reference lines
+    const tone = cfg.tone === "pos" ? C.pos : cfg.tone === "neg" ? C.neg : C.brand;
+    const markCol = m => m.tone === "pos" ? C.pos : m.tone === "neg" ? C.neg : C.ink4;
+    const [w, hPx] = size(el, 100);
+    const pad = { left: yTicks.length ? 30 : 4, right: 8, top: marks.length ? 16 : 8, bottom: xTicks.length ? 22 : 12 };
     const innerW = w - pad.left - pad.right;
     const innerH = hPx - pad.top - pad.bottom;
     const xs = scaleLinear({ domain: [0, lo.length - 1], range: [0, innerW] });
-    const allMin = Math.min(...lo), allMax = Math.max(...hi);
+    const allMin = Math.min(...lo, cfg.zero != null ? cfg.zero : Infinity);
+    const allMax = Math.max(...hi);
     const ys = scaleLinear({ domain: [allMin, allMax], range: [innerH, 0] });
     const bandPath = [
         ...hi.map((v, i) => `${i === 0 ? "M" : "L"} ${xs(i)} ${ys(v)}`),
@@ -517,14 +525,32 @@ function renderAreaRange(el) {
         "Z",
     ].join(" ");
     createRoot(el).render(
-        h("svg", { width: w, height: hPx, style: { display: "block" } },
+        h("svg", { width: w, height: hPx, style: { display: "block", fontFamily: MONO_FONT } },
             h(Group, { left: pad.left, top: pad.top },
-                h("path", { d: bandPath, fill: C.brand, fillOpacity: 0.15 }),
-                mid && h(LinePath, {
-                    data: mid, x: (_, i) => xs(i), y: d => ys(d),
-                    stroke: C.brand, strokeWidth: 1.4, curve: curveMonotoneX,
-                }),
+                // y axis hairline + ticks
+                h(Line, { from: { x: 0, y: 0 }, to: { x: 0, y: innerH }, stroke: C.rule, strokeWidth: 1 }),
+                yTicks.length === 3 && [
+                    h("text", { key: "yt2", x: -6, y: 8,            textAnchor: "end", fontSize: 9, fill: C.ink4 }, yTicks[2]),
+                    h("text", { key: "yt1", x: -6, y: innerH / 2 + 3, textAnchor: "end", fontSize: 9, fill: C.ink4 }, yTicks[1]),
+                    h("text", { key: "yt0", x: -6, y: innerH,       textAnchor: "end", fontSize: 9, fill: C.ink4 }, yTicks[0]),
+                ],
+                // zero reference (e.g. "no effect" on a sensitivity curve)
+                cfg.zero != null && h(Line, { from: { x: 0, y: ys(cfg.zero) }, to: { x: innerW, y: ys(cfg.zero) }, stroke: C.ink4, strokeWidth: 1, strokeDasharray: "3 2" }),
+                h("path", { d: bandPath, fill: tone, fillOpacity: 0.16 }),
+                mid && h(LinePath, { data: mid, x: (_, i) => xs(i), y: d => ys(d), stroke: tone, strokeWidth: 1.7, curve: curveMonotoneX }),
+                // vertical reference markers (e.g. "now", "sweet spot")
+                marks.map((m, i) => h(Group, { key: `mk${i}`, left: xs(m.at) },
+                    h(Line, { from: { x: 0, y: -2 }, to: { x: 0, y: innerH }, stroke: markCol(m), strokeWidth: 1, strokeDasharray: "2 3" }),
+                    mid && h(Circle, { cx: 0, cy: ys(mid[m.at]), r: 3.5, fill: markCol(m), stroke: "#fff", strokeWidth: 1.5 }),
+                    h("text", { x: 0, y: -6, textAnchor: m.at >= lo.length - 2 ? "end" : m.at <= 1 ? "start" : "middle", fontSize: 8.5, fontWeight: 600, fill: markCol(m) }, m.label),
+                )),
+                // x axis baseline + ticks
                 h(Line, { from: { x: 0, y: innerH }, to: { x: innerW, y: innerH }, stroke: C.rule, strokeWidth: 1 }),
+                xTicks.map((t, i) => h("text", {
+                    key: `x${i}`, x: (innerW * i) / (xTicks.length - 1), y: innerH + 14,
+                    textAnchor: i === 0 ? "start" : i === xTicks.length - 1 ? "end" : "middle",
+                    fontSize: 9, fill: C.ink4,
+                }, t)),
             ),
         ),
     );
@@ -630,9 +656,62 @@ function renderComposed(el) {
 }
 
 // ---------------------------------------------------------------------------
+// Forest — horizontal effect estimates with confidence intervals + a zero
+// ("no effect") reference line. Built for the Experiment surface: compare a
+// naive estimate against an adjusted one and see whether each interval clears
+// zero. Each row: { label, est, lo, hi, tone: brand|neg|pos|muted, note }.
+// data-spec-forest='{"rows":[{"label":"Raw","est":-3.1,"lo":-6,"hi":-0.1,"tone":"neg","note":"looks worse"}],"min":-8,"max":9,"unit":"colour units"}'
+// ---------------------------------------------------------------------------
+function renderForest(el) {
+    const cfg = JSON.parse(el.getAttribute("data-spec-forest"));
+    const rows = cfg.rows, n = rows.length;
+    const SANS = "system-ui, -apple-system, sans-serif";
+    const [w, hPx] = size(el, 26 + n * 38);
+    const padL = 146, padR = 58, padT = 16, padB = 30;   // padB holds the x-axis row
+    const innerW = w - padL - padR;
+    const innerH = hPx - padT - padB;
+    const xs = scaleLinear({ domain: [cfg.min, cfg.max], range: [0, innerW] });
+    const rowH = innerH / n;
+    const zeroX = xs(0);
+    const tone = t => t === "neg" ? C.neg : t === "pos" ? C.pos : t === "muted" ? C.ink4 : C.brand;
+    const axisTicks = [cfg.min, 0, cfg.max];
+    createRoot(el).render(
+        h("svg", { width: w, height: hPx, style: { display: "block", fontFamily: MONO_FONT } },
+            h(Group, { left: padL, top: padT },
+                // zero ("no effect") reference, full plot height
+                h(Line, { from: { x: zeroX, y: -4 }, to: { x: zeroX, y: innerH }, stroke: C.ink4, strokeWidth: 1, strokeDasharray: "3 2" }),
+                h("text", { x: zeroX, y: -7, textAnchor: "middle", fontSize: 8, fill: C.ink4, letterSpacing: "0.06em" }, "no effect"),
+                // estimate rows
+                rows.map((r, i) => {
+                    const cy = rowH * i + rowH / 2;
+                    const col = tone(r.tone);
+                    return h(Group, { key: i, top: cy },
+                        h(Line, { from: { x: xs(r.lo), y: 0 }, to: { x: xs(r.hi), y: 0 }, stroke: col, strokeWidth: 3, strokeOpacity: 0.9, strokeLinecap: "round" }),
+                        h(Line, { from: { x: xs(r.lo), y: -4 }, to: { x: xs(r.lo), y: 4 }, stroke: col, strokeWidth: 1.5 }),
+                        h(Line, { from: { x: xs(r.hi), y: -4 }, to: { x: xs(r.hi), y: 4 }, stroke: col, strokeWidth: 1.5 }),
+                        h(Circle, { cx: xs(r.est), cy: 0, r: 5.5, fill: col, stroke: "#fff", strokeWidth: 2 }),
+                        h("text", { x: -padL + 2, y: -2, fontSize: 12, fontWeight: 600, fill: C.ink, fontFamily: SANS }, r.label),
+                        h("text", { x: -padL + 2, y: 12, fontSize: 9.5, fill: C.ink4, fontFamily: SANS }, r.note || ""),
+                        h("text", { x: innerW + padR - 2, y: 4, textAnchor: "end", fontSize: 15, fontWeight: 700, fill: col }, (r.est > 0 ? "+" : "") + r.est),
+                    );
+                }),
+                // x axis baseline + min / 0 / max ticks
+                h(Line, { from: { x: 0, y: innerH }, to: { x: innerW, y: innerH }, stroke: C.rule, strokeWidth: 1 }),
+                axisTicks.map((t, i) => h(Group, { key: `t${i}`, left: xs(t) },
+                    h(Line, { from: { x: 0, y: innerH }, to: { x: 0, y: innerH + 4 }, stroke: C.ruleStrong, strokeWidth: 1 }),
+                    h("text", { x: 0, y: innerH + 15, textAnchor: i === 0 ? "start" : i === axisTicks.length - 1 ? "end" : "middle", fontSize: 9, fill: C.ink4 }, (t > 0 ? "+" : "") + t),
+                )),
+                cfg.unit && h("text", { x: innerW, y: innerH + 27, textAnchor: "end", fontSize: 8.5, fill: C.ink5, fontFamily: SANS, fontStyle: "italic" }, cfg.unit),
+            ),
+        ),
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Dispatch
 // ---------------------------------------------------------------------------
 const renderers = {
+    "data-spec-forest":     renderForest,
     "data-spec-spark":      renderSpark,
     "data-spec-multiline":  renderMultiline,
     "data-spec-histogram":  renderHistogram,
@@ -648,13 +727,35 @@ const renderers = {
     "data-spec-composed":   renderComposed,
 };
 
-function mountAll() {
+// Render every hook inside `root`, once per element. Skips elements already
+// mounted so it is safe to call repeatedly (e.g. when a hidden tab is first
+// revealed and its charts finally have a measurable width).
+function mountIn(root) {
     for (const [attr, fn] of Object.entries(renderers)) {
-        document.querySelectorAll(`[${attr}]`).forEach(el => {
+        root.querySelectorAll(`[${attr}]`).forEach(el => {
+            if (el.__specMounted) return;
+            el.__specMounted = true;
             try { fn(el); } catch (e) { console.error(`charts-visx: ${attr} failed`, e, el); }
         });
     }
 }
+
+function mountAll() {
+    for (const [attr, fn] of Object.entries(renderers)) {
+        document.querySelectorAll(`[${attr}]`).forEach(el => {
+            // Defer hidden elements (e.g. inactive tab panes) — they have zero
+            // width now and would render blank. The host re-mounts them via
+            // window.__specCharts.mountIn(pane) when they become visible.
+            if (el.offsetParent === null) return;
+            if (el.__specMounted) return;
+            el.__specMounted = true;
+            try { fn(el); } catch (e) { console.error(`charts-visx: ${attr} failed`, e, el); }
+        });
+    }
+}
+
+// Exposed so a host page can render charts inside a pane the moment it is shown.
+window.__specCharts = { mountAll, mountIn };
 
 if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", mountAll);
