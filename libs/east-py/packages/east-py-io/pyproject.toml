@@ -1,6 +1,6 @@
 [project]
 name = "elaraai-east-py-io"
-version = "1.0.9"
+version = "1.0.10"
 description = "I/O platform functions for East programming language (Python)"
 readme = "README.md"
 requires-python = ">=3.11"
