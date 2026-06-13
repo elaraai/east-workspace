@@ -143,6 +143,10 @@ def call_builtin(str name, list type_params, list args, object output_type):
             c_tps = <_eastc.EastType**>malloc(ntp * sizeof(_eastc.EastType*))
             if c_tps == NULL:
                 raise MemoryError()
+            # Zero-init before converting: if py_type_to_c raises mid-loop,
+            # the finally block must not release uninitialized tail entries.
+            for i in range(ntp):
+                c_tps[i] = NULL
             for i in range(ntp):
                 c_tps[i] = py_type_to_c(type_params[i])
 
@@ -217,19 +221,28 @@ cdef object _compile_from_c_ir_val(_eastc.EastValue* c_ir_val, list platform_lis
 
 cdef object _compile_from_ir_node(_eastc.IRNode* ir_node, _eastc.EastValue* c_ir_val,
                                    list platform_list, bint is_async):
-    """Compile from an already-decoded IRNode — shared compilation path."""
+    """Compile from an already-decoded IRNode — shared compilation path.
+
+    Takes ownership of the caller's ir_node reference: east_compile retains
+    what it needs, so the decoded IR tree is released here on every path
+    (it was previously leaked on each compile).
+    """
     cdef _eastc.PlatformRegistry* platform = _eastc.platform_registry_new()
     if platform_list:
         try:
             register_platform_functions(platform, platform_list)
         except:
-            _eastc.platform_registry_free(platform)
+            _eastc.ir_node_release(ir_node)
+            _eastc.platform_registry_release(platform)
             _eastc.east_value_release(c_ir_val)
             raise
 
     cdef _eastc.EastCompiledFn* wrapper = _eastc.east_compile(ir_node, platform, _builtins)
+    # east_compile retained its own reference (or failed); drop ours now so
+    # the IR tree's lifetime is tied to the compiled function.
+    _eastc.ir_node_release(ir_node)
     if wrapper == NULL:
-        _eastc.platform_registry_free(platform)
+        _eastc.platform_registry_release(platform)
         _eastc.east_value_release(c_ir_val)
         raise RuntimeError("east_compile returned NULL")
 
@@ -238,8 +251,9 @@ cdef object _compile_from_ir_node(_eastc.IRNode* ir_node, _eastc.EastValue* c_ir
         msg = "Failed to unwrap compiled function"
         if unwrap_result.error_message != NULL:
             msg = unwrap_result.error_message.decode("utf-8")
+        _eastc.eval_result_free(&unwrap_result)
         _eastc.east_compiled_fn_free(wrapper)
-        _eastc.platform_registry_free(platform)
+        _eastc.platform_registry_release(platform)
         _eastc.east_value_release(c_ir_val)
         raise RuntimeError(msg)
 
@@ -253,7 +267,7 @@ cdef object _compile_from_ir_node(_eastc.IRNode* ir_node, _eastc.EastValue* c_ir
     if compiled == NULL:
         _eastc.east_value_release(fn_val)
         _eastc.east_compiled_fn_free(wrapper)
-        _eastc.platform_registry_free(platform)
+        _eastc.platform_registry_release(platform)
         _eastc.east_value_release(c_ir_val)
         raise RuntimeError("Unwrapped function has NULL compiled fn")
 
@@ -613,6 +627,7 @@ def _invoke_c_function_py(uintptr_t val_ptr, list input_type_ptrs, uintptr_t out
             msg = result.error_message.decode("utf-8")
         if result.value != NULL:
             _eastc.east_value_release(result.value)
+        _eastc.eval_result_free(&result)
         from east.runtime.errors import EastError
         from east.types.values import EastArray, EastVariant
         raise EastError(msg, [])
@@ -641,7 +656,7 @@ def _free_compiled(uintptr_t ptr):
 
 def _free_platform(uintptr_t ptr):
     if ptr != 0:
-        _eastc.platform_registry_free(<_eastc.PlatformRegistry*>ptr)
+        _eastc.platform_registry_release(<_eastc.PlatformRegistry*>ptr)
 
 
 cpdef object _eastc_call(uintptr_t compiled_ptr, list input_type_ptrs,
@@ -721,6 +736,7 @@ cpdef object _eastc_call(uintptr_t compiled_ptr, list input_type_ptrs,
 
     if result.value != NULL:
         _eastc.east_value_release(result.value)
+    _eastc.eval_result_free(&result)
 
     raise EastError(msg, location_array)
 
@@ -732,7 +748,7 @@ def _release_handle(uintptr_t compiled_ptr, uintptr_t platform_ptr,
     if compiled_ptr != 0:
         _eastc.east_compiled_fn_free(<_eastc.EastCompiledFn*>compiled_ptr)
     if platform_ptr != 0:
-        _eastc.platform_registry_free(<_eastc.PlatformRegistry*>platform_ptr)
+        _eastc.platform_registry_release(<_eastc.PlatformRegistry*>platform_ptr)
     if ir_val_ptr != 0:
         _eastc.east_value_release(<_eastc.EastValue*>ir_val_ptr)
     for ptr in input_type_ptrs:

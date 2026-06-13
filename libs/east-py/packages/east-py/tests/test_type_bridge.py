@@ -158,3 +158,53 @@ def test_reverse_caches_are_scoped_per_conversion():
     # different type and re-check it.
     del doc_arr
     assert c_type_ptr_to_py_type(tree_arr._c_elem_type_ptr) == TreeType
+
+
+def test_shared_interned_subtree_at_two_depths():
+    # Issue #34 H2: a recursive subtree that appears at two different stack
+    # depths shares ONE interned C pointer. The reverse converter's
+    # within-call cache must not memoize a result whose Recursive(depth)
+    # back-edge escapes the cached node — caching it would replay a depth
+    # built at one stack level when the same pointer is hit at another,
+    # silently producing the wrong Python type.
+    #
+    #   X = Struct{ a: Array<X>, b: Struct{ inner: Array<X> } }
+    #
+    # Array<X> is interned to a single node. Converting field `a` builds it
+    # at the Struct's depth; field `b.inner` re-hits that interned pointer at
+    # a deeper stack level. The back-edge to X must resolve to the SAME outer
+    # Struct in both, so the round-trip is the identity.
+    XType = recursive_type(
+        lambda self: StructType([
+            ("a", ArrayType(self)),
+            ("b", StructType([("inner", ArrayType(self))])),
+        ])
+    )
+
+    rt = _roundtrip(XType)
+    assert rt == XType
+
+    # Both Array<X> occurrences must carry the same back-edge depth: the path
+    # Struct(X) → field → Array → Recursive crosses two counted levels.
+    fields = {f["name"]: f["type"] for f in rt.value}
+    a_back = fields["a"].value  # Array payload
+    assert a_back.type == "Recursive"
+    a_depth = a_back.value
+
+    inner_fields = {f["name"]: f["type"] for f in fields["b"].value}
+    b_back = inner_fields["inner"].value  # Array payload of nested struct
+    assert b_back.type == "Recursive"
+    b_depth = b_back.value
+
+    # The shared Array<X> reached at two stack depths must NOT collapse to one
+    # memoized depth: each occurrence binds to the outer X at its own level.
+    assert a_depth == 2  # Struct(X) + Array
+    assert b_depth == 3  # Struct(X) + inner Struct + Array
+
+    # A conforming value validates against the reconstructed type.
+    empty = EastArray(XType, [])
+    leaf = east.EastStruct({"a": empty, "b": east.EastStruct({"inner": empty})})
+    value = east.EastStruct({"a": EastArray(XType, [leaf]),
+                             "b": east.EastStruct({"inner": empty})})
+    assert is_value_of(value, rt)
+    assert is_value_of(value, XType)

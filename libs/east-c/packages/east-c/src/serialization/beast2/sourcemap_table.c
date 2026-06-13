@@ -58,29 +58,45 @@ void write_source_map_section(EastSourceMap *sm, Beast2StringTableEnc *st, ByteB
 EastSourceMap read_source_map_section(const uint8_t *data, size_t len, size_t *offset,
                                       Beast2StringTableDec *st)
 {
+    /* Input bytes are untrusted: all reads are bounds-checked, and declared
+     * stack/frame counts are bounded by the bytes remaining in the section
+     * so they cannot drive oversized allocations. On malformed input,
+     * returns an empty map and clamps *offset to len. */
     EastSourceMap sm = {0};
 
-    uint64_t section_byte_length = read_varint(data, offset);
+    uint64_t section_byte_length;
+    if (!read_varint_checked(data, len, offset, &section_byte_length)) goto fail;
+    if (section_byte_length > len - *offset) goto fail;
     size_t section_end = *offset + (size_t)section_byte_length;
-    uint64_t stack_count = read_varint(data, offset);
+    uint64_t stack_count;
+    if (!read_varint_checked(data, section_end, offset, &stack_count)) goto fail;
+
+    /* Each stack needs at least its 1-byte frame-count varint */
+    if (stack_count > section_end - *offset) goto fail;
 
     /* Total entries = stack_count + 1 (for the implicit empty sentinel at 0) */
     sm.num_stacks = (size_t)stack_count + 1;
     sm.stacks = calloc(sm.num_stacks, sizeof(EastLocation *));
     sm.stack_counts = calloc(sm.num_stacks, sizeof(size_t));
+    if (!sm.stacks || !sm.stack_counts) goto fail;
     /* Entry 0 is the empty sentinel: stacks[0] = NULL, stack_counts[0] = 0 */
 
     for (uint64_t i = 0; i < stack_count; i++) {
-        uint64_t frame_count = read_varint(data, offset);
+        uint64_t frame_count;
+        if (!read_varint_checked(data, section_end, offset, &frame_count)) goto fail;
         size_t idx = (size_t)i + 1;
+        /* Each frame needs >= 3 bytes (three varints) */
+        if (frame_count > (section_end - *offset) / 3) goto fail;
         sm.stack_counts[idx] = (size_t)frame_count;
         if (frame_count > 0) {
             sm.stacks[idx] = calloc((size_t)frame_count, sizeof(EastLocation));
+            if (!sm.stacks[idx]) goto fail;
             for (uint64_t j = 0; j < frame_count; j++) {
-                uint64_t fn_idx = read_varint(data, offset);
-                uint64_t line = read_varint(data, offset);
-                uint64_t col = read_varint(data, offset);
-                if (st && fn_idx < st->count) {
+                uint64_t fn_idx, line, col;
+                if (!read_varint_checked(data, section_end, offset, &fn_idx)) goto fail;
+                if (!read_varint_checked(data, section_end, offset, &line)) goto fail;
+                if (!read_varint_checked(data, section_end, offset, &col)) goto fail;
+                if (st && fn_idx < st->count && st->strings[fn_idx]) {
                     sm.stacks[idx][j].filename = strdup(st->strings[fn_idx]);
                 }
                 sm.stacks[idx][j].line = (int64_t)line;
@@ -91,6 +107,11 @@ EastSourceMap read_source_map_section(const uint8_t *data, size_t len, size_t *o
 
     *offset = section_end;
     return sm;
+
+fail:
+    beast2_source_map_free(&sm);
+    *offset = len;
+    return (EastSourceMap){0};
 }
 
 /* ================================================================== */
@@ -100,7 +121,7 @@ EastSourceMap read_source_map_section(const uint8_t *data, size_t len, size_t *o
 void beast2_source_map_free(EastSourceMap *sm)
 {
     if (!sm) return;
-    for (size_t i = 0; i < sm->num_stacks; i++) {
+    for (size_t i = 0; sm->stacks && sm->stack_counts && i < sm->num_stacks; i++) {
         if (sm->stacks[i]) {
             for (size_t j = 0; j < sm->stack_counts[i]; j++) {
                 free(sm->stacks[i][j].filename);

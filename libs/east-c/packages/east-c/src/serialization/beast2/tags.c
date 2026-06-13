@@ -57,8 +57,14 @@ double b2_read_float64_le(const uint8_t *data, size_t *offset)
 /* Read a varint-prefixed string, returning malloc'd string and setting *out_len */
 char *b2_read_string_varint(const uint8_t *data, size_t len, size_t *offset, size_t *out_len)
 {
-    uint64_t slen = read_varint(data, offset);
-    if (*offset + slen > len) {
+    uint64_t slen;
+    if (!read_varint_checked(data, len, offset, &slen)) {
+        *out_len = 0;
+        return NULL;
+    }
+    /* Overflow-safe bounds check: *offset <= len here, so len - *offset
+     * cannot underflow, and a huge slen cannot wrap the comparison. */
+    if (slen > len - *offset) {
         *out_len = 0;
         return NULL;
     }

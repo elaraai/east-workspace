@@ -317,64 +317,93 @@ Beast2MutableValues read_value_table_section(const uint8_t *data, size_t len, si
                                              EastType **types, size_t type_count,
                                              Beast2StringTableDec *st)
 {
+    /* Input bytes are untrusted: all reads are bounds-checked, entry extents
+     * are validated against the section, declared element counts are bounded
+     * by the entry's own byte length (each element costs >= 1 byte), and
+     * every table index is range-checked. On malformed input, returns an
+     * empty table and clamps *offset to len so later reads fail fast. */
     Beast2MutableValues mv = {0};
+    size_t *entry_offsets = NULL;
+    size_t *entry_lengths = NULL;
 
-    uint64_t section_byte_length = read_varint(data, offset);
+    uint64_t section_byte_length;
+    if (!read_varint_checked(data, len, offset, &section_byte_length)) goto fail;
+    if (section_byte_length > len - *offset) goto fail;
     size_t section_end = *offset + (size_t)section_byte_length;
-    uint64_t entry_count = read_varint(data, offset);
+    uint64_t entry_count;
+    if (!read_varint_checked(data, section_end, offset, &entry_count)) goto fail;
 
     if (entry_count == 0) {
         *offset = section_end;
         return mv;
     }
 
+    /* Each entry needs >= 2 bytes (length varint + kind tag) */
+    if (entry_count > (section_end - *offset) / 2) goto fail;
+
     mv.count = (size_t)entry_count;
     mv.values = calloc(mv.count, sizeof(EastValue *));
 
     /* Track entry offsets and byte lengths for two-pass decode */
-    size_t *entry_offsets = calloc(mv.count, sizeof(size_t));
-    size_t *entry_lengths = calloc(mv.count, sizeof(size_t));
+    entry_offsets = calloc(mv.count, sizeof(size_t));
+    entry_lengths = calloc(mv.count, sizeof(size_t));
+    if (!mv.values || !entry_offsets || !entry_lengths) goto fail;
 
     /* Pass 1: pre-allocate empty containers, skip element data */
     for (size_t i = 0; i < mv.count; i++) {
-        uint64_t entry_byte_length = read_varint(data, offset);
+        uint64_t entry_byte_length;
+        if (!read_varint_checked(data, section_end, offset, &entry_byte_length)) goto fail;
         size_t entry_start = *offset;
+        if (entry_byte_length == 0 || entry_byte_length > section_end - entry_start) goto fail;
+        size_t entry_end = entry_start + (size_t)entry_byte_length;
         uint8_t kind_tag = data[(*offset)++];
 
         switch (kind_tag) {
         case VT_TAG_ARRAY: {
-            uint64_t eidx = read_varint(data, offset);
+            uint64_t eidx, count;
+            if (!read_varint_checked(data, entry_end, offset, &eidx)) goto fail;
+            if (!read_varint_checked(data, entry_end, offset, &count)) goto fail;
             EastType *etype = (eidx < type_count) ? types[eidx] : NULL;
-            uint64_t count = read_varint(data, offset);
+            /* Each element costs >= 1 byte in the entry payload */
+            if (count > entry_end - *offset) goto fail;
             mv.values[i] = east_array_new_with_capacity(etype, (size_t)count);
             break;
         }
         case VT_TAG_SET: {
-            uint64_t eidx = read_varint(data, offset);
+            uint64_t eidx, count;
+            if (!read_varint_checked(data, entry_end, offset, &eidx)) goto fail;
+            if (!read_varint_checked(data, entry_end, offset, &count)) goto fail;
             EastType *etype = (eidx < type_count) ? types[eidx] : NULL;
-            uint64_t count = read_varint(data, offset);
+            if (count > entry_end - *offset) goto fail;
             mv.values[i] = east_set_new_with_capacity(etype, (size_t)count);
             break;
         }
         case VT_TAG_DICT: {
-            uint64_t kidx = read_varint(data, offset);
-            uint64_t vidx = read_varint(data, offset);
+            uint64_t kidx, vidx, count;
+            if (!read_varint_checked(data, entry_end, offset, &kidx)) goto fail;
+            if (!read_varint_checked(data, entry_end, offset, &vidx)) goto fail;
+            if (!read_varint_checked(data, entry_end, offset, &count)) goto fail;
             EastType *ktype = (kidx < type_count) ? types[kidx] : NULL;
             EastType *vtype = (vidx < type_count) ? types[vidx] : NULL;
-            uint64_t count = read_varint(data, offset);
+            if (count > entry_end - *offset) goto fail;
             mv.values[i] = east_dict_new_with_capacity(ktype, vtype, (size_t)count);
             break;
         }
         case VT_TAG_REF: {
-            read_varint(data, offset); /* inner type idx - skip */
+            uint64_t inner_idx;
+            if (!read_varint_checked(data, entry_end, offset, &inner_idx)) goto fail;
             mv.values[i] = east_ref_new(east_null());
             break;
         }
+        default:
+            goto fail; /* unknown kind tag */
         }
+
+        if (!mv.values[i]) goto fail; /* container allocation failed */
 
         entry_offsets[i] = entry_start;
         entry_lengths[i] = (size_t)entry_byte_length;
-        *offset = entry_start + (size_t)entry_byte_length;
+        *offset = entry_end;
     }
 
     /* Pass 2: fill elements in REVERSE order (children before parents) */
@@ -388,24 +417,27 @@ Beast2MutableValues read_value_table_section(const uint8_t *data, size_t len, si
 
     for (int64_t i = (int64_t)mv.count - 1; i >= 0; i--) {
         size_t off = entry_offsets[i];
+        size_t entry_end = entry_offsets[i] + entry_lengths[i];
         uint8_t kind_tag = data[off++];
 
         switch (kind_tag) {
         case VT_TAG_ARRAY: {
-            uint64_t elem_type_idx = read_varint(data, &off);
+            uint64_t elem_type_idx, count;
+            if (!read_varint_checked(data, entry_end, &off, &elem_type_idx)) goto fail2;
+            if (!read_varint_checked(data, entry_end, &off, &count)) goto fail2;
             EastType *elem_type = (elem_type_idx < type_count) ? types[elem_type_idx] : NULL;
-            uint64_t count = read_varint(data, &off);
             EastValue *arr = mv.values[i];
             for (uint64_t j = 0; j < count; j++) {
                 EastValue *elem;
                 if (elem_type &&
                     (elem_type->kind == EAST_TYPE_ARRAY || elem_type->kind == EAST_TYPE_SET ||
                      elem_type->kind == EAST_TYPE_DICT || elem_type->kind == EAST_TYPE_REF)) {
-                    uint64_t idx = read_varint(data, &off);
-                    elem = (idx < mv.count) ? mv.values[idx] : east_null();
+                    uint64_t idx;
+                    if (!read_varint_checked(data, entry_end, &off, &idx)) goto fail2;
+                    elem = (idx < mv.count && mv.values[idx]) ? mv.values[idx] : east_null();
                     east_value_retain(elem);
                 } else {
-                    elem = beast2_decode_value(data, len, &off, elem_type, &dctx);
+                    elem = beast2_decode_value(data, entry_end, &off, elem_type, &dctx);
                 }
                 if (elem) {
                     east_array_push(arr, elem);
@@ -415,20 +447,22 @@ Beast2MutableValues read_value_table_section(const uint8_t *data, size_t len, si
             break;
         }
         case VT_TAG_SET: {
-            uint64_t elem_type_idx = read_varint(data, &off);
+            uint64_t elem_type_idx, count;
+            if (!read_varint_checked(data, entry_end, &off, &elem_type_idx)) goto fail2;
+            if (!read_varint_checked(data, entry_end, &off, &count)) goto fail2;
             EastType *elem_type = (elem_type_idx < type_count) ? types[elem_type_idx] : NULL;
-            uint64_t count = read_varint(data, &off);
             EastValue *set = mv.values[i];
             for (uint64_t j = 0; j < count; j++) {
                 EastValue *elem;
                 if (elem_type &&
                     (elem_type->kind == EAST_TYPE_ARRAY || elem_type->kind == EAST_TYPE_SET ||
                      elem_type->kind == EAST_TYPE_DICT || elem_type->kind == EAST_TYPE_REF)) {
-                    uint64_t idx = read_varint(data, &off);
-                    elem = (idx < mv.count) ? mv.values[idx] : east_null();
+                    uint64_t idx;
+                    if (!read_varint_checked(data, entry_end, &off, &idx)) goto fail2;
+                    elem = (idx < mv.count && mv.values[idx]) ? mv.values[idx] : east_null();
                     east_value_retain(elem);
                 } else {
-                    elem = beast2_decode_value(data, len, &off, elem_type, &dctx);
+                    elem = beast2_decode_value(data, entry_end, &off, elem_type, &dctx);
                 }
                 if (elem) {
                     east_set_insert(set, elem);
@@ -438,53 +472,61 @@ Beast2MutableValues read_value_table_section(const uint8_t *data, size_t len, si
             break;
         }
         case VT_TAG_DICT: {
-            uint64_t key_type_idx = read_varint(data, &off);
-            uint64_t val_type_idx = read_varint(data, &off);
+            uint64_t key_type_idx, val_type_idx, count;
+            if (!read_varint_checked(data, entry_end, &off, &key_type_idx)) goto fail2;
+            if (!read_varint_checked(data, entry_end, &off, &val_type_idx)) goto fail2;
+            if (!read_varint_checked(data, entry_end, &off, &count)) goto fail2;
             EastType *key_type = (key_type_idx < type_count) ? types[key_type_idx] : NULL;
             EastType *val_type = (val_type_idx < type_count) ? types[val_type_idx] : NULL;
-            uint64_t count = read_varint(data, &off);
             EastValue *dict = mv.values[i];
             for (uint64_t j = 0; j < count; j++) {
                 EastValue *k, *v;
                 if (key_type &&
                     (key_type->kind == EAST_TYPE_ARRAY || key_type->kind == EAST_TYPE_SET ||
                      key_type->kind == EAST_TYPE_DICT || key_type->kind == EAST_TYPE_REF)) {
-                    uint64_t idx = read_varint(data, &off);
-                    k = (idx < mv.count) ? mv.values[idx] : east_null();
+                    uint64_t idx;
+                    if (!read_varint_checked(data, entry_end, &off, &idx)) goto fail2;
+                    k = (idx < mv.count && mv.values[idx]) ? mv.values[idx] : east_null();
                     east_value_retain(k);
                 } else {
-                    k = beast2_decode_value(data, len, &off, key_type, &dctx);
+                    k = beast2_decode_value(data, entry_end, &off, key_type, &dctx);
                 }
                 if (val_type &&
                     (val_type->kind == EAST_TYPE_ARRAY || val_type->kind == EAST_TYPE_SET ||
                      val_type->kind == EAST_TYPE_DICT || val_type->kind == EAST_TYPE_REF)) {
-                    uint64_t idx = read_varint(data, &off);
-                    v = (idx < mv.count) ? mv.values[idx] : east_null();
+                    uint64_t idx;
+                    if (!read_varint_checked(data, entry_end, &off, &idx)) {
+                        if (k) east_value_release(k);
+                        goto fail2;
+                    }
+                    v = (idx < mv.count && mv.values[idx]) ? mv.values[idx] : east_null();
                     east_value_retain(v);
                 } else {
-                    v = beast2_decode_value(data, len, &off, val_type, &dctx);
+                    v = beast2_decode_value(data, entry_end, &off, val_type, &dctx);
                 }
                 if (k && v) {
                     east_dict_set(dict, k, v);
-                    east_value_release(k);
-                    east_value_release(v);
                 }
+                if (k) east_value_release(k);
+                if (v) east_value_release(v);
             }
             break;
         }
         case VT_TAG_REF: {
-            uint64_t inner_type_idx = read_varint(data, &off);
+            uint64_t inner_type_idx;
+            if (!read_varint_checked(data, entry_end, &off, &inner_type_idx)) goto fail2;
             EastType *inner_type = (inner_type_idx < type_count) ? types[inner_type_idx] : NULL;
             EastValue *ref = mv.values[i];
             EastValue *inner;
             if (inner_type &&
                 (inner_type->kind == EAST_TYPE_ARRAY || inner_type->kind == EAST_TYPE_SET ||
                  inner_type->kind == EAST_TYPE_DICT || inner_type->kind == EAST_TYPE_REF)) {
-                uint64_t idx = read_varint(data, &off);
-                inner = (idx < mv.count) ? mv.values[idx] : east_null();
+                uint64_t idx;
+                if (!read_varint_checked(data, entry_end, &off, &idx)) goto fail2;
+                inner = (idx < mv.count && mv.values[idx]) ? mv.values[idx] : east_null();
                 east_value_retain(inner);
             } else {
-                inner = beast2_decode_value(data, len, &off, inner_type, &dctx);
+                inner = beast2_decode_value(data, entry_end, &off, inner_type, &dctx);
             }
             if (inner) {
                 east_ref_set(ref, inner);
@@ -501,6 +543,16 @@ Beast2MutableValues read_value_table_section(const uint8_t *data, size_t len, si
 
     *offset = section_end;
     return mv;
+
+fail2:
+    /* Pass-2 failure: the decode context exists and must be freed */
+    beast2_dec_ctx_free(&dctx);
+fail:
+    beast2_mutable_values_free(&mv);
+    free(entry_offsets);
+    free(entry_lengths);
+    *offset = len;
+    return (Beast2MutableValues){0};
 }
 
 void beast2_mutable_values_free(Beast2MutableValues *mv)

@@ -26,8 +26,15 @@ typedef struct PlatformRegistry {
     Hashmap *functions;         // name -> PlatformFunction*
     Hashmap *generic_functions; // name -> GenericPlatformFunction*
     /** Optional hook called before each platform function invocation.
-     *  Used by Python bindings to set dispatch context. */
-    void (*pre_call)(const char *name, EastType **type_params, size_t num_type_params);
+     *  Used by Python bindings to set dispatch context. Receives the
+     *  registry so bindings can keep per-registry dispatch state. */
+    void (*pre_call)(struct PlatformRegistry *reg, const char *name, EastType **type_params,
+                     size_t num_type_params);
+
+    /** Optional hook called at the start of platform_registry_free — lets
+     *  bindings drop per-registry dispatch state with the same lifetime as
+     *  the registry itself. */
+    void (*on_free)(struct PlatformRegistry *reg);
 
     /** Refcount. Initial value 1; release calls platform_registry_free
      *  when count reaches 0. */

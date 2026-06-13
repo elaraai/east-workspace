@@ -30,29 +30,35 @@ typedef struct {
 static PBuf pbuf_new(size_t initial_cap)
 {
     PBuf sb;
-    sb.cap = (initial_cap > 0) ? initial_cap : 256;
-    sb.data = malloc(sb.cap);
+    size_t want = (initial_cap > 0) ? initial_cap : 256;
+    sb.data = malloc(want);
     sb.len = 0;
+    /* On allocation failure cap must be 0, not want — otherwise appends
+     * would memcpy into a NULL buffer believing it has room. */
+    sb.cap = sb.data ? want : 0;
     if (sb.data) sb.data[0] = '\0';
     return sb;
 }
 
-static void pbuf_ensure(PBuf *sb, size_t needed)
+/* Ensure room for `needed` more bytes (plus NUL). Returns false on
+ * allocation failure so callers skip the write rather than overrunning. */
+static bool pbuf_ensure(PBuf *sb, size_t needed)
 {
     size_t required = sb->len + needed + 1;
-    if (required <= sb->cap) return;
-    size_t new_cap = sb->cap * 2;
+    if (sb->data && required <= sb->cap) return true;
+    size_t new_cap = sb->cap ? sb->cap * 2 : 256;
     if (new_cap < required) new_cap = required;
     char *nd = realloc(sb->data, new_cap);
-    if (!nd) return;
+    if (!nd) return false;
     sb->data = nd;
     sb->cap = new_cap;
+    return true;
 }
 
 static void pbuf_append(PBuf *sb, const char *str, size_t len)
 {
     if (len == 0) return;
-    pbuf_ensure(sb, len);
+    if (!pbuf_ensure(sb, len)) return;
     memcpy(sb->data + sb->len, str, len);
     sb->len += len;
     sb->data[sb->len] = '\0';
@@ -65,7 +71,7 @@ static void pbuf_append_str(PBuf *sb, const char *str)
 
 static void pbuf_append_char(PBuf *sb, char c)
 {
-    pbuf_ensure(sb, 1);
+    if (!pbuf_ensure(sb, 1)) return;
     sb->data[sb->len++] = c;
     sb->data[sb->len] = '\0';
 }
