@@ -89,13 +89,19 @@ void write_varint(ByteBuffer *buf, uint64_t val)
     byte_buffer_write_u8(buf, (uint8_t)(val & 0x7F));
 }
 
-uint64_t read_varint(const uint8_t *data, size_t *offset)
+bool read_varint_checked(const uint8_t *data, size_t len, size_t *offset, uint64_t *out)
 {
     uint64_t result = 0;
     int shift = 0;
     size_t pos = *offset;
 
     for (;;) {
+        if (pos >= len) {
+            /* Truncated: buffer ends mid-varint */
+            *out = 0;
+            *offset = len;
+            return false;
+        }
         uint8_t byte = data[pos++];
         result |= (uint64_t)(byte & 0x7F) << shift;
         if ((byte & 0x80) == 0) {
@@ -109,7 +115,8 @@ uint64_t read_varint(const uint8_t *data, size_t *offset)
     }
 
     *offset = pos;
-    return result;
+    *out = result;
+    return true;
 }
 
 /* ------------------------------------------------------------------ */
@@ -126,9 +133,14 @@ void write_zigzag(ByteBuffer *buf, int64_t val)
     write_varint(buf, zigzag);
 }
 
-int64_t read_zigzag(const uint8_t *data, size_t *offset)
+bool read_zigzag_checked(const uint8_t *data, size_t len, size_t *offset, int64_t *out)
 {
-    uint64_t raw = read_varint(data, offset);
+    uint64_t raw;
+    if (!read_varint_checked(data, len, offset, &raw)) {
+        *out = 0;
+        return false;
+    }
     /* Decode zigzag: (raw >> 1) ^ -(raw & 1) */
-    return (int64_t)((raw >> 1) ^ (~(raw & 1) + 1));
+    *out = (int64_t)((raw >> 1) ^ (~(raw & 1) + 1));
+    return true;
 }

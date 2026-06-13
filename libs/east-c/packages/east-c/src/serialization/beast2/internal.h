@@ -54,6 +54,10 @@ extern const uint8_t BEAST2_TAG_FOR_KIND[];
 /* Magic bytes for beast2-full format */
 extern const uint8_t BEAST2_MAGIC[8];
 
+/* Maximum value-decode recursion depth (untrusted input may nest
+ * Struct/Variant/Recursive arbitrarily deep) */
+#define BEAST2_MAX_DEPTH 8192
+
 /* ================================================================== */
 /*  Shared low-level helpers                                            */
 /* ================================================================== */
@@ -260,6 +264,9 @@ typedef struct {
     size_t mutable_values_count;
     /* v4 source map for loc_id resolution */
     EastSourceMap *source_map;
+    /* Recursion depth of beast2_decode_value (guards C stack exhaustion
+     * on adversarially nested input) */
+    int depth;
 #ifdef BEAST2_PROFILE_DEDUP
     struct {
         EastType *type;

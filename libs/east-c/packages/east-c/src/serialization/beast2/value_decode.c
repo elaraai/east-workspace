@@ -3,11 +3,21 @@
 /*  BEAST2 v4 Decoder                                                  */
 /* ================================================================== */
 
-EastValue *beast2_decode_value(const uint8_t *data, size_t len, size_t *offset, EastType *type,
-                               Beast2DecodeCtx *ctx);
+static EastValue *beast2_decode_value_inner(const uint8_t *data, size_t len, size_t *offset,
+                                            EastType *type, Beast2DecodeCtx *ctx);
 
 EastValue *beast2_decode_value(const uint8_t *data, size_t len, size_t *offset, EastType *type,
                                Beast2DecodeCtx *ctx)
+{
+    if (ctx->depth >= BEAST2_MAX_DEPTH) return NULL;
+    ctx->depth++;
+    EastValue *result = beast2_decode_value_inner(data, len, offset, type, ctx);
+    ctx->depth--;
+    return result;
+}
+
+static EastValue *beast2_decode_value_inner(const uint8_t *data, size_t len, size_t *offset,
+                                            EastType *type, Beast2DecodeCtx *ctx)
 {
     if (!type) return NULL;
 
@@ -25,7 +35,8 @@ EastValue *beast2_decode_value(const uint8_t *data, size_t len, size_t *offset, 
     }
 
     case EAST_TYPE_INTEGER: {
-        int64_t val = read_zigzag(data, offset);
+        int64_t val;
+        if (!read_zigzag_checked(data, len, offset, &val)) return NULL;
         return east_integer(val);
     }
 
@@ -37,8 +48,9 @@ EastValue *beast2_decode_value(const uint8_t *data, size_t len, size_t *offset, 
 
     case EAST_TYPE_STRING: {
         if (ctx->string_table) {
-            uint64_t idx = read_varint(data, offset);
-            if (idx >= ctx->string_table->count) {
+            uint64_t idx;
+            if (!read_varint_checked(data, len, offset, &idx)) return NULL;
+            if (idx >= ctx->string_table->count || !ctx->string_table->strings[idx]) {
                 fprintf(stderr,
                         "beast2: string table index %llu out of bounds (table has %zu entries)\n",
                         (unsigned long long)idx, ctx->string_table->count);
@@ -56,13 +68,16 @@ EastValue *beast2_decode_value(const uint8_t *data, size_t len, size_t *offset, 
     }
 
     case EAST_TYPE_DATETIME: {
-        int64_t millis = read_zigzag(data, offset);
+        int64_t millis;
+        if (!read_zigzag_checked(data, len, offset, &millis)) return NULL;
         return east_datetime(millis);
     }
 
     case EAST_TYPE_BLOB: {
-        uint64_t blen = read_varint(data, offset);
-        if (*offset + blen > len) return NULL;
+        uint64_t blen;
+        if (!read_varint_checked(data, len, offset, &blen)) return NULL;
+        /* Overflow-safe: *offset <= len after a successful varint read */
+        if (blen > len - *offset) return NULL;
         EastValue *val = east_blob(data + *offset, (size_t)blen);
         *offset += (size_t)blen;
         return val;
@@ -73,8 +88,9 @@ EastValue *beast2_decode_value(const uint8_t *data, size_t len, size_t *offset, 
     case EAST_TYPE_DICT: {
         /* v4: mutable containers are read as varint(value_table_index) */
         if (ctx->mutable_values) {
-            uint64_t idx = read_varint(data, offset);
-            if (idx < ctx->mutable_values_count) {
+            uint64_t idx;
+            if (!read_varint_checked(data, len, offset, &idx)) return NULL;
+            if (idx < ctx->mutable_values_count && ctx->mutable_values[idx]) {
                 east_value_retain(ctx->mutable_values[idx]);
                 return ctx->mutable_values[idx];
             }
@@ -143,7 +159,8 @@ EastValue *beast2_decode_value(const uint8_t *data, size_t len, size_t *offset, 
 
     case EAST_TYPE_VARIANT: {
         size_t dedup_start = *offset;
-        uint64_t case_idx = read_varint(data, offset);
+        uint64_t case_idx;
+        if (!read_varint_checked(data, len, offset, &case_idx)) return NULL;
         if (case_idx >= type->data.variant.num_cases) return NULL;
 
         EastType *case_type = type->data.variant.cases[case_idx].type;
@@ -180,8 +197,9 @@ EastValue *beast2_decode_value(const uint8_t *data, size_t len, size_t *offset, 
     case EAST_TYPE_REF: {
         /* v4: mutable containers are read as varint(value_table_index) */
         if (ctx->mutable_values) {
-            uint64_t idx = read_varint(data, offset);
-            if (idx < ctx->mutable_values_count) {
+            uint64_t idx;
+            if (!read_varint_checked(data, len, offset, &idx)) return NULL;
+            if (idx < ctx->mutable_values_count && ctx->mutable_values[idx]) {
                 east_value_retain(ctx->mutable_values[idx]);
                 return ctx->mutable_values[idx];
             }
@@ -191,10 +209,8 @@ EastValue *beast2_decode_value(const uint8_t *data, size_t len, size_t *offset, 
 
     case EAST_TYPE_VECTOR: {
         EastType *elem_type = type->data.element;
-        uint64_t vlen = read_varint(data, offset);
-
-        EastValue *vec = east_vector_new(elem_type, (size_t)vlen);
-        if (!vec) return NULL;
+        uint64_t vlen;
+        if (!read_varint_checked(data, len, offset, &vlen)) return NULL;
 
         size_t elem_size = 0;
         if (elem_type->kind == EAST_TYPE_FLOAT) {
@@ -203,13 +219,19 @@ EastValue *beast2_decode_value(const uint8_t *data, size_t len, size_t *offset, 
             elem_size = sizeof(int64_t);
         } else if (elem_type->kind == EAST_TYPE_BOOLEAN) {
             elem_size = sizeof(bool);
+        } else {
+            return NULL; /* vectors are numeric/boolean only */
         }
 
+        /* Each element occupies elem_size payload bytes, so vlen is bounded
+         * by the remaining buffer. This also bounds the allocation below and
+         * makes the byte_count multiply overflow-free. */
+        if (vlen > (len - *offset) / elem_size) return NULL;
+
+        EastValue *vec = east_vector_new(elem_type, (size_t)vlen);
+        if (!vec) return NULL;
+
         size_t byte_count = (size_t)vlen * elem_size;
-        if (*offset + byte_count > len) {
-            east_value_release(vec);
-            return NULL;
-        }
         memcpy(vec->data.vector.data, data + *offset, byte_count);
         *offset += byte_count;
         return vec;
@@ -217,11 +239,9 @@ EastValue *beast2_decode_value(const uint8_t *data, size_t len, size_t *offset, 
 
     case EAST_TYPE_MATRIX: {
         EastType *elem_type = type->data.element;
-        uint64_t rows = read_varint(data, offset);
-        uint64_t cols = read_varint(data, offset);
-
-        EastValue *mat = east_matrix_new(elem_type, (size_t)rows, (size_t)cols);
-        if (!mat) return NULL;
+        uint64_t rows, cols;
+        if (!read_varint_checked(data, len, offset, &rows)) return NULL;
+        if (!read_varint_checked(data, len, offset, &cols)) return NULL;
 
         size_t elem_size = 0;
         if (elem_type->kind == EAST_TYPE_FLOAT) {
@@ -230,13 +250,19 @@ EastValue *beast2_decode_value(const uint8_t *data, size_t len, size_t *offset, 
             elem_size = sizeof(int64_t);
         } else if (elem_type->kind == EAST_TYPE_BOOLEAN) {
             elem_size = sizeof(bool);
+        } else {
+            return NULL; /* matrices are numeric/boolean only */
         }
 
-        size_t byte_count = (size_t)(rows * cols) * elem_size;
-        if (*offset + byte_count > len) {
-            east_value_release(mat);
-            return NULL;
-        }
+        /* Bound rows*cols by the remaining payload bytes before multiplying:
+         * rejects dimension products that would overflow or exceed the buffer. */
+        size_t max_elems = (len - *offset) / elem_size;
+        if (rows > 0 && cols > max_elems / rows) return NULL;
+
+        EastValue *mat = east_matrix_new(elem_type, (size_t)rows, (size_t)cols);
+        if (!mat) return NULL;
+
+        size_t byte_count = (size_t)rows * (size_t)cols * elem_size;
         memcpy(mat->data.matrix.data, data + *offset, byte_count);
         *offset += byte_count;
         return mat;
@@ -270,7 +296,11 @@ EastValue *beast2_decode_value(const uint8_t *data, size_t len, size_t *offset, 
             (params_arr && params_arr->kind == EAST_VAL_ARRAY) ? params_arr->data.array.len : 0;
 
         /* 3. Read capture count and validate */
-        uint64_t ncaps = read_varint(data, offset);
+        uint64_t ncaps;
+        if (!read_varint_checked(data, len, offset, &ncaps)) {
+            east_value_release(ir_value);
+            return NULL;
+        }
         if (ncaps != ncaps_ir) {
             east_value_release(ir_value);
             return NULL;

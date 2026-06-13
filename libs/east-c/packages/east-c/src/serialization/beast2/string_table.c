@@ -113,25 +113,40 @@ void write_string_table_section(Beast2StringTableEnc *t, ByteBuffer *buf)
     byte_buffer_free(hdr);
 }
 
-/* Read string table section from data. Caller must call string_table_dec_free. */
+/* Read string table section from data. Caller must call string_table_dec_free.
+ * Input bytes are untrusted: all reads are bounds-checked and the declared
+ * count is bounded by the bytes remaining in the section. On malformed input,
+ * returns an empty table and clamps *offset to len so later reads fail fast. */
 Beast2StringTableDec read_string_table_section(const uint8_t *data, size_t len, size_t *offset)
 {
     Beast2StringTableDec t = {NULL, NULL, 0};
-    uint64_t header_byte_length = read_varint(data, offset);
+    uint64_t header_byte_length;
+    if (!read_varint_checked(data, len, offset, &header_byte_length)) goto fail;
+    if (header_byte_length > len - *offset) goto fail;
     size_t header_end = *offset + (size_t)header_byte_length;
-    uint64_t count = read_varint(data, offset);
+    uint64_t count;
+    if (!read_varint_checked(data, header_end, offset, &count)) goto fail;
+    /* Each string needs at least its 1-byte length varint */
+    if (count > header_end - *offset) goto fail;
     if (count > 0) {
-        t.strings = malloc((size_t)count * sizeof(char *));
-        t.lens = malloc((size_t)count * sizeof(size_t));
+        t.strings = calloc((size_t)count, sizeof(char *));
+        t.lens = calloc((size_t)count, sizeof(size_t));
+        if (!t.strings || !t.lens) goto fail;
         t.count = (size_t)count;
         for (size_t i = 0; i < t.count; i++) {
             size_t slen;
-            t.strings[i] = b2_read_string_varint(data, len, offset, &slen);
+            t.strings[i] = b2_read_string_varint(data, header_end, offset, &slen);
+            if (!t.strings[i]) goto fail;
             t.lens[i] = slen;
         }
     }
     *offset = header_end; /* skip to end of section */
     return t;
+
+fail:
+    string_table_dec_free(&t);
+    *offset = len;
+    return (Beast2StringTableDec){NULL, NULL, 0};
 }
 
 void string_table_dec_free(Beast2StringTableDec *t)

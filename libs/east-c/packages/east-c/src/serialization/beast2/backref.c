@@ -37,6 +37,7 @@ void beast2_dec_ctx_init(Beast2DecodeCtx *ctx)
     ctx->mutable_values = NULL;
     ctx->mutable_values_count = 0;
     ctx->source_map = NULL;
+    ctx->depth = 0;
 #ifdef BEAST2_PROFILE_DEDUP
     ctx->type_stats_mask = 255;
     ctx->type_stats_count = 0;

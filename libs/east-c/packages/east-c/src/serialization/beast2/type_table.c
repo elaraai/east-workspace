@@ -305,22 +305,55 @@ typedef struct {
     char **names; /* for Struct/Variant */
 } ParsedEntry;
 
+/* Free phase-1 parsed entries (tolerates partially-filled arrays) */
+static void parsed_entries_free(ParsedEntry *parsed, size_t count)
+{
+    if (!parsed) return;
+    for (size_t i = 0; i < count; i++) {
+        free(parsed[i].child_indices);
+        if (parsed[i].names) {
+            for (size_t j = 0; j < parsed[i].num_children; j++)
+                free(parsed[i].names[j]);
+            free(parsed[i].names);
+        }
+    }
+    free(parsed);
+}
+
 TypeTableResult read_type_table_section(const uint8_t *data, size_t len, size_t *offset)
 {
+    /* Input bytes are untrusted: every varint is bounds-checked, every
+     * child/root index is validated against entry_count, and child-count
+     * fields are bounded by the bytes remaining in the header so the
+     * per-entry allocations cannot overflow. On malformed input, *offset
+     * is clamped to len so subsequent section reads fail fast. */
     TypeTableResult result = {NULL, NULL, NULL, 0};
-    uint64_t header_byte_length = read_varint(data, offset);
+    ParsedEntry *parsed = NULL;
+    EastType **types = NULL;
+    uint64_t entry_count = 0;
+
+    uint64_t header_byte_length;
+    if (!read_varint_checked(data, len, offset, &header_byte_length)) goto fail;
+    if (header_byte_length > len - *offset) goto fail;
     size_t header_end = *offset + (size_t)header_byte_length;
-    uint64_t root_idx = read_varint(data, offset);
-    uint64_t entry_count = read_varint(data, offset);
+
+    uint64_t root_idx;
+    if (!read_varint_checked(data, header_end, offset, &root_idx)) goto fail;
+    if (!read_varint_checked(data, header_end, offset, &entry_count)) goto fail;
 
     if (entry_count == 0) {
         *offset = header_end;
         return result;
     }
 
+    /* Each entry occupies at least 1 byte (its tag) */
+    if (entry_count > header_end - *offset) goto fail;
+
     /* Phase 1: Parse raw entries */
-    ParsedEntry *parsed = calloc((size_t)entry_count, sizeof(ParsedEntry));
+    parsed = calloc((size_t)entry_count, sizeof(ParsedEntry));
+    if (!parsed) goto fail;
     for (uint64_t i = 0; i < entry_count; i++) {
+        if (*offset >= header_end) goto fail;
         uint8_t tag = data[(*offset)++];
         parsed[i].tag = tag;
 
@@ -330,31 +363,61 @@ TypeTableResult read_type_table_section(const uint8_t *data, size_t len, size_t 
                    tag == BEAST2_TAG_VECTOR || tag == BEAST2_TAG_MATRIX ||
                    tag == BEAST2_TAG_RECURSIVE) {
             /* Single child index */
+            uint64_t child;
+            if (!read_varint_checked(data, header_end, offset, &child)) goto fail;
             parsed[i].num_children = 1;
             parsed[i].child_indices = malloc(sizeof(size_t));
-            parsed[i].child_indices[0] = (size_t)read_varint(data, offset);
+            if (!parsed[i].child_indices) goto fail;
+            parsed[i].child_indices[0] = (size_t)child;
         } else if (tag == BEAST2_TAG_DICT) {
+            uint64_t key, val;
+            if (!read_varint_checked(data, header_end, offset, &key)) goto fail;
+            if (!read_varint_checked(data, header_end, offset, &val)) goto fail;
             parsed[i].num_children = 2;
             parsed[i].child_indices = malloc(2 * sizeof(size_t));
-            parsed[i].child_indices[0] = (size_t)read_varint(data, offset);
-            parsed[i].child_indices[1] = (size_t)read_varint(data, offset);
+            if (!parsed[i].child_indices) goto fail;
+            parsed[i].child_indices[0] = (size_t)key;
+            parsed[i].child_indices[1] = (size_t)val;
         } else if (tag == BEAST2_TAG_STRUCT || tag == BEAST2_TAG_VARIANT) {
-            uint64_t n = read_varint(data, offset);
+            uint64_t n;
+            if (!read_varint_checked(data, header_end, offset, &n)) goto fail;
+            /* Each field needs >= 2 bytes (name-length varint + index varint) */
+            if (n > (header_end - *offset) / 2) goto fail;
             parsed[i].num_children = (size_t)n;
-            parsed[i].child_indices = malloc(n * sizeof(size_t));
-            parsed[i].names = malloc(n * sizeof(char *));
+            if (n > 0) {
+                parsed[i].child_indices = calloc((size_t)n, sizeof(size_t));
+                parsed[i].names = calloc((size_t)n, sizeof(char *));
+                if (!parsed[i].child_indices || !parsed[i].names) goto fail;
+            }
             for (uint64_t j = 0; j < n; j++) {
                 size_t name_len;
-                parsed[i].names[j] = b2_read_string_varint(data, len, offset, &name_len);
-                parsed[i].child_indices[j] = (size_t)read_varint(data, offset);
+                parsed[i].names[j] = b2_read_string_varint(data, header_end, offset, &name_len);
+                if (!parsed[i].names[j]) goto fail;
+                uint64_t child;
+                if (!read_varint_checked(data, header_end, offset, &child)) goto fail;
+                parsed[i].child_indices[j] = (size_t)child;
             }
         } else if (tag == BEAST2_TAG_FUNCTION || tag == BEAST2_TAG_ASYNC_FN) {
-            uint64_t ni = read_varint(data, offset);
+            uint64_t ni;
+            if (!read_varint_checked(data, header_end, offset, &ni)) goto fail;
+            /* Each input index needs >= 1 byte */
+            if (ni > header_end - *offset) goto fail;
             parsed[i].num_children = (size_t)(ni + 1); /* inputs + output */
-            parsed[i].child_indices = malloc((ni + 1) * sizeof(size_t));
-            for (uint64_t j = 0; j < ni; j++)
-                parsed[i].child_indices[j] = (size_t)read_varint(data, offset);
-            parsed[i].child_indices[ni] = (size_t)read_varint(data, offset); /* output */
+            parsed[i].child_indices = calloc((size_t)ni + 1, sizeof(size_t));
+            if (!parsed[i].child_indices) goto fail;
+            for (uint64_t j = 0; j <= ni; j++) { /* inputs, then output */
+                uint64_t child;
+                if (!read_varint_checked(data, header_end, offset, &child)) goto fail;
+                parsed[i].child_indices[j] = (size_t)child;
+            }
+        } else {
+            /* Unknown tag byte */
+            goto fail;
+        }
+
+        /* Validate all child indices up front: they index types[entry_count] */
+        for (size_t j = 0; j < parsed[i].num_children; j++) {
+            if (parsed[i].child_indices[j] >= entry_count) goto fail;
         }
     }
 
@@ -364,8 +427,12 @@ TypeTableResult read_type_table_section(const uint8_t *data, size_t len, size_t 
     }
     *offset = header_end;
 
+    /* Validate root index now that entry_count is known */
+    if (root_idx >= entry_count) goto fail;
+
     /* Phase 2: Reconstruct EastType* array */
-    EastType **types = calloc((size_t)entry_count, sizeof(EastType *));
+    types = calloc((size_t)entry_count, sizeof(EastType *));
+    if (!types) goto fail;
 
     /* First pass: allocate Recursive wrappers and primitive singletons */
     for (size_t i = 0; i < (size_t)entry_count; i++) {
@@ -394,6 +461,13 @@ TypeTableResult read_type_table_section(const uint8_t *data, size_t len, size_t 
     /* Second pass: build compound types (all children already exist or are Recursive wrappers) */
     for (size_t i = 0; i < (size_t)entry_count; i++) {
         if (types[i]) continue; /* already handled (primitive or recursive wrapper) */
+
+        /* Children must already be built: the encoder's DFS places children
+         * at lower indices (Recursive wrappers were allocated in pass 1).
+         * A forward reference here means malformed input. */
+        for (size_t j = 0; j < parsed[i].num_children; j++) {
+            if (!types[parsed[i].child_indices[j]]) goto fail;
+        }
 
         uint8_t tag = parsed[i].tag;
         if (tag == BEAST2_TAG_ARRAY) {
@@ -454,6 +528,8 @@ TypeTableResult read_type_table_section(const uint8_t *data, size_t len, size_t 
             types[i] = east_async_function_type(inputs, ni, output);
             free(inputs);
         }
+
+        if (!types[i]) goto fail; /* constructor failed (OOM) */
     }
 
     /* Fixup: set inner type for Recursive wrappers.
@@ -471,12 +547,12 @@ TypeTableResult read_type_table_section(const uint8_t *data, size_t len, size_t 
             size_t inner_idx = parsed[i].child_indices[0];
             if (inner_idx == i) {
                 fprintf(stderr, "beast2: ERROR: Recursive entry %zu points to itself!\n", i);
-                continue;
+                goto fail; /* a wrapper with no inner node poisons every consumer */
             }
             if (!types[inner_idx]) {
                 fprintf(stderr, "beast2: ERROR: Recursive entry %zu inner %zu is NULL!\n", i,
                         inner_idx);
-                continue;
+                goto fail;
             }
             east_recursive_type_set(types[i], types[inner_idx]);
             /* Retain inner: the table will release types[inner_idx] separately,
@@ -595,16 +671,7 @@ TypeTableResult read_type_table_section(const uint8_t *data, size_t len, size_t 
      * of east_type_to_value for every type table entry. */
     EastValue **type_values = NULL;
 
-    /* Free parsed entries */
-    for (size_t i = 0; i < (size_t)entry_count; i++) {
-        free(parsed[i].child_indices);
-        if (parsed[i].names) {
-            for (size_t j = 0; j < parsed[i].num_children; j++)
-                free(parsed[i].names[j]);
-            free(parsed[i].names);
-        }
-    }
-    free(parsed);
+    parsed_entries_free(parsed, (size_t)entry_count);
 
     result.root_type = types[root_idx];
     east_type_retain(result.root_type);
@@ -612,6 +679,18 @@ TypeTableResult read_type_table_section(const uint8_t *data, size_t len, size_t 
     result.type_values = type_values;
     result.count = (size_t)entry_count;
     return result;
+
+fail:
+    parsed_entries_free(parsed, (size_t)entry_count);
+    if (types) {
+        for (size_t i = 0; i < (size_t)entry_count; i++) {
+            if (types[i]) east_type_release(types[i]);
+        }
+        free(types);
+    }
+    /* Poison the cursor so subsequent section reads fail fast too */
+    *offset = len;
+    return (TypeTableResult){NULL, NULL, NULL, 0};
 }
 
 /* ---- DFS encoder: EastValue* (EastTypeValue) → flat table ---- */

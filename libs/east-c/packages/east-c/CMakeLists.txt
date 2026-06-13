@@ -158,6 +158,14 @@ add_executable(test_recursive_type_lifecycle tests/test_recursive_type_lifecycle
 target_link_libraries(test_recursive_type_lifecycle east-c)
 add_test(NAME recursive_type_lifecycle COMMAND test_recursive_type_lifecycle)
 
+# Beast2 decoder hardening gate (issue #34): truncation/corruption sweeps,
+# crafted out-of-bounds type tables, and allocation-overflow guards. The
+# beast2 decoders are an untrusted-input boundary — run under ASan
+# (run_leak_check.sh's build-asan config) for the full OOB oracle.
+add_executable(test_beast2_hardening tests/test_beast2_hardening.c)
+target_link_libraries(test_beast2_hardening east-c)
+add_test(NAME beast2_hardening COMMAND test_beast2_hardening)
+
 # Beast2 encode/decode timing harnesses (dev profiling — build Release for real
 # numbers). profile_collections builds large Dict/Set values in C and times
 # encode + decode per call; profile_beast2_decode times a given .beast2 file.

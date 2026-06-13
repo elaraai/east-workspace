@@ -276,6 +276,10 @@ EastValue *east_array_new(EastType *elem_type)
 
 EastValue *east_array_new_with_capacity(EastType *elem_type, size_t capacity)
 {
+    /* Reject capacities whose byte size would overflow: cap would keep the
+     * huge value while the buffer wrapped to a tiny allocation, and pushes
+     * would then write past it. */
+    if (capacity > SIZE_MAX / sizeof(EastValue *)) return NULL;
     EastValue *v = alloc_value(EAST_VAL_ARRAY);
     if (!v) return NULL;
     v->data.array.len = 0;
@@ -299,7 +303,8 @@ void east_array_push(EastValue *arr, EastValue *val)
     if (!arr || arr->kind != EAST_VAL_ARRAY) return;
     if (arr->data.array.len >= arr->data.array.cap) {
         size_t old_cap = arr->data.array.cap;
-        size_t new_cap = old_cap * 2;
+        if (old_cap > SIZE_MAX / 2 / sizeof(EastValue *)) return; /* cannot grow */
+        size_t new_cap = old_cap > 0 ? old_cap * 2 : 4;
         EastValue **new_items = east_realloc(arr->data.array.items, old_cap * sizeof(EastValue *),
                                              new_cap * sizeof(EastValue *));
         if (!new_items) return;
@@ -853,6 +858,10 @@ EastValue *east_vector_new(EastType *elem_type, size_t len)
 
 EastValue *east_matrix_new(EastType *elem_type, size_t rows, size_t cols)
 {
+    /* Reject dimension products that overflow: rows/cols would keep their
+     * full values while the buffer was sized from the wrapped product, and
+     * consumers iterating the declared dimensions would read past it. */
+    if (cols != 0 && rows > SIZE_MAX / cols) return NULL;
     EastValue *v = alloc_value(EAST_VAL_MATRIX);
     if (!v) return NULL;
     v->data.matrix.rows = rows;
