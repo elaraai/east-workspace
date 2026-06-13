@@ -204,8 +204,9 @@ void east_type_registry_clear(void)
     g_intern_mask = -1;
     g_intern_count = 0;
 
-    /* Recursive intern list — these are heap-allocated, not arena.
-     * Don't release them here — they're owned by whoever created them. */
+    /* Recursive intern list — the array itself is heap-allocated, but the
+     * wrapper entries it points to are arena types already reclaimed by the
+     * page sweep above. Only the array needs freeing. */
     free(g_recursive_intern);
     g_recursive_intern = NULL;
     g_recursive_intern_len = 0;
@@ -499,7 +500,6 @@ EastType *east_recursive_type_new(void)
 {
     EastType *t = arena_alloc_type(EAST_TYPE_RECURSIVE);
     t->data.recursive.node = NULL;
-    t->data.recursive.internal_refs = 0;
     return t;
 }
 
@@ -507,150 +507,12 @@ void east_recursive_type_set(EastType *rec, EastType *node)
 {
     if (!rec || rec->kind != EAST_TYPE_RECURSIVE) return;
     /* NOTE: we do NOT retain node here because the inner type tree
-     * contains self-references back to rec, forming a cycle.
-     * Call east_recursive_type_finalize() after this to enable
-     * automatic cycle-aware cleanup. */
+     * contains self-references back to rec, forming a cycle. Both the
+     * wrapper and the inner tree are arena-immortal, so the cycle needs
+     * no cleanup — the arena reclaims everything in
+     * east_type_registry_clear(). */
     rec->data.recursive.node = node;
 }
-
-/* Count back-references to `target` within the type tree rooted at `t`. */
-static int count_back_refs(EastType *t, EastType *target)
-{
-    if (!t) return 0;
-    if (t == target) return 1;
-
-    switch (t->kind) {
-    case EAST_TYPE_ARRAY:
-    case EAST_TYPE_SET:
-    case EAST_TYPE_REF:
-    case EAST_TYPE_VECTOR:
-    case EAST_TYPE_MATRIX:
-        return count_back_refs(t->data.element, target);
-
-    case EAST_TYPE_DICT:
-        return count_back_refs(t->data.dict.key, target) +
-               count_back_refs(t->data.dict.value, target);
-
-    case EAST_TYPE_STRUCT: {
-        int n = 0;
-        for (size_t i = 0; i < t->data.struct_.num_fields; i++)
-            n += count_back_refs(t->data.struct_.fields[i].type, target);
-        return n;
-    }
-
-    case EAST_TYPE_VARIANT: {
-        int n = 0;
-        for (size_t i = 0; i < t->data.variant.num_cases; i++)
-            n += count_back_refs(t->data.variant.cases[i].type, target);
-        return n;
-    }
-
-    case EAST_TYPE_FUNCTION:
-    case EAST_TYPE_ASYNC_FUNCTION: {
-        int n = 0;
-        for (size_t i = 0; i < t->data.function.num_inputs; i++)
-            n += count_back_refs(t->data.function.inputs[i], target);
-        n += count_back_refs(t->data.function.output, target);
-        return n;
-    }
-
-    case EAST_TYPE_RECURSIVE:
-        /* Don't recurse into other recursive wrappers — they form their
-         * own self-contained cycles.  Only the target wrapper's own node
-         * tree is relevant, and we entered that via the initial call. */
-        return 0;
-
-    default:
-        return 0;
-    }
-}
-
-/* Replace all pointers to `target` with NULL within the type tree rooted at `t`.
- * This prevents dangling back-references when the target (a recursive wrapper)
- * is about to be freed.  Inner tree types that are still alive (retained by
- * values) will safely release NULL children instead of the freed wrapper. */
-static void nullify_back_refs(EastType *t, EastType *target)
-{
-    if (!t || t == target) return;
-
-    switch (t->kind) {
-    case EAST_TYPE_ARRAY:
-    case EAST_TYPE_SET:
-    case EAST_TYPE_REF:
-    case EAST_TYPE_VECTOR:
-    case EAST_TYPE_MATRIX:
-        if (t->data.element == target)
-            t->data.element = NULL;
-        else
-            nullify_back_refs(t->data.element, target);
-        break;
-
-    case EAST_TYPE_DICT:
-        if (t->data.dict.key == target)
-            t->data.dict.key = NULL;
-        else
-            nullify_back_refs(t->data.dict.key, target);
-        if (t->data.dict.value == target)
-            t->data.dict.value = NULL;
-        else
-            nullify_back_refs(t->data.dict.value, target);
-        break;
-
-    case EAST_TYPE_STRUCT:
-        for (size_t i = 0; i < t->data.struct_.num_fields; i++) {
-            if (t->data.struct_.fields[i].type == target)
-                t->data.struct_.fields[i].type = NULL;
-            else
-                nullify_back_refs(t->data.struct_.fields[i].type, target);
-        }
-        break;
-
-    case EAST_TYPE_VARIANT:
-        for (size_t i = 0; i < t->data.variant.num_cases; i++) {
-            if (t->data.variant.cases[i].type == target)
-                t->data.variant.cases[i].type = NULL;
-            else
-                nullify_back_refs(t->data.variant.cases[i].type, target);
-        }
-        break;
-
-    case EAST_TYPE_FUNCTION:
-    case EAST_TYPE_ASYNC_FUNCTION:
-        for (size_t i = 0; i < t->data.function.num_inputs; i++) {
-            if (t->data.function.inputs[i] == target)
-                t->data.function.inputs[i] = NULL;
-            else
-                nullify_back_refs(t->data.function.inputs[i], target);
-        }
-        if (t->data.function.output == target)
-            t->data.function.output = NULL;
-        else
-            nullify_back_refs(t->data.function.output, target);
-        break;
-
-    case EAST_TYPE_RECURSIVE:
-        /* Don't recurse into other recursive wrappers — they form their
-         * own self-contained cycles unrelated to `target`. */
-        break;
-
-    default:
-        break;
-    }
-}
-
-void east_recursive_type_finalize(EastType *rec)
-{
-    if (!rec || rec->kind != EAST_TYPE_RECURSIVE) return;
-    if (rec->ref_count <= 0) return; /* singleton or invalid */
-
-    /* Walk the inner tree to count actual back-references to this wrapper.
-     * This is more robust than assuming ref_count - 1, because the wrapper
-     * may have been retained externally before finalize is called. */
-    int internal = count_back_refs(rec->data.recursive.node, rec);
-    rec->data.recursive.internal_refs = internal;
-    rec->ref_count -= internal;
-}
-
 
 /* ------------------------------------------------------------------ */
 /*  Ref counting                                                       */
@@ -667,14 +529,6 @@ void east_type_release(EastType *t)
 {
     if (!t) return;
     if (t->ref_count == -1) return; /* singleton -- never freed */
-
-    /* Sentinel: recursive type wrapper being destroyed.
-     * This release is a back-reference from the inner tree being torn down.
-     * Don't free here — the RECURSIVE case in east_type_release (still on
-     * the call stack) will free the wrapper after the inner tree is done. */
-    if (t->ref_count == -2) {
-        return;
-    }
 
     if (__atomic_sub_fetch(&t->ref_count, 1, __ATOMIC_ACQ_REL) > 0) return;
 
@@ -719,21 +573,11 @@ void east_type_release(EastType *t)
         east_type_release(t->data.function.output);
         break;
 
-    case EAST_TYPE_RECURSIVE: {
-        /* Cycle-breaking: nullify back-refs, release inner tree, then free.
-         * nullify_back_refs replaces all pointers to this wrapper within the
-         * inner tree with NULL.  This prevents use-after-free when inner tree
-         * types outlive the wrapper (e.g. retained by decoded values). */
-        EastType *inner = t->data.recursive.node;
-        t->data.recursive.node = NULL;
-        t->ref_count = -2; /* sentinel: safety net for any missed back-refs */
-        if (inner) {
-            nullify_back_refs(inner, t);
-            east_type_release(inner);
-        }
-        free(t);
-        return; /* skip the free(t) below */
-    }
+    case EAST_TYPE_RECURSIVE:
+        /* Recursive wrappers are arena-allocated and immortal
+         * (ref_count == -1), so they can never reach this switch —
+         * the singleton check above always returns first. */
+        return;
 
     default:
         /* primitives have no children to release */

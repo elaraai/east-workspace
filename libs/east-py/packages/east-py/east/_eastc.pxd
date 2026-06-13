@@ -68,7 +68,6 @@ cdef extern from "east/types.h":
 
     ctypedef struct _EastTypeRecursiveData:
         EastType *node
-        int internal_refs
 
     ctypedef union _EastTypeData:
         # Array, Set, Ref, Vector, Matrix
@@ -99,7 +98,7 @@ cdef extern from "east/types.h":
     EastType east_datetime_type
     EastType east_blob_type
 
-    # Constructors (return ref_count=1)
+    # Constructors (return interned, arena-immortal types; retain/release are no-ops)
     EastType *east_array_type(EastType *elem)
     EastType *east_set_type(EastType *elem)
     EastType *east_dict_type(EastType *key, EastType *val)
@@ -114,7 +113,6 @@ cdef extern from "east/types.h":
     # Recursive type
     EastType *east_recursive_type_new()
     void east_recursive_type_set(EastType *rec, EastType *node)
-    void east_recursive_type_finalize(EastType *rec)
 
     # Ref counting
     void east_type_retain(EastType *t)

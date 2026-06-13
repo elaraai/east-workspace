@@ -149,6 +149,15 @@ if(TARGET btreec)
     target_link_libraries(test_btree_gate east-c btreec)
 endif()
 
+# Recursive-type lifecycle gate: proves EAST_TYPE_RECURSIVE wrappers follow
+# the arena-immortal ownership model — build + intern + type_of_type and
+# beast2 type-table decode of a self-referential type, then registry clear.
+# Run under ASan/LSan (run_leak_check.sh's build-asan config): a leak or a
+# free() of an arena-interior pointer fails the gate.
+add_executable(test_recursive_type_lifecycle tests/test_recursive_type_lifecycle.c)
+target_link_libraries(test_recursive_type_lifecycle east-c)
+add_test(NAME recursive_type_lifecycle COMMAND test_recursive_type_lifecycle)
+
 # Beast2 encode/decode timing harnesses (dev profiling — build Release for real
 # numbers). profile_collections builds large Dict/Set values in C and times
 # encode + decode per call; profile_beast2_decode times a given .beast2 file.

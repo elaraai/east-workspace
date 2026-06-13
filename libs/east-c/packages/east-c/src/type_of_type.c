@@ -168,7 +168,6 @@ static EastType *transform_type_tree(EastType *type, EastType *from, EastType *t
         EastType *new_node =
             transform_type_tree(type->data.recursive.node, from, to, type, new_rec);
         east_recursive_type_set(new_rec, new_node);
-        east_recursive_type_finalize(new_rec);
         /* NOTE: east_recursive_type_set does NOT retain new_node (to avoid
          * cycles), so we must NOT release it here — it's owned by new_rec. */
         return new_rec;
@@ -519,7 +518,6 @@ static EastType *rec_ctx_pop(RecCtx *ctx, EastType *inner)
     if (wrapper && wrapper->ref_count > 1) {
         /* Self-references were found — this IS a recursive type. */
         east_recursive_type_set(wrapper, inner);
-        east_recursive_type_finalize(wrapper);
         return wrapper;
     } else {
         /* No self-references — discard the unused wrapper. */
@@ -791,7 +789,6 @@ static EastType *east_type_from_value_ctx(EastValue *v, RecCtx *ctx)
 
                 if (inner) {
                     east_recursive_type_set(wrapper, inner);
-                    east_recursive_type_finalize(wrapper);
                     /* Intern: return canonical pointer so types containing
                      * this recursive type get consistent hash-based interning. */
                     wrapper = east_recursive_type_intern(wrapper);

@@ -84,7 +84,9 @@ Task → What do you need?
     │
     └─ Let East call your Python function
         ├─ Concrete types → @platform_function(inputs=[…], output=…)  +  platform_functions(__name__)
-        └─ Type-parameterized → @generic_platform_function(type_parameters=[…], is_async=…)
+        ├─ Type-parameterized → @generic_platform_function(type_parameters=[…], is_async=…)
+        └─ Cache a pure, expensive one (dev/test) → @memoize above @platform_function;
+           inert until configure_memo(dir) / EAST_MEMO_DIR — e3 is the production cache
 ```
 
 ## Core Concepts
@@ -373,6 +375,8 @@ East.DateTime.print_format(dt, "dddd, MMMM D, YYYY h:mm A")  # 'Wednesday, March
 | `@platform_function(*, inputs, output, name=None, validate_output=True, validate_input=False)` | Register a Python fn; infers sync/async from the def; validates output against `output` |
 | `@generic_platform_function(*, type_parameters, name=None, is_async=False)` | Type-parameterized factory: the decorated fn is `fn(platform, *type_params) -> impl`; `is_async` is **explicit** (not inferred) |
 | `platform_functions(module) -> list` | Collects every decorated fn in `module` (pass `__name__`) for `compile()` |
+| `@memoize` / `@memoize(salt="…")` / `memoized = memoize(fn, salt="…")` | Content-addressed memo over ONE platform function. Apply **above** `@platform_function` (or inline on an imported one). Key = sha256(name + salts + per-input digests of the with-header BEAST2 encodings via the declared input types); value = with-header BEAST2 of the output, decoded via the declared output type. Inert by default |
+| `configure_memo(directory, salt="")` | Activate (`None` deactivates) memoization for `@memoize` functions; overrides `EAST_MEMO_DIR` / `EAST_MEMO_SALT` env vars. Bump `salt` to invalidate after code edits — input-derived keys can't see them |
 
 ## Key Patterns
 
@@ -395,6 +399,28 @@ def convert_prices(fx_rate, items):
 `.map` runs the lambda in Python (the callback *is* the work); `struct(..., LineItem)`
 validates each row; the decorator validates the `Array<LineItem>` result — a named
 `EastTypeError` instead of silent corruption.
+
+### Memoize expensive pure stages (dev/test harnesses)
+
+```python
+from east import configure_memo, memoize, platform_function
+
+@memoize                      # eligibility — the author asserts purity
+@platform_function(inputs=[ArrayType(RowType), ConfigType], output=ModelType)
+def train_model(rows, config): ...
+
+# A test harness flips the whole package on with one call (or EAST_MEMO_DIR):
+configure_memo("/tmp/my_project", salt="v1")    # None deactivates
+loaded = memoize(other_pkg.load_csv, salt=file_digest)   # inline, per-call salt
+```
+
+The platform-function boundary is the cache boundary, e3-style: hit = decode the
+stored BEAST2 blob via the declared output type (skipping the body entirely),
+miss = compute + atomic save. Only mark functions **pure in their East inputs** —
+a hit on a function that writes files/rows/requests silently drops those effects.
+Stochastic fits memoize their first realization. Code edits don't change keys —
+bump the salt. Inert with no directory configured: under e3, the dataflow's
+content-addressed task cache is the real memo and this stays off.
 
 ### Sort uses East's total order
 
