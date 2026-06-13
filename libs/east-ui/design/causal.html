@@ -331,14 +331,14 @@
               </div>
               <div class="xp-flag">
                 <i class="fa-solid fa-triangle-exclamation"></i>
-                <div><b>The raw comparison was misleading.</b> The plain average points the other way — cured batches look <em>worse</em> — because the weaker material was the material we cured. Comparing like-for-like flips it.
-                  <span class="hlp"><i class="fa-solid fa-circle-question"></i><span class="bub">This flag shows automatically whenever the raw average and the like-for-like estimate disagree in <b>direction</b> — a sign the confounders were doing the talking.</span></span>
+                <div><b>Raw and like-for-like disagree.</b> In the plain average, <span class="mono">slow_cure</span> batches sit <em>lower</em> on <span class="mono">bond_strength</span> (−3.1) — but they also differ most on <span class="mono">incoming_grade</span> (6.1 vs 8.0). Adjusting for it reverses the result.
+                  <span class="hlp"><i class="fa-solid fa-circle-question"></i><span class="bub">Composed, not written: this line fires whenever the raw and like-for-like estimates disagree in <b>direction</b>, then fills in the columns + numbers from the result. Optional column metadata (units, higher-is-better) lets it say "worse" instead of "lower".</span></span>
                 </div>
               </div>
 
               <div class="xp-card">
                 <div class="xp-cap">Raw average vs. like-for-like <span class="hlp"><i class="fa-solid fa-circle-question"></i><span class="bub">Each bar is the change in <b>bond_strength</b> with its 95% range. The dashed line is "no effect" — a bar clearing it is a real change.</span></span></div>
-                <div data-spec-forest='{"rows":[{"label":"Raw average","est":-3.1,"lo":-6.0,"hi":-0.2,"tone":"neg","note":"weaker material got cured"},{"label":"Like-for-like","est":5.2,"lo":3.1,"hi":7.4,"tone":"pos","note":"the real effect of the cure"}],"min":-8,"max":9,"unit":"change in bond_strength (MPa)"}' style="width: 100%; height: 116px;"></div>
+                <div data-spec-forest='{"rows":[{"label":"Raw average","est":-3.1,"lo":-6.0,"hi":-0.2,"tone":"neg","note":"unadjusted"},{"label":"Like-for-like","est":5.2,"lo":3.1,"hi":7.4,"tone":"pos","note":"adjusted for 3 confounders"}],"min":-8,"max":9,"unit":"change in bond_strength (MPa)"}' style="width: 100%; height: 116px;"></div>
               </div>
 
               <div class="xp-card">
@@ -461,12 +461,13 @@ Answer = { outcome: <span class="st">"bond_strength"</span>, treatment: <span cl
            nTreated: 240, nControl: 240, nDropped: 31,
            balance: [{ col: <span class="st">"incoming_grade"</span>, treated: 6.1, control: 8.0 }, …] }
 
-<span class="cm">// the widget derives every word + strength — no sentence is stored anywhere</span>
+<span class="cm">// the widget derives every word + colour — no sentence is stored anywhere</span>
 status   = lo &gt; 0 ? <span class="st">"HIGHER"</span> : hi &lt; 0 ? <span class="st">"LOWER"</span> : <span class="st">"NO CLEAR EFFECT"</span>   <span class="cm">// → green / green / amber</span>
-flip     = <span class="fl">sign(naive) !== sign(effect)</span>            <span class="cm">// → "RAW COMPARISON MISLEADING" (amber)</span>
+flip     = <span class="fl">sign(naive) !== sign(effect)</span>            <span class="cm">// → the amber "raw &amp; like-for-like disagree" banner</span>
+banner   = flip &amp;&amp; <span class="st">`${treatment} sits ${naive&lt;0?'lower':'higher'} on ${outcome} (${naive}); differs most on ${top(balance).col} (${t} vs ${c})`</span>
 forest   = [ row(<span class="st">"Raw average"</span>, naive…),  row(<span class="st">"Like-for-like"</span>, effect, lo, hi) ]
-balance  = answer.balance.map(dumbbell)         <span class="cm">// two dots per confounder, gap = imbalance</span>
-heading  = <span class="st">`Does ${treatment} change ${outcome}?`</span>      <span class="cm">// the only template — two slots</span></div>
+balance  = answer.balance.map(bar)              <span class="cm">// one bar per confounder, length = imbalance</span>
+heading  = <span class="st">`Does ${treatment} change ${outcome}?`</span>      <span class="cm">// the only fixed template — two column slots</span></div>
         <p style="margin:12px 0 0;font-size:12px;line-height:1.55;color:var(--ink-4);">A picture and a colour say it without a paragraph — and they're honest, because they're nothing but the data drawn to scale. The fixed concept tips (<span class="mono">like-for-like</span>, <span class="mono">shuffle test</span>) are the only authored words, and they never mention the process engineer's columns.</p>
       </div>
     </div>
