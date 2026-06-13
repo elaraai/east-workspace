@@ -8,26 +8,14 @@
 #   docker build -f Dockerfile.e3 -t ghcr.io/elaraai/e3 .
 #   docker run --rm -v $(pwd):/workspace ghcr.io/elaraai/e3 e3 run my-pipeline
 
-# Build east-c from source
-FROM node:22-slim AS east-c-build
-
-ARG EAST_C_VERSION=main
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    git \
-    cmake \
-    make \
-    gcc \
-    libc6-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN git clone --depth 1 --branch "${EAST_C_VERSION}" \
-    https://github.com/elaraai/east-c.git /tmp/east-c && \
-    cd /tmp/east-c && \
-    mkdir build && cd build && \
-    cmake .. && cmake --build . -j$(nproc)
-
+# east-c, east-node and east-py are ALL installed from the published, lockstep
+# release artifacts (npm / PyPI) by install-packages.sh — pinned via
+# EAST_C_CLI_VERSION / EAST_PY_VERSION below. Previously east-c was git-cloned
+# from `main` and built from source here, which drifted out of lockstep with
+# the npm/PyPI packages: the image shipped an east-c whose IR format didn't
+# match the release's compiler, so every east-c task failed with
+# "Failed to decode Beast2 IR". Installing the released east-c-cli binary (the
+# same one `npm create` projects use) keeps all three runtimes in lockstep.
 FROM node:22-slim AS base
 
 LABEL org.opencontainers.image.source="https://github.com/elaraai/east-workspace"
@@ -46,6 +34,10 @@ ARG E3_CORE_VERSION
 ARG E3_CLI_VERSION
 ARG E3_API_CLIENT_VERSION
 ARG E3_API_SERVER_VERSION
+# Native east-c (npm @elaraai/east-c-cli) + Python east-py (PyPI), pinned to
+# the lockstep release so all three runtimes evaluate the same-version IR.
+ARG EAST_C_CLI_VERSION
+ARG EAST_PY_VERSION
 
 # Pass build args as environment variables for install script
 ENV EAST_VERSION=${EAST_VERSION:-latest}
@@ -59,6 +51,8 @@ ENV E3_CORE_VERSION=${E3_CORE_VERSION:-latest}
 ENV E3_CLI_VERSION=${E3_CLI_VERSION:-latest}
 ENV E3_API_CLIENT_VERSION=${E3_API_CLIENT_VERSION:-latest}
 ENV E3_API_SERVER_VERSION=${E3_API_SERVER_VERSION:-latest}
+ENV EAST_C_CLI_VERSION=${EAST_C_CLI_VERSION:-latest}
+ENV EAST_PY_VERSION=${EAST_PY_VERSION:-latest}
 
 # Install system dependencies including Python and C compiler for Cython extensions
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -84,8 +78,9 @@ ENV PATH="/opt/venv/bin:$PATH"
 # Set working directory
 WORKDIR /workspace
 
-# Cache-bust for Python packages installed from git (east-py @main)
-# Pass --build-arg EAST_PY_CACHEBUST=$(date +%s) to force re-fetch
+# Cache-bust knob for the version-pinned PyPI east-py install in
+# install-packages.sh. Pass --build-arg EAST_PY_CACHEBUST=$(date +%s) to force
+# a re-fetch (e.g. if a PyPI yank/republish reused a version).
 ARG EAST_PY_CACHEBUST=0
 
 # Copy and run install script (Node.js + Python)
@@ -94,8 +89,7 @@ RUN chmod +x /tmp/install-packages.sh && \
     /tmp/install-packages.sh && \
     rm /tmp/install-packages.sh
 
-# Copy east-c-cli binary from build stage
-COPY --from=east-c-build /tmp/east-c/build/packages/east-c-cli/east-c /usr/local/bin/east-c
+# (east-c is installed from npm by install-packages.sh — no build-stage copy.)
 
 # Create compile environment for single-file type-checking
 RUN mkdir -p /compile && \
