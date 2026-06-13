@@ -214,6 +214,9 @@ jobs:
             E3_CLI_VERSION="$PINNED"
             E3_API_CLIENT_VERSION="$PINNED"
             E3_API_SERVER_VERSION="$PINNED"
+            # Native east-c (npm) + Python east-py (PyPI) ship in lockstep
+            EAST_C_CLI_VERSION="$PINNED"
+            EAST_PY_VERSION="$PINNED"
           elif [[ "$CHANNEL" == "beta" ]]; then
             # Node.js packages
             EAST_VERSION=$(npm view @elaraai/east dist-tags.beta 2>/dev/null || npm view @elaraai/east version)
@@ -228,6 +231,9 @@ jobs:
             E3_CLI_VERSION=$(npm view @elaraai/e3-cli dist-tags.beta 2>/dev/null || npm view @elaraai/e3-cli version)
             E3_API_CLIENT_VERSION=$(npm view @elaraai/e3-api-client dist-tags.beta 2>/dev/null || npm view @elaraai/e3-api-client version)
             E3_API_SERVER_VERSION=$(npm view @elaraai/e3-api-server dist-tags.beta 2>/dev/null || npm view @elaraai/e3-api-server version)
+            # east-c on npm; east-py on PyPI is released at the same version
+            EAST_C_CLI_VERSION=$(npm view @elaraai/east-c-cli dist-tags.beta 2>/dev/null || npm view @elaraai/east-c-cli version)
+            EAST_PY_VERSION="$EAST_C_CLI_VERSION"
           else
             # Node.js packages
             EAST_VERSION=$(npm view @elaraai/east version)
@@ -242,6 +248,9 @@ jobs:
             E3_CLI_VERSION=$(npm view @elaraai/e3-cli version)
             E3_API_CLIENT_VERSION=$(npm view @elaraai/e3-api-client version)
             E3_API_SERVER_VERSION=$(npm view @elaraai/e3-api-server version)
+            # east-c on npm; east-py on PyPI is released at the same version
+            EAST_C_CLI_VERSION=$(npm view @elaraai/east-c-cli version)
+            EAST_PY_VERSION="$EAST_C_CLI_VERSION"
           fi
 
           # Output versions
@@ -257,6 +266,8 @@ jobs:
           echo "e3_cli=${E3_CLI_VERSION}" >> $GITHUB_OUTPUT
           echo "e3_api_client=${E3_API_CLIENT_VERSION}" >> $GITHUB_OUTPUT
           echo "e3_api_server=${E3_API_SERVER_VERSION}" >> $GITHUB_OUTPUT
+          echo "east_c_cli=${EAST_C_CLI_VERSION}" >> $GITHUB_OUTPUT
+          echo "east_py=${EAST_PY_VERSION}" >> $GITHUB_OUTPUT
 
           echo "Package versions (${CHANNEL}):"
           echo "  @elaraai/east: ${EAST_VERSION}"
@@ -270,6 +281,8 @@ jobs:
           echo "  @elaraai/e3-cli: ${E3_CLI_VERSION}"
           echo "  @elaraai/e3-api-client: ${E3_API_CLIENT_VERSION}"
           echo "  @elaraai/e3-api-server: ${E3_API_SERVER_VERSION}"
+          echo "  @elaraai/east-c-cli: ${EAST_C_CLI_VERSION}"
+          echo "  elaraai-east-py (PyPI): ${EAST_PY_VERSION}"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -316,4 +329,6 @@ jobs:
             E3_CLI_VERSION=${{ steps.versions.outputs.e3_cli }}
             E3_API_CLIENT_VERSION=${{ steps.versions.outputs.e3_api_client }}
             E3_API_SERVER_VERSION=${{ steps.versions.outputs.e3_api_server }}
+            EAST_C_CLI_VERSION=${{ steps.versions.outputs.east_c_cli }}
+            EAST_PY_VERSION=${{ steps.versions.outputs.east_py }}
             EAST_PY_CACHEBUST=${{ github.run_id }}

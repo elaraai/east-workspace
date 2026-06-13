@@ -35,6 +35,10 @@ E3_CORE_VERSION="${E3_CORE_VERSION:-latest}"
 E3_CLI_VERSION="${E3_CLI_VERSION:-latest}"
 E3_API_CLIENT_VERSION="${E3_API_CLIENT_VERSION:-latest}"
 E3_API_SERVER_VERSION="${E3_API_SERVER_VERSION:-latest}"
+# Native east-c (npm) + Python east-py (PyPI) — pinned to the lockstep release
+# like the Node packages above, not built from `main` / installed unpinned.
+EAST_C_CLI_VERSION="${EAST_C_CLI_VERSION:-latest}"
+EAST_PY_VERSION="${EAST_PY_VERSION:-latest}"
 
 echo "Installing East packages..."
 
@@ -59,19 +63,42 @@ npm install -g \
     "@elaraai/e3-api-client@${E3_API_CLIENT_VERSION}" \
     "@elaraai/e3-api-server@${E3_API_SERVER_VERSION}"
 
+# Install native east-c from the published npm package (same artifact `npm
+# create` projects use). The @elaraai/east-c-cli meta-package pulls the
+# matching prebuilt binary via a per-platform optional dependency
+# (east-c-cli-<platform>/east-c, which declares bin: east-c). npm doesn't link
+# a transitive dep's bin onto PATH, so symlink it to /usr/local/bin/east-c.
+echo "Installing east-c..."
+npm install -g "@elaraai/east-c-cli@${EAST_C_CLI_VERSION}"
+case "$(uname -m)" in
+    x86_64)         EAST_C_PLATFORM="linux-x64" ;;
+    aarch64|arm64)  EAST_C_PLATFORM="linux-arm64" ;;
+    *) echo "Unsupported arch for east-c: $(uname -m)" >&2; exit 1 ;;
+esac
+EAST_C_BIN="$(npm root -g)/@elaraai/east-c-cli-${EAST_C_PLATFORM}/east-c"
+if [ ! -x "$EAST_C_BIN" ]; then
+    echo "east-c binary not found at $EAST_C_BIN (optional dep @elaraai/east-c-cli-${EAST_C_PLATFORM} missing)" >&2
+    exit 1
+fi
+ln -sf "$EAST_C_BIN" /usr/local/bin/east-c
+
 # Install Python packages if requested
 if [ "$INSTALL_PYTHON" = true ]; then
     if command -v uv &> /dev/null; then
         echo "Installing Python packages..."
-        # Pin numba/llvmlite for compatibility
+        # Pin numba/llvmlite for compatibility; pin east-py to the lockstep
+        # release (==${EAST_PY_VERSION}) — unpinned installs pulled whatever
+        # was newest on PyPI, drifting the runtime out of lockstep with the IR.
+        # "latest" means no constraint (dev/local convenience).
+        if [ "$EAST_PY_VERSION" = "latest" ]; then EAST_PY_PIN=""; else EAST_PY_PIN="==${EAST_PY_VERSION}"; fi
         uv pip install \
             "numba>=0.58.0" \
             "llvmlite>=0.41.0" \
-            "elaraai-east-py" \
-            "elaraai-east-py-std" \
-            "elaraai-east-py-io[all]" \
-            "elaraai-east-py-datascience[all]" \
-            "elaraai-east-py-cli"
+            "elaraai-east-py${EAST_PY_PIN}" \
+            "elaraai-east-py-std${EAST_PY_PIN}" \
+            "elaraai-east-py-io[all]${EAST_PY_PIN}" \
+            "elaraai-east-py-datascience[all]${EAST_PY_PIN}" \
+            "elaraai-east-py-cli${EAST_PY_PIN}"
     else
         echo "Warning: uv not found, skipping Python packages"
     fi
@@ -82,7 +109,7 @@ if [ "$VERIFY" = true ]; then
     echo "Verifying installations..."
     npx @elaraai/east-node-cli --version || echo "east-node-cli installed"
     e3 --version || echo "e3-cli installed"
-    east-c --version 2>/dev/null || echo "east-c-cli not installed (built separately)"
+    east-c --help >/dev/null 2>&1 && echo "east-c installed" || echo "east-c NOT installed"
     if [ "$INSTALL_PYTHON" = true ] && command -v python3 &> /dev/null; then
         python3 -c "import east; print('east-py installed')" || true
     fi
