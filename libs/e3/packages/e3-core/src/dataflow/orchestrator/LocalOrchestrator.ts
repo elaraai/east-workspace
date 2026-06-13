@@ -485,6 +485,15 @@ export class LocalOrchestrator implements DataflowOrchestrator {
   ): Promise<void> {
     const { state, options } = execution;
 
+    // Resolved into completionPromise from the `finally`, AFTER locks are
+    // released — never inline on the success path. A bounded-lifetime host
+    // (e.g. a cloud orchestrator Lambda) returns as soon as `wait()` resolves,
+    // and its environment then freezes; resolving before the (awaited) lock
+    // release in the finally lets the host return — and freeze — with the
+    // release still in flight, leaking the workspace lock. The yield path
+    // already resolves from the finally for the same reason.
+    let completionResult: FinalizeResult | undefined;
+
     try {
       let hasFailure = false;
 
@@ -950,7 +959,9 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         }
       }
 
-      execution.resolveCompletion(result);
+      // Defer resolution to the finally (after lock release) — see the
+      // completionResult declaration above.
+      completionResult = result;
     } catch (err) {
       // An unexpected error escaped the execution loop (e.g. a task has an
       // unassigned input). The success-path finalization above is skipped, so
@@ -980,10 +991,14 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       const key = this.executionKey(repo, state.workspace, state.id);
       this.executions.delete(key);
 
-      // Resolve a yield only after locks are released, so a caller doing
-      // `await wait()` then `resume()` can't race the lock release.
+      // Resolve completion (terminal or yield) only after locks are released,
+      // so a caller doing `await wait()` then an exclusive op (resume, or a
+      // workspace export/deploy) can't race the lock release. The error path
+      // rejects via the rethrow below, which also propagates after this finally.
       if (execution.yieldResult) {
         execution.resolveCompletion(execution.yieldResult);
+      } else if (completionResult) {
+        execution.resolveCompletion(completionResult);
       }
     }
   }
