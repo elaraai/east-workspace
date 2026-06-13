@@ -137,14 +137,17 @@ Task → What do you need?
     │   └─ Single run → .run([R, E], initialState, initialEvents, process, config)
     │
     ├─ Causal (causal inference: effects, refutation, CATE, dose-response)
-    │   ├─ Effect estimate → .effect(data, config) (backdoor linear_regression /
+    │   │  effect/refute/ale are generic over the row struct: data is an
+    │   │  Array<Struct> (fields = columns), row type passed as a type arg, e.g.
+    │   │  .effect([RowType], data, config). config names columns by field name.
+    │   ├─ Effect estimate → .effect([Row], data, config) (backdoor linear_regression /
     │   │   propensity_score_weighting; ate/att/atc; overlap or bounds trim;
-    │   │   cluster bootstrap CI)
-    │   ├─ Refutation → .refute(data, config, refuter) (placebo_treatment,
+    │   │   cluster bootstrap CI; empty common_causes = unadjusted/naive)
+    │   ├─ Refutation → .refute([Row], data, config, refuter) (placebo_treatment,
     │   │   random_common_cause, data_subset, unobserved_common_cause sensitivity)
     │   ├─ Heterogeneous effects (EconML LinearDML) → .dmlTrain(Y, T, X, W, config),
     │   │   .dmlEffect(model, X) (per-row CATE), .dmlAte(model, X) (ATE + CI)
-    │   └─ Dose-response → .ale(data, config) (accumulated local effects, CI bands)
+    │   └─ Dose-response → .ale([Row], data, config) (accumulated local effects, CI bands)
     │
     └─ Shap (model explainability)
         ├─ Create → .treeExplainerCreate() (XGBoost only), .kernelExplainerCreate() (any model)

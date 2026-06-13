@@ -114,8 +114,6 @@ export const CausalBootstrapConfigType = StructType({
  * hold integer-valued category codes and are one-hot encoded internally.
  */
 export const CausalEffectConfigType = StructType({
-    /** Column names for the data matrix (one per column, in order) */
-    columns: ArrayType(StringType),
     /** Treatment column (must be 0/1 for propensity score weighting) */
     treatment: StringType,
     /** Outcome column */
@@ -220,8 +218,6 @@ export const CausalDMLConfigType = StructType({
  * columns, then computes the correlation-robust ALE curve of `feature`.
  */
 export const CausalALEConfigType = StructType({
-    /** Column names for the data matrix (one per column, in order) */
-    columns: ArrayType(StringType),
     /** Outcome column the emulator predicts */
     outcome: StringType,
     /** Continuous feature column to compute the ALE curve for */
@@ -341,6 +337,16 @@ export const ALEResultType = StructType({
 // ============================================================================
 
 /**
+/**
+ * Type-parameter placeholder for the generic row struct `T`. At a call site the
+ * caller passes the concrete row `StructType`; `applyTypeArgs` substitutes this
+ * bare `"T"` reference wherever it appears in the input types (here, inside
+ * `ArrayType(ROW_T)`). The cast is the documented way to nest a type parameter
+ * in a `genericPlatform` input.
+ */
+const ROW_T = "T" as unknown as Parameters<typeof ArrayType>[0];
+
+/**
  * Estimate a backdoor-adjusted causal effect of treatment on outcome.
  *
  * Identifies the effect with DoWhy given the common causes, then estimates
@@ -348,13 +354,14 @@ export const ALEResultType = StructType({
  * trims to propensity common support and computes a (cluster) bootstrap
  * confidence interval.
  *
- * @param data - Data matrix (rows = units, columns named by config.columns)
+ * @param data - Array of row structs (one per unit; fields are the columns)
  * @param config - Estimation configuration
  * @returns Effect estimate with optional CI and sample counts
  */
-export const causal_effect = East.platform(
+export const causal_effect = East.genericPlatform(
     "causal_effect",
-    [MatrixType(FloatType), CausalEffectConfigType],
+    ["T"],
+    [ArrayType(ROW_T), CausalEffectConfigType],
     CausalEffectResultType
 );
 
@@ -370,9 +377,10 @@ export const causal_effect = East.platform(
  * @param refuter - Refutation test to apply
  * @returns Original effect, refuted effect(s), and p-value where available
  */
-export const causal_refute = East.platform(
+export const causal_refute = East.genericPlatform(
     "causal_refute",
-    [MatrixType(FloatType), CausalEffectConfigType, CausalRefuterType],
+    ["T"],
+    [ArrayType(ROW_T), CausalEffectConfigType, CausalRefuterType],
     CausalRefuteResultType
 );
 
@@ -432,9 +440,10 @@ export const causal_dml_ate = East.platform(
  * @param config - ALE configuration
  * @returns ALE curve with grid, centered effect, optional CI, and bin sizes
  */
-export const causal_ale = East.platform(
+export const causal_ale = East.genericPlatform(
     "causal_ale",
-    [MatrixType(FloatType), CausalALEConfigType],
+    ["T"],
+    [ArrayType(ROW_T), CausalALEConfigType],
     ALEResultType
 );
 

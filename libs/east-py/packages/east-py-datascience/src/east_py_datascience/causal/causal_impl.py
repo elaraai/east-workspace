@@ -13,7 +13,7 @@ import importlib.util
 import logging
 
 import numpy as np
-from east.runtime.platform import platform_function, platform_functions
+from east.runtime.platform import generic_platform_function, platform_function, platform_functions
 from east.types.types import (
     ArrayType,
     BlobType,
@@ -107,7 +107,6 @@ default resamples rows), ``confidence_level`` (default 0.95).
 
 CausalEffectConfigType = StructType(
     [
-        ("columns", ArrayType(StringType)),
         ("treatment", StringType),
         ("outcome", StringType),
         ("common_causes", ArrayType(StringType)),
@@ -121,13 +120,14 @@ CausalEffectConfigType = StructType(
 )
 """Configuration for backdoor-adjusted causal effect estimation.
 
-The data matrix is interpreted via ``columns``; every column referenced by
-``treatment``, ``outcome``, ``common_causes``, ``categorical`` and
-``bootstrap.cluster_column`` must appear there. Fields: ``columns``,
-``treatment`` (0/1 for psw), ``outcome``, ``common_causes`` (backdoor set),
-``categorical`` (integer-coded columns, one-hot encoded internally),
-``method`` (default ``linear_regression``), ``target_units`` (default
-``ate``), ``trim`` (psw only), ``bootstrap``, ``random_state``.
+The data is an ``Array<Struct>`` whose struct fields ARE the columns; every
+column referenced by ``treatment``, ``outcome``, ``common_causes``,
+``categorical`` and ``bootstrap.cluster_column`` must be a field of that
+struct. Fields: ``treatment`` (0/1 for psw), ``outcome``, ``common_causes``
+(backdoor set — empty means the unadjusted/naive estimate; psw still requires
+at least one), ``categorical`` (integer-coded columns, one-hot encoded
+internally), ``method`` (default ``linear_regression``), ``target_units``
+(default ``ate``), ``trim`` (psw only), ``bootstrap``, ``random_state``.
 """
 
 CausalRefuterType = VariantType(
@@ -213,7 +213,6 @@ default 2), ``confidence_level`` (for effect/ATE intervals, default 0.95),
 
 CausalALEConfigType = StructType(
     [
-        ("columns", ArrayType(StringType)),
         ("outcome", StringType),
         ("feature", StringType),
         ("categorical", OptionType(ArrayType(StringType))),
@@ -238,7 +237,8 @@ CausalALEConfigType = StructType(
 )
 """Configuration for an accumulated local effects (ALE) dose-response curve.
 
-Fields: ``columns``, ``outcome`` (emulator target), ``feature`` (continuous
+The data is an ``Array<Struct>`` whose struct fields ARE the columns.
+Fields: ``outcome`` (emulator target), ``feature`` (continuous
 column for the curve), ``categorical`` (integer-coded columns, one-hot
 encoded internally), ``grid_size`` (default 10), ``include_ci`` (default
 true), ``confidence_level`` (default 0.95), ``emulator``
@@ -371,24 +371,24 @@ def _check_pyale_support() -> None:
 # ============================================================================
 
 
-def _build_dataframe(data: EastMatrix, columns: EastArray, func_name: str):
-    """Build a pandas DataFrame from the data matrix and column names."""
+def _build_dataframe(data: EastArray, func_name: str):
+    """Build a pandas DataFrame from an array of row structs (fields = columns)."""
     import pandas as pd
 
     try:
-        data_np = data.to_numpy()
+        records = [dict(row.items()) for row in data]
     except Exception as e:
         raise RuntimeError(f"{func_name}: Invalid input data - {e}") from e
 
-    names = [str(c) for c in columns]
-    if len(names) != data_np.shape[1]:
-        raise RuntimeError(
-            f"{func_name}: data has {data_np.shape[1]} columns "
-            f"but {len(names)} column names were given"
-        )
-    if len(set(names)) != len(names):
-        raise RuntimeError(f"{func_name}: column names must be unique")
-    return pd.DataFrame(data_np, columns=names)
+    if not records:
+        raise RuntimeError(f"{func_name}: data must have at least one row")
+    df = pd.DataFrame.from_records(records)
+    # A boolean column (e.g. a yes/no treatment) becomes 0/1 so the estimators
+    # see a numeric; categorical string columns are one-hot encoded downstream.
+    for col in df.columns:
+        if df[col].dtype == bool:
+            df[col] = df[col].astype(int)
+    return df
 
 
 def _require_columns(df, needed: list, func_name: str) -> None:
@@ -504,7 +504,6 @@ def _manual_effect(df, treatment: str, outcome: str, causes: list, method_tag: s
 
 def _extract_effect_config(config: EastStruct, func_name: str):
     """Parse CausalEffectConfigType into plain Python values."""
-    columns = config.get("columns")
     treatment = str(config.get("treatment"))
     outcome = str(config.get("outcome"))
     common_causes = [str(c) for c in config.get("common_causes")]
@@ -524,26 +523,32 @@ def _extract_effect_config(config: EastStruct, func_name: str):
     random_state = _get_option(config.get("random_state"), None)
     if random_state is not None:
         random_state = int(random_state)
-    if not common_causes:
-        raise RuntimeError(f"{func_name}: common_causes must not be empty")
+    # An empty backdoor set is the unadjusted ("naive") estimate — a legitimate
+    # baseline (e.g. the before-adjustment comparison the Experiment surface
+    # shows). Propensity weighting is the exception: it fits a propensity model
+    # from the covariates, so it genuinely requires at least one.
+    if not common_causes and method_tag == "propensity_score_weighting":
+        raise RuntimeError(
+            f"{func_name}: propensity_score_weighting requires at least one common cause"
+        )
     return (
-        columns, treatment, outcome, common_causes, categorical,
+        treatment, outcome, common_causes, categorical,
         method_tag, scheme, target_units, trim_variant, bootstrap, random_state,
     )
 
 
-def _prepare_effect_data(data: EastMatrix, config: EastStruct, func_name: str):
+def _prepare_effect_data(data: EastArray, config: EastStruct, func_name: str):
     """Shared data preparation for causal_effect and causal_refute.
 
     Returns (df, causes, method_tag, scheme, target_units, bootstrap, random_state).
     Trimming is already applied to the returned df.
     """
     (
-        columns, treatment, outcome, common_causes, categorical,
+        treatment, outcome, common_causes, categorical,
         method_tag, scheme, target_units, trim_variant, bootstrap, random_state,
     ) = _extract_effect_config(config, func_name)
 
-    df = _build_dataframe(data, columns, func_name)
+    df = _build_dataframe(data, func_name)
     _require_columns(df, [treatment, outcome] + common_causes, func_name)
     df, expansion = _encode_categoricals(df, categorical, [treatment, outcome], func_name)
     causes = _expand_causes(common_causes, expansion)
@@ -646,12 +651,7 @@ def _bootstrap_ci(df, treatment, outcome, causes, method_tag, target_units,
 # ============================================================================
 
 
-@platform_function(
-    name="causal_effect",
-    inputs=[MatrixType(FloatType), CausalEffectConfigType],
-    output=CausalEffectResultType,
-)
-def causal_effect_impl(data: EastMatrix, config: EastStruct) -> EastStruct:
+def causal_effect_impl(data: EastArray, config: EastStruct) -> EastStruct:
     """Estimate a backdoor-adjusted causal effect of treatment on outcome.
 
     Identifies the effect with DoWhy given the common causes, then estimates
@@ -660,15 +660,16 @@ def causal_effect_impl(data: EastMatrix, config: EastStruct) -> EastStruct:
     percentile confidence interval.
 
     Args:
-        data: ``Matrix<Float>`` (``EastMatrix``) - one row per unit, columns
-            named by ``config["columns"]``.
+        data: ``Array<Struct>`` (``EastArray`` of ``EastStruct``) - one struct
+            per unit; the struct's fields ARE the columns.
         config: ``CausalEffectConfigType`` (``EastStruct``) with fields:
 
-            - ``columns`` (``Array<String>``): name per data column.
             - ``treatment`` (``String``): treatment column; must hold 0/1 for
               propensity score weighting.
             - ``outcome`` (``String``): outcome column.
-            - ``common_causes`` (``Array<String>``): confounders to adjust for.
+            - ``common_causes`` (``Array<String>``): confounders to adjust for;
+              empty means the unadjusted/naive estimate (psw still requires at
+              least one).
             - ``categorical`` (``Option<Array<String>>``): columns holding
               integer category codes, one-hot encoded internally.
             - ``method`` (``Option<CausalEstimatorType>``): ``linear_regression``
@@ -736,13 +737,8 @@ def causal_effect_impl(data: EastMatrix, config: EastStruct) -> EastStruct:
     )
 
 
-@platform_function(
-    name="causal_refute",
-    inputs=[MatrixType(FloatType), CausalEffectConfigType, CausalRefuterType],
-    output=CausalRefuteResultType,
-)
 def causal_refute_impl(
-    data: EastMatrix, config: EastStruct, refuter: EastVariant
+    data: EastArray, config: EastStruct, refuter: EastVariant
 ) -> EastStruct:
     """Refute an estimated causal effect with a DoWhy refutation test.
 
@@ -1107,12 +1103,7 @@ def causal_dml_ate_impl(model_blob: EastVariant, X: EastMatrix) -> EastStruct:
 # ============================================================================
 
 
-@platform_function(
-    name="causal_ale",
-    inputs=[MatrixType(FloatType), CausalALEConfigType],
-    output=ALEResultType,
-)
-def causal_ale_impl(data: EastMatrix, config: EastStruct) -> EastStruct:
+def causal_ale_impl(data: EastArray, config: EastStruct) -> EastStruct:
     """Accumulated local effects dose-response curve of a feature on an outcome.
 
     Fits a HistGradientBoosting emulator of the outcome on all non-outcome
@@ -1120,11 +1111,10 @@ def causal_ale_impl(data: EastMatrix, config: EastStruct) -> EastStruct:
     correlated features, unlike partial dependence.
 
     Args:
-        data: ``Matrix<Float>`` (``EastMatrix``) - one row per unit, columns
-            named by ``config["columns"]``.
+        data: ``Array<Struct>`` (``EastArray`` of ``EastStruct``) - one struct
+            per unit; the struct's fields ARE the columns.
         config: ``CausalALEConfigType`` (``EastStruct``) with fields:
 
-            - ``columns`` (``Array<String>``): name per data column.
             - ``outcome`` (``String``): column the emulator predicts.
             - ``feature`` (``String``): continuous column for the ALE curve.
             - ``categorical`` (``Option<Array<String>>``): integer-coded
@@ -1163,7 +1153,7 @@ def causal_ale_impl(data: EastMatrix, config: EastStruct) -> EastStruct:
     if random_state is not None:
         random_state = int(random_state)
 
-    df = _build_dataframe(data, config.get("columns"), func_name)
+    df = _build_dataframe(data, func_name)
     _require_columns(df, [outcome, feature], func_name)
     if outcome == feature:
         raise RuntimeError(f"{func_name}: outcome and feature must differ")
@@ -1242,7 +1232,23 @@ def causal_ale_impl(data: EastMatrix, config: EastStruct) -> EastStruct:
 # Platform Function Registration
 # ============================================================================
 
-# Collected from the @platform_function decorations above.
+# `causal_effect` / `causal_refute` / `causal_ale` are generic over the row
+# struct `T` (their input is `Array<Struct<T>>`, and `T` differs per dataset).
+# `@generic_platform_function` registers a *factory* `(platform_list, *T) -> impl`;
+# these impls don't depend on `T` (the DataFrame is built from the records), so
+# the factory just returns the impl. This helper collapses that boilerplate.
+def _register_generic_over_rows(name: str, impl):
+    @generic_platform_function(name=name, type_parameters=["T"], is_async=False)
+    def _factory(_platform_list, _T):  # noqa: N803
+        return impl
+    return _factory
+
+
+_register_generic_over_rows("causal_effect", causal_effect_impl)
+_register_generic_over_rows("causal_refute", causal_refute_impl)
+_register_generic_over_rows("causal_ale", causal_ale_impl)
+
+# Collected from the @platform_function / @generic_platform_function decorations above.
 causal_impl = platform_functions(__name__)
 
 __all__ = [
