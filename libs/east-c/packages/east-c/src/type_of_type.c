@@ -648,10 +648,16 @@ static EastType *east_type_from_value_ctx(EastValue *v, RecCtx *ctx)
             EastValue *field = payload->data.array.items[i];
             EastValue *name_v = east_struct_get_field_idx(field, FE_NAME);
             EastValue *type_v = east_struct_get_field_idx(field, FE_TYPE);
-            if (!name_v || name_v->kind != EAST_VAL_STRING) { ok = false; break; }
+            if (!name_v || name_v->kind != EAST_VAL_STRING) {
+                ok = false;
+                break;
+            }
             names[i] = name_v->data.string.data;
             types[i] = east_type_from_value_ctx(type_v, ctx);
-            if (!types[i]) { ok = false; break; }
+            if (!types[i]) {
+                ok = false;
+                break;
+            }
         }
         EastType *t = ok ? east_struct_type(names, types, n) : NULL;
         for (size_t i = 0; i < n; i++) {
@@ -673,10 +679,16 @@ static EastType *east_type_from_value_ctx(EastValue *v, RecCtx *ctx)
             EastValue *cas = payload->data.array.items[i];
             EastValue *name_v = east_struct_get_field_idx(cas, FE_NAME);
             EastValue *type_v = east_struct_get_field_idx(cas, FE_TYPE);
-            if (!name_v || name_v->kind != EAST_VAL_STRING) { ok = false; break; }
+            if (!name_v || name_v->kind != EAST_VAL_STRING) {
+                ok = false;
+                break;
+            }
             names[i] = name_v->data.string.data;
             types[i] = east_type_from_value_ctx(type_v, ctx);
-            if (!types[i]) { ok = false; break; }
+            if (!types[i]) {
+                ok = false;
+                break;
+            }
         }
         EastType *t = ok ? east_variant_type(names, types, n) : NULL;
         for (size_t i = 0; i < n; i++) {
@@ -697,7 +709,10 @@ static EastType *east_type_from_value_ctx(EastValue *v, RecCtx *ctx)
         bool ok = true;
         for (size_t i = 0; i < ni; i++) {
             inputs[i] = east_type_from_value_ctx(inputs_v->data.array.items[i], ctx);
-            if (!inputs[i]) { ok = false; break; }
+            if (!inputs[i]) {
+                ok = false;
+                break;
+            }
         }
         EastType *output = ok ? east_type_from_value_ctx(output_v, ctx) : NULL;
         EastType *t = NULL;
@@ -735,8 +750,7 @@ static EastType *east_type_from_value_ctx(EastValue *v, RecCtx *ctx)
                 return east_recursive_type_new();
             }
 
-            if (rc == 1 && rv && rv->kind == EAST_VAL_STRUCT &&
-                rv->data.struct_.num_fields >= 2) {
+            if (rc == 1 && rv && rv->kind == EAST_VAL_STRUCT && rv->data.struct_.num_fields >= 2) {
                 /* wrapper({id, inner}): create recursive type, register, decode inner */
                 int64_t wid = (rv->data.struct_.field_values[0]->kind == EAST_VAL_INTEGER)
                                   ? rv->data.struct_.field_values[0]->data.integer

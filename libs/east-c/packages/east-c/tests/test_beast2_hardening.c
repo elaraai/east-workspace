@@ -237,8 +237,8 @@ int main(void)
 
     /* ---- 4. Allocation-size overflow guards (C1 / H1) ---- */
     {
-        EastValue *a = east_array_new_with_capacity(&east_integer_type,
-                                                    (size_t)0x2000000000000001ULL);
+        EastValue *a =
+            east_array_new_with_capacity(&east_integer_type, (size_t)0x2000000000000001ULL);
         if (a) {
             printf("FAIL: overflowing array capacity was not rejected\n");
             failures++;
