@@ -34,7 +34,7 @@ import { createTestRepo, removeTestRepo } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import { MockTaskRunner } from './execution/MockTaskRunner.js';
 import { inputsHash } from './executions.js';
-import type { StorageBackend } from './storage/interfaces.js';
+import type { StorageBackend, LockHandle, LockOperation } from './storage/interfaces.js';
 import type { TaskExecuteOptions } from './execution/interfaces.js';
 
 describe('dataflow orchestration with MockTaskRunner', () => {
@@ -2028,6 +2028,92 @@ describe('dataflow orchestration with MockTaskRunner', () => {
 
       const final = await stateStore.read(testRepo, 'test-ws', handle.id);
       assert.strictEqual(final!.status, 'completed');
+    });
+  });
+
+  describe('lock release ordering', () => {
+    // Build a single-task workspace whose run we can drive to completion.
+    async function deploySingleTask(): Promise<Map<string, string>> {
+      const structure: Structure = {
+        type: 'struct',
+        value: new Map([
+          ['input', { type: 'value', value: { type: StringType, writable: true } }],
+          ['output', { type: 'value', value: { type: StringType, writable: true } }],
+        ]),
+      } as unknown as Structure;
+      const inputPath: TreePath = [variant('field', 'input')];
+      const outputPath: TreePath = [variant('field', 'output')];
+      const taskHashes = await createPackageWithTasks(
+        testRepo,
+        [{ name: 'only', command: ['echo'], inputs: [inputPath], output: outputPath }],
+        structure,
+      );
+      await workspaceDeploy(storage, testRepo, 'test-ws', 'test', '1.0.0');
+      await workspaceSetDataset(storage, testRepo, 'test-ws', inputPath, 'seed', StringType);
+      for (const [name, hash] of taskHashes) {
+        mockRunner.setResult(hash, { state: 'success', cached: false, outputHash: `out-${name}` });
+      }
+      return taskHashes;
+    }
+
+    it('resolves wait() only after the workspace lock is released', async () => {
+      // Regression for the cloud loop-engine leak: a bounded-lifetime host
+      // returns the instant wait() resolves and then freezes, so any lock
+      // release still pending in the loop's `finally` never flushes — leaking
+      // the shared workspace lock and blocking a subsequent exclusive op
+      // (e.g. `workspace export`). The orchestrator must release BEFORE it
+      // resolves wait(). Proven here by gating the workspace lock's release:
+      // wait() must stay pending until the gate opens.
+      await deploySingleTask();
+
+      let openGate!: () => void;
+      const gate = new Promise<void>((resolve) => { openGate = resolve; });
+      let workspaceReleaseStarted = false;
+
+      // Wrap the shared workspace lock's release so it blocks on the gate.
+      const realAcquire = storage.locks.acquire.bind(storage.locks);
+      storage.locks.acquire = async (
+        repo: string, resource: string, op: LockOperation,
+        opts?: { wait?: boolean; timeout?: number; mode?: 'shared' | 'exclusive' },
+      ): Promise<LockHandle | null> => {
+        const handle = await realAcquire(repo, resource, op, opts);
+        if (handle && resource === 'test-ws') {
+          const realRelease = handle.release.bind(handle);
+          return {
+            ...handle,
+            release: async () => { workspaceReleaseStarted = true; await gate; await realRelease(); },
+          };
+        }
+        return handle;
+      };
+
+      let resolved = false;
+      try {
+        const orchestrator = new LocalOrchestrator(new InMemoryStateStore());
+        const handle = await orchestrator.start(storage, testRepo, 'test-ws', { runner: mockRunner });
+        const waitPromise = orchestrator.wait(handle).then((r) => { resolved = true; return r; });
+
+        // Let the loop run to completion; its finally calls the gated release.
+        const deadline = Date.now() + 5000;
+        while (!workspaceReleaseStarted && Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, 5));
+        }
+        assert.ok(workspaceReleaseStarted, 'workspace lock release should have started');
+
+        // The release is in flight (blocked on the gate). wait() MUST NOT have
+        // resolved yet — pre-fix it resolved before release and this flips.
+        await new Promise((r) => setTimeout(r, 50));
+        assert.strictEqual(resolved, false, 'wait() resolved before the workspace lock was released');
+
+        // Open the gate → release completes → wait() resolves.
+        openGate();
+        const result = await waitPromise;
+        assert.strictEqual(resolved, true);
+        assert.strictEqual(result.success, true);
+      } finally {
+        storage.locks.acquire = realAcquire;
+        openGate();
+      }
     });
   });
 });
