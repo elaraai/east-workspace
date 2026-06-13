@@ -14,11 +14,14 @@ set -e
 
 # Parse arguments
 INSTALL_PYTHON=true
+INSTALL_EAST_C=true
 VERIFY=true
 
 for arg in "$@"; do
     case $arg in
-        --node-only) INSTALL_PYTHON=false ;;
+        # --node-only = the minimal AGPL east-node image: Node packages only,
+        # no Python and no native east-c runtime.
+        --node-only) INSTALL_PYTHON=false; INSTALL_EAST_C=false ;;
         --skip-verify) VERIFY=false ;;
     esac
 done
@@ -68,19 +71,22 @@ npm install -g \
 # matching prebuilt binary via a per-platform optional dependency
 # (east-c-cli-<platform>/east-c, which declares bin: east-c). npm doesn't link
 # a transitive dep's bin onto PATH, so symlink it to /usr/local/bin/east-c.
-echo "Installing east-c..."
-npm install -g "@elaraai/east-c-cli@${EAST_C_CLI_VERSION}"
-case "$(uname -m)" in
-    x86_64)         EAST_C_PLATFORM="linux-x64" ;;
-    aarch64|arm64)  EAST_C_PLATFORM="linux-arm64" ;;
-    *) echo "Unsupported arch for east-c: $(uname -m)" >&2; exit 1 ;;
-esac
-EAST_C_BIN="$(npm root -g)/@elaraai/east-c-cli-${EAST_C_PLATFORM}/east-c"
-if [ ! -x "$EAST_C_BIN" ]; then
-    echo "east-c binary not found at $EAST_C_BIN (optional dep @elaraai/east-c-cli-${EAST_C_PLATFORM} missing)" >&2
-    exit 1
+# Skipped for --node-only (the minimal east-node image carries no east-c).
+if [ "$INSTALL_EAST_C" = true ]; then
+    echo "Installing east-c..."
+    npm install -g "@elaraai/east-c-cli@${EAST_C_CLI_VERSION}"
+    case "$(uname -m)" in
+        x86_64)         EAST_C_PLATFORM="linux-x64" ;;
+        aarch64|arm64)  EAST_C_PLATFORM="linux-arm64" ;;
+        *) echo "Unsupported arch for east-c: $(uname -m)" >&2; exit 1 ;;
+    esac
+    EAST_C_BIN="$(npm root -g)/@elaraai/east-c-cli-${EAST_C_PLATFORM}/east-c"
+    if [ ! -x "$EAST_C_BIN" ]; then
+        echo "east-c binary not found at $EAST_C_BIN (optional dep @elaraai/east-c-cli-${EAST_C_PLATFORM} missing)" >&2
+        exit 1
+    fi
+    ln -sf "$EAST_C_BIN" /usr/local/bin/east-c
 fi
-ln -sf "$EAST_C_BIN" /usr/local/bin/east-c
 
 # Install Python packages if requested
 if [ "$INSTALL_PYTHON" = true ]; then
@@ -109,7 +115,9 @@ if [ "$VERIFY" = true ]; then
     echo "Verifying installations..."
     npx @elaraai/east-node-cli --version || echo "east-node-cli installed"
     e3 --version || echo "e3-cli installed"
-    east-c --help >/dev/null 2>&1 && echo "east-c installed" || echo "east-c NOT installed"
+    if [ "$INSTALL_EAST_C" = true ]; then
+        east-c --help >/dev/null 2>&1 && echo "east-c installed" || echo "east-c NOT installed"
+    fi
     if [ "$INSTALL_PYTHON" = true ] && command -v python3 &> /dev/null; then
         python3 -c "import east; print('east-py installed')" || true
     fi
