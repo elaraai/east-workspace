@@ -438,7 +438,12 @@ typedef struct {
     const char *input;
     size_t pos;
     size_t len;
+    int depth; /* current jp_decode recursion depth (untrusted-input guard) */
 } JsonParser;
+
+/* Maximum jp_decode recursion depth. JSON is an untrusted-input boundary;
+ * a deeply nested document must fail cleanly rather than exhaust the C stack. */
+#define JSON_MAX_DEPTH 2048
 
 static void jp_skip_ws(JsonParser *p)
 {
@@ -541,10 +546,13 @@ static void jp_skip_json_value(JsonParser *p)
         }
     } else if (c == 't') {
         p->pos += 4; /* true */
+        if (p->pos > p->len) p->pos = p->len;
     } else if (c == 'f') {
         p->pos += 5; /* false */
+        if (p->pos > p->len) p->pos = p->len;
     } else if (c == 'n') {
         p->pos += 4; /* null */
+        if (p->pos > p->len) p->pos = p->len;
     } else {
         /* Skip number */
         if (c == '-') p->pos++;
@@ -908,6 +916,8 @@ static int jp_debug = 0;
 
 /* Forward declarations */
 static EastValue *jp_decode(JsonParser *p, EastType *type, JRefCtx *ctx);
+static EastValue *jp_decode_inner(JsonParser *p, EastType *type, JRefCtx *ctx);
+static EastValue *jp_decode_err_inner(JsonParser *p, EastType *type, JRefCtx *ctx, JDecodeErr *err);
 static EastValue *jp_decode_err(JsonParser *p, EastType *type, JRefCtx *ctx, JDecodeErr *err);
 
 /* Try to parse {"$ref":"..."} — returns resolved value or NULL (restoring pos) */
@@ -1010,7 +1020,15 @@ static EastValue *jp_decode_array(JsonParser *p, EastType *type, JRefCtx *ctx)
 static EastValue *jp_decode(JsonParser *p, EastType *type, JRefCtx *ctx)
 {
     if (!type) return NULL;
+    if (p->depth >= JSON_MAX_DEPTH) return NULL;
+    p->depth++;
+    EastValue *r = jp_decode_inner(p, type, ctx);
+    p->depth--;
+    return r;
+}
 
+static EastValue *jp_decode_inner(JsonParser *p, EastType *type, JRefCtx *ctx)
+{
     switch (type->kind) {
     case EAST_TYPE_NULL: {
         if (jp_match_str(p, "null")) return east_null();
@@ -1560,6 +1578,7 @@ EastValue *east_json_decode(const char *json, EastType *type)
     parser.input = json;
     parser.pos = 0;
     parser.len = strlen(json);
+    parser.depth = 0;
 
     jp_debug = (getenv("EAST_JSON_DEBUG") != NULL);
 
@@ -1581,7 +1600,18 @@ static EastValue *jp_decode_array_err(JsonParser *p, EastType *type, JRefCtx *ct
 static EastValue *jp_decode_err(JsonParser *p, EastType *type, JRefCtx *ctx, JDecodeErr *err)
 {
     if (!type) return NULL;
+    if (p->depth >= JSON_MAX_DEPTH) {
+        if (err) jde_set_msg(err, jp_fmt_error(p, "maximum nesting depth exceeded"));
+        return NULL;
+    }
+    p->depth++;
+    EastValue *r = jp_decode_err_inner(p, type, ctx, err);
+    p->depth--;
+    return r;
+}
 
+static EastValue *jp_decode_err_inner(JsonParser *p, EastType *type, JRefCtx *ctx, JDecodeErr *err)
+{
     switch (type->kind) {
     case EAST_TYPE_NULL: {
         if (jp_match_str(p, "null")) return east_null();
@@ -2659,6 +2689,7 @@ EastValue *east_json_decode_with_error(const char *json, EastType *type, char **
     parser.input = json;
     parser.pos = 0;
     parser.len = strlen(json);
+    parser.depth = 0;
 
     jp_debug = (getenv("EAST_JSON_DEBUG") != NULL);
 
