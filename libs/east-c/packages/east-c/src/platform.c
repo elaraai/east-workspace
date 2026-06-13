@@ -68,6 +68,7 @@ static void free_pf(void *v)
 void platform_registry_free(PlatformRegistry *reg)
 {
     if (!reg) return;
+    if (reg->on_free) reg->on_free(reg);
     hashmap_free(reg->functions, free_pf);
     hashmap_free(reg->generic_functions, free_pf);
     free(reg);

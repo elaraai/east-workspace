@@ -441,6 +441,8 @@ cdef extern from "east/platform.h":
     void platform_registry_add_generic(PlatformRegistry *reg, const char *name, GenericPlatformFactory factory, bint is_async)
     PlatformFn platform_registry_get(PlatformRegistry *reg, const char *name, EastType **type_params, size_t num_tp)
     void platform_registry_free(PlatformRegistry *reg)
+    void platform_registry_retain(PlatformRegistry *reg)
+    void platform_registry_release(PlatformRegistry *reg)
 
 
 # ─── compiler.h ──────────────────────────────────────────────────────────

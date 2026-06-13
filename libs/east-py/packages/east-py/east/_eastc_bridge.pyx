@@ -87,6 +87,12 @@ EAST_C_HANDLE_ATTR = "_east_c_handle"
 # actually the same one, not just at the same address.
 cdef dict _type_cache = {}
 
+# The strong py_type_ref pins the Python object, so the cache is cleared
+# wholesale when it grows past this bound — otherwise ad-hoc type
+# construction (a fresh type object per call) accumulates pinned objects
+# forever. Long-lived module-level types repopulate within one call.
+cdef Py_ssize_t _TYPE_CACHE_MAX = 4096
+
 # Recursive type context stack for py_type_to_c.
 # Each entry is an EastType* (as uintptr_t) for the recursive placeholder.
 cdef list _type_ctx = []
@@ -157,6 +163,8 @@ cdef _eastc.EastType* py_type_to_c(object py_type) except NULL:
     # If a stale entry exists at this id, release its C type first.
     if entry is not None:
         _eastc.east_type_release(<_eastc.EastType*><uintptr_t>entry[1])
+    elif len(_type_cache) >= _TYPE_CACHE_MAX:
+        _type_cache_clear()
     _eastc.east_type_retain(result)
     _type_cache[cache_key] = (py_type, <uintptr_t>result)
     return result
@@ -461,11 +469,16 @@ cdef _eastc.EastType* _convert_function_type(object value, bint is_async) except
     cdef object inputs = value["inputs"]
     cdef size_t num_inputs = len(inputs)
     cdef _eastc.EastType** input_types = <_eastc.EastType**>malloc(num_inputs * sizeof(_eastc.EastType*))
-    cdef _eastc.EastType* output_type
-    cdef size_t i
+    cdef _eastc.EastType* output_type = NULL
+    cdef size_t i, j
 
     if input_types == NULL and num_inputs > 0:
         raise MemoryError()
+
+    # Zero-init so the finally block releases exactly what was converted,
+    # whether py_type_to_c raises on an input, on the output, or not at all.
+    for i in range(num_inputs):
+        input_types[i] = NULL
 
     try:
         for i in range(num_inputs):
@@ -473,21 +486,18 @@ cdef _eastc.EastType* _convert_function_type(object value, bint is_async) except
 
         output_type = py_type_to_c(value["output"])
 
+        # The constructors retain inputs/output; our references are dropped
+        # in the finally block.
         if is_async:
-            result = _eastc.east_async_function_type(input_types, num_inputs, output_type)
+            return _eastc.east_async_function_type(input_types, num_inputs, output_type)
         else:
-            result = _eastc.east_function_type(input_types, num_inputs, output_type)
-
-        _eastc.east_type_release(output_type)
-        for i in range(num_inputs):
-            _eastc.east_type_release(input_types[i])
-
-        return result
-    except:
-        for j in range(i):
-            _eastc.east_type_release(input_types[j])
-        raise
+            return _eastc.east_function_type(input_types, num_inputs, output_type)
     finally:
+        if output_type != NULL:
+            _eastc.east_type_release(output_type)
+        for j in range(num_inputs):
+            if input_types[j] != NULL:
+                _eastc.east_type_release(input_types[j])
         free(input_types)
 
 
@@ -863,6 +873,16 @@ cdef dict _py_type_cache = {}
 # Scoped to a single top-level conversion alongside _py_type_cache.
 cdef list _type_convert_stack = []
 
+# Smallest stack index targeted by any Recursive back-edge produced while
+# building the current subtree (INT64_MAX when none). A finished node is
+# cached only when no back-edge escapes above its own stack level: C types
+# are interned, so a structurally shared subtree WILL be re-hit at a
+# different stack depth, and a cached free back-edge's Recursive(depth)
+# would silently rebind to the wrong ancestor there. Back-edges bound
+# within the subtree are position-independent and safe to cache.
+cdef int64_t _BACKREF_NONE = 0x7FFFFFFFFFFFFFFF
+cdef int64_t _min_backref = _BACKREF_NONE
+
 cdef object _c_type_tag_to_py_type(_eastc.EastType *c_type):
     """Convert a C EastType* to a Python EastVariant type descriptor.
 
@@ -873,34 +893,61 @@ cdef object _c_type_tag_to_py_type(_eastc.EastType *c_type):
     instead — the within-call cache must be preserved across them, as it
     handles shared subtrees and cycle detection.
     """
+    global _min_backref
     _py_type_cache.clear()
     _type_convert_stack.clear()
+    _min_backref = _BACKREF_NONE
     try:
         return _c_type_tag_to_py_type_inner(c_type)
     finally:
         _py_type_cache.clear()
         _type_convert_stack.clear()
+        _min_backref = _BACKREF_NONE
 
 
 cdef object _c_type_tag_to_py_type_inner(_eastc.EastType *c_type):
     """Convert one node within the current top-level conversion's scope.
 
     Uses a conversion stack to detect cycles from recursive types and
-    emit proper Recursive(depth) references.
+    emit proper Recursive(depth) references. Owns the within-call cache:
+    a node is cached only if no Recursive back-edge escapes above it, so
+    a cache hit at a different stack depth can never rebind a back-edge.
     """
+    global _min_backref
     cdef uintptr_t key = <uintptr_t>c_type
     cached = _py_type_cache.get(key)
     if cached is not None:
         return cached
 
     # Check if this pointer is already on the conversion stack (cycle)
+    cdef int64_t idx
     for idx in range(len(_type_convert_stack)):
         if <uintptr_t>_type_convert_stack[idx] == key:
             # Cycle detected — return Recursive(depth) where depth counts
-            # from the current position back to the matching stack entry
+            # from the current position back to the matching stack entry.
+            # Record the target index so enclosing nodes know a back-edge
+            # reaches up to (at least) this level.
+            if idx < _min_backref:
+                _min_backref = idx
             return EastVariant("Recursive", len(_type_convert_stack) - idx)
 
-    return _c_type_tag_to_py_type_impl(c_type, key)
+    # Track back-edges produced while building this node's subtree. The
+    # node's own stack level (if it pushes one) is entry_depth, so a
+    # subtree whose deepest back-edge target is >= entry_depth is fully
+    # internally bound and safe to cache; anything lower escapes and the
+    # escape must propagate to the enclosing node instead.
+    cdef int64_t entry_depth = len(_type_convert_stack)
+    cdef int64_t saved = _min_backref
+    _min_backref = _BACKREF_NONE
+
+    result = _c_type_tag_to_py_type_impl(c_type, key)
+
+    if _min_backref >= entry_depth:
+        _py_type_cache[key] = result
+        _min_backref = saved
+    elif saved < _min_backref:
+        _min_backref = saved
+    return result
 
 
 cdef object _c_type_tag_to_py_type_impl(_eastc.EastType *c_type, uintptr_t key):
@@ -945,7 +992,6 @@ cdef object _c_type_tag_to_py_type_impl(_eastc.EastType *c_type, uintptr_t key):
         finally:
             _type_convert_stack.pop()
         result = EastVariant("Array", elem)
-        _py_type_cache[key] = result
         return result
     elif kind == _eastc.EAST_TYPE_SET:
         _type_convert_stack.append(key)
@@ -954,7 +1000,6 @@ cdef object _c_type_tag_to_py_type_impl(_eastc.EastType *c_type, uintptr_t key):
         finally:
             _type_convert_stack.pop()
         result = EastVariant("Set", elem)
-        _py_type_cache[key] = result
         return result
     elif kind == _eastc.EAST_TYPE_VECTOR:
         _type_convert_stack.append(key)
@@ -963,7 +1008,6 @@ cdef object _c_type_tag_to_py_type_impl(_eastc.EastType *c_type, uintptr_t key):
         finally:
             _type_convert_stack.pop()
         result = EastVariant("Vector", elem)
-        _py_type_cache[key] = result
         return result
     elif kind == _eastc.EAST_TYPE_MATRIX:
         _type_convert_stack.append(key)
@@ -972,7 +1016,6 @@ cdef object _c_type_tag_to_py_type_impl(_eastc.EastType *c_type, uintptr_t key):
         finally:
             _type_convert_stack.pop()
         result = EastVariant("Matrix", elem)
-        _py_type_cache[key] = result
         return result
     elif kind == _eastc.EAST_TYPE_REF:
         _type_convert_stack.append(key)
@@ -981,7 +1024,6 @@ cdef object _c_type_tag_to_py_type_impl(_eastc.EastType *c_type, uintptr_t key):
         finally:
             _type_convert_stack.pop()
         result = EastVariant("Ref", elem)
-        _py_type_cache[key] = result
         return result
     elif kind == _eastc.EAST_TYPE_DICT:
         # Dict is ONE level: key and value share a single pushed entry,
@@ -993,7 +1035,6 @@ cdef object _c_type_tag_to_py_type_impl(_eastc.EastType *c_type, uintptr_t key):
         finally:
             _type_convert_stack.pop()
         result = EastVariant("Dict", EastStruct({"key": k, "value": v}))
-        _py_type_cache[key] = result
         return result
 
     # Function/AsyncFunction — no stack push (replace_markers and the forward
@@ -1014,7 +1055,6 @@ cdef object _c_type_tag_to_py_type_impl(_eastc.EastType *c_type, uintptr_t key):
                 "inputs": inputs,
                 "output": output,
             }))
-        _py_type_cache[key] = result
         return result
 
     # Struct/Variant — push onto stack, one level for all fields/cases
@@ -1041,7 +1081,6 @@ cdef object _c_type_tag_to_py_type_impl(_eastc.EastType *c_type, uintptr_t key):
     finally:
         _type_convert_stack.pop()
 
-    _py_type_cache[key] = result
     return result
 
 
@@ -1059,7 +1098,6 @@ cdef _eastc.EastValue* py_value_to_c(object val, _eastc.EastType *c_type) except
 
 cdef _eastc.EastValue* _py_value_to_c_impl(object val, _eastc.EastType *c_type, dict identity_map) except NULL:
     """Inner conversion with identity tracking."""
-    cdef _eastc.EastTypeKind kind = c_type.kind
     cdef _eastc.EastValue* result
     cdef const char* str_data
     cdef Py_ssize_t str_len
@@ -1067,20 +1105,38 @@ cdef _eastc.EastValue* _py_value_to_c_impl(object val, _eastc.EastType *c_type, 
     cdef object py_id
     cdef uintptr_t cached_ptr
 
-    # Fast path: if value is a C-backed proxy, reuse its pointer (no copy)
+    # Resolve recursive wrappers up front so the proxy kind-guards below
+    # compare against the structural kind, not EAST_TYPE_RECURSIVE.
+    cdef _eastc.EastTypeKind kind = c_type.kind
+    while kind == _eastc.EAST_TYPE_RECURSIVE and c_type.data.recursive.node != NULL:
+        c_type = c_type.data.recursive.node
+        kind = c_type.kind
+
+    # Fast path: if value is a C-backed proxy, reuse its pointer (no copy).
+    # Guard each proxy against the expected type kind — passing a
+    # wrong-shaped proxy by raw pointer would hand east-c a union-mismatched
+    # value and cause a wild deref at the next typed access.
     if isinstance(val, EastArrayProxy):
+        if kind != _eastc.EAST_TYPE_ARRAY:
+            raise TypeError(f"EastArrayProxy supplied where C type kind {kind} expected")
         result = <_eastc.EastValue*><uintptr_t>val._c_ptr
         _eastc.east_value_retain(result)
         return result
     if isinstance(val, EastSetProxy):
+        if kind != _eastc.EAST_TYPE_SET:
+            raise TypeError(f"EastSetProxy supplied where C type kind {kind} expected")
         result = <_eastc.EastValue*><uintptr_t>val._c_ptr
         _eastc.east_value_retain(result)
         return result
     if isinstance(val, EastDictProxy):
+        if kind != _eastc.EAST_TYPE_DICT:
+            raise TypeError(f"EastDictProxy supplied where C type kind {kind} expected")
         result = <_eastc.EastValue*><uintptr_t>val._c_ptr
         _eastc.east_value_retain(result)
         return result
     if isinstance(val, EastRefProxy):
+        if kind != _eastc.EAST_TYPE_REF:
+            raise TypeError(f"EastRefProxy supplied where C type kind {kind} expected")
         result = <_eastc.EastValue*><uintptr_t>val._c_ptr
         _eastc.east_value_retain(result)
         return result
@@ -1378,12 +1434,17 @@ cdef _eastc.EastValue* _py_function_to_c(object val, _eastc.EastType *c_type, di
     fn.platform = NULL
     fn.builtins = NULL
 
-    # Convert capture values and store in a C Environment
+    # Convert capture values and store in a C Environment. From here on the
+    # fn owns ir_node and ir_c_val, so a raising capture conversion must
+    # tear the whole thing down via east_compiled_fn_free.
     capture_values = getattr(val, EAST_CAPTURES_ATTR, {})
-    captures_list = py_ir["value"]["captures"]
-
-    if len(captures_list) > 0 and len(capture_values) > 0:
-        _populate_fn_captures(fn, captures_list, capture_values, identity_map)
+    try:
+        captures_list = py_ir["value"]["captures"]
+        if len(captures_list) > 0 and len(capture_values) > 0:
+            _populate_fn_captures(fn, captures_list, capture_values, identity_map)
+    except:
+        _eastc.east_compiled_fn_free(fn)
+        raise
 
     cdef _eastc.EastValue* result = _eastc.east_function_value(fn)
     return result

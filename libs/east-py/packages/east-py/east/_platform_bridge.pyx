@@ -37,29 +37,39 @@ cdef extern from *:
     #include "east/platform.h"
 
     static void _set_pre_call_hook(PlatformRegistry *reg,
-                                   void (*hook)(const char*, EastType**, size_t)) {
+                                   void (*hook)(PlatformRegistry*, const char*,
+                                                EastType**, size_t)) {
         reg->pre_call = hook;
+    }
+    static void _set_on_free_hook(PlatformRegistry *reg,
+                                  void (*hook)(PlatformRegistry*)) {
+        reg->on_free = hook;
     }
     """
     void _set_pre_call_hook(_eastc.PlatformRegistry *reg,
-                            void (*hook)(const char*, _eastc.EastType**, size_t))
+                            void (*hook)(_eastc.PlatformRegistry*, const char*,
+                                         _eastc.EastType**, size_t))
+    void _set_on_free_hook(_eastc.PlatformRegistry *reg,
+                           void (*hook)(_eastc.PlatformRegistry*))
 
 
 # ─── Module-level state ──────────────────────────────────────────────────
 
-# Registry of Python platform function implementations.
-# Non-generic: name → (py_fn, is_async, [input_c_type_ptrs], output_c_type_ptr)
-# Generic factory: name → (py_factory_fn, is_async)
-cdef dict _py_platform_fns = {}
-cdef dict _py_generic_factories = {}
-
-# Cache for specialized generic functions: (name, type_param_tuple) → py_fn
-cdef dict _specialized_cache = {}
-
-# The full platform_list (needed by generic factories that receive it as first arg)
-cdef list _stored_platform_list = []
+# Per-registry dispatch state, keyed by PlatformRegistry pointer:
+#   <uintptr_t>reg → (fns, generic_factories, specialized_cache, platform_list)
+# where fns:        name → (py_fn, is_async)
+#       factories:  name → (py_factory_fn, is_async)
+#       specialized_cache: (name, type_param_ptr_tuple) → py_fn
+#
+# Each compile gets its own registry, so registering platform functions for
+# a new program must not clobber dispatch for previously compiled ones.
+# Entries are dropped by the registry's on_free hook, giving the Python-side
+# state exactly the registry's lifetime (closures retain the registry, so
+# dispatch keeps working as long as any compiled function is alive).
+cdef dict _registry_state = {}
 
 # Context set by pre_call hook before each platform function invocation
+cdef _eastc.PlatformRegistry* _current_reg = NULL
 cdef const char* _current_name = NULL
 cdef _eastc.EastType** _current_type_params = NULL
 cdef size_t _current_num_type_params = 0
@@ -99,19 +109,26 @@ cdef object _wrap_c_function_for_python(_eastc.EastValue *val):
 
 # ─── Pre-call hook ───────────────────────────────────────────────────────
 
-cdef void _pre_call_hook(const char *name,
+cdef void _pre_call_hook(_eastc.PlatformRegistry *reg,
+                         const char *name,
                          _eastc.EastType **type_params,
                          size_t num_type_params) noexcept nogil:
     """Called by east-c just before each platform function invocation.
 
-    Stores the function name, type params, and output type so the shared
+    Stores the registry, function name, and type params so the shared
     callback knows which Python function to dispatch to and how to convert
     the result.
     """
-    global _current_name, _current_type_params, _current_num_type_params
+    global _current_reg, _current_name, _current_type_params, _current_num_type_params
+    _current_reg = reg
     _current_name = name
     _current_type_params = type_params
     _current_num_type_params = num_type_params
+
+
+cdef void _on_free_hook(_eastc.PlatformRegistry *reg) noexcept with gil:
+    """Called by platform_registry_free — drop this registry's dispatch state."""
+    _registry_state.pop(<uintptr_t>reg, None)
 
 
 # ─── Shared C callback ──────────────────────────────────────────────────
@@ -142,13 +159,19 @@ cdef _eastc.EvalResult _python_platform_fn(_eastc.EastValue **args,
         py_fn = None
         is_async = False
 
-        entry = _py_platform_fns.get(name_bytes)
+        state = _registry_state.get(<uintptr_t>_current_reg)
+        if state is None:
+            err_result.error_message = strdup(
+                b"Platform registry has no Python dispatch state: " + name_bytes)
+            return err_result
+
+        entry = (<dict>state[0]).get(name_bytes)
         if entry is not None:
             py_fn = entry[0]
             is_async = entry[1]
-        elif name_bytes in _py_generic_factories:
-            py_fn = _specialize_generic(name_bytes)
-            is_async = _py_generic_factories[name_bytes][1]
+        elif name_bytes in <dict>state[1]:
+            py_fn = _specialize_generic(state, name_bytes)
+            is_async = (<dict>state[1])[name_bytes][1]
         else:
             err_result.error_message = strdup(
                 b"Platform function not found: " + name_bytes)
@@ -179,21 +202,26 @@ cdef _eastc.EvalResult _python_platform_fn(_eastc.EastValue **args,
 
         return _eastc.eval_ok(c_result)
 
-    except Exception as e:
+    except BaseException as e:
+        # Must catch BaseException: this trampoline is `noexcept` returning a
+        # struct, so a KeyboardInterrupt/SystemExit escaping here would hand
+        # east-c an uninitialized EvalResult (garbage status/value pointer).
         msg = str(e).encode("utf-8")
         err_result.error_message = strdup(<const char*>msg)
         return err_result
 
 
-cdef object _specialize_generic(bytes name):
+cdef object _specialize_generic(tuple state, bytes name):
     """Lazily specialize a generic platform function using current type params."""
+    cdef dict factories = <dict>state[1]
+    cdef dict specialized_cache = <dict>state[2]
     # Cache key from C type pointers — avoids expensive type-to-Python conversion
     cdef tuple ptr_key = tuple(
         <uintptr_t>_current_type_params[i]
         for i in range(_current_num_type_params)
     )
     cache_key = (name, ptr_key)
-    cached = _specialized_cache.get(cache_key)
+    cached = specialized_cache.get(cache_key)
     if cached is not None:
         return cached
 
@@ -203,10 +231,10 @@ cdef object _specialize_generic(bytes name):
         for i in range(_current_num_type_params)
     ]
 
-    factory_entry = _py_generic_factories[name]
+    factory_entry = factories[name]
     py_factory = factory_entry[0]
-    specialized = py_factory(_stored_platform_list, *py_type_params)
-    _specialized_cache[cache_key] = specialized
+    specialized = py_factory(state[3], *py_type_params)
+    specialized_cache[cache_key] = specialized
     return specialized
 
 
@@ -267,14 +295,15 @@ cdef void register_platform_functions(_eastc.PlatformRegistry *reg,
     Iterates over PlatformFunction/GenericPlatformFunction dicts and registers
     each in both the Python dispatch table and the C PlatformRegistry.
     """
-    global _stored_platform_list
-    _py_platform_fns.clear()
-    _py_generic_factories.clear()
-    _specialized_cache.clear()
-    _stored_platform_list = platform_list
+    # Fresh dispatch state for THIS registry only — previously compiled
+    # programs keep their own entries (keyed by registry pointer).
+    cdef dict fns = {}
+    cdef dict factories = {}
+    _registry_state[<uintptr_t>reg] = (fns, factories, {}, platform_list)
 
-    # Set the pre_call hook so we know which function to dispatch to
+    # Hooks: dispatch context before each call, state drop on registry free
     _set_pre_call_hook(reg, _pre_call_hook)
+    _set_on_free_hook(reg, _on_free_hook)
 
     for pf in platform_list:
         name = pf["name"]
@@ -293,7 +322,7 @@ cdef void register_platform_functions(_eastc.PlatformRegistry *reg,
                     <bint>is_async,
                 )
             else:
-                _py_generic_factories[name_bytes] = (pf["fn"], is_async)
+                factories[name_bytes] = (pf["fn"], is_async)
                 _eastc.platform_registry_add_generic(
                     reg,
                     strdup(<const char*>name_bytes),
@@ -312,7 +341,7 @@ cdef void register_platform_functions(_eastc.PlatformRegistry *reg,
                     <bint>is_async,
                 )
             else:
-                _py_platform_fns[name_bytes] = (pf["fn"], is_async)
+                fns[name_bytes] = (pf["fn"], is_async)
                 _eastc.platform_registry_add(
                     reg,
                     strdup(<const char*>name_bytes),
@@ -323,7 +352,4 @@ cdef void register_platform_functions(_eastc.PlatformRegistry *reg,
 
 def clear_platform_state():
     """Clear all platform function state. For testing."""
-    _py_platform_fns.clear()
-    _py_generic_factories.clear()
-    _specialized_cache.clear()
-    _stored_platform_list.clear()
+    _registry_state.clear()
