@@ -61,6 +61,9 @@ export {
     OntologyViewType,
     type OntologyViewLiteral,
 } from './ontology.js';
+// Experiment factory + component carrier for renderers/tests. The value types
+// ride on `Experiment.Types`, so they are not re-exported individually here.
+export { Experiment, ExperimentComponent } from './experiment.js';
 export { Decision } from './decision/index.js';
 export {
     DecisionType,

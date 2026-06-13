@@ -13,4 +13,5 @@
 
 export { Diff } from "./diff.js";
 export { Ontology } from "./ontology.js";
+export { Experiment } from "./experiment.js";
 export { DecisionQueue } from "./decision/queue.js";

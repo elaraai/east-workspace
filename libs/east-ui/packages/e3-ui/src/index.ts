@@ -74,6 +74,17 @@ export {
     type OntologyViewLiteral,
 } from './ontology.js';
 
+// e3 `<Experiment>` tag + its payload/options. The result *value* types
+// (Spec / Answer / Refute / Dose / Journal …) are intentionally NOT public
+// named exports — reach them via `Experiment.Types.Spec`, `.Answer`, … (like
+// `Table.Types.*`), since users only touch them to seed result datasets.
+export { Experiment } from './runtime/experiment.js';
+export {
+    ExperimentPayloadType,
+    type ExperimentOptions,
+    type ExperimentTabLiteral,
+} from './experiment.js';
+
 // Decision platform types + factory
 export { Decision } from './decision/index.js';
 export {

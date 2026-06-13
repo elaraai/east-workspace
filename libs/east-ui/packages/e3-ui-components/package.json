@@ -27,7 +27,9 @@
     "./dist/diff/index.js",
     "./src/diff/index.tsx",
     "./dist/ontology/index.js",
-    "./src/ontology/index.tsx"
+    "./src/ontology/index.tsx",
+    "./dist/experiment/index.js",
+    "./src/experiment/index.tsx"
   ],
   "scripts": {
     "build": "vite build",
