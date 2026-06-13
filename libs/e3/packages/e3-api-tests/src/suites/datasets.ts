@@ -32,6 +32,7 @@ import {
 import type { TestContext } from '../context.js';
 import type { TestSetup } from '../setup.js';
 import { createStringPackageZip, createPackageZip } from '../fixtures.js';
+import { assertDataflowSucceeded } from '../assertions.js';
 
 /**
  * Register dataset operation tests.
@@ -372,7 +373,7 @@ export function datasetTests(setup: TestSetup<TestContext>): void {
 
         // Execute with default input (10n) — output should be 20n
         const result = await dataflowExecute(ctx.config.baseUrl, ctx.repoName, 'prop-ws', { force: true }, opts);
-        assert.strictEqual(result.success, true);
+        assertDataflowSucceeded(result, 'initial execute (input 10n)');
 
         const decode = decodeBeast2For(IntegerType);
         const outputPath = [
@@ -393,7 +394,7 @@ export function datasetTests(setup: TestSetup<TestContext>): void {
         await datasetSet(ctx.config.baseUrl, ctx.repoName, 'prop-ws', inputPath, encode(42n), opts);
 
         const result2 = await dataflowExecute(ctx.config.baseUrl, ctx.repoName, 'prop-ws', { force: false }, opts);
-        assert.strictEqual(result2.success, true);
+        assertDataflowSucceeded(result2, 're-execute after input change (10n→42n)');
         assert.ok(result2.executed > 0n, 'task should re-execute with changed input');
 
         // Output should now be 84n

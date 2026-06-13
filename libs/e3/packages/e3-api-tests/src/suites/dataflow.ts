@@ -42,6 +42,7 @@ import {
   createWideParallelPackageZip,
   createSlowDiamondPackageZip,
 } from '../fixtures.js';
+import { assertDataflowSucceeded } from '../assertions.js';
 import { waitFor } from '../cli.js';
 import type { RequestOptions } from '@elaraai/e3-api-client';
 
@@ -148,7 +149,7 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         const result = await dataflowExecute(ctx.config.baseUrl, ctx.repoName, 'exec-ws', { force: true }, opts);
 
         // Verify execution result
-        assert.strictEqual(result.success, true);
+        assertDataflowSucceeded(result);
         assert.strictEqual(result.executed, 1n);
         assert.strictEqual(result.failed, 0n);
         assert.strictEqual(result.tasks.length, 1);
@@ -253,7 +254,7 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         const result = await dataflowExecute(ctx.config.baseUrl, ctx.repoName, 'diamond-ws', { force: true }, opts);
 
         // Should execute all three tasks
-        assert.strictEqual(result.success, true);
+        assertDataflowSucceeded(result);
         assert.strictEqual(result.executed, 3n);
         assert.strictEqual(result.failed, 0n);
         assert.strictEqual(result.tasks.length, 3);
@@ -477,7 +478,7 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
 
           const result = await dataflowExecute(ctx.config.baseUrl, ctx.repoName, 'wide-ws', { force: true }, opts);
 
-          assert.strictEqual(result.success, true);
+          assertDataflowSucceeded(result);
           assert.strictEqual(result.executed, 6n);
           assert.strictEqual(result.failed, 0n);
 
@@ -624,7 +625,7 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
 
         // First execution with default input (10n) → output should be 20n
         const result1 = await dataflowExecute(ctx.config.baseUrl, ctx.repoName, 'conc-ws', { force: true }, opts);
-        assert.strictEqual(result1.success, true);
+        assertDataflowSucceeded(result1, "first execute");
 
         // Change input to 7n
         const encode = encodeBeast2For(IntegerType);
@@ -634,7 +635,7 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
 
         // Re-execute — task should run (input changed, cache miss)
         const result2 = await dataflowExecute(ctx.config.baseUrl, ctx.repoName, 'conc-ws', { force: false }, opts);
-        assert.strictEqual(result2.success, true);
+        assertDataflowSucceeded(result2, "re-execute after input change");
         assert.ok(result2.executed > 0n, `Expected task to re-execute, got executed=${result2.executed}`);
 
         // Output should be 14n (7 * 2)
@@ -804,12 +805,12 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
 
         // First execution - should execute the task
         const result1 = await dataflowExecute(ctx.config.baseUrl, ctx.repoName, 'cache-ws', { force: false }, opts);
-        assert.strictEqual(result1.success, true);
+        assertDataflowSucceeded(result1, "first execute");
         assert.strictEqual(result1.executed, 1n);
 
         // Second execution without force - should use cache
         const result2 = await dataflowExecute(ctx.config.baseUrl, ctx.repoName, 'cache-ws', { force: false }, opts);
-        assert.strictEqual(result2.success, true);
+        assertDataflowSucceeded(result2, "cached re-execute");
         assert.ok(result2.cached > 0n, `Expected cached > 0, got ${result2.cached}`);
         assert.strictEqual(result2.executed, 0n);
       });
@@ -823,7 +824,7 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
 
         // Force execution - should re-execute despite cache
         const result = await dataflowExecute(ctx.config.baseUrl, ctx.repoName, 'cache-ws', { force: true }, opts);
-        assert.strictEqual(result.success, true);
+        assertDataflowSucceeded(result, "forced re-execute");
         assert.ok(result.executed > 0n, `Expected executed > 0, got ${result.executed}`);
       });
     });
@@ -839,7 +840,7 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
           opts
         );
 
-        assert.strictEqual(result.success, true);
+        assertDataflowSucceeded(result);
 
         // Only the filtered task should have executed
         const executedTasks = result.tasks.filter(t => t.state.type === 'success' && !t.cached);
