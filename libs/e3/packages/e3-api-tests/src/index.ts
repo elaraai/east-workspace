@@ -61,6 +61,9 @@ export {
   type RunningCliProcess,
 } from './cli.js';
 
+// Diagnostic assertions
+export { assertDataflowSucceeded, describeDataflowResult } from './assertions.js';
+
 // Test suites
 export { repositoryTests } from './suites/repository.js';
 export { packageTests } from './suites/packages.js';
