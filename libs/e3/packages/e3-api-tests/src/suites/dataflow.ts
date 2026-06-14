@@ -265,6 +265,31 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         }
       });
 
+      it('diamond dependency graph produces the correct branch + join outputs', async (t) => {
+        const ctx = await withDiamond(t);
+        const opts = await ctx.opts();
+
+        const result = await dataflowExecute(ctx.config.baseUrl, ctx.repoName, 'diamond-ws', { force: true }, opts);
+        assertDataflowSucceeded(result);
+
+        // Read the actual computed values, not just task status. The structure
+        // checks above pass even if a backend produces wrong-but-well-typed
+        // numbers or writes a stale output ref (the exact failure mode the
+        // cloud loop-orchestrator hit: correct data, wrong status — and its
+        // inverse, which nothing else here guards). a=10, b=5 →
+        // left=a+b=15, right=a*b=50, merge=left+right=65.
+        const decode = decodeBeast2For(IntegerType);
+        const read = async (task: string) => {
+          const path = [variant('field', 'tasks'), variant('field', task), variant('field', 'output')];
+          const { data } = await datasetGet(ctx.config.baseUrl, ctx.repoName, 'diamond-ws', path, opts);
+          return decode(data);
+        };
+
+        assert.strictEqual(await read('left'), 15n, 'left should be a + b = 15');
+        assert.strictEqual(await read('right'), 50n, 'right should be a * b = 50');
+        assert.strictEqual(await read('merge'), 65n, 'merge should be (a+b) + (a*b) = 65');
+      });
+
       it('tracks events during execution', async (t) => {
         const ctx = await withDiamond(t);
         const opts = await ctx.opts();
