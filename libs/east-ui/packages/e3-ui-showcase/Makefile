@@ -5,12 +5,15 @@ VERSION := $(shell node -p "require('./package.json').version")
 ## Auto-discover categories: any name that has both a showcase emitter
 ## (`src/<name>.ts`) AND at least one `.examples.ts` somewhere under the
 ## east-ui or e3-ui `test/` trees. Adding a new emitter or example file
-## picks up automatically — no edits needed here.
+## picks up automatically — no edits needed here. Each example file
+## contributes every path component AND its basename as a candidate key
+## (so `test/bind/record/record.examples.tsx` yields both `bind` and
+## `record`), and the intersection with the emitters resolves the right
+## category regardless of how deep the example is nested.
 SHOWCASE_KEYS := $(patsubst src/%.ts,%,$(wildcard src/*.ts))
 TEST_KEYS := $(sort $(shell \
-    { find ../east-ui/test ../e3-ui/test -mindepth 2 \( -name '*.examples.ts' -o -name '*.examples.tsx' \) -printf '%P\n' 2>/dev/null | sed 's|/.*||' ; \
-      find ../east-ui/test ../e3-ui/test -maxdepth 1 \( -name '*.examples.ts' -o -name '*.examples.tsx' \) -printf '%f\n' 2>/dev/null | sed 's|\.examples\.tsx\?$$||' ; \
-    } | sort -u))
+    find ../east-ui/test ../e3-ui/test \( -name '*.examples.ts' -o -name '*.examples.tsx' \) -printf '%P\n' 2>/dev/null \
+    | sed -E 's|\.examples\.tsx?$$||' | tr '/' '\n' | sort -u))
 CATEGORIES := $(filter $(TEST_KEYS),$(SHOWCASE_KEYS))
 
 .PHONY: install build test test-ts lint clean repo \
