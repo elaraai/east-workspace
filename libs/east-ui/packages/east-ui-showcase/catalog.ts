@@ -24,7 +24,7 @@
  */
 
 import type { ExampleDef } from "@elaraai/east";
-import { codeExamples, exampleSources, type CapturedSource } from "virtual:example-sources";
+import { codeExamples, exampleSources, exampleDependencies, type CapturedSource } from "virtual:example-sources";
 import { SECTION_CODE, SECTION_E3, SECTION_EAST, categoryFor } from "./showcase-config";
 
 interface CatalogBase {
@@ -41,6 +41,10 @@ export interface LiveEntry extends CatalogBase {
     tier: "live";
     fn: ExampleDef["fn"];
     source?: CapturedSource;
+    /** The example file's module-scope dependencies (e3.input / record /
+     *  mutation defs the bodies reference), shared by every example in the
+     *  file. Absent for files that inline everything. */
+    dependencies?: CapturedSource;
 }
 
 /** A non-UI example shown as source code plus its declared `returns`. */
@@ -79,6 +83,7 @@ function buildComponents(): LiveEntry[] {
                 keywords: ex.keywords,
                 fn: ex.fn,
                 source: exampleSources[pathKey]?.[name],
+                dependencies: exampleDependencies[pathKey],
             });
         }
     }
@@ -126,6 +131,7 @@ function buildE3Components(): LiveEntry[] {
                 keywords: ex.keywords,
                 fn: ex.fn,
                 source: exampleSources[pathKey]?.[name],
+                dependencies: exampleDependencies[pathKey],
             });
         }
     }
