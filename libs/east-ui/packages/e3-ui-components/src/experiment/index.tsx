@@ -26,6 +26,8 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Box, Text, Menu, Portal, useRecipe, useSlotRecipe } from '@chakra-ui/react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faArrowDown, faArrowUp, faCheck, faChevronDown, faPlus, faTriangleExclamation, faXmark } from '@fortawesome/free-solid-svg-icons';
 import { fromEastTypeValue, variant, some, none, type EastType, type EastTypeValue, type ValueTypeOf } from '@elaraai/east';
 import { Experiment } from '@elaraai/e3-ui/internal';
 import {
@@ -289,12 +291,12 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
                                         <Box css={bs.track}><Box css={bs.fill} width={`${Math.round(c.imbalance * 100)}%`} bg={toneToken(c.tone)} /></Box>
                                         <Text textStyle="caption.eyebrow" fontSize="9px" textAlign="center" mt="1.5">{c.level}</Text>
                                     </Box>
-                                    <Box as="button" css={button({ variant: 'ghost', size: 'xs' })} px="0" minW="16px" onClick={() => editSpec({ ...spec, confounders: spec.confounders.filter(x => x !== c.col), categorical: spec.categorical.filter(x => x !== c.col) })}>×</Box>
+                                    <Box as="button" css={button({ variant: 'ghost', size: 'xs' })} px="0" minW="16px" display="inline-flex" alignItems="center" justifyContent="center" aria-label={`Remove ${c.col}`} onClick={() => editSpec({ ...spec, confounders: spec.confounders.filter(x => x !== c.col), categorical: spec.categorical.filter(x => x !== c.col) })}><FontAwesomeIcon icon={faXmark} style={{ fontSize: '11px' }} /></Box>
                                 </Box>
                             ))}
                             {vs.suggestion && (
                                 <ColumnMenu choices={columns.filter(c => !new Set([spec.treatment, spec.outcome, ...spec.confounders]).has(c.name)).map(c => c.name)} onPick={c => editSpec({ ...spec, confounders: [...spec.confounders, c] })}>
-                                    <Box as="button" css={button({ variant: 'ghost', size: 'sm' })} justifyContent="flex-start" width="100%" color="brand.fg" fontFamily="mono">+ {vs.suggestion}</Box>
+                                    <Box as="button" css={button({ variant: 'ghost', size: 'sm' })} justifyContent="flex-start" width="100%" color="brand.fg" fontFamily="mono" display="inline-flex" alignItems="center" gap="2"><FontAwesomeIcon icon={faPlus} style={{ fontSize: '9px' }} />add another</Box>
                                 </ColumnMenu>
                             )}
                         </Box>
@@ -303,7 +305,12 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
                         <FilterRail fields={fields} population={population} onChange={next => editSpec({ ...spec, population: next.length ? some(next) : none } as unknown as SpecValue)} chip={chip} button={button} />
                     </Step>
                     <Box as="details" borderTopWidth="1px" borderColor="border.subtle">
-                        <Text as="summary" textStyle="caption.eyebrow" listStyleType="none" cursor="pointer" px="4.5" py="2.5">▸ Advanced</Text>
+                        <Box as="summary" textStyle="caption.eyebrow" cursor="pointer" px="4.5" py="2.5" display="flex" alignItems="center" gap="1.5"
+                             css={{ listStyle: 'none', '&::-webkit-details-marker': { display: 'none' } }}>
+                            <Box as="span" display="inline-flex" color="fg.subtle" fontSize="10px" transition="transform 180ms ease" transform="rotate(-90deg)"
+                                 css={{ 'details[open] > summary > &': { transform: 'rotate(0deg)' } }}><FontAwesomeIcon icon={faChevronDown} /></Box>
+                            Advanced
+                        </Box>
                         <Box px="4.5" pb="3.5" pt="0.5">
                             <Segmented label="How to compare" left="regression" right="reweighting" active={vs.method === 'reweighting' ? 'right' : 'left'} onPick={s => editSpec({ ...spec, method: some(s === 'right' ? variant('propensity_score_weighting', { weighting_scheme: none }) : variant('linear_regression', null)) } as unknown as SpecValue)} />
                             <Segmented label="Answer for" left="all batches" right="only treated" active={vs.target === 'treated' ? 'right' : 'left'} onPick={s => editSpec({ ...spec, targetUnits: some(variant(s === 'right' ? 'att' : 'ate', null)) } as unknown as SpecValue)} />
@@ -339,14 +346,15 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
                                         <Text textStyle="mono.sm" color="fg.muted">95% CI&nbsp; {signed(ans.lo)} … {signed(ans.hi)}</Text>
                                     </Box>
                                 </Box>
-                                <Box as="span" css={badge({ variant: clear ? 'ok' : 'warn', size: 'md' })} alignSelf="flex-end" mb="1">
-                                    {clear ? `${dirUp ? '↑' : '↓'} ${statusWord} with ${ans.treatment}` : 'No clear effect'}
+                                <Box as="span" css={badge({ variant: clear ? 'ok' : 'warn', size: 'md' })} alignSelf="flex-end" mb="1" display="inline-flex" alignItems="center" gap="1">
+                                    {clear && <FontAwesomeIcon icon={dirUp ? faArrowUp : faArrowDown} style={{ fontSize: '10px' }} />}
+                                    {clear ? `${statusWord} with ${ans.treatment}` : 'No clear effect'}
                                 </Box>
                             </Box>
 
                             {flip && (
                                 <Box layerStyle="banner.stale" display="flex" alignItems="flex-start" gap="2" mt="3">
-                                    <Text as="span" color="fg.warning" fontSize="13px" lineHeight="1.5">⚠</Text>
+                                    <Box as="span" color="fg.warning" flexShrink="0" mt="0.5" fontSize="12px"><FontAwesomeIcon icon={faTriangleExclamation} /></Box>
                                     <Text textStyle="body.sm" color="fg.default"><Text as="span" fontWeight="bold">Raw and like-for-like disagree.</Text> In the plain average, <Text as="span" fontFamily="mono">{ans.treatment}</Text> batches sit <Text as="span" fontStyle="italic">{lowerWord}</Text> on <Text as="span" fontFamily="mono">{ans.outcome}</Text> ({signed(ans.naive)}) — but they also differ most on <Text as="span" fontFamily="mono">{top.col}</Text> ({top.display}). Adjusting for it reverses the result.</Text>
                                 </Box>
                             )}
@@ -391,7 +399,10 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
                                                 <Text textStyle="body.sm" fontWeight="semibold" color="fg.default">{c.name}</Text>
                                                 <Text textStyle="caption" lineHeight="1.45" mt="0.5">{c.desc}</Text>
                                             </Box>
-                                            <Text textStyle="mono.sm" fontWeight="bold" whiteSpace="nowrap" textAlign="right" fontVariantNumeric="tabular-nums" color={c.passed ? 'fg.success' : 'fg.warning'}>{c.value}</Text>
+                                            <Box display="inline-flex" alignItems="center" justifyContent="flex-end" gap="1.5" whiteSpace="nowrap" color={c.passed ? 'fg.success' : 'fg.warning'}>
+                                                <Text textStyle="mono.sm" fontWeight="bold" fontVariantNumeric="tabular-nums">{c.value}</Text>
+                                                <FontAwesomeIcon icon={c.passed ? faCheck : faTriangleExclamation} style={{ fontSize: '11px' }} />
+                                            </Box>
                                         </Box>
                                     );
                                 })}
@@ -479,14 +490,14 @@ function FilterRail({ fields, population, onChange, chip, button }: {
                     trigger={
                         <Box css={chip({ tone: 'brand', numeric: true, shape: 'rounded' })} cursor="pointer" flexShrink={0}>
                             <Box as="span" whiteSpace="nowrap">{formatPredicate(pred)}</Box>
-                            <Box as="button" cursor="pointer" color="brand.fg" flexShrink="0" onClick={e => { e.stopPropagation(); removeAt(i); }} aria-label="Remove filter">×</Box>
+                            <Box as="button" display="inline-flex" alignItems="center" cursor="pointer" color="brand.fg" flexShrink="0" fontSize="10px" onClick={e => { e.stopPropagation(); removeAt(i); }} aria-label="Remove filter"><FontAwesomeIcon icon={faXmark} /></Box>
                         </Box>
                     }>
                     {open === i ? <SlicePredicateBuilder fields={fields} initial={pred} lockField submitLabel="Apply" onAdd={p => { replaceAt(i, p); setOpen(null); }} /> : null}
                 </SliceEditPopover>
             ))}
             <SliceEditPopover open={open === 'add'} onOpenChange={o => setOpen(o ? 'add' : null)} label="Add filter" size="lg" footActions={done}
-                trigger={<Box css={chip({ tone: 'dashed', numeric: true, shape: 'rounded' })} cursor="pointer"><Box as="span">+ filter</Box></Box>}>
+                trigger={<Box css={chip({ tone: 'dashed', numeric: true, shape: 'rounded' })} cursor="pointer" display="inline-flex" alignItems="center" gap="1.5"><Box as="span" fontSize="9px"><FontAwesomeIcon icon={faPlus} /></Box><Box as="span">filter</Box></Box>}>
                 {open === 'add' ? <SlicePredicateBuilder fields={fields} onAdd={pred => { onChange([...population, pred]); setOpen(null); }} /> : null}
             </SliceEditPopover>
         </Box>
@@ -536,7 +547,7 @@ function ColumnPick({ column, kind, choices, onPick, badge, button }: {
             <Box as="button" css={button({ variant: 'outline', size: 'sm' })} gap="1.5">
                 <Text as="span" fontFamily="mono" fontWeight="semibold">{column}</Text>
                 <Box as="span" css={badge({ variant: 'plain', size: 'sm' })} textTransform="none" letterSpacing="normal">{kind}</Box>
-                <Text as="span" color="fg.muted" fontSize="10px">▾</Text>
+                <Box as="span" display="inline-flex" color="fg.muted" fontSize="10px"><FontAwesomeIcon icon={faChevronDown} /></Box>
             </Box>
         </ColumnMenu>
     );

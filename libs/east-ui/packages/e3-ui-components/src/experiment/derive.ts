@@ -229,7 +229,7 @@ function deriveRefuteCheck(c: RefuteCheckValue): VMRefuteCheck {
             return {
                 name: 'Shuffle test',
                 desc: 'Shuffle which rows were treated; a real effect should collapse to zero.',
-                value: `→ ${signed(m)} ${passed ? '✓' : '⚠'}`, passed,
+                value: `→ ${signed(m)}`, passed,
                 tip: { type: 'some', value: 'Randomly re-label which rows were treated. A genuine effect should vanish.' },
             };
         }
@@ -238,7 +238,7 @@ function deriveRefuteCheck(c: RefuteCheckValue): VMRefuteCheck {
             return {
                 name: 'Drop-some test',
                 desc: 'Re-estimate on random subsamples; a trustworthy effect stays put.',
-                value: `${fmt(m)} ± ${fmt(std(effects))} ${passed ? '✓' : '⚠'}`, passed,
+                value: `${fmt(m)} ± ${fmt(std(effects))}`, passed,
                 tip: { type: 'none', value: null },
             };
         }
@@ -247,7 +247,7 @@ function deriveRefuteCheck(c: RefuteCheckValue): VMRefuteCheck {
             return {
                 name: 'Decoy cause',
                 desc: 'Add an irrelevant random factor; the answer should not move.',
-                value: `${fmt(est)} → ${fmt(m)} ${passed ? '✓' : '⚠'}`, passed,
+                value: `${fmt(est)} → ${fmt(m)}`, passed,
                 tip: { type: 'none', value: null },
             };
         }
@@ -259,7 +259,7 @@ function deriveRefuteCheck(c: RefuteCheckValue): VMRefuteCheck {
             return {
                 name: 'Hidden cause',
                 desc: 'How strong an unrecorded common cause would need to be to overturn the result.',
-                value: tip === null ? 'holds throughout ✓' : `tips at ${fmt(tip)} ⚠`, passed,
+                value: tip === null ? 'holds throughout' : `tips at ${fmt(tip)}`, passed,
                 tip: { type: 'some', value: 'Something unrecorded could drive both the treatment choice and the outcome.' },
             };
         }
