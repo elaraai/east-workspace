@@ -18,16 +18,17 @@ export const reset = e3.mutation("reset", counter,
     East.function([IntegerType], IntegerType, (_$, _state) => 0n));
 
 export const recordBindMutate = example({
-    keywords: ["Record", "bind", "mutate", "Reactive", "Button", "read", "pending", "system of record"],
-    description: "Bind an e3.record + its mutations; buttons apply typed mutations and a stat shows the current state",
+    keywords: ["Record", "bind", "mutate", "Reactive", "Button", "read", "pending", "status", "system of record"],
+    description: "Bind an e3.record + its mutations; buttons apply typed mutations, a stat shows the current state, and the mutate lifecycle status is rendered",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const r = $.let(Record.bind(counter, [increment, reset]));
-            const bump = $.const(East.function([], NullType, $ => { 
-                $(r.mutate.increment(1n)); 
+            const status = $.let(r.mutate.status().getTag().upperCase());
+            const bump = $.const(East.function([], NullType, $ => {
+                $(r.mutate.increment(1n));
             }));
-            const clear = $.const(East.function([], NullType, $ => { 
-                $(r.mutate.reset()); 
+            const clear = $.const(East.function([], NullType, $ => {
+                $(r.mutate.reset());
             }));
             return (
                 <VStack gap="3" align="stretch">
@@ -36,6 +37,7 @@ export const recordBindMutate = example({
                         <Button onClick={bump} loading={r.mutate.pending()}>Increment</Button>
                         <Button variant="outline" onClick={clear}>Reset</Button>
                     </HStack>
+                    <Text.MonoLabel>{status}</Text.MonoLabel>
                 </VStack>
             );
         }}</Reactive>
