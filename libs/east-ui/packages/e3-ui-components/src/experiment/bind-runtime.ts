@@ -42,6 +42,9 @@ export interface UseBindingValueResult<T> {
     /** Current value (buffered if staged, otherwise server). `null` until the
      *  binding has run or if the binding is absent. */
     value: T | null;
+    /** The binding's write mode — `'staged'` buffers edits until `commit()`,
+     *  `'direct'` writes through. `'direct'` when the binding is absent. */
+    mode: 'staged' | 'direct';
     /** True when there is an in-flight staged change. */
     pending: boolean;
     /** Replace the bound value (staged buffers, direct writes through). */
@@ -116,5 +119,5 @@ export function useBindingValue<T>(binding: DiffBindingValue | null): UseBinding
     }, [handle]);
     const discard = useCallback(() => { handle?.discard(); }, [handle]);
 
-    return { value, pending, mutate, commit, discard };
+    return { value, mode, pending, mutate, commit, discard };
 }

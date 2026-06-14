@@ -104,6 +104,23 @@ function Card({ children, mt = '3' }: { children: ReactNode; mt?: string }) {
     return <Box layerStyle="card" p="3.5" borderRadius="lg" mt={mt}>{children}</Box>;
 }
 
+/** A header action button (Run / Commit). `disabled` blocks the click itself
+ *  (not aria-only) and dims the control; `pulse` animates a fresh button when
+ *  there are un-run edits waiting. */
+function ActionButton({ button, variant, label, onClick, disabled, pulse = false }: {
+    button: ReturnType<typeof useRecipe>;
+    variant: 'solid' | 'ghost'; label: string; onClick: () => void; disabled: boolean; pulse?: boolean;
+}) {
+    return (
+        <Box as="button" css={button({ variant, size: 'sm' })}
+            onClick={disabled ? undefined : onClick} aria-disabled={disabled || undefined}
+            opacity={disabled ? 0.5 : undefined} cursor={disabled ? 'not-allowed' : 'pointer'}
+            animation={pulse && !disabled ? 'pulse 1.6s infinite' : undefined}>
+            {label}
+        </Box>
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Renderer.
 // ---------------------------------------------------------------------------
@@ -244,14 +261,20 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
         </Box>
     );
 
-    // Run / Commit — real disabled handling (clicks blocked, not aria-only).
-    const runDisabled = readonly || !data.value || estimate.pending;
-    const commitDisabled = readonly || !estimate.result || estimate.pending;
-    const actionBtn = (vt: 'solid' | 'ghost', label: string, onClick: () => void, disabled: boolean, stalePulse = false) => (
-        <Box as="button" css={{ ...button({ variant: vt, size: 'sm' }), ...(stalePulse && !disabled ? { animationName: 'pulse', animationDuration: '1.6s', animationIterationCount: 'infinite' } : {}) }}
-            onClick={disabled ? undefined : onClick} aria-disabled={disabled || undefined}
-            opacity={disabled ? 0.5 : undefined} cursor={disabled ? 'not-allowed' : 'pointer'}>{label}</Box>
-    );
+    // Run / Commit affordances derive from three things: the `readonly` config,
+    // live state (data present / a call in flight / edited-since-last-run), and
+    // the *binding configuration* — Commit only means something when the spec is
+    // bound `{ mode: 'staged' }` (otherwise there is nothing to commit) and a
+    // `journal` is bound (otherwise there is nowhere to record the experiment).
+    const specStaged = specBind.mode === 'staged';
+    const hasJournal = v.journal.type === 'some';
+    const canRun = !readonly;                          // re-running is always valid when editable
+    const canCommit = !readonly && specStaged && hasJournal;
+
+    const runDisabled = !data.value || estimate.pending;
+    // Commit is blocked while stale: committing an edited-but-not-re-run spec
+    // would journal the new framing against the previous result.
+    const commitDisabled = !estimate.result || estimate.pending || stale;
 
     return (
         <Box layerStyle="frame" overflow="visible">
@@ -265,8 +288,8 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
                     <Box as="span" css={dataStatus.indicator} />
                     <Box as="span" css={dataStatus.label}>{vs.dataLabel}</Box>
                 </Box>
-                {actionBtn('solid', 'Run', onRun, runDisabled, stale)}
-                {actionBtn('ghost', 'Commit', onCommit, commitDisabled)}
+                {canRun && <ActionButton button={button} variant="solid" label="Run" onClick={onRun} disabled={runDisabled} pulse={stale} />}
+                {canCommit && <ActionButton button={button} variant="ghost" label="Commit" onClick={onCommit} disabled={commitDisabled} />}
             </Box>
 
             <Box display="grid" gridTemplateColumns="304px minmax(0,1fr)" alignItems="start">
