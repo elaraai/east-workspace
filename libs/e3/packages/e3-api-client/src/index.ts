@@ -122,8 +122,8 @@ export {
   oneShotExecute,
 } from './functions.js';
 
-// Records (describe + mutations + history)
-export { workspaceRecordDescribe, workspaceRecordMutate, workspaceRecordHistory } from './records.js';
+// Records (describe + mutations + history + compaction)
+export { workspaceRecordDescribe, workspaceRecordMutate, workspaceRecordCompact, workspaceRecordHistory } from './records.js';
 
 // Executions
 export {

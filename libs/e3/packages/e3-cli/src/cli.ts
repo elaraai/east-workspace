@@ -43,6 +43,7 @@ import { runCommand } from './commands/run.js';
 import { callCommand } from './commands/call.js';
 import { mutateCommand } from './commands/mutate.js';
 import { historyCommand } from './commands/history.js';
+import { compactCommand } from './commands/compact.js';
 import { logsCommand } from './commands/logs.js';
 import { datasetStatusCommand } from './commands/dataset-status.js';
 import { findCommand } from './commands/find.js';
@@ -331,7 +332,19 @@ program
   .argument('<record>', 'Record name')
   .option('-w, --workspace <ws>', 'Workspace holding the record (required)')
   .option('--limit <n>', 'Maximum number of commits to show')
+  .option('--from <hash>', 'Commit hash to start the walk at (page cursor)')
   .action(historyCommand);
+
+// ---------------------------------------------------------------------------
+// compact — drop a record's prior commit chain (state unchanged)
+// ---------------------------------------------------------------------------
+program
+  .command('compact')
+  .description("Compact a record's history (drops the prior chain; state unchanged)")
+  .argument('<repo>', 'Repository path or URL')
+  .argument('<record>', 'Record name')
+  .option('-w, --workspace <ws>', 'Workspace holding the record (required)')
+  .action(compactCommand);
 
 // ---------------------------------------------------------------------------
 // watch — source first, workspace second

@@ -55,14 +55,14 @@ function renderOutcome(outcome: { kind: string; [field: string]: unknown }): voi
     console.log(`Committed ${String(outcome.commitHash)}`);
     return;
   }
-  if (kind === 'failed') {
-    const stderr = String(outcome.stderr ?? '');
-    if (stderr.trim()) {
-      process.stderr.write(stderr);
-      if (!stderr.endsWith('\n')) process.stderr.write('\n');
-    }
-    exitError(`Mutation reducer failed (exit code ${String(outcome.exitCode)})`);
+  // Forward any captured reducer stderr (present on failed/timed_out/too_large)
+  // so its diagnostics reach the operator before we exit non-zero.
+  const stderr = String(outcome.stderr ?? '');
+  if (stderr.trim()) {
+    process.stderr.write(stderr);
+    if (!stderr.endsWith('\n')) process.stderr.write('\n');
   }
+  if (kind === 'failed') exitError(`Mutation reducer failed (exit code ${String(outcome.exitCode)})`);
   if (kind === 'invalid') exitError(String(outcome.message));
   if (kind === 'too_large') exitError(`New state too large (${String(outcome.bytes)} bytes > ${String(outcome.limit)} limit)`);
   if (kind === 'timed_out') exitError(`Mutation timed out after ${String(outcome.ms)}ms`);

@@ -12,12 +12,13 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import { join, dirname } from 'node:path';
-import { East, IntegerType, encodeBeast2For, variant } from '@elaraai/east';
+import { East, IntegerType, StringType, encodeBeast2For, decodeBeast2For, toEastTypeValue, ArrayType, BlobType, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
-import type { TreePath } from '@elaraai/e3-types';
-import { recordMutate, recordHistory } from './records.js';
+import type { Structure, TreePath } from '@elaraai/e3-types';
+import { recordMutate, recordHistory, recordCompact, recordDescribe } from './records.js';
 import { repoGc } from './storage/local/gc.js';
-import { workspaceGetDataset } from './trees.js';
+import { snapshotInputVersions } from './dataset-refs.js';
+import { workspaceGetDataset, workspaceSetDataset } from './trees.js';
 import { packageImport } from './packages.js';
 import { workspaceCreate, workspaceDeploy } from './workspaces.js';
 import { createTestRepo, removeTestRepo, createTempDir, removeTempDir } from './test-helpers.js';
@@ -25,7 +26,20 @@ import { LocalStorage } from './storage/local/index.js';
 import type { StorageBackend, TaskRunner, DetachedResult } from './index.js';
 
 const encodeInt = encodeBeast2For(IntegerType);
+const decodeInt = decodeBeast2For(IntegerType);
 const counterPath: TreePath = [variant('field', 'records'), variant('field', 'counter')];
+// The deployed workspace structure for the `.records.counter` leaf, used to
+// drive snapshotInputVersions directly.
+const counterStructure: Structure = variant('struct', new Map([
+  ['records', variant('struct', new Map([
+    ['counter', variant('value', { type: toEastTypeValue(IntegerType), writable: false })],
+  ]))],
+]));
+
+/** Constant success outcome carrying the given new-state bytes. */
+function successRunner(value: Uint8Array): TaskRunner {
+  return runnerReturning(async () => ({ kind: 'success', value, stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false }));
+}
 
 /** A runner whose detached run returns a fixed outcome (no subprocess). */
 function runnerReturning(impl: () => Promise<DetachedResult>): TaskRunner {
@@ -162,5 +176,107 @@ describe('records', () => {
     assert.strictEqual(outcome.kind, 'committed');
     assert.strictEqual(calls, 2, 'reducer re-ran against fresher state after the conflict');
     assert.strictEqual(await workspaceGetDataset(storage, repo, ws, counterPath), 7n);
+  });
+
+  it('change detection is commit-granular: an identical-state mutation still changes the version', async () => {
+    const before = (await snapshotInputVersions(storage, repo, ws, counterStructure, new Set())).get('.records.counter');
+    // A mutation that reproduces the identical state (state hash unchanged).
+    const outcome = await recordMutate(storage, successRunner(encodeInt(0n)), repo, ws, 'counter', 'increment', [encodeInt(0n)], { actor: 'cli:test' });
+    assert.strictEqual(outcome.kind, 'committed');
+    const after = (await snapshotInputVersions(storage, repo, ws, counterStructure, new Set())).get('.records.counter');
+    // The snapshot keys on the commit hash, so it changes even though the state did not — no ABA.
+    assert.notStrictEqual(after, before);
+    assert.strictEqual(await workspaceGetDataset(storage, repo, ws, counterPath), 0n);
+  });
+
+  it('N concurrent increments all commit and converge with no lost updates', async () => {
+    // The reducer reads the current state (arg 0) and adds `by` (arg 1).
+    const adder = { runDetached: async (spec: { args: Uint8Array[] }) => ({
+      kind: 'success' as const, value: encodeInt(decodeInt(spec.args[0]!) + decodeInt(spec.args[1]!)),
+      stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false,
+    }) } as unknown as TaskRunner;
+
+    const K = 8;
+    const results = await Promise.all(
+      Array.from({ length: K }, () => recordMutate(storage, adder, repo, ws, 'counter', 'increment', [encodeInt(1n)], { actor: 'cli:test' })),
+    );
+    assert.ok(results.every((r) => r.kind === 'committed'), 'every mutation committed');
+    assert.strictEqual(await workspaceGetDataset(storage, repo, ws, counterPath), BigInt(K));
+    // genesis + K commits, a single linear chain (no forks / lost updates).
+    assert.strictEqual((await recordHistory(storage, repo, ws, 'counter')).length, K + 1);
+  });
+
+  it('recordCompact resets history to a $compact root and gc reclaims the prior chain', async () => {
+    await recordMutate(storage, successRunner(encodeInt(5n)), repo, ws, 'counter', 'increment', [encodeInt(5n)], { actor: 'cli:test' });
+    assert.strictEqual((await recordHistory(storage, repo, ws, 'counter')).length, 2);
+
+    const outcome = await recordCompact(storage, repo, ws, 'counter', { actor: 'cli:test' });
+    assert.strictEqual(outcome.kind, 'committed');
+    const hist = await recordHistory(storage, repo, ws, 'counter');
+    assert.strictEqual(hist.length, 1);
+    assert.strictEqual(hist[0]!.commit.mutation, '$compact');
+    assert.strictEqual(hist[0]!.commit.parent.type, 'none');
+    assert.strictEqual(await workspaceGetDataset(storage, repo, ws, counterPath), 5n); // state preserved
+
+    const gc = await repoGc(storage, repo, { minAge: 0 });
+    assert.ok(gc.deletedObjects > 0, 'the pre-compact commit chain is collected');
+    assert.strictEqual((await recordHistory(storage, repo, ws, 'counter')).length, 1); // head survives
+    assert.strictEqual(await workspaceGetDataset(storage, repo, ws, counterPath), 5n);
+  });
+
+  it('recordCompact on an unknown record is invalid', async () => {
+    assert.strictEqual((await recordCompact(storage, repo, ws, 'nope', { actor: 'x' })).kind, 'invalid');
+  });
+
+  it('records the args tuple on a commit and none on $init', async () => {
+    const decodeArgs = decodeBeast2For(ArrayType(BlobType));
+    await recordMutate(storage, successRunner(encodeInt(5n)), repo, ws, 'counter', 'increment', [encodeInt(5n)], { actor: 'cli:test' });
+    const hist = await recordHistory(storage, repo, ws, 'counter');
+
+    const incArgs = hist[0]!.commit.args;
+    if (incArgs.type !== 'some') throw new Error('expected the increment commit to record its args');
+    const storedArgs = decodeArgs(await storage.objects.read(repo, incArgs.value));
+    assert.strictEqual(storedArgs.length, 1);
+    assert.ok(Buffer.from(storedArgs[0]!).equals(Buffer.from(encodeInt(5n))), 'stored args round-trip to the input bytes');
+
+    assert.strictEqual(hist[1]!.commit.args.type, 'none'); // $init has no args
+  });
+
+  it('recordDescribe returns mutation signatures and null for an unknown record', async () => {
+    const sig = await recordDescribe(storage, repo, ws, 'counter');
+    assert.ok(sig);
+    assert.strictEqual(sig.name, 'counter');
+    assert.deepStrictEqual(sig.mutations.map((m) => m.name), ['increment']);
+    assert.strictEqual(sig.mutations[0]!.argTypes.length, 1);
+    assert.strictEqual(await recordDescribe(storage, repo, ws, 'nope'), null);
+  });
+
+  it('rejects a raw set on a record path (mutations are the only door)', async () => {
+    await assert.rejects(
+      workspaceSetDataset(storage, repo, ws, counterPath, 42n, IntegerType),
+      /not writable/,
+    );
+    assert.strictEqual(await workspaceGetDataset(storage, repo, ws, counterPath), 0n);
+  });
+
+  it('redeploy preserves committed record state and history when the type is unchanged', async () => {
+    await recordMutate(storage, successRunner(encodeInt(9n)), repo, ws, 'counter', 'increment', [encodeInt(9n)], { actor: 'cli:test' });
+    const lenBefore = (await recordHistory(storage, repo, ws, 'counter')).length;
+
+    await workspaceDeploy(storage, repo, ws, 'counters', '1.0.0'); // redeploy onto the live workspace
+
+    assert.strictEqual(await workspaceGetDataset(storage, repo, ws, counterPath), 9n); // not reset to 0n
+    assert.strictEqual((await recordHistory(storage, repo, ws, 'counter')).length, lenBefore); // chain intact
+  });
+
+  it('redeploy errors when a record changed type', async () => {
+    await recordMutate(storage, successRunner(encodeInt(3n)), repo, ws, 'counter', 'increment', [encodeInt(3n)], { actor: 'x' });
+    // A new package version where `counter` is a String record instead of Integer.
+    const counterStr = e3.record('counter', StringType, '');
+    const pkg2 = e3.package('counters', '2.0.0', counterStr);
+    const zip2 = join(tempDir, 'counters2.zip');
+    await e3.export(pkg2, zip2);
+    await packageImport(storage, repo, zip2);
+    await assert.rejects(workspaceDeploy(storage, repo, ws, 'counters', '2.0.0'), /changed type/);
   });
 });

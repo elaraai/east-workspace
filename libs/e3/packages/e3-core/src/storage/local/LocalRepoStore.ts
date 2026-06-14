@@ -22,6 +22,7 @@ import {
 } from '../../errors.js';
 import { decodeBeast2For } from '@elaraai/east';
 import { WorkspaceStateType } from '@elaraai/e3-types';
+import { refPathToKeypath } from '../../dataset-refs.js';
 
 /**
  * Metadata file format stored in each repository.
@@ -325,12 +326,13 @@ export class LocalRepoStore implements RepoStore {
             const ref = await this.datasets.read(repo, name, refPath);
             if (ref && ref.type === 'value') {
               roots.push(ref.value.hash);
-              // Version-vector entries include a record's head-commit hash (its
-              // history root); plain-value self-entries are state hashes already
-              // rooted above, so the extra pushes are harmless dupes.
-              for (const versionHash of ref.value.versions.values()) {
-                roots.push(versionHash);
-              }
+              // Root the version-vector SELF-entry only — a record's head-commit
+              // hash (its history root). For plain values the self-entry equals
+              // the state hash already rooted above (harmless dupe); a derived
+              // dataset has no self-entry, so its inputs' hashes are not rooted
+              // here (they stay alive via those inputs' own refs).
+              const selfEntry = ref.value.versions.get(refPathToKeypath(refPath));
+              if (selfEntry !== undefined) roots.push(selfEntry);
             }
           }
         }

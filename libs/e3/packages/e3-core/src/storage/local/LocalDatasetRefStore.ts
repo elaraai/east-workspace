@@ -111,7 +111,11 @@ export class LocalDatasetRefStore implements DatasetRefStore {
    * nested directory the lock service would not create.
    */
   private casResource(ws: string, datasetPath: string): string {
-    return `${ws}~data~${datasetPath.replace(/\//g, '~')}`;
+    // Escape any literal '~' before using it as the path separator so the
+    // (ws, datasetPath) -> resource mapping is injective: a '~' in a segment
+    // can no longer alias a '/' boundary and collide two distinct paths.
+    const esc = (s: string): string => s.replace(/~/g, '~7e').replace(/\//g, '~');
+    return `${esc(ws)}~data~${esc(datasetPath)}`;
   }
 
   async read(repo: string, ws: string, datasetPath: string): Promise<DatasetRef | null> {

@@ -207,7 +207,7 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
   // writable:false structure leaf) is written by the dataset branch above —
   // records are datasets. Here we write the separate RecordObject + its
   // MutationObjects, mirroring how functions are written. The genesis commit is
-  // minted at deploy from the initial-state ref (§6.4).
+  // minted at deploy (writeRecordGenesis) from the initial-state ref.
   const records = new SortedMap<string, string>(); // name -> RecordObject hash
   const mutationEncoder = encodeBeast2For(MutationObjectType);
   const recordEncoder = encodeBeast2For(RecordObjectType);

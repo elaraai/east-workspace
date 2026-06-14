@@ -20,9 +20,9 @@
 import { createWriteStream } from 'fs';
 import * as fs from 'fs/promises';
 import yazl from 'yazl';
-import { decodeBeast2For, encodeBeast2For, variant, none } from '@elaraai/east';
+import { decodeBeast2For, encodeBeast2For, equalFor, variant, none, EastTypeType, type EastTypeValue } from '@elaraai/east';
 import { PackageObjectType, WorkspaceStateType, TaskObjectType, FunctionObjectType, RecordObjectType, RecordCommitType, DataflowRunType, DatasetRefType, decodePackageObject } from '@elaraai/e3-types';
-import type { PackageObject, WorkspaceState, TaskObject, FunctionObject, DatasetRef, RecordCommit } from '@elaraai/e3-types';
+import type { PackageObject, WorkspaceState, TaskObject, FunctionObject, DatasetRef, RecordCommit, Structure } from '@elaraai/e3-types';
 import { packageResolve, packageRead } from './packages.js';
 import { writeRefsFromPackage, refPathToKeypath } from './dataset-refs.js';
 import {
@@ -291,16 +291,20 @@ export async function workspaceDeploy(
     const packageHash = await packageResolve(storage, repo, pkgName, pkgVersion);
     const pkg = await packageRead(storage, repo, pkgName, pkgVersion);
 
+    // Capture any existing record state BEFORE wiping, so a redeploy preserves
+    // operational record state + audit history rather than resetting it.
+    const priorRecords = await capturePriorRecords(storage, repo, name);
+
     // Remove any existing dataset refs
     await storage.datasets.removeAll(repo, name);
 
     // Initialize per-dataset ref files from the package
     await writeRefsFromPackage(storage, repo, name, pkg.data.structure, pkg.data.refs);
 
-    // Mint each record's genesis ($init) commit and point its ref's
-    // version-vector self-entry at it, so a record has history from deploy and
-    // is never unassigned.
-    await writeRecordGenesis(storage, repo, name, pkg);
+    // Mint each new record's genesis ($init) commit, and restore any existing
+    // record's committed state + history across a redeploy (errors if its type
+    // changed). A record is thus never unassigned and never silently reset.
+    await writeRecordGenesis(storage, repo, name, pkg, priorRecords);
 
     const now = new Date();
     const state: WorkspaceState = {
@@ -322,27 +326,91 @@ export async function workspaceDeploy(
 
 const decodeRecordObject = decodeBeast2For(RecordObjectType);
 const encodeRecordCommit = encodeBeast2For(RecordCommitType);
+const recordTypesEqual = equalFor(EastTypeType);
+
+/** The East type of the record leaf at a refPath (e.g. `records/orders`). */
+function recordLeafType(structure: Structure, refPath: string): EastTypeValue | undefined {
+  let current: Structure = structure;
+  for (const segment of refPath.split('/')) {
+    if (current.type !== 'struct') return undefined;
+    const next = current.value.get(segment);
+    if (!next) return undefined;
+    current = next;
+  }
+  return current.type === 'value' ? (current.value.type as EastTypeValue) : undefined;
+}
+
+/** A prior deployment's record refs + types, captured before a redeploy wipes
+ *  the data dir, so committed state can be preserved. Null when the workspace
+ *  was not previously deployed (or had no records). */
+type PriorRecords = Map<string, { ref: DatasetRef; type: EastTypeValue }>;
+
+async function capturePriorRecords(
+  storage: StorageBackend,
+  repo: string,
+  ws: string,
+): Promise<PriorRecords | null> {
+  const stateBytes = await storage.refs.workspaceRead(repo, ws);
+  if (!stateBytes || stateBytes.length === 0) return null; // not previously deployed
+  let priorPkg: PackageObject;
+  try {
+    const state = decodeBeast2For(WorkspaceStateType)(stateBytes);
+    priorPkg = decodePackageObject(await storage.objects.read(repo, state.packageHash));
+  } catch {
+    return null; // unreadable prior deployment — treat as a fresh deploy
+  }
+  if (priorPkg.records.size === 0) return null;
+
+  const captured: PriorRecords = new Map();
+  for (const recHash of priorPkg.records.values()) {
+    const recObj = decodeRecordObject(await storage.objects.read(repo, recHash));
+    const ref = await storage.datasets.read(repo, ws, recObj.path);
+    const type = recordLeafType(priorPkg.data.structure, recObj.path);
+    if (ref && ref.type === 'value' && type) {
+      captured.set(recObj.path, { ref, type });
+    }
+  }
+  return captured.size > 0 ? captured : null;
+}
 
 /**
- * Write the genesis ($init) commit for every record in a freshly-deployed
- * package and swing each record ref's version-vector self-entry to it.
+ * For each record in a freshly-deployed package: restore its prior committed
+ * state + history across a redeploy when the record already existed with an
+ * unchanged East type (erroring if the type changed), otherwise mint the
+ * genesis ($init) commit over the package's initial value.
  *
- * The record's initial-state value ref was already written by
- * writeRefsFromPackage; here we add the commit object that makes that state the
- * head of the record's history. Runs under the deploy lock, so an unconditional
- * ref write is safe.
+ * The initial-state value ref was already written by writeRefsFromPackage; this
+ * either overwrites it with the preserved prior ref or adds the genesis commit
+ * that makes the initial state the head of the record's history. Runs under the
+ * deploy lock, so unconditional ref writes are safe.
  */
 async function writeRecordGenesis(
   storage: StorageBackend,
   repo: string,
   ws: string,
   pkg: PackageObject,
+  prior: PriorRecords | null,
 ): Promise<void> {
   const at = new Date();
   for (const recHash of pkg.records.values()) {
     const recObj = decodeRecordObject(await storage.objects.read(repo, recHash));
     const stateRef = pkg.data.refs.get(recObj.path);
     if (!stateRef || stateRef.type !== 'value') continue; // a record always has initial state
+
+    const priorRecord = prior?.get(recObj.path);
+    if (priorRecord) {
+      const newType = recordLeafType(pkg.data.structure, recObj.path);
+      if (newType && !recordTypesEqual(priorRecord.type, newType)) {
+        throw new Error(
+          `Cannot redeploy: record '${recObj.path}' changed type, so its committed state ` +
+          `is incompatible. Remove the workspace to reset the record, or keep its type stable.`,
+        );
+      }
+      // Preserve the existing committed state and full commit chain.
+      await storage.datasets.write(repo, ws, recObj.path, priorRecord.ref);
+      continue;
+    }
+
     const commit: RecordCommit = {
       parent: none,
       state: stateRef.value.hash,

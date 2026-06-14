@@ -15,12 +15,11 @@
 
 import type {
   AsyncFunctionExpr,
-  CallableAsyncFunctionExpr,
   CallableFunctionExpr,
   EastType,
   FunctionExpr,
 } from '@elaraai/east';
-import { Expr } from '@elaraai/east';
+import { Expr, AsyncEastIR } from '@elaraai/east';
 import type { MutationDef, RecordDef } from './types.js';
 import { DEFAULT_RUNNER, runnerToVariant, type FunctionRunner } from './runner.js';
 
@@ -32,8 +31,9 @@ import { DEFAULT_RUNNER, runnerToVariant, type FunctionRunner } from './runner.j
  * enforced at compile time by the shared `T`. The extra parameter types are
  * read off the function's signature, so there is nothing to keep in sync.
  *
- * The body must be pure (no platform IO); an async/IO reducer is rejected so
- * the compare-and-swap loop can safely re-run it against fresher state.
+ * The body must be a pure, synchronous East function (no platform IO): purity
+ * is what lets the compare-and-swap loop re-run the reducer against fresher
+ * state safely. An async reducer is rejected at definition time.
  *
  * @typeParam Name - Mutation name (literal type)
  * @typeParam T - The owning record's state type
@@ -61,10 +61,7 @@ import { DEFAULT_RUNNER, runnerToVariant, type FunctionRunner } from './runner.j
 export function mutation<Name extends string, T extends EastType, Args extends EastType[]>(
   name: Name,
   rec: RecordDef<T>,
-  fn: FunctionExpr<[T, ...Args], T>
-    | CallableFunctionExpr<[T, ...Args], T>
-    | AsyncFunctionExpr<[T, ...Args], T>
-    | CallableAsyncFunctionExpr<[T, ...Args], T>,
+  fn: FunctionExpr<[T, ...Args], T> | CallableFunctionExpr<[T, ...Args], T>,
   config?: { runner?: FunctionRunner },
 ): MutationDef<T, Args>;
 export function mutation(
@@ -84,6 +81,13 @@ export function mutation(
   // Keep the full EastIR bundle (IR + source map) so export.ts can encode
   // with encodeEastIR and preserve source locations.
   const eastIR = fn.toIR();
+  if (eastIR instanceof AsyncEastIR) {
+    throw new Error(
+      `e3.mutation '${name}' reducer must be a pure, synchronous East function — ` +
+      `async/platform-IO bodies are not allowed because the compare-and-swap retry ` +
+      `loop re-runs the reducer, which is unsafe with side effects.`,
+    );
+  }
   const fnType = Expr.type(fn as Expr<any>) as { inputs: EastType[]; output: EastType };
   // The reducer is (state, ...args) => state; the extra parameter types are
   // everything after the leading state parameter.

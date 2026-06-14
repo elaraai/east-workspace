@@ -13,7 +13,7 @@
  */
 
 import { variant } from '@elaraai/east';
-import { recordMutate, recordHistory, recordDescribe, TaskNotFoundError } from '@elaraai/e3-core';
+import { recordMutate, recordHistory, recordDescribe, recordCompact, DatasetNotFoundError } from '@elaraai/e3-core';
 import type { StorageBackend, TaskRunner, MutationOutcome } from '@elaraai/e3-core';
 import { sendSuccess, sendError } from '../beast2.js';
 import { errorToVariant } from '../errors.js';
@@ -51,9 +51,9 @@ function outcomeToResult(outcome: MutationOutcome): MutationResult {
     case 'failed':
       return { outcome: variant('failed', { exitCode: BigInt(outcome.exitCode), stderr: outcome.stderr }) };
     case 'too_large':
-      return { outcome: variant('too_large', { bytes: BigInt(outcome.bytes), limit: BigInt(outcome.limit) }) };
+      return { outcome: variant('too_large', { bytes: BigInt(outcome.bytes), limit: BigInt(outcome.limit), stderr: outcome.stderr }) };
     case 'timed_out':
-      return { outcome: variant('timed_out', { ms: BigInt(outcome.ms) }) };
+      return { outcome: variant('timed_out', { ms: BigInt(outcome.ms), stderr: outcome.stderr }) };
     case 'conflict':
       return { outcome: variant('conflict', { attempts: BigInt(outcome.attempts) }) };
   }
@@ -72,7 +72,7 @@ export async function describeRecord(
   try {
     const sig = await recordDescribe(storage, repoPath, workspace, record);
     if (!sig) {
-      return sendError(RecordSignatureType, errorToVariant(new TaskNotFoundError(`record '${record}'`)));
+      return sendError(RecordSignatureType, errorToVariant(new DatasetNotFoundError(workspace, record)));
     }
     return sendSuccess(RecordSignatureType, sig);
   } catch (err) {
@@ -82,7 +82,12 @@ export async function describeRecord(
 
 /**
  * Apply a mutation to a record synchronously, returning the terminal
- * MutationResult. The actor defaults to the request's, then `api`.
+ * MutationResult.
+ *
+ * When `authoritative` is true (an authenticated request), the server-derived
+ * `actor` is recorded and the client-supplied `req.actor` is ignored, so the
+ * audit trail attributes the commit to the verified principal and cannot be
+ * forged. Without auth (single-tenant local), `req.actor` is honoured.
  */
 export async function callMutationSync(
   storage: StorageBackend,
@@ -93,13 +98,34 @@ export async function callMutationSync(
   mutation: string,
   req: MutationCallRequest,
   actor: string,
+  authoritative: boolean,
 ): Promise<Response> {
   try {
+    const effectiveActor = !authoritative && req.actor.type === 'some' ? req.actor.value : actor;
     const outcome = await recordMutate(
       storage, runner, repoPath, workspace, record, mutation,
-      req.args.map((a) => a as Uint8Array),
-      { actor: req.actor.type === 'some' ? req.actor.value : actor, limits: resolveLimits(req.limits) },
+      req.args,
+      { actor: effectiveActor, limits: resolveLimits(req.limits) },
     );
+    return sendSuccess(MutationResultType, outcomeToResult(outcome));
+  } catch (err) {
+    return sendError(MutationResultType, errorToVariant(err));
+  }
+}
+
+/**
+ * Compact a record's history, returning the terminal MutationResult of the
+ * `$compact` commit.
+ */
+export async function compactRecord(
+  storage: StorageBackend,
+  repoPath: string,
+  workspace: string,
+  record: string,
+  actor: string,
+): Promise<Response> {
+  try {
+    const outcome = await recordCompact(storage, repoPath, workspace, record, { actor });
     return sendSuccess(MutationResultType, outcomeToResult(outcome));
   } catch (err) {
     return sendError(MutationResultType, errorToVariant(err));
@@ -115,9 +141,10 @@ export async function getRecordHistory(
   workspace: string,
   record: string,
   limit: number | undefined,
+  from: string | undefined,
 ): Promise<Response> {
   try {
-    const entries = await recordHistory(storage, repoPath, workspace, record, { limit });
+    const entries = await recordHistory(storage, repoPath, workspace, record, { limit, from });
     const commits = entries.map((e) => ({
       hash: e.hash,
       parent: e.commit.parent,

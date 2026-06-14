@@ -24,8 +24,8 @@ import {
 } from '@elaraai/e3-types';
 import { workspaceGetPackage } from './workspaces.js';
 import { refPathToKeypath } from './dataset-refs.js';
-import { DatasetRefConflictError } from './errors.js';
-import type { StorageBackend } from './storage/interfaces.js';
+import { DatasetRefConflictError, WorkspaceLockError } from './errors.js';
+import type { StorageBackend, LockHandle } from './storage/interfaces.js';
 import type { TaskRunner } from './execution/interfaces.js';
 import type { DetachedResult } from './execution/runDetached.js';
 
@@ -65,9 +65,9 @@ export type MutationOutcome =
   /** The reducer process exited non-zero (incl. a reducer `$.error`). */
   | { kind: 'failed'; exitCode: number; stderr: string }
   /** The reducer exceeded its time budget. */
-  | { kind: 'timed_out'; ms: number }
+  | { kind: 'timed_out'; ms: number; stderr: string }
   /** The new state exceeded the result-size cap. */
-  | { kind: 'too_large'; bytes: number; limit: number }
+  | { kind: 'too_large'; bytes: number; limit: number; stderr: string }
   /** The compare-and-swap lost the race `attempts` times. */
   | { kind: 'conflict'; attempts: number };
 
@@ -80,6 +80,41 @@ export interface RecordMutateOptions {
   maxAttempts?: number;
   /** Cancellation — kills the reducer process group. */
   signal?: AbortSignal;
+  /** Externally-held shared workspace lock; acquired internally when omitted. */
+  lock?: LockHandle;
+}
+
+/**
+ * Run a record operation under a shared workspace lock (acquired internally
+ * unless the caller already holds one), so mutations coexist with dataflow but
+ * are fenced out by an exclusive deploy/remove — the §8 concurrency contract.
+ */
+async function withSharedWorkspaceLock<T>(
+  storage: StorageBackend,
+  repo: string,
+  ws: string,
+  externalLock: LockHandle | undefined,
+  fn: () => Promise<T>,
+): Promise<T> {
+  let lock: LockHandle | null = externalLock ?? null;
+  if (!lock) {
+    lock = await storage.locks.acquire(repo, ws, variant('dataset_write', null), { mode: 'shared' });
+    if (!lock) {
+      const state = await storage.locks.getState(repo, ws);
+      throw new WorkspaceLockError(ws, state ? { acquiredAt: state.acquiredAt.toISOString(), operation: state.operation.type } : undefined);
+    }
+  }
+  try {
+    return await fn();
+  } finally {
+    if (!externalLock) await lock.release();
+  }
+}
+
+/** Jittered exponential backoff (ms) before a compare-and-swap retry, so hot
+ *  records don't lock-step their (expensive) reducer re-runs under contention. */
+function casBackoffMs(attempt: number): number {
+  return Math.min(2 ** attempt, 64) * (0.5 + Math.random());
 }
 
 interface ResolvedRecord {
@@ -108,15 +143,17 @@ async function resolveRecord(
   };
 }
 
-/** Map a non-success reducer run to its mutation outcome (nothing written). */
+/** Map a non-success reducer run to its mutation outcome (nothing written).
+ *  The reducer's captured stderr is forwarded on every failure so a human
+ *  debugging a hand-written reducer sees its diagnostics. */
 function failureOutcome(result: Exclude<DetachedResult, { kind: 'success' }>): MutationOutcome {
   switch (result.kind) {
     case 'failed':
       return { kind: 'failed', exitCode: result.exitCode, stderr: result.stderr };
     case 'timed_out':
-      return { kind: 'timed_out', ms: result.ms };
+      return { kind: 'timed_out', ms: result.ms, stderr: result.stderr };
     case 'too_large':
-      return { kind: 'too_large', bytes: result.bytes, limit: result.limit };
+      return { kind: 'too_large', bytes: result.bytes, limit: result.limit, stderr: result.stderr };
   }
 }
 
@@ -139,65 +176,70 @@ export async function recordMutate(
   args: Uint8Array[],
   opts: RecordMutateOptions,
 ): Promise<MutationOutcome> {
-  const resolved = await resolveRecord(storage, repo, ws, recordName);
-  if (!resolved) return { kind: 'invalid', message: `record '${recordName}' not found` };
+  return withSharedWorkspaceLock(storage, repo, ws, opts.lock, async () => {
+    const resolved = await resolveRecord(storage, repo, ws, recordName);
+    if (!resolved) return { kind: 'invalid', message: `record '${recordName}' not found` };
 
-  const mutHash = resolved.mutations.get(mutationName);
-  if (!mutHash) return { kind: 'invalid', message: `mutation '${mutationName}' not found on record '${recordName}'` };
-  const mutObj = decodeMutationObject(await storage.objects.read(repo, mutHash));
+    const mutHash = resolved.mutations.get(mutationName);
+    if (!mutHash) return { kind: 'invalid', message: `mutation '${mutationName}' not found on record '${recordName}'` };
+    const mutObj = decodeMutationObject(await storage.objects.read(repo, mutHash));
 
-  if (args.length !== mutObj.argTypes.length) {
-    return { kind: 'invalid', message: `mutation '${mutationName}' expects ${mutObj.argTypes.length} argument(s), got ${args.length}` };
-  }
-
-  const bodyIr = await storage.objects.read(repo, mutObj.bodyIr);
-  const limits = opts.limits ?? DEFAULT_LIMITS;
-  const maxAttempts = opts.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
-
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const existing = await storage.datasets.readVersioned(repo, ws, resolved.refPath);
-    if (!existing || existing.ref.type !== 'value') {
-      return { kind: 'invalid', message: `record '${recordName}' has no state` };
+    if (args.length !== mutObj.argTypes.length) {
+      return { kind: 'invalid', message: `mutation '${mutationName}' expects ${mutObj.argTypes.length} argument(s), got ${args.length}` };
     }
 
-    const stateBytes = await storage.objects.read(repo, existing.ref.value.hash);
-    const result = await runner.runDetached(
-      { bodyIr, args: [stateBytes, ...args], runner: mutObj.runner, limits },
-      { signal: opts.signal },
-    );
-    if (result.kind !== 'success') return failureOutcome(result);
+    const bodyIr = await storage.objects.read(repo, mutObj.bodyIr);
+    const limits = opts.limits ?? DEFAULT_LIMITS;
+    const maxAttempts = opts.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
 
-    // Objects written before the conditional ref swing are invisible until the
-    // ref references them; a conflict simply orphans them for GC.
-    const newStateHash = await storage.objects.write(repo, result.value);
-    const argsHash = args.length > 0
-      ? await storage.objects.write(repo, encodeArgsTuple(args))
-      : undefined;
-    const prevCommit = existing.ref.value.versions.get(resolved.selfKeypath);
-    const commit: RecordCommit = {
-      parent: prevCommit !== undefined ? some(prevCommit) : none,
-      state: newStateHash,
-      mutation: mutationName,
-      args: argsHash !== undefined ? some(argsHash) : none,
-      actor: opts.actor,
-      at: new Date(),
-    };
-    const commitHash = await storage.objects.write(repo, encodeCommit(commit));
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const existing = await storage.datasets.readVersioned(repo, ws, resolved.refPath);
+      if (!existing || existing.ref.type !== 'value') {
+        return { kind: 'invalid', message: `record '${recordName}' has no state` };
+      }
 
-    try {
-      await storage.datasets.writeIf(
-        repo, ws, resolved.refPath,
-        variant('value', { hash: newStateHash, versions: new Map([[resolved.selfKeypath, commitHash]]) }),
-        existing.revision,
+      const stateBytes = await storage.objects.read(repo, existing.ref.value.hash);
+      const result = await runner.runDetached(
+        { bodyIr, args: [stateBytes, ...args], runner: mutObj.runner, limits },
+        { signal: opts.signal },
       );
-      return { kind: 'committed', commitHash, stateHash: newStateHash };
-    } catch (err) {
-      if (err instanceof DatasetRefConflictError) continue;
-      throw err;
-    }
-  }
+      if (result.kind !== 'success') return failureOutcome(result);
 
-  return { kind: 'conflict', attempts: maxAttempts };
+      // Objects written before the conditional ref swing are invisible until the
+      // ref references them; a conflict simply orphans them for GC.
+      const newStateHash = await storage.objects.write(repo, result.value);
+      const argsHash = args.length > 0
+        ? await storage.objects.write(repo, encodeArgsTuple(args))
+        : undefined;
+      const prevCommit = existing.ref.value.versions.get(resolved.selfKeypath);
+      const commit: RecordCommit = {
+        parent: prevCommit !== undefined ? some(prevCommit) : none,
+        state: newStateHash,
+        mutation: mutationName,
+        args: argsHash !== undefined ? some(argsHash) : none,
+        actor: opts.actor,
+        at: new Date(),
+      };
+      const commitHash = await storage.objects.write(repo, encodeCommit(commit));
+
+      try {
+        await storage.datasets.writeIf(
+          repo, ws, resolved.refPath,
+          variant('value', { hash: newStateHash, versions: new Map([[resolved.selfKeypath, commitHash]]) }),
+          existing.revision,
+        );
+        return { kind: 'committed', commitHash, stateHash: newStateHash };
+      } catch (err) {
+        if (err instanceof DatasetRefConflictError) {
+          await new Promise((resolve) => setTimeout(resolve, casBackoffMs(attempt)));
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    return { kind: 'conflict', attempts: maxAttempts };
+  });
 }
 
 /** A record's mutation surface: each mutation's name and EXTRA arg types. */
@@ -237,40 +279,45 @@ export async function recordCompact(
   repo: string,
   ws: string,
   recordName: string,
-  opts: { actor: string; maxAttempts?: number },
+  opts: { actor: string; maxAttempts?: number; lock?: LockHandle },
 ): Promise<MutationOutcome> {
-  const resolved = await resolveRecord(storage, repo, ws, recordName);
-  if (!resolved) return { kind: 'invalid', message: `record '${recordName}' not found` };
+  return withSharedWorkspaceLock(storage, repo, ws, opts.lock, async () => {
+    const resolved = await resolveRecord(storage, repo, ws, recordName);
+    if (!resolved) return { kind: 'invalid', message: `record '${recordName}' not found` };
 
-  const maxAttempts = opts.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const existing = await storage.datasets.readVersioned(repo, ws, resolved.refPath);
-    if (!existing || existing.ref.type !== 'value') {
-      return { kind: 'invalid', message: `record '${recordName}' has no state` };
+    const maxAttempts = opts.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const existing = await storage.datasets.readVersioned(repo, ws, resolved.refPath);
+      if (!existing || existing.ref.type !== 'value') {
+        return { kind: 'invalid', message: `record '${recordName}' has no state` };
+      }
+      const stateHash = existing.ref.value.hash;
+      const commit: RecordCommit = {
+        parent: none,
+        state: stateHash,
+        mutation: '$compact',
+        args: none,
+        actor: opts.actor,
+        at: new Date(),
+      };
+      const commitHash = await storage.objects.write(repo, encodeCommit(commit));
+      try {
+        await storage.datasets.writeIf(
+          repo, ws, resolved.refPath,
+          variant('value', { hash: stateHash, versions: new Map([[resolved.selfKeypath, commitHash]]) }),
+          existing.revision,
+        );
+        return { kind: 'committed', commitHash, stateHash };
+      } catch (err) {
+        if (err instanceof DatasetRefConflictError) {
+          await new Promise((resolve) => setTimeout(resolve, casBackoffMs(attempt)));
+          continue;
+        }
+        throw err;
+      }
     }
-    const stateHash = existing.ref.value.hash;
-    const commit: RecordCommit = {
-      parent: none,
-      state: stateHash,
-      mutation: '$compact',
-      args: none,
-      actor: opts.actor,
-      at: new Date(),
-    };
-    const commitHash = await storage.objects.write(repo, encodeCommit(commit));
-    try {
-      await storage.datasets.writeIf(
-        repo, ws, resolved.refPath,
-        variant('value', { hash: stateHash, versions: new Map([[resolved.selfKeypath, commitHash]]) }),
-        existing.revision,
-      );
-      return { kind: 'committed', commitHash, stateHash };
-    } catch (err) {
-      if (err instanceof DatasetRefConflictError) continue;
-      throw err;
-    }
-  }
-  return { kind: 'conflict', attempts: maxAttempts };
+    return { kind: 'conflict', attempts: maxAttempts };
+  });
 }
 
 /** A commit in a record's history, with its content hash. */
@@ -280,16 +327,18 @@ export interface RecordHistoryEntry {
 }
 
 /**
- * Walk a record's commit chain from the head, newest first.
+ * Walk a record's commit chain newest-first.
  *
  * @param opts.limit - Maximum commits to return (default: the whole chain)
+ * @param opts.from - Commit hash to start the walk at (a cursor for paging);
+ *   defaults to the record's head commit
  */
 export async function recordHistory(
   storage: StorageBackend,
   repo: string,
   ws: string,
   recordName: string,
-  opts: { limit?: number } = {},
+  opts: { limit?: number; from?: string } = {},
 ): Promise<RecordHistoryEntry[]> {
   const resolved = await resolveRecord(storage, repo, ws, recordName);
   if (!resolved) return [];
@@ -298,9 +347,13 @@ export async function recordHistory(
   if (!ref || ref.type !== 'value') return [];
 
   const entries: RecordHistoryEntry[] = [];
-  let next = ref.value.versions.get(resolved.selfKeypath);
+  const seen = new Set<string>();
+  let next = opts.from ?? ref.value.versions.get(resolved.selfKeypath);
   const limit = opts.limit ?? Infinity;
   while (next !== undefined && entries.length < limit) {
+    // Bound the walk by distinct objects so a corrupted/cyclic parent can't hang.
+    if (seen.has(next)) break;
+    seen.add(next);
     const commit = decodeCommit(await storage.objects.read(repo, next));
     entries.push({ hash: next, commit });
     next = commit.parent.type === 'some' ? commit.parent.value : undefined;

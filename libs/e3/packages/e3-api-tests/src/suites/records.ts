@@ -24,6 +24,7 @@ import {
   datasetGet,
   workspaceRecordDescribe,
   workspaceRecordMutate,
+  workspaceRecordCompact,
   workspaceRecordHistory,
 } from '@elaraai/e3-api-client';
 
@@ -130,6 +131,25 @@ export function recordTests(setup: TestSetup<TestContext>): void {
         { args: [], actor: none, limits: none }, opts,
       );
       assert.equal(result.outcome.type, 'invalid');
+    });
+
+    it('compact resets history to a $compact root, state preserved', async (t) => {
+      const ctx = await withRecords(t);
+      const opts = await ctx.opts();
+
+      await workspaceRecordMutate(
+        ctx.config.baseUrl, ctx.repoName, WS, 'counter', 'increment',
+        { args: [encodeInt(4n)], actor: none, limits: none }, opts,
+      );
+      assert.equal((await workspaceRecordHistory(ctx.config.baseUrl, ctx.repoName, WS, 'counter', undefined, opts)).commits.length, 2);
+
+      const compacted = await workspaceRecordCompact(ctx.config.baseUrl, ctx.repoName, WS, 'counter', opts);
+      assert.equal(compacted.outcome.type, 'committed', `expected committed, got ${compacted.outcome.type}`);
+
+      const { commits } = await workspaceRecordHistory(ctx.config.baseUrl, ctx.repoName, WS, 'counter', undefined, opts);
+      assert.equal(commits.length, 1);
+      assert.equal(commits[0]!.mutation, '$compact');
+      assert.equal(await readCounter(ctx), 4n); // state unchanged
     });
   });
 }

@@ -209,7 +209,9 @@ function isRecordObjectShape(type: any): boolean {
 function isMutationObjectShape(type: any): boolean {
   if (type.type !== 'Struct') return false;
   const names = new Set((type.value as { name: string }[]).map(f => f.name));
-  return names.has('bodyIr') && names.has('argTypes') && names.has('runner');
+  // Exact field set (records' state blobs are arbitrary user structs that flow
+  // through this dispatch, so a name-subset match could misclassify one).
+  return names.size === 3 && names.has('bodyIr') && names.has('argTypes') && names.has('runner');
 }
 
 /**
@@ -219,7 +221,11 @@ function isMutationObjectShape(type: any): boolean {
 function isRecordCommitShape(type: any): boolean {
   if (type.type !== 'Struct') return false;
   const names = new Set((type.value as { name: string }[]).map(f => f.name));
-  return names.has('parent') && names.has('state') && names.has('mutation') && names.has('actor');
+  // Exact field set so a user state struct sharing some of these field names
+  // can't be misclassified as a commit and have its fields probed as hashes.
+  return names.size === 6
+    && names.has('parent') && names.has('state') && names.has('mutation')
+    && names.has('args') && names.has('actor') && names.has('at');
 }
 
 /**

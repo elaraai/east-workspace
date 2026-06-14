@@ -836,8 +836,8 @@ export const MutationResultType = StructType({
     committed: StructType({ commitHash: StringType, stateHash: StringType }),
     invalid:   StructType({ message: StringType }),
     failed:    StructType({ exitCode: IntegerType, stderr: StringType }),
-    too_large: StructType({ bytes: IntegerType, limit: IntegerType }),
-    timed_out: StructType({ ms: IntegerType }),
+    too_large: StructType({ bytes: IntegerType, limit: IntegerType, stderr: StringType }),
+    timed_out: StructType({ ms: IntegerType, stderr: StringType }),
     conflict:  StructType({ attempts: IntegerType }),
   }),
 });

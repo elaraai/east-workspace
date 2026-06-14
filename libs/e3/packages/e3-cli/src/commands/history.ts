@@ -34,14 +34,14 @@ function printCommits(commits: CommitLine[]): void {
   }
 }
 
-async function historyLocal(repoPath: string, ws: string, record: string, limit: number | undefined): Promise<void> {
+async function historyLocal(repoPath: string, ws: string, record: string, limit: number | undefined, from: string | undefined): Promise<void> {
   const storage = new LocalStorage();
-  const entries = await recordHistory(storage, repoPath, ws, record, { limit });
+  const entries = await recordHistory(storage, repoPath, ws, record, { limit, from });
   printCommits(entries.map((e) => ({ hash: e.hash, mutation: e.commit.mutation, actor: e.commit.actor, at: e.commit.at })));
 }
 
-async function historyRemote(baseUrl: string, repo: string, token: string, ws: string, record: string, limit: number | undefined): Promise<void> {
-  const result = await workspaceRecordHistory(baseUrl, repo, ws, record, limit, { token });
+async function historyRemote(baseUrl: string, repo: string, token: string, ws: string, record: string, limit: number | undefined, from: string | undefined): Promise<void> {
+  const result = await workspaceRecordHistory(baseUrl, repo, ws, record, limit, { token }, from);
   printCommits(result.commits.map((c) => ({ hash: c.hash, mutation: c.mutation, actor: c.actor, at: c.at })));
 }
 
@@ -49,7 +49,7 @@ async function historyRemote(baseUrl: string, repo: string, token: string, ws: s
 export async function historyCommand(
   repoArg: string,
   record: string,
-  options: { workspace?: string; limit?: string },
+  options: { workspace?: string; limit?: string; from?: string },
 ): Promise<void> {
   try {
     if (!options.workspace) {
@@ -65,9 +65,9 @@ export async function historyCommand(
     }
     const location = await parseRepoLocation(repoArg);
     if (location.type === 'local') {
-      await historyLocal(location.path, options.workspace, record, limit);
+      await historyLocal(location.path, options.workspace, record, limit, options.from);
     } else {
-      await historyRemote(location.baseUrl, location.repo, location.token, options.workspace, record, limit);
+      await historyRemote(location.baseUrl, location.repo, location.token, options.workspace, record, limit, options.from);
     }
   } catch (err) {
     exitError(formatError(err));

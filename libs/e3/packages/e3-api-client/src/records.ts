@@ -9,6 +9,7 @@
  * returns the terminal MutationResult; history reads the commit chain.
  */
 
+import { none } from '@elaraai/east';
 import type { MutationCallRequest, MutationResult, RecordHistoryResult, RecordSignature } from './types.js';
 import { MutationCallRequestType, MutationResultType, RecordHistoryResultType, RecordSignatureType } from './types.js';
 import { get, post, type RequestOptions } from './http.js';
@@ -43,7 +44,20 @@ export async function workspaceRecordMutate(
   return post(url, `${recordBase(repo, ws, record)}/mutations/${enc(mutation)}`, req, MutationCallRequestType, MutationResultType, options);
 }
 
-/** Fetch a record's commit history (newest first), optionally limited. */
+/** Compact a record's history (drops the prior chain), returning the result of
+ *  the `$compact` commit. Elevated role when the server has auth configured. */
+export async function workspaceRecordCompact(
+  url: string,
+  repo: string,
+  ws: string,
+  record: string,
+  options: RequestOptions,
+): Promise<MutationResult> {
+  return post(url, `${recordBase(repo, ws, record)}/compact`, { args: [], actor: none, limits: none }, MutationCallRequestType, MutationResultType, options);
+}
+
+/** Fetch a record's commit history (newest first); page with `from` (a commit
+ *  hash to start the walk at) and bound with `limit`. */
 export async function workspaceRecordHistory(
   url: string,
   repo: string,
@@ -51,7 +65,11 @@ export async function workspaceRecordHistory(
   record: string,
   limit: number | undefined,
   options: RequestOptions,
+  from?: string,
 ): Promise<RecordHistoryResult> {
-  const query = limit !== undefined ? `?limit=${limit}` : '';
-  return get(url, `${recordBase(repo, ws, record)}/history${query}`, RecordHistoryResultType, options);
+  const params = new URLSearchParams();
+  if (from !== undefined) params.set('from', from);
+  if (limit !== undefined) params.set('limit', String(limit));
+  const query = params.toString();
+  return get(url, `${recordBase(repo, ws, record)}/history${query ? `?${query}` : ''}`, RecordHistoryResultType, options);
 }

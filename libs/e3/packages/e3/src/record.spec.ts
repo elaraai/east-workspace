@@ -90,6 +90,16 @@ describe('e3.record / e3.mutation', () => {
     assert.ok(pkg.contents.includes(counter), 'record dataset in contents');
   });
 
+  it('rejects an async reducer body at definition time', () => {
+    const counter = record('counter', IntegerType, 0n);
+    // Async bodies break CAS-retry safety; the typed overload rejects them at
+    // compile time, and the cast checks the runtime guard for dynamic callers.
+    assert.throws(
+      () => mutation('bad', counter, East.asyncFunction([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by)) as never),
+      /pure, synchronous|async/i,
+    );
+  });
+
   describe('export round-trip', () => {
     let tmp: string;
     before(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'e3-rec-')); });
