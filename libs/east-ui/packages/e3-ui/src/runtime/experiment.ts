@@ -5,37 +5,50 @@
 
 /** `<Experiment>` tag — see the export's JSDoc. */
 
-import { optionsTag, type OptionsProps, type JsxTag } from "@elaraai/east-ui";
-import { Experiment as ExperimentFactory } from "../experiment.js";
+import { type StructType } from "@elaraai/east";
+import { optionsTag, type UIElement } from "@elaraai/east-ui";
+import { Experiment as ExperimentFactory, type ExperimentOptions } from "../experiment/index.js";
 
 /**
- * Causal-experiment surface — renders bound result datasets (effect / refute /
- * dose) as a picture-and-colour answer to *"did {treatment} change {outcome}?"*.
+ * Interactive causal-experiment surface — binds an input dataset + a staged spec
+ * + estimator functions and renders a picture-and-colour answer to *"did
+ * {treatment} change {outcome}?"*.
  *
- * The result side is derived, not authored: status words and the sign-flip
- * banner are computed from the bound numbers; only the column names the user
- * picked appear as text.
+ * Generic over the bound dataset's row struct (like `<Table>`): `Row` is
+ * inferred from `data`, which types the `estimate` / `refute` / `dose` function
+ * signatures. The result side is derived, not authored — status words, the
+ * sign-flip banner and the bars are computed from the bound numbers; only the
+ * column names the user picked appear as text.
  *
  * @example
  * ```tsx
  * // .tsx file with the `@jsxImportSource @elaraai/e3-ui` pragma
  * import { East } from "@elaraai/east";
  * import { Reactive, UIComponentType } from "@elaraai/east-ui";
- * import { Data, Experiment } from "@elaraai/e3-ui";
+ * import { Data, Experiment, Func } from "@elaraai/e3-ui";
  *
  * const surface = East.function([], UIComponentType, _$ => (
  *     <Reactive>{$ => {
- *         const spec   = $.let(Data.bind(specInput, { mode: "staged" }));
- *         const answer = $.let(Data.bind(answerInput));
- *         return <Experiment spec={spec} answer={answer} />;
+ *         const data     = $.let(Data.bind(batchesInput));
+ *         const spec     = $.let(Data.bind(specInput, { mode: "staged" }));
+ *         const estimate = $.let(Func.bind(estimateFn));
+ *         return <Experiment data={data} spec={spec} estimate={estimate} />;
  *     }}</Reactive>
  * ));
  * ```
  *
  * @remarks
- * Carries `Experiment.Types` (the spec / answer / refute / dose / journal value
- * types). Desugars to `Experiment.Root(options)`. The renderer registers
- * against `Experiment.Component` (from `@elaraai/e3-ui/internal`).
+ * Carries `Experiment.Types` (the spec / result / refute / dose / journal value
+ * types). Desugars to `Experiment.Root(options)`. The renderer registers against
+ * `Experiment.Component` (from `@elaraai/e3-ui/internal`).
  */
-export const Experiment: JsxTag<OptionsProps<typeof ExperimentFactory.Root>> & { Types: typeof ExperimentFactory.Types } =
-    Object.assign(optionsTag(ExperimentFactory.Root), { Types: ExperimentFactory.Types });
+/** The generic `<Experiment>` tag: `Row` is inferred from the `data` prop. */
+export type ExperimentTag = {
+    <Row extends StructType>(props: ExperimentOptions<Row>): UIElement;
+    Types: typeof ExperimentFactory.Types;
+};
+
+export const Experiment: ExperimentTag = Object.assign(
+    optionsTag(ExperimentFactory.Root as (options: ExperimentOptions<StructType>) => UIElement),
+    { Types: ExperimentFactory.Types },
+) as unknown as ExperimentTag;
