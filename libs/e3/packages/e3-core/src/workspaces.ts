@@ -20,11 +20,11 @@
 import { createWriteStream } from 'fs';
 import * as fs from 'fs/promises';
 import yazl from 'yazl';
-import { decodeBeast2For, encodeBeast2For, variant } from '@elaraai/east';
-import { PackageObjectType, WorkspaceStateType, TaskObjectType, FunctionObjectType, DataflowRunType, DatasetRefType, decodePackageObject } from '@elaraai/e3-types';
-import type { PackageObject, WorkspaceState, TaskObject, FunctionObject, DatasetRef } from '@elaraai/e3-types';
+import { decodeBeast2For, encodeBeast2For, variant, none } from '@elaraai/east';
+import { PackageObjectType, WorkspaceStateType, TaskObjectType, FunctionObjectType, RecordObjectType, RecordCommitType, DataflowRunType, DatasetRefType, decodePackageObject } from '@elaraai/e3-types';
+import type { PackageObject, WorkspaceState, TaskObject, FunctionObject, DatasetRef, RecordCommit } from '@elaraai/e3-types';
 import { packageResolve, packageRead } from './packages.js';
-import { writeRefsFromPackage } from './dataset-refs.js';
+import { writeRefsFromPackage, refPathToKeypath } from './dataset-refs.js';
 import {
   WorkspaceNotFoundError,
   WorkspaceNotDeployedError,
@@ -297,6 +297,11 @@ export async function workspaceDeploy(
     // Initialize per-dataset ref files from the package
     await writeRefsFromPackage(storage, repo, name, pkg.data.structure, pkg.data.refs);
 
+    // Mint each record's genesis ($init) commit and point its ref's
+    // version-vector self-entry at it, so a record has history from deploy and
+    // is never unassigned.
+    await writeRecordGenesis(storage, repo, name, pkg);
+
     const now = new Date();
     const state: WorkspaceState = {
       packageName: pkgName,
@@ -312,6 +317,46 @@ export async function workspaceDeploy(
     if (!externalLock) {
       await lock.release();
     }
+  }
+}
+
+const decodeRecordObject = decodeBeast2For(RecordObjectType);
+const encodeRecordCommit = encodeBeast2For(RecordCommitType);
+
+/**
+ * Write the genesis ($init) commit for every record in a freshly-deployed
+ * package and swing each record ref's version-vector self-entry to it.
+ *
+ * The record's initial-state value ref was already written by
+ * writeRefsFromPackage; here we add the commit object that makes that state the
+ * head of the record's history. Runs under the deploy lock, so an unconditional
+ * ref write is safe.
+ */
+async function writeRecordGenesis(
+  storage: StorageBackend,
+  repo: string,
+  ws: string,
+  pkg: PackageObject,
+): Promise<void> {
+  const at = new Date();
+  for (const recHash of pkg.records.values()) {
+    const recObj = decodeRecordObject(await storage.objects.read(repo, recHash));
+    const stateRef = pkg.data.refs.get(recObj.path);
+    if (!stateRef || stateRef.type !== 'value') continue; // a record always has initial state
+    const commit: RecordCommit = {
+      parent: none,
+      state: stateRef.value.hash,
+      mutation: '$init',
+      args: none,
+      actor: 'system:deploy',
+      at,
+    };
+    const commitHash = await storage.objects.write(repo, encodeRecordCommit(commit));
+    const selfKeypath = refPathToKeypath(recObj.path);
+    await storage.datasets.write(
+      repo, ws, recObj.path,
+      variant('value', { hash: stateRef.value.hash, versions: new Map([[selfKeypath, commitHash]]) }),
+    );
   }
 }
 

@@ -88,6 +88,16 @@ export {
   type WorkspaceDeployOptions,
 } from './workspaces.js';
 
+// Record mutations and history (the write half of the CQRS pair)
+export {
+  recordMutate,
+  recordHistory,
+  type MutationOutcome,
+  type RecordMutateOptions,
+  type RecordMutateLimits,
+  type RecordHistoryEntry,
+} from './records.js';
+
 // Tree and dataset operations (low-level, by hash)
 export {
   treeRead,

@@ -311,6 +311,7 @@ describe('gc', () => {
           ]),
         },
         functions: new Map(),
+        records: new Map(),
       } as PackageObject));
 
       // Create a package ref pointing to the package
@@ -341,6 +342,7 @@ describe('gc', () => {
           refs: new Map(),
         },
         functions: new Map(),
+        records: new Map(),
       } as PackageObject));
 
       // Unreachable orphan object
@@ -519,6 +521,7 @@ describe('gc', () => {
           refs: new Map(),
         },
         functions: new Map(),
+        records: new Map(),
       } as PackageObject);
       const pkgHash = 'a'.repeat(64);
 

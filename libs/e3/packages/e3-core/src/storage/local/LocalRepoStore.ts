@@ -325,6 +325,12 @@ export class LocalRepoStore implements RepoStore {
             const ref = await this.datasets.read(repo, name, refPath);
             if (ref && ref.type === 'value') {
               roots.push(ref.value.hash);
+              // Version-vector entries include a record's head-commit hash (its
+              // history root); plain-value self-entries are state hashes already
+              // rooted above, so the extra pushes are harmless dupes.
+              for (const versionHash of ref.value.versions.values()) {
+                roots.push(versionHash);
+              }
             }
           }
         }
