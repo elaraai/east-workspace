@@ -29,6 +29,10 @@ export const inputsTree: DataTreeDef = {
  *
  * Creates a dataset at `.inputs.${name}` in the workspace.
  *
+ * @deprecated Use {@link value} instead — it is identical but mounts at
+ *   `.values.${name}`, a name that matches the replace-on-write behaviour.
+ *   `input` stays for existing packages and will be removed in a later major.
+ *
  * @typeParam T - The East type of the input value
  * @param name - Dataset name (used as path segment in the tree)
  * @param type - East type of the input value
