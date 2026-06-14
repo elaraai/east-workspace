@@ -213,9 +213,13 @@ export async function spawnAndCapture(
   // often lacks the runner (it's hoisted to the workspace root), so we
   // can't stop at the first hit.
   //
-  // Pass env ONLY when we have something to add. Without `env`, the child
-  // inherits process.env directly — exactly what we want when no augment
-  // is available (the inherited PATH is the proven-working state).
+  // Also prepend the directory of the running node binary: node-based runner
+  // shims (`east-node`) re-exec `node`, so node MUST be resolvable on the spawn
+  // PATH. The PATH e3 inherited is not guaranteed to have it — e.g. an
+  // in-process e3-api-server inside a VS Code extension host (whose PATH lacks
+  // the user's nvm/managed node), or any server started without the user's
+  // shell PATH. e3 itself IS node, so `process.execPath`'s dir always holds a
+  // working node. The inherited PATH stays as the base.
   const seen = new Set<string>();
   const projectBins = (options.searchDirs ?? [])
     .flatMap((d) => collectNodeModulesBins(d))
@@ -232,13 +236,13 @@ export async function spawnAndCapture(
     detached: true,
     windowsHide: true,
   };
-  if (projectBins.length > 0) {
-    const pathSep = process.platform === 'win32' ? ';' : ':';
-    spawnOpts.env = {
-      ...process.env,
-      PATH: `${projectBins.join(pathSep)}${pathSep}${process.env.PATH ?? ''}`,
-    };
-  }
+  const pathSep = process.platform === 'win32' ? ';' : ':';
+  spawnOpts.env = {
+    ...process.env,
+    PATH: [...projectBins, path.dirname(process.execPath), process.env.PATH ?? '']
+      .filter(Boolean)
+      .join(pathSep),
+  };
   const child = spawn(cmd, cmdArgs, spawnOpts);
 
   // Set up event listeners IMMEDIATELY before any async work to avoid
