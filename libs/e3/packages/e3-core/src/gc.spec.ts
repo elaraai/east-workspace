@@ -11,9 +11,9 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import { existsSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
-import { East, IntegerType, StringType, StructType, decodeBeast2For, encodeBeast2For, variant } from '@elaraai/east';
+import { East, IntegerType, StringType, StructType, decodeBeast2For, encodeBeast2For, variant, none, toEastTypeValue } from '@elaraai/east';
 import e3 from '@elaraai/e3';
-import { WorkspaceStateType, PackageObjectType, TaskObjectType, FunctionObjectType, DataRefType, DatasetRefType } from '@elaraai/e3-types';
+import { WorkspaceStateType, PackageObjectType, TaskObjectType, FunctionObjectType, DataRefType, DatasetRefType, RecordCommitType, MutationObjectType } from '@elaraai/e3-types';
 import type { WorkspaceState, PackageObject, TaskObject } from '@elaraai/e3-types';
 import { repoGc, collectAllRoots, markReachable, sweepBatch } from './storage/local/gc.js';
 import { objectWrite, objectRead } from './storage/local/LocalObjectStore.js';
@@ -697,6 +697,56 @@ describe('gc', () => {
 
       assert.strictEqual(result.toDelete.length, 0);
       assert.strictEqual(result.skippedYoung, 1);
+    });
+  });
+
+  // A record's state blob is an arbitrary user struct that flows through the same
+  // reachability dispatch as commits/mutations. The shape guards match an EXACT
+  // field set so a user value that merely resembles a commit/mutation is treated
+  // as an opaque leaf — its string fields must NOT be probed as child hashes (or
+  // GC could mark junk reachable, or read a non-hash as a hash).
+  describe('record shape guards do not misclassify user structs', () => {
+    const FAKE_CHILD = 'a'.repeat(64);
+    const trace = (objects: Map<string, Uint8Array>) =>
+      async (h: string): Promise<Uint8Array | null> => objects.get(h) ?? null;
+
+    it('a 6-field struct missing a commit field is a leaf (fields not followed)', async () => {
+      // parent/state/mutation/args/actor + 'extra' (not 'at'): size 6, not a commit.
+      const NearCommit = StructType({ parent: StringType, state: StringType, mutation: StringType, args: StringType, actor: StringType, extra: StringType });
+      const root = 'near-commit'.padEnd(64, '0');
+      const objects = new Map([[root, encodeBeast2For(NearCommit)({ parent: 'x', state: FAKE_CHILD, mutation: 'x', args: 'x', actor: 'x', extra: 'x' })]]);
+
+      const reachable = await markReachable(trace(objects), new Set([root]));
+      assert.ok(reachable.has(root));
+      assert.ok(!reachable.has(FAKE_CHILD), 'the "state"-named string must not be probed as a child hash');
+    });
+
+    it('a 3-field struct missing the mutation runner field is a leaf', async () => {
+      // bodyIr/argTypes + 'extra' (not 'runner'): size 3, not a mutation.
+      const NearMutation = StructType({ bodyIr: StringType, argTypes: StringType, extra: StringType });
+      const root = 'near-mutation'.padEnd(64, '0');
+      const objects = new Map([[root, encodeBeast2For(NearMutation)({ bodyIr: FAKE_CHILD, argTypes: 'x', extra: 'x' })]]);
+
+      const reachable = await markReachable(trace(objects), new Set([root]));
+      assert.ok(!reachable.has(FAKE_CHILD), 'the "bodyIr"-named string must not be followed');
+    });
+
+    it('a genuine RecordCommit IS traversed: its state blob stays reachable', async () => {
+      const STATE = 'b'.repeat(64);
+      const root = 'real-commit'.padEnd(64, '0');
+      const objects = new Map([[root, encodeBeast2For(RecordCommitType)({ parent: none, state: STATE, mutation: '$init', args: none, actor: 'system', at: new Date(0) })]]);
+
+      const reachable = await markReachable(trace(objects), new Set([root]));
+      assert.ok(reachable.has(STATE), 'a real commit must keep its state blob reachable');
+    });
+
+    it('a genuine MutationObject IS traversed: its bodyIr stays reachable', async () => {
+      const BODY = 'c'.repeat(64);
+      const root = 'real-mutation'.padEnd(64, '0');
+      const objects = new Map([[root, encodeBeast2For(MutationObjectType)({ bodyIr: BODY, argTypes: [toEastTypeValue(IntegerType)], runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }) })]]);
+
+      const reachable = await markReachable(trace(objects), new Set([root]));
+      assert.ok(reachable.has(BODY), 'a real mutation must keep its bodyIr reachable');
     });
   });
 });

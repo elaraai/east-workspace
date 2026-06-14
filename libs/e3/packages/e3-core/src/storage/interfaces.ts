@@ -402,25 +402,36 @@ export interface LockHandle {
 }
 
 /**
- * Distributed locking service for exclusive access.
+ * Workspace locking service mediating concurrent access.
  *
- * Used to prevent concurrent modifications to workspaces.
- * The lock state is stored using the LockState type from e3-types,
- * enabling cloud implementations to extend the holder variants.
- * All methods (except isHolderAlive) take `repo` as first parameter.
+ * A second implementation (e.g. the cloud's DynamoDB-lease backend) must honour
+ * this mutual-exclusion contract, which is the contract e3-core relies on:
+ *
+ * - `exclusive` excludes every other holder (shared and exclusive). Deploy and
+ *   remove take it, so they fence out all readers/writers.
+ * - `shared` coexists with other `shared` holders but is excluded by an
+ *   `exclusive` holder. Dataflow execution and record mutation take it, so they
+ *   run concurrently with each other yet never overlap a deploy.
+ *
+ * The lock state is stored using the LockState type from e3-types, so cloud
+ * implementations can extend the holder variants. All methods (except
+ * isHolderAlive) take `repo` as the first parameter.
  */
 export interface LockService {
   /**
-   * Acquire an exclusive lock on a resource.
+   * Acquire a lock on a resource in the requested mode (default `exclusive`).
    *
-   * The implementation gathers holder information (process ID for local,
-   * request ID for Lambda, etc.) and writes the lock state.
+   * Returns null if the mode is incompatible with a current holder per the
+   * shared/exclusive contract above (unless `wait` is set, in which case it
+   * blocks up to `timeout`). The implementation gathers holder information
+   * (process ID for local, request ID for Lambda, etc.) and writes the lock
+   * state.
    *
    * @param repo - Repository identifier
    * @param resource - Resource identifier (e.g., "workspaces/production")
    * @param operation - What operation is acquiring the lock
-   * @param options - Lock options
-   * @returns Lock handle, or null if lock couldn't be acquired
+   * @param options - Lock options (`mode` defaults to `exclusive`)
+   * @returns Lock handle, or null if the lock couldn't be acquired
    */
   acquire(
     repo: string,

@@ -83,7 +83,9 @@ export interface RecordMutateOptions {
   maxRetryMs?: number;
   /** Optional hard cap on CAS attempts (mainly for tests forcing a conflict). */
   maxAttempts?: number;
-  /** Cancellation — kills the reducer process group. */
+  /** Cancellation — aborts the in-flight reducer execution (how is the runner's
+   *  concern: a local runner kills the process group, a remote one cancels the
+   *  invocation). */
   signal?: AbortSignal;
   /** Externally-held shared workspace lock; acquired internally when omitted. */
   lock?: LockHandle;
