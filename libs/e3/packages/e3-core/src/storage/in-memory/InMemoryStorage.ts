@@ -5,7 +5,7 @@
 
 import { none } from '@elaraai/east';
 import { computeHash } from '../../objects.js';
-import { ObjectNotFoundError, RepoNotFoundError } from '../../errors.js';
+import { ObjectNotFoundError, RepoNotFoundError, DatasetRefConflictError } from '../../errors.js';
 import type { ExecutionStatus, DataflowRun, DatasetRef } from '@elaraai/e3-types';
 import type {
   StorageBackend,
@@ -453,8 +453,11 @@ class InMemoryLogStore implements LogStore {
  */
 /* eslint-disable @typescript-eslint/require-await */
 class InMemoryDatasetRefStore implements DatasetRefStore {
-  // Key: "repo:ws:path"
-  private refs = new Map<string, DatasetRef>();
+  // Key: "repo:ws:path" -> ref plus its current revision token.
+  private refs = new Map<string, { ref: DatasetRef; revision: string }>();
+  // Monotonic counter minting opaque revision tokens. Distinct per write, so a
+  // CAS never misses a concurrent change even when two writes produce equal refs.
+  private revCounter = 0;
 
   private makeKey(repo: string, ws: string, path: string): string {
     return `${repo}:${ws}:${path}`;
@@ -464,12 +467,40 @@ class InMemoryDatasetRefStore implements DatasetRefStore {
     return `${repo}:${ws}:`;
   }
 
+  private nextRevision(): string {
+    return String(++this.revCounter);
+  }
+
   async read(repo: string, ws: string, path: string): Promise<DatasetRef | null> {
-    return this.refs.get(this.makeKey(repo, ws, path)) ?? null;
+    return this.refs.get(this.makeKey(repo, ws, path))?.ref ?? null;
   }
 
   async write(repo: string, ws: string, path: string, ref: DatasetRef): Promise<void> {
-    this.refs.set(this.makeKey(repo, ws, path), ref);
+    this.refs.set(this.makeKey(repo, ws, path), { ref, revision: this.nextRevision() });
+  }
+
+  async readVersioned(repo: string, ws: string, path: string): Promise<{ ref: DatasetRef; revision: string } | null> {
+    const entry = this.refs.get(this.makeKey(repo, ws, path));
+    return entry ? { ref: entry.ref, revision: entry.revision } : null;
+  }
+
+  // Single-threaded: the read-compare-set runs with no intervening await, so it
+  // is atomic against other concurrent writeIf/write calls on this store.
+  async writeIf(
+    repo: string,
+    ws: string,
+    path: string,
+    ref: DatasetRef,
+    expectedRevision: string | null
+  ): Promise<{ revision: string }> {
+    const key = this.makeKey(repo, ws, path);
+    const currentRevision = this.refs.get(key)?.revision ?? null;
+    if (currentRevision !== expectedRevision) {
+      throw new DatasetRefConflictError(ws, path, expectedRevision, currentRevision);
+    }
+    const revision = this.nextRevision();
+    this.refs.set(key, { ref, revision });
+    return { revision };
   }
 
   async list(repo: string, ws: string): Promise<string[]> {

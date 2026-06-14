@@ -296,6 +296,7 @@ export {
   PackageExistsError,
   // Dataset
   DatasetNotFoundError,
+  DatasetRefConflictError,
   // Task
   TaskNotFoundError,
   // Object
