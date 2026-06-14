@@ -103,5 +103,16 @@ for (const [name, make] of Object.entries(backends)) {
       assert.strictEqual(rejected.length, 1, 'the other observes a conflict');
       assert.ok((rejected[0] as PromiseRejectedResult).reason instanceof DatasetRefConflictError);
     });
+
+    it('mints a distinct revision even when two writes store byte-identical refs (no ABA)', async () => {
+      // A content-digest revision would be equal for identical bytes, letting a
+      // later writeIf false-match a concurrently-overwritten ref (lost update).
+      const ref = variant('value', { hash: 'a'.padEnd(64, '0'), versions: new Map() });
+      const first = await fx.store.writeIf(fx.repo, ws, path, ref, null);
+      const second = await fx.store.writeIf(fx.repo, ws, path, ref, first.revision); // identical ref bytes
+      assert.notStrictEqual(second.revision, first.revision, 'revision is a unique token, not a content digest');
+      // The now-stale first revision must be rejected.
+      await assert.rejects(fx.store.writeIf(fx.repo, ws, path, ref, first.revision), DatasetRefConflictError);
+    });
   });
 }

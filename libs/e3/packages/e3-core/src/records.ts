@@ -49,8 +49,11 @@ const DEFAULT_LIMITS: RecordMutateLimits = {
   maxLogBytes: 64 * 1024,
 };
 
-/** Default compare-and-swap attempts before reporting a conflict. */
-const DEFAULT_MAX_ATTEMPTS = 5;
+/** Wall-clock budget for the compare-and-swap retry loop. Because each conflict
+ *  means another writer committed (real progress), a hot record converges; the
+ *  loop is deadline-bounded rather than capped at a fixed attempt count (which a
+ *  thundering herd would exhaust, dropping a write). */
+const DEFAULT_MAX_RETRY_MS = 30_000;
 
 /**
  * The outcome of a mutation attempt. Only `committed` writes anything durable;
@@ -76,7 +79,9 @@ export interface RecordMutateOptions {
   actor: string;
   /** Execution limits; sensible record defaults applied when omitted. */
   limits?: RecordMutateLimits;
-  /** Compare-and-swap attempts before giving up (default 5). */
+  /** Wall-clock budget for CAS retries (default 30s); on expiry returns conflict. */
+  maxRetryMs?: number;
+  /** Optional hard cap on CAS attempts (mainly for tests forcing a conflict). */
   maxAttempts?: number;
   /** Cancellation — kills the reducer process group. */
   signal?: AbortSignal;
@@ -190,9 +195,11 @@ export async function recordMutate(
 
     const bodyIr = await storage.objects.read(repo, mutObj.bodyIr);
     const limits = opts.limits ?? DEFAULT_LIMITS;
-    const maxAttempts = opts.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
+    const deadline = Date.now() + (opts.maxRetryMs ?? DEFAULT_MAX_RETRY_MS);
 
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    for (let attempt = 1; ; attempt++) {
+      if (opts.signal?.aborted) return { kind: 'failed', exitCode: -1, stderr: 'aborted' };
+
       const existing = await storage.datasets.readVersioned(repo, ws, resolved.refPath);
       if (!existing || existing.ref.type !== 'value') {
         return { kind: 'invalid', message: `record '${recordName}' has no state` };
@@ -230,15 +237,13 @@ export async function recordMutate(
         );
         return { kind: 'committed', commitHash, stateHash: newStateHash };
       } catch (err) {
-        if (err instanceof DatasetRefConflictError) {
-          await new Promise((resolve) => setTimeout(resolve, casBackoffMs(attempt)));
-          continue;
+        if (!(err instanceof DatasetRefConflictError)) throw err;
+        if ((opts.maxAttempts !== undefined && attempt >= opts.maxAttempts) || Date.now() >= deadline) {
+          return { kind: 'conflict', attempts: attempt };
         }
-        throw err;
+        await new Promise((resolve) => setTimeout(resolve, casBackoffMs(attempt)));
       }
     }
-
-    return { kind: 'conflict', attempts: maxAttempts };
   });
 }
 
@@ -279,14 +284,14 @@ export async function recordCompact(
   repo: string,
   ws: string,
   recordName: string,
-  opts: { actor: string; maxAttempts?: number; lock?: LockHandle },
+  opts: { actor: string; maxRetryMs?: number; maxAttempts?: number; lock?: LockHandle },
 ): Promise<MutationOutcome> {
   return withSharedWorkspaceLock(storage, repo, ws, opts.lock, async () => {
     const resolved = await resolveRecord(storage, repo, ws, recordName);
     if (!resolved) return { kind: 'invalid', message: `record '${recordName}' not found` };
 
-    const maxAttempts = opts.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const deadline = Date.now() + (opts.maxRetryMs ?? DEFAULT_MAX_RETRY_MS);
+    for (let attempt = 1; ; attempt++) {
       const existing = await storage.datasets.readVersioned(repo, ws, resolved.refPath);
       if (!existing || existing.ref.type !== 'value') {
         return { kind: 'invalid', message: `record '${recordName}' has no state` };
@@ -309,14 +314,13 @@ export async function recordCompact(
         );
         return { kind: 'committed', commitHash, stateHash };
       } catch (err) {
-        if (err instanceof DatasetRefConflictError) {
-          await new Promise((resolve) => setTimeout(resolve, casBackoffMs(attempt)));
-          continue;
+        if (!(err instanceof DatasetRefConflictError)) throw err;
+        if ((opts.maxAttempts !== undefined && attempt >= opts.maxAttempts) || Date.now() >= deadline) {
+          return { kind: 'conflict', attempts: attempt };
         }
-        throw err;
+        await new Promise((resolve) => setTimeout(resolve, casBackoffMs(attempt)));
       }
     }
-    return { kind: 'conflict', attempts: maxAttempts };
   });
 }
 
@@ -330,8 +334,10 @@ export interface RecordHistoryEntry {
  * Walk a record's commit chain newest-first.
  *
  * @param opts.limit - Maximum commits to return (default: the whole chain)
- * @param opts.from - Commit hash to start the walk at (a cursor for paging);
- *   defaults to the record's head commit
+ * @param opts.from - Commit hash to start the walk at (a cursor for paging,
+ *   trusted to be a hash this endpoint previously returned for this record);
+ *   defaults to the record's head commit. A missing/undecodable cursor (or a
+ *   corrupt link mid-walk) terminates the walk rather than throwing.
  */
 export async function recordHistory(
   storage: StorageBackend,
@@ -354,7 +360,12 @@ export async function recordHistory(
     // Bound the walk by distinct objects so a corrupted/cyclic parent can't hang.
     if (seen.has(next)) break;
     seen.add(next);
-    const commit = decodeCommit(await storage.objects.read(repo, next));
+    let commit: RecordCommit;
+    try {
+      commit = decodeCommit(await storage.objects.read(repo, next));
+    } catch {
+      break; // missing object or non-commit cursor — end the walk gracefully
+    }
     entries.push({ hash: next, commit });
     next = commit.parent.type === 'some' ? commit.parent.value : undefined;
   }

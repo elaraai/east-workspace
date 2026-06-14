@@ -9,21 +9,52 @@
  * Stores per-dataset refs as .ref files in the workspace data directory:
  *   workspaces/<ws>/data/<path>.ref
  *
- * Each .ref file contains a beast2-encoded DatasetRef variant.
+ * A current-format file is a 0xFF magic byte followed by a beast2-encoded
+ * { revision, ref } struct, where `revision` is a unique token minted per write
+ * — NOT a content digest, so two byte-identical refs still get distinct
+ * revisions and the compare-and-swap can never miss a concurrent change (ABA).
+ * Pre-revision files (a bare beast2 DatasetRef variant) are still read; their
+ * revision is the content hash, and the next write upgrades them.
+ *
  * Writes are atomic (write to .partial, then rename).
  */
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { encodeBeast2For, decodeBeast2For, variant } from '@elaraai/east';
+import { randomUUID } from 'crypto';
+import { encodeBeast2For, decodeBeast2For, variant, StructType, StringType } from '@elaraai/east';
 import { DatasetRefType, type DatasetRef } from '@elaraai/e3-types';
 import { computeHash } from '../../objects.js';
 import { DatasetRefConflictError } from '../../errors.js';
 import { acquireWorkspaceLock } from './LocalLockService.js';
 import type { DatasetRefStore } from '../interfaces.js';
 
-const encodeRef = encodeBeast2For(DatasetRefType);
 const decodeRef = decodeBeast2For(DatasetRefType);
+
+// Current ref-file format: a 0xFF magic byte (a bare DatasetRef variant always
+// begins with a small case-index byte 0x00/0x01/0x02, so 0xFF is unambiguous)
+// then a { revision, ref } struct.
+const REVISIONED_MAGIC = 0xff;
+const RevisionedRefType = StructType({ revision: StringType, ref: DatasetRefType });
+const encodeRevisioned = encodeBeast2For(RevisionedRefType);
+const decodeRevisioned = decodeBeast2For(RevisionedRefType);
+
+/** Decode a stored ref file (either format) to its ref and revision. */
+function decodeStored(data: Buffer): { ref: DatasetRef; revision: string } {
+  if (data[0] === REVISIONED_MAGIC) {
+    const { revision, ref } = decodeRevisioned(data.subarray(1));
+    return { ref, revision };
+  }
+  // Legacy bare-DatasetRef file: its content hash is a stable revision, and the
+  // next write upgrades it to the revisioned format.
+  return { ref: decodeRef(data), revision: computeHash(data) };
+}
+
+/** Encode a ref + a freshly-minted unique revision in the current format. */
+function encodeStored(ref: DatasetRef): { data: Uint8Array; revision: string } {
+  const revision = randomUUID();
+  return { data: Buffer.concat([Buffer.from([REVISIONED_MAGIC]), encodeRevisioned({ revision, ref })]), revision };
+}
 
 // Upper bound on how long writeIf waits for the per-path lock. The critical
 // section (read + compare + atomic rename) is microseconds, so contention
@@ -111,21 +142,22 @@ export class LocalDatasetRefStore implements DatasetRefStore {
    * nested directory the lock service would not create.
    */
   private casResource(ws: string, datasetPath: string): string {
-    // Escape any literal '~' before using it as the path separator so the
-    // (ws, datasetPath) -> resource mapping is injective: a '~' in a segment
-    // can no longer alias a '/' boundary and collide two distinct paths.
-    const esc = (s: string): string => s.replace(/~/g, '~7e').replace(/\//g, '~');
+    // Escape both reserved chars with a '~'-introduced hex form so the
+    // (ws, datasetPath) -> resource mapping is injective: a literal '~' or '/'
+    // in a segment can no longer alias the separator and collide two paths onto
+    // one lock. '~' is escaped first so the '~' from the '/' step isn't re-escaped.
+    const esc = (s: string): string => s.replace(/~/g, '~7e').replace(/\//g, '~2f');
     return `${esc(ws)}~data~${esc(datasetPath)}`;
   }
 
   async read(repo: string, ws: string, datasetPath: string): Promise<DatasetRef | null> {
     const data = await this.readBytes(this.refPath(repo, ws, datasetPath));
     if (data === null || data.length === 0) return null;
-    return decodeRef(data);
+    return decodeStored(data).ref;
   }
 
   async write(repo: string, ws: string, datasetPath: string, ref: DatasetRef): Promise<void> {
-    await this.writeBytes(this.refPath(repo, ws, datasetPath), encodeRef(ref));
+    await this.writeBytes(this.refPath(repo, ws, datasetPath), encodeStored(ref).data);
   }
 
   async readVersioned(
@@ -135,9 +167,7 @@ export class LocalDatasetRefStore implements DatasetRefStore {
   ): Promise<{ ref: DatasetRef; revision: string } | null> {
     const data = await this.readBytes(this.refPath(repo, ws, datasetPath));
     if (data === null || data.length === 0) return null;
-    // The revision is a content etag: the hash of the exact stored bytes. This
-    // needs no change to the .ref file format, so existing refs keep decoding.
-    return { ref: decodeRef(data), revision: computeHash(data) };
+    return decodeStored(data);
   }
 
   async writeIf(
@@ -160,13 +190,15 @@ export class LocalDatasetRefStore implements DatasetRefStore {
     );
     try {
       const current = await this.readBytes(filePath);
-      const currentRevision = current && current.length > 0 ? computeHash(current) : null;
+      const currentRevision = current && current.length > 0 ? decodeStored(current).revision : null;
       if (currentRevision !== expectedRevision) {
         throw new DatasetRefConflictError(ws, datasetPath, expectedRevision, currentRevision);
       }
-      const data = encodeRef(ref);
+      // A freshly-minted revision per write: two byte-identical refs still get
+      // distinct revisions, so a later writeIf can't false-match (no ABA).
+      const { data, revision } = encodeStored(ref);
       await this.writeBytes(filePath, data);
-      return { revision: computeHash(data) };
+      return { revision };
     } finally {
       await lock.release();
     }

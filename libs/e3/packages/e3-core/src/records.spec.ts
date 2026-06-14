@@ -18,6 +18,7 @@ import type { Structure, TreePath } from '@elaraai/e3-types';
 import { recordMutate, recordHistory, recordCompact, recordDescribe } from './records.js';
 import { repoGc } from './storage/local/gc.js';
 import { snapshotInputVersions } from './dataset-refs.js';
+import { WorkspaceLockError } from './errors.js';
 import { workspaceGetDataset, workspaceSetDataset } from './trees.js';
 import { packageImport } from './packages.js';
 import { workspaceCreate, workspaceDeploy } from './workspaces.js';
@@ -269,8 +270,10 @@ describe('records', () => {
     assert.strictEqual((await recordHistory(storage, repo, ws, 'counter')).length, lenBefore); // chain intact
   });
 
-  it('redeploy errors when a record changed type', async () => {
+  it('a rejected type-change redeploy leaves the workspace fully intact', async () => {
     await recordMutate(storage, successRunner(encodeInt(3n)), repo, ws, 'counter', 'increment', [encodeInt(3n)], { actor: 'x' });
+    const lenBefore = (await recordHistory(storage, repo, ws, 'counter')).length;
+
     // A new package version where `counter` is a String record instead of Integer.
     const counterStr = e3.record('counter', StringType, '');
     const pkg2 = e3.package('counters', '2.0.0', counterStr);
@@ -278,5 +281,74 @@ describe('records', () => {
     await e3.export(pkg2, zip2);
     await packageImport(storage, repo, zip2);
     await assert.rejects(workspaceDeploy(storage, repo, ws, 'counters', '2.0.0'), /changed type/);
+
+    // The rejection fires before any destructive write, so state + history + the
+    // Integer typing are all untouched (no torn workspace, no data loss).
+    assert.strictEqual(await workspaceGetDataset(storage, repo, ws, counterPath), 3n);
+    assert.strictEqual((await recordHistory(storage, repo, ws, 'counter')).length, lenBefore);
+  });
+
+  it('redeploy without the record drops it (record removed)', async () => {
+    await recordMutate(storage, successRunner(encodeInt(4n)), repo, ws, 'counter', 'increment', [encodeInt(4n)], { actor: 'x' });
+    const noRecord = e3.package('counters', '3.0.0', e3.input('greeting', StringType, 'hi'));
+    const zip3 = join(tempDir, 'counters-norecord.zip');
+    await e3.export(noRecord, zip3);
+    await packageImport(storage, repo, zip3);
+    await workspaceDeploy(storage, repo, ws, 'counters', '3.0.0');
+    await assert.rejects(workspaceGetDataset(storage, repo, ws, counterPath)); // path gone from the structure
+  });
+
+  it('a mutation and a compaction are fenced out by an exclusive deploy/remove lock', async () => {
+    const held = await storage.locks.acquire(repo, ws, variant('deployment', null)); // default exclusive
+    assert.ok(held);
+    try {
+      await assert.rejects(
+        recordMutate(storage, successRunner(encodeInt(5n)), repo, ws, 'counter', 'increment', [encodeInt(5n)], { actor: 'x' }),
+        WorkspaceLockError,
+      );
+      await assert.rejects(recordCompact(storage, repo, ws, 'counter', { actor: 'x' }), WorkspaceLockError);
+      assert.strictEqual(await workspaceGetDataset(storage, repo, ws, counterPath), 0n); // untouched while fenced
+    } finally {
+      await held!.release();
+    }
+    // Once released, the mutation commits — proving it was the lock, not another failure.
+    assert.strictEqual((await recordMutate(storage, successRunner(encodeInt(5n)), repo, ws, 'counter', 'increment', [encodeInt(5n)], { actor: 'x' })).kind, 'committed');
+  });
+
+  it('forwards reducer stderr on timed_out and too_large outcomes', async () => {
+    const timedOut = await recordMutate(
+      storage,
+      runnerReturning(async () => ({ kind: 'timed_out', ms: 1234, stderr: 'slow reducer', stdout: '', stdoutTruncated: false, stderrTruncated: false })),
+      repo, ws, 'counter', 'increment', [encodeInt(1n)], { actor: 'x' },
+    );
+    assert.strictEqual(timedOut.kind, 'timed_out');
+    assert.strictEqual((timedOut as { stderr: string }).stderr, 'slow reducer');
+
+    const tooLarge = await recordMutate(
+      storage,
+      runnerReturning(async () => ({ kind: 'too_large', bytes: 999, limit: 100, stderr: 'huge state', stdout: '', stdoutTruncated: false, stderrTruncated: false })),
+      repo, ws, 'counter', 'increment', [encodeInt(1n)], { actor: 'x' },
+    );
+    assert.strictEqual(tooLarge.kind, 'too_large');
+    assert.strictEqual((tooLarge as { stderr: string }).stderr, 'huge state');
+  });
+
+  it('history pages with a from cursor and ends gracefully on an unknown cursor', async () => {
+    for (let i = 0; i < 3; i++) {
+      await recordMutate(storage, successRunner(encodeInt(BigInt(i + 1))), repo, ws, 'counter', 'increment', [encodeInt(1n)], { actor: 'x' });
+    }
+    const all = await recordHistory(storage, repo, ws, 'counter');
+    assert.strictEqual(all.length, 4); // $init + 3
+
+    const page1 = await recordHistory(storage, repo, ws, 'counter', { limit: 2 });
+    assert.deepStrictEqual(page1.map((e) => e.hash), all.slice(0, 2).map((e) => e.hash));
+
+    const cursor = page1[1]!.commit.parent;
+    assert.strictEqual(cursor.type, 'some');
+    const page2 = await recordHistory(storage, repo, ws, 'counter', { from: cursor.type === 'some' ? cursor.value : undefined, limit: 10 });
+    assert.deepStrictEqual(page2.map((e) => e.hash), all.slice(2).map((e) => e.hash)); // contiguous, no overlap
+
+    // An unknown/garbage cursor terminates the walk rather than throwing.
+    assert.deepStrictEqual(await recordHistory(storage, repo, ws, 'counter', { from: 'cafef00d'.padEnd(64, '0') }), []);
   });
 });

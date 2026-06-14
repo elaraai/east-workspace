@@ -295,6 +295,11 @@ export async function workspaceDeploy(
     // operational record state + audit history rather than resetting it.
     const priorRecords = await capturePriorRecords(storage, repo, name);
 
+    // Reject an incompatible (type-changed) redeploy BEFORE any destructive
+    // write, so a doomed redeploy leaves the workspace fully intact rather than
+    // half-wiped with a torn state/data-dir mismatch.
+    await assertRecordTypesCompatible(storage, repo, pkg, priorRecords);
+
     // Remove any existing dataset refs
     await storage.datasets.removeAll(repo, name);
 
@@ -337,7 +342,7 @@ function recordLeafType(structure: Structure, refPath: string): EastTypeValue | 
     if (!next) return undefined;
     current = next;
   }
-  return current.type === 'value' ? (current.value.type as EastTypeValue) : undefined;
+  return current.type === 'value' ? current.value.type : undefined;
 }
 
 /** A prior deployment's record refs + types, captured before a redeploy wipes
@@ -374,10 +379,36 @@ async function capturePriorRecords(
 }
 
 /**
+ * Reject a redeploy whose record changed East type, BEFORE any destructive
+ * write — so the workspace is never left half-wiped. Throws on the first record
+ * whose new type differs from its preserved prior type.
+ */
+async function assertRecordTypesCompatible(
+  storage: StorageBackend,
+  repo: string,
+  pkg: PackageObject,
+  prior: PriorRecords | null,
+): Promise<void> {
+  if (!prior) return;
+  for (const recHash of pkg.records.values()) {
+    const recObj = decodeRecordObject(await storage.objects.read(repo, recHash));
+    const priorRecord = prior.get(recObj.path);
+    if (!priorRecord) continue;
+    const newType = recordLeafType(pkg.data.structure, recObj.path);
+    if (newType && !recordTypesEqual(priorRecord.type, newType)) {
+      throw new Error(
+        `Cannot redeploy: record '${recObj.path}' changed type, so its committed state ` +
+        `is incompatible. Remove the workspace to reset the record, or keep its type stable.`,
+      );
+    }
+  }
+}
+
+/**
  * For each record in a freshly-deployed package: restore its prior committed
- * state + history across a redeploy when the record already existed with an
- * unchanged East type (erroring if the type changed), otherwise mint the
- * genesis ($init) commit over the package's initial value.
+ * state + history across a redeploy when the record already existed (types were
+ * checked compatible before any wipe), otherwise mint the genesis ($init)
+ * commit over the package's initial value.
  *
  * The initial-state value ref was already written by writeRefsFromPackage; this
  * either overwrites it with the preserved prior ref or adds the genesis commit
@@ -399,14 +430,8 @@ async function writeRecordGenesis(
 
     const priorRecord = prior?.get(recObj.path);
     if (priorRecord) {
-      const newType = recordLeafType(pkg.data.structure, recObj.path);
-      if (newType && !recordTypesEqual(priorRecord.type, newType)) {
-        throw new Error(
-          `Cannot redeploy: record '${recObj.path}' changed type, so its committed state ` +
-          `is incompatible. Remove the workspace to reset the record, or keep its type stable.`,
-        );
-      }
-      // Preserve the existing committed state and full commit chain.
+      // Preserve the existing committed state and full commit chain (type was
+      // already checked compatible by assertRecordTypesCompatible).
       await storage.datasets.write(repo, ws, recObj.path, priorRecord.ref);
       continue;
     }
