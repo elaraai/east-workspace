@@ -36,12 +36,19 @@ export const recordBindMutate = example({
             const clear = $.const(East.function([], NullType, $ => {
                 $(r.mutate.reset());
             }));
+            // A mutation commits the record but does not propagate; `start`
+            // launches the workspace dataflow so tasks consuming the record
+            // recompute. Queued behind any in-flight mutation.
+            const run = $.const(East.function([], NullType, $ => {
+                $(r.start());
+            }));
             return (
                 <VStack gap="3" align="stretch">
                     <Stat label="Counter" value={East.print(r.read())} />
                     <HStack gap="2">
                         <Button onClick={bump} loading={r.mutate.pending()}>Increment</Button>
                         <Button variant="outline" onClick={clear}>Reset</Button>
+                        <Button variant="ghost" onClick={run}>Run downstream</Button>
                     </HStack>
                     <Text.MonoLabel>{status}</Text.MonoLabel>
                     <Text color="fg.muted">{detail}</Text>

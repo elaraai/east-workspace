@@ -87,6 +87,11 @@ export type DiffBindingType = typeof DiffBindingType;
  * @property writeAndStart - Like `write`, but kicks the workspace dataflow
  *   so downstream tasks recompute. Only meaningful when `mode = "direct"`
  *   and `patch` is absent — in other modes it falls back to `write`.
+ * @property start - Launch the workspace dataflow on its own, without
+ *   writing first, so downstream tasks recompute against the current
+ *   datasets. The standalone half of `writeAndStart`; queued behind any
+ *   pending writes, so `write(v)` then `start()` propagates the new value.
+ *   Always returns null.
  * @property source - Read the raw source value with no overlay applied.
  * @property pending - True when there is an in-flight change waiting to be
  *   committed. Always false in `mode = "direct"` without a `patch` dataset.
@@ -103,6 +108,7 @@ export const DataBindHandleType = <T extends EastType | string>(t: T) => StructT
     read:          FunctionType([], t),
     write:         FunctionType([t], NullType),
     writeAndStart: FunctionType([t], NullType),
+    start:         FunctionType([], NullType),
     source:        FunctionType([], t),
     pending:       FunctionType([], BooleanType),
     commit:        FunctionType([], NullType),
@@ -152,6 +158,7 @@ export const bindPlatformFn = East.genericPlatform(
         read:          FunctionType([], "T"),
         write:         FunctionType(["T"], NullType),
         writeAndStart: FunctionType(["T"], NullType),
+        start:         FunctionType([], NullType),
         source:        FunctionType([], "T"),
         pending:       FunctionType([], BooleanType),
         commit:        FunctionType([], NullType),

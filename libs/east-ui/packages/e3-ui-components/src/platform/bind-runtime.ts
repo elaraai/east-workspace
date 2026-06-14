@@ -148,6 +148,7 @@ export interface BindHandle {
     read:          () => unknown;
     write:         (value: unknown) => null;
     writeAndStart: (value: unknown) => null;
+    start:         () => null;
     source:        () => unknown;
     pending:       () => boolean;
     commit:        () => null;
@@ -502,6 +503,14 @@ export class BindRuntime {
             return null;
         };
 
+        // Standalone dataflow launch. Queued behind any pending writes so
+        // `write(v)` then `start()` propagates the just-written value rather
+        // than racing it. Identical across all four modes.
+        const startLaunch = (): null => {
+            this.queueWrite(() => cache.launchDataflow(ws));
+            return null;
+        };
+
         // ----- direct, no patch — writes go to source ------------------
         if (mode === "direct" && !patchPath) {
             return {
@@ -517,6 +526,7 @@ export class BindRuntime {
                     this.queueWrite(() => cache.writeAndStart(ws, sourcePath, encodeT(value)));
                     return null;
                 },
+                start: startLaunch,
                 source: () => {
                     this.trackPath(ws, sourcePath);
                     return readSourceValue();
@@ -552,6 +562,7 @@ export class BindRuntime {
                     this.queueWrite(() => cache.writeAndStart(ws, pPath, encodePatch(next)));
                     return null;
                 },
+                start: startLaunch,
                 source: () => {
                     this.trackPath(ws, sourcePath);
                     return readSourceValue();
@@ -603,6 +614,7 @@ export class BindRuntime {
                 },
                 write: writeStaged,
                 writeAndStart: writeStaged,
+                start: startLaunch,
                 source: () => {
                     this.trackPath(ws, sourcePath);
                     return readSourceValue();
@@ -652,6 +664,7 @@ export class BindRuntime {
             },
             write: writeStaged,
             writeAndStart: writeStaged,
+            start: startLaunch,
             source: () => {
                 this.trackPath(ws, sourcePath);
                 return readSourceValue();

@@ -162,6 +162,15 @@ export interface ReactiveDatasetCacheInterface {
      * that you don't want to drive the dataflow on every tick.
      */
     writeAndStart(workspace: string, path: TreePath, value: Uint8Array): Promise<void>;
+    /**
+     * Launch a workspace dataflow run WITHOUT writing anything first, so
+     * downstream tasks recompute against the current dataset state. This is the
+     * standalone half of {@link writeAndStart} — use it after an out-of-band
+     * mutation (e.g. a record commit) or to drive an explicit "Run" affordance.
+     * Fire-and-await: resolves once the server accepts the request, not when
+     * the dataflow finishes.
+     */
+    launchDataflow(workspace: string): Promise<void>;
     /** Preload a dataset into cache */
     preload(workspace: string, path: TreePath): Promise<void>;
     /** List fields at a path */
@@ -469,6 +478,15 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
      */
     async writeAndStart(workspace: string, path: TreePath, value: Uint8Array): Promise<void> {
         await this.write(workspace, path, value);
+        if (this.destroyed) return;
+        await this.api.launchDataflow(workspace);
+    }
+
+    /**
+     * Launch a workspace dataflow run without writing first. The standalone
+     * half of {@link writeAndStart}; see the interface doc for semantics.
+     */
+    async launchDataflow(workspace: string): Promise<void> {
         if (this.destroyed) return;
         await this.api.launchDataflow(workspace);
     }

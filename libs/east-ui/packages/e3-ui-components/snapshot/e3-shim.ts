@@ -24,17 +24,22 @@
 import { input } from '../../../../e3/packages/e3/src/input.ts';
 import { task } from '../../../../e3/packages/e3/src/task.ts';
 import { function_ } from '../../../../e3/packages/e3/src/function.ts';
+import { record } from '../../../../e3/packages/e3/src/record.ts';
+import { mutation } from '../../../../e3/packages/e3/src/mutation.ts';
 
-export { input, task };
+export { input, task, record, mutation };
 export { function_ };
-export type { DatasetDef, FunctionDef } from '../../../../e3/packages/e3/src/types.ts';
+export type { DatasetDef, FunctionDef, RecordDef, MutationDef } from '../../../../e3/packages/e3/src/types.ts';
 
 /** Default-export surface, matching `@elaraai/e3`'s `e3` object for the
- *  members the browser harness can support. */
+ *  members the browser harness can support. `record` / `mutation` are pure
+ *  (they only touch `@elaraai/east`), so the `Record.bind` examples bundle. */
 const e3 = {
     input,
     task,
     function: function_,
+    record,
+    mutation,
 } as const;
 
 export default e3;

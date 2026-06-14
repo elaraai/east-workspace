@@ -343,6 +343,29 @@ describe("BindRuntime.buildBindHandle — direct, no patch", () => {
         assert.equal(api.calls.launchDataflow.length, 1);
     });
 
+    test("start launches the dataflow without writing", async () => {
+        const { runtime, cache, api } = await newRuntime();
+        api.seed(ws, sourcePath, encodeFloat(1));
+        await cache.preload(ws, sourcePath);
+        const handle = runtime.buildBindHandle(floatTypeValue, sourcePath, undefined, "direct");
+        handle.start();
+        await runtime.awaitPendingWrites();
+        assert.equal(api.calls.launchDataflow.length, 1);
+        assert.equal(api.calls.set.length, 0);
+    });
+
+    test("write then start launches after the write lands", async () => {
+        const { runtime, cache, api } = await newRuntime();
+        api.seed(ws, sourcePath, encodeFloat(1));
+        await cache.preload(ws, sourcePath);
+        const handle = runtime.buildBindHandle(floatTypeValue, sourcePath, undefined, "direct");
+        handle.write(42);
+        handle.start();
+        await runtime.awaitPendingWrites();
+        assert.equal(api.calls.set.length, 1);
+        assert.equal(api.calls.launchDataflow.length, 1);
+    });
+
     test("pending always false; commit/discard are no-ops", async () => {
         const { runtime, cache, api } = await newRuntime();
         api.seed(ws, sourcePath, encodeFloat(1));

@@ -139,6 +139,11 @@ export type RecordBindingType = typeof RecordBindingType;
  * @property mutate - The write surface: one fire-and-forget closure per
  *   mutation (typed from its def), plus the shared `pending` / `status` /
  *   `error` / `cancel`.
+ * @property start - Launch the workspace dataflow without mutating, so tasks
+ *   that consume this record recompute against its latest committed state.
+ *   The standalone "Run" affordance — a mutation refreshes the record's own
+ *   bytes but does not propagate downstream until a dataflow run; call this
+ *   (e.g. from a Run button) to drive that run. Always returns null.
  * @property binding - Descriptor for this binding — see {@link RecordBindingType}.
  */
 export const RecordBindHandleType = <T extends EastType, M extends Record<string, EastType[]>>(
@@ -165,6 +170,7 @@ export const RecordBindHandleType = <T extends EastType, M extends Record<string
         status:  FunctionType([], DatasetStatusType),
         history: FunctionType([], OptionType(ArrayType(RecordCommitInfoType))),
         mutate:  StructType(mutateFields),
+        start:   FunctionType([], NullType),
         binding: RecordBindingType,
     });
 };
@@ -194,6 +200,7 @@ type RecordHandle<T extends EastType, M extends Record<string, EastType[]>> = St
             cancel:  FunctionType<[], typeof NullType>;
         } & { [K in keyof M]: FunctionType<M[K], typeof NullType> }
     >;
+    start:   FunctionType<[], typeof NullType>;
     binding: RecordBindingType;
 }>;
 

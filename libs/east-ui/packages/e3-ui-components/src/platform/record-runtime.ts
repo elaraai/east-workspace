@@ -220,6 +220,9 @@ interface RecordEntry {
     launchSeq: number;
     /** Detail of the last `failed` mutation. */
     error?: RecordError;
+    /** The settle promise of the in-flight mutation, if one is running. `start()`
+     *  awaits it so a commit lands before the dataflow run reads the record. */
+    inflight?: Promise<void>;
 }
 
 /**
@@ -412,7 +415,7 @@ export class RecordRuntime {
             this.notify(key);
         };
 
-        void (async () => {
+        const run = (async () => {
             const invalid = await this.validate(workspace, record, mutation, argTypes);
             if (invalid) {
                 settle(e => { e.status = "failed"; e.error = invalid; });
@@ -444,6 +447,11 @@ export class RecordRuntime {
                 settle(e => { e.status = "failed"; e.error = errorOfMutationResult(result); });
             }
         })();
+        entry.inflight = run;
+        void run.finally(() => {
+            const current = this.entries.get(key);
+            if (current && current.inflight === run) delete current.inflight;
+        });
     }
 
     /** Build the handle value for one `Record.bind` platform evaluation. */
@@ -530,6 +538,18 @@ export class RecordRuntime {
                 return some(cached);
             },
             mutate,
+            start: () => {
+                const ws = runtime.resolveWorkspace();
+                const cache = requireCache();
+                const inflight = runtime.entry(recordChannelKey(ws, name)).inflight;
+                // Drain any in-flight mutation first so the run reads the committed
+                // state, then launch. Launch failures surface via dataflow status.
+                void Promise.resolve(inflight)
+                    .catch(() => undefined)
+                    .then(() => cache.launchDataflow(ws))
+                    .catch(() => undefined);
+                return null;
+            },
             binding: { name, mutations: [...sig.mutations.keys()] },
         };
     }

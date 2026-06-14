@@ -59,20 +59,24 @@ function recordSig(name: string, mutations: { name: string; argTypes: EastType[]
 interface FakeCache extends ReactiveDatasetCacheInterface {
     readonly store: Map<string, Uint8Array>;
     readonly refreshes: string[];
+    readonly launches: string[];
     seed(path: TreePath, bytes: Uint8Array): void;
 }
 
 function createFakeCache(): FakeCache {
     const store = new Map<string, Uint8Array>();
     const refreshes: string[] = [];
+    const launches: string[] = [];
     const cache = {
         store,
         refreshes,
+        launches,
         seed(path: TreePath, bytes: Uint8Array) { store.set(datasetCacheKey(ws, path), bytes); },
         read(workspace: string, path: TreePath) { return store.get(datasetCacheKey(workspace, path)); },
         getStatus() { return variant("up-to-date", null); },
         async write(workspace: string, path: TreePath, value: Uint8Array) { store.set(datasetCacheKey(workspace, path), value); },
         async refresh(workspace: string) { refreshes.push(workspace); },
+        async launchDataflow(workspace: string) { launches.push(workspace); },
     };
     return cache as unknown as FakeCache;
 }
@@ -149,6 +153,7 @@ type Handle = {
         error: () => { type: string; value?: { message: string; kind: { type: string }; stderr: string } };
         cancel: () => null;
     };
+    start: () => null;
     binding: { name: string; mutations: string[] };
 };
 
@@ -273,6 +278,42 @@ describe("RecordRuntime — mutation lifecycle", () => {
         await waitFor(() => handle.mutate.status().type === "failed", "terminal");
         assert.equal(handle.mutate.error().value!.kind.type, "transport");
         assert.deepEqual(cache.refreshes, []);
+    });
+});
+
+// =============================================================================
+// start() — launch the workspace dataflow
+// =============================================================================
+
+describe("RecordRuntime — start", () => {
+    test("start launches the workspace dataflow", async () => {
+        const { cache, handle } = newRuntime();
+        handle.start();
+        await waitFor(() => cache.launches.length > 0, "launch");
+        assert.deepEqual(cache.launches, [ws]);
+    });
+
+    test("start with no mutation in flight launches immediately", async () => {
+        const { cache, handle } = newRuntime();
+        // No mutation has run, so there is nothing to drain — it still launches.
+        handle.start();
+        await waitFor(() => cache.launches.length > 0, "launch");
+        assert.equal(cache.launches.length, 1);
+    });
+
+    test("start drains an in-flight mutation before launching", async () => {
+        const { api, cache, handle } = newRuntime();
+        const pause = api.pauseNext();
+        handle.mutate.increment(1n);
+        await waitFor(() => handle.mutate.status().type === "running", "running");
+        // Request the launch while the mutation is still in flight.
+        handle.start();
+        // It must not fire until the mutation settles.
+        await new Promise(resolve => setImmediate(resolve));
+        assert.deepEqual(cache.launches, []);
+        pause.resume(committed());
+        await waitFor(() => cache.launches.length > 0, "launch after commit");
+        assert.deepEqual(cache.launches, [ws]);
     });
 });
 
