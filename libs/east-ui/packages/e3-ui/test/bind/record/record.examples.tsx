@@ -24,6 +24,12 @@ export const recordBindMutate = example({
         <Reactive>{$ => {
             const r = $.let(Record.bind(counter, [increment, reset]));
             const status = $.let(r.mutate.status().getTag().upperCase());
+            // Surface the failure detail so a failed mutation shows WHY, not just
+            // that it failed.
+            const detail = $.let(r.mutate.error().match({
+                some: (_$, e) => e.message,
+                none: _$ => East.str``,
+            }));
             const bump = $.const(East.function([], NullType, $ => {
                 $(r.mutate.increment(1n));
             }));
@@ -38,6 +44,7 @@ export const recordBindMutate = example({
                         <Button variant="outline" onClick={clear}>Reset</Button>
                     </HStack>
                     <Text.MonoLabel>{status}</Text.MonoLabel>
+                    <Text color="fg.muted">{detail}</Text>
                 </VStack>
             );
         }}</Reactive>
