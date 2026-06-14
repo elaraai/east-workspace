@@ -25,6 +25,7 @@ import { createTransferRoutes } from './routes/transfer.js';
 import { createPackageTransferRoutes } from './routes/package-transfer.js';
 import { createDataEndpoints } from './routes/data.js';
 import { createPackageFunctionRoutes, createWorkspaceFunctionRoutes, createOneShotRoutes } from './routes/functions.js';
+import { createWorkspaceRecordRoutes } from './routes/records.js';
 
 export type { AuthConfig } from './middleware/auth.js';
 export type { OidcConfig } from './auth/index.js';
@@ -389,6 +390,9 @@ export async function createServer(config: ServerConfig): Promise<Server> {
 
   // One-shot routes (role-gated): /api/repos/:repo/workspaces/:ws/one-shot/*
   app.route('/api/repos/:repo/workspaces/:ws/one-shot', createOneShotRoutes(storage, getRepoPath, getRunner));
+
+  // Workspace-scoped record routes: /api/repos/:repo/workspaces/:ws/records/*
+  app.route('/api/repos/:repo/workspaces/:ws/records', createWorkspaceRecordRoutes(storage, getRepoPath, getRunner));
 
   // Execution/Dataflow routes: /api/repos/:repo/workspaces/:ws/dataflow/*
   app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(storage, getRepoPath));

@@ -97,6 +97,50 @@ export async function createFunctionPackageZip(
 }
 
 /**
+ * Create a package with a record + mutations for testing `e3.record`.
+ *
+ * Creates a package with:
+ * - Record: "counter" (Integer, initial 0)
+ * - Mutation: "increment" (by) => state + by
+ * - Mutation: "add_positive" (by) => errors when by < 1, else state + by
+ *
+ * @param tempDir - Directory to write the zip file
+ * @param name - Package name
+ * @param version - Package version
+ * @returns Path to the created zip file
+ */
+export async function createRecordPackageZip(
+  tempDir: string,
+  name: string,
+  version: string
+): Promise<string> {
+  mkdirSync(tempDir, { recursive: true });
+
+  const counter = e3.record('counter', IntegerType, 0n);
+  const increment = e3.mutation(
+    'increment',
+    counter,
+    East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by))
+  );
+  const addPositive = e3.mutation(
+    'add_positive',
+    counter,
+    East.function([IntegerType, IntegerType], IntegerType, ($, state, by) =>
+      East.less(by, 1n).ifElse(
+        ($) => $.error('amount must be positive'),
+        ($) => state.add(by)
+      )
+    )
+  );
+  const pkg = e3.package(name, version, counter, increment, addPositive);
+
+  const zipPath = join(tempDir, `${name}-${version}.zip`);
+  await e3.export(pkg, zipPath);
+
+  return zipPath;
+}
+
+/**
  * Create a package with multiple inputs for testing.
  *
  * Creates a package with:

@@ -92,10 +92,13 @@ export {
 export {
   recordMutate,
   recordHistory,
+  recordDescribe,
+  recordCompact,
   type MutationOutcome,
   type RecordMutateOptions,
   type RecordMutateLimits,
   type RecordHistoryEntry,
+  type RecordSignature,
 } from './records.js';
 
 // Tree and dataset operations (low-level, by hash)

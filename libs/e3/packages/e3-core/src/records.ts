@@ -14,7 +14,7 @@
  * what makes re-running against fresher state safe.
  */
 
-import { variant, some, none, ArrayType, BlobType, encodeBeast2For, decodeBeast2For } from '@elaraai/east';
+import { variant, some, none, ArrayType, BlobType, encodeBeast2For, decodeBeast2For, type EastTypeValue } from '@elaraai/east';
 import {
   RecordObjectType,
   MutationObjectType,
@@ -197,6 +197,79 @@ export async function recordMutate(
     }
   }
 
+  return { kind: 'conflict', attempts: maxAttempts };
+}
+
+/** A record's mutation surface: each mutation's name and EXTRA arg types. */
+export interface RecordSignature {
+  name: string;
+  mutations: Array<{ name: string; argTypes: EastTypeValue[] }>;
+}
+
+/**
+ * Describe a record's mutations (name + extra arg types), so dynamic callers
+ * can encode arguments. Returns null if the workspace has no such record.
+ */
+export async function recordDescribe(
+  storage: StorageBackend,
+  repo: string,
+  ws: string,
+  recordName: string,
+): Promise<RecordSignature | null> {
+  const resolved = await resolveRecord(storage, repo, ws, recordName);
+  if (!resolved) return null;
+  const mutations: Array<{ name: string; argTypes: EastTypeValue[] }> = [];
+  for (const [name, mutHash] of resolved.mutations) {
+    const mutObj = decodeMutationObject(await storage.objects.read(repo, mutHash));
+    mutations.push({ name, argTypes: mutObj.argTypes });
+  }
+  return { name: recordName, mutations };
+}
+
+/**
+ * Compact a record's history: write a fresh `$compact` root commit
+ * (`parent: none`) over the current state and swing the ref to it. The prior
+ * commit chain becomes unreachable and is reclaimed by GC; the state itself is
+ * unchanged. Returns `committed` / `invalid` / `conflict` like a mutation.
+ */
+export async function recordCompact(
+  storage: StorageBackend,
+  repo: string,
+  ws: string,
+  recordName: string,
+  opts: { actor: string; maxAttempts?: number },
+): Promise<MutationOutcome> {
+  const resolved = await resolveRecord(storage, repo, ws, recordName);
+  if (!resolved) return { kind: 'invalid', message: `record '${recordName}' not found` };
+
+  const maxAttempts = opts.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const existing = await storage.datasets.readVersioned(repo, ws, resolved.refPath);
+    if (!existing || existing.ref.type !== 'value') {
+      return { kind: 'invalid', message: `record '${recordName}' has no state` };
+    }
+    const stateHash = existing.ref.value.hash;
+    const commit: RecordCommit = {
+      parent: none,
+      state: stateHash,
+      mutation: '$compact',
+      args: none,
+      actor: opts.actor,
+      at: new Date(),
+    };
+    const commitHash = await storage.objects.write(repo, encodeCommit(commit));
+    try {
+      await storage.datasets.writeIf(
+        repo, ws, resolved.refPath,
+        variant('value', { hash: stateHash, versions: new Map([[resolved.selfKeypath, commitHash]]) }),
+        existing.revision,
+      );
+      return { kind: 'committed', commitHash, stateHash };
+    } catch (err) {
+      if (err instanceof DatasetRefConflictError) continue;
+      throw err;
+    }
+  }
   return { kind: 'conflict', attempts: maxAttempts };
 }
 

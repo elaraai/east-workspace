@@ -234,6 +234,11 @@ export {
   FunctionCallRequestType,
   FunctionSignatureType,
   OneShotRequestType,
+  MutationCallRequestType,
+  MutationResultType,
+  RecordSignatureType,
+  RecordCommitInfoType,
+  RecordHistoryResultType,
   // Type aliases
   type Error,
   type RepositoryStatus,
@@ -275,6 +280,11 @@ export {
   type FunctionCallRequest,
   type FunctionSignature,
   type OneShotRequest,
+  type MutationCallRequest,
+  type MutationResult,
+  type RecordSignature,
+  type RecordCommitInfo,
+  type RecordHistoryResult,
 } from './api.js';
 
 // Dataflow execution state

@@ -100,6 +100,11 @@ export {
   FunctionCallRequestType,
   FunctionSignatureType,
   OneShotRequestType,
+  MutationCallRequestType,
+  MutationResultType,
+  RecordSignatureType,
+  RecordCommitInfoType,
+  RecordHistoryResultType,
   // Graph types (from dataflow.ts, structurally identical to old API GraphTaskType)
   DataflowGraphType,
   DataflowGraphTaskType,
@@ -152,6 +157,11 @@ export type {
   FunctionCallRequest,
   FunctionSignature,
   OneShotRequest,
+  MutationCallRequest,
+  MutationResult,
+  RecordSignature,
+  RecordCommitInfo,
+  RecordHistoryResult,
   DataflowGraph,
   DataflowGraphTask,
 } from '@elaraai/e3-types';

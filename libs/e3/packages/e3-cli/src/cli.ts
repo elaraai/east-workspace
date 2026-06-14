@@ -41,6 +41,8 @@ import { setCommand } from './commands/set.js';
 import { startCommand } from './commands/start.js';
 import { runCommand } from './commands/run.js';
 import { callCommand } from './commands/call.js';
+import { mutateCommand } from './commands/mutate.js';
+import { historyCommand } from './commands/history.js';
 import { logsCommand } from './commands/logs.js';
 import { datasetStatusCommand } from './commands/dataset-status.js';
 import { findCommand } from './commands/find.js';
@@ -306,6 +308,30 @@ program
   .option('-w, --workspace <ws>', 'Call against the package deployed in a workspace')
   .option('-o, --output <path>', 'Write the result to a .beast2 file instead of printing')
   .action(callCommand);
+
+// ---------------------------------------------------------------------------
+// mutate — apply a mutation to a record (the only write door; audited commit)
+// ---------------------------------------------------------------------------
+program
+  .command('mutate')
+  .description('Apply a mutation to a record (mutation: record.mutation)')
+  .argument('<repo>', 'Repository path or URL')
+  .argument('<mutation>', 'Mutation specifier: record.mutation')
+  .argument('[args...]', 'Arguments: .east literals or .beast2/.json/.east file paths')
+  .option('-w, --workspace <ws>', 'Workspace holding the record (required)')
+  .action(mutateCommand);
+
+// ---------------------------------------------------------------------------
+// history — a record's commit history (newest first)
+// ---------------------------------------------------------------------------
+program
+  .command('history')
+  .description("Show a record's commit history (newest first)")
+  .argument('<repo>', 'Repository path or URL')
+  .argument('<record>', 'Record name')
+  .option('-w, --workspace <ws>', 'Workspace holding the record (required)')
+  .option('--limit <n>', 'Maximum number of commits to show')
+  .action(historyCommand);
 
 // ---------------------------------------------------------------------------
 // watch — source first, workspace second

@@ -51,6 +51,11 @@ export type {
   FunctionCallRequest,
   FunctionSignature,
   OneShotRequest,
+  MutationCallRequest,
+  MutationResult,
+  RecordSignature,
+  RecordCommitInfo,
+  RecordHistoryResult,
 } from './types.js';
 
 // HTTP utilities and auth
@@ -116,6 +121,9 @@ export {
   workspaceFunctionCall,
   oneShotExecute,
 } from './functions.js';
+
+// Records (describe + mutations + history)
+export { workspaceRecordDescribe, workspaceRecordMutate, workspaceRecordHistory } from './records.js';
 
 // Executions
 export {
