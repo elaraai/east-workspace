@@ -48,8 +48,8 @@ import {
 } from '@elaraai/east';
 import { EastUI, type UIComponentType } from '@elaraai/east-ui';
 
-import { DiffBindingType, type BoundValue } from '../data.js';
-import { FuncBindingType, type BoundFunc } from '../func.js';
+import { DiffBindingType, type BoundValue } from '../bind/data.js';
+import { FuncBindingType, type BoundFunc } from '../bind/func.js';
 import {
     ExperimentConfigType,
     ExperimentResultType,

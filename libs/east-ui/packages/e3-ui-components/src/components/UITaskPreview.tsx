@@ -39,6 +39,7 @@ import {
 import { useE3ConfigOptional, type E3Config } from '../platform/e3-config.js';
 import { createScopedBindPlatform } from '../platform/bind-runtime.js';
 import { createScopedFuncPlatform } from '../platform/func-runtime.js';
+import { createScopedRecordPlatform } from '../platform/record-runtime.js';
 import { useTaskDetails, getTaskKind, getTaskMetadata } from '../hooks/useTaskDetails.js';
 import { useDatasetStatus } from '../hooks/useDatasetStatus.js';
 import { useDatasetValue } from '../hooks/useDatasetValue.js';
@@ -88,7 +89,7 @@ export const UITaskPreview = memo(function UITaskPreview({
     const manifest = useMemo(() => {
         if (!details || !isUI) return null;
         const meta = getTaskMetadata(details);
-        return meta ? decodeManifest(meta) : { paths: [], functions: [] };
+        return meta ? decodeManifest(meta) : { paths: [], functions: [], records: [] };
     }, [details, isUI]);
 
     const outputPath = details ? treePathToString(details.output as TreePath) : null;
@@ -110,6 +111,7 @@ export const UITaskPreview = memo(function UITaskPreview({
                     ...StateImpl,
                     ...createScopedBindPlatform(manifest),
                     ...createScopedFuncPlatform(manifest.functions),
+                    ...createScopedRecordPlatform(manifest.records),
                     ...OverlayImpl,
                 ]
                 : undefined,

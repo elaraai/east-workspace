@@ -4,21 +4,14 @@
  */
 
 import { describeEast, TestImpl } from "@elaraai/east-node-std";
-import { ArrayType, StructType, encodeBeast2For, equalFor, variant } from "@elaraai/east";
-import { TreePathType, type TreePath } from "@elaraai/e3-types";
+import { equalFor, variant } from "@elaraai/east";
 import { DataManifestType, encodeManifest, decodeManifest, type DataManifest } from "@elaraai/e3-ui";
 
 const manifestEqual = equalFor(DataManifestType);
 
-/** Encode with the pre-`functions` manifest shape (what older SDKs wrote). */
-function encodeLegacyManifest(paths: TreePath[]): Uint8Array {
-    const LegacyType = StructType({ paths: ArrayType(TreePathType) });
-    return encodeBeast2For(LegacyType)({ paths });
-}
-
 describeEast("DataManifest", (test) => {
     test("encodes + decodes an empty manifest", _ => {
-        const manifest: DataManifest = { paths: [], functions: [] };
+        const manifest: DataManifest = { paths: [], functions: [], records: [] };
         const blob = encodeManifest(manifest);
         if (!(blob instanceof Uint8Array) || blob.length === 0) throw new Error("expected non-empty Uint8Array");
         if (!manifestEqual(decodeManifest(blob), manifest)) throw new Error("round-trip mismatch");
@@ -28,37 +21,29 @@ describeEast("DataManifest", (test) => {
         const manifest: DataManifest = {
             paths: [[variant("field", "inputs"), variant("field", "sales")]],
             functions: [],
+            records: [],
         };
         if (!manifestEqual(decodeManifest(encodeManifest(manifest)), manifest)) throw new Error("round-trip mismatch");
     });
 
-    test("round-trips multiple paths", _ => {
+    test("round-trips paths, functions and records together", _ => {
         const manifest: DataManifest = {
             paths: [
                 [variant("field", "inputs"), variant("field", "sales")],
                 [variant("field", "tasks"), variant("field", "summarize"), variant("field", "output")],
-                [variant("field", "inputs"), variant("field", "threshold")],
+                [variant("field", "records"), variant("field", "counter")],
             ],
             functions: ["forecast", "rebalance"],
+            records: ["counter"],
         };
         if (!manifestEqual(decodeManifest(encodeManifest(manifest)), manifest)) throw new Error("round-trip mismatch");
-    });
-
-    test("decodes a legacy { paths } blob with functions defaulted empty", _ => {
-        // A blob written by a pre-`functions` SDK — encoded with the
-        // legacy struct shape directly.
-        const legacy = encodeLegacyManifest([[variant("field", "inputs"), variant("field", "sales")]]);
-        const decoded = decodeManifest(legacy);
-        if (!manifestEqual(decoded, {
-            paths: [[variant("field", "inputs"), variant("field", "sales")]],
-            functions: [],
-        })) throw new Error("legacy decode mismatch");
     });
 
     test("encoding is deterministic for the same input", _ => {
         const manifest: DataManifest = {
             paths: [[variant("field", "a")], [variant("field", "b")], [variant("field", "c")]],
             functions: ["f"],
+            records: ["r"],
         };
         const a = encodeManifest(manifest);
         const b = encodeManifest(manifest);

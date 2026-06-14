@@ -26,7 +26,7 @@ export {
     DataBindHandleType,
     type DataBindOptions,
     bindPlatformFn,
-} from './data.js';
+} from './bind/data.js';
 export {
     Func,
     FuncStatusType,
@@ -35,16 +35,25 @@ export {
     FuncBindHandleType,
     type BoundFunc,
     funcBindPlatformFn,
-} from './func.js';
-export { DataManifestType, type DataManifest, encodeManifest, decodeManifest } from './manifest.js';
-export { deriveManifest } from './derive.js';
+} from './bind/func.js';
+export {
+    Record,
+    RecordMutateStatusType,
+    RecordErrorType,
+    RecordBindingType,
+    RecordBindHandleType,
+    type BoundRecord,
+    recordBindPlatformFn,
+} from './bind/record.js';
+export { DataManifestType, type DataManifest, encodeManifest, decodeManifest } from './utils/manifest.js';
+export { deriveManifest } from './utils/derive.js';
 export {
     Diff,
     DiffComponent,
     DiffPayloadType,
     DiffStyleType,
     type DiffOptions,
-} from './diff.js';
+} from './diff/index.js';
 export {
     Ontology,
     OntologyComponent,
@@ -60,7 +69,7 @@ export {
     type OntologyStructType,
     OntologyViewType,
     type OntologyViewLiteral,
-} from './ontology.js';
+} from './ontology/index.js';
 // Experiment factory + component carrier for renderers/tests. The value types
 // ride on `Experiment.Types`, so they are not re-exported individually here.
 export { Experiment, ExperimentComponent } from './experiment/index.js';

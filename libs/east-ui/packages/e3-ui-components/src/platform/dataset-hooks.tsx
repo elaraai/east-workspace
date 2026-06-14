@@ -37,6 +37,11 @@ import {
     initializeFunctionApi,
     clearFunctionApi,
 } from "./func-runtime.js";
+import {
+    createDefaultRecordApi,
+    initializeRecordApi,
+    clearRecordApi,
+} from "./record-runtime.js";
 import { useE3Config } from "./e3-config.js";
 
 // =============================================================================
@@ -118,6 +123,19 @@ export function ReactiveDatasetProvider({
         }
     }, [e3.apiUrl, e3.repo, e3.workspace]);
 
+    // Same wiring for `Record.bind` — the record runtime reads current values
+    // through the SAME dataset cache (a record is a dataset), and writes via the
+    // record endpoints.
+    useMemo(() => {
+        if (e3.workspace !== undefined) {
+            initializeRecordApi(
+                createDefaultRecordApi(e3.apiUrl, e3.repo ?? "default", () => tokenRef.current),
+                cache,
+                e3.workspace,
+            );
+        }
+    }, [e3.apiUrl, e3.repo, e3.workspace, cache]);
+
     // Cleanup on cache change or unmount.
     useEffect(() => {
         return () => {
@@ -129,6 +147,7 @@ export function ReactiveDatasetProvider({
             // workspace the user has navigated away from.
             clearReactiveDatasetCache();
             clearFunctionApi();
+            clearRecordApi();
             cache.destroy();
             // Drop binding-registry entries for this workspace so a long
             // session navigating across workspaces doesn't leak metadata

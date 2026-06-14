@@ -153,16 +153,19 @@ export interface RecordDef<T extends EastType = EastType, Path extends TreePath 
  * record's type, so there is no separate return type. Passed to `e3.package`
  * like a function; it is collected onto its record.
  *
+ * @typeParam Name - The mutation name (literal type)
  * @typeParam T - The owning record's state type
  * @typeParam Args - The EXTRA positional parameter types (after the state)
  */
 export interface MutationDef<
+  Name extends string = string,
   T extends EastType = EastType,
   Args extends readonly EastType[] = readonly EastType[],
 > {
   readonly kind: 'mutation';
-  /** Mutation name (unique within the owning record). */
-  readonly name: string;
+  /** Mutation name (unique within the owning record) — a literal type so
+   *  consumers (e.g. `Record.bind`) can key a typed handle field by it. */
+  readonly name: Name;
   /** The record this mutation writes. */
   readonly record: RecordDef<T>;
   // Typed loosely + cast like FunctionDef.body / task function_ir (TS2344 on

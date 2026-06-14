@@ -6,7 +6,7 @@
 /** `<Diff>` tag — see the export's JSDoc. */
 
 import { optionsTag, type OptionsProps, type JsxTag } from "@elaraai/east-ui";
-import { Diff as DiffFactory } from "../diff.js";
+import { Diff as DiffFactory } from "../diff/index.js";
 
 /**
  * Change-review panel — surfaces every bound dataset's in-flight change in a

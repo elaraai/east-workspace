@@ -63,7 +63,7 @@ export function mutation<Name extends string, T extends EastType, Args extends E
   rec: RecordDef<T>,
   fn: FunctionExpr<[T, ...Args], T> | CallableFunctionExpr<[T, ...Args], T>,
   config?: { runner?: FunctionRunner },
-): MutationDef<T, Args>;
+): MutationDef<Name, T, Args>;
 export function mutation(
   name: string,
   rec: RecordDef,

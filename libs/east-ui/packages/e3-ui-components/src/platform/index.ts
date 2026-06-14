@@ -82,6 +82,22 @@ export {
     type FunctionCallArgs,
 } from "./func-runtime.js";
 
+// `Record.bind` runtime — read + typed mutations over an e3.record.
+export {
+    RecordRuntime,
+    defaultRecordRuntime,
+    RecordPlatform,
+    createScopedRecordPlatform,
+    createDefaultRecordApi,
+    initializeRecordApi,
+    clearRecordApi,
+    recordChannelKey,
+    createInMemoryRecordApi,
+    type InMemoryRecordDef,
+    type RecordApi,
+    type RecordMutateArgs,
+} from "./record-runtime.js";
+
 // E3 server-identity context (apiUrl / repo / workspace / token).
 // Mounted as the outermost e3-related provider; every hook in this
 // package that talks to e3 reads from it.

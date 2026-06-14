@@ -175,6 +175,15 @@ export interface ReactiveDatasetCacheInterface {
      * session accumulates watched paths (and network traffic) forever.
      */
     clearRefetchInterval(workspace: string, path: TreePath): void;
+    /**
+     * Force one immediate workspace-status poll, reconciling every watched
+     * path's content against the server (hash-gated; only changed datasets
+     * refetch). Use after an out-of-band server mutation (e.g. a record
+     * mutation commit) so a watched dataset picks up the new bytes without
+     * waiting for the standing poll interval. No-op if the workspace has no
+     * active poller. Fire-and-forget; resolves when the poll settles.
+     */
+    refresh(workspace: string): Promise<void>;
     /** Subscribe to changes on a specific key */
     subscribe(key: string, callback: () => void): () => void;
     /** Subscribe to all changes */
@@ -571,6 +580,15 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
             poller.handle?.clear();
             this.workspacePollers.delete(workspace);
         }
+    }
+
+    refresh(workspace: string): Promise<void> {
+        // One immediate hash-gated poll, reusing the standing workspace poller
+        // the same way write() nudges after a confirmed set. No-op when nothing
+        // watches the workspace; pollWorkspaceStatus dedupes an in-flight poll.
+        if (this.destroyed) return Promise.resolve();
+        if (!this.workspacePollers.has(workspace)) return Promise.resolve();
+        return this.pollWorkspaceStatus(workspace);
     }
 
     /**

@@ -14,6 +14,8 @@
  */
 
 import type { IR, ValueIR } from "./ir.js";
+import { variant } from "./containers/variant.js";
+import { ref } from "./containers/ref.js";
 
 // ============================================================================
 // Convenience helper
@@ -47,6 +49,71 @@ import type { IR, ValueIR } from "./ir.js";
  */
 export function literalValueOf(ir: ValueIR): unknown {
     return ir.value.value.value;
+}
+
+/**
+ * Reconstruct the JS value from a *constant* IR subtree — the inverse of the
+ * lowering `East.value(jsValue, type)` performs.
+ *
+ * `East.value` recursively lowers a JS literal into constant IR: an array
+ * becomes a `NewArray` of element nodes, a variant a `Variant` node, a struct
+ * a `Struct` node, a primitive a `Value` node, and so on. This walks that
+ * subtree back to the JS value, dispatching on the IR node tag — so
+ * static-analysis tooling can read a literal argument back out without
+ * hand-destructuring each envelope shape (the partial, brittle alternative).
+ *
+ * Dispatch is on the node tag, not an expected East type: the tag already
+ * records which constructor produced the node (`NewArray` vs `NewSet` vs
+ * `Struct`), so the reconstruction is unambiguous and needs no type argument.
+ *
+ * A node that is not a constant constructor — `Variable`, `Call`, `GetField`,
+ * `Platform`, an arithmetic `Builtin`, `IfElse`, … — means the value was
+ * computed at runtime rather than a literal, and throws. Use this where a
+ * value is required to be statically known (e.g. deriving the manifest of
+ * dataset paths a UI binds).
+ *
+ * Sets and dicts come back as plain `Set` / `Map` in the literal's element
+ * order; a `SortedSet` / `SortedMap` would need a comparator from the key
+ * type, which a tag-directed reader does not carry. Vectors and matrices are
+ * not reconstructed — faithfully rebuilding their typed-array storage needs
+ * the element type — and throw.
+ *
+ * @example
+ * ```ts
+ * import { East, StringType, ArrayType, constValueOf } from "@elaraai/east";
+ *
+ * const ir = East.value(["a", "b"], ArrayType(StringType)).toIR().ir;
+ * constValueOf(ir); // ["a", "b"]
+ * ```
+ */
+export function constValueOf(ir: IR): unknown {
+    switch (ir.type) {
+        case "Value":
+            return literalValueOf(ir as ValueIR);
+        case "NewArray":
+            return (ir.value.values as IR[]).map(v => constValueOf(v));
+        case "NewSet":
+            return new Set((ir.value.values as IR[]).map(v => constValueOf(v)));
+        case "NewDict":
+            return new Map((ir.value.values as { key: IR; value: IR }[])
+                .map(e => [constValueOf(e.key), constValueOf(e.value)] as const));
+        case "Struct":
+            return Object.fromEntries((ir.value.fields as { name: string; value: IR }[])
+                .map(f => [f.name, constValueOf(f.value)]));
+        case "Variant":
+            return variant(ir.value.case, constValueOf(ir.value.value));
+        case "NewRef":
+            return ref(constValueOf(ir.value.value));
+        case "WrapRecursive":
+            return constValueOf(ir.value.value);
+        default:
+            throw new Error(
+                `constValueOf: cannot read a constant value from a ${ir.type} node. ` +
+                `Only literals produced by East.value are supported ` +
+                `(Value / NewArray / NewSet / NewDict / Struct / Variant / NewRef); ` +
+                `pass a JS value, not a computed expression.`,
+            );
+    }
 }
 
 /** Context passed to {@link IRVisitor} on each node. */

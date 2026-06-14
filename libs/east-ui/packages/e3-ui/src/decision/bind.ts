@@ -48,7 +48,7 @@ import {
 
 import { SliceStateType, SliceBindType } from '@elaraai/east-ui/internal';
 
-import { DiffBindingType, type BoundValue } from '../data.js';
+import { DiffBindingType, type BoundValue } from '../bind/data.js';
 import {
     DecisionType,
     DecisionConstraintType,
