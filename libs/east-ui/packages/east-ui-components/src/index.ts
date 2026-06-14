@@ -442,3 +442,8 @@ export { formatTick, type TickFormatOpt } from "./typography/numeric/format-tick
 
 export { SliceRailCluster, EastChakraSliceRail } from "./slice/rail";
 export { useSliceReactivity } from "./slice/use-slice-reactivity";
+// Reusable, handle-free Slice predicate-editor pieces — used by the Experiment
+// surface's population filter (its population is an Array<SlicePredicate>).
+export { SlicePredicateBuilder, type SlicePredicateBuilderProps, type SliceFieldValue } from "./slice/predicate-builder";
+export { SliceEditPopover, type SliceEditPopoverProps } from "./slice/edit";
+export { formatPredicate, predicateParts, type PredicateValue } from "./slice/predicate-format";

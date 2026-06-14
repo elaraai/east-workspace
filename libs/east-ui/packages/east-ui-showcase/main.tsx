@@ -20,9 +20,10 @@ import {
     createInMemoryFunctionApi,
     datasetCacheKey,
     type DatasetApi,
+    type InMemoryFunctionDef,
 } from "@elaraai/e3-ui-components";
 import { encodeBeast2For, FloatType, IntegerType } from "@elaraai/east";
-import type { DatasetDef } from "@elaraai/e3";
+import type { DatasetDef, FunctionDef } from "@elaraai/e3";
 import type { TreePath } from "@elaraai/e3-types";
 import { App } from "./App";
 import { catalog, e3ExampleModules } from "./catalog";
@@ -34,30 +35,52 @@ const store = new UIStore();
 
 const WORKSPACE = "showcase";
 
-/** Offline implementations for the named functions the `Func.bind`
- *  examples call — the function-side mirror of the dataset seeding. */
-function exampleFunctionApi() {
-    return createInMemoryFunctionApi([
-        {
-            name: "forecast",
-            inputTypes: [IntegerType, FloatType],
-            outputType: FloatType,
-            fn: (periods, growth) => Number(periods as bigint) * (growth as number) * 100,
-        },
-        {
-            name: "rebalance",
-            inputTypes: [FloatType],
-            outputType: FloatType,
-            fn: (x) => 1 - (x as number),
-        },
-    ]);
-}
+/** Hand-written offline impls for `Func.bind` examples whose `e3.function` defs
+ *  aren't exported from their module (so {@link seedFunctions} can't find them). */
+const FALLBACK_FUNCTIONS: InMemoryFunctionDef[] = [
+    { name: "forecast", inputTypes: [IntegerType, FloatType], outputType: FloatType, fn: (periods, growth) => Number(periods as bigint) * (growth as number) * 100 },
+    { name: "rebalance", inputTypes: [FloatType], outputType: FloatType, fn: (x) => 1 - (x as number) },
+];
 
 /** An export is a seedable input iff it's a `DatasetDef` with a default. */
 function isSeedableInput(x: unknown): x is DatasetDef & { default: NonNullable<DatasetDef["default"]> } {
     return typeof x === "object" && x !== null
         && (x as DatasetDef).kind === "dataset"
         && (x as DatasetDef).default !== undefined;
+}
+
+/** An export is a seedable function iff it's an `e3.function` def. */
+function isFunctionDef(x: unknown): x is FunctionDef {
+    return typeof x === "object" && x !== null && (x as FunctionDef).kind === "function";
+}
+
+/**
+ * Offline implementations for the `Func.bind` functions the examples call.
+ *
+ * The showcase can't run an e3 backend, so `Func.bind` has no server to call.
+ * We stand in by compiling each example's exported `e3.function` East body to JS
+ * (East functions are runnable on their own) — the function-side mirror of the
+ * `e3.input` dataset seeding — plus a couple of hand-written fallbacks.
+ */
+function exampleFunctionApi() {
+    const fns = new Map<string, InMemoryFunctionDef>();
+    for (const mod of e3ExampleModules) {
+        for (const value of Object.values(mod)) {
+            if (!isFunctionDef(value)) continue;
+            const body = value.body as {
+                compile?: (p: never[]) => (...a: unknown[]) => unknown;
+                compileAsync?: (p: never[]) => (...a: unknown[]) => Promise<unknown>;
+            };
+            try {
+                const fn = typeof body.compile === "function" ? body.compile([]) : body.compileAsync!([]);
+                fns.set(value.name, { name: value.name, inputTypes: [...value.inputTypes], outputType: value.outputType, fn });
+            } catch (err) {
+                console.warn(`[showcase] could not compile function "${value.name}":`, err);
+            }
+        }
+    }
+    for (const f of FALLBACK_FUNCTIONS) if (!fns.has(f.name)) fns.set(f.name, f);
+    return createInMemoryFunctionApi([...fns.values()]);
 }
 
 /** Seed an in-memory reactive-dataset cache from every e3 example module's

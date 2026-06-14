@@ -20,7 +20,7 @@ import '@elaraai/east-ui-components/fonts';
 // is needed here.
 import '@elaraai/e3-ui-components';
 import { encodeBeast2For, FloatType, IntegerType } from '@elaraai/east';
-import type { DatasetDef } from '@elaraai/e3';
+import type { DatasetDef, FunctionDef } from '@elaraai/e3';
 import type { TreePath } from '@elaraai/e3-types';
 import {
     ReactiveDatasetCache,
@@ -29,6 +29,7 @@ import {
     createInMemoryFunctionApi,
     datasetCacheKey,
     type DatasetApi,
+    type InMemoryFunctionDef,
 } from '@elaraai/e3-ui-components';
 import { mountSnapshot } from '../../../scripts/snapshot-app.tsx';
 
@@ -40,6 +41,45 @@ function isSeedableInput(x: unknown): x is DatasetDef & { default: NonNullable<D
         && (x as DatasetDef).kind === 'dataset'
         && (x as DatasetDef).default !== undefined;
 }
+
+/** An export is a seedable function iff it's an `e3.function` def. */
+function isFunctionDef(x: unknown): x is FunctionDef {
+    return typeof x === 'object' && x !== null && (x as FunctionDef).kind === 'function';
+}
+
+/**
+ * Compile a module's exported `e3.function`s into offline implementations.
+ *
+ * The showcase / snapshot can't run an e3 backend, so `Func.bind` has no server
+ * to call. We stand in by compiling each function's East body to JS (East
+ * functions are runnable on their own) and registering it — the function-side
+ * mirror of the `e3.input` dataset seeding. One source of truth; no duplicated
+ * fixture values.
+ */
+function seedFunctions(mod: Record<string, unknown>): InMemoryFunctionDef[] {
+    const defs: InMemoryFunctionDef[] = [];
+    for (const value of Object.values(mod)) {
+        if (!isFunctionDef(value)) continue;
+        const body = value.body as {
+            compile?: (p: never[]) => (...a: unknown[]) => unknown;
+            compileAsync?: (p: never[]) => (...a: unknown[]) => Promise<unknown>;
+        };
+        try {
+            const fn = typeof body.compile === 'function' ? body.compile([]) : body.compileAsync!([]);
+            defs.push({ name: value.name, inputTypes: [...value.inputTypes], outputType: value.outputType, fn });
+        } catch (err) {
+            console.warn(`[snapshot] could not compile function "${value.name}":`, err);
+        }
+    }
+    return defs;
+}
+
+/** Hand-written offline impls for `Func.bind` examples whose `e3.function` defs
+ *  aren't exported from their module (so {@link seedFunctions} can't find them). */
+const FALLBACK_FUNCTIONS: InMemoryFunctionDef[] = [
+    { name: 'forecast', inputTypes: [IntegerType, FloatType], outputType: FloatType, fn: (periods, growth) => Number(periods as bigint) * (growth as number) * 100 },
+    { name: 'rebalance', inputTypes: [FloatType], outputType: FloatType, fn: (x) => 1 - (x as number) },
+];
 
 /** Seed an in-memory dataset cache from a module's exported `e3.input`s. */
 async function seedCache(mod: Record<string, unknown>): Promise<void> {
@@ -68,22 +108,13 @@ async function seedCache(mod: Record<string, unknown>): Promise<void> {
     cache.setScheduler((notify) => queueMicrotask(notify));
     initializeReactiveDatasetCache(cache);
 
-    // Offline implementations for the named functions the `Func.bind`
-    // examples call — the function-side mirror of the dataset seeding.
-    initializeFunctionApi(createInMemoryFunctionApi([
-        {
-            name: 'forecast',
-            inputTypes: [IntegerType, FloatType],
-            outputType: FloatType,
-            fn: (periods, growth) => Number(periods as bigint) * (growth as number) * 100,
-        },
-        {
-            name: 'rebalance',
-            inputTypes: [FloatType],
-            outputType: FloatType,
-            fn: (x) => 1 - (x as number),
-        },
-    ]), WORKSPACE);
+    // Offline implementations for the `Func.bind` functions the example calls:
+    // every exported `e3.function` compiled from its East body, plus hand-written
+    // fallbacks for examples that don't export their defs.
+    const fns = new Map<string, InMemoryFunctionDef>();
+    for (const f of seedFunctions(mod)) fns.set(f.name, f);
+    for (const f of FALLBACK_FUNCTIONS) if (!fns.has(f.name)) fns.set(f.name, f);
+    initializeFunctionApi(createInMemoryFunctionApi([...fns.values()]), WORKSPACE);
 
     await Promise.all(inputPaths.map(path => cache.preload(WORKSPACE, path)));
 }

@@ -1,6 +1,6 @@
 ---
 name: e3-ui
-description: "e3 + UI bridge — build interactive, reactive decision surfaces as e3 tasks, authored as JSX. Use when: (1) Declaring UI tasks with ui() (e3 tasks of kind 'ui' producing a UIComponentType), (2) Binding reactive workspace data with Data.bind (read/write/has/commit/discard/status against e3.input / task defs) inside a <Reactive>{$ => …}</Reactive> block, (3) Staged vs direct edit modes and reviewing pending changes with the <Diff> tag, (4) Graph/ontology editing with the <Ontology> tag, (5) Calling named package functions (e3.function) RPC-style with Func.bind (call/read/status/error/pending/cancel), (6) Wiring a manifest (reads/writes + bound functions auto-derived from a UI task's IR)."
+description: "e3 + UI bridge — build interactive, reactive decision surfaces as e3 tasks, authored as JSX. Use when: (1) Declaring UI tasks with ui() (e3 tasks of kind 'ui' producing a UIComponentType), (2) Binding reactive workspace data with Data.bind (read/write/has/commit/discard/status against e3.input / task defs) inside a <Reactive>{$ => …}</Reactive> block, (3) Staged vs direct edit modes and reviewing pending changes with the <Diff> tag, (4) Graph/ontology editing with the <Ontology> tag, (5) Calling named package functions (e3.function) RPC-style with Func.bind (call/read/status/error/pending/cancel), (6) Wiring a manifest (reads/writes + bound functions auto-derived from a UI task's IR), (7) Interactive causal-experiment surfaces ('did X change Y?') with the <Experiment> tag, generic over a bound dataset's row and driven by e3.function estimators."
 ---
 
 # e3-ui — e3 + UI Bridge
@@ -13,7 +13,7 @@ and commit / discard, a view becomes a place a user commits a decision with its
 evidence — not a read-only report.
 
 The public surface is **JSX tags + platform helpers**, all from one import
-(`@elaraai/e3-ui`): the e3-specific tags `<Diff>` and `<Ontology>`, the `Data` and `Func`
+(`@elaraai/e3-ui`): the e3-specific tags `<Diff>`, `<Ontology>` and `<Experiment>`, the `Data` and `Func`
 binding helpers, and the `ui()` task factory. Base UI tags (`<VStack>`, `<Text>`,
 `<Stat>`, …) come from `@elaraai/east-ui`. The factories (`Diff.Root(…)`) are an
 implementation detail under `@elaraai/e3-ui/internal` (also the e3-free,
@@ -76,8 +76,11 @@ Task → What do you need?
     ├─ Review pending (staged) changes
     │   └─ <Diff bindings={[a.binding, b.binding, …]} />
     │
-    └─ Edit a graph / ontology dataset
-        └─ <Ontology binding={view.binding} />   (OntologyType: NodeType / LinkType)
+    ├─ Edit a graph / ontology dataset
+    │   └─ <Ontology binding={view.binding} />   (OntologyType: NodeType / LinkType)
+    │
+    └─ Let a user ask "did X change Y?" against a dataset and trust the answer
+        └─ <Experiment data spec estimate … />   (generic over the row; runs e3.functions)
 ```
 
 ## Core Concepts
@@ -167,6 +170,45 @@ A graph editor (`NodeType` / `LinkType` / `OntologyType`) bound to a dataset, fo
 editing typed node/link graphs. Stack a `<Diff>` beside it to surface the pending
 node/link patch.
 
+### `<Experiment data spec estimate … />`
+
+An interactive **causal-experiment** surface: an end user asks *"did X change
+Y?"* against a bound dataset and reads a derived, trustworthy answer across three
+tabs (Answer / Can we trust it? / How much?). Generic over the dataset's row
+(like `<Table>`), it stages an `ExperimentSpec` and runs developer-supplied
+`e3.function`s on **Run**, deriving every word / colour / bar from the returned
+numbers — nothing is authored. **Commit** appends the result to the journal.
+
+| Prop | Binding | Meaning |
+|---|---|---|
+| `data` | `Data.bind(dataset)` | the rows to experiment on (`Array<Struct<Row>>`) |
+| `spec` | `Data.bind(spec, { mode: 'staged' })` | the staged `ExperimentSpec` the surface reads / writes |
+| `estimate` | `Func.bind(fn)` | **required** — `(rows, spec) → ExperimentResult` (Answer tab) |
+| `refute` | `Func.bind(fn)` | optional — `(rows, spec) → RefuteResult` (trust tab) |
+| `dose` | `Func.bind(fn)` | optional — `(rows, spec, feature) → DoseResult` (dose tab) |
+| `journal` | `Data.bind(dataset)` | optional committed-experiment log; **Commit** appends |
+| `columns` | — | per-column display config keyed by the row's fields (like `<Table>`), e.g. `{ bond_strength: { unit: 'MPa' } }` |
+| `readonly` | — | render without Run / Commit / edit affordances |
+| `defaultTab` | — | initial tab: `'answer'` (default) \| `'trust'` \| `'dose'` |
+
+```tsx
+<Reactive>{$ => {
+    const data     = $.let(Data.bind(batchesInput));
+    const spec     = $.let(Data.bind(experimentSpecInput, { mode: 'staged' }));
+    const journal  = $.let(Data.bind(experimentJournalInput));
+    const estimate = $.let(Func.bind(estimateFn));   // (rows, spec) → ExperimentResult
+    const refute   = $.let(Func.bind(refuteFn));     // (rows, spec) → RefuteResult
+    const dose     = $.let(Func.bind(doseFn));       // (rows, spec, feature) → DoseResult
+    return (
+        <Experiment data={data} spec={spec} estimate={estimate} refute={refute} dose={dose}
+            journal={journal} columns={{ bond_strength: { unit: 'MPa' } }} />
+    );
+}}</Reactive>
+```
+
+The render-contract value types are reached via `Experiment.Types.*`
+(`Experiment.Types.Spec` / `.Result` / …, like `Table.Types.*`).
+
 ## Key Patterns
 
 ### Staged commit / discard
@@ -207,6 +249,7 @@ Tested examples live in `test/*.examples.tsx`:
 - `func.examples.tsx` — `Func.bind` call/status/cancel, shared channels.
 - `diff.examples.tsx` — reviewing pending changes with `<Diff>`.
 - `ontology.examples.tsx` — graph/ontology editing with `<Ontology>`.
+- `experiment/experiment.examples.tsx` — causal-experiment surface with `<Experiment>`.
 
 ## Related skills
 

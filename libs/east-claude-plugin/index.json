@@ -1,15 +1,15 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1332,
-    "totalFiles": 175,
+    "totalEntries": 1336,
+    "totalFiles": 176,
     "packages": {
       "east": 489,
       "east-node-std": 42,
       "east-node-io": 63,
-      "east-py-datascience": 86,
+      "east-py-datascience": 87,
       "east-ui": 602,
-      "e3-ui": 43,
+      "e3-ui": 46,
       "e3": 7
     }
   },
@@ -11593,10 +11593,10 @@
         "upgrade"
       ],
       "imports": [
-        "import { East, BooleanType, variant, example } from \"@elaraai/east\";",
+        "import { East, ArrayType, StructType, FloatType, BooleanType, variant, example } from \"@elaraai/east\";",
         "import { Causal } from \"@elaraai/east-py-datascience\";"
       ],
-      "source": "// Estimate the causal effect of a machine upgrade on yield from observational data, adjusting for operator skill (backdoor linear regression ATE)\n// inputs: []  returns: true\nEast.function([], BooleanType, ($) => {\n        // Skilled operators were upgraded first, so the raw upgrade/yield\n        // association is confounded by skill. True upgrade effect: +2.0.\n        // Columns: [upgraded, yield, skill]\n        const data = $.let(East.Matrix.fromArray([\n            [0.0, 0.32, 0.1], [0.0, 0.58, 0.2], [0.0, 0.93, 0.3], [0.0, 1.18, 0.4],\n            [0.0, 1.52, 0.5], [0.0, 1.79, 0.6], [0.0, 2.13, 0.7], [0.0, 2.38, 0.8],\n            [1.0, 2.62, 0.2], [1.0, 2.88, 0.3], [1.0, 3.22, 0.4], [1.0, 3.53, 0.5],\n            [1.0, 3.81, 0.6], [1.0, 4.07, 0.7], [1.0, 4.43, 0.8], [1.0, 4.71, 0.9],\n        ]));\n\n        const config = $.let({\n            columns: [\"upgraded\", \"yield\", \"skill\"],\n            treatment: \"upgraded\",\n            outcome: \"yield\",\n            common_causes: [\"skill\"],\n            categorical: variant('none', null),\n            method: variant('some', variant('linear_regression', null)),\n            target_units: variant('some', variant('ate', null)),\n            trim: variant('none', null),\n            bootstrap: variant('none', null),\n            random_state: variant('some', 42n),\n        }, Causal.Types.CausalEffectConfigType);\n\n        const result = $.let(Causal.effect(data, config));\n        // Adjusted estimate recovers the true +2.0 effect\n        return result.effect.subtract(East.value(2.0)).abs().less(0.2);\n    })"
+      "source": "// Estimate the causal effect of a machine upgrade on yield from observational data, adjusting for operator skill (backdoor linear regression ATE)\n// inputs: []  returns: true\nEast.function([], BooleanType, ($) => {\n        // Skilled operators were upgraded first, so the raw upgrade/yield\n        // association is confounded by skill. True upgrade effect: +2.0.\n        const RowType = StructType({ upgraded: FloatType, yield: FloatType, skill: FloatType });\n        const data = $.let([\n            { upgraded: 0.0, yield: 0.32, skill: 0.1 }, { upgraded: 0.0, yield: 0.58, skill: 0.2 },\n            { upgraded: 0.0, yield: 0.93, skill: 0.3 }, { upgraded: 0.0, yield: 1.18, skill: 0.4 },\n            { upgraded: 0.0, yield: 1.52, skill: 0.5 }, { upgraded: 0.0, yield: 1.79, skill: 0.6 },\n            { upgraded: 0.0, yield: 2.13, skill: 0.7 }, { upgraded: 0.0, yield: 2.38, skill: 0.8 },\n            { upgraded: 1.0, yield: 2.62, skill: 0.2 }, { upgraded: 1.0, yield: 2.88, skill: 0.3 },\n            { upgraded: 1.0, yield: 3.22, skill: 0.4 }, { upgraded: 1.0, yield: 3.53, skill: 0.5 },\n            { upgraded: 1.0, yield: 3.81, skill: 0.6 }, { upgraded: 1.0, yield: 4.07, skill: 0.7 },\n            { upgraded: 1.0, yield: 4.43, skill: 0.8 }, { upgraded: 1.0, yield: 4.71, skill: 0.9 },\n        ], ArrayType(RowType));\n\n        const config = $.let({\n            treatment: \"upgraded\",\n            outcome: \"yield\",\n            common_causes: [\"skill\"],\n            categorical: variant('none', null),\n            method: variant('some', variant('linear_regression', null)),\n            target_units: variant('some', variant('ate', null)),\n            trim: variant('none', null),\n            bootstrap: variant('none', null),\n            random_state: variant('some', 42n),\n        }, Causal.Types.CausalEffectConfigType);\n\n        const result = $.let(Causal.effect([RowType], data, config));\n        // Adjusted estimate recovers the true +2.0 effect\n        return result.effect.subtract(East.value(2.0)).abs().less(0.2);\n    })"
     },
     {
       "id": "east-py-datascience:causal.examples.ts:causalEffectPropensityAtt",
@@ -11618,10 +11618,34 @@
         "campaign"
       ],
       "imports": [
-        "import { East, BooleanType, variant, example } from \"@elaraai/east\";",
+        "import { East, ArrayType, StructType, FloatType, BooleanType, variant, example } from \"@elaraai/east\";",
         "import { Causal } from \"@elaraai/east-py-datascience\";"
       ],
-      "source": "// Effect of a promotion campaign on the stores that ran it (propensity-weighted ATT) with overlap trimming and a store-clustered bootstrap CI\n// inputs: []  returns: true\nEast.function([], BooleanType, ($) => {\n        // Three weekly rows per store - weeks within a store are correlated,\n        // so the bootstrap resamples whole stores. True campaign lift: +2.0.\n        // Columns: [ran_campaign, sales, traffic, store]\n        const data = $.let(East.Matrix.fromArray([\n            [0.0, 0.61, 0.2, 0.0], [0.0, 0.64, 0.2, 0.0], [1.0, 2.58, 0.2, 0.0],\n            [0.0, 0.92, 0.3, 1.0], [1.0, 2.93, 0.3, 1.0], [1.0, 2.87, 0.3, 1.0],\n            [0.0, 1.22, 0.4, 2.0], [0.0, 1.18, 0.4, 2.0], [1.0, 3.24, 0.4, 2.0],\n            [0.0, 1.49, 0.5, 3.0], [1.0, 3.52, 0.5, 3.0], [1.0, 3.47, 0.5, 3.0],\n            [0.0, 1.81, 0.6, 4.0], [1.0, 3.78, 0.6, 4.0], [1.0, 3.83, 0.6, 4.0],\n            [0.0, 2.11, 0.7, 5.0], [1.0, 4.08, 0.7, 5.0], [1.0, 4.13, 0.7, 5.0],\n            [0.0, 2.42, 0.8, 6.0], [1.0, 4.39, 0.8, 6.0], [1.0, 4.37, 0.8, 6.0],\n            [0.0, 0.33, 0.1, 7.0], [0.0, 0.28, 0.1, 7.0], [1.0, 2.33, 0.1, 7.0],\n        ]));\n\n        const config = $.let({\n            columns: [\"ran_campaign\", \"sales\", \"traffic\", \"store\"],\n            treatment: \"ran_campaign\",\n            outcome: \"sales\",\n            common_causes: [\"traffic\"],\n            categorical: variant('none', null),\n            method: variant('some', variant('propensity_score_weighting', {\n                weighting_scheme: variant('some', variant('ips_stabilized_weight', null)),\n            })),\n            target_units: variant('some', variant('att', null)),\n            trim: variant('some', variant('overlap', null)),\n            bootstrap: variant('some', {\n                reps: 50n,\n                cluster_column: variant('some', \"store\"),\n                confidence_level: variant('some', 0.95),\n            }),\n            random_state: variant('some', 42n),\n        }, Causal.Types.CausalEffectConfigType);\n\n        const result = $.let(Causal.effect(data, config));\n        // ATT near the true +2.0, with a store-clustered bootstrap CI attached\n        return result.effect.subtract(East.value(2.0)).abs().less(0.5);\n    })"
+      "source": "// Effect of a promotion campaign on the stores that ran it (propensity-weighted ATT) with overlap trimming and a store-clustered bootstrap CI\n// inputs: []  returns: true\nEast.function([], BooleanType, ($) => {\n        // Three weekly rows per store - weeks within a store are correlated,\n        // so the bootstrap resamples whole stores. True campaign lift: +2.0.\n        const RowType = StructType({ ran_campaign: FloatType, sales: FloatType, traffic: FloatType, store: FloatType });\n        const data = $.let([\n            { ran_campaign: 0.0, sales: 0.61, traffic: 0.2, store: 0.0 }, { ran_campaign: 0.0, sales: 0.64, traffic: 0.2, store: 0.0 }, { ran_campaign: 1.0, sales: 2.58, traffic: 0.2, store: 0.0 },\n            { ran_campaign: 0.0, sales: 0.92, traffic: 0.3, store: 1.0 }, { ran_campaign: 1.0, sales: 2.93, traffic: 0.3, store: 1.0 }, { ran_campaign: 1.0, sales: 2.87, traffic: 0.3, store: 1.0 },\n            { ran_campaign: 0.0, sales: 1.22, traffic: 0.4, store: 2.0 }, { ran_campaign: 0.0, sales: 1.18, traffic: 0.4, store: 2.0 }, { ran_campaign: 1.0, sales: 3.24, traffic: 0.4, store: 2.0 },\n            { ran_campaign: 0.0, sales: 1.49, traffic: 0.5, store: 3.0 }, { ran_campaign: 1.0, sales: 3.52, traffic: 0.5, store: 3.0 }, { ran_campaign: 1.0, sales: 3.47, traffic: 0.5, store: 3.0 },\n            { ran_campaign: 0.0, sales: 1.81, traffic: 0.6, store: 4.0 }, { ran_campaign: 1.0, sales: 3.78, traffic: 0.6, store: 4.0 }, { ran_campaign: 1.0, sales: 3.83, traffic: 0.6, store: 4.0 },\n            { ran_campaign: 0.0, sales: 2.11, traffic: 0.7, store: 5.0 }, { ran_campaign: 1.0, sales: 4.08, traffic: 0.7, store: 5.0 }, { ran_campaign: 1.0, sales: 4.13, traffic: 0.7, store: 5.0 },\n            { ran_campaign: 0.0, sales: 2.42, traffic: 0.8, store: 6.0 }, { ran_campaign: 1.0, sales: 4.39, traffic: 0.8, store: 6.0 }, { ran_campaign: 1.0, sales: 4.37, traffic: 0.8, store: 6.0 },\n            { ran_campaign: 0.0, sales: 0.33, traffic: 0.1, store: 7.0 }, { ran_campaign: 0.0, sales: 0.28, traffic: 0.1, store: 7.0 }, { ran_campaign: 1.0, sales: 2.33, traffic: 0.1, store: 7.0 },\n        ], ArrayType(RowType));\n\n        const config = $.let({\n            treatment: \"ran_campaign\",\n            outcome: \"sales\",\n            common_causes: [\"traffic\"],\n            categorical: variant('none', null),\n            method: variant('some', variant('propensity_score_weighting', {\n                weighting_scheme: variant('some', variant('ips_stabilized_weight', null)),\n            })),\n            target_units: variant('some', variant('att', null)),\n            trim: variant('some', variant('overlap', null)),\n            bootstrap: variant('some', {\n                reps: 50n,\n                cluster_column: variant('some', \"store\"),\n                confidence_level: variant('some', 0.95),\n            }),\n            random_state: variant('some', 42n),\n        }, Causal.Types.CausalEffectConfigType);\n\n        const result = $.let(Causal.effect([RowType], data, config));\n        // ATT near the true +2.0, with a store-clustered bootstrap CI attached\n        return result.effect.subtract(East.value(2.0)).abs().less(0.5);\n    })"
+    },
+    {
+      "id": "east-py-datascience:causal.examples.ts:causalEffectConfounding",
+      "skill": "east-py-datascience",
+      "package": "east-py-datascience",
+      "file": "east-py/packages/east-py-datascience/test/causal.examples.ts",
+      "suite": "",
+      "test": "Confounding by indication: an optional slow-cure step is applied to weaker incoming material, so the raw difference in bond strength is negative while the like-for-like (adjusted) effect is positive — the sign flip the Experiment surface visualises",
+      "keywords": [
+        "causal",
+        "effect",
+        "confounding",
+        "confounding by indication",
+        "sign flip",
+        "naive",
+        "adjusted",
+        "selection",
+        "experiment"
+      ],
+      "imports": [
+        "import { East, ArrayType, StructType, FloatType, BooleanType, variant, example } from \"@elaraai/east\";",
+        "import { Causal } from \"@elaraai/east-py-datascience\";"
+      ],
+      "source": "// Confounding by indication: an optional slow-cure step is applied to weaker incoming material, so the raw difference in bond strength is negative while the like-for-like (adjusted) effect is positive — the sign flip the Experiment surface visualises\n// inputs: []  returns: true\nEast.function([], BooleanType, ($) => {\n        // slow_cure is applied preferentially to low incoming_grade batches.\n        // Raw average bond_strength of cured batches is LOWER; adjusting for\n        // incoming_grade reveals the true positive effect of the cure.\n        const RowType = StructType({ slow_cure: FloatType, bond_strength: FloatType, incoming_grade: FloatType });\n        const data = $.let([\n            // un-cured batches: strong incoming material, no cure\n            { slow_cure: 0.0, bond_strength: 9.0, incoming_grade: 9.0 }, { slow_cure: 0.0, bond_strength: 8.6, incoming_grade: 8.5 },\n            { slow_cure: 0.0, bond_strength: 8.2, incoming_grade: 8.0 }, { slow_cure: 0.0, bond_strength: 7.7, incoming_grade: 7.5 },\n            { slow_cure: 0.0, bond_strength: 7.3, incoming_grade: 7.0 }, { slow_cure: 0.0, bond_strength: 6.8, incoming_grade: 6.5 },\n            { slow_cure: 0.0, bond_strength: 6.4, incoming_grade: 6.0 }, { slow_cure: 0.0, bond_strength: 5.9, incoming_grade: 5.5 },\n            // cured batches: weak incoming material, +2.0 cure lift\n            { slow_cure: 1.0, bond_strength: 7.1, incoming_grade: 5.0 }, { slow_cure: 1.0, bond_strength: 6.6, incoming_grade: 4.5 },\n            { slow_cure: 1.0, bond_strength: 6.2, incoming_grade: 4.0 }, { slow_cure: 1.0, bond_strength: 5.8, incoming_grade: 3.5 },\n            { slow_cure: 1.0, bond_strength: 5.3, incoming_grade: 3.0 }, { slow_cure: 1.0, bond_strength: 4.9, incoming_grade: 2.5 },\n            { slow_cure: 1.0, bond_strength: 4.4, incoming_grade: 2.0 }, { slow_cure: 1.0, bond_strength: 4.0, incoming_grade: 1.5 },\n        ], ArrayType(RowType));\n\n        const baseConfig = {\n            treatment: \"slow_cure\",\n            outcome: \"bond_strength\",\n            categorical: variant('none', null),\n            method: variant('some', variant('linear_regression', null)),\n            target_units: variant('some', variant('ate', null)),\n            trim: variant('none', null),\n            bootstrap: variant('none', null),\n            random_state: variant('some', 42n),\n        } as const;\n\n        // adjusted: control for the incoming grade (the backdoor)\n        const adjusted = $.let(Causal.effect([RowType], data, $.let({\n            ...baseConfig, common_causes: [\"incoming_grade\"],\n        }, Causal.Types.CausalEffectConfigType)));\n        // naive: no adjustment at all (empty backdoor set) — the raw cured-vs-uncured\n        // difference, which is confounded because slow-cure went to weaker material.\n        const naive = $.let(Causal.effect([RowType], data, $.let({\n            ...baseConfig, common_causes: [],\n        }, Causal.Types.CausalEffectConfigType)));\n\n        // The sign flip: naive < 0 < adjusted.\n        return naive.effect.less(0.0).and(() => adjusted.effect.greater(0.0));\n    })"
     },
     {
       "id": "east-py-datascience:causal.examples.ts:causalRefuteSensitivity",
@@ -11642,10 +11666,10 @@
         "validation"
       ],
       "imports": [
-        "import { East, BooleanType, variant, example } from \"@elaraai/east\";",
+        "import { East, ArrayType, StructType, FloatType, BooleanType, variant, example } from \"@elaraai/east\";",
         "import { Causal } from \"@elaraai/east-py-datascience\";"
       ],
-      "source": "// Refute an estimated effect: placebo treatment should drive it to zero, and an unobserved-confounder sensitivity curve shows how strong hidden confounding must be to overturn it\n// inputs: []  returns: true\nEast.function([], BooleanType, ($) => {\n        // Binary treatment confounded by z; true effect +2.0.\n        // Columns: [t, y, z]\n        const data = $.let(East.Matrix.fromArray([\n            [0.0, 0.32, 0.1], [0.0, 0.58, 0.2], [0.0, 0.93, 0.3], [0.0, 1.18, 0.4],\n            [0.0, 1.52, 0.5], [0.0, 1.79, 0.6], [0.0, 2.13, 0.7], [0.0, 2.38, 0.8],\n            [1.0, 2.62, 0.2], [1.0, 2.88, 0.3], [1.0, 3.22, 0.4], [1.0, 3.53, 0.5],\n            [1.0, 3.81, 0.6], [1.0, 4.07, 0.7], [1.0, 4.43, 0.8], [1.0, 4.71, 0.9],\n        ]));\n\n        const config = $.let({\n            columns: [\"t\", \"y\", \"z\"],\n            treatment: \"t\",\n            outcome: \"y\",\n            common_causes: [\"z\"],\n            categorical: variant('none', null),\n            method: variant('some', variant('linear_regression', null)),\n            target_units: variant('some', variant('ate', null)),\n            trim: variant('none', null),\n            bootstrap: variant('none', null),\n            random_state: variant('some', 42n),\n        }, Causal.Types.CausalEffectConfigType);\n\n        // Placebo: permuted treatment - effect should vanish\n        const placebo = $.let(Causal.refute(data, config, variant('placebo_treatment', {\n            num_simulations: variant('some', 20n),\n        })));\n\n        // Sensitivity: simulate hidden confounders of increasing strength -\n        // the effect at each strength traces a tipping curve\n        const sensitivity = $.let(Causal.refute(data, config, variant('unobserved_common_cause', {\n            effect_strengths: [0.0, 0.2, 0.4],\n        })));\n\n        const placeboNearZero = $.let(placebo.new_effects.get(0n).abs().less(0.6));\n        const curveDecreases = $.let(\n            sensitivity.new_effects.get(2n).less(sensitivity.new_effects.get(0n)));\n        return placeboNearZero.and(() => curveDecreases);\n    })"
+      "source": "// Refute an estimated effect: placebo treatment should drive it to zero, and an unobserved-confounder sensitivity curve shows how strong hidden confounding must be to overturn it\n// inputs: []  returns: true\nEast.function([], BooleanType, ($) => {\n        // Binary treatment confounded by z; true effect +2.0.\n        const RowType = StructType({ t: FloatType, y: FloatType, z: FloatType });\n        const data = $.let([\n            { t: 0.0, y: 0.32, z: 0.1 }, { t: 0.0, y: 0.58, z: 0.2 }, { t: 0.0, y: 0.93, z: 0.3 }, { t: 0.0, y: 1.18, z: 0.4 },\n            { t: 0.0, y: 1.52, z: 0.5 }, { t: 0.0, y: 1.79, z: 0.6 }, { t: 0.0, y: 2.13, z: 0.7 }, { t: 0.0, y: 2.38, z: 0.8 },\n            { t: 1.0, y: 2.62, z: 0.2 }, { t: 1.0, y: 2.88, z: 0.3 }, { t: 1.0, y: 3.22, z: 0.4 }, { t: 1.0, y: 3.53, z: 0.5 },\n            { t: 1.0, y: 3.81, z: 0.6 }, { t: 1.0, y: 4.07, z: 0.7 }, { t: 1.0, y: 4.43, z: 0.8 }, { t: 1.0, y: 4.71, z: 0.9 },\n        ], ArrayType(RowType));\n\n        const config = $.let({\n            treatment: \"t\",\n            outcome: \"y\",\n            common_causes: [\"z\"],\n            categorical: variant('none', null),\n            method: variant('some', variant('linear_regression', null)),\n            target_units: variant('some', variant('ate', null)),\n            trim: variant('none', null),\n            bootstrap: variant('none', null),\n            random_state: variant('some', 42n),\n        }, Causal.Types.CausalEffectConfigType);\n\n        // Placebo: permuted treatment - effect should vanish\n        const placebo = $.let(Causal.refute([RowType], data, config, variant('placebo_treatment', {\n            num_simulations: variant('some', 20n),\n        })));\n\n        // Sensitivity: simulate hidden confounders of increasing strength -\n        // the effect at each strength traces a tipping curve\n        const sensitivity = $.let(Causal.refute([RowType], data, config, variant('unobserved_common_cause', {\n            effect_strengths: [0.0, 0.2, 0.4],\n        })));\n\n        const placeboNearZero = $.let(placebo.new_effects.get(0n).abs().less(0.6));\n        const curveDecreases = $.let(\n            sensitivity.new_effects.get(2n).less(sensitivity.new_effects.get(0n)));\n        return placeboNearZero.and(() => curveDecreases);\n    })"
     },
     {
       "id": "east-py-datascience:causal.examples.ts:causalDmlCate",
@@ -11667,7 +11691,7 @@
         "discount"
       ],
       "imports": [
-        "import { East, BooleanType, variant, example } from \"@elaraai/east\";",
+        "import { East, ArrayType, StructType, FloatType, BooleanType, variant, example } from \"@elaraai/east\";",
         "import { Causal } from \"@elaraai/east-py-datascience\";"
       ],
       "source": "// Heterogeneous effect of a price discount on demand with LinearDML - nuisance models residualize treatment and outcome, giving per-customer CATE and an ATE confidence interval\n// inputs: []  returns: true\nEast.function([], BooleanType, ($) => {\n        // Continuous treatment (discount depth), confounded by loyalty (in W).\n        // X holds effect modifiers. True average effect: +1.5 per discount unit.\n        const Y = $.let(East.Vector.fromArray([\n            0.43, 0.86, 1.32, 1.74, 2.21, 2.63, 3.08, 3.52,\n            0.82, 1.27, 1.69, 2.16, 2.58, 3.05, 3.46, 3.91,\n            0.25, 0.68, 1.12, 1.57, 2.02, 2.44, 2.91, 3.34,\n        ]));\n        const T = $.let(East.Vector.fromArray([\n            0.15, 0.31, 0.48, 0.62, 0.81, 0.95, 1.12, 1.28,\n            0.28, 0.45, 0.59, 0.77, 0.92, 1.10, 1.24, 1.41,\n            0.03, 0.19, 0.35, 0.52, 0.67, 0.83, 1.01, 1.15,\n        ]));\n        // Effect modifier: customer size\n        const X = $.let(East.Matrix.fromArray([\n            [0.2], [0.4], [0.6], [0.8], [0.3], [0.5], [0.7], [0.9],\n            [0.1], [0.3], [0.5], [0.7], [0.2], [0.4], [0.6], [0.8],\n            [0.9], [0.7], [0.5], [0.3], [0.8], [0.6], [0.4], [0.2],\n        ]));\n        // Confounder: loyalty\n        const W = $.let(East.Matrix.fromArray([\n            [0.1], [0.2], [0.3], [0.4], [0.5], [0.6], [0.7], [0.8],\n            [0.2], [0.3], [0.4], [0.5], [0.6], [0.7], [0.8], [0.9],\n            [0.1], [0.2], [0.3], [0.4], [0.5], [0.6], [0.7], [0.8],\n        ]));\n\n        const config = $.let({\n            model_y: variant('some', variant('linear', null)),\n            model_t: variant('some', variant('linear', null)),\n            discrete_treatment: variant('none', null),\n            cv_folds: variant('some', 2n),\n            confidence_level: variant('some', 0.95),\n            random_state: variant('some', 42n),\n        }, Causal.Types.CausalDMLConfigType);\n\n        const model = $.let(Causal.dmlTrain(Y, T, X, variant('some', W), config));\n        const cate = $.let(Causal.dmlEffect(model, X));\n        const ate = $.let(Causal.dmlAte(model, X));\n\n        // One CATE per customer; ATE near the true +1.5\n        const lengthOk = $.let(cate.length().equal(24n));\n        return lengthOk.and(() => ate.ate.subtract(East.value(1.5)).abs().less(0.4));\n    })"
@@ -11691,10 +11715,10 @@
         "confidence interval"
       ],
       "imports": [
-        "import { East, BooleanType, variant, example } from \"@elaraai/east\";",
+        "import { East, ArrayType, StructType, FloatType, BooleanType, variant, example } from \"@elaraai/east\";",
         "import { Causal } from \"@elaraai/east-py-datascience\";"
       ],
-      "source": "// ALE dose-response curve of a temperature setpoint on process rate - robust to correlated covariates where partial dependence is biased\n// inputs: []  returns: true\nEast.function([], BooleanType, ($) => {\n        // Setpoint is correlated with ambient temperature; ALE isolates the\n        // local effect of the setpoint itself. True slope: +2.0 per unit.\n        // Columns: [setpoint, ambient, rate]\n        const data = $.let(East.Matrix.fromArray([\n            [0.05, 0.21, 0.31], [0.10, 0.27, 0.47], [0.15, 0.24, 0.54], [0.20, 0.33, 0.73],\n            [0.25, 0.29, 0.79], [0.30, 0.38, 0.98], [0.35, 0.41, 1.11], [0.40, 0.37, 1.17],\n            [0.45, 0.46, 1.36], [0.50, 0.52, 1.52], [0.55, 0.48, 1.58], [0.60, 0.57, 1.77],\n            [0.65, 0.61, 1.91], [0.70, 0.58, 1.98], [0.75, 0.66, 2.16], [0.80, 0.72, 2.32],\n            [0.85, 0.69, 2.39], [0.90, 0.77, 2.57], [0.95, 0.81, 2.71], [1.00, 0.78, 2.78],\n        ]));\n\n        const config = $.let({\n            columns: [\"setpoint\", \"ambient\", \"rate\"],\n            outcome: \"rate\",\n            feature: \"setpoint\",\n            categorical: variant('none', null),\n            grid_size: variant('some', 5n),\n            include_ci: variant('some', true),\n            confidence_level: variant('some', 0.95),\n            emulator: variant('some', {\n                n_estimators: variant('some', 200n),\n                learning_rate: variant('some', 0.1),\n                max_depth: variant('none', null),\n                min_samples_leaf: variant('some', 2n),\n            }),\n            random_state: variant('some', 42n),\n        }, Causal.Types.CausalALEConfigType);\n\n        const result = $.let(Causal.ale(data, config));\n        // Centered effect rises across the grid - a positive dose-response\n        const last = $.let(result.effect.get(result.effect.length().subtract(1n)));\n        return last.subtract(result.effect.get(0n)).greater(0.5);\n    })"
+      "source": "// ALE dose-response curve of a temperature setpoint on process rate - robust to correlated covariates where partial dependence is biased\n// inputs: []  returns: true\nEast.function([], BooleanType, ($) => {\n        // Setpoint is correlated with ambient temperature; ALE isolates the\n        // local effect of the setpoint itself. True slope: +2.0 per unit.\n        const RowType = StructType({ setpoint: FloatType, ambient: FloatType, rate: FloatType });\n        const data = $.let([\n            { setpoint: 0.05, ambient: 0.21, rate: 0.31 }, { setpoint: 0.10, ambient: 0.27, rate: 0.47 }, { setpoint: 0.15, ambient: 0.24, rate: 0.54 }, { setpoint: 0.20, ambient: 0.33, rate: 0.73 },\n            { setpoint: 0.25, ambient: 0.29, rate: 0.79 }, { setpoint: 0.30, ambient: 0.38, rate: 0.98 }, { setpoint: 0.35, ambient: 0.41, rate: 1.11 }, { setpoint: 0.40, ambient: 0.37, rate: 1.17 },\n            { setpoint: 0.45, ambient: 0.46, rate: 1.36 }, { setpoint: 0.50, ambient: 0.52, rate: 1.52 }, { setpoint: 0.55, ambient: 0.48, rate: 1.58 }, { setpoint: 0.60, ambient: 0.57, rate: 1.77 },\n            { setpoint: 0.65, ambient: 0.61, rate: 1.91 }, { setpoint: 0.70, ambient: 0.58, rate: 1.98 }, { setpoint: 0.75, ambient: 0.66, rate: 2.16 }, { setpoint: 0.80, ambient: 0.72, rate: 2.32 },\n            { setpoint: 0.85, ambient: 0.69, rate: 2.39 }, { setpoint: 0.90, ambient: 0.77, rate: 2.57 }, { setpoint: 0.95, ambient: 0.81, rate: 2.71 }, { setpoint: 1.00, ambient: 0.78, rate: 2.78 },\n        ], ArrayType(RowType));\n\n        const config = $.let({\n            outcome: \"rate\",\n            feature: \"setpoint\",\n            categorical: variant('none', null),\n            grid_size: variant('some', 5n),\n            include_ci: variant('some', true),\n            confidence_level: variant('some', 0.95),\n            emulator: variant('some', {\n                n_estimators: variant('some', 200n),\n                learning_rate: variant('some', 0.1),\n                max_depth: variant('none', null),\n                min_samples_leaf: variant('some', 2n),\n            }),\n            random_state: variant('some', 42n),\n        }, Causal.Types.CausalALEConfigType);\n\n        const result = $.let(Causal.ale([RowType], data, config));\n        // Centered effect rises across the grid - a positive dose-response\n        const last = $.let(result.effect.get(result.effect.length().subtract(1n)));\n        return last.subtract(result.effect.get(0n)).greater(0.5);\n    })"
     },
     {
       "id": "east-py-datascience:google_or.cpsat.examples.ts:cpsatScheduleJobs",
@@ -27075,6 +27099,79 @@
         "import * as e3 from \"@elaraai/e3\";"
       ],
       "source": "// Editable roster — edits buffered locally; Apply publishes a fresh patch to a server-backed patch dataset\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Reactive>{$ => {\n                const view = $.let(Data.bind(rosterInput,\n                    { mode: \"staged\", patch: rosterPatchInput },\n                ));\n                const rosterArray = $.let(view.read(), RosterArrayType);\n                return (\n                    <Card>\n                        <VStack gap=\"5\" align=\"stretch\">\n                            <Text textStyle=\"heading-md\">Worker roster (staged + patch)</Text>\n                            <Text>Edits buffer locally until Apply, which publishes a draft patch to the patch dataset for review.</Text>\n                            <Table data={rosterArray} columns={{\n                                name: { header: \"Name\" },\n                                rate: {\n                                    header: \"Hourly rate ($)\",\n                                    render: East.function(\n                                        [Table.Types.CellRenderContext],\n                                        UIComponentType,\n                                        ($, ctx) => {\n                                            const idx = $.let(ctx.rowIndex, IntegerType);\n                                            const row = $.let(rosterArray.get(idx), RosterEntryType);\n                                            return (\n                                                <Input.Float value={row.rate} min={15.0} max={80.0} step={0.25}\n                                                    onChange={East.function([FloatType], NullType, ($, v) => {\n                                                        const fresh = $.let(view.read(), RosterArrayType);\n                                                        $(view.write(fresh.map(($, r, i) =>\n                                                            i.equal(idx).ifElse(_$ => ({ ...r, rate: v }), () => r),\n                                                        )));\n                                                    })} />\n                                            );\n                                        },\n                                    ),\n                                },\n                                shiftLength: {\n                                    header: \"Shift length (h)\",\n                                    render: East.function(\n                                        [Table.Types.CellRenderContext],\n                                        UIComponentType,\n                                        ($, ctx) => {\n                                            const idx = $.let(ctx.rowIndex, IntegerType);\n                                            const row = $.let(rosterArray.get(idx), RosterEntryType);\n                                            return (\n                                                <Input.Integer value={row.shiftLength} min={4n} max={12n}\n                                                    onChange={East.function([IntegerType], NullType, ($, v) => {\n                                                        const fresh = $.let(view.read(), RosterArrayType);\n                                                        $(view.write(fresh.map(($, r, i) =>\n                                                            i.equal(idx).ifElse(_$ => ({ ...r, shiftLength: v }), () => r),\n                                                        )));\n                                                    })} />\n                                            );\n                                        },\n                                    ),\n                                },\n                            }} variant=\"line\" striped />\n                            <Diff bindings={[view.binding]} hideUnchanged={some(true)} />\n                        </VStack>\n                    </Card>\n                );\n            }}</Reactive>\n        );\n    })"
+    },
+    {
+      "id": "e3-ui:experiment.examples.tsx:experimentSurface",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/experiment/experiment.examples.tsx",
+      "suite": "",
+      "test": "An interactive causal-experiment surface: ",
+      "keywords": [
+        "Experiment",
+        "causal",
+        "effect",
+        "confounding",
+        "forest",
+        "dose",
+        "Data",
+        "Func",
+        "bind",
+        "generic"
+      ],
+      "imports": [
+        "import {",
+        "import { Reactive, UIComponentType } from '@elaraai/east-ui';",
+        "import { Data, Experiment, Func } from '@elaraai/e3-ui';",
+        "import e3 from '@elaraai/e3';"
+      ],
+      "source": "// An interactive causal-experiment surface: \n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const data = $.let(Data.bind(batchesInput));\n            const spec = $.let(Data.bind(experimentSpecInput, { mode: 'staged' }));\n            const journal = $.let(Data.bind(experimentJournalInput));\n            const estimate = $.let(Func.bind(estimateFn));\n            const refute = $.let(Func.bind(refuteFn));\n            const dose = $.let(Func.bind(doseFn));\n            return (\n                <Experiment data={data} spec={spec} estimate={estimate} refute={refute} dose={dose} journal={journal}\n                    columns={{ bond_strength: { unit: 'MPa' } }} />\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:experiment.examples.tsx:experimentTrust",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/experiment/experiment.examples.tsx",
+      "suite": "",
+      "test": "The Experiment ",
+      "keywords": [
+        "Experiment",
+        "causal",
+        "refute",
+        "trust",
+        "sensitivity",
+        "robustness"
+      ],
+      "imports": [
+        "import {",
+        "import { Reactive, UIComponentType } from '@elaraai/east-ui';",
+        "import { Data, Experiment, Func } from '@elaraai/e3-ui';",
+        "import e3 from '@elaraai/e3';"
+      ],
+      "source": "// The Experiment \n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const data = $.let(Data.bind(batchesInput));\n            const spec = $.let(Data.bind(experimentSpecInput, { mode: 'staged' }));\n            const journal = $.let(Data.bind(experimentJournalInput));\n            const estimate = $.let(Func.bind(estimateFn));\n            const refute = $.let(Func.bind(refuteFn));\n            const dose = $.let(Func.bind(doseFn));\n            return (\n                <Experiment data={data} spec={spec} estimate={estimate} refute={refute} dose={dose} journal={journal}\n                    columns={{ bond_strength: { unit: 'MPa' } }} defaultTab=\"trust\" />\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:experiment.examples.tsx:experimentDose",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/experiment/experiment.examples.tsx",
+      "suite": "",
+      "test": "The Experiment ",
+      "keywords": [
+        "Experiment",
+        "causal",
+        "dose",
+        "ale",
+        "response",
+        "marginal"
+      ],
+      "imports": [
+        "import {",
+        "import { Reactive, UIComponentType } from '@elaraai/east-ui';",
+        "import { Data, Experiment, Func } from '@elaraai/e3-ui';",
+        "import e3 from '@elaraai/e3';"
+      ],
+      "source": "// The Experiment \n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const data = $.let(Data.bind(batchesInput));\n            const spec = $.let(Data.bind(experimentSpecInput, { mode: 'staged' }));\n            const journal = $.let(Data.bind(experimentJournalInput));\n            const estimate = $.let(Func.bind(estimateFn));\n            const refute = $.let(Func.bind(refuteFn));\n            const dose = $.let(Func.bind(doseFn));\n            return (\n                <Experiment data={data} spec={spec} estimate={estimate} refute={refute} dose={dose} journal={journal}\n                    columns={{ bond_strength: { unit: 'MPa' } }} defaultTab=\"dose\" />\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "e3-ui:func.examples.tsx:funcBindCall",

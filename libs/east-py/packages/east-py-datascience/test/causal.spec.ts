@@ -6,39 +6,51 @@
 /**
  * Causal inference platform function tests
  */
-import { East, variant } from "@elaraai/east";
+import { East, ArrayType, StructType, FloatType, variant } from "@elaraai/east";
 import { describeEast, Assert } from "@elaraai/east-node-std";
 import { Causal, CausalEffectConfigType, CausalDMLConfigType, CausalALEConfigType } from "@elaraai/east-py-datascience";
 import * as ex from "./causal.examples.js";
+
+// Shared fixtures — the effect/refute functions are generic over the row struct,
+// so the data is an `Array<Struct>` (fields = columns) and the row type is passed
+// as the type argument: `Causal.effect([RowTZB], data, config)`.
+const RowTZB = StructType({ t: FloatType, y: FloatType, z: FloatType, batch: FloatType });
+// y = 2*t + 3*z (+/- 0.03); treatment assigned more often at high z.
+const tzbRows = [
+    { t: 0.0, y: 0.32, z: 0.1, batch: 0.0 }, { t: 1.0, y: 2.62, z: 0.2, batch: 0.0 },
+    { t: 0.0, y: 0.58, z: 0.2, batch: 1.0 }, { t: 1.0, y: 2.88, z: 0.3, batch: 1.0 },
+    { t: 0.0, y: 0.93, z: 0.3, batch: 2.0 }, { t: 1.0, y: 3.22, z: 0.4, batch: 2.0 },
+    { t: 0.0, y: 1.18, z: 0.4, batch: 3.0 }, { t: 1.0, y: 3.53, z: 0.5, batch: 3.0 },
+    { t: 0.0, y: 1.52, z: 0.5, batch: 4.0 }, { t: 1.0, y: 3.81, z: 0.6, batch: 4.0 },
+    { t: 0.0, y: 1.79, z: 0.6, batch: 5.0 }, { t: 1.0, y: 4.07, z: 0.7, batch: 5.0 },
+    { t: 0.0, y: 2.13, z: 0.7, batch: 6.0 }, { t: 1.0, y: 4.43, z: 0.8, batch: 6.0 },
+    { t: 0.0, y: 2.38, z: 0.8, batch: 7.0 }, { t: 1.0, y: 4.71, z: 0.9, batch: 7.0 },
+];
+
+const RowSAR = StructType({ setpoint: FloatType, ambient: FloatType, rate: FloatType });
+const sarRows = [
+    { setpoint: 0.05, ambient: 0.21, rate: 0.31 }, { setpoint: 0.10, ambient: 0.27, rate: 0.47 }, { setpoint: 0.15, ambient: 0.24, rate: 0.54 }, { setpoint: 0.20, ambient: 0.33, rate: 0.73 },
+    { setpoint: 0.25, ambient: 0.29, rate: 0.79 }, { setpoint: 0.30, ambient: 0.38, rate: 0.98 }, { setpoint: 0.35, ambient: 0.41, rate: 1.11 }, { setpoint: 0.40, ambient: 0.37, rate: 1.17 },
+    { setpoint: 0.45, ambient: 0.46, rate: 1.36 }, { setpoint: 0.50, ambient: 0.52, rate: 1.52 }, { setpoint: 0.55, ambient: 0.48, rate: 1.58 }, { setpoint: 0.60, ambient: 0.57, rate: 1.77 },
+    { setpoint: 0.65, ambient: 0.61, rate: 1.91 }, { setpoint: 0.70, ambient: 0.58, rate: 1.98 }, { setpoint: 0.75, ambient: 0.66, rate: 2.16 }, { setpoint: 0.80, ambient: 0.72, rate: 2.32 },
+    { setpoint: 0.85, ambient: 0.69, rate: 2.39 }, { setpoint: 0.90, ambient: 0.77, rate: 2.57 }, { setpoint: 0.95, ambient: 0.81, rate: 2.71 }, { setpoint: 1.00, ambient: 0.78, rate: 2.78 },
+];
 
 describeEast("Causal platform functions", (test) => {
 
     Assert.examples(test, {
         causalEffectLinear: ex.causalEffectLinear,
         causalEffectPropensityAtt: ex.causalEffectPropensityAtt,
+        causalEffectConfounding: ex.causalEffectConfounding,
         causalRefuteSensitivity: ex.causalRefuteSensitivity,
         causalDmlCate: ex.causalDmlCate,
         causalAleDoseResponse: ex.causalAleDoseResponse,
     });
 
     test("linear regression recovers confounded effect", $ => {
-        // y = 2*t + 3*z (+/- 0.03); treatment assigned more often at high z.
-        // Columns: [t, y, z, batch]
-        const data = $.let(East.Matrix.fromArray([
-            [0.0, 0.32, 0.1, 0.0], [1.0, 2.62, 0.2, 0.0],
-            [0.0, 0.58, 0.2, 1.0], [1.0, 2.88, 0.3, 1.0],
-            [0.0, 0.93, 0.3, 2.0], [1.0, 3.22, 0.4, 2.0],
-            [0.0, 1.18, 0.4, 3.0], [1.0, 3.53, 0.5, 3.0],
-            [0.0, 1.52, 0.5, 4.0], [1.0, 3.81, 0.6, 4.0],
-            [0.0, 1.79, 0.6, 5.0], [1.0, 4.07, 0.7, 5.0],
-            [0.0, 2.13, 0.7, 6.0], [1.0, 4.43, 0.8, 6.0],
-            [0.0, 2.38, 0.8, 7.0], [1.0, 4.71, 0.9, 7.0],
-        ]));
+        const data = $.let(tzbRows, ArrayType(RowTZB));
         const config = $.let({
-            columns: ["t", "y", "z", "batch"],
-            treatment: "t",
-            outcome: "y",
-            common_causes: ["z"],
+            treatment: "t", outcome: "y", common_causes: ["z"],
             categorical: variant('none', null),
             method: variant('some', variant('linear_regression', null)),
             target_units: variant('some', variant('ate', null)),
@@ -47,7 +59,7 @@ describeEast("Causal platform functions", (test) => {
             random_state: variant('some', 42n),
         }, CausalEffectConfigType);
 
-        const result = $.let(Causal.effect(data, config));
+        const result = $.let(Causal.effect([RowTZB], data, config));
         $(Assert.less(result.effect.subtract(East.value(2.0)).abs(), East.value(0.2)));
         $(Assert.equal(result.n_samples, 16n));
         $(Assert.equal(result.n_treated, 8n));
@@ -55,21 +67,9 @@ describeEast("Causal platform functions", (test) => {
     });
 
     test("propensity weighting att with overlap trim", $ => {
-        const data = $.let(East.Matrix.fromArray([
-            [0.0, 0.32, 0.1, 0.0], [1.0, 2.62, 0.2, 0.0],
-            [0.0, 0.58, 0.2, 1.0], [1.0, 2.88, 0.3, 1.0],
-            [0.0, 0.93, 0.3, 2.0], [1.0, 3.22, 0.4, 2.0],
-            [0.0, 1.18, 0.4, 3.0], [1.0, 3.53, 0.5, 3.0],
-            [0.0, 1.52, 0.5, 4.0], [1.0, 3.81, 0.6, 4.0],
-            [0.0, 1.79, 0.6, 5.0], [1.0, 4.07, 0.7, 5.0],
-            [0.0, 2.13, 0.7, 6.0], [1.0, 4.43, 0.8, 6.0],
-            [0.0, 2.38, 0.8, 7.0], [1.0, 4.71, 0.9, 7.0],
-        ]));
+        const data = $.let(tzbRows, ArrayType(RowTZB));
         const config = $.let({
-            columns: ["t", "y", "z", "batch"],
-            treatment: "t",
-            outcome: "y",
-            common_causes: ["z"],
+            treatment: "t", outcome: "y", common_causes: ["z"],
             categorical: variant('none', null),
             method: variant('some', variant('propensity_score_weighting', {
                 weighting_scheme: variant('some', variant('ips_stabilized_weight', null)),
@@ -80,26 +80,14 @@ describeEast("Causal platform functions", (test) => {
             random_state: variant('some', 42n),
         }, CausalEffectConfigType);
 
-        const result = $.let(Causal.effect(data, config));
+        const result = $.let(Causal.effect([RowTZB], data, config));
         $(Assert.less(result.effect.subtract(East.value(2.0)).abs(), East.value(0.5)));
     });
 
     test("propensity weighting ate with bounds trim and raw weights", $ => {
-        const data = $.let(East.Matrix.fromArray([
-            [0.0, 0.32, 0.1, 0.0], [1.0, 2.62, 0.2, 0.0],
-            [0.0, 0.58, 0.2, 1.0], [1.0, 2.88, 0.3, 1.0],
-            [0.0, 0.93, 0.3, 2.0], [1.0, 3.22, 0.4, 2.0],
-            [0.0, 1.18, 0.4, 3.0], [1.0, 3.53, 0.5, 3.0],
-            [0.0, 1.52, 0.5, 4.0], [1.0, 3.81, 0.6, 4.0],
-            [0.0, 1.79, 0.6, 5.0], [1.0, 4.07, 0.7, 5.0],
-            [0.0, 2.13, 0.7, 6.0], [1.0, 4.43, 0.8, 6.0],
-            [0.0, 2.38, 0.8, 7.0], [1.0, 4.71, 0.9, 7.0],
-        ]));
+        const data = $.let(tzbRows, ArrayType(RowTZB));
         const config = $.let({
-            columns: ["t", "y", "z", "batch"],
-            treatment: "t",
-            outcome: "y",
-            common_causes: ["z"],
+            treatment: "t", outcome: "y", common_causes: ["z"],
             categorical: variant('none', null),
             method: variant('some', variant('propensity_score_weighting', {
                 weighting_scheme: variant('some', variant('ips_weight', null)),
@@ -110,26 +98,14 @@ describeEast("Causal platform functions", (test) => {
             random_state: variant('some', 42n),
         }, CausalEffectConfigType);
 
-        const result = $.let(Causal.effect(data, config));
+        const result = $.let(Causal.effect([RowTZB], data, config));
         $(Assert.less(result.effect.subtract(East.value(2.0)).abs(), East.value(0.5)));
     });
 
     test("cluster bootstrap confidence interval", $ => {
-        const data = $.let(East.Matrix.fromArray([
-            [0.0, 0.32, 0.1, 0.0], [1.0, 2.62, 0.2, 0.0],
-            [0.0, 0.58, 0.2, 1.0], [1.0, 2.88, 0.3, 1.0],
-            [0.0, 0.93, 0.3, 2.0], [1.0, 3.22, 0.4, 2.0],
-            [0.0, 1.18, 0.4, 3.0], [1.0, 3.53, 0.5, 3.0],
-            [0.0, 1.52, 0.5, 4.0], [1.0, 3.81, 0.6, 4.0],
-            [0.0, 1.79, 0.6, 5.0], [1.0, 4.07, 0.7, 5.0],
-            [0.0, 2.13, 0.7, 6.0], [1.0, 4.43, 0.8, 6.0],
-            [0.0, 2.38, 0.8, 7.0], [1.0, 4.71, 0.9, 7.0],
-        ]));
+        const data = $.let(tzbRows, ArrayType(RowTZB));
         const config = $.let({
-            columns: ["t", "y", "z", "batch"],
-            treatment: "t",
-            outcome: "y",
-            common_causes: ["z"],
+            treatment: "t", outcome: "y", common_causes: ["z"],
             categorical: variant('none', null),
             method: variant('some', variant('linear_regression', null)),
             target_units: variant('some', variant('ate', null)),
@@ -142,7 +118,7 @@ describeEast("Causal platform functions", (test) => {
             random_state: variant('some', 42n),
         }, CausalEffectConfigType);
 
-        const result = $.let(Causal.effect(data, config));
+        const result = $.let(Causal.effect([RowTZB], data, config));
         $.match(result.ci, {
             some: ($, ci) => {
                 $(Assert.lessEqual(ci.lower, ci.upper));
@@ -154,18 +130,15 @@ describeEast("Causal platform functions", (test) => {
     });
 
     test("categorical confounder is one-hot encoded", $ => {
-        // y = 2*t + 1.0*[cat=1] + 2.0*[cat=2] (+/- 0.05); treatment more
-        // likely at higher cat. Columns: [t, y, cat]
-        const data = $.let(East.Matrix.fromArray([
-            [0.0, 0.05, 0.0], [0.0, -0.03, 0.0], [0.0, 0.01, 0.0], [1.0, 2.04, 0.0], [1.0, 1.97, 0.0],
-            [0.0, 1.02, 1.0], [0.0, 0.97, 1.0], [1.0, 3.05, 1.0], [1.0, 2.96, 1.0], [1.0, 3.01, 1.0],
-            [0.0, 2.03, 2.0], [0.0, 1.96, 2.0], [1.0, 4.02, 2.0], [1.0, 3.99, 2.0], [1.0, 4.05, 2.0],
-        ]));
+        // y = 2*t + 1.0*[cat=1] + 2.0*[cat=2] (+/- 0.05); treatment more likely at higher cat.
+        const RowTYCat = StructType({ t: FloatType, y: FloatType, cat: FloatType });
+        const data = $.let([
+            { t: 0.0, y: 0.05, cat: 0.0 }, { t: 0.0, y: -0.03, cat: 0.0 }, { t: 0.0, y: 0.01, cat: 0.0 }, { t: 1.0, y: 2.04, cat: 0.0 }, { t: 1.0, y: 1.97, cat: 0.0 },
+            { t: 0.0, y: 1.02, cat: 1.0 }, { t: 0.0, y: 0.97, cat: 1.0 }, { t: 1.0, y: 3.05, cat: 1.0 }, { t: 1.0, y: 2.96, cat: 1.0 }, { t: 1.0, y: 3.01, cat: 1.0 },
+            { t: 0.0, y: 2.03, cat: 2.0 }, { t: 0.0, y: 1.96, cat: 2.0 }, { t: 1.0, y: 4.02, cat: 2.0 }, { t: 1.0, y: 3.99, cat: 2.0 }, { t: 1.0, y: 4.05, cat: 2.0 },
+        ], ArrayType(RowTYCat));
         const config = $.let({
-            columns: ["t", "y", "cat"],
-            treatment: "t",
-            outcome: "y",
-            common_causes: ["cat"],
+            treatment: "t", outcome: "y", common_causes: ["cat"],
             categorical: variant('some', ["cat"]),
             method: variant('some', variant('linear_regression', null)),
             target_units: variant('some', variant('ate', null)),
@@ -174,26 +147,14 @@ describeEast("Causal platform functions", (test) => {
             random_state: variant('some', 42n),
         }, CausalEffectConfigType);
 
-        const result = $.let(Causal.effect(data, config));
+        const result = $.let(Causal.effect([RowTYCat], data, config));
         $(Assert.less(result.effect.subtract(East.value(2.0)).abs(), East.value(0.2)));
     });
 
     test("placebo treatment refuter drives effect to zero", $ => {
-        const data = $.let(East.Matrix.fromArray([
-            [0.0, 0.32, 0.1, 0.0], [1.0, 2.62, 0.2, 0.0],
-            [0.0, 0.58, 0.2, 1.0], [1.0, 2.88, 0.3, 1.0],
-            [0.0, 0.93, 0.3, 2.0], [1.0, 3.22, 0.4, 2.0],
-            [0.0, 1.18, 0.4, 3.0], [1.0, 3.53, 0.5, 3.0],
-            [0.0, 1.52, 0.5, 4.0], [1.0, 3.81, 0.6, 4.0],
-            [0.0, 1.79, 0.6, 5.0], [1.0, 4.07, 0.7, 5.0],
-            [0.0, 2.13, 0.7, 6.0], [1.0, 4.43, 0.8, 6.0],
-            [0.0, 2.38, 0.8, 7.0], [1.0, 4.71, 0.9, 7.0],
-        ]));
+        const data = $.let(tzbRows, ArrayType(RowTZB));
         const config = $.let({
-            columns: ["t", "y", "z", "batch"],
-            treatment: "t",
-            outcome: "y",
-            common_causes: ["z"],
+            treatment: "t", outcome: "y", common_causes: ["z"],
             categorical: variant('none', null),
             method: variant('some', variant('linear_regression', null)),
             target_units: variant('some', variant('ate', null)),
@@ -202,7 +163,7 @@ describeEast("Causal platform functions", (test) => {
             random_state: variant('some', 42n),
         }, CausalEffectConfigType);
 
-        const result = $.let(Causal.refute(data, config, variant('placebo_treatment', {
+        const result = $.let(Causal.refute([RowTZB], data, config, variant('placebo_treatment', {
             num_simulations: variant('some', 20n),
         })));
         $(Assert.less(result.estimated_effect.subtract(East.value(2.0)).abs(), East.value(0.2)));
@@ -211,21 +172,9 @@ describeEast("Causal platform functions", (test) => {
     });
 
     test("random common cause refuter leaves effect unchanged", $ => {
-        const data = $.let(East.Matrix.fromArray([
-            [0.0, 0.32, 0.1, 0.0], [1.0, 2.62, 0.2, 0.0],
-            [0.0, 0.58, 0.2, 1.0], [1.0, 2.88, 0.3, 1.0],
-            [0.0, 0.93, 0.3, 2.0], [1.0, 3.22, 0.4, 2.0],
-            [0.0, 1.18, 0.4, 3.0], [1.0, 3.53, 0.5, 3.0],
-            [0.0, 1.52, 0.5, 4.0], [1.0, 3.81, 0.6, 4.0],
-            [0.0, 1.79, 0.6, 5.0], [1.0, 4.07, 0.7, 5.0],
-            [0.0, 2.13, 0.7, 6.0], [1.0, 4.43, 0.8, 6.0],
-            [0.0, 2.38, 0.8, 7.0], [1.0, 4.71, 0.9, 7.0],
-        ]));
+        const data = $.let(tzbRows, ArrayType(RowTZB));
         const config = $.let({
-            columns: ["t", "y", "z", "batch"],
-            treatment: "t",
-            outcome: "y",
-            common_causes: ["z"],
+            treatment: "t", outcome: "y", common_causes: ["z"],
             categorical: variant('none', null),
             method: variant('some', variant('linear_regression', null)),
             target_units: variant('some', variant('ate', null)),
@@ -234,28 +183,16 @@ describeEast("Causal platform functions", (test) => {
             random_state: variant('some', 42n),
         }, CausalEffectConfigType);
 
-        const result = $.let(Causal.refute(data, config, variant('random_common_cause', {
+        const result = $.let(Causal.refute([RowTZB], data, config, variant('random_common_cause', {
             num_simulations: variant('some', 10n),
         })));
         $(Assert.less(result.new_effects.get(0n).subtract(result.estimated_effect).abs(), East.value(0.3)));
     });
 
     test("data subset refuter is stable", $ => {
-        const data = $.let(East.Matrix.fromArray([
-            [0.0, 0.32, 0.1, 0.0], [1.0, 2.62, 0.2, 0.0],
-            [0.0, 0.58, 0.2, 1.0], [1.0, 2.88, 0.3, 1.0],
-            [0.0, 0.93, 0.3, 2.0], [1.0, 3.22, 0.4, 2.0],
-            [0.0, 1.18, 0.4, 3.0], [1.0, 3.53, 0.5, 3.0],
-            [0.0, 1.52, 0.5, 4.0], [1.0, 3.81, 0.6, 4.0],
-            [0.0, 1.79, 0.6, 5.0], [1.0, 4.07, 0.7, 5.0],
-            [0.0, 2.13, 0.7, 6.0], [1.0, 4.43, 0.8, 6.0],
-            [0.0, 2.38, 0.8, 7.0], [1.0, 4.71, 0.9, 7.0],
-        ]));
+        const data = $.let(tzbRows, ArrayType(RowTZB));
         const config = $.let({
-            columns: ["t", "y", "z", "batch"],
-            treatment: "t",
-            outcome: "y",
-            common_causes: ["z"],
+            treatment: "t", outcome: "y", common_causes: ["z"],
             categorical: variant('none', null),
             method: variant('some', variant('linear_regression', null)),
             target_units: variant('some', variant('ate', null)),
@@ -264,7 +201,7 @@ describeEast("Causal platform functions", (test) => {
             random_state: variant('some', 42n),
         }, CausalEffectConfigType);
 
-        const result = $.let(Causal.refute(data, config, variant('data_subset', {
+        const result = $.let(Causal.refute([RowTZB], data, config, variant('data_subset', {
             subset_fraction: variant('some', 0.8),
             num_simulations: variant('some', 10n),
         })));
@@ -272,21 +209,9 @@ describeEast("Causal platform functions", (test) => {
     });
 
     test("unobserved confounder sensitivity curve", $ => {
-        const data = $.let(East.Matrix.fromArray([
-            [0.0, 0.32, 0.1, 0.0], [1.0, 2.62, 0.2, 0.0],
-            [0.0, 0.58, 0.2, 1.0], [1.0, 2.88, 0.3, 1.0],
-            [0.0, 0.93, 0.3, 2.0], [1.0, 3.22, 0.4, 2.0],
-            [0.0, 1.18, 0.4, 3.0], [1.0, 3.53, 0.5, 3.0],
-            [0.0, 1.52, 0.5, 4.0], [1.0, 3.81, 0.6, 4.0],
-            [0.0, 1.79, 0.6, 5.0], [1.0, 4.07, 0.7, 5.0],
-            [0.0, 2.13, 0.7, 6.0], [1.0, 4.43, 0.8, 6.0],
-            [0.0, 2.38, 0.8, 7.0], [1.0, 4.71, 0.9, 7.0],
-        ]));
+        const data = $.let(tzbRows, ArrayType(RowTZB));
         const config = $.let({
-            columns: ["t", "y", "z", "batch"],
-            treatment: "t",
-            outcome: "y",
-            common_causes: ["z"],
+            treatment: "t", outcome: "y", common_causes: ["z"],
             categorical: variant('none', null),
             method: variant('some', variant('linear_regression', null)),
             target_units: variant('some', variant('ate', null)),
@@ -295,7 +220,7 @@ describeEast("Causal platform functions", (test) => {
             random_state: variant('some', 42n),
         }, CausalEffectConfigType);
 
-        const result = $.let(Causal.refute(data, config, variant('unobserved_common_cause', {
+        const result = $.let(Causal.refute([RowTZB], data, config, variant('unobserved_common_cause', {
             effect_strengths: [0.0, 0.2, 0.4],
         })));
         $(Assert.equal(result.new_effects.length(), 3n));
@@ -379,18 +304,9 @@ describeEast("Causal platform functions", (test) => {
     });
 
     test("ale dose-response rises with the true slope", $ => {
-        // rate = 2*setpoint + ambient; ambient correlated with setpoint.
-        const data = $.let(East.Matrix.fromArray([
-            [0.05, 0.21, 0.31], [0.10, 0.27, 0.47], [0.15, 0.24, 0.54], [0.20, 0.33, 0.73],
-            [0.25, 0.29, 0.79], [0.30, 0.38, 0.98], [0.35, 0.41, 1.11], [0.40, 0.37, 1.17],
-            [0.45, 0.46, 1.36], [0.50, 0.52, 1.52], [0.55, 0.48, 1.58], [0.60, 0.57, 1.77],
-            [0.65, 0.61, 1.91], [0.70, 0.58, 1.98], [0.75, 0.66, 2.16], [0.80, 0.72, 2.32],
-            [0.85, 0.69, 2.39], [0.90, 0.77, 2.57], [0.95, 0.81, 2.71], [1.00, 0.78, 2.78],
-        ]));
+        const data = $.let(sarRows, ArrayType(RowSAR));
         const config = $.let({
-            columns: ["setpoint", "ambient", "rate"],
-            outcome: "rate",
-            feature: "setpoint",
+            outcome: "rate", feature: "setpoint",
             categorical: variant('none', null),
             grid_size: variant('some', 5n),
             include_ci: variant('some', true),
@@ -404,7 +320,7 @@ describeEast("Causal platform functions", (test) => {
             random_state: variant('some', 42n),
         }, CausalALEConfigType);
 
-        const result = $.let(Causal.ale(data, config));
+        const result = $.let(Causal.ale([RowSAR], data, config));
         const last = $.let(result.effect.get(result.effect.length().subtract(1n)));
         $(Assert.greater(last.subtract(result.effect.get(0n)), East.value(0.5)));
         $(Assert.equal(result.grid.length(), result.effect.length()));
@@ -415,17 +331,9 @@ describeEast("Causal platform functions", (test) => {
     });
 
     test("ale without confidence interval", $ => {
-        const data = $.let(East.Matrix.fromArray([
-            [0.05, 0.21, 0.31], [0.10, 0.27, 0.47], [0.15, 0.24, 0.54], [0.20, 0.33, 0.73],
-            [0.25, 0.29, 0.79], [0.30, 0.38, 0.98], [0.35, 0.41, 1.11], [0.40, 0.37, 1.17],
-            [0.45, 0.46, 1.36], [0.50, 0.52, 1.52], [0.55, 0.48, 1.58], [0.60, 0.57, 1.77],
-            [0.65, 0.61, 1.91], [0.70, 0.58, 1.98], [0.75, 0.66, 2.16], [0.80, 0.72, 2.32],
-            [0.85, 0.69, 2.39], [0.90, 0.77, 2.57], [0.95, 0.81, 2.71], [1.00, 0.78, 2.78],
-        ]));
+        const data = $.let(sarRows, ArrayType(RowSAR));
         const config = $.let({
-            columns: ["setpoint", "ambient", "rate"],
-            outcome: "rate",
-            feature: "setpoint",
+            outcome: "rate", feature: "setpoint",
             categorical: variant('none', null),
             grid_size: variant('some', 5n),
             include_ci: variant('some', false),
@@ -439,20 +347,18 @@ describeEast("Causal platform functions", (test) => {
             random_state: variant('some', 42n),
         }, CausalALEConfigType);
 
-        const result = $.let(Causal.ale(data, config));
+        const result = $.let(Causal.ale([RowSAR], data, config));
         $.match(result.lower, {
             some: $ => $(Assert.fail(East.value("Expected no CI"))),
             none: () => {},
         });
     });
 
-    test("error: column count mismatch", $ => {
-        const data = $.let(East.Matrix.fromArray([[1.0, 2.0], [0.0, 1.0]]));
+    test("error: referenced column not found in the row struct", $ => {
+        const Row = StructType({ a: FloatType, b: FloatType });
+        const data = $.let([{ a: 1.0, b: 2.0 }, { a: 0.0, b: 1.0 }], ArrayType(Row));
         const config = $.let({
-            columns: ["t", "y", "z"],
-            treatment: "t",
-            outcome: "y",
-            common_causes: ["z"],
+            treatment: "t", outcome: "b", common_causes: ["a"],
             categorical: variant('none', null),
             method: variant('none', null),
             target_units: variant('none', null),
@@ -461,6 +367,6 @@ describeEast("Causal platform functions", (test) => {
             random_state: variant('none', null),
         }, CausalEffectConfigType);
 
-        $(Assert.throws(Causal.effect(data, config), /causal_effect.*2 columns.*3 column names/));
+        $(Assert.throws(Causal.effect([Row], data, config), /causal_effect.*not found/));
     });
 }, { exportOnly: true });
