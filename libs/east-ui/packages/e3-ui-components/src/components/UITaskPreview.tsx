@@ -36,7 +36,7 @@ import {
     usePreloadReactiveDatasets,
     type ReactiveDatasetToPreload,
 } from '../platform/dataset-hooks.js';
-import { useE3Config, type E3Config } from '../platform/e3-config.js';
+import { useE3ConfigOptional, type E3Config } from '../platform/e3-config.js';
 import { createScopedBindPlatform } from '../platform/bind-runtime.js';
 import { createScopedFuncPlatform } from '../platform/func-runtime.js';
 import { useTaskDetails, getTaskKind, getTaskMetadata } from '../hooks/useTaskDetails.js';
@@ -68,15 +68,18 @@ export const UITaskPreview = memo(function UITaskPreview({
     config,
     pollInterval = 1000,
 }: UITaskPreviewProps) {
-    const e3 = useE3Config();
+    // Read the provider non-throwingly: the `config` prop is designed to let a
+    // caller render a preview without a surrounding <E3Provider>. `config` wins;
+    // fall back to the provider when present. Either source alone is sufficient.
+    const e3 = useE3ConfigOptional();
     const cache = useReactiveDatasetCacheOptional();
-    const apiUrl = config?.apiUrl ?? e3.apiUrl;
-    const repo = config?.repo ?? e3.repo ?? 'default';
-    const workspace = config?.workspace ?? e3.workspace ?? null;
-    const token = config?.token ?? e3.token ?? null;
+    const apiUrl = config?.apiUrl ?? e3?.apiUrl ?? null;
+    const repo = config?.repo ?? e3?.repo ?? 'default';
+    const workspace = config?.workspace ?? e3?.workspace ?? null;
+    const token = config?.token ?? e3?.token ?? null;
     const requestOptions = { token };
 
-    const detailsQuery = useTaskDetails(apiUrl, repo, workspace, task, { requestOptions });
+    const detailsQuery = useTaskDetails(apiUrl ?? '', repo, workspace, task, { requestOptions });
     const details = detailsQuery.data;
 
     const kind = details ? getTaskKind(details) : null;
@@ -128,8 +131,8 @@ export const UITaskPreview = memo(function UITaskPreview({
     }, [cache, manifest, workspace, pollInterval]);
 
     // Fetch the output value (no size gate — UI is wanted in full).
-    const statusQuery = useDatasetStatus(apiUrl, repo, workspace, outputPath, { requestOptions });
-    const valueQuery = useDatasetValue(apiUrl, repo, workspace, outputPath, {
+    const statusQuery = useDatasetStatus(apiUrl ?? '', repo, workspace, outputPath, { requestOptions });
+    const valueQuery = useDatasetValue(apiUrl ?? '', repo, workspace, outputPath, {
         requestOptions,
         type: statusQuery.data?.type as never,
         hash: statusQuery.data?.hash ?? null,
@@ -142,6 +145,7 @@ export const UITaskPreview = memo(function UITaskPreview({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     const store = useMemo(() => createUIStore(), [task]);
 
+    if (!apiUrl) return <StatusDisplay variant="error" title="Configuration error" message="No apiUrl available — render UITaskPreview inside an <E3Provider> or pass a config prop." />;
     if (detailsQuery.isLoading) return <StatusDisplay variant="loading" title="Loading task..." />;
     if (detailsQuery.error) return <StatusDisplay variant="error" title="Error" message={detailsQuery.error.message} />;
     if (!details) return <StatusDisplay variant="info" title="No task" message={`Task "${task}" not found`} />;
