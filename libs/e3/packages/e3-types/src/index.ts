@@ -80,6 +80,16 @@ export {
   type FunctionObject,
 } from './function.js';
 
+// Record objects
+export {
+  RecordCommitType,
+  type RecordCommit,
+  MutationObjectType,
+  type MutationObject,
+  RecordObjectType,
+  type RecordObject,
+} from './record.js';
+
 // Package objects
 export {
   PackageDataType,

@@ -125,6 +125,56 @@ export interface FunctionDef<
 }
 
 /**
+ * A record definition.
+ *
+ * A record is a root dataset whose writes go through {@link MutationDef
+ * mutations} rather than blind replace. It *is a* {@link DatasetDef} (so it is
+ * accepted everywhere a dataset is — task inputs, `e3.ui` reads — and flows
+ * through the structure/ref/deploy machinery), mounted at `.records.${name}`
+ * with `writable: false` so raw `e3 set` is rejected. The required initial
+ * value rides `DatasetDef.default`; deploy mints the genesis commit from it.
+ *
+ * @typeParam T - The East type of the record state
+ */
+export interface RecordDef<T extends EastType = EastType, Path extends TreePath = TreePath>
+  extends DatasetDef<T, Path> {
+  /** Discriminant distinguishing a record from a plain dataset. */
+  readonly recordKind: 'record';
+  /** Mutations that may write this record, by name. */
+  readonly mutations: Record<string, MutationDef>;
+}
+
+/**
+ * A mutation definition — the write half of the function machinery (CQRS;
+ * {@link FunctionDef} is the read half).
+ *
+ * A mutation is a pure East reducer `(State, ...Args) => State` that runs
+ * server-side in a compare-and-swap retry loop. Its output type is the owning
+ * record's type, so there is no separate return type. Passed to `e3.package`
+ * like a function; it is collected onto its record.
+ *
+ * @typeParam T - The owning record's state type
+ * @typeParam Args - The EXTRA positional parameter types (after the state)
+ */
+export interface MutationDef<
+  T extends EastType = EastType,
+  Args extends readonly EastType[] = readonly EastType[],
+> {
+  readonly kind: 'mutation';
+  /** Mutation name (unique within the owning record). */
+  readonly name: string;
+  /** The record this mutation writes. */
+  readonly record: RecordDef<T>;
+  // Typed loosely + cast like FunctionDef.body / task function_ir (TS2344 on
+  // a readonly first generic param of EastIR).
+  readonly body: EastIR<any, any> | AsyncEastIR<any, any>;
+  /** The EXTRA positional parameter types (the state type comes from the record). */
+  readonly argTypes: Args;
+  /** Runtime the reducer runs on; defaults to DEFAULT_RUNNER. */
+  readonly runner: Runner;
+}
+
+/**
  * An item that can be passed to e3.package().
  */
 export type PackageItem = DataTreeDef | DatasetDef | TaskDef;
@@ -196,4 +246,8 @@ export interface PackageDef<Datasets extends Record<string, any>> {
   /** Named functions, by name. Functions are not part of `contents` —
    *  they have no deps and never enter the data tree. */
   readonly functions: Record<string, FunctionDef>;
+  /** Records, by name, each carrying its assembled mutations. A record's
+   *  dataset is also in `contents` (records are datasets); this map is the
+   *  separate channel for emitting the RecordObject + MutationObjects. */
+  readonly records: Record<string, RecordDef>;
 }

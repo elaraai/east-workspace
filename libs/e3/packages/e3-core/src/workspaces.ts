@@ -407,8 +407,8 @@ export async function workspaceExport(
     }
   }
 
-  // Create new PackageObject with inline refs (functions carry through
-  // unchanged — they have no dataset state)
+  // Create new PackageObject with inline refs (functions and records carry
+  // through unchanged — the record dataset state lives in the refs)
   const newPkgObject: PackageObject = {
     tasks: deployedPkgObject.tasks,
     data: {
@@ -416,6 +416,7 @@ export async function workspaceExport(
       refs: workspaceRefs,
     },
     functions: deployedPkgObject.functions,
+    records: deployedPkgObject.records,
   };
 
   // Encode and store the new package object

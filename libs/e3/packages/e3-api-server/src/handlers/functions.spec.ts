@@ -61,6 +61,7 @@ async function seedPackage(storage: InMemoryStorage): Promise<void> {
     tasks: new Map<string, string>(),
     data: { structure: variant('struct', new Map()), refs: new Map() },
     functions: new Map([['double', fnHash]]),
+    records: new Map<string, string>(),
   };
   const pkgHash = await storage.objects.write(REPO, encodeBeast2For(PackageObjectType)(pkgObject));
   await storage.refs.packageWrite(REPO, PKG, VERSION, pkgHash);

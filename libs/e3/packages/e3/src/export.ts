@@ -17,8 +17,8 @@ import * as fs from 'node:fs';
 import { createHash } from 'node:crypto';
 import yazl from 'yazl';
 import { variant, encodeBeast2For, encodeEastIR, EastIR, AsyncEastIR, printIdentifier, SortedMap, toEastTypeValue } from '@elaraai/east';
-import type { Structure, PackageObject, DatasetRef, FunctionObject } from '@elaraai/e3-types';
-import { DatasetRefType, PackageObjectType, TaskObjectType, FunctionObjectType } from '@elaraai/e3-types';
+import type { Structure, PackageObject, DatasetRef, FunctionObject, MutationObject, RecordObject } from '@elaraai/e3-types';
+import { DatasetRefType, PackageObjectType, TaskObjectType, FunctionObjectType, MutationObjectType, RecordObjectType } from '@elaraai/e3-types';
 import type { PackageDef, PackageItem } from './types.js';
 import { runnerToVariant } from './runner.js';
 
@@ -203,6 +203,40 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
     functions.set(fname, fnHash);
   }
 
+  // Write record objects. The record's own dataset (initial state value + ref +
+  // writable:false structure leaf) is written by the dataset branch above —
+  // records are datasets. Here we write the separate RecordObject + its
+  // MutationObjects, mirroring how functions are written. The genesis commit is
+  // minted at deploy from the initial-state ref (§6.4).
+  const records = new SortedMap<string, string>(); // name -> RecordObject hash
+  const mutationEncoder = encodeBeast2For(MutationObjectType);
+  const recordEncoder = encodeBeast2For(RecordObjectType);
+  for (const [rname, rdef] of Object.entries(pkg.records)) {
+    const recordRefPath = rdef.path.map(seg => {
+      if (seg.type !== 'field') {
+        throw new Error(`Unsupported path segment type: ${seg.type}`);
+      }
+      return seg.value;
+    }).join('/');
+
+    const mutations = new SortedMap<string, string>(); // name -> MutationObject hash
+    for (const [mname, mdef] of Object.entries(rdef.mutations)) {
+      const bodyIrData = encodeEastIR(mdef.body);
+      const bodyIrHash = addObject(zipfile, Buffer.from(bodyIrData));
+      const mutObject: MutationObject = {
+        bodyIr: bodyIrHash,
+        argTypes: mdef.argTypes.map((t) => toEastTypeValue(t)),
+        runner: runnerToVariant(mdef.runner),
+      };
+      const mutHash = addObject(zipfile, Buffer.from(mutationEncoder(mutObject)));
+      mutations.set(mname, mutHash);
+    }
+
+    const recObject: RecordObject = { path: recordRefPath, mutations };
+    const recHash = addObject(zipfile, Buffer.from(recordEncoder(recObject)));
+    records.set(rname, recHash);
+  }
+
   // Get the root structure
   const rootStructure = structures.get('');
   if (!rootStructure) {
@@ -217,6 +251,7 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
       refs,
     },
     functions,
+    records,
   };
   const packageObjectEncoder = encodeBeast2For(PackageObjectType);
   const packageObjectData = packageObjectEncoder(packageObject);

@@ -231,9 +231,11 @@ describe('decodePackageObject', () => {
       tasks: new Map([['t', 'a'.repeat(64)]]),
       data: { structure: variant('struct', new Map()), refs: new Map() },
       functions: new Map([['f', 'b'.repeat(64)]]),
+      records: new Map([['r', 'c'.repeat(64)]]),
     });
     const decoded = decodePackageObject(bytes);
     assert.strictEqual(decoded.functions.get('f'), 'b'.repeat(64));
+    assert.strictEqual(decoded.records.get('r'), 'c'.repeat(64));
   });
 
   it('decodes a pre-functions (legacy) package with functions defaulted empty', () => {
