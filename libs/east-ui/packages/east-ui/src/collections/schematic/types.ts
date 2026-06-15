@@ -152,36 +152,74 @@ export const SchematicPointType = StructType({
 export type SchematicPointType = typeof SchematicPointType;
 
 /**
+ * A polyline / polygon vertex — a world point plus DXF `bulge`.
+ *
+ * @remarks
+ * `bulge` encodes the edge from THIS vertex to the NEXT one: `0` is a
+ * straight segment; nonzero is a circular arc where
+ * `bulge = tan(includedAngle / 4)` and the sign gives the turn direction
+ * (positive = counter-clockwise in world space). One polyline / polygon thus
+ * stores true curved kerbs / walls exactly — no flattening into many short
+ * segments. For a closed `polygon`, the last vertex's `bulge` applies to the
+ * closing edge back to the first vertex.
+ *
+ * @property x - World x
+ * @property y - World y
+ * @property bulge - DXF bulge for the edge to the next vertex (0 = straight)
+ */
+export const SchematicVertexType = StructType({
+    /** World x */
+    x: FloatType,
+    /** World y */
+    y: FloatType,
+    /** DXF bulge for the edge to the next vertex (0 = straight; `tan(includedAngle / 4)`). */
+    bulge: FloatType,
+});
+
+/**
+ * Type representing a polyline / polygon vertex (world point + DXF bulge).
+ */
+export type SchematicVertexType = typeof SchematicVertexType;
+
+/**
  * Shared shape geometry for zones (`geometry`) and item footprints
- * (`footprint`) — one variant, three cases.
+ * (`footprint`) — one variant, four cases.
  *
  * @remarks
  * Geometry is **additive**: a zone keeps its required `x/y/width/height`
  * bounding box and an item keeps its required `x/y` anchor/centroid; the
  * shape, when present, is what the renderer strokes/fills. Absent geometry
  * (`none`) means today's behaviour — a zone is its rect, an item is its
- * point + icon. Points are world coordinates (the same {@link SchematicPointType}
- * that link `via` waypoints use). `polyline` / `polygon` render in the SVG
- * layer; `rect` keeps the HTML fast path.
+ * point + icon. `circle` centres on the entity anchor (an item's `x/y`, a
+ * zone's bbox centre). `polyline` / `polygon` carry {@link SchematicVertexType}
+ * vertices in world coords, each with a DXF `bulge`, so curved kerbs / walls
+ * are exact (no flattening); all of them paint on the Canvas2D layer, while
+ * `rect` keeps the marker fast path.
  *
- * @property rect - Axis-aligned box (zones: the `x/y/width/height` box; items: the existing sized-bar form)
- * @property polyline - Open polyline in world coords; optional world-space band `width`
- * @property polygon - Closed polygon in world coords (>= 3 points, auto-closed)
+ * @property rect - Axis-aligned box (zones: the `x/y/width/height` box; items: the point / marker form)
+ * @property circle - Circle centred on the entity anchor; `radius` in world units (tanks, silos)
+ * @property polyline - Open, arc-aware polyline in world coords; optional world-space band `width`
+ * @property polygon - Closed, arc-aware polygon in world coords (>= 3 vertices, auto-closed)
  */
 export const SchematicGeometryType = VariantType({
-    /** Axis-aligned box — zones use `x/y/width/height`; items, the existing sized-bar form. */
+    /** Axis-aligned box — zones use `x/y/width/height`; items, the point / marker form. */
     rect: NullType,
-    /** Open polyline in world coords; optional world-space band width. */
+    /** Circle centred on the entity anchor (item `x/y` or zone bbox centre); `radius` in world units. */
+    circle: StructType({
+        /** Circle radius in world units. */
+        radius: FloatType,
+    }),
+    /** Open, arc-aware polyline in world coords; optional world-space band width. */
     polyline: StructType({
-        /** Vertices in world coords, in order. */
-        points: ArrayType(SchematicPointType),
+        /** Vertices in world coords, in order (each carries a DXF bulge). */
+        vertices: ArrayType(SchematicVertexType),
         /** Optional band width in world units — the stroke widens into a road / aisle. */
         width: OptionType(FloatType),
     }),
-    /** Closed polygon in world coords (>= 3 points, auto-closed). */
+    /** Closed, arc-aware polygon in world coords (>= 3 vertices, auto-closed). */
     polygon: StructType({
-        /** Boundary vertices in world coords, in order. */
-        points: ArrayType(SchematicPointType),
+        /** Boundary vertices in world coords, in order (each carries a DXF bulge). */
+        vertices: ArrayType(SchematicVertexType),
     }),
 });
 

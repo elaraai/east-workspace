@@ -29,7 +29,7 @@ export type SchematicItemValue = ValueTypeOf<typeof Schematic.Types.Item>;
 /** East Schematic zone value type. */
 export type SchematicZoneValue = ValueTypeOf<typeof Schematic.Types.Zone>;
 
-/** East Schematic shape-geometry value type (`rect` / `polyline` / `polygon`). */
+/** East Schematic shape-geometry value type (`rect` / `circle` / `polyline` / `polygon`). */
 export type SchematicGeometryValue = ValueTypeOf<typeof Schematic.Types.Geometry>;
 
 export interface EastChakraSchematicProps {
@@ -260,10 +260,14 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value }: 
             // A footprint can reach past the marker box — union its world
             // bbox in so the shape isn't culled when the anchor leaves view.
             const fp = getSomeorUndefined(item.footprint);
-            if (fp !== undefined && fp.type !== "rect") {
-                for (const p of fp.value.points) {
-                    minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
-                    maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y);
+            if (fp !== undefined && fp.type === "circle") {
+                const r = fp.value.radius;
+                minX = Math.min(minX, item.x - r); minY = Math.min(minY, item.y - r);
+                maxX = Math.max(maxX, item.x + r); maxY = Math.max(maxY, item.y + r);
+            } else if (fp !== undefined && fp.type !== "rect") {
+                for (const v of fp.value.vertices) {
+                    minX = Math.min(minX, v.x); minY = Math.min(minY, v.y);
+                    maxX = Math.max(maxX, v.x); maxY = Math.max(maxY, v.y);
                 }
             }
             return { minX, minY, maxX, maxY, item };
@@ -494,7 +498,10 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value }: 
             if ((tiers.get(it.key) ?? lod) !== "card") continue;
             const fp = getSomeorUndefined(it.footprint);
             if (fp === undefined || fp.type === "rect") continue;
-            if (pointInPolygon(wxp, wyp, fp.value.points)) {
+            const hit = fp.type === "circle"
+                ? Math.hypot(wxp - it.x, wyp - it.y) <= fp.value.radius
+                : pointInPolygon(wxp, wyp, fp.value.vertices);
+            if (hit) {
                 setSelected(it.key);
                 if (onSelectFn) queueMicrotask(() => onSelectFn(it.key));
                 return;

@@ -69,6 +69,7 @@ export const Schematic: typeof SchematicTag & {
     solid: typeof SchematicFactory.solid;
     dashed: typeof SchematicFactory.dashed;
     rect: typeof SchematicFactory.rect;
+    circle: typeof SchematicFactory.circle;
     polyline: typeof SchematicFactory.polyline;
     polygon: typeof SchematicFactory.polygon;
     Types: typeof SchematicFactory.Types;
@@ -78,6 +79,7 @@ export const Schematic: typeof SchematicTag & {
     solid: SchematicFactory.solid,
     dashed: SchematicFactory.dashed,
     rect: SchematicFactory.rect,
+    circle: SchematicFactory.circle,
     polyline: SchematicFactory.polyline,
     polygon: SchematicFactory.polygon,
     Types: SchematicFactory.Types,

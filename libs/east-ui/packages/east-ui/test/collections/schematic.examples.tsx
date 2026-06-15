@@ -197,28 +197,30 @@ export const schematicFacility = example({
 });
 
 export const schematicGeometry = example({
-    keywords: ["Schematic", "geometry", "polygon", "polyline", "footprint", "zone", "CAD", "shape"],
-    description: "Shape geometry — polygon & polyline zones (rotated hall, curvy service road) and polygon item footprints (press, tank)",
+    keywords: ["Schematic", "geometry", "polygon", "polyline", "circle", "arc", "bulge", "footprint", "zone", "CAD", "shape"],
+    description: "Shape geometry — polygon & arc-aware polyline zones (rotated hall, curvy service road) plus polygon / circle item footprints (pump, tank, valve)",
     fn: East.function([], UIComponentType, ($) => {
-        // Equipment with real footprints (`fp:true` ⇒ polygon body; else
-        // point + icon). The `x/y` anchor stays the item identity used by the
-        // sidebar, links, and declutter; `footprint` is additive.
+        // Equipment with real footprints: `round` ⇒ circle body (a tank),
+        // else `fp` ⇒ polygon body, else point + icon. The `x/y` anchor stays
+        // the item identity used by the sidebar, links, and declutter;
+        // `footprint` is additive (a circle centres on that anchor).
         const equipment = $.const([
-            { id: "PRESS-1", x: 6.0, y: 4.0, kind: "hydraulic press", state: some(variant("success", null)), fp: true,
-              pts: [{ x: 3.5, y: 2.2 }, { x: 8.6, y: 3.0 }, { x: 8.0, y: 6.0 }, { x: 2.9, y: 5.2 }] },
-            { id: "TANK-9", x: 16.0, y: 4.5, kind: "buffer · 60 kL", state: some(variant("warning", null)), fp: true,
-              pts: [{ x: 13.5, y: 2.4 }, { x: 18.5, y: 2.4 }, { x: 18.5, y: 6.6 }, { x: 13.5, y: 6.6 }] },
-            { id: "VALVE-3", x: 21.6, y: 4.5, kind: "manifold", state: some(variant("info", null)), fp: false,
-              pts: [{ x: 21.6, y: 4.5 }] },
+            { id: "PUMP-1", x: 6.0, y: 4.0, kind: "transfer pump", state: some(variant("success", null)), fp: true, round: false, r: 0.0,
+              pts: [{ x: 3.5, y: 2.2, bulge: 0.0 }, { x: 8.6, y: 3.0, bulge: 0.0 }, { x: 8.0, y: 6.0, bulge: 0.0 }, { x: 2.9, y: 5.2, bulge: 0.0 }] },
+            { id: "TANK-9", x: 16.0, y: 4.5, kind: "storage tank", state: some(variant("warning", null)), fp: false, round: true, r: 2.4,
+              pts: [{ x: 16.0, y: 4.5, bulge: 0.0 }] },
+            { id: "VALVE-3", x: 21.6, y: 4.5, kind: "manifold", state: some(variant("info", null)), fp: false, round: false, r: 0.0,
+              pts: [{ x: 21.6, y: 4.5, bulge: 0.0 }] },
         ]);
         // Zones with shape geometry: a rotated polygon hall and a curvy
-        // polyline service road (a world-space band). The required x/y/w/h
-        // bounding box still drives the navigator / minimap / fly-to.
+        // polyline service road whose bends are true arcs (vertex `bulge`),
+        // widened into a world-space band. The required x/y/w/h bounding box
+        // still drives the navigator / minimap / fly-to.
         const areas = $.const([
             { id: "hall-c", name: "Hall C", x: 1.5, y: 1.2, w: 9.1, h: 6.4, road: false,
-              pts: [{ x: 1.8, y: 2.0 }, { x: 10.2, y: 1.3 }, { x: 10.6, y: 7.0 }, { x: 2.2, y: 7.6 }] },
+              pts: [{ x: 1.8, y: 2.0, bulge: 0.0 }, { x: 10.2, y: 1.3, bulge: 0.0 }, { x: 10.6, y: 7.0, bulge: 0.0 }, { x: 2.2, y: 7.6, bulge: 0.0 }] },
             { id: "svc-rd", name: "Service Rd", x: 1.0, y: 9.0, w: 23.5, h: 3.4, road: true,
-              pts: [{ x: 1.5, y: 11.6 }, { x: 7.0, y: 9.8 }, { x: 13.0, y: 11.4 }, { x: 19.0, y: 9.6 }, { x: 24.0, y: 10.8 }] },
+              pts: [{ x: 1.5, y: 11.6, bulge: 0.0 }, { x: 7.0, y: 9.8, bulge: 0.5 }, { x: 13.0, y: 11.4, bulge: -0.5 }, { x: 19.0, y: 9.6, bulge: 0.4 }, { x: 24.0, y: 10.8, bulge: 0.0 }] },
         ]);
         return (
             <Schematic
@@ -228,7 +230,10 @@ export const schematicGeometry = example({
                 item={e => ({
                     key: e.id, x: e.x, y: e.y, label: e.id,
                     sublabel: e.kind, status: e.state, icon: "industry",
-                    footprint: e.fp.ifElse(_$ => Schematic.polygon(e.pts), _$ => Schematic.rect()),
+                    footprint: e.round.ifElse(
+                        _$ => Schematic.circle(e.r),
+                        _$ => e.fp.ifElse(_$ => Schematic.polygon(e.pts), _$ => Schematic.rect()),
+                    ),
                 })}
                 zones={areas}
                 zone={z => ({

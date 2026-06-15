@@ -113,22 +113,35 @@ describeEast("Schematic", (test) => {
         $(Assert.equal($.let(sch.unwrap().unwrap("Schematic")).height.unwrap("some"), "400px"));
     });
 
-    test("polygon footprint and polyline zone geometry carry through", $ => {
+    test("polygon / circle footprints and arc-aware polyline zone geometry carry through", $ => {
         const sch = $.let(Schematic.Root(
-            [{ id: "P", x: 3.0, y: 3.0, pts: [{ x: 1.0, y: 1.0 }, { x: 5.0, y: 1.0 }, { x: 3.0, y: 5.0 }] }],
+            [
+                { id: "P", x: 3.0, y: 3.0, r: 0.0, round: false,
+                  pts: [{ x: 1.0, y: 1.0, bulge: 0.0 }, { x: 5.0, y: 1.0, bulge: 0.5 }, { x: 3.0, y: 5.0, bulge: 0.0 }] },
+                { id: "T", x: 8.0, y: 2.0, r: 1.5, round: true,
+                  pts: [{ x: 8.0, y: 2.0, bulge: 0.0 }] },
+            ],
             {
                 extent: { width: 10, height: 8 },
-                item: e => ({ key: e.id, x: e.x, y: e.y, label: e.id, footprint: Schematic.polygon(e.pts) }),
-                zones: [{ id: "r", name: "Rd", x: 0.0, y: 4.0, w: 9.0, h: 2.0, pl: [{ x: 0.5, y: 5.0 }, { x: 8.5, y: 5.0 }] }],
+                item: e => ({
+                    key: e.id, x: e.x, y: e.y, label: e.id,
+                    footprint: e.round.ifElse(_$ => Schematic.circle(e.r), _$ => Schematic.polygon(e.pts)),
+                }),
+                zones: [{ id: "r", name: "Rd", x: 0.0, y: 4.0, w: 9.0, h: 2.0,
+                          pl: [{ x: 0.5, y: 5.0, bulge: 0.0 }, { x: 8.5, y: 5.0, bulge: 0.0 }] }],
                 zone: z => ({ key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h, geometry: Schematic.polyline(z.pl, { width: 0.8 }) }),
             },
         ));
         const root = $.let(sch.unwrap().unwrap("Schematic"));
 
-        $(Assert.equal(root.items.get(0n).footprint.unwrap("some").hasTag("polygon"), true));
-        $(Assert.equal(root.items.get(0n).footprint.unwrap("some").unwrap("polygon").points.size(), 3n));
+        const poly = $.let(root.items.get(0n).footprint.unwrap("some"));
+        $(Assert.equal(poly.hasTag("polygon"), true));
+        $(Assert.equal(poly.unwrap("polygon").vertices.size(), 3n));
+        $(Assert.equal(poly.unwrap("polygon").vertices.get(1n).bulge, 0.5));
+        $(Assert.equal(root.items.get(1n).footprint.unwrap("some").hasTag("circle"), true));
+        $(Assert.equal(root.items.get(1n).footprint.unwrap("some").unwrap("circle").radius, 1.5));
         $(Assert.equal(root.zones.get(0n).geometry.unwrap("some").hasTag("polyline"), true));
-        $(Assert.equal(root.zones.get(0n).geometry.unwrap("some").unwrap("polyline").points.size(), 2n));
+        $(Assert.equal(root.zones.get(0n).geometry.unwrap("some").unwrap("polyline").vertices.size(), 2n));
         $(Assert.equal(root.zones.get(0n).geometry.unwrap("some").unwrap("polyline").width.unwrap("some"), 0.8));
     });
 }, { platformFns: TestImpl });

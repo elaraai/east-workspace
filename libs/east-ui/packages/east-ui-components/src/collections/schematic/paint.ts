@@ -7,8 +7,9 @@
  * Pure Canvas2D paint layer for the Schematic. Given a 2D context, the East
  * value, a camera, the (already culled / LOD-decided) visible set, and a
  * theme-resolved colour palette, it draws the **bulk shapes** — zones (rect
- * outline / hatch + polyline / polygon geometry), links, item footprints, and
- * the dot / pin LOD markers. Rich item *cards* stay DOM (the React layer draws
+ * outline / hatch + circle / polyline / polygon geometry, arcs included), links,
+ * item footprints, and the dot / pin LOD markers. Rich item *cards* stay DOM
+ * (the React layer draws
  * those at close zoom); this module never touches React, Chakra, or the DOM, so
  * it is unit-testable under any Canvas2D implementation (browser or node-skia).
  *
@@ -22,6 +23,8 @@ import { getSomeorUndefined } from "../../utils";
 type SchematicValue = ValueTypeOf<typeof Schematic.Types.Schematic>;
 type SchematicItemValue = ValueTypeOf<typeof Schematic.Types.Item>;
 type Pt = { x: number; y: number };
+/** A screen-space shape vertex carrying its DXF bulge (0 = straight to next). */
+type Vert = { x: number; y: number; bulge: number };
 
 /** Per-item LOD tier (mirrors the React layer). */
 export type LodTier = "card" | "label" | "dot";
@@ -146,6 +149,69 @@ function traceRounded(ctx: CanvasRenderingContext2D, pts: Pt[], radius: number):
     if (pts.length > 1) ctx.lineTo(last.x, last.y);
 }
 
+/** Centre / radius / sweep of a DXF bulge arc, ready for `CanvasRenderingContext2D.arc`. */
+export interface BulgeArc {
+    cx: number;
+    cy: number;
+    radius: number;
+    startAngle: number;
+    endAngle: number;
+    anticlockwise: boolean;
+}
+
+/**
+ * Pure geometry of the circular arc a DXF `bulge` encodes for the edge
+ * `p1`→`p2` (`bulge = tan(includedAngle / 4)`; sign = turn direction). Returns
+ * `null` for a straight or degenerate edge (`|bulge|` ~ 0, or a zero-length
+ * chord). Screen space: the caller has already transformed the vertices, and
+ * the uniform camera scale preserves the bulge (it is the tangent of an angle).
+ * Exported so the arc maths is unit-testable without a Canvas2D context.
+ */
+export function arcFromBulge(p1: Pt, p2: Pt, bulge: number): BulgeArc | null {
+    const dx = p2.x - p1.x, dy = p2.y - p1.y;
+    const chord = Math.hypot(dx, dy);
+    if (Math.abs(bulge) < 1e-4 || chord < 1e-9) return null;
+    const theta = 4 * Math.atan(bulge);            // signed swept angle
+    const radius = Math.abs(chord / (2 * Math.sin(theta / 2)));
+    const mx = (p1.x + p2.x) / 2, my = (p1.y + p2.y) / 2;
+    const d = (chord / 2) / Math.tan(theta / 2);   // signed midpoint→centre distance
+    const cx = mx - (dy / chord) * d, cy = my + (dx / chord) * d;
+    return {
+        cx, cy, radius,
+        startAngle: Math.atan2(p1.y - cy, p1.x - cx),
+        endAngle: Math.atan2(p2.y - cy, p2.x - cx),
+        anticlockwise: theta < 0,
+    };
+}
+
+/**
+ * Append the edge `p1`→`p2` to the current path: a straight `lineTo` when the
+ * edge is straight, else the circular arc its DXF bulge encodes (see
+ * {@link arcFromBulge}).
+ */
+function traceBulge(ctx: CanvasRenderingContext2D, p1: Pt, p2: Pt, bulge: number): void {
+    const arc = arcFromBulge(p1, p2, bulge);
+    if (arc === null) { ctx.lineTo(p2.x, p2.y); return; }
+    ctx.arc(arc.cx, arc.cy, arc.radius, arc.startAngle, arc.endAngle, arc.anticlockwise);
+}
+
+/**
+ * Trace an arc-aware vertex list (screen space, each `{x,y,bulge}`) into the
+ * current path. When `closed`, the last vertex's bulge curves the edge back to
+ * the first and the subpath is closed (polygon); otherwise it is left open
+ * (polyline). The caller sets stroke / fill and calls `beginPath` first.
+ */
+function traceVertices(ctx: CanvasRenderingContext2D, pts: Vert[], closed: boolean): void {
+    if (pts.length === 0) return;
+    ctx.moveTo(pts[0]!.x, pts[0]!.y);
+    for (let i = 1; i < pts.length; i++) traceBulge(ctx, pts[i - 1]!, pts[i]!, pts[i - 1]!.bulge);
+    if (closed) {
+        const last = pts[pts.length - 1]!;
+        traceBulge(ctx, last, pts[0]!, last.bulge);
+        ctx.closePath();
+    }
+}
+
 /** Draw the schematic's bulk-shape layer for one frame. Clears first. */
 export function paintSchematic(input: PaintInput): void {
     const { ctx, value, cam, width, height, visibleItems, tiers, selected, centers, palette: p } = input;
@@ -165,26 +231,35 @@ export function paintSchematic(input: PaintInput): void {
         const x = wx(zone.x), y = wy(zone.y), w = zone.width * ppu, h = zone.height * ppu;
 
         if (geom !== undefined && geom.type !== "rect") {
-            const pts = geom.value.points.map(q => ({ x: wx(q.x), y: wy(q.y) }));
-            if (pts.length > 0) {
+            if (geom.type === "circle") {
                 ctx.beginPath();
-                ctx.moveTo(pts[0]!.x, pts[0]!.y);
-                for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i]!.x, pts[i]!.y);
-                if (geom.type === "polygon") {
-                    ctx.closePath();
-                    ctx.setLineDash([4, 3]);
-                    ctx.lineWidth = 1;
-                    ctx.strokeStyle = css(color);
-                    ctx.stroke();
-                    ctx.setLineDash([]);
-                } else {
-                    const band = geom.value.width.type === "some" ? geom.value.width.value * ppu : undefined;
-                    ctx.setLineDash([]);
-                    ctx.lineCap = "round";
-                    ctx.lineWidth = band ?? 1.5;
-                    ctx.strokeStyle = css(color, 0.55);
-                    ctx.stroke();
-                    ctx.lineCap = "butt";
+                ctx.arc(x + w / 2, y + h / 2, geom.value.radius * ppu, 0, Math.PI * 2);
+                ctx.setLineDash([4, 3]);
+                ctx.lineWidth = 1;
+                ctx.strokeStyle = css(color);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            } else {
+                const pts = geom.value.vertices.map(q => ({ x: wx(q.x), y: wy(q.y), bulge: q.bulge }));
+                if (pts.length > 0) {
+                    ctx.beginPath();
+                    if (geom.type === "polygon") {
+                        traceVertices(ctx, pts, true);
+                        ctx.setLineDash([4, 3]);
+                        ctx.lineWidth = 1;
+                        ctx.strokeStyle = css(color);
+                        ctx.stroke();
+                        ctx.setLineDash([]);
+                    } else {
+                        traceVertices(ctx, pts, false);
+                        const band = geom.value.width.type === "some" ? geom.value.width.value * ppu : undefined;
+                        ctx.setLineDash([]);
+                        ctx.lineCap = "round";
+                        ctx.lineWidth = band ?? 1.5;
+                        ctx.strokeStyle = css(color, 0.55);
+                        ctx.stroke();
+                        ctx.lineCap = "butt";
+                    }
                 }
             }
         } else if (pattern.type === "hatch") {
@@ -265,23 +340,33 @@ export function paintSchematic(input: PaintInput): void {
         if ((tiers.get(item.key) ?? "dot") !== "card") continue;
         const color = statusRGB(p, statusTone(item.status));
         const isSel = selected === item.key;
-        const pts = footprint.value.points.map(q => ({ x: wx(q.x), y: wy(q.y) }));
-        if (pts.length === 0) continue;
-        ctx.beginPath();
-        ctx.moveTo(pts[0]!.x, pts[0]!.y);
-        for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i]!.x, pts[i]!.y);
-        if (footprint.type === "polygon") {
-            ctx.closePath();
+
+        if (footprint.type === "circle") {
+            ctx.beginPath();
+            ctx.arc(wx(item.x), wy(item.y), footprint.value.radius * ppu, 0, Math.PI * 2);
             ctx.fillStyle = css(color, isSel ? 0.24 : 0.12);
             ctx.fill();
-            ctx.lineCap = "butt";
+            ctx.lineWidth = isSel ? 2.5 : 1.5;
+            ctx.strokeStyle = css(color);
+            ctx.stroke();
+            continue;
+        }
+
+        const pts = footprint.value.vertices.map(q => ({ x: wx(q.x), y: wy(q.y), bulge: q.bulge }));
+        if (pts.length === 0) continue;
+        ctx.beginPath();
+        if (footprint.type === "polygon") {
+            traceVertices(ctx, pts, true);
+            ctx.fillStyle = css(color, isSel ? 0.24 : 0.12);
+            ctx.fill();
+            ctx.lineWidth = isSel ? 2.5 : 1.5;
         } else {
+            traceVertices(ctx, pts, false);
             const band = footprint.value.width.type === "some" ? footprint.value.width.value * ppu : undefined;
             ctx.lineCap = "round";
-            if (band !== undefined) ctx.lineWidth = band;
+            ctx.lineWidth = band ?? (isSel ? 2.5 : 1.5);
         }
         ctx.strokeStyle = css(color);
-        ctx.lineWidth = isSel ? 2.5 : 1.5;
         ctx.stroke();
         ctx.lineCap = "butt";
     }

@@ -42,6 +42,7 @@ import {
     SchematicZoneType,
     SchematicLinkType,
     SchematicPointType,
+    SchematicVertexType,
     SchematicGeometryType,
     SchematicZonePatternType,
     SchematicLinkStyleType,
@@ -56,6 +57,7 @@ export {
     SchematicZoneType,
     SchematicLinkType,
     SchematicPointType,
+    SchematicVertexType,
     SchematicGeometryType,
     SchematicZonePatternType,
     SchematicLinkStyleType,
@@ -134,8 +136,31 @@ function dashed(config?: SchematicPatternConfig) {
     });
 }
 
-/** World-coordinate vertices accepted by {@link polyline} / {@link polygon}. */
-export type SchematicPoints = SubtypeExprOrValue<ArrayType<SchematicPointType>>;
+/**
+ * A polyline / polygon vertex for {@link polyline} / {@link polygon} — a world
+ * point plus an optional DXF `bulge`.
+ *
+ * @property x - World x
+ * @property y - World y
+ * @property bulge - DXF bulge for the edge to the next vertex; `0` (default) is straight, nonzero is a circular arc (`tan(includedAngle / 4)`, sign = turn direction)
+ */
+export interface SchematicVertexInput {
+    /** World x. */
+    x: SubtypeExprOrValue<FloatType>;
+    /** World y. */
+    y: SubtypeExprOrValue<FloatType>;
+    /** DXF bulge for the edge to the next vertex; `0` (default) = straight, nonzero = arc. */
+    bulge?: SubtypeExprOrValue<FloatType>;
+}
+
+/**
+ * Vertices accepted by {@link polyline} / {@link polygon}: either a plain array
+ * of `{ x, y, bulge? }` (bulge defaults to `0`) or a resolved East array of
+ * {@link SchematicVertexType} values.
+ */
+export type SchematicVertices =
+    | readonly SchematicVertexInput[]
+    | SubtypeExprOrValue<ArrayType<SchematicVertexType>>;
 
 /** Optional configuration for {@link polyline}. */
 export interface SchematicPolylineConfig {
@@ -144,9 +169,25 @@ export interface SchematicPolylineConfig {
 }
 
 /**
+ * Normalise {@link SchematicVertices} into an East-coercible array of
+ * {@link SchematicVertexType} — plain arrays get `bulge` defaulted to `0`,
+ * East expressions pass through unchanged (they must already be vertices).
+ */
+function toVertices(vertices: SchematicVertices): SubtypeExprOrValue<ArrayType<SchematicVertexType>> {
+    if (Array.isArray(vertices)) {
+        return (vertices as readonly SchematicVertexInput[]).map(v => ({
+            x: v.x,
+            y: v.y,
+            bulge: v.bulge !== undefined ? v.bulge : 0,
+        }));
+    }
+    return vertices as SubtypeExprOrValue<ArrayType<SchematicVertexType>>;
+}
+
+/**
  * Builds a `rect` geometry value — the axis-aligned box. For zones this is
- * the `x/y/width/height` bounding box; for items, the existing sized-bar
- * form. Equivalent to omitting `geometry` / `footprint`.
+ * the `x/y/width/height` bounding box; for items, the point / marker form.
+ * Equivalent to omitting `geometry` / `footprint`.
  *
  * @returns A `SchematicGeometryType` value
  */
@@ -155,29 +196,41 @@ function rect(): ExprType<SchematicGeometryType> {
 }
 
 /**
- * Builds a `polyline` geometry value — an open polyline in world
+ * Builds a `circle` geometry value — a circle centred on the entity anchor
+ * (an item's `x/y`, or a zone's bounding-box centre). Models tanks, silos,
+ * and round equipment without flattening to a polygon.
+ *
+ * @param radius - Circle radius in world units
+ * @returns A `SchematicGeometryType` value
+ */
+function circle(radius: SubtypeExprOrValue<FloatType>): ExprType<SchematicGeometryType> {
+    return East.value(variant("circle", { radius }), SchematicGeometryType);
+}
+
+/**
+ * Builds a `polyline` geometry value — an open, arc-aware polyline in world
  * coordinates, optionally widened into a band (a road / aisle / walkway).
  *
- * @param points - Vertices in world coords, in order
+ * @param vertices - Vertices in world coords, in order (each `{ x, y, bulge? }`; `bulge` defaults to `0`)
  * @param config - Optional `width` band in world units
  * @returns A `SchematicGeometryType` value
  */
-function polyline(points: SchematicPoints, config?: SchematicPolylineConfig): ExprType<SchematicGeometryType> {
+function polyline(vertices: SchematicVertices, config?: SchematicPolylineConfig): ExprType<SchematicGeometryType> {
     return East.value(variant("polyline", {
-        points,
+        vertices: toVertices(vertices),
         width: config?.width !== undefined ? some(config.width) : none,
     }), SchematicGeometryType);
 }
 
 /**
- * Builds a `polygon` geometry value — a closed polygon in world
+ * Builds a `polygon` geometry value — a closed, arc-aware polygon in world
  * coordinates (a rotated / L-shaped zone, or an equipment footprint).
  *
- * @param points - Boundary vertices in world coords, in order (auto-closed)
+ * @param vertices - Boundary vertices in world coords, in order (auto-closed; each `{ x, y, bulge? }`)
  * @returns A `SchematicGeometryType` value
  */
-function polygon(points: SchematicPoints): ExprType<SchematicGeometryType> {
-    return East.value(variant("polygon", { points }), SchematicGeometryType);
+function polygon(vertices: SchematicVertices): ExprType<SchematicGeometryType> {
+    return East.value(variant("polygon", { vertices: toVertices(vertices) }), SchematicGeometryType);
 }
 
 /**
@@ -575,7 +628,7 @@ export const Schematic = {
     dashed,
     /**
      * Builds a `rect` geometry value — the axis-aligned box (a zone's
-     * `x/y/width/height`, or an item's sized-bar form). Equals omitting
+     * `x/y/width/height`, or an item's point / marker form). Equals omitting
      * `geometry` / `footprint`.
      *
      * @returns A `SchematicGeometryType` value
@@ -587,24 +640,40 @@ export const Schematic = {
      */
     rect,
     /**
-     * Builds a `polyline` geometry value — an open polyline in world
-     * coordinates, optionally widened into a band (a road / aisle).
+     * Builds a `circle` geometry value — a circle centred on the entity
+     * anchor (an item's `x/y`, or a zone's bbox centre). Models tanks, silos,
+     * and round equipment.
      *
-     * @param points - Vertices in world coords, in order
+     * @param radius - Circle radius in world units
+     * @returns A `SchematicGeometryType` value
+     *
+     * @example
+     * ```ts
+     * Schematic.circle(2.5)
+     * ```
+     */
+    circle,
+    /**
+     * Builds a `polyline` geometry value — an open, arc-aware polyline in
+     * world coordinates, optionally widened into a band (a road / aisle).
+     * Each vertex's `bulge` curves the edge to the next vertex (0 = straight).
+     *
+     * @param vertices - Vertices in world coords, in order (`{ x, y, bulge? }`)
      * @param config - Optional `width` band in world units
      * @returns A `SchematicGeometryType` value
      *
      * @example
      * ```ts
-     * Schematic.polyline([{ x: 0, y: 4 }, { x: 12, y: 4 }, { x: 12, y: 9 }], { width: 1.6 })
+     * Schematic.polyline([{ x: 0, y: 4 }, { x: 12, y: 4, bulge: 0.42 }, { x: 12, y: 9 }], { width: 1.6 })
      * ```
      */
     polyline,
     /**
-     * Builds a `polygon` geometry value — a closed polygon in world
-     * coordinates (a rotated / L-shaped zone, or an equipment footprint).
+     * Builds a `polygon` geometry value — a closed, arc-aware polygon in
+     * world coordinates (a rotated / L-shaped zone, or an equipment
+     * footprint). The last vertex's `bulge` curves the closing edge.
      *
-     * @param points - Boundary vertices in world coords, in order (auto-closed)
+     * @param vertices - Boundary vertices in world coords, in order (auto-closed; `{ x, y, bulge? }`)
      * @returns A `SchematicGeometryType` value
      *
      * @example
@@ -704,9 +773,18 @@ export const Schematic = {
          * (`footprint`).
          *
          * @property rect - Axis-aligned box
-         * @property polyline - Open polyline; optional world-space band width
-         * @property polygon - Closed polygon (>= 3 points)
+         * @property circle - Circle centred on the entity anchor (`radius` in world units)
+         * @property polyline - Open, arc-aware polyline; optional world-space band width
+         * @property polygon - Closed, arc-aware polygon (>= 3 vertices)
          */
         Geometry: SchematicGeometryType,
+        /**
+         * A polyline / polygon vertex — a world point plus DXF `bulge`.
+         *
+         * @property x - World x
+         * @property y - World y
+         * @property bulge - DXF bulge for the edge to the next vertex (0 = straight)
+         */
+        Vertex: SchematicVertexType,
     },
 } as const;
