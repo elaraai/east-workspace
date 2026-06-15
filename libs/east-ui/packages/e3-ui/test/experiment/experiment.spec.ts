@@ -11,10 +11,11 @@ import { Experiment } from '@elaraai/e3-ui/internal';
 import * as ex from './experiment.examples.js';
 
 describeEast('Experiment', (test) => {
-    // The interactive scene compiles, type-checks and renders to a
-    // UIComponentType value.
+    // The interactive scenes compile, type-check and render to a UIComponentType.
     Assert.examples(test, {
         experimentSurface: ex.experimentSurface,
+        experimentTrust: ex.experimentTrust,
+        experimentDose: ex.experimentDose,
     });
 
     test('Experiment.Component is declared as an optional EastUI component', $ => {
@@ -26,25 +27,24 @@ describeEast('Experiment', (test) => {
         const tree = $.let(
             Reactive.Root(East.function([], UIComponentType, $ => {
                 const data = $.let(Data.bind(ex.batchesInput));
-                const spec = $.let(Data.bind(ex.experimentSpecInput, { mode: 'staged' }));
-                const estimate = $.let(Func.bind(ex.estimateFn));
-                return Experiment.Root({ data, spec, estimate });
+                const config = $.let(Data.bind(ex.experimentConfigInput, { mode: 'staged' }));
+                const experiment = $.let(Func.bind(ex.experimentFn));
+                return Experiment.Root({ data, config, experiment });
             })),
             UIComponentType,
         );
         $(Assert.equal(tree.unwrap().getTag(), 'ReactiveComponent'));
     });
 
-    test('Experiment.Root threads the optional functions + journal through', $ => {
+    test('Experiment.Root threads the optional population + journal + defaultTab through', $ => {
         const tree = $.let(
             Reactive.Root(East.function([], UIComponentType, $ => {
                 const data = $.let(Data.bind(ex.batchesInput));
-                const spec = $.let(Data.bind(ex.experimentSpecInput, { mode: 'staged' }));
-                const estimate = $.let(Func.bind(ex.estimateFn));
-                const refute = $.let(Func.bind(ex.refuteFn));
-                const dose = $.let(Func.bind(ex.doseFn));
+                const config = $.let(Data.bind(ex.experimentConfigInput, { mode: 'staged' }));
+                const experiment = $.let(Func.bind(ex.experimentFn));
+                const population = $.let(Data.bind(ex.experimentPopulationInput, { mode: 'staged' }));
                 const journal = $.let(Data.bind(ex.experimentJournalInput));
-                return Experiment.Root({ data, spec, estimate, refute, dose, journal, defaultTab: 'trust' });
+                return Experiment.Root({ data, config, experiment, population, journal, defaultTab: 'trust' });
             })),
             UIComponentType,
         );

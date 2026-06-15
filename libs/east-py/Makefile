@@ -71,7 +71,7 @@ install-cli:
 		--with-editable ./packages/east-py \
 		--with-editable ./packages/east-py-std \
 		--with-editable ./packages/east-py-io \
-		--with-editable ./packages/east-py-datascience
+		--with-editable "./packages/east-py-datascience[all]"
 
 # ── Test IR Export ────────────────────────────────────────────────────
 

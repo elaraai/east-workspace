@@ -125,7 +125,7 @@ const optimize = East.function([], MADS.Types.ResultType, $ => {
 
 | Module | Description | Use Cases |
 |--------|-------------|-----------|
-| **Causal** | Causal inference with DoWhy, EconML, and PyALE | Backdoor-adjusted effect estimation, refutation tests, heterogeneous treatment effects (CATE), ALE dose-response curves |
+| **Causal** | One declarative causal experiment (`Causal.experiment`) over DoWhy / EconML / PyALE internals, plus `Causal.designValidation` (statsmodels power) | Naive vs adjusted effect, confounder balance, propensity overlap, placebo/E-value robustness, and an honesty verdict (refuses when the data can't support an answer); and the real controlled-trial recipe that would confirm it — sample size, split, match-on categories, and a power curve |
 
 ### Simulation
 

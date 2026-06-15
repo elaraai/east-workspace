@@ -1385,6 +1385,7 @@ all = [
     { name = "shap", version = "0.52.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "simanneal" },
     { name = "skl2onnx" },
+    { name = "statsmodels" },
     { name = "torch" },
     { name = "xgboost" },
 ]
@@ -1399,6 +1400,7 @@ causal = [
     { name = "pandas" },
     { name = "pyale" },
     { name = "scikit-learn" },
+    { name = "statsmodels" },
 ]
 dev = [
     { name = "pytest" },
@@ -1531,6 +1533,8 @@ requires-dist = [
     { name = "simanneal", marker = "extra == 'simanneal'", specifier = ">=0.5.0" },
     { name = "skl2onnx", marker = "extra == 'all'", specifier = ">=1.17.0" },
     { name = "skl2onnx", marker = "extra == 'sklearn'", specifier = ">=1.17.0" },
+    { name = "statsmodels", marker = "extra == 'all'", specifier = ">=0.14.0" },
+    { name = "statsmodels", marker = "extra == 'causal'", specifier = ">=0.14.0" },
     { name = "torch", marker = "extra == 'all'", specifier = ">=2.4.0" },
     { name = "torch", marker = "extra == 'lightning'", specifier = ">=2.4.0" },
     { name = "torch", marker = "extra == 'torch'", specifier = ">=2.4.0" },

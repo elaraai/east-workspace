@@ -75,10 +75,10 @@ export {
 } from './ontology.js';
 
 // e3 `<Experiment>` tag + its payload/options. The render-contract value types
-// (Spec / Result / Refute / Dose / Journal …) are intentionally NOT public
-// named exports — reach them via `Experiment.Types.Spec`, `.Result`, … (like
-// `Table.Types.*`), since users only touch them to type the bound functions /
-// seed result datasets.
+// (Config / Result / DoseResponse / Journal …) are intentionally NOT public
+// named exports — reach them via `Experiment.Types.Config`, `.Result`, … (like
+// `Table.Types.*`), since users only touch them to type the bound `experiment`
+// function / seed result datasets.
 export { Experiment } from './runtime/experiment.js';
 export {
     ExperimentPayloadType,

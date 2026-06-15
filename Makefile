@@ -53,6 +53,12 @@ check-deps:
 	fi; \
 	echo "Optional (task-specific):"; \
 	opt docker  "https://docs.docker.com/engine/install/  (only needed for make services-up / test-all)"; \
+	opt zip     "apt install zip  /  brew install zip  (only needed for make link / make extension-install)"; \
+	if [ -s "$${NVM_DIR:-$$HOME/.nvm}/nvm.sh" ]; then \
+		echo "  ✓ nvm (installed; 'nvm use' reads .nvmrc for the pinned Node)"; \
+	else \
+		echo "  ○ nvm — not found (optional; any Node >=22 works). Install: https://github.com/nvm-sh/nvm"; \
+	fi; \
 	if [ $$missing -ne 0 ]; then \
 		echo ""; \
 		echo "Missing tools above. Install them and re-run."; \
