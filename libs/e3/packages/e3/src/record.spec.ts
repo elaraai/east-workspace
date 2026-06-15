@@ -9,7 +9,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import yauzl from 'yauzl';
-import { East, IntegerType, decodeBeast2For } from '@elaraai/east';
+import { East, IntegerType, ArrayType, decodeBeast2For } from '@elaraai/east';
 import {
   RecordObjectType,
   MutationObjectType,
@@ -97,6 +97,32 @@ describe('e3.record / e3.mutation', () => {
     assert.throws(
       () => mutation('bad', counter, East.asyncFunction([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by)) as never),
       /pure, synchronous|async/i,
+    );
+  });
+
+  it('rejects a sync platform call in the reducer body at definition time', () => {
+    const counter = record('counter', IntegerType, 0n);
+    // A sync platform call (time/random/io) is an ordinary FunctionIR, so the
+    // async check misses it — the body walk must reject it: the CAS retry loop
+    // re-runs the reducer, so a platform result is non-deterministic.
+    assert.throws(
+      () => mutation('bad', counter, East.function([IntegerType, IntegerType], IntegerType,
+        ($, state, by) => state.add(East.platform('time_now', [], IntegerType)()).add(by))),
+      /must not call platform functions/,
+    );
+  });
+
+  it('rejects a sync platform call buried inside a collection lambda', () => {
+    const counter = record('counter', IntegerType, 0n);
+    // The walk must descend into closure bodies, not just the top level.
+    assert.throws(
+      () => mutation('bad', counter, East.function([IntegerType, IntegerType], IntegerType,
+        ($, state, by) => {
+          $.let(East.value([1n, 2n], ArrayType(IntegerType))
+            .map(($, x) => x.add(East.platform('time_now', [], IntegerType)())));
+          return state.add(by);
+        })),
+      /must not call platform functions/,
     );
   });
 

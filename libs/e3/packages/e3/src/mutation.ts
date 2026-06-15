@@ -19,7 +19,7 @@ import type {
   EastType,
   FunctionExpr,
 } from '@elaraai/east';
-import { Expr, AsyncEastIR } from '@elaraai/east';
+import { Expr, AsyncEastIR, walkIR } from '@elaraai/east';
 import type { MutationDef, RecordDef } from './types.js';
 import { DEFAULT_RUNNER, runnerToVariant, type FunctionRunner } from './runner.js';
 
@@ -33,7 +33,8 @@ import { DEFAULT_RUNNER, runnerToVariant, type FunctionRunner } from './runner.j
  *
  * The body must be a pure, synchronous East function (no platform IO): purity
  * is what lets the compare-and-swap loop re-run the reducer against fresher
- * state safely. An async reducer is rejected at definition time.
+ * state safely. Async reducers and any platform call are rejected at definition
+ * time.
  *
  * @typeParam Name - Mutation name (literal type)
  * @typeParam T - The owning record's state type
@@ -83,11 +84,26 @@ export function mutation(
   const eastIR = fn.toIR();
   if (eastIR instanceof AsyncEastIR) {
     throw new Error(
-      `e3.mutation '${name}' reducer must be a pure, synchronous East function — ` +
-      `async/platform-IO bodies are not allowed because the compare-and-swap retry ` +
-      `loop re-runs the reducer, which is unsafe with side effects.`,
+      `e3.mutation '${name}' reducer must be a synchronous East function — ` +
+      `an async reducer implies platform IO, which the compare-and-swap retry ` +
+      `loop cannot safely re-run against fresher state.`,
     );
   }
+  // The reducer must be pure: the compare-and-swap loop re-runs it against
+  // fresher state, so any platform call (Random, Time, IO, …) makes the
+  // committed record non-deterministic. A *sync* platform call is an ordinary
+  // FunctionIR, so the async check above doesn't catch it — walk the whole body
+  // (walkIR descends into nested closures, loop bodies and collection-op lambdas).
+  walkIR(eastIR.ir, (node) => {
+    if (node.type === 'Platform') {
+      throw new Error(
+        `e3.mutation '${name}' reducer must not call platform functions ` +
+        `(found '${node.value.name}') — the compare-and-swap retry loop re-runs ` +
+        `the reducer, so a platform call makes the committed record ` +
+        `non-deterministic across retries.`,
+      );
+    }
+  });
   const fnType = Expr.type(fn as Expr<any>) as { inputs: EastType[]; output: EastType };
   // The reducer is (state, ...args) => state; the extra parameter types are
   // everything after the leading state parameter.
