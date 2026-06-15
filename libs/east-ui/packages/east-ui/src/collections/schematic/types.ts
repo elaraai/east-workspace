@@ -152,6 +152,83 @@ export const SchematicPointType = StructType({
 export type SchematicPointType = typeof SchematicPointType;
 
 /**
+ * A polyline / polygon vertex — a world point plus DXF `bulge`.
+ *
+ * @remarks
+ * `bulge` encodes the edge from THIS vertex to the NEXT one: `0` is a
+ * straight segment; nonzero is a circular arc where
+ * `bulge = tan(includedAngle / 4)` and the sign gives the turn direction
+ * (positive = counter-clockwise in world space). One polyline / polygon thus
+ * stores true curved kerbs / walls exactly — no flattening into many short
+ * segments. For a closed `polygon`, the last vertex's `bulge` applies to the
+ * closing edge back to the first vertex.
+ *
+ * @property x - World x
+ * @property y - World y
+ * @property bulge - DXF bulge for the edge to the next vertex (0 = straight)
+ */
+export const SchematicVertexType = StructType({
+    /** World x */
+    x: FloatType,
+    /** World y */
+    y: FloatType,
+    /** DXF bulge for the edge to the next vertex (0 = straight; `tan(includedAngle / 4)`). */
+    bulge: FloatType,
+});
+
+/**
+ * Type representing a polyline / polygon vertex (world point + DXF bulge).
+ */
+export type SchematicVertexType = typeof SchematicVertexType;
+
+/**
+ * Shared shape geometry for zones (`geometry`) and item footprints
+ * (`footprint`) — one variant, four cases.
+ *
+ * @remarks
+ * Geometry is **additive**: a zone keeps its required `x/y/width/height`
+ * bounding box and an item keeps its required `x/y` anchor/centroid; the
+ * shape, when present, is what the renderer strokes/fills. Absent geometry
+ * (`none`) means today's behaviour — a zone is its rect, an item is its
+ * point + icon. `circle` centres on the entity anchor (an item's `x/y`, a
+ * zone's bbox centre). `polyline` / `polygon` carry {@link SchematicVertexType}
+ * vertices in world coords, each with a DXF `bulge`, so curved kerbs / walls
+ * are exact (no flattening); all of them paint on the Canvas2D layer, while
+ * `rect` keeps the marker fast path.
+ *
+ * @property rect - Axis-aligned box (zones: the `x/y/width/height` box; items: the point / marker form)
+ * @property circle - Circle centred on the entity anchor; `radius` in world units (tanks, silos)
+ * @property polyline - Open, arc-aware polyline in world coords; optional world-space band `width`
+ * @property polygon - Closed, arc-aware polygon in world coords (>= 3 vertices, auto-closed)
+ */
+export const SchematicGeometryType = VariantType({
+    /** Axis-aligned box — zones use `x/y/width/height`; items, the point / marker form. */
+    rect: NullType,
+    /** Circle centred on the entity anchor (item `x/y` or zone bbox centre); `radius` in world units. */
+    circle: StructType({
+        /** Circle radius in world units. */
+        radius: FloatType,
+    }),
+    /** Open, arc-aware polyline in world coords; optional world-space band width. */
+    polyline: StructType({
+        /** Vertices in world coords, in order (each carries a DXF bulge). */
+        vertices: ArrayType(SchematicVertexType),
+        /** Optional band width in world units — the stroke widens into a road / aisle. */
+        width: OptionType(FloatType),
+    }),
+    /** Closed, arc-aware polygon in world coords (>= 3 vertices, auto-closed). */
+    polygon: StructType({
+        /** Boundary vertices in world coords, in order (each carries a DXF bulge). */
+        vertices: ArrayType(SchematicVertexType),
+    }),
+});
+
+/**
+ * Type representing shared shape geometry.
+ */
+export type SchematicGeometryType = typeof SchematicGeometryType;
+
+/**
  * A resolved placed item (node card).
  *
  * @property key - Item identity — links reference it; `onSelect` returns it
@@ -164,6 +241,12 @@ export type SchematicPointType = typeof SchematicPointType;
  * @property meter - Optional mini utilisation bar
  * @property metric - Optional live metric text
  * @property width - Optional world width — renders the wide bar form
+ * @property footprint - Optional shape footprint; absent ⇒ point + icon (`x/y` stay the anchor/centroid)
+ * @property tone - Optional colour override (semantic tone); absent ⇒ `status` drives the colour
+ * @property color - Optional raw CSS stroke / marker tint; wins over `tone`
+ * @property bg - Optional raw CSS fill for a polygon / circle footprint
+ * @property fillOpacity - Optional fill alpha (0–1) for a polygon / circle footprint
+ * @property weight - Optional stroke width in px
  */
 export const SchematicItemType = StructType({
     /** Item identity — links reference it; `onSelect` returns it */
@@ -191,6 +274,18 @@ export const SchematicItemType = StructType({
     metric: OptionType(StringType),
     /** Optional world width — renders the wide bar form */
     width: OptionType(FloatType),
+    /** Optional shape footprint; absent ⇒ point + icon (`x/y` stay the anchor/centroid) */
+    footprint: OptionType(SchematicGeometryType),
+    /** Optional colour override (semantic tone); absent ⇒ `status` drives the colour */
+    tone: OptionType(SchematicToneType),
+    /** Optional raw CSS stroke / marker tint (e.g. `"#2D7FF9"`, `"teal"`); wins over `tone` */
+    color: OptionType(StringType),
+    /** Optional raw CSS fill for a polygon / circle footprint */
+    bg: OptionType(StringType),
+    /** Optional fill alpha (0–1) for a polygon / circle footprint */
+    fillOpacity: OptionType(FloatType),
+    /** Optional stroke width in px */
+    weight: OptionType(FloatType),
 });
 
 /**
@@ -208,6 +303,12 @@ export type SchematicItemType = typeof SchematicItemType;
  * @property width - World width
  * @property height - World height
  * @property pattern - Render pattern (`outline` / `hatch`)
+ * @property geometry - Optional shape geometry; absent ⇒ rect (`x/y/width/height` stay the bounding box)
+ * @property tone - Optional colour override (semantic tone); absent ⇒ the `pattern`'s tone drives the colour
+ * @property color - Optional raw CSS stroke tint; wins over `tone`
+ * @property bg - Optional raw CSS area fill (opt-in; zones are unfilled by default)
+ * @property fillOpacity - Optional fill alpha (0–1) for the area fill
+ * @property weight - Optional stroke width in px
  */
 export const SchematicZoneType = StructType({
     /** Zone identity */
@@ -224,6 +325,18 @@ export const SchematicZoneType = StructType({
     height: FloatType,
     /** Render pattern (`outline` / `hatch`) */
     pattern: SchematicZonePatternType,
+    /** Optional shape geometry; absent ⇒ rect (`x/y/width/height` stay the bounding box) */
+    geometry: OptionType(SchematicGeometryType),
+    /** Optional colour override (semantic tone); absent ⇒ the `pattern`'s tone drives the colour */
+    tone: OptionType(SchematicToneType),
+    /** Optional raw CSS stroke tint (e.g. `"#2D7FF9"`, `"teal"`); wins over `tone` */
+    color: OptionType(StringType),
+    /** Optional raw CSS area fill (opt-in; zones are unfilled by default) */
+    bg: OptionType(StringType),
+    /** Optional fill alpha (0–1) for the area fill */
+    fillOpacity: OptionType(FloatType),
+    /** Optional stroke width in px */
+    weight: OptionType(FloatType),
 });
 
 /**
@@ -278,6 +391,7 @@ export type SchematicLinkType = typeof SchematicLinkType;
  * @property grid - Metric grid aligned to the scale legend
  * @property navigator - Navigator rail (zones → items TOC)
  * @property minimap - Minimap with the viewport rectangle
+ * @property height - Optional fixed panel height (any CSS length)
  * @property onSelect - Optional item-click callback (receives the item key)
  */
 export const SchematicRootType = StructType({
@@ -302,6 +416,8 @@ export const SchematicRootType = StructType({
     navigator: OptionType(BooleanType),
     /** Minimap with the viewport rectangle; default: shown for large canvases */
     minimap: OptionType(BooleanType),
+    /** Optional fixed panel height (any CSS length, e.g. `"400px"`); default: aspect-driven, capped at 75vh */
+    height: OptionType(StringType),
     /** Optional item-click callback (receives the item key) */
     onSelect: OptionType(FunctionType([StringType], NullType)),
 });

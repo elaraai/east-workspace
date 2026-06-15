@@ -42,6 +42,8 @@ import {
     SchematicZoneType,
     SchematicLinkType,
     SchematicPointType,
+    SchematicVertexType,
+    SchematicGeometryType,
     SchematicZonePatternType,
     SchematicLinkStyleType,
     SchematicRouteType,
@@ -55,6 +57,8 @@ export {
     SchematicZoneType,
     SchematicLinkType,
     SchematicPointType,
+    SchematicVertexType,
+    SchematicGeometryType,
     SchematicZonePatternType,
     SchematicLinkStyleType,
     SchematicRouteType,
@@ -78,6 +82,13 @@ export interface SchematicPatternConfig {
 
 function toneValue(tone: SchematicToneLiteral | undefined) {
     return tone !== undefined ? some(variant(tone, null)) : none;
+}
+
+/** Wrap an item/zone `tone` colour override into its option — accepts a string
+ *  literal shorthand (`"brand"`) or an East tone expression / value. */
+function toneOption(tone: SubtypeExprOrValue<SchematicToneType> | SchematicToneLiteral | undefined) {
+    if (tone === undefined) return none;
+    return typeof tone === "string" ? some(variant(tone, null)) : some(tone);
 }
 
 /**
@@ -133,6 +144,103 @@ function dashed(config?: SchematicPatternConfig) {
 }
 
 /**
+ * A polyline / polygon vertex for {@link polyline} / {@link polygon} — a world
+ * point plus an optional DXF `bulge`.
+ *
+ * @property x - World x
+ * @property y - World y
+ * @property bulge - DXF bulge for the edge to the next vertex; `0` (default) is straight, nonzero is a circular arc (`tan(includedAngle / 4)`, sign = turn direction)
+ */
+export interface SchematicVertexInput {
+    /** World x. */
+    x: SubtypeExprOrValue<FloatType>;
+    /** World y. */
+    y: SubtypeExprOrValue<FloatType>;
+    /** DXF bulge for the edge to the next vertex; `0` (default) = straight, nonzero = arc. */
+    bulge?: SubtypeExprOrValue<FloatType>;
+}
+
+/**
+ * Vertices accepted by {@link polyline} / {@link polygon}: either a plain array
+ * of `{ x, y, bulge? }` (bulge defaults to `0`) or a resolved East array of
+ * {@link SchematicVertexType} values.
+ */
+export type SchematicVertices =
+    | readonly SchematicVertexInput[]
+    | SubtypeExprOrValue<ArrayType<SchematicVertexType>>;
+
+/** Optional configuration for {@link polyline}. */
+export interface SchematicPolylineConfig {
+    /** Band width in world units — the stroke widens into a road / aisle. */
+    width?: number;
+}
+
+/**
+ * Normalise {@link SchematicVertices} into an East-coercible array of
+ * {@link SchematicVertexType} — plain arrays get `bulge` defaulted to `0`,
+ * East expressions pass through unchanged (they must already be vertices).
+ */
+function toVertices(vertices: SchematicVertices): SubtypeExprOrValue<ArrayType<SchematicVertexType>> {
+    if (Array.isArray(vertices)) {
+        return (vertices as readonly SchematicVertexInput[]).map(v => ({
+            x: v.x,
+            y: v.y,
+            bulge: v.bulge !== undefined ? v.bulge : 0,
+        }));
+    }
+    return vertices as SubtypeExprOrValue<ArrayType<SchematicVertexType>>;
+}
+
+/**
+ * Builds a `rect` geometry value — the axis-aligned box. For zones this is
+ * the `x/y/width/height` bounding box; for items, the point / marker form.
+ * Equivalent to omitting `geometry` / `footprint`.
+ *
+ * @returns A `SchematicGeometryType` value
+ */
+function rect(): ExprType<SchematicGeometryType> {
+    return East.value(variant("rect", null), SchematicGeometryType);
+}
+
+/**
+ * Builds a `circle` geometry value — a circle centred on the entity anchor
+ * (an item's `x/y`, or a zone's bounding-box centre). Models tanks, silos,
+ * and round equipment without flattening to a polygon.
+ *
+ * @param radius - Circle radius in world units
+ * @returns A `SchematicGeometryType` value
+ */
+function circle(radius: SubtypeExprOrValue<FloatType>): ExprType<SchematicGeometryType> {
+    return East.value(variant("circle", { radius }), SchematicGeometryType);
+}
+
+/**
+ * Builds a `polyline` geometry value — an open, arc-aware polyline in world
+ * coordinates, optionally widened into a band (a road / aisle / walkway).
+ *
+ * @param vertices - Vertices in world coords, in order (each `{ x, y, bulge? }`; `bulge` defaults to `0`)
+ * @param config - Optional `width` band in world units
+ * @returns A `SchematicGeometryType` value
+ */
+function polyline(vertices: SchematicVertices, config?: SchematicPolylineConfig): ExprType<SchematicGeometryType> {
+    return East.value(variant("polyline", {
+        vertices: toVertices(vertices),
+        width: config?.width !== undefined ? some(config.width) : none,
+    }), SchematicGeometryType);
+}
+
+/**
+ * Builds a `polygon` geometry value — a closed, arc-aware polygon in world
+ * coordinates (a rotated / L-shaped zone, or an equipment footprint).
+ *
+ * @param vertices - Boundary vertices in world coords, in order (auto-closed; each `{ x, y, bulge? }`)
+ * @returns A `SchematicGeometryType` value
+ */
+function polygon(vertices: SchematicVertices): ExprType<SchematicGeometryType> {
+    return East.value(variant("polygon", { vertices: toVertices(vertices) }), SchematicGeometryType);
+}
+
+/**
  * The struct element type of a `SubtypeExprOrValue<ArrayType<StructType>>`.
  */
 export type RowElement<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
@@ -160,6 +268,12 @@ export type RowElement<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
  * @property meter - Optional mini utilisation bar (value / max)
  * @property metric - Optional live metric text
  * @property width - Optional world width — renders the wide bar form
+ * @property footprint - Optional shape footprint (`Schematic.polygon()` / `polyline()` / `rect()`)
+ * @property tone - Optional colour override (semantic tone); absent ⇒ `status` drives the colour
+ * @property color - Optional raw CSS stroke / marker tint; wins over `tone`
+ * @property bg - Optional raw CSS fill for a polygon / circle footprint
+ * @property fillOpacity - Optional fill alpha (0–1) for a polygon / circle footprint
+ * @property weight - Optional stroke width in px
  */
 export interface SchematicItemFields {
     /** Item identity — links reference it; `onSelect` returns it. */
@@ -187,6 +301,18 @@ export interface SchematicItemFields {
     metric?: SubtypeExprOrValue<StringType>;
     /** Optional world width — renders the wide bar form. */
     width?: SubtypeExprOrValue<FloatType>;
+    /** Optional shape footprint (`Schematic.polygon()` / `polyline()` / `rect()`); absent ⇒ point + icon. */
+    footprint?: SubtypeExprOrValue<SchematicGeometryType>;
+    /** Optional colour override (semantic tone); absent ⇒ `status` drives the colour. */
+    tone?: SubtypeExprOrValue<SchematicToneType> | SchematicToneLiteral;
+    /** Optional raw CSS stroke / marker tint (e.g. `"#2D7FF9"`, `"teal"`); wins over `tone`. */
+    color?: SubtypeExprOrValue<StringType>;
+    /** Optional raw CSS fill for a polygon / circle footprint. */
+    bg?: SubtypeExprOrValue<StringType>;
+    /** Optional fill alpha (0–1) for a polygon / circle footprint. */
+    fillOpacity?: SubtypeExprOrValue<FloatType>;
+    /** Optional stroke width in px. */
+    weight?: SubtypeExprOrValue<FloatType>;
 }
 
 /**
@@ -199,6 +325,12 @@ export interface SchematicItemFields {
  * @property width - World width
  * @property height - World height
  * @property pattern - Optional pattern (default `Schematic.outline()`)
+ * @property geometry - Optional shape geometry (`Schematic.polyline()` / `polygon()` / `rect()`)
+ * @property tone - Optional colour override (semantic tone); absent ⇒ the `pattern`'s tone drives the colour
+ * @property color - Optional raw CSS stroke tint; wins over `tone`
+ * @property bg - Optional raw CSS area fill (opt-in; zones are unfilled by default)
+ * @property fillOpacity - Optional fill alpha (0–1) for the area fill
+ * @property weight - Optional stroke width in px
  */
 export interface SchematicZoneFields {
     /** Zone identity. */
@@ -215,6 +347,18 @@ export interface SchematicZoneFields {
     height: SubtypeExprOrValue<FloatType>;
     /** Optional pattern (default `Schematic.outline()`). */
     pattern?: SubtypeExprOrValue<SchematicZonePatternType>;
+    /** Optional shape geometry (`Schematic.polyline()` / `polygon()` / `rect()`); absent ⇒ rect. */
+    geometry?: SubtypeExprOrValue<SchematicGeometryType>;
+    /** Optional colour override (semantic tone); absent ⇒ the `pattern`'s tone drives the colour. */
+    tone?: SubtypeExprOrValue<SchematicToneType> | SchematicToneLiteral;
+    /** Optional raw CSS stroke tint (e.g. `"#2D7FF9"`, `"teal"`); wins over `tone`. */
+    color?: SubtypeExprOrValue<StringType>;
+    /** Optional raw CSS area fill (opt-in; zones are unfilled by default). */
+    bg?: SubtypeExprOrValue<StringType>;
+    /** Optional fill alpha (0–1) for the area fill. */
+    fillOpacity?: SubtypeExprOrValue<FloatType>;
+    /** Optional stroke width in px. */
+    weight?: SubtypeExprOrValue<FloatType>;
 }
 
 /**
@@ -262,6 +406,7 @@ export interface SchematicLinkFields {
  * @property grid - Metric grid aligned to the scale legend
  * @property navigator - Navigator rail (zones → items TOC)
  * @property minimap - Minimap with the viewport rectangle
+ * @property height - Optional fixed panel height (any CSS length)
  * @property onSelect - Optional item-click callback (receives the item key)
  */
 export interface SchematicConfig<
@@ -289,6 +434,8 @@ export interface SchematicConfig<
     navigator?: SubtypeExprOrValue<BooleanType> | boolean;
     /** Minimap with the viewport rectangle; default: shown for 25+ items. */
     minimap?: SubtypeExprOrValue<BooleanType> | boolean;
+    /** Optional fixed panel height (any CSS length, e.g. `"400px"`); default: aspect-driven, capped at 75vh. */
+    height?: SubtypeExprOrValue<StringType> | string;
     /** Optional item-click callback (receives the item key). */
     onSelect?: SubtypeExprOrValue<FunctionType<[StringType], NullType>>;
 }
@@ -317,6 +464,12 @@ function buildRoot(
                     : none,
                 metric: r.metric !== undefined ? some(r.metric) : none,
                 width: r.width !== undefined ? some(r.width) : none,
+                footprint: r.footprint !== undefined ? some(r.footprint) : none,
+                tone: toneOption(r.tone),
+                color: r.color !== undefined ? some(r.color) : none,
+                bg: r.bg !== undefined ? some(r.bg) : none,
+                fillOpacity: r.fillOpacity !== undefined ? some(r.fillOpacity) : none,
+                weight: r.weight !== undefined ? some(r.weight) : none,
             }, SchematicItemType);
         });
 
@@ -338,6 +491,12 @@ function buildRoot(
                     pattern: r.pattern !== undefined
                         ? r.pattern
                         : East.value(outline(), SchematicZonePatternType),
+                    geometry: r.geometry !== undefined ? some(r.geometry) : none,
+                    tone: toneOption(r.tone),
+                    color: r.color !== undefined ? some(r.color) : none,
+                    bg: r.bg !== undefined ? some(r.bg) : none,
+                    fillOpacity: r.fillOpacity !== undefined ? some(r.fillOpacity) : none,
+                    weight: r.weight !== undefined ? some(r.weight) : none,
                 }, SchematicZoneType);
             });
 
@@ -374,6 +533,7 @@ function buildRoot(
         grid: config.grid !== undefined ? some(config.grid) : none,
         navigator: config.navigator !== undefined ? some(config.navigator) : none,
         minimap: config.minimap !== undefined ? some(config.minimap) : none,
+        height: config.height !== undefined ? some(config.height) : none,
         onSelect: config.onSelect !== undefined ? some(config.onSelect) : none,
     }), UIComponentType);
 }
@@ -513,6 +673,62 @@ export const Schematic = {
      * ```
      */
     dashed,
+    /**
+     * Builds a `rect` geometry value — the axis-aligned box (a zone's
+     * `x/y/width/height`, or an item's point / marker form). Equals omitting
+     * `geometry` / `footprint`.
+     *
+     * @returns A `SchematicGeometryType` value
+     *
+     * @example
+     * ```ts
+     * Schematic.rect()
+     * ```
+     */
+    rect,
+    /**
+     * Builds a `circle` geometry value — a circle centred on the entity
+     * anchor (an item's `x/y`, or a zone's bbox centre). Models tanks, silos,
+     * and round equipment.
+     *
+     * @param radius - Circle radius in world units
+     * @returns A `SchematicGeometryType` value
+     *
+     * @example
+     * ```ts
+     * Schematic.circle(2.5)
+     * ```
+     */
+    circle,
+    /**
+     * Builds a `polyline` geometry value — an open, arc-aware polyline in
+     * world coordinates, optionally widened into a band (a road / aisle).
+     * Each vertex's `bulge` curves the edge to the next vertex (0 = straight).
+     *
+     * @param vertices - Vertices in world coords, in order (`{ x, y, bulge? }`)
+     * @param config - Optional `width` band in world units
+     * @returns A `SchematicGeometryType` value
+     *
+     * @example
+     * ```ts
+     * Schematic.polyline([{ x: 0, y: 4 }, { x: 12, y: 4, bulge: 0.42 }, { x: 12, y: 9 }], { width: 1.6 })
+     * ```
+     */
+    polyline,
+    /**
+     * Builds a `polygon` geometry value — a closed, arc-aware polygon in
+     * world coordinates (a rotated / L-shaped zone, or an equipment
+     * footprint). The last vertex's `bulge` curves the closing edge.
+     *
+     * @param vertices - Boundary vertices in world coords, in order (auto-closed; `{ x, y, bulge? }`)
+     * @returns A `SchematicGeometryType` value
+     *
+     * @example
+     * ```ts
+     * Schematic.polygon([{ x: 2, y: 2 }, { x: 7, y: 3 }, { x: 6, y: 8 }, { x: 1, y: 6 }])
+     * ```
+     */
+    polygon,
     Types: {
         /**
          * East StructType for the Schematic component.
@@ -541,6 +757,7 @@ export const Schematic = {
          * @property meter - Optional mini utilisation bar
          * @property metric - Optional live metric text
          * @property width - Optional world width (wide bar form)
+         * @property footprint - Optional shape footprint (point + icon when absent)
          */
         Item: SchematicItemType,
         /**
@@ -553,6 +770,7 @@ export const Schematic = {
          * @property width - World width
          * @property height - World height
          * @property pattern - Render pattern
+         * @property geometry - Optional shape geometry (rect when absent)
          */
         Zone: SchematicZoneType,
         /**
@@ -597,5 +815,23 @@ export const Schematic = {
          * @property danger - Status bad
          */
         Tone: SchematicToneType,
+        /**
+         * Shared shape geometry for zones (`geometry`) and item footprints
+         * (`footprint`).
+         *
+         * @property rect - Axis-aligned box
+         * @property circle - Circle centred on the entity anchor (`radius` in world units)
+         * @property polyline - Open, arc-aware polyline; optional world-space band width
+         * @property polygon - Closed, arc-aware polygon (>= 3 vertices)
+         */
+        Geometry: SchematicGeometryType,
+        /**
+         * A polyline / polygon vertex — a world point plus DXF `bulge`.
+         *
+         * @property x - World x
+         * @property y - World y
+         * @property bulge - DXF bulge for the edge to the next vertex (0 = straight)
+         */
+        Vertex: SchematicVertexType,
     },
 } as const;

@@ -17,6 +17,7 @@ export const schematicSlotRecipe = defineSlotRecipe({
     className: "elara-schematic",
     slots: [
         "root", "canvas", "grid", "underlay", "zone", "zoneLabel",
+        "zoneShapes", "zoneShapeLabel", "footprints",
         "item", "itemHead", "itemIcon", "itemLabel", "statusDot",
         "itemSublabel", "meterTrack", "meterFill", "itemMetric",
         "itemDot", "itemPin",
@@ -122,6 +123,91 @@ export const schematicSlotRecipe = defineSlotRecipe({
             background: "bg.panel",
             paddingX: "{spacing.1}",
             whiteSpace: "nowrap",
+        },
+        /* Shaped zones (polyline / polygon) stroke in SVG so curves and
+         * diagonals aren't confined to a div bounding box. Tone → token
+         * mapping mirrors `underlay`; data only ever names a tone. These
+         * are annotations like the rect zones — no pointer events. */
+        zoneShapes: {
+            position: "absolute",
+            inset: "0",
+            pointerEvents: "none",
+            overflow: "visible",
+            "& g[data-tone=brand]": { "--schematic-tone": "{colors.brand.600}" },
+            "& g[data-tone=ink]": { "--schematic-tone": "{colors.fg}" },
+            "& g[data-tone=muted]": { "--schematic-tone": "{colors.border.strong}" },
+            "& g[data-tone=success]": { "--schematic-tone": "{colors.status.ok}" },
+            "& g[data-tone=warning]": { "--schematic-tone": "{colors.status.warn}" },
+            "& g[data-tone=danger]": { "--schematic-tone": "{colors.status.bad}" },
+            "& path": {
+                stroke: "var(--schematic-tone)",
+                fill: "none",
+                strokeLinejoin: "round",
+            },
+            /* Polygon outline echoes the dashed outline-rect zone. */
+            "& path[data-shape=polygon]": {
+                strokeWidth: "1px",
+                strokeDasharray: "4 3",
+            },
+            /* Polyline is a run / road: a thin centre-line, or a soft band
+             * when a world-space width is set inline. */
+            "& path[data-shape=polyline]": {
+                strokeWidth: "1.5px",
+                strokeLinecap: "round",
+                opacity: "0.55",
+            },
+        },
+        /* Standalone eyebrow for a shaped zone — same look as `zoneLabel`
+         * but positioned at the bbox top-left via inline coords. */
+        zoneShapeLabel: {
+            position: "absolute",
+            transform: "translateY(-50%)",
+            marginLeft: "{spacing.2}",
+            fontFamily: "mono",
+            fontSize: "9px",
+            fontWeight: "600",
+            letterSpacing: "0.14em",
+            lineHeight: "normal",
+            textTransform: "uppercase",
+            color: "fg.muted",
+            background: "bg.panel",
+            paddingX: "{spacing.1}",
+            whiteSpace: "nowrap",
+            pointerEvents: "none",
+        },
+        /* Item footprints — the true shape body at close zoom (semantic
+         * zoom). The path is clickable (selects the item); the card still
+         * renders at the anchor, so no item info is lost. */
+        footprints: {
+            position: "absolute",
+            inset: "0",
+            pointerEvents: "none",
+            overflow: "visible",
+            "& g[data-tone=success]": { "--schematic-tone": "{colors.status.ok}" },
+            "& g[data-tone=warning]": { "--schematic-tone": "{colors.status.warn}" },
+            "& g[data-tone=danger]": { "--schematic-tone": "{colors.status.bad}" },
+            "& g[data-tone=info]": { "--schematic-tone": "{colors.brand.500}" },
+            "& g[data-tone=neutral]": { "--schematic-tone": "{colors.fg.muted}" },
+            "& path": {
+                stroke: "var(--schematic-tone)",
+                strokeWidth: "1.5px",
+                strokeLinejoin: "round",
+                fill: "color-mix(in oklch, var(--schematic-tone) 12%, transparent)",
+                cursor: "pointer",
+                pointerEvents: "visiblePainted",
+                transition: "fill {durations.fast}",
+            },
+            "& path[data-shape=polyline]": {
+                fill: "none",
+                strokeLinecap: "round",
+            },
+            "& g:hover path": {
+                fill: "color-mix(in oklch, var(--schematic-tone) 20%, transparent)",
+            },
+            "& g[data-selected] path": {
+                strokeWidth: "2.5px",
+                fill: "color-mix(in oklch, var(--schematic-tone) 24%, transparent)",
+            },
         },
         /* LOD tiers — constant screen-size markers over scaled geometry.
          * Items are the content layer: the darkest marks on the canvas at
