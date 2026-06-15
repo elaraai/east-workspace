@@ -242,6 +242,11 @@ export class RecordRuntime {
     // History per channel, fetched once + refreshed on commit.
     private readonly histories = new Map<string, CommitInfo[]>();
     private readonly historyInFlight = new Set<string>();
+    // Channels whose last history fetch failed. Guards `history()` from
+    // re-issuing the request on every render (a failing endpoint would
+    // otherwise spin); cleared on the next commit / on clear() so a later
+    // mutation retries.
+    private readonly historyFailed = new Set<string>();
 
     // Subscription shim — same contract (and stale-disposer guard) as func/dataset.
     private readonly keySubscribers = new Map<string, Set<() => void>>();
@@ -270,6 +275,7 @@ export class RecordRuntime {
         this.signatureCache.clear();
         this.histories.clear();
         this.historyInFlight.clear();
+        this.historyFailed.clear();
         this.keySubscribers.clear();
         this.keyVersions.clear();
     }
@@ -388,8 +394,11 @@ export class RecordRuntime {
                 if (!api) throw new Error("no RecordApi installed");
                 const result = await api.history(workspace, record, undefined);
                 this.histories.set(key, result.commits);
+                this.historyFailed.delete(key);
             } catch {
-                // Leave the cache empty; a later commit or remount retries.
+                // Mark failed so `history()` stops re-issuing on every render;
+                // a later commit / clear() drops this and retries.
+                this.historyFailed.add(key);
             } finally {
                 this.historyInFlight.delete(key);
                 this.notify(key);
@@ -440,8 +449,10 @@ export class RecordRuntime {
                 // the dataset cache refetches the record's bytes and read() re-renders.
                 // Reuses the standing poller the manifest installed; no new poller.
                 void this.cache?.refresh(workspace);
-                // History grew — drop the cache so the next history() refetches.
+                // History grew — drop the cache (and any failed-fetch flag) so
+                // the next history() refetches.
                 this.histories.delete(key);
+                this.historyFailed.delete(key);
                 this.notify(key);
             } else {
                 settle(e => { e.status = "failed"; e.error = errorOfMutationResult(result); });
@@ -499,6 +510,9 @@ export class RecordRuntime {
                     entry.launchSeq += 1; // orphan the in-flight wait
                     entry.status = "cancelled";
                     delete entry.error;
+                    // Drop the in-flight handle so a later start() doesn't wait
+                    // on the mutation the user just cancelled.
+                    delete entry.inflight;
                     runtime.notify(key);
                 }
                 return null;
@@ -532,7 +546,9 @@ export class RecordRuntime {
                 runtime.track(key);
                 const cached = runtime.histories.get(key);
                 if (cached === undefined) {
-                    runtime.fetchHistory(ws, name, key);
+                    // Don't re-issue while a prior fetch is known to have failed
+                    // (a commit / clear() clears the flag and retries).
+                    if (!runtime.historyFailed.has(key)) runtime.fetchHistory(ws, name, key);
                     return none;
                 }
                 return some(cached);

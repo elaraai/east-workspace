@@ -231,13 +231,6 @@ export function datasetCacheKey(workspace: string, path: TreePath): string {
     return pathStr ? `${workspace}.${pathStr}` : workspace;
 }
 
-/**
- * Convert our TreePath to e3-api-client TreePath.
- */
-function toTreePath(path: TreePath): TreePath {
-    return path as TreePath;
-}
-
 /** The last server-confirmed state of a key, captured when its write
  *  pipeline goes idle → busy; failures roll back to this. */
 interface WriteBaseline {
@@ -418,7 +411,7 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
         const prevTail = this.writeChains.get(key) ?? Promise.resolve();
         const run = prevTail.then(async () => {
             try {
-                await this.api.set(workspace, toTreePath(path), value);
+                await this.api.set(workspace, path, value);
                 if (this.destroyed) return;
 
                 // Confirmed — this value is the new rollback baseline for
@@ -509,7 +502,7 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
             await this.client.fetchQuery({
                 queryKey,
                 queryFn: async () => {
-                    const result = await this.fetchDataset(workspace, path);
+                    const result = await this.api.get(workspace, path);
                     fetchedHash = result.hash;
                     return result.data;
                 },
@@ -529,17 +522,13 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
         this.notifyChange(key);
     }
 
-    private fetchDataset(workspace: string, path: TreePath): Promise<{ data: Uint8Array; hash: string | null }> {
-        return this.api.get(workspace, toTreePath(path));
-    }
-
     /**
      * List fields at a path. Empty path lists workspace root.
      */
     list(workspace: string, path: TreePath): Promise<string[]> {
         return path.length === 0
             ? this.api.listRoot(workspace)
-            : this.api.listAt(workspace, toTreePath(path));
+            : this.api.listAt(workspace, path);
     }
 
     /**
@@ -701,7 +690,7 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
         // the fetch was in flight keeps its optimistic bytes.
         const fetched = await Promise.allSettled(
             pending.map(p => p.kind === "fetch"
-                ? this.fetchDataset(workspace, p.path).then(result => ({ p, result }))
+                ? this.api.get(workspace, p.path).then(result => ({ p, result }))
                 : Promise.resolve({ p, result: null as { data: Uint8Array; hash: string | null } | null }),
             ),
         );

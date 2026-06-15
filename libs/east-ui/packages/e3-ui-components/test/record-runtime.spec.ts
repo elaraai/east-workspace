@@ -89,12 +89,15 @@ interface StubApi extends RecordApi {
     failNext(error: Error): void;
     pauseNext(): { resume(result: MutationResult): void };
     setHistory(commits: RecordHistoryResult["commits"]): void;
+    /** Make every `history()` call throw until cleared with `failHistory(null)`. */
+    failHistory(error: Error | null): void;
 }
 
 function createStubApi(signatures: RecordSignature[]): StubApi {
     const mutateCalls: { record: string; mutation: string; req: RecordMutateArgs }[] = [];
     const queued: MutationResult[] = [];
     let failure: Error | null = null;
+    let historyFailure: Error | null = null;
     const pauses: { promise: Promise<MutationResult>; resume(result: MutationResult): void }[] = [];
     let historyCommits: RecordHistoryResult["commits"] = [];
     const counters = { describe: 0, history: 0 };
@@ -119,10 +122,12 @@ function createStubApi(signatures: RecordSignature[]): StubApi {
         },
         async history(_ws: string, _record: string) {
             counters.history += 1;
+            if (historyFailure) throw historyFailure;
             return { commits: historyCommits } as RecordHistoryResult;
         },
         respond(result: MutationResult) { queued.push(result); },
         failNext(error: Error) { failure = error; },
+        failHistory(error: Error | null) { historyFailure = error; },
         pauseNext() {
             let resume!: (result: MutationResult) => void;
             const promise = new Promise<MutationResult>(res => { resume = res; });
@@ -475,5 +480,61 @@ describe("createInMemoryRecordApi", () => {
         handle.mutate.increment(5n);
         await waitFor(() => handle.mutate.status().type === "committed", "committed");
         assert.equal(handle.read(), 5n);
+    });
+});
+
+// =============================================================================
+// history() — failed-fetch retry guard
+// =============================================================================
+
+describe("RecordRuntime — history retry guard", () => {
+    test("a failing history fetch is not re-issued on every render", async () => {
+        const { api, handle } = newRuntime();
+        api.failHistory(new Error("history endpoint down"));
+        // First read triggers a fetch that fails.
+        assert.equal(handle.history().type, "none");
+        await waitFor(() => api.historyCalls === 1, "first history fetch");
+        // Subsequent reads must NOT re-issue while the failure stands.
+        handle.history();
+        handle.history();
+        handle.history();
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(api.historyCalls, 1);
+    });
+
+    test("a commit clears the failed flag so history retries", async () => {
+        const { api, handle } = newRuntime();
+        api.failHistory(new Error("down"));
+        handle.history();
+        await waitFor(() => api.historyCalls === 1, "first fetch");
+        // Recover, then commit a mutation — the commit drops the failed flag.
+        api.failHistory(null);
+        api.respond(committed());
+        handle.mutate.increment(1n);
+        await waitFor(() => handle.mutate.status().type === "committed", "committed");
+        // Next read retries the now-recovered fetch.
+        handle.history();
+        await waitFor(() => api.historyCalls === 2, "retry after commit");
+        assert.equal(api.historyCalls, 2);
+    });
+});
+
+// =============================================================================
+// cancel() — clears the in-flight handle so start() doesn't drain it
+// =============================================================================
+
+describe("RecordRuntime — cancel clears inflight", () => {
+    test("start() after cancel() launches without waiting on the cancelled mutation", async () => {
+        const { api, cache, handle } = newRuntime();
+        // Hold a mutation in flight, then cancel it (orphaned, never resumed).
+        api.pauseNext();
+        handle.mutate.increment(1n);
+        await waitFor(() => handle.mutate.status().type === "running", "running");
+        handle.mutate.cancel();
+        // start() must launch immediately — if it still awaited the cancelled
+        // mutation's inflight promise it would hang (the pause never resumes).
+        handle.start();
+        await waitFor(() => cache.launches.length > 0, "launch after cancel");
+        assert.deepEqual(cache.launches, [ws]);
     });
 });

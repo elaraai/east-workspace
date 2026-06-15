@@ -834,33 +834,47 @@ describe("BindRuntime — overlaidSource fallback warn dedup", () => {
 // =============================================================================
 
 describe("BindRuntime — direct+patch commit atomicity", () => {
-    test("source + patch writes flush as one notification", async () => {
+    test("commits the source first, then clears the patch", async () => {
         const { runtime, cache, api } = await newRuntime();
         api.seed(ws, sourcePath, encodeFloat(10));
         api.seed(ws, patchPath, encodeFloatPatch(diffFloat(10, 99)));
         await cache.preload(ws, sourcePath);
         await cache.preload(ws, patchPath);
 
-        const sourceKey = datasetCacheKey(ws, sourcePath);
-        const patchKey  = datasetCacheKey(ws, patchPath);
-        const sourceFires: number[] = [];
-        const patchFires: number[] = [];
-        let globalFires = 0;
-        cache.subscribe(sourceKey, () => sourceFires.push(cache.getSnapshot()));
-        cache.subscribe(patchKey,  () => patchFires.push(cache.getSnapshot()));
-        cache.subscribe(() => { globalFires++; });
-
         const handle = runtime.buildBindHandle(floatTypeValue, sourcePath, patchPath, "direct");
         handle.commit();
         await runtime.awaitPendingWrites();
 
-        // Both writes' notifications must share a snapshot version
-        // (the cache.batch wrap collapses them into one flush).
-        assert.ok(sourceFires.length >= 1);
-        assert.ok(patchFires.length >= 1);
-        const lastSourceSnap = sourceFires[sourceFires.length - 1];
-        const lastPatchSnap = patchFires[patchFires.length - 1];
-        assert.equal(lastSourceSnap, lastPatchSnap);
+        // Two sequential writes, IN ORDER: source := apply(source, patch),
+        // THEN patch := unchanged. (Not one batched flush — the patch is
+        // cleared only after the source write lands.)
+        assert.equal(api.calls.set.length, 2);
+        assert.equal((api.calls.set[0]!.path![0] as { value: string }).value, "source");
+        assert.equal(decodeFloat(api.calls.set[0]!.value!), 99);
+        assert.equal((api.calls.set[1]!.path![0] as { value: string }).value, "patch");
+    });
+
+    test("a failed source write leaves the patch intact (self-healing)", async () => {
+        const { runtime, cache, api } = await newRuntime();
+        api.seed(ws, sourcePath, encodeFloat(10));
+        api.seed(ws, patchPath, encodeFloatPatch(diffFloat(10, 99)));
+        await cache.preload(ws, sourcePath);
+        await cache.preload(ws, patchPath);
+
+        const errors: unknown[] = [];
+        runtime.onWriteError(err => errors.push(err));
+
+        // Fail the (first) source write. The patch-clear must NOT run, so the
+        // commit never orphans a populated patch over a half-committed source.
+        api.failNext("set", new Error("source write failed"));
+        const handle = runtime.buildBindHandle(floatTypeValue, sourcePath, patchPath, "direct");
+        handle.commit();
+        await runtime.awaitPendingWrites();
+
+        // Only the source write was attempted; the patch-clear was skipped.
+        assert.equal(api.calls.set.length, 1);
+        assert.equal((api.calls.set[0]!.path![0] as { value: string }).value, "source");
+        assert.equal(errors.length, 1);
     });
 });
 

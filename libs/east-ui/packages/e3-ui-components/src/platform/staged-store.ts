@@ -108,6 +108,13 @@ export interface StagedStoreInterface {
     // Reactive tracker integration
     subscribe(key: string, callback: () => void): () => void;
     getKeyVersion(key: string): number;
+
+    /** Register a listener for durable-persistence failures (save / remove /
+     *  hydrate), keyed by the affected `datasetCacheKey` (empty string for a
+     *  whole-store hydrate failure). Returns an unsubscribe. With no listener,
+     *  failures fall back to a console warning. Lets a host surface a
+     *  'not durably saved' state, mirroring `BindRuntime.onWriteError`. */
+    onPersistError(cb: (key: string, err: unknown) => void): () => void;
 }
 
 // ============================================================================
@@ -140,6 +147,10 @@ export class IndexedDBStagedAdapter implements StagedPersistenceAdapter {
                 req.onerror  = () => reject(req.error);
                 req.onblocked = () => reject(new Error("IndexedDB open blocked"));
             });
+            // A transient open failure must not be cached forever — drop the
+            // rejected promise so the next operation retries the open rather
+            // than returning the same rejection for the rest of the session.
+            void this.dbPromise.catch(() => { this.dbPromise = null; });
         }
         return this.dbPromise;
     }
@@ -236,6 +247,11 @@ export class StagedStore implements StagedStoreInterface {
     private adapter: StagedPersistenceAdapter;
     private hydrated: Promise<void>;
     private inFlight: Set<Promise<void>> = new Set();
+    // Per-key persistence chain — serializes save/remove for a key so they
+    // land in IndexedDB in call order (last write wins) instead of racing.
+    private saveChains: Map<string, Promise<void>> = new Map();
+    // Listeners notified when a persistence op fails durably.
+    private errorListeners: Set<(key: string, err: unknown) => void> = new Set();
 
     constructor(adapter: StagedPersistenceAdapter) {
         this.adapter = adapter;
@@ -290,7 +306,7 @@ export class StagedStore implements StagedStoreInterface {
             snapshot: next.snapshot,
             buffered: next.buffered,
         };
-        this.track(this.adapter.save(key, persisted));
+        this.persist(key, () => this.adapter.save(key, persisted));
     }
 
     discard(workspace: string, path: TreePath): boolean {
@@ -298,7 +314,7 @@ export class StagedStore implements StagedStoreInterface {
         if (!this.entries.has(key)) return false;
         this.entries.delete(key);
         this.notify(key);
-        this.track(this.adapter.remove(key));
+        this.persist(key, () => this.adapter.remove(key));
         return true;
     }
 
@@ -323,11 +339,19 @@ export class StagedStore implements StagedStoreInterface {
         return this.versions.get(key) ?? 0;
     }
 
+    onPersistError(cb: (key: string, err: unknown) => void): () => void {
+        this.errorListeners.add(cb);
+        return () => { this.errorListeners.delete(cb); };
+    }
+
     /** Test-only: clear in-memory + persisted state. */
     async clear(): Promise<void> {
         const keys = [...this.entries.keys()];
         this.entries.clear();
         for (const key of keys) this.notify(key);
+        // Drain in-flight saves/removes before wiping persistence, so a save
+        // that lands after the wipe can't resurrect a discarded entry.
+        await this.flushPending();
         await this.adapter.clear();
     }
 
@@ -339,13 +363,40 @@ export class StagedStore implements StagedStoreInterface {
         if (subs) for (const cb of subs) cb();
     }
 
-    private track(p: Promise<void>): void {
-        const wrapped = p.catch((err: unknown) => {
-            console.warn("[StagedStore] persistence operation failed:", err);
-        }).then(() => {
-            this.inFlight.delete(wrapped);
+    /**
+     * Serialize a persistence op behind any prior op for the same key, so they
+     * land in IndexedDB in call order (last write wins) rather than racing.
+     * Tracks the op for {@link flushPending} and routes failures to
+     * {@link onPersistError} listeners (falling back to a console warning).
+     */
+    private persist(key: string, op: () => Promise<void>): void {
+        const prev = this.saveChains.get(key) ?? Promise.resolve();
+        // Run op once prev settles (regardless of prev's outcome, so a prior
+        // failure doesn't stall later ops). `settled` never rejects — failures
+        // are routed, not propagated.
+        const settled: Promise<void> = prev.then(op, op).then(
+            () => undefined,
+            (err: unknown) => { this.emitPersistError(key, err); },
+        ).then(() => {
+            if (this.saveChains.get(key) === settled) this.saveChains.delete(key);
+            this.inFlight.delete(settled);
         });
-        this.inFlight.add(wrapped);
+        this.saveChains.set(key, settled);
+        this.inFlight.add(settled);
+    }
+
+    private emitPersistError(key: string, err: unknown): void {
+        if (this.errorListeners.size === 0) {
+            console.warn("[StagedStore] persistence operation failed:", err);
+            return;
+        }
+        for (const cb of [...this.errorListeners]) {
+            try {
+                cb(key, err);
+            } catch (listenerErr) {
+                console.warn("[StagedStore] persist-error listener threw:", listenerErr);
+            }
+        }
     }
 
     private async hydrate(): Promise<void> {
@@ -353,7 +404,7 @@ export class StagedStore implements StagedStoreInterface {
         try {
             persisted = await this.adapter.loadAll();
         } catch (err) {
-            console.warn("[StagedStore] hydrate failed:", err);
+            this.emitPersistError("", err);
             return;
         }
         for (const [key, p] of persisted) {

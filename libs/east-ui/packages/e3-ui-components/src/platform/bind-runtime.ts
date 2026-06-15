@@ -212,6 +212,12 @@ export class BindRuntime {
      */
     constructor(staged: StagedStoreInterface = getStagedStore()) {
         this.staged = staged;
+        // Surface staged-buffer persistence failures (IndexedDB save/remove)
+        // through the same channel as dataset write failures, so a host that
+        // registers onWriteError sees 'edit not durably saved' too. Runtime
+        // and staged store share a lifetime, so the subscription is never torn
+        // down.
+        this.staged.onPersistError((_key, err) => this.emitWriteError(err));
     }
 
     // ----- cache singleton ------------------------------------------------
@@ -256,6 +262,15 @@ export class BindRuntime {
         return () => { this.writeErrorListeners.delete(cb); };
     }
 
+    /** Fan a write/persistence error out to every registered listener. */
+    private emitWriteError(error: unknown): void {
+        for (const cb of this.writeErrorListeners) {
+            try { cb(error); } catch (cbErr) {
+                console.error("Data.bind write-error listener threw:", cbErr);
+            }
+        }
+    }
+
     /** Resolve once every currently-queued write has finished
      *  (success or failure). Errors are NOT thrown — subscribe via
      *  {@link onWriteError} for those. */
@@ -294,11 +309,7 @@ export class BindRuntime {
                 await writeFn();
             } catch (error) {
                 console.error("Data.bind write failed:", error);
-                for (const cb of this.writeErrorListeners) {
-                    try { cb(error); } catch (cbErr) {
-                        console.error("Data.bind write-error listener threw:", cbErr);
-                    }
-                }
+                this.emitWriteError(error);
             }
         }
         this.isProcessingWrites = false;
@@ -503,9 +514,12 @@ export class BindRuntime {
             return null;
         };
 
-        // Standalone dataflow launch. Queued behind any pending writes so
-        // `write(v)` then `start()` propagates the just-written value rather
-        // than racing it. Identical across all four modes.
+        // Standalone dataflow launch, queued behind any pending writes. In
+        // direct mode `write(v)` then `start()` propagates the just-written
+        // value rather than racing it. In STAGED mode `write(v)` only buffers
+        // locally (it never reaches the dataset), so `start()` launches the
+        // dataflow against the last *committed* server value — call `commit()`
+        // first to push staged edits before starting.
         const startLaunch = (): null => {
             this.queueWrite(() => cache.launchDataflow(ws));
             return null;
@@ -581,12 +595,17 @@ export class BindRuntime {
                     const patchVal  = readPatchValue();
                     this.queueWrite(async () => {
                         const next = apply(sourceVal, patchVal);
-                        const writes: Promise<void>[] = [];
-                        cache.batch(() => {
-                            writes.push(cache.write(ws, sourcePath, encodeT(next)));
-                            writes.push(cache.write(ws, pPath, encodePatch(UNCHANGED_VARIANT)));
-                        });
-                        await Promise.all(writes);
+                        // Sequence the two cross-key writes: commit the source
+                        // FIRST, then clear the patch only once that lands. A
+                        // partial failure is then self-healing — a failed source
+                        // write leaves the patch intact (still pending), and a
+                        // failed patch-clear leaves the source committed (an
+                        // idempotent retry re-clears). Doing both in one batch
+                        // (which only batches notifications, not the network
+                        // writes) could orphan a populated patch over a
+                        // committed source.
+                        await cache.write(ws, sourcePath, encodeT(next));
+                        await cache.write(ws, pPath, encodePatch(UNCHANGED_VARIANT));
                     });
                     return null;
                 },
