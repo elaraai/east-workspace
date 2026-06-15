@@ -37,6 +37,7 @@ export const schematicPlant = example({
         return (
             <Schematic
                 extent={{ width: 29, height: 12.5 }}
+                height="440px"
                 items={equipment}
                 item={e => ({
                     key: e.id, x: e.x, y: e.y, label: e.id,
@@ -69,6 +70,7 @@ export const schematicMinimal = example({
         return (
             <Schematic
                 extent={{ width: 12, height: 7 }}
+                height="440px"
                 items={rooms}
                 item={r => ({ key: r.id, x: r.x, y: r.y, label: r.id, icon: "warehouse" })}
             />
@@ -91,6 +93,7 @@ export const schematicInteractive = example({
                 <VStack gap="3" align="stretch">
                     <Schematic
                         extent={{ width: 12, height: 6 }}
+                        height="440px"
                         items={[
                             { id: "CELL-A", x: 3.0, y: 3.0 },
                             { id: "CELL-B", x: 9.0, y: 3.0 },
@@ -172,6 +175,7 @@ export const schematicFacility = example({
         return (
             <Schematic
                 extent={{ width: 100, height: 48 }}
+                height="440px"
                 items={units}
                 item={u => ({
                     key: u.key, x: u.x, y: u.y, label: u.key,
@@ -186,6 +190,56 @@ export const schematicFacility = example({
                 grid={true}
                 navigator={true}
                 minimap={true}
+            />
+        );
+    }),
+    inputs: [],
+});
+
+export const schematicGeometry = example({
+    keywords: ["Schematic", "geometry", "polygon", "polyline", "footprint", "zone", "CAD", "shape"],
+    description: "Shape geometry — polygon & polyline zones (rotated hall, curvy service road) and polygon item footprints (press, tank)",
+    fn: East.function([], UIComponentType, ($) => {
+        // Equipment with real footprints (`fp:true` ⇒ polygon body; else
+        // point + icon). The `x/y` anchor stays the item identity used by the
+        // sidebar, links, and declutter; `footprint` is additive.
+        const equipment = $.const([
+            { id: "PRESS-1", x: 6.0, y: 4.0, kind: "hydraulic press", state: some(variant("success", null)), fp: true,
+              pts: [{ x: 3.5, y: 2.2 }, { x: 8.6, y: 3.0 }, { x: 8.0, y: 6.0 }, { x: 2.9, y: 5.2 }] },
+            { id: "TANK-9", x: 16.0, y: 4.5, kind: "buffer · 60 kL", state: some(variant("warning", null)), fp: true,
+              pts: [{ x: 13.5, y: 2.4 }, { x: 18.5, y: 2.4 }, { x: 18.5, y: 6.6 }, { x: 13.5, y: 6.6 }] },
+            { id: "VALVE-3", x: 21.6, y: 4.5, kind: "manifold", state: some(variant("info", null)), fp: false,
+              pts: [{ x: 21.6, y: 4.5 }] },
+        ]);
+        // Zones with shape geometry: a rotated polygon hall and a curvy
+        // polyline service road (a world-space band). The required x/y/w/h
+        // bounding box still drives the navigator / minimap / fly-to.
+        const areas = $.const([
+            { id: "hall-c", name: "Hall C", x: 1.5, y: 1.2, w: 9.1, h: 6.4, road: false,
+              pts: [{ x: 1.8, y: 2.0 }, { x: 10.2, y: 1.3 }, { x: 10.6, y: 7.0 }, { x: 2.2, y: 7.6 }] },
+            { id: "svc-rd", name: "Service Rd", x: 1.0, y: 9.0, w: 23.5, h: 3.4, road: true,
+              pts: [{ x: 1.5, y: 11.6 }, { x: 7.0, y: 9.8 }, { x: 13.0, y: 11.4 }, { x: 19.0, y: 9.6 }, { x: 24.0, y: 10.8 }] },
+        ]);
+        return (
+            <Schematic
+                extent={{ width: 26, height: 14 }}
+                height="440px"
+                items={equipment}
+                item={e => ({
+                    key: e.id, x: e.x, y: e.y, label: e.id,
+                    sublabel: e.kind, status: e.state, icon: "industry",
+                    footprint: e.fp.ifElse(_$ => Schematic.polygon(e.pts), _$ => Schematic.rect()),
+                })}
+                zones={areas}
+                zone={z => ({
+                    key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h,
+                    geometry: z.road.ifElse(
+                        _$ => Schematic.polyline(z.pts, { width: 1.4 }),
+                        _$ => Schematic.polygon(z.pts),
+                    ),
+                })}
+                scaleUnit="m"
+                grid={true}
             />
         );
     }),

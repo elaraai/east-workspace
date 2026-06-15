@@ -152,6 +152,45 @@ export const SchematicPointType = StructType({
 export type SchematicPointType = typeof SchematicPointType;
 
 /**
+ * Shared shape geometry for zones (`geometry`) and item footprints
+ * (`footprint`) — one variant, three cases.
+ *
+ * @remarks
+ * Geometry is **additive**: a zone keeps its required `x/y/width/height`
+ * bounding box and an item keeps its required `x/y` anchor/centroid; the
+ * shape, when present, is what the renderer strokes/fills. Absent geometry
+ * (`none`) means today's behaviour — a zone is its rect, an item is its
+ * point + icon. Points are world coordinates (the same {@link SchematicPointType}
+ * that link `via` waypoints use). `polyline` / `polygon` render in the SVG
+ * layer; `rect` keeps the HTML fast path.
+ *
+ * @property rect - Axis-aligned box (zones: the `x/y/width/height` box; items: the existing sized-bar form)
+ * @property polyline - Open polyline in world coords; optional world-space band `width`
+ * @property polygon - Closed polygon in world coords (>= 3 points, auto-closed)
+ */
+export const SchematicGeometryType = VariantType({
+    /** Axis-aligned box — zones use `x/y/width/height`; items, the existing sized-bar form. */
+    rect: NullType,
+    /** Open polyline in world coords; optional world-space band width. */
+    polyline: StructType({
+        /** Vertices in world coords, in order. */
+        points: ArrayType(SchematicPointType),
+        /** Optional band width in world units — the stroke widens into a road / aisle. */
+        width: OptionType(FloatType),
+    }),
+    /** Closed polygon in world coords (>= 3 points, auto-closed). */
+    polygon: StructType({
+        /** Boundary vertices in world coords, in order. */
+        points: ArrayType(SchematicPointType),
+    }),
+});
+
+/**
+ * Type representing shared shape geometry.
+ */
+export type SchematicGeometryType = typeof SchematicGeometryType;
+
+/**
  * A resolved placed item (node card).
  *
  * @property key - Item identity — links reference it; `onSelect` returns it
@@ -164,6 +203,7 @@ export type SchematicPointType = typeof SchematicPointType;
  * @property meter - Optional mini utilisation bar
  * @property metric - Optional live metric text
  * @property width - Optional world width — renders the wide bar form
+ * @property footprint - Optional shape footprint; absent ⇒ point + icon (`x/y` stay the anchor/centroid)
  */
 export const SchematicItemType = StructType({
     /** Item identity — links reference it; `onSelect` returns it */
@@ -191,6 +231,8 @@ export const SchematicItemType = StructType({
     metric: OptionType(StringType),
     /** Optional world width — renders the wide bar form */
     width: OptionType(FloatType),
+    /** Optional shape footprint; absent ⇒ point + icon (`x/y` stay the anchor/centroid) */
+    footprint: OptionType(SchematicGeometryType),
 });
 
 /**
@@ -208,6 +250,7 @@ export type SchematicItemType = typeof SchematicItemType;
  * @property width - World width
  * @property height - World height
  * @property pattern - Render pattern (`outline` / `hatch`)
+ * @property geometry - Optional shape geometry; absent ⇒ rect (`x/y/width/height` stay the bounding box)
  */
 export const SchematicZoneType = StructType({
     /** Zone identity */
@@ -224,6 +267,8 @@ export const SchematicZoneType = StructType({
     height: FloatType,
     /** Render pattern (`outline` / `hatch`) */
     pattern: SchematicZonePatternType,
+    /** Optional shape geometry; absent ⇒ rect (`x/y/width/height` stay the bounding box) */
+    geometry: OptionType(SchematicGeometryType),
 });
 
 /**
@@ -278,6 +323,7 @@ export type SchematicLinkType = typeof SchematicLinkType;
  * @property grid - Metric grid aligned to the scale legend
  * @property navigator - Navigator rail (zones → items TOC)
  * @property minimap - Minimap with the viewport rectangle
+ * @property height - Optional fixed panel height (any CSS length)
  * @property onSelect - Optional item-click callback (receives the item key)
  */
 export const SchematicRootType = StructType({
@@ -302,6 +348,8 @@ export const SchematicRootType = StructType({
     navigator: OptionType(BooleanType),
     /** Minimap with the viewport rectangle; default: shown for large canvases */
     minimap: OptionType(BooleanType),
+    /** Optional fixed panel height (any CSS length, e.g. `"400px"`); default: aspect-driven, capped at 75vh */
+    height: OptionType(StringType),
     /** Optional item-click callback (receives the item key) */
     onSelect: OptionType(FunctionType([StringType], NullType)),
 });

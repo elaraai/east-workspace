@@ -13,6 +13,8 @@ import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Schematic } from "@elaraai/east-ui/internal";
 import type { IconName } from "@fortawesome/fontawesome-common-types";
 import { getSomeorUndefined } from "../../utils";
+import { paintSchematic, type SchematicPalette } from "./paint";
+import { SchematicPaletteProbe } from "./theme";
 
 library.add(fas);
 
@@ -26,6 +28,9 @@ export type SchematicItemValue = ValueTypeOf<typeof Schematic.Types.Item>;
 
 /** East Schematic zone value type. */
 export type SchematicZoneValue = ValueTypeOf<typeof Schematic.Types.Zone>;
+
+/** East Schematic shape-geometry value type (`rect` / `polyline` / `polygon`). */
+export type SchematicGeometryValue = ValueTypeOf<typeof Schematic.Types.Geometry>;
 
 export interface EastChakraSchematicProps {
     value: SchematicValue;
@@ -59,40 +64,14 @@ function niceScaleLength(ppu: number, targetPx: number): number {
     return pow;
 }
 
-/** Expand anchors into an axis-aligned point list (one elbow per diagonal hop). */
-function orthogonalize(points: Pt[]): Pt[] {
-    const out: Pt[] = [];
-    for (const next of points) {
-        const prev = out[out.length - 1];
-        if (prev !== undefined && prev.x !== next.x && prev.y !== next.y) {
-            // Longer axis first keeps runs in the open instead of hugging rows.
-            out.push(Math.abs(next.y - prev.y) >= Math.abs(next.x - prev.x)
-                ? { x: prev.x, y: next.y }
-                : { x: next.x, y: prev.y });
-        }
-        if (prev === undefined || prev.x !== next.x || prev.y !== next.y) out.push(next);
+/** Even–odd point-in-polygon test in world coords (footprint hit-testing). */
+function pointInPolygon(x: number, y: number, pts: readonly Pt[]): boolean {
+    let inside = false;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+        const xi = pts[i]!.x, yi = pts[i]!.y, xj = pts[j]!.x, yj = pts[j]!.y;
+        if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
     }
-    return out;
-}
-
-/** An SVG path through `pts` with corners rounded by up to `radius`. */
-function roundedPath(pts: Pt[], radius: number): string {
-    if (pts.length === 0) return "";
-    let d = `M ${pts[0]!.x} ${pts[0]!.y}`;
-    for (let i = 1; i < pts.length - 1; i++) {
-        const p = pts[i]!, a = pts[i - 1]!, b = pts[i + 1]!;
-        const inLen = Math.hypot(p.x - a.x, p.y - a.y);
-        const outLen = Math.hypot(b.x - p.x, b.y - p.y);
-        const r = Math.min(radius, inLen / 2, outLen / 2);
-        if (r < 0.5) { d += ` L ${p.x} ${p.y}`; continue; }
-        const inU = { x: (p.x - a.x) / inLen, y: (p.y - a.y) / inLen };
-        const outU = { x: (b.x - p.x) / outLen, y: (b.y - p.y) / outLen };
-        d += ` L ${p.x - inU.x * r} ${p.y - inU.y * r}`;
-        d += ` Q ${p.x} ${p.y} ${p.x + outU.x * r} ${p.y + outU.y * r}`;
-    }
-    const last = pts[pts.length - 1]!;
-    if (pts.length > 1) d += ` L ${last.x} ${last.y}`;
-    return d;
+    return inside;
 }
 
 interface NavZone {
@@ -235,15 +214,19 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value }: 
     const showGrid = getSomeorUndefined(value.grid) ?? true;
     const showNavigator = getSomeorUndefined(value.navigator) ?? value.zones.length > 0;
     const showMinimap = getSomeorUndefined(value.minimap) ?? value.items.length >= MINIMAP_AUTO;
+    // A fixed height pins the panel instead of the extent's aspect ratio.
+    const fixedHeight = getSomeorUndefined(value.height);
 
     const [selected, setSelected] = useState<string | null>(null);
     const [view, setView] = useState<Viewport>(IDENTITY);
     const [query, setQuery] = useState("");
     const [openZone, setOpenZone] = useState<string | null>(null);
     const [navCollapsed, setNavCollapsed] = useState(false);
+    const [palette, setPalette] = useState<SchematicPalette | null>(null);
     const navTreeRef = useRef<HTMLDivElement | null>(null);
 
     const canvasRef = useRef<HTMLDivElement | null>(null);
+    const drawRef = useRef<HTMLCanvasElement | null>(null);
 
     const [size, setSize] = useState<{ w: number; h: number } | null>(null);
     useLayoutEffect(() => {
@@ -273,7 +256,17 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value }: 
         const tree = new RBush<ItemBox>();
         tree.load(value.items.map(item => {
             const hw = (getSomeorUndefined(item.width) ?? 0) / 2 + 2.4;
-            return { minX: item.x - hw, minY: item.y - 2, maxX: item.x + hw, maxY: item.y + 2, item };
+            let minX = item.x - hw, minY = item.y - 2, maxX = item.x + hw, maxY = item.y + 2;
+            // A footprint can reach past the marker box — union its world
+            // bbox in so the shape isn't culled when the anchor leaves view.
+            const fp = getSomeorUndefined(item.footprint);
+            if (fp !== undefined && fp.type !== "rect") {
+                for (const p of fp.value.points) {
+                    minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
+                    maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y);
+                }
+            }
+            return { minX, minY, maxX, maxY, item };
         }));
         return tree;
     }, [value.items]);
@@ -392,19 +385,23 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value }: 
         return () => el.removeEventListener("wheel", onWheel);
     }, []);
 
-    // Drag-pan on empty canvas.
+    // Drag-pan on empty canvas. `moved` distinguishes a pan from a click so
+    // the canvas pick (below) doesn't fire on the click that follows a drag.
     const panRef = useRef<{ x: number; y: number; tx: number; ty: number } | null>(null);
+    const movedRef = useRef(false);
     const onCanvasPointerDown = useCallback((e: React.PointerEvent) => {
         if (e.button !== 0) return;
         // Presses on controls / cards / the minimap are theirs — capturing
         // here would redirect their click to the canvas.
         if ((e.target as HTMLElement).closest("button") !== null) return;
         panRef.current = { x: e.clientX, y: e.clientY, tx: viewRef.current.tx, ty: viewRef.current.ty };
+        movedRef.current = false;
         (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     }, []);
     const onCanvasPointerMove = useCallback((e: React.PointerEvent) => {
         const pan = panRef.current;
         if (!pan) return;
+        if (Math.abs(e.clientX - pan.x) > 4 || Math.abs(e.clientY - pan.y) > 4) movedRef.current = true;
         setView(prev => ({ ...prev, tx: pan.tx + e.clientX - pan.x, ty: pan.ty + e.clientY - pan.y }));
     }, []);
     const onCanvasPointerUp = useCallback(() => { panRef.current = null; }, []);
@@ -466,6 +463,53 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value }: 
         .slice(0, 12), [lowerQuery, value.items]);
 
     const scaleLen = ppu > 0 ? niceScaleLength(ppu, 100) : 0;
+
+    // Paint the bulk-shape layer (zones, links, footprints, dots/pins) to the
+    // canvas whenever the data, camera, LOD, selection, or theme changes. Rich
+    // item cards stay DOM (rendered below); the canvas is everything else.
+    useEffect(() => {
+        const canvas = drawRef.current;
+        if (canvas === null || size === null || palette === null) return;
+        const dpr = window.devicePixelRatio || 1;
+        const bw = Math.round(size.w * dpr), bh = Math.round(size.h * dpr);
+        if (canvas.width !== bw || canvas.height !== bh) { canvas.width = bw; canvas.height = bh; }
+        const ctx = canvas.getContext("2d");
+        if (ctx === null) return;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        paintSchematic({
+            ctx, value, cam: { ppu, tx: view.tx, ty: view.ty }, width: size.w, height: size.h,
+            visibleItems, tiers, selected, centers, palette,
+        });
+    }, [value, view, ppu, size, visibleItems, tiers, selected, centers, palette]);
+
+    // Canvas hit-testing: footprint polygons (close zoom) then the nearest
+    // dot/pin marker; rich cards are DOM and handle their own clicks.
+    const onCanvasClick = useCallback((e: React.MouseEvent) => {
+        if (size === null || movedRef.current) return;
+        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
+        const wxp = (sx - view.tx) / ppu, wyp = (sy - view.ty) / ppu;
+        for (const box of index.search({ minX: wxp, minY: wyp, maxX: wxp, maxY: wyp })) {
+            const it = box.item;
+            if ((tiers.get(it.key) ?? lod) !== "card") continue;
+            const fp = getSomeorUndefined(it.footprint);
+            if (fp === undefined || fp.type === "rect") continue;
+            if (pointInPolygon(wxp, wyp, fp.value.points)) {
+                setSelected(it.key);
+                if (onSelectFn) queueMicrotask(() => onSelectFn(it.key));
+                return;
+            }
+        }
+        let best: SchematicItemValue | null = null, bestD = Infinity;
+        for (const it of visibleItems) {
+            const tier = tiers.get(it.key) ?? lod;
+            if (tier === "card") continue;
+            const d = Math.hypot(it.x * ppu + view.tx - sx, it.y * ppu + view.ty - sy);
+            const reach = tier === "dot" ? 9 : 18;
+            if (d < reach && d < bestD) { best = it; bestD = d; }
+        }
+        if (best !== null) flyToItem(best);
+    }, [size, view, ppu, index, tiers, lod, visibleItems, onSelectFn, flyToItem]);
 
     // Accordion: one open zone; its ancestors stay open so the path is visible.
     const toggleZone = useCallback((key: string) => {
@@ -546,7 +590,8 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value }: 
     };
 
     return (
-        <Box css={styles.root}>
+        <Box css={styles.root} {...(fixedHeight !== undefined ? { style: { height: fixedHeight, maxHeight: fixedHeight } } : {})}>
+            <SchematicPaletteProbe onResolve={setPalette} />
             {showNavigator && navCollapsed && (
                 <Box css={styles.navCollapsed}>
                     <Box as="button" css={styles.navToggle} aria-label="Expand index" title="Show index" onClick={() => setNavCollapsed(false)}><FontAwesomeIcon icon={faAnglesRight} /></Box>
@@ -599,7 +644,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value }: 
                 ref={canvasRef}
                 css={styles.canvas}
                 data-schematic-canvas=""
-                style={{ aspectRatio: `${W} / ${H}` }}
+                style={fixedHeight !== undefined ? { minHeight: 0 } : { aspectRatio: `${W} / ${H}` }}
                 onPointerDown={onCanvasPointerDown}
                 onPointerMove={onCanvasPointerMove}
                 onPointerUp={onCanvasPointerUp}
@@ -620,94 +665,17 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value }: 
                 })()}
                 {size !== null && (
                     <>
-                        {value.zones.map(zone => {
-                            const pattern = zone.pattern;
-                            const tone = (pattern.value.tone.type === "some" ? pattern.value.tone.value.type : undefined) ?? "muted";
-                            const hatchVars = pattern.type === "hatch" ? {
-                                "--hatch-spacing": `${pattern.value.spacing.type === "some" ? pattern.value.spacing.value : 8}px`,
-                                "--hatch-angle": `${pattern.value.angle.type === "some" ? pattern.value.angle.value : 45}deg`,
-                            } : {};
-                            return (
-                                <Box
-                                    key={zone.key}
-                                    css={styles.zone}
-                                    data-pattern={pattern.type}
-                                    data-tone={tone}
-                                    style={{
-                                        left: wx(zone.x), top: wy(zone.y),
-                                        width: zone.width * ppu, height: zone.height * ppu,
-                                        ...hatchVars,
-                                    }}
-                                >
-                                    {zone.width * ppu >= zone.label.length * 6.2 + 24 && (
-                                        <Box as="span" css={styles.zoneLabel} data-pattern={pattern.type}>{zone.label}</Box>
-                                    )}
-                                </Box>
-                            );
-                        })}
-                        <Box as="svg" css={styles.underlay} {...{ viewBox: `0 0 ${size.w} ${size.h}`, width: size.w, height: size.h }}>
-                            {value.links.map(link => {
-                                const from = centers.get(link.from);
-                                const to = centers.get(link.to);
-                                if (!from || !to) return null;
-                                const anchors = [from, ...link.via, to].map(p => ({ x: wx(p.x), y: wy(p.y) }));
-                                const corner = link.route.type === "orthogonal"
-                                    ? (link.route.value.corner.type === "some" ? link.route.value.corner.value : 8)
-                                    : 0;
-                                const pts = link.route.type === "orthogonal" ? orthogonalize(anchors) : anchors;
-                                const style = link.style;
-                                const tone = (style.value.tone.type === "some" ? style.value.tone.value.type : undefined)
-                                    ?? (style.type === "solid" ? "brand" : "muted");
-                                const weight = style.value.weight.type === "some"
-                                    ? style.value.weight.value
-                                    : (style.type === "solid" ? 2.5 : 1.5);
-                                return (
-                                    <g key={link.key} data-tone={tone}>
-                                        <path
-                                            d={roundedPath(pts, corner)}
-                                            fill="none"
-                                            data-style={style.type}
-                                            strokeWidth={weight}
-                                            {...(style.type === "dashed" ? { strokeDasharray: "6 5" } : {})}
-                                        />
-                                        <circle cx={anchors[0]!.x} cy={anchors[0]!.y} r={weight + 1.5} />
-                                        <circle cx={anchors[anchors.length - 1]!.x} cy={anchors[anchors.length - 1]!.y} r={weight + 1.5} />
-                                    </g>
-                                );
-                            })}
-                        </Box>
+                        <canvas
+                            ref={drawRef}
+                            onClick={onCanvasClick}
+                            style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}
+                        />
                         {visibleItems.map(item => {
+                            // Rich cards are DOM; dots / pins / footprints / zones /
+                            // links are painted on the canvas above.
+                            if ((tiers.get(item.key) ?? lod) !== "card") return null;
                             const tone = statusTone(item.status);
                             const isSelected = selected === item.key;
-                            const tier = tiers.get(item.key) ?? lod;
-                            if (tier === "dot") {
-                                return (
-                                    <Box
-                                        key={item.key}
-                                        css={styles.itemDot}
-                                        data-tone={tone ?? "neutral"}
-                                        {...(isSelected ? { "data-selected": "" } : {})}
-                                        style={{ left: wx(item.x), top: wy(item.y) }}
-                                        onClick={() => flyToItem(item)}
-                                        onPointerDown={e => e.stopPropagation()}
-                                    />
-                                );
-                            }
-                            if (tier === "label") {
-                                return (
-                                    <Box
-                                        key={item.key}
-                                        css={styles.itemPin}
-                                        {...(isSelected ? { "data-selected": "" } : {})}
-                                        style={{ left: wx(item.x), top: wy(item.y) }}
-                                        onClick={() => flyToItem(item)}
-                                        onPointerDown={e => e.stopPropagation()}
-                                    >
-                                        <Box as="span" css={styles.statusDot} data-tone={tone ?? "neutral"} />
-                                        {item.label}
-                                    </Box>
-                                );
-                            }
                             const sublabel = getSomeorUndefined(item.sublabel);
                             const icon = getSomeorUndefined(item.icon);
                             const meter = getSomeorUndefined(item.meter);
