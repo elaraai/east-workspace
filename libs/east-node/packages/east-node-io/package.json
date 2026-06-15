@@ -1,6 +1,6 @@
 {
   "name": "@elaraai/east-node-io",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "description": "I/O platform functions for the East language on Node.js",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
