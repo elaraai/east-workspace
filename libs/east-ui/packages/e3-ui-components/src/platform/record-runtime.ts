@@ -50,6 +50,7 @@ import {
     registerReactiveTracker,
     registerPlatformImplementation,
 } from "@elaraai/east-ui-components/platform";
+import { TrackedChannelStore } from "./tracked-channel.js";
 import { trackDatasetPath } from "./bind-runtime.js";
 import { datasetCacheKey, type ReactiveDatasetCacheInterface } from "./dataset-store.js";
 import type { TreePath } from "@elaraai/e3-types";
@@ -119,7 +120,7 @@ type CommitInfo = RecordCommitInfo;
 const eastTypeEqual = equalFor(EastTypeType) as (a: EastTypeValue, b: EastTypeValue) => boolean;
 
 /** A handle's signature, recovered from the instantiated handle type. */
-interface HandleSignature {
+interface RecordHandleSignature {
     readonly stateType: EastTypeValue;
     readonly mutations: ReadonlyMap<string, EastTypeValue[]>;
 }
@@ -134,7 +135,7 @@ const RESERVED_MUTATE_FIELDS = new Set(["pending", "status", "error", "cancel"])
  * The handle's shape IS the signature — there are no duplicate signature
  * arguments to drift out of sync.
  */
-export function signatureOfHandleType(handleType: EastTypeValue): HandleSignature {
+export function signatureOfRecordHandleType(handleType: EastTypeValue): RecordHandleSignature {
     if (handleType.type !== "Struct") {
         throw new Error(`Record.bind: handle type must be a Struct; got ${handleType.type}`);
     }
@@ -230,13 +231,11 @@ interface RecordEntry {
  * {@link defaultRecordRuntime} instance backs the registered platform; tests
  * construct their own for isolation.
  */
-export class RecordRuntime {
+export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
     private api: RecordApi | null = null;
     private cache: ReactiveDatasetCacheInterface | null = null;
     private workspace: string | null = null;
 
-    // One mutation channel per record (shared lifecycle).
-    private readonly entries = new Map<string, RecordEntry>();
     // Describe signatures, fetched once per (workspace, record), failures evicted.
     private readonly signatureCache = new Map<string, Promise<RecordSignature>>();
     // History per channel, fetched once + refreshed on commit.
@@ -248,13 +247,9 @@ export class RecordRuntime {
     // mutation retries.
     private readonly historyFailed = new Set<string>();
 
-    // Subscription shim — same contract (and stale-disposer guard) as func/dataset.
-    private readonly keySubscribers = new Map<string, Set<() => void>>();
-    private readonly keyVersions = new Map<string, number>();
-
-    // Reactive tracking — read closures push their channel keys here while a
-    // Reactive.Root render is being tracked.
-    private trackingContext: Set<string> | null = null;
+    protected createEntry(): RecordEntry {
+        return { status: "idle", launchSeq: 0 };
+    }
 
     // ----- wiring ----------------------------------------------------------
 
@@ -271,72 +266,11 @@ export class RecordRuntime {
         this.api = null;
         this.cache = null;
         this.workspace = null;
-        this.entries.clear();
+        this.clearChannels();
         this.signatureCache.clear();
         this.histories.clear();
         this.historyInFlight.clear();
         this.historyFailed.clear();
-        this.keySubscribers.clear();
-        this.keyVersions.clear();
-    }
-
-    // ----- reactive tracking ----------------------------------------------
-
-    enableTracking(): Set<string> {
-        this.trackingContext = new Set();
-        return this.trackingContext;
-    }
-
-    disableTracking(): string[] {
-        const keys = this.trackingContext ? [...this.trackingContext] : [];
-        this.trackingContext = null;
-        return keys;
-    }
-
-    isTracking(): boolean {
-        return this.trackingContext !== null;
-    }
-
-    private track(key: string): void {
-        this.trackingContext?.add(key);
-    }
-
-    // ----- subscription shim ------------------------------------------------
-
-    subscribe(key: string, callback: () => void): () => void {
-        let subs = this.keySubscribers.get(key);
-        if (!subs) {
-            subs = new Set();
-            this.keySubscribers.set(key, subs);
-        }
-        subs.add(callback);
-        return () => {
-            subs.delete(callback);
-            if (subs.size === 0 && this.keySubscribers.get(key) === subs) {
-                this.keySubscribers.delete(key);
-            }
-        };
-    }
-
-    getKeyVersion(key: string): number {
-        return this.keyVersions.get(key) ?? 0;
-    }
-
-    private notify(key: string): void {
-        this.keyVersions.set(key, (this.keyVersions.get(key) ?? 0) + 1);
-        const subs = this.keySubscribers.get(key);
-        if (subs) for (const cb of [...subs]) cb();
-    }
-
-    // ----- registry ----------------------------------------------------------
-
-    private entry(key: string): RecordEntry {
-        let entry = this.entries.get(key);
-        if (!entry) {
-            entry = { status: "idle", launchSeq: 0 };
-            this.entries.set(key, entry);
-        }
-        return entry;
     }
 
     private resolveWorkspace(): string {
@@ -410,19 +344,7 @@ export class RecordRuntime {
 
     private launchMutation(workspace: string, record: string, mutation: string, argTypes: EastTypeValue[], args: unknown[]): void {
         const key = recordChannelKey(workspace, record);
-        const entry = this.entry(key);
-        entry.launchSeq += 1;
-        const mySeq = entry.launchSeq;
-        entry.status = "running";
-        delete entry.error;
-        this.notify(key);
-
-        const settle = (mutate: (entry: RecordEntry) => void): void => {
-            const current = this.entries.get(key);
-            if (!current || current.launchSeq !== mySeq) return; // superseded
-            mutate(current);
-            this.notify(key);
-        };
+        const { entry, settle } = this.beginLaunch(key, e => { delete e.error; });
 
         const run = (async () => {
             const invalid = await this.validate(workspace, record, mutation, argTypes);
@@ -467,7 +389,7 @@ export class RecordRuntime {
 
     /** Build the handle value for one `Record.bind` platform evaluation. */
     buildHandle(handleType: EastTypeValue, name: string): Record<string, unknown> {
-        const sig = signatureOfHandleType(handleType);
+        const sig = signatureOfRecordHandleType(handleType);
         const decodeState = decodeBeast2For(sig.stateType);
         // eslint-disable-next-line @typescript-eslint/no-this-alias
         const runtime = this;
@@ -504,17 +426,12 @@ export class RecordRuntime {
             },
             cancel: () => {
                 const ws = runtime.resolveWorkspace();
-                const key = recordChannelKey(ws, name);
-                const entry = runtime.entry(key);
-                if (entry.status === "running") {
-                    entry.launchSeq += 1; // orphan the in-flight wait
-                    entry.status = "cancelled";
-                    delete entry.error;
-                    // Drop the in-flight handle so a later start() doesn't wait
-                    // on the mutation the user just cancelled.
-                    delete entry.inflight;
-                    runtime.notify(key);
-                }
+                // Drop the error + in-flight handle on cancel so a later start()
+                // doesn't wait on the mutation the user just cancelled.
+                runtime.cancelChannel(recordChannelKey(ws, name), e => {
+                    delete e.error;
+                    delete e.inflight;
+                });
                 return null;
             },
         };

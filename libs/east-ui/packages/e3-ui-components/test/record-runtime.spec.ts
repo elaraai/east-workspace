@@ -31,7 +31,7 @@ import type { TreePath } from "@elaraai/e3-types";
 import {
     RecordRuntime,
     recordChannelKey,
-    signatureOfHandleType,
+    signatureOfRecordHandleType,
     createInMemoryRecordApi,
     type RecordApi,
     type RecordMutateArgs,
@@ -178,12 +178,12 @@ function newRuntime(signatures: RecordSignature[] = [recordSig("counter", [{ nam
 }
 
 // =============================================================================
-// signatureOfHandleType
+// signatureOfRecordHandleType
 // =============================================================================
 
-describe("signatureOfHandleType (record)", () => {
+describe("signatureOfRecordHandleType (record)", () => {
     test("recovers the state type and per-mutation arg types", () => {
-        const sig = signatureOfHandleType(toEastTypeValue(RecordBindHandleType(IntegerType, { increment: [IntegerType], add: [IntegerType, StringType] })));
+        const sig = signatureOfRecordHandleType(toEastTypeValue(RecordBindHandleType(IntegerType, { increment: [IntegerType], add: [IntegerType, StringType] })));
         assert.equal(sig.stateType.type, "Integer");
         assert.equal(sig.mutations.get("increment")!.length, 1);
         assert.equal(sig.mutations.get("increment")![0]!.type, "Integer");
@@ -192,7 +192,7 @@ describe("signatureOfHandleType (record)", () => {
     });
 
     test("rejects a non-struct handle type", () => {
-        assert.throws(() => signatureOfHandleType(toEastTypeValue(IntegerType)), /must be a Struct/);
+        assert.throws(() => signatureOfRecordHandleType(toEastTypeValue(IntegerType)), /must be a Struct/);
     });
 });
 

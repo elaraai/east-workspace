@@ -75,7 +75,7 @@ export {
     initializeFunctionApi,
     clearFunctionApi,
     funcChannelKey,
-    signatureOfHandleType,
+    signatureOfFuncHandleType,
     createInMemoryFunctionApi,
     type InMemoryFunctionDef,
     type FunctionApi,
