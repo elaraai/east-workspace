@@ -242,6 +242,11 @@ export type SchematicGeometryType = typeof SchematicGeometryType;
  * @property metric - Optional live metric text
  * @property width - Optional world width — renders the wide bar form
  * @property footprint - Optional shape footprint; absent ⇒ point + icon (`x/y` stay the anchor/centroid)
+ * @property tone - Optional colour override (semantic tone); absent ⇒ `status` drives the colour
+ * @property color - Optional raw CSS stroke / marker tint; wins over `tone`
+ * @property bg - Optional raw CSS fill for a polygon / circle footprint
+ * @property fillOpacity - Optional fill alpha (0–1) for a polygon / circle footprint
+ * @property weight - Optional stroke width in px
  */
 export const SchematicItemType = StructType({
     /** Item identity — links reference it; `onSelect` returns it */
@@ -271,6 +276,16 @@ export const SchematicItemType = StructType({
     width: OptionType(FloatType),
     /** Optional shape footprint; absent ⇒ point + icon (`x/y` stay the anchor/centroid) */
     footprint: OptionType(SchematicGeometryType),
+    /** Optional colour override (semantic tone); absent ⇒ `status` drives the colour */
+    tone: OptionType(SchematicToneType),
+    /** Optional raw CSS stroke / marker tint (e.g. `"#2D7FF9"`, `"teal"`); wins over `tone` */
+    color: OptionType(StringType),
+    /** Optional raw CSS fill for a polygon / circle footprint */
+    bg: OptionType(StringType),
+    /** Optional fill alpha (0–1) for a polygon / circle footprint */
+    fillOpacity: OptionType(FloatType),
+    /** Optional stroke width in px */
+    weight: OptionType(FloatType),
 });
 
 /**
@@ -289,6 +304,11 @@ export type SchematicItemType = typeof SchematicItemType;
  * @property height - World height
  * @property pattern - Render pattern (`outline` / `hatch`)
  * @property geometry - Optional shape geometry; absent ⇒ rect (`x/y/width/height` stay the bounding box)
+ * @property tone - Optional colour override (semantic tone); absent ⇒ the `pattern`'s tone drives the colour
+ * @property color - Optional raw CSS stroke tint; wins over `tone`
+ * @property bg - Optional raw CSS area fill (opt-in; zones are unfilled by default)
+ * @property fillOpacity - Optional fill alpha (0–1) for the area fill
+ * @property weight - Optional stroke width in px
  */
 export const SchematicZoneType = StructType({
     /** Zone identity */
@@ -307,6 +327,16 @@ export const SchematicZoneType = StructType({
     pattern: SchematicZonePatternType,
     /** Optional shape geometry; absent ⇒ rect (`x/y/width/height` stay the bounding box) */
     geometry: OptionType(SchematicGeometryType),
+    /** Optional colour override (semantic tone); absent ⇒ the `pattern`'s tone drives the colour */
+    tone: OptionType(SchematicToneType),
+    /** Optional raw CSS stroke tint (e.g. `"#2D7FF9"`, `"teal"`); wins over `tone` */
+    color: OptionType(StringType),
+    /** Optional raw CSS area fill (opt-in; zones are unfilled by default) */
+    bg: OptionType(StringType),
+    /** Optional fill alpha (0–1) for the area fill */
+    fillOpacity: OptionType(FloatType),
+    /** Optional stroke width in px */
+    weight: OptionType(FloatType),
 });
 
 /**

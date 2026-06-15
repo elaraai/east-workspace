@@ -250,3 +250,43 @@ export const schematicGeometry = example({
     }),
     inputs: [],
 });
+
+export const schematicColorOverride = example({
+    keywords: ["Schematic", "color", "tone", "bg", "override", "style", "footprint"],
+    description: "Per-entity colour overrides — raw `color` + `bg` on item footprints (a category palette, independent of status) and a toned, filled area",
+    fn: East.function([], UIComponentType, ($) => {
+        // Each unit carries an explicit CSS colour: `color` tints the stroke /
+        // marker, `bg` fills the circle footprint — a category palette that is
+        // independent of `status`.
+        const units = $.const([
+            { id: "U-1", x: 4.0, y: 4.0, r: 1.4, fill: "#2D7FF9" },
+            { id: "U-2", x: 8.0, y: 4.0, r: 1.4, fill: "#16A34A" },
+            { id: "U-3", x: 12.0, y: 4.0, r: 1.4, fill: "#9333EA" },
+        ]);
+        const areas = $.const([
+            { id: "bay", name: "Bay", x: 1.5, y: 1.5, w: 13.0, h: 5.5 },
+        ]);
+        return (
+            <Schematic
+                extent={{ width: 16, height: 8 }}
+                height="360px"
+                items={units}
+                item={e => ({
+                    key: e.id, x: e.x, y: e.y, label: e.id,
+                    footprint: Schematic.circle(e.r),
+                    color: e.fill,        // raw stroke / marker tint
+                    bg: e.fill,           // raw footprint fill
+                    fillOpacity: 0.18,
+                })}
+                zones={areas}
+                zone={z => ({
+                    key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h,
+                    tone: "brand",        // semantic, theme-resolved
+                    bg: "#2D7FF9",        // opt-in area fill
+                })}
+                scaleUnit="m"
+            />
+        );
+    }),
+    inputs: [],
+});

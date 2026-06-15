@@ -116,6 +116,17 @@ function statusTone(status: SchematicItemValue["status"]): string | undefined {
     return status.type === "some" ? status.value.type : undefined;
 }
 
+/**
+ * Resolve an entity's stroke / tint colour to a CSS string, applying the
+ * override precedence: a raw `color` string wins, then a semantic `tone`
+ * (mapped through the theme palette), then the status / pattern fallback RGB.
+ */
+function resolveTint(p: SchematicPalette, color: string | undefined, tone: string | undefined, fallback: RGB): string {
+    if (color !== undefined) return color;
+    if (tone !== undefined) return css(toneRGB(p, tone, "link"));
+    return css(fallback);
+}
+
 /** Expand anchors into an axis-aligned point list (one elbow per diagonal). */
 function orthogonalize(points: Pt[]): Pt[] {
     const out: Pt[] = [];
@@ -225,18 +236,30 @@ export function paintSchematic(input: PaintInput): void {
     // ---- zones: rect outline / hatch + polyline / polygon geometry ----------
     for (const zone of value.zones) {
         const pattern = zone.pattern;
-        const tone = (pattern.value.tone.type === "some" ? pattern.value.tone.value.type : undefined) ?? "muted";
-        const color = toneRGB(p, tone, "zone");
+        const patternTone = (pattern.value.tone.type === "some" ? pattern.value.tone.value.type : undefined) ?? "muted";
+        const tint = resolveTint(p, getSomeorUndefined(zone.color), getSomeorUndefined(zone.tone)?.type, toneRGB(p, patternTone, "zone"));
+        const zbg = getSomeorUndefined(zone.bg);
+        const zFillAlpha = getSomeorUndefined(zone.fillOpacity) ?? 0.15;
+        const zWeight = getSomeorUndefined(zone.weight);
         const geom = getSomeorUndefined(zone.geometry);
         const x = wx(zone.x), y = wy(zone.y), w = zone.width * ppu, h = zone.height * ppu;
+        const fillShape = () => {
+            if (zbg === undefined) return;
+            ctx.save();
+            ctx.globalAlpha = zFillAlpha;
+            ctx.fillStyle = zbg;
+            ctx.fill();
+            ctx.restore();
+        };
 
         if (geom !== undefined && geom.type !== "rect") {
             if (geom.type === "circle") {
                 ctx.beginPath();
                 ctx.arc(x + w / 2, y + h / 2, geom.value.radius * ppu, 0, Math.PI * 2);
+                fillShape();
                 ctx.setLineDash([4, 3]);
-                ctx.lineWidth = 1;
-                ctx.strokeStyle = css(color);
+                ctx.lineWidth = zWeight ?? 1;
+                ctx.strokeStyle = tint;
                 ctx.stroke();
                 ctx.setLineDash([]);
             } else {
@@ -245,9 +268,10 @@ export function paintSchematic(input: PaintInput): void {
                     ctx.beginPath();
                     if (geom.type === "polygon") {
                         traceVertices(ctx, pts, true);
+                        fillShape();
                         ctx.setLineDash([4, 3]);
-                        ctx.lineWidth = 1;
-                        ctx.strokeStyle = css(color);
+                        ctx.lineWidth = zWeight ?? 1;
+                        ctx.strokeStyle = tint;
                         ctx.stroke();
                         ctx.setLineDash([]);
                     } else {
@@ -255,9 +279,12 @@ export function paintSchematic(input: PaintInput): void {
                         const band = geom.value.width.type === "some" ? geom.value.width.value * ppu : undefined;
                         ctx.setLineDash([]);
                         ctx.lineCap = "round";
-                        ctx.lineWidth = band ?? 1.5;
-                        ctx.strokeStyle = css(color, 0.55);
+                        ctx.lineWidth = zWeight ?? band ?? 1.5;
+                        ctx.save();
+                        ctx.globalAlpha = 0.55;
+                        ctx.strokeStyle = tint;
                         ctx.stroke();
+                        ctx.restore();
                         ctx.lineCap = "butt";
                     }
                 }
@@ -269,9 +296,16 @@ export function paintSchematic(input: PaintInput): void {
             ctx.beginPath();
             ctx.rect(x, y, w, h);
             ctx.clip();
+            if (zbg !== undefined) {
+                ctx.save();
+                ctx.globalAlpha = zFillAlpha;
+                ctx.fillStyle = zbg;
+                ctx.fillRect(x, y, w, h);
+                ctx.restore();
+            }
             ctx.globalAlpha = 0.3;
-            ctx.strokeStyle = css(color);
-            ctx.lineWidth = 1;
+            ctx.strokeStyle = tint;
+            ctx.lineWidth = zWeight ?? 1;
             const dx = Math.cos(angle), dy = Math.sin(angle);
             const diag = Math.hypot(w, h);
             ctx.beginPath();
@@ -282,9 +316,16 @@ export function paintSchematic(input: PaintInput): void {
             ctx.stroke();
             ctx.restore();
         } else {
+            if (zbg !== undefined) {
+                ctx.save();
+                ctx.globalAlpha = zFillAlpha;
+                ctx.fillStyle = zbg;
+                ctx.fillRect(x, y, w, h);
+                ctx.restore();
+            }
             ctx.setLineDash([5, 4]);
-            ctx.lineWidth = 1;
-            ctx.strokeStyle = css(color);
+            ctx.lineWidth = zWeight ?? 1;
+            ctx.strokeStyle = tint;
             ctx.strokeRect(x, y, w, h);
             ctx.setLineDash([]);
         }
@@ -338,16 +379,25 @@ export function paintSchematic(input: PaintInput): void {
         const footprint = getSomeorUndefined(item.footprint);
         if (footprint === undefined || footprint.type === "rect") continue;
         if ((tiers.get(item.key) ?? "dot") !== "card") continue;
-        const color = statusRGB(p, statusTone(item.status));
         const isSel = selected === item.key;
+        const tint = resolveTint(p, getSomeorUndefined(item.color), getSomeorUndefined(item.tone)?.type, statusRGB(p, statusTone(item.status)));
+        const ibg = getSomeorUndefined(item.bg);
+        const fillAlpha = getSomeorUndefined(item.fillOpacity) ?? (isSel ? 0.24 : 0.12);
+        const stroke = getSomeorUndefined(item.weight) ?? (isSel ? 2.5 : 1.5);
+        const fillShape = () => {
+            ctx.save();
+            ctx.globalAlpha = fillAlpha;
+            ctx.fillStyle = ibg ?? tint;
+            ctx.fill();
+            ctx.restore();
+        };
 
         if (footprint.type === "circle") {
             ctx.beginPath();
             ctx.arc(wx(item.x), wy(item.y), footprint.value.radius * ppu, 0, Math.PI * 2);
-            ctx.fillStyle = css(color, isSel ? 0.24 : 0.12);
-            ctx.fill();
-            ctx.lineWidth = isSel ? 2.5 : 1.5;
-            ctx.strokeStyle = css(color);
+            fillShape();
+            ctx.lineWidth = stroke;
+            ctx.strokeStyle = tint;
             ctx.stroke();
             continue;
         }
@@ -357,16 +407,15 @@ export function paintSchematic(input: PaintInput): void {
         ctx.beginPath();
         if (footprint.type === "polygon") {
             traceVertices(ctx, pts, true);
-            ctx.fillStyle = css(color, isSel ? 0.24 : 0.12);
-            ctx.fill();
-            ctx.lineWidth = isSel ? 2.5 : 1.5;
+            fillShape();
+            ctx.lineWidth = stroke;
         } else {
             traceVertices(ctx, pts, false);
             const band = footprint.value.width.type === "some" ? footprint.value.width.value * ppu : undefined;
             ctx.lineCap = "round";
-            ctx.lineWidth = band ?? (isSel ? 2.5 : 1.5);
+            ctx.lineWidth = getSomeorUndefined(item.weight) ?? band ?? (isSel ? 2.5 : 1.5);
         }
-        ctx.strokeStyle = css(color);
+        ctx.strokeStyle = tint;
         ctx.stroke();
         ctx.lineCap = "butt";
     }
@@ -375,15 +424,14 @@ export function paintSchematic(input: PaintInput): void {
     for (const item of visibleItems) {
         const tier = tiers.get(item.key) ?? "dot";
         if (tier === "card") continue; // rich card rendered by the React layer
-        const tone = statusTone(item.status);
-        const color = statusRGB(p, tone);
+        const tint = resolveTint(p, getSomeorUndefined(item.color), getSomeorUndefined(item.tone)?.type, statusRGB(p, statusTone(item.status)));
         const isSel = selected === item.key;
         const x = wx(item.x), y = wy(item.y);
 
         if (tier === "dot") {
             ctx.beginPath();
             ctx.arc(x, y, 5, 0, Math.PI * 2);
-            ctx.fillStyle = css(color);
+            ctx.fillStyle = tint;
             ctx.fill();
             ctx.lineWidth = 1.5;
             ctx.strokeStyle = css(p.white);
@@ -414,7 +462,7 @@ export function paintSchematic(input: PaintInput): void {
         ctx.stroke();
         ctx.beginPath();
         ctx.arc(left + padX + dotW / 2, y, dotW / 2, 0, Math.PI * 2);
-        ctx.fillStyle = css(color);
+        ctx.fillStyle = tint;
         ctx.fill();
         ctx.fillStyle = css(p.fg);
         ctx.textBaseline = "middle";

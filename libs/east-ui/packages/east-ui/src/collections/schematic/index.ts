@@ -84,6 +84,13 @@ function toneValue(tone: SchematicToneLiteral | undefined) {
     return tone !== undefined ? some(variant(tone, null)) : none;
 }
 
+/** Wrap an item/zone `tone` colour override into its option — accepts a string
+ *  literal shorthand (`"brand"`) or an East tone expression / value. */
+function toneOption(tone: SubtypeExprOrValue<SchematicToneType> | SchematicToneLiteral | undefined) {
+    if (tone === undefined) return none;
+    return typeof tone === "string" ? some(variant(tone, null)) : some(tone);
+}
+
 /**
  * Builds an `outline` zone pattern value — the dashed boundary with an
  * eyebrow label (rooms, cells).
@@ -262,6 +269,11 @@ export type RowElement<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
  * @property metric - Optional live metric text
  * @property width - Optional world width — renders the wide bar form
  * @property footprint - Optional shape footprint (`Schematic.polygon()` / `polyline()` / `rect()`)
+ * @property tone - Optional colour override (semantic tone); absent ⇒ `status` drives the colour
+ * @property color - Optional raw CSS stroke / marker tint; wins over `tone`
+ * @property bg - Optional raw CSS fill for a polygon / circle footprint
+ * @property fillOpacity - Optional fill alpha (0–1) for a polygon / circle footprint
+ * @property weight - Optional stroke width in px
  */
 export interface SchematicItemFields {
     /** Item identity — links reference it; `onSelect` returns it. */
@@ -291,6 +303,16 @@ export interface SchematicItemFields {
     width?: SubtypeExprOrValue<FloatType>;
     /** Optional shape footprint (`Schematic.polygon()` / `polyline()` / `rect()`); absent ⇒ point + icon. */
     footprint?: SubtypeExprOrValue<SchematicGeometryType>;
+    /** Optional colour override (semantic tone); absent ⇒ `status` drives the colour. */
+    tone?: SubtypeExprOrValue<SchematicToneType> | SchematicToneLiteral;
+    /** Optional raw CSS stroke / marker tint (e.g. `"#2D7FF9"`, `"teal"`); wins over `tone`. */
+    color?: SubtypeExprOrValue<StringType>;
+    /** Optional raw CSS fill for a polygon / circle footprint. */
+    bg?: SubtypeExprOrValue<StringType>;
+    /** Optional fill alpha (0–1) for a polygon / circle footprint. */
+    fillOpacity?: SubtypeExprOrValue<FloatType>;
+    /** Optional stroke width in px. */
+    weight?: SubtypeExprOrValue<FloatType>;
 }
 
 /**
@@ -304,6 +326,11 @@ export interface SchematicItemFields {
  * @property height - World height
  * @property pattern - Optional pattern (default `Schematic.outline()`)
  * @property geometry - Optional shape geometry (`Schematic.polyline()` / `polygon()` / `rect()`)
+ * @property tone - Optional colour override (semantic tone); absent ⇒ the `pattern`'s tone drives the colour
+ * @property color - Optional raw CSS stroke tint; wins over `tone`
+ * @property bg - Optional raw CSS area fill (opt-in; zones are unfilled by default)
+ * @property fillOpacity - Optional fill alpha (0–1) for the area fill
+ * @property weight - Optional stroke width in px
  */
 export interface SchematicZoneFields {
     /** Zone identity. */
@@ -322,6 +349,16 @@ export interface SchematicZoneFields {
     pattern?: SubtypeExprOrValue<SchematicZonePatternType>;
     /** Optional shape geometry (`Schematic.polyline()` / `polygon()` / `rect()`); absent ⇒ rect. */
     geometry?: SubtypeExprOrValue<SchematicGeometryType>;
+    /** Optional colour override (semantic tone); absent ⇒ the `pattern`'s tone drives the colour. */
+    tone?: SubtypeExprOrValue<SchematicToneType> | SchematicToneLiteral;
+    /** Optional raw CSS stroke tint (e.g. `"#2D7FF9"`, `"teal"`); wins over `tone`. */
+    color?: SubtypeExprOrValue<StringType>;
+    /** Optional raw CSS area fill (opt-in; zones are unfilled by default). */
+    bg?: SubtypeExprOrValue<StringType>;
+    /** Optional fill alpha (0–1) for the area fill. */
+    fillOpacity?: SubtypeExprOrValue<FloatType>;
+    /** Optional stroke width in px. */
+    weight?: SubtypeExprOrValue<FloatType>;
 }
 
 /**
@@ -428,6 +465,11 @@ function buildRoot(
                 metric: r.metric !== undefined ? some(r.metric) : none,
                 width: r.width !== undefined ? some(r.width) : none,
                 footprint: r.footprint !== undefined ? some(r.footprint) : none,
+                tone: toneOption(r.tone),
+                color: r.color !== undefined ? some(r.color) : none,
+                bg: r.bg !== undefined ? some(r.bg) : none,
+                fillOpacity: r.fillOpacity !== undefined ? some(r.fillOpacity) : none,
+                weight: r.weight !== undefined ? some(r.weight) : none,
             }, SchematicItemType);
         });
 
@@ -450,6 +492,11 @@ function buildRoot(
                         ? r.pattern
                         : East.value(outline(), SchematicZonePatternType),
                     geometry: r.geometry !== undefined ? some(r.geometry) : none,
+                    tone: toneOption(r.tone),
+                    color: r.color !== undefined ? some(r.color) : none,
+                    bg: r.bg !== undefined ? some(r.bg) : none,
+                    fillOpacity: r.fillOpacity !== undefined ? some(r.fillOpacity) : none,
+                    weight: r.weight !== undefined ? some(r.weight) : none,
                 }, SchematicZoneType);
             });
 
