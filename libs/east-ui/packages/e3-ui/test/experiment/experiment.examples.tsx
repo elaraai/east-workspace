@@ -9,25 +9,25 @@
  * generic manufacturing process. The worked question is *"did `slow_cure` change
  * `bond_strength`?"* — a confounding-by-indication story: the optional slow-cure
  * step is applied to the weaker incoming material, so the raw average makes it
- * look worse (−3.1) while the like-for-like estimate flips it positive (+5.2).
+ * look worse (−3.1) while the like-for-like estimate flips it positive (+5.2),
+ * and the honesty verdict is `causal`.
  *
  * Pattern (the real, interactive shape — not a mock):
  *   1. `e3.input('batches', Array(BatchRow), [...])` — the **input dataset**. The
  *      renderer introspects this row struct to drive the treatment / outcome /
  *      confounder pickers, exactly like `Table`.
- *   2. `e3.input('experiment_spec', Experiment.Types.Spec, {...})` — the staged
- *      experiment the pickers edit.
- *   3. Three `e3.function`s — `estimate` / `refute` / `dose` — that return the
- *      `Experiment.Types.*` numeric contract. In production their bodies call
- *      east-py-datascience's (generic) Causal functions; here they are pure-East
- *      fixtures returning the constants the real estimator would (mirroring the
- *      `causalEffectConfounding` example), so the surface runs offline with no
- *      datascience dependency. The numbers the snapshot harness seeds for these
- *      functions live in `e3-ui-components/snapshot/main.tsx`, imported from here
- *      so the two copies cannot drift.
- *   4. `<Experiment data spec estimate refute dose journal />`. The renderer
- *      auto-runs on mount, derives every word / colour / bar from the returned
- *      numbers, and re-runs when the user edits the spec.
+ *   2. `e3.input('experiment_config', Experiment.Types.Config, {...})` — the
+ *      staged config the pickers edit (snake_case; structurally identical to
+ *      east-py-datascience's `Causal.Types.CausalExperimentConfigType`).
+ *   3. ONE `e3.function('experiment', (rows, config) → ExperimentResult)`. In
+ *      production its body calls east-py-datascience's `Causal.experiment`; here
+ *      it is a pure-East fixture returning the constants the real engine would,
+ *      so the surface runs offline with no datascience dependency. The snapshot
+ *      harness compiles this body to seed the function — the numbers live only
+ *      here, so the two copies cannot drift.
+ *   4. `<Experiment data config experiment journal />`. The renderer auto-runs on
+ *      mount, derives every word / colour / bar from the single returned result
+ *      and its `verdict`, and re-runs when the user edits the config.
  */
 
 import {
@@ -40,7 +40,7 @@ import e3 from '@elaraai/e3';
 
 // ============================================================================
 // Input dataset — the bonded-panel batches. The surface frames over these
-// columns; the estimators ignore the rows (they return fixtures).
+// columns; the estimator ignores the rows (it returns a fixture).
 // ============================================================================
 
 /** One production batch — the row struct the pickers are generic over. */
@@ -71,101 +71,138 @@ export const batchesInput = e3.input('batches', ArrayType(BatchRow), [
 ]);
 
 // ============================================================================
-// Staged spec — the experiment the user framed (the pickers edit this).
+// Staged config — the experiment the user framed (the pickers edit this).
 // ============================================================================
 
-export const experimentSpecInput = e3.input('experiment_spec', Experiment.Types.Spec, {
+export const experimentConfigInput = e3.input('experiment_config', Experiment.Types.Config, {
     treatment: 'slow_cure',
     outcome: 'bond_strength',
-    confounders: ['incoming_grade', 'mix_viscosity', 'supplier'],
-    categorical: ['supplier'],
-    population: some([
-        variant('string', { fieldId: 'line', op: variant('in', new Set(['A', 'B'])) }),
-        variant('string', { fieldId: 'product', op: variant('eq', 'panel') }),
-    ]),
+    common_causes: ['incoming_grade', 'mix_viscosity', 'supplier'],
+    categorical: some(['supplier']),
     method: some(variant('propensity_score_weighting', { weighting_scheme: some(variant('ips_stabilized_weight', null)) })),
-    targetUnits: some(variant('ate', null)),
-    trim: some(variant('overlap', null)),
+    estimand: some(variant('ate', null)),
+    refute: some({ placebo: true, random_common_cause: true, data_subset: true, sensitivity: some([0.0, 0.2, 0.4, 0.6, 0.8, 1.0]) }),
+    dose_feature: some('incoming_grade'),
+    min_overlap: some(0.1),
+    min_treatment_variation: some(0.02),
+    bootstrap: none,
+    random_state: some(42n),
 });
 
 // ============================================================================
-// Estimator functions — pure-East fixtures returning the numeric contract.
-// Exported so the snapshot harness seeds the *same* numbers (no drift).
+// Estimator — ONE pure-East fixture returning the full numeric contract.
+// Exported so the snapshot harness compiles + seeds the *same* numbers (no drift).
 // ============================================================================
 
-export const estimateFn = e3.function('estimate',
-    East.function([ArrayType(BatchRow), Experiment.Types.Spec], Experiment.Types.Result, (_$, _data, _spec) => ({
-    effect: 5.2,
-    ci: some({ lower: 3.1, upper: 7.4 }),
-    naive: -3.1,
-    naiveCi: some({ lower: -6.0, upper: -0.2 }),
-    nTotal: 480n, nTreated: 240n, nControl: 240n, nDropped: 31n,
-    balance: [
-        { column: 'incoming_grade', treatedMean: 6.1, controlMean: 8.0, stdDiff: 0.90 },
-        { column: 'supplier', treatedMean: 0.61, controlMean: 0.33, stdDiff: 0.55 },
-        { column: 'mix_viscosity', treatedMean: 24.6, controlMean: 24.1, stdDiff: 0.24 },
-    ],
-})));
-
-export const refuteFn = e3.function('refute',
-    East.function([ArrayType(BatchRow), Experiment.Types.Spec], Experiment.Types.Refute, (_$, _data, _spec) => ( {
-    checks: [
-        { kind: variant('placebo', null), estimatedEffect: 5.2, newEffects: new Float64Array([0.0]), strengths: none, pValue: some(0.92) },
-        { kind: variant('data_subset', null), estimatedEffect: 5.2, newEffects: new Float64Array([4.6, 5.0, 5.4]), strengths: none, pValue: none },
-        { kind: variant('random_common_cause', null), estimatedEffect: 5.2, newEffects: new Float64Array([5.1]), strengths: none, pValue: none },
-        { kind: variant('unobserved', null), estimatedEffect: 5.2, newEffects: new Float64Array([5.2, 4.4, 3.4, 2.2, 0.8, -0.8]), strengths: some(new Float64Array([0.0, 0.2, 0.4, 0.6, 0.8, 1.0])), pValue: none },
-    ],
-})));
-
-export const doseFn = e3.function('dose',
-    East.function([ArrayType(BatchRow), Experiment.Types.Spec, StringType], Experiment.Types.Dose, (_$, _data, _spec, _feature) => ({
-    feature: 'days of slow cure',
-    grid: new Float64Array([0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0]),
-    effect: new Float64Array([0.0, 1.5, 2.6, 3.4, 4.0, 4.4, 4.6, 4.72, 4.8]),
-    lower: some(new Float64Array([-0.1, 1.0, 2.0, 2.7, 3.3, 3.7, 3.9, 4.0, 4.1])),
-    upper: some(new Float64Array([0.3, 2.0, 3.2, 4.1, 4.7, 5.1, 5.3, 5.45, 5.5])),
-    size: new BigInt64Array([40n, 52n, 61n, 66n, 70n, 58n, 44n, 30n, 18n]),
-    segments: none,
-})));
+export const experimentFn = e3.function('experiment',
+    East.function([ArrayType(BatchRow), Experiment.Types.Config], Experiment.Types.Result, (_$, _data, _config) => ({
+        naive: -3.1,
+        naive_ci: some({ lower: -6.0, upper: -0.2 }),
+        adjusted: some({ effect: 5.2, ci: some({ lower: 3.1, upper: 7.4 }) }),
+        n_total: 480n, n_treated: 240n, n_control: 240n, n_dropped: 31n,
+        balance: [
+            { column: 'incoming_grade', base_column: 'incoming_grade', treated_mean: 6.1, control_mean: 8.0, std_diff: 0.90 },
+            { column: 'supplier', base_column: 'supplier', treated_mean: 0.61, control_mean: 0.33, std_diff: 0.55 },
+            { column: 'mix_viscosity', base_column: 'mix_viscosity', treated_mean: 24.6, control_mean: 24.1, std_diff: 0.24 },
+        ],
+        overlap: {
+            treated_propensity: new Float64Array([0, 0, 1, 2, 4, 6, 9, 12, 15, 18, 20, 21, 19, 16, 12, 8, 5, 3, 1, 0]),
+            control_propensity: new Float64Array([0, 2, 5, 9, 14, 18, 21, 20, 17, 13, 9, 6, 4, 2, 1, 1, 0, 0, 0, 0]),
+            common_support_frac: 0.78,
+            positivity_ok: true,
+        },
+        refutation: some({
+            placebo_effect: some(0.0),
+            placebo_passes: some(true),
+            random_cc_within_ci: some(true),
+            data_subset_effect: some(5.0),
+            data_subset_std: some(0.4),
+            robustness_value: some(2.3),
+            sensitivity: some({
+                strengths: new Float64Array([0.0, 0.2, 0.4, 0.6, 0.8, 1.0]),
+                effects: new Float64Array([5.2, 4.4, 3.4, 2.2, 0.8, -0.8]),
+            }),
+        }),
+        dose_response: some({
+            feature: 'incoming_grade',
+            grid: new Float64Array([2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 6.5]),
+            effect: new Float64Array([0.0, 1.5, 2.6, 3.4, 4.0, 4.4, 4.6, 4.72, 4.8]),
+            lower: some(new Float64Array([-0.1, 1.0, 2.0, 2.7, 3.3, 3.7, 3.9, 4.0, 4.1])),
+            upper: some(new Float64Array([0.3, 2.0, 3.2, 4.1, 4.7, 5.1, 5.3, 5.45, 5.5])),
+            size: new BigInt64Array([40n, 52n, 61n, 66n, 70n, 58n, 44n, 30n, 18n]),
+        }),
+        verdict: variant('causal', null),
+    })));
 
 // ============================================================================
-// Journal — committed experiments (newest first). The verdict words / tone are
-// derived from each row's effect + CI, not stored.
+// Journal — committed experiments (newest first). The verdict is STORED on each
+// row (not recomputed); the renderer derives only its colour/word from it.
 // ============================================================================
 
 export const experimentJournalInput = e3.input('experiment_journal', Experiment.Types.Journal, [
     {
-        spec: { treatment: 'slow_cure', outcome: 'bond_strength', confounders: ['incoming_grade', 'mix_viscosity', 'supplier'], categorical: [], population: none, method: none, targetUnits: none, trim: none },
-        effect: 5.2, ci: some({ lower: 3.1, upper: 7.4 }), committedAt: new Date('2026-06-13T08:00:00Z'), committedBy: 'M. Kerr',
+        config: {
+            treatment: 'slow_cure', outcome: 'bond_strength', common_causes: ['incoming_grade', 'mix_viscosity', 'supplier'],
+            categorical: none, method: none, estimand: none, refute: none,
+            dose_feature: none, min_overlap: none, min_treatment_variation: none, bootstrap: none, random_state: none,
+        },
+        verdict: variant('causal', null), naive: -3.1, adjusted: some(5.2),
+        committed_at: new Date('2026-06-13T08:00:00Z'), committed_by: 'M. Kerr',
     },
     {
-        spec: { treatment: 'extra_anneal', outcome: 'hardness', confounders: ['line', 'mix_viscosity'], categorical: [], population: none, method: none, targetUnits: none, trim: none },
-        effect: 0.4, ci: some({ lower: -0.3, upper: 1.1 }), committedAt: new Date('2026-06-09T08:00:00Z'), committedBy: 'M. Kerr',
+        config: {
+            treatment: 'extra_anneal', outcome: 'hardness', common_causes: ['line', 'mix_viscosity'],
+            categorical: none, method: none, estimand: none, refute: none,
+            dose_feature: none, min_overlap: none, min_treatment_variation: none, bootstrap: none, random_state: none,
+        },
+        verdict: variant('modest', null), naive: 0.4, adjusted: some(0.4),
+        committed_at: new Date('2026-06-09T08:00:00Z'), committed_by: 'M. Kerr',
     },
     {
-        spec: { treatment: 'new_nozzle', outcome: 'throughput', confounders: ['line', 'batch_size'], categorical: [], population: none, method: none, targetUnits: none, trim: none },
-        effect: 38.0, ci: some({ lower: 20.0, upper: 56.0 }), committedAt: new Date('2026-06-02T08:00:00Z'), committedBy: 'T. Ode',
+        config: {
+            treatment: 'new_nozzle', outcome: 'throughput', common_causes: ['line', 'batch_size'],
+            categorical: none, method: none, estimand: none, refute: none,
+            dose_feature: none, min_overlap: none, min_treatment_variation: none, bootstrap: none, random_state: none,
+        },
+        verdict: variant('causal', null), naive: 22.0, adjusted: some(38.0),
+        committed_at: new Date('2026-06-02T08:00:00Z'), committed_by: 'T. Ode',
     },
 ]);
 
 // ============================================================================
-// Scene — the full surface bound to the dataset, spec, estimators and journal.
+// Population filter — the Step-4 "Which batches?" predicates, seeded so the
+// surface loads with filter chips applied. UI-side only: it narrows the rows
+// before the call and is NOT part of the config the function receives.
+// ============================================================================
+
+export const experimentPopulationInput = e3.input('experiment_population', Experiment.Types.Population, [
+    variant('string', { fieldId: 'line', op: variant('in', new Set(['A', 'B'])) }),
+    variant('string', { fieldId: 'product', op: variant('eq', 'panel') }),
+]);
+
+// ============================================================================
+// Scene — the full surface bound to the dataset, config, estimator and journal.
 // ============================================================================
 
 export const experimentSurface = example({
-    keywords: ['Experiment', 'causal', 'effect', 'confounding', 'forest', 'dose', 'Data', 'Func', 'bind', 'generic'],
-    description: 'An interactive causal-experiment surface: "did slow_cure change bond_strength?" — confounding by indication, with the raw-vs-adjusted sign flip. The "Answer" tab. Generic over the bound dataset; results come from bound estimator functions and every word is derived from the numbers.',
+    keywords: ['Experiment', 'causal', 'effect', 'confounding', 'forest', 'verdict', 'Data', 'Func', 'bind', 'generic'],
+    description: 'An interactive causal-experiment surface: "did slow_cure change bond_strength?" — confounding by indication, with the raw-vs-adjusted sign flip and a "causal" verdict. The "Answer" tab. Generic over the bound dataset; the result comes from one bound estimator function and every word is derived from the numbers + verdict.',
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const data = $.let(Data.bind(batchesInput));
-            const spec = $.let(Data.bind(experimentSpecInput, { mode: 'staged' }));
+            const config = $.let(Data.bind(experimentConfigInput, { mode: 'staged' }));
             const journal = $.let(Data.bind(experimentJournalInput));
-            const estimate = $.let(Func.bind(estimateFn));
-            const refute = $.let(Func.bind(refuteFn));
-            const dose = $.let(Func.bind(doseFn));
+            const population = $.let(Data.bind(experimentPopulationInput, { mode: 'staged' }));
+            const experiment = $.let(Func.bind(experimentFn));
             return (
-                <Experiment data={data} spec={spec} estimate={estimate} refute={refute} dose={dose} journal={journal}
-                    columns={{ bond_strength: { unit: 'MPa' } }} />
+                <Experiment
+                    data={data}
+                    config={config}
+                    experiment={experiment}
+                    population={population}
+                    journal={journal}
+                    columns={{ bond_strength: { unit: 'MPa' } }}
+                />
             );
         }}</Reactive>
     )),
@@ -173,19 +210,25 @@ export const experimentSurface = example({
 });
 
 export const experimentTrust = example({
-    keywords: ['Experiment', 'causal', 'refute', 'trust', 'sensitivity', 'robustness'],
-    description: 'The Experiment "Can we trust it?" tab — the refutation checklist (placebo / subset / decoy / hidden-cause) and the unobserved-confounder sensitivity curve.',
+    keywords: ['Experiment', 'causal', 'refute', 'trust', 'sensitivity', 'robustness', 'verdict'],
+    description: 'The Experiment "Can we trust it?" tab — the refutation checklist (shuffle / drop-some / decoy / hidden-cause) and the unobserved-confounder sensitivity curve, all from the single result\'s refutation summary.',
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const data = $.let(Data.bind(batchesInput));
-            const spec = $.let(Data.bind(experimentSpecInput, { mode: 'staged' }));
+            const config = $.let(Data.bind(experimentConfigInput, { mode: 'staged' }));
             const journal = $.let(Data.bind(experimentJournalInput));
-            const estimate = $.let(Func.bind(estimateFn));
-            const refute = $.let(Func.bind(refuteFn));
-            const dose = $.let(Func.bind(doseFn));
+            const population = $.let(Data.bind(experimentPopulationInput, { mode: 'staged' }));
+            const experiment = $.let(Func.bind(experimentFn));
             return (
-                <Experiment data={data} spec={spec} estimate={estimate} refute={refute} dose={dose} journal={journal}
-                    columns={{ bond_strength: { unit: 'MPa' } }} defaultTab="trust" />
+                <Experiment
+                    data={data}
+                    config={config}
+                    experiment={experiment}
+                    population={population}
+                    journal={journal}
+                    columns={{ bond_strength: { unit: 'MPa' } }}
+                    defaultTab="trust"
+                />
             );
         }}</Reactive>
     )),
@@ -194,18 +237,24 @@ export const experimentTrust = example({
 
 export const experimentDose = example({
     keywords: ['Experiment', 'causal', 'dose', 'ale', 'response', 'marginal'],
-    description: 'The Experiment "How much?" tab — the ALE dose-response curve (with recommended point) and the marginal-gain-per-step bars.',
+    description: 'The Experiment "How much?" tab — the ALE dose-response curve (with "you are here" + "sweet spot" markers) and the marginal-gain-per-step bars, from the single result\'s dose_response.',
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const data = $.let(Data.bind(batchesInput));
-            const spec = $.let(Data.bind(experimentSpecInput, { mode: 'staged' }));
+            const config = $.let(Data.bind(experimentConfigInput, { mode: 'staged' }));
             const journal = $.let(Data.bind(experimentJournalInput));
-            const estimate = $.let(Func.bind(estimateFn));
-            const refute = $.let(Func.bind(refuteFn));
-            const dose = $.let(Func.bind(doseFn));
+            const population = $.let(Data.bind(experimentPopulationInput, { mode: 'staged' }));
+            const experiment = $.let(Func.bind(experimentFn));
             return (
-                <Experiment data={data} spec={spec} estimate={estimate} refute={refute} dose={dose} journal={journal}
-                    columns={{ bond_strength: { unit: 'MPa' } }} defaultTab="dose" />
+                <Experiment
+                    data={data}
+                    config={config}
+                    experiment={experiment}
+                    population={population}
+                    journal={journal}
+                    columns={{ bond_strength: { unit: 'MPa' } }}
+                    defaultTab="dose"
+                />
             );
         }}</Reactive>
     )),

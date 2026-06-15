@@ -1,6 +1,6 @@
 ---
 name: east-py-datascience
-description: "Data science and machine learning platform functions for the East language (TypeScript types + directly-callable Python implementations). Use when writing East programs that need optimization (MADS, Optuna, SimAnneal, Scipy, Optimization, GoogleOr), machine learning (XGBoost, LightGBM, NGBoost, Torch MLP, Lightning, GP), Bayesian inference (PyMC), causal inference (Causal: DoWhy, EconML DML, ALE), simulation (Simulation DES), ML utilities (Sklearn preprocessing, metrics, splits), conformal prediction (MAPIE), or model explainability (SHAP). Triggers for: (1) Writing East programs with @elaraai/east-py-datascience, (2) Derivative-free optimization with MADS, (3) Bayesian optimization with Optuna, (4) Discrete/combinatorial optimization with SimAnneal, (5) Gradient boosting with XGBoost or LightGBM, (6) Probabilistic predictions with NGBoost or GP, (7) Neural networks with Torch MLP or Lightning, (8) Data preprocessing and metrics with Sklearn, (9) Conformal prediction intervals with MAPIE, (10) Model explainability with Shap, (11) Iterative coordinate descent with Optimization, (12) Constraint programming, vehicle routing, LP/MIP, or graph algorithms with GoogleOr, (13) Bayesian regression, hierarchical models, and multi-layer estimation with PyMC, (14) Economic ontology simulation via discrete event simulation with Simulation, (15) Causal effect estimation, refutation, CATE, and dose-response with Causal, (16) Calling the east_py_datascience *_impl functions directly from a project's own Python @platform_function."
+description: "Data science and machine learning platform functions for the East language (TypeScript types + directly-callable Python implementations). Use when writing East programs that need optimization (MADS, Optuna, SimAnneal, Scipy, Optimization, GoogleOr), machine learning (XGBoost, LightGBM, NGBoost, Torch MLP, Lightning, GP), Bayesian inference (PyMC), causal inference (Causal: DoWhy, EconML DML, ALE), simulation (Simulation DES), ML utilities (Sklearn preprocessing, metrics, splits), conformal prediction (MAPIE), or model explainability (SHAP). Triggers for: (1) Writing East programs with @elaraai/east-py-datascience, (2) Derivative-free optimization with MADS, (3) Bayesian optimization with Optuna, (4) Discrete/combinatorial optimization with SimAnneal, (5) Gradient boosting with XGBoost or LightGBM, (6) Probabilistic predictions with NGBoost or GP, (7) Neural networks with Torch MLP or Lightning, (8) Data preprocessing and metrics with Sklearn, (9) Conformal prediction intervals with MAPIE, (10) Model explainability with Shap, (11) Iterative coordinate descent with Optimization, (12) Constraint programming, vehicle routing, LP/MIP, or graph algorithms with GoogleOr, (13) Bayesian regression, hierarchical models, and multi-layer estimation with PyMC, (14) Economic ontology simulation via discrete event simulation with Simulation, (15) One declarative causal experiment — naive vs adjusted effect, overlap, robustness, and an honesty verdict — with Causal.experiment, (16) Calling the east_py_datascience *_impl functions directly from a project's own Python @platform_function."
 ---
 
 # East Data Science
@@ -136,18 +136,19 @@ Task → What do you need?
     ├─ Simulation (economic ontology simulation via DES)
     │   └─ Single run → .run([R, E], initialState, initialEvents, process, config)
     │
-    ├─ Causal (causal inference: effects, refutation, CATE, dose-response)
-    │   │  effect/refute/ale are generic over the row struct: data is an
-    │   │  Array<Struct> (fields = columns), row type passed as a type arg, e.g.
-    │   │  .effect([RowType], data, config). config names columns by field name.
-    │   ├─ Effect estimate → .effect([Row], data, config) (backdoor linear_regression /
-    │   │   propensity_score_weighting; ate/att/atc; overlap or bounds trim;
-    │   │   cluster bootstrap CI; empty common_causes = unadjusted/naive)
-    │   ├─ Refutation → .refute([Row], data, config, refuter) (placebo_treatment,
-    │   │   random_common_cause, data_subset, unobserved_common_cause sensitivity)
-    │   ├─ Heterogeneous effects (EconML LinearDML) → .dmlTrain(Y, T, X, W, config),
-    │   │   .dmlEffect(model, X) (per-row CATE), .dmlAte(model, X) (ATE + CI)
-    │   └─ Dose-response → .ale([Row], data, config) (accumulated local effects, CI bands)
+    ├─ Causal (one declarative causal experiment + honesty verdict)
+    │   │  .experiment is generic over the row struct: data is an Array<Struct>
+    │   │  (fields = columns), row type passed as a type arg, e.g.
+    │   │  .experiment([RowType], data, config). config names columns by field name.
+    │   ├─ Did X change Y, can I trust it? → .experiment([Row], data, config)
+    │   └─ What real trial would validate it? → .designValidation([Row], data, config, result, designConfig)
+    │       (the experiment's verdict → a randomised-trial recipe: sample size,
+    │        split options, match-on categories, power curve, plain rationale)
+    │       (binary treatment; returns naive vs adjusted effect, confounder balance,
+    │       propensity overlap, a placebo/E-value robustness check, and a verdict:
+    │       causal / modest / adjustment_insufficient / non_identifiable_positivity /
+    │       not_estimable. `adjusted` is none when the engine refuses. DoWhy / EconML /
+    │       PyALE are internal — there is one public entry point.)
     │
     └─ Shap (model explainability)
         ├─ Create → .treeExplainerCreate() (XGBoost only), .kernelExplainerCreate() (any model)
@@ -186,7 +187,7 @@ Task → What do you need?
 | GoogleOr | `import { GoogleOr } from "@elaraai/east-py-datascience"` | OR-Tools: CP-SAT, routing, LP/MIP, graph algorithms |
 | PyMC | `import { PyMC } from "@elaraai/east-py-datascience"` | Bayesian regression, hierarchical models, multi-layer estimation |
 | Simulation | `import { Simulation } from "@elaraai/east-py-datascience"` | Economic ontology simulation via DES |
-| Causal | `import { Causal } from "@elaraai/east-py-datascience"` | Causal inference: DoWhy backdoor effects + refuters, EconML LinearDML CATE, ALE dose-response |
+| Causal | `import { Causal } from "@elaraai/east-py-datascience"` | One declarative causal experiment (`Causal.experiment`) — naive vs adjusted effect, balance, overlap, robustness, and an honesty verdict; plus `Causal.designValidation` — the real controlled-trial recipe that would confirm the result |
 
 ## Accessing Types
 

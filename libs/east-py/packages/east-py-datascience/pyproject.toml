@@ -75,6 +75,7 @@ causal = [
     "dowhy>=0.12",
     "econml>=0.15.0",
     "PyALE>=1.2.0",
+    "statsmodels>=0.14.0",
     "pandas>=2.0.0",
     "matplotlib>=3.8.0",
     "scikit-learn>=1.4.0,<1.6.0",
@@ -102,6 +103,7 @@ all = [
     "dowhy>=0.12",
     "econml>=0.15.0",
     "PyALE>=1.2.0",
+    "statsmodels>=0.14.0",
     "pandas>=2.0.0",
     "matplotlib>=3.8.0",
     "cloudpickle>=3.0.0",
@@ -150,7 +152,7 @@ disallow_untyped_defs = false
 
 # External optional dependencies - no stubs or incomplete stubs
 [[tool.mypy.overrides]]
-module = ["numpy", "numpy.*", "scipy", "scipy.*", "sklearn", "sklearn.*", "PyNomad", "optuna", "optuna.*", "simanneal", "skl2onnx", "skl2onnx.*", "onnxruntime", "cloudpickle", "xgboost", "xgboost.*", "lightgbm", "lightgbm.*", "ngboost", "ngboost.*", "shap", "shap.*", "torch", "torch.*", "pytorch_lightning", "pytorch_lightning.*", "lightning", "lightning.*", "onnx", "onnx.*", "mapie", "mapie.*", "alns", "alns.*", "ortools", "ortools.*", "pymc", "pymc.*", "arviz", "arviz.*", "pytensor", "pytensor.*", "dowhy", "dowhy.*", "econml", "econml.*", "PyALE", "PyALE.*", "pandas", "pandas.*", "matplotlib", "matplotlib.*"]
+module = ["numpy", "numpy.*", "scipy", "scipy.*", "sklearn", "sklearn.*", "PyNomad", "optuna", "optuna.*", "simanneal", "skl2onnx", "skl2onnx.*", "onnxruntime", "cloudpickle", "xgboost", "xgboost.*", "lightgbm", "lightgbm.*", "ngboost", "ngboost.*", "shap", "shap.*", "torch", "torch.*", "pytorch_lightning", "pytorch_lightning.*", "lightning", "lightning.*", "onnx", "onnx.*", "mapie", "mapie.*", "alns", "alns.*", "ortools", "ortools.*", "pymc", "pymc.*", "arviz", "arviz.*", "pytensor", "pytensor.*", "dowhy", "dowhy.*", "econml", "econml.*", "PyALE", "PyALE.*", "statsmodels", "statsmodels.*", "pandas", "pandas.*", "matplotlib", "matplotlib.*"]
 ignore_missing_imports = true
 
 # Our modules using optional dependencies - verify via tests not static analysis

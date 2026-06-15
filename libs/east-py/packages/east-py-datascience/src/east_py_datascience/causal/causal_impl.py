@@ -13,14 +13,14 @@ import importlib.util
 import logging
 
 import numpy as np
-from east.runtime.platform import generic_platform_function, platform_function, platform_functions
+from east import assert_value_of
+from east.runtime.platform import generic_platform_function, platform_functions
 from east.types.types import (
     ArrayType,
     BlobType,
     BooleanType,
     FloatType,
     IntegerType,
-    MatrixType,
     NullType,
     OptionType,
     StringType,
@@ -267,13 +267,13 @@ Single case ``causal_dml``: ``data`` (cloudpickled estimator),
 (used for effect/ATE intervals).
 """
 
+CiType = StructType([("lower", FloatType), ("upper", FloatType)])
+"""A confidence interval — the one CI type shared by the effect and experiment results."""
+
 CausalEffectResultType = StructType(
     [
         ("effect", FloatType),
-        (
-            "ci",
-            OptionType(StructType([("lower", FloatType), ("upper", FloatType)])),
-        ),
+        ("ci", OptionType(CiType)),
         ("n_samples", IntegerType),
         ("n_treated", IntegerType),
         ("n_control", IntegerType),
@@ -337,6 +337,16 @@ grid value), ``lower`` / ``upper`` (CIs, present when ``include_ci``),
 _HAS_DOWHY_SUPPORT = importlib.util.find_spec("dowhy") is not None
 _HAS_ECONML_SUPPORT = importlib.util.find_spec("econml") is not None
 _HAS_PYALE_SUPPORT = importlib.util.find_spec("PyALE") is not None
+_HAS_STATSMODELS_SUPPORT = importlib.util.find_spec("statsmodels") is not None
+
+
+def _check_statsmodels_support() -> None:
+    """Raise if the causal extra (statsmodels) isn't installed."""
+    if not _HAS_STATSMODELS_SUPPORT:
+        raise NotImplementedError(
+            "Trial-design power analysis requires the 'causal' extra. "
+            "Add east-py-datascience[causal] to your pyproject.toml dependencies."
+        )
 
 
 def _check_dowhy_support() -> None:
@@ -888,17 +898,6 @@ def _create_nuisance_model(variant: EastVariant | None, classifier: bool, random
     return LinearRegression()
 
 
-@platform_function(
-    name="causal_dml_train",
-    inputs=[
-        VectorType(FloatType),
-        VectorType(FloatType),
-        MatrixType(FloatType),
-        OptionType(MatrixType(FloatType)),
-        CausalDMLConfigType,
-    ],
-    output=CausalDMLModelBlobType,
-)
 def causal_dml_train_impl(
     Y: EastVector,
     T: EastVector,
@@ -1030,11 +1029,6 @@ def _load_dml_model(model_blob: EastVariant, X: EastMatrix, func_name: str):
     return est, X_np, confidence_level
 
 
-@platform_function(
-    name="causal_dml_effect",
-    inputs=[CausalDMLModelBlobType, MatrixType(FloatType)],
-    output=VectorType(FloatType),
-)
 def causal_dml_effect_impl(model_blob: EastVariant, X: EastMatrix) -> EastVector:
     """Per-row conditional average treatment effects from a fitted DML model.
 
@@ -1062,11 +1056,6 @@ def causal_dml_effect_impl(model_blob: EastVariant, X: EastMatrix) -> EastVector
     return EastVector(FloatType, np.asarray(effects, dtype=np.float64).ravel())
 
 
-@platform_function(
-    name="causal_dml_ate",
-    inputs=[CausalDMLModelBlobType, MatrixType(FloatType)],
-    output=CausalATEResultType,
-)
 def causal_dml_ate_impl(model_blob: EastVariant, X: EastMatrix) -> EastStruct:
     """Average treatment effect with confidence interval from a fitted DML model.
 
@@ -1229,6 +1218,718 @@ def causal_ale_impl(data: EastArray, config: EastStruct) -> EastStruct:
 
 
 # ============================================================================
+# Experiment — types (snake_case; mirror the e3-ui contract exactly)
+# ============================================================================
+
+RefuteSpecType = StructType(
+    [
+        ("placebo", BooleanType),
+        ("random_common_cause", BooleanType),
+        ("data_subset", BooleanType),
+        ("sensitivity", OptionType(ArrayType(FloatType))),
+    ]
+)
+
+CausalExperimentConfigType = StructType(
+    [
+        ("treatment", StringType),
+        ("outcome", StringType),
+        ("common_causes", ArrayType(StringType)),
+        ("categorical", OptionType(ArrayType(StringType))),
+        ("method", OptionType(CausalEstimatorType)),
+        ("estimand", OptionType(CausalTargetUnitsType)),
+        ("refute", OptionType(RefuteSpecType)),
+        ("dose_feature", OptionType(StringType)),
+        ("min_overlap", OptionType(FloatType)),
+        ("min_treatment_variation", OptionType(FloatType)),
+        ("bootstrap", OptionType(CausalBootstrapConfigType)),
+        ("random_state", OptionType(IntegerType)),
+    ]
+)
+
+BalanceRowType = StructType(
+    [
+        ("column", StringType),
+        # The original confounder this row belongs to. Equals `column` for a
+        # numeric confounder; for a one-hot categorical level (`column` is the
+        # expanded dummy) it is the base confounder, so consumers group / format
+        # without re-parsing the dummy name.
+        ("base_column", StringType),
+        ("treated_mean", FloatType),
+        ("control_mean", FloatType),
+        ("std_diff", FloatType),
+    ]
+)
+
+OverlapDiagnosticType = StructType(
+    [
+        ("treated_propensity", VectorType(FloatType)),
+        ("control_propensity", VectorType(FloatType)),
+        ("common_support_frac", FloatType),
+        ("positivity_ok", BooleanType),
+    ]
+)
+
+RefutationType = StructType(
+    [
+        ("placebo_effect", OptionType(FloatType)),
+        ("placebo_passes", OptionType(BooleanType)),
+        ("random_cc_within_ci", OptionType(BooleanType)),
+        ("data_subset_effect", OptionType(FloatType)),
+        ("data_subset_std", OptionType(FloatType)),
+        ("robustness_value", OptionType(FloatType)),
+        (
+            "sensitivity",
+            OptionType(StructType([
+                ("strengths", VectorType(FloatType)),
+                ("effects", VectorType(FloatType)),
+            ])),
+        ),
+    ]
+)
+
+DoseResponseType = StructType(
+    [
+        ("feature", StringType),
+        ("grid", VectorType(FloatType)),
+        ("effect", VectorType(FloatType)),
+        ("lower", OptionType(VectorType(FloatType))),
+        ("upper", OptionType(VectorType(FloatType))),
+        # Rows per dose bin — drives the surface's "you are here" (busiest bin) marker.
+        ("size", VectorType(IntegerType)),
+    ]
+)
+
+ExperimentVerdictType = VariantType(
+    [
+        ("causal", NullType),
+        ("modest", NullType),
+        ("adjustment_insufficient", NullType),
+        ("non_identifiable_positivity", NullType),
+        ("not_estimable", StringType),
+    ]
+)
+
+CausalExperimentResultType = StructType(
+    [
+        ("naive", FloatType),
+        ("naive_ci", OptionType(CiType)),
+        ("adjusted", OptionType(StructType([("effect", FloatType), ("ci", OptionType(CiType))]))),
+        ("n_total", IntegerType),
+        ("n_treated", IntegerType),
+        ("n_control", IntegerType),
+        ("n_dropped", IntegerType),
+        ("balance", ArrayType(BalanceRowType)),
+        ("overlap", OverlapDiagnosticType),
+        ("refutation", OptionType(RefutationType)),
+        ("dose_response", OptionType(DoseResponseType)),
+        ("verdict", ExperimentVerdictType),
+    ]
+)
+
+# Validation-design contract — mirrors e3-ui's experiment types + Causal.Types.* (TS).
+DesignBasisType = VariantType(
+    [
+        ("detect_observed", NullType),
+        ("resolve_vs_null", NullType),
+        ("de_bias", NullType),
+        ("restrict_to_overlap", NullType),
+        ("create_control", NullType),
+    ]
+)
+TrialOptionType = StructType(
+    [
+        ("label", StringType),
+        ("treated_share", FloatType),
+        ("n_treated", IntegerType),
+        ("n_control", IntegerType),
+        ("n_total", IntegerType),
+    ]
+)
+PowerCurveType = StructType(
+    [
+        ("n", VectorType(IntegerType)),
+        ("power", VectorType(FloatType)),
+    ]
+)
+ExperimentDesignType = StructType(
+    [
+        ("verdict", ExperimentVerdictType),
+        ("basis", DesignBasisType),
+        ("target_effect", FloatType),
+        ("outcome_sd", FloatType),
+        ("target_power", FloatType),
+        ("alpha", FloatType),
+        ("current_power", OptionType(FloatType)),
+        ("match_on", ArrayType(StringType)),
+        ("options", ArrayType(TrialOptionType)),
+        ("power_curve", PowerCurveType),
+        ("rationale", StringType),
+    ]
+)
+DesignConfigType = StructType(
+    [
+        ("alpha", OptionType(FloatType)),
+        ("target_power", OptionType(FloatType)),
+        ("materiality", OptionType(FloatType)),
+        ("treated_shares", OptionType(ArrayType(FloatType))),
+    ]
+)
+
+
+# ============================================================================
+# Experiment — single declarative entry point + honesty verdict
+# ============================================================================
+
+
+def _hist(values, bins: int = 20):
+    """20-bin propensity histogram over [0, 1] as a list of float counts."""
+    h, _ = np.histogram(np.asarray(values, dtype=float).ravel(), bins=bins, range=(0.0, 1.0))
+    return [float(x) for x in h]
+
+
+def _experiment_overlap(df, treatment, causes, random_state, min_overlap):
+    """Non-raising propensity overlap → (treated_hist, control_hist, frac, ok).
+
+    With no confounders or a degenerate arm there is nothing to separate on, so
+    positivity is vacuously satisfied (the not-estimable guard catches a
+    degenerate arm first).
+    """
+    t = df[treatment].to_numpy() > 0.5
+    if not causes or t.sum() == 0 or (~t).sum() == 0:
+        return _hist([]), _hist([]), 1.0, True
+    try:
+        ps = _propensity_scores(df, treatment, causes, random_state)
+    except Exception:
+        return _hist([]), _hist([]), 1.0, True
+    pt, pc = ps[t], ps[~t]
+    lo, hi = max(pt.min(), pc.min()), min(pt.max(), pc.max())
+    frac = float(((ps >= lo) & (ps <= hi)).mean()) if hi > lo else 0.0
+    return _hist(pt), _hist(pc), frac, bool(frac >= min_overlap)
+
+
+def _experiment_balance(df, treatment, common_causes, expansion):
+    """Per-confounder standardized mean difference; categoricals → one row per level."""
+    t = df[treatment].to_numpy() > 0.5
+    rows = []
+    for c in common_causes:
+        for col in expansion.get(c, [c]):
+            if col not in df.columns:
+                continue
+            x = df[col].to_numpy(dtype=np.float64)
+            xt, xc = x[t], x[~t]
+            if len(xt) == 0 or len(xc) == 0:
+                continue
+            mt, mc = float(xt.mean()), float(xc.mean())
+            pooled = float(np.sqrt((xt.var() + xc.var()) / 2.0))
+            # (column, base_column, treated_mean, control_mean, std_diff) — `c` is
+            # the original confounder, `col` the (possibly one-hot) reported column.
+            rows.append((col, c, mt, mc, float((mt - mc) / pooled) if pooled > 0 else 0.0))
+    rows.sort(key=lambda r: -abs(r[4]))
+    return rows
+
+
+def _experiment_placebo(df, treatment, outcome, causes, method_tag, target_units,
+                        random_state, sims: int = 8):
+    """Mean adjusted effect under a permuted (placebo) treatment — should be ~0."""
+    rng = np.random.default_rng(random_state)
+    base = df[treatment].to_numpy()
+    vals = []
+    for _ in range(sims):
+        d2 = df.copy()
+        d2[treatment] = rng.permutation(base)
+        try:
+            vals.append(_manual_effect(d2, treatment, outcome, causes, method_tag, target_units, random_state))
+        except Exception:
+            continue
+    return float(np.mean(vals)) if vals else 0.0
+
+
+def _evalue(effect: float, outcome_sd: float) -> float:
+    """Closed-form E-value (VanderWeele d→RR), on the risk-ratio scale; informational."""
+    if outcome_sd <= 0:
+        return 1.0
+    rr = float(np.exp(0.91 * abs(effect) / outcome_sd))
+    if rr < 1.0:
+        rr = 1.0 / rr
+    return float(rr + np.sqrt(rr * (rr - 1.0)))
+
+
+def _meandiff_ci(y, t, bootstrap_opt, random_state):
+    """Percentile bootstrap CI of the raw mean difference (naive), or None."""
+    reps, cl = 200, 0.95
+    if bootstrap_opt is not None:
+        reps = int(bootstrap_opt.get("reps"))
+        cl = float(_get_option(bootstrap_opt.get("confidence_level"), 0.95))
+    rng = np.random.default_rng(random_state)
+    n = len(y)
+    est = []
+    for _ in range(reps):
+        s = rng.integers(0, n, n)
+        ys, ts = y[s], t[s]
+        if ts.sum() == 0 or (~ts).sum() == 0:
+            continue
+        est.append(float(ys[ts].mean() - ys[~ts].mean()))
+    if len(est) < 10:
+        return None
+    a = 1.0 - cl
+    lo, hi = np.percentile(est, [100 * a / 2, 100 * (1 - a / 2)])
+    return float(lo), float(hi)
+
+
+def _experiment_ci(df, treatment, outcome, causes, method_tag, target_units,
+                   bootstrap_opt, random_state):
+    """(lower, upper) for the adjusted estimate via the percentile bootstrap (default 200 reps)."""
+    bs = bootstrap_opt
+    if bs is None:
+        bs = EastStruct({"reps": 200, "cluster_column": EastVariant("none", None),
+                         "confidence_level": EastVariant("some", 0.95)})
+    return _bootstrap_ci(df, treatment, outcome, causes, method_tag, target_units, bs, random_state)
+
+
+def _experiment_random_cc(df, treatment, outcome, causes, method_tag, target_units,
+                          adj_effect, ci_half, random_state):
+    """Add a decoy random common cause; the estimate should stay inside its CI."""
+    rng = np.random.default_rng(random_state)
+    d2 = df.copy()
+    d2["__rcc__"] = rng.standard_normal(len(d2))
+    try:
+        new = _manual_effect(d2, treatment, outcome, list(causes) + ["__rcc__"],
+                             method_tag, target_units, random_state)
+    except Exception:
+        return None
+    return bool(abs(new - adj_effect) <= max(ci_half, 1e-9))
+
+
+def _experiment_data_subset(df, treatment, outcome, causes, method_tag, target_units,
+                            random_state, sims=10, frac=0.8):
+    """Re-estimate on random subsamples → (mean effect, std)."""
+    rng = np.random.default_rng(random_state)
+    n = len(df)
+    k = max(4, int(frac * n))
+    vals = []
+    for _ in range(sims):
+        idx = rng.choice(n, min(k, n), replace=False)
+        try:
+            vals.append(_manual_effect(df.iloc[idx], treatment, outcome, causes,
+                                       method_tag, target_units, random_state))
+        except Exception:
+            continue
+    if not vals:
+        return None, None
+    return float(np.mean(vals)), float(np.std(vals))
+
+
+def _effect_config_from(config: EastStruct, treatment: str, outcome: str) -> EastStruct:
+    """Build a CausalEffectConfigType (for the internal refute / ale reuse) from
+    the experiment config — method / estimand / categorical / random_state are
+    the same shapes, so they pass straight through."""
+    return EastStruct({
+        "treatment": treatment, "outcome": outcome,
+        "common_causes": config.get("common_causes"),
+        "categorical": config.get("categorical"),
+        "method": config.get("method"),
+        "target_units": config.get("estimand"),
+        "trim": EastVariant("none", None),
+        "bootstrap": EastVariant("none", None),
+        "random_state": config.get("random_state"),
+    })
+
+
+def _experiment_sensitivity(data, config, treatment, outcome, strengths):
+    """Unobserved-confounder tipping curve via the internal DoWhy refuter."""
+    refuter = EastVariant("unobserved_common_cause",
+                          EastStruct({"effect_strengths": [float(s) for s in strengths]}))
+    try:
+        r = causal_refute_impl(data, _effect_config_from(config, treatment, outcome), refuter)
+        effects = [float(x) for x in r.get("new_effects").to_numpy()]
+    except Exception:
+        return None
+    return EastStruct({
+        "strengths": EastVector(FloatType, [float(s) for s in strengths]),
+        "effects": EastVector(FloatType, effects),
+    })
+
+
+def _experiment_dose(data, config, outcome, dose_feature):
+    """ALE dose-response curve of `dose_feature` via the internal PyALE path."""
+    ale_config = EastStruct({
+        "outcome": outcome, "feature": dose_feature,
+        "categorical": config.get("categorical"),
+        "grid_size": EastVariant("some", 10),
+        "include_ci": EastVariant("some", True),
+        "confidence_level": EastVariant("some", 0.95),
+        "emulator": EastVariant("none", None),
+        "random_state": config.get("random_state"),
+    })
+    try:
+        a = causal_ale_impl(data, ale_config)
+    except Exception:
+        return EastVariant("none", None)
+    return EastVariant("some", EastStruct({
+        "feature": dose_feature,
+        "grid": a.get("grid"), "effect": a.get("effect"),
+        "lower": a.get("lower"), "upper": a.get("upper"),
+        "size": a.get("size"),
+    }))
+
+
+def causal_experiment_impl(data: EastArray, config: EastStruct) -> EastStruct:
+    """One declarative causal experiment → numbers + overlap + an honesty verdict.
+
+    Binary treatment, backdoor adjustment. Computes the naive (raw) and adjusted
+    (like-for-like) effect, the confounder balance, the propensity overlap, an
+    optional placebo robustness check, and reduces them to a verdict. ``adjusted``
+    is ``none`` when the engine **refuses** (no treatment variation → ``not_estimable``;
+    no common support → ``non_identifiable_positivity``). Never raises on a
+    degenerate frame — it returns the matching refusal verdict instead.
+
+    Args:
+        data: ``Array<Struct>`` — one struct per unit; fields ARE the columns.
+        config: ``CausalExperimentConfigType``.
+
+    Returns:
+        ``CausalExperimentResultType``.
+    """
+    func = "causal_experiment"
+
+    treatment = str(config.get("treatment"))
+    outcome = str(config.get("outcome"))
+    common_causes = [str(c) for c in config.get("common_causes")]
+    categorical_opt = _get_option(config.get("categorical"), None)
+    categorical = [str(c) for c in categorical_opt] if categorical_opt is not None else []
+    method_variant = _get_option(config.get("method"), None)
+    # Default to linear regression — the natural backdoor estimator for a
+    # continuous outcome (propensity weighting is an explicit opt-in, and needs
+    # at least one confounder).
+    method_tag = "linear_regression" if method_variant is None else method_variant.type
+    if method_tag == "propensity_score_weighting" and not common_causes:
+        method_tag = "linear_regression"
+    estimand_variant = _get_option(config.get("estimand"), None)
+    target_units = "ate" if estimand_variant is None else estimand_variant.type
+    refute_opt = _get_option(config.get("refute"), None)
+    want_placebo = bool(refute_opt.get("placebo")) if refute_opt is not None else False
+    want_random_cc = bool(refute_opt.get("random_common_cause")) if refute_opt is not None else False
+    want_data_subset = bool(refute_opt.get("data_subset")) if refute_opt is not None else False
+    sensitivity_strengths = None
+    if refute_opt is not None:
+        ss = _get_option(refute_opt.get("sensitivity"), None)
+        sensitivity_strengths = [float(s) for s in ss] if ss is not None else None
+    dose_feature_opt = _get_option(config.get("dose_feature"), None)
+    dose_feature = str(dose_feature_opt) if dose_feature_opt is not None else None
+    min_overlap = float(_get_option(config.get("min_overlap"), 0.10))
+    min_var = float(_get_option(config.get("min_treatment_variation"), 0.02))
+    bootstrap_opt = _get_option(config.get("bootstrap"), None)
+    random_state = _get_option(config.get("random_state"), None)
+    if random_state is not None:
+        random_state = int(random_state)
+
+    df = _build_dataframe(data, func)
+    _require_columns(df, [treatment, outcome] + common_causes, func)
+    df, expansion = _encode_categoricals(df, categorical, [treatment, outcome], func)
+    causes = _expand_causes(common_causes, expansion)
+
+    t = df[treatment].to_numpy() > 0.5
+    y = df[outcome].to_numpy(dtype=np.float64)
+    n_total, n_t, n_c = len(df), int(t.sum()), int((~t).sum())
+    outcome_sd = float(df[outcome].std()) or 1.0
+
+    naive = float(y[t].mean() - y[~t].mean()) if n_t and n_c else 0.0
+    nci = _meandiff_ci(y, t, bootstrap_opt, random_state)
+    naive_ci = EastVariant("some", EastStruct({"lower": nci[0], "upper": nci[1]})) if nci else EastVariant("none", None)
+
+    balance_rows = _experiment_balance(df, treatment, common_causes, expansion)
+    th, ch, support_frac, positivity_ok = _experiment_overlap(df, treatment, causes, random_state, min_overlap)
+
+    adjusted = EastVariant("none", None)
+    refutation = EastVariant("none", None)
+
+    minfrac = (min(n_t, n_c) / n_total) if n_total else 0.0
+    if minfrac < min_var:
+        verdict = EastVariant("not_estimable", f"treatment barely varies: the minority arm is {minfrac:.1%} of rows")
+    elif support_frac < min_overlap:
+        verdict = EastVariant("non_identifiable_positivity", None)
+    else:
+        adj_effect = _manual_effect(df, treatment, outcome, causes, method_tag, target_units, random_state)
+        try:
+            alo, ahi = _experiment_ci(df, treatment, outcome, causes, method_tag, target_units, bootstrap_opt, random_state)
+        except Exception:
+            alo, ahi = adj_effect, adj_effect
+        placebo = _experiment_placebo(df, treatment, outcome, causes, method_tag, target_units, random_state) if want_placebo else 0.0
+        placebo_fails = want_placebo and abs(placebo) > max(0.05 * outcome_sd, 0.15 * abs(adj_effect))
+        if placebo_fails:
+            tag = "adjustment_insufficient"
+        elif (alo <= 0.0 <= ahi) or (abs(adj_effect) < 0.10 * outcome_sd):
+            tag = "modest"
+        else:
+            tag = "causal"
+        verdict = EastVariant(tag, None)
+        adjusted = EastVariant("some", EastStruct({
+            "effect": float(adj_effect),
+            "ci": EastVariant("some", EastStruct({"lower": float(alo), "upper": float(ahi)})),
+        }))
+        ci_half = abs(ahi - alo) / 2.0
+        rcc = (_experiment_random_cc(df, treatment, outcome, causes, method_tag, target_units,
+                                     adj_effect, ci_half, random_state) if want_random_cc else None)
+        ds_eff, ds_std = (_experiment_data_subset(df, treatment, outcome, causes, method_tag,
+                                                  target_units, random_state)
+                          if want_data_subset else (None, None))
+        sens = (_experiment_sensitivity(data, config, treatment, outcome, sensitivity_strengths)
+                if sensitivity_strengths else None)
+        refutation = EastVariant("some", EastStruct({
+            "placebo_effect": EastVariant("some", float(placebo)) if want_placebo else EastVariant("none", None),
+            "placebo_passes": EastVariant("some", bool(not placebo_fails)) if want_placebo else EastVariant("none", None),
+            "random_cc_within_ci": EastVariant("some", rcc) if rcc is not None else EastVariant("none", None),
+            "data_subset_effect": EastVariant("some", ds_eff) if ds_eff is not None else EastVariant("none", None),
+            "data_subset_std": EastVariant("some", ds_std) if ds_std is not None else EastVariant("none", None),
+            "robustness_value": EastVariant("some", _evalue(adj_effect, outcome_sd)),
+            "sensitivity": EastVariant("some", sens) if sens is not None else EastVariant("none", None),
+        }))
+
+    overlap = EastStruct({
+        "treated_propensity": EastVector(FloatType, th),
+        "control_propensity": EastVector(FloatType, ch),
+        "common_support_frac": float(support_frac),
+        "positivity_ok": bool(positivity_ok),
+    })
+    balance = EastArray(BalanceRowType, [
+        EastStruct({"column": col, "base_column": base, "treated_mean": mt, "control_mean": mc, "std_diff": sd})
+        for (col, base, mt, mc, sd) in balance_rows
+    ])
+
+    dose_response = (_experiment_dose(data, config, outcome, dose_feature)
+                     if dose_feature is not None else EastVariant("none", None))
+
+    result = EastStruct({
+        "naive": float(naive),
+        "naive_ci": naive_ci,
+        "adjusted": adjusted,
+        "n_total": int(n_total),
+        "n_treated": int(n_t),
+        "n_control": int(n_c),
+        "n_dropped": 0,
+        "balance": balance,
+        "overlap": overlap,
+        "refutation": refutation,
+        "dose_response": dose_response,
+        "verdict": verdict,
+    })
+    assert_value_of(result, CausalExperimentResultType)
+    return result
+
+
+# ============================================================================
+# Validation design — the real trial that would confirm an experiment
+# ============================================================================
+
+# Verdict tag → why the trial is sized the way it is. A clear/biased effect is
+# sized to the *observed* effect; the fuzzy / refusal cases have no trustworthy
+# effect to detect, so they're sized to a materiality threshold instead.
+_VERDICT_BASIS = {
+    "causal": "detect_observed",
+    "modest": "resolve_vs_null",
+    "adjustment_insufficient": "de_bias",
+    "non_identifiable_positivity": "restrict_to_overlap",
+    "not_estimable": "create_control",
+}
+_BASIS_RATIONALE = {
+    "detect_observed": "Randomise {total} units {split} to confirm a {eff} change {pwr} of the time.",
+    "de_bias": "A check flagged hidden bias — randomise {total} units {split} to remove it and confirm a {eff} change {pwr} of the time.",
+    "resolve_vs_null": "The signal is too faint to call — randomise {total} units {split} to resolve a {eff} change {pwr} of the time.",
+    "restrict_to_overlap": "The groups don't overlap — randomise {total} comparable units {split} to measure a {eff} change {pwr} of the time.",
+    "create_control": "There's no comparison group — hold back a random control ({split}) of {total} units to detect a {eff} change {pwr} of the time.",
+}
+
+
+def _design_options(d_effect, alpha, target_power, shares, func):
+    """Per-share sample sizes (statsmodels two-sample power) → TrialOption structs.
+
+    Uses the normal-approximation power (``NormalIndPower``) — the conventional
+    large-sample sizing calc, and numerically stable where the noncentral-t in
+    ``TTestIndPower`` overflows to NaN for a large effect.
+    """
+    from statsmodels.stats.power import NormalIndPower
+
+    solver = NormalIndPower()
+    opts = []
+    for share in shares:
+        share = min(max(float(share), 0.05), 0.95)
+        ratio = (1.0 - share) / share  # n_control / n_treated
+        try:
+            nobs1 = solver.solve_power(
+                effect_size=d_effect, alpha=alpha, power=target_power,
+                ratio=ratio, alternative="two-sided",
+            )
+        except Exception:
+            nobs1 = float("nan")
+        if not np.isfinite(nobs1) or nobs1 <= 0:
+            nobs1 = 1_000_000.0  # effect too faint to size sanely — flag with a huge N
+        n_treated = int(min(np.ceil(nobs1), 5_000_000))
+        n_control = int(min(np.ceil(nobs1 * ratio), 5_000_000))
+        label = "Even split" if abs(share - 0.5) < 1e-6 else f"Treat {share:.0%}"
+        opts.append((share, n_treated, n_control, n_treated + n_control, label))
+    # Even split first, then the rest cheapest-first.
+    opts.sort(key=lambda o: (abs(o[0] - 0.5) > 1e-6, o[3]))
+    return [
+        EastStruct({
+            "label": label, "treated_share": float(share),
+            "n_treated": n_t, "n_control": n_c, "n_total": n_tot,
+        })
+        for (share, n_t, n_c, n_tot, label) in opts
+    ]
+
+
+def causal_design_validation_impl(
+    data: EastArray, config: EastStruct, result: EastStruct, design_config: EastStruct
+) -> EastStruct:
+    """Design the real controlled trial that would validate an experiment result.
+
+    Reads the experiment's verdict + adjusted effect + arm sizes + confounder
+    balance, and the outcome spread from the data, and returns a randomised-trial
+    recipe: how many units, the split option(s), which categories to match the
+    groups on, the "chance of detecting it" power curve, and a plain-language
+    rationale. The size `basis` (and so the whole recipe's framing) is set by the
+    verdict — a clear effect is sized to itself; the fuzzy / refusal cases to a
+    materiality threshold. Pure power analysis (statsmodels) — never raises on a
+    degenerate result.
+
+    Args:
+        data: ``Array<Struct>`` — the rows the experiment ran on.
+        config: ``CausalExperimentConfigType`` — names treatment / outcome / confounders.
+        result: ``CausalExperimentResultType`` — the experiment whose verdict drives this.
+        design_config: ``DesignConfigType`` — optional alpha / power / materiality / splits.
+
+    Returns:
+        ``ExperimentDesignType``.
+    """
+    func = "causal_design_validation"
+    _check_statsmodels_support()
+    from statsmodels.stats.power import NormalIndPower
+
+    outcome = str(config.get("outcome"))
+    alpha = float(_get_option(design_config.get("alpha"), 0.05))
+    target_power = float(_get_option(design_config.get("target_power"), 0.8))
+    materiality = _get_option(design_config.get("materiality"), None)
+    shares_opt = _get_option(design_config.get("treated_shares"), None)
+    shares = [float(s) for s in shares_opt] if shares_opt else [0.5]
+
+    verdict = result.get("verdict")
+    verdict_tag = verdict.type
+    basis = _VERDICT_BASIS.get(verdict_tag, "resolve_vs_null")
+
+    df = _build_dataframe(data, func)
+    _require_columns(df, [outcome], func)
+    outcome_sd = float(df[outcome].std()) or 1.0
+
+    # Effect the trial is powered to detect: the observed effect when we trust one
+    # (clear / de-bias), else the materiality threshold (a small effect = 0.2·SD by
+    # convention) — flagged in the rationale as an assumption to override.
+    adjusted = _get_option(result.get("adjusted"), None)
+    observed = abs(float(adjusted.get("effect"))) if adjusted is not None else 0.0
+    assumed_materiality = float(materiality) if materiality is not None else 0.2 * outcome_sd
+    if basis in ("detect_observed", "de_bias") and observed > 1e-9:
+        target_effect = observed
+    else:
+        target_effect = assumed_materiality
+    # Clamp the standardised effect so power maths stays finite for tiny effects.
+    d_effect = float(min(max(target_effect / outcome_sd, 0.01), 5.0))
+
+    options = _design_options(d_effect, alpha, target_power, shares, func)
+    primary = options[0]
+    n_total_target = int(primary.get("n_total"))
+    primary_share = float(primary.get("treated_share"))
+    primary_ratio = (1.0 - primary_share) / primary_share
+
+    # Chance the CURRENT sample would already detect `target_effect` — the "you're
+    # here" marker. None when an arm is empty (no comparison group to power from).
+    n_t_now = int(result.get("n_treated"))
+    n_c_now = int(result.get("n_control"))
+    solver = NormalIndPower()
+    current_power: EastVariant
+    if n_t_now > 1 and n_c_now > 1:
+        try:
+            cp = float(solver.power(effect_size=d_effect, nobs1=n_t_now,
+                                    ratio=n_c_now / n_t_now, alpha=alpha))
+        except Exception:
+            cp = float("nan")
+        if not np.isfinite(cp):
+            cp = 0.0
+        current_power = EastVariant("some", float(min(max(cp, 0.0), 1.0)))
+    else:
+        current_power = EastVariant("none", None)
+
+    # The detect-chance curve: total head-count → power, at the primary split, on a
+    # grid spanning a small start up to past the target so the target sits inside.
+    start = max(20, int(0.15 * n_total_target))
+    stop = max(int(1.4 * n_total_target), start * 4)
+    grid = sorted({int(x) for x in np.linspace(start, stop, 12)})
+    n_pts: list[int] = []
+    p_pts: list[float] = []
+    for n_tot in grid:
+        nobs1 = n_tot * primary_share
+        if nobs1 < 2:
+            continue
+        try:
+            p = float(solver.power(effect_size=d_effect, nobs1=nobs1,
+                                   ratio=primary_ratio, alpha=alpha))
+        except Exception:
+            p = float("nan")
+        if not np.isfinite(p):
+            p = 0.0
+        n_pts.append(int(n_tot))
+        p_pts.append(float(min(max(p, 0.0), 1.0)))
+    power_curve = EastStruct({
+        "n": EastVector(IntegerType, n_pts),
+        "power": EastVector(FloatType, p_pts),
+    })
+
+    # Match the arms on the confounders that were most lopsided (|SMD| desc),
+    # de-duplicated to original column names (categoricals expand to "col=level").
+    balance = result.get("balance")
+    scored: list[tuple[float, str]] = []
+    for row in balance:
+        col = str(row.get("column")).split("=", 1)[0]
+        scored.append((abs(float(row.get("std_diff"))), col))
+    scored.sort(key=lambda s: s[0], reverse=True)
+    match_on: list[str] = []
+    seen: set[str] = set()
+    for smd, col in scored:
+        if col in seen:
+            continue
+        if smd > 0.1 or len(match_on) < 2:  # imbalanced ones, else the top 2
+            match_on.append(col)
+            seen.add(col)
+        if len(match_on) >= 4:
+            break
+
+    pct = (current_power.value if current_power.type == "some" else None)
+    rationale = _BASIS_RATIONALE[basis].format(
+        total=f"{n_total_target:,}",
+        split=primary.get("label").lower(),
+        eff=f"{target_effect:+.1f}",
+        pwr=f"{target_power:.0%}",
+    )
+    if pct is not None and basis in ("resolve_vs_null",):
+        rationale += f" Today's data has only a {pct:.0%} chance of catching it."
+
+    design = EastStruct({
+        "verdict": verdict,
+        "basis": EastVariant(basis, None),
+        "target_effect": float(target_effect),
+        "outcome_sd": float(outcome_sd),
+        "target_power": float(target_power),
+        "alpha": float(alpha),
+        "current_power": current_power,
+        "match_on": EastArray(StringType, match_on),
+        "options": EastArray(TrialOptionType, options),
+        "power_curve": power_curve,
+        "rationale": rationale,
+    })
+    assert_value_of(design, ExperimentDesignType)
+    return design
+
+
+# ============================================================================
 # Platform Function Registration
 # ============================================================================
 
@@ -1244,9 +1945,12 @@ def _register_generic_over_rows(name: str, impl):
     return _factory
 
 
-_register_generic_over_rows("causal_effect", causal_effect_impl)
-_register_generic_over_rows("causal_refute", causal_refute_impl)
-_register_generic_over_rows("causal_ale", causal_ale_impl)
+# `Causal.experiment` is the sole public causal entry point. The effect / refute
+# / ale / dml `*_impl` functions remain as INTERNAL machinery that experiment
+# composes (and that the dose-response / CATE widenings will reuse) — they are no
+# longer registered as standalone platform functions.
+_register_generic_over_rows("causal_experiment", causal_experiment_impl)
+_register_generic_over_rows("causal_design_validation", causal_design_validation_impl)
 
 # Collected from the @platform_function / @generic_platform_function decorations above.
 causal_impl = platform_functions(__name__)

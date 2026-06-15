@@ -133,6 +133,7 @@ $(E3_UI_EXAMPLE_KEYS:%=e3-ui-examples-html-%): e3-ui-examples-html-%:
 
 ## Build and package the VSCode extension
 extension:
+	@command -v zip >/dev/null 2>&1 || { echo "  ✗ 'zip' not found — needed to inject the tsserver plugin into the .vsix. Install: apt install zip  /  brew install zip"; exit 1; }
 	rm -f packages/east-ui-extension/*.vsix
 	cd packages/east-ui-extension && pnpm run build && pnpm run package
 

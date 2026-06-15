@@ -33,6 +33,9 @@ import {
 /** Lifecycle of the most recent call on a bound function's channel. */
 export type FuncStatus = 'idle' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 
+/** A failed call's detail (the runner's outcome + captured output tails). */
+export interface FuncCallError { kind: string; message: string; stdout: string; stderr: string }
+
 /** What {@link useFuncCall} returns for one bound function. */
 export interface FuncCall<R> {
     /** Launch the call, fire-and-forget (latest-wins). No-op when not ready. */
@@ -43,6 +46,8 @@ export interface FuncCall<R> {
     status: FuncStatus;
     /** True while a call is in flight. */
     pending: boolean;
+    /** Failure detail when the most recent call failed, else `null`. */
+    error: FuncCallError | null;
 }
 
 type RawHandle = {
@@ -50,9 +55,10 @@ type RawHandle = {
     read: () => { type: 'some' | 'none'; value: unknown };
     status: () => { type: FuncStatus };
     pending: () => boolean;
+    error: () => { type: 'some' | 'none'; value: unknown };
 };
 
-const IDLE: FuncCall<never> = { call: () => {}, result: null, status: 'idle', pending: false };
+const IDLE: FuncCall<never> = { call: () => {}, result: null, status: 'idle', pending: false, error: null };
 
 /**
  * Build + observe a reactive call handle for a named workspace function.
@@ -103,15 +109,21 @@ export function useFuncCall<R>(
         let result: R | null = null;
         let status: FuncStatus = 'idle';
         let pending = false;
+        let error: FuncCallError | null = null;
         try {
             const read = handle.read();
             result = read.type === 'some' ? (read.value as R) : null;
             status = handle.status().type;
             pending = handle.pending();
+            const err = handle.error();
+            if (err.type === 'some') {
+                const v = err.value as { kind?: { type?: string }; message?: string; stdout?: string; stderr?: string };
+                error = { kind: v.kind?.type ?? 'failed', message: v.message ?? '', stdout: v.stdout ?? '', stderr: v.stderr ?? '' };
+            }
         } catch {
             // Workspace not yet resolvable — treat as idle.
         }
-        return { call: (...args: unknown[]) => { try { handle.call(...args); } catch { /* not ready */ } }, result, status, pending };
+        return { call: (...args: unknown[]) => { try { handle.call(...args); } catch { /* not ready */ } }, result, status, pending, error };
         // `version` drives recompute as the channel advances.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [handle, version]);

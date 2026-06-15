@@ -7,45 +7,39 @@
  * `Experiment` component — an interactive causal-experiment surface.
  *
  * @remarks
- * `Experiment` lets a domain expert ask *"did X change Y?"* against a dataset
- * and trust the answer, without meeting a statistician's vocabulary. It is a
- * registered extension component (architecturally like {@link Ontology}): the
- * author writes one tag, `Experiment.Root({ … })`; the React renderer lives in
- * `@elaraai/e3-ui-components` and is wired via
- * `implementUIComponent(Experiment.Component, EastChakraExperiment)`.
+ * `Experiment` lets a domain expert ask *"did X change Y, and can I trust it?"*
+ * against a dataset and read a derived, honest answer — without meeting a
+ * statistician's vocabulary. It is a registered extension component
+ * (architecturally like {@link Ontology}): the author writes one tag,
+ * `Experiment.Root({ … })`; the React renderer lives in
+ * `@elaraai/e3-ui-components`.
  *
  * **Generic over the input row, like `Table`.** The author binds the input
- * dataset (`data: BoundValue<ArrayType<Row>>`); the renderer introspects its
- * row struct to drive the treatment / outcome / confounder pickers, so the
- * **end user** re-frames the experiment from the dataset's own columns.
+ * dataset (`data: BoundValue<ArrayType<Row>>`); the renderer introspects its row
+ * struct to drive the treatment / outcome / confounder pickers.
  *
- * **The user adjusts → results go stale → Run re-computes.** Editing a picker
- * stages a new {@link ExperimentSpecType} and marks the result stale; **Run**
- * calls the author-supplied estimator functions ({@link Func.bind} handles) and
- * the answer arrives reactively; **Commit** appends to the journal. The causal
- * compute (DoWhy / EconML) lives entirely in those function bodies, so `e3-ui`
- * never imports `east-py-datascience`.
+ * **The user edits the config → Apply runs ONE function.** Editing a picker
+ * stages a new {@link ExperimentConfigType}; **Apply** calls the single bound
+ * `experiment` function (`(rows, config) → ExperimentResult`) and the answer
+ * arrives reactively. The result carries the naive vs adjusted effect, balance,
+ * overlap, robustness, and an honesty **verdict** — `adjusted` is `none` when the
+ * engine refuses. **Commit** appends to the journal.
  *
- * **Visual-first and derived.** Because the user frames an arbitrary
- * experiment, nothing on the result side is hand-authored — every word is a
- * column name the user picked, a number an estimator returned, or a status
- * derived by rule (interval clears zero → HIGHER / LOWER; spans zero → NO CLEAR
- * EFFECT; raw and adjusted disagree in sign → the "misleading" banner). The
- * contract types ({@link ExperimentSpecType}, {@link ExperimentResultType}, …)
- * live in {@link "./experiment/types"} and are reached via `Experiment.Types.*`.
+ * **Visual-first and derived.** Nothing on the result side is hand-authored —
+ * every word is a column name the user picked, a number the engine returned, or
+ * a status derived by rule from the verdict tag.
  *
  * @packageDocumentation
  */
 
 import {
-    East,
     NullType,
     BooleanType,
-    StringType,
     ArrayType,
     StructType,
     VariantType,
     OptionType,
+    East,
     none,
     some,
     variant,
@@ -57,74 +51,64 @@ import { EastUI, type UIComponentType } from '@elaraai/east-ui';
 import { DiffBindingType, type BoundValue } from '../data.js';
 import { FuncBindingType, type BoundFunc } from '../func.js';
 import {
-    ExperimentSpecType,
+    ExperimentConfigType,
     ExperimentResultType,
-    RefuteResultType,
-    DoseResultType,
+    DoseResponseType,
     JournalType,
     ColumnMetaType,
+    PopulationType,
+    DesignConfigType,
+    ExperimentDesignType,
 } from './types.js';
 
 // Re-export the contract types so consumers can reach them from the component
 // module too (the canonical home is `./types`).
 export {
+    CiType,
     WeightingSchemeType,
     EstimatorType,
     TargetUnitsType,
-    TrimType,
-    ExperimentSpecType,
-    CiType,
+    BootstrapConfigType,
+    RefuteSpecType,
+    ExperimentConfigType,
     BalanceRowType,
+    OverlapDiagnosticType,
+    RefutationType,
+    DoseResponseType,
+    ExperimentVerdictType,
     ExperimentResultType,
-    RefuteKindType,
-    RefuteCheckType,
-    RefuteResultType,
-    DoseSegmentType,
-    DoseResultType,
     JournalRowType,
     JournalType,
     ColumnMetaType,
+    PopulationType,
 } from './types.js';
 
 // ============================================================================
-// Function signatures — the author's three estimator functions, generic over
-// the bound row struct `Row`.
+// Function signature — the author's single estimator function, generic over the
+// bound row struct `Row`.
 // ============================================================================
 
 /**
- * The `estimate` function signature: `(rows, spec) → ExperimentResult`. The
- * renderer calls this on **Run** with the bound `data` and the staged spec.
+ * The `experiment` function signature: `(rows, config) → ExperimentResult`. The
+ * renderer calls this on **Apply** with the bound `data` and the staged config.
  *
  * @typeParam Row - The input dataset's row struct.
  */
-export type EstimateFunc<Row extends StructType> =
-    BoundFunc<[ArrayType<Row>, ExperimentSpecType], ExperimentResultType>;
+export type ExperimentFunc<Row extends StructType> =
+    BoundFunc<[ArrayType<Row>, ExperimentConfigType], ExperimentResultType>;
 
-/**
- * The optional `refute` function signature: `(rows, spec) → RefuteResult` — the
- * robustness battery shown in the "Can we trust it?" tab.
- *
- * @typeParam Row - The input dataset's row struct.
- */
-export type RefuteFunc<Row extends StructType> =
-    BoundFunc<[ArrayType<Row>, ExperimentSpecType], RefuteResultType>;
-
-/**
- * The optional `dose` function signature: `(rows, spec, feature) → DoseResult` —
- * the ALE dose-response curve for the chosen `feature` column shown in the "How
- * much?" tab.
- *
- * @typeParam Row - The input dataset's row struct.
- */
-export type DoseFunc<Row extends StructType> =
-    BoundFunc<[ArrayType<Row>, ExperimentSpecType, StringType], DoseResultType>;
+// The optional `design` function — turns a finished result into the recipe for a
+// real controlled trial that would validate it. Generic over the row, like the
+// experiment function; takes the rows + config + the landed result + design knobs.
+export type ExperimentDesignFunc<Row extends StructType> =
+    BoundFunc<[ArrayType<Row>, ExperimentConfigType, ExperimentResultType, DesignConfigType], ExperimentDesignType>;
 
 // ============================================================================
 // Component payload — descriptors only (binding handles + options).
 // ============================================================================
 
-/** Initial result tab variant — `answer` (default), `trust`, or `dose`. */
-export const ExperimentTabType = VariantType({ answer: NullType, trust: NullType, dose: NullType });
+/** Initial result tab variant — `answer` (default), `trust`, `dose`, or `validate`. */
+export const ExperimentTabType = VariantType({ answer: NullType, trust: NullType, dose: NullType, validate: NullType });
 /** Type alias for {@link ExperimentTabType}. */
 export type ExperimentTabType = typeof ExperimentTabType;
 
@@ -133,23 +117,24 @@ export type ExperimentTabType = typeof ExperimentTabType;
  * decode this and resolve each binding to a live, reactive value / call handle.
  *
  * @property data - {@link DiffBindingType} for the input dataset — the renderer
- *   introspects its row struct for the pickers and passes it to the functions.
- * @property spec - {@link DiffBindingType} for the staged {@link ExperimentSpecType}.
- * @property estimate - {@link FuncBindingType} for the `estimate` function.
- * @property refute - Optional {@link FuncBindingType} for the `refute` function.
- * @property dose - Optional {@link FuncBindingType} for the `dose` function.
+ *   introspects its row struct for the pickers and passes it to the function.
+ * @property config - {@link DiffBindingType} for the staged {@link ExperimentConfigType}.
+ * @property experiment - {@link FuncBindingType} for the single `experiment` function.
+ * @property population - Optional {@link DiffBindingType} for the staged Step-4
+ *   population filter ({@link PopulationType}); narrows rows UI-side before the call.
  * @property journal - Optional {@link DiffBindingType} for the committed-experiment journal.
  * @property columnMeta - Optional per-column display metadata.
- * @property readonly - Render without the Run / Commit / edit affordances.
+ * @property readonly - Render without the Apply / Commit / edit affordances.
  * @property defaultTab - Initial result tab ({@link ExperimentTabType}).
  */
 export const ExperimentPayloadType = StructType({
     data: DiffBindingType,
-    spec: DiffBindingType,
-    estimate: FuncBindingType,
-    refute: OptionType(FuncBindingType),
-    dose: OptionType(FuncBindingType),
+    config: DiffBindingType,
+    experiment: FuncBindingType,
+    population: OptionType(DiffBindingType),
     journal: OptionType(DiffBindingType),
+    /** Optional `design` function → the validation-trial recipe ("Validate" tab). */
+    design: OptionType(FuncBindingType),
     columnMeta: OptionType(ColumnMetaType),
     readonly: OptionType(BooleanType),
     defaultTab: OptionType(ExperimentTabType),
@@ -170,21 +155,6 @@ export const ExperimentComponent = EastUI.component('Experiment', ExperimentPayl
 // User-facing factory.
 // ============================================================================
 
-/**
- * Options for {@link Experiment.Root}, generic over the input row struct.
- *
- * @typeParam Row - The input dataset's row struct — inferred from `data`.
- *
- * @property data - The {@link Data.bind} handle for the input dataset.
- * @property spec - The {@link Data.bind} handle for the staged experiment spec.
- * @property estimate - The {@link Func.bind} handle for the estimator.
- * @property refute - Optional {@link Func.bind} handle for the robustness battery.
- * @property dose - Optional {@link Func.bind} handle for the dose-response curve.
- * @property journal - Optional {@link Data.bind} handle for the committed-experiment journal.
- * @property columnMeta - Optional per-column display metadata.
- * @property readonly - Render without mutation affordances.
- * @property defaultTab - Initial result tab.
- */
 /**
  * Per-column display config — the friendly label, unit suffix, and good
  * direction the surface uses to phrase results ("worse" instead of "lower").
@@ -208,12 +178,29 @@ export type ExperimentColumns<Row extends StructType> = {
     [K in Extract<keyof Row['fields'], string>]?: ExperimentColumnConfig;
 };
 
+/**
+ * Options for {@link Experiment.Root}, generic over the input row struct.
+ *
+ * @typeParam Row - The input dataset's row struct — inferred from `data`.
+ *
+ * @property data - The {@link Data.bind} handle for the input dataset.
+ * @property config - The {@link Data.bind} handle for the staged experiment config.
+ * @property experiment - The {@link Func.bind} handle for the experiment function.
+ * @property population - Optional {@link Data.bind} handle for the staged Step-4
+ *   population filter (a {@link PopulationType}); narrows the rows UI-side before
+ *   the call. Bind it (seeded) to start with filters applied.
+ * @property journal - Optional {@link Data.bind} handle for the committed-experiment journal.
+ * @property columns - Optional per-column display config.
+ * @property readonly - Render without mutation affordances.
+ * @property defaultTab - Initial result tab.
+ */
 export interface ExperimentOptions<Row extends StructType> {
     data: BoundValue<ArrayType<Row>>;
-    spec: BoundValue<ExperimentSpecType>;
-    estimate: EstimateFunc<Row>;
-    refute?: RefuteFunc<Row>;
-    dose?: DoseFunc<Row>;
+    config: BoundValue<ExperimentConfigType>;
+    experiment: ExperimentFunc<Row>;
+    /** Optional `design` function — adds the "Validate" tab (the trial recipe). */
+    design?: ExperimentDesignFunc<Row>;
+    population?: BoundValue<PopulationType>;
     journal?: BoundValue<JournalType>;
     /** Per-column display config, keyed by the data row's fields (like `Table`). */
     columns?: ExperimentColumns<Row>;
@@ -222,11 +209,12 @@ export interface ExperimentOptions<Row extends StructType> {
 }
 
 /**
- * Build an Experiment surface bound to an input dataset + estimator functions.
+ * Build an Experiment surface bound to an input dataset + the single experiment
+ * function.
  *
  * @typeParam Row - The input dataset's row struct, inferred from `data`.
- * @param options - {@link ExperimentOptions}. `data`, `spec` and `estimate` are
- *   required; the rest are optional.
+ * @param options - {@link ExperimentOptions}. `data`, `config` and `experiment`
+ *   are required; the rest are optional.
  * @returns An East expression of {@link UIComponentType}.
  */
 function createExperiment<Row extends StructType>(options: ExperimentOptions<Row>): ExprType<UIComponentType> {
@@ -245,11 +233,11 @@ function createExperiment<Row extends StructType>(options: ExperimentOptions<Row
         ));
     return ExperimentComponent.Root({
         data: options.data.binding,
-        spec: options.spec.binding,
-        estimate: options.estimate.binding,
-        refute: options.refute !== undefined ? some(options.refute.binding) : none,
-        dose: options.dose !== undefined ? some(options.dose.binding) : none,
+        config: options.config.binding,
+        experiment: options.experiment.binding,
+        population: options.population !== undefined ? some(options.population.binding) : none,
         journal: options.journal !== undefined ? some(options.journal.binding) : none,
+        design: options.design !== undefined ? some(options.design.binding) : none,
         columnMeta,
         readonly: options.readonly ?? none,
         defaultTab,
@@ -258,15 +246,13 @@ function createExperiment<Row extends StructType>(options: ExperimentOptions<Row
 
 /**
  * The Experiment component namespace. Surfaces an interactive causal-experiment
- * over a bound input dataset + estimator functions, generic over the row struct
- * (the `Table` pattern), with the staged-binding machinery the rest of e3-ui
- * uses.
+ * over a bound input dataset + a single `experiment` function, generic over the
+ * row struct (the `Table` pattern).
  *
  * @remarks
- * Use `Experiment.Root({ data, spec, estimate, refute, dose, journal })` inside
- * a `Reactive` block. The `Component` property is the {@link EastUI.component}
- * carrier the renderer registers against; `Types` exposes the render-contract
- * value types (`Spec`, `Result`, `Refute`, `Dose`, `Journal`, …).
+ * Use `Experiment.Root({ data, config, experiment, journal })` inside a
+ * `Reactive` block. `Types` exposes the render-contract value types (`Config`,
+ * `Result`, `Verdict`, `Overlap`, `Balance`, `Refutation`, `Journal`, …).
  */
 export const Experiment = {
     Root: createExperiment,
@@ -275,16 +261,20 @@ export const Experiment = {
     Types: {
         /** Rendered payload struct (bindings + options). */
         Payload: ExperimentPayloadType,
-        /** The experiment-spec value type (what the pickers stage). */
-        Spec: ExperimentSpecType,
-        /** The estimator answer value type. */
+        /** The experiment-config value type (what the pickers stage). */
+        Config: ExperimentConfigType,
+        /** The result value type (numbers + verdict). */
         Result: ExperimentResultType,
-        /** The robustness-battery value type. */
-        Refute: RefuteResultType,
-        /** The dose-response value type. */
-        Dose: DoseResultType,
+        /** The ALE dose-response curve value type (the "How much?" tab). */
+        DoseResponse: DoseResponseType,
         /** The committed-experiment journal value type. */
         Journal: JournalType,
+        /** The validation-trial recipe value type (the "Validate" tab). */
+        Design: ExperimentDesignType,
+        /** The optional design-knobs value type. */
+        DesignConfig: DesignConfigType,
+        /** The UI-side Step-4 population filter value type (Array of Slice predicates). */
+        Population: PopulationType,
         /** Optional per-column display metadata. */
         ColumnMeta: ColumnMetaType,
         /** Initial result tab variant. */

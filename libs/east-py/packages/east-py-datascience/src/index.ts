@@ -401,31 +401,23 @@ export {
     SimulationResultType,
 } from "./simulation/simulation.js";
 
-// Causal - Causal inference (DoWhy, EconML, ALE)
+// Causal - one declarative entry point: Causal.experiment
 export {
     Causal,
-    causal_effect,
-    causal_refute,
-    causal_dml_train,
-    causal_dml_effect,
-    causal_dml_ate,
-    causal_ale,
+    causal_experiment,
     CausalTypes,
     CausalWeightingSchemeType,
     CausalEstimatorType,
     CausalTargetUnitsType,
-    PropensityTrimType,
     CausalBootstrapConfigType,
-    CausalEffectConfigType,
-    CausalRefuterType,
-    CausalNuisanceModelType,
-    CausalDMLConfigType,
-    CausalALEConfigType,
-    CausalDMLModelBlobType,
-    CausalEffectResultType,
-    CausalRefuteResultType,
-    CausalATEResultType,
-    ALEResultType,
+    CiType,
+    RefuteSpecType,
+    CausalExperimentConfigType,
+    BalanceRowType,
+    OverlapDiagnosticType,
+    RefutationType,
+    ExperimentVerdictType,
+    CausalExperimentResultType,
 } from "./causal/causal.js";
 
 // Shared types
