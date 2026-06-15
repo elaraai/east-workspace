@@ -41,4 +41,4 @@ describeEast("Causal.experiment", (test) => {
         $(Assert.equal(result.adjusted.hasTag("none"), true));
         $(Assert.equal(result.n_total, 10n));
     });
-});
+}, { exportOnly: true });
