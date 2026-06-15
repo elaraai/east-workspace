@@ -1,15 +1,15 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1336,
-    "totalFiles": 176,
+    "totalEntries": 1339,
+    "totalFiles": 177,
     "packages": {
       "east": 489,
       "east-node-std": 42,
       "east-node-io": 63,
       "east-py-datascience": 85,
       "east-ui": 604,
-      "e3-ui": 46,
+      "e3-ui": 49,
       "e3": 7
     }
   },
@@ -26296,7 +26296,7 @@
       "id": "e3-ui:data.examples.tsx:dataBindFloat",
       "skill": "e3-ui",
       "package": "e3-ui",
-      "file": "east-ui/packages/e3-ui/test/data/data.examples.tsx",
+      "file": "east-ui/packages/e3-ui/test/bind/data/data.examples.tsx",
       "suite": "",
       "test": "Bind to a Float dataset and display its current value",
       "keywords": [
@@ -26319,7 +26319,7 @@
       "id": "e3-ui:data.examples.tsx:dataBindSliderWriteback",
       "skill": "e3-ui",
       "package": "e3-ui",
-      "file": "east-ui/packages/e3-ui/test/data/data.examples.tsx",
+      "file": "east-ui/packages/e3-ui/test/bind/data/data.examples.tsx",
       "suite": "",
       "test": "Slider whose value is bound to a dataset — onChange writes back",
       "keywords": [
@@ -26343,7 +26343,7 @@
       "id": "e3-ui:data.examples.tsx:dataBindInteger",
       "skill": "e3-ui",
       "package": "e3-ui",
-      "file": "east-ui/packages/e3-ui/test/data/data.examples.tsx",
+      "file": "east-ui/packages/e3-ui/test/bind/data/data.examples.tsx",
       "suite": "",
       "test": "Integer dataset bound to a number input with writeback",
       "keywords": [
@@ -26366,7 +26366,7 @@
       "id": "e3-ui:data.examples.tsx:dataBindStringReset",
       "skill": "e3-ui",
       "package": "e3-ui",
-      "file": "east-ui/packages/e3-ui/test/data/data.examples.tsx",
+      "file": "east-ui/packages/e3-ui/test/bind/data/data.examples.tsx",
       "suite": "",
       "test": "String dataset with a reset button that writes an empty string",
       "keywords": [
@@ -26390,7 +26390,7 @@
       "id": "e3-ui:data.examples.tsx:dataBindHasGuard",
       "skill": "e3-ui",
       "package": "e3-ui",
-      "file": "east-ui/packages/e3-ui/test/data/data.examples.tsx",
+      "file": "east-ui/packages/e3-ui/test/bind/data/data.examples.tsx",
       "suite": "",
       "test": "Use has() to gate UI on whether a dataset has been written",
       "keywords": [
@@ -26413,7 +26413,7 @@
       "id": "e3-ui:data.examples.tsx:dataBindStagedFloat",
       "skill": "e3-ui",
       "package": "e3-ui",
-      "file": "east-ui/packages/e3-ui/test/data/data.examples.tsx",
+      "file": "east-ui/packages/e3-ui/test/bind/data/data.examples.tsx",
       "suite": "",
       "test": "Stage edits to a Float dataset; read returns overlay (buffered or server)",
       "keywords": [
@@ -26436,7 +26436,7 @@
       "id": "e3-ui:data.examples.tsx:dataBindStagedSliderWrite",
       "skill": "e3-ui",
       "package": "e3-ui",
-      "file": "east-ui/packages/e3-ui/test/data/data.examples.tsx",
+      "file": "east-ui/packages/e3-ui/test/bind/data/data.examples.tsx",
       "suite": "",
       "test": "Slider whose onChange writes to the staged buffer instead of the server",
       "keywords": [
@@ -26459,7 +26459,7 @@
       "id": "e3-ui:data.examples.tsx:dataBindStagedCommitDiscard",
       "skill": "e3-ui",
       "package": "e3-ui",
-      "file": "east-ui/packages/e3-ui/test/data/data.examples.tsx",
+      "file": "east-ui/packages/e3-ui/test/bind/data/data.examples.tsx",
       "suite": "",
       "test": "Two buttons that commit or discard the staged buffer for a path",
       "keywords": [
@@ -26482,7 +26482,7 @@
       "id": "e3-ui:data.examples.tsx:dataBindStagedOriginalVsRead",
       "skill": "e3-ui",
       "package": "e3-ui",
-      "file": "east-ui/packages/e3-ui/test/data/data.examples.tsx",
+      "file": "east-ui/packages/e3-ui/test/bind/data/data.examples.tsx",
       "suite": "",
       "test": "Show server snapshot (original) and overlay (read) side by side",
       "keywords": [
@@ -26500,6 +26500,172 @@
         "import * as e3 from \"@elaraai/e3\";"
       ],
       "source": "// Show server snapshot (original) and overlay (read) side by side\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const thresh = $.let(Data.bind(thresholdInput, { mode: \"staged\", patch: thresholdPatchInput }));\n            const live = $.let(thresh.read(), FloatType);\n            const server = $.let(thresh.source(), FloatType);\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <Stat label=\"Server\" value={server} />\n                    <Stat label=\"Live (with stage)\" value={live} />\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:func.examples.tsx:funcBindCall",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/bind/func/func.examples.tsx",
+      "suite": "",
+      "test": "Bind an e3.function def; a button launches it and a stat shows the result",
+      "keywords": [
+        "Func",
+        "bind",
+        "call",
+        "Reactive",
+        "Button",
+        "pending",
+        "read",
+        "RPC",
+        "FunctionDef"
+      ],
+      "imports": [
+        "import { East, FloatType, IntegerType, NullType, example } from \"@elaraai/east\";",
+        "import { Button, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { Func } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "source": "// Bind an e3.function def; a button launches it and a stat shows the result\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const forecast = $.let(Func.bind(forecastFn));\n            const run = $.const(East.function([], NullType, $ => {\n                $(forecast.call(12n, 1.05));\n            }));\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <Button onClick={run} loading={forecast.pending()}>Run forecast</Button>\n                    <Stat label=\"Forecast\" value={East.print(forecast.read())} />\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:func.examples.tsx:funcBindStatus",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/bind/func/func.examples.tsx",
+      "suite": "",
+      "test": "Render the call lifecycle (idle / running / succeeded / failed / cancelled) and the failure message",
+      "keywords": [
+        "Func",
+        "bind",
+        "status",
+        "getTag",
+        "error",
+        "lifecycle"
+      ],
+      "imports": [
+        "import { East, FloatType, IntegerType, NullType, example } from \"@elaraai/east\";",
+        "import { Button, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { Func } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "source": "// Render the call lifecycle (idle / running / succeeded / failed / cancelled) and the failure message\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const forecast = $.let(Func.bind(forecastFn));\n            const run = $.const(East.function([], NullType, $ => {\n                $(forecast.call(12n, 1.05));\n            }));\n            // The status tag doubles as the display string.\n            const statusLine = $.let(forecast.status().getTag().upperCase());\n            const detail = $.let(forecast.error().match({\n                some: (_$, e) => e.message,\n                none: _$ => East.print(forecast.read()),\n            }));\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <Button onClick={run} loading={forecast.pending()}>Run forecast</Button>\n                    <Text.MonoLabel>{statusLine}</Text.MonoLabel>\n                    <Text color=\"fg.muted\">{detail}</Text>\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:func.examples.tsx:funcBindCancel",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/bind/func/func.examples.tsx",
+      "suite": "",
+      "test": "Cancel stops waiting for the in-flight call (the server still finishes it)",
+      "keywords": [
+        "Func",
+        "bind",
+        "cancel",
+        "pending",
+        "abort"
+      ],
+      "imports": [
+        "import { East, FloatType, IntegerType, NullType, example } from \"@elaraai/east\";",
+        "import { Button, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { Func } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "source": "// Cancel stops waiting for the in-flight call (the server still finishes it)\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const rebalance = $.let(Func.bind(rebalanceFn));\n            const run = $.const(East.function([], NullType, $ => {\n                $(rebalance.call(0.5));\n            }));\n            return (\n                <HStack gap=\"3\">\n                    <Button onClick={run} loading={rebalance.pending()}>Rebalance</Button>\n                    <Button variant=\"outline\" onClick={rebalance.cancel}\n                            disabled={rebalance.pending().not()}>\n                        Cancel\n                    </Button>\n                </HStack>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:func.examples.tsx:funcBindSharedChannel",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/bind/func/func.examples.tsx",
+      "suite": "",
+      "test": "Handles bound to the same function share one channel: one launches, another observes",
+      "keywords": [
+        "Func",
+        "bind",
+        "shared",
+        "channel",
+        "binding",
+        "name"
+      ],
+      "imports": [
+        "import { East, FloatType, IntegerType, NullType, example } from \"@elaraai/east\";",
+        "import { Button, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { Func } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "source": "// Handles bound to the same function share one channel: one launches, another observes\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            // Two independent binds of the same function observe the same\n            // tracked call — `binding.name` is the channel key.\n            const launcher = $.let(Func.bind(forecastFn));\n            const observer = $.let(Func.bind(forecastFn));\n            const run = $.const(East.function([], NullType, $ => {\n                $(launcher.call(12n, 1.05));\n            }));\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <Button onClick={run} loading={launcher.pending()}>Run forecast</Button>\n                    <Stat label={East.str`Result of ${observer.binding.name}`}\n                          value={East.print(observer.read())} />\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:record.examples.tsx:recordBindMutate",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/bind/record/record.examples.tsx",
+      "suite": "",
+      "test": "Bind an e3.record + its mutations; buttons apply typed mutations, a stat shows the current state, and the mutate lifecycle status is rendered",
+      "keywords": [
+        "Record",
+        "bind",
+        "mutate",
+        "Reactive",
+        "Button",
+        "read",
+        "pending",
+        "status",
+        "system of record"
+      ],
+      "imports": [
+        "import { East, IntegerType, NullType, example } from \"@elaraai/east\";",
+        "import { Button, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { Record } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "source": "// Bind an e3.record + its mutations; buttons apply typed mutations, a stat shows the current state, and the mutate lifecycle status is rendered\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const r = $.let(Record.bind(counter, [increment, reset]));\n            const status = $.let(r.mutate.status().getTag().upperCase());\n            // Surface the failure detail so a failed mutation shows WHY, not just\n            // that it failed.\n            const detail = $.let(r.mutate.error().match({\n                some: (_$, e) => e.message,\n                none: _$ => East.str``,\n            }));\n            const bump = $.const(East.function([], NullType, $ => {\n                $(r.mutate.increment(1n));\n            }));\n            const clear = $.const(East.function([], NullType, $ => {\n                $(r.mutate.reset());\n            }));\n            // A mutation commits the record but does not propagate; `start`\n            // launches the workspace dataflow so tasks consuming the record\n            // recompute. Queued behind any in-flight mutation.\n            const run = $.const(East.function([], NullType, $ => {\n                $(r.start());\n            }));\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <Stat label=\"Counter\" value={East.print(r.read())} />\n                    <HStack gap=\"2\">\n                        <Button onClick={bump} loading={r.mutate.pending()}>Increment</Button>\n                        <Button variant=\"outline\" onClick={clear}>Reset</Button>\n                        <Button variant=\"ghost\" onClick={run}>Run downstream</Button>\n                    </HStack>\n                    <Text.MonoLabel>{status}</Text.MonoLabel>\n                    <Text color=\"fg.muted\">{detail}</Text>\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:record.examples.tsx:recordBindStatus",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/bind/record/record.examples.tsx",
+      "suite": "",
+      "test": "Render the mutation lifecycle (idle / running / committed / failed / cancelled) and any failure",
+      "keywords": [
+        "Record",
+        "bind",
+        "status",
+        "error",
+        "lifecycle",
+        "mutate"
+      ],
+      "imports": [
+        "import { East, IntegerType, NullType, example } from \"@elaraai/east\";",
+        "import { Button, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { Record } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "source": "// Render the mutation lifecycle (idle / running / committed / failed / cancelled) and any failure\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const r = $.let(Record.bind(counter, [increment]));\n            const bump = $.const(East.function([], NullType, $ => { $(r.mutate.increment(1n)); }));\n            const statusLine = $.let(r.mutate.status().getTag().upperCase());\n            const detail = $.let(r.mutate.error().match({\n                some: (_$, e) => e.message,\n                none: _$ => East.print(r.read()),\n            }));\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <Button onClick={bump} loading={r.mutate.pending()}>Increment</Button>\n                    <Text.MonoLabel>{statusLine}</Text.MonoLabel>\n                    <Text color=\"fg.muted\">{detail}</Text>\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:record.examples.tsx:recordBindHistory",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/bind/record/record.examples.tsx",
+      "suite": "",
+      "test": "Read the record",
+      "keywords": [
+        "Record",
+        "bind",
+        "history",
+        "audit",
+        "commit",
+        "chain"
+      ],
+      "imports": [
+        "import { East, IntegerType, NullType, example } from \"@elaraai/east\";",
+        "import { Button, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { Record } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "source": "// Read the record\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const r = $.let(Record.bind(counter, [increment]));\n            const count = $.let(r.history().match({\n                some: (_$, commits) => commits.size(),\n                none: _$ => 0n,\n            }));\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <Stat label=\"Counter\" value={East.print(r.read())} />\n                    <Text.MonoLabel>{East.str`${count} COMMITS`}</Text.MonoLabel>\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "e3-ui:journal.examples.tsx:decisionJournalResolved",
@@ -27178,100 +27344,6 @@
         "import e3 from '@elaraai/e3';"
       ],
       "source": "// The Experiment \n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const data = $.let(Data.bind(batchesInput));\n            const config = $.let(Data.bind(experimentConfigInput, { mode: 'staged' }));\n            const journal = $.let(Data.bind(experimentJournalInput));\n            const population = $.let(Data.bind(experimentPopulationInput, { mode: 'staged' }));\n            const experiment = $.let(Func.bind(experimentFn));\n            return (\n                <Experiment\n                    data={data}\n                    config={config}\n                    experiment={experiment}\n                    population={population}\n                    journal={journal}\n                    columns={{ bond_strength: { unit: 'MPa' } }}\n                    defaultTab=\"dose\"\n                />\n            );\n        }}</Reactive>\n    ))"
-    },
-    {
-      "id": "e3-ui:func.examples.tsx:funcBindCall",
-      "skill": "e3-ui",
-      "package": "e3-ui",
-      "file": "east-ui/packages/e3-ui/test/func/func.examples.tsx",
-      "suite": "",
-      "test": "Bind an e3.function def; a button launches it and a stat shows the result",
-      "keywords": [
-        "Func",
-        "bind",
-        "call",
-        "Reactive",
-        "Button",
-        "pending",
-        "read",
-        "RPC",
-        "FunctionDef"
-      ],
-      "imports": [
-        "import { East, FloatType, IntegerType, NullType, example } from \"@elaraai/east\";",
-        "import { Button, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
-        "import { Func } from \"@elaraai/e3-ui\";",
-        "import e3 from \"@elaraai/e3\";"
-      ],
-      "source": "// Bind an e3.function def; a button launches it and a stat shows the result\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const forecast = $.let(Func.bind(forecastFn));\n            const run = $.const(East.function([], NullType, $ => {\n                $(forecast.call(12n, 1.05));\n            }));\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <Button onClick={run} loading={forecast.pending()}>Run forecast</Button>\n                    <Stat label=\"Forecast\" value={East.print(forecast.read())} />\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
-    },
-    {
-      "id": "e3-ui:func.examples.tsx:funcBindStatus",
-      "skill": "e3-ui",
-      "package": "e3-ui",
-      "file": "east-ui/packages/e3-ui/test/func/func.examples.tsx",
-      "suite": "",
-      "test": "Render the call lifecycle (idle / running / succeeded / failed / cancelled) and the failure message",
-      "keywords": [
-        "Func",
-        "bind",
-        "status",
-        "getTag",
-        "error",
-        "lifecycle"
-      ],
-      "imports": [
-        "import { East, FloatType, IntegerType, NullType, example } from \"@elaraai/east\";",
-        "import { Button, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
-        "import { Func } from \"@elaraai/e3-ui\";",
-        "import e3 from \"@elaraai/e3\";"
-      ],
-      "source": "// Render the call lifecycle (idle / running / succeeded / failed / cancelled) and the failure message\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const forecast = $.let(Func.bind(forecastFn));\n            const run = $.const(East.function([], NullType, $ => {\n                $(forecast.call(12n, 1.05));\n            }));\n            // The status tag doubles as the display string.\n            const statusLine = $.let(forecast.status().getTag().upperCase());\n            const detail = $.let(forecast.error().match({\n                some: (_$, e) => e.message,\n                none: _$ => East.print(forecast.read()),\n            }));\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <Button onClick={run} loading={forecast.pending()}>Run forecast</Button>\n                    <Text.MonoLabel>{statusLine}</Text.MonoLabel>\n                    <Text color=\"fg.muted\">{detail}</Text>\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
-    },
-    {
-      "id": "e3-ui:func.examples.tsx:funcBindCancel",
-      "skill": "e3-ui",
-      "package": "e3-ui",
-      "file": "east-ui/packages/e3-ui/test/func/func.examples.tsx",
-      "suite": "",
-      "test": "Cancel stops waiting for the in-flight call (the server still finishes it)",
-      "keywords": [
-        "Func",
-        "bind",
-        "cancel",
-        "pending",
-        "abort"
-      ],
-      "imports": [
-        "import { East, FloatType, IntegerType, NullType, example } from \"@elaraai/east\";",
-        "import { Button, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
-        "import { Func } from \"@elaraai/e3-ui\";",
-        "import e3 from \"@elaraai/e3\";"
-      ],
-      "source": "// Cancel stops waiting for the in-flight call (the server still finishes it)\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const rebalance = $.let(Func.bind(rebalanceFn));\n            const run = $.const(East.function([], NullType, $ => {\n                $(rebalance.call(0.5));\n            }));\n            return (\n                <HStack gap=\"3\">\n                    <Button onClick={run} loading={rebalance.pending()}>Rebalance</Button>\n                    <Button variant=\"outline\" onClick={rebalance.cancel}\n                            disabled={rebalance.pending().not()}>\n                        Cancel\n                    </Button>\n                </HStack>\n            );\n        }}</Reactive>\n    ))"
-    },
-    {
-      "id": "e3-ui:func.examples.tsx:funcBindSharedChannel",
-      "skill": "e3-ui",
-      "package": "e3-ui",
-      "file": "east-ui/packages/e3-ui/test/func/func.examples.tsx",
-      "suite": "",
-      "test": "Handles bound to the same function share one channel: one launches, another observes",
-      "keywords": [
-        "Func",
-        "bind",
-        "shared",
-        "channel",
-        "binding",
-        "name"
-      ],
-      "imports": [
-        "import { East, FloatType, IntegerType, NullType, example } from \"@elaraai/east\";",
-        "import { Button, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
-        "import { Func } from \"@elaraai/e3-ui\";",
-        "import e3 from \"@elaraai/e3\";"
-      ],
-      "source": "// Handles bound to the same function share one channel: one launches, another observes\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            // Two independent binds of the same function observe the same\n            // tracked call — `binding.name` is the channel key.\n            const launcher = $.let(Func.bind(forecastFn));\n            const observer = $.let(Func.bind(forecastFn));\n            const run = $.const(East.function([], NullType, $ => {\n                $(launcher.call(12n, 1.05));\n            }));\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <Button onClick={run} loading={launcher.pending()}>Run forecast</Button>\n                    <Stat label={East.str`Result of ${observer.binding.name}`}\n                          value={East.print(observer.read())} />\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "e3-ui:ontology.examples.tsx:supplyChainOntology",
