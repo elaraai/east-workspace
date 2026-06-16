@@ -58,6 +58,16 @@ void beast2_encode_value(ByteBuffer *buf, EastValue *value, EastType *type, Beas
         if (ctx->value_table) {
             int idx = beast2_vt_find(ctx->value_table, value);
             write_varint(buf, (uint64_t)(idx >= 0 ? idx : 0));
+        } else {
+            /* Headerless mode has no value-table section to hold container
+             * contents, so a mutable container cannot be represented. Fail
+             * loudly rather than silently emitting zero bytes (which corrupts
+             * data and collapses content-addressing). Use the with-header
+             * (full) format for container-bearing types. */
+            east_builtin_error("beast2 headerless encode does not support mutable containers "
+                               "(Array/Set/Dict/Ref); use the with-header format "
+                               "(east_beast2_encode_full)");
+            return;
         }
         break;
     }
@@ -117,6 +127,13 @@ void beast2_encode_value(ByteBuffer *buf, EastValue *value, EastType *type, Beas
         if (ctx->value_table) {
             int idx = beast2_vt_find(ctx->value_table, value);
             write_varint(buf, (uint64_t)(idx >= 0 ? idx : 0));
+        } else {
+            /* See the Array/Set/Dict case: headerless mode cannot represent a
+             * mutable container; fail loudly instead of emitting zero bytes. */
+            east_builtin_error("beast2 headerless encode does not support mutable containers "
+                               "(Array/Set/Dict/Ref); use the with-header format "
+                               "(east_beast2_encode_full)");
+            return;
         }
         break;
     }
@@ -244,5 +261,19 @@ ByteBuffer *east_beast2_encode(EastValue *value, EastType *type)
     beast2_enc_ctx_init(&ctx);
     beast2_encode_value(buf, value, type, &ctx);
     beast2_enc_ctx_free(&ctx);
+
+    /* If encode raised an east error (e.g. a mutable container in headerless
+     * mode), surface it as NULL so the caller can read the message via
+     * east_builtin_get_error(). get_error() consumes the message, so re-post it
+     * after cleanup (east_builtin_error strdups internally). */
+    {
+        char *saved_err = east_builtin_get_error();
+        if (saved_err) {
+            byte_buffer_free(buf);
+            east_builtin_error(saved_err);
+            free(saved_err);
+            return NULL;
+        }
+    }
     return buf;
 }
