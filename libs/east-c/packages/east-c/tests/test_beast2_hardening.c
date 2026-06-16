@@ -257,6 +257,44 @@ int main(void)
         }
     }
 
+    /* ---- 5. Headerless encode rejects mutable containers (issue #37) ---- */
+    {
+        /* Headerless beast2 has no value-table section, so a mutable container
+         * cannot be represented. east_beast2_encode must fail loudly (NULL +
+         * a posted error) rather than silently emit zero bytes. */
+        EastType *arr_t = east_array_type(&east_integer_type);
+        EastValue *arr = east_array_new(&east_integer_type);
+        for (int i = 1; i <= 3; i++) {
+            EastValue *n = east_integer(i);
+            east_array_push(arr, n);
+            east_value_release(n);
+        }
+        ByteBuffer *hb = east_beast2_encode(arr, arr_t);
+        char *err = east_builtin_get_error();
+        if (hb != NULL || err == NULL) {
+            printf("FAIL: headerless encode of mutable container was not rejected\n");
+            failures++;
+            if (hb) byte_buffer_free(hb);
+        } else {
+            printf("  [+] headerless encode of mutable container rejected\n");
+        }
+        if (err) free(err);
+        east_value_release(arr);
+        east_type_release(arr_t);
+
+        /* Scalars must still encode headerless (the guard is container-only). */
+        EastValue *scalar = east_integer(42);
+        ByteBuffer *sb = east_beast2_encode(scalar, &east_integer_type);
+        if (!sb || sb->len == 0) {
+            printf("FAIL: headerless encode of scalar Integer regressed\n");
+            failures++;
+        } else {
+            printf("  [+] headerless encode of scalar still works\n");
+        }
+        if (sb) byte_buffer_free(sb);
+        east_value_release(scalar);
+    }
+
     byte_buffer_free(deep_buf);
     byte_buffer_free(mixed_buf);
     east_value_release(deep);

@@ -195,8 +195,12 @@ class EastBlob(bytes):
     def decode_beast2(self, typ: EastType) -> Any:
         """Decode beast2-encoded bytes as a value of ``typ`` (east-c BlobDecodeBeast2).
 
-        Reuses the package's beast2 deserialization layer rather than calling
-        through to a builtin.
+        Uses the with-header (full) beast2 format, byte-compatible with the
+        ``BlobDecodeBeast2`` builtin (and TS ``decodeBeast2For``). It is the
+        serialization-layer equivalent of that builtin rather than calling
+        through to it. The headerless beast2 codec cannot represent mutable
+        containers (Array/Set/Dict/Ref) and is not interoperable with the
+        builtin, so it must not be used here.
 
         Args:
             typ: East type the bytes were encoded as; required to drive
@@ -205,17 +209,21 @@ class EastBlob(bytes):
         Returns:
             The decoded East value of type ``typ``.
         """
-        from east.serialization.beast2 import decode_beast2_for
+        from east.serialization.beast2 import decode_beast2_with_header_for
 
-        return decode_beast2_for(typ)(bytes(self))
+        return decode_beast2_with_header_for(typ)(bytes(self))
 
     @staticmethod
     def encode_beast2(value: Any) -> EastBlob:
         """Encode an East value to beast2 bytes (east-c BlobEncodeBeast2).
 
-        Reuses the package's beast2 serialization layer rather than calling
-        through to a builtin. The encoding type is inferred from ``value`` via
-        ``type_of``.
+        Uses the with-header (full) beast2 format, byte-compatible with the
+        ``BlobEncodeBeast2`` builtin (and TS ``encodeBeast2For``). It is the
+        serialization-layer equivalent of that builtin rather than calling
+        through to it; the encoding type is inferred from ``value`` via
+        ``type_of``. The headerless codec is not used because it cannot encode
+        mutable containers (Array/Set/Dict/Ref) and is not interoperable with
+        the builtin.
 
         Args:
             value: Any East value to serialize.
@@ -223,9 +231,9 @@ class EastBlob(bytes):
         Returns:
             An EastBlob holding the beast2-encoded bytes.
         """
-        from east.serialization.beast2 import encode_beast2_for
+        from east.serialization.beast2 import encode_beast2_with_header_for
 
-        return EastBlob(encode_beast2_for(_ev.type_of(value))(value))
+        return EastBlob(encode_beast2_with_header_for(_ev.type_of(value))(value))
 
 
 # =============================================================================

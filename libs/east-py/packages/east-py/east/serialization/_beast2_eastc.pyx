@@ -45,6 +45,7 @@ cpdef bytes _encode_beast2(object py_type, object value):
     cdef _eastc.EastType* c_type = py_type_to_c(py_type)
     cdef _eastc.EastValue* c_val
     cdef _eastc.ByteBuffer* buf
+    cdef char *err
 
     try:
         c_val = py_value_to_c(value, c_type)
@@ -57,6 +58,11 @@ cpdef bytes _encode_beast2(object py_type, object value):
 
     if buf == NULL:
         _eastc.east_type_release(c_type)
+        err = _eastc.east_builtin_get_error()
+        if err != NULL:
+            msg = (<bytes>err).decode("utf-8", errors="replace")
+            free(err)
+            raise RuntimeError(msg)
         raise RuntimeError("east-c beast2 encode returned NULL")
 
     cdef bytes result = buf.data[:buf.len]
