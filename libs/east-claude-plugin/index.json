@@ -1,7 +1,7 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1339,
+    "totalEntries": 1340,
     "totalFiles": 177,
     "packages": {
       "east": 489,
@@ -9,7 +9,7 @@
       "east-node-io": 63,
       "east-py-datascience": 85,
       "east-ui": 604,
-      "e3-ui": 49,
+      "e3-ui": 50,
       "e3": 7
     }
   },
@@ -27344,6 +27344,31 @@
         "import e3 from '@elaraai/e3';"
       ],
       "source": "// The Experiment \n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const data = $.let(Data.bind(batchesInput));\n            const config = $.let(Data.bind(experimentConfigInput, { mode: 'staged' }));\n            const journal = $.let(Data.bind(experimentJournalInput));\n            const population = $.let(Data.bind(experimentPopulationInput, { mode: 'staged' }));\n            const experiment = $.let(Func.bind(experimentFn));\n            return (\n                <Experiment\n                    data={data}\n                    config={config}\n                    experiment={experiment}\n                    population={population}\n                    journal={journal}\n                    columns={{ bond_strength: { unit: 'MPa' } }}\n                    defaultTab=\"dose\"\n                />\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:experiment.examples.tsx:experimentValidate",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/experiment/experiment.examples.tsx",
+      "suite": "",
+      "test": "The Experiment ",
+      "keywords": [
+        "Experiment",
+        "causal",
+        "validate",
+        "design",
+        "trial",
+        "rct",
+        "power",
+        "sample-size"
+      ],
+      "imports": [
+        "import {",
+        "import { Reactive, UIComponentType } from '@elaraai/east-ui';",
+        "import { Data, Experiment, Func } from '@elaraai/e3-ui';",
+        "import e3 from '@elaraai/e3';"
+      ],
+      "source": "// The Experiment \n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const data = $.let(Data.bind(batchesInput));\n            const config = $.let(Data.bind(experimentConfigInput, { mode: 'staged' }));\n            const journal = $.let(Data.bind(experimentJournalInput));\n            const population = $.let(Data.bind(experimentPopulationInput, { mode: 'staged' }));\n            const experiment = $.let(Func.bind(experimentFn));\n            const design = $.let(Func.bind(designFn));\n            return (\n                <Experiment\n                    data={data}\n                    config={config}\n                    experiment={experiment}\n                    design={design}\n                    population={population}\n                    journal={journal}\n                    columns={{ bond_strength: { unit: 'MPa' } }}\n                    defaultTab=\"validate\"\n                />\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "e3-ui:ontology.examples.tsx:supplyChainOntology",
