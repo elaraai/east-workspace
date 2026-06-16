@@ -16,7 +16,7 @@ import { defineSlotRecipe } from "@chakra-ui/react";
 export const schematicSlotRecipe = defineSlotRecipe({
     className: "elara-schematic",
     slots: [
-        "root", "canvas", "grid", "underlay", "zone", "zoneLabel",
+        "root", "canvas", "grid", "cardLayer", "underlay", "zone", "zoneLabel",
         "zoneShapes", "zoneShapeLabel", "footprints",
         "item", "itemHead", "itemIcon", "itemLabel", "statusDot",
         "itemSublabel", "meterTrack", "meterFill", "itemMetric",
@@ -64,6 +64,15 @@ export const schematicSlotRecipe = defineSlotRecipe({
                 linear-gradient(to bottom, color-mix(in oklch, {colors.border.strong} 30%, transparent) 1px, transparent 1px),
                 linear-gradient(to right, color-mix(in oklch, {colors.border.subtle} 22%, transparent) 1px, transparent 1px),
                 linear-gradient(to bottom, color-mix(in oklch, {colors.border.subtle} 22%, transparent) 1px, transparent 1px)`,
+        },
+        /* Holds the live `--cam-ppu` / `--cam-tx` / `--cam-ty` custom
+         * properties (written by applyCamera each frame). Transparent and
+         * click-through; each card re-enables its own pointer events so the
+         * full-cover layer never swallows canvas clicks (issue #57). */
+        cardLayer: {
+            position: "absolute",
+            inset: "0",
+            pointerEvents: "none",
         },
         /* Links draw in pixel space; tone → token mapping lives here so
          * data only ever names a tone. */
@@ -262,6 +271,7 @@ export const schematicSlotRecipe = defineSlotRecipe({
         item: {
             position: "absolute",
             transform: "translate(-50%, -50%)",
+            pointerEvents: "auto",
             display: "flex",
             flexDirection: "column",
             gap: "2px",

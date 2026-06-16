@@ -13,7 +13,12 @@ import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Schematic } from "@elaraai/east-ui/internal";
 import type { IconName } from "@fortawesome/fontawesome-common-types";
 import { getSomeorUndefined } from "../../utils";
-import { paintSchematic, type SchematicPalette } from "./paint";
+import { usePersistedState } from "../../hooks/usePersistedState";
+import { MARKER_LABEL_FONT, markerHit, markerHitbox, paintSchematic, type SchematicPalette } from "./paint";
+import {
+    type CameraEvent, type CameraMode, type RafCoalescer, type Viewport,
+    IDENTITY, cancelsFly, cardTranslateCss, cardWidthCss, makeRafCoalescer, nextMode, zoomAbout,
+} from "./camera";
 import { SchematicPaletteProbe } from "./theme";
 
 library.add(fas);
@@ -39,10 +44,7 @@ export interface EastChakraSchematicProps {
 
 type SlotStyles = Record<string, SystemStyleObject>;
 type Pt = { x: number; y: number };
-/** The pan/zoom state: screen = world × fit × zoom + t. */
-type Viewport = { zoom: number; tx: number; ty: number };
 
-const IDENTITY: Viewport = { zoom: 1, tx: 0, ty: 0 };
 const MAX_ZOOM = 40;
 /** LOD thresholds in px per world unit: card ⇢ labelled dot ⇢ dot. */
 const LOD_CARD_PPU = 30;
@@ -205,7 +207,7 @@ interface ItemBox { minX: number; minY: number; maxX: number; maxY: number; item
  * viewport culling, an adaptive scale bar, a zones→items navigator with
  * search and viewport spy, and a minimap with a draggable viewport.
  */
-export const EastChakraSchematic = memo(function EastChakraSchematic({ value }: EastChakraSchematicProps) {
+export const EastChakraSchematic = memo(function EastChakraSchematic({ value, storageKey }: EastChakraSchematicProps) {
     const styles = useSlotRecipe({ key: "schematic" })() as SlotStyles;
     const { width: W, height: H } = value.extent;
 
@@ -218,15 +220,21 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value }: 
     const fixedHeight = getSomeorUndefined(value.height);
 
     const [selected, setSelected] = useState<string | null>(null);
-    const [view, setView] = useState<Viewport>(IDENTITY);
     const [query, setQuery] = useState("");
     const [openZone, setOpenZone] = useState<string | null>(null);
-    const [navCollapsed, setNavCollapsed] = useState(false);
+    // Index-rail collapse is a durable layout preference — persist it under
+    // `storageKey` (issue #57, P8). The camera and selection are transient
+    // interaction state (per the renderer conventions) and stay ephemeral.
+    const { state: persisted, setState: setPersisted } = usePersistedState(storageKey, { navCollapsed: false });
+    const navCollapsed = persisted.navCollapsed;
+    const setNavCollapsed = useCallback((next: boolean) => setPersisted(prev => ({ ...prev, navCollapsed: next })), [setPersisted]);
     const [palette, setPalette] = useState<SchematicPalette | null>(null);
     const navTreeRef = useRef<HTMLDivElement | null>(null);
 
     const canvasRef = useRef<HTMLDivElement | null>(null);
     const drawRef = useRef<HTMLCanvasElement | null>(null);
+    const cardLayerRef = useRef<HTMLDivElement | null>(null);
+    const gridRef = useRef<HTMLDivElement | null>(null);
 
     const [size, setSize] = useState<{ w: number; h: number } | null>(null);
     useLayoutEffect(() => {
@@ -239,10 +247,36 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value }: 
         return () => ro.disconnect();
     }, []);
 
+    // Track devicePixelRatio so moving the window across monitors / changing OS
+    // scale / browser zoom repaints the canvas at the correct backing-store
+    // resolution instead of leaving it stale and blurry (issue #57, P5). One
+    // live `matchMedia` listener, re-subscribed on each change.
+    const [dpr, setDpr] = useState(() => (typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1));
+    useEffect(() => {
+        if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+        let cleanup = () => {};
+        const subscribe = () => {
+            const mql = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+            const onChange = () => { cleanup(); setDpr(window.devicePixelRatio || 1); subscribe(); };
+            mql.addEventListener("change", onChange);
+            cleanup = () => mql.removeEventListener("change", onChange);
+        };
+        subscribe();
+        return () => cleanup();
+    }, []);
+
+    // The live camera lives in a ref, mutated synchronously by input handlers,
+    // which then call `requestRender()` (coalesced to one rAF). React state
+    // holds only a throttled snapshot for derived UI — minimap, viewport spy,
+    // the LOD/culling recompute — never updated per pointer event (issue #57,
+    // Phase 2 invariants 1–2).
+    const cameraRef = useRef<Viewport>(IDENTITY);
+    const modeRef = useRef<CameraMode>("idle");
+    const animRef = useRef<number | null>(null);
+    const [cameraSnapshot, setCameraSnapshot] = useState<Viewport>(IDENTITY);
+
     const fit = size !== null ? Math.min(size.w / W, size.h / H) : 0;
-    const ppu = fit * view.zoom;
-    const wx = (x: number) => x * ppu + view.tx;
-    const wy = (y: number) => y * ppu + view.ty;
+    const ppu = fit * cameraSnapshot.zoom;
 
     const centers = useMemo(() => {
         const out = new Map<string, Pt>();
@@ -278,10 +312,10 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value }: 
     const visibleItems = useMemo(() => {
         if (size === null || ppu === 0) return [];
         return index.search({
-            minX: -view.tx / ppu, minY: -view.ty / ppu,
-            maxX: (size.w - view.tx) / ppu, maxY: (size.h - view.ty) / ppu,
+            minX: -cameraSnapshot.tx / ppu, minY: -cameraSnapshot.ty / ppu,
+            maxX: (size.w - cameraSnapshot.tx) / ppu, maxY: (size.h - cameraSnapshot.ty) / ppu,
         }).map(b => b.item);
-    }, [index, size, ppu, view]);
+    }, [index, size, ppu, cameraSnapshot]);
 
     const nav = useMemo(() => buildNavTree(value.zones, value.items), [value.zones, value.items]);
 
@@ -318,109 +352,6 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value }: 
         return { ordered, indexOf };
     }, [nav]);
 
-    // Animated fly-to: frame a world rect with padding.
-    const animRef = useRef<number | null>(null);
-    const viewRef = useRef(view);
-    viewRef.current = view;
-    const flyTo = useCallback((rect: { x: number; y: number; w: number; h: number }) => {
-        if (size === null || fit === 0) return;
-        const pad = 1.18;
-        const zoom = Math.min(MAX_ZOOM, Math.min(size.w / (rect.w * pad * fit), size.h / (rect.h * pad * fit)));
-        const target = {
-            zoom,
-            tx: size.w / 2 - (rect.x + rect.w / 2) * fit * zoom,
-            ty: size.h / 2 - (rect.y + rect.h / 2) * fit * zoom,
-        };
-        const from = viewRef.current;
-        const start = performance.now();
-        if (animRef.current !== null) cancelAnimationFrame(animRef.current);
-        const step = (now: number) => {
-            const t = Math.min(1, (now - start) / 350);
-            const e = 1 - Math.pow(1 - t, 3);
-            setView({
-                zoom: from.zoom + (target.zoom - from.zoom) * e,
-                tx: from.tx + (target.tx - from.tx) * e,
-                ty: from.ty + (target.ty - from.ty) * e,
-            });
-            if (t < 1) animRef.current = requestAnimationFrame(step);
-        };
-        animRef.current = requestAnimationFrame(step);
-    }, [size, fit]);
-    useEffect(() => () => { if (animRef.current !== null) cancelAnimationFrame(animRef.current); }, []);
-
-    const flyToItem = useCallback((item: SchematicItemValue) => {
-        flyTo({ x: item.x - 4, y: item.y - 3, w: 8, h: 6 });
-        setSelected(item.key);
-        // Open the item's zone immediately rather than waiting for the
-        // viewport spy to catch up after the fly animation.
-        setOpenZone(nav.zoneOf.get(item.key) ?? null);
-        if (onSelectFn) queueMicrotask(() => onSelectFn(item.key));
-    }, [flyTo, nav.zoneOf, onSelectFn]);
-    const stepSelection = useCallback((delta: number) => {
-        const { ordered, indexOf } = itemOrder;
-        if (ordered.length === 0) return;
-        const idx = selected !== null ? (indexOf.get(selected) ?? -1) : -1;
-        flyToItem(ordered[(idx + delta + ordered.length) % ordered.length]!);
-    }, [itemOrder, selected, flyToItem]);
-
-    const flyToZone = useCallback((zone: SchematicZoneValue) => {
-        flyTo({ x: zone.x, y: zone.y, w: zone.width, h: zone.height });
-        setOpenZone(zone.key);
-    }, [flyTo]);
-
-    // Wheel zooms about the cursor (no modifier — a dedicated canvas owns
-    // the wheel, like any map); attached non-passively so preventDefault
-    // stops the page scrolling.
-    useEffect(() => {
-        const el = canvasRef.current;
-        if (!el) return;
-        const onWheel = (e: WheelEvent) => {
-            e.preventDefault();
-            const rect = el.getBoundingClientRect();
-            const px = e.clientX - rect.left, py = e.clientY - rect.top;
-            setView(prev => {
-                const zoom = Math.max(1, Math.min(MAX_ZOOM, prev.zoom * Math.exp(-e.deltaY * 0.0015)));
-                const k = zoom / prev.zoom;
-                const next = { zoom, tx: px - k * (px - prev.tx), ty: py - k * (py - prev.ty) };
-                return zoom === 1 ? IDENTITY : next;
-            });
-        };
-        el.addEventListener("wheel", onWheel, { passive: false });
-        return () => el.removeEventListener("wheel", onWheel);
-    }, []);
-
-    // Drag-pan on empty canvas. `moved` distinguishes a pan from a click so
-    // the canvas pick (below) doesn't fire on the click that follows a drag.
-    const panRef = useRef<{ x: number; y: number; tx: number; ty: number } | null>(null);
-    const movedRef = useRef(false);
-    const onCanvasPointerDown = useCallback((e: React.PointerEvent) => {
-        if (e.button !== 0) return;
-        // Presses on controls / cards / the minimap are theirs — capturing
-        // here would redirect their click to the canvas.
-        if ((e.target as HTMLElement).closest("button") !== null) return;
-        panRef.current = { x: e.clientX, y: e.clientY, tx: viewRef.current.tx, ty: viewRef.current.ty };
-        movedRef.current = false;
-        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    }, []);
-    const onCanvasPointerMove = useCallback((e: React.PointerEvent) => {
-        const pan = panRef.current;
-        if (!pan) return;
-        if (Math.abs(e.clientX - pan.x) > 4 || Math.abs(e.clientY - pan.y) > 4) movedRef.current = true;
-        setView(prev => ({ ...prev, tx: pan.tx + e.clientX - pan.x, ty: pan.ty + e.clientY - pan.y }));
-    }, []);
-    const onCanvasPointerUp = useCallback(() => { panRef.current = null; }, []);
-    const resetView = useCallback(() => setView(IDENTITY), []);
-
-    const zoomBy = useCallback((factor: number) => {
-        if (size === null) return;
-        const px = size.w / 2, py = size.h / 2;
-        setView(prev => {
-            const zoom = Math.max(1, Math.min(MAX_ZOOM, prev.zoom * factor));
-            const k = zoom / prev.zoom;
-            return zoom === 1 ? IDENTITY : { zoom, tx: px - k * (px - prev.tx), ty: py - k * (py - prev.ty) };
-        });
-    }, [size]);
-
     // Viewport spy: the zone dominating the view — scored by how much of
     // the smaller of (zone, viewport) the overlap covers, so it tracks both
     // "zoomed into a corner of a big hall" and "hall fills the view".
@@ -430,12 +361,12 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value }: 
     const [currentZone, setCurrentZone] = useState<string | undefined>(undefined);
     useEffect(() => {
         const SPY_ENTER = 0.3, SPY_STAY = 0.18, SPY_MARGIN = 0.15;
-        if (size === null || ppu === 0 || view.zoom <= 1.05) {
+        if (size === null || ppu === 0 || cameraSnapshot.zoom <= 1.05) {
             setCurrentZone(undefined);
             return;
         }
-        const vx0 = -view.tx / ppu, vy0 = -view.ty / ppu;
-        const vx1 = (size.w - view.tx) / ppu, vy1 = (size.h - view.ty) / ppu;
+        const vx0 = -cameraSnapshot.tx / ppu, vy0 = -cameraSnapshot.ty / ppu;
+        const vx1 = (size.w - cameraSnapshot.tx) / ppu, vy1 = (size.h - cameraSnapshot.ty) / ppu;
         const viewArea = (vx1 - vx0) * (vy1 - vy0);
         const scoreOf = (z: SchematicZoneValue) => {
             const ix = Math.max(0, Math.min(vx1, z.x + z.width) - Math.max(vx0, z.x));
@@ -456,7 +387,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value }: 
             }
             return bestScore >= SPY_ENTER ? best : undefined;
         });
-    }, [size, ppu, view, value.zones]);
+    }, [size, ppu, cameraSnapshot, value.zones]);
 
     const lod: LodTier = ppu >= LOD_CARD_PPU ? "card" : ppu >= LOD_LABEL_PPU ? "label" : "dot";
     const centerTree = useMemo(() => buildCenterTree(visibleItems), [visibleItems]);
@@ -468,31 +399,219 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value }: 
 
     const scaleLen = ppu > 0 ? niceScaleLength(ppu, 100) : 0;
 
-    // Paint the bulk-shape layer (zones, links, footprints, dots/pins) to the
-    // canvas whenever the data, camera, LOD, selection, or theme changes. Rich
-    // item cards stay DOM (rendered below); the canvas is everything else.
-    useEffect(() => {
-        const canvas = drawRef.current;
-        if (canvas === null || size === null || palette === null) return;
-        const dpr = window.devicePixelRatio || 1;
-        const bw = Math.round(size.w * dpr), bh = Math.round(size.h * dpr);
+    // --- Single synchronized camera apply (Phase 2). ------------------------
+    // Mirror render-derived values into refs so `applyCamera` — a raw rAF
+    // closure — can read the live size / palette / fit / LOD snapshot without
+    // depending on React state (Phase 2 invariant 3).
+    const valueRef = useRef(value); valueRef.current = value;
+    const sizeRef = useRef(size); sizeRef.current = size;
+    const fitRef = useRef(fit); fitRef.current = fit;
+    const dprRef = useRef(dpr); dprRef.current = dpr;
+    const paletteRef = useRef(palette); paletteRef.current = palette;
+    const visibleItemsRef = useRef(visibleItems); visibleItemsRef.current = visibleItems;
+    const tiersRef = useRef(tiers); tiersRef.current = tiers;
+    const selectedRef = useRef(selected); selectedRef.current = selected;
+    const centersRef = useRef(centers); centersRef.current = centers;
+    const openZoneRef = useRef(openZone); openZoneRef.current = openZone;
+
+    // Skip an apply whose inputs are referentially identical to the last —
+    // covers redundant idle re-renders / repeated requestRender with no change.
+    // (During an active pan the layout-effect apply still repaints, because
+    // visibleItems is rebuilt fresh each snapshot; that second paint is accepted
+    // — bounded by viewport culling — and keeps canvas LOD lock-step with cards.)
+    const lastPaintRef = useRef<{
+        zoom: number; tx: number; ty: number; vis: unknown; tiers: unknown;
+        sel: string | null; pal: SchematicPalette | null; w: number; h: number; dpr: number; val: unknown;
+    } | null>(null);
+
+    // Apply the LIVE camera to ALL surfaces in one step: card-layer CSS vars +
+    // grid first (cheap, palette-independent), then the canvas paint (issue
+    // #57, Phase 2 invariant 1). Positions therefore never desync — every
+    // surface reads the same `cameraRef` (P1).
+    const applyCamera = useCallback(() => {
+        const sz = sizeRef.current;
+        if (sz === null) return;
+        const cam = cameraRef.current;
+        const ppuLive = fitRef.current * cam.zoom;
+        const dprLive = dprRef.current;
+
+        // DOM card layer: move every card with three custom-property writes on
+        // the parent (compositor only — no per-card layout) — invariant 6.
+        const layer = cardLayerRef.current;
+        if (layer !== null) {
+            layer.style.setProperty("--cam-ppu", String(ppuLive));
+            layer.style.setProperty("--cam-tx", `${cam.tx}px`);
+            layer.style.setProperty("--cam-ty", `${cam.ty}px`);
+        }
+        // Background grid: position locked to the same camera as the canvas.
+        const grid = gridRef.current;
+        if (grid !== null) {
+            const len = ppuLive > 0 ? niceScaleLength(ppuLive, 100) : 0;
+            if (len > 0) {
+                const major = len * ppuLive, minor = major / 5;
+                grid.style.backgroundSize = `${major}px ${major}px, ${major}px ${major}px, ${minor}px ${minor}px, ${minor}px ${minor}px`;
+                grid.style.backgroundPosition = `${cam.tx}px 0, 0 ${cam.ty}px, ${cam.tx}px 0, 0 ${cam.ty}px`;
+            }
+        }
+
+        const canvas = drawRef.current, pal = paletteRef.current;
+        if (canvas === null || pal === null) return;
+        const last = lastPaintRef.current;
+        if (last !== null
+            && last.zoom === cam.zoom && last.tx === cam.tx && last.ty === cam.ty
+            && last.vis === visibleItemsRef.current && last.tiers === tiersRef.current
+            && last.sel === selectedRef.current && last.pal === pal
+            && last.w === sz.w && last.h === sz.h && last.dpr === dprLive && last.val === valueRef.current) return;
+        lastPaintRef.current = {
+            zoom: cam.zoom, tx: cam.tx, ty: cam.ty, vis: visibleItemsRef.current, tiers: tiersRef.current,
+            sel: selectedRef.current, pal, w: sz.w, h: sz.h, dpr: dprLive, val: valueRef.current,
+        };
+        const bw = Math.round(sz.w * dprLive), bh = Math.round(sz.h * dprLive);
         if (canvas.width !== bw || canvas.height !== bh) { canvas.width = bw; canvas.height = bh; }
         const ctx = canvas.getContext("2d");
         if (ctx === null) return;
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.setTransform(dprLive, 0, 0, dprLive, 0, 0);
         paintSchematic({
-            ctx, value, cam: { ppu, tx: view.tx, ty: view.ty }, width: size.w, height: size.h,
-            visibleItems, tiers, selected, centers, palette,
+            ctx, value: valueRef.current, cam: { ppu: ppuLive, tx: cam.tx, ty: cam.ty },
+            width: sz.w, height: sz.h,
+            visibleItems: visibleItemsRef.current, tiers: tiersRef.current,
+            selected: selectedRef.current, centers: centersRef.current, palette: pal,
         });
-    }, [value, view, ppu, size, visibleItems, tiers, selected, centers, palette]);
+    }, []);
 
-    // Canvas hit-testing: footprint polygons (close zoom) then the nearest
-    // dot/pin marker; rich cards are DOM and handle their own clicks.
-    const onCanvasClick = useCallback((e: React.MouseEvent) => {
-        if (size === null || movedRef.current) return;
-        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-        const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
-        const wxp = (sx - view.tx) / ppu, wyp = (sy - view.ty) / ppu;
+    // Coalesce many camera mutations within a frame into one paint + one
+    // throttled snapshot — keeps the hot pan path off React (invariant 2).
+    const coalescerRef = useRef<RafCoalescer | null>(null);
+    if (coalescerRef.current === null && typeof requestAnimationFrame !== "undefined") {
+        coalescerRef.current = makeRafCoalescer(requestAnimationFrame, cancelAnimationFrame);
+    }
+    const requestRender = useCallback(() => {
+        const run = () => {
+            applyCamera();
+            const cam = cameraRef.current;
+            setCameraSnapshot(prev => (prev.zoom === cam.zoom && prev.tx === cam.tx && prev.ty === cam.ty)
+                ? prev : { zoom: cam.zoom, tx: cam.tx, ty: cam.ty });
+        };
+        const cz = coalescerRef.current;
+        if (cz !== null) cz.request(run); else run();
+    }, [applyCamera]);
+
+    // Interaction-mode machine: an input mode supersedes a running fly as a
+    // transition, not a hand-added cancel at each call site (P4 / invariant 5).
+    const cancelFlyRaf = useCallback(() => {
+        if (animRef.current !== null) { cancelAnimationFrame(animRef.current); animRef.current = null; }
+    }, []);
+    const transition = useCallback((event: CameraEvent) => {
+        if (cancelsFly(modeRef.current, event)) cancelFlyRaf();
+        modeRef.current = nextMode(modeRef.current, event);
+    }, [cancelFlyRaf]);
+
+    // Animated fly-to: frame a world rect with padding, writing the live camera
+    // each frame (cancellable by any user input via the mode machine).
+    const flyTo = useCallback((rect: { x: number; y: number; w: number; h: number }) => {
+        if (sizeRef.current === null || fitRef.current === 0) return;
+        const pad = 1.18;
+        // Re-derive the destination from the LIVE viewport every frame, so a
+        // resize mid-fly (nav-rail toggle, splitter drag, window resize) re-aims
+        // the landing instead of framing against the stale start-time size/fit.
+        const frame = (): Viewport | null => {
+            const sz = sizeRef.current, ft = fitRef.current;
+            if (sz === null || ft === 0) return null;
+            const zoom = Math.min(MAX_ZOOM, Math.min(sz.w / (rect.w * pad * ft), sz.h / (rect.h * pad * ft)));
+            return {
+                zoom,
+                tx: sz.w / 2 - (rect.x + rect.w / 2) * ft * zoom,
+                ty: sz.h / 2 - (rect.y + rect.h / 2) * ft * zoom,
+            };
+        };
+        const from = { ...cameraRef.current };
+        const start = performance.now();
+        if (animRef.current !== null) cancelAnimationFrame(animRef.current);
+        transition("flyStart");
+        const step = (now: number) => {
+            const t = Math.min(1, (now - start) / 350);
+            const e = 1 - Math.pow(1 - t, 3);
+            const target = frame();
+            if (target !== null) {
+                cameraRef.current = {
+                    zoom: from.zoom + (target.zoom - from.zoom) * e,
+                    tx: from.tx + (target.tx - from.tx) * e,
+                    ty: from.ty + (target.ty - from.ty) * e,
+                };
+                applyCamera();
+                const cam = cameraRef.current;
+                setCameraSnapshot({ zoom: cam.zoom, tx: cam.tx, ty: cam.ty });
+            }
+            if (t < 1) { animRef.current = requestAnimationFrame(step); }
+            else { animRef.current = null; transition("flyEnd"); }
+        };
+        animRef.current = requestAnimationFrame(step);
+    }, [applyCamera, transition]);
+
+    // A user gesture (collapse/fly) takes the accordion away from the viewport
+    // spy until the viewport leaves that zone (issue #57, Phase 2 openZone fix).
+    const zoneOverrideRef = useRef<string | null>(null);
+
+    const flyToItem = useCallback((item: SchematicItemValue) => {
+        flyTo({ x: item.x - 4, y: item.y - 3, w: 8, h: 6 });
+        setSelected(item.key);
+        // Open the item's zone immediately rather than waiting for the
+        // viewport spy to catch up after the fly animation.
+        zoneOverrideRef.current = null;
+        setOpenZone(nav.zoneOf.get(item.key) ?? null);
+        if (onSelectFn) queueMicrotask(() => onSelectFn(item.key));
+    }, [flyTo, nav.zoneOf, onSelectFn]);
+    const stepSelection = useCallback((delta: number) => {
+        const { ordered, indexOf } = itemOrder;
+        if (ordered.length === 0) return;
+        const idx = selected !== null ? (indexOf.get(selected) ?? -1) : -1;
+        flyToItem(ordered[(idx + delta + ordered.length) % ordered.length]!);
+    }, [itemOrder, selected, flyToItem]);
+    const flyToZone = useCallback((zone: SchematicZoneValue) => {
+        flyTo({ x: zone.x, y: zone.y, w: zone.width, h: zone.height });
+        zoneOverrideRef.current = null;
+        setOpenZone(zone.key);
+    }, [flyTo]);
+
+    // Wheel zooms about the cursor (no modifier — a dedicated canvas owns the
+    // wheel, like any map); attached non-passively so preventDefault stops the
+    // page scrolling. Mutates the live camera, then requests one frame.
+    useEffect(() => {
+        const el = canvasRef.current;
+        if (!el) return;
+        const onWheel = (e: WheelEvent) => {
+            e.preventDefault();
+            const rect = el.getBoundingClientRect();
+            const px = e.clientX - rect.left, py = e.clientY - rect.top;
+            transition("wheel");
+            cameraRef.current = zoomAbout(cameraRef.current, Math.exp(-e.deltaY * 0.0015), px, py, 1, MAX_ZOOM);
+            requestRender();
+        };
+        el.addEventListener("wheel", onWheel, { passive: false });
+        return () => el.removeEventListener("wheel", onWheel);
+    }, [transition, requestRender]);
+
+    // Drag-pan + tap-to-pick on the canvas. The pick runs on POINTERUP, not the
+    // `click` event: onCanvasPointerDown captures the pointer for the drag, and
+    // a captured pointer's click is delivered to the capturing box — not the
+    // inner <canvas> — so a click handler there never fires for a marker /
+    // footprint tap (issue #57, P11). `moved` distinguishes a pan from a tap.
+    const panRef = useRef<{ x: number; y: number; tx: number; ty: number } | null>(null);
+    const movedRef = useRef(false);
+
+    // Pick the item under a tap: footprint polygons (close zoom) first, then the
+    // nearest LOD marker hit-tested against its FULL rendered extent via the
+    // shared markerHitbox (P11). Reads the LIVE camera so a tap maps to exactly
+    // what the canvas painted (invariant 4).
+    const pickAt = useCallback((host: HTMLElement, clientX: number, clientY: number) => {
+        const sz = sizeRef.current;
+        if (sz === null) return;
+        const cam = cameraRef.current;
+        const ppuLive = fitRef.current * cam.zoom;
+        if (ppuLive === 0) return;
+        const rect = host.getBoundingClientRect();
+        const sx = clientX - rect.left, sy = clientY - rect.top;
+        const wxp = (sx - cam.tx) / ppuLive, wyp = (sy - cam.ty) / ppuLive;
         for (const box of index.search({ minX: wxp, minY: wyp, maxX: wxp, maxY: wyp })) {
             const it = box.item;
             if ((tiers.get(it.key) ?? lod) !== "card") continue;
@@ -507,25 +626,118 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value }: 
                 return;
             }
         }
+        const ctx = drawRef.current?.getContext("2d") ?? null;
+        // Measure label widths with the painter's font so the hitbox matches the
+        // drawn pill (P11); save/restore so the pick never leaks font state.
+        if (ctx !== null) { ctx.save(); ctx.font = MARKER_LABEL_FONT; }
+        const camScreen = { ppu: ppuLive, tx: cam.tx, ty: cam.ty };
         let best: SchematicItemValue | null = null, bestD = Infinity;
         for (const it of visibleItems) {
             const tier = tiers.get(it.key) ?? lod;
             if (tier === "card") continue;
-            const d = Math.hypot(it.x * ppu + view.tx - sx, it.y * ppu + view.ty - sy);
-            const reach = tier === "dot" ? 9 : 18;
-            if (d < reach && d < bestD) { best = it; bestD = d; }
+            const box = markerHitbox(it, tier, camScreen, t => ctx !== null ? ctx.measureText(t).width : t.length * 6);
+            if (!markerHit(box, sx, sy)) continue;
+            const d = Math.hypot(it.x * ppuLive + cam.tx - sx, it.y * ppuLive + cam.ty - sy);
+            if (d < bestD) { best = it; bestD = d; }
         }
+        if (ctx !== null) ctx.restore();
         if (best !== null) flyToItem(best);
-    }, [size, view, ppu, index, tiers, lod, visibleItems, onSelectFn, flyToItem]);
+    }, [index, tiers, lod, visibleItems, onSelectFn, flyToItem]);
+
+    const onCanvasPointerDown = useCallback((e: React.PointerEvent) => {
+        if (e.button !== 0) return;
+        // Presses on controls / cards / the minimap are theirs — capturing here
+        // would steal their interaction.
+        if ((e.target as HTMLElement).closest("button") !== null) return;
+        transition("pointerDown");
+        panRef.current = { x: e.clientX, y: e.clientY, tx: cameraRef.current.tx, ty: cameraRef.current.ty };
+        movedRef.current = false;
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    }, [transition]);
+    const onCanvasPointerMove = useCallback((e: React.PointerEvent) => {
+        const pan = panRef.current;
+        if (!pan) return;
+        if (Math.abs(e.clientX - pan.x) > 4 || Math.abs(e.clientY - pan.y) > 4) movedRef.current = true;
+        cameraRef.current = { ...cameraRef.current, tx: pan.tx + e.clientX - pan.x, ty: pan.ty + e.clientY - pan.y };
+        requestRender();
+    }, [requestRender]);
+    // End an in-progress canvas drag-pan (panning → idle). Returns whether a pan
+    // was active; never disturbs a running fly.
+    const endPan = useCallback(() => {
+        if (panRef.current === null) return false;
+        panRef.current = null;
+        transition("pointerUp");
+        return true;
+    }, [transition]);
+    const onCanvasPointerUp = useCallback((e: React.PointerEvent) => {
+        const wasPress = endPan();
+        // A press that didn't become a drag is a tap → pick the item under it.
+        if (wasPress && !movedRef.current) pickAt(e.currentTarget as HTMLElement, e.clientX, e.clientY);
+    }, [endPan, pickAt]);
+    // pointercancel / lost capture: a pan that loses its grip mid-gesture must
+    // still end (issue #57, P10). After a normal release the pan is already
+    // ended (panRef null) so this is a no-op then, and it never cancels a fly
+    // the tap may have just started.
+    const onCanvasPointerCancel = useCallback(() => {
+        movedRef.current = false;
+        endPan();
+    }, [endPan]);
+    const resetView = useCallback(() => {
+        transition("cancel");           // cancels a running fly via the mode machine
+        cameraRef.current = IDENTITY;
+        requestRender();
+    }, [transition, requestRender]);
+    const zoomBy = useCallback((factor: number) => {
+        const sz = sizeRef.current;
+        if (sz === null) return;
+        transition("zoom");
+        cameraRef.current = zoomAbout(cameraRef.current, factor, sz.w / 2, sz.h / 2, 1, MAX_ZOOM);
+        requestRender();
+    }, [transition, requestRender]);
+    // Minimap is a camera writer (jump on press, follow on drag — invariant 8).
+    const minimapDragRef = useRef(false);
+    const minimapJump = useCallback((el: HTMLElement, clientX: number, clientY: number) => {
+        const sz = sizeRef.current;
+        if (sz === null) return;
+        const rect = el.getBoundingClientRect();
+        const cx = ((clientX - rect.left) / rect.width) * W;
+        const cy = ((clientY - rect.top) / rect.height) * H;
+        const cam = cameraRef.current;
+        cameraRef.current = { ...cam, tx: sz.w / 2 - cx * fitRef.current * cam.zoom, ty: sz.h / 2 - cy * fitRef.current * cam.zoom };
+        requestRender();
+    }, [W, H, requestRender]);
+
+    // Tear down any pending frame / fly on unmount.
+    useEffect(() => () => {
+        coalescerRef.current?.cancel();
+        if (animRef.current !== null) cancelAnimationFrame(animRef.current);
+    }, [animRef]);
+
+    // Repaint synchronously after any commit that changes a paint input OTHER
+    // than the live camera (theme load, data, resize, dpr, selection, the
+    // throttled LOD snapshot) — `applyCamera` reads the live `cameraRef`, so
+    // canvas and cards stay aligned even on a snapshot-cadence re-render.
+    useLayoutEffect(() => {
+        applyCamera();
+    }, [applyCamera, value, visibleItems, tiers, selected, palette, size, dpr, fit, cameraSnapshot]);
 
     // Accordion: one open zone; its ancestors stay open so the path is visible.
     const toggleZone = useCallback((key: string) => {
-        setOpenZone(prev => prev === key ? (nav.parentOf.get(key) ?? null) : key);
+        const collapsing = openZoneRef.current === key;
+        // Remember a user collapse so the spy won't immediately re-open it.
+        zoneOverrideRef.current = collapsing ? key : null;
+        setOpenZone(collapsing ? (nav.parentOf.get(key) ?? null) : key);
     }, [nav.parentOf]);
-    // The spy hands the viewport's dominant zone to the SAME accordion
-    // state manual interaction uses — one open chain, never two.
+    // The spy hands the viewport's dominant zone to the SAME accordion state
+    // manual interaction uses — one open chain, never two — but yields to a
+    // user collapse until the viewport leaves that zone.
     useEffect(() => {
-        if (currentZone !== undefined) setOpenZone(currentZone);
+        if (currentZone === undefined) return;
+        if (zoneOverrideRef.current !== null) {
+            if (zoneOverrideRef.current === currentZone) return; // user collapsed this; respect it
+            zoneOverrideRef.current = null;                      // viewport moved on; clear the override
+        }
+        setOpenZone(currentZone);
     }, [currentZone]);
 
     const openPath = useMemo(() => {
@@ -655,71 +867,69 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value }: 
                 onPointerDown={onCanvasPointerDown}
                 onPointerMove={onCanvasPointerMove}
                 onPointerUp={onCanvasPointerUp}
+                onPointerCancel={onCanvasPointerCancel}
+                onLostPointerCapture={onCanvasPointerCancel}
                 onDoubleClick={resetView}
             >
-                {showGrid && size !== null && scaleLen > 0 && (() => {
-                    const major = scaleLen * ppu;
-                    const minor = major / 5;
-                    return (
-                        <Box
-                            css={styles.grid}
-                            style={{
-                                backgroundSize: `${major}px ${major}px, ${major}px ${major}px, ${minor}px ${minor}px, ${minor}px ${minor}px`,
-                                backgroundPosition: `${view.tx}px 0, 0 ${view.ty}px, ${view.tx}px 0, 0 ${view.ty}px`,
-                            }}
-                        />
-                    );
-                })()}
+                {/* Grid size/position are driven imperatively by applyCamera so
+                    they stay locked to the same camera frame as the canvas. */}
+                {showGrid && size !== null && <Box ref={gridRef} css={styles.grid} />}
                 {size !== null && (
                     <>
                         <canvas
                             ref={drawRef}
-                            onClick={onCanvasClick}
                             style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}
                         />
-                        {visibleItems.map(item => {
-                            // Rich cards are DOM; dots / pins / footprints / zones /
-                            // links are painted on the canvas above.
-                            if ((tiers.get(item.key) ?? lod) !== "card") return null;
-                            const tone = statusTone(item.status);
-                            const isSelected = selected === item.key;
-                            const sublabel = getSomeorUndefined(item.sublabel);
-                            const icon = getSomeorUndefined(item.icon);
-                            const meter = getSomeorUndefined(item.meter);
-                            const metric = getSomeorUndefined(item.metric);
-                            const width = getSomeorUndefined(item.width);
-                            const iconDef = icon !== undefined
-                                ? findIconDefinition({ prefix: "fas", iconName: icon as IconName })
-                                : undefined;
-                            return (
-                                <Box
-                                    key={item.key}
-                                    css={styles.item}
-                                    {...(isSelected ? { "data-selected": "" } : {})}
-                                    style={{
-                                        left: wx(item.x), top: wy(item.y),
-                                        ...(typeof width === "number" ? { width: width * ppu } : {}),
-                                    }}
-                                    onClick={() => { setSelected(item.key); if (onSelectFn) queueMicrotask(() => onSelectFn(item.key)); }}
-                                    onPointerDown={e => e.stopPropagation()}
-                                >
-                                    <Box css={styles.itemHead}>
-                                        {iconDef !== undefined && (
-                                            <Box as="span" css={styles.itemIcon}><FontAwesomeIcon icon={iconDef} /></Box>
-                                        )}
-                                        <Box as="span" css={styles.itemLabel}>{item.label}</Box>
-                                        {tone !== undefined && <Box as="span" css={styles.statusDot} data-tone={tone} />}
-                                    </Box>
-                                    {sublabel !== undefined && <Box css={styles.itemSublabel}>{sublabel}</Box>}
-                                    {meter !== undefined && (
-                                        <Box css={styles.meterTrack}>
-                                            <Box css={styles.meterFill} style={{ width: `${meter.max > 0 ? Math.min(100, (meter.value / meter.max) * 100) : 0}%` }} />
+                        {/* Card layer holds the live `--cam-*` vars (set by
+                            applyCamera); each card translates off them, so a
+                            camera change is 3 var writes on this parent, never a
+                            per-card React re-layout (issue #57, invariant 6). */}
+                        <Box ref={cardLayerRef} css={styles.cardLayer}>
+                            {visibleItems.map(item => {
+                                // Rich cards are DOM; dots / pins / footprints / zones /
+                                // links are painted on the canvas above.
+                                if ((tiers.get(item.key) ?? lod) !== "card") return null;
+                                const tone = statusTone(item.status);
+                                const isSelected = selected === item.key;
+                                const sublabel = getSomeorUndefined(item.sublabel);
+                                const icon = getSomeorUndefined(item.icon);
+                                const meter = getSomeorUndefined(item.meter);
+                                const metric = getSomeorUndefined(item.metric);
+                                const width = getSomeorUndefined(item.width);
+                                const iconDef = icon !== undefined
+                                    ? findIconDefinition({ prefix: "fas", iconName: icon as IconName })
+                                    : undefined;
+                                return (
+                                    <Box
+                                        key={item.key}
+                                        css={styles.item}
+                                        {...(isSelected ? { "data-selected": "" } : {})}
+                                        style={{
+                                            left: 0, top: 0,
+                                            transform: `${cardTranslateCss(item.x, item.y)} translate(-50%, -50%)`,
+                                            ...(typeof width === "number" ? { width: cardWidthCss(width) } : {}),
+                                        }}
+                                        onClick={() => { setSelected(item.key); if (onSelectFn) queueMicrotask(() => onSelectFn(item.key)); }}
+                                        onPointerDown={e => e.stopPropagation()}
+                                    >
+                                        <Box css={styles.itemHead}>
+                                            {iconDef !== undefined && (
+                                                <Box as="span" css={styles.itemIcon}><FontAwesomeIcon icon={iconDef} /></Box>
+                                            )}
+                                            <Box as="span" css={styles.itemLabel}>{item.label}</Box>
+                                            {tone !== undefined && <Box as="span" css={styles.statusDot} data-tone={tone} />}
                                         </Box>
-                                    )}
-                                    {metric !== undefined && <Box css={styles.itemMetric}>{metric}</Box>}
-                                </Box>
-                            );
-                        })}
+                                        {sublabel !== undefined && <Box css={styles.itemSublabel}>{sublabel}</Box>}
+                                        {meter !== undefined && (
+                                            <Box css={styles.meterTrack}>
+                                                <Box css={styles.meterFill} style={{ width: `${meter.max > 0 ? Math.min(100, (meter.value / meter.max) * 100) : 0}%` }} />
+                                            </Box>
+                                        )}
+                                        {metric !== undefined && <Box css={styles.itemMetric}>{metric}</Box>}
+                                    </Box>
+                                );
+                            })}
+                        </Box>
                         <Box css={styles.controls}>
                             <Box as="button" css={styles.controlButton} aria-label="Zoom in" title="Zoom in (scroll)" onClick={() => zoomBy(1.5)}><FontAwesomeIcon icon={faPlus} /></Box>
                             <Box as="button" css={styles.controlButton} aria-label="Zoom out" title="Zoom out (scroll)" onClick={() => zoomBy(1 / 1.5)}><FontAwesomeIcon icon={faMinus} /></Box>
@@ -757,16 +967,20 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value }: 
                                 style={{ width: 150, height: (150 * H) / W }}
                                 onPointerDown={e => {
                                     e.stopPropagation();
-                                    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                                    const cx = ((e.clientX - rect.left) / rect.width) * W;
-                                    const cy = ((e.clientY - rect.top) / rect.height) * H;
-                                    if (size !== null) {
-                                        setView(prev => ({
-                                            ...prev,
-                                            tx: size.w / 2 - cx * fit * prev.zoom,
-                                            ty: size.h / 2 - cy * fit * prev.zoom,
-                                        }));
-                                    }
+                                    const el = e.currentTarget as HTMLElement;
+                                    el.setPointerCapture(e.pointerId);
+                                    transition("cancel");   // cancels a running fly via the mode machine
+                                    minimapDragRef.current = true;
+                                    minimapJump(el, e.clientX, e.clientY);
+                                }}
+                                onPointerMove={e => {
+                                    if (!minimapDragRef.current) return;
+                                    e.stopPropagation();
+                                    minimapJump(e.currentTarget as HTMLElement, e.clientX, e.clientY);
+                                }}
+                                onPointerUp={e => {
+                                    minimapDragRef.current = false;
+                                    (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
                                 }}
                             >
                                 {value.zones.map(zone => (
@@ -783,8 +997,8 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value }: 
                                     <Box
                                         css={styles.minimapViewport}
                                         style={{
-                                            left: `${Math.max(0, (-view.tx / ppu / W) * 100)}%`,
-                                            top: `${Math.max(0, (-view.ty / ppu / H) * 100)}%`,
+                                            left: `${Math.max(0, (-cameraSnapshot.tx / ppu / W) * 100)}%`,
+                                            top: `${Math.max(0, (-cameraSnapshot.ty / ppu / H) * 100)}%`,
                                             width: `${Math.min(100, (size.w / ppu / W) * 100)}%`,
                                             height: `${Math.min(100, (size.h / ppu / H) * 100)}%`,
                                         }}
