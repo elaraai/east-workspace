@@ -102,6 +102,12 @@ files living in the plugin under `libs/east-claude-plugin/skills/`:
   Ontology of a business (resources/activities/KPIs/decisions/objectives/
   policies) and render it with the e3-ui `Ontology` editor: elicitation
   methodology, the node/link model, and `OntologyType` encoding.
+- `east:east-contribute` (`skills/east-contribute/SKILL.md`) — contribute a
+  change to *this monorepo* from a GitHub issue (elaraai/east-workspace):
+  triage → lib(s)/skills, anti-duplication "feature register" discovery,
+  ensure East diagnostics/`tsserver-plugin-east` are live (the real gate is
+  `make lint`), the examples↔tests East-code contract, the full
+  build/test/lint loop + CI gates, and issue → branch → PR conventions.
 
 ## Workspace conventions
 
