@@ -821,30 +821,38 @@ function ValidatePanel({ vm, barList }: {
     vm: VMDesign;
     barList: (rows: { label: string; frac: number; tone: string; value: string }[]) => ReactNode;
 }) {
-    const treatedPct = Math.round(vm.primary.treatedShare * 100);
+    // Shared design-system recipes for the head-count + split bar (no hand-rolled styles).
+    const stat = useSlotRecipe({ key: 'stat' })({ size: 'lg' });
+    const meter = useSlotRecipe({ key: 'segmentedMeter' })({});
     return (
         <Box p="4.5">
             <Cap help="tab_validate">{vm.headline}</Cap>
 
-            {/* KPI head-count + the split meter */}
+            {/* KPI head-count (`stat`) + the split meter (`segmentedMeter`) */}
             <Box display="flex" alignItems="flex-end" gap="5" flexWrap="wrap">
-                <Box display="flex" flexDirection="column" gap="0.5">
-                    <Text textStyle="mono.sm" color="fg.muted"><Help id="validate_size">{vm.holdback ? 'to hold back from' : 'to run'}</Help></Text>
+                <Box css={stat.root}>
+                    <Text css={stat.label}><Help id="validate_size">{vm.holdback ? 'to hold back from' : 'to run'}</Help></Text>
                     {vm.faint ? (
                         <Text textStyle="body.sm" fontWeight="semibold" color="fg.warning" maxW="220px">Effect too faint to size — set a materiality threshold to size a trial.</Text>
                     ) : (
-                        <Text textStyle="mono-kpi" fontFamily="heading" fontSize="32px" color="brand.solid">{vm.primary.nTotal.toLocaleString()}</Text>
+                        <Text css={stat.valueText} color="brand.solid">{vm.primary.nTotal.toLocaleString()}</Text>
                     )}
                 </Box>
-                <Box flex="1" minW="220px">
-                    <Cap help="validate_split">{vm.holdback ? 'Hold-back split' : 'Split'}</Cap>
-                    <Box display="flex" h="10px" borderRadius="full" overflow="hidden" borderWidth="1px" borderColor="border.subtle">
-                        <Box bg="brand.solid" width={`${treatedPct}%`} />
-                        <Box bg="bg.emphasized" flex="1" />
+                <Box css={meter.root} flex="1" minW="220px">
+                    <Text css={meter.label}><Help id="validate_split">{vm.holdback ? 'Hold-back split' : 'Split'}</Help></Text>
+                    <Box css={meter.track}>
+                        <Box css={meter.segment} flex={vm.primary.treatedShare} bg="brand.solid" />
+                        <Box css={meter.segment} flex={1 - vm.primary.treatedShare} bg="bg.emphasized" />
                     </Box>
-                    <Box display="flex" justifyContent="space-between" mt="1.5">
-                        <Text textStyle="caption"><Text as="span" color="brand.fg" fontWeight="semibold">{vm.primary.nTreated.toLocaleString()}</Text> {vm.holdback ? 'treated' : 'get it'}</Text>
-                        <Text textStyle="caption"><Text as="span" color="fg.default" fontWeight="semibold">{vm.primary.nControl.toLocaleString()}</Text> {vm.holdback ? 'held back' : 'left alone'}</Text>
+                    <Box css={meter.keyRow} justifyContent="space-between">
+                        <Box css={meter.keyItem}>
+                            <Box css={meter.keyDot} bg="brand.solid" />
+                            <span><Text as="span" css={meter.valueText}>{vm.primary.nTreated.toLocaleString()}</Text> {vm.holdback ? 'treated' : 'get it'}</span>
+                        </Box>
+                        <Box css={meter.keyItem}>
+                            <Box css={meter.keyDot} bg="bg.emphasized" />
+                            <span><Text as="span" css={meter.valueText}>{vm.primary.nControl.toLocaleString()}</Text> {vm.holdback ? 'held back' : 'left alone'}</span>
+                        </Box>
                     </Box>
                 </Box>
             </Box>
