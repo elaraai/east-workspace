@@ -599,36 +599,46 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     const panRef = useRef<{ x: number; y: number; tx: number; ty: number } | null>(null);
     const movedRef = useRef(false);
 
-    // Pick the item under a tap: footprint polygons (close zoom) first, then the
-    // nearest LOD marker hit-tested against its FULL rendered extent via the
-    // shared markerHitbox (P11). Reads the LIVE camera so a tap maps to exactly
-    // what the canvas painted (invariant 4).
-    const pickAt = useCallback((host: HTMLElement, clientX: number, clientY: number) => {
+    // Pick the item under a tap. Card-tier hits take precedence over markers
+    // (rich cards / footprints are the primary affordance): (1) the footprint
+    // shape's exact painted geometry, then (2) the real DOM card under the
+    // pointer, then (3) the nearest dot/label marker against its FULL rendered
+    // extent (P11). Reads the LIVE camera so a tap maps to what was painted
+    // (invariant 4). Returns whether anything was selected.
+    const pickAt = useCallback((host: HTMLElement, clientX: number, clientY: number): boolean => {
         const sz = sizeRef.current;
-        if (sz === null) return;
+        if (sz === null) return false;
         const cam = cameraRef.current;
         const ppuLive = fitRef.current * cam.zoom;
-        if (ppuLive === 0) return;
+        if (ppuLive === 0) return false;
         const rect = host.getBoundingClientRect();
         const sx = clientX - rect.left, sy = clientY - rect.top;
         const wxp = (sx - cam.tx) / ppuLive, wyp = (sy - cam.ty) / ppuLive;
-        for (const box of index.search({ minX: wxp, minY: wyp, maxX: wxp, maxY: wyp })) {
-            const it = box.item;
+        const select = (key: string) => {
+            setSelected(key);
+            if (onSelectFn) queueMicrotask(() => onSelectFn(key));
+        };
+        // 1) footprint shape (the exact world-space geometry the painter drew).
+        for (const it of visibleItems) {
             if ((tiers.get(it.key) ?? lod) !== "card") continue;
             const fp = getSomeorUndefined(it.footprint);
             if (fp === undefined || fp.type === "rect") continue;
             const hit = fp.type === "circle"
                 ? Math.hypot(wxp - it.x, wyp - it.y) <= fp.value.radius
                 : pointInPolygon(wxp, wyp, fp.value.vertices);
-            if (hit) {
-                setSelected(it.key);
-                if (onSelectFn) queueMicrotask(() => onSelectFn(it.key));
-                return;
-            }
+            if (hit) { select(it.key); return true; }
         }
+        // 2) the real DOM card under the pointer — hit-test the actual rendered
+        // element (pixel-accurate), not an estimate of its box.
+        if (typeof document !== "undefined") {
+            const cardKey = document.elementFromPoint(clientX, clientY)
+                ?.closest("[data-card-key]")?.getAttribute("data-card-key");
+            if (cardKey !== null && cardKey !== undefined) { select(cardKey); return true; }
+        }
+        // 3) dot / label markers: nearest hit against the full rendered extent (P11).
         const ctx = drawRef.current?.getContext("2d") ?? null;
         // Measure label widths with the painter's font so the hitbox matches the
-        // drawn pill (P11); save/restore so the pick never leaks font state.
+        // drawn pill; save/restore so the pick never leaks font state.
         if (ctx !== null) { ctx.save(); ctx.font = MARKER_LABEL_FONT; }
         const camScreen = { ppu: ppuLive, tx: cam.tx, ty: cam.ty };
         let best: SchematicItemValue | null = null, bestD = Infinity;
@@ -641,13 +651,15 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
             if (d < bestD) { best = it; bestD = d; }
         }
         if (ctx !== null) ctx.restore();
-        if (best !== null) flyToItem(best);
-    }, [index, tiers, lod, visibleItems, onSelectFn, flyToItem]);
+        if (best !== null) { flyToItem(best); return true; }
+        return false;
+    }, [tiers, lod, visibleItems, onSelectFn, flyToItem]);
 
     const onCanvasPointerDown = useCallback((e: React.PointerEvent) => {
         if (e.button !== 0) return;
-        // Presses on controls / cards / the minimap are theirs — capturing here
-        // would steal their interaction.
+        // Presses on the controls / nav buttons are theirs. Cards are NOT
+        // excluded — a drag-pan can start anywhere, including over a card; a
+        // tap (no drag) over the card is resolved by pickAt on pointerup.
         if ((e.target as HTMLElement).closest("button") !== null) return;
         transition("pointerDown");
         panRef.current = { x: e.clientX, y: e.clientY, tx: cameraRef.current.tx, ty: cameraRef.current.ty };
@@ -671,8 +683,12 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     }, [transition]);
     const onCanvasPointerUp = useCallback((e: React.PointerEvent) => {
         const wasPress = endPan();
-        // A press that didn't become a drag is a tap → pick the item under it.
-        if (wasPress && !movedRef.current) pickAt(e.currentTarget as HTMLElement, e.clientX, e.clientY);
+        if (!wasPress || movedRef.current) return;   // not a canvas tap, or it was a drag
+        // A tap selects the item under it; a tap on empty background clears the
+        // selection ring (no zoom change — double-click handles Fit/reset). It
+        // does NOT call onSelect: that channel is item-key-only, and a deselect
+        // event would need a first-class API rather than an out-of-band sentinel.
+        if (!pickAt(e.currentTarget as HTMLElement, e.clientX, e.clientY)) setSelected(null);
     }, [endPan, pickAt]);
     // pointercancel / lost capture: a pan that loses its grip mid-gesture must
     // still end (issue #57, P10). After a normal release the pan is already
@@ -765,7 +781,15 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
             <Box key={node.zone.key}>
                 <Box
                     css={styles.navZone}
-                    style={{ paddingLeft: `${8 + depth * 14}px` }}
+                    style={{
+                        paddingLeft: `${8 + depth * 14}px`,
+                        // Pin this header below its ancestors' pinned headers
+                        // (each level offset by one row) so the whole path stays
+                        // visible while scrolling the zone's items; shallower
+                        // levels stack above deeper ones.
+                        top: `calc(var(--nav-row-h) * ${depth})`,
+                        zIndex: 30 - depth,
+                    }}
                     {...(node.zone.key === currentZone ? { "data-current": "" } : {})}
                 >
                     {expandable ? (
@@ -903,15 +927,15 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                                     <Box
                                         key={item.key}
                                         css={styles.item}
+                                        data-card-key={item.key}
                                         {...(isSelected ? { "data-selected": "" } : {})}
                                         style={{
                                             left: 0, top: 0,
                                             transform: `${cardTranslateCss(item.x, item.y)} translate(-50%, -50%)`,
                                             ...(typeof width === "number" ? { width: cardWidthCss(width) } : {}),
                                         }}
-                                        onClick={() => { setSelected(item.key); if (onSelectFn) queueMicrotask(() => onSelectFn(item.key)); }}
-                                        onPointerDown={e => e.stopPropagation()}
-                                    >
+                                    >{/* No onClick / stopPropagation: a drag-pan can start on a
+                                        card, and a tap is resolved by the canvas pickAt (pointerup). */}
                                         <Box css={styles.itemHead}>
                                             {iconDef !== undefined && (
                                                 <Box as="span" css={styles.itemIcon}><FontAwesomeIcon icon={iconDef} /></Box>

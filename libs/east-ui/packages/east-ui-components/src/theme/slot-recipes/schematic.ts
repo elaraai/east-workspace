@@ -468,13 +468,23 @@ export const schematicSlotRecipe = defineSlotRecipe({
             overflowY: "auto",
             paddingBottom: "{spacing.2}",
             lineHeight: "1.7",
+            // Row height shared by the sticky zone headers (their stacked `top`
+            // offset is a multiple of this) so an ancestor chain pins flush.
+            "--nav-row-h": "22px",
         },
+        /* Zone headers pin to the top of the scroll area like a tree view: each
+         * depth level sticks at `top = depth × --nav-row-h` (set inline), so the
+         * area (and its ancestors) stays visible while you scroll its items.
+         * The opaque surface + z-index occlude the items scrolling underneath. */
         navZone: {
             display: "flex",
             alignItems: "center",
             gap: "{spacing.1}",
-            paddingY: "2px",
+            height: "var(--nav-row-h)",
             paddingRight: "{spacing.3}",
+            position: "sticky",
+            background: "bg.surface",
+            zIndex: "1",
         },
         navCaret: {
             background: "transparent",
@@ -521,6 +531,9 @@ export const schematicSlotRecipe = defineSlotRecipe({
             border: "none",
             paddingY: "2px",
             paddingRight: "{spacing.3}",
+            // Keep the auto-scroll-to-selected item clear of the pinned zone
+            // headers (up to two ancestor levels).
+            scrollMarginTop: "calc(var(--nav-row-h) * 2)",
             fontFamily: "mono",
             fontSize: "11px",
             letterSpacing: "0.06em",
