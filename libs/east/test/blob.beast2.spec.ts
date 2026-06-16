@@ -572,4 +572,28 @@ await describe("Blob (Beast v2)", (test) => {
     const v2_encoded = $.let(East.Blob.encodeBeast(person, 'v2'));
     $(assert.throws(v2_encoded.decodeBeast(PersonType, 'v1'), /Failed to decode Beast data/));
   });
+
+  // =========================================================================
+  // Decode-side struct/variant dedup must content-verify (collision regression)
+  // =========================================================================
+
+  test("Beast v2 - struct dedup must not substitute on a content-hash collision", $ => {
+    // Regression: the decode-side struct/variant dedup keyed on (contentHash,
+    // byteLen, type) WITHOUT a byte tiebreak, so two DISTINCT structs of the same
+    // type+length whose 64-bit content hash collided had the second silently
+    // decoded as the first. The content hash leaves a window unhashed on the
+    // >48-byte path, so a collision is constructible: a 9-inline-float struct
+    // leaves field f6 unhashed, so two structs differing ONLY in f6 collide.
+    // decode MUST verify bytes before deduping → the array must round-trip equal.
+    const Row = StructType({
+      f0: FloatType, f1: FloatType, f2: FloatType, f3: FloatType, f4: FloatType,
+      f5: FloatType, f6: FloatType, f7: FloatType, f8: FloatType,
+    });
+    const RowsType = ArrayType(Row);
+    const rows = $.let(East.value([
+      { f0: 1.5, f1: 3.0, f2: 4.5, f3: 6.0, f4: 7.5, f5: 9.0, f6: 10.5, f7: 12.0, f8: 13.5 },
+      { f0: 1.5, f1: 3.0, f2: 4.5, f3: 6.0, f4: 7.5, f5: 9.0, f6: 99999.0, f7: 12.0, f8: 13.5 },
+    ], RowsType));
+    $(assert.equal(East.Blob.encodeBeast(rows, 'v2').decodeBeast(RowsType, 'v2'), rows));
+  });
 });

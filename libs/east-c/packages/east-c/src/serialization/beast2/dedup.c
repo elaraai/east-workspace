@@ -125,13 +125,20 @@ static void beast2_dedup_grow(Beast2DecodeCtx *ctx)
 EastValue *beast2_dedup_find(Beast2DecodeCtx *ctx, uint64_t hash, const uint8_t *data,
                              size_t byte_start, size_t byte_len, EastType *type)
 {
-    (void)data;
-    (void)byte_start; /* no longer needed — full-content hash is sufficient */
     uint32_t h = (uint32_t)(hash) & (uint32_t)ctx->dedup_mask;
     for (;;) {
         if (ctx->dedup_slots[h].hash == 0) return NULL;
+        /* (hash, byte_len, type) only identifies a CANDIDATE: the 64-bit content
+         * hash can collide for two distinct same-type/same-length values, so the
+         * actual bytes MUST be compared before deduping. Without this tiebreak a
+         * hash collision silently substitutes the stored value for the new one
+         * (decode corruption). On a content mismatch keep probing — a genuinely
+         * new value is added on a later/empty slot and is found by the same probe.
+         * Cost is negligible: the bytes are cache-warm from the content hash that
+         * just read them (measured: no decode-time regression, incl. dedup-heavy). */
         if (ctx->dedup_slots[h].hash == hash && ctx->dedup_slots[h].byte_len == byte_len &&
-            ctx->dedup_slots[h].type == type) {
+            ctx->dedup_slots[h].type == type &&
+            memcmp(data + byte_start, data + ctx->dedup_slots[h].byte_start, byte_len) == 0) {
             return ctx->dedup_slots[h].value;
         }
         h = (h + 1) & (uint32_t)ctx->dedup_mask;
