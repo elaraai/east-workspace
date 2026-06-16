@@ -143,7 +143,7 @@ export const ExperimentPayloadType = StructType({
 export type ExperimentPayloadType = typeof ExperimentPayloadType;
 
 /** Initial result tab as a string literal. */
-export type ExperimentTabLiteral = 'answer' | 'trust' | 'dose';
+export type ExperimentTabLiteral = 'answer' | 'trust' | 'dose' | 'validate';
 
 /**
  * Internal {@link EastUI.component} carrier. The React renderer registers
