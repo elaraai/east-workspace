@@ -4,27 +4,24 @@
  */
 
 /**
- * Workspace navigation sidebar — bsys Sidebar / `navList` recipe.
- *
- * Renders workspaces as top-level nav items (mono uppercase, inset brand-tint
- * active pill); the selected workspace expands to its inputs + tasks as a
- * single flat list of quieter sub-rows. Each sub-row carries a leading type
- * icon (input vs task) and a trailing `StatusIndicator` dot — no INPUTS/TASKS
- * group headings. Built on the shared `navList` slot-recipe (the same one the
- * showcase sidebar consumes).
+ * Workspace nav — the sidebar, scoped to the workspace chosen in the app-bar
+ * select. Mirrors the east-ui-showcase Sidebar: a bandless title row, then two
+ * section eyebrows (INPUTS / TASKS) over prominent `navList` items. Each item is
+ * the recipe's `item` slot directly — label + trailing status dot, with the
+ * brand-tint inset active pill — not a quieter sub-item.
  *
  * @packageDocumentation
  */
 
-import { Fragment, useMemo } from 'react';
-import { Box, Flex, Text, HStack, Spinner, useSlotRecipe, type SystemStyleObject } from '@chakra-ui/react';
+import { useMemo } from 'react';
+import { Box, Flex, Text, HStack, Spinner, chakra, useSlotRecipe, type SystemStyleObject } from '@chakra-ui/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faChevronLeft, faDatabase, faBolt } from '@fortawesome/free-solid-svg-icons';
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core';
-import { useE3Context, getSelectedWorkspace } from '../context/E3Context';
+import { useE3Context } from '../context/E3Context';
 import { SidebarToggle } from './SidebarToggle';
-import { useWorkspaceList, useWorkspaceStatus, formatApiError } from '@elaraai/e3-ui-components';
-import type { WorkspaceInfo, TaskStatusInfo, DatasetStatusInfo } from '@elaraai/e3-api-client';
+import { useWorkspaceStatus, formatApiError } from '@elaraai/e3-ui-components';
+import type { TaskStatusInfo, DatasetStatusInfo } from '@elaraai/e3-api-client';
 import { StatusIndicator, type StatusTone } from './StatusIndicator';
 
 function getTaskStatusTone(status: TaskStatusInfo['status']['type']): StatusTone {
@@ -49,55 +46,53 @@ function getInputStatusTone(status: DatasetStatusInfo['status']['type']): Status
     }
 }
 
-/** Sub-rows (inputs + tasks) are a flat list under the expanded workspace —
- *  no group headings. They drop the uppercase mono treatment for a quieter
- *  11px/500 label and are told apart by a leading type icon, not a heading.
- *  No `paddingInlineStart` override here — the icon column supplies the visual
- *  lead, and leaving the base padding lets the active pill render correctly. */
-const NESTED_ITEM_OVERRIDE: SystemStyleObject = {
-    height: '30px',
-    textTransform: 'none',
-    fontSize: '11px',
-    fontWeight: 500,
-    letterSpacing: '0.08em',
-};
+/** A bandless section eyebrow — muted 9.5px mono with a leading type icon, per
+ *  the showcase Sidebar (no `eyebrowRow` band/rule). */
+function SectionEyebrow({ icon, label }: { icon: IconDefinition; label: string }) {
+    return (
+        <Flex align="center" gap="8px" pt="16px" pb="10px" pl="14px" pr="10px">
+            <Box as="span" w="16px" display="inline-flex" justifyContent="center" color="fg.muted">
+                <FontAwesomeIcon icon={icon} style={{ fontSize: '11px' }} />
+            </Box>
+            <Box
+                fontFamily="mono"
+                fontSize="9.5px"
+                fontWeight="semibold"
+                letterSpacing="0.18em"
+                textTransform="uppercase"
+                color="fg.muted"
+            >
+                {label}
+            </Box>
+        </Flex>
+    );
+}
 
-interface NestedItemProps {
+interface NavItemProps {
     label: string;
-    icon: IconDefinition;
     tone: StatusTone;
     statusLabel: string;
     active: boolean;
     itemStyle: SystemStyleObject;
-    iconStyle: SystemStyleObject;
-    textStyle: SystemStyleObject;
     onClick: () => void;
 }
 
-function NestedItem({ label, icon, tone, statusLabel, active, itemStyle, iconStyle, textStyle, onClick }: NestedItemProps) {
+/** A prominent navList item — the recipe `item` slot directly (12px uppercase,
+ *  brand-tint active pill); label takes the row, status dot trails. */
+function NavItem({ label, tone, statusLabel, active, itemStyle, onClick }: NavItemProps) {
     return (
-        <Box
-            as="button"
-            onClick={onClick}
-            aria-current={active ? 'page' : undefined}
-            css={{ ...itemStyle, ...NESTED_ITEM_OVERRIDE }}
-            title={label}
-        >
-            <Box as="span" css={iconStyle}><FontAwesomeIcon icon={icon} /></Box>
-            <Box as="span" css={textStyle}>{label}</Box>
+        <chakra.button type="button" onClick={onClick} aria-current={active ? 'page' : undefined} css={itemStyle} title={label}>
+            <Box as="span" flex="1" textAlign="left" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap">{label}</Box>
             <StatusIndicator tone={tone} label={statusLabel} hideLabel />
-        </Box>
+        </chakra.button>
     );
 }
 
-function WorkspaceTreeContent({ workspaces }: { workspaces: WorkspaceInfo[] }) {
-    const { apiUrl, selection, setSelection, toggleSidebar } = useE3Context();
-    const selectedWorkspace = getSelectedWorkspace(selection);
+export function WorkspaceTree() {
+    const { apiUrl, currentWorkspace, selection, setSelection, toggleSidebar } = useE3Context();
+    const styles = useSlotRecipe({ key: 'navList' })({ surface: 'shell' });
 
-    const recipe = useSlotRecipe({ key: 'navList' });
-    const styles = recipe({ surface: 'shell' });
-
-    const { data: status, isLoading: statusLoading } = useWorkspaceStatus(apiUrl, 'default', selectedWorkspace, undefined, {
+    const { data: status, isLoading, error } = useWorkspaceStatus(apiUrl, 'default', currentWorkspace, undefined, {
         refetchInterval: 1000,
         staleTime: 0,
         gcTime: 0,
@@ -113,115 +108,70 @@ function WorkspaceTreeContent({ workspaces }: { workspaces: WorkspaceInfo[] }) {
     }, [status]);
 
     return (
-        <Box
-            as="nav"
-            css={styles.root}
-        >
-            {/* Section eyebrow + collapse chevron — bsys Sidebar recipe:
-             *  padding 4/10/10/14 · 9.5px/0.18em eyebrow · 22px chevron. */}
-            <Flex align="center" justify="space-between" pt="4px" pb="10px" pl="14px" pr="10px">
-                <Box textStyle="nav.eyebrow">Workspaces</Box>
+        <Box as="nav" css={styles.root}>
+            {/* Workspace title row — bandless; the collapse chevron lives here. */}
+            <Flex align="center" justify="space-between" gap="2" pt="4px" pb="10px" pl="14px" pr="10px">
+                <Box
+                    fontFamily="mono"
+                    fontSize="11px"
+                    fontWeight="bold"
+                    letterSpacing="0.12em"
+                    textTransform="uppercase"
+                    color="fg"
+                    minWidth={0}
+                    overflow="hidden"
+                    textOverflow="ellipsis"
+                    whiteSpace="nowrap"
+                    title={currentWorkspace ?? undefined}
+                >
+                    {currentWorkspace ?? 'No workspace'}
+                </Box>
                 <SidebarToggle aria-label="Collapse sidebar" onClick={toggleSidebar} icon={faChevronLeft} />
             </Flex>
-            {workspaces.map(ws => {
-                const expanded = selectedWorkspace === ws.name;
-                const wsActive = selection.type === 'workspace' && selection.workspace === ws.name;
-                return (
-                    <Fragment key={ws.name}>
-                        <Box
-                            as="button"
-                            aria-current={wsActive ? 'page' : undefined}
-                            css={styles.item}
-                            onClick={() => setSelection(expanded ? { type: 'none' } : { type: 'workspace', workspace: ws.name })}
-                            title={ws.name}
-                        >
-                            <Box as="span" css={styles.itemText}>{ws.name}</Box>
-                            {expanded && statusLoading && <Spinner size="xs" />}
-                        </Box>
 
-                        {expanded && (
-                            <>
-                                {/* Inputs + tasks as one flat list of sub-rows; a
-                                 *  leading type icon (database vs bolt) tells them
-                                 *  apart — no INPUTS/TASKS group headings. */}
-                                {inputs.map(input => (
-                                    <NestedItem
-                                        key={`input:${input.path}`}
-                                        label={input.path.replace(/^\.inputs\./, '')}
-                                        icon={faDatabase}
-                                        tone={getInputStatusTone(input.status.type)}
-                                        statusLabel={input.status.type}
-                                        active={selection.type === 'input' && selection.workspace === ws.name && selection.path === input.path}
-                                        itemStyle={styles.item}
-                                        iconStyle={styles.itemIcon}
-                                        textStyle={styles.itemText}
-                                        onClick={() => setSelection({ type: 'input', workspace: ws.name, path: input.path })}
-                                    />
-                                ))}
-                                {tasks.map(task => (
-                                    <NestedItem
-                                        key={`task:${task.name}`}
-                                        label={task.name}
-                                        icon={faBolt}
-                                        tone={getTaskStatusTone(task.status.type)}
-                                        statusLabel={task.status.type}
-                                        active={selection.type === 'task' && selection.workspace === ws.name && selection.task === task.name}
-                                        itemStyle={styles.item}
-                                        iconStyle={styles.itemIcon}
-                                        textStyle={styles.itemText}
-                                        onClick={() => setSelection({ type: 'task', workspace: ws.name, task: task.name })}
-                                    />
-                                ))}
-                                {!statusLoading && inputs.length === 0 && tasks.length === 0 && (
-                                    <Text pl="24px" py="1" fontFamily="mono" fontSize="2xs" color="fg.subtle">
-                                        No inputs or tasks
-                                    </Text>
-                                )}
-                            </>
-                        )}
-                    </Fragment>
-                );
-            })}
+            {!currentWorkspace ? (
+                <Text px="14px" py="2" fontSize="xs" color="fg.muted">Select a workspace</Text>
+            ) : error ? (
+                <Box px="14px" py="2"><Text color="fg.danger" fontSize="xs">{formatApiError(error).message}</Text></Box>
+            ) : (
+                <>
+                    <SectionEyebrow icon={faDatabase} label="Inputs" />
+                    {inputs.map(input => (
+                        <NavItem
+                            key={`input:${input.path}`}
+                            label={input.path.replace(/^\.inputs\./, '')}
+                            tone={getInputStatusTone(input.status.type)}
+                            statusLabel={input.status.type}
+                            active={selection.type === 'input' && selection.path === input.path}
+                            itemStyle={styles.item}
+                            onClick={() => setSelection({ type: 'input', workspace: currentWorkspace, path: input.path })}
+                        />
+                    ))}
+                    {!isLoading && inputs.length === 0 && (
+                        <Text pl="14px" py="1" fontFamily="mono" fontSize="2xs" color="fg.subtle">No inputs</Text>
+                    )}
+
+                    <SectionEyebrow icon={faBolt} label="Tasks" />
+                    {tasks.map(task => (
+                        <NavItem
+                            key={`task:${task.name}`}
+                            label={task.name}
+                            tone={getTaskStatusTone(task.status.type)}
+                            statusLabel={task.status.type}
+                            active={selection.type === 'task' && selection.task === task.name}
+                            itemStyle={styles.item}
+                            onClick={() => setSelection({ type: 'task', workspace: currentWorkspace, task: task.name })}
+                        />
+                    ))}
+                    {!isLoading && tasks.length === 0 && (
+                        <Text pl="14px" py="1" fontFamily="mono" fontSize="2xs" color="fg.subtle">No tasks</Text>
+                    )}
+
+                    {isLoading && !status && (
+                        <HStack px="14px" py="2"><Spinner size="xs" /><Text fontSize="xs" color="fg.muted">Loading…</Text></HStack>
+                    )}
+                </>
+            )}
         </Box>
     );
-}
-
-export function WorkspaceTree() {
-    const { apiUrl } = useE3Context();
-    const { data: workspaces, isLoading, error } = useWorkspaceList(apiUrl, 'default', undefined, {
-        refetchInterval: 5000,
-    });
-
-    if (isLoading) {
-        return (
-            <Box p="3">
-                <HStack>
-                    <Spinner size="sm" />
-                    <Text fontSize="sm">Loading workspaces…</Text>
-                </HStack>
-            </Box>
-        );
-    }
-
-    if (error) {
-        const info = formatApiError(error);
-        return (
-            <Box p="4">
-                <Text color="fg.danger" fontSize="sm">{info.message}</Text>
-                {info.details && (
-                    <Text color="fg.danger" opacity={0.8} fontSize="xs" mt="1">{info.details}</Text>
-                )}
-            </Box>
-        );
-    }
-
-    if (!workspaces || workspaces.length === 0) {
-        return (
-            <Box p="4">
-                <Text fontSize="sm" color="fg.muted">No workspaces found</Text>
-            </Box>
-        );
-    }
-
-    return <WorkspaceTreeContent workspaces={workspaces} />;
 }
