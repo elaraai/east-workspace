@@ -19,6 +19,7 @@ A Claude Code plugin for the East programming language ecosystem.
 | `east-project` | _(plugin-native)_ | Create + manage East/e3 projects — scaffolds via `east-scaffold`, drives the build/deploy/run lifecycle |
 | `east-design` | _(plugin-native)_ | Architect a solution before coding — discovery questions, capability→skill mapping, example searches, design doc |
 | `east-ontology` | _(plugin-native)_ | Build an Economic Ontology of a business and render it with the e3-ui Ontology editor — elicitation methodology, node/link model, `OntologyType` encoding |
+| `east-contribute` | _(plugin-native)_ | Contribute a change to the monorepo from a GitHub issue — triage → lib(s)/skills, anti-duplication discovery, East diagnostics + examples↔tests contract, build/test/lint + CI gates, issue → branch → PR |
 
 ## Example Search
 
