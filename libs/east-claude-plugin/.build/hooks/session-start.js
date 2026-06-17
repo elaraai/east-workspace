@@ -18,7 +18,7 @@ function writeHookOutput(hookEventName, additionalContext) {
 
 // lib/east-project.ts
 import { readFile } from "node:fs/promises";
-import { join, dirname, resolve } from "node:path";
+import { join, dirname } from "node:path";
 var PACKAGE_SKILL_MAP = {
   "@elaraai/east": "east",
   "@elaraai/east-node-std": "east-node-std",
@@ -67,14 +67,14 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { existsSync, unlinkSync } from "node:fs";
-import { dirname as dirname2, join as join2, resolve as resolve2 } from "node:path";
+import { dirname as dirname2, join as join2, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 function daemonSocket() {
   const hash = createHash("sha1").update(daemonEntry()).digest("hex").slice(0, 16);
   return join2(tmpdir(), `east-diag-${hash}.sock`);
 }
 function daemonEntry() {
-  return resolve2(dirname2(fileURLToPath(import.meta.url)), "..", "daemon", "server.js");
+  return resolve(dirname2(fileURLToPath(import.meta.url)), "..", "daemon", "server.js");
 }
 function spawnDaemon(socketPath, workspace) {
   const entry = daemonEntry();
@@ -106,6 +106,33 @@ function warmDaemon(workspace) {
   });
 }
 
+// lib/east-rules-context.ts
+var EAST_RULES_CONTEXT = [
+  "What the East linter checks \u2014 the editor language server, ESLint `east/east-rules`, and the preemptive `<east-code-review>` all run the SAME rule set, so author to these from the start. Inside an `East.function` / `$`-block, the code must be East all the way down:",
+  "",
+  "Host-vs-East (most common):",
+  "- no-host-in-east-block \u2014 avoid host TypeScript inside a block (`a + b`, `cond ? a : b`, `a && b`, `arr[i]`, a JS `for`/`if` that builds IR, a TS helper/closure call, a `${x}` string template); use East instead: `a.add(b)`, `cond.ifElse(() => a, () => b)`, `a.and(() => b)`, `coll.get(i)`, `$.for(...)` / `data.map(($, x) => \u2026)`, `East.str`.",
+  "- no-module-scope-east-macro \u2014 avoid a module-scope TS helper that returns East IR or a composite string key like `(o, l) => `${o}|${l}``; make a real `East.function`, or model typed / nested East data.",
+  "- no-compile-time-data-injection \u2014 avoid reading data at module load (`node:fs`, `readFileSync`, `JSON.parse`, `process.env`); load at runtime via `e3.input` / datasets / a platform task.",
+  "- no-compile-time-seed-data \u2014 avoid computing an `e3.input` seed in host code (a Map filled by loops, `{ a: num(cfg.x) }`); pass a small literal / empty default and parse real data at runtime (`blob.decodeCsv` in a task).",
+  "",
+  "Bindings & values:",
+  "- no-let-const-in-expression \u2014 avoid burying `$.let`/`$.const` mid-expression (a struct-field value, call argument, array element); declare it on its own line and reuse the binding.",
+  "- no-redundant-east-cast \u2014 avoid a cast / generic / wrapper the East type already governs: `$.let(x as T, T)`, `$.let(new Map<K, V>(), DictType(...))`, `$.let(East.value(x, T), T)`; drop it.",
+  "- prefer-explicit-east-type \u2014 avoid an under-determined `$.let([])` / `$.let({})` / `$.let(new Map())`; give the East type, e.g. `$.let([], ArrayType(IntegerType))`.",
+  "- no-untracked-east-data \u2014 avoid a bare JS literal in an East-typed slot inside a block; bind it with `$.const`/`$.let`.",
+  "- no-reinlined-east-binding \u2014 avoid reusing an East `Expr` held in a JS `const` across a block (it re-inlines per use); bind it once with `$.let`/`$.const`.",
+  "- no-unexecuted-east-expression \u2014 avoid a bare East expression statement; execute it with `$(expr)` or bind it.",
+  "",
+  "Variants, types, imports, UI:",
+  '- prefer-some-none \u2014 avoid `variant("some", x)` / `variant("none", null)`; use `some(x)` / `none`.',
+  '- no-handrolled-variant \u2014 avoid a hand-rolled `{ type: "x", value: v }`; use `variant("x", v)`.',
+  "- no-east-namespaced-type \u2014 avoid `East.IntegerType`; import `IntegerType` and use it bare.",
+  "- prefer-let-const-over-east-value \u2014 avoid `East.value(...)` inside a block; use `$.let`/`$.const`.",
+  "- prefer-jsx-over-factory-call \u2014 in a `.tsx` file, avoid `Foo.Root(...)`; author the `<Foo>` tag.",
+  "- no-relative-src-import \u2014 avoid importing another package via `../src` or `@elaraai/x/src`; use its published package name."
+].join("\n");
+
 // hooks/session-start.ts
 async function main() {
   const event = await readHookInput();
@@ -127,7 +154,9 @@ async function main() {
     "- Do NOT learn the API by reading or grepping `.d.ts` files in node_modules. The type signatures omit East's idioms and runtime constraints, so reasoning from them reliably produces broken code that still type-checks. Search the examples instead \u2014 that is the correct, grounded path.",
     "",
     "Preemptive diagnostics:",
-    "- After you read or edit an East file, the plugin injects an `<east-code-review>` block listing TypeScript errors and East-specific idiom issues (e.g. inline `$.const`, hand-rolled variants, `$.let` used in an expression). Treat it as authoritative and fix what it flags \u2014 it's preemptive, so resolving it now avoids build-and-retry loops later."
+    "- After you read or edit an East file, the plugin injects an `<east-code-review>` block listing TypeScript errors and East-specific idiom issues. Treat it as authoritative and fix what it flags \u2014 it's preemptive, so resolving it now avoids build-and-retry loops later. The rules it enforces are summarised below; write to them up front.",
+    "",
+    EAST_RULES_CONTEXT
   ].join("\n");
   writeHookOutput("SessionStart", context);
 }

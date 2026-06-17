@@ -2979,7 +2979,7 @@ var require_compile = __commonJS({
       const schOrFunc = root.refs[ref];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve3.call(this, root, ref);
+      let _sch = resolve2.call(this, root, ref);
       if (_sch === void 0) {
         const schema = (_a = root.localRefs) === null || _a === void 0 ? void 0 : _a[ref];
         const { schemaId } = this.opts;
@@ -3006,7 +3006,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve3(root, ref) {
+    function resolve2(root, ref) {
       let sch;
       while (typeof (sch = this.refs[ref]) == "string")
         ref = sch;
@@ -3581,7 +3581,7 @@ var require_fast_uri = __commonJS({
       }
       return uri;
     }
-    function resolve3(baseURI, relativeURI, options) {
+    function resolve2(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
       const resolved = resolveComponent(parse3(baseURI, schemelessOptions), parse3(relativeURI, schemelessOptions), schemelessOptions, true);
       schemelessOptions.skipEscape = true;
@@ -3808,7 +3808,7 @@ var require_fast_uri = __commonJS({
     var fastUri = {
       SCHEMES,
       normalize,
-      resolve: resolve3,
+      resolve: resolve2,
       resolveComponent,
       equal,
       serialize,
@@ -18892,7 +18892,7 @@ var Protocol = class {
           return;
         }
         const pollInterval = task2.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1e3;
-        await new Promise((resolve3) => setTimeout(resolve3, pollInterval));
+        await new Promise((resolve2) => setTimeout(resolve2, pollInterval));
         options?.signal?.throwIfAborted();
       }
     } catch (error2) {
@@ -18909,7 +18909,7 @@ var Protocol = class {
    */
   request(request, resultSchema, options) {
     const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
-    return new Promise((resolve3, reject) => {
+    return new Promise((resolve2, reject) => {
       const earlyReject = (error2) => {
         reject(error2);
       };
@@ -18987,7 +18987,7 @@ var Protocol = class {
           if (!parseResult.success) {
             reject(parseResult.error);
           } else {
-            resolve3(parseResult.data);
+            resolve2(parseResult.data);
           }
         } catch (error2) {
           reject(error2);
@@ -19248,12 +19248,12 @@ var Protocol = class {
       }
     } catch {
     }
-    return new Promise((resolve3, reject) => {
+    return new Promise((resolve2, reject) => {
       if (signal.aborted) {
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
         return;
       }
-      const timeoutId = setTimeout(resolve3, interval);
+      const timeoutId = setTimeout(resolve2, interval);
       signal.addEventListener("abort", () => {
         clearTimeout(timeoutId);
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
@@ -20353,7 +20353,7 @@ var McpServer = class {
     let task = createTaskResult.task;
     const pollInterval = task.pollInterval ?? 5e3;
     while (task.status !== "completed" && task.status !== "failed" && task.status !== "cancelled") {
-      await new Promise((resolve3) => setTimeout(resolve3, pollInterval));
+      await new Promise((resolve2) => setTimeout(resolve2, pollInterval));
       const updatedTask = await extra.taskStore.getTask(taskId);
       if (!updatedTask) {
         throw new McpError(ErrorCode.InternalError, `Task ${taskId} not found during polling`);
@@ -21002,12 +21002,12 @@ var StdioServerTransport = class {
     this.onclose?.();
   }
   send(message) {
-    return new Promise((resolve3) => {
+    return new Promise((resolve2) => {
       const json = serializeMessage(message);
       if (this._stdout.write(json)) {
-        resolve3();
+        resolve2();
       } else {
-        this._stdout.once("drain", resolve3);
+        this._stdout.once("drain", resolve2);
       }
     });
   }
@@ -21646,7 +21646,7 @@ var MiniSearch = class _MiniSearch {
       if ((i + 1) % chunkSize === 0) {
         return {
           chunk: [],
-          promise: promise2.then(() => new Promise((resolve3) => setTimeout(resolve3, 0))).then(() => this.addAll(chunk2))
+          promise: promise2.then(() => new Promise((resolve2) => setTimeout(resolve2, 0))).then(() => this.addAll(chunk2))
         };
       } else {
         return { chunk: chunk2, promise: promise2 };
@@ -21925,7 +21925,7 @@ var MiniSearch = class _MiniSearch {
           this._index.delete(term);
         }
         if (i % batchSize === 0) {
-          await new Promise((resolve3) => setTimeout(resolve3, batchWait));
+          await new Promise((resolve2) => setTimeout(resolve2, batchWait));
         }
         i += 1;
       }
@@ -22823,7 +22823,7 @@ var objectToNumericMapAsync = async (object3) => {
   }
   return map;
 };
-var wait = (ms) => new Promise((resolve3) => setTimeout(resolve3, ms));
+var wait = (ms) => new Promise((resolve2) => setTimeout(resolve2, ms));
 var SPACE_OR_PUNCTUATION = /[\n\r\p{Z}\p{P}]+/u;
 
 // lib/search.ts
@@ -22872,11 +22872,11 @@ function formatResults(results) {
 // lib/plugin-status.ts
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname as dirname2, join as join2, resolve as resolve2 } from "node:path";
+import { dirname as dirname2, join as join2, resolve } from "node:path";
 
 // lib/east-project.ts
 import { readFile as readFile2 } from "node:fs/promises";
-import { join, dirname, resolve } from "node:path";
+import { join, dirname } from "node:path";
 var PACKAGE_SKILL_MAP = {
   "@elaraai/east": "east",
   "@elaraai/east-node-std": "east-node-std",
@@ -22926,13 +22926,13 @@ function check2(name, fn) {
 }
 function resolves(fromDir, spec) {
   try {
-    return createRequire(resolve2(fromDir, "_.js")).resolve(spec);
+    return createRequire(resolve(fromDir, "_.js")).resolve(spec);
   } catch {
     return void 0;
   }
 }
 function nearestTsconfig(fromDir) {
-  let dir = resolve2(fromDir);
+  let dir = resolve(fromDir);
   for (; ; ) {
     const candidate = join2(dir, "tsconfig.json");
     if (existsSync(candidate)) return candidate;

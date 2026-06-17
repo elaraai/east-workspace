@@ -18,7 +18,7 @@ function writeHookOutput(hookEventName, additionalContext) {
 
 // lib/east-project.ts
 import { readFile } from "node:fs/promises";
-import { join, dirname, resolve } from "node:path";
+import { join, dirname } from "node:path";
 var PACKAGE_SKILL_MAP = {
   "@elaraai/east": "east",
   "@elaraai/east-node-std": "east-node-std",
@@ -61,6 +61,33 @@ async function getEastProjectInfo(cwd) {
   return { isEast: skills.length > 0, skills, pkg };
 }
 
+// lib/east-rules-context.ts
+var EAST_RULES_CONTEXT = [
+  "What the East linter checks \u2014 the editor language server, ESLint `east/east-rules`, and the preemptive `<east-code-review>` all run the SAME rule set, so author to these from the start. Inside an `East.function` / `$`-block, the code must be East all the way down:",
+  "",
+  "Host-vs-East (most common):",
+  "- no-host-in-east-block \u2014 avoid host TypeScript inside a block (`a + b`, `cond ? a : b`, `a && b`, `arr[i]`, a JS `for`/`if` that builds IR, a TS helper/closure call, a `${x}` string template); use East instead: `a.add(b)`, `cond.ifElse(() => a, () => b)`, `a.and(() => b)`, `coll.get(i)`, `$.for(...)` / `data.map(($, x) => \u2026)`, `East.str`.",
+  "- no-module-scope-east-macro \u2014 avoid a module-scope TS helper that returns East IR or a composite string key like `(o, l) => `${o}|${l}``; make a real `East.function`, or model typed / nested East data.",
+  "- no-compile-time-data-injection \u2014 avoid reading data at module load (`node:fs`, `readFileSync`, `JSON.parse`, `process.env`); load at runtime via `e3.input` / datasets / a platform task.",
+  "- no-compile-time-seed-data \u2014 avoid computing an `e3.input` seed in host code (a Map filled by loops, `{ a: num(cfg.x) }`); pass a small literal / empty default and parse real data at runtime (`blob.decodeCsv` in a task).",
+  "",
+  "Bindings & values:",
+  "- no-let-const-in-expression \u2014 avoid burying `$.let`/`$.const` mid-expression (a struct-field value, call argument, array element); declare it on its own line and reuse the binding.",
+  "- no-redundant-east-cast \u2014 avoid a cast / generic / wrapper the East type already governs: `$.let(x as T, T)`, `$.let(new Map<K, V>(), DictType(...))`, `$.let(East.value(x, T), T)`; drop it.",
+  "- prefer-explicit-east-type \u2014 avoid an under-determined `$.let([])` / `$.let({})` / `$.let(new Map())`; give the East type, e.g. `$.let([], ArrayType(IntegerType))`.",
+  "- no-untracked-east-data \u2014 avoid a bare JS literal in an East-typed slot inside a block; bind it with `$.const`/`$.let`.",
+  "- no-reinlined-east-binding \u2014 avoid reusing an East `Expr` held in a JS `const` across a block (it re-inlines per use); bind it once with `$.let`/`$.const`.",
+  "- no-unexecuted-east-expression \u2014 avoid a bare East expression statement; execute it with `$(expr)` or bind it.",
+  "",
+  "Variants, types, imports, UI:",
+  '- prefer-some-none \u2014 avoid `variant("some", x)` / `variant("none", null)`; use `some(x)` / `none`.',
+  '- no-handrolled-variant \u2014 avoid a hand-rolled `{ type: "x", value: v }`; use `variant("x", v)`.',
+  "- no-east-namespaced-type \u2014 avoid `East.IntegerType`; import `IntegerType` and use it bare.",
+  "- prefer-let-const-over-east-value \u2014 avoid `East.value(...)` inside a block; use `$.let`/`$.const`.",
+  "- prefer-jsx-over-factory-call \u2014 in a `.tsx` file, avoid `Foo.Root(...)`; author the `<Foo>` tag.",
+  "- no-relative-src-import \u2014 avoid importing another package via `../src` or `@elaraai/x/src`; use its published package name."
+].join("\n");
+
 // hooks/subagent-start.ts
 async function main() {
   const event = await readHookInput();
@@ -75,9 +102,11 @@ async function main() {
     "When working with East code:",
     "- The East example index is the best API reference: call the `mcp__plugin_east_east__search_east_examples` MCP tool to find idiomatic examples before writing or modifying East code.",
     "- Do NOT learn the API from `.d.ts` files in node_modules \u2014 their signatures omit East's idioms and constraints, so reasoning from them reliably produces broken code. Search the examples instead.",
-    "- After you read or edit an East file, the plugin injects an `<east-code-review>` block (TypeScript errors + East idiom issues like inline `$.const` or hand-rolled variants). Treat it as authoritative and fix what it flags.",
+    "- After you read or edit an East file, the plugin injects an `<east-code-review>` block (TypeScript errors + East idiom issues). Treat it as authoritative and fix what it flags; the rules are summarised below so you can write to them up front.",
     "- East is a statically typed, expression-based language embedded in TypeScript \u2014 it has unique patterns that differ from regular TypeScript.",
-    `- Available skills: ${skillList}`
+    `- Available skills: ${skillList}`,
+    "",
+    EAST_RULES_CONTEXT
   ].join("\n");
   writeHookOutput("SubagentStart", context);
 }
