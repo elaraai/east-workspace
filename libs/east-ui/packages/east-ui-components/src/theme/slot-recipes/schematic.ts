@@ -16,7 +16,7 @@ import { defineSlotRecipe } from "@chakra-ui/react";
 export const schematicSlotRecipe = defineSlotRecipe({
     className: "elara-schematic",
     slots: [
-        "root", "canvas", "grid", "underlay", "zone", "zoneLabel",
+        "root", "canvas", "grid", "cardLayer", "underlay", "zone", "zoneLabel",
         "zoneShapes", "zoneShapeLabel", "footprints",
         "item", "itemHead", "itemIcon", "itemLabel", "statusDot",
         "itemSublabel", "meterTrack", "meterFill", "itemMetric",
@@ -64,6 +64,15 @@ export const schematicSlotRecipe = defineSlotRecipe({
                 linear-gradient(to bottom, color-mix(in oklch, {colors.border.strong} 30%, transparent) 1px, transparent 1px),
                 linear-gradient(to right, color-mix(in oklch, {colors.border.subtle} 22%, transparent) 1px, transparent 1px),
                 linear-gradient(to bottom, color-mix(in oklch, {colors.border.subtle} 22%, transparent) 1px, transparent 1px)`,
+        },
+        /* Holds the live `--cam-ppu` / `--cam-tx` / `--cam-ty` custom
+         * properties (written by applyCamera each frame). Transparent and
+         * click-through; each card re-enables its own pointer events so the
+         * full-cover layer never swallows canvas clicks (issue #57). */
+        cardLayer: {
+            position: "absolute",
+            inset: "0",
+            pointerEvents: "none",
         },
         /* Links draw in pixel space; tone → token mapping lives here so
          * data only ever names a tone. */
@@ -262,6 +271,7 @@ export const schematicSlotRecipe = defineSlotRecipe({
         item: {
             position: "absolute",
             transform: "translate(-50%, -50%)",
+            pointerEvents: "auto",
             display: "flex",
             flexDirection: "column",
             gap: "2px",
@@ -458,13 +468,23 @@ export const schematicSlotRecipe = defineSlotRecipe({
             overflowY: "auto",
             paddingBottom: "{spacing.2}",
             lineHeight: "1.7",
+            // Row height shared by the sticky zone headers (their stacked `top`
+            // offset is a multiple of this) so an ancestor chain pins flush.
+            "--nav-row-h": "22px",
         },
+        /* Zone headers pin to the top of the scroll area like a tree view: each
+         * depth level sticks at `top = depth × --nav-row-h` (set inline), so the
+         * area (and its ancestors) stays visible while you scroll its items.
+         * The opaque surface + z-index occlude the items scrolling underneath. */
         navZone: {
             display: "flex",
             alignItems: "center",
             gap: "{spacing.1}",
-            paddingY: "2px",
+            height: "var(--nav-row-h)",
             paddingRight: "{spacing.3}",
+            position: "sticky",
+            background: "bg.surface",
+            zIndex: "1",
         },
         navCaret: {
             background: "transparent",
@@ -511,6 +531,9 @@ export const schematicSlotRecipe = defineSlotRecipe({
             border: "none",
             paddingY: "2px",
             paddingRight: "{spacing.3}",
+            // Keep the auto-scroll-to-selected item clear of the pinned zone
+            // headers (up to two ancestor levels).
+            scrollMarginTop: "calc(var(--nav-row-h) * 2)",
             fontFamily: "mono",
             fontSize: "11px",
             letterSpacing: "0.06em",

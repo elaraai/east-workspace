@@ -110,8 +110,8 @@ export const schematicInteractive = example({
 });
 
 export const schematicFacility = example({
-    keywords: ["Schematic", "facility", "navigator", "minimap", "zoom", "LOD", "search", "large", "generate"],
-    description: "500-unit facility — navigator rail, minimap, semantic zoom, search-to-fly; rows generated with East.Array.generate",
+    keywords: ["Schematic", "facility", "navigator", "minimap", "zoom", "LOD", "search", "large", "generate", "footprint", "geometry", "circle", "polygon", "shape"],
+    description: "500-unit facility — navigator rail, minimap, semantic zoom, search-to-fly; rows generated with East.Array.generate, each carrying a varied footprint shape/size (circle / square / triangle / diamond)",
     fn: East.function([], UIComponentType, ($) => {
         const UnitType = StructType({
             key: StringType,
@@ -122,6 +122,10 @@ export const schematicFacility = example({
             cap: FloatType,
             metric: StringType,
             status: OptionType(StatusTokenType),
+            // Footprint discriminator + half-size (world units) — the item
+            // mapper turns these into a circle / square / triangle / diamond.
+            shape: IntegerType,
+            size: FloatType,
         });
         const statuses = $.const([
             some(variant("success", null)),
@@ -145,6 +149,10 @@ export const schematicFacility = example({
                     const fill = $.let(i.add(1n).multiply(7919n).remainder(100n).toFloat().divide(100.0).multiply(cap));
                     const jx = $.let(i.multiply(2654435761n).remainder(97n).toFloat().divide(97.0).subtract(0.5).multiply(spacing.multiply(0.3)));
                     const jy = $.let(i.multiply(40503n).remainder(89n).toFloat().divide(89.0).subtract(0.5).multiply(spacing.multiply(0.3)));
+                    // Cycle the four footprint shapes (period 4) and three sizes
+                    // (period 3) independently, so consecutive cells vary in both.
+                    const shape = $.let(i.remainder(4n));
+                    const size = $.let(i.remainder(3n).toFloat().multiply(0.3).add(0.55));
                     return {
                         key: East.str`${prefix}-${East.print(i.add(1n))}`,
                         x: x0.add(col.toFloat().multiply(spacing)).add(jx),
@@ -154,6 +162,8 @@ export const schematicFacility = example({
                         cap,
                         metric: East.str`${East.Float.printFixed(fill, 1n)} t`,
                         status: statuses.get(i.remainder(6n)),
+                        shape,
+                        size,
                     };
                 }),
         ));
@@ -183,6 +193,33 @@ export const schematicFacility = example({
                     status: u.status,
                     meter: { value: u.fill, max: u.cap },
                     metric: u.metric,
+                    // Four footprint shapes of varying size, centred on the
+                    // unit's (x, y) anchor — polygon vertices are absolute world
+                    // coords, so they are offset from the anchor by ±size.
+                    footprint: u.shape.equal(0n).ifElse(
+                        _$ => Schematic.circle(u.size),
+                        _$ => u.shape.equal(1n).ifElse(
+                            _$ => Schematic.polygon([                                      // square
+                                { x: u.x.subtract(u.size), y: u.y.subtract(u.size) },
+                                { x: u.x.add(u.size), y: u.y.subtract(u.size) },
+                                { x: u.x.add(u.size), y: u.y.add(u.size) },
+                                { x: u.x.subtract(u.size), y: u.y.add(u.size) },
+                            ]),
+                            _$ => u.shape.equal(2n).ifElse(
+                                _$ => Schematic.polygon([                                  // triangle
+                                    { x: u.x, y: u.y.subtract(u.size) },
+                                    { x: u.x.add(u.size), y: u.y.add(u.size) },
+                                    { x: u.x.subtract(u.size), y: u.y.add(u.size) },
+                                ]),
+                                _$ => Schematic.polygon([                                  // diamond
+                                    { x: u.x, y: u.y.subtract(u.size) },
+                                    { x: u.x.add(u.size), y: u.y },
+                                    { x: u.x, y: u.y.add(u.size) },
+                                    { x: u.x.subtract(u.size), y: u.y },
+                                ]),
+                            ),
+                        ),
+                    ),
                 })}
                 zones={areas}
                 zone={z => ({ key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h })}

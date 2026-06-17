@@ -19,9 +19,12 @@
 import { type ValueTypeOf } from "@elaraai/east";
 import { Schematic } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
+import { type Bbox, type ScreenCamera, bboxOverlaps, pointsBbox, project, viewportWorldBbox } from "./camera";
 
 type SchematicValue = ValueTypeOf<typeof Schematic.Types.Schematic>;
 type SchematicItemValue = ValueTypeOf<typeof Schematic.Types.Item>;
+type SchematicZoneValue = ValueTypeOf<typeof Schematic.Types.Zone>;
+type SchematicGeometryValue = ValueTypeOf<typeof Schematic.Types.Geometry>;
 type Pt = { x: number; y: number };
 /** A screen-space shape vertex carrying its DXF bulge (0 = straight to next). */
 type Vert = { x: number; y: number; bulge: number };
@@ -187,6 +190,10 @@ export function arcFromBulge(p1: Pt, p2: Pt, bulge: number): BulgeArc | null {
     const mx = (p1.x + p2.x) / 2, my = (p1.y + p2.y) / 2;
     const d = (chord / 2) / Math.tan(theta / 2);   // signed midpoint→centre distance
     const cx = mx - (dy / chord) * d, cy = my + (dx / chord) * d;
+    // A large-magnitude bulge drives `theta → ±2π`, so `sin(theta/2)` and
+    // `tan(theta/2) → 0` and both `radius` and `d` diverge — treat the
+    // resulting non-finite centre/radius as a straight edge (issue #57, P9).
+    if (!Number.isFinite(radius) || !Number.isFinite(d) || !Number.isFinite(cx) || !Number.isFinite(cy)) return null;
     return {
         cx, cy, radius,
         startAngle: Math.atan2(p1.y - cy, p1.x - cx),
@@ -223,25 +230,183 @@ function traceVertices(ctx: CanvasRenderingContext2D, pts: Vert[], closed: boole
     }
 }
 
+/** Font the labelled-pin marker is drawn with; the pick must measure label
+ * widths with the SAME font so its hitbox matches the drawn pill. */
+export const MARKER_LABEL_FONT = '600 10px ui-monospace, "SF Mono", Menlo, monospace';
+/** Drawn radius of a `dot`-tier marker, in screen px. */
+export const MARKER_DOT_RADIUS = 5;
+/** Hit radius of a `dot`-tier marker, in screen px — comfortably over the
+ * drawn dot (5) and its selected ring (7.5) for touch slop (issue #57, P11). */
+export const MARKER_DOT_HIT_RADIUS = 10;
+const MARKER_PIN_PAD_X = 6, MARKER_PIN_DOT_W = 7, MARKER_PIN_GAP = 4, MARKER_PIN_H = 16;
+
+/** The screen-space hitbox of a non-card LOD marker — a circle for a `dot`, the
+ * rounded-pill rect for a `label`. */
+export type MarkerHitbox =
+    | { kind: "circle"; cx: number; cy: number; r: number }
+    | { kind: "rect"; left: number; top: number; w: number; h: number };
+
+/**
+ * The screen-space hitbox of an item's LOD marker at `tier`. The single source
+ * of truth used by **both** {@link paintSchematic} (to draw the pill) and the
+ * React layer's pick (to hit-test), so the clickable area always equals the
+ * drawn area and the two cannot silently drift (issue #57, P11). A `dot` is a
+ * circle of {@link MARKER_DOT_HIT_RADIUS}; a `label` is the rounded pill whose
+ * width is `pad + dot + gap + textWidth + pad` — the text measured by `measure`
+ * (the caller sets the context font to {@link MARKER_LABEL_FONT} first).
+ *
+ * @param item - the item's world anchor and label
+ * @param tier - the LOD tier (`dot` or `label`; `card` markers are DOM)
+ * @param cam - the screen camera
+ * @param measure - measures a string's width in px under the pin font
+ * @returns the marker's screen-space hitbox
+ */
+export function markerHitbox(
+    item: { x: number; y: number; label: string },
+    tier: "dot" | "label",
+    cam: ScreenCamera,
+    measure: (text: string) => number,
+): MarkerHitbox {
+    const { sx, sy } = project(item.x, item.y, cam);
+    if (tier === "dot") return { kind: "circle", cx: sx, cy: sy, r: MARKER_DOT_HIT_RADIUS };
+    const tw = measure(item.label);
+    const w = MARKER_PIN_PAD_X + MARKER_PIN_DOT_W + MARKER_PIN_GAP + tw + MARKER_PIN_PAD_X;
+    return { kind: "rect", left: sx - w / 2, top: sy - MARKER_PIN_H / 2, w, h: MARKER_PIN_H };
+}
+
+/**
+ * Whether the screen point `(sx, sy)` falls inside `box` (see
+ * {@link markerHitbox}).
+ *
+ * @param box - a marker hitbox
+ * @param sx - screen x
+ * @param sy - screen y
+ * @returns `true` when the point is inside the hitbox
+ */
+export function markerHit(box: MarkerHitbox, sx: number, sy: number): boolean {
+    return box.kind === "circle"
+        ? Math.hypot(sx - box.cx, sy - box.cy) <= box.r
+        : sx >= box.left && sx <= box.left + box.w && sy >= box.top && sy <= box.top + box.h;
+}
+
+/** Clamp a hatch `spacing` to a positive, finite minimum so the line sweep
+ * always advances and terminates — a `0` / negative / NaN spacing would
+ * otherwise hard-hang or stall the render thread (issue #57, P3). */
+export function hatchSpacing(rawSpacing: number): number {
+    return Number.isFinite(rawSpacing) ? Math.max(1, rawSpacing) : 1;
+}
+
+/**
+ * The bounded offset range `[oStart, oEnd)` for the diagonal hatch sweep of a
+ * zone whose screen rect is `(x, y, w, h)` on an `width × height` canvas, for a
+ * line family of direction `(dx, dy)` spaced `spacing` apart, with `diag` the
+ * sweep half-length. The full sweep is `-diag … diag`; this narrows it to the
+ * offsets whose line can reach the on-screen portion of the zone, so the step
+ * count is O(visible area / spacing) not O(zone area / spacing) (issue #57,
+ * 1e). `oStart` is snapped onto the SAME `{ -diag + k·spacing }` phase grid the
+ * full sweep uses, so the bounded sweep draws the identical lines — fewer of
+ * them, never phase-shifted. A horizontal family (`dy ≈ 0`, so the line normal
+ * has no x-component) can't be solved this way and falls back to the full
+ * `-diag … diag` range: fully off-screen zones are already culled upstream, so
+ * the only cost case is an on-screen zone far taller than the viewport, which
+ * then pays the full-height sweep (it still terminates — `spacing ≥ 1`; this
+ * degenerate orientation renders as collinear lines and is rarely authored).
+ *
+ * @returns the inclusive-exclusive offset range to sweep
+ */
+export function hatchSweepBounds(
+    x: number, y: number, w: number, h: number, width: number, height: number,
+    dx: number, dy: number, diag: number, spacing: number,
+): { oStart: number; oEnd: number } {
+    const nx = -dy, ny = dx;                       // unit line normal
+    if (Math.abs(nx) <= 1e-6) return { oStart: -diag, oEnd: diag };
+    const cx0 = Math.max(x, 0), cy0 = Math.max(y, 0);
+    const cx1 = Math.min(x + w, width), cy1 = Math.min(y + h, height);
+    // A line's normal-coordinate `c = X·n` is constant along it;
+    // `c(o) = (x+o)·nx + (y - diag·dy)·ny`. Solve for the `o` whose `c` spans
+    // the visible rect's `c` range.
+    const cs = [cx0 * nx + cy0 * ny, cx1 * nx + cy0 * ny, cx0 * nx + cy1 * ny, cx1 * nx + cy1 * ny];
+    const oOfC = (c: number) => (c - x * nx - (y - diag * dy) * ny) / nx;
+    const oA = oOfC(Math.min(...cs)), oB = oOfC(Math.max(...cs));
+    return {
+        oStart: Math.max(-diag, -diag + Math.floor((Math.min(oA, oB) + diag) / spacing) * spacing - spacing),
+        oEnd: Math.min(diag, Math.max(oA, oB) + spacing),
+    };
+}
+
+/**
+ * An upper bound on the number of hatch lines swept across an `w × h` (screen
+ * px) region at `rawSpacing`. Finite for any input because {@link hatchSpacing}
+ * floors the spacing at 1 (issue #57, P3); the painter further bounds the sweep
+ * to the on-screen portion of the zone (1e).
+ *
+ * @param w - region width in screen px
+ * @param h - region height in screen px
+ * @param rawSpacing - the raw (possibly zero/negative) spacing
+ * @returns a finite line-count upper bound
+ */
+export function hatchLineCount(w: number, h: number, rawSpacing: number): number {
+    return Math.ceil((2 * Math.hypot(w, h)) / hatchSpacing(rawSpacing)) + 1;
+}
+
+/** World-space cull bbox for a zone: the declared `x/y/width/height` rect
+ * unioned with the actual geometry's extent (circle centre±radius, polygon /
+ * polyline vertex bounds), mirroring the item-footprint union — so a shape that
+ * bows outside its declared rect is never wrongly culled (issue #57, 1e). */
+function zoneWorldBbox(zone: SchematicZoneValue, geom: SchematicGeometryValue | undefined): Bbox {
+    const bb: Bbox = { minX: zone.x, minY: zone.y, maxX: zone.x + zone.width, maxY: zone.y + zone.height };
+    if (geom !== undefined && geom.type === "circle") {
+        const cx = zone.x + zone.width / 2, cy = zone.y + zone.height / 2, r = geom.value.radius;
+        bb.minX = Math.min(bb.minX, cx - r); bb.minY = Math.min(bb.minY, cy - r);
+        bb.maxX = Math.max(bb.maxX, cx + r); bb.maxY = Math.max(bb.maxY, cy + r);
+    } else if (geom !== undefined && geom.type !== "rect") {
+        // Vertex bounds per issue #57 1e ("min/max over geom.value.vertices").
+        // A DXF bulge arc bows past the vertex AABB by up to chord/2 for a
+        // semicircle (more for a reflex bulge); that bow is intentionally NOT
+        // added here, so a heavily-bulged edge whose apex is the only on-screen
+        // part (its vertices, chord, and declared rect all off screen) can cull
+        // a frame early — a rare, transient gap while zoomed in and panning, not
+        // a persistent error, accepted to keep the cull cheap per 1e.
+        const g = pointsBbox(geom.value.vertices);
+        if (g !== null) {
+            bb.minX = Math.min(bb.minX, g.minX); bb.minY = Math.min(bb.minY, g.minY);
+            bb.maxX = Math.max(bb.maxX, g.maxX); bb.maxY = Math.max(bb.maxY, g.maxY);
+        }
+    }
+    return bb;
+}
+
 /** Draw the schematic's bulk-shape layer for one frame. Clears first. */
 export function paintSchematic(input: PaintInput): void {
     const { ctx, value, cam, width, height, visibleItems, tiers, selected, centers, palette: p } = input;
     const wx = (x: number) => x * cam.ppu + cam.tx;
     const wy = (y: number) => y * cam.ppu + cam.ty;
     const ppu = cam.ppu;
+    // The world rect currently on screen — zones / links whose geometry bbox
+    // misses it are culled (issue #57, P6). Items are already viewport-culled
+    // into `visibleItems` by the React layer's rbush.
+    const viewBbox = viewportWorldBbox(cam, width, height);
 
-    ctx.clearRect(0, 0, width, height);
+    // Clear the FULL backing store in device space, independent of the dpr
+    // transform — clearing in CSS px under a fractional-dpr transform leaves a
+    // sub-pixel fringe on the right/bottom edge across pan frames (issue #57,
+    // P7). The caller's transform still applies to subsequent drawing.
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    ctx.restore();
     ctx.lineJoin = "round";
 
     // ---- zones: rect outline / hatch + polyline / polygon geometry ----------
     for (const zone of value.zones) {
+        const geom = getSomeorUndefined(zone.geometry);
+        if (!bboxOverlaps(zoneWorldBbox(zone, geom), viewBbox)) continue;
         const pattern = zone.pattern;
         const patternTone = (pattern.value.tone.type === "some" ? pattern.value.tone.value.type : undefined) ?? "muted";
         const tint = resolveTint(p, getSomeorUndefined(zone.color), getSomeorUndefined(zone.tone)?.type, toneRGB(p, patternTone, "zone"));
         const zbg = getSomeorUndefined(zone.bg);
         const zFillAlpha = getSomeorUndefined(zone.fillOpacity) ?? 0.15;
         const zWeight = getSomeorUndefined(zone.weight);
-        const geom = getSomeorUndefined(zone.geometry);
         const x = wx(zone.x), y = wy(zone.y), w = zone.width * ppu, h = zone.height * ppu;
         const fillShape = () => {
             if (zbg === undefined) return;
@@ -290,8 +455,10 @@ export function paintSchematic(input: PaintInput): void {
                 }
             }
         } else if (pattern.type === "hatch") {
-            const spacing = pattern.value.spacing.type === "some" ? pattern.value.spacing.value : 8;
-            const angle = (pattern.value.angle.type === "some" ? pattern.value.angle.value : 45) * Math.PI / 180;
+            // `spacing` floored at 1 so the sweep always advances (no hang on
+            // `spacing: 0`/negative — issue #57, P3).
+            const spacing = hatchSpacing(getSomeorUndefined(pattern.value.spacing) ?? 8);
+            const angle = (getSomeorUndefined(pattern.value.angle) ?? 45) * Math.PI / 180;
             ctx.save();
             ctx.beginPath();
             ctx.rect(x, y, w, h);
@@ -308,8 +475,12 @@ export function paintSchematic(input: PaintInput): void {
             ctx.lineWidth = zWeight ?? 1;
             const dx = Math.cos(angle), dy = Math.sin(angle);
             const diag = Math.hypot(w, h);
+            // Bound the sweep to the offsets whose line reaches the on-screen
+            // portion of the zone — phase-locked to the full sweep's grid so the
+            // visible hatch is identical, just cheaper (issue #57, 1e).
+            const { oStart, oEnd } = hatchSweepBounds(x, y, w, h, width, height, dx, dy, diag, spacing);
             ctx.beginPath();
-            for (let o = -diag; o < diag; o += spacing) {
+            for (let o = oStart; o < oEnd; o += spacing) {
                 ctx.moveTo(x + o, y - diag * dy);
                 ctx.lineTo(x + o + dx * 2 * diag, y - diag * dy + dy * 2 * diag);
             }
@@ -347,6 +518,11 @@ export function paintSchematic(input: PaintInput): void {
     for (const link of value.links) {
         const from = centers.get(link.from), to = centers.get(link.to);
         if (!from || !to) continue;
+        // Cull by the AABB over ALL anchors (endpoints + waypoints), not the
+        // endpoints alone — a trunk whose two ends sit off-screen but whose
+        // segment crosses the viewport must NOT be culled (issue #57, 1e).
+        const linkBbox = pointsBbox([from, ...link.via, to]);
+        if (linkBbox !== null && !bboxOverlaps(linkBbox, viewBbox)) continue;
         const anchors = [from, ...link.via, to].map(q => ({ x: wx(q.x), y: wy(q.y) }));
         const corner = link.route.type === "orthogonal"
             ? (link.route.value.corner.type === "some" ? link.route.value.corner.value : 8) : 0;
@@ -430,7 +606,7 @@ export function paintSchematic(input: PaintInput): void {
 
         if (tier === "dot") {
             ctx.beginPath();
-            ctx.arc(x, y, 5, 0, Math.PI * 2);
+            ctx.arc(x, y, MARKER_DOT_RADIUS, 0, Math.PI * 2);
             ctx.fillStyle = tint;
             ctx.fill();
             ctx.lineWidth = 1.5;
@@ -446,12 +622,12 @@ export function paintSchematic(input: PaintInput): void {
             continue;
         }
 
-        // labelled pin
-        ctx.font = '600 10px ui-monospace, "SF Mono", Menlo, monospace';
-        const tw = ctx.measureText(item.label).width;
-        const padX = 6, dotW = 7, gap = 4, h = 16;
-        const w = padX + dotW + gap + tw + padX;
-        const left = x - w / 2, top = y - h / 2;
+        // labelled pin — bounds come from the SHARED markerHitbox so the drawn
+        // pill and the click target are identical (issue #57, P11).
+        ctx.font = MARKER_LABEL_FONT;
+        const box = markerHitbox(item, "label", cam, t => ctx.measureText(t).width);
+        if (box.kind !== "rect") continue;
+        const { left, top, w, h } = box;
         ctx.beginPath();
         ctx.roundRect?.(left, top, w, h, h / 2);
         if (!ctx.roundRect) ctx.rect(left, top, w, h);
@@ -461,11 +637,11 @@ export function paintSchematic(input: PaintInput): void {
         ctx.strokeStyle = isSel ? css(p.fg) : css(p.borderStrong);
         ctx.stroke();
         ctx.beginPath();
-        ctx.arc(left + padX + dotW / 2, y, dotW / 2, 0, Math.PI * 2);
+        ctx.arc(left + MARKER_PIN_PAD_X + MARKER_PIN_DOT_W / 2, y, MARKER_PIN_DOT_W / 2, 0, Math.PI * 2);
         ctx.fillStyle = tint;
         ctx.fill();
         ctx.fillStyle = css(p.fg);
         ctx.textBaseline = "middle";
-        ctx.fillText(item.label, left + padX + dotW + gap, y);
+        ctx.fillText(item.label, left + MARKER_PIN_PAD_X + MARKER_PIN_DOT_W + MARKER_PIN_GAP, y);
     }
 }
