@@ -4,6 +4,7 @@
  */
 import type * as ts from "typescript";
 import type { EastRule } from "../types.js";
+import { resolvesWithinOwnPackage } from "../east-source.js";
 
 const NAME = "no-relative-src-import";
 const CODE = 990007;
@@ -12,8 +13,11 @@ const DEEP_PACKAGE_SRC = /^@elaraai\/[^/]+\/src(\/|$)/;
 const RELATIVE_SRC = /\/src(\/|$)/;
 
 // Tests and examples must import East packages by their published name
-// (`@elaraai/east`), not reach into a package's `src/` via a relative path or a
-// deep `/src` specifier — those bypass the package's public API surface.
+// (`@elaraai/east`), not reach into ANOTHER package's `src/` via a relative path or
+// a deep `/src` specifier — those bypass the package's public API surface. A
+// package importing its OWN `src` relatively (`../src/index.js` from its tests) is
+// the one legitimate case — it cannot import its own published name — so the
+// relative branch is exempt when the path stays inside the importing package.
 export const noRelativeSrcImport: EastRule = {
   name: NAME,
   code: CODE,
@@ -30,6 +34,8 @@ export const noRelativeSrcImport: EastRule = {
     const relativeIntoSrc = text.startsWith(".") && RELATIVE_SRC.test(text);
     const deepPackageSrc = DEEP_PACKAGE_SRC.test(text);
     if (!relativeIntoSrc && !deepPackageSrc) return;
+    // A package importing its OWN `src` relatively is the one legitimate case.
+    if (relativeIntoSrc && !deepPackageSrc && resolvesWithinOwnPackage(ctx.sourceFile.fileName, text)) return;
 
     const sf = ctx.sourceFile;
     const start = specifier.getStart(sf);

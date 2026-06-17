@@ -1,11 +1,11 @@
 // status/report.ts
-import { dirname as dirname3, resolve as resolve3 } from "node:path";
+import { dirname as dirname3, resolve as resolve2 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // lib/plugin-status.ts
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname as dirname2, join as join2, resolve as resolve2 } from "node:path";
+import { dirname as dirname2, join as join2, resolve } from "node:path";
 
 // lib/search.ts
 import { readFile } from "node:fs/promises";
@@ -640,7 +640,7 @@ var MiniSearch = class _MiniSearch {
       if ((i + 1) % chunkSize === 0) {
         return {
           chunk: [],
-          promise: promise2.then(() => new Promise((resolve4) => setTimeout(resolve4, 0))).then(() => this.addAll(chunk2))
+          promise: promise2.then(() => new Promise((resolve3) => setTimeout(resolve3, 0))).then(() => this.addAll(chunk2))
         };
       } else {
         return { chunk: chunk2, promise: promise2 };
@@ -919,7 +919,7 @@ var MiniSearch = class _MiniSearch {
           this._index.delete(term);
         }
         if (i % batchSize === 0) {
-          await new Promise((resolve4) => setTimeout(resolve4, batchWait));
+          await new Promise((resolve3) => setTimeout(resolve3, batchWait));
         }
         i += 1;
       }
@@ -1817,7 +1817,7 @@ var objectToNumericMapAsync = async (object) => {
   }
   return map;
 };
-var wait = (ms) => new Promise((resolve4) => setTimeout(resolve4, ms));
+var wait = (ms) => new Promise((resolve3) => setTimeout(resolve3, ms));
 var SPACE_OR_PUNCTUATION = /[\n\r\p{Z}\p{P}]+/u;
 
 // lib/search.ts
@@ -1843,7 +1843,7 @@ async function buildSearchIndex(indexPath) {
 
 // lib/east-project.ts
 import { readFile as readFile2 } from "node:fs/promises";
-import { join, dirname, resolve } from "node:path";
+import { join, dirname } from "node:path";
 var PACKAGE_SKILL_MAP = {
   "@elaraai/east": "east",
   "@elaraai/east-node-std": "east-node-std",
@@ -1893,13 +1893,13 @@ function check(name, fn) {
 }
 function resolves(fromDir, spec) {
   try {
-    return createRequire(resolve2(fromDir, "_.js")).resolve(spec);
+    return createRequire(resolve(fromDir, "_.js")).resolve(spec);
   } catch {
     return void 0;
   }
 }
 function nearestTsconfig(fromDir) {
-  let dir = resolve2(fromDir);
+  let dir = resolve(fromDir);
   for (; ; ) {
     const candidate = join2(dir, "tsconfig.json");
     if (existsSync(candidate)) return candidate;
@@ -1995,7 +1995,7 @@ function formatStatus(checks2) {
 }
 
 // status/report.ts
-var pluginRoot = resolve3(dirname3(fileURLToPath(import.meta.url)), "..", "..");
-var cwd = resolve3(process.argv[2] ?? process.cwd());
+var pluginRoot = resolve2(dirname3(fileURLToPath(import.meta.url)), "..", "..");
+var cwd = resolve2(process.argv[2] ?? process.cwd());
 var checks = await checkPluginStatus(pluginRoot, cwd);
 console.log(formatStatus(checks));

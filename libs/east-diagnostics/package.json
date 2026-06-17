@@ -47,6 +47,7 @@
   },
   "devDependencies": {
     "@elaraai/east": "workspace:*",
+    "@elaraai/e3": "workspace:*",
     "@types/node": "^22.18.1",
     "typescript": "~5.9.2"
   }

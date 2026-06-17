@@ -103,7 +103,25 @@ test("no-relative-src-import: silent on the published package name", () => {
   assert.equal(analyze(src).filter((d) => d.ruleName === "no-relative-src-import").length, 0);
 });
 
+test("no-relative-src-import: silent when a package imports its OWN src (./src self-import)", () => {
+  // The fixture lives at the package root, so `./src/...` resolves inside the
+  // importing file's own package — the one legitimate relative-src import (a
+  // package cannot import its own published name). `../src` (escaping the package)
+  // still fires, as the test above asserts.
+  const src = `import { thing } from "./src/thing.js";\nexport const x = thing;\n`;
+  assert.equal(analyze(src).filter((d) => d.ruleName === "no-relative-src-import").length, 0);
+});
+
 // ── no-let-const-in-expression ──────────────────────────────────────
+test("no-let-const-in-expression: flags $.let as a struct-field value (`field: $.let(...)`)", () => {
+  const src = `import { East, IntegerType, StructType } from "@elaraai/east";\nexport const f = East.function([IntegerType], StructType({ x: IntegerType }), ($, n) => {\n  return { x: $.let(n.add(1n), IntegerType) };\n});\n`;
+  assert.equal(analyze(src).filter((d) => d.ruleName === "no-let-const-in-expression").length, 1);
+});
+
+test("no-let-const-in-expression: flags $.let as an array element", () => {
+  assert.equal(rule(wrap(`  const xs = [$.let(1n, IntegerType)];`), "no-let-const-in-expression").length, 1);
+});
+
 test("no-let-const-in-expression: flags $.let passed as an argument ($.if($.let(...)))", () => {
   const src = wrap(`  $.if($.let(true, IntegerType), ($) => {});`);
   assert.equal(rule(src, "no-let-const-in-expression").length, 1);

@@ -18,7 +18,7 @@ function writeHookOutput(hookEventName, additionalContext) {
 
 // lib/east-project.ts
 import { readFile } from "node:fs/promises";
-import { join, dirname, resolve } from "node:path";
+import { join, dirname } from "node:path";
 var PACKAGE_SKILL_MAP = {
   "@elaraai/east": "east",
   "@elaraai/east-node-std": "east-node-std",
@@ -698,7 +698,7 @@ var MiniSearch = class _MiniSearch {
       if ((i + 1) % chunkSize === 0) {
         return {
           chunk: [],
-          promise: promise2.then(() => new Promise((resolve2) => setTimeout(resolve2, 0))).then(() => this.addAll(chunk2))
+          promise: promise2.then(() => new Promise((resolve) => setTimeout(resolve, 0))).then(() => this.addAll(chunk2))
         };
       } else {
         return { chunk: chunk2, promise: promise2 };
@@ -977,7 +977,7 @@ var MiniSearch = class _MiniSearch {
           this._index.delete(term);
         }
         if (i % batchSize === 0) {
-          await new Promise((resolve2) => setTimeout(resolve2, batchWait));
+          await new Promise((resolve) => setTimeout(resolve, batchWait));
         }
         i += 1;
       }
@@ -1875,7 +1875,7 @@ var objectToNumericMapAsync = async (object) => {
   }
   return map;
 };
-var wait = (ms) => new Promise((resolve2) => setTimeout(resolve2, ms));
+var wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 var SPACE_OR_PUNCTUATION = /[\n\r\p{Z}\p{P}]+/u;
 
 // lib/search.ts

@@ -35,17 +35,18 @@ export const noLetConstInExpression: EastRule = {
     }
     if (parent === undefined) return;
 
-    // Flag only when the result is consumed inline: a chain target
-    // (`$.let(...).add(1n)`), an index target, an operator operand, or an
-    // argument to another call (`$.if($.let(...))`). A const/let initializer,
-    // a bare statement, `return $.const(...)`, and a concise arrow body are all
-    // valid and stay silent.
-    const usedInExpression =
-      (t.isPropertyAccessExpression(parent) && parent.expression === current) ||
-      (t.isElementAccessExpression(parent) && parent.expression === current) ||
-      (t.isBinaryExpression(parent) && (parent.left === current || parent.right === current)) ||
-      (t.isCallExpression(parent) && parent.arguments.some((arg) => arg === current));
-    if (!usedInExpression) return;
+    // Allow-list: `$.let`/`$.const` is only valid as a JS `const`/`let`
+    // initializer, a bare statement, a `return`, or a concise arrow body. ANY
+    // other position buries the declaration in an expression — a struct-field
+    // value (`field: $.let(...)`), an array element, a call argument
+    // (`$.if($.let(...))`), a chain target (`$.let(...).add(1n)`), an operator
+    // operand, a ternary branch, etc. Flag everything that is not allowed.
+    const allowed =
+      (t.isVariableDeclaration(parent) && parent.initializer === current) ||
+      (t.isExpressionStatement(parent) && parent.expression === current) ||
+      (t.isReturnStatement(parent) && parent.expression === current) ||
+      (t.isArrowFunction(parent) && parent.body === current);
+    if (allowed) return;
 
     const sf = ctx.sourceFile;
     const start = call.getStart(sf);
