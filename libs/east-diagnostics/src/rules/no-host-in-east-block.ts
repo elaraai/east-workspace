@@ -36,6 +36,46 @@ function resolvesToEastImport(id: ts.Identifier, ctx: RuleContext): boolean {
   return false;
 }
 
+/**
+ * Does `id` resolve to a binding LOCAL to an East block whose runtime value is an
+ * East `Expr` typed loosely as `any` — an in-block TS macro (`g`/`sdiv`/`roundI`/…,
+ * itself reported by clause E) or one of its loosely-typed parameters? East methods
+ * chained off such a receiver (`sdiv(a, b).multiply(…)`, or `a.divide(b)` inside the
+ * macro body) are East methods, not separate host calls: the macro is already
+ * flagged, so re-reporting the East ops on its result/operands is a false positive.
+ * (We must NOT exempt all `any` receivers — only these block-local East bindings.)
+ */
+function resolvesToInBlockEastBinding(id: ts.Identifier, ctx: RuleContext): boolean {
+  const t = ctx.ts;
+  const sym = ctx.checker.getSymbolAtLocation(id);
+  for (const d of sym?.declarations ?? []) {
+    // An in-block TS macro: `const f = (…) => …` / `function f(…) {…}`.
+    if (t.isFunctionDeclaration(d) && d.body !== undefined && insideBlockScope(d, ctx)) return true;
+    if (
+      t.isVariableDeclaration(d) &&
+      d.initializer !== undefined &&
+      (t.isArrowFunction(d.initializer) || t.isFunctionExpression(d.initializer)) &&
+      insideBlockScope(d, ctx)
+    ) {
+      return true;
+    }
+    // A parameter of an in-block TS macro (its loosely-typed East operands). A
+    // `$`-callback's params are already East-typed (clause A2 handles them), so
+    // only non-`$` macro params reach here.
+    if (t.isParameter(d)) {
+      const fn = d.parent;
+      if (
+        (t.isArrowFunction(fn) || t.isFunctionExpression(fn) || t.isFunctionDeclaration(fn)) &&
+        insideBlockScope(fn, ctx)
+      ) {
+        const first = fn.parameters[0];
+        if (first === undefined || !isBlockBuilderType(ctx.checker.getTypeAtLocation(first.name))) return true;
+      }
+    }
+  }
+  return false;
+}
+
 /** Is a CallExpression an EAST call (allowed), vs a HOST call (the violation)? */
 function isEastCall(call: ts.CallExpression, ctx: RuleContext): boolean {
   const t = ctx.ts;
@@ -52,6 +92,11 @@ function isEastCall(call: ts.CallExpression, ctx: RuleContext): boolean {
   // A5 — rooted on an `@elaraai/*` import (`East.*`, `Expr.*`, `variant`/`some`,
   // `ArrayType`/`StructType`/`DictType`, `GoogleOr.*`, …).
   if (t.isIdentifier(root) && resolvesToEastImport(root, ctx)) return true;
+  // A6 — a method chained off an in-block TS macro or its loosely-typed (`any`)
+  // operand, whose type-info is lost as `any`. The macro is reported elsewhere
+  // (clause E / its bare call); the East methods on its East-`Expr` result are
+  // East, not additional host calls.
+  if (t.isPropertyAccessExpression(f) && t.isIdentifier(root) && resolvesToInBlockEastBinding(root, ctx)) return true;
   return false;
 }
 

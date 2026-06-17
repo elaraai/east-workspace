@@ -415,6 +415,9 @@ importers:
 
   libs/east-diagnostics:
     devDependencies:
+      '@elaraai/e3':
+        specifier: workspace:*
+        version: link:../e3/packages/e3
       '@elaraai/east':
         specifier: workspace:*
         version: link:../east

@@ -41,6 +41,28 @@ test("flags an in-block `function` declaration", () => {
   assert.equal(rule(inFn(`  function dbl(x: bigint): bigint { return x * 2n; }\n  return $.const(1n, IntegerType);`)).length, 1);
 });
 
+// ── BUG-1/FP-1: East methods chained off an in-block `any` macro/its params ──
+test("does not double-flag East methods chained off an in-block `any` macro or its params", () => {
+  // `sdiv` is an in-block TS macro: clause E flags its declaration, clause A flags
+  // the `sdiv(x, y)` call. The East methods chained off its `any` params
+  // (`b.greater`, `.ifElse`, `a.divide`) and off its `any` result (`.multiply`)
+  // must NOT add separate host-call tags — they are East ops, not host calls.
+  const src = `${PRELUDE}export const f = East.function([FloatType, FloatType], FloatType, ($, x, y) => {\n  const sdiv = (a: any, b: any): any => b.greater(0.0).ifElse(() => a.divide(b), () => 0.0);\n  return $.const(sdiv(x, y).multiply(100.0), FloatType);\n});\n`;
+  assert.equal(rule(src).length, 2); // clause E (decl) + clause A (sdiv call)
+});
+
+test("does not flag an East method chained off an in-block macro CALL result (roundI(x).negate())", () => {
+  const src = `${PRELUDE}export const f = East.function([FloatType], FloatType, ($, x) => {\n  const roundI = (v: any): any => v.add(0.5);\n  return $.const(roundI(x).negate(), FloatType);\n});\n`;
+  assert.equal(rule(src).length, 2); // clause E (decl) + clause A (roundI call); `.negate()` is East
+});
+
+test("still flags a genuine host builtin call inside an in-block macro body", () => {
+  // A6 exempts East METHODS chained off the macro/its params — never a host call
+  // like `BigInt(...)` rooted on a global.
+  const src = `${PRELUDE}export const f = East.function([], IntegerType, ($) => {\n  const mk = (v: any): any => BigInt(v);\n  return $.const(mk(1), IntegerType);\n});\n`;
+  assert.equal(rule(src).length, 3); // clause E (mk decl) + clause A (BigInt host call) + clause A (mk call)
+});
+
 test("flags a host for-of loop emitting East IR", () => {
   assert.equal(rule(inFn(`  const acc = $.let(0n, IntegerType);\n  for (const x of [1n, 2n]) { $.assign(acc, acc.add(x)); }\n  return acc;`)).length, 1);
 });
