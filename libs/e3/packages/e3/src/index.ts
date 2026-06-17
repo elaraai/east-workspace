@@ -57,7 +57,6 @@ import type {
   TaskDef,
 } from './types.js';
 import { input } from './input.js';
-import { value } from './value.js';
 import { record } from './record.js';
 import { mutation } from './mutation.js';
 import { task, customTask } from './task.js';
@@ -96,7 +95,6 @@ export { runnerToCommand, runnerToVariant, DEFAULT_RUNNER } from './runner.js';
  */
 const e3 = {
   input,
-  value,
   record,
   mutation,
   task,
@@ -109,11 +107,10 @@ const e3 = {
 export default e3;
 
 // Also export individual functions for tree-shaking
-export { input, value, record, mutation, task, customTask, function_, package_ as package, export_ as export };
+export { input, record, mutation, task, customTask, function_, package_ as package, export_ as export };
 
 // Singleton tree definitions
 export { inputsTree } from './input.js';
-export { valuesTree } from './value.js';
 export { recordsTree } from './record.js';
 export { tasksTree } from './task.js';
 

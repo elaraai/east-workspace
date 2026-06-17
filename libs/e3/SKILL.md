@@ -54,7 +54,7 @@ e3 dataset get . dev.greet
 Task → What do you need?
 │
 ├─ Authoring a package (SDK)
-│   ├─ Root value dataset   → e3.value(name, type, default?)  (e3.input = deprecated predecessor)
+│   ├─ Input dataset        → e3.input(name, type, default?)
 │   ├─ Record (audited state)→ e3.record(name, type, initial)
 │   ├─ Mutation (reducer)    → e3.mutation(name, record, fn)
 │   ├─ East function task   → e3.task(name, [inputs], fn, config?)
@@ -118,21 +118,13 @@ Task → What do you need?
 
 ## SDK Reference (@elaraai/e3)
 
-### e3.value(name, type, defaultValue?)
-
-Define a root value dataset with replace-on-write semantics, mounted at `.values.${name}` (addressed from the CLI as `<ws>.${name}`). The honestly-named successor to `e3.input` — the name matches the behaviour (read and replace the whole value).
-
-```typescript
-const name = e3.value('name', StringType, 'default');
-const count = e3.value('count', IntegerType);
-```
-
 ### e3.input(name, type, defaultValue?)
 
-**Deprecated** — identical to `e3.value`, but mounts at `.inputs.${name}`. Kept for back-compat; prefer `e3.value` in new packages.
+Define an input dataset. Addressed from the CLI as `<ws>.${name}` (storage path `<ws>/inputs/${name}` is internal).
 
 ```typescript
-const name = e3.input('name', StringType, 'default');  // → .inputs.name
+const name = e3.input('name', StringType, 'default');
+const count = e3.input('count', IntegerType);
 ```
 
 ### e3.task(name, inputs, fn, config?)
