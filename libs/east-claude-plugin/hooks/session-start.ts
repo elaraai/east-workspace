@@ -1,6 +1,7 @@
 import { readHookInput, writeHookOutput } from "../lib/hook-io.js";
 import { getEastProjectInfo } from "../lib/east-project.js";
 import { warmDaemon } from "../lib/diagnostics-client.js";
+import { EAST_RULES_CONTEXT } from "../lib/east-rules-context.js";
 
 async function main() {
   const event = await readHookInput();
@@ -26,7 +27,9 @@ async function main() {
     "- Do NOT learn the API by reading or grepping `.d.ts` files in node_modules. The type signatures omit East's idioms and runtime constraints, so reasoning from them reliably produces broken code that still type-checks. Search the examples instead — that is the correct, grounded path.",
     "",
     "Preemptive diagnostics:",
-    "- After you read or edit an East file, the plugin injects an `<east-code-review>` block listing TypeScript errors and East-specific idiom issues (e.g. inline `$.const`, hand-rolled variants, `$.let` used in an expression). Treat it as authoritative and fix what it flags — it's preemptive, so resolving it now avoids build-and-retry loops later.",
+    "- After you read or edit an East file, the plugin injects an `<east-code-review>` block listing TypeScript errors and East-specific idiom issues. Treat it as authoritative and fix what it flags — it's preemptive, so resolving it now avoids build-and-retry loops later. The rules it enforces are summarised below; write to them up front.",
+    "",
+    EAST_RULES_CONTEXT,
   ].join("\n");
 
   writeHookOutput("SessionStart", context);
