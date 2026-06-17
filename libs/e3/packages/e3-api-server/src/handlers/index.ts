@@ -49,3 +49,10 @@ export {
   callFunctionSync,
   callOneShotSync,
 } from './functions.js';
+
+export {
+  describeRecord,
+  callMutationSync,
+  compactRecord,
+  getRecordHistory,
+} from './records.js';
