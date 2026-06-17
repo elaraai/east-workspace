@@ -19,9 +19,15 @@ import type {
   EastType,
   FunctionExpr,
 } from '@elaraai/east';
-import { Expr, AsyncEastIR, walkIR } from '@elaraai/east';
+import { Expr, AsyncEastIR, walkIR, equalFor, EastTypeType, toEastTypeValue, printType } from '@elaraai/east';
 import type { MutationDef, RecordDef } from './types.js';
 import { DEFAULT_RUNNER, runnerToVariant, type FunctionRunner } from './runner.js';
+
+// Structural East-type equality, the same primitive the redeploy type-change
+// guard uses (e3-core workspaces.ts): compare the encoded EastTypeValues.
+const typeValueEqual = equalFor(EastTypeType);
+const sameEastType = (a: EastType, b: EastType): boolean =>
+  typeValueEqual(toEastTypeValue(a), toEastTypeValue(b));
 
 /**
  * Defines a mutation that writes a record.
@@ -105,8 +111,26 @@ export function mutation(
     }
   });
   const fnType = Expr.type(fn as Expr<any>) as { inputs: EastType[]; output: EastType };
-  // The reducer is (state, ...args) => state; the extra parameter types are
-  // everything after the leading state parameter.
+  // The reducer is (state, ...args) => state: both the leading parameter and
+  // the return must be the record's state type. The typed overload enforces
+  // this at compile time, but a dynamic / cast caller could pass a mismatched
+  // function — and because MutationObject omits the output type (it IS the
+  // record type), a mismatch would be silently undetectable downstream. Guard
+  // it at definition time.
+  if (fnType.inputs.length < 1 || !sameEastType(rec.type, fnType.inputs[0]!)) {
+    const got = fnType.inputs.length ? printType(fnType.inputs[0]!) : 'no parameters';
+    throw new Error(
+      `e3.mutation '${name}' reducer's first parameter must be the record's ` +
+      `state type ${printType(rec.type)}, but got ${got}.`,
+    );
+  }
+  if (!sameEastType(rec.type, fnType.output)) {
+    throw new Error(
+      `e3.mutation '${name}' reducer must return the record's state type ` +
+      `${printType(rec.type)}, but returns ${printType(fnType.output)}.`,
+    );
+  }
+  // The extra parameter types are everything after the leading state parameter.
   const argTypes = fnType.inputs.slice(1);
 
   return {

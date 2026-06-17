@@ -9,7 +9,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import yauzl from 'yauzl';
-import { East, IntegerType, ArrayType, decodeBeast2For } from '@elaraai/east';
+import { East, IntegerType, StringType, FloatType, ArrayType, decodeBeast2For } from '@elaraai/east';
 import {
   RecordObjectType,
   MutationObjectType,
@@ -150,6 +150,22 @@ describe('e3.record / e3.mutation', () => {
           return state.add(by);
         })),
       /must not call platform functions/,
+    );
+  });
+
+  it('rejects a reducer whose state/return type does not match the record', () => {
+    const counter = record('counter', IntegerType, 0n);
+    // The typed overload enforces state/return == record type at compile time;
+    // a dynamic / cast caller bypasses that, so the definition-time guard must
+    // still reject a mismatched reducer (here Integer record vs String reducer).
+    assert.throws(
+      () =>
+        mutation(
+          'bad',
+          counter,
+          East.function([StringType, FloatType], StringType, ($, state, _by) => state) as never
+        ),
+      /record's state type/,
     );
   });
 
