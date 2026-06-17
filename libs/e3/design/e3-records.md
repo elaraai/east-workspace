@@ -244,6 +244,14 @@ path and type; the author never restates them). An overload accepting a
 prebuilt `FunctionExpr<[T, ...Args], T>` remains for reuse of existing East
 functions.
 
+> **As built.** `e3.mutation` ships *only* the prebuilt form —
+> `mutation(name, rec, East.function([rec.type, ...args], rec.type, body), config?)`
+> — matching how `e3.function` and `e3.task` already take a prebuilt
+> `East.function`; the bespoke `argTypes` + body builder above would make
+> `mutation` the only SDK primitive with its own body builder. A definition-time
+> guard rejects a reducer whose first parameter or return type is not the record
+> type, so even a dynamic / cast caller cannot register a mismatched reducer.
+
 Usage:
 
 ```ts
@@ -341,6 +349,12 @@ a new package version onto a workspace with existing record state is an
 open question (§13) — v1 keeps the existing state if the East type is
 unchanged (commit `$deploy` marker), errors if it changed.
 
+> **As built.** A kept (unchanged-type) record on redeploy has its prior head
+> ref restored verbatim — state and full history are preserved — but **no
+> `$deploy` marker commit is appended**, so a redeploy currently leaves no audit
+> trace. The type-change rejection fires before any destructive write (the
+> workspace is never left half-wiped).
+
 ## 7. Storage primitive: conditional ref write
 
 One addition to `DatasetRefStore`
@@ -406,6 +420,14 @@ export async function recordMutate(
   args: Uint8Array[], opts: { actor: string; limits?: ExecuteLimits },
 ): Promise<MutationOutcome>;
 ```
+
+> **As built.** The outcome is a flat union (no nested `outcome` field). A
+> reducer that fails is **`failed`** (carrying `stderr`) — there is no separate
+> `aborted` kind. A **`invalid`** kind was added for unknown record / unknown
+> mutation / wrong arity, all rejected before any run. The full set is
+> `committed | failed | invalid | conflict | timed_out | too_large`, named
+> consistently end-to-end through `MutationResultType` (wire), the api-server
+> switch, and the CLI.
 
 Algorithm (shared workspace lock held throughout, like `workspaceSetDataset`
 — deploy/remove are excluded, other mutations and dataflow are not):
@@ -514,6 +536,16 @@ POST   /api/repos/:repo/workspaces/:ws/records/:rec/compact             → elev
 Request body reuses `FunctionCallRequestType` (positional beast2 args;
 `runner` override subject to the same `custom`-rejection policy). Reads of
 record *state* need no new routes — `datasetGet` already serves them.
+
+> **As built.** v1 ships the synchronous routes: `GET /:rec` (the record's
+> mutation **signatures**, for argument encoding — not the `{commitHash,
+> stateHash}` head), `GET /:rec/history?from&limit`, `POST /:rec/mutations/:mut`
+> (sync), and `POST /:rec/compact`. **Deferred:** the `GET /records` *list*
+> route, a dedicated head route (the head is reachable via `history?limit=1`),
+> and the **async** mutate routes (`/async` + `/calls/:callId`) — the
+> `function-call-state.ts` infrastructure they reuse is not yet on this branch,
+> so mutations are sync-only for now. Record state remains readable via
+> `datasetGet` (`e3 get .records.<rec>`).
 
 ### 9.3 CLI
 
