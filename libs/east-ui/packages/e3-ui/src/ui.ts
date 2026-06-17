@@ -22,8 +22,8 @@ import {
   type variant,
 } from '@elaraai/east';
 import type { TreePath } from '@elaraai/e3-types';
-import { encodeManifest } from './manifest.js';
-import { deriveManifest } from './derive.js';
+import { encodeManifest } from './utils/manifest.js';
+import { deriveManifest } from './utils/derive.js';
 
 /**
  * Create a UI task — an e3 task that produces a UIComponentType value.
@@ -102,7 +102,7 @@ function buildUiTask(
   return task(name, inputs as any, fn as any, {
     runner: options?.runner ?? { runtime: 'east-c' } as Runner,
     kind: 'ui',
-    metadata: encodeManifest({ paths, functions: derived.functions }),
+    metadata: encodeManifest({ paths, functions: derived.functions, records: derived.records }),
   });
 }
 

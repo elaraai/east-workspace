@@ -27,6 +27,16 @@ declare module "virtual:example-sources" {
      */
     export const exampleSources: Record<string, Record<string, CapturedSource>>;
 
+    /**
+     * Captured module-scope dependencies for each example file that has any —
+     * the top-level declarations the example bodies reference (the un-inlined
+     * `e3.input` / `e3.function` / `e3.record` / `e3.mutation` defs), pruned to
+     * the reference closure over those bodies, keyed by the same
+     * relative-path-without-extension key as {@link exampleSources}. Files that
+     * inline everything have no entry.
+     */
+    export const exampleDependencies: Record<string, CapturedSource>;
+
     /** One statically-read non-UI (`.examples.ts`) example: source plus the
      *  metadata needed to list and filter it in the Code Reference section.
      *  These packages can't run in the browser, so they're never imported —

@@ -402,25 +402,36 @@ export interface LockHandle {
 }
 
 /**
- * Distributed locking service for exclusive access.
+ * Workspace locking service mediating concurrent access.
  *
- * Used to prevent concurrent modifications to workspaces.
- * The lock state is stored using the LockState type from e3-types,
- * enabling cloud implementations to extend the holder variants.
- * All methods (except isHolderAlive) take `repo` as first parameter.
+ * A second implementation (e.g. the cloud's DynamoDB-lease backend) must honour
+ * this mutual-exclusion contract, which is the contract e3-core relies on:
+ *
+ * - `exclusive` excludes every other holder (shared and exclusive). Deploy and
+ *   remove take it, so they fence out all readers/writers.
+ * - `shared` coexists with other `shared` holders but is excluded by an
+ *   `exclusive` holder. Dataflow execution and record mutation take it, so they
+ *   run concurrently with each other yet never overlap a deploy.
+ *
+ * The lock state is stored using the LockState type from e3-types, so cloud
+ * implementations can extend the holder variants. All methods (except
+ * isHolderAlive) take `repo` as the first parameter.
  */
 export interface LockService {
   /**
-   * Acquire an exclusive lock on a resource.
+   * Acquire a lock on a resource in the requested mode (default `exclusive`).
    *
-   * The implementation gathers holder information (process ID for local,
-   * request ID for Lambda, etc.) and writes the lock state.
+   * Returns null if the mode is incompatible with a current holder per the
+   * shared/exclusive contract above (unless `wait` is set, in which case it
+   * blocks up to `timeout`). The implementation gathers holder information
+   * (process ID for local, request ID for Lambda, etc.) and writes the lock
+   * state.
    *
    * @param repo - Repository identifier
    * @param resource - Resource identifier (e.g., "workspaces/production")
    * @param operation - What operation is acquiring the lock
-   * @param options - Lock options
-   * @returns Lock handle, or null if lock couldn't be acquired
+   * @param options - Lock options (`mode` defaults to `exclusive`)
+   * @returns Lock handle, or null if the lock couldn't be acquired
    */
   acquire(
     repo: string,
@@ -673,12 +684,58 @@ export interface DatasetRefStore {
 
   /**
    * Write a dataset ref atomically.
+   *
+   * Unconditional, last-writer-wins. Used by callers that already serialize
+   * writes under a workspace lock (deploy, dataflow output writes). For
+   * concurrent writers that must not clobber each other, use {@link writeIf}.
+   *
    * @param repo - Repository identifier
    * @param ws - Workspace name
    * @param path - Dataset path (e.g., "inputs/sales" for .inputs.sales)
    * @param ref - The dataset ref to write
    */
   write(repo: string, ws: string, path: string, ref: DatasetRef): Promise<void>;
+
+  /**
+   * Read a dataset ref together with an opaque revision token.
+   *
+   * The revision identifies the exact stored bytes; pass it back to
+   * {@link writeIf} to make a conditional write that only succeeds if nothing
+   * changed in between. The token is store-specific and meaningful only to the
+   * same store (a content etag locally, a counter in memory, a DynamoDB
+   * revision attribute in the cloud) — never compare tokens across stores.
+   *
+   * @param repo - Repository identifier
+   * @param ws - Workspace name
+   * @param path - Dataset path
+   * @returns The ref and its revision, or null if the ref does not exist
+   */
+  readVersioned(repo: string, ws: string, path: string): Promise<{ ref: DatasetRef; revision: string } | null>;
+
+  /**
+   * Conditionally write a dataset ref iff the stored revision still matches.
+   *
+   * The compare-and-swap primitive behind reactive-dataflow consistency: a
+   * caller reads a revision with {@link readVersioned}, decides on a new ref,
+   * and commits it only if no concurrent writer slipped in. Serialized
+   * per-path so the read-compare-write is atomic across processes.
+   *
+   * @param repo - Repository identifier
+   * @param ws - Workspace name
+   * @param path - Dataset path
+   * @param ref - The ref to write
+   * @param expectedRevision - Revision from {@link readVersioned}; null means
+   *   "the ref must not currently exist"
+   * @returns The new revision on success
+   * @throws {DatasetRefConflictError} If the stored revision no longer matches
+   */
+  writeIf(
+    repo: string,
+    ws: string,
+    path: string,
+    ref: DatasetRef,
+    expectedRevision: string | null
+  ): Promise<{ revision: string }>;
 
   /**
    * List all dataset ref paths in a workspace.

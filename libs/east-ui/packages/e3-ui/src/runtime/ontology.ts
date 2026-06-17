@@ -6,7 +6,7 @@
 /** `<Ontology>` tag — see the export's JSDoc. */
 
 import { optionsTag, type OptionsProps, type JsxTag } from "@elaraai/east-ui";
-import { Ontology as OntologyFactory } from "../ontology.js";
+import { Ontology as OntologyFactory } from "../ontology/index.js";
 
 /**
  * Economic-ontology editor — renders an `OntologyType`-bound dataset as a

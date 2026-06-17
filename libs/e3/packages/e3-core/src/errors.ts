@@ -173,6 +173,28 @@ export class DatasetNotFoundError extends E3Error {
   }
 }
 
+/**
+ * Thrown by {@link DatasetRefStore.writeIf} when the stored revision no longer
+ * matches the expected one — another writer committed in between.
+ *
+ * Callers performing a compare-and-swap (read revision, compute, conditional
+ * write) catch this to re-read and retry. This is the primitive that closes the
+ * lost-update window in the blind `e3 set` / `Data.write` path.
+ */
+export class DatasetRefConflictError extends E3Error {
+  constructor(
+    public readonly workspace: string,
+    public readonly path: string,
+    public readonly expectedRevision: string | null,
+    public readonly actualRevision: string | null
+  ) {
+    super(
+      `Dataset ref '${path}' in workspace '${workspace}' changed concurrently ` +
+      `(expected revision ${expectedRevision ?? '<absent>'}, found ${actualRevision ?? '<absent>'})`
+    );
+  }
+}
+
 // =============================================================================
 // Task Errors
 // =============================================================================

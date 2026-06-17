@@ -77,17 +77,30 @@ export const PackageObjectType = StructType({
   tasks: DictType(StringType, StringType),
   /** Data structure and initial values */
   data: PackageDataType,
-  /** Functions defined in this package: name -> FunctionObject hash.
-   *  BEAST2 encodes struct fields positionally in declaration order, so this
-   *  field MUST stay last — never insert between `tasks` and `data`. */
+  /** Functions defined in this package: name -> FunctionObject hash. */
   functions: DictType(StringType, StringType),
+  /** Records defined in this package: name -> RecordObject hash.
+   *  BEAST2 encodes struct fields positionally in declaration order, so new
+   *  fields MUST be appended LAST — never inserted between existing fields. */
+  records: DictType(StringType, StringType),
 });
 export type PackageObjectType = typeof PackageObjectType;
 
 export type PackageObject = ValueTypeOf<typeof PackageObjectType>;
 
 /**
- * The pre-`functions` package object wire shape, kept only so
+ * The pre-`records` package object wire shape (tasks, data, functions), kept
+ * only so {@link decodePackageObject} can read packages exported before records
+ * existed.
+ */
+const FunctionsEraPackageObjectType = StructType({
+  tasks: DictType(StringType, StringType),
+  data: PackageDataType,
+  functions: DictType(StringType, StringType),
+});
+
+/**
+ * The pre-`functions` package object wire shape (tasks, data), kept only so
  * {@link decodePackageObject} can read packages exported before functions
  * existed.
  */
@@ -97,26 +110,32 @@ const LegacyPackageObjectType = StructType({
 });
 
 const decodeCurrent = decodeBeast2For(PackageObjectType);
+const decodeFunctionsEra = decodeBeast2For(FunctionsEraPackageObjectType);
 const decodeLegacy = decodeBeast2For(LegacyPackageObjectType);
 
 /**
- * Decode a `PackageObject` from BEAST2 bytes, tolerating the pre-`functions`
- * wire format (dual-decode migration).
+ * Decode a `PackageObject` from BEAST2 bytes, tolerating the two older wire
+ * formats (dual-decode migration).
  *
  * Every package-read path — local AND cloud — must use this instead of
  * `decodeBeast2For(PackageObjectType)` directly, so packages exported before
- * the `functions` field existed keep decoding. Old bytes decode with
- * `functions` defaulted to an empty map.
+ * the `records`/`functions` fields existed keep decoding. Older bytes decode
+ * with the missing maps defaulted to empty.
  */
 export function decodePackageObject(data: Uint8Array): PackageObject {
   try {
     return decodeCurrent(data);
   } catch (err) {
     try {
-      const legacy = decodeLegacy(data);
-      return { tasks: legacy.tasks, data: legacy.data, functions: new Map() };
+      const fnEra = decodeFunctionsEra(data);
+      return { tasks: fnEra.tasks, data: fnEra.data, functions: fnEra.functions, records: new Map() };
     } catch {
-      throw err; // neither shape — surface the current-format error
+      try {
+        const legacy = decodeLegacy(data);
+        return { tasks: legacy.tasks, data: legacy.data, functions: new Map(), records: new Map() };
+      } catch {
+        throw err; // no known shape — surface the current-format error
+      }
     }
   }
 }

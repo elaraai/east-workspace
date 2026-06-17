@@ -41,7 +41,7 @@ import {
 } from "@elaraai/east";
 import { EastUI, DensityType, type DensityLiteral, type UIComponentType } from "@elaraai/east-ui";
 
-import { DiffBindingType } from "./data.js";
+import { DiffBindingType } from "../bind/data.js";
 
 // ============================================================================
 // Sub-types — visual style escape hatches.
@@ -102,7 +102,7 @@ export type DiffStyleType = typeof DiffStyleType;
 // dependency direction one-way (Diff consumes; Data produces).
 // ============================================================================
 
-export { DiffBindingType } from "./data.js";
+export { DiffBindingType } from "../bind/data.js";
 
 // ============================================================================
 // Diff payload — IR shape consumed by the renderer.

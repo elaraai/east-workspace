@@ -9,8 +9,10 @@
 
 import type {
   FunctionDef,
+  MutationDef,
   PackageDef,
   PackageItem,
+  RecordDef,
   TaskDef,
 } from './types.js';
 
@@ -55,7 +57,7 @@ import type {
 export function package_(
   name: string,
   version: string,
-  ...items: (PackageItem | FunctionDef | PackageDef<any>)[]
+  ...items: (PackageItem | FunctionDef | MutationDef | PackageDef<any>)[]
 ): PackageDef<Record<string, unknown>> {
   // Recursively collect all items and their transitive dependencies
   const all_items = new Set<PackageItem>();
@@ -63,6 +65,11 @@ export function package_(
   // Functions have no deps and never enter the data tree — collected by
   // name, separately from all_items.
   const functions: Record<string, FunctionDef> = {};
+  // Mutations are collected by owning record name, like functions; they are
+  // folded onto their record below. Records themselves are datasets, so they
+  // ride `all_items` and only need a separate RecordObject channel.
+  const mutationsByRecord = new Map<string, Record<string, MutationDef>>();
+  const importedRecords: Record<string, RecordDef> = {};
 
   function collect(item: PackageItem): void {
     if (visited.has(item)) return;
@@ -83,8 +90,15 @@ export function package_(
         all_items.add(dep);
       }
       Object.assign(functions, item.functions);
+      Object.assign(importedRecords, item.records);
     } else if (item.kind === "function") {
       functions[item.name] = item;
+    } else if (item.kind === "mutation") {
+      // Pull in the owning record's dataset and register the mutation onto it.
+      collect(item.record);
+      const muts = mutationsByRecord.get(item.record.name) ?? {};
+      muts[item.name] = item;
+      mutationsByRecord.set(item.record.name, muts);
     } else {
       collect(item);
     }
@@ -132,6 +146,32 @@ export function package_(
     }
   }
 
+  // Assemble records: a record's dataset rides `all_items`; fold in any
+  // mutations collected for it. A record imported via a package arrives twice —
+  // its bare dataset (mutations `{}`) in `all_items` and its already-assembled
+  // form in `importedRecords` — so merge the existing entry's mutations rather
+  // than rebuilding from the bare `rec.mutations`, or the import's folded
+  // mutations would be clobbered to empty.
+  const records: Record<string, RecordDef> = { ...importedRecords };
+  for (const item of all_items) {
+    if (item.kind === 'dataset' && 'recordKind' in item && (item as RecordDef).recordKind === 'record') {
+      const rec = item as RecordDef;
+      records[rec.name] = {
+        ...rec,
+        mutations: {
+          ...records[rec.name]?.mutations,
+          ...rec.mutations,
+          ...mutationsByRecord.get(rec.name),
+        },
+      };
+    }
+  }
+  for (const recName of mutationsByRecord.keys()) {
+    if (!records[recName]) {
+      throw new Error(`Mutation references record '${recName}' which is not in the package`);
+    }
+  }
+
   return {
     kind: 'package',
     name,
@@ -139,5 +179,6 @@ export function package_(
     datasets: datasets as any,
     contents: [...all_items],
     functions,
+    records,
   };
 }

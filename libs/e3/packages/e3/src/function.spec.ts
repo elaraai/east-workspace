@@ -231,9 +231,11 @@ describe('decodePackageObject', () => {
       tasks: new Map([['t', 'a'.repeat(64)]]),
       data: { structure: variant('struct', new Map()), refs: new Map() },
       functions: new Map([['f', 'b'.repeat(64)]]),
+      records: new Map([['r', 'c'.repeat(64)]]),
     });
     const decoded = decodePackageObject(bytes);
     assert.strictEqual(decoded.functions.get('f'), 'b'.repeat(64));
+    assert.strictEqual(decoded.records.get('r'), 'c'.repeat(64));
   });
 
   it('decodes a pre-functions (legacy) package with functions defaulted empty', () => {
@@ -252,5 +254,26 @@ describe('decodePackageObject', () => {
     const decoded = decodePackageObject(bytes);
     assert.strictEqual(decoded.tasks.get('t'), 'a'.repeat(64));
     assert.strictEqual(decoded.functions.size, 0);
+    assert.strictEqual(decoded.records.size, 0);
+  });
+
+  it('decodes a pre-records (functions-era) package with records defaulted empty', () => {
+    const FunctionsEraPackageObjectType = StructType({
+      tasks: DictType(StringType, StringType),
+      data: PackageDataType,
+      functions: DictType(StringType, StringType),
+    });
+    const bytes = encodeBeast2For(FunctionsEraPackageObjectType)({
+      tasks: new Map([['t', 'a'.repeat(64)]]),
+      data: { structure: variant('struct', new Map()), refs: new Map() },
+      functions: new Map([['f', 'b'.repeat(64)]]),
+    });
+
+    // The strict 4-field decoder rejects 3-field bytes...
+    assert.throws(() => decodeBeast2For(PackageObjectType)(bytes));
+    // ...the tolerant decoder recovers via the functions-era tier, records empty.
+    const decoded = decodePackageObject(bytes);
+    assert.strictEqual(decoded.functions.get('f'), 'b'.repeat(64));
+    assert.strictEqual(decoded.records.size, 0);
   });
 });

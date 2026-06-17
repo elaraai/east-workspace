@@ -135,6 +135,37 @@ export const experimentFn = e3.function('experiment',
     })));
 
 // ============================================================================
+// Design — ONE pure-East fixture for the optional `design` function (the
+// "Validate" tab). Like `experimentFn`, the numbers are hardcoded so the surface
+// renders offline; `Causal.designValidation` would compute them in production.
+// ============================================================================
+
+export const designFn = e3.function('design',
+    East.function(
+        [ArrayType(BatchRow), Experiment.Types.Config, Experiment.Types.Result, Experiment.Types.DesignConfig],
+        Experiment.Types.Design,
+        (_$, _data, _config, _result, _designConfig) => ({
+            verdict: variant('causal', null),
+            basis: variant('detect_observed', null),
+            target_effect: 5.2,
+            outcome_sd: 1.4,
+            target_power: 0.8,
+            alpha: 0.05,
+            current_power: some(0.42),
+            match_on: ['incoming_grade', 'supplier'],
+            options: [
+                { label: 'Even split', treated_share: 0.5, n_treated: 60n, n_control: 60n, n_total: 120n },
+                { label: 'Treat fewer', treated_share: 0.33, n_treated: 45n, n_control: 91n, n_total: 136n },
+            ],
+            power_curve: {
+                n: new BigInt64Array([40n, 80n, 120n, 160n, 200n, 240n]),
+                power: new Float64Array([0.32, 0.55, 0.72, 0.84, 0.91, 0.95]),
+            },
+            rationale: 'A randomised trial of ~120 batches (even split), matched on incoming grade and supplier, detects a +5.2 MPa effect at 80% power (α = 0.05).',
+        }),
+    ));
+
+// ============================================================================
 // Journal — committed experiments (newest first). The verdict is STORED on each
 // row (not recomputed); the renderer derives only its colour/word from it.
 // ============================================================================
@@ -254,6 +285,34 @@ export const experimentDose = example({
                     journal={journal}
                     columns={{ bond_strength: { unit: 'MPa' } }}
                     defaultTab="dose"
+                />
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+export const experimentValidate = example({
+    keywords: ['Experiment', 'causal', 'validate', 'design', 'trial', 'rct', 'power', 'sample-size'],
+    description: 'The Experiment "Validate" tab — the optional `design` function turns the landed result into the recipe for a real randomised controlled trial: the split meter, the confounders to match the groups on, and the power curve sized from the observed effect.',
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const data = $.let(Data.bind(batchesInput));
+            const config = $.let(Data.bind(experimentConfigInput, { mode: 'staged' }));
+            const journal = $.let(Data.bind(experimentJournalInput));
+            const population = $.let(Data.bind(experimentPopulationInput, { mode: 'staged' }));
+            const experiment = $.let(Func.bind(experimentFn));
+            const design = $.let(Func.bind(designFn));
+            return (
+                <Experiment
+                    data={data}
+                    config={config}
+                    experiment={experiment}
+                    design={design}
+                    population={population}
+                    journal={journal}
+                    columns={{ bond_strength: { unit: 'MPa' } }}
+                    defaultTab="validate"
                 />
             );
         }}</Reactive>

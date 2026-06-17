@@ -24,6 +24,7 @@ import {
   decodeBeast2,
   decodeBeast2For,
   encodeBeast2For,
+  printIdentifier,
   StructType,
   variant,
   type EastType,
@@ -35,7 +36,13 @@ import {
   WorkspaceNotFoundError,
   WorkspaceNotDeployedError,
   WorkspaceLockError,
+  DatasetRefConflictError,
 } from './errors.js';
+
+// Bounded retries when a concurrent writer wins the per-path CAS. e3 set is a
+// blind replace, so a conflict just means re-read the fresh revision and write
+// again; a small cap is plenty since each loser re-attempts immediately.
+const MAX_SET_DATASET_RETRIES = 5;
 import type { StorageBackend, LockHandle } from './storage/interfaces.js';
 
 /**
@@ -265,9 +272,28 @@ export async function workspaceSetDataset(
     // Build ref path from tree path
     const refPath = treePath.map(s => s.value).join('/');
 
-    // Write the DatasetRef with empty version vector (will be populated by dataflow)
-    const datasetRef: DatasetRef = variant('value', { hash: newValueHash, versions: new Map() });
-    await storage.datasets.write(repo, ws, refPath, datasetRef);
+    // A root input references its own current value in its version vector. The
+    // dataflow reconstructs this from the value hash, so populating it here is
+    // additive — but it finally writes the self-entry the reactive spec tracks.
+    const selfKeypath = treePath.map(s => '.' + printIdentifier(s.value)).join('');
+    const datasetRef: DatasetRef = variant('value', {
+      hash: newValueHash,
+      versions: new Map([[selfKeypath, newValueHash]]),
+    });
+
+    // Conditional write so a concurrent set on the same path cannot silently
+    // drop this one mid-write. The replace is blind, so on a revision conflict
+    // we just re-read the current revision and re-attempt.
+    for (let attempt = 0; ; attempt++) {
+      const existing = await storage.datasets.readVersioned(repo, ws, refPath);
+      try {
+        await storage.datasets.writeIf(repo, ws, refPath, datasetRef, existing?.revision ?? null);
+        break;
+      } catch (err) {
+        if (err instanceof DatasetRefConflictError && attempt < MAX_SET_DATASET_RETRIES) continue;
+        throw err;
+      }
+    }
   } finally {
     // Only release the lock if we acquired it internally
     if (!externalLock) {

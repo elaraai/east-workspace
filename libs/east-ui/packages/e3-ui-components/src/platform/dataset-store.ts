@@ -162,6 +162,15 @@ export interface ReactiveDatasetCacheInterface {
      * that you don't want to drive the dataflow on every tick.
      */
     writeAndStart(workspace: string, path: TreePath, value: Uint8Array): Promise<void>;
+    /**
+     * Launch a workspace dataflow run WITHOUT writing anything first, so
+     * downstream tasks recompute against the current dataset state. This is the
+     * standalone half of {@link writeAndStart} — use it after an out-of-band
+     * mutation (e.g. a record commit) or to drive an explicit "Run" affordance.
+     * Fire-and-await: resolves once the server accepts the request, not when
+     * the dataflow finishes.
+     */
+    launchDataflow(workspace: string): Promise<void>;
     /** Preload a dataset into cache */
     preload(workspace: string, path: TreePath): Promise<void>;
     /** List fields at a path */
@@ -175,6 +184,15 @@ export interface ReactiveDatasetCacheInterface {
      * session accumulates watched paths (and network traffic) forever.
      */
     clearRefetchInterval(workspace: string, path: TreePath): void;
+    /**
+     * Force one immediate workspace-status poll, reconciling every watched
+     * path's content against the server (hash-gated; only changed datasets
+     * refetch). Use after an out-of-band server mutation (e.g. a record
+     * mutation commit) so a watched dataset picks up the new bytes without
+     * waiting for the standing poll interval. No-op if the workspace has no
+     * active poller. Fire-and-forget; resolves when the poll settles.
+     */
+    refresh(workspace: string): Promise<void>;
     /** Subscribe to changes on a specific key */
     subscribe(key: string, callback: () => void): () => void;
     /** Subscribe to all changes */
@@ -211,13 +229,6 @@ export function datasetPathToString(path: TreePath): string {
 export function datasetCacheKey(workspace: string, path: TreePath): string {
     const pathStr = datasetPathToString(path);
     return pathStr ? `${workspace}.${pathStr}` : workspace;
-}
-
-/**
- * Convert our TreePath to e3-api-client TreePath.
- */
-function toTreePath(path: TreePath): TreePath {
-    return path as TreePath;
 }
 
 /** The last server-confirmed state of a key, captured when its write
@@ -400,7 +411,7 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
         const prevTail = this.writeChains.get(key) ?? Promise.resolve();
         const run = prevTail.then(async () => {
             try {
-                await this.api.set(workspace, toTreePath(path), value);
+                await this.api.set(workspace, path, value);
                 if (this.destroyed) return;
 
                 // Confirmed — this value is the new rollback baseline for
@@ -465,6 +476,15 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
     }
 
     /**
+     * Launch a workspace dataflow run without writing first. The standalone
+     * half of {@link writeAndStart}; see the interface doc for semantics.
+     */
+    async launchDataflow(workspace: string): Promise<void> {
+        if (this.destroyed) return;
+        await this.api.launchDataflow(workspace);
+    }
+
+    /**
      * Preload a dataset into cache. Concurrent preloads of the same key
      * share one fetch (query-core dedup); a write racing the fetch cancels
      * it, so a preload can never clobber optimistic bytes.
@@ -482,7 +502,7 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
             await this.client.fetchQuery({
                 queryKey,
                 queryFn: async () => {
-                    const result = await this.fetchDataset(workspace, path);
+                    const result = await this.api.get(workspace, path);
                     fetchedHash = result.hash;
                     return result.data;
                 },
@@ -502,17 +522,13 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
         this.notifyChange(key);
     }
 
-    private fetchDataset(workspace: string, path: TreePath): Promise<{ data: Uint8Array; hash: string | null }> {
-        return this.api.get(workspace, toTreePath(path));
-    }
-
     /**
      * List fields at a path. Empty path lists workspace root.
      */
     list(workspace: string, path: TreePath): Promise<string[]> {
         return path.length === 0
             ? this.api.listRoot(workspace)
-            : this.api.listAt(workspace, toTreePath(path));
+            : this.api.listAt(workspace, path);
     }
 
     /**
@@ -571,6 +587,15 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
             poller.handle?.clear();
             this.workspacePollers.delete(workspace);
         }
+    }
+
+    refresh(workspace: string): Promise<void> {
+        // One immediate hash-gated poll, reusing the standing workspace poller
+        // the same way write() nudges after a confirmed set. No-op when nothing
+        // watches the workspace; pollWorkspaceStatus dedupes an in-flight poll.
+        if (this.destroyed) return Promise.resolve();
+        if (!this.workspacePollers.has(workspace)) return Promise.resolve();
+        return this.pollWorkspaceStatus(workspace);
     }
 
     /**
@@ -665,7 +690,7 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
         // the fetch was in flight keeps its optimistic bytes.
         const fetched = await Promise.allSettled(
             pending.map(p => p.kind === "fetch"
-                ? this.fetchDataset(workspace, p.path).then(result => ({ p, result }))
+                ? this.api.get(workspace, p.path).then(result => ({ p, result }))
                 : Promise.resolve({ p, result: null as { data: Uint8Array; hash: string | null } | null }),
             ),
         );

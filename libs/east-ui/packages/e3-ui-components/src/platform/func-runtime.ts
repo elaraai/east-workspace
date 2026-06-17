@@ -48,6 +48,7 @@ import {
     registerReactiveTracker,
     registerPlatformImplementation,
 } from "@elaraai/east-ui-components/platform";
+import { TrackedChannelStore } from "./tracked-channel.js";
 
 // =============================================================================
 // API seam — the narrow surface the runtime talks through. Tests stub it;
@@ -107,7 +108,7 @@ type FuncStatusTag = "idle" | "running" | "succeeded" | "failed" | "cancelled";
 const eastTypeEqual = equalFor(EastTypeType) as (a: EastTypeValue, b: EastTypeValue) => boolean;
 
 /** A handle's signature, recovered from the instantiated handle type. */
-interface HandleSignature {
+interface FuncHandleSignature {
     readonly inputs: EastTypeValue[];
     readonly output: EastTypeValue;
 }
@@ -118,7 +119,7 @@ interface HandleSignature {
  * field's `Option(Output)` return. The handle's shape IS the signature —
  * there are no duplicate signature arguments to drift out of sync.
  */
-export function signatureOfHandleType(handleType: EastTypeValue): HandleSignature {
+export function signatureOfFuncHandleType(handleType: EastTypeValue): FuncHandleSignature {
     if (handleType.type !== "Struct") {
         throw new Error(`Func.bind: handle type must be a Struct; got ${handleType.type}`);
     }
@@ -219,23 +220,16 @@ export function funcChannelKey(workspace: string, name: string): string {
  * {@link defaultFuncRuntime} instance backs the registered platform; tests
  * construct their own for isolation.
  */
-export class FuncRuntime {
+export class FuncRuntime extends TrackedChannelStore<FuncEntry> {
     private api: FunctionApi | null = null;
     private workspace: string | null = null;
-
-    private readonly entries = new Map<string, FuncEntry>();
 
     // Signature lists are fetched once per workspace and cached.
     private signatureLists = new Map<string, Promise<FunctionSignature[]>>();
 
-    // Subscription shim — same contract (and the same stale-disposer
-    // guard) as the dataset cache's.
-    private readonly keySubscribers = new Map<string, Set<() => void>>();
-    private readonly keyVersions = new Map<string, number>();
-
-    // Reactive tracking — read closures push their channel keys here while
-    // a Reactive.Root render is being tracked.
-    private trackingContext: Set<string> | null = null;
+    protected createEntry(): FuncEntry {
+        return { status: "idle", launchSeq: 0 };
+    }
 
     // ----- wiring ----------------------------------------------------------
 
@@ -250,69 +244,8 @@ export class FuncRuntime {
     clear(): void {
         this.api = null;
         this.workspace = null;
-        this.entries.clear();
+        this.clearChannels();
         this.signatureLists.clear();
-        this.keySubscribers.clear();
-        this.keyVersions.clear();
-    }
-
-    // ----- reactive tracking ----------------------------------------------
-
-    enableTracking(): Set<string> {
-        this.trackingContext = new Set();
-        return this.trackingContext;
-    }
-
-    disableTracking(): string[] {
-        const keys = this.trackingContext ? [...this.trackingContext] : [];
-        this.trackingContext = null;
-        return keys;
-    }
-
-    isTracking(): boolean {
-        return this.trackingContext !== null;
-    }
-
-    private track(key: string): void {
-        this.trackingContext?.add(key);
-    }
-
-    // ----- subscription shim ------------------------------------------------
-
-    subscribe(key: string, callback: () => void): () => void {
-        let subs = this.keySubscribers.get(key);
-        if (!subs) {
-            subs = new Set();
-            this.keySubscribers.set(key, subs);
-        }
-        subs.add(callback);
-        return () => {
-            subs.delete(callback);
-            if (subs.size === 0 && this.keySubscribers.get(key) === subs) {
-                this.keySubscribers.delete(key);
-            }
-        };
-    }
-
-    getKeyVersion(key: string): number {
-        return this.keyVersions.get(key) ?? 0;
-    }
-
-    private notify(key: string): void {
-        this.keyVersions.set(key, (this.keyVersions.get(key) ?? 0) + 1);
-        const subs = this.keySubscribers.get(key);
-        if (subs) for (const cb of [...subs]) cb();
-    }
-
-    // ----- registry ----------------------------------------------------------
-
-    private entry(key: string): FuncEntry {
-        let entry = this.entries.get(key);
-        if (!entry) {
-            entry = { status: "idle", launchSeq: 0 };
-            this.entries.set(key, entry);
-        }
-        return entry;
     }
 
     /** The deployed signature list for a workspace (fetched once). */
@@ -333,7 +266,7 @@ export class FuncRuntime {
 
     /** Validate a declared signature against the deployed list. Returns a
      *  FuncError when the name is unknown or the signature disagrees. */
-    private async validate(workspace: string, name: string, sig: HandleSignature): Promise<FuncError | null> {
+    private async validate(workspace: string, name: string, sig: FuncHandleSignature): Promise<FuncError | null> {
         let list: FunctionSignature[];
         try {
             list = await this.signatures(workspace);
@@ -366,20 +299,9 @@ export class FuncRuntime {
 
     // ----- closure semantics -------------------------------------------------
 
-    private launch(workspace: string, name: string, sig: HandleSignature, args: unknown[]): void {
+    private launch(workspace: string, name: string, sig: FuncHandleSignature, args: unknown[]): void {
         const key = funcChannelKey(workspace, name);
-        const entry = this.entry(key);
-        entry.launchSeq += 1;
-        const mySeq = entry.launchSeq;
-        entry.status = "running";
-        this.notify(key);
-
-        const settle = (mutate: (entry: FuncEntry) => void): void => {
-            const current = this.entries.get(key);
-            if (!current || current.launchSeq !== mySeq) return; // superseded
-            mutate(current);
-            this.notify(key);
-        };
+        const { settle } = this.beginLaunch(key);
 
         void (async () => {
             const invalid = await this.validate(workspace, name, sig);
@@ -424,7 +346,7 @@ export class FuncRuntime {
 
     /** Build the handle value for one `Func.bind` platform evaluation. */
     buildHandle(handleType: EastTypeValue, name: string): Record<string, unknown> {
-        const sig = signatureOfHandleType(handleType);
+        const sig = signatureOfFuncHandleType(handleType);
         // eslint-disable-next-line @typescript-eslint/no-this-alias
         const runtime = this;
 
@@ -469,12 +391,8 @@ export class FuncRuntime {
                 return entry.status === "running";
             },
             cancel: () => {
-                const { key, entry } = channel();
-                if (entry.status === "running") {
-                    entry.launchSeq += 1; // orphan the in-flight wait
-                    entry.status = "cancelled";
-                    runtime.notify(key);
-                }
+                const { key } = channel();
+                runtime.cancelChannel(key);
                 return null;
             },
             binding: { name },

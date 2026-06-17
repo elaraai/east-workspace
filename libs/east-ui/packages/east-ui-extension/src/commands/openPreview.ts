@@ -7,27 +7,39 @@ import * as vscode from 'vscode';
 import { startE3Server } from '../server/e3Server.js';
 import { createPreviewPanel } from '../webview/panel.js';
 
-export async function openPreviewCommand(context: vscode.ExtensionContext) {
+/**
+ * Open an e3 repository as an East UI preview.
+ *
+ * @param folder - When invoked from the Explorer context menu VS Code passes
+ *   the right-clicked folder; the picker is skipped. From the command palette
+ *   it is undefined, so a folder picker is shown.
+ */
+export async function openPreviewCommand(context: vscode.ExtensionContext, folder?: vscode.Uri) {
     const config = vscode.workspace.getConfiguration('east-ui.e3');
     const lastRepoPath = config.get<string>('lastRepositoryPath', '');
     const port = config.get<number>('port', 3001);
 
-    // Show folder picker dialog
-    const defaultUri = lastRepoPath ? vscode.Uri.file(lastRepoPath) : undefined;
-    const folderUri = await vscode.window.showOpenDialog({
-        canSelectFiles: false,
-        canSelectFolders: true,
-        canSelectMany: false,
-        defaultUri,
-        openLabel: 'Select Repository',
-        title: 'Select E3 Repository',
-    });
+    let repoPath: string;
+    if (folder) {
+        repoPath = folder.fsPath;
+    } else {
+        // Show folder picker dialog
+        const defaultUri = lastRepoPath ? vscode.Uri.file(lastRepoPath) : undefined;
+        const picked = await vscode.window.showOpenDialog({
+            canSelectFiles: false,
+            canSelectFolders: true,
+            canSelectMany: false,
+            defaultUri,
+            openLabel: 'Select Repository',
+            title: 'Select E3 Repository',
+        });
 
-    if (!folderUri || folderUri.length === 0) {
-        return;
+        if (!picked || picked.length === 0) {
+            return;
+        }
+
+        repoPath = picked[0].fsPath;
     }
-
-    const repoPath = folderUri[0].fsPath;
 
     // Save the path for next time
     await config.update('lastRepositoryPath', repoPath, vscode.ConfigurationTarget.Global);

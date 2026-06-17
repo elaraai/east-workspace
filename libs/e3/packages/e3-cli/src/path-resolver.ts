@@ -32,7 +32,7 @@ import type { TreePath } from '@elaraai/e3-types';
 import type { RepoLocation } from './utils.js';
 
 /** Kind of a resolved dataset. */
-export type DatasetKind = 'input' | 'task-output' | 'other';
+export type DatasetKind = 'input' | 'task-output' | 'record' | 'other';
 
 /** A resolved dataset entry from the workspace. */
 export interface ResolvedEntry {
@@ -110,16 +110,16 @@ export function resolveDatasetPathFromIndex(
   const rest = parsed.slice(1).map((s) => String(s.value));
 
   // Detect tree paths (no sub-name given).
-  if ((head === 'inputs' || head === 'tasks') && rest.length === 0) {
+  if ((head === 'inputs' || head === 'tasks' || head === 'records') && rest.length === 0) {
     throw new Error(
       `'${ws}.${head}' is a tree, not a dataset. Use '${ws}.<name>' to address a specific dataset.`,
     );
   }
 
   // Detect legacy forms and reject with a friendly message.
-  if (head === 'inputs' && rest.length === 1) {
+  if ((head === 'inputs' || head === 'records') && rest.length === 1) {
     throw new Error(
-      `Use the short form: '${ws}.${rest[0]!}' instead of '${ws}.inputs.${rest[0]!}'.`,
+      `Use the short form: '${ws}.${rest[0]!}' instead of '${ws}.${head}.${rest[0]!}'.`,
     );
   }
   if (head === 'tasks' && rest.length === 2 && rest[1] === 'output') {
@@ -233,6 +233,16 @@ function entryForLeaf(name: string, prefix: string[]): ResolvedEntry {
       name,
       kind: 'input',
       storage: toTreePath(['inputs', name]),
+    };
+  }
+  // Records are addressed by their short name like inputs; their state lives at
+  // `records/<name>` (reads serve the state blob, writes are rejected
+  // server-side via `writable: false`).
+  if (prefix.length === 1 && prefix[0] === 'records') {
+    return {
+      name,
+      kind: 'record',
+      storage: toTreePath(['records', name]),
     };
   }
   return {

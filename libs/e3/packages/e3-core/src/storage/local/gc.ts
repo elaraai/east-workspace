@@ -192,6 +192,43 @@ function isFunctionObjectShape(type: any): boolean {
 }
 
 /**
+ * Check if a decoded EastTypeValue represents a RecordObject.
+ * RecordObject is a Struct with fields: path, mutations.
+ */
+function isRecordObjectShape(type: any): boolean {
+  if (type.type !== 'Struct') return false;
+  const names = new Set((type.value as { name: string }[]).map(f => f.name));
+  return names.has('path') && names.has('mutations') && names.size === 2;
+}
+
+/**
+ * Check if a decoded EastTypeValue represents a MutationObject.
+ * MutationObject is a Struct with fields: bodyIr, argTypes, runner — distinct
+ * from a FunctionObject (which has inputTypes/outputType, not argTypes).
+ */
+function isMutationObjectShape(type: any): boolean {
+  if (type.type !== 'Struct') return false;
+  const names = new Set((type.value as { name: string }[]).map(f => f.name));
+  // Exact field set (records' state blobs are arbitrary user structs that flow
+  // through this dispatch, so a name-subset match could misclassify one).
+  return names.size === 3 && names.has('bodyIr') && names.has('argTypes') && names.has('runner');
+}
+
+/**
+ * Check if a decoded EastTypeValue represents a RecordCommit.
+ * RecordCommit is a Struct with fields: parent, state, mutation, args, actor, at.
+ */
+function isRecordCommitShape(type: any): boolean {
+  if (type.type !== 'Struct') return false;
+  const names = new Set((type.value as { name: string }[]).map(f => f.name));
+  // Exact field set so a user state struct sharing some of these field names
+  // can't be misclassified as a commit and have its fields probed as hashes.
+  return names.size === 6
+    && names.has('parent') && names.has('state') && names.has('mutation')
+    && names.has('args') && names.has('actor') && names.has('at');
+}
+
+/**
  * Check if a field type is a DataRef (Variant with cases: unassigned, null, value, tree).
  */
 function isDataRefFieldType(fieldType: any): boolean {
@@ -223,7 +260,7 @@ function extractChildren(
   const children: { hash: string; isLeaf: boolean }[] = [];
 
   if (isPackageObjectShape(t)) {
-    const pkg = value as { tasks: Map<string, string>; data: { structure: unknown; refs?: Map<string, { type: string; value: any }> }; functions?: Map<string, string> };
+    const pkg = value as { tasks: Map<string, string>; data: { structure: unknown; refs?: Map<string, { type: string; value: any }> }; functions?: Map<string, string>; records?: Map<string, string> };
     for (const taskHash of pkg.tasks.values()) {
       children.push({ hash: taskHash, isLeaf: false });
     }
@@ -231,6 +268,12 @@ function extractChildren(
     if (pkg.functions instanceof Map) {
       for (const fnHash of pkg.functions.values()) {
         children.push({ hash: fnHash, isLeaf: false });
+      }
+    }
+    // Record objects (absent on pre-`records` packages)
+    if (pkg.records instanceof Map) {
+      for (const recHash of pkg.records.values()) {
+        children.push({ hash: recHash, isLeaf: false });
       }
     }
     // Extract value hashes from inline per-dataset refs
@@ -253,6 +296,36 @@ function extractChildren(
   if (isFunctionObjectShape(t)) {
     const fn = value as { bodyIr: string };
     children.push({ hash: fn.bodyIr, isLeaf: true }); // IR is a leaf
+    return children;
+  }
+
+  if (isRecordObjectShape(t)) {
+    const rec = value as { mutations: Map<string, string> };
+    for (const mutHash of rec.mutations.values()) {
+      children.push({ hash: mutHash, isLeaf: false });
+    }
+    return children;
+  }
+
+  if (isMutationObjectShape(t)) {
+    const mut = value as { bodyIr: string };
+    children.push({ hash: mut.bodyIr, isLeaf: true }); // IR is a leaf
+    return children;
+  }
+
+  if (isRecordCommitShape(t)) {
+    const commit = value as {
+      parent: { type: string; value: string };
+      state: string;
+      args: { type: string; value: string };
+    };
+    children.push({ hash: commit.state, isLeaf: true }); // state blob is a leaf
+    if (commit.parent.type === 'some') {
+      children.push({ hash: commit.parent.value, isLeaf: false }); // walk the chain
+    }
+    if (commit.args.type === 'some') {
+      children.push({ hash: commit.args.value, isLeaf: true }); // args tuple is a leaf
+    }
     return children;
   }
 

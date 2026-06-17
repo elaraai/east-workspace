@@ -20,16 +20,19 @@ import '@elaraai/east-ui-components/fonts';
 // is needed here.
 import '@elaraai/e3-ui-components';
 import { encodeBeast2For, FloatType, IntegerType } from '@elaraai/east';
-import type { DatasetDef, FunctionDef } from '@elaraai/e3';
+import type { DatasetDef, FunctionDef, RecordDef, MutationDef } from '@elaraai/e3';
 import type { TreePath } from '@elaraai/e3-types';
 import {
     ReactiveDatasetCache,
     initializeReactiveDatasetCache,
     initializeFunctionApi,
     createInMemoryFunctionApi,
+    initializeRecordApi,
+    createInMemoryRecordApi,
     datasetCacheKey,
     type DatasetApi,
     type InMemoryFunctionDef,
+    type InMemoryRecordDef,
 } from '@elaraai/e3-ui-components';
 import { mountSnapshot } from '../../../scripts/snapshot-app.tsx';
 
@@ -81,6 +84,45 @@ const FALLBACK_FUNCTIONS: InMemoryFunctionDef[] = [
     { name: 'rebalance', inputTypes: [FloatType], outputType: FloatType, fn: (x) => 1 - (x as number) },
 ];
 
+/** An export is a seedable record iff it's an `e3.record` def. A record *is a*
+ *  dataset (`kind: 'dataset'`); `recordKind` is the distinguishing discriminant. */
+function isRecordDef(x: unknown): x is RecordDef {
+    return typeof x === 'object' && x !== null && (x as RecordDef).recordKind === 'record';
+}
+
+/** An export is a mutation iff it's an `e3.mutation` def. */
+function isMutationDef(x: unknown): x is MutationDef {
+    return typeof x === 'object' && x !== null && (x as MutationDef).kind === 'mutation';
+}
+
+/**
+ * Compile a module's exported `e3.record`s + `e3.mutation`s into offline
+ * implementations — the record-side mirror of {@link seedFunctions}. Each
+ * mutation's East reducer body is compiled to JS and grouped under the record
+ * it writes (matched by name), so `Record.bind` reads / mutates resolve with no
+ * e3 backend.
+ */
+function seedRecords(mod: Record<string, unknown>): InMemoryRecordDef[] {
+    const mutations = Object.values(mod).filter(isMutationDef);
+    const defs: InMemoryRecordDef[] = [];
+    for (const rec of Object.values(mod)) {
+        if (!isRecordDef(rec)) continue;
+        const recMutations: InMemoryRecordDef['mutations'] = [];
+        for (const m of mutations) {
+            if (m.record.name !== rec.name) continue;
+            const body = m.body as { compile?: (p: never[]) => (...a: unknown[]) => unknown };
+            try {
+                const reduce = body.compile!([]);
+                recMutations.push({ name: m.name, argTypes: [...m.argTypes], reduce });
+            } catch (err) {
+                console.warn(`[snapshot] could not compile mutation "${m.name}":`, err);
+            }
+        }
+        defs.push({ name: rec.name, stateType: rec.type, initial: rec.default, mutations: recMutations });
+    }
+    return defs;
+}
+
 /** Seed an in-memory dataset cache from a module's exported `e3.input`s. */
 async function seedCache(mod: Record<string, unknown>): Promise<void> {
     const seed = new Map<string, Uint8Array>();
@@ -115,6 +157,13 @@ async function seedCache(mod: Record<string, unknown>): Promise<void> {
     for (const f of seedFunctions(mod)) fns.set(f.name, f);
     for (const f of FALLBACK_FUNCTIONS) if (!fns.has(f.name)) fns.set(f.name, f);
     initializeFunctionApi(createInMemoryFunctionApi([...fns.values()]), WORKSPACE);
+
+    // Offline `Record.bind` impls — seeds each record's initial state into the
+    // cache (so `read()` resolves) and stands in for the mutation backend.
+    const recordDefs = seedRecords(mod);
+    if (recordDefs.length > 0) {
+        initializeRecordApi(createInMemoryRecordApi(cache, WORKSPACE, recordDefs), cache, WORKSPACE);
+    }
 
     await Promise.all(inputPaths.map(path => cache.preload(WORKSPACE, path)));
 }

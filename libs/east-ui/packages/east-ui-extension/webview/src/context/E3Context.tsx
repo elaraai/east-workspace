@@ -15,6 +15,9 @@ export type Selection =
 interface E3ContextValue {
     apiUrl: string;
     repoPath: string;
+    /** The workspace chosen in the app-bar select; scopes the sidebar nav. */
+    currentWorkspace: string | null;
+    setCurrentWorkspace: (workspace: string) => void;
     selection: Selection;
     setSelection: (selection: Selection) => void;
     sidebarCollapsed: boolean;
@@ -31,12 +34,22 @@ interface E3ProviderProps {
 
 /** bsys Sidebar recipe: collapse state persists to localStorage per user. */
 const SIDEBAR_KEY = 'east-ui-extension.sidebar-collapsed';
+/** The selected workspace persists too, so a reload reopens where you were. */
+const WORKSPACE_KEY = 'east-ui-extension.current-workspace';
 
 export function E3Provider({ apiUrl, repoPath, children }: E3ProviderProps) {
     const [selection, setSelection] = useState<Selection>({ type: 'none' });
+    const [currentWorkspace, setCurrentWorkspaceState] = useState<string | null>(() => {
+        try { return localStorage.getItem(WORKSPACE_KEY); } catch { return null; }
+    });
     const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
         try { return localStorage.getItem(SIDEBAR_KEY) === 'true'; } catch { return false; }
     });
+
+    const setCurrentWorkspace = useCallback((workspace: string) => {
+        setCurrentWorkspaceState(workspace);
+        try { localStorage.setItem(WORKSPACE_KEY, workspace); } catch { /* ignore */ }
+    }, []);
 
     const toggleSidebar = useCallback(() => {
         setSidebarCollapsed(prev => {
@@ -60,7 +73,7 @@ export function E3Provider({ apiUrl, repoPath, children }: E3ProviderProps) {
 
     return (
         <E3Context.Provider
-            value={{ apiUrl, repoPath, selection, setSelection, sidebarCollapsed, toggleSidebar }}
+            value={{ apiUrl, repoPath, currentWorkspace, setCurrentWorkspace, selection, setSelection, sidebarCollapsed, toggleSidebar }}
         >
             {children}
         </E3Context.Provider>

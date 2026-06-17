@@ -88,6 +88,19 @@ export {
   type WorkspaceDeployOptions,
 } from './workspaces.js';
 
+// Record mutations and history (the write half of the CQRS pair)
+export {
+  recordMutate,
+  recordHistory,
+  recordDescribe,
+  recordCompact,
+  type MutationOutcome,
+  type RecordMutateOptions,
+  type RecordMutateLimits,
+  type RecordHistoryEntry,
+  type RecordSignature,
+} from './records.js';
+
 // Tree and dataset operations (low-level, by hash)
 export {
   treeRead,
@@ -296,6 +309,7 @@ export {
   PackageExistsError,
   // Dataset
   DatasetNotFoundError,
+  DatasetRefConflictError,
   // Task
   TaskNotFoundError,
   // Object

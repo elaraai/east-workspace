@@ -85,7 +85,7 @@ export function parseFunctionSpec(
  * Encode one positional argument against its declared parameter type.
  * Accepts an inline .east literal or a .beast2/.json/.east file path.
  */
-async function encodeArg(raw: string, typeValue: EastTypeValue, index: number): Promise<Uint8Array> {
+export async function encodeArg(raw: string, typeValue: EastTypeValue, index: number): Promise<Uint8Array> {
   const type: EastType = fromEastTypeValue(typeValue);
 
   if (raw.endsWith('.beast2')) {

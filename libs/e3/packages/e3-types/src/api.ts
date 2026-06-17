@@ -29,6 +29,7 @@ import {
   BooleanType,
   BlobType,
   NullType,
+  DateTimeType,
   EastTypeType,
   type EastType,
   type ValueTypeOf,
@@ -810,6 +811,65 @@ export const OneShotRequestType = StructType({
   limits: OptionType(ExecuteLimitsType),
 });
 
+/**
+ * A record mutation call. Positional args (after the implicit current state),
+ * one beast2-encoded value per declared parameter.
+ */
+export const MutationCallRequestType = StructType({
+  args:   ArrayType(BlobType),
+  actor:  OptionType(StringType),       // caller identity; the server may override from auth
+  limits: OptionType(ExecuteLimitsType),
+});
+
+/**
+ * The terminal result of a mutation call. Only `committed` wrote anything.
+ *
+ * - `committed`: the new commit + state hashes
+ * - `invalid`: record/mutation lookup or arity error; nothing ran
+ * - `failed`: the reducer process exited non-zero (incl. a reducer `$.error`; see stderr)
+ * - `too_large`: the new state exceeded the result cap
+ * - `timed_out`: the reducer exceeded its time budget
+ * - `conflict`: the compare-and-swap lost the race `attempts` times
+ */
+export const MutationResultType = StructType({
+  outcome: VariantType({
+    committed: StructType({ commitHash: StringType, stateHash: StringType }),
+    invalid:   StructType({ message: StringType }),
+    failed:    StructType({ exitCode: IntegerType, stderr: StringType }),
+    too_large: StructType({ bytes: IntegerType, limit: IntegerType, stderr: StringType }),
+    timed_out: StructType({ ms: IntegerType, stderr: StringType }),
+    conflict:  StructType({ attempts: IntegerType }),
+  }),
+});
+
+/**
+ * A record's callable surface, returned by `describe` so dynamic callers can
+ * encode mutation arguments. The mutation `argTypes` are the EXTRA parameters
+ * after the implicit current state.
+ */
+export const RecordSignatureType = StructType({
+  name: StringType,
+  mutations: ArrayType(StructType({
+    name:     StringType,
+    argTypes: ArrayType(EastTypeType),
+  })),
+});
+
+/** One commit in a record's history (its hash plus the commit fields). */
+export const RecordCommitInfoType = StructType({
+  hash:     StringType,
+  parent:   OptionType(StringType),
+  state:    StringType,
+  mutation: StringType,
+  actor:    StringType,
+  at:       DateTimeType,
+});
+
+/** A page of a record's commit history, newest first. */
+export const RecordHistoryResultType = StructType({
+  commits: ArrayType(RecordCommitInfoType),
+});
+
 // =============================================================================
 // Value type aliases
 // =============================================================================
@@ -854,3 +914,8 @@ export type ExecuteResult = ValueTypeOf<typeof ExecuteResultType>;
 export type FunctionCallRequest = ValueTypeOf<typeof FunctionCallRequestType>;
 export type FunctionSignature = ValueTypeOf<typeof FunctionSignatureType>;
 export type OneShotRequest = ValueTypeOf<typeof OneShotRequestType>;
+export type MutationCallRequest = ValueTypeOf<typeof MutationCallRequestType>;
+export type MutationResult = ValueTypeOf<typeof MutationResultType>;
+export type RecordSignature = ValueTypeOf<typeof RecordSignatureType>;
+export type RecordCommitInfo = ValueTypeOf<typeof RecordCommitInfoType>;
+export type RecordHistoryResult = ValueTypeOf<typeof RecordHistoryResultType>;

@@ -102,16 +102,15 @@ export function PatternEntry({ entry }: { entry: CatalogEntry }) {
 }
 
 /** Live example: rendered frame hugging its content, with the captured
- *  source in a disclosure beneath it. The doc virtualizer measures rows
- *  dynamically, so the frame needs no fixed height — `minH` just keeps
- *  tiny artifacts (a lone badge) from collapsing the frame to a sliver. */
+ *  dependencies and source in disclosures beneath it. The doc virtualizer
+ *  measures rows dynamically, so the frame needs no fixed height — `minH`
+ *  just keeps tiny artifacts (a lone badge) from collapsing it to a sliver. */
 function LiveBody({ entry }: { entry: LiveEntry }) {
     /* `ExampleDef.fn`'s return type is erased to `EastType` at the package
      * boundary (to keep downstream `.d.ts` small); `<EastFunction>` needs
      * the precise `EastIR<[], UIComponentType>`. The cast narrows it back —
      * every live example in the showcase is a UI component by construction. */
     const ir = useMemo(() => entry.fn.toIR() as EastFunctionProps["ir"], [entry]);
-    const [open, setOpen] = useState(false);
     return (
         <>
             <Box
@@ -124,37 +123,48 @@ function LiveBody({ entry }: { entry: LiveEntry }) {
             >
                 <EastFunction ir={ir} storageKey={`example-${entry.pathKey}-${entry.name}`} />
             </Box>
-            {entry.source && (
-                <Box mt="10px">
-                    <chakra.button
-                        type="button"
-                        onClick={() => setOpen(o => !o)}
-                        display="inline-flex"
-                        alignItems="center"
-                        gap="6px"
-                        border="0"
-                        background="transparent"
-                        cursor="pointer"
-                        px="0"
-                        color={open ? "fg" : "fg.muted"}
-                        _hover={{ color: "brand.700" }}
-                    >
-                        <FontAwesomeIcon
-                            icon={open ? faChevronDown : faChevronRight}
-                            style={{ fontSize: "8px" }}
-                        />
-                        <Text as="span" textStyle="tag.kv.k" color="inherit">
-                            source
-                        </Text>
-                    </chakra.button>
-                    {open && (
-                        <Box mt="8px">
-                            <SourceBlock raw={entry.source.raw} />
-                        </Box>
-                    )}
+            {/* The un-inlined defs the body references (e3.input / record /
+              * mutation) get their own disclosure, above source — present only
+              * for example files that declare module scope. */}
+            {entry.dependencies && <Disclosure label="dependencies" raw={entry.dependencies.raw} />}
+            {entry.source && <Disclosure label="source" raw={entry.source.raw} />}
+        </>
+    );
+}
+
+/** A chevron-toggled disclosure wrapping a dark source block — the shared
+ *  affordance for the `dependencies` and `source` sections, each independent. */
+function Disclosure({ label, raw }: { label: string; raw: string }) {
+    const [open, setOpen] = useState(false);
+    return (
+        <Box mt="10px">
+            <chakra.button
+                type="button"
+                onClick={() => setOpen(o => !o)}
+                display="inline-flex"
+                alignItems="center"
+                gap="6px"
+                border="0"
+                background="transparent"
+                cursor="pointer"
+                px="0"
+                color={open ? "fg" : "fg.muted"}
+                _hover={{ color: "brand.700" }}
+            >
+                <FontAwesomeIcon
+                    icon={open ? faChevronDown : faChevronRight}
+                    style={{ fontSize: "8px" }}
+                />
+                <Text as="span" textStyle="tag.kv.k" color="inherit">
+                    {label}
+                </Text>
+            </chakra.button>
+            {open && (
+                <Box mt="8px">
+                    <SourceBlock raw={raw} />
                 </Box>
             )}
-        </>
+        </Box>
     );
 }
 

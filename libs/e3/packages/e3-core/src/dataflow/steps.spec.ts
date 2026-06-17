@@ -351,6 +351,7 @@ describe('stepDetectInputChanges', () => {
       },
       tasks: tasksMap,
       functions: new Map(),
+      records: new Map(),
     };
     const pkgHash = await objectWrite(repoPath, pkgEncoder(pkgObj));
 

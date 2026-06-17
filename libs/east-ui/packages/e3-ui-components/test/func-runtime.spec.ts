@@ -29,7 +29,7 @@ import type { ExecuteResult, FunctionSignature } from "@elaraai/e3-api-client";
 import {
     FuncRuntime,
     funcChannelKey,
-    signatureOfHandleType,
+    signatureOfFuncHandleType,
     createInMemoryFunctionApi,
     type FunctionApi,
     type FunctionCallArgs,
@@ -133,12 +133,12 @@ function newRuntime(signatures: FunctionSignature[] = [signature("forecast", [In
 }
 
 // =============================================================================
-// signatureOfHandleType
+// signatureOfFuncHandleType
 // =============================================================================
 
-describe("signatureOfHandleType", () => {
+describe("signatureOfFuncHandleType", () => {
     test("recovers inputs from call and output from read's Option", () => {
-        const sig = signatureOfHandleType(forecastHandleType());
+        const sig = signatureOfFuncHandleType(forecastHandleType());
         assert.equal(sig.inputs.length, 2);
         assert.equal(sig.inputs[0]!.type, "Integer");
         assert.equal(sig.inputs[1]!.type, "Float");
@@ -146,7 +146,7 @@ describe("signatureOfHandleType", () => {
     });
 
     test("rejects a non-struct handle type", () => {
-        assert.throws(() => signatureOfHandleType(toEastTypeValue(IntegerType)), /must be a Struct/);
+        assert.throws(() => signatureOfFuncHandleType(toEastTypeValue(IntegerType)), /must be a Struct/);
     });
 });
 

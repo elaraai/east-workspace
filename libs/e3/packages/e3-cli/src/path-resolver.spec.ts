@@ -45,6 +45,10 @@ function tasks(...names: string[]): TreeNode {
   return branch('tasks', names.map(leaf));
 }
 
+function records(...names: string[]): TreeNode {
+  return branch('records', names.map(leaf));
+}
+
 // Remote ListEntry builders
 function remoteDataset(path: string): ListEntry {
   return variant('dataset', {
@@ -182,6 +186,17 @@ describe('indexFromTree', () => {
     );
   });
 
+  it('indexes records as kind=record with [records, name] storage', () => {
+    const tree: TreeNode[] = [records('orders', 'counter')];
+    const result = indexFromTree(tree);
+    const orders = result.find((e) => e.name === 'orders')!;
+    assert.strictEqual(orders.kind, 'record');
+    assert.deepStrictEqual(
+      orders.storage.map((s) => s.value),
+      ['records', 'orders'],
+    );
+  });
+
   it('indexes both inputs and tasks in a typical workspace', () => {
     const tree: TreeNode[] = [inputs('name'), tasks('greet', 'shout')];
     const result = indexFromTree(tree);
@@ -253,6 +268,7 @@ describe('resolveDatasetPathFromIndex', () => {
   const index: ResolvedEntry[] = indexFromTree([
     inputs('name', 'count'),
     tasks('greet', 'shout'),
+    records('orders'),
   ]);
 
   it('resolves a known input', () => {
@@ -260,6 +276,26 @@ describe('resolveDatasetPathFromIndex', () => {
     assert.strictEqual(result.ws, 'dev');
     assert.strictEqual(result.kind, 'input');
     assert.deepStrictEqual(result.path.map((s) => s.value), ['inputs', 'name']);
+  });
+
+  it('resolves a record by its short name to [records, name]', () => {
+    const result = resolveDatasetPathFromIndex('dev.orders', index);
+    assert.strictEqual(result.kind, 'record');
+    assert.deepStrictEqual(result.path.map((s) => s.value), ['records', 'orders']);
+  });
+
+  it("rejects the records tree ('dev.records') as not a dataset", () => {
+    assert.throws(
+      () => resolveDatasetPathFromIndex('dev.records', index),
+      /is a tree, not a dataset/,
+    );
+  });
+
+  it('rejects legacy records.<name> form with a short-form hint', () => {
+    assert.throws(
+      () => resolveDatasetPathFromIndex('dev.records.orders', index),
+      /Use the short form: 'dev.orders'/,
+    );
   });
 
   it('resolves a known task with the output suffix added', () => {

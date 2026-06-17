@@ -121,8 +121,13 @@ export const globalCss = defineGlobalStyles({
 
     /* ─── Drag & drop stages (drag-drop-visuals) ─────────────────────────
      * The DragLayerProvider drives these via data attributes; surfaces get
-     * the treatment for free by registering cells/sinks. */
-    "[data-dragging]": {
+     * the treatment for free by registering cells/sinks.
+     *
+     * Scoped `:not([data-scope])` so it dims only our own drag origins —
+     * Ark/Zag widgets (Slider, etc.) set `data-dragging` on themselves for
+     * their own drag state and carry a `data-scope`; without this exclusion
+     * a slider goes to 40% opacity while its thumb is dragged. */
+    "[data-dragging]:not([data-scope])": {
         opacity: "0.4",
     },
     "[data-drag-ghost]": {

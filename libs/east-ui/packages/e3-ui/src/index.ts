@@ -35,7 +35,7 @@ export {
     DataBindHandleType,
     type DataBindOptions,
     bindPlatformFn,
-} from './data.js';
+} from './bind/data.js';
 export {
     Func,
     FuncStatusType,
@@ -44,9 +44,18 @@ export {
     FuncBindHandleType,
     type BoundFunc,
     funcBindPlatformFn,
-} from './func.js';
-export { DataManifestType, type DataManifest, encodeManifest, decodeManifest } from './manifest.js';
-export { deriveManifest } from './derive.js';
+} from './bind/func.js';
+export {
+    Record,
+    RecordMutateStatusType,
+    RecordErrorType,
+    RecordBindingType,
+    RecordBindHandleType,
+    type BoundRecord,
+    recordBindPlatformFn,
+} from './bind/record.js';
+export { DataManifestType, type DataManifest, encodeManifest, decodeManifest } from './utils/manifest.js';
+export { deriveManifest } from './utils/derive.js';
 export { ui } from './ui.js';
 
 // e3 `<Diff>` tag + its types
@@ -55,7 +64,7 @@ export {
     DiffPayloadType,
     DiffStyleType,
     type DiffOptions,
-} from './diff.js';
+} from './diff/index.js';
 
 // e3 `<Ontology>` tag + its types
 export { Ontology } from './runtime/ontology.js';
@@ -72,7 +81,7 @@ export {
     type OntologyStructType,
     OntologyViewType,
     type OntologyViewLiteral,
-} from './ontology.js';
+} from './ontology/index.js';
 
 // e3 `<Experiment>` tag + its payload/options. The render-contract value types
 // (Config / Result / DoseResponse / Journal …) are intentionally NOT public

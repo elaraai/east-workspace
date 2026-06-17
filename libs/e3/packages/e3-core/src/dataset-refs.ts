@@ -153,7 +153,13 @@ export async function snapshotInputVersions(
     const refPath = keypathToRefPath(keypath);
     const ref = await storage.datasets.read(repo, ws, refPath);
     if (ref && ref.type === 'value') {
-      snapshot.set(keypath, ref.value.hash);
+      // Prefer the version-vector self-entry over the state hash so change
+      // detection is commit-granular for records: a mutation producing a
+      // byte-identical state still has a distinct commit hash, so downstream
+      // tasks re-execute (no ABA) and derived version vectors carry the commit.
+      // For plain values the self-entry equals the state hash, so this is a
+      // no-op for them.
+      snapshot.set(keypath, ref.value.versions.get(keypath) ?? ref.value.hash);
     }
   }
 

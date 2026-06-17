@@ -20,11 +20,11 @@
 import { createWriteStream } from 'fs';
 import * as fs from 'fs/promises';
 import yazl from 'yazl';
-import { decodeBeast2For, encodeBeast2For, variant } from '@elaraai/east';
-import { PackageObjectType, WorkspaceStateType, TaskObjectType, FunctionObjectType, DataflowRunType, DatasetRefType, decodePackageObject } from '@elaraai/e3-types';
-import type { PackageObject, WorkspaceState, TaskObject, FunctionObject, DatasetRef } from '@elaraai/e3-types';
+import { decodeBeast2For, encodeBeast2For, equalFor, variant, none, EastTypeType, type EastTypeValue } from '@elaraai/east';
+import { PackageObjectType, WorkspaceStateType, TaskObjectType, FunctionObjectType, RecordObjectType, RecordCommitType, DataflowRunType, DatasetRefType, decodePackageObject } from '@elaraai/e3-types';
+import type { PackageObject, WorkspaceState, TaskObject, FunctionObject, DatasetRef, RecordCommit, Structure } from '@elaraai/e3-types';
 import { packageResolve, packageRead } from './packages.js';
-import { writeRefsFromPackage } from './dataset-refs.js';
+import { writeRefsFromPackage, refPathToKeypath } from './dataset-refs.js';
 import {
   WorkspaceNotFoundError,
   WorkspaceNotDeployedError,
@@ -291,11 +291,25 @@ export async function workspaceDeploy(
     const packageHash = await packageResolve(storage, repo, pkgName, pkgVersion);
     const pkg = await packageRead(storage, repo, pkgName, pkgVersion);
 
+    // Capture any existing record state BEFORE wiping, so a redeploy preserves
+    // operational record state + audit history rather than resetting it.
+    const priorRecords = await capturePriorRecords(storage, repo, name);
+
+    // Reject an incompatible (type-changed) redeploy BEFORE any destructive
+    // write, so a doomed redeploy leaves the workspace fully intact rather than
+    // half-wiped with a torn state/data-dir mismatch.
+    await assertRecordTypesCompatible(storage, repo, pkg, priorRecords);
+
     // Remove any existing dataset refs
     await storage.datasets.removeAll(repo, name);
 
     // Initialize per-dataset ref files from the package
     await writeRefsFromPackage(storage, repo, name, pkg.data.structure, pkg.data.refs);
+
+    // Mint each new record's genesis ($init) commit, and restore any existing
+    // record's committed state + history across a redeploy (errors if its type
+    // changed). A record is thus never unassigned and never silently reset.
+    await writeRecordGenesis(storage, repo, name, pkg, priorRecords);
 
     const now = new Date();
     const state: WorkspaceState = {
@@ -312,6 +326,130 @@ export async function workspaceDeploy(
     if (!externalLock) {
       await lock.release();
     }
+  }
+}
+
+const decodeRecordObject = decodeBeast2For(RecordObjectType);
+const encodeRecordCommit = encodeBeast2For(RecordCommitType);
+const recordTypesEqual = equalFor(EastTypeType);
+
+/** The East type of the record leaf at a refPath (e.g. `records/orders`). */
+function recordLeafType(structure: Structure, refPath: string): EastTypeValue | undefined {
+  let current: Structure = structure;
+  for (const segment of refPath.split('/')) {
+    if (current.type !== 'struct') return undefined;
+    const next = current.value.get(segment);
+    if (!next) return undefined;
+    current = next;
+  }
+  return current.type === 'value' ? current.value.type : undefined;
+}
+
+/** A prior deployment's record refs + types, captured before a redeploy wipes
+ *  the data dir, so committed state can be preserved. Null when the workspace
+ *  was not previously deployed (or had no records). */
+type PriorRecords = Map<string, { ref: DatasetRef; type: EastTypeValue }>;
+
+async function capturePriorRecords(
+  storage: StorageBackend,
+  repo: string,
+  ws: string,
+): Promise<PriorRecords | null> {
+  const stateBytes = await storage.refs.workspaceRead(repo, ws);
+  if (!stateBytes || stateBytes.length === 0) return null; // not previously deployed
+  let priorPkg: PackageObject;
+  try {
+    const state = decodeBeast2For(WorkspaceStateType)(stateBytes);
+    priorPkg = decodePackageObject(await storage.objects.read(repo, state.packageHash));
+  } catch {
+    return null; // unreadable prior deployment — treat as a fresh deploy
+  }
+  if (priorPkg.records.size === 0) return null;
+
+  const captured: PriorRecords = new Map();
+  for (const recHash of priorPkg.records.values()) {
+    const recObj = decodeRecordObject(await storage.objects.read(repo, recHash));
+    const ref = await storage.datasets.read(repo, ws, recObj.path);
+    const type = recordLeafType(priorPkg.data.structure, recObj.path);
+    if (ref && ref.type === 'value' && type) {
+      captured.set(recObj.path, { ref, type });
+    }
+  }
+  return captured.size > 0 ? captured : null;
+}
+
+/**
+ * Reject a redeploy whose record changed East type, BEFORE any destructive
+ * write — so the workspace is never left half-wiped. Throws on the first record
+ * whose new type differs from its preserved prior type.
+ */
+async function assertRecordTypesCompatible(
+  storage: StorageBackend,
+  repo: string,
+  pkg: PackageObject,
+  prior: PriorRecords | null,
+): Promise<void> {
+  if (!prior) return;
+  for (const recHash of pkg.records.values()) {
+    const recObj = decodeRecordObject(await storage.objects.read(repo, recHash));
+    const priorRecord = prior.get(recObj.path);
+    if (!priorRecord) continue;
+    const newType = recordLeafType(pkg.data.structure, recObj.path);
+    if (newType && !recordTypesEqual(priorRecord.type, newType)) {
+      throw new Error(
+        `Cannot redeploy: record '${recObj.path}' changed type, so its committed state ` +
+        `is incompatible. Remove the workspace to reset the record, or keep its type stable.`,
+      );
+    }
+  }
+}
+
+/**
+ * For each record in a freshly-deployed package: restore its prior committed
+ * state + history across a redeploy when the record already existed (types were
+ * checked compatible before any wipe), otherwise mint the genesis ($init)
+ * commit over the package's initial value.
+ *
+ * The initial-state value ref was already written by writeRefsFromPackage; this
+ * either overwrites it with the preserved prior ref or adds the genesis commit
+ * that makes the initial state the head of the record's history. Runs under the
+ * deploy lock, so unconditional ref writes are safe.
+ */
+async function writeRecordGenesis(
+  storage: StorageBackend,
+  repo: string,
+  ws: string,
+  pkg: PackageObject,
+  prior: PriorRecords | null,
+): Promise<void> {
+  const at = new Date();
+  for (const recHash of pkg.records.values()) {
+    const recObj = decodeRecordObject(await storage.objects.read(repo, recHash));
+    const stateRef = pkg.data.refs.get(recObj.path);
+    if (!stateRef || stateRef.type !== 'value') continue; // a record always has initial state
+
+    const priorRecord = prior?.get(recObj.path);
+    if (priorRecord) {
+      // Preserve the existing committed state and full commit chain (type was
+      // already checked compatible by assertRecordTypesCompatible).
+      await storage.datasets.write(repo, ws, recObj.path, priorRecord.ref);
+      continue;
+    }
+
+    const commit: RecordCommit = {
+      parent: none,
+      state: stateRef.value.hash,
+      mutation: '$init',
+      args: none,
+      actor: 'system:deploy',
+      at,
+    };
+    const commitHash = await storage.objects.write(repo, encodeRecordCommit(commit));
+    const selfKeypath = refPathToKeypath(recObj.path);
+    await storage.datasets.write(
+      repo, ws, recObj.path,
+      variant('value', { hash: stateRef.value.hash, versions: new Map([[selfKeypath, commitHash]]) }),
+    );
   }
 }
 
@@ -407,8 +545,8 @@ export async function workspaceExport(
     }
   }
 
-  // Create new PackageObject with inline refs (functions carry through
-  // unchanged — they have no dataset state)
+  // Create new PackageObject with inline refs (functions and records carry
+  // through unchanged — the record dataset state lives in the refs)
   const newPkgObject: PackageObject = {
     tasks: deployedPkgObject.tasks,
     data: {
@@ -416,6 +554,7 @@ export async function workspaceExport(
       refs: workspaceRefs,
     },
     functions: deployedPkgObject.functions,
+    records: deployedPkgObject.records,
   };
 
   // Encode and store the new package object

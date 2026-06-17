@@ -15,7 +15,8 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import { join } from 'node:path';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { variant, StringType, ArrayType, encodeBeast2For, East, IRType } from '@elaraai/east';
+import { variant, StringType, IntegerType, ArrayType, encodeBeast2For, decodeBeast2For, East, IRType } from '@elaraai/east';
+import e3 from '@elaraai/e3';
 import {
   TaskObjectType,
   PackageObjectType,
@@ -28,14 +29,16 @@ import { LocalOrchestrator } from './dataflow/orchestrator/LocalOrchestrator.js'
 import { InMemoryStateStore } from './dataflow/state-store/InMemoryStateStore.js';
 import { datasetWrite } from './trees.js';
 import { objectWrite } from './storage/local/LocalObjectStore.js';
-import { workspaceDeploy } from './workspaces.js';
+import { workspaceDeploy, workspaceCreate, workspaceGetPackage } from './workspaces.js';
+import { packageImport } from './packages.js';
+import { recordMutate } from './records.js';
 import { workspaceSetDataset } from './trees.js';
-import { createTestRepo, removeTestRepo } from './test-helpers.js';
+import { createTestRepo, removeTestRepo, createTempDir, removeTempDir } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import { MockTaskRunner } from './execution/MockTaskRunner.js';
 import { inputsHash } from './executions.js';
 import type { StorageBackend, LockHandle, LockOperation } from './storage/interfaces.js';
-import type { TaskExecuteOptions } from './execution/interfaces.js';
+import type { TaskExecuteOptions, TaskRunner } from './execution/interfaces.js';
 
 describe('dataflow orchestration with MockTaskRunner', () => {
   let testRepo: string;
@@ -120,6 +123,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
       },
       tasks: tasksMap,
       functions: new Map(),
+      records: new Map(),
     };
     const pkgHash = await objectWrite(repoPath, pkgEncoder(pkgObj));
 
@@ -2113,6 +2117,76 @@ describe('dataflow orchestration with MockTaskRunner', () => {
       } finally {
         storage.locks.acquire = realAcquire;
         openGate();
+      }
+    });
+  });
+
+  describe('record as a reactive task input', () => {
+    // A record is a writable:false dataset leaf, so a task can read it like any
+    // input. Mutating the record advances its ref/version, which the reactive
+    // loop must detect to re-execute the dependent task — the end-to-end proof of
+    // the commit-granular change detection that records-as-task-input relies on.
+    const encodeInt = encodeBeast2For(IntegerType);
+    const decodeInt = decodeBeast2For(IntegerType);
+    // A reducer runner: returns the new state bytes without spawning a process.
+    const fixedState = (value: bigint): TaskRunner => ({
+      runDetached: async () => ({ kind: 'success', value: encodeInt(value), stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false }),
+    }) as unknown as TaskRunner;
+
+    it('feeds the dependent task the record state, and the mutated value on the next run', async () => {
+      const tempDir = createTempDir();
+      try {
+        const counter = e3.record('counter', IntegerType, 0n);
+        const increment = e3.mutation(
+          'increment', counter,
+          East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by)),
+        );
+        const reader = e3.task(
+          'reader', [counter],
+          East.function([IntegerType], IntegerType, ($, c) => c.multiply(2n)),
+        );
+        const pkg = e3.package('recflow', '1.0.0', counter, increment, reader);
+        const zip = join(tempDir, 'recflow.zip');
+        await e3.export(pkg, zip);
+        await packageImport(storage, testRepo, zip);
+        await workspaceCreate(storage, testRepo, 'test-ws');
+        await workspaceDeploy(storage, testRepo, 'test-ws', 'recflow', '1.0.0');
+
+        const { hash } = await workspaceGetPackage(storage, testRepo, 'test-ws');
+        const deployed = decodeBeast2For(PackageObjectType)(await storage.objects.read(testRepo, hash));
+        const readerHash = deployed.tasks.get('reader')!;
+
+        // Capture the record state the reader is actually fed each run by decoding
+        // whichever input object is the IntegerType state (the runner is also fed
+        // the function IR, which is not an integer).
+        const seen: bigint[] = [];
+        mockRunner.setResult(readerHash, async (inputHashes) => {
+          let state: bigint | undefined;
+          for (const h of inputHashes) {
+            try { state = decodeInt(await storage.objects.read(testRepo, h) as Uint8Array); break; } catch { /* not the state input */ }
+          }
+          seen.push(state!);
+          return { state: 'success' as const, cached: false, outputHash: `reader-v${seen.length}` };
+        });
+
+        // Run 1: reader sees the genesis state (counter = 0).
+        const run1 = await dataflowExecute(storage, testRepo, 'test-ws', { runner: mockRunner });
+        assert.strictEqual(run1.success, true, JSON.stringify(run1.tasks));
+
+        // Mutate the record out of band → its ref + version advance (0 → 5).
+        const mutated = await recordMutate(
+          storage, fixedState(5n), testRepo, 'test-ws', 'counter', 'increment', [encodeInt(5n)], { actor: 'test' });
+        assert.strictEqual(mutated.kind, 'committed');
+
+        // Run 2: the dependent task is fed the mutated state; Run 3: it is stable.
+        await dataflowExecute(storage, testRepo, 'test-ws', { runner: mockRunner });
+        await dataflowExecute(storage, testRepo, 'test-ws', { runner: mockRunner });
+
+        // The record's committed value reaches the task that reads it, and tracks
+        // the mutation — the end-to-end payoff of records being reactive inputs.
+        assert.deepStrictEqual(seen, [0n, 5n, 5n]);
+      } finally {
+        removeTempDir(tempDir);
       }
     });
   });

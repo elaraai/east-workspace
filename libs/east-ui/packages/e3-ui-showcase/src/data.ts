@@ -9,7 +9,7 @@
  * Run via `make start-data` or `make data`.
  */
 
-import * as examples from '@elaraai/e3-ui/examples/data/data';
+import * as examples from '@elaraai/e3-ui/examples/bind/data/data';
 import pkgInfo from '../package.json' with { type: 'json' };
 import { buildShowcasePackage } from './utils.js';
 

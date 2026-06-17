@@ -80,6 +80,16 @@ export {
   type FunctionObject,
 } from './function.js';
 
+// Record objects
+export {
+  RecordCommitType,
+  type RecordCommit,
+  MutationObjectType,
+  type MutationObject,
+  RecordObjectType,
+  type RecordObject,
+} from './record.js';
+
 // Package objects
 export {
   PackageDataType,
@@ -224,6 +234,11 @@ export {
   FunctionCallRequestType,
   FunctionSignatureType,
   OneShotRequestType,
+  MutationCallRequestType,
+  MutationResultType,
+  RecordSignatureType,
+  RecordCommitInfoType,
+  RecordHistoryResultType,
   // Type aliases
   type Error,
   type RepositoryStatus,
@@ -265,6 +280,11 @@ export {
   type FunctionCallRequest,
   type FunctionSignature,
   type OneShotRequest,
+  type MutationCallRequest,
+  type MutationResult,
+  type RecordSignature,
+  type RecordCommitInfo,
+  type RecordHistoryResult,
 } from './api.js';
 
 // Dataflow execution state

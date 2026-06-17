@@ -36,8 +36,28 @@
                 "command": "east-ui.openPreview",
                 "title": "Open Repository",
                 "category": "East UI"
+            },
+            {
+                "command": "east-ui.openRepositoryHere",
+                "title": "Open as E3 Repository",
+                "category": "East UI"
             }
         ],
+        "menus": {
+            "explorer/context": [
+                {
+                    "command": "east-ui.openRepositoryHere",
+                    "when": "explorerResourceIsFolder",
+                    "group": "navigation@99"
+                }
+            ],
+            "commandPalette": [
+                {
+                    "command": "east-ui.openRepositoryHere",
+                    "when": "false"
+                }
+            ]
+        },
         "configuration": {
             "title": "East UI Preview",
             "properties": {
@@ -61,7 +81,8 @@
         ]
     },
     "activationEvents": [
-        "onCommand:east-ui.openPreview"
+        "onCommand:east-ui.openPreview",
+        "onCommand:east-ui.openRepositoryHere"
     ],
     "scripts": {
         "build": "pnpm run typecheck && pnpm run build:extension && pnpm run build:webview",

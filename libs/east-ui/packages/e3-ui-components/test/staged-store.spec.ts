@@ -14,7 +14,8 @@ import { describe, test } from "node:test";
 
 import { variant } from "@elaraai/east";
 import type { TreePath } from "@elaraai/e3-types";
-import { MemoryStagedAdapter, StagedStore } from "../src/platform/staged-store.js";
+import { IndexedDBStagedAdapter, MemoryStagedAdapter, StagedStore } from "../src/platform/staged-store.js";
+import type { PersistedStagedEntry, StagedPersistenceAdapter } from "../src/platform/staged-store.js";
 
 // ============================================================================
 // Helpers
@@ -297,7 +298,7 @@ describe("StagedStore — persistence error tolerance", () => {
             const store = new StagedStore(failingAdapter);
             await store.ready();
             assert.equal(store.hasPending(ws, policyPath), false);
-            assert.ok(w.messages.some(m => m.includes("hydrate failed")));
+            assert.ok(w.messages.some(m => m.includes("persistence operation failed")));
         } finally {
             w.restore();
         }
@@ -386,5 +387,159 @@ describe("StagedStore — singleton lifecycle", () => {
         const fresh = getStagedStore();
         assert.notEqual(fresh, custom);
         clearStagedStoreSingleton();
+    });
+});
+
+// ============================================================================
+// B.5 — per-key persistence ordering + error propagation + clear() flush
+// ============================================================================
+
+/** Adapter that yields a microtask inside save (so concurrency is observable),
+ *  records completed saves in order, and tracks peak concurrency per key. */
+function makeOrderedAdapter() {
+    const saved = new Map<string, Uint8Array>();
+    const completed: string[] = [];
+    const inFlight = new Map<string, number>();
+    let peakSameKey = 0;
+    const adapter: StagedPersistenceAdapter = {
+        async loadAll() { return new Map(); },
+        async save(key: string, entry: PersistedStagedEntry) {
+            const n = (inFlight.get(key) ?? 0) + 1;
+            inFlight.set(key, n);
+            peakSameKey = Math.max(peakSameKey, n);
+            await Promise.resolve();
+            inFlight.set(key, (inFlight.get(key) ?? 1) - 1);
+            saved.set(key, entry.buffered);
+            completed.push(key);
+        },
+        async remove(key: string) { saved.delete(key); completed.push(`rm:${key}`); },
+        async clear() { saved.clear(); },
+    };
+    return { adapter, saved, completed, get peakSameKey() { return peakSameKey; } };
+}
+
+describe("StagedStore — per-key persistence ordering", () => {
+    test("rapid same-key writes are serialized; last value wins", async () => {
+        const h = makeOrderedAdapter();
+        const store = new StagedStore(h.adapter);
+        await store.ready();
+        store.write(ws, policyPath, new Uint8Array([0]), new Uint8Array([1]));
+        store.write(ws, policyPath, new Uint8Array([0]), new Uint8Array([2]));
+        store.write(ws, policyPath, new Uint8Array([0]), new Uint8Array([3]));
+        await store.flushPending();
+        // Never two concurrent saves for the same key (the per-key chain).
+        assert.equal(h.peakSameKey, 1);
+        // The final persisted value is the last write.
+        const key = [...h.saved.keys()][0]!;
+        assert.deepEqual(h.saved.get(key), new Uint8Array([3]));
+    });
+});
+
+describe("StagedStore — onPersistError", () => {
+    function captureWarn() {
+        const messages: string[] = [];
+        const original = console.warn;
+        console.warn = (...args: unknown[]) => { messages.push(String(args[0])); };
+        return { messages, restore: () => { console.warn = original; } };
+    }
+
+    test("save failure notifies a registered listener (and skips the console fallback)", async () => {
+        const failing: StagedPersistenceAdapter = {
+            async loadAll() { return new Map(); },
+            async save() { throw new Error("disk full"); },
+            async remove() { /* noop */ },
+            async clear() { /* noop */ },
+        };
+        const w = captureWarn();
+        try {
+            const store = new StagedStore(failing);
+            await store.ready();
+            const errors: { key: string; err: unknown }[] = [];
+            const off = store.onPersistError((key, err) => errors.push({ key, err }));
+            store.write(ws, policyPath, new Uint8Array([1]), new Uint8Array([2]));
+            await store.flushPending();
+            assert.equal(errors.length, 1);
+            assert.ok(String(errors[0]!.err).includes("disk full"));
+            // With a listener registered, the console fallback is not used.
+            assert.equal(w.messages.some(m => m.includes("persistence operation failed")), false);
+            off();
+        } finally {
+            w.restore();
+        }
+    });
+});
+
+describe("StagedStore — clear() drains in-flight writes", () => {
+    test("a slow save does not resurrect a cleared entry", async () => {
+        const h = makeOrderedAdapter();
+        const store = new StagedStore(h.adapter);
+        await store.ready();
+        store.write(ws, policyPath, new Uint8Array([0]), new Uint8Array([9]));
+        // clear() must flush the in-flight save before wiping persistence, so
+        // the save can't land after the clear and resurrect the entry.
+        await store.clear();
+        assert.equal(h.saved.size, 0);
+    });
+});
+
+// ============================================================================
+// B.6 — IndexedDBStagedAdapter open-failure retry (no permanent brick)
+// ============================================================================
+
+function makeFakeDB() {
+    return {
+        objectStoreNames: { contains: () => true },
+        createObjectStore: () => undefined,
+        transaction: () => {
+            const tx: { oncomplete: (() => void) | null; onerror: (() => void) | null; error: unknown; objectStore: () => unknown } = {
+                oncomplete: null, onerror: null, error: null,
+                objectStore: () => ({ getAll: () => ({ result: [] }), getAllKeys: () => ({ result: [] }) }),
+            };
+            queueMicrotask(() => tx.oncomplete?.());
+            return tx;
+        },
+    };
+}
+
+function makeFakeIndexedDB(failOpens: number) {
+    let opens = 0;
+    return {
+        get opens() { return opens; },
+        open() {
+            opens += 1;
+            const attempt = opens;
+            const req: Record<string, unknown> = {
+                result: null, error: null,
+                onsuccess: null, onerror: null, onupgradeneeded: null, onblocked: null,
+            };
+            queueMicrotask(() => {
+                if (attempt <= failOpens) {
+                    req.error = new Error("open failed");
+                    (req.onerror as (() => void) | null)?.();
+                } else {
+                    req.result = makeFakeDB();
+                    (req.onupgradeneeded as (() => void) | null)?.();
+                    (req.onsuccess as (() => void) | null)?.();
+                }
+            });
+            return req;
+        },
+    };
+}
+
+describe("IndexedDBStagedAdapter — open-failure retry", () => {
+    test("a transient open failure does not brick the adapter forever", async () => {
+        const fake = makeFakeIndexedDB(1); // first open fails, second succeeds
+        const prev = (globalThis as { indexedDB?: unknown }).indexedDB;
+        (globalThis as { indexedDB?: unknown }).indexedDB = fake;
+        try {
+            const adapter = new IndexedDBStagedAdapter();
+            await assert.rejects(adapter.loadAll());      // first open rejects
+            const result = await adapter.loadAll();        // retried open succeeds
+            assert.equal(result.size, 0);
+            assert.equal(fake.opens, 2);                   // re-opened (not cached-rejected)
+        } finally {
+            (globalThis as { indexedDB?: unknown }).indexedDB = prev;
+        }
     });
 });

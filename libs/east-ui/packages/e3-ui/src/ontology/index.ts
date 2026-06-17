@@ -41,7 +41,7 @@ import {
 } from '@elaraai/east';
 import { EastUI, DensityType, type DensityLiteral, type UIComponentType } from '@elaraai/east-ui';
 
-import { DiffBindingType, type BoundValue } from './data.js';
+import { DiffBindingType, type BoundValue } from '../bind/data.js';
 
 // ============================================================================
 // Ontology value schema — nodes, links, metadata.
@@ -285,7 +285,7 @@ export type OntologyViewLiteral = 'graph' | 'table';
 // ============================================================================
 
 /** Re-exported from {@link Data}; see {@link DiffBindingType}. */
-export { DiffBindingType } from './data.js';
+export { DiffBindingType } from '../bind/data.js';
 
 // ============================================================================
 // Ontology payload — IR shape consumed by the renderer.

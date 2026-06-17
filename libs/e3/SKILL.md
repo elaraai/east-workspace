@@ -55,6 +55,8 @@ Task → What do you need?
 │
 ├─ Authoring a package (SDK)
 │   ├─ Input dataset        → e3.input(name, type, default?)
+│   ├─ Record (audited state)→ e3.record(name, type, initial)
+│   ├─ Mutation (reducer)    → e3.mutation(name, record, fn)
 │   ├─ East function task   → e3.task(name, [inputs], fn, config?)
 │   ├─ Shell command task   → e3.customTask(name, [inputs], outputType, cmd)
 │   ├─ Named function (RPC) → e3.function(name, fn, config?)
@@ -92,6 +94,11 @@ Task → What do you need?
 │   ├─ List all paths       → e3 dataset list <repo> <ws> [-l]
 │   ├─ Status (kind/type)   → e3 dataset status <repo> <ws.name>
 │   └─ Search               → e3 dataset find <repo> <ws> <pattern>
+│
+├─ Records (audited mutable state — mutations only, no raw set)
+│   ├─ Apply a mutation     → e3 mutate <repo> <record.mutation> [args...] -w <ws>
+│   ├─ Commit history       → e3 history <repo> <record> -w <ws> [--limit n] [--from hash]
+│   └─ Compact history      → e3 compact <repo> <record> -w <ws>
 │
 ├─ Tasks (inspect / logs)
 │   ├─ List with status     → e3 task list <repo> <ws>
@@ -213,6 +220,33 @@ synchronous and bounded — the server enforces a wall-clock deadline and
 results are capped at 1 MB inline; long compute and bigger outputs belong
 in a task.
 
+### e3.record(name, type, initialValue) + e3.mutation(name, record, fn)
+
+A **record** is audited, mutable root state — e3's system of record. Unlike a
+value (blind replace), a record is `writable: false` and changes only through
+typed **mutations**: pure East reducers `(State, ...Args) => State` run
+server-side under compare-and-swap. Every mutation appends a commit
+(parent, state, mutation, args, actor, at); deploy mints a `$init` genesis from
+`initialValue`, and a redeploy preserves committed state + history (a type
+change is rejected before any write). A record is a dataset (mounted at
+`.records.${name}`), so tasks read it and react to it like any input — its
+version vector carries the commit hash, so even an identical-state mutation
+still triggers downstream.
+
+```typescript
+const counter = e3.record('counter', IntegerType, 0n);
+const increment = e3.mutation(
+  'increment', counter,
+  // reducer: (state, ...args) => newState; in/out type == the record type
+  East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by)),
+);
+const pkg = e3.package('counters', '1.0.0', counter, increment);
+```
+
+Mutations are the only writer — a raw `e3 dataset set` on a record path is
+rejected. Apply with `e3 mutate`, inspect with `e3 history`, drop history with
+`e3 compact` (see CLI).
+
 ### e3.package(name, version, ...items)
 
 Bundle into a package. Dependencies are collected automatically.
@@ -282,6 +316,24 @@ e3 dataset find <repo> <ws> <pattern>       # Substring or glob (`*`, `?`) match
 e3 dataset get . dev.name      # an input
 e3 dataset get . dev.greet     # a task output
 e3 dataset set . dev.name data.east
+```
+
+### Records
+
+Audited mutable state: a record is written only through its mutations (a raw
+`dataset set` is rejected). `--workspace` is required — records are
+workspace-scoped live state. Read the current value with `dataset get` like any
+dataset.
+
+```bash
+e3 mutate <repo> <record.mutation> [args...] -w <ws>  # apply a mutation; args = .east literals or .beast2/.json/.east files
+e3 history <repo> <record> -w <ws> [--limit <n>] [--from <hash>]  # commit chain, newest first (--from pages)
+e3 compact <repo> <record> -w <ws>                    # collapse history to a $compact root (state preserved)
+```
+
+```bash
+e3 mutate . counter.increment 5.east -w main   # state += 5
+e3 history . counter -w main --limit 10
 ```
 
 ### Task
