@@ -13,11 +13,11 @@ Make e3 a **system of record**: durable, ACID, audited, mutable state that is
 owned by e3 itself — not periodically copied in from elsewhere — and that
 participates in reactive dataflow as a root input.
 
-Three coordinated changes:
+Three coordinated pieces (one existing, two new):
 
-- **`e3.value`** — rename of `e3.input`. It is literally a value: a root
-  dataset with replace-on-write semantics. `e3.input` remains as a deprecated
-  alias. (§5.1)
+- **`e3.input`** — unchanged. The existing root dataset with replace-on-write
+  semantics; records build alongside it, not on top of a rename. (A rename to
+  `e3.value` was considered and rejected — §5.1.)
 - **`e3.record`** — a new kind of root dataset whose writes go through named,
   typed, pure East **mutations** executed server-side in a compare-and-swap
   retry loop. Every committed mutation appends a **commit object** (parent,
@@ -88,7 +88,7 @@ kind to the DAG — they upgrade the write protocol of roots.
 
 | Concept | Today | After |
 |---|---|---|
-| `e3.input` | root, blind replace via `e3 set` / `Data.write` | **`e3.value`** — same semantics, honest name; `e3.input` deprecated alias |
+| `e3.input` | root, blind replace via `e3 set` / `Data.write` | **unchanged** — root, blind replace (a rename to `e3.value` was considered, then rejected; §5.1) |
 | `e3.record` | — | root whose writes go through mutations: CAS, commit chain, audit |
 | `e3.task` | pure, cached, reads datasets → writes derived datasets | **unchanged** |
 | `e3.function` | read-only RPC (`e3-functions.md`) | unchanged — the *query* half |
@@ -108,7 +108,7 @@ commit:
 
 ```ts
 const orders   = e3.record('orders', OrdersType, init);     // operational
-const history  = e3.value('history', HistoryType);          // imported extract
+const history  = e3.input('history', HistoryType);          // imported extract
 const forecast = e3.task('forecast', ..., [history]);       // derived
 const plan     = e3.task('plan', optimizer, [forecast, orders, overrides]);
 //                                           ^derived   ^record  ^record
@@ -158,7 +158,7 @@ this works at commit granularity (no ABA).
   precedent at `package.ts:111`).
 - **UI write path** — `Data.bind(...).write` (design `e3-ui.md`) writes
   values through `datasetSet` from the browser, declared via `writes:` on
-  `e3.ui()`. It keeps working for `e3.value`; for records the UI calls
+  `e3.ui()`. It keeps working for `e3.input`; for records the UI calls
   mutations through the function-call transport (the `Func.bind` /
   `func-runtime` work in e3-ui is the natural client). (§9.4)
 - **Cloud storage** (e3-cloud repo, surveyed) — dataset refs are DynamoDB
@@ -170,26 +170,21 @@ this works at commit granularity (no ABA).
 
 ## 5. Authoring surface (SDK, `packages/e3/src`)
 
-### 5.1 `e3.value` — rename of `e3.input`
+### 5.1 `e3.input` — unchanged (the `e3.value` rename was rejected)
 
-```ts
-// packages/e3/src/value.ts (new; input.ts re-exports as deprecated alias)
-export function value<Name extends string, T extends EastType>(
-  name: Name,
-  type: T,
-  defaultValue?: ValueTypeOf<T>,
-): DatasetDef<T, [variant<'field', 'values'>, variant<'field', Name>]>;
-```
+`e3.input` (`packages/e3/src/input.ts`) stays exactly as today: a root dataset
+with replace-on-write semantics, mounted at `.inputs.<name>` under the
+`inputsTree` singleton. Records build alongside it — no rename, no deprecation,
+no migration.
 
-Identical to `input()` (`packages/e3/src/input.ts:49`) except it mounts at
-`.values.<name>` under a new `valuesTree` singleton. `e3.input` stays,
-emitting `.inputs.<name>` exactly as today — paths live in each package's
-structure, so old packages are unaffected and no migration is needed.
-Deprecate `e3.input` in TypeDoc; remove in a later major.
-
-*Alternative (rejected): keep the `.inputs` path under the `e3.value` name.
-Cheaper, but permanently confusing — the tree segment is user-visible in
-`e3 get/set`, the UI, and version vectors.*
+*Alternative (considered, rejected): rename `e3.input` → `e3.value` (a new
+`value()` mounting at `.values.<name>` under a `valuesTree` singleton, with
+`e3.input` kept as a deprecated alias). The name reads more honestly — an input
+is "literally a value" — but the rename buys no behaviour, splits the root
+surface into two near-identical primitives, and makes a user-visible tree
+segment (`.values` vs `.inputs`, surfaced in `e3 get/set`, the UI, and version
+vectors) churn for no functional gain. Not worth the migration tax; `e3.input`
+is kept as the single root primitive.*
 
 ### 5.2 `e3.record`
 
@@ -592,8 +587,8 @@ continuously and should land with (or before) the cloud PR:
    local/in-memory impls + `workspaceSetDataset` retry + root self-entry
    versioning for values. Independently valuable (fixes `e3 set` lost
    updates). Small.
-2. **PR-2 (e3): `e3.value` rename.** SDK sugar + docs; `e3.input`
-   deprecated alias. Trivial, no wire change.
+2. ~~**PR-2 (e3): `e3.value` rename.**~~ Dropped — the rename was considered
+   and rejected (§5.1); `e3.input` is kept unchanged. No wire change either way.
 3. **PR-3 (e3): records + mutations.** e3-types (`RecordCommitType`,
    `RecordObjectType`, `MutationObjectType`, package field + dual-decode),
    SDK (`record`, `mutation`, `package_` branch, export writer), e3-core
@@ -644,7 +639,8 @@ continuously and should land with (or before) the cloud PR:
   A `(state, args) => {state, result}` shape would let a mutation answer the
   caller (e.g. the allocated order number) — probably wanted soon; decide
   before the wire types freeze.
-- **`.values` vs `.inputs` path** for `e3.value` (§5.1 alternative).
+- ~~**`.values` vs `.inputs` path** for `e3.value`~~ — resolved: the
+  `e3.value` rename was rejected, `e3.input`/`.inputs` is kept (§5.1).
 - **Multi-record mutation argument order / deadlock-freedom** for v2
   (sort record paths before TransactWriteItems; local store-level lock).
 - **History exposure to tasks** — reserved `@history` path vs a
