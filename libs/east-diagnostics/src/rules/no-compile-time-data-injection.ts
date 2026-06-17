@@ -5,6 +5,7 @@
 import type * as ts from "typescript";
 import type { EastRule, RuleContext, TsModule } from "../types.js";
 import { insideBlockScope } from "../block-scope.js";
+import { importsEastPackage } from "../east-source.js";
 
 const NAME = "no-compile-time-data-injection";
 const CODE = 990015;
@@ -70,6 +71,9 @@ export const noCompileTimeDataInjection: EastRule = {
     "Flag build-time data ingestion (a node:fs import or call, JSON.parse, process.env) at module scope — load data at runtime via e3.input / datasets / platform tasks.",
   check(node, ctx) {
     const t = ctx.ts;
+    // Only an East/e3 source file (one importing `@elaraai/*`) is subject to this —
+    // a plain Node script reading files at module scope is none of our business.
+    if (!importsEastPackage(ctx.sourceFile, t)) return;
 
     // The `import … from "node:fs"` itself.
     if (t.isImportDeclaration(node)) {

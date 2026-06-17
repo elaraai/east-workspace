@@ -7,6 +7,7 @@ import type { EastRule, RuleContext, TsModule } from "../types.js";
 import { isEastExprType, isBlockBuilderType } from "../east-type.js";
 import { insideBlockScope } from "../block-scope.js";
 import { chainRootReceiver } from "../east-ir.js";
+import { importsEastPackage } from "../east-source.js";
 
 const NAME = "no-module-scope-east-macro";
 const CODE = 990011;
@@ -104,6 +105,10 @@ export const noModuleScopeEastMacro: EastRule = {
     "Flag a module-scope TS helper that builds East values/IR or a composite string key — make it a real East.function or model typed/nested East data.",
   check(node, ctx) {
     const t = ctx.ts;
+    // Only in East/e3 source — a plain string-key helper in ordinary TypeScript is
+    // not our concern (the East-IR arm already implies an `@elaraai/*` import; this
+    // gates the composite-key heuristic against non-East code).
+    if (!importsEastPackage(ctx.sourceFile, t)) return;
 
     let fn: FnLike | undefined;
     let reportNode: ts.Node | undefined;

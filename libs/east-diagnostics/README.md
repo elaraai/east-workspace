@@ -11,6 +11,12 @@ write-time (the Claude plugin daemon) and to developers in the editor and CI
 ([`@elaraai/eslint-plugin-east`](../eslint-plugin-east)). The rules run against a
 real `ts.Program`, so they are type-aware, not regex heuristics.
 
+Every rule **self-gates on East-ness** — it fires only where there is genuine East
+code (an East type/block, an `e3` construct, or an `@elaraai/*` import), so the set
+is opt-in by installation and inert on plain TypeScript. There is no
+package-identity allow/deny list; per-project suppression is the `disabled` option,
+like any linter.
+
 ## Features
 
 - **Shared rule set** - One engine, `runEastRules(ts, program, sourceFile, checker)`, reused across every surface.
@@ -31,7 +37,7 @@ real `ts.Program`, so they are type-aware, not regex heuristics.
 - **`no-handrolled-variant`** - A plain object literal where an East variant/option is expected.
 - **`no-east-namespaced-type`** - `East.IntegerType` etc. instead of a bare import.
 - **`prefer-let-const-over-east-value`** - `East.value(…)` declared or returned inside an `East.function` block.
-- **`no-relative-src-import`** - Importing `../src/…` instead of the published package name.
+- **`no-relative-src-import`** - Importing *another* package's internals via `../src/…` or a deep `@elaraai/x/src` path instead of its published name. (A package importing its **own** `src` relatively — e.g. a spec's `../src/index.js` — is exempt; it cannot import its own published name.)
 - **`no-let-const-in-expression`** - `$.let`/`$.const` used anywhere other than a `const`/`let` initializer, a bare statement, a `return`, or a concise arrow body (e.g. a struct-field value, array element, call argument, or chain target buries the declaration in an expression).
 - **`no-unexecuted-east-expression`** - A bare East expression statement that is never executed with `$( … )` or bound.
 - **`no-reinlined-east-binding`** - An East `Expr` bound to a JS `const`/`let` and reused inside a block is re-inlined per use — bind it once with `$.let`/`$.const`.

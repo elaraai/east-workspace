@@ -42,3 +42,9 @@ test("silent on a plain-JS string helper (no East, no composite key)", () => {
 test("silent on an in-block closure (that is `no-host-in-east-block`'s job)", () => {
   assert.equal(rule(`${PRELUDE}export const f = East.function([], IntegerType, ($) => {\n  const g = (n: bigint) => variant("x", n);\n  return $.const(1n, IntegerType);\n});\n`).length, 0);
 });
+
+// ── self-gating: a composite-key helper in a NON-East file is not our concern ─
+test("silent on a composite-string-key builder in a plain (non-East) TypeScript file", () => {
+  // No `@elaraai/*` import → ordinary TS, so the composite-key heuristic stays quiet.
+  assert.equal(rule(`const buRoleKey = (o: string, l: string): string => \`\${o}|\${l}\`;\nexport const _u = buRoleKey;\n`).length, 0);
+});
