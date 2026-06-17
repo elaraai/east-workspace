@@ -2,9 +2,9 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import type * as ts from "typescript";
 import type { EastRule } from "../types.js";
 import { isEastExprType, isBlockBuilderType } from "../east-type.js";
+import { chainRootReceiver } from "../east-ir.js";
 
 const NAME = "no-unexecuted-east-expression";
 const CODE = 990009;
@@ -28,16 +28,7 @@ export const noUnexecutedEastExpression: EastRule = {
     // Exclude any statement rooted in the block builder `$`: `$(...)`, `$.if(...)`,
     // chained `$.if(...).else(...)`, `$.try(...).catch(...)`, etc. Walk down the
     // call/member chain to its base receiver and check that.
-    let root: ts.Node = expr;
-    for (;;) {
-      if (t.isCallExpression(root)) {
-        root = root.expression;
-      } else if (t.isPropertyAccessExpression(root) || t.isElementAccessExpression(root)) {
-        root = root.expression;
-      } else {
-        break;
-      }
-    }
+    const root = chainRootReceiver(expr, ctx);
     if (isBlockBuilderType(ctx.checker.getTypeAtLocation(root))) return;
 
     if (!isEastExprType(ctx.checker.getTypeAtLocation(expr))) return;

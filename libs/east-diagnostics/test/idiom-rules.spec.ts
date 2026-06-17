@@ -104,6 +104,15 @@ test("no-relative-src-import: silent on the published package name", () => {
 });
 
 // ── no-let-const-in-expression ──────────────────────────────────────
+test("no-let-const-in-expression: flags $.let as a struct-field value (`field: $.let(...)`)", () => {
+  const src = `import { East, IntegerType, StructType } from "@elaraai/east";\nexport const f = East.function([IntegerType], StructType({ x: IntegerType }), ($, n) => {\n  return { x: $.let(n.add(1n), IntegerType) };\n});\n`;
+  assert.equal(analyze(src).filter((d) => d.ruleName === "no-let-const-in-expression").length, 1);
+});
+
+test("no-let-const-in-expression: flags $.let as an array element", () => {
+  assert.equal(rule(wrap(`  const xs = [$.let(1n, IntegerType)];`), "no-let-const-in-expression").length, 1);
+});
+
 test("no-let-const-in-expression: flags $.let passed as an argument ($.if($.let(...)))", () => {
   const src = wrap(`  $.if($.let(true, IntegerType), ($) => {});`);
   assert.equal(rule(src, "no-let-const-in-expression").length, 1);

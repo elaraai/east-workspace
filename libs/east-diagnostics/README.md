@@ -23,18 +23,28 @@ real `ts.Program`, so they are type-aware, not regex heuristics.
 
 ## Rules
 
-- **`no-redundant-east-cast`** - A TypeScript cast on the value of `$.let`/`$.const` when the East type argument is present.
+### East-side idiom hygiene
+
+- **`no-redundant-east-cast`** - Redundant TS type info on the value of `$.let`/`$.const` that the East type argument already governs — a cast (`as …`/`<…>`), `new Map<K,V>()` generics, or an `East.value(x, T)` wrapper.
 - **`prefer-explicit-east-type`** - One-arg `$.let`/`$.const` on an under-determined value (`[]`, `{}`, `new Map()`).
 - **`prefer-some-none`** - `variant("some"/"none", …)` instead of `some()` / `none`.
 - **`no-handrolled-variant`** - A plain object literal where an East variant/option is expected.
 - **`no-east-namespaced-type`** - `East.IntegerType` etc. instead of a bare import.
 - **`prefer-let-const-over-east-value`** - `East.value(…)` declared or returned inside an `East.function` block.
 - **`no-relative-src-import`** - Importing `../src/…` instead of the published package name.
-- **`no-let-const-in-expression`** - Using `$.let`/`$.const` inline in an expression instead of binding to a `const`.
+- **`no-let-const-in-expression`** - `$.let`/`$.const` used anywhere other than a `const`/`let` initializer, a bare statement, a `return`, or a concise arrow body (e.g. a struct-field value, array element, call argument, or chain target buries the declaration in an expression).
 - **`no-unexecuted-east-expression`** - A bare East expression statement that is never executed with `$( … )` or bound.
 - **`no-reinlined-east-binding`** - An East `Expr` bound to a JS `const`/`let` and reused inside a block is re-inlined per use — bind it once with `$.let`/`$.const`.
-- **`no-east-data-builder-helper`** - A TS helper whose only job is to return a hand-built East value — inline it or make it a real `East.function`.
 - **`prefer-jsx-over-factory-call`** - In a `.tsx` file, a factory's `Foo.Root(...)` whose result is a JSX element — author it with the `<Foo>` tag instead.
+- **`no-untracked-east-data`** - A bare JS `const` literal consumed in an East-typed position inside a block — bind it with `$.const`/`$.let`.
+
+### Host-vs-East
+
+These share one principle: **inside an East block the code must be East all the way down, and the host language may *declare* an East/e3 program but never *compute* its data-dependent IR, keys, or values.**
+
+- **`no-host-in-east-block`** - Inside an East block, any host-language construct: a host call (a local TS helper, a JS builtin, a JS Array method), a TS closure/function *declaration*, a host operator on East operands (`a + b`, `cond ? a : b`, `&&`/`||`), a JS `for`/`while`/`if` that emits IR, or host string interpolation. (East method chains, `$.*`, `East.*`/`Expr.*`, `variant`/`some`/`none`, `East.str`, and any `@elaraai/*` call are East and never flagged.)
+- **`no-module-scope-east-macro`** - A module-scope TS helper whose every return builds East values/IR (`variant`/`some`/`none`/`East.value`/an `Expr` chain) or a composite string key (`(o, l) => `${o}|${l}``) — make it a real `East.function`, or model the data with typed keys / nested East structures.
+- **`no-compile-time-data-injection`** - Build-time data ingestion (a `node:fs` import/call, `JSON.parse`, `process.env`) at module scope — load data at runtime via `e3.input` / datasets / platform tasks. (A genuine seed-time bootstrap with no East-side reader is an accepted warning.)
 
 ## Usage
 
