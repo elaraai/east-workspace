@@ -200,6 +200,15 @@ export const noHostInEastBlock: EastRule = {
       return;
     }
 
+    // Clause F — host index access `x[i]` on a JS value (an East collection is
+    // read with `.get(...)`, never `[i]`, so a non-`Expr` receiver here is a host
+    // array/object being indexed — `adopt[ti]`, `BUSINESS_UNITS[oi]`).
+    if (t.isElementAccessExpression(node)) {
+      if (isEast(node.expression, ctx)) return; // (an Expr has no index signature anyway)
+      REPORT(ctx, node, "Host index access on a JS value inside an East block — model the data as an East collection and read it with `.get(...)` / East ops, not `[i]`.");
+      return;
+    }
+
     // Clause D — host string interpolation (not an `East.str`/`str` tagged template).
     if (t.isTemplateExpression(node) && !(node.parent !== undefined && t.isTaggedTemplateExpression(node.parent))) {
       REPORT(ctx, node, "Host string interpolation inside an East block — build the string in East with `East.str`…`` (or `str`…``).");

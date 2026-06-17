@@ -60,6 +60,13 @@ test("flags host string interpolation", () => {
   assert.equal(rule(`${PRELUDE}export const f = East.function([StringType], StringType, ($, s) => {\n  return $.const(\`p\${s}\`, StringType);\n});\n`).length, 1);
 });
 
+test("flags host index access on a JS array (`adopt[ti]`)", () => {
+  // The `disc` JS array's `$.let` elements are no-let-const-in-expression's job;
+  // this asserts the no-host-in-east-block index-access fire on `disc[0]`.
+  const src = inFn(`  const disc = [$.let(1.0, FloatType), $.let(2.0, FloatType)];\n  const ti = 0;\n  return $.const(BigInt(0), IntegerType);\n  void disc[ti];`);
+  assert.ok(rule(src).some((d) => /index access/.test(d.messageText)));
+});
+
 // ── SILENT: idiomatic East inside the block ─────────────────────────────
 test("silent on $.const / $.let bindings of East values", () => {
   assert.equal(rule(inFn(`  const a = $.const(42n, IntegerType);\n  const m = $.let(new Map(), DictType(StringType, IntegerType));\n  return a;`)).length, 0);
