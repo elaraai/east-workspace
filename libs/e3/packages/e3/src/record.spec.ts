@@ -90,6 +90,33 @@ describe('e3.record / e3.mutation', () => {
     assert.ok(pkg.contents.includes(counter), 'record dataset in contents');
   });
 
+  it('preserves a record’s mutations when its package is imported into another', () => {
+    const counter = record('counter', IntegerType, 0n);
+    const increment = mutation(
+      'increment',
+      counter,
+      East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by))
+    );
+    const inner = package_('inner', '1.0.0', counter, increment);
+    assert.ok(inner.records.counter.mutations.increment, 'inner package folds the mutation');
+
+    // Importing `inner` must NOT clobber the record's assembled mutations: the
+    // record arrives both as a bare dataset (in `contents`) and as an already-
+    // assembled record (in `records`), and the assembly loop must merge, not
+    // rebuild from the bare `{}`.
+    const outer = package_('outer', '1.0.0', inner);
+    assert.ok(outer.records.counter, 'imported record registered on the outer package');
+    assert.ok(
+      outer.records.counter.mutations.increment,
+      'imported record keeps its mutation (would be dropped before the fix)'
+    );
+    assert.deepStrictEqual(
+      Object.keys(outer.records.counter.mutations),
+      ['increment'],
+      'exactly the imported mutation survives'
+    );
+  });
+
   it('rejects an async reducer body at definition time', () => {
     const counter = record('counter', IntegerType, 0n);
     // Async bodies break CAS-retry safety; the typed overload rejects them at

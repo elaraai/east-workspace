@@ -147,12 +147,23 @@ export function package_(
   }
 
   // Assemble records: a record's dataset rides `all_items`; fold in any
-  // mutations collected for it.
+  // mutations collected for it. A record imported via a package arrives twice —
+  // its bare dataset (mutations `{}`) in `all_items` and its already-assembled
+  // form in `importedRecords` — so merge the existing entry's mutations rather
+  // than rebuilding from the bare `rec.mutations`, or the import's folded
+  // mutations would be clobbered to empty.
   const records: Record<string, RecordDef> = { ...importedRecords };
   for (const item of all_items) {
     if (item.kind === 'dataset' && 'recordKind' in item && (item as RecordDef).recordKind === 'record') {
       const rec = item as RecordDef;
-      records[rec.name] = { ...rec, mutations: { ...rec.mutations, ...mutationsByRecord.get(rec.name) } };
+      records[rec.name] = {
+        ...rec,
+        mutations: {
+          ...records[rec.name]?.mutations,
+          ...rec.mutations,
+          ...mutationsByRecord.get(rec.name),
+        },
+      };
     }
   }
   for (const recName of mutationsByRecord.keys()) {
