@@ -14,7 +14,10 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
-import { variant } from '@elaraai/east';
+import * as fs from 'node:fs/promises';
+import { join, dirname } from 'node:path';
+import { variant, encodeBeast2For } from '@elaraai/east';
+import { DatasetRefType } from '@elaraai/e3-types';
 import { LocalDatasetRefStore } from './LocalDatasetRefStore.js';
 import { InMemoryStorage } from '../in-memory/InMemoryStorage.js';
 import { DatasetRefConflictError } from '../../errors.js';
@@ -59,6 +62,33 @@ for (const [name, make] of Object.entries(backends)) {
       assert.strictEqual(typeof result.revision, 'string');
       assert.ok(result.revision.length > 0);
     });
+
+    // Legacy ref files (written before the revision wrapper) are bare DatasetRef
+    // bytes with no 0xFF magic; the local store must still read them and upgrade
+    // them in place on the next conditional write. (Local-only: the in-memory
+    // backend has no on-disk format.)
+    if (name === 'local') {
+      it('reads a legacy bare-DatasetRef file and upgrades it on the next writeIf', async () => {
+        const legacyRef = variant('value', { hash: 'b'.padEnd(64, '0'), versions: new Map() });
+        const refFile = join(fx.repo, 'workspaces', ws, 'data', `${path}.ref`);
+        await fs.mkdir(dirname(refFile), { recursive: true });
+        // Bare beast2 DatasetRef — deliberately no 0xFF revision magic byte.
+        await fs.writeFile(refFile, encodeBeast2For(DatasetRefType)(legacyRef));
+
+        const read = await fx.store.readVersioned(fx.repo, ws, path);
+        assert.ok(read, 'legacy file decodes');
+        assert.deepStrictEqual(read.ref, legacyRef);
+        assert.ok(read.revision.length > 0, 'a stable revision is derived from the legacy bytes');
+
+        // A conditional write against the derived revision succeeds and rotates it,
+        // upgrading the file to the revisioned format.
+        const next = variant('value', { hash: 'c'.padEnd(64, '0'), versions: new Map() });
+        const { revision } = await fx.store.writeIf(fx.repo, ws, path, next, read.revision);
+        assert.notStrictEqual(revision, read.revision);
+        const after = await fx.store.readVersioned(fx.repo, ws, path);
+        assert.deepStrictEqual(after!.ref, next);
+      });
+    }
 
     it('writeIf with expected=null creates the ref iff it is absent', async () => {
       const { revision } = await fx.store.writeIf(fx.repo, ws, path, variant('value', { hash: 'a'.padEnd(64, '0'), versions: new Map() }), null);

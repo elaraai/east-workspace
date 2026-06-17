@@ -104,17 +104,37 @@ describe('records', () => {
     assert.strictEqual(history[0]!.commit.parent.type, 'some'); // chained onto $init
   });
 
+  it('the version self-entry equals the commit hash and the commit is timestamped (§6.3)', async () => {
+    const outcome = await recordMutate(storage, successRunner(encodeInt(5n)), repo, ws, 'counter', 'increment', [encodeInt(5n)], { actor: 'cli:test' });
+    assert.strictEqual(outcome.kind, 'committed');
+    const commitHash = (outcome as { commitHash: string }).commitHash;
+
+    // §6.3: the record ref's version self-entry carries the COMMIT hash (not the
+    // state hash), so change detection is commit-granular — asserted equal here,
+    // where other tests only observe that it changes.
+    const versions = await snapshotInputVersions(storage, repo, ws, counterStructure, new Set());
+    assert.strictEqual(versions.get('.records.counter'), commitHash, 'self-entry == commit hash');
+
+    // The head commit is timestamped — the audit trail's `at`.
+    const head = (await recordHistory(storage, repo, ws, 'counter'))[0]!.commit;
+    assert.ok(head.at instanceof Date && !Number.isNaN(head.at.getTime()), 'commit.at is a valid timestamp');
+  });
+
   it('a failed reducer writes nothing and leaves history intact', async () => {
     const runner = runnerReturning(async () => ({
       kind: 'failed', exitCode: 1,
       stdout: '', stderr: 'reducer threw', stdoutTruncated: false, stderrTruncated: false,
     }));
 
+    const objectsBefore = (await storage.objects.list(repo)).length;
     const outcome = await recordMutate(storage, runner, repo, ws, 'counter', 'increment', [encodeInt(5n)], { actor: 'cli:test' });
     assert.strictEqual(outcome.kind, 'failed');
 
     assert.strictEqual(await workspaceGetDataset(storage, repo, ws, counterPath), 0n);
     assert.strictEqual((await recordHistory(storage, repo, ws, 'counter')).length, 1);
+    // §12.5: an aborted reducer writes NOTHING — recordMutate returns before any
+    // objects.write — so not even an orphan state/args/commit object is left.
+    assert.strictEqual((await storage.objects.list(repo)).length, objectsBefore, 'no object written on abort');
   });
 
   it('rejects unknown records, unknown mutations, and wrong arity', async () => {
