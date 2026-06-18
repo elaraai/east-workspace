@@ -201,7 +201,7 @@ export const decisionQueueCase = example({
                                 max={120000}
                                 step={1000}
                                 helperText="Probe the recommendation — committing re-runs the optimizer against the revised target."
-                                onChange={East.function([FloatType], NullType, ($, v) => {
+                                onChangeEnd={East.function([FloatType], NullType, ($, v) => {
                                     $(update({ ...decision, value: v }));
                                 })}
                             />
