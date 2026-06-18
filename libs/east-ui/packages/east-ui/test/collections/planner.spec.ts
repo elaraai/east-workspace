@@ -19,6 +19,7 @@ describeEast("Planner", (test) => {
         plannerPopover: ex.plannerPopover,
         plannerSpan: ex.plannerSpan,
         plannerDensity: ex.plannerDensity,
+        plannerReview: ex.plannerReview,
     });
 
     // =========================================================================
