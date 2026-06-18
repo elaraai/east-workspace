@@ -1,6 +1,6 @@
 ---
 name: east-ui
-description: "Type-safe UI component library for the East language, authored as JSX tags. Use when writing East programs that define user interfaces. Triggers for: (1) Authoring `.tsx` component trees with `@elaraai/east-ui` tags, (2) Layout with <Box>, <Flex>, <Stack>/<VStack>/<HStack>, <Grid>, <Splitter>, <ScrollArea>, <Sticky>, (3) Forms with <Input>, <Textarea>, <Select>, <Combobox>, <Checkbox>, <Switch>, <Slider>, <RadioGroup>, <RadioCardGroup>, <TagsInput>, <FileUpload>, <Field>, <DateRangeInput>, <TimeRangeInput>, (4) Data display with <Table>, <TreeView>, <DataList>, <Gantt>, <Planner>, <Matrix>, <Pagination>, <ChipRail>, <Trace>, (5) Charts with <Chart layers={Chart.Line/Bar/Area/Scatter/Band(...)}/> plus Chart.refLine/refBand/refDot, <Sparkline>, (6) Overlays with <Dialog>, <Drawer>, <Popover>, <Menu>, <Tooltip>, <HoverCard>, <ToggleTip>, <ActionBar>, <CommandPalette>, (7) Feedback with <Banner>, <Status>, <Progress>, <Skeleton>, <EmptyState>, (8) Disclosure with <Tabs>, <Accordion>, <Carousel>, <Collapsible>, <SegmentGroup>, <OptionList>, (9) Navigation with <Breadcrumb>, <NavList>, (10) Reactive UI via <Reactive>{$ => …}</Reactive> + State.bind."
+description: "Type-safe UI component library for the East language, authored as JSX tags. Use when writing East programs that define user interfaces. Triggers for: (1) Authoring `.tsx` component trees with `@elaraai/east-ui` tags, (2) Layout with <Box>, <Flex>, <Stack>/<VStack>/<HStack>, <Grid>, <Splitter>, <ScrollArea>, <Sticky>, (3) Forms with <Input>, <Textarea>, <Select>, <Combobox>, <Checkbox>, <Switch>, <Slider>, <RadioGroup>, <RadioCardGroup>, <TagsInput>, <FileUpload>, <Field>, <DateRangeInput>, <TimeRangeInput>, (4) Data display with <Table>, <TreeView>, <DataList>, <Gantt>, <Planner>, <Matrix>, <Calendar>, <Schematic>, <Map>, <Library>, <Roster>, <Blend>, <Slice.Rail>, <Pagination>, <ChipRail>, <Trace>, (5) Charts with <Chart layers={Chart.Line/Bar/Area/Scatter/Band(...)}/> plus Chart.refLine/refBand/refDot, <Sparkline>, (6) Overlays with <Dialog>, <Drawer>, <Popover>, <Menu>, <Tooltip>, <HoverCard>, <ToggleTip>, <ActionBar>, <CommandPalette>, <Hotkey>, (7) Feedback with <Banner>, <Status>, <Progress>, <Skeleton>, <EmptyState>, (8) Disclosure with <Tabs>, <Accordion>, <Carousel>, <Collapsible>, <SegmentGroup>, <OptionList>, <Story>, (9) Navigation with <Breadcrumb>, <NavList>, (10) Reactive UI via <Reactive>{$ => …}</Reactive> + State.bind."
 ---
 
 # East UI
@@ -111,6 +111,19 @@ Task → Which tag?
 │   │     └─ Planner.axis.time()/.number({buckets})/.ordinal({range}), Planner.event(…), Planner.marker(…)
 │   ├─ <Matrix data={…} columns={…} cell={(r, col) => Matrix.cell({ segments, markers })} />
 │   │     └─ Matrix.segment({ fill, weight, label }), Matrix.marker({ status, message }), Matrix.column(…)
+│   ├─ <Calendar data={days} cell={d => ({ week, day, value, summary?, delta? })} /> — day-of-week × week intensity grid (cols always Mon–Sun); legend, domain {min,max}, actionLabel, onSelect/onAction(cell); viz-only (no events / drag)
+│   ├─ <Schematic items={rows} extent={{width,height}} item={r => ({key,x,y,label})} /> — read-only 2D world-coord canvas; place items/zones/links from flat tables; click-select via onSelect; scaleUnit, grid, navigator, minimap, height
+│   │     └─ Schematic.circle(r)/.polyline(verts,{width})/.polygon(verts)/.rect() footprints + zone geometry, Schematic.outline()/.hatch() zone patterns, Schematic.solid()/.dashed() link styles; zone/link mappers; from/to/via links
+│   ├─ <Map markers={…} center={Map.at(lat,lng)} zoom={n} /> — interactive geographic basemap (H3 hex / area overlays, pins, lines, labels) + East-child overlays; read-only / selection-only (onAreaClick/onMarkerClick/onZoom/onSelect)
+│   │     └─ Map.carto()/osm()/tile(…) basemap, Map.hexDisk()/cells()/polygon() shapes, Map.hex(…), Map.marker/area/line/label(…), Map.solid()/dashed() line styles, Map.point()/bounds() flyTo, Map.overlay(child, { align })
+│   ├─ <Library id="people" data={rows} item={r => ({ key, label, sublabel, icon, status })} /> — draggable palette (DnD source; targets a list id in `sources`); dimensions, groupBy, search, addLabel / onAdd
+│   │     └─ dimensions { kind: "meter" | "chips" | "text", … }, groupBy { key, label, value, summary }, Library.status(label, tone)
+│   ├─ <Roster people={…} shifts={…} id person={p => ({key,label,sublabel})} shift={s => ({key,person,day,hours|label,state})} /> — people × days-of-week shift grid; joins the two flat tables by person key
+│   │     └─ mode published | edit; days (default Mon–Sun); state is a PlannerStateType (Roster.Types.State); DnD target — sources={[libraryId]} + onDrag (add/move/remove), onSelect/onAccept/onAddAt
+│   ├─ <Blend targets={…} config={{ id, target, sources?, diff?, onDrag?, onAmountChange?, onAction? }} /> — blend / batch assembly surface; pairs with a Library; target count picks mode: 1 single | 2 compare (derived diff / Δ table) | 3+ portfolio
+│   │     └─ Blend.allocation({ source, amount, pinned?, state? }), Blend.metric({ key, label, value, numeric?, model?, band? }); sources = DnD add-drop ids
+│   ├─ <Slice.Rail slice={slice} affordances={["filter","search","range","breakdown"]} /> — shared narrowing chrome over one bound dataset; feed consumers via Slice.rows([Row], slice)
+│   │     └─ Slice.bind([Row], key, Slice.config(Row, { fields, rangeFieldId, searchFieldIds, breakdownFieldIds }), Slice.state({…})); per-affordance tags <Slice.Filter/Search/Range/Breakdown/Legend/Cohort/Summary slice={slice} />; pure engine Slice.apply.where/matches/breakdown
 │   └─ <Pagination /> — page-number control; siblings + boundaries control ellipsis
 │
 ├─ Charts (visualize data) — layers are a config array of factory values, never child tags
@@ -153,6 +166,8 @@ Task → Which tag?
 │   ├─ <Collapsible> — single show/hide section
 │   ├─ <SegmentGroup items={[…]}> — compact single-select mode switcher (no panels)
 │   ├─ <OptionList> — keyboard-navigable single-select list (rows + description)
+│   ├─ <Story.Root steps={[…]} title="…"> — scroll-driven narrative; prose rail + sticky stage keyframes; layout rail-left | rail-right | stacked; stepLength compact | default | long; stageHeight; active / progress State.bind
+│   │     └─ Story.Step(body, { id, eyebrow, title, stage }) one beat (stage = its keyframe), Story.Progress({ count, active, title }) standalone dots / counter / prev-next chrome
 │   └─ <Disclosure> — "Show more / Show less" toggle
 │
 ├─ Navigation
@@ -168,6 +183,7 @@ Task → Which tag?
 │   ├─ <ToggleTip trigger={…}> — click-toggle tooltip (sticky)
 │   ├─ <Menu trigger={…} items={[Menu.Item(value, label), Menu.Separator()]}> — dropdown/context menu
 │   ├─ <CommandPalette commands={…}> — ⌘K palette with search + groups
+│   ├─ <Hotkey chord="mod+k" onTrigger={fn} /> — invisible keydown listener (no render); chord modifiers mod/ctrl/cmd/shift/alt + key; onTrigger is East.function([], NullType); pair with Reactive + State.bind to drive open state on CommandPalette/Dialog/Drawer
 │   └─ <ActionBar items={…}> — sticky bottom bulk-action bar
 │
 ├─ Container
