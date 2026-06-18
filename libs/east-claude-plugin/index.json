@@ -1,14 +1,14 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1347,
+    "totalEntries": 1348,
     "totalFiles": 178,
     "packages": {
       "east": 489,
       "east-node-std": 42,
       "east-node-io": 63,
       "east-py-datascience": 85,
-      "east-ui": 611,
+      "east-ui": 612,
       "e3-ui": 50,
       "e3": 7
     }
@@ -14200,6 +14200,28 @@
       "source": "// Single bar series with a compact-currency y-axis\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { q: \"Q1\", revenue: 186n }, { q: \"Q2\", revenue: 305n }, { q: \"Q3\", revenue: 237n }, { q: \"Q4\", revenue: 273n },\n        ], ArrayType(StructType({ q: StringType, revenue: IntegerType })));\n        return (\n            <Box height=\"220px\" width=\"100%\">\n                <Chart layers={Chart.Bar(rows, { x: r => r.q, y: r => r.revenue }, { color: \"teal.solid\" })} y={{ format: Chart.format.currency({ compact: true }) }} grid />\n            </Box>\n        );\n    })"
     },
     {
+      "id": "east-ui:chart.examples.tsx:barPerCategory",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/charts/chart.examples.tsx",
+      "suite": "",
+      "test": "A single bar series coloured per x-category (composition mix) — full-width bars, in data order, no grouped split",
+      "keywords": [
+        "Chart",
+        "Bar",
+        "per-category",
+        "colors",
+        "composition",
+        "single-series"
+      ],
+      "imports": [
+        "import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Chart, Reactive } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// A single bar series coloured per x-category (composition mix) — full-width bars, in data order, no grouped split\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { discipline: \"RN\", share: 42n }, { discipline: \"EN\", share: 28n }, { discipline: \"Physio\", share: 16n },\n            { discipline: \"OT\", share: 9n }, { discipline: \"Admin\", share: 5n },\n        ], ArrayType(StructType({ discipline: StringType, share: IntegerType })));\n        return (\n            <Box height=\"220px\" width=\"100%\">\n                <Chart\n                    layers={Chart.Bar(rows, {\n                        x: r => r.discipline, y: r => r.share,\n                        colors: { RN: \"teal.solid\", EN: \"cyan.solid\", Physio: \"blue.solid\", OT: \"purple.solid\", Admin: \"gray.solid\" },\n                    })}\n                    grid\n                />\n            </Box>\n        );\n    })"
+    },
+    {
       "id": "east-ui:chart.examples.tsx:barGrouped",
       "skill": "east-ui",
       "package": "east-ui",
@@ -26918,7 +26940,7 @@
         "import { Data, Decision, DecisionQueue } from '@elaraai/e3-ui';",
         "import * as e3 from '@elaraai/e3';"
       ],
-      "source": "// The Decide surface — urgency-sorted queue; the overdue case expanded on the Evidence facet with the model’s argument and the host’s demand-vs-capacity detail canvas\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Reactive>{$ => {\n                const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));\n                const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));\n                const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));\n                // \"the overdue case\" — a predicate, not an id or a position.\n                const urgent = $.let(decisions.read().firstMap(($, d) =>\n                    d.urgency.hasTag('overdue').ifElse(() => some(d), () => none)));\n                const forecast = $.const([\n                    { week: 9n, demand: 82.0, capacity: 96.0 },\n                    { week: 10n, demand: 85.0, capacity: 96.0 },\n                    { week: 11n, demand: 88.0, capacity: 96.0 },\n                    { week: 12n, demand: 91.0, capacity: 96.0 },\n                    { week: 13n, demand: 95.0, capacity: 96.0 },\n                    { week: 14n, demand: 99.0, capacity: 96.0 },\n                    { week: 15n, demand: 104.0, capacity: 96.0 },\n                ], ArrayType(StructType({ week: IntegerType, demand: FloatType, capacity: FloatType })));\n                return (\n                    <DecisionQueue\n                        handle={handle}\n                        heading=\"Decisions waiting\"\n                        defaultExpanded={urgent}\n                        modify={(decision, update) => (\n                            <Field.Slider\n                                label=\"Uplift target\"\n                                value={decision.value}\n                                min={0}\n                                max={120000}\n                                step={1000}\n                                helperText=\"Probe the recommendation — committing re-runs the optimizer against the revised target.\"\n                                onChange={East.function([FloatType], NullType, ($, v) => {\n                                    $(update({ ...decision, value: v }));\n                                })}\n                            />\n                        )}\n                        detail={() => (\n                            <Chart\n                                layers={[\n                                    Chart.Area(forecast, { x: r => r.week, y: r => r.demand }, { color: 'teal.solid', fillOpacity: 0.25 }),\n                                    Chart.Line(forecast, { x: r => r.week, y: r => r.capacity }, { color: 'red.solid' }),\n                                ]}\n                                grid\n                                height={160}\n                            />\n                        )}\n                    />\n                );\n            }}</Reactive>\n        );\n    })"
+      "source": "// The Decide surface — urgency-sorted queue; the overdue case expanded on the Evidence facet with the model’s argument and the host’s demand-vs-capacity detail canvas\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Reactive>{$ => {\n                const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));\n                const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));\n                const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));\n                // \"the overdue case\" — a predicate, not an id or a position.\n                const urgent = $.let(decisions.read().firstMap(($, d) =>\n                    d.urgency.hasTag('overdue').ifElse(() => some(d), () => none)));\n                const forecast = $.const([\n                    { week: 9n, demand: 82.0, capacity: 96.0 },\n                    { week: 10n, demand: 85.0, capacity: 96.0 },\n                    { week: 11n, demand: 88.0, capacity: 96.0 },\n                    { week: 12n, demand: 91.0, capacity: 96.0 },\n                    { week: 13n, demand: 95.0, capacity: 96.0 },\n                    { week: 14n, demand: 99.0, capacity: 96.0 },\n                    { week: 15n, demand: 104.0, capacity: 96.0 },\n                ], ArrayType(StructType({ week: IntegerType, demand: FloatType, capacity: FloatType })));\n                return (\n                    <DecisionQueue\n                        handle={handle}\n                        heading=\"Decisions waiting\"\n                        defaultExpanded={urgent}\n                        modify={(decision, update) => (\n                            <Field.Slider\n                                label=\"Uplift target\"\n                                value={decision.value}\n                                min={0}\n                                max={120000}\n                                step={1000}\n                                helperText=\"Probe the recommendation — committing re-runs the optimizer against the revised target.\"\n                                onChangeEnd={East.function([FloatType], NullType, ($, v) => {\n                                    $(update({ ...decision, value: v }));\n                                })}\n                            />\n                        )}\n                        detail={() => (\n                            <Chart\n                                layers={[\n                                    Chart.Area(forecast, { x: r => r.week, y: r => r.demand }, { color: 'teal.solid', fillOpacity: 0.25 }),\n                                    Chart.Line(forecast, { x: r => r.week, y: r => r.capacity }, { color: 'red.solid' }),\n                                ]}\n                                grid\n                                height={160}\n                            />\n                        )}\n                    />\n                );\n            }}</Reactive>\n        );\n    })"
     },
     {
       "id": "e3-ui:queue.examples.tsx:decisionQueueJudgement",

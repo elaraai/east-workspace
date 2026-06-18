@@ -310,9 +310,9 @@ function AreaMark({ value }: { value: ValueTypeOf<typeof T.Area> }): ReactNode {
 }
 function BarsMark({ value }: { value: ValueTypeOf<typeof T.Bars> }): ReactNode {
     const { cx, bandWidth, y, innerH, style } = useScales();
-    const fill = style.color(value.fill);
+    const baseFill = style.color(value.fill);
     const op = getSomeorUndefined(value.fillOpacity) ?? 1;
-    return <>{value.points.map((p, i) => { const top = y(p.value); return <Bar key={i} x={cx(p) - bandWidth / 2} y={top} width={bandWidth} height={Math.max(0, innerH - top)} fill={fill} fillOpacity={op} rx={style.barRadius} />; })}</>;
+    return <>{value.points.map((p, i) => { const top = y(p.value); const pc = getSomeorUndefined(p.color); const fill = pc !== undefined ? style.color(pc) : baseFill; return <Bar key={i} x={cx(p) - bandWidth / 2} y={top} width={bandWidth} height={Math.max(0, innerH - top)} fill={fill} fillOpacity={op} rx={style.barRadius} />; })}</>;
 }
 function PointsMark({ value }: { value: ValueTypeOf<typeof T.Points> }): ReactNode {
     const cx = useCx(); const { y, style } = useScales();
@@ -376,14 +376,16 @@ function LineSeries({ series, yScale, layer }: { series: Series; yScale: YScale;
     );
 }
 function BarSeries({ series, index, count, stacked, bounds, yScale, layer }: { series: Series; index: number; count: number; stacked: boolean; bounds: (p: Point) => [number, number]; yScale: YScale; layer: LayerStyle }): ReactNode {
-    const { cx, bandWidth, innerH, style } = useScales(); const fill = style.color(series.color);
+    const { cx, bandWidth, innerH, style } = useScales(); const seriesFill = style.color(series.color);
     const op = layer.fillOpacity ?? 1;
+    // A per-point colour (a per-category fill) wins over the series colour.
+    const fillFor = (p: Point): string => { const pc = getSomeorUndefined(p.color); return pc !== undefined ? style.color(pc) : seriesFill; };
     if (stacked) {
-        return <>{series.points.map((p, i) => { const [lo, hi] = bounds(p); const top = yScale(hi); const bot = yScale(lo); return <Bar key={i} x={cx(p) - bandWidth / 2} y={top} width={bandWidth} height={Math.max(0, bot - top)} fill={fill} fillOpacity={op} rx={style.barRadius} />; })}</>;
+        return <>{series.points.map((p, i) => { const [lo, hi] = bounds(p); const top = yScale(hi); const bot = yScale(lo); return <Bar key={i} x={cx(p) - bandWidth / 2} y={top} width={bandWidth} height={Math.max(0, bot - top)} fill={fillFor(p)} fillOpacity={op} rx={style.barRadius} />; })}</>;
     }
     const slot = bandWidth / count;                       // one sub-slot per series
     const w = Math.max(1, slot - (count > 1 ? 1.5 : 0));  // hairline gap between grouped bars
-    return <>{series.points.map((p, i) => { const top = yScale(p.value); return <Bar key={i} x={cx(p) - bandWidth / 2 + index * slot} y={top} width={w} height={Math.max(0, innerH - top)} fill={fill} fillOpacity={op} rx={style.barRadius} />; })}</>;
+    return <>{series.points.map((p, i) => { const top = yScale(p.value); return <Bar key={i} x={cx(p) - bandWidth / 2 + index * slot} y={top} width={w} height={Math.max(0, innerH - top)} fill={fillFor(p)} fillOpacity={op} rx={style.barRadius} />; })}</>;
 }
 function AreaSeries({ series, bounds, yScale, layer }: { series: Series; bounds: (p: Point) => [number, number]; yScale: YScale; layer: LayerStyle }): ReactNode {
     const cx = useCx(); const { style } = useScales(); const stroke = style.color(series.color);

@@ -71,11 +71,14 @@ export type ChartDomainType = typeof ChartDomainType;
  * @property value - Numeric y value at this point
  * @property size  - Per-point magnitude for scatter bubble sizing; `none` for
  *                   every other mark (only the scatter pivot populates it)
+ * @property color - Per-point colour override (theme token or CSS); `none` falls
+ *                   back to the series colour. Populated for per-category bar fills.
  */
 export const ChartPointType = StructType({
     x:     ChartXType,
     value: FloatType,
     size:  OptionType(FloatType),
+    color: OptionType(StringType),
 });
 export type ChartPointType = typeof ChartPointType;
 
