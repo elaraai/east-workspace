@@ -27,6 +27,7 @@ import { DatasetRefType, type DatasetRef } from '@elaraai/e3-types';
 import { computeHash } from '../../objects.js';
 import { DatasetRefConflictError } from '../../errors.js';
 import { acquireWorkspaceLock } from './LocalLockService.js';
+import { atomicWriteFile } from './localHelpers.js';
 import type { DatasetRefStore } from '../interfaces.js';
 
 const decodeRef = decodeBeast2For(DatasetRefType);
@@ -62,41 +63,6 @@ function encodeStored(ref: DatasetRef): { data: Uint8Array; revision: string } {
 // mid-write, in which case the lock's own process-liveness check reclaims it.
 const CAS_LOCK_TIMEOUT_MS = 30_000;
 
-// Windows sharing-violation codes raised when renaming over an open file.
-const WIN_SHARING_VIOLATION = new Set(['EPERM', 'EACCES', 'EBUSY']);
-
-/**
- * Rename `from` over `to`, retrying on Windows sharing-violation errors.
- *
- * POSIX rename-over-existing is atomic even while another process holds the
- * destination open. Windows refuses it (EPERM/EACCES/EBUSY) unless that handle
- * was opened with FILE_SHARE_DELETE — and Node/libuv never opens files that way
- * (verified on Node 22: fs.open 'r'/'rs' and createReadStream all block a
- * concurrent rename). So the orchestrator reading a dataset `.ref` via
- * fs.readFile blocks a concurrent `dataset set`'s rename over it. Node exposes
- * no way to set the share mode, so — like graceful-fs / npm — we retry.
- * (graceful-fs's own rename retry only fires when the destination is *absent*,
- * so it does not cover renaming over an existing, reader-locked file.)
- *
- * The reader holds the handle only for the microseconds of the read, so a
- * bounded exponential backoff clears it — almost always on the first or second
- * attempt; the bound is a safety net so a genuine permission error still
- * surfaces promptly. A no-op on POSIX, where the first attempt always succeeds.
- */
-async function renameWithRetry(from: string, to: string, maxAttempts = 15): Promise<void> {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      await fs.rename(from, to);
-      return;
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code ?? '';
-      if (attempt >= maxAttempts - 1 || !WIN_SHARING_VIOLATION.has(code)) throw err;
-      // 1, 2, 4, … ms, capped at 200ms (≈1.3s total over 15 attempts).
-      await new Promise((resolve) => setTimeout(resolve, Math.min(2 ** attempt, 200)));
-    }
-  }
-}
-
 export class LocalDatasetRefStore implements DatasetRefStore {
   /**
    * Get the filesystem path for a dataset ref file.
@@ -117,19 +83,7 @@ export class LocalDatasetRefStore implements DatasetRefStore {
 
   /** Atomically replace the ref file: write to a unique staging file, then rename. */
   private async writeBytes(filePath: string, data: Uint8Array): Promise<void> {
-    const dir = path.dirname(filePath);
-    await fs.mkdir(dir, { recursive: true });
-    // Random suffix to avoid collisions with concurrent writes.
-    const randomSuffix = Math.random().toString(36).slice(2, 10);
-    const stagingPath = `${filePath}.${Date.now()}.${randomSuffix}.partial`;
-    await fs.writeFile(stagingPath, data);
-    try {
-      await renameWithRetry(stagingPath, filePath);
-    } catch (err) {
-      // Clean up staging file on failure
-      try { await fs.unlink(stagingPath); } catch { /* ignore */ }
-      throw err;
-    }
+    await atomicWriteFile(filePath, data);
   }
 
   /**
