@@ -70,14 +70,20 @@ describe('LocalRefStore execution status (concurrent read/write)', () => {
         } catch (err) {
           errors.push((err as Error).message);
         }
+        // Yield: a tight read loop would hold the file open ~continuously and on
+        // Windows starve the writer's rename (EPERM). A real status poll is periodic.
+        await new Promise((r) => setTimeout(r, 1));
       }
       return errors;
     })();
 
-    for (let i = 0; i < 250; i++) {
-      await store.executionWrite(repo, taskHash, inputsHash, executionId, i % 2 === 0 ? success : running);
+    try {
+      for (let i = 0; i < 250; i++) {
+        await store.executionWrite(repo, taskHash, inputsHash, executionId, i % 2 === 0 ? success : running);
+      }
+    } finally {
+      stop = true; // always release the reader, even if a write throws, or it spins forever
     }
-    stop = true;
 
     const errors = await reader;
     assert.deepStrictEqual(errors, [], `executionGet must never observe a torn write; saw: ${errors.slice(0, 3).join(' | ')}`);
@@ -134,14 +140,20 @@ describe('LocalRefStore dataflow run (concurrent read/write)', () => {
         } catch (err) {
           errors.push((err as Error).message);
         }
+        // Yield: a tight read loop would hold the file open ~continuously and on
+        // Windows starve the writer's rename (EPERM). A real status poll is periodic.
+        await new Promise((r) => setTimeout(r, 1));
       }
       return errors;
     })();
 
-    for (let i = 0; i < 250; i++) {
-      await store.dataflowRunWrite(repo, workspace, i % 2 === 0 ? completedRun : runningRun);
+    try {
+      for (let i = 0; i < 250; i++) {
+        await store.dataflowRunWrite(repo, workspace, i % 2 === 0 ? completedRun : runningRun);
+      }
+    } finally {
+      stop = true; // always release the reader, even if a write throws, or it spins forever
     }
-    stop = true;
 
     const errors = await reader;
     assert.deepStrictEqual(errors, [], `dataflowRunGet must never observe a torn write; saw: ${errors.slice(0, 3).join(' | ')}`);

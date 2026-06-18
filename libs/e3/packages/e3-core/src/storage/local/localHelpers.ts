@@ -97,16 +97,18 @@ const WIN_RENAME_RETRYABLE = new Set(['EPERM', 'EACCES', 'EBUSY', 'EEXIST']);
  * Windows refuses the rename (EPERM/EACCES/EBUSY) while a reader holds the
  * destination open — Node/libuv never opens files with FILE_SHARE_DELETE and
  * exposes no way to set the share mode — so, like graceful-fs / npm, we retry
- * with a bounded exponential backoff. A reader holds the handle only for the
- * microseconds of its read, so the lock clears almost immediately (usually the
- * first or second attempt); the bound is a safety net so a genuine permission
- * error still surfaces promptly. A no-op on POSIX.
+ * with a bounded exponential backoff. A realistic reader holds the handle only
+ * for the brief duration of its read, so the lock clears almost immediately
+ * (usually the first or second attempt); the attempt count is generous so that
+ * even bursty concurrent reads on a loaded Windows host clear well before the
+ * bound, while a genuine permission error still surfaces promptly. A no-op on
+ * POSIX, where the first attempt always succeeds.
  *
  * @param from - Staging path to rename from
  * @param to - Destination path to atomically replace
- * @param maxAttempts - Upper bound on retries (≈1.3s total over the default 15)
+ * @param maxAttempts - Upper bound on retries (≈1.9s total over the default 25)
  */
-export async function renameWithRetry(from: string, to: string, maxAttempts = 15): Promise<void> {
+export async function renameWithRetry(from: string, to: string, maxAttempts = 25): Promise<void> {
   for (let attempt = 0; ; attempt++) {
     try {
       await fs.rename(from, to);
@@ -114,8 +116,8 @@ export async function renameWithRetry(from: string, to: string, maxAttempts = 15
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code ?? '';
       if (attempt >= maxAttempts - 1 || !WIN_RENAME_RETRYABLE.has(code)) throw err;
-      // 1, 2, 4, … ms, capped at 200ms.
-      await new Promise((resolve) => setTimeout(resolve, Math.min(2 ** attempt, 200)));
+      // 1, 2, 4, … ms, capped at 100ms (≈1.9s total over 25 attempts).
+      await new Promise((resolve) => setTimeout(resolve, Math.min(2 ** attempt, 100)));
     }
   }
 }
