@@ -92,7 +92,7 @@ export type { IconName } from "./display/index.js";
 export { Card } from "./runtime/container/index.js";
 
 // Collections
-export { DataList, Matrix, Pagination, Table, TreeView, Gantt, Planner, Library, Roster, Calendar, Schematic, Blend } from "./runtime/collections/index.js";
+export { DataList, Matrix, Pagination, Table, TreeView, Gantt, Planner, Library, Roster, Calendar, Schematic, Map, Blend } from "./runtime/collections/index.js";
 
 // Charts
 export { Chart, Sparkline } from "./runtime/charts/index.js";

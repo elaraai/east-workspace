@@ -111,6 +111,16 @@ import { LibraryRootType } from "./collections/library/types.js";
 import { RosterRootType } from "./collections/roster/types.js";
 import { CalendarRootType } from "./collections/calendar/types.js";
 import { SchematicRootType } from "./collections/schematic/types.js";
+import {
+    MapLatLngType,
+    MapTileType,
+    MapFocusType,
+    MapAreaType,
+    MapHexLayerType,
+    MapMarkerType,
+    MapLineType,
+    MapLabelType,
+} from "./collections/map/types.js";
 import { BlendRootType } from "./collections/blend/types.js";
 import { StatusTokenType } from "./style/interaction.js";
 import { CardStyleType } from "./container/card/types.js";
@@ -773,6 +783,42 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
 
     // Schematic — read-only 2D world-coordinate canvas
     Schematic: SchematicRootType,
+
+    // Map — interactive geographic basemap + H3 / area overlay. The
+    // `overlays` slot hosts arbitrary UIComponent children via the
+    // recursion `node`; mirror this shape with `MapRootType` in
+    // `collections/map/index.ts` (which spells the same fields with the
+    // resolved `UIComponentType`).
+    Map: StructType({
+        tiles: MapTileType,
+        center: MapLatLngType,
+        zoom: IntegerType,
+        minZoom: OptionType(IntegerType),
+        maxZoom: OptionType(IntegerType),
+        lodZoom: OptionType(IntegerType),
+        fitBounds: OptionType(MapFocusType),
+        areas: ArrayType(MapAreaType),
+        hexes: OptionType(MapHexLayerType),
+        markers: ArrayType(MapMarkerType),
+        lines: ArrayType(MapLineType),
+        labels: ArrayType(MapLabelType),
+        overlays: ArrayType(StructType({
+            content: node,
+            align: AlignType,
+            verticalAlign: AlignType,
+            key: OptionType(StringType),
+            geoAnchor: OptionType(MapLatLngType),
+            offset: OptionType(StructType({ x: FloatType, y: FloatType })),
+            interactive: OptionType(BooleanType),
+        })),
+        scrollWheelZoom: OptionType(BooleanType),
+        attributionPrefix: OptionType(BooleanType),
+        height: OptionType(StringType),
+        onAreaClick: OptionType(FunctionType([StringType], NullType)),
+        onMarkerClick: OptionType(FunctionType([StringType], NullType)),
+        onZoom: OptionType(FunctionType([IntegerType], NullType)),
+        onSelect: OptionType(FunctionType([StringType], NullType)),
+    }),
 
     // Blend — assembly surface for blending / batching decisions
     Blend: BlendRootType,

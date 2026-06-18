@@ -15,6 +15,7 @@ and JSX tags whose props mirror the factory options.
 | [roster.md](roster.md) | `<Roster>` | `configure__pattern__roster` | target (add/move/remove) |
 | [schematic.md](schematic.md) | `<Schematic>` | `configure__pattern__schematic` | none (read-only) |
 | [blend.md](blend.md) | `<Blend>` (née Workbench) | `configure__pattern__workbench` | target (add/remove) |
+| [map.md](map.md) | `<Map>` | net-new (interactive geographic basemap + overlay slot) | none (read-only / select) |
 
 Suggested build order once approved: drag contract → Library → Roster →
 Calendar → Schematic → Blend (Roster exercises the full DnD path early;
