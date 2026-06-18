@@ -49,10 +49,10 @@ function iconGlyph(name: string): string {
 export interface MapEngineProps {
     value: MapValue;
     containerClassName?: string;
-    onAreaClickFn?: (key: string) => void;
-    onMarkerClickFn?: (key: string) => void;
-    onZoomFn?: (zoom: bigint) => void;
-    onSelectFn?: (key: string) => void;
+    onAreaClickFn?: ((key: string) => void) | undefined;
+    onMarkerClickFn?: ((key: string) => void) | undefined;
+    onZoomFn?: ((zoom: bigint) => void) | undefined;
+    onSelectFn?: ((key: string) => void) | undefined;
     /** Reports the current zoom up to the renderer for the LOD gate. */
     onZoomChange?: (zoom: number) => void;
 }
@@ -206,28 +206,36 @@ export default function MapEngine({
             // A raw `color` override wins over the tone class (Leaflet path options
             // beat the className-driven theme stroke / fill).
             const color = getSomeorUndefined(area.color);
+            // An area is clickable only when it opts in — an explicit `interactive`,
+            // or a callback / `flyTo` to act on. Decorative areas get no handler, so
+            // a click falls through to the map instead of hijacking the camera.
+            const hasCallback = handlers.current.onAreaClickFn !== undefined || handlers.current.onSelectFn !== undefined;
+            const interactive = getSomeorUndefined(area.interactive) ?? (hasCallback || flyTo !== undefined);
             const polys = rings.map(ring => L.polygon(ring, {
                 className,
                 weight: area.weight.type === "some" ? area.weight.value : 1.5,
                 fillOpacity: area.fillOpacity.type === "some" ? area.fillOpacity.value : 0.14,
-                interactive: true,
+                interactive,
                 ...(color !== undefined ? { color, fillColor: color } : {}),
             }).addTo(group));
-            const onClick = () => {
-                handlers.current.onAreaClickFn?.(area.key);
-                handlers.current.onSelectFn?.(area.key);
-                if (flyTo !== undefined) {
-                    if (flyTo.type === "point") {
-                        map.flyTo([flyTo.value.center.lat, flyTo.value.center.lng], Number(flyTo.value.zoom), { duration: 1.1 });
-                    } else {
-                        map.flyToBounds([[flyTo.value.sw.lat, flyTo.value.sw.lng], [flyTo.value.ne.lat, flyTo.value.ne.lng]], { duration: 1.1 });
+            if (interactive) {
+                const onClick = () => {
+                    handlers.current.onAreaClickFn?.(area.key);
+                    handlers.current.onSelectFn?.(area.key);
+                    if (flyTo !== undefined) {
+                        if (flyTo.type === "point") {
+                            map.flyTo([flyTo.value.center.lat, flyTo.value.center.lng], Number(flyTo.value.zoom), { duration: 1.1 });
+                        } else {
+                            map.flyToBounds([[flyTo.value.sw.lat, flyTo.value.sw.lng], [flyTo.value.ne.lat, flyTo.value.ne.lng]], { duration: 1.1 });
+                        }
+                    } else if (hasCallback) {
+                        // Frame the shape only when the caller opted in via a callback.
+                        const bbox = bboxOfRings(rings);
+                        if (bbox !== undefined) map.flyToBounds(bbox, { duration: 1.1 });
                     }
-                } else {
-                    const bbox = bboxOfRings(rings);
-                    if (bbox !== undefined) map.flyToBounds(bbox, { duration: 1.1 });
-                }
-            };
-            for (const poly of polys) poly.on("click", onClick);
+                };
+                for (const poly of polys) poly.on("click", onClick);
+            }
             if (tip !== undefined && polys[0] !== undefined) {
                 polys[0].bindTooltip(tip, { permanent: true, direction: "top", className: "elara-map-tip", opacity: 1 });
             }

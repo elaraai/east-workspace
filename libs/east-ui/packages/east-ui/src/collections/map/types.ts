@@ -212,6 +212,7 @@ export type MapAreaShapeType = typeof MapAreaShapeType;
  * @property weight - Optional stroke width in px
  * @property pulse - Optional explicit pulse override; absent ⇒ derived from `status`
  * @property flyTo - Optional click camera target; absent ⇒ frame the shape
+ * @property interactive - Optional click flag; absent ⇒ derived (clickable only when `onAreaClick`/`onSelect`/`flyTo` is set)
  */
 export const MapAreaType = StructType({
     /** Area identity — `onAreaClick` returns it; `flyTo` target id */
@@ -236,6 +237,8 @@ export const MapAreaType = StructType({
     pulse: OptionType(BooleanType),
     /** Optional click camera target; absent ⇒ frame the shape */
     flyTo: OptionType(MapFocusType),
+    /** Optional click flag; absent ⇒ clickable only when a callback / `flyTo` is set */
+    interactive: OptionType(BooleanType),
 });
 
 /**

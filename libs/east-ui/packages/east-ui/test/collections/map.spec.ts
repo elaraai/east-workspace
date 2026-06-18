@@ -84,6 +84,21 @@ describeEast("Map", (test) => {
         $(Assert.equal(area.tone.hasTag("none"), true));
         $(Assert.equal(area.pulse.hasTag("none"), true));
         $(Assert.equal(area.flyTo.hasTag("none"), true));
+        $(Assert.equal(area.interactive.hasTag("none"), true));
+    });
+
+    test("markers default to an empty table when omitted; area interactive carries through", $ => {
+        const m = $.let(Map.Root(
+            undefined,
+            {
+                center: Map.at(-34.881, 138.6), zoom: 12n,
+                areas: [{ id: "5000", lat: -34.9258, lng: 138.5994 }],
+                area: a => ({ key: a.id, shape: Map.hexDisk(Map.at(a.lat, a.lng), 1n, 8n), interactive: false }),
+            },
+        ));
+        const root = $.let(m.unwrap().unwrap("Map"));
+        $(Assert.equal(root.markers.size(), 0n));
+        $(Assert.equal(root.areas.get(0n).interactive.unwrap("some"), false));
     });
 
     test("status / tone / dashed-line-with-arrow carry through", $ => {

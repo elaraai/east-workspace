@@ -14,7 +14,7 @@
  * @packageDocumentation
  */
 
-import { lazy, memo, Suspense, useCallback, useMemo } from "react";
+import { lazy, memo, Suspense, useMemo } from "react";
 import { Box, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { equalFor } from "@elaraai/east";
 import { getSomeorUndefined } from "../../utils";
@@ -41,24 +41,27 @@ export const EastChakraMap = memo(function EastChakraMap({ value, storageKey }: 
     const styles = useSlotRecipe({ key: "map" })() as SlotStyles;
 
     const height = getSomeorUndefined(value.height);
+    // `height="fill"` grows the panel to its parent; any other value is fixed.
+    const heightStyle = height === undefined ? undefined
+        : height === "fill" ? { height: "100%", maxHeight: "100%" }
+        : { height, maxHeight: height };
 
     const onAreaClick = useMemo(() => getSomeorUndefined(value.onAreaClick), [value.onAreaClick]);
     const onMarkerClick = useMemo(() => getSomeorUndefined(value.onMarkerClick), [value.onMarkerClick]);
     const onZoom = useMemo(() => getSomeorUndefined(value.onZoom), [value.onZoom]);
     const onSelect = useMemo(() => getSomeorUndefined(value.onSelect), [value.onSelect]);
 
-    const onAreaClickFn = useCallback<NonNullable<MapEngineProps["onAreaClickFn"]>>((key) => {
-        if (onAreaClick) queueMicrotask(() => onAreaClick(key));
-    }, [onAreaClick]);
-    const onMarkerClickFn = useCallback<NonNullable<MapEngineProps["onMarkerClickFn"]>>((key) => {
-        if (onMarkerClick) queueMicrotask(() => onMarkerClick(key));
-    }, [onMarkerClick]);
-    const onZoomFn = useCallback<NonNullable<MapEngineProps["onZoomFn"]>>((z) => {
-        if (onZoom) queueMicrotask(() => onZoom(z));
-    }, [onZoom]);
-    const onSelectFn = useCallback<NonNullable<MapEngineProps["onSelectFn"]>>((key) => {
-        if (onSelect) queueMicrotask(() => onSelect(key));
-    }, [onSelect]);
+    // Pass the engine a real `undefined` when no callback is bound, so it can
+    // tell whether an area is interactive (a bound callback / flyTo) rather than
+    // attaching a click handler to every area unconditionally.
+    const onAreaClickFn = useMemo<MapEngineProps["onAreaClickFn"]>(
+        () => onAreaClick ? (key) => { queueMicrotask(() => onAreaClick(key)); } : undefined, [onAreaClick]);
+    const onMarkerClickFn = useMemo<MapEngineProps["onMarkerClickFn"]>(
+        () => onMarkerClick ? (key) => { queueMicrotask(() => onMarkerClick(key)); } : undefined, [onMarkerClick]);
+    const onZoomFn = useMemo<MapEngineProps["onZoomFn"]>(
+        () => onZoom ? (z) => { queueMicrotask(() => onZoom(z)); } : undefined, [onZoom]);
+    const onSelectFn = useMemo<MapEngineProps["onSelectFn"]>(
+        () => onSelect ? (key) => { queueMicrotask(() => onSelect(key)); } : undefined, [onSelect]);
 
     // The Leaflet engine applies the basemap + zoom clamps + interaction config
     // imperatively on mount; remount it when any of that config identity changes
@@ -79,7 +82,7 @@ export const EastChakraMap = memo(function EastChakraMap({ value, storageKey }: 
     }, [value.tiles, value.minZoom, value.maxZoom, value.scrollWheelZoom, value.attributionPrefix, value.fitBounds]);
 
     return (
-        <Box css={styles.root} {...(height !== undefined ? { style: { height, maxHeight: height } } : {})}>
+        <Box css={styles.root} {...(heightStyle !== undefined ? { style: heightStyle } : {})}>
             <Suspense fallback={<Box css={styles.fallback} />}>
                 <MapEngine
                     key={engineKey}
