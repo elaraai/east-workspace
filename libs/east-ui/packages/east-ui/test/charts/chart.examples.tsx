@@ -181,6 +181,29 @@ export const barBasic = example({
     inputs: [],
 });
 
+export const barPerCategory = example({
+    keywords: ["Chart", "Bar", "per-category", "colors", "composition", "single-series"],
+    description: "A single bar series coloured per x-category (composition mix) — full-width bars, in data order, no grouped split",
+    fn: East.function([], UIComponentType, ($) => {
+        const rows = $.const([
+            { discipline: "RN", share: 42n }, { discipline: "EN", share: 28n }, { discipline: "Physio", share: 16n },
+            { discipline: "OT", share: 9n }, { discipline: "Admin", share: 5n },
+        ], ArrayType(StructType({ discipline: StringType, share: IntegerType })));
+        return (
+            <Box height="220px" width="100%">
+                <Chart
+                    layers={Chart.Bar(rows, {
+                        x: r => r.discipline, y: r => r.share,
+                        colors: { RN: "teal.solid", EN: "cyan.solid", Physio: "blue.solid", OT: "purple.solid", Admin: "gray.solid" },
+                    })}
+                    grid
+                />
+            </Box>
+        );
+    }),
+    inputs: [],
+});
+
 export const barGrouped = example({
     keywords: ["Chart", "Bar", "grouped", "columns", "multi-series"],
     description: "Grouped bars from value columns",

@@ -696,11 +696,14 @@ export type SliceBreakdownGroupArrayType = typeof SliceBreakdownGroupArrayType;
  * @property size  - Mirrors {@link ChartPointType} so the pivot feeds
  *                   `Chart.Spec.series` directly; always `none` (slice series
  *                   carry no per-point bubble magnitude)
+ * @property color - Mirrors {@link ChartPointType}'s per-point colour; always
+ *                   `none` (slice series colour their points at the series level)
  */
 export const SliceSeriesPointType = StructType({
     x:     ChartXType,
     value: FloatType,
     size:  OptionType(FloatType),
+    color: OptionType(StringType),
 });
 export type SliceSeriesPointType = typeof SliceSeriesPointType;
 

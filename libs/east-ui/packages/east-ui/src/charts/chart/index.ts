@@ -164,12 +164,18 @@ export interface ScatterStyle extends MarkStyle {
  * @typeParam Row - The row struct; accessors are checked against its fields
  * @property x - Field placed on the x-axis (its East type chooses the scale)
  * @property y - Numeric field summed into each point's value
+ * @property colors - Optional per-x-category colours (theme tokens or CSS),
+ *                    keyed by the x value; fills one bar per category in data
+ *                    order without splitting into grouped `by` series
  */
 export interface PointEncoding<Row extends EastType> {
     /** Field placed on the x-axis (its East type chooses the scale). */
     x: XAccessor<Row>;
     /** Numeric field summed into each point's value. */
     y: ValueAccessor<Row>;
+    /** Optional per-x-category colours (theme tokens or CSS), keyed by the x value;
+     *  fills one bar per category in data order without a grouped `by` split. */
+    colors?: Record<string, string>;
 }
 
 /**
@@ -308,12 +314,19 @@ function toFloatExpr(e: SubtypeExprOrValue<CoordScalar>): SubtypeExprOrValue<Flo
 /** Build a single point `{ x, value, size }` and record the x scale via `onScale`.
  * `size` carries a per-point magnitude (scatter bubbles) when a size accessor is
  * given; otherwise it is `none`. */
-function pointOf(x: AnyAccessor, y: AnyAccessor, row: ExprType<EastType>, onScale: (s: ScaleKind) => void, size?: AnyAccessor) {
+function pointOf(x: AnyAccessor, y: AnyAccessor, row: ExprType<EastType>, onScale: (s: ScaleKind) => void, size?: AnyAccessor, colorDict?: any) {
     const xe = x(row);
     onScale(scaleFor(typeTag(xe)));
-    // `size` must carry the full `Option(Float)` type — a bare `some(...)` / `none`
-    // infers a partial variant and the mapped points array fails to coerce.
-    return { x: xCoord(xe), value: toFloatExpr(y(row)), size: East.value(size !== undefined ? some(toFloatExpr(size(row))) : none, OptionType(FloatType)) };
+    // `size` / `color` must carry the full `Option(...)` type — a bare `some(...)` /
+    // `none` infers a partial variant and the mapped points array fails to coerce.
+    const xKey = typeTag(xe) === "String" ? (xe as SubtypeExprOrValue<StringType>) : East.print(xe as Expr);
+    return {
+        x: xCoord(xe),
+        value: toFloatExpr(y(row)),
+        size: East.value(size !== undefined ? some(toFloatExpr(size(row))) : none, OptionType(FloatType)),
+        // Per-point colour from the encoding's `colors` map (band x → category fill); `none` otherwise.
+        color: East.value(colorDict !== undefined ? colorDict.tryGet(xKey) : none, OptionType(StringType)),
+    };
 }
 
 /** Pivot rows + a cartesian-mark encoding into a coloured `ChartSeriesArray`. */
@@ -357,10 +370,15 @@ function buildSeries<Row extends EastType>(rows: ChartRows<Row>, encoding: MarkE
     }
 
     const { x, y } = encoding;
+    // Optional per-x-category colour map → per-point fills (one bar per category).
+    const ptColors = (encoding as PointEncoding<Row>).colors;
+    const colorDict = ptColors !== undefined
+        ? East.value(new Map<string, string>(Object.entries(ptColors)), DictType(StringType, StringType)) as any
+        : undefined;
     const series = {
         key: style.key ?? "",
         color: style.color ?? paletteColor(0),
-        points: arr.map((_b: unknown, r: any) => pointOf(x, y, r, setScale, sizeAcc)),
+        points: arr.map((_b: unknown, r: any) => pointOf(x, y, r, setScale, sizeAcc, colorDict)),
     };
     return { data: East.value([series] as any, ChartSeriesArrayType), xScale };
 }

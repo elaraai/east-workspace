@@ -57,7 +57,7 @@ function MapTag<
     La extends SubtypeExprOrValue<ArrayType<StructType>> = [],
     L extends SubtypeExprOrValue<ArrayType<StructType>> = [],
 >(
-    props: { markers: M }
+    props: { markers?: M }
         & MapConfig<RowElement<M>, RowElement<A>, RowElement<La>, RowElement<L>>
         & { areas?: A; labels?: La; lines?: L },
 ): ExprType<UIComponentType> {

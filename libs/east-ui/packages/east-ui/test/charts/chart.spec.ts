@@ -19,6 +19,7 @@ describeEast("Chart", (test) => {
         lineTemporal: ex.lineTemporal,
         lineNumericX: ex.lineNumericX,
         barBasic: ex.barBasic,
+        barPerCategory: ex.barPerCategory,
         barGrouped: ex.barGrouped,
         barStacked: ex.barStacked,
         barPercentStacked: ex.barPercentStacked,

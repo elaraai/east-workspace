@@ -22,7 +22,6 @@ let platformFunctions: PlatformFunction[] = [];
  */
 export function registerPlatformImplementation(impls: PlatformFunction[]): () => void {
     platformFunctions = [...platformFunctions, ...impls];
-    console.log('[registry.register]', impls.map(i => i.name), 'total:', platformFunctions.map(p => p.name));
     return () => {
         platformFunctions = platformFunctions.filter(f => !impls.includes(f));
     };

@@ -325,7 +325,7 @@ export function sliceSeries(
     xField: string,
     valueField: string,
     now: Date,
-): Array<{ key: string; color: string; points: Array<{ x: variant; value: number; size: typeof none }> }> {
+): Array<{ key: string; color: string; points: Array<{ x: variant; value: number; size: typeof none; color: typeof none }> }> {
     // x key — ISO-encode Dates so a renderer time scale can parse them back; all
     // other field kinds stringify (band categories / numeric linear).
     const xKey = (row: Record<string, unknown>): string => { const xv = row[xField]; return xv instanceof Date ? xv.toISOString() : String(xv); };
@@ -350,7 +350,7 @@ export function sliceSeries(
             xs.set(xk, (xs.get(xk) ?? 0) + Number(row[valueField] ?? 0));
         }
         const label = (config.fields.get(valueField)?.value as { label?: string } | undefined)?.label ?? valueField;
-        return [{ key: label, color: seriesColor(0), points: [...xs.entries()].map(([x, value]) => ({ x: coords.get(x)!, value, size: none })) }];
+        return [{ key: label, color: seriesColor(0), points: [...xs.entries()].map(([x, value]) => ({ x: coords.get(x)!, value, size: none, color: none })) }];
     }
     const keyField = (state.breakdown.value as { fieldId: string }).fieldId;
     const counts = new Map<string, number>();
@@ -376,7 +376,7 @@ export function sliceSeries(
         .map((key, i) => ({
             key,
             color: seriesColor(i),
-            points: [...byKey.get(key)!.entries()].map(([x, value]) => ({ x: coords.get(x)!, value, size: none })),
+            points: [...byKey.get(key)!.entries()].map(([x, value]) => ({ x: coords.get(x)!, value, size: none, color: none })),
         }))
         .filter(s => visible === undefined || visible.has(s.key));
 }

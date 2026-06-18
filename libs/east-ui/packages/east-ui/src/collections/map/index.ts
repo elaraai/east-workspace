@@ -484,6 +484,8 @@ export interface MapAreaFields {
     pulse?: SubtypeExprOrValue<BooleanType> | boolean;
     /** Optional click camera target; absent ⇒ frame the shape. */
     flyTo?: SubtypeExprOrValue<MapFocusType>;
+    /** Optional click flag; absent ⇒ clickable only when a callback / `flyTo` is set. */
+    interactive?: SubtypeExprOrValue<BooleanType> | boolean;
 }
 
 /**
@@ -505,6 +507,7 @@ function area(fields: MapAreaFields): ExprType<MapAreaType> {
         weight: fields.weight !== undefined ? some(fields.weight) : none,
         pulse: fields.pulse !== undefined ? some(fields.pulse) : none,
         flyTo: fields.flyTo !== undefined ? some(fields.flyTo) : none,
+        interactive: fields.interactive !== undefined ? some(fields.interactive) : none,
     }, MapAreaType);
 }
 
@@ -737,13 +740,15 @@ export interface MapConfig<
 }
 
 function buildRoot(
-    markers: SubtypeExprOrValue<ArrayType<StructType>>,
+    markers: SubtypeExprOrValue<ArrayType<StructType>> | undefined,
     config: MapConfig<StructType, StructType, StructType, StructType>,
 ): ExprType<UIComponentType> {
     const markerMapper = config.marker;
+    // `markers` is optional — an absent table is an empty one, not a crash.
+    const markerRows = markers ?? [];
     const resolvedMarkers = markerMapper === undefined
-        ? East.value(markers as SubtypeExprOrValue<ArrayType<MapMarkerType>>, ArrayType(MapMarkerType))
-        : (East.value(markers) as ExprType<ArrayType<StructType>>).map((_$, row) => {
+        ? East.value(markerRows as SubtypeExprOrValue<ArrayType<MapMarkerType>>, ArrayType(MapMarkerType))
+        : (East.value(markerRows) as ExprType<ArrayType<StructType>>).map((_$, row) => {
             const r: MapMarkerFields | ExprType<MapMarkerType> = markerMapper(row);
             if (r instanceof Expr) return East.value(r, MapMarkerType);
             return marker(r);
@@ -842,7 +847,7 @@ function createMap<
     La extends SubtypeExprOrValue<ArrayType<StructType>> = [],
     L extends SubtypeExprOrValue<ArrayType<StructType>> = [],
 >(
-    markers: M,
+    markers: M | undefined,
     config: MapConfig<RowElement<M>, RowElement<A>, RowElement<La>, RowElement<L>>
         & { areas?: A; labels?: La; lines?: L },
 ): ExprType<UIComponentType> {
