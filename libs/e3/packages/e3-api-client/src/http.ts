@@ -147,6 +147,7 @@ export async function get<T extends EastType>(
 
 /**
  * Make a POST request with BEAST2 body and decode BEAST2 response.
+ * @param extraHeaders - Optional additional request headers (e.g. `Idempotency-Key`), merged after the defaults.
  * @throws {ApiError} On application-level errors
  * @throws {AuthError} On 401 Unauthorized
  */
@@ -156,7 +157,8 @@ export async function post<Req extends EastType, Res extends EastType>(
   body: ValueTypeOf<Req>,
   requestType: Req,
   successType: Res,
-  options: RequestOptions
+  options: RequestOptions,
+  extraHeaders?: Record<string, string>,
 ): Promise<ValueTypeOf<Res>> {
   const encode = encodeBeast2For(requestType);
   const response = await fetch(`${url}/api${path}`, {
@@ -165,6 +167,7 @@ export async function post<Req extends EastType, Res extends EastType>(
       'Content-Type': BEAST2_CONTENT_TYPE,
       'Accept': BEAST2_CONTENT_TYPE,
       ...(options.token ? { 'Authorization': `Bearer ${options.token}` } : {}),
+      ...extraHeaders,
     },
     body: encode(body),
   });

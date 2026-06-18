@@ -33,6 +33,32 @@ const MAX_TIMEOUT_MS = 10 * 60_000;
 const MAX_RESULT_BYTES = 256 * 1024 * 1024;
 const MAX_LOG_BYTES = 256 * 1024;
 
+/** Wall-clock reserved (ms) below a caller's mutation budget for the final,
+ *  non-preemptible commit write + response encode. Best-effort: a very large
+ *  remote state write can still overrun, so the budget is a strong-but-not-hard
+ *  bound on a typed terminal. Must stay below the smallest supported budget. */
+const MUTATION_BUDGET_HEADROOM_MS = 2_000;
+
+/** Reduce a caller's wall-clock mutation budget by the commit/encode headroom,
+ *  flooring at 1ms. Returns undefined when no budget is supplied (the default
+ *  local behaviour — no gateway, so no cap). Pure; unit-tested directly. */
+export function effectiveBudgetMs(budgetMs: number | undefined): number | undefined {
+  if (budgetMs === undefined) return undefined;
+  return Math.max(1, budgetMs - MUTATION_BUDGET_HEADROOM_MS);
+}
+
+/** Per-call mutation controls supplied by the server boundary (not the client
+ *  body): a wall-clock budget, a request/deadline abort signal, and an
+ *  idempotency key carried out-of-band (HTTP header). */
+export interface MutationCallControls {
+  /** Wall-clock budget for the whole call (e.g. a cloud gateway timeout). */
+  budgetMs?: number;
+  /** Request abort signal (e.g. client disconnect). */
+  signal?: AbortSignal;
+  /** Client idempotency key (the `Idempotency-Key` header). */
+  idempotencyKey?: string;
+}
+
 function resolveLimits(limits: { type: 'some'; value: ExecuteLimits } | { type: 'none'; value: null }) {
   const req = limits.type === 'some' ? limits.value : undefined;
   const timeoutMs = Math.min(req && req.timeoutMs.type === 'some' ? Number(req.timeoutMs.value) : DEFAULT_LIMITS.timeoutMs, MAX_TIMEOUT_MS);
@@ -88,6 +114,14 @@ export async function describeRecord(
  * `actor` is recorded and the client-supplied `req.actor` is ignored, so the
  * audit trail attributes the commit to the verified principal and cannot be
  * forged. Without auth (single-tenant local), `req.actor` is honoured.
+ *
+ * `controls` carries server-boundary concerns the client body does not: a
+ * wall-clock `budgetMs` (so the CAS loop returns a typed terminal before a
+ * gateway timeout), an abort `signal` (e.g. client disconnect), and an
+ * `idempotencyKey` (the `Idempotency-Key` header) so a retried call after a
+ * gateway timeout does not double-apply.
+ *
+ * @param controls - Optional per-call budget / abort signal / idempotency key.
  */
 export async function callMutationSync(
   storage: StorageBackend,
@@ -99,13 +133,20 @@ export async function callMutationSync(
   req: MutationCallRequest,
   actor: string,
   authoritative: boolean,
+  controls: MutationCallControls = {},
 ): Promise<Response> {
   try {
     const effectiveActor = !authoritative && req.actor.type === 'some' ? req.actor.value : actor;
     const outcome = await recordMutate(
       storage, runner, repoPath, workspace, record, mutation,
       req.args,
-      { actor: effectiveActor, limits: resolveLimits(req.limits) },
+      {
+        actor: effectiveActor,
+        limits: resolveLimits(req.limits),
+        budgetMs: effectiveBudgetMs(controls.budgetMs),
+        signal: controls.signal,
+        idempotencyKey: controls.idempotencyKey,
+      },
     );
     return sendSuccess(MutationResultType, outcomeToResult(outcome));
   } catch (err) {

@@ -23,7 +23,25 @@ import {
   WorkspaceStateType,
 } from '@elaraai/e3-types';
 import { createWorkspaceRecordRoutes } from '../routes/records.js';
+import { effectiveBudgetMs } from './records.js';
 import { ResponseType, MutationResultType, MutationCallRequestType } from '../types.js';
+
+describe('effectiveBudgetMs', () => {
+  it('returns undefined when no budget is supplied (local default: no gateway, no cap)', () => {
+    assert.equal(effectiveBudgetMs(undefined), undefined);
+  });
+
+  it('subtracts the commit/encode headroom from the budget', () => {
+    // HEADROOM_MS is 2000; a 30s gateway budget leaves 28s for the CAS loop.
+    assert.equal(effectiveBudgetMs(30_000), 28_000);
+  });
+
+  it('floors at 1ms when the budget is at or below the headroom', () => {
+    assert.equal(effectiveBudgetMs(2_000), 1);
+    assert.equal(effectiveBudgetMs(500), 1);
+    assert.equal(effectiveBudgetMs(0), 1);
+  });
+});
 
 const REPO = 'test-repo';
 const WS = 'main';
@@ -85,10 +103,10 @@ function buildApp(storage: InMemoryStorage, runner: MockTaskRunner, identity?: {
   return app;
 }
 
-function postMutate(app: Hono, actor: ActorOption): Promise<Response> {
+function postMutate(app: Hono, actor: ActorOption, extraHeaders?: Record<string, string>): Promise<Response> {
   return Promise.resolve(app.request(`/api/repos/r/workspaces/${WS}/records/counter/mutations/increment`, {
     method: 'POST',
-    headers: { 'Content-Type': BEAST2_CONTENT_TYPE },
+    headers: { 'Content-Type': BEAST2_CONTENT_TYPE, ...extraHeaders },
     body: encodeMutationCall({ args: [encodeInt(5n)], actor, limits: none }),
   }));
 }
@@ -110,6 +128,24 @@ describe('record routes', () => {
     runner = new MockTaskRunner();
     runner.setDetachedResult({ kind: 'success', value: encodeInt(5n), stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false });
     await seedDeployedRecord(storage);
+  });
+
+  it('threads the Idempotency-Key header through the route so a retry dedups (no double-apply)', async () => {
+    const app = buildApp(storage, runner); // no auth
+    const first = await decodeResponse<any>(await postMutate(app, none, { 'Idempotency-Key': 'k1' }), MutationResultType);
+    const second = await decodeResponse<any>(await postMutate(app, none, { 'Idempotency-Key': 'k1' }), MutationResultType);
+    assert.equal(first.value.outcome.type, 'committed');
+    assert.equal(second.value.outcome.type, 'committed');
+    assert.equal(second.value.outcome.value.commitHash, first.value.outcome.value.commitHash, 'the retry returns the original commit');
+    // genesis + exactly one commit: the keyed retry did not append a duplicate.
+    assert.equal((await recordHistory(storage, REPO, WS, 'counter')).length, 2);
+  });
+
+  it('without the header a normal mutation still commits', async () => {
+    const app = buildApp(storage, runner);
+    const result = await decodeResponse<any>(await postMutate(app, none), MutationResultType);
+    assert.equal(result.value.outcome.type, 'committed');
+    assert.equal((await recordHistory(storage, REPO, WS, 'counter')).length, 2);
   });
 
   it('records the authenticated identity as the actor, ignoring a forged request actor', async () => {
