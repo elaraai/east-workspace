@@ -45,4 +45,23 @@ export const keyframes = defineKeyframes({
     "spec-blink": {
         "50%": { opacity: 0 },
     },
+    // Map area pulses — drive a choropleth area's stroke / fill between a rest
+    // state and a peak; the recipe delays the success pulse so two clusters
+    // breathe out of phase.
+    "map-pulse-danger": {
+        "0%, 100%": { strokeOpacity: 0.6, strokeWidth: 1.5, fillOpacity: 0.1 },
+        "50%":      { strokeOpacity: 1,   strokeWidth: 3.5, fillOpacity: 0.28 },
+    },
+    "map-pulse-success": {
+        "0%, 100%": { strokeOpacity: 0.55, strokeWidth: 1.5, fillOpacity: 0.08 },
+        "50%":      { strokeOpacity: 1,    strokeWidth: 3.5, fillOpacity: 0.24 },
+    },
+    "map-pulse-warning": {
+        "0%, 100%": { strokeOpacity: 0.58, strokeWidth: 1.5, fillOpacity: 0.1 },
+        "50%":      { strokeOpacity: 1,    strokeWidth: 3.5, fillOpacity: 0.26 },
+    },
+    // Marching-ants dash offset for an active connector / move arrow.
+    "map-flow": {
+        to: { strokeDashoffset: -24 },
+    },
 });

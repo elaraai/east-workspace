@@ -61,7 +61,7 @@ export { Breadcrumb, NavList, NavListType, NavSectionType, NavItemType } from ".
 export type { NavListStyle, NavSectionInput, NavItemInput } from "./navigation/index.js";
 export { Badge, Tag, Avatar, Stat, Icon, MetricChip, EditableChip, Kbd, Meter, SegmentedMeter, BarStrip, AvatarGroup, Trace, ChipRail, type IconName } from "./display/index.js";
 export { Card } from "./container/index.js";
-export { DataList, Matrix, Pagination, Table, TreeView, Gantt, Planner, Library, Roster, Calendar, Schematic, Blend } from "./collections/index.js";
+export { DataList, Matrix, Pagination, Table, TreeView, Gantt, Planner, Library, Roster, Calendar, Schematic, Map, Blend } from "./collections/index.js";
 export { Chart } from "./charts/chart/index.js";
 export { Sparkline } from "./charts/index.js";
 export { Accordion, Carousel, Collapsible, Disclosure, OptionList, SegmentGroup, Story, Tabs } from "./disclosure/index.js";

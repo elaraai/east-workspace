@@ -73,6 +73,15 @@ export {
     type SchematicItemValue,
     type EastChakraSchematicProps,
 } from "./schematic";
+export {
+    EastChakraMap,
+    type MapValue,
+    type MapAreaValue,
+    type MapMarkerValue,
+    type MapLineValue,
+    type MapOverlayValue,
+    type EastChakraMapProps,
+} from "./map";
 
 export {
     EastChakraBlend,

@@ -16,4 +16,5 @@ export { Library } from "./library.js";
 export { Roster } from "./roster.js";
 export { Calendar } from "./calendar.js";
 export { Schematic } from "./schematic.js";
+export { Map } from "./map.js";
 export { Blend } from "./blend.js";

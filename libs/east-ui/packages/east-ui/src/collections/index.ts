@@ -25,6 +25,22 @@ export {
     type SchematicLinkFields,
 } from "./schematic/index.js";
 export {
+    Map,
+    type MapConfig,
+    type MapMarkerFields,
+    type MapAreaFields,
+    type MapLineFields,
+    type MapLabelFields,
+    type MapOverlayInput,
+    type MapOverlayOptions,
+    type MapTileConfig,
+    type MapHexConfig,
+    type MapHexCellInput,
+    type MapLineStyleConfig,
+    type MapToneLiteral,
+    type MapCartoLiteral,
+} from "./map/index.js";
+export {
     Calendar,
     type CalendarConfig,
     type CalendarCellFields,

@@ -60,6 +60,7 @@ import { librarySlotRecipe } from "./slot-recipes/library.js";
 import { rosterSlotRecipe } from "./slot-recipes/roster.js";
 import { calendarSlotRecipe } from "./slot-recipes/calendar.js";
 import { schematicSlotRecipe } from "./slot-recipes/schematic.js";
+import { mapSlotRecipe } from "./slot-recipes/map.js";
 import { blendSlotRecipe } from "./slot-recipes/blend.js";
 import { emptyStateSlotRecipe } from "./slot-recipes/emptyState.js";
 import { statSlotRecipe } from "./slot-recipes/stat.js";
@@ -147,6 +148,7 @@ const config = defineConfig({
             roster:          rosterSlotRecipe,
             calendar:        calendarSlotRecipe,
             schematic:       schematicSlotRecipe,
+            map:             mapSlotRecipe,
             blend:           blendSlotRecipe,
             emptyState:      emptyStateSlotRecipe,
             stat:            statSlotRecipe,

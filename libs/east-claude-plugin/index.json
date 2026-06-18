@@ -1,14 +1,14 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1340,
-    "totalFiles": 177,
+    "totalEntries": 1347,
+    "totalFiles": 178,
     "packages": {
       "east": 489,
       "east-node-std": 42,
       "east-node-io": 63,
       "east-py-datascience": 85,
-      "east-ui": 604,
+      "east-ui": 611,
       "e3-ui": 50,
       "e3": 7
     }
@@ -15401,6 +15401,163 @@
         "import { Library } from \"@elaraai/east-ui\";"
       ],
       "source": "// Minimal flat palette — identity cards only, no toolbar\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rooms = $.const([\n            { id: \"hall-b\", name: \"Hall B\" },\n            { id: \"qa-cell\", name: \"QA Cell\" },\n            { id: \"dispatch\", name: \"Dispatch\" },\n        ]);\n        return (\n            <Library\n                id=\"rooms\"\n                data={rooms}\n                item={r => ({ key: r.id, label: r.name, icon: \"warehouse\" })}\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:map.examples.tsx:mapBasic",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/map.examples.tsx",
+      "suite": "",
+      "test": "A CARTO Positron basemap centred on Adelaide with one home pin",
+      "keywords": [
+        "Map",
+        "basemap",
+        "carto",
+        "marker",
+        "center",
+        "zoom"
+      ],
+      "imports": [
+        "import { East, ArrayType, NullType, OptionType, StringType, StructType, example, variant, some } from \"@elaraai/east\";",
+        "import { State, StatusTokenType, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Button, HStack, Map, Reactive, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// A CARTO Positron basemap centred on Adelaide with one home pin\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const pins = $.const([\n            { id: \"okafor\", lat: -34.842, lng: 138.598, name: \"J. Okafor · home\" },\n        ]);\n        return (\n            <Map\n                tiles={Map.carto(\"positron\")}\n                center={Map.at(-34.881, 138.6)}\n                zoom={12n}\n                minZoom={10n}\n                maxZoom={18n}\n                markers={pins}\n                marker={m => ({ key: m.id, lat: m.lat, lng: m.lng, label: m.name, icon: \"house\" })}\n                height=\"420px\"\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:map.examples.tsx:mapAreas",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/map.examples.tsx",
+      "suite": "",
+      "test": "Two filled postcode areas with permanent labels and a click-to-fly target",
+      "keywords": [
+        "Map",
+        "area",
+        "hexDisk",
+        "label",
+        "flyTo",
+        "tone"
+      ],
+      "imports": [
+        "import { East, ArrayType, NullType, OptionType, StringType, StructType, example, variant, some } from \"@elaraai/east\";",
+        "import { State, StatusTokenType, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Button, HStack, Map, Reactive, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Two filled postcode areas with permanent labels and a click-to-fly target\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const areas = $.const([\n            { id: \"5000\", lat: -34.9258, lng: 138.5994, name: \"5000 · Adelaide CBD\" },\n            { id: \"5100\", lat: -34.836, lng: 138.6, name: \"5100 · Prospect\" },\n        ]);\n        return (\n            <Map\n                center={Map.at(-34.881, 138.6)}\n                zoom={12n}\n                lodZoom={13n}\n                markers={[]}\n                areas={areas}\n                area={a => ({\n                    key: a.id,\n                    label: a.name,\n                    shape: Map.hexDisk(Map.at(a.lat, a.lng), 1n, 8n),\n                    tone: \"brand\",\n                    flyTo: Map.point(Map.at(a.lat, a.lng), 14n),\n                })}\n                height=\"420px\"\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:map.examples.tsx:mapHexLod",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/map.examples.tsx",
+      "suite": "",
+      "test": "A faint res-8 hex lattice with an area detail label revealed at LOD",
+      "keywords": [
+        "Map",
+        "hex",
+        "lattice",
+        "lodZoom",
+        "detailLabel",
+        "LOD"
+      ],
+      "imports": [
+        "import { East, ArrayType, NullType, OptionType, StringType, StructType, example, variant, some } from \"@elaraai/east\";",
+        "import { State, StatusTokenType, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Button, HStack, Map, Reactive, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// A faint res-8 hex lattice with an area detail label revealed at LOD\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const areas = $.const([\n            { id: \"5100\", lat: -34.836, lng: 138.6, name: \"5100 · Prospect\" },\n        ]);\n        return (\n            <Map\n                center={Map.at(-34.881, 138.6)}\n                zoom={12n}\n                lodZoom={13n}\n                hexes={Map.hex({\n                    lattice: { center: Map.at(-34.881, 138.6), k: 11n, resolution: 8n },\n                    tone: \"muted\",\n                })}\n                markers={[]}\n                areas={areas}\n                area={a => ({\n                    key: a.id,\n                    label: a.name,\n                    detailLabel: East.str`${a.name} · EN mornings short 3`,\n                    shape: Map.hexDisk(Map.at(a.lat, a.lng), 1n, 8n),\n                })}\n                height=\"420px\"\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:map.examples.tsx:mapPulse",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/map.examples.tsx",
+      "suite": "",
+      "test": "A faint res-8 hex lattice over the map with two pulsing areas standing out — idle (teal) and short (red)",
+      "keywords": [
+        "Map",
+        "area",
+        "status",
+        "pulse",
+        "success",
+        "danger",
+        "lattice"
+      ],
+      "imports": [
+        "import { East, ArrayType, NullType, OptionType, StringType, StructType, example, variant, some } from \"@elaraai/east\";",
+        "import { State, StatusTokenType, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Button, HStack, Map, Reactive, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// A faint res-8 hex lattice over the map with two pulsing areas standing out — idle (teal) and short (red)\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const areas = $.const([\n            { id: \"5000\", lat: -34.9258, lng: 138.5994, name: \"5000 · CBD\", st: some(variant(\"success\", null)) },\n            { id: \"5100\", lat: -34.836, lng: 138.6, name: \"5100 · Prospect\", st: some(variant(\"danger\", null)) },\n        ]);\n        return (\n            <Map\n                center={Map.at(-34.881, 138.6)}\n                zoom={12n}\n                // Faint grey lattice across most of the map; the two status areas pulse on top.\n                hexes={Map.hex({ lattice: { center: Map.at(-34.881, 138.6), k: 14n, resolution: 8n }, tone: \"muted\" })}\n                markers={[]}\n                areas={areas}\n                area={a => ({\n                    key: a.id,\n                    label: a.name,\n                    shape: Map.hexDisk(Map.at(a.lat, a.lng), 1n, 8n),\n                    status: a.st,\n                })}\n                lines={[{ id: \"move\", from_lat: -34.905, from_lng: 138.6, to_lat: -34.852, to_lng: 138.6 }]}\n                line={l => ({\n                    key: l.id,\n                    points: [Map.at(l.from_lat, l.from_lng), Map.at(l.to_lat, l.to_lng)],\n                    style: Map.dashed({ tone: \"brand\" }),\n                    arrow: true,\n                })}\n                height=\"420px\"\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:map.examples.tsx:mapOverlayHud",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/map.examples.tsx",
+      "suite": "",
+      "test": "Map with an ELARA HUD overlay carrying Approve / Reject buttons",
+      "keywords": [
+        "Map",
+        "overlay",
+        "HUD",
+        "Button",
+        "approve",
+        "reject"
+      ],
+      "imports": [
+        "import { East, ArrayType, NullType, OptionType, StringType, StructType, example, variant, some } from \"@elaraai/east\";",
+        "import { State, StatusTokenType, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Button, HStack, Map, Reactive, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Map with an ELARA HUD overlay carrying Approve / Reject buttons\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const approve = $.const(East.function([], NullType, _$ => null));\n        const reject = $.const(East.function([], NullType, _$ => null));\n        return (\n            <Map\n                center={Map.at(-34.881, 138.6)}\n                zoom={12n}\n                markers={[]}\n                overlays={[\n                    Map.overlay(\n                        <VStack align=\"stretch\" gap=\"2\">\n                            <Text fontFamily=\"mono\" color=\"brand.solid\">ELARA · AUTO-DETECTED</Text>\n                            <Text fontWeight=\"semibold\">Idle EN capacity one cluster south.</Text>\n                            <HStack gap=\"2\">\n                                <Button colorPalette=\"teal\" onClick={approve}>Approve swap</Button>\n                                <Button variant=\"outline\" onClick={reject}>Reject</Button>\n                            </HStack>\n                        </VStack>,\n                        { align: \"start\", verticalAlign: \"start\", key: \"elara-hud\" },\n                    ),\n                ]}\n                height=\"420px\"\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:map.examples.tsx:mapInteractive",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/map.examples.tsx",
+      "suite": "",
+      "test": "Reactive map that records the clicked area key in State and shows it in an overlay",
+      "keywords": [
+        "Map",
+        "Reactive",
+        "State",
+        "onAreaClick",
+        "interactive",
+        "select"
+      ],
+      "imports": [
+        "import { East, ArrayType, NullType, OptionType, StringType, StructType, example, variant, some } from \"@elaraai/east\";",
+        "import { State, StatusTokenType, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Button, HStack, Map, Reactive, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Reactive map that records the clicked area key in State and shows it in an overlay\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const selected = $.let(State.bind([StringType], \"selectedArea\", \"\"));\n            const value = $.let(selected.read());\n            const onArea = $.const(East.function([StringType], NullType, ($, key) => {\n                $(selected.write(key));\n            }));\n            return (\n                <Map\n                    center={Map.at(-34.881, 138.6)}\n                    zoom={12n}\n                    markers={[]}\n                    areas={[\n                        { id: \"5000\", lat: -34.9258, lng: 138.5994, name: \"5000 · CBD\" },\n                        { id: \"5100\", lat: -34.836, lng: 138.6, name: \"5100 · Prospect\" },\n                    ]}\n                    area={a => ({\n                        key: a.id,\n                        label: a.name,\n                        shape: Map.hexDisk(Map.at(a.lat, a.lng), 1n, 8n),\n                    })}\n                    overlays={[\n                        Map.overlay(\n                            <Text fontFamily=\"mono\">{East.str`selected: ${value}`}</Text>,\n                            { align: \"start\", verticalAlign: \"end\", key: \"sel\" },\n                        ),\n                    ]}\n                    onAreaClick={onArea}\n                    height=\"420px\"\n                />\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "east-ui:map.examples.tsx:mapRegions",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/map.examples.tsx",
+      "suite": "",
+      "test": "Two adjacent irregular regions built from real H3 cell unions, abutting along a jagged hex border — idle (teal) vs short (red)",
+      "keywords": [
+        "Map",
+        "area",
+        "cells",
+        "H3",
+        "hexagon",
+        "adjacent",
+        "regions",
+        "irregular"
+      ],
+      "imports": [
+        "import { East, ArrayType, NullType, OptionType, StringType, StructType, example, variant, some } from \"@elaraai/east\";",
+        "import { State, StatusTokenType, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Button, HStack, Map, Reactive, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Two adjacent irregular regions built from real H3 cell unions, abutting along a jagged hex border — idle (teal) vs short (red)\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        // Real res-8 H3 cell ids: a gridDisk split along a wavy boundary into two\n        // non-uniform halves that tile and run up against each other.\n        const idle = $.const([\n            \"88b9168033fffff\", \"88b91680edfffff\", \"88b9168017fffff\", \"88b91681d9fffff\",\n            \"88b91680e5fffff\", \"88b91680e1fffff\", \"88b91680e9fffff\", \"88b9168013fffff\",\n            \"88b91681d1fffff\", \"88b91681dbfffff\", \"88b91680e7fffff\", \"88b91680e3fffff\",\n            \"88b91680ebfffff\", \"88b91680c5fffff\", \"88b91680cdfffff\", \"88b916801bfffff\",\n            \"88b91681d7fffff\", \"88b91681d3fffff\", \"88b91680adfffff\", \"88b91680a9fffff\",\n            \"88b9168085fffff\", \"88b916808dfffff\", \"88b91680c7fffff\", \"88b91680c1fffff\",\n            \"88b91680c9fffff\", \"88b91682a7fffff\", \"88b91682a5fffff\", \"88b9168053fffff\",\n        ], ArrayType(StringType));\n        const short = $.const([\n            \"88b916803bfffff\", \"88b9168039fffff\", \"88b9168031fffff\", \"88b9168015fffff\",\n            \"88b9168003fffff\", \"88b9168007fffff\", \"88b916803dfffff\", \"88b9168035fffff\",\n            \"88b9168037fffff\", \"88b9168011fffff\", \"88b916801dfffff\", \"88b916800bfffff\",\n            \"88b9168001fffff\", \"88b9168005fffff\", \"88b916802bfffff\", \"88b9168023fffff\",\n            \"88b91681c9fffff\", \"88b91681cbfffff\", \"88b91681ddfffff\", \"88b9168019fffff\",\n            \"88b9168057fffff\", \"88b9168055fffff\", \"88b9168009fffff\", \"88b916800dfffff\",\n            \"88b9168063fffff\", \"88b9168029fffff\", \"88b9168021fffff\", \"88b9168027fffff\",\n            \"88b91681cdfffff\", \"88b91681c1fffff\", \"88b91681c3fffff\", \"88b91681d5fffff\",\n            \"88b9168051fffff\",\n        ], ArrayType(StringType));\n        const areas = $.const([\n            { id: \"5000\", name: \"5000 · idle EN +4\", shape: Map.cells(idle), st: some(variant(\"success\", null)) },\n            { id: \"5100\", name: \"5100 · short −3\", shape: Map.cells(short), st: some(variant(\"danger\", null)) },\n        ], ArrayType(StructType({ id: StringType, name: StringType, shape: Map.Types.AreaShape, st: OptionType(StatusTokenType) })));\n        return (\n            <Map\n                center={Map.at(-34.878, 138.600)}\n                zoom={13n}\n                markers={[]}\n                areas={areas}\n                area={a => ({ key: a.id, label: a.name, shape: a.shape, status: a.st })}\n                height=\"420px\"\n            />\n        );\n    })"
     },
     {
       "id": "east-ui:matrix.examples.tsx:matrixHeatGrid",
