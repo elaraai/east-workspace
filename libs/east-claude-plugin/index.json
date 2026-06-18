@@ -1,14 +1,14 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1348,
+    "totalEntries": 1349,
     "totalFiles": 178,
     "packages": {
       "east": 489,
       "east-node-std": 42,
       "east-node-io": 63,
       "east-py-datascience": 85,
-      "east-ui": 612,
+      "east-ui": 613,
       "e3-ui": 50,
       "e3": 7
     }
@@ -15863,7 +15863,7 @@
         "select"
       ],
       "imports": [
-        "import { East, NullType, example } from \"@elaraai/east\";",
+        "import { East, NullType, some, none, variant, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
         "import { Planner, Text, VStack } from \"@elaraai/east-ui\";"
       ],
@@ -15888,7 +15888,7 @@
         "diff"
       ],
       "imports": [
-        "import { East, NullType, example } from \"@elaraai/east\";",
+        "import { East, NullType, some, none, variant, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
         "import { Planner, Text, VStack } from \"@elaraai/east-ui\";"
       ],
@@ -15911,7 +15911,7 @@
         "afternoon"
       ],
       "imports": [
-        "import { East, NullType, example } from \"@elaraai/east\";",
+        "import { East, NullType, some, none, variant, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
         "import { Planner, Text, VStack } from \"@elaraai/east-ui\";"
       ],
@@ -15933,7 +15933,7 @@
         "axis"
       ],
       "imports": [
-        "import { East, NullType, example } from \"@elaraai/east\";",
+        "import { East, NullType, some, none, variant, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
         "import { Planner, Text, VStack } from \"@elaraai/east-ui\";"
       ],
@@ -15958,7 +15958,7 @@
         "capacity"
       ],
       "imports": [
-        "import { East, NullType, example } from \"@elaraai/east\";",
+        "import { East, NullType, some, none, variant, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
         "import { Planner, Text, VStack } from \"@elaraai/east-ui\";"
       ],
@@ -15983,7 +15983,7 @@
         "tooltip"
       ],
       "imports": [
-        "import { East, NullType, example } from \"@elaraai/east\";",
+        "import { East, NullType, some, none, variant, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
         "import { Planner, Text, VStack } from \"@elaraai/east-ui\";"
       ],
@@ -16004,7 +16004,7 @@
         "rich"
       ],
       "imports": [
-        "import { East, NullType, example } from \"@elaraai/east\";",
+        "import { East, NullType, some, none, variant, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
         "import { Planner, Text, VStack } from \"@elaraai/east-ui\";"
       ],
@@ -16027,7 +16027,7 @@
         "timeline"
       ],
       "imports": [
-        "import { East, NullType, example } from \"@elaraai/east\";",
+        "import { East, NullType, some, none, variant, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
         "import { Planner, Text, VStack } from \"@elaraai/east-ui\";"
       ],
@@ -16049,11 +16049,37 @@
         "size"
       ],
       "imports": [
-        "import { East, NullType, example } from \"@elaraai/east\";",
+        "import { East, NullType, some, none, variant, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
         "import { Planner, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// Density control over the row / header rhythm\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Planner.Point\n                data={[{ name: \"Alice\" }, { name: \"Bob\" }]}\n                axis={Planner.axis.number({ range: { min: 1, max: 4 } })}\n                density=\"compact\"\n                columns={[{ key: \"name\", frozen: true, value: r => r.name }]}\n                events={_r => [Planner.event({ slot: Planner.at.number(1), label: \"Task\", state: \"committed\" })]}\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:planner.examples.tsx:plannerReview",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/planner.examples.tsx",
+      "suite": "",
+      "test": "Optional per-row approval — Approve/Reject decision column + batch foot, with a quiet status dot on flagged lines",
+      "keywords": [
+        "Planner",
+        "review",
+        "approve",
+        "reject",
+        "approval",
+        "decision",
+        "batch",
+        "rerun",
+        "status",
+        "row"
+      ],
+      "imports": [
+        "import { East, NullType, some, none, variant, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Planner, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Optional per-row approval — Approve/Reject decision column + batch foot, with a quiet status dot on flagged lines\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Planner.Point\n                data={[\n                    { name: \"Press A\", line: \"die-set 12\", flagged: false },\n                    { name: \"Press B\", line: \"die-set 07\", flagged: false },\n                    { name: \"Weld cell\", line: \"fixture 3\", flagged: true },\n                    { name: \"Paint line\", line: \"batch 19\", flagged: false },\n                    { name: \"Assembly\", line: \"station 5\", flagged: true },\n                ]}\n                axis={Planner.axis.number({ buckets: [{ key: \"am\", label: \"AM\" }, { key: \"pm\", label: \"PM\" }], range: { min: 1, max: 6 } })}\n                columns={[{ key: \"name\", frozen: true, value: r => r.name, sublabel: r => r.line }]}\n                events={_r => [\n                    Planner.event({ slot: Planner.at.number(1), bucket: \"am\", label: \"✓\", state: \"committed\" }),\n                    Planner.event({ slot: Planner.at.number(2), bucket: \"pm\", label: \"✓\", state: \"committed\" }),\n                    Planner.event({ slot: Planner.at.number(4), bucket: \"am\", label: \"plan\", state: \"added\" }),\n                    Planner.event({ slot: Planner.at.number(5), bucket: \"pm\", label: \"? shift\", state: \"model\" }),\n                ]}\n                now={Planner.at.number(3)}\n                status={r => r.flagged.ifElse(() => some(variant(\"warning\", null)), () => none)}\n                approval={r => r.flagged.ifElse(() => some(variant(\"pending\", null)), () => some(variant(\"approved\", null)))}\n                review={{\n                    columnLabel: \"Decision\",\n                    rerunLabel: \"Rerun\",\n                    summary: <Text color=\"fg.muted\">5 lines · 2 flagged need a call · −$24k wage/fn</Text>,\n                    onApprove: East.function([Planner.Types.ApproveEvent], NullType, _$ => null),\n                    onReject: East.function([Planner.Types.ApproveEvent], NullType, _$ => null),\n                    onApproveAll: East.function([], NullType, _$ => null),\n                    onRejectAll: East.function([], NullType, _$ => null),\n                    onRerun: East.function([], NullType, _$ => null),\n                }}\n            />\n        );\n    })"
     },
     {
       "id": "east-ui:roster.examples.tsx:rosterEdit",

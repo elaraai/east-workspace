@@ -16,6 +16,7 @@ and JSX tags whose props mirror the factory options.
 | [schematic.md](schematic.md) | `<Schematic>` | `configure__pattern__schematic` | none (read-only) |
 | [blend.md](blend.md) | `<Blend>` (née Workbench) | `configure__pattern__workbench` | target (add/remove) |
 | [map.md](map.md) | `<Map>` | net-new (interactive geographic basemap + overlay slot) | none (read-only / select) |
+| [planner-review.md](planner-review.md) | `<Planner>` review (optional per-row approval + batch foot) | `decide.html#planner-review` | none (click approve / reject) |
 
 Suggested build order once approved: drag contract → Library → Roster →
 Calendar → Schematic → Blend (Roster exercises the full DnD path early;

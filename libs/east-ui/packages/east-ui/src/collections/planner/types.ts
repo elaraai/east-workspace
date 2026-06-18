@@ -205,6 +205,28 @@ export const PlannerStateType = VariantType({
 export type PlannerStateType = typeof PlannerStateType;
 
 /**
+ * A row's review decision — distinct from the event-level {@link PlannerStateType}.
+ *
+ * @remarks
+ * Used only when the Planner's `review` chrome is enabled. `approved` rests
+ * pre-approved (its Approve renders as the active state); `pending` awaits an
+ * explicit call (a flagged line); `rejected` is an explicit decline.
+ *
+ * @property approved - Pre-approved / accepted (the resting state for a clean line)
+ * @property pending - Undecided — awaits an explicit Approve / Reject
+ * @property rejected - Explicitly declined
+ */
+export const PlannerApprovalType = VariantType({
+    /** Pre-approved / accepted (the resting state for a clean line). */
+    approved: NullType,
+    /** Undecided — awaits an explicit Approve / Reject. */
+    pending: NullType,
+    /** Explicitly declined. */
+    rejected: NullType,
+});
+export type PlannerApprovalType = typeof PlannerApprovalType;
+
+/**
  * A status marker placed at a slot — declared parallel to events (in the row's
  * `markers`, not on an event). The renderer rings the cell at `slot`, paints the
  * paired status icon in its corner, and surfaces `message` as a hover tooltip.
@@ -335,6 +357,15 @@ export type PlannerVariantType = typeof PlannerVariantType;
  */
 export const PlannerSelectEventType = StructType({ rowIndex: IntegerType });
 export type PlannerSelectEventType = typeof PlannerSelectEventType;
+
+/**
+ * The payload of the per-row `review.onApprove` / `review.onReject` callbacks
+ * (a row's Approve / Reject was clicked). Mirrors {@link PlannerSelectEventType}.
+ *
+ * @property rowIndex - The row's index (0-based)
+ */
+export const PlannerApproveEventType = StructType({ rowIndex: IntegerType });
+export type PlannerApproveEventType = typeof PlannerApproveEventType;
 
 // ============================================================================
 // TypeScript input interfaces (UIComp-free)

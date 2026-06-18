@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, NullType, example } from "@elaraai/east";
+import { East, NullType, some, none, variant, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
 import { Planner, Text, VStack } from "@elaraai/east-ui";
 
@@ -262,6 +262,53 @@ export const plannerDensity = example({
                 density="compact"
                 columns={[{ key: "name", frozen: true, value: r => r.name }]}
                 events={_r => [Planner.event({ slot: Planner.at.number(1), label: "Task", state: "committed" })]}
+            />
+        );
+    }),
+    inputs: [],
+});
+
+/**
+ * Optional row-approval review chrome — a per-row Approve / Reject decision
+ * column plus a batch foot (approve-all / reject-all / rerun). Clean lines rest
+ * pre-approved (`approval = some(approved)`, no status dot); flagged lines carry
+ * a quiet warning dot and await an explicit call (`approval = some(pending)`).
+ * The decision callbacks receive the acted-on `{ rowIndex }`.
+ */
+export const plannerReview = example({
+    keywords: ["Planner", "review", "approve", "reject", "approval", "decision", "batch", "rerun", "status", "row"],
+    description: "Optional per-row approval — Approve/Reject decision column + batch foot, with a quiet status dot on flagged lines",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <Planner.Point
+                data={[
+                    { name: "Press A", line: "die-set 12", flagged: false },
+                    { name: "Press B", line: "die-set 07", flagged: false },
+                    { name: "Weld cell", line: "fixture 3", flagged: true },
+                    { name: "Paint line", line: "batch 19", flagged: false },
+                    { name: "Assembly", line: "station 5", flagged: true },
+                ]}
+                axis={Planner.axis.number({ buckets: [{ key: "am", label: "AM" }, { key: "pm", label: "PM" }], range: { min: 1, max: 6 } })}
+                columns={[{ key: "name", frozen: true, value: r => r.name, sublabel: r => r.line }]}
+                events={_r => [
+                    Planner.event({ slot: Planner.at.number(1), bucket: "am", label: "✓", state: "committed" }),
+                    Planner.event({ slot: Planner.at.number(2), bucket: "pm", label: "✓", state: "committed" }),
+                    Planner.event({ slot: Planner.at.number(4), bucket: "am", label: "plan", state: "added" }),
+                    Planner.event({ slot: Planner.at.number(5), bucket: "pm", label: "? shift", state: "model" }),
+                ]}
+                now={Planner.at.number(3)}
+                status={r => r.flagged.ifElse(() => some(variant("warning", null)), () => none)}
+                approval={r => r.flagged.ifElse(() => some(variant("pending", null)), () => some(variant("approved", null)))}
+                review={{
+                    columnLabel: "Decision",
+                    rerunLabel: "Rerun",
+                    summary: <Text color="fg.muted">5 lines · 2 flagged need a call · −$24k wage/fn</Text>,
+                    onApprove: East.function([Planner.Types.ApproveEvent], NullType, _$ => null),
+                    onReject: East.function([Planner.Types.ApproveEvent], NullType, _$ => null),
+                    onApproveAll: East.function([], NullType, _$ => null),
+                    onRejectAll: East.function([], NullType, _$ => null),
+                    onRerun: East.function([], NullType, _$ => null),
+                }}
             />
         );
     }),

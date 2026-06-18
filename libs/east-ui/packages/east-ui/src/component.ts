@@ -179,6 +179,8 @@ import {
     PlannerCellType,
     PlannerVariantType,
     PlannerSelectEventType,
+    PlannerApprovalType,
+    PlannerApproveEventType,
 } from "./collections/planner/types.js";
 import {
     TableRowClickEventType,
@@ -768,11 +770,27 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
                 popover: OptionType(node),
             })),
             markers: ArrayType(PlannerMarkerType),
+            status: OptionType(StatusValueType),
+            approval: OptionType(PlannerApprovalType),
         })),
         now: OptionType(PlannerSlotType),
         density: OptionType(DensityType),
         slotMinWidth: OptionType(StringType),
         onSelectRow: OptionType(FunctionType([PlannerSelectEventType], NullType)),
+        // Optional review chrome — the per-row decision column + batch foot.
+        // Mirror this shape with `PlannerReviewType` in
+        // `collections/planner/index.ts` (which spells `summary` with the
+        // resolved `UIComponentType` rather than the recursion `node`).
+        review: OptionType(StructType({
+            columnLabel: StringType,
+            summary: OptionType(node),
+            onApprove: OptionType(FunctionType([PlannerApproveEventType], NullType)),
+            onReject: OptionType(FunctionType([PlannerApproveEventType], NullType)),
+            onApproveAll: OptionType(FunctionType([], NullType)),
+            onRejectAll: OptionType(FunctionType([], NullType)),
+            onRerun: OptionType(FunctionType([], NullType)),
+            rerunLabel: StringType,
+        })),
     }),
 
     // Roster — people × days-of-week shift grid (drag & drop target role)
