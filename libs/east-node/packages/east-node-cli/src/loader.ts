@@ -44,6 +44,58 @@ export interface PlatformMetadata {
 }
 
 /**
+ * Candidate require roots for resolving a platform package's `./<subpath>`
+ * export, in priority order:
+ *
+ * 1. The LINKED CLI bin location (`process.argv[1]`'s dir) — the user-project
+ *    context pnpm's bin shim invoked us with. Resolves installed stock
+ *    platform packages (`@elaraai/east-node-std`, …) under the project's
+ *    `node_modules`, exactly as before.
+ * 2. The e3 project search dirs from `E3_RUNNER_SEARCH_DIRS` — when e3 spawns a
+ *    runner it sets this to the project root(s). Required on the
+ *    `e3 dataflow run` path: e3 runs the runner in a scratch cwd, so neither
+ *    step 1 (a `node_modules/.bin` dir, no package scope) nor `process.cwd()`
+ *    reaches the project. A project resolves its OWN package by name through
+ *    its `exports` map via Node self-reference, which works only when the
+ *    require root sits inside that package — i.e. at the project root.
+ * 3. The process cwd (`process.cwd()`) — for a standalone `east-node run`
+ *    invoked from the project shell, where cwd IS the project root.
+ *
+ * All roots are tried; the first that resolves wins. Stock platforms still
+ * resolve via step 1 first, so existing behaviour is unchanged.
+ */
+function platformRequireRoots(): string[] {
+    const cliEntry = process.argv[1] ?? fileURLToPath(import.meta.url);
+    const roots = [path.dirname(cliEntry)];
+    const fromE3 = process.env.E3_RUNNER_SEARCH_DIRS;
+    if (fromE3) roots.push(...fromE3.split(path.delimiter).filter(Boolean));
+    roots.push(process.cwd());
+    // Dedupe so a CLI invoked from the project root doesn't probe twice.
+    return [...new Set(roots)];
+}
+
+/**
+ * Resolve a platform package's `./<subpath>` export across the candidate
+ * require roots ({@link platformRequireRoots}). Returns the absolute resolved
+ * path from the first root that resolves; rethrows the last resolution error
+ * (a `MODULE_NOT_FOUND`) when every root fails so the caller's not-found
+ * handling still fires.
+ */
+function resolvePlatformSubpath(packageName: string, subpath: string): string {
+    const spec = `${packageName}/${subpath}`;
+    let lastErr: unknown;
+    for (const root of platformRequireRoots()) {
+        try {
+            const req = createRequire(pathToFileURL(root + path.sep));
+            return req.resolve(spec);
+        } catch (err) {
+            lastErr = err;
+        }
+    }
+    throw lastErr;
+}
+
+/**
  * Loads platform functions from a package.
  *
  * The package must export a `./platform` subpath with a default export
@@ -55,34 +107,12 @@ export interface PlatformMetadata {
  */
 export async function loadPlatform(packageName: string): Promise<PlatformFunction[]> {
     try {
-        // Anchor platform resolution at the LINKED CLI bin location, not at
-        // this file's realpath. pnpm's bin shim invokes us with the
-        // user-project linked path; `process.argv[1]` preserves that. By
-        // contrast, this module's `import.meta.url` is realpath'd by
-        // default, anchored at east-node-cli's source location in whichever
-        // monorepo it lives in — useless for finding user-installed
-        // platform packages.
-        //
-        // The loader stays platform-agnostic: any package that exports
-        // `./platform` and is installed in the user's project resolves
-        // here, with no hardcoded list and no extra Node flags.
-        // Resolve platform packages from the LINKED CLI bin location (the
-        // user's project context pnpm's bin shim invoked us with) rather
-        // than from this file's realpath (which anchors at the monorepo
-        // source — useless for finding user-installed platforms).
-        //
-        // `process.argv[1]` preserves the linked invocation path; we feed
-        // it to `createRequire` whose `require.resolve` walks up from that
-        // base via Node's standard module resolution (exports maps honoured
-        // since Node 12+). `import.meta.resolve(spec, parent)` would be
-        // the modern equivalent but in Node 22 stable the `parent`
-        // parameter is still experimental and silently ignored — verified
-        // empirically by debug printf, which is why the previous attempt
-        // failed in a way that wasn't obvious from the API docs.
-        const cliEntry = process.argv[1] ?? fileURLToPath(import.meta.url);
-        const linkedDir = path.dirname(cliEntry);
-        const linkedRequire = createRequire(pathToFileURL(linkedDir + path.sep));
-        const resolvedPath = linkedRequire.resolve(`${packageName}/platform`);
+        // Resolve the package's `./platform` export across the candidate require
+        // roots — the linked CLI bin location for installed stock platforms, the
+        // e3-provided project root(s) and cwd for a project's own package. See
+        // {@link platformRequireRoots} / {@link resolvePlatformSubpath} for why
+        // each root is needed (and why `import.meta.url`'s realpath is not).
+        const resolvedPath = resolvePlatformSubpath(packageName, 'platform');
         const platformModule = await import(pathToFileURL(resolvedPath).href);
         const fns = platformModule.default;
 
@@ -133,15 +163,16 @@ export async function loadPlatformWithMetadata(packageName: string): Promise<Pla
     let name = packageName;
     let version = 'unknown';
 
-    try {
-        const cliEntry = process.argv[1] ?? fileURLToPath(import.meta.url);
-        const linkedDir = path.dirname(cliEntry);
-        const linkedRequire = createRequire(pathToFileURL(linkedDir + path.sep));
-        const pkgJson = linkedRequire(`${packageName}/package.json`) as { name?: string; version?: string };
-        name = pkgJson.name ?? packageName;
-        version = pkgJson.version ?? 'unknown';
-    } catch {
-        // Package doesn't export package.json, use defaults
+    for (const root of platformRequireRoots()) {
+        try {
+            const req = createRequire(pathToFileURL(root + path.sep));
+            const pkgJson = req(`${packageName}/package.json`) as { name?: string; version?: string };
+            name = pkgJson.name ?? packageName;
+            version = pkgJson.version ?? 'unknown';
+            break;
+        } catch {
+            // Package doesn't export package.json from this root — try the next.
+        }
     }
 
     return { name, version, fns };
