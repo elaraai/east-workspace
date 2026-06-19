@@ -141,13 +141,13 @@ test("scaffold e3: ui feature adds east-ui + e3-ui and swaps in the UI entry", (
 
   assert.equal(pkg.dependencies["@elaraai/east-ui"], "^9.9.9", "ui adds a pinned east-ui dep");
   assert.equal(pkg.dependencies["@elaraai/e3-ui"], "^9.9.9", "ui adds a pinned e3-ui dep");
-  assert.ok(existsSync(join(dir, "src", "surface.tsx")), "ui emits the .tsx decision surface");
+  assert.ok(existsSync(join(dir, "src", "ui", "index.tsx")), "ui emits the .tsx decision surface");
 
-  const surface = readFileSync(join(dir, "src", "surface.tsx"), "utf8");
-  assert.ok(surface.includes("ui(") && surface.includes('"surface"'), "surface.tsx defines the ui() task");
+  const surface = readFileSync(join(dir, "src", "ui", "index.tsx"), "utf8");
+  assert.ok(surface.includes("ui(") && surface.includes('"surface"'), "src/ui/index.tsx defines the ui() task");
 
   const index = readFileSync(join(dir, "src", "index.ts"), "utf8");
-  assert.ok(index.includes('./surface.js'), "the swapped index.ts imports the surface");
+  assert.ok(index.includes('./ui/index.js'), "the swapped index.ts imports the surface");
   assert.ok(index.includes("reorderQty, surface"), "index.ts registers the surface in the package");
   assert.ok(!existsSync(join(dir, "src", "index.ui.ts")), "the UI variant is renamed onto index.ts, not emitted alongside it");
 
@@ -203,29 +203,33 @@ function assertNoIndexVariantsLeak(dir: string): void {
 test("scaffold e3: --platform with east-py (default) emits BOTH the TS-East and Python modules", () => {
   const dir = scaffoldInto("e3", "my-proj", "9.9.9", { platform: true }); // east-py on by default
 
-  // Python half (platform AND east-py): dotted "<project>.<fn>" name + setuptools build-system.
-  assert.ok(existsSync(join(dir, "platform_module", "__init__.py")), "platform_module package is emitted");
+  // Python half (platform AND east-py): example fn in its own module + aggregator __init__.
+  assert.ok(existsSync(join(dir, "platform_module", "example.py")), "platform_module/example.py is emitted");
+  const examplePy = readFileSync(join(dir, "platform_module", "example.py"), "utf8");
+  assert.ok(examplePy.includes('name="my-proj.example_python"'), "platform fn uses the dotted <project>.<fn> name");
+  assert.ok(examplePy.includes("example_impl = platform_functions(__name__)"), "submodule collects its own fns");
   const initPy = readFileSync(join(dir, "platform_module", "__init__.py"), "utf8");
-  assert.ok(initPy.includes('name="my-proj.forecast_demand"'), "platform fn uses the dotted <project>.<fn> name");
-  assert.ok(initPy.includes("platform = platform_functions(__name__)"), "platform_module exports the platform list");
+  assert.ok(initPy.includes("from .example import example_impl"), "__init__ imports the submodule");
+  assert.ok(initPy.includes("platform = [*example_impl]"), "__init__ aggregates into the platform list");
   const pyproject = readFileSync(join(dir, "pyproject.toml"), "utf8");
   assert.ok(pyproject.includes("[build-system]"), "platform pyproject has a build-system block");
   assert.ok(pyproject.includes('packages = ["platform_module"]'), "setuptools discovers platform_module");
   assert.ok(!existsSync(join(dir, "pyproject.platform.toml")), "the pyproject variant is renamed, not emitted alongside");
   assert.ok(existsSync(join(dir, "src", "platform_module.ts")), "TS declaration for the Python platform fn");
 
-  // TS-East half (always when platform on).
-  assert.ok(existsSync(join(dir, "src", "platform.ts")), "TS-East co-located platform fn");
+  // TS-East half (always when platform on): a src/platform/ dir with a barrel.
+  assert.ok(existsSync(join(dir, "src", "platform", "index.ts")), "TS-East platform barrel (the ./platform export)");
+  assert.ok(existsSync(join(dir, "src", "platform", "example.ts")), "TS-East example fn file");
 
   // The emitted index wires both runtimes.
   const index = readFileSync(join(dir, "src", "index.ts"), "utf8");
-  assert.ok(index.includes("./platform_module.js") && index.includes("./platform.js"), "index wires both platform fns");
+  assert.ok(index.includes("./platform_module.js") && index.includes("./platform/index.js"), "index wires both platform fns");
   assert.ok(index.includes('runtime: "east-py"') && index.includes('{ custom: "platform_module" }'), "python task uses the east-py runner");
   assert.ok(index.includes('runtime: "east-node"') && index.includes('{ custom: "@elaraai/my-proj" }'), "TS-East task uses east-node + the project's own scoped name");
   assertNoIndexVariantsLeak(dir);
 
   const raw = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
-  assert.equal(raw.exports["./platform"], "./dist/platform.js", "main package exposes the ./platform subpath");
+  assert.equal(raw.exports["./platform"], "./dist/platform/index.js", "main package exposes the ./platform subpath");
   assert.equal(raw.exports["."], "./dist/index.js", "main package keeps a default entry alongside ./platform");
 
   const testPy = readFileSync(join(dir, "tests", "test_unit.py"), "utf8");
@@ -238,12 +242,13 @@ test("scaffold e3: --platform WITHOUT east-py emits the TS-East module only (no 
   const dir = scaffoldInto("e3", "my-proj", "9.9.9", { platform: true, "runner:east-py": false });
 
   // TS-East half is present and wired on the east-node runner.
-  assert.ok(existsSync(join(dir, "src", "platform.ts")), "TS-East platform fn is emitted");
+  assert.ok(existsSync(join(dir, "src", "platform", "index.ts")), "TS-East platform barrel is emitted");
+  assert.ok(existsSync(join(dir, "src", "platform", "example.ts")), "TS-East example fn is emitted");
   const index = readFileSync(join(dir, "src", "index.ts"), "utf8");
-  assert.ok(index.includes("./platform.js"), "index wires the TS-East platform fn");
+  assert.ok(index.includes("./platform/index.js"), "index wires the TS-East platform fn");
   assert.ok(index.includes('runtime: "east-node"') && index.includes('{ custom: "@elaraai/my-proj" }'), "TS-East task uses east-node + the project's own scoped name");
   const raw = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
-  assert.equal(raw.exports["./platform"], "./dist/platform.js", "main package exposes the ./platform subpath even without east-py");
+  assert.equal(raw.exports["./platform"], "./dist/platform/index.js", "main package exposes the ./platform subpath even without east-py");
 
   // Python half is absent (no east-py).
   assert.ok(!existsSync(join(dir, "platform_module")), "no platform_module without east-py");
@@ -260,7 +265,7 @@ test("scaffold e3: platform is opt-in — nothing leaks by default", () => {
   const dir = scaffoldInto("e3", "my-proj", "1.0.0"); // defaults: platform off
 
   assert.ok(!existsSync(join(dir, "platform_module")), "no platform_module by default");
-  assert.ok(!existsSync(join(dir, "src", "platform.ts")), "no TS-East platform by default");
+  assert.ok(!existsSync(join(dir, "src", "platform")), "no src/platform dir by default");
   assert.ok(!existsSync(join(dir, "src", "platform_module.ts")), "no TS declaration by default");
   assert.ok(!existsSync(join(dir, "pyproject.platform.toml")), "no platform pyproject variant by default");
   assertNoIndexVariantsLeak(dir);
@@ -278,12 +283,12 @@ test("scaffold e3: --ui --platform (with east-py) emits the combined ui+python i
   const dir = scaffoldInto("e3", "my-proj", "9.9.9", { ui: true, platform: true });
 
   const index = readFileSync(join(dir, "src", "index.ts"), "utf8");
-  assert.ok(index.includes("./surface.js"), "combined index imports the UI surface");
-  assert.ok(index.includes("./platform_module.js") && index.includes("./platform.js"), "combined index wires both platform fns");
-  assert.ok(index.includes("reorderQty, forecast, bufferedReorder, surface"), "combined index registers surface + both platform tasks");
+  assert.ok(index.includes("./ui/index.js"), "combined index imports the UI surface");
+  assert.ok(index.includes("./platform_module.js") && index.includes("./platform/index.js"), "combined index wires both platform fns");
+  assert.ok(index.includes("reorderQty, examplePythonTask, exampleNodeTask, surface"), "combined index registers surface + both platform tasks");
   assertNoIndexVariantsLeak(dir);
-  assert.ok(existsSync(join(dir, "src", "surface.tsx")), "ui surface is emitted");
-  assert.ok(existsSync(join(dir, "platform_module", "__init__.py")), "platform module is emitted");
+  assert.ok(existsSync(join(dir, "src", "ui", "index.tsx")), "ui surface is emitted");
+  assert.ok(existsSync(join(dir, "platform_module", "example.py")), "platform module is emitted");
 
   rmSync(dirname(dir), { recursive: true, force: true });
 });
@@ -292,9 +297,9 @@ test("scaffold e3: --ui --platform WITHOUT east-py emits the combined ui+node in
   const dir = scaffoldInto("e3", "my-proj", "9.9.9", { ui: true, platform: true, "runner:east-py": false });
 
   const index = readFileSync(join(dir, "src", "index.ts"), "utf8");
-  assert.ok(index.includes("./surface.js"), "combined index imports the UI surface");
-  assert.ok(index.includes("./platform.js"), "combined index wires the TS-East platform fn");
-  assert.ok(index.includes("reorderQty, bufferedReorder, surface"), "combined index registers surface + the node task");
+  assert.ok(index.includes("./ui/index.js"), "combined index imports the UI surface");
+  assert.ok(index.includes("./platform/index.js"), "combined index wires the TS-East platform fn");
+  assert.ok(index.includes("reorderQty, exampleNodeTask, surface"), "combined index registers surface + the node task");
   assert.ok(!index.includes("./platform_module.js"), "no Python module without east-py");
   assertNoIndexVariantsLeak(dir);
   assert.ok(!existsSync(join(dir, "platform_module")), "no platform_module without east-py");

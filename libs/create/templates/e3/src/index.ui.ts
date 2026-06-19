@@ -1,7 +1,7 @@
 import e3 from "@elaraai/e3";
 import { East, IntegerType } from "@elaraai/east";
 
-import { surface } from "./surface.js";
+import { surface } from "./ui/index.js";
 
 // In East a decision is a typed task over inputs. This one recommends how many
 // units to reorder to bring stock up to its target level — never negative.

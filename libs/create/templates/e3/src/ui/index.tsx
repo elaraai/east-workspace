@@ -4,7 +4,9 @@ import { Box, Text, UIComponentType } from "@elaraai/east-ui";
 
 // A decision surface for an operator to observe and act on the recommendation.
 // east-ui / e3-ui JSX authoring is still being finalised — build this out: bind
-// reorderQty and the inputs with Data.bind, then add the Observe / Decide controls.
+// the tasks and inputs with Data.bind, then add the Observe / Decide controls.
+// To add another surface, define it beside this file and register it in the
+// package (src/index.ts).
 export const surface = ui(
   "surface",
   [],

@@ -1,9 +1,9 @@
 import e3 from "@elaraai/e3";
 import { East, ArrayType, FloatType, IntegerType } from "@elaraai/east";
 
-import { surface } from "./surface.js";
-import { forecastDemand } from "./platform_module.js";
-import { applySafetyBuffer } from "./platform.js";
+import { surface } from "./ui/index.js";
+import { examplePython } from "./platform_module.js";
+import { exampleNode } from "./platform/index.js";
 
 // In East a decision is a typed task over inputs. This one recommends how many
 // units to reorder to bring stock up to its target level — never negative.
@@ -21,40 +21,39 @@ export const reorderFn = East.function(
 
 export const reorderQty = e3.task("reorder_qty", [onHandInput, targetInput], reorderFn);
 
-// A project-owned PYTHON platform function: forecast demand as the mean of
-// recent history. The impl lives in platform_module/__init__.py and runs on the
-// east-py runtime — `{ custom: "platform_module" }` loads the project's own
-// package, resolved from <project>/.venv after `uv sync`.
-export const historyInput = e3.input("demand_history", ArrayType(FloatType), [12.0, 14.0, 13.0, 18.0, 20.0]);
+// An example project-owned PYTHON platform function on the east-py runtime.
+// `{ custom: "platform_module" }` loads the project's own package, resolved from
+// <project>/.venv after `uv sync`. Replace `example_python`
+// (platform_module/example.py) with your own.
+export const exampleValuesInput = e3.input("example_values", ArrayType(FloatType), [1.0, 2.0, 3.0, 4.0, 5.0]);
 
-export const forecastFn = East.function(
+export const examplePythonFn = East.function(
   [ArrayType(FloatType)],
   FloatType,
-  ($, history) => {
-    $.return(forecastDemand(history));
+  ($, values) => {
+    $.return(examplePython(values));
   },
 );
 
-export const forecast = e3.task("forecast", [historyInput], forecastFn, {
+export const examplePythonTask = e3.task("example_python", [exampleValuesInput], examplePythonFn, {
   runner: { runtime: "east-py", platforms: [{ custom: "platform_module" }, "east-py-std"] },
 });
 
-// A project-owned TS-EAST platform function: buffer the reorder by a safety
-// factor and round up to a whole unit. The impl lives in src/platform.ts and
-// runs on the east-node runtime — `{ custom: "@elaraai/__PROJECT_NAME__" }`
-// loads this package's own `./platform` export.
-export const bufferInput = e3.input("safety_factor", FloatType, 1.15);
+// An example project-owned TS-East platform function on the east-node runtime.
+// `{ custom: "@elaraai/__PROJECT_NAME__" }` loads this package's own `./platform`
+// export. Replace `exampleNode` (src/platform/example.ts) with your own.
+export const exampleFactorInput = e3.input("example_factor", FloatType, 1.5);
 
-export const bufferedFn = East.function(
+export const exampleNodeFn = East.function(
   [IntegerType, FloatType],
   IntegerType,
-  ($, quantity, factor) => {
-    $.return(applySafetyBuffer(quantity, factor));
+  ($, value, factor) => {
+    $.return(exampleNode(value, factor));
   },
 );
 
-export const bufferedReorder = e3.task("buffered_reorder", [reorderQty.output, bufferInput], bufferedFn, {
+export const exampleNodeTask = e3.task("example_node", [reorderQty.output, exampleFactorInput], exampleNodeFn, {
   runner: { runtime: "east-node", platforms: [{ custom: "@elaraai/__PROJECT_NAME__" }] },
 });
 
-export default e3.package("__PROJECT_NAME__", "1.0.0", reorderQty, forecast, bufferedReorder, surface);
+export default e3.package("__PROJECT_NAME__", "1.0.0", reorderQty, examplePythonTask, exampleNodeTask, surface);

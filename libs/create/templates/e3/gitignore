@@ -3,5 +3,7 @@ dist/
 *.tsbuildinfo
 .venv/
 __pycache__/
+*.egg-info/
+.pytest_cache/
 .repos/
 uv.lock

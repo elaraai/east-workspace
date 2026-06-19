@@ -7,16 +7,16 @@
     },
     "ui": {
       "default": false,
-      "files": ["src/surface.tsx"],
+      "files": ["src/ui/index.tsx"],
       "dependencies": ["@elaraai/east-ui", "@elaraai/e3-ui"]
     },
     "platform": {
       "default": false,
-      "files": ["src/platform.ts"],
+      "files": ["src/platform/index.ts", "src/platform/example.ts"],
       "packageJson": {
         "exports": {
           ".": "./dist/index.js",
-          "./platform": "./dist/platform.js",
+          "./platform": "./dist/platform/index.js",
           "./package.json": "./package.json"
         }
       }
@@ -25,6 +25,7 @@
       "allOf": ["platform", "runner:east-py"],
       "files": [
         "platform_module/__init__.py",
+        "platform_module/example.py",
         "src/platform_module.ts",
         "pyproject.platform.toml"
       ],
