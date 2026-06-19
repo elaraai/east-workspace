@@ -7,10 +7,30 @@
     },
     "ui": {
       "default": false,
-      "files": ["src/surface.tsx", "src/index.ui.ts"],
-      "disable": ["src/index.ts"],
-      "rename": { "src/index.ui.ts": "src/index.ts" },
+      "files": ["src/ui/index.tsx"],
       "dependencies": ["@elaraai/east-ui", "@elaraai/e3-ui"]
+    },
+    "platform": {
+      "default": false,
+      "files": ["src/platform/index.ts", "src/platform/example.ts"],
+      "packageJson": {
+        "exports": {
+          ".": "./dist/index.js",
+          "./platform": "./dist/platform/index.js",
+          "./package.json": "./package.json"
+        }
+      }
+    },
+    "platform-py": {
+      "allOf": ["platform", "runner:east-py"],
+      "files": [
+        "platform_module/__init__.py",
+        "platform_module/example.py",
+        "src/platform_module.ts",
+        "pyproject.platform.toml"
+      ],
+      "disable": ["pyproject.toml"],
+      "rename": { "pyproject.platform.toml": "pyproject.toml" }
     },
     "runner:east-node": {
       "default": true,
@@ -42,6 +62,14 @@
       "devDependencies": ["@elaraai/tsserver-plugin-east"]
     }
   },
+  "indexVariants": [
+    { "when": ["ui", "platform", "runner:east-py"], "source": "src/index.ui.platform.py.ts" },
+    { "when": ["ui", "platform"], "source": "src/index.ui.platform.ts" },
+    { "when": ["ui"], "source": "src/index.ui.ts" },
+    { "when": ["platform", "runner:east-py"], "source": "src/index.platform.py.ts" },
+    { "when": ["platform"], "source": "src/index.platform.ts" },
+    { "when": [], "source": "src/index.ts" }
+  ],
   "scriptVariants": {
     "test": [
       { "when": ["tests", "runner:east-py"], "value": "npm run build && npm run test:export && npm run test:py" },
@@ -50,6 +78,10 @@
     "setup": [
       { "when": ["runner:east-py"], "value": "npm install && uv sync" },
       { "when": [], "value": "npm install" }
+    ],
+    "start": [
+      { "when": ["platform"], "value": "npm run build && npm run deploy && e3 dataflow run .repos __WORKSPACE_NAME__" },
+      { "when": [], "value": "npm run deploy && e3 dataflow run .repos __WORKSPACE_NAME__" }
     ]
   }
 }

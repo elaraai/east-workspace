@@ -302,8 +302,11 @@ $.try($ => {
 
 ### Platform Function Implementations
 ```typescript
-// Platform implementations are raw TypeScript functions that receive East values
-// (bigint for Integer, number for Float, string for String, etc.)
+// Platform implementations are raw TypeScript functions that receive/return the
+// `ValueTypeOf<Type>` for each East type — see the Type System Summary table
+// above (Integer→bigint, Float→number, String→string, Boolean→boolean,
+// DateTime→Date, Blob→Uint8Array, Struct→plain object, Array→array, Dict→Map,
+// Set→Set, Variant→variant()). Build them with `variant()`/`some`/`none` etc.
 
 // Sync platform - regular TypeScript function
 const log = East.platform("log", [StringType], NullType);
@@ -333,7 +336,28 @@ const myFn = East.asyncFunction([StringType], NullType, ($, url) => {
 // Compile async functions with East.compileAsync
 const compiled = East.compileAsync(myFn, platform);
 await compiled("https://example.com");  // await at the outer TypeScript level
+
+// `{ optional: true }` lets a function compile with NO implementation (it throws
+// at runtime if called unimplemented) — useful for declaring an interface:
+const maybe = East.platform("maybe", [StringType], StringType, { optional: true });
 ```
+
+#### Project-owned platform functions (calling your own code from e3)
+
+The `East.compile(fn, platform)` flow above is the **in-process** path. To call a
+platform function from an **e3 task** instead, you don't call `compile` — you
+**default-export the `PlatformFunction[]` as your package's `./platform` subpath**,
+and the e3 runner loads it. Two rules then apply:
+
+- Name it **dotted `"<project>.<fn>"`**, and the name in the `East.platform(...)`
+  declaration must **byte-match** the implementation (and the Python impl, if you
+  also implement it there).
+- The e3 task references it via `{ runtime: "east-node", platforms: [{ custom:
+  "@elaraai/<project>" }] }` (the package's own scoped name).
+
+See **east-project** for the full wiring (the `./platform` export, the
+`--platform` scaffold) and **e3** for the task runner; **east-py** for the Python
+sibling (`@platform_function`).
 
 ## Related skills
 
@@ -344,4 +368,5 @@ East is the language inside every other skill's `East.function` bodies. East its
 - **east-py-datascience** — optimization, ML, Bayesian inference, simulation.
 - **east-ui** — typed UI components returning `UIComponentType`.
 - **e3** — run East functions as durable, content-addressed dataflow tasks.
+- **east-project** — author a project-owned platform function (`East.platform(...).implement(...)`) and wire it into an e3 task via the `./platform` export.
 - **east-design** — when you have a goal but no architecture yet (start here).

@@ -53,6 +53,34 @@ export function collectNodeModulesBins(startDir: string): string[] {
 }
 
 /**
+ * Walk up from `startDir` and return the first uv virtualenv bin directory
+ * found — `.venv/bin` on POSIX, `.venv/Scripts` on Windows — as a one-element
+ * array, or `[]` if there is no `.venv` above `startDir`.
+ *
+ * Unlike {@link collectNodeModulesBins} this STOPS at the first `.venv`: a uv
+ * project has exactly one, so once we find it there is nothing further up to
+ * collect. Used to prepend the project venv's bin dir to a spawned runner's
+ * PATH so a Python runner installed there (`east-py`) resolves from the
+ * project's own environment rather than a `node_modules/.bin` shim or a global
+ * install. Local-host only — the path is injected into the child's PATH, never
+ * into the hashed command argv.
+ */
+export function collectVenvBins(startDir: string): string[] {
+  const subdir = process.platform === 'win32' ? 'Scripts' : 'bin';
+  let dir = path.resolve(startDir);
+  while (true) {
+    const venv = path.join(dir, '.venv');
+    if (existsSync(venv)) {
+      const candidate = path.join(venv, subdir);
+      return existsSync(candidate) ? [candidate] : [];
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) return [];
+    dir = parent;
+  }
+}
+
+/**
  * Marshal input objects to staged `.beast2` files in a scratch directory.
  *
  * This is the input-staging loop extracted from `taskExecute`: each input
@@ -224,6 +252,16 @@ export async function spawnAndCapture(
   const projectBins = (options.searchDirs ?? [])
     .flatMap((d) => collectNodeModulesBins(d))
     .filter((b) => (seen.has(b) ? false : (seen.add(b), true)));
+  // Prepend the project's uv venv bin dir AHEAD of node_modules/.bin so a real
+  // `.venv/bin/east-py` (a project-owned Python platform module installed by
+  // `uv sync`) beats any `node_modules/.bin` shim of the same name. A uv
+  // project has exactly one `.venv`, so collectVenvBins stops at the first hit
+  // walking up from each search dir. This is the local degenerate of remote
+  // env materialization — purely a child-PATH change, never part of the argv.
+  const venvSeen = new Set<string>();
+  const venvBins = (options.searchDirs ?? [])
+    .flatMap((d) => collectVenvBins(d))
+    .filter((b) => (venvSeen.has(b) ? false : (venvSeen.add(b), true)));
   const spawnOpts: Parameters<typeof spawn>[2] = {
     // Run in the per-execution scratch dir, not the caller's cwd. Tasks
     // address inputs/outputs by absolute path and resolve their runner via
@@ -239,10 +277,20 @@ export async function spawnAndCapture(
   const pathSep = process.platform === 'win32' ? ';' : ':';
   spawnOpts.env = {
     ...process.env,
-    PATH: [...projectBins, path.dirname(process.execPath), process.env.PATH ?? '']
+    PATH: [...venvBins, ...projectBins, path.dirname(process.execPath), process.env.PATH ?? '']
       .filter(Boolean)
       .join(pathSep),
   };
+  // Propagate the project search dirs to the runner. The child runs in a scratch
+  // cwd (above), so it cannot find the project root on its own — without this a
+  // runner CLI can't resolve a project's OWN platform package by Node
+  // self-reference (the project package is the repo root, not a node_modules
+  // entry). east-node-cli's loader reads this. Like PATH it lives only in the
+  // child env, never in the hashed command argv, so taskHash is unaffected.
+  const searchDirs = (options.searchDirs ?? []).filter(Boolean);
+  if (searchDirs.length > 0) {
+    spawnOpts.env.E3_RUNNER_SEARCH_DIRS = [...new Set(searchDirs)].join(pathSep);
+  }
   const child = spawn(cmd, cmdArgs, spawnOpts);
 
   // Set up event listeners IMMEDIATELY before any async work to avoid

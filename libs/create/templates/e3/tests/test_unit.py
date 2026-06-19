@@ -21,6 +21,13 @@ try:
 except ImportError:
     io_platform = []
 
+# A project-owned platform module (scaffolded by `--platform`). Absent unless
+# that feature is on, so this import is best-effort.
+try:
+    from platform_module import platform as project_platform
+except ImportError:
+    project_platform = []
+
 TEST_IR_DIR = Path("dist/test-ir")
 
 
@@ -65,6 +72,8 @@ def run_one(ir_file: Path) -> tuple[int, int]:
         pf for pf in std_platform if pf["name"] not in test_names
     ] + [
         pf for pf in io_platform if pf["name"] not in test_names
+    ] + [
+        pf for pf in project_platform if pf["name"] not in test_names
     ] + [
         PlatformFunction(name="describe", inputs=[StringType, FunctionType([], NullType)], output=NullType, type="sync", fn=describe_impl),
         PlatformFunction(name="test", inputs=[StringType, FunctionType([], NullType)], output=NullType, type="sync", fn=test_impl),

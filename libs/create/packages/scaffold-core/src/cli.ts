@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { scaffold, type Features, type ProjectKind } from "./scaffold.js";
 
 interface FeatureManifest {
-  features: Record<string, { default?: boolean }>;
+  features: Record<string, { default?: boolean; allOf?: string[] }>;
 }
 
 /**
@@ -61,20 +61,25 @@ async function resolveFeatures(templateDir: string, args: string[]): Promise<Fea
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as FeatureManifest;
 
   const features: Features = {};
-  for (const [key, spec] of Object.entries(manifest.features)) features[key] = spec.default ?? true;
+  for (const [key, spec] of Object.entries(manifest.features)) {
+    if (spec.allOf) continue; // derived features are computed, never set directly
+    features[key] = spec.default ?? true;
+  }
 
   const runnerKeys = Object.keys(manifest.features).filter((k) => k.startsWith("runner:"));
   const runnerName = (key: string): string => key.slice("runner:".length);
 
   const runnersFlag = args.find((a) => a.startsWith("--runners="));
   const selectionFlags =
-    ["--tests", "--no-tests", "--ui", "--no-ui", "--eslint", "--no-eslint"].some((f) => args.includes(f)) ||
+    ["--tests", "--no-tests", "--ui", "--no-ui", "--platform", "--no-platform", "--eslint", "--no-eslint"].some((f) => args.includes(f)) ||
     Boolean(runnersFlag);
 
   if (args.includes("--tests")) features["tests"] = true;
   if (args.includes("--no-tests")) features["tests"] = false;
   if (args.includes("--ui")) features["ui"] = true;
   if (args.includes("--no-ui")) features["ui"] = false;
+  if (args.includes("--platform")) features["platform"] = true;
+  if (args.includes("--no-platform")) features["platform"] = false;
   if (args.includes("--eslint")) features["eslint"] = true;
   if (args.includes("--no-eslint")) features["eslint"] = false;
   if (args.includes("--editor-diagnostics")) features["editor-diagnostics"] = true;
@@ -100,6 +105,16 @@ async function resolveFeatures(templateDir: string, args: string[]): Promise<Fea
       const answer = (await rl.question(`Runners to include (comma-separated) [${defaults.join(",")}]: `)).trim();
       const picks = new Set(answer ? answer.split(",").map((s) => s.trim()).filter(Boolean) : defaults);
       for (const key of runnerKeys) features[key] = picks.has(runnerName(key));
+    }
+    // A project-owned platform module always brings a TS-East (east-node)
+    // function; the Python half is added automatically when the east-py runner
+    // is also selected. So the prompt is independent of the runner choice.
+    if ("platform" in manifest.features) {
+      features["platform"] = await askYesNo(
+        rl,
+        "Include a project-owned platform module (custom TS-East functions, plus Python when east-py is on)?",
+        features["platform"]!,
+      );
     }
     if ("eslint" in manifest.features) {
       features["eslint"] = await askYesNo(rl, "Include ESLint with the East lint rules?", features["eslint"]!);
@@ -134,6 +149,7 @@ function printHelp(kind: ProjectKind): void {
   if (kind === "e3") {
     console.log("  --tests | --no-tests         include test files (default: yes)");
     console.log("  --ui | --no-ui               include east-ui + e3-ui UI components (default: no)");
+    console.log("  --platform | --no-platform   include a project-owned platform module (TS-East; +Python when east-py is on) (default: no)");
     console.log("  --runners=east-node,east-c,east-py   East runtimes to include (default: all)");
   }
   console.log("");

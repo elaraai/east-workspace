@@ -374,7 +374,7 @@ East.DateTime.print_format(dt, "dddd, MMMM D, YYYY h:mm A")  # 'Wednesday, March
 |-----------|-------------|
 | `@platform_function(*, inputs, output, name=None, validate_output=True, validate_input=False)` | Register a Python fn; infers sync/async from the def; validates output against `output` |
 | `@generic_platform_function(*, type_parameters, name=None, is_async=False)` | Type-parameterized factory: the decorated fn is `fn(platform, *type_params) -> impl`; `is_async` is **explicit** (not inferred) |
-| `platform_functions(module) -> list` | Collects every decorated fn in `module` (pass `__name__`) for `compile()` |
+| `platform_functions(module) -> list` | Collects every decorated fn in `module` (pass `__name__`). Two consumers: `compile()` for in-process use, and a package's top-level `platform` list that `east-py run -p <module>` (and the e3 `{ custom }` runner) loads |
 | `@memoize` / `@memoize(salt="…")` / `memoized = memoize(fn, salt="…")` | Content-addressed memo over ONE platform function. Apply **above** `@platform_function` (or inline on an imported one). Key = sha256(name + salts + per-input digests of the with-header BEAST2 encodings via the declared input types); value = with-header BEAST2 of the output, decoded via the declared output type. Inert by default |
 | `configure_memo(directory, salt="")` | Activate (`None` deactivates) memoization for `@memoize` functions; overrides `EAST_MEMO_DIR` / `EAST_MEMO_SALT` env vars. Bump `salt` to invalidate after code edits — input-derived keys can't see them |
 
@@ -399,6 +399,33 @@ def convert_prices(fx_rate, items):
 `.map` runs the lambda in Python (the callback *is* the work); `struct(..., LineItem)`
 validates each row; the decorator validates the `Array<LineItem>` result — a named
 `EastTypeError` instead of silent corruption.
+
+### Project-owned platform module (calling your Python from e3)
+
+To call a Python platform function from an **e3 task**, package it so `east-py
+run -p <module>` can load it: each module ends with `<name>_impl =
+platform_functions(__name__)`, and the package `__init__.py` aggregates them into
+a top-level `platform` list (the same shape as east-py-std / east-py-datascience).
+
+```python
+# platform_module/forecast.py
+@platform_function(inputs=[ArrayType(FloatType)], output=FloatType,
+                   name="my_project.forecast")   # dotted "<project>.<fn>"; MUST byte-match
+def forecast(history):                            # the TS East.platform(...) declaration
+    return sum(history) / len(history) if history else 0.0
+forecast_impl = platform_functions(__name__)
+
+# platform_module/__init__.py
+from .forecast import forecast_impl
+platform = [*forecast_impl]                        # what `east-py run -p platform_module` loads
+```
+
+The e3 task wires it with `{ runtime: "east-py", platforms: [{ custom:
+"platform_module" }, "east-py-std"] }`. East code needs a TS `East.platform(
+"my_project.forecast", [...], ...)` **declaration** with the identical name (no
+codegen). Add native deps (numpy, …) to `pyproject.toml` and run `uv sync`. See
+**east-project** for the full scaffold (`--platform`) and the setuptools
+packaging; **e3** for the runner.
 
 ### Memoize expensive pure stages (dev/test harnesses)
 
@@ -467,5 +494,8 @@ on-ramp. Load the skill that matches what you are adding:
   Console/FileSystem/Fetch/Crypto/Time/Random, and SQL/NoSQL/S3/FTP/SFTP/XLSX/XML/compression —
   each `*_impl` directly callable with East values. (Their TypeScript authoring siblings are
   **east-node-std** / **east-node-io**.)
-- **e3** — run compiled East functions as durable, content-addressed dataflow tasks.
+- **e3** — run compiled East functions as durable, content-addressed dataflow tasks; wire a
+  project-owned Python platform module via a `{ custom: 'platform_module' }` task runner.
+- **east-project** — scaffold (`--platform`) and package a project-owned platform module (the
+  `*_impl` → `platform` aggregation, `east-py run -p`, dotted names, the TS declaration mirror).
 - **east-design** — start here when you have a goal but no architecture yet.

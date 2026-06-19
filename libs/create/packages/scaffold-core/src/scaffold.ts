@@ -48,6 +48,13 @@ export interface ScaffoldResult extends ProjectNames {
 interface FeatureSpec {
   /** Enabled state when the caller does not specify the feature. Defaults to `true`. */
   default?: boolean;
+  /**
+   * Marks a DERIVED feature: it is enabled iff all listed features are enabled,
+   * and is never toggled directly (callers/CLI ignore it). Used to gate files on
+   * a combination — e.g. `platform-py` (the Python half) is on only when both
+   * `platform` and the `runner:east-py` runner are on.
+   */
+  allOf?: string[];
   /** Template-relative files that exist only while this feature is ON. */
   files?: string[];
   /** Template-relative files dropped while this feature is ON (the base a variant replaces). */
@@ -60,6 +67,23 @@ interface FeatureSpec {
   devDependencies?: string[];
   /** package.json `scripts` entries dropped while this feature is OFF. */
   scripts?: string[];
+  /** Fields deep-merged into the emitted package.json while this feature is ON. */
+  packageJson?: Record<string, unknown>;
+}
+
+/**
+ * A combo-conditional variant of the entry-point file. The FIRST variant whose
+ * `when` features are all enabled wins: its `source` is renamed onto the
+ * catch-all (`when: []`) variant's `source`, and every other variant `source`
+ * is dropped. Lets several features (e.g. `ui` and `platform`) each replace the
+ * entry point without the renames colliding on a shared destination — which the
+ * per-feature `rename` map cannot express.
+ */
+interface IndexVariant {
+  /** Features that must all be enabled for this variant to win. */
+  when: string[];
+  /** Template-relative entry-point source for this combination. */
+  source: string;
 }
 
 /**
@@ -72,6 +96,8 @@ interface FeatureSpec {
 interface TemplateManifest {
   features: Record<string, FeatureSpec>;
   scriptVariants?: Record<string, { when: string[]; value: string }[]>;
+  /** Combo-conditional entry-point selection (see {@link IndexVariant}). */
+  indexVariants?: IndexVariant[];
 }
 
 const TEXT_REPLACE_EXT = new Set([
@@ -93,6 +119,19 @@ function substituteTokens(content: string, names: ProjectNames): string {
     .replaceAll("__PROJECT_NAME__", names.projectName)
     .replaceAll("__DISPLAY_NAME__", names.displayName)
     .replaceAll("__WORKSPACE_NAME__", names.workspaceName);
+}
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+/** Deep-merge `source` into `target` in place; nested plain objects merge, everything else overwrites. */
+function mergeInto(target: Record<string, unknown>, source: Record<string, unknown>): void {
+  for (const [k, v] of Object.entries(source)) {
+    const existing = target[k];
+    if (isPlainObject(existing) && isPlainObject(v)) mergeInto(existing, v);
+    else target[k] = v;
+  }
 }
 
 /** Rewrite a template package.json into the emitted project's manifest. */
@@ -123,6 +162,12 @@ function transformPackageJson(
       const match = variants.find((v) => v.when.every(enabled));
       if (match) scripts![name] = match.value;
       else delete scripts?.[name];
+    }
+    // Deep-merge each enabled feature's package.json fragment (e.g. the
+    // platform feature's `./platform` subpath export). Runs after dep/script
+    // pruning so a feature can add fields the base manifest lacks.
+    for (const [feature, spec] of Object.entries(manifest.features)) {
+      if (enabled(feature) && spec.packageJson) mergeInto(pkg, spec.packageJson);
     }
   }
 
@@ -169,8 +214,13 @@ export function scaffold(options: ScaffoldOptions): ScaffoldResult {
   }
 
   const manifest = loadManifest(templateDir);
-  const enabled = (feature: string): boolean =>
-    options.features?.[feature] ?? manifest?.features[feature]?.default ?? true;
+  const enabled = (feature: string): boolean => {
+    const spec = manifest?.features[feature];
+    // A derived feature is on iff all of its `allOf` features are on; it is
+    // never set directly (e.g. `platform-py` = `platform` AND `runner:east-py`).
+    if (spec?.allOf) return spec.allOf.every(enabled);
+    return options.features?.[feature] ?? spec?.default ?? true;
+  };
 
   // Resolve which template files are skipped or renamed by the feature toggles.
   const skip = new Set<string>();
@@ -183,6 +233,19 @@ export function scaffold(options: ScaffoldOptions): ScaffoldResult {
       } else {
         for (const f of spec.files ?? []) skip.add(f);
       }
+    }
+    // Combo-conditional entry-point selection: the first variant whose `when`
+    // features are all enabled wins (its source is renamed onto the catch-all
+    // variant's source); every other variant source is dropped. The catch-all
+    // (`when: []`) variant's source is the canonical destination.
+    const variants = manifest.indexVariants ?? [];
+    if (variants.length > 0) {
+      const dest = (variants.find((v) => v.when.length === 0) ?? variants[variants.length - 1]!).source;
+      const winner = variants.find((v) => v.when.every(enabled)) ?? variants[variants.length - 1]!;
+      for (const v of variants) {
+        if (v.source !== winner.source) skip.add(v.source);
+      }
+      if (winner.source !== dest) renames[winner.source] = dest;
     }
   }
 
