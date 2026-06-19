@@ -25,6 +25,10 @@
  * @packageDocumentation
  */
 
+import { some, none } from '@elaraai/east';
+import type { ValueTypeOf, option } from '@elaraai/east';
+import { Experiment } from '@elaraai/e3-ui';
+import { getSomeorUndefined } from '@elaraai/east-ui-components';
 import type { HelpId } from './help.js';
 
 // ---------------------------------------------------------------------------
@@ -32,73 +36,41 @@ import type { HelpId } from './help.js';
 // returns / the staged config. Mirror the East types in
 // e3-ui/src/experiment/types.ts (snake_case, single consolidated result).
 // ---------------------------------------------------------------------------
-export type Opt<T> = { type: 'none'; value: null } | { type: 'some'; value: T };
-type Var<K extends string, V = unknown> = { type: K; value: V };
+// Boundary marshalling for decoded East vectors → plain `number[]` (via `arr`/`arrI`
+// below). VectorType decodes to a typed array; ArrayType to a plain array — both
+// satisfy these structural widths.
 type Vec = ArrayLike<number> & Iterable<number>;
 type VecI = ArrayLike<bigint> & Iterable<bigint>;
 
-export interface Ci { lower: number; upper: number }
-
-/** Which robustness checks the config asked for. */
-export interface RefuteSpecValue {
-    placebo: boolean; random_common_cause: boolean; data_subset: boolean;
-    sensitivity: Opt<Vec>;
-}
-
-/** The staged experiment config (= `ExperimentConfigType`). */
-export interface ConfigValue {
-    treatment: string;
-    outcome: string;
-    common_causes: string[];
-    categorical: Opt<string[]>;
-    method: Opt<Var<'linear_regression' | 'propensity_score_weighting'>>;
-    estimand: Opt<Var<'ate' | 'att' | 'atc'>>;
-    refute: Opt<RefuteSpecValue>;
-    dose_feature: Opt<string>;
-    min_overlap: Opt<number>;
-    min_treatment_variation: Opt<number>;
-    bootstrap: Opt<unknown>;
-    random_state: Opt<bigint>;
-}
-
-export interface BalanceValue { column: string; base_column: string; treated_mean: number; control_mean: number; std_diff: number }
-export interface AdjustedValue { effect: number; ci: Opt<Ci> }
-export interface OverlapValue {
-    treated_propensity: Vec; control_propensity: Vec;
-    common_support_frac: number; positivity_ok: boolean;
-}
-export interface SensitivityValue { strengths: Vec; effects: Vec }
-export interface RefutationValue {
-    placebo_effect: Opt<number>; placebo_passes: Opt<boolean>;
-    random_cc_within_ci: Opt<boolean>;
-    data_subset_effect: Opt<number>; data_subset_std: Opt<number>;
-    robustness_value: Opt<number>;
-    sensitivity: Opt<SensitivityValue>;
-}
-export interface DoseValue {
-    feature: string; grid: Vec; effect: Vec; lower: Opt<Vec>; upper: Opt<Vec>; size: VecI;
-}
-/** The honesty verdict — only `not_estimable` carries a (reason) string. */
-export type VerdictValue =
-    | Var<'causal', null> | Var<'modest', null> | Var<'adjustment_insufficient', null>
-    | Var<'non_identifiable_positivity', null> | Var<'not_estimable', string>;
+// Every decoded shape is DERIVED from the single source of truth (`Experiment.Types.*`)
+// via `ValueTypeOf` — never hand-rolled, so it cannot drift from the East types.
+/** The complete, honest experiment result. */
+export type ResultValue = ValueTypeOf<typeof Experiment.Types.Result>;
+/** The staged experiment config. */
+export type ConfigValue = ValueTypeOf<typeof Experiment.Types.Config>;
+/** A developer-authored preset — a named vetted question + scope. */
+export type PresetValue = ValueTypeOf<typeof Experiment.Types.Preset>;
+/** A confidence interval. */
+export type Ci = ValueTypeOf<typeof Experiment.Types.Ci>;
+/** The adjusted (like-for-like) effect + CI. */
+export type AdjustedValue = ValueTypeOf<typeof Experiment.Types.Adjusted>;
+/** One confounder's before-adjustment imbalance. */
+export type BalanceValue = ValueTypeOf<typeof Experiment.Types.Balance>;
+/** The propensity-overlap diagnostic. */
+export type OverlapValue = ValueTypeOf<typeof Experiment.Types.Overlap>;
+/** The robustness summary. */
+export type RefutationValue = ValueTypeOf<typeof Experiment.Types.Refutation>;
+/** The unobserved-confounder sensitivity (tipping) curve. */
+export type SensitivityValue = ValueTypeOf<typeof Experiment.Types.Sensitivity>;
+/** The ALE dose-response curve. */
+export type DoseValue = ValueTypeOf<typeof Experiment.Types.DoseResponse>;
+/** The honesty verdict — only `not_estimable` carries a reason. */
+export type VerdictValue = ValueTypeOf<typeof Experiment.Types.Verdict>;
 export type VerdictTag = VerdictValue['type'];
-
-export interface ResultValue {
-    naive: number; naive_ci: Opt<Ci>;
-    adjusted: Opt<AdjustedValue>;
-    n_total: bigint; n_treated: bigint; n_control: bigint; n_dropped: bigint;
-    balance: BalanceValue[];
-    overlap: OverlapValue;
-    refutation: Opt<RefutationValue>;
-    dose_response: Opt<DoseValue>;
-    verdict: VerdictValue;
-}
-export interface JournalRowValue {
-    config: ConfigValue; verdict: VerdictValue; naive: number; adjusted: Opt<number>;
-    committed_at: Date; committed_by: string;
-}
-export type ColMeta = Map<string, { label: Opt<string>; unit: Opt<string>; higherIsBetter: Opt<boolean> }>;
+/** A committed journal row. */
+export type JournalRowValue = ValueTypeOf<typeof Experiment.Types.Journal>[number];
+/** Optional per-column display metadata, keyed by column name. */
+export type ColMeta = ValueTypeOf<typeof Experiment.Types.ColumnMeta>;
 
 /** A column the surface can frame over — name + coarse type family. */
 export interface Column { name: string; kind: 'boolean' | 'integer' | 'float' | 'string' | 'datetime' | 'other' }
@@ -134,7 +106,7 @@ export interface VMOverlap {
     treated: number[]; control: number[];
     commonSupportFrac: number; positivityOk: boolean; supportLabel: string;
 }
-export interface VMRefuteCheck { name: string; desc: string; value: string; passed: boolean; tip: Opt<string>; help: HelpId }
+export interface VMRefuteCheck { name: string; desc: string; value: string; passed: boolean; tip: option<string>; help: HelpId }
 export interface VMRefute { checks: VMRefuteCheck[]; sens: VMSensitivity | null }
 export interface VMSensitivity { lo: number[]; mid: number[]; hi: number[]; xTicks: string[]; yTicks: string[] }
 export interface VMDoseMark { at: number; label: string; tone: string; help: HelpId }
@@ -147,7 +119,7 @@ export interface VMDose {
 }
 export interface VMJournalRow {
     treatment: string; outcome: string; confounders: string; effect: string;
-    verdict: string; verdictTone: string; who: string; when: string;
+    verdict: string; verdictTone: string; who: string; when: string; preset: option<string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -155,7 +127,6 @@ export interface VMJournalRow {
 // ---------------------------------------------------------------------------
 const arr = (v: Vec | undefined): number[] => (v ? Array.from(v, Number) : []);
 const arrI = (v: VecI | undefined): number[] => (v ? Array.from(v, Number) : []);
-const getOpt = <T,>(o: Opt<T> | undefined): T | undefined => (o && o.type === 'some' ? o.value : undefined);
 const fmt = (x: number): string => {
     // Normalise a `-0.0` (from `(-0.04).toFixed(1)`) to `0.0` — sign-confusing on
     // exactly the degenerate results where clarity matters most.
@@ -178,7 +149,7 @@ function band(absStd: number): { level: string; tone: string } {
 }
 
 const colMeta = (meta: ColMeta | undefined, col: string) => meta?.get(col);
-const unitOf = (meta: ColMeta | undefined, col: string): string => getOpt(colMeta(meta, col)?.unit) ?? '';
+const unitOf = (meta: ColMeta | undefined, col: string): string => getSomeorUndefined(colMeta(meta, col)?.unit) ?? '';
 const kindOf = (cols: Column[], name: string): Column['kind'] | undefined => cols.find(c => c.name === name)?.kind;
 
 // ---------------------------------------------------------------------------
@@ -244,9 +215,9 @@ function deriveSpec(config: ConfigValue, cols: Column[], result: ResultValue | n
     const suggest = cols.find(c => !inPlay.has(c.name));
     const suggestion = suggest ? `add ${suggest.name}` : '';
 
-    const methodV = getOpt(config.method);
+    const methodV = getSomeorUndefined(config.method);
     const method = methodV?.type === 'propensity_score_weighting' ? 'reweighting' : 'regression';
-    const targetV = getOpt(config.estimand);
+    const targetV = getSomeorUndefined(config.estimand);
     const target = targetV && (targetV.type === 'att' || targetV.type === 'atc') ? 'treated' : 'all';
 
     return {
@@ -273,9 +244,9 @@ function balanceDisplay(b: BalanceValue, categorical: Set<string>): string {
 }
 
 function deriveAnswer(config: ConfigValue, result: ResultValue, adj: AdjustedValue, meta: ColMeta | undefined): VMAnswer {
-    const ci = getOpt(adj.ci);
-    const nci = getOpt(result.naive_ci);
-    const categorical = new Set(getOpt(config.categorical) ?? []);
+    const ci = getSomeorUndefined(adj.ci);
+    const nci = getSomeorUndefined(result.naive_ci);
+    const categorical = new Set(getSomeorUndefined(config.categorical) ?? []);
     const balance: VMBalance[] = [...result.balance]
         .sort((a, b) => Math.abs(b.std_diff) - Math.abs(a.std_diff))
         .map(b => ({
@@ -377,43 +348,43 @@ function deriveRefute(r: RefutationValue, adj: AdjustedValue | undefined): VMRef
     const checks: VMRefuteCheck[] = [];
     const est = adj?.effect ?? 0;
 
-    const placeboEffect = getOpt(r.placebo_effect);
-    const placeboPasses = getOpt(r.placebo_passes);
+    const placeboEffect = getSomeorUndefined(r.placebo_effect);
+    const placeboPasses = getSomeorUndefined(r.placebo_passes);
     if (placeboEffect !== undefined || placeboPasses !== undefined) {
         checks.push({
             name: 'Shuffle test',
             desc: 'Shuffle which rows were treated; a real effect should collapse to zero.',
             value: placeboEffect !== undefined ? `→ ${signed(placeboEffect)}` : (placeboPasses ? 'passed' : 'failed'),
             passed: placeboPasses ?? (placeboEffect !== undefined && Math.abs(placeboEffect) < Math.max(0.5, Math.abs(est) * 0.15)),
-            tip: { type: 'some', value: 'Randomly re-label which rows were treated. A genuine effect should vanish.' },
+            tip: some('Randomly re-label which rows were treated. A genuine effect should vanish.'),
             help: 'check_shuffle',
         });
     }
-    const ds = getOpt(r.data_subset_effect);
+    const ds = getSomeorUndefined(r.data_subset_effect);
     if (ds !== undefined) {
-        const dstd = getOpt(r.data_subset_std) ?? 0;
+        const dstd = getSomeorUndefined(r.data_subset_std) ?? 0;
         checks.push({
             name: 'Drop-some test',
             desc: 'Re-estimate on random subsamples; a trustworthy effect stays put.',
             value: `${fmt(ds)} ± ${fmt(dstd)}`,
             passed: Math.abs(ds - est) < Math.max(0.5, Math.abs(est) * 0.2),
-            tip: { type: 'none', value: null },
+            tip: none,
             help: 'check_dropsome',
         });
     }
-    const rcc = getOpt(r.random_cc_within_ci);
+    const rcc = getSomeorUndefined(r.random_cc_within_ci);
     if (rcc !== undefined) {
         checks.push({
             name: 'Decoy cause',
             desc: 'Add an irrelevant random factor; the answer should not move.',
             value: rcc ? 'within range' : 'moved',
             passed: rcc,
-            tip: { type: 'none', value: null },
+            tip: none,
             help: 'check_decoy',
         });
     }
-    const sens = getOpt(r.sensitivity);
-    const evalue = getOpt(r.robustness_value);
+    const sens = getSomeorUndefined(r.sensitivity);
+    const evalue = getSomeorUndefined(r.robustness_value);
     if (sens !== undefined || evalue !== undefined) {
         const strengths = sens ? arr(sens.strengths) : [];
         const effects = sens ? arr(sens.effects) : [];
@@ -426,7 +397,7 @@ function deriveRefute(r: RefutationValue, adj: AdjustedValue | undefined): VMRef
             desc: 'How strong an unrecorded common cause would need to be to overturn the result.',
             value,
             passed: tip === null,
-            tip: { type: 'some', value: 'Something unrecorded could drive both the treatment choice and the outcome.' },
+            tip: some('Something unrecorded could drive both the treatment choice and the outcome.'),
             help: 'check_hidden',
         });
     }
@@ -437,7 +408,7 @@ function deriveRefute(r: RefutationValue, adj: AdjustedValue | undefined): VMRef
     if (sens !== undefined) {
         const mid = arr(sens.effects);
         if (mid.length) {
-            const ci = getOpt(adj?.ci);
+            const ci = getSomeorUndefined(adj?.ci);
             const half = ci ? Math.abs(ci.upper - ci.lower) / 2 : 0;
             const lo = mid.map(m => m - half);
             const hi = mid.map(m => m + half);
@@ -454,8 +425,8 @@ function deriveRefute(r: RefutationValue, adj: AdjustedValue | undefined): VMRef
 function deriveDose(dose: DoseValue, config: ConfigValue, meta: ColMeta | undefined): VMDose {
     const grid = arr(dose.grid);
     const mid = arr(dose.effect);
-    const lo = getOpt(dose.lower) ? arr(getOpt(dose.lower)) : mid.slice();
-    const hi = getOpt(dose.upper) ? arr(getOpt(dose.upper)) : mid.slice();
+    const lo = getSomeorUndefined(dose.lower) ? arr(getSomeorUndefined(dose.lower)) : mid.slice();
+    const hi = getSomeorUndefined(dose.upper) ? arr(getSomeorUndefined(dose.upper)) : mid.slice();
     const sizes = arrI(dose.size);
     // The recommendation is a point on the FEATURE x-axis (e.g. days), never the
     // outcome unit — labelling "3" as "3 MPa" would be semantically wrong.
@@ -521,7 +492,7 @@ const VERDICT_WORD: Record<VerdictTag, string> = {
 };
 
 function deriveJournalRow(row: JournalRowValue, now: Date): VMJournalRow {
-    const adj = getOpt(row.adjusted);
+    const adj = getSomeorUndefined(row.adjusted);
     return {
         treatment: row.config.treatment, outcome: row.config.outcome,
         confounders: row.config.common_causes.join(', '),
@@ -529,6 +500,9 @@ function deriveJournalRow(row: JournalRowValue, now: Date): VMJournalRow {
         verdict: VERDICT_WORD[row.verdict.type],
         verdictTone: VERDICT_TONE[row.verdict.type],
         who: row.committed_by, when: relTime(row.committed_at, now),
+        // The originating preset id (resolved to a label by the surface); `none` for a
+        // free-form / pre-presets row.
+        preset: row.preset,
     };
 }
 
@@ -568,9 +542,9 @@ export function deriveView(
     dataLen: number,
     now: Date,
 ): ExperimentView {
-    const adj = result ? getOpt(result.adjusted) : undefined;
-    const refutation = result ? getOpt(result.refutation) : undefined;
-    const doseR = result ? getOpt(result.dose_response) : undefined;
+    const adj = result ? getSomeorUndefined(result.adjusted) : undefined;
+    const refutation = result ? getSomeorUndefined(result.refutation) : undefined;
+    const doseR = result ? getSomeorUndefined(result.dose_response) : undefined;
     return {
         // The set-up rail reflects the LIVE config (the editor); the result deck
         // reflects RANCONFIG — the config that produced `result` — so the result
@@ -591,19 +565,7 @@ export function deriveView(
 // ---------------------------------------------------------------------------
 
 /** Decoded `ExperimentDesignType` (the `design` function's result). */
-export interface DesignValue {
-    verdict: VerdictValue;
-    basis: { type: string };
-    target_effect: number;
-    outcome_sd: number;
-    target_power: number;
-    alpha: number;
-    current_power: Opt<number>;
-    match_on: string[];
-    options: { label: string; treated_share: number; n_treated: bigint; n_control: bigint; n_total: bigint }[];
-    power_curve: { n: VecI; power: Vec };
-    rationale: string;
-}
+export type DesignValue = ValueTypeOf<typeof Experiment.Types.Design>;
 
 export interface VMDesignOption { label: string; nTotal: number; nTreated: number; nControl: number; treatedShare: number }
 export interface VMDesignMatch { col: string; frac: number; tone: string; display: string }
@@ -668,7 +630,7 @@ export function deriveDesign(d: DesignValue, result: ResultValue | null, ranConf
         const b = balByCol.get(col);
         const absStd = b ? Math.abs(b.std_diff) : 0;
         const { tone } = band(absStd);
-        return { col, frac: clamp01(absStd), tone, display: getOpt(colMeta(meta, col)?.label) ?? col };
+        return { col, frac: clamp01(absStd), tone, display: getSomeorUndefined(colMeta(meta, col)?.label) ?? col };
     });
 
     // Power curve → a single mid line (lo=hi=mid → no band); a "target" mark at the
@@ -687,7 +649,7 @@ export function deriveDesign(d: DesignValue, result: ResultValue | null, ranConf
     const marks: VMDoseMark[] = [];
     if (len) marks.push({ at: nearest(primary.nTotal), label: `target ${(d.target_power * 100).toFixed(0)}%`, tone: 'pos', help: 'validate_power' });
     // "you're here" — only when there's a comparison group to power from.
-    const cp = getOpt(d.current_power);
+    const cp = getSomeorUndefined(d.current_power);
     if (cp !== undefined && len) {
         const curN = result ? Number(result.n_total) : 0;
         if (curN > 0) {
@@ -721,4 +683,4 @@ export function deriveDesign(d: DesignValue, result: ResultValue | null, ranConf
 }
 
 // Derived helpers the shell also needs for the header / badge / banner.
-export { getOpt, fmt, signed, cap, unitOf };
+export { fmt, signed, cap, unitOf };

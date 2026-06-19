@@ -196,6 +196,14 @@ export const OverlapDiagnosticType = StructType({
 /** Type alias for {@link OverlapDiagnosticType}. */
 export type OverlapDiagnosticType = typeof OverlapDiagnosticType;
 
+/** The unobserved-confounder sensitivity (tipping) curve — effect at each simulated strength. */
+export const SensitivityCurveType = StructType({
+    strengths: VectorType(FloatType),
+    effects: VectorType(FloatType),
+});
+/** Type alias for {@link SensitivityCurveType}. */
+export type SensitivityCurveType = typeof SensitivityCurveType;
+
 /** The robustness summary the verdict + trust tab consume. */
 export const RefutationType = StructType({
     /** Effect under a permuted (placebo) treatment — should be ≈ 0. */
@@ -212,10 +220,7 @@ export const RefutationType = StructType({
      *  effect away. A monotone transform of the standardized effect (not independent of it). */
     robustness_value: OptionType(FloatType),
     /** Unobserved-confounder sensitivity (tipping) curve: effect at each simulated strength. */
-    sensitivity: OptionType(StructType({
-        strengths: VectorType(FloatType),
-        effects: VectorType(FloatType),
-    })),
+    sensitivity: OptionType(SensitivityCurveType),
     /** Sign-prior check (when `config.expected_sign` is set): `some(true)` if a material
      *  effect matches the expected direction, `some(false)` if it points the other way,
      *  `none` when no prior or the effect is near-zero.
@@ -252,6 +257,11 @@ export const ExperimentVerdictType = VariantType({
 /** Type alias for {@link ExperimentVerdictType}. */
 export type ExperimentVerdictType = typeof ExperimentVerdictType;
 
+/** The adjusted (like-for-like) effect + its CI — `none` on the result when the engine refuses. */
+export const AdjustedEffectType = StructType({ effect: FloatType, ci: OptionType(CiType) });
+/** Type alias for {@link AdjustedEffectType}. */
+export type AdjustedEffectType = typeof AdjustedEffectType;
+
 /**
  * The complete, honest result. `adjusted` is `none` when the engine refuses
  * (positivity / no-variation); the `verdict` tag carries the headline; every
@@ -260,7 +270,7 @@ export type ExperimentVerdictType = typeof ExperimentVerdictType;
 export const ExperimentResultType = StructType({
     naive: FloatType,
     naive_ci: OptionType(CiType),
-    adjusted: OptionType(StructType({ effect: FloatType, ci: OptionType(CiType) })),
+    adjusted: OptionType(AdjustedEffectType),
     n_total: IntegerType,
     n_treated: IntegerType,
     n_control: IntegerType,
@@ -389,6 +399,34 @@ export const PopulationType = ArrayType(Slice.Types.Predicate);
 export type PopulationType = typeof PopulationType;
 
 /**
+ * One developer-authored, vetted experiment — a named question that snaps the
+ * staged spec (and the population scope) to a pre-baked configuration. The surface
+ * renders presets as the spec's `Input.Presets` card grid; selecting one writes its
+ * `config` + `population` into the **staged** spec (still editable before Run), and
+ * a committed result records the originating preset by `id`.
+ *
+ * A preset bundles the **vetted backdoor set + scope** so a non-expert can pick a
+ * correct causal question from a menu rather than assemble one. `config` is a full
+ * {@link ExperimentConfigType} (column names are plain strings); `population` is the
+ * optional Step-4 scope (`none` ⇒ no scope). `group` sections the grid.
+ */
+export const PresetType = StructType({
+    /** Stable key — the journal records THIS (not `label`), and it drives selection
+     *  identity, so a renamed `label` never orphans a committed row. */
+    id: StringType,
+    /** Display title shown on the card. */
+    label: StringType,
+    /** The vetted, pre-baked experiment config the card loads into the staged spec. */
+    config: ExperimentConfigType,
+    /** Optional population scope to apply on select; `none` ⇒ clear the scope. */
+    population: OptionType(PopulationType),
+    /** Optional section header — cards sharing a `group` are bucketed together. */
+    group: OptionType(StringType),
+});
+/** Type alias for {@link PresetType}. */
+export type PresetType = typeof PresetType;
+
+/**
  * Optional per-column display metadata the developer supplies once. Keyed by
  * column name. Lets the derived prose read "worse" instead of "lower" and show
  * friendly labels / units.
@@ -413,6 +451,9 @@ export const JournalRowType = StructType({
     adjusted: OptionType(FloatType),
     committed_at: DateTimeType,
     committed_by: StringType,
+    /** The `id` of the preset this experiment was framed from (`none` for a
+     *  free-form / pre-presets row); the surface renders it as a "from {label}" chip. */
+    preset: OptionType(StringType),
 });
 /** Type alias for {@link JournalRowType}. */
 export type JournalRowType = typeof JournalRowType;

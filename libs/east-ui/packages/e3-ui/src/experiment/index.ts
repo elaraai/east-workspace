@@ -57,8 +57,21 @@ import {
     JournalType,
     ColumnMetaType,
     PopulationType,
+    PresetType,
     DesignConfigType,
     ExperimentDesignType,
+    EstimatorType,
+    TargetUnitsType,
+    BootstrapConfigType,
+    RefuteSpecType,
+    SignType,
+    CiType,
+    BalanceRowType,
+    OverlapDiagnosticType,
+    RefutationType,
+    SensitivityCurveType,
+    AdjustedEffectType,
+    ExperimentVerdictType,
 } from './types.js';
 
 // Re-export the contract types so consumers can reach them from the component
@@ -81,6 +94,7 @@ export {
     JournalType,
     ColumnMetaType,
     PopulationType,
+    PresetType,
 } from './types.js';
 
 // ============================================================================
@@ -138,6 +152,9 @@ export const ExperimentPayloadType = StructType({
     columnMeta: OptionType(ColumnMetaType),
     readonly: OptionType(BooleanType),
     defaultTab: OptionType(ExperimentTabType),
+    /** Optional developer-authored {@link PresetType} list — named vetted questions
+     *  rendered as a card grid; selecting one snaps the staged spec + scope. */
+    presets: OptionType(ArrayType(PresetType)),
 });
 /** Type alias for {@link ExperimentPayloadType}. */
 export type ExperimentPayloadType = typeof ExperimentPayloadType;
@@ -179,6 +196,69 @@ export type ExperimentColumns<Row extends StructType> = {
 };
 
 /**
+ * A preset's pre-baked experiment config — a friendly, mostly-optional shape over
+ * {@link ExperimentConfigType}. The column-bearing fields are checked against the
+ * bound row's columns (like {@link ExperimentColumns}); every other field is optional
+ * and falls back to the library default (`none`) when omitted, so a preset author
+ * writes only what the question actually pins.
+ *
+ * @typeParam Row - The input dataset's row struct.
+ */
+export interface ExperimentPresetConfig<Row extends StructType> {
+    /** Binary treatment column. */
+    treatment: Extract<keyof Row['fields'], string>;
+    /** Outcome column. */
+    outcome: Extract<keyof Row['fields'], string>;
+    /** Confounders to adjust for (the backdoor set). */
+    common_causes: Extract<keyof Row['fields'], string>[];
+    /** Confounder columns holding categories (one-hot encoded). */
+    categorical?: Extract<keyof Row['fields'], string>[];
+    /** Continuous column for the ALE dose-response curve. */
+    dose_feature?: Extract<keyof Row['fields'], string>;
+    /** Estimator (default: linear_regression). */
+    method?: SubtypeExprOrValue<EstimatorType>;
+    /** Target population (default: ate). */
+    estimand?: SubtypeExprOrValue<TargetUnitsType>;
+    /** Which robustness checks to run. */
+    refute?: SubtypeExprOrValue<RefuteSpecType>;
+    /** Bootstrap CI config. */
+    bootstrap?: SubtypeExprOrValue<BootstrapConfigType>;
+    /** Directional prior — flags an implausibly-signed effect. */
+    expected_sign?: SubtypeExprOrValue<SignType>;
+    /** Positivity refuse gate (default 0.10). */
+    min_overlap?: number;
+    /** Not-estimable guard (default 0.02). */
+    min_treatment_variation?: number;
+    /** Strong-overlap gate (default 0.55). */
+    strong_overlap?: number;
+    /** E-value floor (off by default). */
+    evalue_floor?: number;
+    /** Random seed — pin for a reproducible verdict. */
+    random_state?: bigint;
+}
+
+/**
+ * One developer-authored preset for {@link ExperimentOptions.presets} — a named,
+ * vetted question (+ optional scope) selectable from the surface's preset grid.
+ *
+ * @typeParam Row - The input dataset's row struct.
+ */
+export interface ExperimentPreset<Row extends StructType> {
+    /** Stable, **unique** id — recorded in the journal and used as the selection
+     *  identity; keep it distinct from `label` so a renamed label never orphans a
+     *  committed row. Two presets must not share an id. */
+    id: string;
+    /** Display title on the card. */
+    label: string;
+    /** The vetted, pre-baked config. */
+    config: ExperimentPresetConfig<Row>;
+    /** Optional population scope applied on select (omit ⇒ clears the scope). */
+    population?: SubtypeExprOrValue<PopulationType>;
+    /** Optional section header — cards sharing a `group` are bucketed together. */
+    group?: string;
+}
+
+/**
  * Options for {@link Experiment.Root}, generic over the input row struct.
  *
  * @typeParam Row - The input dataset's row struct — inferred from `data`.
@@ -206,6 +286,9 @@ export interface ExperimentOptions<Row extends StructType> {
     columns?: ExperimentColumns<Row>;
     readonly?: SubtypeExprOrValue<OptionType<BooleanType>>;
     defaultTab?: ExperimentTabLiteral;
+    /** Developer-authored vetted questions — a card grid that snaps the staged spec
+     *  (and scope) on select. Column fields are checked against the row's columns. */
+    presets?: Array<ExperimentPreset<Row>>;
 }
 
 /**
@@ -231,6 +314,37 @@ function createExperiment<Row extends StructType>(options: ExperimentOptions<Row
             }] as const)),
             ColumnMetaType,
         ));
+    // Each preset's friendly partial config is completed to a full ExperimentConfig
+    // here — the author writes only the fields a question pins; the rest default to
+    // `none` (the library default). The author never hand-rolls a some/none wrapper.
+    const presets = options.presets === undefined
+        ? none
+        : some(East.value(
+            options.presets.map(p => ({
+                id: p.id,
+                label: p.label,
+                config: {
+                    treatment: p.config.treatment,
+                    outcome: p.config.outcome,
+                    common_causes: p.config.common_causes,
+                    categorical: p.config.categorical !== undefined ? some(p.config.categorical) : none,
+                    method: p.config.method !== undefined ? some(p.config.method) : none,
+                    estimand: p.config.estimand !== undefined ? some(p.config.estimand) : none,
+                    refute: p.config.refute !== undefined ? some(p.config.refute) : none,
+                    dose_feature: p.config.dose_feature !== undefined ? some(p.config.dose_feature) : none,
+                    min_overlap: p.config.min_overlap !== undefined ? some(p.config.min_overlap) : none,
+                    min_treatment_variation: p.config.min_treatment_variation !== undefined ? some(p.config.min_treatment_variation) : none,
+                    bootstrap: p.config.bootstrap !== undefined ? some(p.config.bootstrap) : none,
+                    random_state: p.config.random_state !== undefined ? some(p.config.random_state) : none,
+                    strong_overlap: p.config.strong_overlap !== undefined ? some(p.config.strong_overlap) : none,
+                    evalue_floor: p.config.evalue_floor !== undefined ? some(p.config.evalue_floor) : none,
+                    expected_sign: p.config.expected_sign !== undefined ? some(p.config.expected_sign) : none,
+                },
+                population: p.population !== undefined ? some(p.population) : none,
+                group: p.group !== undefined ? some(p.group) : none,
+            })),
+            ArrayType(PresetType),
+        ));
     return ExperimentComponent.Root({
         data: options.data.binding,
         config: options.config.binding,
@@ -241,6 +355,7 @@ function createExperiment<Row extends StructType>(options: ExperimentOptions<Row
         columnMeta,
         readonly: options.readonly ?? none,
         defaultTab,
+        presets,
     });
 }
 
@@ -265,6 +380,20 @@ export const Experiment = {
         Config: ExperimentConfigType,
         /** The result value type (numbers + verdict). */
         Result: ExperimentResultType,
+        /** A confidence interval. */
+        Ci: CiType,
+        /** The adjusted (like-for-like) effect + CI. */
+        Adjusted: AdjustedEffectType,
+        /** One confounder's before-adjustment imbalance (a balance row). */
+        Balance: BalanceRowType,
+        /** The propensity-overlap diagnostic. */
+        Overlap: OverlapDiagnosticType,
+        /** The robustness summary. */
+        Refutation: RefutationType,
+        /** The unobserved-confounder sensitivity (tipping) curve. */
+        Sensitivity: SensitivityCurveType,
+        /** The honesty verdict tag. */
+        Verdict: ExperimentVerdictType,
         /** The ALE dose-response curve value type (the "How much?" tab). */
         DoseResponse: DoseResponseType,
         /** The committed-experiment journal value type. */
@@ -275,6 +404,8 @@ export const Experiment = {
         DesignConfig: DesignConfigType,
         /** The UI-side Step-4 population filter value type (Array of Slice predicates). */
         Population: PopulationType,
+        /** The developer-authored preset value type (named vetted question + scope). */
+        Preset: PresetType,
         /** Optional per-column display metadata. */
         ColumnMeta: ColumnMetaType,
         /** Initial result tab variant. */

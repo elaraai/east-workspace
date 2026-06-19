@@ -185,6 +185,7 @@ export const experimentJournalInput = e3.input('experiment_journal', Experiment.
         },
         verdict: variant('causal', null), naive: -3.1, adjusted: some(5.2),
         committed_at: new Date('2026-06-13T08:00:00Z'), committed_by: 'M. Kerr',
+        preset: some('cure_strength'),
     },
     {
         config: {
@@ -195,6 +196,7 @@ export const experimentJournalInput = e3.input('experiment_journal', Experiment.
         },
         verdict: variant('modest', null), naive: 0.4, adjusted: some(0.4),
         committed_at: new Date('2026-06-09T08:00:00Z'), committed_by: 'M. Kerr',
+        preset: none,
     },
     {
         config: {
@@ -205,6 +207,7 @@ export const experimentJournalInput = e3.input('experiment_journal', Experiment.
         },
         verdict: variant('causal', null), naive: 22.0, adjusted: some(38.0),
         committed_at: new Date('2026-06-02T08:00:00Z'), committed_by: 'T. Ode',
+        preset: none,
     },
 ]);
 
@@ -321,6 +324,68 @@ export const experimentValidate = example({
                     journal={journal}
                     columns={{ bond_strength: { unit: 'MPa' } }}
                     defaultTab="validate"
+                />
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+export const experimentPresets = example({
+    keywords: ['Experiment', 'presets', 'causal', 'questions', 'vetted', 'card', 'grid', 'scope', 'group'],
+    description: 'The Experiment `presets` — a card grid of named, developer-authored questions (the spec `Input.Presets` pattern). Each bundles a vetted backdoor set (and an optional population scope), grouped into sections; selecting one snaps the staged spec + filters to that pre-baked configuration (still editable before Run), and a committed result records which preset it came from. Lets a domain expert pick a correct causal question from a menu rather than assemble one.',
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const data = $.let(Data.bind(batchesInput));
+            const config = $.let(Data.bind(experimentConfigInput, { mode: 'staged' }));
+            const journal = $.let(Data.bind(experimentJournalInput));
+            const population = $.let(Data.bind(experimentPopulationInput, { mode: 'staged' }));
+            const experiment = $.let(Func.bind(experimentFn));
+            return (
+                <Experiment
+                    data={data}
+                    config={config}
+                    experiment={experiment}
+                    population={population}
+                    journal={journal}
+                    columns={{ bond_strength: { unit: 'MPa' } }}
+                    presets={[
+                        {
+                            id: 'cure_strength',
+                            label: 'Slow cure → bond strength',
+                            group: 'Cure',
+                            // The vetted backdoor set for this question; only the fields it
+                            // pins are written — the rest default to the library default.
+                            config: {
+                                treatment: 'slow_cure', outcome: 'bond_strength',
+                                common_causes: ['incoming_grade', 'mix_viscosity', 'supplier'],
+                                categorical: ['supplier'],
+                            },
+                        },
+                        {
+                            id: 'cure_strength_panels',
+                            label: 'Slow cure → strength (panels only)',
+                            group: 'Cure',
+                            config: {
+                                treatment: 'slow_cure', outcome: 'bond_strength',
+                                common_causes: ['incoming_grade', 'mix_viscosity', 'supplier'],
+                                categorical: ['supplier'],
+                            },
+                            // The same question, pre-scoped to one product family.
+                            population: [variant('string', { fieldId: 'product', op: variant('eq', 'panel') })],
+                        },
+                        {
+                            id: 'cure_strength_byline',
+                            label: 'Slow cure → strength (control for line)',
+                            group: 'Robustness',
+                            // A stricter backdoor set — also adjusts for the production line.
+                            config: {
+                                treatment: 'slow_cure', outcome: 'bond_strength',
+                                common_causes: ['incoming_grade', 'mix_viscosity', 'supplier', 'line'],
+                                categorical: ['supplier', 'line'],
+                            },
+                        },
+                    ]}
                 />
             );
         }}</Reactive>

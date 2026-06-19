@@ -1,7 +1,7 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1351,
+    "totalEntries": 1352,
     "totalFiles": 178,
     "packages": {
       "east": 489,
@@ -9,7 +9,7 @@
       "east-node-io": 63,
       "east-py-datascience": 87,
       "east-ui": 613,
-      "e3-ui": 50,
+      "e3-ui": 51,
       "e3": 7
     }
   },
@@ -27623,6 +27623,32 @@
         "import e3 from '@elaraai/e3';"
       ],
       "source": "// The Experiment \n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const data = $.let(Data.bind(batchesInput));\n            const config = $.let(Data.bind(experimentConfigInput, { mode: 'staged' }));\n            const journal = $.let(Data.bind(experimentJournalInput));\n            const population = $.let(Data.bind(experimentPopulationInput, { mode: 'staged' }));\n            const experiment = $.let(Func.bind(experimentFn));\n            const design = $.let(Func.bind(designFn));\n            return (\n                <Experiment\n                    data={data}\n                    config={config}\n                    experiment={experiment}\n                    design={design}\n                    population={population}\n                    journal={journal}\n                    columns={{ bond_strength: { unit: 'MPa' } }}\n                    defaultTab=\"validate\"\n                />\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:experiment.examples.tsx:experimentPresets",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/experiment/experiment.examples.tsx",
+      "suite": "",
+      "test": "The Experiment ",
+      "keywords": [
+        "Experiment",
+        "presets",
+        "causal",
+        "questions",
+        "vetted",
+        "card",
+        "grid",
+        "scope",
+        "group"
+      ],
+      "imports": [
+        "import {",
+        "import { Reactive, UIComponentType } from '@elaraai/east-ui';",
+        "import { Data, Experiment, Func } from '@elaraai/e3-ui';",
+        "import e3 from '@elaraai/e3';"
+      ],
+      "source": "// The Experiment \n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const data = $.let(Data.bind(batchesInput));\n            const config = $.let(Data.bind(experimentConfigInput, { mode: 'staged' }));\n            const journal = $.let(Data.bind(experimentJournalInput));\n            const population = $.let(Data.bind(experimentPopulationInput, { mode: 'staged' }));\n            const experiment = $.let(Func.bind(experimentFn));\n            return (\n                <Experiment\n                    data={data}\n                    config={config}\n                    experiment={experiment}\n                    population={population}\n                    journal={journal}\n                    columns={{ bond_strength: { unit: 'MPa' } }}\n                    presets={[\n                        {\n                            id: 'cure_strength',\n                            label: 'Slow cure → bond strength',\n                            group: 'Cure',\n                            // The vetted backdoor set for this question; only the fields it\n                            // pins are written — the rest default to the library default.\n                            config: {\n                                treatment: 'slow_cure', outcome: 'bond_strength',\n                                common_causes: ['incoming_grade', 'mix_viscosity', 'supplier'],\n                                categorical: ['supplier'],\n                            },\n                        },\n                        {\n                            id: 'cure_strength_panels',\n                            label: 'Slow cure → strength (panels only)',\n                            group: 'Cure',\n                            config: {\n                                treatment: 'slow_cure', outcome: 'bond_strength',\n                                common_causes: ['incoming_grade', 'mix_viscosity', 'supplier'],\n                                categorical: ['supplier'],\n                            },\n                            // The same question, pre-scoped to one product family.\n                            population: [variant('string', { fieldId: 'product', op: variant('eq', 'panel') })],\n                        },\n                        {\n                            id: 'cure_strength_byline',\n                            label: 'Slow cure → strength (control for line)',\n                            group: 'Robustness',\n                            // A stricter backdoor set — also adjusts for the production line.\n                            config: {\n                                treatment: 'slow_cure', outcome: 'bond_strength',\n                                common_causes: ['incoming_grade', 'mix_viscosity', 'supplier', 'line'],\n                                categorical: ['supplier', 'line'],\n                            },\n                        },\n                    ]}\n                />\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "e3-ui:ontology.examples.tsx:supplyChainOntology",
