@@ -19,10 +19,11 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readdirSync } from 'node
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { variant } from '@elaraai/east';
-import { buildRunnerArgv, marshalBytesToDir, spawnAndCapture } from './processExec.js';
+import { buildRunnerArgv, collectVenvBins, marshalBytesToDir, spawnAndCapture } from './processExec.js';
 import { runDetached } from './runDetached.js';
 
 const isWindows = process.platform === 'win32';
+const venvBinSubdir = isWindows ? 'Scripts' : 'bin';
 
 describe('buildRunnerArgv', () => {
   it('builds the runner argv from the wire variant', () => {
@@ -55,6 +56,114 @@ describe('marshalBytesToDir', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('collectVenvBins', () => {
+  let root: string;
+
+  before(() => {
+    root = mkdtempSync(path.join(tmpdir(), 'e3-venv-'));
+    // Plant both layouts so the assertion is platform-agnostic — only the
+    // current platform's subdir should be returned.
+    mkdirSync(path.join(root, '.venv', 'bin'), { recursive: true });
+    mkdirSync(path.join(root, '.venv', 'Scripts'), { recursive: true });
+  });
+
+  after(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it('returns the platform venv bin dir for a project root', () => {
+    assert.deepEqual(collectVenvBins(root), [path.join(root, '.venv', venvBinSubdir)]);
+  });
+
+  it('walks up to find an ancestor .venv', () => {
+    const nested = path.join(root, 'a', 'b', 'c');
+    assert.deepEqual(collectVenvBins(nested), [path.join(root, '.venv', venvBinSubdir)]);
+  });
+
+  it('returns [] when no .venv exists above the start dir', () => {
+    const bare = mkdtempSync(path.join(tmpdir(), 'e3-no-venv-'));
+    try {
+      assert.deepEqual(collectVenvBins(bare), []);
+    } finally {
+      rmSync(bare, { recursive: true, force: true });
+    }
+  });
+});
+
+// A fake `east-py` planted in BOTH a project's `.venv/bin` and its
+// `node_modules/.bin` proves the PATH ordering: the venv binary must win.
+// Skipped on Windows where these POSIX shell shims are not executable (the
+// venv-bin/shim precedence is exercised by collectVenvBins above + CI runners).
+describe('venv PATH precedence', { skip: isWindows }, () => {
+  let proj: string;
+  let scratch: string;
+
+  before(() => {
+    proj = mkdtempSync(path.join(tmpdir(), 'e3-venv-path-'));
+    scratch = mkdtempSync(path.join(tmpdir(), 'e3-venv-scratch-'));
+    const venvBin = path.join(proj, '.venv', 'bin');
+    const nmBin = path.join(proj, 'node_modules', '.bin');
+    mkdirSync(venvBin, { recursive: true });
+    mkdirSync(nmBin, { recursive: true });
+    writeFileSync(path.join(venvBin, 'east-py'), '#!/bin/sh\necho FROM_VENV\n', { mode: 0o755 });
+    writeFileSync(path.join(nmBin, 'east-py'), '#!/bin/sh\necho FROM_NODE_MODULES\n', { mode: 0o755 });
+  });
+
+  after(() => {
+    rmSync(proj, { recursive: true, force: true });
+    rmSync(scratch, { recursive: true, force: true });
+  });
+
+  it('resolves east-py from .venv/bin ahead of node_modules/.bin', async () => {
+    const result = await spawnAndCapture(['east-py'], scratch, { searchDirs: [proj] });
+    assert.equal(result.exitCode, 0);
+    assert.match(result.stdoutTail, /FROM_VENV/);
+    assert.doesNotMatch(result.stdoutTail, /FROM_NODE_MODULES/);
+  });
+
+  it('falls back to node_modules/.bin when there is no venv binary', async () => {
+    const nmOnly = mkdtempSync(path.join(tmpdir(), 'e3-nm-only-'));
+    try {
+      const nmBin = path.join(nmOnly, 'node_modules', '.bin');
+      mkdirSync(nmBin, { recursive: true });
+      writeFileSync(path.join(nmBin, 'east-py'), '#!/bin/sh\necho FROM_NODE_MODULES\n', { mode: 0o755 });
+      const result = await spawnAndCapture(['east-py'], scratch, { searchDirs: [nmOnly] });
+      assert.equal(result.exitCode, 0);
+      assert.match(result.stdoutTail, /FROM_NODE_MODULES/);
+    } finally {
+      rmSync(nmOnly, { recursive: true, force: true });
+    }
+  });
+});
+
+// e3 spawns runners in a scratch cwd, so it must hand the project root to the
+// runner another way: the E3_RUNNER_SEARCH_DIRS env var (read by east-node-cli's
+// loader to self-resolve a project's own platform package).
+describe('E3_RUNNER_SEARCH_DIRS propagation', { skip: isWindows }, () => {
+  let scratch: string;
+  before(() => { scratch = mkdtempSync(path.join(tmpdir(), 'e3-envprop-')); });
+  after(() => { rmSync(scratch, { recursive: true, force: true }); });
+
+  it('passes the (deduped) searchDirs to the child via E3_RUNNER_SEARCH_DIRS', async () => {
+    const result = await spawnAndCapture(
+      ['node', '-e', 'process.stdout.write(process.env.E3_RUNNER_SEARCH_DIRS || "UNSET")'],
+      scratch,
+      { searchDirs: ['/proj/a', '/proj/a', '/proj/b'] },
+    );
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.stdoutTail, ['/proj/a', '/proj/b'].join(path.delimiter));
+  });
+
+  it('leaves E3_RUNNER_SEARCH_DIRS unset when no searchDirs are given', async () => {
+    const result = await spawnAndCapture(
+      ['node', '-e', 'process.stdout.write(process.env.E3_RUNNER_SEARCH_DIRS || "UNSET")'],
+      scratch,
+    );
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.stdoutTail, 'UNSET');
   });
 });
 

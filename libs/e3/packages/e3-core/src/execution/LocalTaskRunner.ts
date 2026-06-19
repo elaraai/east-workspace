@@ -28,7 +28,7 @@ import { runDetached, type DetachedSpec, type DetachedResult, type DetachedRunOp
 
 // Re-exported from processExec.js (where the implementation moved) for
 // backwards compatibility — exported for testing, not public API.
-export { collectNodeModulesBins } from './processExec.js';
+export { collectNodeModulesBins, collectVenvBins } from './processExec.js';
 
 /**
  * Options for task execution
