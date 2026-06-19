@@ -35,6 +35,39 @@ After scaffolding, edit `src/index.ts` to build the user's actual logic:
 - Dashboards / UI tasks → **east-ui** + **e3-ui** skills (`ui()`, `Data.bind`).
 - ML / optimisation tasks → **east-py-datascience** skill.
 
+## Project-owned platform modules (`--platform`)
+
+When the project needs **its own** native functions — Python (`@platform_function`)
+or TS-East (`East.platform(...).implement(...)`) — scaffold with `--platform`
+(e3 only; requires the east-py runner):
+
+```bash
+npm create @elaraai/e3 my-project -- --platform
+```
+
+It adds, runnable end-to-end after `npm install && uv sync`:
+- `platform_module/` — a Python package whose `__init__.py` defines a
+  `@platform_function` and ends with `platform = platform_functions(__name__)`
+  (what `east-py run -p platform_module` loads). A setuptools `[build-system]`
+  block in `pyproject.toml` makes it importable from the project's `.venv`.
+- `src/platform_module.ts` — a hand-written `East.platform(name, inputs, output)`
+  **declaration** mirroring the Python signature (no codegen — keep the two in
+  lockstep). The example task runs it on a bare
+  `{ runtime: "east-py", platforms: [{ custom: "platform_module" }, "east-py-std"] }`.
+- `src/platform.ts` — a TS-East platform function with declaration **and**
+  `.implement(...)` co-located, exported as the package's `./platform` subpath.
+  The example task runs it on
+  `{ runtime: "east-node", platforms: [{ custom: "@elaraai/<project>" }] }` — the
+  custom name is the package's full **scoped** name so east-node-cli self-resolves
+  the `./platform` export.
+
+Conventions: platform-function names are **dotted `"<project>.<fn>"`** (an opaque
+binding string, frozen into the content-addressed `taskHash` on publish — so it
+must be the scaffold default). The bare typed runner resolves the runner binary
+from the project's own `.venv` / `node_modules` — **no `uv run` wrapper, no
+`project` field**. To add a function, mirror its signature across the Python impl
+and the TS declaration by hand.
+
 ## Lifecycle (generated npm scripts)
 
 ```bash
