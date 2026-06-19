@@ -1,6 +1,6 @@
 {
   "name": "@elaraai/east-c-cli",
-  "version": "1.0.18",
+  "version": "1.0.19",
   "description": "Pulls in the native east-c binary for your platform via optional dependencies. The matching per-platform package (@elaraai/east-c-cli-<target>) provides the `east-c` bin directly.",
   "files": [
     "README.md",
