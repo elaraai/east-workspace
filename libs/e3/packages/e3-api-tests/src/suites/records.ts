@@ -206,7 +206,7 @@ export function recordTests(setup: TestSetup<TestContext>): void {
       assert.notEqual(commits[0]!.hash, commits[1]!.hash);
     });
 
-    it('records the client-supplied actor on the commit, defaulting to "api"', async (t) => {
+    it('records the actor: client-supplied when unauthenticated, forge-resistant when authenticated', async (t) => {
       const ctx = await withRecords(t);
       const opts = await ctx.opts();
 
@@ -219,9 +219,27 @@ export function recordTests(setup: TestSetup<TestContext>): void {
         { args: [encodeInt(1n)], actor: none, limits: none }, opts,
       );
 
+      // History is newest-first: commits[0] = the no-actor mutation,
+      // commits[1] = the cli:bob mutation. Self-detect the server's auth mode
+      // from the recorded actor so one suite verifies BOTH contracts against
+      // either a local (unauthenticated) server or an authenticated deployment
+      // (e.g. the cloud):
+      //   - unauthenticated: a missing actor defaults to 'api' and a client-
+      //     supplied actor is honoured;
+      //   - authenticated: the server derives the actor from the verified
+      //     identity ('auth:<principal>') and IGNORES the client-supplied actor,
+      //     so the audit trail cannot be forged.
       const { commits } = await workspaceRecordHistory(ctx.config.baseUrl, ctx.repoName, WS, 'counter', undefined, opts);
-      assert.equal(commits[0]!.actor, 'api'); // no actor → server default
-      assert.equal(commits[1]!.actor, 'cli:bob'); // honoured when unauthenticated
+      if (commits[0]!.actor.startsWith('auth:')) {
+        assert.ok(
+          commits[1]!.actor.startsWith('auth:'),
+          `authenticated server must ignore the client-supplied actor (forge-resistant), got ${commits[1]!.actor}`,
+        );
+        assert.equal(commits[0]!.actor, commits[1]!.actor, 'both commits attributed to the same verified principal');
+      } else {
+        assert.equal(commits[0]!.actor, 'api'); // no actor → server default
+        assert.equal(commits[1]!.actor, 'cli:bob'); // client actor honoured when unauthenticated
+      }
     });
 
     it('pages history with a from cursor and a limit, and ends on an unknown cursor', async (t) => {
