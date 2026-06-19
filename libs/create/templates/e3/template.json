@@ -7,10 +7,27 @@
     },
     "ui": {
       "default": false,
-      "files": ["src/surface.tsx", "src/index.ui.ts"],
-      "disable": ["src/index.ts"],
-      "rename": { "src/index.ui.ts": "src/index.ts" },
+      "files": ["src/surface.tsx"],
       "dependencies": ["@elaraai/east-ui", "@elaraai/e3-ui"]
+    },
+    "platform": {
+      "default": false,
+      "requires": ["runner:east-py"],
+      "files": [
+        "platform_module/__init__.py",
+        "src/platform_module.ts",
+        "src/platform.ts",
+        "pyproject.platform.toml"
+      ],
+      "disable": ["pyproject.toml"],
+      "rename": { "pyproject.platform.toml": "pyproject.toml" },
+      "packageJson": {
+        "exports": {
+          ".": "./dist/index.js",
+          "./platform": "./dist/platform.js",
+          "./package.json": "./package.json"
+        }
+      }
     },
     "runner:east-node": {
       "default": true,
@@ -42,6 +59,12 @@
       "devDependencies": ["@elaraai/tsserver-plugin-east"]
     }
   },
+  "indexVariants": [
+    { "when": ["ui", "platform"], "source": "src/index.ui.platform.ts" },
+    { "when": ["platform"], "source": "src/index.platform.ts" },
+    { "when": ["ui"], "source": "src/index.ui.ts" },
+    { "when": [], "source": "src/index.ts" }
+  ],
   "scriptVariants": {
     "test": [
       { "when": ["tests", "runner:east-py"], "value": "npm run build && npm run test:export && npm run test:py" },

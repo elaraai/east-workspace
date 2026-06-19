@@ -68,13 +68,15 @@ async function resolveFeatures(templateDir: string, args: string[]): Promise<Fea
 
   const runnersFlag = args.find((a) => a.startsWith("--runners="));
   const selectionFlags =
-    ["--tests", "--no-tests", "--ui", "--no-ui", "--eslint", "--no-eslint"].some((f) => args.includes(f)) ||
+    ["--tests", "--no-tests", "--ui", "--no-ui", "--platform", "--no-platform", "--eslint", "--no-eslint"].some((f) => args.includes(f)) ||
     Boolean(runnersFlag);
 
   if (args.includes("--tests")) features["tests"] = true;
   if (args.includes("--no-tests")) features["tests"] = false;
   if (args.includes("--ui")) features["ui"] = true;
   if (args.includes("--no-ui")) features["ui"] = false;
+  if (args.includes("--platform")) features["platform"] = true;
+  if (args.includes("--no-platform")) features["platform"] = false;
   if (args.includes("--eslint")) features["eslint"] = true;
   if (args.includes("--no-eslint")) features["eslint"] = false;
   if (args.includes("--editor-diagnostics")) features["editor-diagnostics"] = true;
@@ -100,6 +102,14 @@ async function resolveFeatures(templateDir: string, args: string[]): Promise<Fea
       const answer = (await rl.question(`Runners to include (comma-separated) [${defaults.join(",")}]: `)).trim();
       const picks = new Set(answer ? answer.split(",").map((s) => s.trim()).filter(Boolean) : defaults);
       for (const key of runnerKeys) features[key] = picks.has(runnerName(key));
+    }
+    // Platform modules need the east-py runner; only offer when it is enabled,
+    // otherwise force the feature off so a no-east-py project never hits the
+    // `--platform requires the east-py runner` error from a silent default.
+    if ("platform" in manifest.features) {
+      features["platform"] = features["runner:east-py"]
+        ? await askYesNo(rl, "Include a project-owned platform module (custom Python + TS-East functions)?", features["platform"]!)
+        : false;
     }
     if ("eslint" in manifest.features) {
       features["eslint"] = await askYesNo(rl, "Include ESLint with the East lint rules?", features["eslint"]!);
@@ -134,6 +144,7 @@ function printHelp(kind: ProjectKind): void {
   if (kind === "e3") {
     console.log("  --tests | --no-tests         include test files (default: yes)");
     console.log("  --ui | --no-ui               include east-ui + e3-ui UI components (default: no)");
+    console.log("  --platform | --no-platform   include a project-owned platform module (Python + TS-East; requires east-py) (default: no)");
     console.log("  --runners=east-node,east-c,east-py   East runtimes to include (default: all)");
   }
   console.log("");

@@ -1,0 +1,28 @@
+[project]
+name = "__PROJECT_NAME__"
+description = "__DISPLAY_NAME__"
+requires-python = ">=3.11"
+version = "0.1.0"
+dependencies = [
+  "elaraai-east-py",
+  "elaraai-east-py-std",
+  "elaraai-east-py-io",
+  "elaraai-east-py-datascience",
+  "elaraai-east-py-cli",
+  "pytest",
+  "pytest-subtests",
+]
+
+# Packaging block — without it `uv sync` would not install this project's own
+# code, so `east-py run -p platform_module` could not import it. Matches the
+# repo's pure-Python packages (east-py-std/io/cli). This variant of
+# pyproject.toml ships only with the `--platform` scaffold feature (which
+# requires the east-py runner); the plain pyproject.toml has no build-system, so
+# `uv sync` installs dependencies without trying to build a package that isn't
+# there.
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["platform_module"]
