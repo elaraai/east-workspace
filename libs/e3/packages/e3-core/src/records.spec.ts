@@ -42,8 +42,12 @@ function successRunner(value: Uint8Array): TaskRunner {
   return runnerReturning(async () => ({ kind: 'success', value, stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false }));
 }
 
-/** A runner whose detached run returns a fixed outcome (no subprocess). */
-function runnerReturning(impl: () => Promise<DetachedResult>): TaskRunner {
+/** A runner whose detached run returns a fixed outcome (no subprocess). The
+ *  impl may inspect the run spec and options (e.g. the abort signal) — existing
+ *  zero-arg impls remain valid. */
+function runnerReturning(
+  impl: (spec: { args: Uint8Array[]; limits?: { timeoutMs: number } }, options?: { signal?: AbortSignal }) => Promise<DetachedResult>,
+): TaskRunner {
   return { runDetached: impl } as unknown as TaskRunner;
 }
 
@@ -225,6 +229,124 @@ describe('records', () => {
     assert.strictEqual(await workspaceGetDataset(storage, repo, ws, counterPath), BigInt(K));
     // genesis + K commits, a single linear chain (no forks / lost updates).
     assert.strictEqual((await recordHistory(storage, repo, ws, 'counter')).length, K + 1);
+  });
+
+  // ---- OPS-3: idempotency key (issue #69) ----
+
+  it('idempotent retry: same key returns the prior commit and does NOT re-run the reducer', async () => {
+    let calls = 0;
+    const runner = runnerReturning(async () => {
+      calls++;
+      return { kind: 'success', value: encodeInt(5n), stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false };
+    });
+
+    const first = await recordMutate(storage, runner, repo, ws, 'counter', 'increment', [encodeInt(5n)], { actor: 'cli:test', idempotencyKey: 'k1' });
+    const second = await recordMutate(storage, runner, repo, ws, 'counter', 'increment', [encodeInt(5n)], { actor: 'cli:test', idempotencyKey: 'k1' });
+
+    assert.strictEqual(first.kind, 'committed');
+    assert.strictEqual(second.kind, 'committed');
+    if (first.kind === 'committed' && second.kind === 'committed') {
+      assert.strictEqual(second.commitHash, first.commitHash, 'the retry returns the original commit');
+    }
+    assert.strictEqual(calls, 1, 'the reducer ran exactly once');
+    assert.strictEqual((await recordHistory(storage, repo, ws, 'counter')).length, 2, 'genesis + one commit, no duplicate');
+    assert.strictEqual(await workspaceGetDataset(storage, repo, ws, counterPath), 5n);
+  });
+
+  it('distinct idempotency keys each commit', async () => {
+    await recordMutate(storage, successRunner(encodeInt(5n)), repo, ws, 'counter', 'increment', [encodeInt(5n)], { actor: 'cli:test', idempotencyKey: 'k1' });
+    await recordMutate(storage, successRunner(encodeInt(8n)), repo, ws, 'counter', 'increment', [encodeInt(3n)], { actor: 'cli:test', idempotencyKey: 'k2' });
+    assert.strictEqual((await recordHistory(storage, repo, ws, 'counter')).length, 3, 'genesis + two distinct commits');
+    assert.strictEqual(await workspaceGetDataset(storage, repo, ws, counterPath), 8n);
+  });
+
+  it('dedup is best-effort last-commit: a different mutation between two same-key calls is NOT deduped (at-least-once)', async () => {
+    await recordMutate(storage, successRunner(encodeInt(5n)), repo, ws, 'counter', 'increment', [encodeInt(5n)], { actor: 'cli:test', idempotencyKey: 'k1' });
+    // A different keyed mutation commits, overwriting the idempotency slot.
+    await recordMutate(storage, successRunner(encodeInt(6n)), repo, ws, 'counter', 'increment', [encodeInt(1n)], { actor: 'cli:test', idempotencyKey: 'k2' });
+    // k1 is no longer the last commit, so the retry re-applies — documented limit.
+    let calls = 0;
+    const runner = runnerReturning(async () => { calls++; return { kind: 'success', value: encodeInt(11n), stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false }; });
+    const retry = await recordMutate(storage, runner, repo, ws, 'counter', 'increment', [encodeInt(5n)], { actor: 'cli:test', idempotencyKey: 'k1' });
+    assert.strictEqual(retry.kind, 'committed');
+    assert.strictEqual(calls, 1, 'last-commit dedup cannot catch a superseded key, so the reducer re-runs');
+  });
+
+  // ---- OPS-1: wall-clock budget (issue #69) ----
+
+  it('a spent budget returns conflict before running the reducer', async () => {
+    let calls = 0;
+    const runner = runnerReturning(async () => { calls++; return { kind: 'success', value: encodeInt(5n), stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false }; });
+    // budgetMs:0 -> the deadline is already past at the top of the first iteration.
+    const outcome = await recordMutate(storage, runner, repo, ws, 'counter', 'increment', [encodeInt(5n)], { actor: 'cli:test', budgetMs: 0 });
+    assert.strictEqual(outcome.kind, 'conflict');
+    if (outcome.kind === 'conflict') assert.strictEqual(outcome.attempts, 0);
+    assert.strictEqual(calls, 0, 'the reducer is not started past the deadline');
+  });
+
+  it('the budget bounds a contended retry loop to a typed conflict, not a hang', async () => {
+    const genesis = await storage.datasets.read(repo, ws, 'records/counter');
+    assert.ok(genesis && genesis.type === 'value');
+    const stateHash = genesis.value.hash;
+
+    let calls = 0;
+    const runner = runnerReturning(async () => {
+      calls++;
+      // Always interfere so every writeIf conflicts (would retry to maxRetryMs=30s
+      // without a budget); the budget must cut it far sooner.
+      await storage.datasets.write(repo, ws, 'records/counter', variant('value', {
+        hash: stateHash, versions: new Map([['.records.counter', calls.toString(16).padEnd(64, '0')]]),
+      }));
+      return { kind: 'success', value: encodeInt(7n), stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false };
+    });
+
+    const start = Date.now();
+    const outcome = await recordMutate(storage, runner, repo, ws, 'counter', 'increment', [encodeInt(7n)], { actor: 'cli:test', budgetMs: 200 });
+    const elapsed = Date.now() - start;
+    assert.strictEqual(outcome.kind, 'conflict', 'the budget bounded the retry loop');
+    assert.ok(calls >= 1, 'at least one attempt ran');
+    assert.ok(elapsed < 5000, `returned within the budget (~200ms), not the 30s default: ${elapsed}ms`);
+  });
+
+  it('clamps a single reducer run timeout to the remaining budget', async () => {
+    let seenTimeout: number | undefined;
+    const runner = runnerReturning(async (spec) => {
+      seenTimeout = spec.limits?.timeoutMs;
+      return { kind: 'success', value: encodeInt(5n), stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false };
+    });
+    // The reducer's requested timeout (50s) far exceeds the budget, so the run
+    // the runner sees must be clamped under the remaining budget — otherwise a
+    // single run could overrun a caller's gateway.
+    await recordMutate(storage, runner, repo, ws, 'counter', 'increment', [encodeInt(5n)], {
+      actor: 'cli:test', budgetMs: 200,
+      limits: { timeoutMs: 50_000, maxResultBytes: 64 * 1024 * 1024, maxLogBytes: 64 * 1024 },
+    });
+    assert.ok(seenTimeout !== undefined && seenTimeout <= 200, `run timeout clamped to the budget, got ${seenTimeout}ms`);
+    assert.ok(seenTimeout! >= 1, 'the clamp floors at 1ms, never <= 0');
+  });
+
+  // ---- OPS-2: abort signal (issue #69) ----
+
+  it('a pre-aborted signal returns failed/aborted without running the reducer', async () => {
+    let calls = 0;
+    const runner = runnerReturning(async () => { calls++; return { kind: 'success', value: encodeInt(5n), stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false }; });
+    const ac = new AbortController();
+    ac.abort();
+    const outcome = await recordMutate(storage, runner, repo, ws, 'counter', 'increment', [encodeInt(5n)], { actor: 'cli:test', signal: ac.signal });
+    assert.strictEqual(outcome.kind, 'failed');
+    if (outcome.kind === 'failed') assert.strictEqual(outcome.stderr, 'aborted');
+    assert.strictEqual(calls, 0, 'the reducer is not started when already aborted');
+  });
+
+  it('forwards the abort signal to the runner', async () => {
+    let received: AbortSignal | undefined;
+    const runner = runnerReturning(async (_spec, options) => {
+      received = options?.signal;
+      return { kind: 'success', value: encodeInt(5n), stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false };
+    });
+    const ac = new AbortController();
+    await recordMutate(storage, runner, repo, ws, 'counter', 'increment', [encodeInt(5n)], { actor: 'cli:test', signal: ac.signal });
+    assert.strictEqual(received, ac.signal, 'the runner received the mutation signal');
   });
 
   it('recordCompact resets history to a $compact root and gc reclaims the prior chain', async () => {

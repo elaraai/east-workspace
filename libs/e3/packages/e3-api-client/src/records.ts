@@ -31,7 +31,10 @@ export async function workspaceRecordDescribe(
   return get(url, recordBase(repo, ws, record), RecordSignatureType, options);
 }
 
-/** Apply a mutation to a record synchronously, returning its terminal result. */
+/**
+ * Apply a mutation to a record synchronously, returning its terminal result.
+ * @param idempotencyKey - Sent as the `Idempotency-Key` header so a retry after a gateway timeout cannot double-apply.
+ */
 export async function workspaceRecordMutate(
   url: string,
   repo: string,
@@ -40,8 +43,13 @@ export async function workspaceRecordMutate(
   mutation: string,
   req: MutationCallRequest,
   options: RequestOptions,
+  idempotencyKey?: string,
 ): Promise<MutationResult> {
-  return post(url, `${recordBase(repo, ws, record)}/mutations/${enc(mutation)}`, req, MutationCallRequestType, MutationResultType, options);
+  // Idempotency travels as a header (not the Beast2 body), so retrying a call
+  // after a gateway timeout cannot double-apply, and adding it changes no wire
+  // type — an un-upgraded server simply ignores the header.
+  const extraHeaders = idempotencyKey !== undefined ? { 'Idempotency-Key': idempotencyKey } : undefined;
+  return post(url, `${recordBase(repo, ws, record)}/mutations/${enc(mutation)}`, req, MutationCallRequestType, MutationResultType, options, extraHeaders);
 }
 
 /** Compact a record's history (drops the prior chain), returning the result of

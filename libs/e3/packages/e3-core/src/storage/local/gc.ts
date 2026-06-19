@@ -453,6 +453,20 @@ export async function repoGc(
     // Not a fatal error
   }
 
+  // Step 4b: Sweep orphaned .partial staging files left by atomicWriteFile in
+  // the ref trees (packages/, workspaces/ incl. nested dataset refs,
+  // executions/, dataflows/) — cleanupPartials above only covers objects/.
+  const partialNow = Date.now();
+  for (const refRoot of ['packages', 'workspaces', 'executions', 'dataflows']) {
+    try {
+      const result = await cleanupRefTreePartials(path.join(repo, refRoot), partialNow, minAge, dryRun);
+      deletedPartials += result.deleted;
+      partialSkippedYoung += result.skippedYoung;
+    } catch {
+      // Not a fatal error
+    }
+  }
+
   // Step 5: Clean up orphaned transfer staging files
   try {
     const transferResult = await cleanupTransferStaging(minAge, dryRun);
@@ -519,6 +533,60 @@ async function cleanupPartials(
     }
   } catch {
     // Objects directory doesn't exist
+  }
+
+  return { deleted, skippedYoung };
+}
+
+/**
+ * Recursively unlink aged `.partial` staging files under a ref-tree root.
+ *
+ * `atomicWriteFile` stages bytes in a sibling `<dest>.<rand>.partial` file
+ * before renaming it over the destination; that staging file survives only if a
+ * writer crashed between the write and the rename. This sweeps those orphans
+ * from the ref trees (packages/, workspaces/ — including nested dataset refs —,
+ * executions/, dataflows/), which the objects-only {@link cleanupPartials} does
+ * not cover. The age gate ensures a live, in-flight staging file is never raced.
+ *
+ * @param rootDir - Ref-tree root directory to walk
+ * @param now - Reference timestamp for the age gate
+ * @param minAge - Minimum age (ms) before a staging file is eligible for removal
+ * @param dryRun - When true, count but do not delete
+ * @returns Counts of deleted and too-young-to-delete staging files
+ */
+async function cleanupRefTreePartials(
+  rootDir: string,
+  now: number,
+  minAge: number,
+  dryRun: boolean
+): Promise<{ deleted: number; skippedYoung: number }> {
+  let deleted = 0;
+  let skippedYoung = 0;
+
+  const entries = await fs.readdir(rootDir, { withFileTypes: true }).catch(() => null);
+  if (!entries) return { deleted, skippedYoung }; // Root directory doesn't exist
+
+  for (const entry of entries) {
+    const full = path.join(rootDir, entry.name);
+    if (entry.isDirectory()) {
+      const sub = await cleanupRefTreePartials(full, now, minAge, dryRun);
+      deleted += sub.deleted;
+      skippedYoung += sub.skippedYoung;
+    } else if (entry.name.endsWith('.partial')) {
+      try {
+        const fileStat = await fs.stat(full);
+        if (minAge > 0 && now - fileStat.mtimeMs < minAge) {
+          skippedYoung++;
+          continue;
+        }
+        if (!dryRun) {
+          await fs.unlink(full);
+        }
+        deleted++;
+      } catch {
+        // Skip files we can't stat or delete
+      }
+    }
   }
 
   return { deleted, skippedYoung };

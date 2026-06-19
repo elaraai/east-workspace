@@ -68,9 +68,13 @@ export function createWorkspaceRecordRoutes(
     try {
       const req = await decodeBody(c, MutationCallRequestType);
       const { actor, authoritative } = resolveActor(c.get('identity'));
+      // Idempotency key travels out-of-band as a header (not the Beast2 body), so
+      // adding it changes no wire type; the request signal aborts on disconnect.
+      const idempotencyKey = c.req.header('Idempotency-Key') || undefined;
       return await callMutationSync(
         storage, repoPath, getRunner(repoPath),
         c.req.param('ws')!, c.req.param('rec')!, c.req.param('mut')!, req, actor, authoritative,
+        { signal: c.req.raw.signal, idempotencyKey },
       );
     } catch (err) {
       return sendError(MutationResultType, errorToVariant(err));

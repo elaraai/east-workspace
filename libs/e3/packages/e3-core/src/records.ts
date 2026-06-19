@@ -55,6 +55,13 @@ const DEFAULT_LIMITS: RecordMutateLimits = {
  *  thundering herd would exhaust, dropping a write). */
 const DEFAULT_MAX_RETRY_MS = 30_000;
 
+/** Reserved version-vector slot holding the last committed idempotency key. The
+ *  `$`-prefix keeps it out of the structural keypath space, so change detection
+ *  (snapshotInputVersions) never reads it and dataflow staleness is unaffected.
+ *  Stored in the ref (not the commit) so adding it changes no persisted struct
+ *  schema — old commit/ref blobs still decode. */
+const IDEM_SLOT = '$idem';
+
 /**
  * The outcome of a mutation attempt. Only `committed` writes anything durable;
  * every other outcome leaves the repo byte-identical (bar unreferenced objects
@@ -81,6 +88,16 @@ export interface RecordMutateOptions {
   limits?: RecordMutateLimits;
   /** Wall-clock budget for CAS retries (default 30s); on expiry returns conflict. */
   maxRetryMs?: number;
+  /** Hard wall-clock budget for the WHOLE call (reducer runs included). When set,
+   *  the loop returns a typed `conflict`/`timed_out` before this deadline rather
+   *  than risking a caller's gateway timeout: each iteration is gated on the
+   *  deadline and each reducer run's `timeoutMs` is clamped to the time
+   *  remaining. Omit for the unbounded local behaviour. */
+  budgetMs?: number;
+  /** Optional client idempotency key. When the record's last mutation carried
+   *  this same key, the reducer is NOT re-run and the prior commit is returned —
+   *  so a client retrying after a gateway timeout cannot double-apply. */
+  idempotencyKey?: string;
   /** Optional hard cap on CAS attempts (mainly for tests forcing a conflict). */
   maxAttempts?: number;
   /** Cancellation — aborts the in-flight reducer execution (how is the runner's
@@ -198,18 +215,40 @@ export async function recordMutate(
     const bodyIr = await storage.objects.read(repo, mutObj.bodyIr);
     const limits = opts.limits ?? DEFAULT_LIMITS;
     const deadline = Date.now() + (opts.maxRetryMs ?? DEFAULT_MAX_RETRY_MS);
+    // Hard wall-clock cap for the whole call (OPS-1): when set, no reducer run
+    // may overrun it and the loop returns a typed terminal before a caller's
+    // gateway would cut the connection.
+    const hardDeadline = opts.budgetMs !== undefined ? Date.now() + opts.budgetMs : undefined;
 
     for (let attempt = 1; ; attempt++) {
       if (opts.signal?.aborted) return { kind: 'failed', exitCode: -1, stderr: 'aborted' };
+      // Stop before starting another reducer run once the budget is spent.
+      if (hardDeadline !== undefined && Date.now() >= hardDeadline) {
+        return { kind: 'conflict', attempts: attempt - 1 };
+      }
 
       const existing = await storage.datasets.readVersioned(repo, ws, resolved.refPath);
       if (!existing || existing.ref.type !== 'value') {
         return { kind: 'invalid', message: `record '${recordName}' has no state` };
       }
 
+      // Idempotent retry (OPS-3): if the record's last mutation already committed
+      // under this key, return that commit without re-running the reducer.
+      if (opts.idempotencyKey !== undefined && existing.ref.value.versions.get(IDEM_SLOT) === opts.idempotencyKey) {
+        const head = existing.ref.value.versions.get(resolved.selfKeypath);
+        if (head !== undefined) {
+          return { kind: 'committed', commitHash: head, stateHash: existing.ref.value.hash };
+        }
+      }
+
+      // Clamp the reducer's time budget to what remains of the hard deadline, so
+      // a single run cannot overrun it.
+      const runLimits = hardDeadline !== undefined
+        ? { ...limits, timeoutMs: Math.max(1, Math.min(limits.timeoutMs, hardDeadline - Date.now())) }
+        : limits;
       const stateBytes = await storage.objects.read(repo, existing.ref.value.hash);
       const result = await runner.runDetached(
-        { bodyIr, args: [stateBytes, ...args], runner: mutObj.runner, limits },
+        { bodyIr, args: [stateBytes, ...args], runner: mutObj.runner, limits: runLimits },
         { signal: opts.signal },
       );
       if (result.kind !== 'success') return failureOutcome(result);
@@ -231,16 +270,23 @@ export async function recordMutate(
       };
       const commitHash = await storage.objects.write(repo, encodeCommit(commit));
 
+      // Self-vector carries the head commit; the idempotency slot (when keyed)
+      // lets the next retry short-circuit. Both are rewritten each commit, so the
+      // map stays bounded.
+      const versions = new Map([[resolved.selfKeypath, commitHash]]);
+      if (opts.idempotencyKey !== undefined) versions.set(IDEM_SLOT, opts.idempotencyKey);
+
       try {
         await storage.datasets.writeIf(
           repo, ws, resolved.refPath,
-          variant('value', { hash: newStateHash, versions: new Map([[resolved.selfKeypath, commitHash]]) }),
+          variant('value', { hash: newStateHash, versions }),
           existing.revision,
         );
         return { kind: 'committed', commitHash, stateHash: newStateHash };
       } catch (err) {
         if (!(err instanceof DatasetRefConflictError)) throw err;
-        if ((opts.maxAttempts !== undefined && attempt >= opts.maxAttempts) || Date.now() >= deadline) {
+        const budgetSpent = hardDeadline !== undefined && Date.now() >= hardDeadline;
+        if ((opts.maxAttempts !== undefined && attempt >= opts.maxAttempts) || Date.now() >= deadline || budgetSpent) {
           return { kind: 'conflict', attempts: attempt };
         }
         await new Promise((resolve) => setTimeout(resolve, casBackoffMs(attempt)));

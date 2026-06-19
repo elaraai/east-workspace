@@ -10,6 +10,7 @@ import { ExecutionStatusType, DataflowRunType } from '@elaraai/e3-types';
 import type { ExecutionStatus, DataflowRun } from '@elaraai/e3-types';
 import type { RefStore } from '../interfaces.js';
 import { isNotFoundError, ExecutionCorruptError } from '../../errors.js';
+import { atomicWriteFile } from './localHelpers.js';
 
 /**
  * Local filesystem implementation of RefStore.
@@ -33,6 +34,9 @@ export class LocalRefStore implements RefStore {
         if (stat.isDirectory()) {
           const versions = await fs.readdir(nameDir);
           for (const version of versions) {
+            // Skip in-flight / crash-orphaned atomic-write staging files
+            // (packageWrite stages `<version>.<rand>.partial` siblings here).
+            if (version.includes('.partial')) continue;
             packages.push({ name, version });
           }
         }
@@ -61,10 +65,8 @@ export class LocalRefStore implements RefStore {
   }
 
   async packageWrite(repo: string, name: string, version: string, hash: string): Promise<void> {
-    const refDir = path.join(repo, 'packages', name);
-    await fs.mkdir(refDir, { recursive: true });
-    const refPath = path.join(refDir, version);
-    await fs.writeFile(refPath, hash + '\n');
+    const refPath = path.join(repo, 'packages', name, version);
+    await atomicWriteFile(refPath, hash + '\n');
   }
 
   async packageRemove(repo: string, name: string, version: string): Promise<void> {
@@ -126,16 +128,10 @@ export class LocalRefStore implements RefStore {
   }
 
   async workspaceWrite(repo: string, name: string, state: Uint8Array): Promise<void> {
-    const wsDir = path.join(repo, 'workspaces');
-    const stateFile = path.join(wsDir, `${name}.beast2`);
-
-    await fs.mkdir(wsDir, { recursive: true });
-
-    // Write atomically: write to temp file, then rename
-    const randomSuffix = Math.random().toString(36).slice(2, 10);
-    const tempPath = path.join(wsDir, `.${name}.${Date.now()}.${randomSuffix}.tmp`);
-    await fs.writeFile(tempPath, state);
-    await fs.rename(tempPath, stateFile);
+    const stateFile = path.join(repo, 'workspaces', `${name}.beast2`);
+    // Atomic stage-and-rename: a concurrent reader sees the old or new complete
+    // state, never a 0-byte truncation window.
+    await atomicWriteFile(stateFile, state);
   }
 
   async workspaceRemove(repo: string, name: string): Promise<void> {
@@ -196,14 +192,19 @@ export class LocalRefStore implements RefStore {
 
   async executionWrite(repo: string, taskHash: string, inputsHash: string, executionId: string, status: ExecutionStatus): Promise<void> {
     const execDir = this.executionDir(repo, taskHash, inputsHash, executionId);
-    await fs.mkdir(execDir, { recursive: true });
 
+    // A single execution rewrites status.beast2 several times over its lifetime
+    // (running → success/failed). A bare overwrite truncates the file to 0 bytes
+    // mid-write, which a concurrent reader (e.g. a workspace-status poll calling
+    // executionGet) decodes as "Data too short for Beast2 format". Stage-and-
+    // rename makes each update atomic, so a reader only ever sees a complete
+    // status object.
     const encoder = encodeBeast2For(ExecutionStatusType);
-    await fs.writeFile(path.join(execDir, 'status.beast2'), encoder(status));
+    await atomicWriteFile(path.join(execDir, 'status.beast2'), encoder(status));
 
     // Also write output hash for success status
     if (status.type === 'success') {
-      await fs.writeFile(path.join(execDir, 'output'), status.value.outputHash + '\n');
+      await atomicWriteFile(path.join(execDir, 'output'), status.value.outputHash + '\n');
     }
   }
 
@@ -341,12 +342,12 @@ export class LocalRefStore implements RefStore {
   }
 
   async dataflowRunWrite(repo: string, workspace: string, run: DataflowRun): Promise<void> {
-    const dir = this.dataflowDir(repo, workspace);
-    await fs.mkdir(dir, { recursive: true });
-
+    // A run record is rewritten in place as the run progresses (initial →
+    // cancelled/final); stage-and-rename so a concurrent dataflowRunGet never
+    // observes a 0-byte truncation window.
     const encoder = encodeBeast2For(DataflowRunType);
     const runPath = this.dataflowRunPath(repo, workspace, run.runId);
-    await fs.writeFile(runPath, encoder(run));
+    await atomicWriteFile(runPath, encoder(run));
   }
 
   async dataflowRunList(repo: string, workspace: string): Promise<string[]> {
