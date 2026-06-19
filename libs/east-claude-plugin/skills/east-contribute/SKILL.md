@@ -154,6 +154,15 @@ Edit the source. **Every public API you add or change MUST carry a TypeDoc comme
 
 **Python optional native deps** (`docs/conventions/PYTHON_OPTIONAL_DEPS.md`): module-level `find_spec` guard + `_check_<mod>_support()` raising `NotImplementedError`; **bare-import the native lib inside each impl function** (no top-level import, no `try/except ImportError`); add the extras group + two `[[tool.mypy.overrides]]` blocks; update the parent package's CLAUDE.md `## Modules` table.
 
+### Development rules (hard — non-negotiable; the silent ones reviewers miss)
+
+These break nothing at first and rot later. They are not style preferences — each one shipped as a real bug in this repo.
+
+- **Decode/value TS types: DERIVE from the East type, never hand-roll.** When an East type exists (`Foo.Types.Bar`, `BarType`), type its decoded JS shape as `ValueTypeOf<typeof Foo.Types.Bar>` (or `ValueTypeOf<typeof BarType>`, index a list with `[number]`). **Never** hand-author a parallel `interface BarValue { … }` mirror, and never invent local aliases like `type Opt<T> = {type;value}` / `type Var<K,V> = {type:K;value:V}` to stand in for `OptionType`/`VariantType`. A hand-rolled mirror silently drifts the moment the East type gains a field — a renderer's hand-rolled `ConfigValue` missed three new config fields this way and nobody's compiler complained. The host-app renderer convention (`east-ui-components/CLAUDE.md`) is explicit: props are typed `ValueTypeOf<typeof Foo.Types.Foo>`.
+- **Variants/options: CONSTRUCT with `variant()` / `some` / `none`, TYPE with `ValueTypeOf`.** Never a `{ type, value }` object literal (it lacks the encoder symbol the runtime needs — see `[[never-hand-roll-variants]]`), never a hand-rolled variant *type*. This applies in TS *and* in factory/renderer code that builds East values to pass to a component.
+- **Styling (east-ui-components / e3-ui-components renderers): theme recipes ONLY, zero inline styles.** All styling flows through `theme/recipes` (`useRecipe`) / `theme/slot-recipes` (`useSlotRecipe`) via the call-once-then-spread-slot idiom. **Never** `style={{…}}` and **never** inline Chakra style props (`bg` / `color` / `p` / `gap` / `fontFamily` / `minW` / `borderColor`…) — they bypass the design system and rot against `design/`. If a styled element has no recipe, **add a slot recipe** encoding the `libs/east-ui/design/spec.css` tokens (semantic tokens like `bg.surface`, `border.subtle`, `bg.brand.subtle` — never raw hex/px). Genuinely-dynamic data bindings (`width={pct}`, `bg={toneToken(kind)}`) are the only inline exception. Pre-existing inline-style debt nearby is not licence to add more — flag it, don't replicate it.
+- **Before trusting a downstream type error, rebuild the chain.** A renderer type-checking a *stale* `dist` of its IR package (because the IR build `noEmitOnError`-aborted on an unrelated example) will silently miss new fields. After changing an IR type, build the IR package to **success** before believing the renderer compiles (see §7's stale-tree rule).
+
 ## 6. East code in examples + tests (HARD RULE)
 
 **Every distinct public method exercised by a `*.spec.ts` MUST have a matching `example()` export in the sibling `*.examples.ts`** (name-locked: `array.spec.ts` ↔ `array.examples.ts`, same dir). Examples are both CI-tested and extracted into the plugin search index — a missing example breaks the index-in-sync CI check.
@@ -201,6 +210,7 @@ cd libs/<lib> && make build && make test && make lint
 cd libs/<lib> && make help        # lib-specific extras (e3: make fuzz; east-c: make compliance; east-py: make typecheck/check/coverage)
 ```
 
+- **Local `dist/` is gitignored + built locally — a stale tree FAKES regressions.** Each package's `dist/` lags the *pulled source*, so a half-built tree throws phantom errors in files you never touched: a new export missing from `east/dist`, an `implicit-any` on a test `$`, a `value is not iterable` in beast2 serialization, an unresolved import. **When a build/test fails in a file you did not edit, suspect a stale tree FIRST** — don't blame your change. Before concluding anything is broken: **clean-rebuild the entire dependency chain** (`make clean && make build`, or at minimum `rm -rf` the `dist/` + `*.tsbuildinfo` of east → east-node → e3 → east-ui and rebuild them *in order*), and run **`pnpm install`** (a declared dep like `leaflet` may be unfetched). Then prove any remaining failure is pre-existing by stashing your diff (`git stash`) and re-running — a failure identical with your changes absent is not yours.
 - **Integration tests** (east-node-io, east-py-io) need Docker: `make services-up` … `make services-down` (or `make test-all` for the full sweep).
 - **east-c / east-py compliance** replay TS-exported IR — run `make test-export` first (root export → `/tmp/east-test-ir/`; datascience exports to `/tmp/east-py-datascience`). Then `cd libs/east-c && make compliance` / `cd libs/east-py && make check`.
 - **Address every injected `<east-code-review>` diagnostic** and every downstream lib in the blast radius.
@@ -222,6 +232,8 @@ cd libs/east-claude-plugin && make index && make build   # regenerates index.jso
 ## 9. Branch → commit → PR (only after approval)
 
 Implement and verify first. Then **stop and present the branch/commit/PR plan**; run `git`/`gh` only when the user explicitly approves the push (harness rule: commit/push only when asked).
+
+- **Start from a fresh `main` by default.** Before beginning a new issue, `git checkout main && git pull`, *then* branch off it — otherwise you risk starting on a stale or already-merged feature branch you previously worked on, silently building/testing against a tree behind `origin`. (After pulling, the local `dist/` lags the fresher source, so clean-rebuild per §7.) **Exception:** when the developer explicitly tells you to continue on the current working branch — e.g. to add a change to an open PR — stay on it: do NOT `checkout main` / `pull` / `reset`, just keep committing to that branch.
 
 - **Branch** off main: `elaraai/<type>/<slug>` (e.g. `elaraai/fix/e3-statestore-windows-rename-retry`). Never commit to main.
 - **Commit**: Conventional Commits with a lib scope — `fix(e3): …`, `feat(east-ui): …`, `test(e3): …`, `chore(east-claude-plugin): …`. Reference the issue in the body (`Fixes #N`). End every commit with the trailer:
