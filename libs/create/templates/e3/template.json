@@ -12,15 +12,7 @@
     },
     "platform": {
       "default": false,
-      "requires": ["runner:east-py"],
-      "files": [
-        "platform_module/__init__.py",
-        "src/platform_module.ts",
-        "src/platform.ts",
-        "pyproject.platform.toml"
-      ],
-      "disable": ["pyproject.toml"],
-      "rename": { "pyproject.platform.toml": "pyproject.toml" },
+      "files": ["src/platform.ts"],
       "packageJson": {
         "exports": {
           ".": "./dist/index.js",
@@ -28,6 +20,16 @@
           "./package.json": "./package.json"
         }
       }
+    },
+    "platform-py": {
+      "allOf": ["platform", "runner:east-py"],
+      "files": [
+        "platform_module/__init__.py",
+        "src/platform_module.ts",
+        "pyproject.platform.toml"
+      ],
+      "disable": ["pyproject.toml"],
+      "rename": { "pyproject.platform.toml": "pyproject.toml" }
     },
     "runner:east-node": {
       "default": true,
@@ -60,9 +62,11 @@
     }
   },
   "indexVariants": [
+    { "when": ["ui", "platform", "runner:east-py"], "source": "src/index.ui.platform.py.ts" },
     { "when": ["ui", "platform"], "source": "src/index.ui.platform.ts" },
-    { "when": ["platform"], "source": "src/index.platform.ts" },
     { "when": ["ui"], "source": "src/index.ui.ts" },
+    { "when": ["platform", "runner:east-py"], "source": "src/index.platform.py.ts" },
+    { "when": ["platform"], "source": "src/index.platform.ts" },
     { "when": [], "source": "src/index.ts" }
   ],
   "scriptVariants": {

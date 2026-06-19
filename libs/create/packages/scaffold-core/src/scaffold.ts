@@ -48,8 +48,13 @@ export interface ScaffoldResult extends ProjectNames {
 interface FeatureSpec {
   /** Enabled state when the caller does not specify the feature. Defaults to `true`. */
   default?: boolean;
-  /** Other features that must be ON whenever this feature is ON (else scaffolding errors). */
-  requires?: string[];
+  /**
+   * Marks a DERIVED feature: it is enabled iff all listed features are enabled,
+   * and is never toggled directly (callers/CLI ignore it). Used to gate files on
+   * a combination — e.g. `platform-py` (the Python half) is on only when both
+   * `platform` and the `runner:east-py` runner are on.
+   */
+  allOf?: string[];
   /** Template-relative files that exist only while this feature is ON. */
   files?: string[];
   /** Template-relative files dropped while this feature is ON (the base a variant replaces). */
@@ -209,21 +214,13 @@ export function scaffold(options: ScaffoldOptions): ScaffoldResult {
   }
 
   const manifest = loadManifest(templateDir);
-  const enabled = (feature: string): boolean =>
-    options.features?.[feature] ?? manifest?.features[feature]?.default ?? true;
-
-  // Enforce feature prerequisites (e.g. `platform` requires the east-py runner)
-  // before writing anything, so an invalid combination fails fast and clearly.
-  if (manifest) {
-    for (const [feature, spec] of Object.entries(manifest.features)) {
-      if (!enabled(feature)) continue;
-      for (const req of spec.requires ?? []) {
-        if (enabled(req)) continue;
-        const label = req.startsWith("runner:") ? `the ${req.slice("runner:".length)} runner` : `the ${req} feature`;
-        throw new Error(`--${feature} requires ${label}`);
-      }
-    }
-  }
+  const enabled = (feature: string): boolean => {
+    const spec = manifest?.features[feature];
+    // A derived feature is on iff all of its `allOf` features are on; it is
+    // never set directly (e.g. `platform-py` = `platform` AND `runner:east-py`).
+    if (spec?.allOf) return spec.allOf.every(enabled);
+    return options.features?.[feature] ?? spec?.default ?? true;
+  };
 
   // Resolve which template files are skipped or renamed by the feature toggles.
   const skip = new Set<string>();
