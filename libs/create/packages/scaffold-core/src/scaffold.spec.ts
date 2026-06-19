@@ -235,6 +235,10 @@ test("scaffold e3: --platform with east-py (default) emits BOTH the TS-East and 
   const testPy = readFileSync(join(dir, "tests", "test_unit.py"), "utf8");
   assert.ok(testPy.includes("from platform_module import platform as project_platform"), "test_unit imports the project platform");
 
+  // `npm run start` must build first — the TS-East platform task loads
+  // ./dist/platform/index.js, which only exists after `tsc`.
+  assert.ok(raw.scripts.start.includes("npm run build"), "platform start builds before deploy");
+
   rmSync(dirname(dir), { recursive: true, force: true });
 });
 
@@ -275,6 +279,7 @@ test("scaffold e3: platform is opt-in — nothing leaks by default", () => {
 
   const raw = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
   assert.equal(raw.exports, undefined, "no ./platform export when platform is off");
+  assert.ok(!raw.scripts.start.includes("npm run build"), "non-platform start does not build (deploy uses --from-source)");
 
   rmSync(dirname(dir), { recursive: true, force: true });
 });

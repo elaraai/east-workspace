@@ -78,6 +78,10 @@
     "setup": [
       { "when": ["runner:east-py"], "value": "npm install && uv sync" },
       { "when": [], "value": "npm install" }
+    ],
+    "start": [
+      { "when": ["platform"], "value": "npm run build && npm run deploy && e3 dataflow run .repos __WORKSPACE_NAME__" },
+      { "when": [], "value": "npm run deploy && e3 dataflow run .repos __WORKSPACE_NAME__" }
     ]
   }
 }
