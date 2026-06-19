@@ -56,8 +56,9 @@ subpath export (a `PlatformFunction[]`).
   `{ runtime: "east-node", platforms: [{ custom: "@elaraai/<project>" }] }` — the
   custom name is the package's full scoped name so east-node-cli self-resolves
   the `./platform` export.
-- **Add another:** drop `src/platform/<fn>.ts`, then add one re-export line and
-  one array entry in `src/platform/index.ts`.
+- **Add another:** drop `src/platform/<fn>.ts` (exporting its declaration +
+  `<fn>Impl`), then in `src/platform/index.ts` import `<fn>Impl`, re-export the
+  `<fn>` declaration, and add `<fn>Impl` to the default-exported array.
 
 **Python half (added only when east-py is on, runnable after `uv sync`):** a
 `platform_module/` package whose `__init__.py` is a thin **aggregator**.
@@ -65,7 +66,9 @@ subpath export (a `PlatformFunction[]`).
   `<name>_impl = platform_functions(__name__)`; `__init__.py` spreads it into the
   top-level `platform` list `east-py run -p platform_module` loads. This mirrors
   the first-party east-py-std / east-py-datascience packages. A setuptools
-  `[build-system]` block makes the package importable from the project's `.venv`.
+  `[build-system]` block plus `[tool.setuptools] packages = ["platform_module"]`
+  makes the package importable from the project's `.venv` (re-run `uv sync` after
+  adding native deps like numpy to `pyproject.toml`).
 - `src/platform_module.ts` — a hand-written `East.platform(name, inputs, output)`
   **declaration** mirroring the Python signature (no codegen — keep the two in
   lockstep). The example task runs it on
@@ -80,6 +83,15 @@ must be the scaffold default). The bare typed runner resolves the runner binary
 from the project's own `.venv` / `node_modules` — **no `uv run` wrapper, no
 `project` field**. The scaffolded example functions are named generically
 (`example_python`, `exampleNode`) — replace them with your own.
+
+**Adding this to an EXISTING project** (no `--platform` scaffold): create
+`src/platform/index.ts` (default-export the `PlatformFunction[]`); add the
+subpath to `package.json` `exports` — `"./platform": "./dist/platform/index.js"`
+(keep `"."` too); the e3 task's `{ custom: "@elaraai/<name>" }` must equal the
+package.json `name` exactly; and ensure the project is **built** before
+`e3 dataflow run` (the scaffold's `start` runs `npm run build` first). For the
+Python half, add the setuptools `[build-system]` + `[tool.setuptools] packages`
+to `pyproject.toml` and `uv sync`.
 
 ## Lifecycle (generated npm scripts)
 

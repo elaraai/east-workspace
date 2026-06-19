@@ -40,5 +40,9 @@ npm run lint      # lint sources
 npm run clean     # remove build output, dependencies, and the local repo
 ```
 
-If you scaffolded with UI, `src/surface.tsx` holds a decision surface — a `ui()` task an operator
+If you scaffolded with UI, `src/ui/index.tsx` holds a decision surface — a `ui()` task an operator
 uses to observe and act on the recommendation, registered in the package next to the decision.
+
+If you scaffolded with `--platform`, `src/platform/` holds project-owned TS-East platform functions
+(exported via `./platform`) and `platform_module/` holds the Python ones — replace the generated
+`example` functions with your own native code, called from tasks like any East function.

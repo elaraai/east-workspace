@@ -177,6 +177,36 @@ const shout = e3.task(
 );
 ```
 
+#### Calling a project-owned (custom) platform function
+
+To call your OWN native code (a TS/Node lib, or Python like numpy) that East
+can't express, use a `{ custom: '<name>' }` platform entry. The `<name>` is how
+the runner finds your code — and it differs by runtime:
+
+- **east-node**: `<name>` is your project's **own scoped package name** (e.g.
+  `@elaraai/my-project`). east-node-cli loads its `./platform` default export (a
+  `PlatformFunction[]`) by self-reference.
+- **east-py**: `<name>` is the Python **module** name (e.g. `platform_module`).
+  `east-py run -p <name>` imports it and reads its top-level `platform` list.
+
+```typescript
+// TS-East fn implemented in this package's ./platform export
+const buffered = e3.task('buffered', [qty.output, factor],
+  East.function([IntegerType, FloatType], IntegerType, ($, q, f) => applyBuffer(q, f)),
+  { runner: { runtime: 'east-node', platforms: [{ custom: '@elaraai/my-project' }] } });
+
+// Python fn implemented in platform_module/ (+ stock east-py-std)
+const forecast = e3.task('forecast', [history],
+  East.function([ArrayType(FloatType)], FloatType, ($, h) => forecastDemand(h)),
+  { runner: { runtime: 'east-py', platforms: [{ custom: 'platform_module' }, 'east-py-std'] } });
+```
+
+The platform-function name string must be the dotted `"<project>.<fn>"` and must
+byte-match between the East declaration and the implementation. To AUTHOR the
+implementation and wire it (the `./platform` export, the Python package, the
+`--platform` scaffold), see the **east-project** skill (and **east** for
+`East.platform(...).implement(...)`, **east-py** for `@platform_function`).
+
 ### e3.customTask(name, inputs, outputType, command)
 
 Define a task that runs a shell command.
@@ -204,7 +234,9 @@ const add = e3.function(
   East.function([IntegerType, IntegerType], IntegerType, ($, a, b) => a.add(b))
 );
 
-// Runner selection — same typed Runner as tasks (custom included)
+// Runner selection — same typed Runner as tasks, including `{ custom: 'name' }`
+// platform entries for a project-owned platform (only the `runtime: 'custom'`
+// argv form is rejected for functions on the wire).
 const forecast = e3.function(
   'forecast',
   East.function([IntegerType, FloatType], FloatType, ($, periods, rate) => ...),
@@ -462,7 +494,7 @@ Use `--force` to bypass: `e3 dataflow run . dev --force`
 ## Related skills
 
 - **east** — the language for task bodies (`e3.task` runs an `East.function`).
-- **east-project** — scaffold an e3 project and drive its build / deploy / run / watch lifecycle.
+- **east-project** — scaffold an e3 project (incl. `--platform` for project-owned platform functions) and drive its build / deploy / run / watch lifecycle.
 - **east-ui** + **e3-ui** — author dashboards and decision surfaces as `ui()` tasks bound to workspace datasets.
 - **east-py-datascience** — ML / optimization tasks; set a Python runner (`{ runner: { runtime: 'east-py', platforms: ['east-py-datascience'] } }`).
 - **east-node-io** / **east-node-std** — pull databases, storage, files, and HTTP into tasks.
