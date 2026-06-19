@@ -75,6 +75,18 @@ export const TargetUnitsType = VariantType({
 /** Type alias for {@link TargetUnitsType}. */
 export type TargetUnitsType = typeof TargetUnitsType;
 
+/**
+ * A directional prior on the effect — the sign a domain expert expects. Drives the
+ * `expected_sign` guard.
+ * twin: east-py-datascience causal.ts `CausalSignType`
+ */
+export const SignType = VariantType({
+    positive: NullType,
+    negative: NullType,
+});
+/** Type alias for {@link SignType}. */
+export type SignType = typeof SignType;
+
 /** Bootstrap confidence-interval configuration. */
 export const BootstrapConfigType = StructType({
     reps: IntegerType,
@@ -125,6 +137,15 @@ export const ExperimentConfigType = StructType({
     min_treatment_variation: OptionType(FloatType),
     bootstrap: OptionType(BootstrapConfigType),
     random_state: OptionType(IntegerType),
+    /** Graded-overlap threshold — common support below this keeps `causal` from the
+     *  top tier (verdict `modest`, `overlap.support_strength = thin`); default 0.55. */
+    strong_overlap: OptionType(FloatType),
+    /** Robustness floor — a `causal` verdict whose E-value is below this is downgraded to
+     *  `modest`. Off by default. (E-value is a monotone transform of the standardized effect.) */
+    evalue_floor: OptionType(FloatType),
+    /** Directional prior — a material, CI-clear effect of the opposite sign is flagged
+     *  (`expected_sign_ok = some(false)`, verdict `adjustment_insufficient`). Off by default. */
+    expected_sign: OptionType(SignType),
 });
 /** Type alias for {@link ExperimentConfigType}. */
 export type ExperimentConfigType = typeof ExperimentConfigType;
@@ -146,12 +167,31 @@ export const BalanceRowType = StructType({
 /** Type alias for {@link BalanceRowType}. */
 export type BalanceRowType = typeof BalanceRowType;
 
+/**
+ * Graded common-support tier — `refused` (below `min_overlap`), `thin` (clears the
+ * refuse gate but below `strong_overlap`), `strong` (≥ `strong_overlap`). Vacuously
+ * `strong` with no confounders.
+ * twin: east-py-datascience causal.ts `SupportStrengthType`
+ */
+export const SupportStrengthType = VariantType({
+    refused: NullType,
+    thin: NullType,
+    strong: NullType,
+});
+/** Type alias for {@link SupportStrengthType}. */
+export type SupportStrengthType = typeof SupportStrengthType;
+
 /** Positivity / common-support diagnostic (binary treatment). */
 export const OverlapDiagnosticType = StructType({
     treated_propensity: VectorType(FloatType),
     control_propensity: VectorType(FloatType),
     common_support_frac: FloatType,
+    /** Clears the **refuse** gate `min_overlap` — NOT a quality signal (true at the
+     *  default 0.10 gate still means barely-overlapping). Read `support_strength`. */
     positivity_ok: BooleanType,
+    /** Graded common-support tier (`refused` / `thin` / `strong`).
+     *  twin: datascience OverlapDiagnosticType.support_strength */
+    support_strength: SupportStrengthType,
 });
 /** Type alias for {@link OverlapDiagnosticType}. */
 export type OverlapDiagnosticType = typeof OverlapDiagnosticType;
@@ -168,13 +208,19 @@ export const RefutationType = StructType({
     data_subset_effect: OptionType(FloatType),
     /** Std of the effect across data subsamples. */
     data_subset_std: OptionType(FloatType),
-    /** Closed-form E-value — confounder strength needed to explain the effect away. */
+    /** Closed-form E-value (risk-ratio scale) — confounder strength needed to explain the
+     *  effect away. A monotone transform of the standardized effect (not independent of it). */
     robustness_value: OptionType(FloatType),
     /** Unobserved-confounder sensitivity (tipping) curve: effect at each simulated strength. */
     sensitivity: OptionType(StructType({
         strengths: VectorType(FloatType),
         effects: VectorType(FloatType),
     })),
+    /** Sign-prior check (when `config.expected_sign` is set): `some(true)` if a material
+     *  effect matches the expected direction, `some(false)` if it points the other way,
+     *  `none` when no prior or the effect is near-zero.
+     *  twin: datascience RefutationType.expected_sign_ok */
+    expected_sign_ok: OptionType(BooleanType),
 });
 /** Type alias for {@link RefutationType}. */
 export type RefutationType = typeof RefutationType;

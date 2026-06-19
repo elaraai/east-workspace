@@ -149,6 +149,14 @@ Task → What do you need?
     │       causal / modest / adjustment_insufficient / non_identifiable_positivity /
     │       not_estimable. `adjusted` is none when the engine refuses. DoWhy / EconML /
     │       PyALE are internal — there is one public entry point.)
+    │       Honesty caveats: `causal` means robust to the OBSERVED backdoor set + the
+    │       refuters that ran — NOT correctly-signed / free of reverse causation /
+    │       unobserved confounding. `overlap.support_strength` (refused/thin/strong vs
+    │       config.strong_overlap, default 0.55) tempers a thin-support result to modest;
+    │       opt-in config.evalue_floor folds a weak E-value (risk-ratio scale) into modest;
+    │       opt-in config.expected_sign flags an implausibly-signed effect
+    │       (refutation.expected_sign_ok = some(false), verdict adjustment_insufficient).
+    │       Clustered designs (bootstrap.cluster_column) cluster the placebo + naive CI too.
     │
     └─ Shap (model explainability)
         ├─ Create → .treeExplainerCreate() (XGBoost only), .kernelExplainerCreate() (any model)

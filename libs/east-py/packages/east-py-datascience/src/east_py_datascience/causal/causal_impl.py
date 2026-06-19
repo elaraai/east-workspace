@@ -11,6 +11,7 @@ accumulated local effects dose-response curves (PyALE).
 
 import importlib.util
 import logging
+import math
 
 import numpy as np
 from east import assert_value_of
@@ -76,6 +77,18 @@ CausalTargetUnitsType = VariantType(
 """Population the effect is estimated for.
 
 Cases: ``ate`` (all units), ``att`` (the treated), ``atc`` (the controls).
+"""
+
+CausalSignType = VariantType(
+    [
+        ("positive", NullType),
+        ("negative", NullType),
+    ]
+)
+"""Directional prior on the effect (the ``expected_sign`` guard).
+
+Cases: ``positive`` (expected to increase the outcome), ``negative`` (decrease).
+twin: causal.ts ``CausalSignType`` / e3-ui ``SignType``.
 """
 
 PropensityTrimType = VariantType(
@@ -1244,8 +1257,31 @@ CausalExperimentConfigType = StructType(
         ("min_treatment_variation", OptionType(FloatType)),
         ("bootstrap", OptionType(CausalBootstrapConfigType)),
         ("random_state", OptionType(IntegerType)),
+        # Graded-overlap threshold (G1/G2): common support below this keeps `causal`
+        # off the top tier (verdict modest, support_strength=thin); default 0.55.
+        ("strong_overlap", OptionType(FloatType)),
+        # Robustness floor (G3): a causal verdict whose E-value is below this is
+        # downgraded to modest. Off by default.
+        ("evalue_floor", OptionType(FloatType)),
+        # Directional prior (G6): a material, CI-clear effect of the opposite sign is
+        # flagged (expected_sign_ok=some(false), verdict adjustment_insufficient). Off by default.
+        ("expected_sign", OptionType(CausalSignType)),
     ]
 )
+
+SupportStrengthType = VariantType(
+    [
+        ("refused", NullType),
+        ("thin", NullType),
+        ("strong", NullType),
+    ]
+)
+"""Graded common-support tier (G1/G2).
+
+Cases: ``refused`` (below ``min_overlap``), ``thin`` (clears the refuse gate but
+below ``strong_overlap``), ``strong`` (>= ``strong_overlap``; vacuously strong with
+no confounders). twin: causal.ts / e3-ui ``SupportStrengthType``.
+"""
 
 BalanceRowType = StructType(
     [
@@ -1266,7 +1302,11 @@ OverlapDiagnosticType = StructType(
         ("treated_propensity", VectorType(FloatType)),
         ("control_propensity", VectorType(FloatType)),
         ("common_support_frac", FloatType),
+        # Clears the REFUSE gate min_overlap (an adjusted estimate is attempted) —
+        # NOT a quality signal. Read support_strength for the graded tier.
         ("positivity_ok", BooleanType),
+        # Graded common-support tier: refused / thin / strong (vs strong_overlap).
+        ("support_strength", SupportStrengthType),
     ]
 )
 
@@ -1277,6 +1317,8 @@ RefutationType = StructType(
         ("random_cc_within_ci", OptionType(BooleanType)),
         ("data_subset_effect", OptionType(FloatType)),
         ("data_subset_std", OptionType(FloatType)),
+        # Closed-form E-value (risk-ratio scale); a monotone transform of the
+        # standardized effect — read as "how easily overturned", not independent of it.
         ("robustness_value", OptionType(FloatType)),
         (
             "sensitivity",
@@ -1285,6 +1327,9 @@ RefutationType = StructType(
                 ("effects", VectorType(FloatType)),
             ])),
         ),
+        # Sign-prior check (G6): some(true/false) when expected_sign is set and the
+        # effect is material; none when no prior or the effect is near-zero.
+        ("expected_sign_ok", OptionType(BooleanType)),
     ]
 )
 
@@ -1430,14 +1475,51 @@ def _experiment_balance(df, treatment, common_causes, expansion):
 
 
 def _experiment_placebo(df, treatment, outcome, causes, method_tag, target_units,
-                        random_state, sims: int = 8):
-    """Mean adjusted effect under a permuted (placebo) treatment — should be ~0."""
+                        random_state, sims: int = 8, cluster_column=None):
+    """Mean adjusted effect under a permuted (placebo) treatment — should be ~0.
+
+    When ``cluster_column`` is set and treatment is assigned at the cluster level
+    (constant within each cluster), the placebo permutes labels BETWEEN clusters —
+    each cluster keeps its rows together and is reassigned a permuted cluster-level
+    label, mirroring how ``_bootstrap_ci`` resamples whole clusters. A row-level
+    shuffle would destroy the within-cluster structure and let the placebo pass
+    falsely for a cluster-assigned treatment (the G4 bug). If any cluster has mixed
+    treatment (genuine within-cluster variation) the clustered placebo doesn't apply,
+    so it falls back to the row-level permutation.
+    """
     rng = np.random.default_rng(random_state)
     base = df[treatment].to_numpy()
+
+    groups = None
+    cluster_labels = None
+    if cluster_column is not None and cluster_column in df.columns:
+        cluster_vals = df[cluster_column].to_numpy()
+        cand = [np.where(cluster_vals == u)[0] for u in np.unique(cluster_vals)]
+        fracs = [float((base[idx] > 0.5).mean()) for idx in cand]
+        # Cluster-level assignment ⇒ each cluster's treated-fraction is exactly 0 or 1.
+        if len(cand) > 1 and all(f in (0.0, 1.0) for f in fracs):
+            groups = cand
+            cluster_labels = np.array([1.0 if f == 1.0 else 0.0 for f in fracs])
+
     vals = []
     for _ in range(sims):
         d2 = df.copy()
-        d2[treatment] = rng.permutation(base)
+        if groups is not None:
+            perm = rng.permutation(len(cluster_labels))
+            # Reject any permutation that leaves the LABEL vector unchanged — not just
+            # the index-identity. A shuffle that only permutes same-labelled clusters
+            # reproduces the real treatment assignment and biases the placebo away from
+            # 0 (with few/imbalanced clusters such permutations are a non-trivial share).
+            tries = 0
+            while np.array_equal(cluster_labels[perm], cluster_labels) and tries < 16:
+                perm = rng.permutation(len(cluster_labels))
+                tries += 1
+            new_t = base.astype(float).copy()
+            for gi, idx in enumerate(groups):
+                new_t[idx] = cluster_labels[perm[gi]]
+            d2[treatment] = new_t
+        else:
+            d2[treatment] = rng.permutation(base)
         try:
             vals.append(_manual_effect(d2, treatment, outcome, causes, method_tag, target_units, random_state))
         except Exception:
@@ -1455,8 +1537,16 @@ def _evalue(effect: float, outcome_sd: float) -> float:
     return float(rr + np.sqrt(rr * (rr - 1.0)))
 
 
-def _meandiff_ci(y, t, bootstrap_opt, random_state):
-    """Percentile bootstrap CI of the raw mean difference (naive), or None."""
+def _meandiff_ci(y, t, bootstrap_opt, random_state, cluster_ids=None):
+    """Percentile bootstrap CI of the raw mean difference (naive), or None.
+
+    When ``cluster_ids`` is given (a clustered design), whole clusters are resampled
+    with replacement — the same exchangeable unit ``_bootstrap_ci`` uses for the
+    adjusted CI — so the naive and adjusted intervals are comparable (the G5 fix);
+    otherwise rows are resampled. Resamples that leave an arm empty are skipped, and
+    fewer than 10 valid replicates returns None (so a degenerate clustered draw can't
+    NaN-poison the percentile).
+    """
     reps, cl = 200, 0.95
     if bootstrap_opt is not None:
         reps = int(bootstrap_opt.get("reps"))
@@ -1464,12 +1554,22 @@ def _meandiff_ci(y, t, bootstrap_opt, random_state):
     rng = np.random.default_rng(random_state)
     n = len(y)
     est = []
-    for _ in range(reps):
-        s = rng.integers(0, n, n)
-        ys, ts = y[s], t[s]
-        if ts.sum() == 0 or (~ts).sum() == 0:
-            continue
-        est.append(float(ys[ts].mean() - ys[~ts].mean()))
+    if cluster_ids is not None:
+        members = [np.where(cluster_ids == u)[0] for u in np.unique(cluster_ids)]
+        for _ in range(reps):
+            picked = rng.integers(0, len(members), len(members))
+            s = np.concatenate([members[i] for i in picked])
+            ys, ts = y[s], t[s]
+            if ts.sum() == 0 or (~ts).sum() == 0:
+                continue
+            est.append(float(ys[ts].mean() - ys[~ts].mean()))
+    else:
+        for _ in range(reps):
+            s = rng.integers(0, n, n)
+            ys, ts = y[s], t[s]
+            if ts.sum() == 0 or (~ts).sum() == 0:
+                continue
+            est.append(float(ys[ts].mean() - ys[~ts].mean()))
     if len(est) < 10:
         return None
     a = 1.0 - cl
@@ -1619,7 +1719,19 @@ def causal_experiment_impl(data: EastArray, config: EastStruct) -> EastStruct:
     dose_feature = str(dose_feature_opt) if dose_feature_opt is not None else None
     min_overlap = float(_get_option(config.get("min_overlap"), 0.10))
     min_var = float(_get_option(config.get("min_treatment_variation"), 0.02))
+    # Graded-overlap threshold (G1/G2). Off-by-default knobs (G3/G6) keep a None
+    # sentinel so the feature is disabled unless the caller opts in.
+    strong_overlap = float(_get_option(config.get("strong_overlap"), 0.55))
+    evalue_floor = _get_option(config.get("evalue_floor"), None)
+    if evalue_floor is not None:
+        evalue_floor = float(evalue_floor)
+    expected_sign_opt = _get_option(config.get("expected_sign"), None)
+    expected_sign = expected_sign_opt.type if expected_sign_opt is not None else None
     bootstrap_opt = _get_option(config.get("bootstrap"), None)
+    cluster_column = (_get_option(bootstrap_opt.get("cluster_column"), None)
+                      if bootstrap_opt is not None else None)
+    if cluster_column is not None:
+        cluster_column = str(cluster_column)
     random_state = _get_option(config.get("random_state"), None)
     if random_state is not None:
         random_state = int(random_state)
@@ -1628,6 +1740,10 @@ def causal_experiment_impl(data: EastArray, config: EastStruct) -> EastStruct:
     _require_columns(df, [treatment, outcome] + common_causes, func)
     df, expansion = _encode_categoricals(df, categorical, [treatment, outcome], func)
     causes = _expand_causes(common_causes, expansion)
+    # Cluster ids aligned to y/t for the clustered naive CI (G5); None when no
+    # cluster_column or the named column is absent (degenerate frame → row resample).
+    cluster_ids = (df[cluster_column].to_numpy()
+                   if cluster_column is not None and cluster_column in df.columns else None)
 
     t = df[treatment].to_numpy() > 0.5
     y = df[outcome].to_numpy(dtype=np.float64)
@@ -1635,11 +1751,20 @@ def causal_experiment_impl(data: EastArray, config: EastStruct) -> EastStruct:
     outcome_sd = float(df[outcome].std()) or 1.0
 
     naive = float(y[t].mean() - y[~t].mean()) if n_t and n_c else 0.0
-    nci = _meandiff_ci(y, t, bootstrap_opt, random_state)
+    nci = _meandiff_ci(y, t, bootstrap_opt, random_state, cluster_ids=cluster_ids)
     naive_ci = EastVariant("some", EastStruct({"lower": nci[0], "upper": nci[1]})) if nci else EastVariant("none", None)
 
     balance_rows = _experiment_balance(df, treatment, common_causes, expansion)
     th, ch, support_frac, positivity_ok = _experiment_overlap(df, treatment, causes, random_state, min_overlap)
+
+    # Graded common-support tier (G1/G2): refused (below the refuse gate) / thin
+    # (clears it but below strong_overlap) / strong. Always reported on overlap.
+    if support_frac < min_overlap:
+        support_tag = "refused"
+    elif support_frac >= strong_overlap:
+        support_tag = "strong"
+    else:
+        support_tag = "thin"
 
     adjusted = EastVariant("none", None)
     refutation = EastVariant("none", None)
@@ -1655,15 +1780,42 @@ def causal_experiment_impl(data: EastArray, config: EastStruct) -> EastStruct:
             alo, ahi = _experiment_ci(df, treatment, outcome, causes, method_tag, target_units, bootstrap_opt, random_state)
         except Exception:
             alo, ahi = adj_effect, adj_effect
-        placebo = _experiment_placebo(df, treatment, outcome, causes, method_tag, target_units, random_state) if want_placebo else 0.0
+        placebo = (_experiment_placebo(df, treatment, outcome, causes, method_tag, target_units,
+                                       random_state, cluster_column=cluster_column)
+                   if want_placebo else 0.0)
         placebo_fails = want_placebo and abs(placebo) > max(0.05 * outcome_sd, 0.15 * abs(adj_effect))
+        robustness_value = _evalue(adj_effect, outcome_sd)
+
+        # An effect is "material" when it is finite and clears the materiality band;
+        # below that its sign is noise, so the sign prior (G6) must not fire on it.
+        material = (not math.isnan(adj_effect)) and abs(adj_effect) >= 0.10 * outcome_sd
+        ci_clear = not (alo <= 0.0 <= ahi)
+        sign_match = None
+        if expected_sign is not None and material:
+            sign_match = (adj_effect > 0.0) == (expected_sign == "positive")
+
         if placebo_fails:
             tag = "adjustment_insufficient"
-        elif (alo <= 0.0 <= ahi) or (abs(adj_effect) < 0.10 * outcome_sd):
+        elif (not material) or (not ci_clear):
+            # Faint / CI-spans-zero is "modest" — decided BEFORE the sign check so a
+            # near-zero effect's noisy sign can't escalate it (G6 severity inversion).
+            tag = "modest"
+        elif sign_match is False:
+            # Material, CI-clear, but pointing the wrong way → a reverse-causation /
+            # reactive-assignment signal the refuters can't see (G6).
+            tag = "adjustment_insufficient"
+        elif support_tag != "strong":
+            # Thin common support → not the top tier (G1); support_strength says why.
+            tag = "modest"
+        elif evalue_floor is not None and robustness_value < evalue_floor:
+            # Trivially-overturnable per the (opt-in) E-value floor (G3). Same axis as
+            # the materiality band — a stricter materiality bar, not a new signal.
             tag = "modest"
         else:
             tag = "causal"
         verdict = EastVariant(tag, None)
+        expected_sign_ok = (EastVariant("some", bool(sign_match)) if sign_match is not None
+                            else EastVariant("none", None))
         adjusted = EastVariant("some", EastStruct({
             "effect": float(adj_effect),
             "ci": EastVariant("some", EastStruct({"lower": float(alo), "upper": float(ahi)})),
@@ -1682,8 +1834,9 @@ def causal_experiment_impl(data: EastArray, config: EastStruct) -> EastStruct:
             "random_cc_within_ci": EastVariant("some", rcc) if rcc is not None else EastVariant("none", None),
             "data_subset_effect": EastVariant("some", ds_eff) if ds_eff is not None else EastVariant("none", None),
             "data_subset_std": EastVariant("some", ds_std) if ds_std is not None else EastVariant("none", None),
-            "robustness_value": EastVariant("some", _evalue(adj_effect, outcome_sd)),
+            "robustness_value": EastVariant("some", robustness_value),
             "sensitivity": EastVariant("some", sens) if sens is not None else EastVariant("none", None),
+            "expected_sign_ok": expected_sign_ok,
         }))
 
     overlap = EastStruct({
@@ -1691,6 +1844,7 @@ def causal_experiment_impl(data: EastArray, config: EastStruct) -> EastStruct:
         "control_propensity": EastVector(FloatType, ch),
         "common_support_frac": float(support_frac),
         "positivity_ok": bool(positivity_ok),
+        "support_strength": EastVariant(support_tag, None),
     })
     balance = EastArray(BalanceRowType, [
         EastStruct({"column": col, "base_column": base, "treated_mean": mt, "control_mean": mc, "std_diff": sd})
