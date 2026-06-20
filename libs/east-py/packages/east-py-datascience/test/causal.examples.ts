@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, ArrayType, StructType, FloatType, BooleanType, some, none, example } from "@elaraai/east";
+import { East, ArrayType, StructType, FloatType, BooleanType, some, none, variant, example } from "@elaraai/east";
 import { Causal } from "@elaraai/east-py-datascience";
 
 // `Causal.experiment` is the single declarative entry point. It is generic over
@@ -37,9 +37,15 @@ export const causalExperimentCausal = example({
             dose_feature: none,
             min_overlap: some(0.1), min_treatment_variation: some(0.02),
             bootstrap: none, random_state: some(42n),
+            strong_overlap: none, evalue_floor: none, expected_sign: none,
         }, Causal.Types.CausalExperimentConfigType);
         const result = $.let(Causal.experiment([Row], data, config));
-        return result.verdict.hasTag("causal");
+        // The verdict is top-tier `causal` AND rests on solid common support — the
+        // frac clears the 0.55 strong-overlap gate (asserted below), so this example
+        // also guards against a future estimator drift silently re-grading it to `modest`.
+        return result.verdict.hasTag("causal")
+            .and(() => result.overlap.support_strength.hasTag("strong"))
+            .and(() => result.overlap.common_support_frac.greater(0.55));
     }),
     inputs: [],
     returns: true,
@@ -74,6 +80,7 @@ export const causalExperimentFullBattery = example({
             dose_feature: some("z"),
             min_overlap: some(0.1), min_treatment_variation: some(0.02),
             bootstrap: none, random_state: some(42n),
+            strong_overlap: none, evalue_floor: none, expected_sign: none,
         }, Causal.Types.CausalExperimentConfigType);
         const result = $.let(Causal.experiment([Row], data, config));
         const ref = $.let(result.refutation.unwrap("some"));
@@ -108,9 +115,89 @@ export const causalExperimentNotEstimable = example({
             dose_feature: none,
             min_overlap: some(0.1), min_treatment_variation: some(0.15),
             bootstrap: none, random_state: some(42n),
+            strong_overlap: none, evalue_floor: none, expected_sign: none,
         }, Causal.Types.CausalExperimentConfigType);
         const result = $.let(Causal.experiment([Row], data, config));
         return result.verdict.hasTag("not_estimable");
+    }),
+    inputs: [],
+    returns: true,
+});
+
+export const causalExperimentThinOverlap = example({
+    keywords: ["causal", "experiment", "verdict", "modest", "overlap", "support_strength", "thin", "positivity", "common support", "honesty"],
+    description: "Causal.experiment tempers a fragile result: a real +2.0 effect rests on thin common support (only the treated and control z-ranges barely overlap), so even though the effect is material and its CI clears zero, the verdict is 'modest' (not 'causal') and `overlap.support_strength` is 'thin' — the honest signal that the comparison rests on little like-for-like data.",
+    fn: East.function([], BooleanType, ($) => {
+        const Row = StructType({ treated: FloatType, outcome: FloatType, z: FloatType });
+        // Controls span z∈[0,5], treated span z∈[4,9] — they overlap only on [4,5],
+        // so common support is thin (~0.33, between min_overlap 0.10 and strong_overlap
+        // 0.55). True treatment effect +2.0.
+        const data = $.let([
+            { treated: 0.0, outcome: 0.2, z: 0.0 }, { treated: 0.0, outcome: -0.1, z: 0.0 },
+            { treated: 0.0, outcome: 1.2, z: 1.0 }, { treated: 0.0, outcome: 0.9, z: 1.0 },
+            { treated: 0.0, outcome: 2.2, z: 2.0 }, { treated: 0.0, outcome: 1.9, z: 2.0 },
+            { treated: 0.0, outcome: 3.2, z: 3.0 }, { treated: 0.0, outcome: 2.9, z: 3.0 },
+            { treated: 0.0, outcome: 4.2, z: 4.0 }, { treated: 0.0, outcome: 3.9, z: 4.0 },
+            { treated: 0.0, outcome: 5.2, z: 5.0 }, { treated: 0.0, outcome: 4.9, z: 5.0 },
+            { treated: 1.0, outcome: 6.1, z: 4.0 }, { treated: 1.0, outcome: 5.9, z: 4.0 },
+            { treated: 1.0, outcome: 7.1, z: 5.0 }, { treated: 1.0, outcome: 6.9, z: 5.0 },
+            { treated: 1.0, outcome: 8.1, z: 6.0 }, { treated: 1.0, outcome: 7.9, z: 6.0 },
+            { treated: 1.0, outcome: 9.1, z: 7.0 }, { treated: 1.0, outcome: 8.9, z: 7.0 },
+            { treated: 1.0, outcome: 10.1, z: 8.0 }, { treated: 1.0, outcome: 9.9, z: 8.0 },
+            { treated: 1.0, outcome: 11.1, z: 9.0 }, { treated: 1.0, outcome: 10.9, z: 9.0 },
+        ], ArrayType(Row));
+        const config = $.let({
+            treatment: "treated", outcome: "outcome", common_causes: ["z"],
+            categorical: none, method: none, estimand: none,
+            refute: some({ placebo: true, random_common_cause: false, data_subset: false, sensitivity: none }),
+            dose_feature: none,
+            min_overlap: some(0.1), min_treatment_variation: some(0.02),
+            bootstrap: none, random_state: some(42n),
+            strong_overlap: none, evalue_floor: none, expected_sign: none,
+        }, Causal.Types.CausalExperimentConfigType);
+        const result = $.let(Causal.experiment([Row], data, config));
+        // An adjusted estimate exists, but thin support tempers the verdict to modest.
+        return result.verdict.hasTag("modest")
+            .and(() => result.adjusted.hasTag("some"))
+            .and(() => result.overlap.support_strength.hasTag("thin"))
+            .and(() => result.overlap.common_support_frac.less(0.55));
+    }),
+    inputs: [],
+    returns: true,
+});
+
+export const causalExperimentSignViolation = example({
+    keywords: ["causal", "experiment", "verdict", "adjustment_insufficient", "expected_sign", "reverse causation", "sign", "prior", "honesty"],
+    description: "Causal.experiment flags an implausibly-signed effect: the data show a robust +2.0 effect, but the caller supplies a domain prior that the effect should be NEGATIVE (`expected_sign`). A confident effect pointing the wrong way is a reverse-causation / reactive-assignment signal the refuters can't catch, so the verdict is 'adjustment_insufficient' and `refutation.expected_sign_ok` is some(false).",
+    fn: East.function([], BooleanType, ($) => {
+        const Row = StructType({ treated: FloatType, outcome: FloatType, z: FloatType });
+        // Same confounded data as the headline example (true effect +2.0, positive).
+        const data = $.let([
+            { treated: 0.0, outcome: 1.3, z: 0.0 }, { treated: 0.0, outcome: 1.6, z: 1.0 },
+            { treated: 0.0, outcome: 3.1, z: 2.0 }, { treated: 0.0, outcome: 3.8, z: 3.0 },
+            { treated: 0.0, outcome: 5.5, z: 4.0 }, { treated: 0.0, outcome: 0.7, z: 0.0 },
+            { treated: 0.0, outcome: 2.2, z: 1.0 }, { treated: 0.0, outcome: 2.9, z: 2.0 },
+            { treated: 0.0, outcome: 4.4, z: 3.0 }, { treated: 0.0, outcome: 4.5, z: 4.0 },
+            { treated: 1.0, outcome: 4.25, z: 1.0 }, { treated: 1.0, outcome: 4.65, z: 2.0 },
+            { treated: 1.0, outcome: 6.15, z: 3.0 }, { treated: 1.0, outcome: 6.75, z: 4.0 },
+            { treated: 1.0, outcome: 8.45, z: 5.0 }, { treated: 1.0, outcome: 3.85, z: 1.0 },
+            { treated: 1.0, outcome: 5.35, z: 2.0 }, { treated: 1.0, outcome: 5.95, z: 3.0 },
+            { treated: 1.0, outcome: 7.05, z: 4.0 }, { treated: 1.0, outcome: 7.55, z: 5.0 },
+        ], ArrayType(Row));
+        // The prior says the effect should DECREASE the outcome; the data say it increases.
+        const config = $.let({
+            treatment: "treated", outcome: "outcome", common_causes: ["z"],
+            categorical: none, method: none, estimand: none,
+            refute: some({ placebo: true, random_common_cause: false, data_subset: false, sensitivity: none }),
+            dose_feature: none,
+            min_overlap: some(0.1), min_treatment_variation: some(0.02),
+            bootstrap: none, random_state: some(42n),
+            strong_overlap: none, evalue_floor: none, expected_sign: some(variant("negative", null)),
+        }, Causal.Types.CausalExperimentConfigType);
+        const result = $.let(Causal.experiment([Row], data, config));
+        const ref = $.let(result.refutation.unwrap("some"));
+        return result.verdict.hasTag("adjustment_insufficient")
+            .and(() => ref.expected_sign_ok.unwrap("some").not());
     }),
     inputs: [],
     returns: true,
@@ -146,6 +233,7 @@ export const causalDesignValidationConfirm = example({
             dose_feature: none,
             min_overlap: some(0.1), min_treatment_variation: some(0.02),
             bootstrap: none, random_state: some(42n),
+            strong_overlap: none, evalue_floor: none, expected_sign: none,
         }, Causal.Types.CausalExperimentConfigType);
         const result = $.let(Causal.experiment([Row], data, config));
         const designConfig = $.let({

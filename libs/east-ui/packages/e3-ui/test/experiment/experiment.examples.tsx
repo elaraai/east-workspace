@@ -87,6 +87,9 @@ export const experimentConfigInput = e3.input('experiment_config', Experiment.Ty
     min_treatment_variation: some(0.02),
     bootstrap: none,
     random_state: some(42n),
+    strong_overlap: none,
+    evalue_floor: none,
+    expected_sign: none,
 });
 
 // ============================================================================
@@ -110,6 +113,7 @@ export const experimentFn = e3.function('experiment',
             control_propensity: new Float64Array([0, 2, 5, 9, 14, 18, 21, 20, 17, 13, 9, 6, 4, 2, 1, 1, 0, 0, 0, 0]),
             common_support_frac: 0.78,
             positivity_ok: true,
+            support_strength: variant('strong', null),
         },
         refutation: some({
             placebo_effect: some(0.0),
@@ -122,6 +126,7 @@ export const experimentFn = e3.function('experiment',
                 strengths: new Float64Array([0.0, 0.2, 0.4, 0.6, 0.8, 1.0]),
                 effects: new Float64Array([5.2, 4.4, 3.4, 2.2, 0.8, -0.8]),
             }),
+            expected_sign_ok: none,
         }),
         dose_response: some({
             feature: 'incoming_grade',
@@ -176,27 +181,33 @@ export const experimentJournalInput = e3.input('experiment_journal', Experiment.
             treatment: 'slow_cure', outcome: 'bond_strength', common_causes: ['incoming_grade', 'mix_viscosity', 'supplier'],
             categorical: none, method: none, estimand: none, refute: none,
             dose_feature: none, min_overlap: none, min_treatment_variation: none, bootstrap: none, random_state: none,
+            strong_overlap: none, evalue_floor: none, expected_sign: none,
         },
         verdict: variant('causal', null), naive: -3.1, adjusted: some(5.2),
         committed_at: new Date('2026-06-13T08:00:00Z'), committed_by: 'M. Kerr',
+        preset: some('cure_strength'),
     },
     {
         config: {
             treatment: 'extra_anneal', outcome: 'hardness', common_causes: ['line', 'mix_viscosity'],
             categorical: none, method: none, estimand: none, refute: none,
             dose_feature: none, min_overlap: none, min_treatment_variation: none, bootstrap: none, random_state: none,
+            strong_overlap: none, evalue_floor: none, expected_sign: none,
         },
         verdict: variant('modest', null), naive: 0.4, adjusted: some(0.4),
         committed_at: new Date('2026-06-09T08:00:00Z'), committed_by: 'M. Kerr',
+        preset: none,
     },
     {
         config: {
             treatment: 'new_nozzle', outcome: 'throughput', common_causes: ['line', 'batch_size'],
             categorical: none, method: none, estimand: none, refute: none,
             dose_feature: none, min_overlap: none, min_treatment_variation: none, bootstrap: none, random_state: none,
+            strong_overlap: none, evalue_floor: none, expected_sign: none,
         },
         verdict: variant('causal', null), naive: 22.0, adjusted: some(38.0),
         committed_at: new Date('2026-06-02T08:00:00Z'), committed_by: 'T. Ode',
+        preset: none,
     },
 ]);
 
@@ -313,6 +324,65 @@ export const experimentValidate = example({
                     journal={journal}
                     columns={{ bond_strength: { unit: 'MPa' } }}
                     defaultTab="validate"
+                />
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+export const experimentPresets = example({
+    keywords: ['Experiment', 'presets', 'causal', 'questions', 'vetted', 'dropdown', 'title', 'menu', 'scope'],
+    description: 'The Experiment `presets` — the title doubles as a question selector: a chevron after the header turns it into a dropdown of named, developer-authored questions (current one checked). Each bundles a vetted backdoor set (and an optional population scope); selecting one snaps the staged spec + filters to that pre-baked configuration (still editable before Run), and a committed result records which preset it came from. Lets a domain expert pick a correct causal question from a menu rather than assemble one.',
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const data = $.let(Data.bind(batchesInput));
+            const config = $.let(Data.bind(experimentConfigInput, { mode: 'staged' }));
+            const journal = $.let(Data.bind(experimentJournalInput));
+            const population = $.let(Data.bind(experimentPopulationInput, { mode: 'staged' }));
+            const experiment = $.let(Func.bind(experimentFn));
+            return (
+                <Experiment
+                    data={data}
+                    config={config}
+                    experiment={experiment}
+                    population={population}
+                    journal={journal}
+                    columns={{ bond_strength: { unit: 'MPa' } }}
+                    presets={[
+                        {
+                            id: 'cure_strength',
+                            label: 'Slow cure → bond strength',
+                            // The vetted backdoor set for this question; only the fields it
+                            // pins are written — the rest default to the library default.
+                            config: {
+                                treatment: 'slow_cure', outcome: 'bond_strength',
+                                common_causes: ['incoming_grade', 'mix_viscosity', 'supplier'],
+                                categorical: ['supplier'],
+                            },
+                        },
+                        {
+                            id: 'cure_strength_panels',
+                            label: 'Slow cure → strength (panels only)',
+                            config: {
+                                treatment: 'slow_cure', outcome: 'bond_strength',
+                                common_causes: ['incoming_grade', 'mix_viscosity', 'supplier'],
+                                categorical: ['supplier'],
+                            },
+                            // The same question, pre-scoped to one product family.
+                            population: [variant('string', { fieldId: 'product', op: variant('eq', 'panel') })],
+                        },
+                        {
+                            id: 'cure_strength_byline',
+                            label: 'Slow cure → strength (control for line)',
+                            // A stricter backdoor set — also adjusts for the production line.
+                            config: {
+                                treatment: 'slow_cure', outcome: 'bond_strength',
+                                common_causes: ['incoming_grade', 'mix_viscosity', 'supplier', 'line'],
+                                categorical: ['supplier', 'line'],
+                            },
+                        },
+                    ]}
                 />
             );
         }}</Reactive>

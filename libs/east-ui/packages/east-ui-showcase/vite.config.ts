@@ -21,6 +21,29 @@ export default defineConfig(({ command }) => {
         e3TestDir: path.resolve(__dirname, '../e3-ui/test'),
         rootDir: __dirname,
       }),
+      /* The e3 dataset cache (`main.tsx#seedE3DatasetCache`) is seeded ONCE per
+       * document load: each example's `e3.input` default is beast2-encoded against
+       * that input's East *type* at seed time. Editing an `e3-ui` IR type (e.g.
+       * adding a `Config` field) or an e3 example input changes that type — but the
+       * seed never re-runs on a hot update, so React Fast Refresh hot-swaps the
+       * renderer (now decoding against the NEW type) over bytes the cache still holds
+       * encoded against the OLD one. The mismatch surfaces as a decode failure
+       * ("Buffer underflow reading varint at offset N"). `e3-ui` is pure IR (no React
+       * component to Fast-Refresh), so force a full reload for its source + the e3
+       * example files — the seed then re-runs in lockstep with the types. The React
+       * renderer (`e3-ui-components`) keeps Fast Refresh. */
+      {
+        name: 'showcase:e3-seed-full-reload',
+        apply: 'serve',
+        handleHotUpdate({ file, server }) {
+          const p = file.replace(/\\/g, '/');
+          if (/\/e3-ui\/src\/.+\.tsx?$/.test(p) || /\/e3-ui\/test\/.+\.examples\.tsx?$/.test(p)) {
+            server.ws.send({ type: 'full-reload' });
+            return [];
+          }
+          return undefined;
+        },
+      },
     ],
     base: '/',
     define: {
@@ -107,7 +130,11 @@ export default defineConfig(({ command }) => {
         'sorted-btree',
         '@elaraai/east', '@elaraai/east/internal',
         '@elaraai/east-ui', '@elaraai/east-ui/internal',
-        '@elaraai/e3-ui',
+        // Both subpaths MUST be pre-bundled together (like east / east-ui above), or
+        // the bare specifier (the example's `Experiment.Types.*`) and `/internal` (the
+        // renderer's binding types) split into two type versions — a field added to a
+        // type then mismatches encode vs decode ("buffer underflow reading varint").
+        '@elaraai/e3-ui', '@elaraai/e3-ui/internal',
         'react-dom/client', '@chakra-ui/react',
         '@xyflow/react', 'cytoscape', 'cytoscape-cose-bilkent',
       ],

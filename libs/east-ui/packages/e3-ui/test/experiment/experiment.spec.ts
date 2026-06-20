@@ -16,6 +16,7 @@ describeEast('Experiment', (test) => {
         experimentSurface: ex.experimentSurface,
         experimentTrust: ex.experimentTrust,
         experimentDose: ex.experimentDose,
+        experimentPresets: ex.experimentPresets,
     });
 
     test('Experiment.Component is declared as an optional EastUI component', $ => {

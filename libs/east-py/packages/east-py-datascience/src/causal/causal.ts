@@ -76,6 +76,21 @@ export const CausalTargetUnitsType = VariantType({
 });
 
 /**
+ * A directional prior on the effect — the sign a domain expert expects. Used by
+ * {@link causal_experiment}'s `expected_sign` guard: a material, CI-clear effect
+ * pointing the *other* way is flagged (a reverse-causation / reactive-assignment
+ * signal a backdoor adjustment cannot catch).
+ *
+ * twin: e3-ui/src/experiment/types.ts `SignType`
+ */
+export const CausalSignType = VariantType({
+    /** The effect is expected to increase the outcome. */
+    positive: NullType,
+    /** The effect is expected to decrease the outcome. */
+    negative: NullType,
+});
+
+/**
  * Bootstrap confidence interval configuration.
  *
  * When `cluster_column` is set, whole clusters are resampled with replacement
@@ -143,6 +158,18 @@ export const CausalExperimentConfigType = StructType({
     bootstrap: OptionType(CausalBootstrapConfigType),
     /** Random seed. */
     random_state: OptionType(IntegerType),
+    /** Graded-overlap threshold — common support below this keeps `causal` from the
+     *  top tier (verdict `modest`, `overlap.support_strength = thin`); default 0.55. */
+    strong_overlap: OptionType(FloatType),
+    /** Robustness floor — when set, a `causal` verdict whose E-value
+     *  (`refutation.robustness_value`, risk-ratio scale) is below this is downgraded to
+     *  `modest`. Off by default. The E-value is a monotone transform of the standardized
+     *  effect, so this acts as a stricter materiality bar, not an independent check. */
+    evalue_floor: OptionType(FloatType),
+    /** Directional prior — when set, a material, CI-clear effect of the opposite sign is
+     *  flagged (`refutation.expected_sign_ok = some(false)`, verdict `adjustment_insufficient`).
+     *  Off by default. Catches reverse causation / reactive assignment the refuters can't. */
+    expected_sign: OptionType(CausalSignType),
 });
 
 /** One confounder's before-adjustment imbalance (categoricals → one row per level). */
@@ -157,6 +184,25 @@ export const BalanceRowType = StructType({
     std_diff: FloatType,
 });
 
+/**
+ * Graded common-support tier — the honest three-state reading of overlap a
+ * consumer can switch on without re-deriving thresholds:
+ * `refused` (below `min_overlap`, the engine refuses), `thin` (clears the refuse
+ * gate but below `strong_overlap` — fragile), `strong` (≥ `strong_overlap`). With
+ * no confounders (or a degenerate arm) there is nothing to separate on, so the tier
+ * is vacuously `strong`.
+ *
+ * twin: e3-ui/src/experiment/types.ts `SupportStrengthType`
+ */
+export const SupportStrengthType = VariantType({
+    /** Below `min_overlap` — no like-for-like comparison (engine refuses). */
+    refused: NullType,
+    /** Clears the refuse gate but below `strong_overlap` — fragile support. */
+    thin: NullType,
+    /** Common support ≥ `strong_overlap` — solid. */
+    strong: NullType,
+});
+
 /** Positivity / common-support diagnostic (binary treatment). */
 export const OverlapDiagnosticType = StructType({
     /** Propensity histogram (20 bins over [0,1]) for the treated arm. */
@@ -165,8 +211,14 @@ export const OverlapDiagnosticType = StructType({
     control_propensity: VectorType(FloatType),
     /** Fraction of rows inside the treated/control common support. */
     common_support_frac: FloatType,
-    /** Whether common support clears `min_overlap`. */
+    /** Whether common support clears the **refuse** gate `min_overlap` — i.e. an
+     *  adjusted estimate is attempted at all. NOT a quality signal: `true` at the
+     *  default gate (0.10) still means barely-overlapping. Read `support_strength`
+     *  for the graded tier. */
     positivity_ok: BooleanType,
+    /** Graded common-support tier (`refused` / `thin` / `strong` vs `strong_overlap`).
+     *  twin: e3-ui OverlapDiagnosticType.support_strength */
+    support_strength: SupportStrengthType,
 });
 
 /** The robustness summary the verdict + Trust tab consume. */
@@ -181,13 +233,22 @@ export const RefutationType = StructType({
     data_subset_effect: OptionType(FloatType),
     /** Std of the effect across data subsamples. */
     data_subset_std: OptionType(FloatType),
-    /** Closed-form E-value — confounder strength needed to explain the effect away. */
+    /** Closed-form E-value (risk-ratio scale) — the confounder strength needed to
+     *  explain the effect away. A monotone transform of the standardized effect, so
+     *  it is NOT independent of the effect size; read it as "how easily overturned",
+     *  not as a separate confounding measure. */
     robustness_value: OptionType(FloatType),
     /** Unobserved-confounder sensitivity (tipping) curve: effect at each simulated strength. */
     sensitivity: OptionType(StructType({
         strengths: VectorType(FloatType),
         effects: VectorType(FloatType),
     })),
+    /** Sign-prior check (when `config.expected_sign` is set): `some(true)` if a
+     *  material effect matches the expected direction, `some(false)` if it points the
+     *  other way (→ verdict `adjustment_insufficient`). `none` when no prior is given
+     *  or the effect is near-zero (its sign is undefined).
+     *  twin: e3-ui RefutationType.expected_sign_ok */
+    expected_sign_ok: OptionType(BooleanType),
 });
 
 /** A dose-response (ALE) curve of a continuous feature on the outcome. */
@@ -206,7 +267,10 @@ export const DoseResponseType = StructType({
  * Only `not_estimable` carries a (human-readable) reason.
  */
 export const ExperimentVerdictType = VariantType({
-    /** A real, robust, material effect. */
+    /** A real, robust, material effect — robust to the **observed** backdoor set + the
+     *  refuters that were run. It does NOT mean correctly-signed, free of reverse
+     *  causation, or free of unobserved confounding: read `refutation.robustness_value`
+     *  (E-value) and `refutation.expected_sign_ok` alongside it. */
     causal: NullType,
     /** A small but real effect, or no clear effect after adjustment. */
     modest: NullType,
@@ -374,12 +438,14 @@ export const CausalTypes = {
     CausalWeightingSchemeType,
     CausalEstimatorType,
     CausalTargetUnitsType,
+    CausalSignType,
     CausalBootstrapConfigType,
     CiType,
     // Experiment contract
     RefuteSpecType,
     CausalExperimentConfigType,
     BalanceRowType,
+    SupportStrengthType,
     OverlapDiagnosticType,
     RefutationType,
     DoseResponseType,
@@ -402,6 +468,14 @@ export const CausalTypes = {
  * (`causal` / `modest` / `adjustment_insufficient` / `non_identifiable_positivity`
  * / `not_estimable`). It refuses (`adjusted = none`) when the data can't support
  * an estimate. DoWhy / EconML / PyALE are internal implementation it composes.
+ *
+ * `causal` means robust to the **observed** backdoor set + the refuters that ran —
+ * NOT correctly-signed, free of reverse causation, or free of unobserved confounding.
+ * The graded `overlap.support_strength` (`refused`/`thin`/`strong`) tempers a thin-support
+ * result to `modest`; an opt-in `evalue_floor` folds a weak E-value into `modest`; an
+ * opt-in `expected_sign` prior flags an implausibly-signed effect (`adjustment_insufficient`,
+ * `refutation.expected_sign_ok = some(false)`). A reactively-assigned treatment needs a
+ * design-based strategy (IV / within-unit pre-period) — see `designValidation`.
  *
  * @example
  * ```ts

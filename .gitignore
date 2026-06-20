@@ -104,3 +104,8 @@ Thumbs.db
 
 # Local registry (no longer needed but just in case)
 .npmrc
+
+# Side-loaded Chrome-for-Testing build for local headless rendering of the
+# showcase (Playwright's bundled browser has no ubuntu26.04 build). Kept
+# locally, never committed.
+/chrome/

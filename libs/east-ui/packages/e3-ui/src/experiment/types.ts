@@ -75,6 +75,18 @@ export const TargetUnitsType = VariantType({
 /** Type alias for {@link TargetUnitsType}. */
 export type TargetUnitsType = typeof TargetUnitsType;
 
+/**
+ * A directional prior on the effect — the sign a domain expert expects. Drives the
+ * `expected_sign` guard.
+ * twin: east-py-datascience causal.ts `CausalSignType`
+ */
+export const SignType = VariantType({
+    positive: NullType,
+    negative: NullType,
+});
+/** Type alias for {@link SignType}. */
+export type SignType = typeof SignType;
+
 /** Bootstrap confidence-interval configuration. */
 export const BootstrapConfigType = StructType({
     reps: IntegerType,
@@ -125,6 +137,15 @@ export const ExperimentConfigType = StructType({
     min_treatment_variation: OptionType(FloatType),
     bootstrap: OptionType(BootstrapConfigType),
     random_state: OptionType(IntegerType),
+    /** Graded-overlap threshold — common support below this keeps `causal` from the
+     *  top tier (verdict `modest`, `overlap.support_strength = thin`); default 0.55. */
+    strong_overlap: OptionType(FloatType),
+    /** Robustness floor — a `causal` verdict whose E-value is below this is downgraded to
+     *  `modest`. Off by default. (E-value is a monotone transform of the standardized effect.) */
+    evalue_floor: OptionType(FloatType),
+    /** Directional prior — a material, CI-clear effect of the opposite sign is flagged
+     *  (`expected_sign_ok = some(false)`, verdict `adjustment_insufficient`). Off by default. */
+    expected_sign: OptionType(SignType),
 });
 /** Type alias for {@link ExperimentConfigType}. */
 export type ExperimentConfigType = typeof ExperimentConfigType;
@@ -146,15 +167,42 @@ export const BalanceRowType = StructType({
 /** Type alias for {@link BalanceRowType}. */
 export type BalanceRowType = typeof BalanceRowType;
 
+/**
+ * Graded common-support tier — `refused` (below `min_overlap`), `thin` (clears the
+ * refuse gate but below `strong_overlap`), `strong` (≥ `strong_overlap`). Vacuously
+ * `strong` with no confounders.
+ * twin: east-py-datascience causal.ts `SupportStrengthType`
+ */
+export const SupportStrengthType = VariantType({
+    refused: NullType,
+    thin: NullType,
+    strong: NullType,
+});
+/** Type alias for {@link SupportStrengthType}. */
+export type SupportStrengthType = typeof SupportStrengthType;
+
 /** Positivity / common-support diagnostic (binary treatment). */
 export const OverlapDiagnosticType = StructType({
     treated_propensity: VectorType(FloatType),
     control_propensity: VectorType(FloatType),
     common_support_frac: FloatType,
+    /** Clears the **refuse** gate `min_overlap` — NOT a quality signal (true at the
+     *  default 0.10 gate still means barely-overlapping). Read `support_strength`. */
     positivity_ok: BooleanType,
+    /** Graded common-support tier (`refused` / `thin` / `strong`).
+     *  twin: datascience OverlapDiagnosticType.support_strength */
+    support_strength: SupportStrengthType,
 });
 /** Type alias for {@link OverlapDiagnosticType}. */
 export type OverlapDiagnosticType = typeof OverlapDiagnosticType;
+
+/** The unobserved-confounder sensitivity (tipping) curve — effect at each simulated strength. */
+export const SensitivityCurveType = StructType({
+    strengths: VectorType(FloatType),
+    effects: VectorType(FloatType),
+});
+/** Type alias for {@link SensitivityCurveType}. */
+export type SensitivityCurveType = typeof SensitivityCurveType;
 
 /** The robustness summary the verdict + trust tab consume. */
 export const RefutationType = StructType({
@@ -168,13 +216,16 @@ export const RefutationType = StructType({
     data_subset_effect: OptionType(FloatType),
     /** Std of the effect across data subsamples. */
     data_subset_std: OptionType(FloatType),
-    /** Closed-form E-value — confounder strength needed to explain the effect away. */
+    /** Closed-form E-value (risk-ratio scale) — confounder strength needed to explain the
+     *  effect away. A monotone transform of the standardized effect (not independent of it). */
     robustness_value: OptionType(FloatType),
     /** Unobserved-confounder sensitivity (tipping) curve: effect at each simulated strength. */
-    sensitivity: OptionType(StructType({
-        strengths: VectorType(FloatType),
-        effects: VectorType(FloatType),
-    })),
+    sensitivity: OptionType(SensitivityCurveType),
+    /** Sign-prior check (when `config.expected_sign` is set): `some(true)` if a material
+     *  effect matches the expected direction, `some(false)` if it points the other way,
+     *  `none` when no prior or the effect is near-zero.
+     *  twin: datascience RefutationType.expected_sign_ok */
+    expected_sign_ok: OptionType(BooleanType),
 });
 /** Type alias for {@link RefutationType}. */
 export type RefutationType = typeof RefutationType;
@@ -206,6 +257,11 @@ export const ExperimentVerdictType = VariantType({
 /** Type alias for {@link ExperimentVerdictType}. */
 export type ExperimentVerdictType = typeof ExperimentVerdictType;
 
+/** The adjusted (like-for-like) effect + its CI — `none` on the result when the engine refuses. */
+export const AdjustedEffectType = StructType({ effect: FloatType, ci: OptionType(CiType) });
+/** Type alias for {@link AdjustedEffectType}. */
+export type AdjustedEffectType = typeof AdjustedEffectType;
+
 /**
  * The complete, honest result. `adjusted` is `none` when the engine refuses
  * (positivity / no-variation); the `verdict` tag carries the headline; every
@@ -214,7 +270,7 @@ export type ExperimentVerdictType = typeof ExperimentVerdictType;
 export const ExperimentResultType = StructType({
     naive: FloatType,
     naive_ci: OptionType(CiType),
-    adjusted: OptionType(StructType({ effect: FloatType, ci: OptionType(CiType) })),
+    adjusted: OptionType(AdjustedEffectType),
     n_total: IntegerType,
     n_treated: IntegerType,
     n_control: IntegerType,
@@ -343,6 +399,34 @@ export const PopulationType = ArrayType(Slice.Types.Predicate);
 export type PopulationType = typeof PopulationType;
 
 /**
+ * One developer-authored, vetted experiment — a named question that snaps the
+ * staged spec (and the population scope) to a pre-baked configuration. The surface
+ * renders presets as the spec's `Input.Presets` card grid; selecting one writes its
+ * `config` + `population` into the **staged** spec (still editable before Run), and
+ * a committed result records the originating preset by `id`.
+ *
+ * A preset bundles the **vetted backdoor set + scope** so a non-expert can pick a
+ * correct causal question from a menu rather than assemble one. `config` is a full
+ * {@link ExperimentConfigType} (column names are plain strings); `population` is the
+ * optional Step-4 scope (`none` ⇒ no scope). `group` sections the grid.
+ */
+export const PresetType = StructType({
+    /** Stable key — the journal records THIS (not `label`), and it drives selection
+     *  identity, so a renamed `label` never orphans a committed row. */
+    id: StringType,
+    /** Display title shown on the card. */
+    label: StringType,
+    /** The vetted, pre-baked experiment config the card loads into the staged spec. */
+    config: ExperimentConfigType,
+    /** Optional population scope to apply on select; `none` ⇒ clear the scope. */
+    population: OptionType(PopulationType),
+    /** Optional section header — cards sharing a `group` are bucketed together. */
+    group: OptionType(StringType),
+});
+/** Type alias for {@link PresetType}. */
+export type PresetType = typeof PresetType;
+
+/**
  * Optional per-column display metadata the developer supplies once. Keyed by
  * column name. Lets the derived prose read "worse" instead of "lower" and show
  * friendly labels / units.
@@ -367,6 +451,9 @@ export const JournalRowType = StructType({
     adjusted: OptionType(FloatType),
     committed_at: DateTimeType,
     committed_by: StringType,
+    /** The `id` of the preset this experiment was framed from (`none` for a
+     *  free-form / pre-presets row); the surface renders it as a "from {label}" chip. */
+    preset: OptionType(StringType),
 });
 /** Type alias for {@link JournalRowType}. */
 export type JournalRowType = typeof JournalRowType;
