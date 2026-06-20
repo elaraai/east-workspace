@@ -446,13 +446,15 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
     if (!config || !view) {
         const failed = experiment.status === 'failed';
         // A binding that failed to read/decode (rather than one still loading) gets
-        // surfaced as an error — never a perpetual "loading" spinner.
+        // surfaced as an error — never a perpetual "loading" spinner. Name the dataset
+        // so a type-version mismatch is diagnosable from the surface itself.
+        const which = data.error ? 'dataset' : configBind.error ? 'config' : journalBind.error ? 'journal' : populationBind.error ? 'population filter' : null;
         const bindError = data.error ?? configBind.error ?? journalBind.error ?? populationBind.error;
         const bindMsg = bindError instanceof Error ? bindError.message : bindError != null ? String(bindError) : null;
         return (
             <Box layerStyle="frame" p="6">
                 {bindMsg
-                    ? <Text textStyle="body.sm" color="fg.danger">Couldn’t load the experiment data: {bindMsg}</Text>
+                    ? <Text textStyle="body.sm" color="fg.danger">Couldn’t load the experiment {which}: {bindMsg}</Text>
                     : failed && experiment.error
                         ? <RunError error={experiment.error} />
                         : <Text className={failed ? undefined : 'elara-skeleton'} textStyle="body.sm" color="fg.muted">{failed ? 'Could not run the experiment.' : 'Loading experiment…'}</Text>}
