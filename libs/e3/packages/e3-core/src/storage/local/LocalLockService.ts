@@ -134,6 +134,23 @@ export function lockStateToHolderInfo(state: LockState): LockHolderInfo {
 // Stale Lock Detection
 // =============================================================================
 
+/**
+ * Defense-in-depth grace before a present-but-empty/undecodable lock file is
+ * reclaimed as stale.
+ *
+ * Exclusive locks are created *atomically with their content* (see
+ * {@link atomicCreateLockFile}), so a held exclusive lock is never observed empty
+ * and this branch does not fire for them. The grace still guards two residual
+ * sources of a transiently-empty lock file: the O_EXCL+write *fallback* used on
+ * filesystems without hardlink support, and shared `.slock` files (written
+ * non-atomically). Reclaiming such a file mid-creation would admit a second holder
+ * — a silent lost update under the record compare-and-swap in `writeIf`. The grace
+ * covers a create→write window generously while staying far below the 30s
+ * lock-wait timeout, so a genuinely crashed-mid-create remnant is still reclaimed
+ * promptly. Exported so tests can pin the boundary without sleeping.
+ */
+export const EMPTY_LOCK_GRACE_MS = 1_000;
+
 export async function isLockHolderAlive(holderStr: string): Promise<boolean> {
   const holder = parseHolder(holderStr);
   if (!holder) return true; // Can't parse — assume alive
@@ -153,7 +170,17 @@ export async function isLockHolderAlive(holderStr: string): Promise<boolean> {
 async function cleanIfStale(lockPath: string): Promise<void> {
   const state = await readLockState(lockPath);
   if (!state) {
-    // Empty or unreadable — treat as stale
+    // Present-but-empty/undecodable. Exclusive locks are created atomically with
+    // content (atomicCreateLockFile), so this is not a live exclusive holder; but
+    // the O_EXCL fallback path and non-atomic .slock writes can momentarily leave a
+    // file empty. Reclaiming one mid-creation would admit a second holder, so only
+    // treat it as a crashed remnant once it has sat unfilled past the grace.
+    try {
+      const st = await fs.stat(lockPath);
+      if (Date.now() - st.mtimeMs < EMPTY_LOCK_GRACE_MS) return;
+    } catch {
+      return; // vanished already — nothing to clean
+    }
     try { await fs.unlink(lockPath); } catch {}
     return;
   }
@@ -215,6 +242,51 @@ async function buildLockState(operation: LockOperation): Promise<{ state: LockSt
   return { state, holder };
 }
 
+/**
+ * Create `lockPath` already containing `data`, atomically, failing if it exists.
+ *
+ * `fs.open(path, 'wx')` claims the name atomically but leaves the file empty until
+ * a second `write` lands — a window in which a concurrent acquirer can observe the
+ * lock empty and reclaim it (see {@link EMPTY_LOCK_GRACE_MS}), admitting two
+ * holders and a lost update under the record CAS. Writing the bytes to a private
+ * temp and hard-linking it into place removes the window entirely: the lock name,
+ * the instant it exists, already holds the bytes. `link` fails with `EEXIST` if the
+ * name is taken, giving the same mutual exclusion as O_EXCL.
+ *
+ * Falls back to O_EXCL+write on filesystems without hardlink support (rare — some
+ * network/FAT mounts); there {@link EMPTY_LOCK_GRACE_MS} is the safety net.
+ *
+ * @returns true if we created the lock; false if another holder already has it.
+ */
+async function atomicCreateLockFile(lockPath: string, data: Uint8Array): Promise<boolean> {
+  const tmp = `${lockPath}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
+  try {
+    await fs.writeFile(tmp, data);
+    try {
+      await fs.link(tmp, lockPath);
+      return true;
+    } catch (err: any) {
+      if (err.code === 'EEXIST') return false;
+      // Hardlinks unsupported on this filesystem — fall back to O_EXCL + write.
+      if (err.code === 'EPERM' || err.code === 'ENOSYS' || err.code === 'EXDEV'
+          || err.code === 'EMLINK' || err.code === 'EOPNOTSUPP') {
+        try {
+          const fd = await fs.open(lockPath, 'wx');
+          try { await fd.write(data); } finally { await fd.close(); }
+          return true;
+        } catch (err2: any) {
+          if (err2.code === 'EEXIST') return false;
+          throw err2;
+        }
+      }
+      throw err;
+    }
+  } finally {
+    // The lock keeps the inode alive via its own hardlink; drop our temp name.
+    await fs.unlink(tmp).catch(() => {});
+  }
+}
+
 /** Try once to acquire an exclusive lock. Returns lock path or null. */
 async function tryExclusiveOnce(repoPath: string, workspace: string, operation: LockOperation): Promise<string | null> {
   const lockPath = workspaceLockPath(repoPath, workspace);
@@ -226,21 +298,11 @@ async function tryExclusiveOnce(repoPath: string, workspace: string, operation: 
   const shared = await liveSharedLocks(repoPath, workspace);
   if (shared.length > 0) return null;
 
-  // Atomic create — fails with EEXIST if another process beat us
+  // Atomic create-with-content — false (not us) if another holder beat us to it.
   const { state } = await buildLockState(operation);
-  try {
-    const fd = await fs.open(lockPath, 'wx');
-    try {
-      const encoder = encodeBeast2For(LockStateType);
-      await fd.write(encoder(state));
-    } finally {
-      await fd.close();
-    }
-    return lockPath;
-  } catch (err: any) {
-    if (err.code === 'EEXIST') return null;
-    throw err;
-  }
+  const encoder = encodeBeast2For(LockStateType);
+  const created = await atomicCreateLockFile(lockPath, encoder(state));
+  return created ? lockPath : null;
 }
 
 /** Try once to acquire a shared lock. Returns lock path or null. */

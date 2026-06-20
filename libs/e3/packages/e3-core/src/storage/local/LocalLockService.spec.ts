@@ -18,6 +18,7 @@ import {
   acquireWorkspaceLock,
   getWorkspaceLockHolder,
   workspaceLockPath,
+  EMPTY_LOCK_GRACE_MS,
 } from './LocalLockService.js';
 import { WorkspaceLockError } from '../../errors.js';
 
@@ -183,6 +184,71 @@ describe('LocalLockService', () => {
 
       // Lock file should be cleaned up
       await assert.rejects(fs.access(lockPath), { code: 'ENOENT' });
+    });
+  });
+
+  // Regression guard for the Windows-only lost-update flake (records.spec.ts:217
+  // "N concurrent increments"). An exclusive lock is created atomically *with its
+  // holder bytes*, so it is never observed empty and a concurrent acquirer can
+  // never steal it mid-creation (which previously admitted a second holder and
+  // clobbered a record commit). These exercise that guarantee deterministically,
+  // on every platform — not probabilistically like the K=8 record test.
+  describe('exclusive lock atomicity', () => {
+    it('a held exclusive lock file already contains holder bytes (never empty)', async () => {
+      const lock = await acquireWorkspaceLock(repoPath, 'ws-content', variant('dataflow', null));
+      try {
+        const bytes = await fs.readFile(lock.lockPath);
+        assert.ok(bytes.length > 0, 'lock file must be non-empty the instant it exists');
+        const holder = await getWorkspaceLockHolder(repoPath, 'ws-content');
+        assert.ok(holder && holder.pid === process.pid);
+      } finally {
+        await lock.release();
+      }
+    });
+
+    it('does NOT reclaim a freshly-created empty lock (no mid-creation steal)', async () => {
+      const lockPath = workspaceLockPath(repoPath, 'ws-fresh-empty');
+      await fs.writeFile(lockPath, '');               // empty, fresh mtime
+      await assert.rejects(
+        acquireWorkspaceLock(repoPath, 'ws-fresh-empty', variant('dataflow', null), { wait: false }),
+        WorkspaceLockError,
+      );
+      await fs.access(lockPath);                        // still there — not stolen
+    });
+
+    it('DOES reclaim an empty lock older than the grace (crashed-mid-create remnant)', async () => {
+      const lockPath = workspaceLockPath(repoPath, 'ws-stale-empty');
+      await fs.writeFile(lockPath, '');
+      const old = new Date(Date.now() - EMPTY_LOCK_GRACE_MS - 5_000);
+      await fs.utimes(lockPath, old, old);             // backdate past the grace
+      const lock = await acquireWorkspaceLock(repoPath, 'ws-stale-empty', variant('dataflow', null), { wait: false });
+      assert.ok(lock.lockPath.endsWith('ws-stale-empty.lock'));
+      await lock.release();
+    });
+
+    it('concurrent exclusive acquirers are mutually exclusive — no double-hold', async () => {
+      const N = 8;
+      let held = false;
+      let concurrent = 0;
+      let maxConcurrent = 0;
+      let committed = 0;
+      await Promise.all(Array.from({ length: N }, () => (async () => {
+        const lock = await acquireWorkspaceLock(repoPath, 'ws-cas', variant('dataflow', null), { wait: true, timeout: 30_000 });
+        try {
+          assert.strictEqual(held, false, 'two holders in the critical section at once');
+          held = true;
+          concurrent += 1;
+          maxConcurrent = Math.max(maxConcurrent, concurrent);
+          await new Promise(r => setTimeout(r, 5));    // hold briefly so any racer would overlap
+          committed += 1;
+          concurrent -= 1;
+          held = false;
+        } finally {
+          await lock.release();
+        }
+      })()));
+      assert.strictEqual(committed, N, 'every acquirer ran its critical section');
+      assert.strictEqual(maxConcurrent, 1, 'mutual exclusion held throughout');
     });
   });
 });
