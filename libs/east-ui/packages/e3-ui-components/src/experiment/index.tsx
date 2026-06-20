@@ -241,7 +241,6 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
     const bs = useSlotRecipe({ key: 'barStrip' })({});
     const statusR = useSlotRecipe({ key: 'status' });
     const es = useSlotRecipe({ key: 'eyebrowRow' })({});
-    const presetGridR = useSlotRecipe({ key: 'presetGrid' });
 
     const workspace = getReactiveDatasetCache().getConfig().workspace ?? '';
     const data = useBindingValue<Record<string, unknown>[]>(v.data as never);
@@ -250,7 +249,7 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
     const populationBind = useBindingValue<PredicateValue[]>(v.population.type === 'some' ? (v.population.value as never) : null);
     const meta = getSomeorUndefined(v.columnMeta);
     const readonly = getSomeorUndefined(v.readonly) ?? false;
-    // Developer-authored presets (a card grid) + which one is currently loaded — the
+    // Developer-authored presets (a header dropdown) + which one is currently loaded — the
     // staged spec's provenance, cleared the moment a picker edits a field away from it.
     const presets = useMemo(() => getSomeorUndefined(v.presets) ?? [], [v.presets]);
     const [currentPreset, setCurrentPreset] = useState<string | undefined>(undefined);
@@ -265,14 +264,6 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
         }
         return [...buckets].map(([label, items]) => ({ label, items }));
     }, [presets]);
-    // A one-line card description derived from the preset's vetted config.
-    const presetDesc = (p: PresetValue): string => {
-        const cc = p.config.common_causes.join(', ');
-        const head = p.config.treatment + ' → ' + p.config.outcome;
-        const body = cc ? head + ' · vs ' + cc : head;
-        const pop = getSomeorUndefined(p.population);
-        return pop && pop.length ? body + ' · scoped' : body;
-    };
 
     const { columns, rowArrayType } = useColumns(workspace, v.data.source);
     const config = configBind.value;
@@ -508,9 +499,47 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
         <Box layerStyle="frame" overflow="visible">
             {/* header */}
             <Box layerStyle="header.bar" display="flex" alignItems="center" gap="3.5">
-                <Text textStyle="title.card" color="fg.muted">
-                    <Help id="header">Does&nbsp;<Text as="span" color="brand.solid" fontWeight="bold">{vs.treatment}</Text>&nbsp;change&nbsp;<Text as="span" color="brand.solid" fontWeight="bold">{vs.outcome}</Text>?</Help>
-                </Text>
+                {/* The title IS the question selector (spec #79, GitHub-repo-picker style): when
+                    presets exist, the header text + a chevron open a menu of vetted questions
+                    (current one checked). Selecting one snaps the staged spec + scope to that
+                    pre-baked config (still editable before Run); a committed result records it. */}
+                {presets.length > 0 && !readonly ? (
+                    <Menu.Root>
+                        <Menu.Trigger asChild>
+                            <Box as="button" bg="transparent" border="0" p="0" cursor="pointer" display="inline-flex" alignItems="center" gap="2" textAlign="start">
+                                <Text textStyle="title.card" color="fg.muted">
+                                    Does&nbsp;<Text as="span" color="brand.solid" fontWeight="bold">{vs.treatment}</Text>&nbsp;change&nbsp;<Text as="span" color="brand.solid" fontWeight="bold">{vs.outcome}</Text>?
+                                </Text>
+                                <Box as="span" color="fg.subtle" fontSize="11px" lineHeight="1"><FontAwesomeIcon icon={faChevronDown} /></Box>
+                            </Box>
+                        </Menu.Trigger>
+                        <Portal>
+                            <Menu.Positioner>
+                                <Menu.Content minW="280px">
+                                    {presetGroups.map(g => (
+                                        <Menu.ItemGroup key={g.label}>
+                                            {g.label !== 'Saved questions' && (
+                                                <Menu.ItemGroupLabel textStyle="caption.eyebrow" fontSize="9px">{g.label}</Menu.ItemGroupLabel>
+                                            )}
+                                            {g.items.map(p => (
+                                                <Menu.Item key={p.id} value={p.id} onClick={() => selectPreset(p)} gap="2">
+                                                    <Box as="span" width="14px" flexShrink="0" color="brand.fg">
+                                                        {p.id === currentPreset && <FontAwesomeIcon icon={faCheck} style={{ fontSize: '10px' }} />}
+                                                    </Box>
+                                                    {p.label}
+                                                </Menu.Item>
+                                            ))}
+                                        </Menu.ItemGroup>
+                                    ))}
+                                </Menu.Content>
+                            </Menu.Positioner>
+                        </Portal>
+                    </Menu.Root>
+                ) : (
+                    <Text textStyle="title.card" color="fg.muted">
+                        <Help id="header">Does&nbsp;<Text as="span" color="brand.solid" fontWeight="bold">{vs.treatment}</Text>&nbsp;change&nbsp;<Text as="span" color="brand.solid" fontWeight="bold">{vs.outcome}</Text>?</Help>
+                    </Text>
+                )}
                 <Box flex="1" />
                 <Box as="span" css={dataStatus.root}>
                     <Box as="span" css={dataStatus.indicator} />
@@ -520,38 +549,6 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
                 {canRun && <ActionButton button={button} variant="solid" label="Run" onClick={onRun} disabled={runDisabled} pulse={stale} />}
                 {canCommit && <ActionButton button={button} variant="ghost" label="Commit" onClick={onCommit} disabled={commitDisabled} />}
             </Box>
-
-            {/* Saved-questions band — the spec `Input.Presets` card grid, one section per
-                `group`. Selecting a card snaps the staged spec + scope to that vetted config. */}
-            {presets.length > 0 && !readonly && (
-                <Box>
-                    {presetGroups.map((g, gi) => {
-                        const pg = presetGridR({ cols: g.items.length >= 3 ? '3' : g.items.length === 2 ? '2' : '1' });
-                        return (
-                            <Box key={g.label}>
-                                <Box css={es.root}>
-                                    <Box as="span" css={es.lbl}>{g.label}</Box>
-                                    {gi === 0 && <Box as="span" css={es.meta}>load a vetted question + scope into the spec</Box>}
-                                </Box>
-                                <Box css={pg.root}>
-                                    {g.items.map(p => (
-                                        <Box
-                                            key={p.id}
-                                            as="button"
-                                            css={pg.card}
-                                            data-active={p.id === currentPreset ? '' : undefined}
-                                            onClick={() => selectPreset(p)}
-                                        >
-                                            <Box css={pg.name}>{p.id === currentPreset ? `${p.label} ●` : p.label}</Box>
-                                            <Box css={pg.desc}>{presetDesc(p)}</Box>
-                                        </Box>
-                                    ))}
-                                </Box>
-                            </Box>
-                        );
-                    })}
-                </Box>
-            )}
 
             <Box display="grid" gridTemplateColumns="304px minmax(0,1fr)" alignItems="start">
                 {/* set-up rail */}

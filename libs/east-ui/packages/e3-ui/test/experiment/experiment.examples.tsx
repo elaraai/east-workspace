@@ -332,8 +332,8 @@ export const experimentValidate = example({
 });
 
 export const experimentPresets = example({
-    keywords: ['Experiment', 'presets', 'causal', 'questions', 'vetted', 'card', 'grid', 'scope', 'group'],
-    description: 'The Experiment `presets` — a card grid of named, developer-authored questions (the spec `Input.Presets` pattern). Each bundles a vetted backdoor set (and an optional population scope), grouped into sections; selecting one snaps the staged spec + filters to that pre-baked configuration (still editable before Run), and a committed result records which preset it came from. Lets a domain expert pick a correct causal question from a menu rather than assemble one.',
+    keywords: ['Experiment', 'presets', 'causal', 'questions', 'vetted', 'dropdown', 'title', 'menu', 'scope'],
+    description: 'The Experiment `presets` — the title doubles as a question selector: a chevron after the header turns it into a dropdown of named, developer-authored questions (current one checked). Each bundles a vetted backdoor set (and an optional population scope); selecting one snaps the staged spec + filters to that pre-baked configuration (still editable before Run), and a committed result records which preset it came from. Lets a domain expert pick a correct causal question from a menu rather than assemble one.',
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const data = $.let(Data.bind(batchesInput));
@@ -353,7 +353,6 @@ export const experimentPresets = example({
                         {
                             id: 'cure_strength',
                             label: 'Slow cure → bond strength',
-                            group: 'Cure',
                             // The vetted backdoor set for this question; only the fields it
                             // pins are written — the rest default to the library default.
                             config: {
@@ -365,7 +364,6 @@ export const experimentPresets = example({
                         {
                             id: 'cure_strength_panels',
                             label: 'Slow cure → strength (panels only)',
-                            group: 'Cure',
                             config: {
                                 treatment: 'slow_cure', outcome: 'bond_strength',
                                 common_causes: ['incoming_grade', 'mix_viscosity', 'supplier'],
@@ -377,7 +375,6 @@ export const experimentPresets = example({
                         {
                             id: 'cure_strength_byline',
                             label: 'Slow cure → strength (control for line)',
-                            group: 'Robustness',
                             // A stricter backdoor set — also adjusts for the production line.
                             config: {
                                 treatment: 'slow_cure', outcome: 'bond_strength',

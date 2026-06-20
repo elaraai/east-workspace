@@ -111,7 +111,6 @@ import { matrixSlotRecipe } from "./slot-recipes/matrix.js";
 import { showMoreSlotRecipe } from "./slot-recipes/showMore.js";
 import { statusSlotRecipe } from "./slot-recipes/status.js";
 import { eyebrowRowSlotRecipe } from "./slot-recipes/eyebrowRow.js";
-import { presetGridSlotRecipe } from "./slot-recipes/presetGrid.js";
 import { commitBarSlotRecipe } from "./slot-recipes/commitBar.js";
 import { decisionQueueSlotRecipe } from "./slot-recipes/decisionQueue.js";
 
@@ -200,7 +199,6 @@ const config = defineConfig({
             showMore:        showMoreSlotRecipe,
             status:          statusSlotRecipe,
             eyebrowRow:      eyebrowRowSlotRecipe,
-            presetGrid:      presetGridSlotRecipe,
             commitBar:       commitBarSlotRecipe,
             decisionQueue:   decisionQueueSlotRecipe,
         },
