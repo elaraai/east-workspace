@@ -427,3 +427,8 @@ export {
     ScalarObjectiveType as SharedScalarObjectiveType,
     VectorObjectiveType,
 } from "./types.js";
+
+// Canonical combined model-blob union (single-sourced from the per-library unions)
+export {
+    ModelBlobType,
+} from "./model_blob.js";

@@ -171,7 +171,7 @@ Task → What do you need?
 | `VectorType` | `ArrayType(FloatType)` | 1D array of floats (e.g., `[1.0, 2.0, 3.0]`) |
 | `MatrixType` | `ArrayType(ArrayType(FloatType))` | 2D array of floats (e.g., `[[1.0, 2.0], [3.0, 4.0]]`) |
 | `LabelVectorType` | `ArrayType(IntegerType)` | Class labels as integers (e.g., `[0n, 1n, 0n, 2n]`) |
-| `ModelBlobType` | `BlobType` | Serialized model (opaque, pass to predict functions) |
+| `ModelBlobType` | combined `VariantType` (20 cases) | Canonical union of every per-library model blob — import top-level for an arbitrary trained model; per-library subsets stay at `XGBoost.Types.ModelBlobType` etc. Not `AnyModelBlobType` (SHAP-explainer input union). |
 
 ## Available Modules
 

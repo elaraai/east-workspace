@@ -1,13 +1,13 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1352,
-    "totalFiles": 178,
+    "totalEntries": 1353,
+    "totalFiles": 179,
     "packages": {
       "east": 489,
       "east-node-std": 42,
       "east-node-io": 63,
-      "east-py-datascience": 87,
+      "east-py-datascience": 88,
       "east-ui": 613,
       "e3-ui": 51,
       "e3": 7
@@ -12263,6 +12263,29 @@
         "import { MAPIE } from \"@elaraai/east-py-datascience\";"
       ],
       "source": "// Classify defect type with prediction sets that have guaranteed coverage\n// inputs: []  returns: true\nEast.function([], BooleanType, ($) => {\n        // Defect classification: 2 sensor features, binary class (0=ok, 1=defect)\n        const X_train = $.let(East.Matrix.fromArray([\n            [1.0, 0.0], [1.2, 0.2], [1.4, 0.4], [1.6, 0.6], [1.8, 0.8], [2.0, 1.0],\n            [3.0, 3.0], [3.2, 3.2], [3.4, 3.4], [3.6, 3.6], [3.8, 3.8], [4.0, 4.0],\n        ]));\n        const y_train = $.let(East.Vector.fromArray([0n, 0n, 0n, 0n, 0n, 0n, 1n, 1n, 1n, 1n, 1n, 1n]));\n\n        // Calibration data (≥11 samples for 90% confidence)\n        const X_calib = $.let(East.Matrix.fromArray([\n            [1.1, 0.1], [1.3, 0.3], [1.5, 0.5], [1.7, 0.7], [1.9, 0.9],\n            [3.1, 3.1], [3.3, 3.3], [3.5, 3.5], [3.7, 3.7], [3.9, 3.9], [4.1, 4.1],\n        ]));\n        const y_calib = $.let(East.Vector.fromArray([0n, 0n, 0n, 0n, 0n, 1n, 1n, 1n, 1n, 1n, 1n]));\n\n        const config = $.let({\n            base_model: variant('xgboost', {\n                n_estimators: variant('some', 50n),\n                max_depth: variant('some', 3n),\n                learning_rate: variant('some', 0.1),\n                min_child_weight: variant('none', null),\n                subsample: variant('none', null),\n                colsample_bytree: variant('none', null),\n                reg_alpha: variant('none', null),\n                reg_lambda: variant('none', null),\n                gamma: variant('none', null),\n                random_state: variant('some', 42n),\n                n_jobs: variant('none', null),\n                sample_weight: variant('none', null),\n                categorical_features: variant('none', null),\n                categorical_n: variant('none', null),\n                max_cat_to_onehot: variant('none', null),\n                max_cat_threshold: variant('none', null),\n            }),\n            method: variant('some', variant('lac', null)),\n            confidence_level: variant('some', 0.9),\n            random_state: variant('some', 42n),\n        }, MAPIE.Types.MAPIEClassifierConfigType);\n\n        const model = $.let(MAPIE.trainConformalClassifier(X_train, y_train, X_calib, y_calib, config));\n\n        const X_new = $.let(East.Matrix.fromArray([[1.0, 0.0], [4.0, 4.0]]));\n        const result = $.let(MAPIE.predictSet(model, X_new));\n\n        // 2 predictions, each set has ≥1 class\n        return result.pred.length().equal(2n)\n            .and(() => result.set_sizes.get(0n).greaterEqual(1n))\n            .and(() => result.set_sizes.get(1n).greaterEqual(1n));\n    })"
+    },
+    {
+      "id": "east-py-datascience:model_blob.examples.ts:modelBlobUnion",
+      "skill": "east-py-datascience",
+      "package": "east-py-datascience",
+      "file": "east-py/packages/east-py-datascience/test/model_blob.examples.ts",
+      "suite": "",
+      "test": "Declare the canonical ModelBlobType union for an arbitrary trained-model artifact",
+      "keywords": [
+        "ModelBlobType",
+        "model blob",
+        "model artifact",
+        "variant",
+        "union",
+        "combined",
+        "cross-runtime",
+        "platform module"
+      ],
+      "imports": [
+        "import { East, variant, example } from \"@elaraai/east\";",
+        "import { ModelBlobType } from \"@elaraai/east-py-datascience\";"
+      ],
+      "source": "// Declare the canonical ModelBlobType union for an arbitrary trained-model artifact\n// inputs: []  returns: variant(\"gp_regressor\", { data: new Uint8Array([1, 2, 3]), n_features: 4n, kernel_type: \"rbf\" })\nEast.function([], ModelBlobType, ($) => {\n        // Any per-library model fits the one combined union — here a Gaussian Process regressor.\n        const model = $.let(variant(\"gp_regressor\", {\n            data: new Uint8Array([1, 2, 3]),\n            n_features: 4n,\n            kernel_type: \"rbf\",\n        }), ModelBlobType);\n        return model;\n    })"
     },
     {
       "id": "east-py-datascience:optimization.examples.ts:optimizationCoordinate",
