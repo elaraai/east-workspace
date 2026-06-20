@@ -445,11 +445,17 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
 
     if (!config || !view) {
         const failed = experiment.status === 'failed';
+        // A binding that failed to read/decode (rather than one still loading) gets
+        // surfaced as an error — never a perpetual "loading" spinner.
+        const bindError = data.error ?? configBind.error ?? journalBind.error ?? populationBind.error;
+        const bindMsg = bindError instanceof Error ? bindError.message : bindError != null ? String(bindError) : null;
         return (
             <Box layerStyle="frame" p="6">
-                {failed && experiment.error
-                    ? <RunError error={experiment.error} />
-                    : <Text className={failed ? undefined : 'elara-skeleton'} textStyle="body.sm" color="fg.muted">{failed ? 'Could not run the experiment.' : 'Loading experiment…'}</Text>}
+                {bindMsg
+                    ? <Text textStyle="body.sm" color="fg.danger">Couldn’t load the experiment data: {bindMsg}</Text>
+                    : failed && experiment.error
+                        ? <RunError error={experiment.error} />
+                        : <Text className={failed ? undefined : 'elara-skeleton'} textStyle="body.sm" color="fg.muted">{failed ? 'Could not run the experiment.' : 'Loading experiment…'}</Text>}
             </Box>
         );
     }

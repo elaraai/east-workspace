@@ -47,6 +47,9 @@ export interface UseBindingValueResult<T> {
     mode: 'staged' | 'direct';
     /** True when there is an in-flight staged change. */
     pending: boolean;
+    /** The read/decode error if the bound value failed to resolve (else `undefined`).
+     *  Surfaced so a binding failure shows an error instead of a perpetual "loading". */
+    error: unknown;
     /** Replace the bound value (staged buffers, direct writes through). */
     mutate: (next: T) => void;
     /** Resolve the in-flight change. */
@@ -101,12 +104,15 @@ export function useBindingValue<T>(binding: DiffBindingValue | null): UseBinding
         return defaultBindRuntime.buildBindHandle(types.sourceType, sourcePath, patchPath, mode);
     }, [binding, workspace, sourcePath, patchPath, mode]);
 
-    const { value, pending } = useMemo(() => {
-        if (!handle || !handle.has()) return { value: null as T | null, pending: false };
+    const { value, pending, error } = useMemo(() => {
+        if (!handle || !handle.has()) return { value: null as T | null, pending: false, error: undefined as unknown };
         try {
-            return { value: handle.read() as T, pending: handle.pending() };
-        } catch {
-            return { value: null as T | null, pending: false };
+            return { value: handle.read() as T, pending: handle.pending(), error: undefined as unknown };
+        } catch (e) {
+            // Surface the read/decode failure instead of swallowing it into a perpetual
+            // "loading" state — the renderer shows the error and devtools shows the cause.
+            console.error(`[Experiment] failed to read binding "${String(sourcePath)}":`, e);
+            return { value: null as T | null, pending: false, error: e };
         }
         // `version` drives recompute when buffers / server values change.
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -119,5 +125,5 @@ export function useBindingValue<T>(binding: DiffBindingValue | null): UseBinding
     }, [handle]);
     const discard = useCallback(() => { handle?.discard(); }, [handle]);
 
-    return { value, mode, pending, mutate, commit, discard };
+    return { value, mode, pending, error, mutate, commit, discard };
 }

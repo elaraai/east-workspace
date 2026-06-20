@@ -107,7 +107,11 @@ export default defineConfig(({ command }) => {
         'sorted-btree',
         '@elaraai/east', '@elaraai/east/internal',
         '@elaraai/east-ui', '@elaraai/east-ui/internal',
-        '@elaraai/e3-ui',
+        // Both subpaths MUST be pre-bundled together (like east / east-ui above), or
+        // the bare specifier (the example's `Experiment.Types.*`) and `/internal` (the
+        // renderer's binding types) split into two type versions — a field added to a
+        // type then mismatches encode vs decode ("buffer underflow reading varint").
+        '@elaraai/e3-ui', '@elaraai/e3-ui/internal',
         'react-dom/client', '@chakra-ui/react',
         '@xyflow/react', 'cytoscape', 'cytoscape-cose-bilkent',
       ],
