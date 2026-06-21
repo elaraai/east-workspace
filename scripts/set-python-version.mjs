@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -42,6 +43,13 @@ function main() {
     fs.writeFileSync(p, updated);
     console.log(`${rel}: ${pep440}`);
   }
+
+  // Regenerate the uv workspace lock so the editable members' own versions
+  // follow the pyproject bump. Without this the lock lags and every `uv sync`
+  // silently rewrites it; check-version-drift.mjs enforces the alignment.
+  const eastPyDir = path.join(repoRoot, 'libs/east-py');
+  console.log('libs/east-py/uv.lock: re-locking …');
+  execFileSync('uv', ['lock'], { cwd: eastPyDir, stdio: 'inherit' });
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

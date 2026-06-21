@@ -89,6 +89,27 @@ for (const rel of PYPROJECTS) {
   if (v !== expectedPep440) errors.push(`${rel}: ${v} ≠ ${expectedPep440} (PEP 440 of ${canonical})`);
 }
 
+// The uv workspace lock records the editable members' own versions; they must
+// track the canonical version too, else every `uv sync` rewrites the lock and
+// it ships stale. set-python-version.mjs re-locks on bump; this enforces it.
+const UV_LOCK = 'libs/east-py/uv.lock';
+const lockRaw = fs.readFileSync(path.join(repoRoot, UV_LOCK), 'utf8');
+let lockMembersChecked = 0;
+for (const block of lockRaw.split(/\n(?=\[\[package\]\])/)) {
+  if (!block.startsWith('[[package]]')) continue;
+  if (!/source\s*=\s*\{\s*editable\s*=/.test(block)) continue;
+  const name = block.match(/\nname\s*=\s*"([^"]+)"/)?.[1];
+  if (!name?.startsWith('elaraai-east-py')) continue;
+  const v = block.match(/\nversion\s*=\s*"([^"]+)"/)?.[1];
+  lockMembersChecked++;
+  if (v !== expectedPep440) {
+    errors.push(`${UV_LOCK} (${name}): ${v} ≠ ${expectedPep440} (PEP 440 of ${canonical})`);
+  }
+}
+if (lockMembersChecked === 0) {
+  errors.push(`${UV_LOCK}: found no editable east-py members to verify (parse failure?)`);
+}
+
 const vsixVersion = readJsonVersion(VSIX_PKG);
 if (!isPrerelease && vsixVersion !== canonical) {
   errors.push(`${VSIX_PKG}: ${vsixVersion} ≠ ${canonical} (must match on stable canonical)`);
