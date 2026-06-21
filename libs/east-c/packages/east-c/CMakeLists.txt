@@ -158,6 +158,15 @@ add_executable(test_recursive_type_lifecycle tests/test_recursive_type_lifecycle
 target_link_libraries(test_recursive_type_lifecycle east-c)
 add_test(NAME recursive_type_lifecycle COMMAND test_recursive_type_lifecycle)
 
+# type_of_type interning gate (issue #83): east_type_to_value must memoize the
+# type->value conversion so two struct fields sharing one interned EastType*
+# share one EastValue* sub-tree — otherwise the beast2 type-of-type encoding
+# bloats (302 bytes vs the TS-canonical 293). Mirrors the TS
+# toEastTypeValueCache. Run under ASan/LSan to validate the memo refcounting.
+add_executable(test_type_to_value_interning tests/test_type_to_value_interning.c)
+target_link_libraries(test_type_to_value_interning east-c)
+add_test(NAME type_to_value_interning COMMAND test_type_to_value_interning)
+
 # Beast2 decoder hardening gate (issue #34): truncation/corruption sweeps,
 # crafted out-of-bounds type tables, and allocation-overflow guards. The
 # beast2 decoders are an untrusted-input boundary — run under ASan
