@@ -27,7 +27,7 @@
 
 import { some, none } from '@elaraai/east';
 import type { ValueTypeOf, option } from '@elaraai/east';
-import { Experiment } from '@elaraai/e3-ui';
+import { Experiment } from '@elaraai/e3-ui/internal';
 import { getSomeorUndefined } from '@elaraai/east-ui-components';
 import type { HelpId } from './help.js';
 
