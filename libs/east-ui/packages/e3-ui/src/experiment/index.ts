@@ -57,14 +57,9 @@ import {
     JournalType,
     ColumnMetaType,
     PopulationType,
-    PresetType,
+    ConfigurationType,
     DesignConfigType,
     ExperimentDesignType,
-    EstimatorType,
-    TargetUnitsType,
-    BootstrapConfigType,
-    RefuteSpecType,
-    SignType,
     CiType,
     BalanceRowType,
     OverlapDiagnosticType,
@@ -94,7 +89,7 @@ export {
     JournalType,
     ColumnMetaType,
     PopulationType,
-    PresetType,
+    ConfigurationType,
 } from './types.js';
 
 // ============================================================================
@@ -132,29 +127,27 @@ export type ExperimentTabType = typeof ExperimentTabType;
  *
  * @property data - {@link DiffBindingType} for the input dataset — the renderer
  *   introspects its row struct for the pickers and passes it to the function.
- * @property config - {@link DiffBindingType} for the staged {@link ExperimentConfigType}.
- * @property experiment - {@link FuncBindingType} for the single `experiment` function.
- * @property population - Optional {@link DiffBindingType} for the staged Step-4
- *   population filter ({@link PopulationType}); narrows rows UI-side before the call.
+ * @property configs - {@link DiffBindingType} for the list of {@link ConfigurationType}
+ *   questions (each carrying its config + optional precomputed result/design). The
+ *   only config source; selecting one seeds the working config.
+ * @property experiment - Optional {@link FuncBindingType} for the universal estimator
+ *   function; omitted when every shown question carries a precomputed result.
  * @property journal - Optional {@link DiffBindingType} for the committed-experiment journal.
+ * @property design - Optional {@link FuncBindingType} for the universal `design` function
+ *   (the "Validate" tab); applies to any question.
  * @property columnMeta - Optional per-column display metadata.
  * @property readonly - Render without the Apply / Commit / edit affordances.
  * @property defaultTab - Initial result tab ({@link ExperimentTabType}).
  */
 export const ExperimentPayloadType = StructType({
     data: DiffBindingType,
-    config: DiffBindingType,
-    experiment: FuncBindingType,
-    population: OptionType(DiffBindingType),
+    configs: DiffBindingType,
+    experiment: OptionType(FuncBindingType),
     journal: OptionType(DiffBindingType),
-    /** Optional `design` function → the validation-trial recipe ("Validate" tab). */
     design: OptionType(FuncBindingType),
     columnMeta: OptionType(ColumnMetaType),
     readonly: OptionType(BooleanType),
     defaultTab: OptionType(ExperimentTabType),
-    /** Optional developer-authored {@link PresetType} list — named vetted questions
-     *  rendered as a card grid; selecting one snaps the staged spec + scope. */
-    presets: OptionType(ArrayType(PresetType)),
 });
 /** Type alias for {@link ExperimentPayloadType}. */
 export type ExperimentPayloadType = typeof ExperimentPayloadType;
@@ -196,79 +189,19 @@ export type ExperimentColumns<Row extends StructType> = {
 };
 
 /**
- * A preset's pre-baked experiment config — a friendly, mostly-optional shape over
- * {@link ExperimentConfigType}. The column-bearing fields are checked against the
- * bound row's columns (like {@link ExperimentColumns}); every other field is optional
- * and falls back to the library default (`none`) when omitted, so a preset author
- * writes only what the question actually pins.
- *
- * @typeParam Row - The input dataset's row struct.
- */
-export interface ExperimentPresetConfig<Row extends StructType> {
-    /** Binary treatment column. */
-    treatment: Extract<keyof Row['fields'], string>;
-    /** Outcome column. */
-    outcome: Extract<keyof Row['fields'], string>;
-    /** Confounders to adjust for (the backdoor set). */
-    common_causes: Extract<keyof Row['fields'], string>[];
-    /** Confounder columns holding categories (one-hot encoded). */
-    categorical?: Extract<keyof Row['fields'], string>[];
-    /** Continuous column for the ALE dose-response curve. */
-    dose_feature?: Extract<keyof Row['fields'], string>;
-    /** Estimator (default: linear_regression). */
-    method?: SubtypeExprOrValue<EstimatorType>;
-    /** Target population (default: ate). */
-    estimand?: SubtypeExprOrValue<TargetUnitsType>;
-    /** Which robustness checks to run. */
-    refute?: SubtypeExprOrValue<RefuteSpecType>;
-    /** Bootstrap CI config. */
-    bootstrap?: SubtypeExprOrValue<BootstrapConfigType>;
-    /** Directional prior — flags an implausibly-signed effect. */
-    expected_sign?: SubtypeExprOrValue<SignType>;
-    /** Positivity refuse gate (default 0.10). */
-    min_overlap?: number;
-    /** Not-estimable guard (default 0.02). */
-    min_treatment_variation?: number;
-    /** Strong-overlap gate (default 0.55). */
-    strong_overlap?: number;
-    /** E-value floor (off by default). */
-    evalue_floor?: number;
-    /** Random seed — pin for a reproducible verdict. */
-    random_state?: bigint;
-}
-
-/**
- * One developer-authored preset for {@link ExperimentOptions.presets} — a named,
- * vetted question (+ optional scope) selectable from the surface's preset grid.
- *
- * @typeParam Row - The input dataset's row struct.
- */
-export interface ExperimentPreset<Row extends StructType> {
-    /** Stable, **unique** id — recorded in the journal and used as the selection
-     *  identity; keep it distinct from `label` so a renamed label never orphans a
-     *  committed row. Two presets must not share an id. */
-    id: string;
-    /** Display title on the card. */
-    label: string;
-    /** The vetted, pre-baked config. */
-    config: ExperimentPresetConfig<Row>;
-    /** Optional population scope applied on select (omit ⇒ clears the scope). */
-    population?: SubtypeExprOrValue<PopulationType>;
-    /** Optional section header — cards sharing a `group` are bucketed together. */
-    group?: string;
-}
-
-/**
  * Options for {@link Experiment.Root}, generic over the input row struct.
  *
  * @typeParam Row - The input dataset's row struct — inferred from `data`.
  *
  * @property data - The {@link Data.bind} handle for the input dataset.
- * @property config - The {@link Data.bind} handle for the staged experiment config.
- * @property experiment - The {@link Func.bind} handle for the experiment function.
- * @property population - Optional {@link Data.bind} handle for the staged Step-4
- *   population filter (a {@link PopulationType}); narrows the rows UI-side before
- *   the call. Bind it (seeded) to start with filters applied.
+ * @property configs - The {@link Data.bind} handle for the list of
+ *   {@link ConfigurationType} questions (each carrying its config + optional
+ *   precomputed result/design). The only config source.
+ * @property experiment - Optional {@link Func.bind} handle for the universal
+ *   estimator function; omit when every shown question carries a precomputed result.
+ * @property design - Optional {@link Func.bind} handle for the universal `design`
+ *   function (adds the "Validate" tab); omit when no question needs the trial recipe
+ *   or every shown question carries a precomputed `design`.
  * @property journal - Optional {@link Data.bind} handle for the committed-experiment journal.
  * @property columns - Optional per-column display config.
  * @property readonly - Render without mutation affordances.
@@ -276,19 +209,18 @@ export interface ExperimentPreset<Row extends StructType> {
  */
 export interface ExperimentOptions<Row extends StructType> {
     data: BoundValue<ArrayType<Row>>;
-    config: BoundValue<ExperimentConfigType>;
-    experiment: ExperimentFunc<Row>;
+    /** The questions — and their optional precomputed answers. The only config source. */
+    configs: BoundValue<ArrayType<ConfigurationType>>;
+    /** Optional universal estimator. One function serves every config; omit when every
+     *  shown question carries a precomputed `result`. */
+    experiment?: ExperimentFunc<Row>;
     /** Optional `design` function — adds the "Validate" tab (the trial recipe). */
     design?: ExperimentDesignFunc<Row>;
-    population?: BoundValue<PopulationType>;
     journal?: BoundValue<JournalType>;
     /** Per-column display config, keyed by the data row's fields (like `Table`). */
     columns?: ExperimentColumns<Row>;
-    readonly?: SubtypeExprOrValue<OptionType<BooleanType>>;
+    readonly?: SubtypeExprOrValue<BooleanType>;
     defaultTab?: ExperimentTabLiteral;
-    /** Developer-authored vetted questions — a card grid that snaps the staged spec
-     *  (and scope) on select. Column fields are checked against the row's columns. */
-    presets?: Array<ExperimentPreset<Row>>;
 }
 
 /**
@@ -296,8 +228,8 @@ export interface ExperimentOptions<Row extends StructType> {
  * function.
  *
  * @typeParam Row - The input dataset's row struct, inferred from `data`.
- * @param options - {@link ExperimentOptions}. `data`, `config` and `experiment`
- *   are required; the rest are optional.
+ * @param options - {@link ExperimentOptions}. `data` and `configs` are required;
+ *   the rest are optional.
  * @returns An East expression of {@link UIComponentType}.
  */
 function createExperiment<Row extends StructType>(options: ExperimentOptions<Row>): ExprType<UIComponentType> {
@@ -314,48 +246,18 @@ function createExperiment<Row extends StructType>(options: ExperimentOptions<Row
             }] as const)),
             ColumnMetaType,
         ));
-    // Each preset's friendly partial config is completed to a full ExperimentConfig
-    // here — the author writes only the fields a question pins; the rest default to
-    // `none` (the library default). The author never hand-rolls a some/none wrapper.
-    const presets = options.presets === undefined
-        ? none
-        : some(East.value(
-            options.presets.map(p => ({
-                id: p.id,
-                label: p.label,
-                config: {
-                    treatment: p.config.treatment,
-                    outcome: p.config.outcome,
-                    common_causes: p.config.common_causes,
-                    categorical: p.config.categorical !== undefined ? some(p.config.categorical) : none,
-                    method: p.config.method !== undefined ? some(p.config.method) : none,
-                    estimand: p.config.estimand !== undefined ? some(p.config.estimand) : none,
-                    refute: p.config.refute !== undefined ? some(p.config.refute) : none,
-                    dose_feature: p.config.dose_feature !== undefined ? some(p.config.dose_feature) : none,
-                    min_overlap: p.config.min_overlap !== undefined ? some(p.config.min_overlap) : none,
-                    min_treatment_variation: p.config.min_treatment_variation !== undefined ? some(p.config.min_treatment_variation) : none,
-                    bootstrap: p.config.bootstrap !== undefined ? some(p.config.bootstrap) : none,
-                    random_state: p.config.random_state !== undefined ? some(p.config.random_state) : none,
-                    strong_overlap: p.config.strong_overlap !== undefined ? some(p.config.strong_overlap) : none,
-                    evalue_floor: p.config.evalue_floor !== undefined ? some(p.config.evalue_floor) : none,
-                    expected_sign: p.config.expected_sign !== undefined ? some(p.config.expected_sign) : none,
-                },
-                population: p.population !== undefined ? some(p.population) : none,
-                group: p.group !== undefined ? some(p.group) : none,
-            })),
-            ArrayType(PresetType),
-        ));
+    // `configs` is a binding to a full Array<Configuration> (each entry's `spec` is a
+    // complete ExperimentConfigType + optional precomputed result/design) — no
+    // friendly-partial completion here; the bound dataset carries full values.
     return ExperimentComponent.Root({
         data: options.data.binding,
-        config: options.config.binding,
-        experiment: options.experiment.binding,
-        population: options.population !== undefined ? some(options.population.binding) : none,
+        configs: options.configs.binding,
+        experiment: options.experiment !== undefined ? some(options.experiment.binding) : none,
         journal: options.journal !== undefined ? some(options.journal.binding) : none,
         design: options.design !== undefined ? some(options.design.binding) : none,
         columnMeta,
-        readonly: options.readonly ?? none,
+        readonly: options.readonly === undefined ? none : some(options.readonly),
         defaultTab,
-        presets,
     });
 }
 
@@ -404,8 +306,8 @@ export const Experiment = {
         DesignConfig: DesignConfigType,
         /** The UI-side Step-4 population filter value type (Array of Slice predicates). */
         Population: PopulationType,
-        /** The developer-authored preset value type (named vetted question + scope). */
-        Preset: PresetType,
+        /** A configuration value type — a named question + scope + optional precomputed answer. */
+        Configuration: ConfigurationType,
         /** Optional per-column display metadata. */
         ColumnMeta: ColumnMetaType,
         /** Initial result tab variant. */

@@ -53,7 +53,7 @@ import { type HelpId } from './help.js';
 import {
     deriveView, deriveDesign,
     signed,
-    type Column, type ConfigValue, type ResultValue, type JournalRowValue, type DesignValue, type VMDesign, type PresetValue,
+    type Column, type ConfigValue, type ResultValue, type JournalRowValue, type DesignValue, type VMDesign, type ConfigurationValue,
 } from './derive.js';
 
 // The neutral noun for a row. `<Experiment>` is generic over any causal-analytics
@@ -218,6 +218,37 @@ function DeckSkeleton({ tab }: { tab: Tab }) {
     );
 }
 
+/**
+ * Full-surface loading skeleton — mirrors the real header + 2-column (setup rail /
+ * result deck) layout so the shell is present from the first frame and live content
+ * fills in WITHOUT a layout jump. Used while `data` / `configs` are still resolving.
+ */
+function LoadingSkeleton() {
+    const sk = useRecipe({ key: 'skeleton' });
+    const line = (w: string, h: string) => <Box css={sk({ variant: 'line' })} width={w} height={h} />;
+    const block = (h: string) => <Box css={sk({ variant: 'block' })} width="100%" minHeight={h} />;
+    return (
+        <Box layerStyle="frame" overflow="visible">
+            <Box layerStyle="header.bar" display="flex" alignItems="center" gap="3.5">
+                {line('260px', '20px')}
+                <Box flex="1" />
+                {line('72px', '16px')}
+            </Box>
+            <Box display="grid" gridTemplateColumns="304px minmax(0,1fr)" alignItems="start">
+                <Box borderRightWidth="1px" borderColor="border.subtle" p="4.5" display="flex" flexDirection="column" gap="5">
+                    {[0, 1, 2, 3].map(n => (
+                        <Box key={n} display="flex" flexDirection="column" gap="2">
+                            {line('150px', '12px')}
+                            {block('40px')}
+                        </Box>
+                    ))}
+                </Box>
+                <DeckSkeleton tab="answer" />
+            </Box>
+        </Box>
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Renderer.
 // ---------------------------------------------------------------------------
@@ -244,36 +275,62 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
 
     const workspace = getReactiveDatasetCache().getConfig().workspace ?? '';
     const data = useBindingValue<Record<string, unknown>[]>(v.data as never);
-    const configBind = useBindingValue<ConfigValue>(v.config as never);
     const journalBind = useBindingValue<JournalRowValue[]>(v.journal.type === 'some' ? (v.journal.value as never) : null);
-    const populationBind = useBindingValue<PredicateValue[]>(v.population.type === 'some' ? (v.population.value as never) : null);
     const meta = getSomeorUndefined(v.columnMeta);
     const readonly = getSomeorUndefined(v.readonly) ?? false;
-    // Developer-authored presets (a header dropdown) + which one is currently loaded — the
-    // staged spec's provenance, cleared the moment a picker edits a field away from it.
-    const presets = useMemo(() => getSomeorUndefined(v.presets) ?? [], [v.presets]);
-    const [currentPreset, setCurrentPreset] = useState<string | undefined>(undefined);
-    // Bucket presets by their optional `group`, preserving first-appearance order
-    // (ungrouped presets fall under one default section header).
-    const presetGroups = useMemo(() => {
-        const buckets = new Map<string, PresetValue[]>();
-        for (const p of presets) {
-            const label = getSomeorUndefined(p.group) ?? 'Saved questions';
+    // The questions — a read-only bound list. Each entry is self-contained (its
+    // `spec` + optional precomputed `result`/`design`); selecting one seeds the
+    // working config below. The list itself is never mutated by the UI.
+    const configsBind = useBindingValue<ConfigurationValue[]>(v.configs as never);
+    const configs = useMemo(() => configsBind.value ?? [], [configsBind.value]);
+    const [currentConfigId, setCurrentConfigId] = useState<string | undefined>(undefined);
+    // Resolve the selected entry by id (resilient to a removed / relabelled entry —
+    // falls back to the first); default to the first once the list decodes.
+    const selectedEntry = useMemo<ConfigurationValue | undefined>(
+        () => configs.find(c => c.id === currentConfigId) ?? configs[0],
+        [configs, currentConfigId]);
+    useEffect(() => {
+        const first = configs[0];
+        if (currentConfigId === undefined && first !== undefined) setCurrentConfigId(first.id);
+    }, [configs, currentConfigId]);
+    // Bucket entries by their optional `group`, preserving first-appearance order
+    // (ungrouped entries fall under one default section header).
+    const configGroups = useMemo(() => {
+        const buckets = new Map<string, ConfigurationValue[]>();
+        for (const c of configs) {
+            const label = getSomeorUndefined(c.group) ?? 'Questions';
             const bucket = buckets.get(label);
-            if (bucket) bucket.push(p); else buckets.set(label, [p]);
+            if (bucket) bucket.push(c); else buckets.set(label, [c]);
         }
         return [...buckets].map(([label, items]) => ({ label, items }));
-    }, [presets]);
+    }, [configs]);
 
     const { columns, rowArrayType } = useColumns(workspace, v.data.source);
-    const config = configBind.value;
-
-    // Population is UI-side — staged in its own bound dataset when one is bound
-    // (so a surface can seed / persist / commit framing filters), else a transient
-    // local fallback. It NEVER enters the config the experiment function receives;
-    // it only narrows the rows passed to the call.
+    // The working config + population are INTERNAL — seeded from the selected entry
+    // when the selection changes, edited locally, never written back to the bound list.
+    const [workingConfig, setWorkingConfig] = useState<ConfigValue | undefined>(undefined);
     const [localPop, setLocalPop] = useState<PredicateValue[]>([]);
-    const population = populationBind.value ?? localPop;
+    const [stale, setStale] = useState(false);
+    const seededIdRef = useRef<string | undefined>(undefined);
+    useEffect(() => {
+        const id = selectedEntry?.id;
+        if (id === seededIdRef.current) return;   // same entry re-decoded → keep edits
+        const switching = seededIdRef.current !== undefined;  // a real switch vs the first load
+        seededIdRef.current = id;
+        setWorkingConfig(selectedEntry?.spec);
+        setLocalPop(getSomeorUndefined(selectedEntry?.population) ?? []);
+        // Pulse "stale" (prompt a Run) ONLY when switching questions with a live estimator
+        // bound and no precomputed answer — the prior live result no longer matches. Never
+        // on first load, never on a precomputed/no-estimator surface (nothing to re-run).
+        const precomputed = selectedEntry?.result.type === 'some';
+        const hasEstimator = v.experiment.type === 'some';
+        setStale(switching && hasEstimator && !precomputed);
+    }, [selectedEntry, v.experiment.type]);
+    const config = workingConfig;
+
+    // Population is UI-side — it narrows the rows passed to the call and NEVER enters
+    // the config the experiment function receives. Seeded from the selected entry above.
+    const population = localPop;
     const filteredRows = useMemo(() => {
         if (!data.value) return null;
         return population.length ? data.value.filter(r => rowMatchesAll(r, population)) : data.value;
@@ -288,7 +345,13 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
     );
 
     const estInputs = useMemo(() => (rowArrayType ? [rowArrayType, Experiment.Types.Config] : null), [rowArrayType]);
-    const experiment = useFuncCall<ResultValue>(v.experiment.name, estInputs, Experiment.Types.Result);
+    // `experiment` is optional — a precomputed-only surface binds no estimator, so
+    // pass a null name → useFuncCall IDLEs (no call, result stays null).
+    const experiment = useFuncCall<ResultValue>(v.experiment.type === 'some' ? v.experiment.value.name : null, estInputs, Experiment.Types.Result);
+    const hasExperiment = v.experiment.type === 'some';
+    // The painted answer: a live result (only ever from an explicit Run) takes over,
+    // otherwise the selected entry's precomputed result.
+    const shownResult = experiment.result ?? getSomeorUndefined(selectedEntry?.result) ?? null;
 
     // The optional `design` function (the "Validate" tab) — bound only when the
     // surface supplies it; called lazily the first time the tab is opened.
@@ -316,15 +379,19 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
     // does NOT self-heal a failed first run (the user hits Run to retry), so the
     // surface never silently re-runs behind a manual edit.
     const autoRan = useRef(false);
+    const hasPrecomputed = selectedEntry !== undefined && selectedEntry.result.type === 'some';
     useEffect(() => {
         if (autoRan.current) return;
+        // Never auto-run a precomputed entry, or a surface with no estimator bound —
+        // the live estimator must not fire on a precomputed/curated surface.
+        if (hasPrecomputed || !hasExperiment) { autoRan.current = true; return; }
         if (!filteredRows || !config || !rowArrayType) return;
         if (experiment.result !== null || experiment.status === 'running') { autoRan.current = true; return; }
         if (experiment.status !== 'idle') return;
         autoRan.current = true;
         if (filteredRows.length > AUTORUN_MAX_ROWS) return; // too large to auto-run — wait for explicit Run
         runAll();
-    }, [filteredRows, config, rowArrayType, experiment.result, experiment.status, runAll]);
+    }, [hasPrecomputed, hasExperiment, filteredRows, config, rowArrayType, experiment.result, experiment.status, runAll]);
 
     // Promote the pending config to the "ran" config when a result lands, so the
     // result deck's labels change together with its numbers — never on live edits.
@@ -332,52 +399,43 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
         if (experiment.result !== null) setRanConfig(pendingConfigRef.current);
     }, [experiment.result]);
 
-    const [stale, setStale] = useState(false);
-    // Defer the East-side staged write out of the React event (interactive-state
-    // rule); the staged store's useSyncExternalStore drives the re-render.
-    const editConfig = useCallback((next: ConfigValue, fromPreset?: string) => {
-        if (readonly) return; // never write through in readonly, even in direct mode
-        setStale(true);
-        // A picker edit passes no `fromPreset` → clears the provenance; a preset
-        // selection passes its id → records it (until the next manual edit).
-        setCurrentPreset(fromPreset);
-        queueMicrotask(() => configBind.mutate(next));
-    }, [readonly, configBind]);
-    const editPopulation = useCallback((next: PredicateValue[], fromPreset?: string) => {
+    // Edit handlers update the INTERNAL working state — never the bound configs list.
+    // `stale` only pulses when a live estimator is bound (a precomputed/no-estimator
+    // surface has no Run, so no "hit Run" prompt).
+    const editConfig = useCallback((next: ConfigValue) => {
+        if (readonly) return; // never edit in readonly
+        if (v.experiment.type === 'some') setStale(true);
+        setWorkingConfig(next);
+    }, [readonly, v.experiment.type]);
+    const editPopulation = useCallback((next: PredicateValue[]) => {
         if (readonly) return;
-        setStale(true);
-        // The scope is part of a preset's pinned identity, so a manual scope edit (no
-        // `fromPreset`) drops the provenance just like a manual config edit does.
-        setCurrentPreset(fromPreset);
-        if (v.population.type === 'some') queueMicrotask(() => populationBind.mutate(next));
-        else setLocalPop(next);
-    }, [readonly, v.population.type, populationBind]);
-    // Selecting a preset snaps the staged spec + scope to its pre-baked configuration;
-    // both stay editable before Run, and Commit records the originating preset id.
-    const selectPreset = useCallback((p: PresetValue) => {
-        if (readonly) return;
-        editConfig(p.config, p.id);
-        editPopulation(getSomeorUndefined(p.population) ?? [], p.id);
-    }, [readonly, editConfig, editPopulation]);
+        if (v.experiment.type === 'some') setStale(true);
+        setLocalPop(next);
+    }, [readonly, v.experiment.type]);
+    // Selecting a question is navigation, not mutation — allowed even in readonly (the
+    // reseed effect loads the entry's config + scope for viewing).
+    const selectEntry = useCallback((c: ConfigurationValue) => {
+        setCurrentConfigId(c.id);
+    }, []);
     const onRun = useCallback(() => { runAll(); setStale(false); }, [runAll]);
     const onCommit = useCallback(async () => {
+        // Commit records a freshly-run LIVE result to the journal; the `configs` list
+        // is a read-only menu, so nothing is written back to it.
         if (!config || !experiment.result) return;
         const r = experiment.result;
         const row: JournalRowValue = {
             config, verdict: r.verdict, naive: r.naive,
             adjusted: r.adjusted.type === 'some' ? some(r.adjusted.value.effect) : none,
             committed_at: new Date(), committed_by: 'you',
-            // Record which preset framed this experiment (none for a free-form run).
-            preset: currentPreset !== undefined ? some(currentPreset) : none,
+            // Record which question framed this experiment.
+            preset: currentConfigId !== undefined ? some(currentConfigId) : none,
         };
         journalBind.mutate([row, ...(journalBind.value ?? [])]);
         try {
             await journalBind.commit();
-            await configBind.commit();
-            if (v.population.type === 'some') await populationBind.commit();
             setStale(false);
         } catch { /* surface left stale; a commit failed */ }
-    }, [config, experiment.result, journalBind, configBind, populationBind, v.population.type, currentPreset]);
+    }, [config, experiment.result, journalBind, currentConfigId]);
 
     const [tab, setTab] = useState<Tab>(getSomeorUndefined(v.defaultTab)?.type ?? 'answer');
     const [guidance, setGuidance] = useState(true);
@@ -397,8 +455,8 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
 
     const view = useMemo(() => {
         if (!config) return null;
-        return deriveView(config, ranConfig ?? config, columns, experiment.result, journalBind.value, meta, nRows, now);
-    }, [config, ranConfig, columns, experiment.result, journalBind.value, meta, nRows, now]);
+        return deriveView(config, ranConfig ?? config, columns, shownResult, journalBind.value, meta, nRows, now);
+    }, [config, ranConfig, columns, shownResult, journalBind.value, meta, nRows, now]);
 
     // Default design knobs — library-defaulted alpha/power/materiality, and offer
     // both an even split and a cost-saving 30% split so the alternate row shows.
@@ -415,42 +473,45 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
     // fresh result lands. We snapshot the result + config the design was sized for
     // at call time, so the recipe is always derived against ITS OWN generation and
     // never fused with a newer result while the second async hop is in flight.
+    // A precomputed entry may carry its own "Validate" recipe; when present it wins
+    // and no live `design` call is made.
+    const precomputedDesign = getSomeorUndefined(selectedEntry?.design) ?? null;
     const designSnapRef = useRef<{ result: ResultValue; config: ConfigValue } | null>(null);
     useEffect(() => {
-        if (tab !== 'validate' || !hasDesign || design.pending) return;
-        if (!filteredRows || !config || !experiment.result) return;
-        if (designSnapRef.current?.result === experiment.result) return;
-        designSnapRef.current = { result: experiment.result, config: ranConfig ?? config };
-        design.call(filteredRows, ranConfig ?? config, experiment.result, designConfigValue);
-    }, [tab, hasDesign, filteredRows, config, ranConfig, experiment.result, design, designConfigValue]);
+        if (tab !== 'validate' || !hasDesign || design.pending || precomputedDesign !== null) return;
+        if (!filteredRows || !config || !shownResult) return;
+        if (designSnapRef.current?.result === shownResult) return;
+        designSnapRef.current = { result: shownResult, config: ranConfig ?? config };
+        design.call(filteredRows, ranConfig ?? config, shownResult, designConfigValue);
+    }, [tab, hasDesign, precomputedDesign, filteredRows, config, ranConfig, shownResult, design, designConfigValue]);
 
-    // Derive against the SNAPSHOT (the result design.result is for), not the live
-    // result — closes the cross-generation fusion at source.
-    const vmDesign = useMemo(
-        () => (design.result && designSnapRef.current ? deriveDesign(design.result, designSnapRef.current.result, designSnapRef.current.config, meta) : null),
-        [design.result, meta],
-    );
-    // The design in hand corresponds to the CURRENT result (not a stale generation)
-    // and is settled — the only state in which the Validate panel may paint.
-    const designFresh = design.result !== null && designSnapRef.current?.result === experiment.result && !design.pending;
+    // The painted design: a precomputed entry recipe (derived against the shown result),
+    // else the live design result derived against its own SNAPSHOT generation.
+    const vmDesign = useMemo(() => {
+        if (precomputedDesign !== null && shownResult !== null && config) return deriveDesign(precomputedDesign, shownResult, ranConfig ?? config, meta);
+        return design.result && designSnapRef.current ? deriveDesign(design.result, designSnapRef.current.result, designSnapRef.current.config, meta) : null;
+    }, [precomputedDesign, shownResult, config, ranConfig, design.result, meta]);
+    // The Validate panel may paint when a precomputed recipe is present, or a live one
+    // that corresponds to the CURRENT result and is settled.
+    const designFresh = (precomputedDesign !== null && shownResult !== null)
+        || (design.result !== null && designSnapRef.current?.result === shownResult && !design.pending);
 
     if (!config || !view) {
         const failed = experiment.status === 'failed';
+        const noConfigs = !configsBind.error && configs.length === 0;
         // A binding that failed to read/decode (rather than one still loading) gets
-        // surfaced as an error — never a perpetual "loading" spinner. Name the dataset
+        // surfaced as an error — never a perpetual "loading" spinner. Name the source
         // so a type-version mismatch is diagnosable from the surface itself.
-        const which = data.error ? 'dataset' : configBind.error ? 'config' : journalBind.error ? 'journal' : populationBind.error ? 'population filter' : null;
-        const bindError = data.error ?? configBind.error ?? journalBind.error ?? populationBind.error;
+        const which = data.error ? 'dataset' : configsBind.error ? 'configs' : journalBind.error ? 'journal' : null;
+        const bindError = data.error ?? configsBind.error ?? journalBind.error;
         const bindMsg = bindError instanceof Error ? bindError.message : bindError != null ? String(bindError) : null;
-        return (
-            <Box layerStyle="frame" p="6">
-                {bindMsg
-                    ? <Text textStyle="body.sm" color="fg.danger">Couldn’t load the experiment {which}: {bindMsg}</Text>
-                    : failed && experiment.error
-                        ? <RunError error={experiment.error} />
-                        : <Text className={failed ? undefined : 'elara-skeleton'} textStyle="body.sm" color="fg.muted">{failed ? 'Could not run the experiment.' : 'Loading experiment…'}</Text>}
-            </Box>
-        );
+        // Terminal states (error / nothing to show / failed run) get a compact message.
+        if (bindMsg) return <Box layerStyle="frame" p="6"><Text textStyle="body.sm" color="fg.danger">Couldn’t load the experiment {which}: {bindMsg}</Text></Box>;
+        if (noConfigs) return <Box layerStyle="frame" p="6"><Text textStyle="body.sm" color="fg.muted">No questions to show — bind a non-empty configs list.</Text></Box>;
+        if (failed && experiment.error) return <Box layerStyle="frame" p="6"><RunError error={experiment.error} /></Box>;
+        // Still resolving `data` / `configs` — show the full-surface skeleton so the shell
+        // is stable and live content fills in without a layout jump.
+        return <LoadingSkeleton />;
     }
     const { spec: vs, answer: a, refusal: ref, overlap: ov, refute: vr, dose: vd, journal, verdict } = view;
 
@@ -474,10 +535,9 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
     // Run / Commit affordances derive from `readonly`, live state, and the
     // binding configuration (Commit only means something when config is bound
     // `{ mode: 'staged' }` and a `journal` is bound).
-    const specStaged = configBind.mode === 'staged';
     const hasJournal = v.journal.type === 'some';
-    const canRun = !readonly;
-    const canCommit = !readonly && specStaged && hasJournal;
+    const canRun = !readonly && hasExperiment;
+    const canCommit = !readonly && hasExperiment && hasJournal;
 
     const runDisabled = !data.value || experiment.pending;
     // Commit only a FRESH, succeeded, un-edited result — never journal a stale or
@@ -485,14 +545,19 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
     const commitDisabled = experiment.status !== 'succeeded' || experiment.pending || stale;
 
     // The single display-readiness discriminator the whole deck routes through:
-    // a failed run shows the error (not stale numbers); a pending (re-)run shows the
-    // skeleton; only a settled result paints the tabs.
+    // a precomputed answer paints immediately; a failed run shows the error; a pending
+    // (re-)run shows the skeleton; only a settled/precomputed result paints the tabs.
     const failed = experiment.status === 'failed' && experiment.error;
-    const showResult = experiment.result !== null && !experiment.pending && !failed;
+    const showResult = shownResult !== null && !experiment.pending && !failed;
 
-    // The visible result tabs (Validate only when a `design` function is bound) —
-    // shared by the tablist render and its roving keyboard navigation.
-    const tabKeys: Tab[] = [...(['answer', 'trust', 'dose'] as Tab[]), ...(hasDesign ? ['validate' as Tab] : [])];
+    // The visible result tabs — shared by the tablist render and its roving keyboard
+    // navigation. Validate shows when a `design` function is bound (it can size a trial
+    // for any config) OR any config carries its own precomputed design recipe (which the
+    // deck paints with no live call) — otherwise the precomputed-design contract would be
+    // unreachable via the tablist.
+    const anyPrecomputedDesign = configs.some(c => c.design.type === 'some');
+    const showValidate = hasDesign || anyPrecomputedDesign;
+    const tabKeys: Tab[] = [...(['answer', 'trust', 'dose'] as Tab[]), ...(showValidate ? ['validate' as Tab] : [])];
 
     return (
         <GuidanceProvider on={guidance} vars={helpVars}>
@@ -500,10 +565,11 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
             {/* header */}
             <Box layerStyle="header.bar" display="flex" alignItems="center" gap="3.5">
                 {/* The title IS the question selector (spec #79, GitHub-repo-picker style): when
-                    presets exist, the header text + a chevron open a menu of vetted questions
-                    (current one checked). Selecting one snaps the staged spec + scope to that
-                    pre-baked config (still editable before Run); a committed result records it. */}
-                {presets.length > 0 && !readonly ? (
+                    more than one config is bound, the header text + a chevron open a menu of the
+                    vetted questions (current one checked). Selecting one reseeds the working config
+                    + scope for viewing/editing (navigation, not a staged write) and is permitted
+                    even when readonly. */}
+                {configs.length > 1 ? (
                     <Menu.Root>
                         <Menu.Trigger asChild>
                             <Box as="button" bg="transparent" border="0" p="0" cursor="pointer" display="inline-flex" alignItems="center" gap="2" textAlign="start">
@@ -516,17 +582,17 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
                         <Portal>
                             <Menu.Positioner>
                                 <Menu.Content minW="280px">
-                                    {presetGroups.map(g => (
+                                    {configGroups.map(g => (
                                         <Menu.ItemGroup key={g.label}>
-                                            {g.label !== 'Saved questions' && (
+                                            {g.label !== 'Questions' && (
                                                 <Menu.ItemGroupLabel textStyle="caption.eyebrow" fontSize="9px">{g.label}</Menu.ItemGroupLabel>
                                             )}
-                                            {g.items.map(p => (
-                                                <Menu.Item key={p.id} value={p.id} onClick={() => selectPreset(p)} gap="2">
+                                            {g.items.map(c => (
+                                                <Menu.Item key={c.id} value={c.id} onClick={() => selectEntry(c)} gap="2">
                                                     <Box as="span" width="14px" flexShrink="0" color="brand.fg">
-                                                        {p.id === currentPreset && <FontAwesomeIcon icon={faCheck} style={{ fontSize: '10px' }} />}
+                                                        {c.id === selectedEntry?.id && <FontAwesomeIcon icon={faCheck} style={{ fontSize: '10px' }} />}
                                                     </Box>
-                                                    {p.label}
+                                                    {c.label}
                                                 </Menu.Item>
                                             ))}
                                         </Menu.ItemGroup>
@@ -541,6 +607,7 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
                     </Text>
                 )}
                 <Box flex="1" />
+                {readonly && <Box as="span" css={badge({ variant: 'plain', size: 'sm' })} textTransform="none" letterSpacing="normal">View only</Box>}
                 <Box as="span" css={dataStatus.root}>
                     <Box as="span" css={dataStatus.indicator} />
                     <Box as="span" css={dataStatus.label}>{stale ? `${nRows} rows` : vs.dataLabel}</Box>
@@ -554,17 +621,17 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
                 {/* set-up rail */}
                 <Box borderRightWidth="1px" borderColor="border.subtle">
                     <Step n={1} title="What did you change?" help="step_treatment">
-                        <ColumnPick column={vs.treatment} kind={vs.treatmentKind} badge={badge} button={button} choices={columns.filter(c => c.kind === 'boolean' || c.kind === 'integer').map(c => c.name)} onPick={c => editConfig({ ...config, treatment: c })} />
+                        <ColumnPick column={vs.treatment} kind={vs.treatmentKind} badge={badge} button={button} readonly={readonly} choices={columns.filter(c => c.kind === 'boolean' || c.kind === 'integer').map(c => c.name)} onPick={c => editConfig({ ...config, treatment: c })} />
                         <Text textStyle="caption" mt="1.5">Treated = <Text as="span" color="fg.default" fontWeight="semibold">{vs.comparison}</Text></Text>
                     </Step>
                     <Step n={2} title="What did you want it to improve?" help="step_outcome">
-                        <ColumnPick column={vs.outcome} kind={vs.outcomeKind} badge={badge} button={button} choices={columns.filter(c => c.kind === 'float' || c.kind === 'integer').map(c => c.name)} onPick={c => editConfig({ ...config, outcome: c })} />
+                        <ColumnPick column={vs.outcome} kind={vs.outcomeKind} badge={badge} button={button} readonly={readonly} choices={columns.filter(c => c.kind === 'float' || c.kind === 'integer').map(c => c.name)} onPick={c => editConfig({ ...config, outcome: c })} />
                     </Step>
                     <Step n={3} title="What else was different?" help="step_confounders">
                         <Box layerStyle="frame.flat">
                             <Box maxH="216px" overflowY="auto">
                             {vs.confounders.map((c, i) => (
-                                <Box key={i} display="grid" gridTemplateColumns="1fr 78px 16px" gap="2.5" alignItems="center" px="2.5" py="2.5" borderTopWidth={i ? '1px' : '0'} borderColor="border.subtle">
+                                <Box key={i} display="grid" gridTemplateColumns={readonly ? '1fr 78px' : '1fr 78px 16px'} gap="2.5" alignItems="center" px="2.5" py="2.5" borderTopWidth={i ? '1px' : '0'} borderColor="border.subtle">
                                     <Box>
                                         <Text textStyle="mono.sm" fontWeight="semibold" color="fg.default">{c.col}</Text>
                                         <Text textStyle="caption" lineHeight="1.35" mt="px">{c.reason}</Text>
@@ -573,11 +640,13 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
                                         <Box css={bs.track}><Box css={bs.fill} width={`${Math.round(c.imbalance * 100)}%`} bg={toneToken(c.tone)} /></Box>
                                         <Text textStyle="caption.eyebrow" fontSize="9px" textAlign="center" mt="1.5"><Help id="confounder_imbalance">{c.level}</Help></Text>
                                     </Box>
-                                    <Box as="button" css={button({ variant: 'ghost', size: 'xs' })} px="0" minW="16px" display="inline-flex" alignItems="center" justifyContent="center" aria-label={`Remove ${c.col}`} onClick={() => editConfig({ ...config, common_causes: config.common_causes.filter(x => x !== c.col), categorical: config.categorical.type === 'some' ? some(config.categorical.value.filter(x => x !== c.col)) : none })}><FontAwesomeIcon icon={faXmark} style={{ fontSize: '11px' }} /></Box>
+                                    {!readonly && (
+                                        <Box as="button" css={button({ variant: 'ghost', size: 'xs' })} px="0" minW="16px" display="inline-flex" alignItems="center" justifyContent="center" aria-label={`Remove ${c.col}`} onClick={() => editConfig({ ...config, common_causes: config.common_causes.filter(x => x !== c.col), categorical: config.categorical.type === 'some' ? some(config.categorical.value.filter(x => x !== c.col)) : none })}><FontAwesomeIcon icon={faXmark} style={{ fontSize: '11px' }} /></Box>
+                                    )}
                                 </Box>
                             ))}
                             </Box>
-                            {vs.suggestion && (
+                            {!readonly && vs.suggestion && (
                                 <ColumnMenu choices={columns.filter(c => !new Set([config.treatment, config.outcome, ...config.common_causes]).has(c.name)).map(c => c.name)} onPick={c => editConfig({ ...config, common_causes: [...config.common_causes, c] })}>
                                     <Box as="button" css={button({ variant: 'ghost', size: 'sm' })} justifyContent="flex-start" width="100%" color="brand.fg" fontFamily="mono" display="inline-flex" alignItems="center" gap="2"><FontAwesomeIcon icon={faPlus} style={{ fontSize: '9px' }} />add another</Box>
                                 </ColumnMenu>
@@ -585,7 +654,7 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
                         </Box>
                     </Step>
                     <Step n={4} title={`Which ${SUBJECT_MANY}?`} help="step_population">
-                        <FilterRail fields={fields} population={population} onChange={editPopulation} chip={chip} button={button} />
+                        <FilterRail fields={fields} population={population} onChange={editPopulation} chip={chip} button={button} readonly={readonly} />
                     </Step>
                     <Box as="details" borderTopWidth="1px" borderColor="border.subtle">
                         <Box as="summary" textStyle="caption.eyebrow" cursor="pointer" px="4.5" py="2.5" display="flex" alignItems="center" gap="1.5"
@@ -595,8 +664,8 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
                             Advanced
                         </Box>
                         <Box px="4.5" pb="3.5" pt="0.5">
-                            <Segmented label="How to compare" help="adv_method" left="regression" right="reweighting" active={vs.method === 'reweighting' ? 'right' : 'left'} onPick={s => editConfig({ ...config, method: some(s === 'right' ? variant('propensity_score_weighting', { weighting_scheme: none }) : variant('linear_regression', null)) } as unknown as ConfigValue)} />
-                            <Segmented label="Answer for" help="adv_estimand" left="all" right="only treated" active={vs.target === 'treated' ? 'right' : 'left'} onPick={s => editConfig({ ...config, estimand: some(variant(s === 'right' ? 'att' : 'ate', null)) } as unknown as ConfigValue)} last />
+                            <Segmented label="How to compare" help="adv_method" left="regression" right="reweighting" active={vs.method === 'reweighting' ? 'right' : 'left'} readonly={readonly} onPick={s => editConfig({ ...config, method: some(s === 'right' ? variant('propensity_score_weighting', { weighting_scheme: none }) : variant('linear_regression', null)) } as unknown as ConfigValue)} />
+                            <Segmented label="Answer for" help="adv_estimand" left="all" right="only treated" active={vs.target === 'treated' ? 'right' : 'left'} readonly={readonly} onPick={s => editConfig({ ...config, estimand: some(variant(s === 'right' ? 'att' : 'ate', null)) } as unknown as ConfigValue)} last />
                         </Box>
                     </Box>
                 </Box>
@@ -659,7 +728,7 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
                         <AnswerNumeric a={a} verdict={verdict} higherBetter={higherBetter} badge={badge} barList={barList} />
                     )}
                     {tab === 'answer' && !a && ref && (
-                        <RefusalZone refusal={ref} overlap={ov} naiveValue={experiment.result?.naive ?? 0} outcome={vs.outcome} />
+                        <RefusalZone refusal={ref} overlap={ov} naiveValue={shownResult?.naive ?? 0} outcome={vs.outcome} />
                     )}
 
                     {tab === 'trust' && vr && (
@@ -756,7 +825,7 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
                             <Text textStyle="body.sm"><Text as="span" fontWeight="bold">{r.treatment} → {r.outcome}</Text> <Text as="span" color="fg.muted">· vs {r.confounders}</Text>{(() => {
                                 const id = getSomeorUndefined(r.preset);
                                 if (id === undefined) return null;
-                                const label = presets.find(p => p.id === id)?.label ?? id;
+                                const label = configs.find(c => c.id === id)?.label ?? id;
                                 return <>{' '}<Box as="span" css={chip({ tone: 'brand', size: 'sm' })}>from {label}</Box></>;
                             })()}</Text>
                             <Text textStyle="mono.sm" fontWeight="semibold" textAlign="right" fontVariantNumeric="tabular-nums" color={r.verdictTone === 'pos' ? 'fg.success' : 'fg.default'}>{r.effect}</Text>
@@ -967,14 +1036,29 @@ function ValidatePanel({ vm, barList }: {
 // ---------------------------------------------------------------------------
 // Population filter rail — reuses Slice's predicate editor.
 // ---------------------------------------------------------------------------
-function FilterRail({ fields, population, onChange, chip, button }: {
+function FilterRail({ fields, population, onChange, chip, button, readonly }: {
     fields: SliceFieldValue[]; population: PredicateValue[]; onChange: (p: PredicateValue[]) => void;
-    chip: ReturnType<typeof useRecipe>; button: ReturnType<typeof useRecipe>;
+    chip: ReturnType<typeof useRecipe>; button: ReturnType<typeof useRecipe>; readonly?: boolean;
 }) {
     const [open, setOpen] = useState<'add' | number | null>(null);
     const replaceAt = (i: number, p: PredicateValue) => onChange(population.map((f, j) => (j === i ? p : f)));
     const removeAt = (i: number) => onChange(population.filter((_, j) => j !== i));
     const done = <Box as="button" css={button({ variant: 'outline', size: 'xs' })} onClick={() => setOpen(null)}>Done</Box>;
+    if (readonly) {
+        // Static scope chips — same chip recipe + formatted predicate, no popover / remove
+        // / add-filter affordances. An empty population reads as "all {SUBJECT_MANY}".
+        return (
+            <Box display="flex" flexWrap="wrap" gap="1.5" alignItems="center">
+                {population.length === 0 ? (
+                    <Box css={chip({ tone: 'plain', numeric: true, shape: 'rounded' })}>all {SUBJECT_MANY}</Box>
+                ) : population.map((pred, i) => (
+                    <Box key={i} css={chip({ tone: 'brand', numeric: true, shape: 'rounded' })} flexShrink={0}>
+                        <Box as="span" whiteSpace="nowrap">{formatPredicate(pred)}</Box>
+                    </Box>
+                ))}
+            </Box>
+        );
+    }
     return (
         <Box display="flex" flexWrap="wrap" gap="1.5" alignItems="center">
             {population.map((pred, i) => (
@@ -1032,10 +1116,22 @@ function ColumnMenu({ choices, onPick, children }: { choices: string[]; onPick: 
 }
 
 /** The column pick chip (Step 1 / 2) — a Menu trigger on the `button` recipe. */
-function ColumnPick({ column, kind, choices, onPick, badge, button }: {
+function ColumnPick({ column, kind, choices, onPick, badge, button, readonly }: {
     column: string; kind: string; choices: string[]; onPick: (c: string) => void;
-    badge: ReturnType<typeof useRecipe>; button: ReturnType<typeof useRecipe>;
+    badge: ReturnType<typeof useRecipe>; button: ReturnType<typeof useRecipe>; readonly?: boolean;
 }) {
+    if (readonly) {
+        // Same outline-chip recipe + mono value + plain kind badge, but no menu trigger
+        // and no chevron — a static, aligned read-only display in the same slot. It is a
+        // plain (roleless) Box, not a button, so it carries no interactive semantics and
+        // needs no aria-readonly (which ARIA only honours on input-bearing roles).
+        return (
+            <Box css={button({ variant: 'outline', size: 'sm' })} gap="1.5" cursor="default">
+                <Text as="span" fontFamily="mono" fontWeight="semibold">{column}</Text>
+                <Box as="span" css={badge({ variant: 'plain', size: 'sm' })} textTransform="none" letterSpacing="normal">{kind}</Box>
+            </Box>
+        );
+    }
     return (
         <ColumnMenu choices={choices} onPick={onPick}>
             <Box as="button" css={button({ variant: 'outline', size: 'sm' })} gap="1.5">
@@ -1073,12 +1169,29 @@ function SegmentSelect({ options, active, onPick, fill, size = 'xs' }: { options
     );
 }
 
+/** Static read-only twin of {@link SegmentSelect} — the active option rendered through the
+ *  SAME `segmentGroup` recipe (a single, checked, non-interactive segment) so a read-only
+ *  Advanced row keeps the frame/visual weight of the live toggle and of the readonly
+ *  ColumnPick/FilterRail chips, rather than collapsing to bare text. */
+function SegmentStatic({ value, size = 'xs' }: { value: string; size?: 'xs' }) {
+    const s = useSlotRecipe({ key: 'segmentGroup' })({ size });
+    return (
+        <Box css={s.root} alignSelf="flex-start">
+            <Box css={s.item} data-state="checked">
+                <Box as="span" css={s.itemText}>{value}</Box>
+            </Box>
+        </Box>
+    );
+}
+
 /** A labelled two-segment toggle (Advanced rail rows). */
-function Segmented({ label, left, right, active, onPick, last, help }: { label: string; left: string; right: string; active: 'left' | 'right'; onPick: (s: 'left' | 'right') => void; last?: boolean; help?: HelpId }) {
+function Segmented({ label, left, right, active, onPick, last, help, readonly }: { label: string; left: string; right: string; active: 'left' | 'right'; onPick: (s: 'left' | 'right') => void; last?: boolean; help?: HelpId; readonly?: boolean }) {
     return (
         <Box display="flex" flexDirection="column" alignItems="stretch" gap="1.5" py="2" borderBottomWidth={last ? '0' : '1px'} borderColor="border.subtle">
             <Text textStyle="caption.eyebrow" textTransform="none" letterSpacing="normal" color="fg.default">{help ? <Help id={help}>{label}</Help> : label}</Text>
-            <SegmentSelect options={[left, right]} active={active === 'left' ? 0 : 1} onPick={i => onPick(i === 0 ? 'left' : 'right')} fill size="xs" />
+            {readonly
+                ? <SegmentStatic value={active === 'left' ? left : right} />
+                : <SegmentSelect options={[left, right]} active={active === 'left' ? 0 : 1} onPick={i => onPick(i === 0 ? 'left' : 'right')} fill size="xs" />}
         </Box>
     );
 }

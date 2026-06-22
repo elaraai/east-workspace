@@ -48,8 +48,8 @@ type VecI = ArrayLike<bigint> & Iterable<bigint>;
 export type ResultValue = ValueTypeOf<typeof Experiment.Types.Result>;
 /** The staged experiment config. */
 export type ConfigValue = ValueTypeOf<typeof Experiment.Types.Config>;
-/** A developer-authored preset — a named vetted question + scope. */
-export type PresetValue = ValueTypeOf<typeof Experiment.Types.Preset>;
+/** A named configuration — a vetted question + scope + optional precomputed answer. */
+export type ConfigurationValue = ValueTypeOf<typeof Experiment.Types.Configuration>;
 /** A confidence interval. */
 export type Ci = ValueTypeOf<typeof Experiment.Types.Ci>;
 /** The adjusted (like-for-like) effect + CI. */
@@ -525,6 +525,8 @@ export interface ExperimentView {
  * and the (possibly absent) single experiment result.
  *
  * @param config - The staged {@link ConfigValue}.
+ * @param ranConfig - The config that produced `result` (the result deck reads this so its
+ *   strings never drift ahead of the numbers on a live edit before the next Run).
  * @param cols - The bound dataset's columns (name + type family).
  * @param result - The experiment result, or `null` until the first Run settles.
  * @param journal - Committed rows, or `null`.

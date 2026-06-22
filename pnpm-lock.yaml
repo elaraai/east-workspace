@@ -707,9 +707,6 @@ importers:
       '@chakra-ui/react':
         specifier: ^3.0.0
         version: 3.34.0(@emotion/react@11.14.0(@types/react@19.2.14)(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
-      '@elaraai/e3':
-        specifier: workspace:*
-        version: link:../../../e3/packages/e3
       '@elaraai/e3-api-client':
         specifier: workspace:*
         version: link:../../../e3/packages/e3-api-client
@@ -6683,6 +6680,7 @@ packages:
   tsconfck@3.1.6:
     resolution: {integrity: sha512-ks6Vjr/jEw0P1gmOVwutM3B7fWxoWBL2KRDb1JfqGVawBmO5UsvmWOQFGHBPl5yxYz4eERr19E6L7NMv+Fej4w==}
     engines: {node: ^18 || >=20}
+    deprecated: unmaintained
     hasBin: true
     peerDependencies:
       typescript: ^5.0.0

@@ -399,32 +399,40 @@ export const PopulationType = ArrayType(Slice.Types.Predicate);
 export type PopulationType = typeof PopulationType;
 
 /**
- * One developer-authored, vetted experiment — a named question that snaps the
- * staged spec (and the population scope) to a pre-baked configuration. The surface
- * renders presets as the spec's `Input.Presets` card grid; selecting one writes its
- * `config` + `population` into the **staged** spec (still editable before Run), and
- * a committed result records the originating preset by `id`.
+ * One developer-authored, vetted experiment configuration — a named question whose
+ * `spec` is loaded into the working config (and whose optional `population` sets the
+ * scope) when it is selected from the surface's question selector. A committed result
+ * records the originating configuration by `id`.
  *
- * A preset bundles the **vetted backdoor set + scope** so a non-expert can pick a
- * correct causal question from a menu rather than assemble one. `config` is a full
+ * A configuration bundles the **vetted backdoor set + scope** so a non-expert can pick a
+ * correct causal question from a menu rather than assemble one. `spec` is a full
  * {@link ExperimentConfigType} (column names are plain strings); `population` is the
- * optional Step-4 scope (`none` ⇒ no scope). `group` sections the grid.
+ * optional Step-4 scope (`none` ⇒ no scope); `group` sections the selector. An entry may
+ * also carry a precomputed `result`/`design` so the surface paints an answer with no live
+ * call.
  */
-export const PresetType = StructType({
+export const ConfigurationType = StructType({
     /** Stable key — the journal records THIS (not `label`), and it drives selection
      *  identity, so a renamed `label` never orphans a committed row. */
     id: StringType,
-    /** Display title shown on the card. */
+    /** Display title shown in the question selector. */
     label: StringType,
-    /** The vetted, pre-baked experiment config the card loads into the staged spec. */
-    config: ExperimentConfigType,
-    /** Optional population scope to apply on select; `none` ⇒ clear the scope. */
+    /** The causal question — the vetted, pre-baked {@link ExperimentConfigType} this
+     *  entry frames (loaded into the working config when selected). */
+    spec: ExperimentConfigType,
+    /** Optional population scope to apply on select; `none` ⇒ no scope. */
     population: OptionType(PopulationType),
-    /** Optional section header — cards sharing a `group` are bucketed together. */
+    /** Optional section header — entries sharing a `group` are bucketed together. */
     group: OptionType(StringType),
+    /** Optional precomputed answer for this question (e.g. a dataflow task ran
+     *  `Causal.experiment` once). `none` ⇒ compute live via the `experiment` function. */
+    result: OptionType(ExperimentResultType),
+    /** Optional precomputed "Validate" recipe ({@link ExperimentDesignType}) for this
+     *  question; `none` ⇒ compute live via the `design` function (if bound). */
+    design: OptionType(ExperimentDesignType),
 });
-/** Type alias for {@link PresetType}. */
-export type PresetType = typeof PresetType;
+/** Type alias for {@link ConfigurationType}. */
+export type ConfigurationType = typeof ConfigurationType;
 
 /**
  * Optional per-column display metadata the developer supplies once. Keyed by
