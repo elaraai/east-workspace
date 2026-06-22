@@ -69,6 +69,10 @@ export const XGBoostConfigType = StructType({
     max_cat_to_onehot: OptionType(IntegerType),
     /** Max categories considered per split for partition-based method (default 64). */
     max_cat_threshold: OptionType(IntegerType),
+    /** Balancing of positive vs negative weights for binary classification — XGBoost's
+     *  standard class-imbalance lever (default 1.0, i.e. unset leaves behaviour unchanged).
+     *  Only consumed by classifier training; ignored by regression/quantile training. */
+    scale_pos_weight: OptionType(FloatType),
 });
 
 /**
@@ -344,6 +348,7 @@ export const XGBoost = {
      *         n_jobs: variant("none", null), sample_weight: variant("none", null),
      *         categorical_features: variant("none", null), categorical_n: variant("none", null),
      *         max_cat_to_onehot: variant("none", null), max_cat_threshold: variant("none", null),
+     *         scale_pos_weight: variant("none", null),
      *     }, XGBoostConfigType);
      *     return $.return(XGBoost.trainRegressor(X, y, config));
      * });
@@ -371,6 +376,7 @@ export const XGBoost = {
      *         n_jobs: variant("none", null), sample_weight: variant("none", null),
      *         categorical_features: variant("none", null), categorical_n: variant("none", null),
      *         max_cat_to_onehot: variant("none", null), max_cat_threshold: variant("none", null),
+     *         scale_pos_weight: variant("none", null),
      *     }, XGBoostConfigType);
      *     return $.return(XGBoost.trainClassifier(X, y, config));
      * });

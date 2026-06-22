@@ -39,6 +39,7 @@ export const shapTreeExplainer = example({
             categorical_n: variant('none', null),
             max_cat_to_onehot: variant('none', null),
             max_cat_threshold: variant('none', null),
+            scale_pos_weight: variant('none', null),
         }, XGBoost.Types.XGBoostConfigType);
 
         const model = $.let(XGBoost.trainRegressor(X_train, y_train, config));
@@ -94,6 +95,7 @@ export const shapTreeExplainerCategorical = example({
             categorical_n: variant('some', new BigInt64Array([3n])),
             max_cat_to_onehot: variant('none', null),
             max_cat_threshold: variant('none', null),
+            scale_pos_weight: variant('none', null),
         }, XGBoost.Types.XGBoostConfigType);
 
         const model = $.let(XGBoost.trainRegressor(X_train, y_train, config));
@@ -147,6 +149,7 @@ export const shapTreeExplainerInterventionalCategorical = example({
             categorical_n: variant('some', new BigInt64Array([3n])),
             max_cat_to_onehot: variant('none', null),
             max_cat_threshold: variant('none', null),
+            scale_pos_weight: variant('none', null),
         }, XGBoost.Types.XGBoostConfigType);
 
         const model = $.let(XGBoost.trainRegressor(X_train, y_train, config));
@@ -206,6 +209,7 @@ export const shapMapieCategoricalInterventional = example({
                 categorical_n: variant('some', new BigInt64Array([3n])),
                 max_cat_to_onehot: variant('none', null),
                 max_cat_threshold: variant('none', null),
+                scale_pos_weight: variant('none', null),
             }),
             method: variant('some', variant('split', null)),
             confidence_level: variant('some', 0.9),
@@ -265,6 +269,7 @@ export const shapTreeExplainerInterventional = example({
             categorical_n: variant('none', null),
             max_cat_to_onehot: variant('none', null),
             max_cat_threshold: variant('none', null),
+            scale_pos_weight: variant('none', null),
         }, XGBoost.Types.XGBoostConfigType);
 
         const model = $.let(XGBoost.trainRegressor(X_train, y_train, config));

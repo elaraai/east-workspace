@@ -13,7 +13,7 @@ import * as ex from "./xgboost.examples.js";
 
 describeEast("XGBoost platform functions", (test) => {
 
-    Assert.examples(test, { xgboostTrainPredict: ex.xgboostTrainPredict, xgboostClassifier: ex.xgboostClassifier, xgboostQuantile: ex.xgboostQuantile });
+    Assert.examples(test, { xgboostTrainPredict: ex.xgboostTrainPredict, xgboostClassifier: ex.xgboostClassifier, xgboostQuantile: ex.xgboostQuantile, xgboostClassifierScalePosWeight: ex.xgboostClassifierScalePosWeight });
 
     test("train_regressor and predict works", $ => {
         // Simple linear data: y = x1 + x2
@@ -43,6 +43,7 @@ describeEast("XGBoost platform functions", (test) => {
             categorical_n: variant('none', null),
             max_cat_to_onehot: variant('none', null),
             max_cat_threshold: variant('none', null),
+            scale_pos_weight: variant('none', null),
         });
 
         // Train model
@@ -93,6 +94,7 @@ describeEast("XGBoost platform functions", (test) => {
             categorical_n: variant('none', null),
             max_cat_to_onehot: variant('none', null),
             max_cat_threshold: variant('none', null),
+            scale_pos_weight: variant('none', null),
         });
 
         // Train model
@@ -144,6 +146,7 @@ describeEast("XGBoost platform functions", (test) => {
             categorical_n: variant('none', null),
             max_cat_to_onehot: variant('none', null),
             max_cat_threshold: variant('none', null),
+            scale_pos_weight: variant('none', null),
         });
 
         // Train model
@@ -193,6 +196,7 @@ describeEast("XGBoost platform functions", (test) => {
             categorical_n: variant('none', null),
             max_cat_to_onehot: variant('none', null),
             max_cat_threshold: variant('none', null),
+            scale_pos_weight: variant('none', null),
         });
 
         // Train two models with same seed
@@ -228,6 +232,7 @@ describeEast("XGBoost platform functions", (test) => {
             categorical_n: variant('none', null),
             max_cat_to_onehot: variant('none', null),
             max_cat_threshold: variant('none', null),
+            scale_pos_weight: variant('none', null),
         });
 
         $(Assert.throws(XGBoost.trainRegressor(X, y, config), /xgboost_train_regressor.*X has 3 samples.*y has 2 samples/));
@@ -254,6 +259,7 @@ describeEast("XGBoost platform functions", (test) => {
             categorical_n: variant('none', null),
             max_cat_to_onehot: variant('none', null),
             max_cat_threshold: variant('none', null),
+            scale_pos_weight: variant('none', null),
         });
 
         $(Assert.throws(XGBoost.trainClassifier(X, y, config), /xgboost_train_classifier.*X has 3 samples.*y has 2 samples/));
@@ -281,6 +287,7 @@ describeEast("XGBoost platform functions", (test) => {
             categorical_n: variant('none', null),
             max_cat_to_onehot: variant('none', null),
             max_cat_threshold: variant('none', null),
+            scale_pos_weight: variant('none', null),
         });
 
         const classifierModel = $.let(XGBoost.trainClassifier(X, y, config));
@@ -309,6 +316,7 @@ describeEast("XGBoost platform functions", (test) => {
             categorical_n: variant('none', null),
             max_cat_to_onehot: variant('none', null),
             max_cat_threshold: variant('none', null),
+            scale_pos_weight: variant('none', null),
         });
 
         const regressorModel = $.let(XGBoost.trainRegressor(X, y, config));
@@ -337,6 +345,7 @@ describeEast("XGBoost platform functions", (test) => {
             categorical_n: variant('none', null),
             max_cat_to_onehot: variant('none', null),
             max_cat_threshold: variant('none', null),
+            scale_pos_weight: variant('none', null),
         });
 
         const regressorModel = $.let(XGBoost.trainRegressor(X, y, config));
@@ -468,6 +477,7 @@ describeEast("XGBoost platform functions", (test) => {
             categorical_n: variant('none', null),
             max_cat_to_onehot: variant('none', null),
             max_cat_threshold: variant('none', null),
+            scale_pos_weight: variant('none', null),
         });
 
         const regressorModel = $.let(XGBoost.trainRegressor(X, y, config));
@@ -559,6 +569,7 @@ describeEast("XGBoost platform functions", (test) => {
             categorical_n: variant('none', null),
             max_cat_to_onehot: variant('none', null),
             max_cat_threshold: variant('none', null),
+            scale_pos_weight: variant('none', null),
         });
 
         // Train model with sample weights
@@ -593,6 +604,7 @@ describeEast("XGBoost platform functions", (test) => {
             categorical_n: variant('none', null),
             max_cat_to_onehot: variant('none', null),
             max_cat_threshold: variant('none', null),
+            scale_pos_weight: variant('none', null),
         });
 
         $(Assert.throws(XGBoost.trainRegressor(X, y, config), /xgboost_train_regressor.*sample_weight has 2 elements.*X has 4 samples/));
@@ -632,6 +644,7 @@ describeEast("XGBoost platform functions", (test) => {
             categorical_n: variant('none', null),
             max_cat_to_onehot: variant('none', null),
             max_cat_threshold: variant('none', null),
+            scale_pos_weight: variant('none', null),
         });
 
         const model = $.let(XGBoost.trainRegressor(X, y, config));
@@ -672,6 +685,7 @@ describeEast("XGBoost platform functions", (test) => {
             categorical_n: variant('none', null),
             max_cat_to_onehot: variant('none', null),
             max_cat_threshold: variant('none', null),
+            scale_pos_weight: variant('none', null),
         });
 
         const model = $.let(XGBoost.trainClassifier(X, y, config));
@@ -750,6 +764,7 @@ describeEast("XGBoost platform functions", (test) => {
             categorical_n: variant('none', null),
             max_cat_to_onehot: variant('some', 8n),  // Force one-hot for up to 8 categories
             max_cat_threshold: variant('some', 32n),
+            scale_pos_weight: variant('none', null),
         });
 
         const model = $.let(XGBoost.trainRegressor(X, y, config));
@@ -778,6 +793,7 @@ describeEast("XGBoost platform functions", (test) => {
             categorical_n: variant('none', null),
             max_cat_to_onehot: variant('none', null),
             max_cat_threshold: variant('none', null),
+            scale_pos_weight: variant('none', null),
         });
 
         $(Assert.throws(XGBoost.trainRegressor(X, y, config), /categorical_features index 5 out of bounds/));
@@ -810,6 +826,7 @@ describeEast("XGBoost platform functions", (test) => {
             categorical_n: variant('none', null),
             max_cat_to_onehot: variant('none', null),
             max_cat_threshold: variant('none', null),
+            scale_pos_weight: variant('none', null),
         });
 
         $(Assert.throws(XGBoost.trainRegressor(X, y, config), /categorical column 0 contains non-integer value 0\.5/));
@@ -844,6 +861,7 @@ describeEast("XGBoost platform functions", (test) => {
             categorical_n: variant('some', BigInt64Array.of(8n, 8n)),  // 8 categories each [0..7]
             max_cat_to_onehot: variant('none', null),
             max_cat_threshold: variant('none', null),
+            scale_pos_weight: variant('none', null),
         });
 
         const model = $.let(XGBoost.trainRegressor(X_train, y_train, config));

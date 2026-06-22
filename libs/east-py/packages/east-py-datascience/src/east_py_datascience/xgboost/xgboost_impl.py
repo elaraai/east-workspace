@@ -491,6 +491,9 @@ def xgboost_train_classifier_impl(
                 enable_categorical=enable_categorical,
                 max_cat_to_onehot=int(max_cat_to_onehot) if max_cat_to_onehot else 4,
                 max_cat_threshold=int(max_cat_threshold) if max_cat_threshold else 64,
+                # Class-imbalance lever for binary classification. Default None
+                # leaves XGBoost's own default (1.0) untouched.
+                scale_pos_weight=_get_option(config.get("scale_pos_weight"), None),
             )
             model.fit(X_train, y_np, sample_weight=sample_weight_np)
     except Exception as e:
