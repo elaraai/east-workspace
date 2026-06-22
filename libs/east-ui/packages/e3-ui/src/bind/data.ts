@@ -177,15 +177,16 @@ export const bindPlatformFn = East.genericPlatform(
 /**
  * Options for {@link Data.bind}.
  *
- * @property mode - Operating mode. `"staged"` (default) buffers edits
- *   locally and commits on demand; `"direct"` writes through immediately.
+ * @property mode - Operating mode. `"direct"` (default) writes through
+ *   immediately; `"staged"` buffers edits locally and commits on demand
+ *   (use it for review surfaces — e.g. bindings fed to a {@link Diff} card).
  * @property patch - When supplied, the binding's commit / live writes
  *   target this patch dataset (typed `PatchType(T)`) instead of the
  *   source. Its path comes from the def, so it is statically known for
  *   manifest derivation by construction.
  */
 export interface DataBindOptions {
-    /** Operating mode — `"staged"` (default) or `"direct"`. */
+    /** Operating mode — `"direct"` (default) or `"staged"`. */
     mode?:  DataBindModeLiteral;
     /** Optional separate patch dataset (typed `PatchType(T)`) — the
      *  binding's commit / live writes target it instead of the source. */
@@ -203,8 +204,9 @@ export interface DataBindOptions {
  * @typeParam T - The East type of the source dataset value (from the def).
  * @param dataset - The dataset (or task) definition to bind.
  * @param options - {@link DataBindOptions}. When omitted, defaults to
- *   `{ mode: "staged" }` (no separate patch dataset, edits buffered
- *   locally until commit).
+ *   `{ mode: "direct" }` (no separate patch dataset, writes go straight to
+ *   the source dataset). Pass `{ mode: "staged" }` to buffer edits locally
+ *   for review (e.g. surfacing them in a {@link Diff} card before commit).
  * @returns A handle struct described by {@link DataBindHandleType} —
  *   `read` / `write` / `writeAndStart` / `source` / `pending` /
  *   `commit` / `discard` / `has` / `status` / `binding`.
@@ -245,7 +247,7 @@ export interface DataBindOptions {
  * // Mirrors `dataBindStaged` in test/data.examples.ts.
  * const dataBindStaged = East.function([], UIComponentType, _$ => {
  *     return Reactive.Root(East.function([], UIComponentType, $ => {
- *         const view = $.let(Data.bind(thresholdInput));
+ *         const view = $.let(Data.bind(thresholdInput, { mode: "staged" }));
  *         const value = $.let(view.read(), FloatType);
  *         return Slider.Root(value, {
  *             min: 30.0, max: 60.0, step: 1.0,
@@ -267,7 +269,7 @@ function bindData<T extends EastType>(
     // by construction — manifest derivation (`deriveManifest`) needs each as
     // a single literal `Value` IR node, which `East.value(...)` forces.
     const sourceValue = East.value(def.path, TreePathType);
-    const modeValue = East.value(variant(options?.mode ?? "staged", null), DataBindModeType);
+    const modeValue = East.value(variant(options?.mode ?? "direct", null), DataBindModeType);
     const patchValue = options?.patch === undefined
         ? East.value(none, OptionType(TreePathType))
         : East.value(some(options.patch.path), OptionType(TreePathType));

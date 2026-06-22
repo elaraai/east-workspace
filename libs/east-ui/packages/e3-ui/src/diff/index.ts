@@ -231,7 +231,7 @@ export const Diff = {
      * // Mirrors `diffDefaults` in test/diff.examples.ts (wired via Assert.examples).
      * const diffDefaults = East.function([], UIComponentType, _$ => {
      *     return Reactive.Root(East.function([], UIComponentType, $ => {
-     *         const view = $.let(Data.bind(maxWeeklyHoursInput));
+     *         const view = $.let(Data.bind(maxWeeklyHoursInput, { mode: "staged" }));
      *         return Diff.Root({ bindings: [view.binding] });
      *     }));
      * });
