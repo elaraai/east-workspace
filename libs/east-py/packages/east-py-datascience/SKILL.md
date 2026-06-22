@@ -276,6 +276,7 @@ def forecast(X_train, y_train, X_new):
         "random_state": 42, "n_jobs": None, "sample_weight": None,
         "categorical_features": None, "categorical_n": None,
         "max_cat_to_onehot": None, "max_cat_threshold": None,
+        "scale_pos_weight": None,  # binary class-imbalance weight (classifier only)
     }, XGBoostConfigType)
     model = xgboost_train_regressor_impl(X_train, y_train, config)   # East blob in/out
     return xgboost_predict_impl(model, X_new)

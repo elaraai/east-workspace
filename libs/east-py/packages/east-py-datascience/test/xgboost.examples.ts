@@ -40,6 +40,7 @@ export const xgboostTrainPredict = example({
             categorical_n: variant('none', null),
             max_cat_to_onehot: variant('none', null),
             max_cat_threshold: variant('none', null),
+            scale_pos_weight: variant('none', null),
         });
 
         const model = $.let(XGBoost.trainRegressor(X_train, y_train, config));
@@ -86,6 +87,7 @@ export const xgboostClassifier = example({
             categorical_n: variant('none', null),
             max_cat_to_onehot: variant('none', null),
             max_cat_threshold: variant('none', null),
+            scale_pos_weight: variant('none', null),
         });
 
         const model = $.let(XGBoost.trainClassifier(X_train, y_train, config));
@@ -154,4 +156,55 @@ export const xgboostQuantile = example({
     }),
     inputs: [],
     returns: 3n,
+});
+
+export const xgboostClassifierScalePosWeight = example({
+    keywords: ["xgboost", "trainClassifier", "scale_pos_weight", "class imbalance", "imbalanced", "binary", "rare positive"],
+    description: "Train an imbalanced binary classifier, upweighting the rare positive class with scale_pos_weight",
+    fn: East.function([], BooleanType, ($) => {
+        // Rare-positive data: 8 negatives (0) vs 2 positives (1), well separated.
+        const X_train = $.let(East.Matrix.fromArray([
+            [0.0, 0.0], [0.4, 0.3], [0.8, 0.6], [1.2, 0.9], [0.2, 0.7],
+            [0.6, 0.1], [1.0, 0.5], [0.3, 0.4],
+            [10.0, 10.0], [10.6, 10.4],
+        ]));
+        const y_train = $.let(East.Vector.fromArray([0n, 0n, 0n, 0n, 0n, 0n, 0n, 0n, 1n, 1n]));
+
+        // scale_pos_weight ≈ negatives / positives = 8 / 2 = 4 — XGBoost's canonical
+        // imbalance lever, now a first-class field instead of folding into sample_weight.
+        const config = $.let({
+            n_estimators: variant('some', 50n),
+            max_depth: variant('some', 3n),
+            learning_rate: variant('some', 0.3),
+            min_child_weight: variant('none', null),
+            subsample: variant('none', null),
+            colsample_bytree: variant('none', null),
+            reg_alpha: variant('none', null),
+            reg_lambda: variant('none', null),
+            gamma: variant('none', null),
+            random_state: variant('some', 42n),
+            n_jobs: variant('none', null),
+            sample_weight: variant('none', null),
+            categorical_features: variant('none', null),
+            categorical_n: variant('none', null),
+            max_cat_to_onehot: variant('none', null),
+            max_cat_threshold: variant('none', null),
+            scale_pos_weight: variant('some', 4.0),
+        });
+
+        const model = $.let(XGBoost.trainClassifier(X_train, y_train, config));
+
+        // Classify a clear negative and a clear positive. Well-separated, so labels
+        // are deterministic; this drives the full scale_pos_weight pass-through.
+        const X_new = $.let(East.Matrix.fromArray([
+            [0.5, 0.5],     // clearly negative (0)
+            [10.3, 10.2],   // clearly positive (1)
+        ]));
+        const classes = $.let(XGBoost.predictClass(model, X_new));
+
+        return East.equal(classes.get(0n), 0n)
+            .and(() => East.equal(classes.get(1n), 1n));
+    }),
+    inputs: [],
+    returns: true,
 });

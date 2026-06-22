@@ -47,6 +47,7 @@ describeEast("SHAP platform functions", (test) => {
             categorical_n: variant('none', null),
             max_cat_to_onehot: variant('none', null),
             max_cat_threshold: variant('none', null),
+            scale_pos_weight: variant('none', null),
         });
 
         const model = $.let(XGBoost.trainRegressor(X, y, config));
@@ -94,6 +95,7 @@ describeEast("SHAP platform functions", (test) => {
             categorical_n: variant('none', null),
             max_cat_to_onehot: variant('none', null),
             max_cat_threshold: variant('none', null),
+            scale_pos_weight: variant('none', null),
         });
 
         const model = $.let(XGBoost.trainRegressor(X, y, config));
@@ -147,6 +149,7 @@ describeEast("SHAP platform functions", (test) => {
             categorical_n: variant('none', null),
             max_cat_to_onehot: variant('none', null),
             max_cat_threshold: variant('none', null),
+            scale_pos_weight: variant('none', null),
         });
 
         const model = $.let(XGBoost.trainClassifier(X, y, config));
@@ -244,6 +247,7 @@ describeEast("SHAP platform functions", (test) => {
             categorical_n: variant('none', null),
             max_cat_to_onehot: variant('none', null),
             max_cat_threshold: variant('none', null),
+            scale_pos_weight: variant('none', null),
         });
 
         const model = $.let(XGBoost.trainRegressor(X, y, config));
@@ -436,6 +440,7 @@ describeEast("SHAP platform functions", (test) => {
             categorical_n: variant('none', null),
             max_cat_to_onehot: variant('none', null),
             max_cat_threshold: variant('none', null),
+            scale_pos_weight: variant('none', null),
         });
 
         const model = $.let(XGBoost.trainClassifier(X, y, config));
@@ -495,6 +500,7 @@ describeEast("SHAP platform functions", (test) => {
             categorical_n: variant('none', null),
             max_cat_to_onehot: variant('none', null),
             max_cat_threshold: variant('none', null),
+            scale_pos_weight: variant('none', null),
         });
 
         const model = $.let(XGBoost.trainClassifier(X, y, config));
@@ -552,6 +558,7 @@ describeEast("SHAP platform functions", (test) => {
             categorical_n: variant('none', null),
             max_cat_to_onehot: variant('none', null),
             max_cat_threshold: variant('none', null),
+            scale_pos_weight: variant('none', null),
         });
 
         const chain_config = $.let({
@@ -633,6 +640,7 @@ describeEast("SHAP platform functions", (test) => {
                 categorical_n: variant('none', null),
                 max_cat_to_onehot: variant('none', null),
                 max_cat_threshold: variant('none', null),
+                scale_pos_weight: variant('none', null),
             }),
             method: variant('some', variant('split', null)),
             confidence_level: variant('some', 0.9),
@@ -711,6 +719,7 @@ describeEast("SHAP platform functions", (test) => {
                 categorical_n: variant('none', null),
                 max_cat_to_onehot: variant('none', null),
                 max_cat_threshold: variant('none', null),
+                scale_pos_weight: variant('none', null),
             },
             confidence_level: variant('some', 0.9),
             random_state: variant('some', 42n),
@@ -771,6 +780,7 @@ describeEast("SHAP platform functions", (test) => {
                 categorical_n: variant('none', null),
                 max_cat_to_onehot: variant('none', null),
                 max_cat_threshold: variant('none', null),
+                scale_pos_weight: variant('none', null),
             }),
             method: variant('some', variant('lac', null)),
             confidence_level: variant('some', 0.9),
@@ -837,6 +847,7 @@ describeEast("SHAP platform functions", (test) => {
                 categorical_n: variant('none', null),
                 max_cat_to_onehot: variant('none', null),
                 max_cat_threshold: variant('none', null),
+                scale_pos_weight: variant('none', null),
             }),
             method: variant('some', variant('split', null)),
             confidence_level: variant('some', 0.9),
@@ -904,6 +915,7 @@ describeEast("SHAP platform functions", (test) => {
                 categorical_n: variant('none', null),
                 max_cat_to_onehot: variant('none', null),
                 max_cat_threshold: variant('none', null),
+                scale_pos_weight: variant('none', null),
             }),
             method: variant('some', variant('lac', null)),
             confidence_level: variant('some', 0.9),
@@ -973,6 +985,7 @@ describeEast("SHAP platform functions", (test) => {
                 categorical_n: variant('none', null),
                 max_cat_to_onehot: variant('none', null),
                 max_cat_threshold: variant('none', null),
+                scale_pos_weight: variant('none', null),
             }),
             method: variant('some', variant('split', null)),
             confidence_level: variant('some', 0.9),
@@ -1033,6 +1046,7 @@ describeEast("SHAP platform functions", (test) => {
                 categorical_n: variant('none', null),
                 max_cat_to_onehot: variant('none', null),
                 max_cat_threshold: variant('none', null),
+                scale_pos_weight: variant('none', null),
             }),
             method: variant('some', variant('lac', null)),
             confidence_level: variant('some', 0.9),
@@ -1093,6 +1107,7 @@ describeEast("SHAP platform functions", (test) => {
                 categorical_n: variant('none', null),
                 max_cat_to_onehot: variant('none', null),
                 max_cat_threshold: variant('none', null),
+                scale_pos_weight: variant('none', null),
             }),
             method: variant('some', variant('lac', null)),
             confidence_level: variant('some', 0.9),

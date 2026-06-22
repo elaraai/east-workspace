@@ -44,6 +44,7 @@ export const sklearnRegressorChain = example({
                 categorical_n: variant('none', null),
                 max_cat_to_onehot: variant('none', null),
                 max_cat_threshold: variant('none', null),
+                scale_pos_weight: variant('none', null),
             }),
             order: variant('none', null),
             random_state: variant('some', 42n),

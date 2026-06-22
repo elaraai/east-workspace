@@ -575,6 +575,7 @@ XGBoostConfigType = StructType(
         ("categorical_n", OptionType(VectorType(IntegerType))),  # n categories per categorical feature
         ("max_cat_to_onehot", OptionType(IntegerType)),  # default 4
         ("max_cat_threshold", OptionType(IntegerType)),  # default 64
+        ("scale_pos_weight", OptionType(FloatType)),  # default None (XGBoost default 1.0)
     ]
 )
 """Configuration for XGBoost regression and classification.
@@ -589,7 +590,9 @@ Fields: ``n_estimators`` (default 100), ``max_depth`` (default 6),
 ``categorical_features`` (``Option<Vector<Integer>>`` zero-based column
 indices), ``categorical_n`` (``Option<Vector<Integer>>`` category count per
 categorical feature), ``max_cat_to_onehot`` (default 4),
-``max_cat_threshold`` (default 64).
+``max_cat_threshold`` (default 64), ``scale_pos_weight``
+(``Option<Float>`` binary class-imbalance weight, default ``None`` =
+XGBoost default 1.0; consumed by classifier training only).
 """
 
 # XGBoost quantile configuration

@@ -46,6 +46,7 @@ export const optunaTuneXgboost = example({
                     categorical_n: none,
                     max_cat_to_onehot: none,
                     max_cat_threshold: none,
+                    scale_pos_weight: none,
                 });
 
                 const model = $.let(XGBoost.trainRegressor(X_train, y_train, config));
