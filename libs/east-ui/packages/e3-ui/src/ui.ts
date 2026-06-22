@@ -13,7 +13,11 @@
  * @packageDocumentation
  */
 
-import { task, type DatasetDef, type Runner, type TaskDef } from '@elaraai/e3';
+// `task` (a value) comes from the browser-safe `@elaraai/e3/browser` entry, not
+// the main `@elaraai/e3` barrel — the latter re-exports Node-only file/zip IO
+// (`sha256`/`export` → node:fs), which would otherwise leak into browser bundles
+// that reach `ui()` via this package's main barrel (issue #99).
+import { task, type DatasetDef, type Runner, type TaskDef } from '@elaraai/e3/browser';
 import { UIComponentType } from '@elaraai/east-ui';
 import {
   type EastType,
