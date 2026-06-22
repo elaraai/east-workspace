@@ -225,8 +225,15 @@ describe('records', () => {
     const results = await Promise.all(
       Array.from({ length: K }, () => recordMutate(storage, adder, repo, ws, 'counter', 'increment', [encodeInt(1n)], { actor: 'cli:test' })),
     );
-    assert.ok(results.every((r) => r.kind === 'committed'), 'every mutation committed');
-    assert.strictEqual(await workspaceGetDataset(storage, repo, ws, counterPath), BigInt(K));
+    // Assert on the outcome kinds (not just a boolean) so a future failure is
+    // self-diagnosing: a residual `conflict` (CAS budget exhausted under
+    // contention) reads differently from `failed`/`invalid`, and both read
+    // differently from a converged-but-wrong value (a real lost update, caught by
+    // the value assertion below). The in-process keyed mutex serializes these
+    // same-process writers, so each should commit without a forced retry.
+    const kinds = results.map((r) => r.kind);
+    assert.ok(results.every((r) => r.kind === 'committed'), `every mutation committed; got ${JSON.stringify(kinds)}`);
+    assert.strictEqual(await workspaceGetDataset(storage, repo, ws, counterPath), BigInt(K), 'converged to K with no lost updates');
     // genesis + K commits, a single linear chain (no forks / lost updates).
     assert.strictEqual((await recordHistory(storage, repo, ws, 'counter')).length, K + 1);
   });

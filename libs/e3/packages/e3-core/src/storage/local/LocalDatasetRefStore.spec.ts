@@ -16,6 +16,8 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import * as fs from 'node:fs/promises';
 import { join, dirname } from 'node:path';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { variant, encodeBeast2For } from '@elaraai/east';
 import { DatasetRefType } from '@elaraai/e3-types';
 import { LocalDatasetRefStore } from './LocalDatasetRefStore.js';
@@ -23,6 +25,34 @@ import { InMemoryStorage } from '../in-memory/InMemoryStorage.js';
 import { DatasetRefConflictError } from '../../errors.js';
 import type { DatasetRefStore } from '../interfaces.js';
 import { createTestRepo, removeTestRepo } from '../../test-helpers.js';
+
+// A child-process body (run via `node --input-type=module -e`): K compare-and-swap
+// increments of a shared counter ref, retrying on a conflict — including the
+// conflict a transient Windows fs error is now mapped to. Its ONLY serializer
+// against the sibling process is the on-disk exclusive lock; the in-process keyed
+// mutex is per-process and disjoint here, so this body cannot lose an update
+// unless the cross-process file lock itself is broken.
+const CROSS_PROCESS_CHILD = `
+import { variant } from '@elaraai/east';
+const { LocalDatasetRefStore } = await import(process.env.STORE_URL);
+const store = new LocalDatasetRefStore();
+const { REPO, WS, DPATH } = process.env;
+const K = Number(process.env.K);
+const HASH = '0'.padEnd(64, '0');
+for (let i = 0; i < K; i++) {
+  for (;;) {
+    const cur = await store.readVersioned(REPO, WS, DPATH);
+    const n = Number(cur.ref.value.versions.get('count'));
+    try {
+      await store.writeIf(REPO, WS, DPATH, variant('value', { hash: HASH, versions: new Map([['count', String(n + 1)]]) }), cur.revision);
+      break;
+    } catch (err) {
+      if (err && err.name === 'DatasetRefConflictError') continue; // lost the race — re-read and retry
+      throw err;
+    }
+  }
+}
+`;
 
 interface Fixture {
   store: DatasetRefStore;
@@ -87,6 +117,45 @@ for (const [name, make] of Object.entries(backends)) {
         assert.notStrictEqual(revision, read.revision);
         const after = await fx.store.readVersioned(fx.repo, ws, path);
         assert.deepStrictEqual(after!.ref, next);
+      });
+
+      // The cross-process guarantee, exercised by REAL separate OS processes.
+      // The same-process records.spec K=8 test now serializes through the
+      // in-process keyed mutex, so it can no longer detect a regression in the
+      // on-disk lock. This one can: two processes have disjoint mutex maps, so a
+      // lost update here means the exclusive `.lock` (the sole cross-process
+      // serializer) is broken. Retries absorb transient contention, so a correct
+      // lock makes the final count deterministic regardless of timing.
+      it('cross-process: two OS processes CAS-increment one ref with no lost updates', async () => {
+        const dpath = 'inputs/counter';
+        const K = 15;
+        const HASH = '0'.padEnd(64, '0');
+        await fx.store.writeIf(fx.repo, ws, dpath, variant('value', { hash: HASH, versions: new Map([['count', '0']]) }), null);
+
+        const storeUrl = new URL('./LocalDatasetRefStore.js', import.meta.url).href;
+        const pkgRoot = fileURLToPath(new URL('../../../../', import.meta.url)); // dist/src/storage/local → package root
+        const run = (): Promise<{ code: number | null; stderr: string }> =>
+          new Promise((resolve) => {
+            const proc = spawn(process.execPath, ['--input-type=module', '-e', CROSS_PROCESS_CHILD], {
+              cwd: pkgRoot, // so the child's bare `@elaraai/east` import resolves
+              env: { ...process.env, REPO: fx.repo, WS: ws, DPATH: dpath, K: String(K), STORE_URL: storeUrl },
+            });
+            let stderr = '';
+            proc.stderr.on('data', (d) => { stderr += String(d); });
+            proc.on('close', (code) => resolve({ code, stderr }));
+          });
+
+        const [a, b] = await Promise.all([run(), run()]);
+        assert.strictEqual(a.code, 0, `child A failed: ${a.stderr}`);
+        assert.strictEqual(b.code, 0, `child B failed: ${b.stderr}`);
+
+        const final = await fx.store.readVersioned(fx.repo, ws, dpath);
+        if (!final || final.ref.type !== 'value') { assert.fail('counter ref missing or not a value'); }
+        assert.strictEqual(
+          Number(final.ref.value.versions.get('count')),
+          2 * K,
+          'every increment from both processes landed — the cross-process lock prevented lost updates',
+        );
       });
     }
 

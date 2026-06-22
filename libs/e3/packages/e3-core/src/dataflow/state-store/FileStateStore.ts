@@ -29,6 +29,9 @@ import {
   type TaskState,
   type TaskStatus,
 } from '../types.js';
+// The single hardened temp→final rename (retries transient Windows sharing
+// violations); shared with the object/ref stores so the retry budget can't drift.
+import { renameWithRetry } from '../../storage/local/localHelpers.js';
 
 // Create encoder/decoder for beast2 serialization
 const encode = encodeBeast2For(DataflowExecutionStateType);
@@ -357,42 +360,3 @@ export class FileStateStore implements ExecutionStateStore {
   }
 }
 
-/**
- * Errno codes Windows raises when renaming onto a path that another handle has
- * open. POSIX renames atomically regardless of open readers, so it never sees
- * these; Windows denies the replace until the other handle closes.
- */
-const TRANSIENT_RENAME_CODES = new Set(['EPERM', 'EACCES', 'EBUSY', 'EEXIST']);
-
-/**
- * `fs.rename` with retry-on-transient-failure, for the temp→final step of an
- * atomic write.
- *
- * On Windows a rename onto `to` fails (EPERM/EACCES/EBUSY/EEXIST) whenever
- * another handle has `to` open — e.g. a concurrent reader. The execution-state
- * file is read on every API/CLI poll while the orchestrator rewrites it on each
- * task transition, so without retry a poll-time read intermittently fails the
- * rewrite. That rejection propagates into the orchestrator's task-completion
- * handler, where it is caught and misread as a *task failure* — silently turning
- * a successful run into a failed one (Windows-only, load-dependent). The
- * collision is transient: the reader closes within milliseconds, so a short
- * backoff lets the rename through. POSIX never raises these codes, so this is a
- * single successful call there.
- */
-async function renameWithRetry(from: string, to: string): Promise<void> {
-  const maxAttempts = 10;
-  let delayMs = 5;
-  for (let attempt = 1; ; attempt++) {
-    try {
-      await fs.rename(from, to);
-      return;
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
-      if (attempt >= maxAttempts || code === undefined || !TRANSIENT_RENAME_CODES.has(code)) {
-        throw err;
-      }
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
-      delayMs = Math.min(delayMs * 2, 100);
-    }
-  }
-}

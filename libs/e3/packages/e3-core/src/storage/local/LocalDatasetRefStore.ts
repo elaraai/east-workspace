@@ -27,7 +27,8 @@ import { DatasetRefType, type DatasetRef } from '@elaraai/e3-types';
 import { computeHash } from '../../objects.js';
 import { DatasetRefConflictError } from '../../errors.js';
 import { acquireWorkspaceLock } from './LocalLockService.js';
-import { atomicWriteFile } from './localHelpers.js';
+import { atomicWriteFile, isTransientFsError } from './localHelpers.js';
+import { withKeyedLock } from './keyedMutex.js';
 import type { DatasetRefStore } from '../interfaces.js';
 
 const decodeRef = decodeBeast2For(DatasetRefType);
@@ -104,14 +105,46 @@ export class LocalDatasetRefStore implements DatasetRefStore {
     return `${esc(ws)}~data~${esc(datasetPath)}`;
   }
 
+  /**
+   * In-process keys for a single `.ref`, both derived from the SAME
+   * {@link casResource} the cross-process lock uses (so they can never drift) plus
+   * the repo, since one process may hold several repos open. Two keys, two scopes:
+   *
+   * - {@link critKey} guards only the read-compare-rename **critical section**
+   *   (microseconds). Reads and the rename take it, so a writer's atomic rename
+   *   never overlaps a same-process reader's open handle — the Windows
+   *   sharing-violation that no rename-retry budget can fully absorb — eliminated
+   *   by construction, without serializing a read against the cross-process wait.
+   * - {@link writeSerializeKey} serializes same-process *writers* across the whole
+   *   {@link writeIf} (including its cross-process file-lock wait), so K concurrent
+   *   writers never stampede the exclusive `.lock`; reads never take it, so a read
+   *   is never blocked behind a writer's up-to-30s file-lock wait.
+   *
+   * The filesystem lock in {@link writeIf} stays the load-bearing CROSS-process
+   * serializer — these mutexes are same-process optimizations with NO cross-process
+   * meaning and MUST NOT be relied on for correctness between processes.
+   */
+  private critKey(repo: string, ws: string, datasetPath: string): string {
+    return `c\0${repo}\0${this.casResource(ws, datasetPath)}`;
+  }
+  private writeSerializeKey(repo: string, ws: string, datasetPath: string): string {
+    return `w\0${repo}\0${this.casResource(ws, datasetPath)}`;
+  }
+
   async read(repo: string, ws: string, datasetPath: string): Promise<DatasetRef | null> {
-    const data = await this.readBytes(this.refPath(repo, ws, datasetPath));
-    if (data === null || data.length === 0) return null;
-    return decodeStored(data).ref;
+    return withKeyedLock(this.critKey(repo, ws, datasetPath), async () => {
+      const data = await this.readBytes(this.refPath(repo, ws, datasetPath));
+      if (data === null || data.length === 0) return null;
+      return decodeStored(data).ref;
+    });
   }
 
   async write(repo: string, ws: string, datasetPath: string, ref: DatasetRef): Promise<void> {
-    await this.writeBytes(this.refPath(repo, ws, datasetPath), encodeStored(ref).data);
+    // Unconditional last-writer-wins (no file lock); the crit-section key alone
+    // keeps its rename from overlapping a same-process read or another rename.
+    await withKeyedLock(this.critKey(repo, ws, datasetPath), () =>
+      this.writeBytes(this.refPath(repo, ws, datasetPath), encodeStored(ref).data),
+    );
   }
 
   async readVersioned(
@@ -119,9 +152,11 @@ export class LocalDatasetRefStore implements DatasetRefStore {
     ws: string,
     datasetPath: string
   ): Promise<{ ref: DatasetRef; revision: string } | null> {
-    const data = await this.readBytes(this.refPath(repo, ws, datasetPath));
-    if (data === null || data.length === 0) return null;
-    return decodeStored(data);
+    return withKeyedLock(this.critKey(repo, ws, datasetPath), async () => {
+      const data = await this.readBytes(this.refPath(repo, ws, datasetPath));
+      if (data === null || data.length === 0) return null;
+      return decodeStored(data);
+    });
   }
 
   async writeIf(
@@ -132,30 +167,62 @@ export class LocalDatasetRefStore implements DatasetRefStore {
     expectedRevision: string | null
   ): Promise<{ revision: string }> {
     const filePath = this.refPath(repo, ws, datasetPath);
-    // Serialize the read-compare-write across processes. acquireWorkspaceLock's
-    // O_EXCL create + process-liveness stale detection is reused verbatim; the
-    // flat resource keeps this lock independent of the workspace-level lock the
-    // caller may already hold in shared mode.
-    const lock = await acquireWorkspaceLock(
-      repo,
-      this.casResource(ws, datasetPath),
-      variant('dataset_write', null),
-      { mode: 'exclusive', wait: true, timeout: CAS_LOCK_TIMEOUT_MS }
-    );
-    try {
-      const current = await this.readBytes(filePath);
-      const currentRevision = current && current.length > 0 ? decodeStored(current).revision : null;
-      if (currentRevision !== expectedRevision) {
-        throw new DatasetRefConflictError(ws, datasetPath, expectedRevision, currentRevision);
+    // Outer key: serialize same-process WRITERS across the whole call so only one
+    // reaches the exclusive `.lock` — K concurrent writers never stampede it. Held
+    // across the cross-process file-lock wait below, but READS do not take this
+    // key, so a read is never blocked behind a writer's up-to-30s wait.
+    return withKeyedLock(this.writeSerializeKey(repo, ws, datasetPath), async () => {
+      // acquireWorkspaceLock's O_EXCL/hardlink create + process-liveness stale
+      // detection is reused verbatim; the flat resource keeps this lock
+      // independent of the workspace-level lock the caller may hold in shared mode.
+      // In a single process it is uncontended (granted first try); cross-process it
+      // is the load-bearing serializer.
+      const lock = await acquireWorkspaceLock(
+        repo,
+        this.casResource(ws, datasetPath),
+        variant('dataset_write', null),
+        { mode: 'exclusive', wait: true, timeout: CAS_LOCK_TIMEOUT_MS }
+      );
+      try {
+        // Inner key: the read-compare-rename critical section only (microseconds).
+        // Reads take this same key, so the atomic rename never overlaps a
+        // same-process reader's open handle — the Windows sharing violation — yet a
+        // read only ever waits this microsecond window, never the file-lock wait.
+        // readBytes/writeBytes are the raw (non-keyed) helpers, so no re-entrancy.
+        return await withKeyedLock(this.critKey(repo, ws, datasetPath), async () => {
+          const current = await this.readBytes(filePath);
+          const currentRevision = current && current.length > 0 ? decodeStored(current).revision : null;
+          if (currentRevision !== expectedRevision) {
+            throw new DatasetRefConflictError(ws, datasetPath, expectedRevision, currentRevision);
+          }
+          // A freshly-minted revision per write: two byte-identical refs still get
+          // distinct revisions, so a later writeIf can't false-match (no ABA).
+          const { data, revision } = encodeStored(ref);
+          try {
+            await this.writeBytes(filePath, data);
+          } catch (err) {
+            // A cross-process reader can hold the .ref open across the rename long
+            // enough to exhaust atomicWriteFile's retry budget on Windows. The
+            // destination is left intact (atomicWriteFile re-throws after cleaning
+            // its staging file), so nothing committed — surface it as a conflict so
+            // the caller's CAS loop re-polls and retries instead of hard-failing on
+            // a raw EPERM. Same-process readers cannot trigger this (the crit key
+            // serializes them); a genuine error (ENOSPC, …) still propagates. The
+            // original fault is kept as `cause` so a persistent transient-coded
+            // fault (e.g. a read-only data dir) stays diagnosable in logs.
+            if (isTransientFsError(err)) {
+              const conflict = new DatasetRefConflictError(ws, datasetPath, expectedRevision, currentRevision);
+              (conflict as Error).cause = err;
+              throw conflict;
+            }
+            throw err;
+          }
+          return { revision };
+        });
+      } finally {
+        await lock.release();
       }
-      // A freshly-minted revision per write: two byte-identical refs still get
-      // distinct revisions, so a later writeIf can't false-match (no ABA).
-      const { data, revision } = encodeStored(ref);
-      await this.writeBytes(filePath, data);
-      return { revision };
-    } finally {
-      await lock.release();
-    }
+    });
   }
 
   async list(repo: string, ws: string): Promise<string[]> {
