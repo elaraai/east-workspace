@@ -11,7 +11,11 @@
  * and other local storage components.
  */
 
-import * as fs from 'fs/promises';
+// `node:fs`'s promised API (the same `fs.promises` singleton object), so a call
+// like `fs.rename` resolves the property at call time — this is the seam tests
+// stub to simulate Windows sharing-violation errnos against the shared
+// renameWithRetry. (Behaviourally identical to `fs/promises`.)
+import { promises as fs } from 'node:fs';
 import * as path from 'path';
 
 /**
@@ -84,10 +88,31 @@ export async function objectAbbrev(
   return hash.length;
 }
 
-// Transient Windows errors raised when renaming over a file another handle
-// currently has open (sharing violation), or when the destination briefly
-// resists replacement. POSIX never raises these on rename-over-existing.
-const WIN_RENAME_RETRYABLE = new Set(['EPERM', 'EACCES', 'EBUSY', 'EEXIST']);
+/**
+ * Errno codes Windows raises when an operation targets a path another handle has
+ * open (a sharing violation), or when a just-deleted name briefly resists
+ * re-creation. POSIX never raises these on rename-over-existing, so retrying is a
+ * no-op there.
+ *
+ * The single source of truth for the transient-error policy, shared by every
+ * local atomic write/rename ({@link renameWithRetry}), the dataset-ref
+ * compare-and-swap, the lock service, and the dataflow state store — so the set
+ * can never drift between copies (it historically had two divergent definitions).
+ */
+export const TRANSIENT_FS_ERROR_CODES = new Set(['EPERM', 'EACCES', 'EBUSY', 'EEXIST']);
+
+/**
+ * Whether a thrown error is a transient filesystem sharing-violation worth
+ * retrying (or, where a retry budget is already spent, treating as a benign
+ * conflict rather than a hard failure). See {@link TRANSIENT_FS_ERROR_CODES}.
+ *
+ * @param err - The value thrown by an `fs` operation.
+ * @returns `true` if the error carries a transient errno code.
+ */
+export function isTransientFsError(err: unknown): boolean {
+  const code = (err as NodeJS.ErrnoException | null)?.code;
+  return code !== undefined && TRANSIENT_FS_ERROR_CODES.has(code);
+}
 
 /**
  * Rename `from` over `to`, retrying on Windows sharing-violation errors.
@@ -115,7 +140,7 @@ export async function renameWithRetry(from: string, to: string, maxAttempts = 25
       return;
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code ?? '';
-      if (attempt >= maxAttempts - 1 || !WIN_RENAME_RETRYABLE.has(code)) throw err;
+      if (attempt >= maxAttempts - 1 || !TRANSIENT_FS_ERROR_CODES.has(code)) throw err;
       // 1, 2, 4, … ms, capped at 100ms (≈1.9s total over 25 attempts).
       await new Promise((resolve) => setTimeout(resolve, Math.min(2 ** attempt, 100)));
     }

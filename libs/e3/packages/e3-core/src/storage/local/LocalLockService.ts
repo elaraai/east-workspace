@@ -23,7 +23,42 @@ import { encodeBeast2For, decodeBeast2For, printFor, parseInferred, variant, non
 import { LockStateType, ProcessHolderType, type LockState, type LockOperation } from '@elaraai/e3-types';
 import { WorkspaceLockError, type LockHolderInfo } from '../../errors.js';
 import { getBootId, getPidStartTime, isProcessAlive } from '../../execution/processHelpers.js';
+import { isTransientFsError } from './localHelpers.js';
 import type { LockHandle, LockService } from '../interfaces.js';
+
+/** Sleep helper for bounded filesystem-operation backoff. */
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Errno codes meaning the volume genuinely cannot hardlink (as opposed to a
+ *  transient Windows sharing violation). Only these demote to the O_EXCL
+ *  fallback immediately; a transient EPERM/EACCES/EBUSY is retried first. */
+const HARDLINK_UNSUPPORTED = new Set(['ENOSYS', 'EXDEV', 'EMLINK', 'EOPNOTSUPP']);
+const LINK_MAX_ATTEMPTS = 25;
+const UNLINK_MAX_ATTEMPTS = 10;
+
+/**
+ * Unlink a lock file, retrying transient Windows sharing violations.
+ *
+ * A lock that ultimately resists deletion is left for stale-detection to
+ * reclaim: a lingering lock only keeps OTHER acquirers out (fail-safe for the
+ * no-lost-update invariant), so the final failure is swallowed rather than
+ * thrown — but the bounded retry clears the common transient case promptly so a
+ * just-released lock doesn't stall the next acquirer to the 30s timeout.
+ */
+async function unlinkWithRetry(targetPath: string): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await fs.unlink(targetPath);
+      return;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT') return; // already gone
+      // Non-transient, or budget spent: give up (stale-detection will reclaim).
+      if (!isTransientFsError(err) || attempt >= UNLINK_MAX_ATTEMPTS - 1) return;
+      await sleep(Math.min(2 ** attempt, 100));
+    }
+  }
+}
 
 // =============================================================================
 // Holder Encoding
@@ -262,23 +297,37 @@ async function atomicCreateLockFile(lockPath: string, data: Uint8Array): Promise
   const tmp = `${lockPath}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
   try {
     await fs.writeFile(tmp, data);
-    try {
-      await fs.link(tmp, lockPath);
-      return true;
-    } catch (err: any) {
-      if (err.code === 'EEXIST') return false;
-      // Hardlinks unsupported on this filesystem — fall back to O_EXCL + write.
-      if (err.code === 'EPERM' || err.code === 'ENOSYS' || err.code === 'EXDEV'
-          || err.code === 'EMLINK' || err.code === 'EOPNOTSUPP') {
-        try {
-          const fd = await fs.open(lockPath, 'wx');
-          try { await fd.write(data); } finally { await fd.close(); }
-          return true;
-        } catch (err2: any) {
-          if (err2.code === 'EEXIST') return false;
-          throw err2;
+    // Prefer the atomic create-with-content (hardlink). A transient Windows
+    // EPERM/EACCES/EBUSY is RETRIED rather than demoted to the racy O_EXCL+write
+    // path (the empty-window #84 closed): demoting on transient contention was
+    // exactly how that fallback stayed reachable on NTFS. Only a genuine
+    // "no hardlinks" code — or an EPERM/EACCES that PERSISTS past the budget (a
+    // truly hardlink-less volume that reports EPERM) — falls back, and it falls
+    // back rather than throwing, so availability on such volumes is preserved.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await fs.link(tmp, lockPath);
+        return true;
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code === 'EEXIST') return false; // another holder already has it
+        if (code !== undefined && HARDLINK_UNSUPPORTED.has(code)) break; // no hardlinks → fallback
+        if (isTransientFsError(err) && attempt < LINK_MAX_ATTEMPTS - 1) {
+          await sleep(Math.min(2 ** attempt, 100)); // transient contention → retry
+          continue;
         }
+        break; // persistent EPERM/EACCES or unexpected error → fall back, don't throw
       }
+    }
+    // O_EXCL + write fallback. The brief empty window is covered by
+    // EMPTY_LOCK_GRACE_MS in cleanIfStale (and, on hardlink-less volumes, is the
+    // only available create primitive).
+    try {
+      const fd = await fs.open(lockPath, 'wx');
+      try { await fd.write(data); } finally { await fd.close(); }
+      return true;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'EEXIST') return false;
       throw err;
     }
   } finally {
@@ -362,7 +411,9 @@ export async function acquireWorkspaceLock(
   let lockPath = await tryOnce();
 
   while (lockPath === null && Date.now() < deadline) {
-    await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
+    // Jitter the poll so a herd of losers released together don't re-stampede
+    // the create in lock-step (which on Windows maximises sharing-violation churn).
+    await sleep(POLL_INTERVAL_MS * (0.5 + Math.random()));
     lockPath = await tryOnce();
   }
 
@@ -381,7 +432,7 @@ export async function acquireWorkspaceLock(
     async release() {
       if (released) return;
       released = true;
-      try { await fs.unlink(lockPath); } catch {}
+      await unlinkWithRetry(lockPath);
     },
   };
 }
