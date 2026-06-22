@@ -8,7 +8,7 @@
  * bundled into `east-ui-showcase-experiment@<pkg.version>`.
  *
  * The `@elaraai/e3-ui/examples/experiment/experiment` barrel re-exports the
- * bound `e3.input` datasets (batches / config / journal / population) and the
+ * bound `e3.input` datasets (batches / configs / journal) and the
  * `e3.function('experiment', …)` estimator; they are forwarded as `extras` so
  * the deployed workspace can `Data.bind` / `Func.bind` them at render time. The
  * estimator is a pure-East fixture (no datascience dependency), so it runs on
@@ -23,9 +23,10 @@ import { buildShowcasePackage } from './utils.js';
 
 const {
     batchesInput,
-    experimentConfigInput,
+    experimentConfigsInput,
+    experimentMenuConfigsInput,
+    experimentPrecomputedConfigsInput,
     experimentJournalInput,
-    experimentPopulationInput,
     experimentFn,
     designFn,
 } = examples;
@@ -33,9 +34,10 @@ const {
 export default await buildShowcasePackage('experiment', pkgInfo.version, examples, {
     extras: [
         batchesInput,
-        experimentConfigInput,
+        experimentConfigsInput,
+        experimentMenuConfigsInput,
+        experimentPrecomputedConfigsInput,
         experimentJournalInput,
-        experimentPopulationInput,
         experimentFn,
         designFn,
     ],

@@ -16,7 +16,10 @@ describeEast('Experiment', (test) => {
         experimentSurface: ex.experimentSurface,
         experimentTrust: ex.experimentTrust,
         experimentDose: ex.experimentDose,
-        experimentPresets: ex.experimentPresets,
+        experimentValidate: ex.experimentValidate,
+        experimentMenu: ex.experimentMenu,
+        experimentPrecomputed: ex.experimentPrecomputed,
+        experimentReadonlyPrecomputed: ex.experimentReadonlyPrecomputed,
     });
 
     test('Experiment.Component is declared as an optional EastUI component', $ => {
@@ -28,24 +31,35 @@ describeEast('Experiment', (test) => {
         const tree = $.let(
             Reactive.Root(East.function([], UIComponentType, $ => {
                 const data = $.let(Data.bind(ex.batchesInput));
-                const config = $.let(Data.bind(ex.experimentConfigInput, { mode: 'staged' }));
+                const configs = $.let(Data.bind(ex.experimentConfigsInput));
                 const experiment = $.let(Func.bind(ex.experimentFn));
-                return Experiment.Root({ data, config, experiment });
+                return Experiment.Root({ data, configs, experiment });
             })),
             UIComponentType,
         );
         $(Assert.equal(tree.unwrap().getTag(), 'ReactiveComponent'));
     });
 
-    test('Experiment.Root threads the optional population + journal + defaultTab through', $ => {
+    test('Experiment.Root threads the optional journal + defaultTab through', $ => {
         const tree = $.let(
             Reactive.Root(East.function([], UIComponentType, $ => {
                 const data = $.let(Data.bind(ex.batchesInput));
-                const config = $.let(Data.bind(ex.experimentConfigInput, { mode: 'staged' }));
+                const configs = $.let(Data.bind(ex.experimentConfigsInput));
                 const experiment = $.let(Func.bind(ex.experimentFn));
-                const population = $.let(Data.bind(ex.experimentPopulationInput, { mode: 'staged' }));
                 const journal = $.let(Data.bind(ex.experimentJournalInput));
-                return Experiment.Root({ data, config, experiment, population, journal, defaultTab: 'trust' });
+                return Experiment.Root({ data, configs, experiment, journal, defaultTab: 'trust' });
+            })),
+            UIComponentType,
+        );
+        $(Assert.equal(tree.unwrap().getTag(), 'ReactiveComponent'));
+    });
+
+    test('Experiment.Root renders a curated, precomputed, read-only surface (no estimator)', $ => {
+        const tree = $.let(
+            Reactive.Root(East.function([], UIComponentType, $ => {
+                const data = $.let(Data.bind(ex.batchesInput));
+                const configs = $.let(Data.bind(ex.experimentPrecomputedConfigsInput));
+                return Experiment.Root({ data, configs, readonly: true });
             })),
             UIComponentType,
         );

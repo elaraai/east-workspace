@@ -1,7 +1,7 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1354,
+    "totalEntries": 1356,
     "totalFiles": 179,
     "packages": {
       "east": 489,
@@ -9,7 +9,7 @@
       "east-node-io": 63,
       "east-py-datascience": 89,
       "east-ui": 613,
-      "e3-ui": 51,
+      "e3-ui": 53,
       "e3": 7
     }
   },
@@ -27587,6 +27587,7 @@
         "Data",
         "Func",
         "bind",
+        "configs",
         "generic"
       ],
       "imports": [
@@ -27595,7 +27596,7 @@
         "import { Data, Experiment, Func } from '@elaraai/e3-ui';",
         "import e3 from '@elaraai/e3';"
       ],
-      "source": "// An interactive causal-experiment surface: \n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const data = $.let(Data.bind(batchesInput));\n            const config = $.let(Data.bind(experimentConfigInput, { mode: 'staged' }));\n            const journal = $.let(Data.bind(experimentJournalInput));\n            const population = $.let(Data.bind(experimentPopulationInput, { mode: 'staged' }));\n            const experiment = $.let(Func.bind(experimentFn));\n            return (\n                <Experiment\n                    data={data}\n                    config={config}\n                    experiment={experiment}\n                    population={population}\n                    journal={journal}\n                    columns={{ bond_strength: { unit: 'MPa' } }}\n                />\n            );\n        }}</Reactive>\n    ))"
+      "source": "// An interactive causal-experiment surface: \n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const data = $.let(Data.bind(batchesInput));\n            const configs = $.let(Data.bind(experimentConfigsInput));\n            const journal = $.let(Data.bind(experimentJournalInput));\n            const experiment = $.let(Func.bind(experimentFn));\n            return (\n                <Experiment\n                    data={data}\n                    configs={configs}\n                    experiment={experiment}\n                    journal={journal}\n                    columns={{ bond_strength: { unit: 'MPa' } }}\n                />\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "e3-ui:experiment.examples.tsx:experimentTrust",
@@ -27619,7 +27620,7 @@
         "import { Data, Experiment, Func } from '@elaraai/e3-ui';",
         "import e3 from '@elaraai/e3';"
       ],
-      "source": "// The Experiment \n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const data = $.let(Data.bind(batchesInput));\n            const config = $.let(Data.bind(experimentConfigInput, { mode: 'staged' }));\n            const journal = $.let(Data.bind(experimentJournalInput));\n            const population = $.let(Data.bind(experimentPopulationInput, { mode: 'staged' }));\n            const experiment = $.let(Func.bind(experimentFn));\n            return (\n                <Experiment\n                    data={data}\n                    config={config}\n                    experiment={experiment}\n                    population={population}\n                    journal={journal}\n                    columns={{ bond_strength: { unit: 'MPa' } }}\n                    defaultTab=\"trust\"\n                />\n            );\n        }}</Reactive>\n    ))"
+      "source": "// The Experiment \n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const data = $.let(Data.bind(batchesInput));\n            const configs = $.let(Data.bind(experimentConfigsInput));\n            const journal = $.let(Data.bind(experimentJournalInput));\n            const experiment = $.let(Func.bind(experimentFn));\n            return (\n                <Experiment\n                    data={data}\n                    configs={configs}\n                    experiment={experiment}\n                    journal={journal}\n                    columns={{ bond_strength: { unit: 'MPa' } }}\n                    defaultTab=\"trust\"\n                />\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "e3-ui:experiment.examples.tsx:experimentDose",
@@ -27642,7 +27643,7 @@
         "import { Data, Experiment, Func } from '@elaraai/e3-ui';",
         "import e3 from '@elaraai/e3';"
       ],
-      "source": "// The Experiment \n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const data = $.let(Data.bind(batchesInput));\n            const config = $.let(Data.bind(experimentConfigInput, { mode: 'staged' }));\n            const journal = $.let(Data.bind(experimentJournalInput));\n            const population = $.let(Data.bind(experimentPopulationInput, { mode: 'staged' }));\n            const experiment = $.let(Func.bind(experimentFn));\n            return (\n                <Experiment\n                    data={data}\n                    config={config}\n                    experiment={experiment}\n                    population={population}\n                    journal={journal}\n                    columns={{ bond_strength: { unit: 'MPa' } }}\n                    defaultTab=\"dose\"\n                />\n            );\n        }}</Reactive>\n    ))"
+      "source": "// The Experiment \n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const data = $.let(Data.bind(batchesInput));\n            const configs = $.let(Data.bind(experimentConfigsInput));\n            const journal = $.let(Data.bind(experimentJournalInput));\n            const experiment = $.let(Func.bind(experimentFn));\n            return (\n                <Experiment\n                    data={data}\n                    configs={configs}\n                    experiment={experiment}\n                    journal={journal}\n                    columns={{ bond_strength: { unit: 'MPa' } }}\n                    defaultTab=\"dose\"\n                />\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "e3-ui:experiment.examples.tsx:experimentValidate",
@@ -27667,25 +27668,25 @@
         "import { Data, Experiment, Func } from '@elaraai/e3-ui';",
         "import e3 from '@elaraai/e3';"
       ],
-      "source": "// The Experiment \n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const data = $.let(Data.bind(batchesInput));\n            const config = $.let(Data.bind(experimentConfigInput, { mode: 'staged' }));\n            const journal = $.let(Data.bind(experimentJournalInput));\n            const population = $.let(Data.bind(experimentPopulationInput, { mode: 'staged' }));\n            const experiment = $.let(Func.bind(experimentFn));\n            const design = $.let(Func.bind(designFn));\n            return (\n                <Experiment\n                    data={data}\n                    config={config}\n                    experiment={experiment}\n                    design={design}\n                    population={population}\n                    journal={journal}\n                    columns={{ bond_strength: { unit: 'MPa' } }}\n                    defaultTab=\"validate\"\n                />\n            );\n        }}</Reactive>\n    ))"
+      "source": "// The Experiment \n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const data = $.let(Data.bind(batchesInput));\n            const configs = $.let(Data.bind(experimentConfigsInput));\n            const journal = $.let(Data.bind(experimentJournalInput));\n            const experiment = $.let(Func.bind(experimentFn));\n            const design = $.let(Func.bind(designFn));\n            return (\n                <Experiment\n                    data={data}\n                    configs={configs}\n                    experiment={experiment}\n                    design={design}\n                    journal={journal}\n                    columns={{ bond_strength: { unit: 'MPa' } }}\n                    defaultTab=\"validate\"\n                />\n            );\n        }}</Reactive>\n    ))"
     },
     {
-      "id": "e3-ui:experiment.examples.tsx:experimentPresets",
+      "id": "e3-ui:experiment.examples.tsx:experimentMenu",
       "skill": "e3-ui",
       "package": "e3-ui",
       "file": "east-ui/packages/e3-ui/test/experiment/experiment.examples.tsx",
       "suite": "",
-      "test": "The Experiment ",
+      "test": "The Experiment question selector — the title doubles as a menu of named, vetted questions (current one checked). Each bundles a vetted backdoor set (and optional population scope); selecting one seeds the working config (still editable before Run). Lets a domain expert pick a correct causal question from a menu rather than assemble one.",
       "keywords": [
         "Experiment",
-        "presets",
+        "configs",
         "causal",
         "questions",
         "vetted",
         "dropdown",
-        "title",
         "menu",
-        "scope"
+        "scope",
+        "select"
       ],
       "imports": [
         "import {",
@@ -27693,7 +27694,58 @@
         "import { Data, Experiment, Func } from '@elaraai/e3-ui';",
         "import e3 from '@elaraai/e3';"
       ],
-      "source": "// The Experiment \n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const data = $.let(Data.bind(batchesInput));\n            const config = $.let(Data.bind(experimentConfigInput, { mode: 'staged' }));\n            const journal = $.let(Data.bind(experimentJournalInput));\n            const population = $.let(Data.bind(experimentPopulationInput, { mode: 'staged' }));\n            const experiment = $.let(Func.bind(experimentFn));\n            return (\n                <Experiment\n                    data={data}\n                    config={config}\n                    experiment={experiment}\n                    population={population}\n                    journal={journal}\n                    columns={{ bond_strength: { unit: 'MPa' } }}\n                    presets={[\n                        {\n                            id: 'cure_strength',\n                            label: 'Slow cure → bond strength',\n                            // The vetted backdoor set for this question; only the fields it\n                            // pins are written — the rest default to the library default.\n                            config: {\n                                treatment: 'slow_cure', outcome: 'bond_strength',\n                                common_causes: ['incoming_grade', 'mix_viscosity', 'supplier'],\n                                categorical: ['supplier'],\n                            },\n                        },\n                        {\n                            id: 'cure_strength_panels',\n                            label: 'Slow cure → strength (panels only)',\n                            config: {\n                                treatment: 'slow_cure', outcome: 'bond_strength',\n                                common_causes: ['incoming_grade', 'mix_viscosity', 'supplier'],\n                                categorical: ['supplier'],\n                            },\n                            // The same question, pre-scoped to one product family.\n                            population: [variant('string', { fieldId: 'product', op: variant('eq', 'panel') })],\n                        },\n                        {\n                            id: 'cure_strength_byline',\n                            label: 'Slow cure → strength (control for line)',\n                            // A stricter backdoor set — also adjusts for the production line.\n                            config: {\n                                treatment: 'slow_cure', outcome: 'bond_strength',\n                                common_causes: ['incoming_grade', 'mix_viscosity', 'supplier', 'line'],\n                                categorical: ['supplier', 'line'],\n                            },\n                        },\n                    ]}\n                />\n            );\n        }}</Reactive>\n    ))"
+      "source": "// The Experiment question selector — the title doubles as a menu of named, vetted questions (current one checked). Each bundles a vetted backdoor set (and optional population scope); selecting one seeds the working config (still editable before Run). Lets a domain expert pick a correct causal question from a menu rather than assemble one.\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const data = $.let(Data.bind(batchesInput));\n            const configs = $.let(Data.bind(experimentMenuConfigsInput));\n            const journal = $.let(Data.bind(experimentJournalInput));\n            const experiment = $.let(Func.bind(experimentFn));\n            return (\n                <Experiment\n                    data={data}\n                    configs={configs}\n                    experiment={experiment}\n                    journal={journal}\n                    columns={{ bond_strength: { unit: 'MPa' } }}\n                />\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:experiment.examples.tsx:experimentPrecomputed",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/experiment/experiment.examples.tsx",
+      "suite": "",
+      "test": "A curated, precomputed causal-experiment menu: two vetted questions, each carrying its own precomputed ",
+      "keywords": [
+        "Experiment",
+        "causal",
+        "precomputed",
+        "result",
+        "configs",
+        "curated",
+        "decision surface",
+        "menu",
+        "no-run"
+      ],
+      "imports": [
+        "import {",
+        "import { Reactive, UIComponentType } from '@elaraai/east-ui';",
+        "import { Data, Experiment, Func } from '@elaraai/e3-ui';",
+        "import e3 from '@elaraai/e3';"
+      ],
+      "source": "// A curated, precomputed causal-experiment menu: two vetted questions, each carrying its own precomputed \n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const data = $.let(Data.bind(batchesInput));\n            const configs = $.let(Data.bind(experimentPrecomputedConfigsInput));\n            return (\n                <Experiment\n                    data={data}\n                    configs={configs}\n                    columns={{ bond_strength: { unit: 'MPa' } }}\n                />\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:experiment.examples.tsx:experimentReadonlyPrecomputed",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/experiment/experiment.examples.tsx",
+      "suite": "",
+      "test": "The locked variant of the precomputed menu — ",
+      "keywords": [
+        "Experiment",
+        "causal",
+        "precomputed",
+        "readonly",
+        "locked",
+        "curated",
+        "decision surface",
+        "view-only"
+      ],
+      "imports": [
+        "import {",
+        "import { Reactive, UIComponentType } from '@elaraai/east-ui';",
+        "import { Data, Experiment, Func } from '@elaraai/e3-ui';",
+        "import e3 from '@elaraai/e3';"
+      ],
+      "source": "// The locked variant of the precomputed menu — \n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const data = $.let(Data.bind(batchesInput));\n            const configs = $.let(Data.bind(experimentPrecomputedConfigsInput));\n            return (\n                <Experiment\n                    data={data}\n                    configs={configs}\n                    readonly\n                    columns={{ bond_strength: { unit: 'MPa' } }}\n                />\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "e3-ui:ontology.examples.tsx:supplyChainOntology",
