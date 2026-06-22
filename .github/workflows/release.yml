@@ -84,6 +84,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      # `Compute target version` bumps the Python pyproject versions and then
+      # re-locks libs/east-py/uv.lock via `uv lock` (scripts/set-python-version.mjs),
+      # so the `uv` binary must be on PATH in this job too — not just the build jobs.
+      - uses: astral-sh/setup-uv@v3
 
       - name: Preflight — VSCE PAT valid
         if: ${{ !inputs.dry_run }}
