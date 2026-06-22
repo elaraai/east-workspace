@@ -145,9 +145,13 @@ jobs:
             package.json
             libs/**/package.json
             libs/east-py/packages/*/pyproject.toml
+            libs/east-py/uv.lock
             libs/east-c/VERSION
             .claude-plugin/marketplace.json
             libs/east-claude-plugin/.claude-plugin/plugin.json
+          # uv.lock is re-locked by set-version (above) — it must travel in
+          # this artifact so finalize commits it and the drift gate passes;
+          # otherwise finalize sees main's pre-bump lock and fails alignment.
           # The .claude-plugin/ dirs are hidden; without this the uploader
           # silently drops plugin.json and the release commits version drift
           # (exactly what happened at v1.0.4 and v1.0.5).
