@@ -233,6 +233,11 @@ function useDatasetKeyVersions(workspace: string, paths: TreePath[]): number {
 // Per-binding state derivation — pure function, called inside useMemo.
 // =============================================================================
 
+// `direct` + no-patch bindings can never surface anything in a Diff; warn once
+// per source path so the resulting empty card isn't a silent mystery (deduped
+// because binding-state derivation re-runs on every render).
+const warnedDirectNoPatch = new Set<string>();
+
 function pickCommitKind(mode: "staged" | "direct", patchPath: TreePath | undefined): CommitKind | null {
     if (mode === "staged" && !patchPath) return "apply-buffer-to-source";
     if (mode === "staged" && patchPath)  return "publish-buffer-to-patch";
@@ -256,7 +261,21 @@ function deriveBindings(
         if (!types) continue;   // binding hasn't run yet — wait for re-render
 
         const commitKind = pickCommitKind(mode, patchPath);
-        if (!commitKind) continue;   // direct + no patch — hidden from Diff
+        if (!commitKind) {
+            // direct + no patch — nothing to surface. Since `direct` is the default
+            // Data.bind mode, a binding handed to <Diff> like this is almost always a
+            // missing `{ mode: "staged" }`; warn once so the empty card isn't a mystery.
+            const key = datasetPathToString(sourcePath);
+            if (!warnedDirectNoPatch.has(key)) {
+                warnedDirectNoPatch.add(key);
+                console.warn(
+                    `[Diff] binding "${key}" is mode="direct" with no patch dataset — it writes ` +
+                    `through immediately, so the Diff has nothing to review. Pass { mode: "staged" } ` +
+                    `to Data.bind (or give it a patch dataset) to surface its edits here.`,
+                );
+            }
+            continue;   // direct + no patch — hidden from Diff
+        }
 
         const sourceType = types.sourceType;
         const patchType  = types.patchType;
