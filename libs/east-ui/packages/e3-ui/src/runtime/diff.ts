@@ -22,7 +22,7 @@ import { Diff as DiffFactory } from "../diff/index.js";
  *
  * const review = East.function([], UIComponentType, _$ => (
  *     <Reactive>{$ => {
- *         const view = $.let(Data.bind(maxHoursInput));
+ *         const view = $.let(Data.bind(maxHoursInput, { mode: "staged" }));
  *         return <Diff bindings={[view.binding]} hideUnchanged={some(true)} />;
  *     }}</Reactive>
  * ));

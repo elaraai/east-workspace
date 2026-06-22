@@ -88,7 +88,7 @@ export type CommitStateType = typeof CommitStateType;
 /**
  * Build the judgements dataset type for a constraint contract — staged
  * judgements keyed by case id. Bind it with
- * `Data.bind(judgementsInput)`.
+ * `Data.bind(judgementsInput, { mode: "staged" })`.
  */
 export function judgementsType<C extends EastType = DecisionConstraintType>(constraint?: C) {
     return DictType(StringType, judgementInputType(constraint));
@@ -252,7 +252,7 @@ export interface DecisionBindOptions<C extends EastType = DecisionConstraintType
  * @example
  * ```tsx
  * const rosterView = $.let(Data.bind(rosterOut, { patch: rosterPatch }));
- * const judgementsView = $.let(Data.bind(judgementsInput));
+ * const judgementsView = $.let(Data.bind(judgementsInput, { mode: "staged" }));
  * const handle = $.let(Decision.bind([RosterConstraint], { decisions: [rosterView], judgements: judgementsView }));
  * ```
  */
