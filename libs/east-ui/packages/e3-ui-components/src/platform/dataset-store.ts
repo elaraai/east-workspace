@@ -42,6 +42,7 @@ import {
     datasetList as e3DatasetList,
     datasetListAt,
     workspaceStatus,
+    ApiError,
     type DatasetStatusInfo,
 } from "@elaraai/e3-api-client";
 import type { TreePath, DatasetStatus as PlatformDatasetStatus } from "@elaraai/e3-types";
@@ -510,6 +511,16 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
         } catch (error) {
             // A write cancelled the fetch — its optimistic bytes win.
             if (isCancelledError(error)) return;
+            // An unassigned dataset is the `unset` status, not a failure: leave it
+            // uncached so getStatus()→unset and has()→false, and the surface renders
+            // its own loading/empty branch (Data.bind(...).status()/.has()) instead of
+            // the whole tree crashing. A later status poll flips it once the producing
+            // task computes it. (Matches BoundValue's {unset, stale, up-to-date}.)
+            if (isDatasetUnassignedError(error)) {
+                this.statuses.set(key, variant("unset", null));
+                this.notifyChange(key);
+                return;
+            }
             throw error;
         }
         if (this.destroyed) {
@@ -888,6 +899,15 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
  *  write aborted the fetch). */
 function isCancelledError(error: unknown): boolean {
     return error instanceof CancelledError;
+}
+
+/** True when `error` is the server's `dataset_unassigned` response — a dataset
+ *  with no value yet (a pending task output, or a UI-only input that no task
+ *  computes). This is the `unset` status, NOT a failure: callers treat it as
+ *  "no value" so a surface renders its own loading/empty state rather than
+ *  crashing the whole tree. */
+function isDatasetUnassignedError(error: unknown): boolean {
+    return error instanceof ApiError && error.code === "dataset_unassigned";
 }
 
 /**
