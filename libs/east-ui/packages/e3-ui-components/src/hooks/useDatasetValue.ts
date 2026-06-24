@@ -10,6 +10,8 @@ import type { RequestOptions } from '@elaraai/e3-api-client';
 import { variant, decodeBeast2For, type EastTypeValue } from '@elaraai/east';
 import {
     StateImpl,
+    SliceImpl,
+    SliceApplyImpl,
     OverlayImpl,
 } from '@elaraai/east-ui-components';
 import type { PlatformFunction } from '@elaraai/east/internal';
@@ -17,7 +19,7 @@ import { BindPlatform } from '../platform/bind-runtime.js';
 import type { QueryOverrides } from './types.js';
 
 const defaultPlatformImplementations: PlatformFunction[] =
-    [...StateImpl, ...BindPlatform, ...OverlayImpl];
+    [...StateImpl, ...SliceImpl, ...SliceApplyImpl, ...BindPlatform, ...OverlayImpl];
 
 export interface UseDatasetValueOptions {
     requestOptions?: RequestOptions;

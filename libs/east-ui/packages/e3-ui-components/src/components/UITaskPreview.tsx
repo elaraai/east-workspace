@@ -24,8 +24,11 @@ import {
     createUIStore,
     EastChakraComponent,
     StateImpl,
+    SliceImpl,
+    SliceApplyImpl,
     OverlayImpl,
 } from '@elaraai/east-ui-components';
+import { DecisionBindPlatform } from '../decision/handle-runtime.js';
 import type { ValueTypeOf } from '@elaraai/east';
 import type { UIComponentType } from '@elaraai/east-ui';
 import type { PlatformFunction } from '@elaraai/east/internal';
@@ -109,9 +112,12 @@ export const UITaskPreview = memo(function UITaskPreview({
             manifest
                 ? [
                     ...StateImpl,
+                    ...SliceImpl,
+                    ...SliceApplyImpl,
                     ...createScopedBindPlatform(manifest),
                     ...createScopedFuncPlatform(manifest.functions),
                     ...createScopedRecordPlatform(manifest.records),
+                    ...DecisionBindPlatform,
                     ...OverlayImpl,
                 ]
                 : undefined,
