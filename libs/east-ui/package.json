@@ -8,7 +8,7 @@
     "packages/east-ui-extension/webview"
   ],
   "scripts": {
-    "build": "pnpm --filter @elaraai/east-ui run build && pnpm --filter @elaraai/e3-ui run build && pnpm --filter @elaraai/east-ui-components run build && pnpm --filter @elaraai/e3-ui-components run build && pnpm --filter east-ui-preview run build && pnpm --filter @elaraai/east-ui-showcase run build && pnpm --filter @elaraai/e3-ui-showcase run build && pnpm --filter east-ui-preview-webview run build",
+    "build": "pnpm --filter @elaraai/east-ui run build && pnpm --filter @elaraai/e3-ui run build && pnpm --filter @elaraai/east-ui-components run build && pnpm --filter @elaraai/e3-ui-components run build && pnpm --filter @elaraai/e3-ui-cli run build && pnpm --filter east-ui-preview run build && pnpm --filter @elaraai/east-ui-showcase run build && pnpm --filter @elaraai/e3-ui-showcase run build && pnpm --filter east-ui-preview-webview run build",
     "test": "pnpm -r --filter='./packages/*' --filter='./packages/east-ui-extension/webview' run test",
     "lint": "pnpm -r --filter='./packages/*' --filter='./packages/east-ui-extension/webview' run lint",
     "dev": "pnpm --filter @elaraai/east-ui-showcase run dev",

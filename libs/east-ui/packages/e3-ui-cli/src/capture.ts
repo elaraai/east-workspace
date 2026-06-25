@@ -1,0 +1,314 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
+ */
+
+/**
+ * Headless capture: serve the prebuilt browser app, inject the component
+ * payload, wait for fonts + render to settle, and screenshot to PNG.
+ *
+ * The app is served over a throwaway `node:http` server (NOT `file://` —
+ * Chromium blocks ES-module scripts loaded from `file://` on CORS grounds).
+ * The wait/settle/screenshot loop mirrors the in-repo snapshot pipeline
+ * (`libs/east-ui/scripts/snapshot-capture.mts`).
+ *
+ * @packageDocumentation
+ */
+
+import { createServer, type Server } from 'node:http';
+import { readFile, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { once } from 'node:events';
+import type { AddressInfo } from 'node:net';
+import * as path from 'node:path';
+import { chromium, type Browser, type Page } from 'playwright';
+import type { ShotPayload } from './payload.js';
+
+/** Default capture parameters — single source of truth (CLI help text in
+ *  `cli.ts` documents these values; keep them in sync). */
+export const CAPTURE_DEFAULTS = {
+    viewport: { width: 1280, height: 900 },
+    deviceScaleFactor: 2,
+    settleMs: 300,
+    timeoutMs: 30_000,
+    storageKey: 'shot',
+    statusPollMs: 100,
+    skeletonPollMs: 200,
+    errorTextLimit: 600,
+} as const;
+
+/** How the screenshot is framed. */
+export type CaptureMode =
+    | { kind: 'frame' }                 // tight crop of the component frame (default)
+    | { kind: 'full-page' }             // the whole scrolled page
+    | { kind: 'element'; selector: string };
+
+/** Options for a single capture. */
+export interface CaptureOptions {
+    /** Directory of the prebuilt app bundle (the built `dist/app`). */
+    appDir: string;
+    /** The render payload (base64 IR). */
+    payload: ShotPayload;
+    /** Output PNG path. */
+    outPng: string;
+    /** When set, also write a self-contained HTML snapshot here. */
+    outHtml?: string | undefined;
+    /** Storage key prefix for persisted component state. */
+    storageKey?: string;
+    /** Chromium viewport. Default 1280×900. */
+    viewport?: { width: number; height: number };
+    /** Device scale factor (DPR). Default 2. */
+    deviceScaleFactor?: number;
+    /** Framing. Default `{ kind: 'frame' }`. */
+    mode?: CaptureMode;
+    /** Grace period (ms) after skeletons clear before capture. Default 300. */
+    settleMs?: number;
+    /** Per-navigation timeout (ms). Default 30000. */
+    timeoutMs?: number;
+}
+
+const MIME: Record<string, string> = {
+    '.html': 'text/html; charset=utf-8',
+    '.js': 'text/javascript; charset=utf-8',
+    '.mjs': 'text/javascript; charset=utf-8',
+    '.css': 'text/css; charset=utf-8',
+    '.json': 'application/json; charset=utf-8',
+    '.map': 'application/json; charset=utf-8',
+    '.woff2': 'font/woff2',
+    '.woff': 'font/woff',
+    '.svg': 'image/svg+xml',
+    '.png': 'image/png',
+    '.ico': 'image/x-icon',
+};
+
+/** Serve the prebuilt app directory over a random localhost port. */
+function serveApp(appDir: string): Promise<{ server: Server; baseUrl: string }> {
+    const root = path.resolve(appDir);
+    const server = createServer((req, res) => {
+        void (async () => {
+            try {
+                const url = new URL(req.url ?? '/', 'http://localhost');
+                const rel = url.pathname === '/' ? 'index.html' : url.pathname.replace(/^\/+/, '');
+                // Contain to the app root — reject path traversal.
+                const filePath = path.join(root, rel);
+                if (!filePath.startsWith(root)) {
+                    res.statusCode = 403;
+                    res.end('forbidden');
+                    return;
+                }
+                const body = await readFile(filePath);
+                res.statusCode = 200;
+                res.setHeader('content-type', MIME[path.extname(filePath).toLowerCase()] ?? 'application/octet-stream');
+                res.end(body);
+            } catch {
+                res.statusCode = 404;
+                res.end('not found');
+            }
+        })();
+    });
+    return once(server.listen(0, '127.0.0.1'), 'listening').then(() => {
+        const port = (server.address() as AddressInfo).port;
+        return { server, baseUrl: `http://127.0.0.1:${port}` };
+    });
+}
+
+function escapeHtml(s: string): string {
+    return s.replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    }[c] as string));
+}
+
+/**
+ * Inline `url(...woff2)` font references in CSS as base64 data URIs (read from
+ * the app's built `assets/`), so the standalone HTML renders with the brand
+ * fonts over `file://` with no server.
+ */
+async function inlineFonts(css: string, appDir: string): Promise<string> {
+    const assetsDir = path.join(appDir, 'assets');
+    const re = /url\((['"]?)[^)'"]*?([^/)'"]+\.woff2)\1\)/g;
+    const cache = new Map<string, string>();
+    for (const m of css.matchAll(re)) {
+        const name = m[2]!;
+        if (cache.has(name)) continue;
+        try {
+            const buf = await readFile(path.join(assetsDir, name));
+            cache.set(name, `data:font/woff2;base64,${buf.toString('base64')}`);
+        } catch {
+            cache.set(name, '');
+        }
+    }
+    return css.replace(re, (full, _q: string, name: string) => {
+        const uri = cache.get(name);
+        return uri ? `url(${uri})` : full;
+    });
+}
+
+/**
+ * Build a self-contained HTML snapshot: the rendered body + every stylesheet
+ * rule serialized into one `<style>` block (Emotion injects rules via
+ * `insertRule`, so they are NOT in the serialized DOM and must be read from
+ * `document.styleSheets`), with fonts inlined and no scripts.
+ */
+async function selfContainedHtml(page: Page, appDir: string): Promise<string> {
+    const { bodyHtml, cssText, title } = await page.evaluate(() => {
+        // `document.styleSheets` (Emotion's injected <style>s) PLUS
+        // `adoptedStyleSheets` (constructable sheets — where Vite injects the
+        // @fontsource @font-face rules, which the styleSheets list misses).
+        const sheets: CSSStyleSheet[] = [
+            ...Array.from(document.styleSheets),
+            ...(document.adoptedStyleSheets ?? []),
+        ];
+        const css = sheets
+            .map(sheet => {
+                try { return Array.from(sheet.cssRules).map(r => r.cssText).join('\n'); }
+                catch { return ''; }
+            })
+            .filter(Boolean)
+            .join('\n\n');
+        return { bodyHtml: document.body.innerHTML, cssText: css, title: document.title || 'e3-ui shot' };
+    });
+    const inlined = await inlineFonts(cssText, appDir);
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>${escapeHtml(title)}</title>
+<style>
+${inlined}
+</style>
+</head>
+<body>
+${bodyHtml}
+</body>
+</html>
+`;
+}
+
+/**
+ * Render a component payload to a PNG (and optionally a standalone HTML).
+ *
+ * @param opts - Capture options
+ * @throws If the app reports a compile/render error, or capture times out
+ */
+export async function capture(opts: CaptureOptions): Promise<void> {
+    const viewport = opts.viewport ?? CAPTURE_DEFAULTS.viewport;
+    const deviceScaleFactor = opts.deviceScaleFactor ?? CAPTURE_DEFAULTS.deviceScaleFactor;
+    const mode = opts.mode ?? { kind: 'frame' };
+    const settleMs = opts.settleMs ?? CAPTURE_DEFAULTS.settleMs;
+    const timeout = opts.timeoutMs ?? CAPTURE_DEFAULTS.timeoutMs;
+    const storageKey = opts.storageKey ?? CAPTURE_DEFAULTS.storageKey;
+
+    // Pre-flight: fail clearly if the prebuilt app is missing, instead of
+    // letting a 404 page turn into an opaque navigation timeout.
+    if (!existsSync(path.join(opts.appDir, 'index.html'))) {
+        throw new Error(`Prebuilt app not found at ${opts.appDir} — run \`make build\` (or \`npm run build\`) first.`);
+    }
+
+    const { server, baseUrl } = await serveApp(opts.appDir);
+    let browser: Browser | undefined;
+    try {
+        // Honor a system / custom Chromium so the tool works where Playwright
+        // has no prebuilt browser for the platform (or in locked-down CI).
+        const executablePath = process.env['E3_UI_CHROMIUM_PATH']
+            ?? process.env['PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH'];
+        // Containers / CI often cannot use the Chromium sandbox — opt in to
+        // disabling it (only safe for trusted local components, which is the use case).
+        const noSandbox = process.env['E3_UI_NO_SANDBOX'] === '1' || process.env['E3_UI_NO_SANDBOX'] === 'true';
+        try {
+            browser = await chromium.launch({
+                headless: true,
+                ...(executablePath ? { executablePath } : {}),
+                ...(noSandbox ? { chromiumSandbox: false } : {}),
+            });
+        } catch (err) {
+            const first = err instanceof Error ? err.message.split('\n')[0] : String(err);
+            throw new Error(
+                `Could not launch headless Chromium: ${first}\n` +
+                `Install it with \`npx playwright install chromium\`, or set E3_UI_CHROMIUM_PATH ` +
+                `to a Chrome/Chromium executable.`,
+            );
+        }
+        const context = await browser.newContext({ viewport, deviceScaleFactor });
+        const page = await context.newPage();
+
+        const consoleErrors: string[] = [];
+        page.on('pageerror', err => consoleErrors.push(err.message));
+        page.on('console', msg => { if (msg.type() === 'error') consoleErrors.push(msg.text()); });
+
+        // Inject the payload BEFORE any page script runs.
+        await page.addInitScript(
+            ([p, key]) => {
+                (window as unknown as { __E3_UI_SHOT__: unknown }).__E3_UI_SHOT__ = p;
+                (window as unknown as { __E3_UI_SHOT_KEY__: unknown }).__E3_UI_SHOT_KEY__ = key;
+            },
+            [opts.payload, storageKey] as const,
+        );
+
+        // `load`, not `networkidle`: task mode polls the e3 server, so the
+        // network never goes idle. Explicit settle waits below handle quiescence.
+        await page.goto(`${baseUrl}/`, { waitUntil: 'load', timeout });
+        await page.evaluate(() => document.fonts.ready);
+
+        // Both modes signal terminal state on #shot-root[data-shot-status]:
+        // 'ready' once content has rendered (component: next frame; task: once
+        // e3 fetches settle), or 'error' on an East compile/render failure.
+        try {
+            await page.waitForFunction(
+                () => {
+                    const s = document.querySelector('#shot-root')?.getAttribute('data-shot-status');
+                    return s === 'ready' || s === 'error';
+                },
+                { timeout, polling: CAPTURE_DEFAULTS.statusPollMs },
+            );
+        } catch {
+            const detail = consoleErrors.length ? `\nBrowser errors:\n  ${consoleErrors.join('\n  ')}` : '';
+            throw new Error(
+                `Timed out after ${timeout}ms waiting for the component to render.${detail}\n` +
+                `(If this is a slow live task, raise --wait; otherwise the component may have failed to load.)`,
+            );
+        }
+
+        // Surface render/compile failures. The app flips data-shot-status to
+        // 'error' when an East error card is present; the stable [data-east-error]
+        // hook is a copy-independent backstop (NOT title-text scraping).
+        const renderError = await page.evaluate((limit) => {
+            const root = document.querySelector('#shot-root');
+            if (root?.getAttribute('data-shot-status') === 'error') {
+                return root.getAttribute('data-shot-error') ?? 'unknown render error';
+            }
+            const card = document.querySelector('[data-east-error]');
+            return card ? (card as HTMLElement).innerText.slice(0, limit) : null;
+        }, CAPTURE_DEFAULTS.errorTextLimit);
+        if (renderError) {
+            throw new Error(`Component failed to render:\n${renderError}`);
+        }
+
+        // Let in-component skeletons clear, then settle. A component may keep a
+        // skeleton legitimately (slow async chart/map) — warn rather than fail,
+        // mirroring the in-repo snapshot pipeline.
+        await page
+            .waitForFunction(() => document.querySelectorAll('.elara-skeleton').length === 0,
+                { timeout, polling: CAPTURE_DEFAULTS.skeletonPollMs })
+            .catch(() => console.warn('[e3-ui shot] skeletons still present at capture — the image may be premature (raise --wait).'));
+        await page.waitForTimeout(settleMs);
+
+        if (mode.kind === 'full-page') {
+            await page.screenshot({ path: opts.outPng, fullPage: true });
+        } else {
+            const selector = mode.kind === 'element' ? mode.selector : '#shot-frame';
+            const locator = page.locator(selector);
+            if (await locator.count() === 0) {
+                throw new Error(`No element matches selector "${selector}" to screenshot.`);
+            }
+            await locator.first().screenshot({ path: opts.outPng });
+        }
+
+        if (opts.outHtml) {
+            await writeFile(opts.outHtml, await selfContainedHtml(page, opts.appDir), 'utf8');
+        }
+    } finally {
+        await browser?.close();
+        server.close();
+    }
+}

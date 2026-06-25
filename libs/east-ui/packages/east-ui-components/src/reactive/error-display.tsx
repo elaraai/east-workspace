@@ -20,7 +20,10 @@ export interface EastErrorDisplayProps {
 
 export function EastErrorDisplay({ title, message, stack }: EastErrorDisplayProps) {
     return (
-        <Alert.Root status="error">
+        // Stable, copy-independent hook so tooling (e.g. the e3-ui screenshot
+        // CLI) can detect an East compile/render failure without scraping the
+        // human-facing title text.
+        <Alert.Root status="error" data-east-error="true">
             <Alert.Indicator />
             <Stack gap="2" flex="1">
                 <Alert.Title>{title}</Alert.Title>
