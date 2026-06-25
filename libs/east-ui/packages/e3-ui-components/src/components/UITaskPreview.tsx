@@ -24,7 +24,13 @@ import {
     createUIStore,
     EastChakraComponent,
     StateImpl,
+    NavImpl,
+    SliceImpl,
+    SliceApplyImpl,
     OverlayImpl,
+    ClipboardImpl,
+    DownloadImpl,
+    ShareImpl,
 } from '@elaraai/east-ui-components';
 import type { ValueTypeOf } from '@elaraai/east';
 import type { UIComponentType } from '@elaraai/east-ui';
@@ -40,6 +46,7 @@ import { useE3ConfigOptional, type E3Config } from '../platform/e3-config.js';
 import { createScopedBindPlatform } from '../platform/bind-runtime.js';
 import { createScopedFuncPlatform } from '../platform/func-runtime.js';
 import { createScopedRecordPlatform } from '../platform/record-runtime.js';
+import { DecisionBindPlatform } from '../decision/handle-runtime.js';
 import { useTaskDetails, getTaskKind, getTaskMetadata } from '../hooks/useTaskDetails.js';
 import { useDatasetStatus } from '../hooks/useDatasetStatus.js';
 import { useDatasetValue } from '../hooks/useDatasetValue.js';
@@ -108,11 +115,22 @@ export const UITaskPreview = memo(function UITaskPreview({
         () =>
             manifest
                 ? [
+                    // EVERY browser-local platform impl (unscoped — no manifest paths) from east-ui-components +
+                    // e3-ui-components MUST be listed here, or a ui() task that uses it throws "Platform function
+                    // '<x>_bind' is not available" — and only inside an e3 ui() task, so component tests miss it
+                    // (see east-contribute "Common traps"). The manifest-SCOPED data/func/record binds follow.
                     ...StateImpl,
+                    ...NavImpl,
+                    ...SliceImpl,
+                    ...SliceApplyImpl,
+                    ...OverlayImpl,
+                    ...ClipboardImpl,
+                    ...DownloadImpl,
+                    ...ShareImpl,
+                    ...DecisionBindPlatform,
                     ...createScopedBindPlatform(manifest),
                     ...createScopedFuncPlatform(manifest.functions),
                     ...createScopedRecordPlatform(manifest.records),
-                    ...OverlayImpl,
                 ]
                 : undefined,
         [manifest],

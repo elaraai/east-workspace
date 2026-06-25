@@ -53,6 +53,9 @@ export function EastReactiveComponent({ value, storageKey }: { value: ReactiveVa
                 deps.set(t.id, t.disableTracking());
             }
             depsRef.current = deps;
+            // TEMP DEBUG (navigation re-render bug) — what keys did THIS reactive node capture?
+            // eslint-disable-next-line no-console
+            console.log("[ER render]", storageKey, "deps=", JSON.stringify([...deps].map(([id, ks]) => `${id}:[${ks.join(",")}]`)));
             return { ok: true, value: result };
         } catch (e) {
             // Capture deps even on error so we re-render when they change
@@ -72,12 +75,19 @@ export function EastReactiveComponent({ value, storageKey }: { value: ReactiveVa
             const store = t.getStore();
             if (!store) continue;
             const keys = depsRef.current.get(t.id) ?? [];
+            // eslint-disable-next-line no-console
+            console.log("[ER subscribe]", storageKey, t.id, "keys=", JSON.stringify(keys));
             for (const key of keys) {
-                unsubs.push(store.subscribe(key, cb));
+                unsubs.push(store.subscribe(key, () => {
+                    // eslint-disable-next-line no-console
+                    console.log("[ER notify]", storageKey, t.id, key);
+                    cb();
+                }));
             }
         }
         return () => unsubs.forEach(fn => fn());
-    }, [trackers]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [trackers, storageKey]);
 
     // Snapshot based on our dependencies' versions across all trackers
     const getSnapshot = useCallback(() => {
@@ -99,7 +109,7 @@ export function EastReactiveComponent({ value, storageKey }: { value: ReactiveVa
 
     if (!result.ok) {
         const info = toEastErrorInfo(result.error);
-        return <EastErrorDisplay title="East Render Error" message={info.message} stack={info.stack} />;
+        return <EastErrorDisplay title="East Render Error" message={info.message} stack={info.stack} context={storageKey} />;
     }
 
     if (result.value === undefined || result.value === null) {
@@ -107,7 +117,7 @@ export function EastReactiveComponent({ value, storageKey }: { value: ReactiveVa
     }
 
     return (
-        <EastErrorBoundary title="East Render Error" resetKey={snapshot}>
+        <EastErrorBoundary title="East Render Error" resetKey={snapshot} context={storageKey}>
             <EastChakraComponent value={result.value} storageKey={storageKey} />
         </EastErrorBoundary>
     );

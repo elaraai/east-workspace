@@ -39,6 +39,43 @@ import { buildValueTable, buildIndexMap, isMutableType, type ValueTableEntry, TA
 // Shared empty set for compile_internal's compilingNodes parameter (avoids per-call allocation)
 const EMPTY_SET = new Set<any>();
 
+/**
+ * Build a safe, bounded description of a value that reached the Function encoder
+ * with no compiled IR, for the "no IR attached" diagnostic.
+ *
+ * The encoder expects a function carrying {@link EAST_IR_SYMBOL}; when that symbol
+ * is absent the *value itself* is suspect (it may not even be a function — a
+ * non-function in a `FunctionType` slot lands here too — and it may be a Proxy or
+ * carry a throwing `toString`). Every inspection is therefore either total
+ * (`typeof`, `Object.prototype.toString`) or guarded, so the diagnostic can never
+ * throw and mask the real failure.
+ *
+ * @param value - the value found where an East function with IR was expected
+ * @returns a single-line, length-bounded description
+ */
+function describeNoIrValue(value: unknown): string {
+  const kind = typeof value;                                 // total — never throws
+  const tag = Object.prototype.toString.call(value);         // safe [[Class]]; no user code
+  const parts: string[] = [`typeof=${kind}`, `tag=${tag}`];
+  try {
+    if (kind === "function") {
+      const name = (value as { name?: unknown }).name;
+      if (typeof name === "string" && name) parts.push(`name=${name}`);
+      // Built-in toString (not the possibly-overridden value.toString) → the source text.
+      const src = Function.prototype.toString.call(value as () => unknown).replace(/\s+/g, " ");
+      parts.push(`source=${src.length > 160 ? `${src.slice(0, 160)}…` : src}`);
+      parts.push(`hasCaptures=${(value as Record<symbol, unknown>)[EAST_CAPTURES_SYMBOL] !== undefined}`);
+      parts.push(`hasSourceMap=${(value as Record<symbol, unknown>)[EAST_SOURCE_MAP_SYMBOL] !== undefined}`);
+    } else if (value !== null && value !== undefined) {
+      const ctorName = (value as { constructor?: { name?: unknown } }).constructor?.name;
+      if (typeof ctorName === "string") parts.push(`constructor=${ctorName}`);
+    }
+  } catch {
+    parts.push("(preview unavailable)");
+  }
+  return parts.join(" ");
+}
+
 
 // =============================================================================
 // Magic bytes (v2: last byte = 0x02)
@@ -196,7 +233,7 @@ function buildEncoder(type: EastTypeValue, typeCtx: Map<bigint, ValueEncoder> = 
 
       return (value: any, writer: BufferWriter, ctx: EncodeContext) => {
         const ir = value[EAST_IR_SYMBOL] as FunctionIR | AsyncFunctionIR | undefined;
-        if (!ir) throw new Error("Cannot serialize function: no IR attached");
+        if (!ir) throw new Error(`Cannot serialize function: no IR attached (${describeNoIrValue(value)})`);
 
         fnIrEncoder(ir, writer, ctx);
 

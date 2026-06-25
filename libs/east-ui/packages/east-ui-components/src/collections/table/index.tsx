@@ -1375,14 +1375,14 @@ export const EastChakraTable = memo(function EastChakraTable(props: EastChakraTa
     const pagerOnChange = paginationConfig?.onPageChange;
 
     return (
-        <Box css={frameStyles.root}>
-            <Box css={frameStyles.frameEyebrow}>
+        <Box css={{ ...frameStyles.root, height: "100%", minHeight: 0, display: "flex", flexDirection: "column" }}>
+            <Box css={{ ...frameStyles.frameEyebrow, flexShrink: 0 }}>
                 <SliceRailCluster slice={slice} affordanceKinds={affordanceKinds} />
             </Box>
-            <Box css={frameStyles.frameBody}>
+            <Box css={{ ...frameStyles.frameBody, flex: "1 1 0%", minHeight: 0, overflow: "hidden" }}>
                 <TableCore {...props} hidePaginationBand />
             </Box>
-            <Box css={frameStyles.frameFooter}>
+            <Box css={{ ...frameStyles.frameFooter, flexShrink: 0 }}>
                 <Box as="span" css={frameStyles.frameFooterStat}>{result.toLocaleString()}</Box>
                 <Box as="span">{`rows · of ${total.toLocaleString()}`}</Box>
                 {pct > 0 && <Box as="span" css={frameStyles.frameFooterDelta}>{`· −${pct}%`}</Box>}

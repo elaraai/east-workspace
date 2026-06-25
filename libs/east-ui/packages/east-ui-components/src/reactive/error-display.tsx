@@ -16,9 +16,38 @@ export interface EastErrorDisplayProps {
     title: string;
     message: string;
     stack?: string | undefined;
+    /**
+     * The component-tree region (the rendering Reactive's storage key) the error
+     * occurred in. Surfaced so a render failure points at *where* in the tree it
+     * threw — the East interpreter stack alone names only its own internals.
+     */
+    context?: string | undefined;
 }
 
-export function EastErrorDisplay({ title, message, stack }: EastErrorDisplayProps) {
+/**
+ * Restate a known-cryptic East runtime/serialization message as its general cause.
+ *
+ * The interpreter's own errors (e.g. "Cannot serialize function: no IR attached")
+ * name an internal failure, not its class. This maps the ones we recognise to a
+ * short, general cause — what kind of value failed — without guessing which specific
+ * prop produced it; the `Region` (storage key) is what points at *where*.
+ *
+ * @param message - the raw error message
+ * @returns a one-line general cause, or undefined when the message is not recognised
+ */
+export function explainEastError(message: string): string | undefined {
+    if (message.includes("no IR attached")) {
+        return (
+            "A raw JavaScript function reached the value serializer where an East function " +
+            "(one carrying compiled IR) was expected — typically a plain arrow passed to a prop that " +
+            "must be an East function. The Region below identifies the rendering subtree."
+        );
+    }
+    return undefined;
+}
+
+export function EastErrorDisplay({ title, message, stack, context }: EastErrorDisplayProps) {
+    const hint = explainEastError(message);
     return (
         // Stable, copy-independent hook so tooling (e.g. the e3-ui screenshot
         // CLI) can detect an East compile/render failure without scraping the
@@ -29,7 +58,11 @@ export function EastErrorDisplay({ title, message, stack }: EastErrorDisplayProp
                 <Alert.Title>{title}</Alert.Title>
                 <Alert.Description>
                     <Box>
-                        <Text fontWeight="medium">{message}</Text>
+                        <Stack gap="1">
+                            <Text fontWeight="medium">{message}</Text>
+                            {hint && <Text>{hint}</Text>}
+                            {context && <Text>Region: {context}</Text>}
+                        </Stack>
                         {stack && (
                             <Code
                                 display="block"
@@ -71,6 +104,8 @@ interface EastErrorBoundaryProps {
     title: string;
     /** When this changes, the boundary resets and tries to render children again. */
     resetKey: unknown;
+    /** The component-tree region (storage key) surfaced on the error display. */
+    context?: string | undefined;
     children: ReactNode;
 }
 
@@ -98,7 +133,7 @@ export class EastErrorBoundary extends Component<EastErrorBoundaryProps, EastErr
     override render() {
         if (this.state.error !== null) {
             const { message, stack } = toEastErrorInfo(this.state.error);
-            return <EastErrorDisplay title={this.props.title} message={message} stack={stack} />;
+            return <EastErrorDisplay title={this.props.title} message={message} stack={stack} context={this.props.context} />;
         }
         return this.props.children;
     }
