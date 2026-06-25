@@ -161,6 +161,35 @@ export const lineNumericX = example({
     inputs: [],
 });
 
+export const lineSampleFan = example({
+    keywords: ["Chart", "Line", "opacity", "legend", "fan", "sample-path", "by", "overlay"],
+    description: "A faint fan of generative sample paths (low stroke opacity, kept out of the legend) behind a bold median line",
+    fn: East.function([], UIComponentType, ($) => {
+        const fan = $.const([
+            { t: 0n, sid: "s0", y: 10.0 }, { t: 1n, sid: "s0", y: 14.0 }, { t: 2n, sid: "s0", y: 13.0 },
+            { t: 0n, sid: "s1", y: 11.0 }, { t: 1n, sid: "s1", y: 9.0 }, { t: 2n, sid: "s1", y: 15.0 },
+            { t: 0n, sid: "s2", y: 9.0 }, { t: 1n, sid: "s2", y: 12.0 }, { t: 2n, sid: "s2", y: 11.0 },
+        ], ArrayType(StructType({ t: IntegerType, sid: StringType, y: FloatType })));
+        const median = $.const([
+            { t: 0n, y: 10.0 }, { t: 1n, y: 12.0 }, { t: 2n, y: 13.0 },
+        ], ArrayType(StructType({ t: IntegerType, y: FloatType })));
+        return (
+            <Box height="260px" width="100%">
+                <Chart
+                    layers={[
+                        Chart.Line(fan, { x: r => r.t, y: r => r.y, by: r => r.sid }, { opacity: 0.2, legend: false, dots: false }),
+                        Chart.Line(median, { x: r => r.t, y: r => r.y }, { key: "Median", color: "blue.solid", width: 2, dots: false }),
+                    ]}
+                    x={{ label: "Step", scale: "linear" }}
+                    y={{ label: "Value" }}
+                    legend grid
+                />
+            </Box>
+        );
+    }),
+    inputs: [],
+});
+
 // ============================================================================
 // Bar — grouped, stacked, percent-stacked, breakdown
 // ============================================================================

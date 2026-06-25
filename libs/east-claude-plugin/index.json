@@ -1,14 +1,14 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1358,
+    "totalEntries": 1359,
     "totalFiles": 180,
     "packages": {
       "east": 489,
       "east-node-std": 42,
       "east-node-io": 63,
       "east-py-datascience": 89,
-      "east-ui": 615,
+      "east-ui": 616,
       "e3-ui": 53,
       "e3": 7
     }
@@ -14272,6 +14272,30 @@
         "import { Box, Chart, Reactive } from \"@elaraai/east-ui\";"
       ],
       "source": "// Continuous numeric x-axis with an explicit domain\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { dose: 0.5, response: 12.0 }, { dose: 1.0, response: 30.0 },\n            { dose: 2.5, response: 55.0 }, { dose: 5.0, response: 70.0 },\n        ], ArrayType(StructType({ dose: FloatType, response: FloatType })));\n        return (\n            <Box height=\"240px\" width=\"100%\">\n                <Chart\n                    layers={Chart.Line(rows, { x: r => r.dose, y: r => r.response }, { color: \"purple.solid\" })}\n                    x={{ label: \"Dose\", scale: \"linear\", domain: [0, 6] }}\n                    y={{ label: \"Response\" }}\n                    grid\n                />\n            </Box>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:chart.examples.tsx:lineSampleFan",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/charts/chart.examples.tsx",
+      "suite": "",
+      "test": "A faint fan of generative sample paths (low stroke opacity, kept out of the legend) behind a bold median line",
+      "keywords": [
+        "Chart",
+        "Line",
+        "opacity",
+        "legend",
+        "fan",
+        "sample-path",
+        "by",
+        "overlay"
+      ],
+      "imports": [
+        "import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Chart, Reactive } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// A faint fan of generative sample paths (low stroke opacity, kept out of the legend) behind a bold median line\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const fan = $.const([\n            { t: 0n, sid: \"s0\", y: 10.0 }, { t: 1n, sid: \"s0\", y: 14.0 }, { t: 2n, sid: \"s0\", y: 13.0 },\n            { t: 0n, sid: \"s1\", y: 11.0 }, { t: 1n, sid: \"s1\", y: 9.0 }, { t: 2n, sid: \"s1\", y: 15.0 },\n            { t: 0n, sid: \"s2\", y: 9.0 }, { t: 1n, sid: \"s2\", y: 12.0 }, { t: 2n, sid: \"s2\", y: 11.0 },\n        ], ArrayType(StructType({ t: IntegerType, sid: StringType, y: FloatType })));\n        const median = $.const([\n            { t: 0n, y: 10.0 }, { t: 1n, y: 12.0 }, { t: 2n, y: 13.0 },\n        ], ArrayType(StructType({ t: IntegerType, y: FloatType })));\n        return (\n            <Box height=\"260px\" width=\"100%\">\n                <Chart\n                    layers={[\n                        Chart.Line(fan, { x: r => r.t, y: r => r.y, by: r => r.sid }, { opacity: 0.2, legend: false, dots: false }),\n                        Chart.Line(median, { x: r => r.t, y: r => r.y }, { key: \"Median\", color: \"blue.solid\", width: 2, dots: false }),\n                    ]}\n                    x={{ label: \"Step\", scale: \"linear\" }}\n                    y={{ label: \"Value\" }}\n                    legend grid\n                />\n            </Box>\n        );\n    })"
     },
     {
       "id": "east-ui:chart.examples.tsx:barBasic",

@@ -56,6 +56,7 @@ interface LayerStyle {
     dots: boolean | undefined;
     fillOpacity: number | undefined;
     radius: number | undefined;
+    opacity: number | undefined;
 }
 
 /**
@@ -230,7 +231,7 @@ function collectLegend(node: Spec, out: Array<{ key: string; color: string }>): 
     match(node, {
         frame: f => { for (const c of f.children) collectLegend(c, out); },
         group: g => { for (const c of g.children) collectLegend(c, out); },
-        series: s => { for (const ser of s.data) if (ser.key) out.push({ key: ser.key, color: ser.color }); },
+        series: s => { if (getSomeorUndefined(s.legend) === false) return; for (const ser of s.data) if (ser.key) out.push({ key: ser.key, color: ser.color }); },
         bandArea: b => { for (const ser of b.data) if (ser.key) out.push({ key: ser.key, color: ser.color }); },
     }, undefined);
 }
@@ -338,6 +339,7 @@ function SeriesMarks({ value }: { value: SeriesMark }): ReactNode {
         dots: getSomeorUndefined(value.dots),
         fillOpacity: getSomeorUndefined(value.fillOpacity),
         radius: getSomeorUndefined(value.radius),
+        opacity: getSomeorUndefined(value.opacity),
     };
     const yScale: YScale = sideOf(value) === "right" && y2 ? y2 : y;
 
@@ -370,7 +372,7 @@ function LineSeries({ series, yScale, layer }: { series: Series; yScale: YScale;
     const showDots = layer.dots ?? true;
     return (
         <>
-            <LinePath<Point> data={series.points} x={cx} y={p => yScale(p.value)} curve={curveFor(layer.curve)} stroke={stroke} strokeWidth={layer.strokeWidth ?? style.lineWidth} {...(dash ? { strokeDasharray: dash } : {})} />
+            <LinePath<Point> data={series.points} x={cx} y={p => yScale(p.value)} curve={curveFor(layer.curve)} stroke={stroke} strokeWidth={layer.strokeWidth ?? style.lineWidth} {...(dash ? { strokeDasharray: dash } : {})} strokeOpacity={layer.opacity ?? 1} />
             {showDots && series.points.map((p, i) => <Circle key={i} cx={cx(p)} cy={yScale(p.value)} r={style.dotRadius} fill={style.pointFill} stroke={stroke} strokeWidth={style.pointStrokeWidth} />)}
         </>
     );
@@ -394,7 +396,7 @@ function AreaSeries({ series, bounds, yScale, layer }: { series: Series; bounds:
     return (
         <>
             <Area<Point> data={series.points} x={cx} y0={p => yScale(bounds(p)[0])} y1={p => yScale(bounds(p)[1])} curve={curve} fill={stroke} fillOpacity={op} stroke="transparent" />
-            <LinePath<Point> data={series.points} x={cx} y={p => yScale(bounds(p)[1])} curve={curve} stroke={stroke} strokeWidth={layer.strokeWidth ?? style.lineWidth} />
+            <LinePath<Point> data={series.points} x={cx} y={p => yScale(bounds(p)[1])} curve={curve} stroke={stroke} strokeWidth={layer.strokeWidth ?? style.lineWidth} strokeOpacity={layer.opacity ?? 1} />
         </>
     );
 }
@@ -404,7 +406,7 @@ function ScatterSeries({ series, yScale, layer }: { series: Series; yScale: YSca
     return <>{series.points.map((p, i) => {
         const ps = getSomeorUndefined(p.size);                       // per-point bubble magnitude
         const r = ps !== undefined && sizeR ? sizeR(ps) : base;
-        return <Circle key={i} cx={cx(p)} cy={yScale(p.value)} r={r} fill={fill} stroke={style.pointFill} strokeWidth={style.pointStrokeWidth} />;
+        return <Circle key={i} cx={cx(p)} cy={yScale(p.value)} r={r} fill={fill} stroke={style.pointFill} strokeWidth={style.pointStrokeWidth} strokeOpacity={layer.opacity ?? 1} />;
     })}</>;
 }
 

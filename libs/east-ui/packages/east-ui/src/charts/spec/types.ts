@@ -456,6 +456,8 @@ export type ChartTextType = typeof ChartTextType;
  * @property dots        - Draw point markers on line marks
  * @property fillOpacity - Fill opacity for area and bar marks
  * @property radius      - Marker radius for scatter marks
+ * @property opacity     - Stroke opacity 0–1 for line, area, and scatter marks (the stroke, distinct from `fillOpacity`); default 1
+ * @property legend      - Include this layer's series in the legend; default true
  */
 export const ChartSeriesMarkType = StructType({
     data:        ChartSeriesArrayType,
@@ -469,6 +471,8 @@ export const ChartSeriesMarkType = StructType({
     dots:        OptionType(BooleanType),
     fillOpacity: OptionType(FloatType),
     radius:      OptionType(FloatType),
+    opacity:     OptionType(FloatType),
+    legend:      OptionType(BooleanType),
 });
 export type ChartSeriesMarkType = typeof ChartSeriesMarkType;
 
