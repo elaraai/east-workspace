@@ -246,6 +246,16 @@ git commit            # message per above
 gh pr create --repo elaraai/east-workspace --title "fix(<lib>): …" --body "…Closes #<n>…"
 ```
 
+## Common traps
+
+- **A new client-side UI platform function won't reach `ui()` tasks.** When you add an interactive platform function to **east-ui-components** (a `State.bind` / `nav_bind` / `Slice.bind` style runtime — e.g. `src/platform/nav/index.ts`), it self-registers at module load via `registerPlatformImplementation(MyImpl)`. That only populates east-ui-components' **registry** (`getRegisteredPlatformImplementations`), which **east-ui's own** reactive hooks read — so it works in a standalone east-ui preview/spec and looks done. But **e3-ui-components renders `ui()` tasks through HARD-CODED platform arrays that do NOT read that registry.** A function you forget to add there throws **`Platform function 'X' is not available`** (Region: `tasks.<task>.output.ReactiveComponent.<Component>`) — but *only* inside an e3 `ui()` task, so component/preview tests pass and the gap ships silently.
+  - **Fix — add `...MyImpl` to BOTH explicit arrays in `libs/east-ui/packages/e3-ui-components/src`:**
+    - `components/UITaskPreview.tsx` — the `scopedPlatforms` memo (`[...StateImpl, ...createScopedBindPlatform(manifest), ...createScopedFuncPlatform(…), ...createScopedRecordPlatform(…), ...OverlayImpl]`).
+    - `hooks/useDatasetValue.ts` — `[...StateImpl, ...BindPlatform, ...OverlayImpl]`.
+  - Import the impl from `@elaraai/east-ui-components/platform`. **Manifest-scoped** functions (data/func/record) go in via their `createScoped*(manifest…)` builder; **browser-local-state** functions (State, nav, overlay, slice) go in **unscoped**, alongside `...StateImpl` / `...OverlayImpl`.
+  - Grep guard before you call a UI platform fn done: `rg -n "MyImpl" libs/east-ui/packages/e3-ui-components/src` must hit `UITaskPreview.tsx` **and** `useDatasetValue.ts`, not just the registering module.
+  - **Also rebuild + reinstall the `east-ui-preview` VS Code extension** — its webview bundles e3-ui-components, so a deployed package using the new fn renders blank / errors until the extension itself ships the array change. A version bump alone is not enough.
+
 ## Do NOT
 
 - **Bump versions.** All `@elaraai/*` share one version; `version-drift` (`make check-version`) fails on any drift. Releases are a separate `make set-version` / `chore: release vX.Y.Z` flow — not issue work.

@@ -10,14 +10,31 @@ import type { RequestOptions } from '@elaraai/e3-api-client';
 import { variant, decodeBeast2For, type EastTypeValue } from '@elaraai/east';
 import {
     StateImpl,
+    NavImpl,
+    SliceImpl,
+    SliceApplyImpl,
     OverlayImpl,
+    ClipboardImpl,
+    DownloadImpl,
+    ShareImpl,
 } from '@elaraai/east-ui-components';
 import type { PlatformFunction } from '@elaraai/east/internal';
 import { BindPlatform } from '../platform/bind-runtime.js';
+import { FuncPlatform } from '../platform/func-runtime.js';
+import { RecordPlatform } from '../platform/record-runtime.js';
+import { DecisionBindPlatform } from '../decision/handle-runtime.js';
 import type { QueryOverrides } from './types.js';
 
+// Fallback platform set (used when a caller doesn't pass `platforms`). It must include EVERY browser-local impl
+// from east-ui-components + e3-ui-components, plus the UNSCOPED global data/func/record binds — so a ui() value
+// decoded through this path never throws "Platform function 'X' is not available" (see east-contribute
+// "Common traps"). UITaskPreview passes a manifest-scoped set instead; this is the unscoped fallback.
 const defaultPlatformImplementations: PlatformFunction[] =
-    [...StateImpl, ...BindPlatform, ...OverlayImpl];
+    [
+        ...StateImpl, ...NavImpl, ...SliceImpl, ...SliceApplyImpl, ...OverlayImpl,
+        ...ClipboardImpl, ...DownloadImpl, ...ShareImpl, ...DecisionBindPlatform,
+        ...BindPlatform, ...FuncPlatform, ...RecordPlatform,
+    ];
 
 export interface UseDatasetValueOptions {
     requestOptions?: RequestOptions;

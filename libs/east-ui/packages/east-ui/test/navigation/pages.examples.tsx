@@ -17,8 +17,6 @@ const opsRoutes = Navigation.config({
     detail: { value: ItemRow, label: "Item" },
 });
 const OPS_KEY = "ops.route";
-const OpsHandle = NavBindHandleType(opsRoutes.routes);
-
 /**
  * Two-page navigation — overview opens a typed detail page (`nav.go.detail(row)`),
  * the detail page pops back (`nav.pop()`). `<Pages>` renders only the active route.
@@ -32,7 +30,7 @@ export const pagesBasic = example({
 
             // Page bodies as $.const closures — each takes its typed payload + the
             // nav handle (so they capture nothing) and navigates the stack.
-            const overviewPage = $.const(East.function([NullType, OpsHandle], UIComponentType, ($, _v, nav) => {
+            const overviewPage = $.const(East.function([], UIComponentType, ($) => {
                 const open = $.const(East.function([], NullType, $ => {
                     $(nav.go.detail(East.value({ id: "item-1", value: 42n }, ItemRow)));
                 }));
@@ -43,7 +41,7 @@ export const pagesBasic = example({
                     </VStack>
                 );
             }));
-            const detailPage = $.const(East.function([ItemRow, OpsHandle], UIComponentType, ($, row, nav) => {
+            const detailPage = $.const(East.function([ItemRow], UIComponentType, ($, row) => {
                 const back = $.const(East.function([], NullType, $ => { $(nav.pop()); }));
                 return (
                     <VStack gap="2" align="stretch">
@@ -60,8 +58,8 @@ export const pagesBasic = example({
                         stateKey: OPS_KEY,
                         initial: [opsRoutes.Page.overview()],
                         pages: {
-                            overview: (_$, _v, nav) => overviewPage(_v, nav),
-                            detail: (_$, row, nav) => detailPage(row, nav),
+                            overview: ($) => overviewPage(),
+                            detail: ($, row) => detailPage(row),
                         },
                     })}
                 </VStack>
