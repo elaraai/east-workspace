@@ -1277,7 +1277,7 @@ wheels = [
 
 [[package]]
 name = "elaraai-east-py"
-version = "1.0.25"
+version = "1.0.26"
 source = { editable = "packages/east-py" }
 dependencies = [
     { name = "numpy", version = "2.3.5", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
@@ -1324,7 +1324,7 @@ provides-extras = ["dev", "data", "cython"]
 
 [[package]]
 name = "elaraai-east-py-cli"
-version = "1.0.25"
+version = "1.0.26"
 source = { editable = "packages/east-py-cli" }
 dependencies = [
     { name = "elaraai-east-py" },
@@ -1350,7 +1350,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "elaraai-east-py-datascience"
-version = "1.0.25"
+version = "1.0.26"
 source = { editable = "packages/east-py-datascience" }
 dependencies = [
     { name = "elaraai-east-py" },
@@ -1545,7 +1545,7 @@ provides-extras = ["mads", "optuna", "simanneal", "sklearn", "scipy", "xgboost",
 
 [[package]]
 name = "elaraai-east-py-io"
-version = "1.0.25"
+version = "1.0.26"
 source = { editable = "packages/east-py-io" }
 dependencies = [
     { name = "elaraai-east-py" },
@@ -1679,7 +1679,7 @@ provides-extras = ["s3", "sqlite", "postgres", "mysql", "access", "redis", "mong
 
 [[package]]
 name = "elaraai-east-py-std"
-version = "1.0.25"
+version = "1.0.26"
 source = { editable = "packages/east-py-std" }
 dependencies = [
     { name = "elaraai-east-py" },
