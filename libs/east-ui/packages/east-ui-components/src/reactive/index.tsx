@@ -99,7 +99,7 @@ export function EastReactiveComponent({ value, storageKey }: { value: ReactiveVa
 
     if (!result.ok) {
         const info = toEastErrorInfo(result.error);
-        return <EastErrorDisplay title="East Render Error" message={info.message} stack={info.stack} />;
+        return <EastErrorDisplay title="East Render Error" message={info.message} stack={info.stack} context={storageKey} />;
     }
 
     if (result.value === undefined || result.value === null) {
@@ -107,7 +107,7 @@ export function EastReactiveComponent({ value, storageKey }: { value: ReactiveVa
     }
 
     return (
-        <EastErrorBoundary title="East Render Error" resetKey={snapshot}>
+        <EastErrorBoundary title="East Render Error" resetKey={snapshot} context={storageKey}>
             <EastChakraComponent value={result.value} storageKey={storageKey} />
         </EastErrorBoundary>
     );

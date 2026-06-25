@@ -107,6 +107,9 @@ export const EastChakraTabsContent = memo(function EastChakraTabsContent({
         <ChakraTabs.Content
             {...props}
             {...(contentBackground !== undefined ? { bg: contentBackground } : {})}
+            flex="1"
+            minHeight="0"
+            overflow="auto"
         >
             {value.content.map((child, index) => (
                 <EastChakraComponent key={index} value={child} storageKey={`${storageKey}.${index}`} />
@@ -169,6 +172,10 @@ export const EastChakraTabs = memo(function EastChakraTabs({ value, storageKey }
             {...rootProps}
             value={effectiveValue}
             onValueChange={handleValueChange}
+            height="100%"
+            minHeight="0"
+            display="flex"
+            flexDirection={rootProps.orientation === "vertical" ? "row" : "column"}
         >
             <ChakraTabs.List
                 {...(listBackground !== undefined ? { bg: listBackground } : {})}

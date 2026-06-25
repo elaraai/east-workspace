@@ -78,7 +78,7 @@ function AppContent() {
             {/* Header bar + main content */}
             <Flex direction="column" flex={1} minWidth={0} overflow="hidden">
                 <Toolbar />
-                <Box flex={1} minWidth={0} overflow="hidden">
+                <Box flex={1} minWidth={0} minHeight={0} overflow="hidden">
                     <TaskPreview />
                 </Box>
             </Flex>
