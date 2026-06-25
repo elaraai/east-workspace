@@ -196,6 +196,10 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
             // Navigation
             Breadcrumb: (v) => <EastChakraBreadcrumb value={v} />,
             NavList: (v) => <EastChakraNavList value={v} />,
+            // Pages — the content-switcher. `render()` reads nav.current() (tracked) and
+            // matches the active route, so the reactive renderer evaluates only the active
+            // page (leaf-only) and re-renders on navigation. The extra `navKey` is ignored here.
+            Pages: (v) => <EastReactiveComponent value={v} storageKey={childKey(storageKey, "Pages")} />,
 
             // Display
             Icon: (v) => <EastChakraIcon value={v} />,

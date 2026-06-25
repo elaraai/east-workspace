@@ -59,6 +59,10 @@ export { Input, Checkbox, RadioGroup, RadioCardGroup, TimeRangeInput, DateRangeI
 export { Progress, Banner, EmptyState, Skeleton, Status } from "./feedback/index.js";
 export { Breadcrumb, NavList, NavListType, NavSectionType, NavItemType } from "./navigation/index.js";
 export type { NavListStyle, NavSectionInput, NavItemInput } from "./navigation/index.js";
+export { Navigation, Pages, NavBindHandleType, navBindPlatformFn, routeVariantType } from "./navigation/index.js";
+export type {
+    NavRoutes, NavRouteConfig, NavConfig, RouteVariantOf, NavHandleType, BoundNav, PageConstructors, PagesHandlers, PagesBody,
+} from "./navigation/index.js";
 export { Badge, Tag, Avatar, Stat, Icon, MetricChip, EditableChip, Kbd, Meter, SegmentedMeter, BarStrip, AvatarGroup, Trace, ChipRail, type IconName } from "./display/index.js";
 export { Card } from "./container/index.js";
 export { DataList, Matrix, Pagination, Table, TreeView, Gantt, Planner, Library, Roster, Calendar, Schematic, Map, Blend } from "./collections/index.js";

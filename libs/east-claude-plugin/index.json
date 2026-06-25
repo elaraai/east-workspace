@@ -1,14 +1,14 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1356,
-    "totalFiles": 179,
+    "totalEntries": 1358,
+    "totalFiles": 180,
     "packages": {
       "east": 489,
       "east-node-std": 42,
       "east-node-io": 63,
       "east-py-datascience": 89,
-      "east-ui": 613,
+      "east-ui": 615,
       "e3-ui": 53,
       "e3": 7
     }
@@ -23467,6 +23467,55 @@
         "import { NavList, VStack, Text, Reactive } from \"@elaraai/east-ui\";"
       ],
       "source": "// Reactive nav list — clicking an item updates State and re-renders the active highlight + selected-key display\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const activeBind = $.let(State.bind([StringType], \"navlist.example.active\", \"profile\"));\n            const active = $.let(activeBind.read(), StringType);\n            const onSelect = $.const(East.function([StringType], NullType, ($, key) => {\n                $(activeBind.write(key));\n            }));\n            return (\n                <VStack gap=\"3\" align=\"flex-start\">\n                    <NavList\n                        sections={[\n                            {\n                                label: \"Settings\",\n                                items: [\n                                    { key: \"profile\", label: \"Profile\", active: active.equals(\"profile\") },\n                                    { key: \"security\", label: \"Security\", active: active.equals(\"security\") },\n                                    { key: \"billing\", label: \"Billing\", active: active.equals(\"billing\"), badge: \"Trial\" },\n                                ],\n                            },\n                        ]}\n                        onSelect={onSelect}\n                    />\n                    <Text textStyle=\"body-sm\" color=\"fg.muted\">{East.str`Selected: ${active}`}</Text>\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "east-ui:pages.examples.tsx:pagesBasic",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/navigation/pages.examples.tsx",
+      "suite": "",
+      "test": "Two-page navigation — overview opens a typed detail page; back pops the stack",
+      "keywords": [
+        "Navigation",
+        "Pages",
+        "navigate",
+        "route",
+        "stack",
+        "go",
+        "pop",
+        "content-switcher"
+      ],
+      "imports": [
+        "import { East, NullType, StringType, IntegerType, StructType, some, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Navigation, NavBindHandleType, Pages, Reactive, VStack, HStack, Box, Text, Button, NavList, Breadcrumb } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Two-page navigation — overview opens a typed detail page; back pops the stack\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const nav = $.let(Navigation.bind(opsRoutes, OPS_KEY, [opsRoutes.Page.overview()]));\n\n            // Page bodies as $.const closures — each takes its typed payload + the\n            // nav handle (so they capture nothing) and navigates the stack.\n            const overviewPage = $.const(East.function([NullType, OpsHandle], UIComponentType, ($, _v, nav) => {\n                const open = $.const(East.function([], NullType, $ => {\n                    $(nav.go.detail(East.value({ id: \"item-1\", value: 42n }, ItemRow)));\n                }));\n                return (\n                    <VStack gap=\"3\" align=\"stretch\">\n                        <Text>Overview — pick an item</Text>\n                        <Button onClick={open}>Open item-1</Button>\n                    </VStack>\n                );\n            }));\n            const detailPage = $.const(East.function([ItemRow, OpsHandle], UIComponentType, ($, row, nav) => {\n                const back = $.const(East.function([], NullType, $ => { $(nav.pop()); }));\n                return (\n                    <VStack gap=\"2\" align=\"stretch\">\n                        <Text>{East.str`Item ${row.id} — value ${East.print(row.value)}`}</Text>\n                        <Button onClick={back}>← Back</Button>\n                    </VStack>\n                );\n            }));\n\n            return (\n                <VStack gap=\"4\" align=\"stretch\">\n                    <Text fontWeight=\"bold\">{East.str`Ops console · depth ${East.print(nav.depth())}`}</Text>\n                    {Pages.Root(opsRoutes)({\n                        stateKey: OPS_KEY,\n                        initial: [opsRoutes.Page.overview()],\n                        pages: {\n                            overview: (_$, _v, nav) => overviewPage(_v, nav),\n                            detail: (_$, row, nav) => detailPage(row, nav),\n                        },\n                    })}\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "east-ui:pages.examples.tsx:pagesAppShell",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/navigation/pages.examples.tsx",
+      "suite": "",
+      "test": "App shell — NavList rail + breadcrumb app bar from nav.path() + Pages content; navigateTo drives all three",
+      "keywords": [
+        "Navigation",
+        "Pages",
+        "NavList",
+        "Breadcrumb",
+        "navigateTo",
+        "path",
+        "app shell",
+        "rail",
+        "breadcrumb"
+      ],
+      "imports": [
+        "import { East, NullType, StringType, IntegerType, StructType, some, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Navigation, NavBindHandleType, Pages, Reactive, VStack, HStack, Box, Text, Button, NavList, Breadcrumb } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// App shell — NavList rail + breadcrumb app bar from nav.path() + Pages content; navigateTo drives all three\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const nav = $.let(Navigation.bind(shellRoutes, SHELL_KEY, [shellRoutes.Page.overview()]));\n\n            // Page bodies as $.const closures.\n            const overviewPage = $.const(East.function([NullType, ShellHandle], UIComponentType, ($, _v, nav) => {\n                const open = $.const(East.function([], NullType, $ => {\n                    $(nav.go.detail(East.value({ id: \"item-1\", group: \"A\" }, DetailRow)));\n                }));\n                return (\n                    <VStack gap=\"3\" align=\"stretch\">\n                        <Text>Overview — item list</Text>\n                        <Button onClick={open}>Open item-1</Button>\n                    </VStack>\n                );\n            }));\n            const scenariosPage = $.const(East.function([NullType, ShellHandle], UIComponentType, (_$, _v, _nav) => <Text>Scenarios</Text>));\n            const auditPage = $.const(East.function([NullType, ShellHandle], UIComponentType, (_$, _v, _nav) => <Text>Audit trail</Text>));\n            const detailPage = $.const(East.function([DetailRow, ShellHandle], UIComponentType, ($, row, nav) => {\n                const back = $.const(East.function([], NullType, $ => { $(nav.pop()); }));\n                return (\n                    <VStack gap=\"2\" align=\"stretch\">\n                        <Text>{East.str`Item ${row.id} · group ${row.group}`}</Text>\n                        <Button onClick={back}>← Back</Button>\n                    </VStack>\n                );\n            }));\n\n            // Breadcrumb items derived live from the path: label via a per-route\n            // match, current = is-leaf, onClick = navigate back to that prefix.\n            const crumbs = nav.path().map(($, seg, i) => {\n                const label = seg.match({\n                    overview: (_$, _v) => \"Overview\",\n                    scenarios: (_$, _v) => \"Scenarios\",\n                    audit: (_$, _v) => \"Audit\",\n                    detail: (_$, r) => East.str`Item ${r.id}`,\n                });\n                const prefixLen = $.let(i.add(1n));\n                const isLeaf = $.let(East.equal(i, nav.path().size().subtract(1n)));\n                const jump = $.const(East.function([], NullType, $ => {\n                    $(nav.navigateTo(nav.path().slice(0n, prefixLen)));\n                }));\n                // Coerce to the item type so `some(...)` widens to the Option fields\n                // and the field order is normalised (the map element isn't otherwise\n                // contextually typed against BreadcrumbItemType).\n                const item = $.const({ label, current: some(isLeaf), onClick: some(jump) }, Breadcrumb.Types.Item);\n                return item;\n            });\n\n            // The rail navigates to a top-level (argless) route by key.\n            const onSelect = $.const(East.function([StringType], NullType, ($, key) => {\n                $.if(East.equal(key, \"scenarios\"), $ => { $(nav.navigateTo([shellRoutes.Page.scenarios()])); });\n                $.if(East.equal(key, \"audit\"), $ => { $(nav.navigateTo([shellRoutes.Page.audit()])); });\n                $.if(East.equal(key, \"overview\"), $ => { $(nav.navigateTo([shellRoutes.Page.overview()])); });\n            }));\n\n            return (\n                <VStack gap=\"0\" align=\"stretch\">\n                    <Box padding=\"3\">\n                        <Breadcrumb items={crumbs} />\n                    </Box>\n                    <HStack gap=\"4\" align=\"stretch\">\n                        <NavList\n                            sections={[{ items: [\n                                { key: \"overview\", label: \"Overview\" },\n                                { key: \"scenarios\", label: \"Scenarios\" },\n                                { key: \"audit\", label: \"Audit\" },\n                            ] }]}\n                            onSelect={onSelect}\n                        />\n                        {Pages.Root(shellRoutes)({\n                            stateKey: SHELL_KEY,\n                            initial: [shellRoutes.Page.overview()],\n                            pages: {\n                                overview: (_$, _v, nav) => overviewPage(_v, nav),\n                                scenarios: (_$, _v, nav) => scenariosPage(_v, nav),\n                                audit: (_$, _v, nav) => auditPage(_v, nav),\n                                detail: (_$, row, nav) => detailPage(row, nav),\n                            },\n                        })}\n                    </HStack>\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "east-ui:command-palette.examples.tsx:commandPaletteBasic",
