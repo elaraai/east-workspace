@@ -14279,23 +14279,25 @@
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/charts/chart.examples.tsx",
       "suite": "",
-      "test": "A faint fan of generative sample paths (low stroke opacity, kept out of the legend) behind a bold median line",
+      "test": "A faint fan of generative sample paths (low stroke opacity, kept out of both the legend and the tooltip) behind a bold median line",
       "keywords": [
         "Chart",
         "Line",
         "opacity",
         "legend",
+        "tooltip",
         "fan",
         "sample-path",
         "by",
-        "overlay"
+        "overlay",
+        "decoration"
       ],
       "imports": [
         "import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Box, Chart, Reactive } from \"@elaraai/east-ui\";"
       ],
-      "source": "// A faint fan of generative sample paths (low stroke opacity, kept out of the legend) behind a bold median line\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const fan = $.const([\n            { t: 0n, sid: \"s0\", y: 10.0 }, { t: 1n, sid: \"s0\", y: 14.0 }, { t: 2n, sid: \"s0\", y: 13.0 },\n            { t: 0n, sid: \"s1\", y: 11.0 }, { t: 1n, sid: \"s1\", y: 9.0 }, { t: 2n, sid: \"s1\", y: 15.0 },\n            { t: 0n, sid: \"s2\", y: 9.0 }, { t: 1n, sid: \"s2\", y: 12.0 }, { t: 2n, sid: \"s2\", y: 11.0 },\n        ], ArrayType(StructType({ t: IntegerType, sid: StringType, y: FloatType })));\n        const median = $.const([\n            { t: 0n, y: 10.0 }, { t: 1n, y: 12.0 }, { t: 2n, y: 13.0 },\n        ], ArrayType(StructType({ t: IntegerType, y: FloatType })));\n        return (\n            <Box height=\"260px\" width=\"100%\">\n                <Chart\n                    layers={[\n                        Chart.Line(fan, { x: r => r.t, y: r => r.y, by: r => r.sid }, { opacity: 0.2, legend: false, dots: false }),\n                        Chart.Line(median, { x: r => r.t, y: r => r.y }, { key: \"Median\", color: \"blue.solid\", width: 2, dots: false }),\n                    ]}\n                    x={{ label: \"Step\", scale: \"linear\" }}\n                    y={{ label: \"Value\" }}\n                    legend grid\n                />\n            </Box>\n        );\n    })"
+      "source": "// A faint fan of generative sample paths (low stroke opacity, kept out of both the legend and the tooltip) behind a bold median line\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const fan = $.const([\n            { t: 0n, sid: \"s0\", y: 10.0 }, { t: 1n, sid: \"s0\", y: 14.0 }, { t: 2n, sid: \"s0\", y: 13.0 },\n            { t: 0n, sid: \"s1\", y: 11.0 }, { t: 1n, sid: \"s1\", y: 9.0 }, { t: 2n, sid: \"s1\", y: 15.0 },\n            { t: 0n, sid: \"s2\", y: 9.0 }, { t: 1n, sid: \"s2\", y: 12.0 }, { t: 2n, sid: \"s2\", y: 11.0 },\n        ], ArrayType(StructType({ t: IntegerType, sid: StringType, y: FloatType })));\n        const median = $.const([\n            { t: 0n, y: 10.0 }, { t: 1n, y: 12.0 }, { t: 2n, y: 13.0 },\n        ], ArrayType(StructType({ t: IntegerType, y: FloatType })));\n        return (\n            <Box height=\"260px\" width=\"100%\">\n                <Chart\n                    layers={[\n                        // Decoration layer: out of the legend AND the tooltip, so hovering\n                        // surfaces only the median rather than one row per sample id.\n                        Chart.Line(fan, { x: r => r.t, y: r => r.y, by: r => r.sid }, { opacity: 0.2, legend: false, tooltip: false, dots: false }),\n                        Chart.Line(median, { x: r => r.t, y: r => r.y }, { key: \"Median\", color: \"blue.solid\", width: 2, dots: false }),\n                    ]}\n                    x={{ label: \"Step\", scale: \"linear\" }}\n                    y={{ label: \"Value\" }}\n                    legend grid tooltip\n                />\n            </Box>\n        );\n    })"
     },
     {
       "id": "east-ui:chart.examples.tsx:barBasic",

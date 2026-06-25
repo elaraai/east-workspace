@@ -203,12 +203,14 @@ const useScales = (): ScaleCtx => {
 /** Centre-x accessor for a point (band centre / time / linear position). */
 const useCx = () => useScales().cx;
 
-/** Gather every coloured `series` under a node, for the hover tooltip. */
+/** Gather every coloured `series` under a node, for the hover tooltip. A layer
+ *  whose per-layer `tooltip` flag is explicitly `false` contributes no rows, so a
+ *  `by`-split decorative fan stays out of the tooltip (mirrors {@link collectLegend}). */
 function collectSeries(node: Spec, out: Series[]): void {
     match(node, {
         frame: f => { for (const c of f.children) collectSeries(c, out); },
         group: g => { for (const c of g.children) collectSeries(c, out); },
-        series: s => { out.push(...s.data); },
+        series: s => { if (getSomeorUndefined(s.tooltip) === false) return; out.push(...s.data); },
     }, undefined);
 }
 

@@ -217,6 +217,7 @@ export function chartFrame(children: Array<ChartSpecValue>, options: ChartFrameO
  * @property radius      - Marker radius for scatter marks
  * @property opacity     - Stroke opacity for line, area, and scatter marks (distinct from `fillOpacity`)
  * @property legend      - Include this layer's series in the legend
+ * @property tooltip     - Include this layer's series in the tooltip
  */
 export interface ChartSeriesOptions {
     /** Line/area interpolation. */
@@ -241,6 +242,8 @@ export interface ChartSeriesOptions {
     opacity?: SubtypeExprOrValue<FloatType>;
     /** Include this layer's series in the legend (default true). */
     legend?: SubtypeExprOrValue<BooleanType>;
+    /** Include this layer's series in the tooltip (default true). */
+    tooltip?: SubtypeExprOrValue<BooleanType>;
 }
 
 /**
@@ -275,6 +278,7 @@ export function chartSeries(
         radius:      options?.radius !== undefined ? some(options.radius) : none,
         opacity:     options?.opacity !== undefined ? some(options.opacity) : none,
         legend:      options?.legend !== undefined ? some(options.legend) : none,
+        tooltip:     options?.tooltip !== undefined ? some(options.tooltip) : none,
     }), ChartSpecType);
 }
 
@@ -1011,6 +1015,7 @@ export const ChartSpec = {
          * @property radius      - Marker radius for scatter marks
          * @property opacity     - Stroke opacity for line / area / scatter marks (distinct from fill opacity)
          * @property legend      - Include this layer's series in the legend
+         * @property tooltip     - Include this layer's series in the tooltip
          */
         SeriesMark: ChartSeriesMarkType,
         /**
