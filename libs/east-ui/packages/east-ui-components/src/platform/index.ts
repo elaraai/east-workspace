@@ -30,6 +30,9 @@ export {
     trackKey,
 } from "./state-runtime.js";
 
+// Navigation (nav_bind) runtime implementation — registers on load.
+export { NavImpl } from "./nav/index.js";
+
 // React hooks and components for State
 export {
     UIStoreProvider,

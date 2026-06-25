@@ -489,6 +489,18 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
     // Navigation
     Breadcrumb: BreadcrumbRootType,
     NavList: NavListType,
+    /**
+     * Pages — first-class navigation content-switcher. `render` is a nullary
+     * function yielding the active page, built by the `Pages.Root` factory as a
+     * match over the route stack (so only the active arm runs — visible-only — and
+     * every page body sits in the IR for the manifest union). The renderer
+     * evaluates it leaf-only and remounts on a route change; `navKey` is the
+     * path's State key it subscribes to.
+     */
+    Pages: StructType({
+        render: FunctionType([], node),
+        navKey: StringType,
+    }),
 
     // Display
     Badge: BadgeType,

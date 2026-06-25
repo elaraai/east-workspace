@@ -83,6 +83,12 @@ export { Progress, Banner, EmptyState, Skeleton, Status } from "./runtime/feedba
 export { Breadcrumb, NavList } from "./runtime/navigation/index.js";
 export { NavListType, NavSectionType, NavItemType } from "./navigation/index.js";
 export type { NavListStyle, NavSectionInput, NavItemInput } from "./navigation/index.js";
+// First-class navigation: the Navigation config/bind handle API (like State / Slice)
+// + the Pages content-switcher factory. A `<Pages>` JSX tag follows.
+export { Navigation, Pages, NavBindHandleType } from "./navigation/index.js";
+export type {
+    NavRoutes, NavRouteConfig, NavConfig, RouteVariantOf, NavHandleType, BoundNav, PageConstructors,
+} from "./navigation/index.js";
 
 // Display
 export { Badge, Tag, Avatar, Stat, Icon, MetricChip, EditableChip, Kbd, Meter, SegmentedMeter, BarStrip, AvatarGroup, Trace, ChipRail } from "./runtime/display/index.js";

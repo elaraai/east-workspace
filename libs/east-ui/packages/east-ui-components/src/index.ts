@@ -373,6 +373,9 @@ export {
     StateImpl,
     StateRuntime,
 
+    // Navigation (nav_bind) implementation — auto-registers on import
+    NavImpl,
+
     // Slice implementations (auto-register on import)
     SliceImpl, buildSliceHandle, DEFAULT_SLICE_STATE,
     SliceApplyImpl,
