@@ -208,6 +208,61 @@ export const decisionBindPlatformFn = East.genericPlatform(
 );
 
 // ============================================================================
+// decision_* primitives — low-level host I/O backing the handle's methods
+// (issue #106)
+//
+// The handle's 12 closures become thin IR-bearing `East.function`s over these
+// primitives, capturing only the PLAIN-DATA binding descriptors (the `decisions`
+// array + the `judgements` descriptor) and the derived selection key. The host
+// side-effects — resolving each descriptor to its live `Data.bind` view, the
+// queue union, write-routing by case id, the selection store, the staged
+// judgement reads/writes — live in the primitive impls, resolved from the
+// descriptors at call time. So a captured decision handle (e.g.
+// `onClick={() => handle.resolve(id, verdict)}`) encodes through beast2 and
+// `decodeBeast2For({ platform })` re-binds it instead of throwing
+// "Cannot serialize function: no IR attached".
+//
+// `judgement` / `inject` are generic over the constraint contract `C` (their
+// types depend on it, exactly like the handle type); the rest are concrete.
+// Implemented by `DecisionBindPlatform` in `@elaraai/e3-ui-components`.
+// ----------------------------------------------------------------------------
+const decision_queue           = East.platform("decision_queue", [ArrayType(DiffBindingType)], ArrayType(DecisionType), { optional: true });
+const decision_selected        = East.platform("decision_selected", [StringType], OptionType(StringType), { optional: true });
+const decision_select          = East.platform("decision_select", [StringType, StringType], NullType, { optional: true });
+const decision_clear_selection = East.platform("decision_clear_selection", [StringType], NullType, { optional: true });
+const decision_decision        = East.platform("decision_decision", [ArrayType(DiffBindingType), StringType], OptionType(DecisionType), { optional: true });
+const decision_update          = East.platform("decision_update", [ArrayType(DiffBindingType), DecisionType], NullType, { optional: true });
+const decision_judgement       = East.genericPlatform("decision_judgement", ["C"], [DiffBindingType, StringType], judgementInputType("C" as never), { optional: true });
+const decision_answer          = East.platform("decision_answer", [DiffBindingType, StringType, StringType, AnswerType], NullType, { optional: true });
+const decision_add_knowledge   = East.platform("decision_add_knowledge", [DiffBindingType, StringType, StringType], NullType, { optional: true });
+const decision_inject          = East.genericPlatform("decision_inject", ["C"], [DiffBindingType, StringType, "C"], NullType, { optional: true });
+const decision_resolve         = East.platform("decision_resolve", [ArrayType(DiffBindingType), DiffBindingType, StringType, StringType, VerdictType], NullType, { optional: true });
+const decision_commit_state    = East.platform("decision_commit_state", [ArrayType(DiffBindingType), DiffBindingType, StringType], CommitStateType, { optional: true });
+
+/**
+ * Low-level platform primitives that back {@link decisionBind}'s handle methods.
+ *
+ * @internal Not for direct use — author against `Decision.bind`. These exist so
+ * each handle method can be an IR-bearing `East.function` (serializable) rather
+ * than a raw host closure. Keyed by the plain-data binding descriptors + the
+ * derived selection key; the impls resolve the live views / store at call time.
+ */
+export const DecisionBindPrimitives = {
+    queue: decision_queue,
+    selected: decision_selected,
+    select: decision_select,
+    clearSelection: decision_clear_selection,
+    decision: decision_decision,
+    update: decision_update,
+    judgement: decision_judgement,
+    answer: decision_answer,
+    addKnowledge: decision_add_knowledge,
+    inject: decision_inject,
+    resolve: decision_resolve,
+    commitState: decision_commit_state,
+} as const;
+
+// ============================================================================
 // User-facing factory.
 // ============================================================================
 

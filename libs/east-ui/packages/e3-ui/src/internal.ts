@@ -105,6 +105,7 @@ export {
 export {
     decisionBind,
     decisionBindPlatformFn,
+    DecisionBindPrimitives,
     DecisionHandleType,
     DecisionHandleRefType,
     CommitStateType,
