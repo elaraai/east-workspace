@@ -7,4 +7,7 @@
  * symlink on a fresh checkout BEFORE the package is built. Delegates to the
  * compiled CLI entry.
  */
-import('../dist/cli.js');
+import('../dist/cli.js').catch((err) => {
+    console.error('e3-ui: failed to start — build the package first (npm run build).', err?.message ?? err);
+    process.exit(1);
+});

@@ -31,11 +31,22 @@ export interface ShotCommandOptions {
     fullPage?: boolean;
     element?: string;
     wait?: string;
+    timeout?: string;
     storageKey?: string;
 }
 
 /** Max Chromium viewport dimension (px). */
 const MAX_VIEWPORT = 16384;
+/** Max device scale factor — `viewport × dpr` is the raster size, so an
+ *  unbounded dpr can OOM Chromium. */
+const MAX_DPR = 8;
+
+/** Parse `--dpr`, bounded to a sane range (mirrors the viewport bound). */
+export function parseDpr(value: string): number {
+    const n = parsePositive(value, '--dpr');
+    if (n > MAX_DPR) throw new Error(`Invalid --dpr "${value}" (must be 1..${MAX_DPR})`);
+    return n;
+}
 
 /** Parse `WIDTHxHEIGHT`, bounded to a sane positive range. */
 export function parseViewport(spec: string): { width: number; height: number } {
@@ -84,6 +95,7 @@ function captureOptionsFrom(options: ShotCommandOptions): {
     viewport?: { width: number; height: number };
     deviceScaleFactor?: number;
     settleMs?: number;
+    timeoutMs?: number;
 } {
     let mode: CaptureMode = { kind: 'frame' };
     if (options.element) mode = { kind: 'element', selector: options.element };
@@ -91,8 +103,9 @@ function captureOptionsFrom(options: ShotCommandOptions): {
     return {
         mode,
         ...(options.viewport ? { viewport: parseViewport(options.viewport) } : {}),
-        ...(options.dpr ? { deviceScaleFactor: parsePositive(options.dpr, '--dpr') } : {}),
+        ...(options.dpr ? { deviceScaleFactor: parseDpr(options.dpr) } : {}),
         ...(options.wait ? { settleMs: parsePositive(options.wait, '--wait') } : {}),
+        ...(options.timeout ? { timeoutMs: parsePositive(options.timeout, '--timeout') } : {}),
     };
 }
 

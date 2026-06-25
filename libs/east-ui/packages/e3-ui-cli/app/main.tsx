@@ -11,10 +11,11 @@
  * snapshot harness uses.
  *
  * Readiness is signalled on `#shot-root[data-shot-status]` for the capture
- * driver: `ready` once the content has actually rendered (component: next
- * frame; task: once all e3 fetches settle), or `error` when an East
- * compile/render failure is present (detected by the stable `[data-east-error]`
- * hook, not by title text) or a thrown error is caught.
+ * driver: `ready` once the content has rendered (component: next frame; task:
+ * once the e3-ui loading indicators clear and stay clear), or `error` when a
+ * failure card is present — detected by stable hooks (`[data-east-error]` from
+ * EastErrorDisplay, `[data-status="error"]` from e3-ui's StatusDisplay /
+ * ErrorBoundary), never by scraping text.
  *
  * @packageDocumentation
  */
@@ -34,7 +35,6 @@ import '@elaraai/e3-ui-components';
 import { Component, useEffect, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Box, ChakraProvider } from '@chakra-ui/react';
-import { QueryClient } from '@tanstack/react-query';
 import {
     system,
     UIStore,
@@ -44,17 +44,27 @@ import {
     EncodedEastFunction,
 } from '@elaraai/east-ui-components';
 import { E3Provider, ReactiveDatasetProvider, TaskPreview } from '@elaraai/e3-ui-components';
+import type { ShotPayload } from '../src/shot-payload.js';
 
-type ShotPayload =
-    | { kind: 'component'; b64: string }
-    | { kind: 'task'; apiUrl: string; repo: string; workspace: string; task: string };
+/** Task-mode readiness timing. */
+const TASK_READY = {
+    pollMs: 100,
+    /** Loading indicators must be absent for this long before declaring ready. */
+    stableMs: 400,
+} as const;
+
+/** Hard-stop budget (ms) for a never-settling task — set by the CLI from the
+ *  capture timeout (so it always fires before the driver's navigation timeout);
+ *  falls back to 25s if the app is opened directly. */
+const TASK_HARD_STOP_MS =
+    (window as unknown as { __E3_UI_SHOT_DEADLINE__?: number }).__E3_UI_SHOT_DEADLINE__ ?? 25_000;
+
+const ERROR_SELECTOR = '[data-east-error], [data-status="error"]';
+const LOADING_SELECTOR = '[data-status="loading"]';
 
 const payload = (window as unknown as { __E3_UI_SHOT__?: ShotPayload }).__E3_UI_SHOT__;
 const storageKey = (window as unknown as { __E3_UI_SHOT_KEY__?: string }).__E3_UI_SHOT_KEY__ ?? 'shot';
 const isTask = payload?.kind === 'task';
-
-// One QueryClient shared with E3Provider so readiness can observe e3 fetches.
-const taskQueryClient = new QueryClient({ defaultOptions: { queries: { retry: 2, staleTime: 30_000 } } });
 
 function setStatus(status: 'ready' | 'error', message?: string): void {
     const root = document.getElementById('shot-root');
@@ -63,12 +73,13 @@ function setStatus(status: 'ready' | 'error', message?: string): void {
     if (message) root.setAttribute('data-shot-error', message.slice(0, 600));
 }
 
-/** Report `error` if an East error card is present, else `ready`. Never
- *  downgrades an already-reported error (no-payload / thrown / earlier). */
+/** Report `error` if a failure card is present (East compile/render error, or an
+ *  e3-ui task/fetch error), else `ready`. Never downgrades an already-reported
+ *  error (no-payload / thrown / earlier). */
 function finishStatus(): void {
     const root = document.getElementById('shot-root');
     if (root?.getAttribute('data-shot-status') === 'error') return;
-    const errorCard = document.querySelector('[data-east-error]');
+    const errorCard = document.querySelector(ERROR_SELECTOR);
     if (errorCard) setStatus('error', (errorCard as HTMLElement).innerText.slice(0, 600));
     else setStatus('ready');
 }
@@ -95,8 +106,9 @@ class ShotErrorBoundary extends Component<{ children: ReactNode }, { error: stri
     }
 }
 
-/** Component mode: the function compiles + renders synchronously, so report
- *  one frame after commit. */
+/** Component mode: the function compiles + renders synchronously, so report one
+ *  frame after commit. (Components doing async sub-loads without a Skeleton —
+ *  e.g. Map tiles — should raise `--wait`; capture also waits on networkidle.) */
 function ComponentReady({ children }: { children: ReactNode }): ReactNode {
     useEffect(() => {
         const id = requestAnimationFrame(finishStatus);
@@ -105,27 +117,46 @@ function ComponentReady({ children }: { children: ReactNode }): ReactNode {
     return children;
 }
 
-/** Task mode: render is async (fetch task output + bound datasets). Report once
- *  every e3 query has started and settled — not on the first (loading) paint. */
+/**
+ * Task mode: the render is an async cascade (task details -> dataset preload ->
+ * status -> value -> decode), staged across TWO QueryClients with `enabled`
+ * gates and a 5s status refetch. Observing `isFetching()` is unreliable (it dips
+ * to 0 between waves and can't see the dataset cache's private client). Instead
+ * gate on the e3-ui loading indicators (`[data-status="loading"]` on every
+ * StatusDisplay loading state, incl. "Loading datasets…"): declare ready only
+ * once NONE are present AND that has held for `stableMs`, so a transient
+ * inter-wave gap can't trigger a premature capture.
+ */
 function TaskReady({ children }: { children: ReactNode }): ReactNode {
     useEffect(() => {
-        let seenFetching = false;
         let done = false;
+        let clearSince: number | null = null;
         const start = Date.now();
         const interval = window.setInterval(() => {
             if (done) return;
-            const inFlight = taskQueryClient.isFetching();
-            if (inFlight > 0) seenFetching = true;
-            const elapsed = Date.now() - start;
-            const settled = seenFetching && inFlight === 0;     // fetches done
-            const noQueries = !seenFetching && elapsed > 2_000;  // nothing to fetch (cached/empty)
-            const hardStop = elapsed > 25_000;                  // give up, let capture surface state
-            if (settled || noQueries || hardStop) {
+            const now = Date.now();
+            const loading = document.querySelector(LOADING_SELECTOR) !== null;
+            if (loading) {
+                clearSince = null;
+            } else {
+                clearSince ??= now;
+                if (now - clearSince >= TASK_READY.stableMs) {
+                    done = true;
+                    window.clearInterval(interval);
+                    requestAnimationFrame(finishStatus);
+                    return;
+                }
+            }
+            if (now - start >= TASK_HARD_STOP_MS) {
                 done = true;
                 window.clearInterval(interval);
+                document.getElementById('shot-root')?.setAttribute('data-shot-partial', 'true');
+                console.warn(
+                    `[e3-ui shot] task did not settle within ${TASK_HARD_STOP_MS}ms — capturing current state (may be incomplete).`,
+                );
                 requestAnimationFrame(finishStatus);
             }
-        }, 100);
+        }, TASK_READY.pollMs);
         return () => window.clearInterval(interval);
     }, []);
     return children;
@@ -140,10 +171,7 @@ function App(): ReactNode {
         // Live e3 task: fetch the already-computed output + bound datasets and
         // render via the same TaskPreview the VS Code extension uses.
         return (
-            <E3Provider
-                config={{ apiUrl: payload.apiUrl, repo: payload.repo, workspace: payload.workspace }}
-                queryClient={taskQueryClient}
-            >
+            <E3Provider config={{ apiUrl: payload.apiUrl, repo: payload.repo, workspace: payload.workspace }}>
                 <ReactiveDatasetProvider>
                     <TaskPreview
                         apiUrl={payload.apiUrl}

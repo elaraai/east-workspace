@@ -17,7 +17,7 @@
     "CLA.md"
   ],
   "scripts": {
-    "build": "tsc && node scripts/build-app.mjs",
+    "build": "tsc && tsc -p app/tsconfig.json && node scripts/build-app.mjs",
     "test": "npm run build && node --enable-source-maps --test-reporter=spec --test 'dist/**/*.spec.js'",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

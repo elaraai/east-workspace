@@ -60,11 +60,11 @@ One screenshot verb, one source per run (mirroring e3-cli's `--from-zip` / `--fr
 
 | Source | Description |
 |---|---|
-| `--from-source <file>` | A `.ts`/`.tsx` component source. Static and `State`-only components render with no backend. |
+| `--from-source <file>` | A `.ts`/`.tsx` component source. Static and `State`-only components render with no backend. **Runs the file and its imports as Node code** (like ts-node) — only point it at code you trust. |
 | `--from-ir <file>` | Serialized component IR (`.beast2`/`.json`); `-` reads from stdin. |
 | `--from-task <ws.task> --repo <repo>` | A live e3 UI task's output with real bound data (via `@elaraai/e3-api-client`). The workspace dataflow must have already produced the task output. |
 
-`e3-ui shot --help` lists all flags (`--export`, `--output`, `--html`, `--viewport`, `--dpr`, `--full-page`, `--element`, `--wait`).
+`e3-ui shot --help` lists all flags (`--export`, `--output`, `--html`, `--viewport`, `--dpr`, `--full-page`, `--element`, `--wait`, `--timeout`, `--storage-key`).
 
 ## Programmatic API
 
@@ -102,7 +102,7 @@ Dual-licensed under AGPL-3.0 and a commercial license. See [LICENSE.md](LICENSE.
   - [@elaraai/east-ui-components](https://www.npmjs.com/package/@elaraai/east-ui-components): React renderer with Chakra UI v3 styling
   - [@elaraai/e3-ui](https://www.npmjs.com/package/@elaraai/e3-ui): e3 + UI bridge — Data bindings, `e3.ui()` task, manifest
   - [@elaraai/e3-ui-components](https://www.npmjs.com/package/@elaraai/e3-ui-components): React Query hooks and preview components for the e3 API
-  - [@elaraai/e3-ui-cli](https://www.npmjs.com/package/@elaraai/e3-ui-cli): Render east-ui / e3-ui components to PNG (`e3-ui shot`, `e3-ui task`)
+  - [@elaraai/e3-ui-cli](https://www.npmjs.com/package/@elaraai/e3-ui-cli): Render east-ui / e3-ui components to PNG from the command line (`e3-ui shot`)
   - [east-ui-preview](https://marketplace.visualstudio.com/items?itemName=ElaraAI.east-ui-preview): VS Code extension for live East UI component preview
 
 - **[e3 — East Execution Engine](https://github.com/elaraai/east-workspace/tree/main/libs/e3)**: Durable execution engine for running East pipelines at scale.

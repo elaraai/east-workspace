@@ -23,6 +23,9 @@ import { encodeEastIR, fromJSONFor, decodeEastIR, encodeBeast2For, type EastIR }
 import { IRType } from '@elaraai/east/internal';
 import { loadComponentFromSource } from './load-source.js';
 
+export type { ComponentPayload, TaskPayload, ShotPayload } from './shot-payload.js';
+import type { ComponentPayload } from './shot-payload.js';
+
 /** Recognised input formats. `ts` covers `.ts` and `.tsx`. */
 export type InputFormat = 'ts' | 'beast2' | 'json';
 
@@ -32,26 +35,6 @@ export interface ShotInput {
     from?: InputFormat | undefined;
     exportName?: string | undefined;
 }
-
-/** A standalone component to render: base64 Beast2-encoded function IR
- *  (consumed in-browser by `EncodedEastFunction`). */
-export interface ComponentPayload {
-    kind: 'component';
-    b64: string;
-}
-
-/** A live e3 task to render: the browser fetches its already-computed output +
- *  bound datasets from the server (consumed by `TaskPreview`). */
-export interface TaskPayload {
-    kind: 'task';
-    apiUrl: string;
-    repo: string;
-    workspace: string;
-    task: string;
-}
-
-/** The render payload injected into the browser app as `window.__E3_UI_SHOT__`. */
-export type ShotPayload = ComponentPayload | TaskPayload;
 
 /** Detect the input format from a file extension. */
 export function detectFormat(filePath: string): InputFormat {
@@ -77,7 +60,7 @@ async function readStdin(): Promise<Uint8Array> {
  * @param input - The resolved input (path/format/export)
  * @returns The base64 IR payload for the browser app
  * @throws If a `.ts`/`.tsx` source is read from stdin, on JSON/IR decode
- *   failure, or when serialized bytes are not valid component IR
+ *   failure, or when the input is not a renderable East UI function
  */
 export async function buildPayload(input: ShotInput): Promise<ComponentPayload> {
     const format = input.from ?? (input.path ? detectFormat(input.path) : 'beast2');
@@ -94,26 +77,29 @@ export async function buildPayload(input: ShotInput): Promise<ComponentPayload> 
         }
         case 'beast2': {
             bytes = input.path ? new Uint8Array(await readFile(input.path)) : await readStdin();
-            // Validate it really is component IR so a value/wrong file fails clearly.
-            try {
-                decodeEastIR(bytes);
-            } catch (err) {
-                throw new Error(
-                    `Input is not valid component IR (a Beast2-encoded zero-arg East UI function). ` +
-                    `Evaluated-value and live-task inputs are not yet supported. ` +
-                    `Cause: ${err instanceof Error ? err.message : String(err)}`,
-                );
-            }
             break;
         }
         case 'json': {
             const text = input.path
                 ? await readFile(input.path, 'utf8')
                 : Buffer.from(await readStdin()).toString('utf8');
-            const ir = fromJSONFor(IRType)(JSON.parse(text));
-            bytes = encodeBeast2For(IRType)(ir);
+            bytes = encodeBeast2For(IRType)(fromJSONFor(IRType)(JSON.parse(text)));
             break;
         }
+    }
+
+    // Uniform validation across all three formats: decodeEastIR throws unless the
+    // root IR is a (sync) Function — catching an async function, non-function IR
+    // JSON, and an evaluated-value / corrupt .beast2 alike, with one clear Node-side
+    // message instead of a confusing in-browser compile failure.
+    try {
+        decodeEastIR(bytes);
+    } catch (err) {
+        throw new Error(
+            `Input is not a renderable component — expected a Beast2/JSON-encoded zero-argument East UI function. ` +
+            `(Async functions, non-function IR, and evaluated values are not supported.) ` +
+            `Cause: ${err instanceof Error ? err.message : String(err)}`,
+        );
     }
 
     return { kind: 'component', b64: Buffer.from(bytes).toString('base64') };

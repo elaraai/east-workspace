@@ -48,6 +48,7 @@ program
     .option('--full-page', 'Capture the full page instead of the component frame')
     .option('--element <selector>', 'Capture a specific CSS selector instead of the component frame')
     .option('--wait <ms>', `Extra settle time after fonts/skeletons clear (default ${D.settleMs})`)
+    .option('--timeout <ms>', `Max time to wait for the render to complete (default ${D.timeoutMs}); raise for slow live tasks`)
     .option('--storage-key <key>', 'Storage key prefix for persisted component state')
     .action(shotCommand);
 

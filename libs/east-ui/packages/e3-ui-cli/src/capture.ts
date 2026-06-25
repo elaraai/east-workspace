@@ -82,16 +82,27 @@ const MIME: Record<string, string> = {
 };
 
 /** Serve the prebuilt app directory over a random localhost port. */
+/**
+ * Resolve a URL pathname to a file within `root`, or `null` if it would escape
+ * (path traversal). Uses a separator-boundary check so a sibling dir sharing the
+ * root's prefix cannot pass. Exported for unit tests.
+ */
+export function resolveWithinRoot(root: string, urlPathname: string): string | null {
+    const resolvedRoot = path.resolve(root);
+    const rel = urlPathname === '/' ? 'index.html' : urlPathname.replace(/^\/+/, '');
+    const filePath = path.join(resolvedRoot, rel);
+    if (filePath !== resolvedRoot && !filePath.startsWith(resolvedRoot + path.sep)) return null;
+    return filePath;
+}
+
 function serveApp(appDir: string): Promise<{ server: Server; baseUrl: string }> {
     const root = path.resolve(appDir);
     const server = createServer((req, res) => {
         void (async () => {
             try {
                 const url = new URL(req.url ?? '/', 'http://localhost');
-                const rel = url.pathname === '/' ? 'index.html' : url.pathname.replace(/^\/+/, '');
-                // Contain to the app root — reject path traversal.
-                const filePath = path.join(root, rel);
-                if (!filePath.startsWith(root)) {
+                const filePath = resolveWithinRoot(root, url.pathname);
+                if (!filePath) {
                     res.statusCode = 403;
                     res.end('forbidden');
                     return;
@@ -112,7 +123,8 @@ function serveApp(appDir: string): Promise<{ server: Server; baseUrl: string }> 
     });
 }
 
-function escapeHtml(s: string): string {
+/** Escape text for safe inclusion in HTML. Exported for unit tests. */
+export function escapeHtml(s: string): string {
     return s.replace(/[&<>"']/g, c => ({
         '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
     }[c] as string));
@@ -121,9 +133,11 @@ function escapeHtml(s: string): string {
 /**
  * Inline `url(...woff2)` font references in CSS as base64 data URIs (read from
  * the app's built `assets/`), so the standalone HTML renders with the brand
- * fonts over `file://` with no server.
+ * fonts over `file://` with no server. A font that cannot be read is left as its
+ * original (server-relative) URL and a warning is emitted — a silently broken
+ * `--html` is worse than a visible warning. Exported for unit tests.
  */
-async function inlineFonts(css: string, appDir: string): Promise<string> {
+export async function inlineFonts(css: string, appDir: string): Promise<string> {
     const assetsDir = path.join(appDir, 'assets');
     const re = /url\((['"]?)[^)'"]*?([^/)'"]+\.woff2)\1\)/g;
     const cache = new Map<string, string>();
@@ -135,6 +149,7 @@ async function inlineFonts(css: string, appDir: string): Promise<string> {
             cache.set(name, `data:font/woff2;base64,${buf.toString('base64')}`);
         } catch {
             cache.set(name, '');
+            console.warn(`[e3-ui shot] could not inline font "${name}" into --html — it will be a relative URL that won't resolve standalone.`);
         }
     }
     return css.replace(re, (full, _q: string, name: string) => {
@@ -236,18 +251,26 @@ export async function capture(opts: CaptureOptions): Promise<void> {
         page.on('pageerror', err => consoleErrors.push(err.message));
         page.on('console', msg => { if (msg.type() === 'error') consoleErrors.push(msg.text()); });
 
-        // Inject the payload BEFORE any page script runs.
+        // Inject the payload BEFORE any page script runs. The task-mode hard-stop
+        // deadline is derived from the capture timeout (minus a buffer) so the app
+        // always reports before the driver's navigation timeout fires.
+        const taskDeadlineMs = Math.max(5_000, timeout - 5_000);
         await page.addInitScript(
-            ([p, key]) => {
+            ([p, key, deadline]) => {
                 (window as unknown as { __E3_UI_SHOT__: unknown }).__E3_UI_SHOT__ = p;
                 (window as unknown as { __E3_UI_SHOT_KEY__: unknown }).__E3_UI_SHOT_KEY__ = key;
+                (window as unknown as { __E3_UI_SHOT_DEADLINE__: unknown }).__E3_UI_SHOT_DEADLINE__ = deadline;
             },
-            [opts.payload, storageKey] as const,
+            [opts.payload, storageKey, taskDeadlineMs] as const,
         );
 
-        // `load`, not `networkidle`: task mode polls the e3 server, so the
-        // network never goes idle. Explicit settle waits below handle quiescence.
-        await page.goto(`${baseUrl}/`, { waitUntil: 'load', timeout });
+        // Component mode has no e3 polling, so wait for `networkidle` (catches
+        // lazy chunks / Map tiles / chart sizing). Task mode polls the e3 server
+        // so the network never idles — use `load` and rely on the readiness marker.
+        await page.goto(`${baseUrl}/`, {
+            waitUntil: opts.payload.kind === 'task' ? 'load' : 'networkidle',
+            timeout,
+        });
         await page.evaluate(() => document.fonts.ready);
 
         // Both modes signal terminal state on #shot-root[data-shot-status]:
@@ -264,24 +287,33 @@ export async function capture(opts: CaptureOptions): Promise<void> {
         } catch {
             const detail = consoleErrors.length ? `\nBrowser errors:\n  ${consoleErrors.join('\n  ')}` : '';
             throw new Error(
-                `Timed out after ${timeout}ms waiting for the component to render.${detail}\n` +
-                `(If this is a slow live task, raise --wait; otherwise the component may have failed to load.)`,
+                `Timed out after ${timeout}ms waiting for the render to complete.${detail}\n` +
+                `(For a slow live task raise --timeout; otherwise the component may have failed to load.)`,
             );
         }
 
-        // Surface render/compile failures. The app flips data-shot-status to
-        // 'error' when an East error card is present; the stable [data-east-error]
-        // hook is a copy-independent backstop (NOT title-text scraping).
+        // Surface render/compile failures via stable hooks (NOT title-text
+        // scraping): data-shot-status='error', [data-east-error] from
+        // EastErrorDisplay (component mode), and [data-status="error"] from
+        // e3-ui's StatusDisplay / ErrorBoundary (task fetch/decode/render errors).
         const renderError = await page.evaluate((limit) => {
             const root = document.querySelector('#shot-root');
             if (root?.getAttribute('data-shot-status') === 'error') {
                 return root.getAttribute('data-shot-error') ?? 'unknown render error';
             }
-            const card = document.querySelector('[data-east-error]');
+            const card = document.querySelector('[data-east-error], [data-status="error"]');
             return card ? (card as HTMLElement).innerText.slice(0, limit) : null;
         }, CAPTURE_DEFAULTS.errorTextLimit);
         if (renderError) {
-            throw new Error(`Component failed to render:\n${renderError}`);
+            throw new Error(`Render failed:\n${renderError}`);
+        }
+
+        // A live task that hit its hard-stop without settling marks itself partial.
+        const partial = await page.evaluate(
+            () => document.querySelector('#shot-root')?.getAttribute('data-shot-partial') === 'true',
+        );
+        if (partial) {
+            console.warn('[e3-ui shot] the live task did not finish loading before capture — the image may be incomplete (raise --timeout).');
         }
 
         // Let in-component skeletons clear, then settle. A component may keep a

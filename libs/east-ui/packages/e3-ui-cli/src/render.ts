@@ -34,6 +34,8 @@ export interface RenderToPngOptions {
     mode?: CaptureMode | undefined;
     /** Settle time after skeletons clear. */
     settleMs?: number | undefined;
+    /** Max time to wait for the render to complete. */
+    timeoutMs?: number | undefined;
     /** Storage key prefix for persisted component state. */
     storageKey?: string | undefined;
 }
@@ -62,6 +64,7 @@ export async function renderToPng(opts: RenderToPngOptions): Promise<void> {
         deviceScaleFactor: opts.deviceScaleFactor,
         mode: opts.mode,
         settleMs: opts.settleMs,
+        timeoutMs: opts.timeoutMs,
     });
 }
 
@@ -87,6 +90,8 @@ export interface RenderTaskOptions {
     mode?: CaptureMode | undefined;
     /** Settle time (defaults higher than component mode — the task must fetch). */
     settleMs?: number | undefined;
+    /** Max time to wait for the task to render (drives the in-app hard-stop too). */
+    timeoutMs?: number | undefined;
 }
 
 /**
@@ -119,6 +124,7 @@ export async function renderTaskToPng(opts: RenderTaskOptions): Promise<void> {
             // Extra grace after the app reports ready (the task render settles
             // its own async fetches first via the data-shot-status marker).
             settleMs: opts.settleMs ?? 800,
+            timeoutMs: opts.timeoutMs,
         });
     } finally {
         await server.stop();

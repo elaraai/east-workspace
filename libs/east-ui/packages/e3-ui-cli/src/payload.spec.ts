@@ -42,7 +42,7 @@ test('buildPayload surfaces a clear error for non-IR beast2 bytes', async () => 
     try {
         await assert.rejects(
             () => buildPayload({ path: tmp.pathname, from: 'beast2' }),
-            /not valid component IR/,
+            /not a renderable component/,
         );
     } finally {
         await rm(tmp, { force: true });

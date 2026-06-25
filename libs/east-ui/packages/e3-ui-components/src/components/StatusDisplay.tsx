@@ -64,6 +64,7 @@ export function StatusDisplay({ variant, title, message, details }: StatusDispla
     if (variant === 'info' || variant === 'loading') {
         return (
             <Box
+                data-status={variant}
                 height="100%"
                 width="100%"
                 display="flex"
@@ -115,7 +116,7 @@ export function StatusDisplay({ variant, title, message, details }: StatusDispla
 
     // Block layout for error and warning states
     return (
-        <Box p={6} bg={styles.bg} height="100%" width="100%">
+        <Box data-status={variant} p={6} bg={styles.bg} height="100%" width="100%">
             <Text fontSize="lg" fontWeight="bold" color={styles.titleColor} mb={4}>
                 {title}
             </Text>
