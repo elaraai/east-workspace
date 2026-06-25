@@ -82,41 +82,6 @@ ByteBuffer *east_beast2_encode_full(EastValue *value, EastType *type)
     return buf;
 }
 
-ByteBuffer *east_beast2_encode_full_with_handles(EastValue *value, EastType *type,
-                                                 Beast2HandleAllocFn alloc_fn, void *user_data)
-{
-    if (!value || !type || !alloc_fn) return NULL;
-
-    if (!east_type_type) east_type_of_type_init();
-
-    Beast2FlatTypeTable flat_tt;
-    flat_tt_init(&flat_tt);
-    size_t root_idx = flat_tt_add_et(&flat_tt, type);
-
-    Beast2StringTableEnc string_table;
-    string_table_enc_init(&string_table);
-
-    ByteBuffer *value_buf = byte_buffer_new(256);
-    Beast2EncodeCtx ctx;
-    beast2_enc_ctx_init(&ctx);
-    ctx.fn_handle_alloc = alloc_fn;
-    ctx.fn_handle_user_data = user_data;
-    ctx.string_table = &string_table;
-    beast2_encode_value(value_buf, value, type, &ctx);
-    beast2_enc_ctx_free(&ctx);
-
-    ByteBuffer *buf = byte_buffer_new(256);
-    byte_buffer_write_bytes(buf, BEAST2_MAGIC, 8);
-    write_type_table_section(root_idx, &flat_tt, buf);
-    write_string_table_section(&string_table, buf);
-    byte_buffer_write_bytes(buf, value_buf->data, value_buf->len);
-
-    byte_buffer_free(value_buf);
-    flat_tt_free(&flat_tt);
-    string_table_enc_free(&string_table);
-    return buf;
-}
-
 EastValue *east_beast2_decode_full(const uint8_t *data, size_t len, EastType *type)
 {
     if (!data || !type) return NULL;

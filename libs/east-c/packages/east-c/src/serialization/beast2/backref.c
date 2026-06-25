@@ -10,8 +10,6 @@
 
 void beast2_enc_ctx_init(Beast2EncodeCtx *ctx)
 {
-    ctx->fn_handle_alloc = NULL;
-    ctx->fn_handle_user_data = NULL;
     ctx->flat_type_table = NULL;
     ctx->string_table = NULL;
     ctx->value_table = NULL;

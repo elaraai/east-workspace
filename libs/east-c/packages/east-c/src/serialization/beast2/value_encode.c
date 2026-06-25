@@ -185,14 +185,6 @@ void beast2_encode_value(ByteBuffer *buf, EastValue *value, EastType *type, Beas
 
     case EAST_TYPE_FUNCTION:
     case EAST_TYPE_ASYNC_FUNCTION: {
-        /* Handle-aware mode: write handle ID instead of IR+captures */
-        if (ctx->fn_handle_alloc) {
-            int handle = ctx->fn_handle_alloc(value, ctx->fn_handle_user_data);
-            if (handle <= 0) break;
-            write_varint(buf, (uint64_t)handle);
-            break;
-        }
-
         EastCompiledFn *fn = value->data.function.compiled;
         if (!fn || !fn->source_ir) break;
 
