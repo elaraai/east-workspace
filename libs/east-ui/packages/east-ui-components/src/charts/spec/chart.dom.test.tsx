@@ -244,3 +244,31 @@ describe("Chart renderer — per-layer tooltip opt-out (issue #117)", () => {
         expect(screen.queryByText("Median")).toBeNull(); // no legend (off) and no tooltip ⇒ nothing
     });
 });
+
+describe("Chart renderer — tooltip portal + stacking tier", () => {
+    test("the hover tooltip renders in a body-level portal raised to the tooltip z-index tier", () => {
+        // Regression guard: the tooltip must escape the chart's local stacking context
+        // (so a sibling Planner / Gantt sticky x-axis can't paint over it) and sit at
+        // the design system's `zIndex.tooltip` tier — above sticky chrome, drawers,
+        // dialogs and popovers.
+        const node = frame([
+            lineNode([series("Median", "blue.solid", [pt("Jan", 2), pt("Feb", 3)])]),
+            axisNode("axisBottom"),
+            axisNode("axisLeft"),
+        ], { tooltip: true });
+        const { container } = ui(<EastVisxChart value={node as never} />);
+
+        const overlay = container.querySelector('rect[fill="transparent"]')!;
+        fireEvent.mouseMove(overlay, { clientX: 176, clientY: 100 });
+        const tip = screen.getByText("Median");
+
+        // Portaled OUT of the chart's own container (escapes the local stacking context).
+        expect(container.contains(tip)).toBe(false);
+
+        // The portal node is a direct child of <body> carrying the tooltip z-index.
+        let portalRoot: HTMLElement | null = tip;
+        while (portalRoot && portalRoot.parentElement !== document.body) portalRoot = portalRoot.parentElement;
+        expect(portalRoot).not.toBeNull();
+        expect(portalRoot!.style.zIndex).toBe("1800"); // Chakra zIndex.tooltip
+    });
+});
