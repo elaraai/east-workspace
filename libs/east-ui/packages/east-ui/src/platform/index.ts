@@ -16,7 +16,7 @@
  * @packageDocumentation
  */
 
-export { State } from "./state.js";
+export { State, StateBindPrimitives } from "./state.js";
 export { Slice } from "./slice/index.js";
 export { SliceApplyImpl, sliceDimensions, sliceFields, sliceMatches, sliceBreakdown, sliceSeries, SLICE_SERIES_PALETTE } from "./slice/impl.js";
 export { Clipboard } from "./clipboard/index.js";

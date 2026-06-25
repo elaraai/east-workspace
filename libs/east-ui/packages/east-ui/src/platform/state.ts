@@ -51,6 +51,33 @@ const state_bind = East.genericPlatform("state_bind", ["T"], [StringType, "T"],
     { optional: true }
 );
 
+// Low-level primitives backing a `State.bind` handle's methods (issue #106).
+//
+// The handle's `read`/`write`/`has` are thin `East.function`s over these
+// primitives, capturing only the plain-data key (+ default). That makes a
+// `State.bind` handle ordinary serializable East data — a captured handle
+// encodes, and `decodeBeast2For({ platform })` re-binds it to the decoder's
+// store automatically. Implemented by `StateImpl` in `@elaraai/east-ui-components`.
+const state_read = East.genericPlatform("state_read", ["T"], [StringType, "T"], "T", { optional: true });
+const state_write = East.genericPlatform("state_write", ["T"], [StringType, "T"], NullType, { optional: true });
+const state_has = East.platform("state_has", [StringType], BooleanType, { optional: true });
+
+/**
+ * Low-level platform primitives that back {@link State.bind}'s handle methods.
+ *
+ * @internal Not for direct use — author against {@link State.bind}. These exist
+ * so the handle's `read`/`write`/`has` can be IR-bearing `East.function`s
+ * (serializable) rather than raw host closures.
+ */
+export const StateBindPrimitives = {
+    /** `state_read([T], key, default) -> T` — tracks the key, falls back to `default`. */
+    read: state_read,
+    /** `state_write([T], key, value) -> Null`. */
+    write: state_write,
+    /** `state_has(key) -> Bool`. */
+    has: state_has,
+} as const;
+
 /**
  * State management platform functions for East UI.
  *

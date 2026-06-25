@@ -81,7 +81,7 @@ export {
     type UIComponentDef,
     type UIComponentOptions,
 } from "./extension.js";
-export { State, SliceApplyImpl, sliceDimensions, sliceFields, sliceMatches, sliceBreakdown, sliceSeries, SLICE_SERIES_PALETTE, Clipboard, Download, Share } from "./platform/index.js";
+export { State, StateBindPrimitives, SliceApplyImpl, sliceDimensions, sliceFields, sliceMatches, sliceBreakdown, sliceSeries, SLICE_SERIES_PALETTE, Clipboard, Download, Share } from "./platform/index.js";
 export { SliceConfigType, sliceConfigTypeFor, SliceChromeType, SliceStateType, SliceBindType } from "./platform/slice/index.js";
 export { SliceAffordanceType, type SliceAffordanceLiteral } from "./contracts/slice-affordances.js";
 export {

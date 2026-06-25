@@ -21,6 +21,12 @@
  */
 
 import {
+    East,
+    fromEastTypeValue,
+    NullType,
+    BooleanType,
+    some,
+    none,
     type EastTypeValue,
     encodeBeast2For,
     decodeBeast2For,
@@ -41,6 +47,7 @@ import {
 import { type PlatformFunction, EastTypeType } from "@elaraai/east/internal";
 import {
     bindPlatformFn,
+    DataBindPrimitives,
     type DataManifest,
     type DataBindModeLiteral,
     DataBindModeType,
@@ -49,7 +56,7 @@ import {
     registerReactiveTracker,
     registerPlatformImplementation,
 } from "@elaraai/east-ui-components/platform";
-import type { TreePath } from "@elaraai/e3-types";
+import { TreePathType, DatasetStatusType, type TreePath } from "@elaraai/e3-types";
 
 import {
     type ReactiveDatasetCacheInterface,
@@ -206,6 +213,18 @@ export class BindRuntime {
     // List cache helpers.
     private readonly listCache = new Map<string, string[]>();
 
+    // Compiled-handle cache (issue #106 perf). The bind impl compiles N
+    // East.function methods per bind, and binds re-run on every reactive frame.
+    // The compiled IR is a pure function of (sourceType, sourcePath, patch, mode)
+    // — same key ⇒ same methods — and the methods resolve cache/workspace LIVE,
+    // so a cached handle still re-binds correctly across renders / cache swaps.
+    // Keyed *structurally* (each bind builds a fresh EastTypeValue from IR, so a
+    // by-identity cache would miss every render — same reason as helpersCache).
+    private readonly handleCache = new SortedMap<EastTypeValue, Map<string, BindHandle>>(
+        undefined,
+        compareFor(EastTypeType),
+    );
+
     /**
      * @param staged - The staged store this runtime uses for
      *  staged-mode buffers. Defaults to the package singleton.
@@ -252,6 +271,7 @@ export class BindRuntime {
     clearCache(): void {
         this.cache = null;
         this.clearPendingWrites();
+        this.handleCache.clear();
     }
 
     // ----- pending writes queue -------------------------------------------
@@ -402,13 +422,14 @@ export class BindRuntime {
     // ----- bind-handle construction --------------------------------------
 
     /**
-     * Build a bind handle for a single `(sourcePath, mode, patch?)`
-     * triple. Public so tests can call this directly without going
-     * through East's compile/dispatch pipeline.
+     * Build a `Data.bind` handle. Its methods are thin IR-bearing
+     * `East.function`s over the `data_*` primitives, capturing only the
+     * plain-data `{source, patch, mode}` descriptor — so the handle is ordinary
+     * serializable East data (issue #106) and re-binds to the decoder's cache.
+     * Public so tests can call it directly without East's compile/dispatch.
      *
-     * @throws `EastError` if the cache is uninitialized, the
-     *  workspace is not configured, or `allowed` is non-null and any
-     *  referenced path is not in it.
+     * @throws `EastError` if the cache is uninitialized, the workspace is not
+     *  configured, or `allowed` is non-null and any referenced path is not in it.
      */
     buildBindHandle(
         sourceType: EastTypeValue,
@@ -439,6 +460,105 @@ export class BindRuntime {
                 }
             }
         }
+
+        // Bind-time registration so the Diff/commit path has the binding types
+        // immediately; the primitives also re-register on first read (decode self-heal).
+        const { patchType } = getBindingHelpers(sourceType);
+        this.registerBindingTypes(ws, sourcePath, {
+            workspace: ws,
+            sourceType,
+            patchType,
+            mode,
+            hasPatchDataset: patchPath !== undefined,
+        });
+
+        // Compiled-handle cache: the method IR is a pure function of
+        // (sourceType, sourcePath, patch, mode) — skip the N East.compile calls
+        // on a hit (the methods resolve cache/workspace live, so the cached
+        // handle still re-binds). registerBindingTypes above already ran (cheap +
+        // idempotent), so the Diff/commit path stays correct on hits too.
+        const descKey = `${datasetPathToString(sourcePath)} ${patchPath !== undefined ? datasetPathToString(patchPath) : ""} ${mode}`;
+        let byDesc = this.handleCache.get(sourceType);
+        if (byDesc) {
+            const hit = byDesc.get(descKey);
+            if (hit) return hit;
+        } else {
+            byDesc = new Map<string, BindHandle>();
+            this.handleCache.set(sourceType, byDesc);
+        }
+
+        // The descriptor each method captures (plain data) + the source type type-arg.
+        const T = fromEastTypeValue(sourceType);
+        const srcExpr = East.value(sourcePath, TreePathType);
+        const patchExpr = East.value(patchPath !== undefined ? some(patchPath) : none, OptionType(TreePathType));
+        const modeExpr = East.value(variant(mode, null), DataBindModeType);
+        const platform = this.buildPrimitives();
+        const P = DataBindPrimitives;
+
+        const handle: BindHandle = {
+            read:          East.compile(East.function([], T, ($) => { $.return(P.read([T], srcExpr, patchExpr, modeExpr)); }), platform),
+            write:         East.compile(East.function([T], NullType, ($, v) => { $.return(P.write([T], srcExpr, patchExpr, modeExpr, v)); }), platform),
+            writeAndStart: East.compile(East.function([T], NullType, ($, v) => { $.return(P.writeAndStart([T], srcExpr, patchExpr, modeExpr, v)); }), platform),
+            start:         East.compile(East.function([], NullType, ($) => { $.return(P.start([T], srcExpr, patchExpr, modeExpr)); }), platform),
+            source:        East.compile(East.function([], T, ($) => { $.return(P.source([T], srcExpr, patchExpr, modeExpr)); }), platform),
+            pending:       East.compile(East.function([], BooleanType, ($) => { $.return(P.pending([T], srcExpr, patchExpr, modeExpr)); }), platform),
+            commit:        East.compile(East.function([], NullType, ($) => { $.return(P.commit([T], srcExpr, patchExpr, modeExpr)); }), platform),
+            discard:       East.compile(East.function([], NullType, ($) => { $.return(P.discard([T], srcExpr, patchExpr, modeExpr)); }), platform),
+            has:           East.compile(East.function([], BooleanType, ($) => { $.return(P.has([T], srcExpr, patchExpr, modeExpr)); }), platform),
+            status:        East.compile(East.function([], DatasetStatusType, ($) => { $.return(P.status([T], srcExpr, patchExpr, modeExpr)); }), platform),
+            binding: {
+                source: sourcePath,
+                patch:  patchPath !== undefined ? some(patchPath) : none,
+                mode:   variant(mode, null),
+            },
+        };
+        byDesc.set(descKey, handle);
+        return handle;
+    }
+
+    /**
+     * The low-level primitives backing handle methods, bound to THIS runtime.
+     * Registered globally (extension registry) and included by the scoped
+     * platform (e3 `ui()` tasks) so a decoded handle re-binds here. Each impl
+     * recovers the `{source, patch, mode}` descriptor from its args and delegates
+     * to {@link buildRawHandle}, reusing the full mode×patch logic verbatim.
+     */
+    buildPrimitives(): PlatformFunction[] {
+        const raw = (sourceType: EastTypeValue, sourceArg: unknown, patchOpt: unknown, modeVariant: unknown): BindHandle => {
+            const { patchPath, mode } = resolveOptions(patchOpt, modeVariant);
+            return this.buildRawHandle(sourceType, sourceArg as TreePath, patchPath, mode);
+        };
+        const P = DataBindPrimitives;
+        return [
+            P.read.implement((t: EastTypeValue) => (s: unknown, p: unknown, m: unknown) => raw(t, s, p, m).read()),
+            P.source.implement((t: EastTypeValue) => (s: unknown, p: unknown, m: unknown) => raw(t, s, p, m).source()),
+            P.write.implement((t: EastTypeValue) => (s: unknown, p: unknown, m: unknown, v: unknown) => raw(t, s, p, m).write(v)),
+            P.writeAndStart.implement((t: EastTypeValue) => (s: unknown, p: unknown, m: unknown, v: unknown) => raw(t, s, p, m).writeAndStart(v)),
+            P.start.implement((t: EastTypeValue) => (s: unknown, p: unknown, m: unknown) => raw(t, s, p, m).start()),
+            P.pending.implement((t: EastTypeValue) => (s: unknown, p: unknown, m: unknown) => raw(t, s, p, m).pending()),
+            P.commit.implement((t: EastTypeValue) => (s: unknown, p: unknown, m: unknown) => raw(t, s, p, m).commit()),
+            P.discard.implement((t: EastTypeValue) => (s: unknown, p: unknown, m: unknown) => raw(t, s, p, m).discard()),
+            P.has.implement((t: EastTypeValue) => (s: unknown, p: unknown, m: unknown) => raw(t, s, p, m).has()),
+            P.status.implement((t: EastTypeValue) => (s: unknown, p: unknown, m: unknown) => raw(t, s, p, m).status()),
+        ];
+    }
+
+    /**
+     * Build the raw (host-closure) bind handle for a single
+     * `(sourcePath, mode, patch?)` triple. The mode×patch matrix lives here; the
+     * serializable {@link buildBindHandle} wraps each method as an `East.function`
+     * over a primitive that delegates back here. Re-registers binding types on
+     * every call (decode self-heal). Public so tests can drive the raw closures.
+     */
+    buildRawHandle(
+        sourceType: EastTypeValue,
+        sourcePath: TreePath,
+        patchPath: TreePath | undefined,
+        mode: DataBindModeLiteral,
+    ): BindHandle {
+        const cache = this.requireCache();
+        const ws = cache.getConfig().workspace;
+        if (!ws) throw new Error("ReactiveDatasetCache workspace not configured");
 
         const { patchType, decodeT, encodeT, decodePatch, encodePatch, apply, diff }
             = getBindingHelpers(sourceType);
@@ -836,13 +956,25 @@ export function clearPendingWrites(): void {
     defaultBindRuntime.clearPendingWrites();
 }
 
-/** Global, manifest-unscoped `Data.bind` impl. Registered on module load. */
-export const BindPlatform: PlatformFunction[] = [defaultBindRuntime.buildPlatform(null)];
+/** Global, manifest-unscoped `Data.bind` impl + its backing primitives.
+ *  Registered on module load (powers the extension registry decode path). */
+export const BindPlatform: PlatformFunction[] = [
+    defaultBindRuntime.buildPlatform(null),
+    ...defaultBindRuntime.buildPrimitives(),
+];
 
-/** Build a manifest-scoped `Data.bind` implementation. */
+/** Build a manifest-scoped `Data.bind` implementation + its backing primitives.
+ *
+ *  The `data_*` primitives MUST ship with the scoped platform: e3 `ui()` tasks
+ *  render through `createScoped*()` arrays (UITaskPreview), NOT the global
+ *  registry, so a serialized handle's methods would otherwise decode to
+ *  "Platform function 'data_read' is not available". */
 export function createScopedBindPlatform(manifest: DataManifest): PlatformFunction[] {
     const allowed = new Set(manifest.paths.map(p => datasetPathToString(p)));
-    return [defaultBindRuntime.buildPlatform(allowed)];
+    return [
+        defaultBindRuntime.buildPlatform(allowed),
+        ...defaultBindRuntime.buildPrimitives(),
+    ];
 }
 
 export async function preloadReactiveDatasetList(workspace: string, path: TreePath): Promise<string[]> {

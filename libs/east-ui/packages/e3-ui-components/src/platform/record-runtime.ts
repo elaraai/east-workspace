@@ -24,6 +24,11 @@
  */
 
 import {
+    East,
+    StructType,
+    StringType,
+    NullType,
+    fromEastTypeValue,
     variant,
     some,
     none,
@@ -36,7 +41,7 @@ import {
     type ValueTypeOf,
 } from "@elaraai/east";
 import { type PlatformFunction, EastTypeType } from "@elaraai/east/internal";
-import { recordBindPlatformFn, type RecordErrorType } from "@elaraai/e3-ui/internal";
+import { recordBindPlatformFn, RecordBindPrimitives, type RecordErrorType } from "@elaraai/e3-ui/internal";
 import {
     workspaceRecordDescribe,
     workspaceRecordMutate,
@@ -247,6 +252,13 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
     // mutation retries.
     private readonly historyFailed = new Set<string>();
 
+    // Compiled-handle cache (issue #106 perf): buildHandle compiles 8 + (one per
+    // mutation) East.functions per bind, and binds re-run every reactive frame.
+    // The method IR is a pure function of the record name (which fixes the handle
+    // type), and the methods resolve cache/api/ws LIVE, so a cached handle still
+    // re-binds. Cleared on clear().
+    private readonly handleCache = new Map<string, Record<string, unknown>>();
+
     protected createEntry(): RecordEntry {
         return { status: "idle", launchSeq: 0 };
     }
@@ -271,6 +283,7 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
         this.histories.clear();
         this.historyInFlight.clear();
         this.historyFailed.clear();
+        this.handleCache.clear();
     }
 
     private resolveWorkspace(): string {
@@ -387,77 +400,46 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
         });
     }
 
-    /** Build the handle value for one `Record.bind` platform evaluation. */
-    buildHandle(handleType: EastTypeValue, name: string): Record<string, unknown> {
-        const sig = signatureOfRecordHandleType(handleType);
-        const decodeState = decodeBeast2For(sig.stateType);
+    /**
+     * The low-level primitives backing handle methods, bound to THIS runtime.
+     * Registered globally (extension registry) and included by the scoped
+     * platform (e3 `ui()` tasks) so a decoded handle re-binds here. The host
+     * effects (dataset-cache reads + reactive tracking + mutation launch) live
+     * here, keyed only on the plain-data record name; the state type rides as a
+     * type-arg on `record_read`, and per-mutation arg types come from the
+     * `record_mutate` ArgsStruct type-arg.
+     */
+    buildPrimitives(): PlatformFunction[] {
         // eslint-disable-next-line @typescript-eslint/no-this-alias
         const runtime = this;
-        const path = recordPath(name);
-
         const requireCache = (): ReactiveDatasetCacheInterface => {
             if (!runtime.cache) {
                 throw new Error("Record.bind: no dataset cache configured — mount a provider first");
             }
             return runtime.cache;
         };
-
-        const mutate: Record<string, unknown> = {
-            pending: () => {
+        return [
+            RecordBindPrimitives.read.implement((stateType: EastTypeValue) => {
+                const decode = decodeBeast2For(stateType); // built once per type-resolution, not per read()
+                return (nameArg: unknown) => {
+                    const ws = runtime.resolveWorkspace();
+                    const path = recordPath(nameArg as string);
+                    trackDatasetPath(ws, path);
+                    const bytes = requireCache().read(ws, path);
+                    if (bytes === undefined) {
+                        throw new Error(`Record.bind: record state not loaded: ${datasetCacheKey(ws, path)} (it should be preloaded via the UI task manifest)`);
+                    }
+                    return decode(bytes);
+                };
+            }),
+            RecordBindPrimitives.status.implement((nameArg: unknown) => {
                 const ws = runtime.resolveWorkspace();
-                const key = recordChannelKey(ws, name);
-                runtime.track(key);
-                return runtime.entry(key).status === "running";
-            },
-            status: () => {
-                const ws = runtime.resolveWorkspace();
-                const key = recordChannelKey(ws, name);
-                runtime.track(key);
-                return variant(runtime.entry(key).status, null);
-            },
-            error: () => {
-                const ws = runtime.resolveWorkspace();
-                const key = recordChannelKey(ws, name);
-                runtime.track(key);
-                const entry = runtime.entry(key);
-                return entry.status === "failed" && entry.error !== undefined
-                    ? some(entry.error)
-                    : none;
-            },
-            cancel: () => {
-                const ws = runtime.resolveWorkspace();
-                // Drop the error + in-flight handle on cancel so a later start()
-                // doesn't wait on the mutation the user just cancelled.
-                runtime.cancelChannel(recordChannelKey(ws, name), e => {
-                    delete e.error;
-                    delete e.inflight;
-                });
-                return null;
-            },
-        };
-        for (const [mutationName, argTypes] of sig.mutations) {
-            mutate[mutationName] = (...args: unknown[]) => {
-                runtime.launchMutation(runtime.resolveWorkspace(), name, mutationName, argTypes, args);
-                return null;
-            };
-        }
-
-        return {
-            read: () => {
-                const ws = runtime.resolveWorkspace();
-                trackDatasetPath(ws, path);
-                const bytes = requireCache().read(ws, path);
-                if (bytes === undefined) {
-                    throw new Error(`Record.bind: record state not loaded: ${datasetCacheKey(ws, path)} (it should be preloaded via the UI task manifest)`);
-                }
-                return decodeState(bytes);
-            },
-            status: () => {
-                const ws = runtime.resolveWorkspace();
+                const path = recordPath(nameArg as string);
                 trackDatasetPath(ws, path);
                 return requireCache().getStatus(ws, path);
-            },
-            history: () => {
+            }),
+            RecordBindPrimitives.history.implement((nameArg: unknown) => {
+                const name = nameArg as string;
                 const ws = runtime.resolveWorkspace();
                 const key = recordChannelKey(ws, name);
                 runtime.track(key);
@@ -469,12 +451,11 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
                     return none;
                 }
                 return some(cached);
-            },
-            mutate,
-            start: () => {
+            }),
+            RecordBindPrimitives.start.implement((nameArg: unknown) => {
                 const ws = runtime.resolveWorkspace();
                 const cache = requireCache();
-                const inflight = runtime.entry(recordChannelKey(ws, name)).inflight;
+                const inflight = runtime.entry(recordChannelKey(ws, nameArg as string)).inflight;
                 // Drain any in-flight mutation first so the run reads the committed
                 // state, then launch. Launch failures surface via dataflow status.
                 void Promise.resolve(inflight)
@@ -482,9 +463,106 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
                     .then(() => cache.launchDataflow(ws))
                     .catch(() => undefined);
                 return null;
-            },
+            }),
+            RecordBindPrimitives.mutatePending.implement((nameArg: unknown) => {
+                const ws = runtime.resolveWorkspace();
+                const key = recordChannelKey(ws, nameArg as string);
+                runtime.track(key);
+                return runtime.entry(key).status === "running";
+            }),
+            RecordBindPrimitives.mutateStatus.implement((nameArg: unknown) => {
+                const ws = runtime.resolveWorkspace();
+                const key = recordChannelKey(ws, nameArg as string);
+                runtime.track(key);
+                return variant(runtime.entry(key).status, null);
+            }),
+            RecordBindPrimitives.mutateError.implement((nameArg: unknown) => {
+                const ws = runtime.resolveWorkspace();
+                const key = recordChannelKey(ws, nameArg as string);
+                runtime.track(key);
+                const entry = runtime.entry(key);
+                return entry.status === "failed" && entry.error !== undefined ? some(entry.error) : none;
+            }),
+            RecordBindPrimitives.mutateCancel.implement((nameArg: unknown) => {
+                const ws = runtime.resolveWorkspace();
+                // Drop the error + in-flight handle on cancel so a later start()
+                // doesn't wait on the mutation the user just cancelled.
+                runtime.cancelChannel(recordChannelKey(ws, nameArg as string), e => {
+                    delete e.error;
+                    delete e.inflight;
+                });
+                return null;
+            }),
+            RecordBindPrimitives.mutate.implement((argsStructType: EastTypeValue) =>
+                (recordNameArg: unknown, mutationNameArg: unknown, argsStruct: unknown) => {
+                    const fields = (argsStructType as { value: { name: string; type: EastTypeValue }[] }).value;
+                    const obj = argsStruct as Record<string, unknown>;
+                    const argTypes = fields.map(f => f.type);
+                    const args = fields.map(f => obj[f.name]);
+                    runtime.launchMutation(runtime.resolveWorkspace(), recordNameArg as string, mutationNameArg as string, argTypes, args);
+                    return null;
+                }),
+        ];
+    }
+
+    /**
+     * Build the handle value for one `Record.bind` evaluation. Every method —
+     * top-level AND nested `mutate.*` (incl. the dynamic per-mutation closures) —
+     * is a thin IR-bearing `East.function` over {@link buildPrimitives}, capturing
+     * only the record name (+ per-mutation name), so the handle is ordinary
+     * serializable East data (issue #106).
+     */
+    buildHandle(handleType: EastTypeValue, name: string): Record<string, unknown> {
+        // Compiled-handle cache (issue #106 perf): the name fixes the record's
+        // signature, so the method IRs (incl. nested mutate.*) are identical across
+        // renders; methods resolve cache/api/ws live.
+        const cached = this.handleCache.get(name);
+        if (cached) return cached;
+
+        const sig = signatureOfRecordHandleType(handleType);
+        const stateTypeEast = fromEastTypeValue(sig.stateType);
+
+        // Recover each method's exact return type from the handle type, so the
+        // compiled wrappers match RecordBindHandleType without re-importing the types.
+        const fields = (handleType as { value: { name: string; type: EastTypeValue }[] }).value;
+        const fnOut = (list: { name: string; type: EastTypeValue }[], n: string): EastType =>
+            fromEastTypeValue(((list.find(f => f.name === n)!.type).value as { output: EastTypeValue }).output);
+        const statusRet = fnOut(fields, "status");
+        const historyRet = fnOut(fields, "history");
+        const mfields = ((fields.find(f => f.name === "mutate")!.type).value as { name: string; type: EastTypeValue }[]);
+
+        const nameExpr = East.value(name, StringType);
+        const platform = this.buildPrimitives();
+        const P = RecordBindPrimitives;
+
+        const mutate: Record<string, unknown> = {
+            pending: East.compile(East.function([], fnOut(mfields, "pending"), ($) => { $.return(P.mutatePending(nameExpr)); }), platform),
+            status: East.compile(East.function([], fnOut(mfields, "status"), ($) => { $.return(P.mutateStatus(nameExpr)); }), platform),
+            error: East.compile(East.function([], fnOut(mfields, "error"), ($) => { $.return(P.mutateError(nameExpr)); }), platform),
+            cancel: East.compile(East.function([], NullType, ($) => { $.return(P.mutateCancel(nameExpr)); }), platform),
+        };
+        for (const [mutationName, argTypes] of sig.mutations) {
+            const argTypesEast = argTypes.map(t => fromEastTypeValue(t));
+            // Bundle the mutation's N args into one struct (platform fns are fixed-arity).
+            const ArgsStruct = StructType(Object.fromEntries(argTypesEast.map((t, i) => [`arg${i}`, t])));
+            const mutationNameExpr = East.value(mutationName, StringType);
+            mutate[mutationName] = East.compile(East.function(argTypesEast, NullType, ($, ...args) => {
+                const obj: Record<string, unknown> = {};
+                args.forEach((a, i) => { obj[`arg${i}`] = a; });
+                $.return(P.mutate([ArgsStruct], nameExpr, mutationNameExpr, East.value(obj as never, ArgsStruct)));
+            }), platform);
+        }
+
+        const handle: Record<string, unknown> = {
+            read: East.compile(East.function([], stateTypeEast, ($) => { $.return(P.read([stateTypeEast], nameExpr)); }), platform),
+            status: East.compile(East.function([], statusRet, ($) => { $.return(P.status(nameExpr)); }), platform),
+            history: East.compile(East.function([], historyRet, ($) => { $.return(P.history(nameExpr)); }), platform),
+            mutate,
+            start: East.compile(East.function([], NullType, ($) => { $.return(P.start(nameExpr)); }), platform),
             binding: { name, mutations: [...sig.mutations.keys()] },
         };
+        this.handleCache.set(name, handle);
+        return handle;
     }
 
     // ----- platform building -------------------------------------------------
@@ -526,12 +604,24 @@ export function clearRecordApi(): void {
     defaultRecordRuntime.clear();
 }
 
-/** Global, manifest-unscoped `Record.bind` impl. Registered on module load. */
-export const RecordPlatform: PlatformFunction[] = [defaultRecordRuntime.buildPlatform(null)];
+/** Global, manifest-unscoped `Record.bind` impl + its backing primitives.
+ *  Registered on module load (powers the extension registry decode path). */
+export const RecordPlatform: PlatformFunction[] = [
+    defaultRecordRuntime.buildPlatform(null),
+    ...defaultRecordRuntime.buildPrimitives(),
+];
 
-/** Build a manifest-scoped `Record.bind` implementation. */
+/** Build a manifest-scoped `Record.bind` implementation + its backing primitives.
+ *
+ *  The `record_*` primitives MUST ship with the scoped platform: e3 `ui()` tasks
+ *  render through `createScoped*()` arrays (UITaskPreview), NOT the global
+ *  registry, so a serialized handle's methods would otherwise decode to
+ *  "Platform function 'record_read' is not available". */
 export function createScopedRecordPlatform(records: readonly string[]): PlatformFunction[] {
-    return [defaultRecordRuntime.buildPlatform(new Set(records))];
+    return [
+        defaultRecordRuntime.buildPlatform(new Set(records)),
+        ...defaultRecordRuntime.buildPrimitives(),
+    ];
 }
 
 // =============================================================================

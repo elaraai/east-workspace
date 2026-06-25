@@ -909,18 +909,22 @@ describe("BindRuntime — stale-patch commit error surfacing", () => {
 // =============================================================================
 
 describe("module-load registrations", () => {
-    test("BindPlatform is exported as a non-empty array of PlatformFunctions", async () => {
+    test("BindPlatform is exported as the data_bind impl + its backing primitives", async () => {
         const { BindPlatform } = await import("../src/platform/bind-runtime.js");
         assert.ok(Array.isArray(BindPlatform));
-        assert.equal(BindPlatform.length, 1);
+        const names = new Set(BindPlatform.map(p => p.name));
+        assert.ok(names.has("data_bind"));
+        assert.ok(names.has("data_read"), "BindPlatform must ship the backing primitives (issue #106)");
+        assert.equal(BindPlatform.length, 11);
     });
 
-    test("createScopedBindPlatform returns a fresh impl per manifest", async () => {
+    test("createScopedBindPlatform returns a fresh impl per manifest (bind + primitives)", async () => {
         const { createScopedBindPlatform } = await import("../src/platform/bind-runtime.js");
-        const p1 = createScopedBindPlatform({ paths: [] });
-        const p2 = createScopedBindPlatform({ paths: [] });
+        const p1 = createScopedBindPlatform({ paths: [], functions: [], records: [] });
+        const p2 = createScopedBindPlatform({ paths: [], functions: [], records: [] });
         assert.notEqual(p1, p2);
-        assert.equal(p1.length, 1);
+        assert.equal(p1.length, 11);
+        assert.ok(new Set(p1.map(p => p.name)).has("data_read"), "scoped Data platform must ship the primitives");
     });
 });
 
