@@ -59,7 +59,7 @@ export { Input, Checkbox, RadioGroup, RadioCardGroup, TimeRangeInput, DateRangeI
 export { Progress, Banner, EmptyState, Skeleton, Status } from "./feedback/index.js";
 export { Breadcrumb, NavList, NavListType, NavSectionType, NavItemType } from "./navigation/index.js";
 export type { NavListStyle, NavSectionInput, NavItemInput } from "./navigation/index.js";
-export { Navigation, Pages, NavBindHandleType, navBindPlatformFn, routeVariantType } from "./navigation/index.js";
+export { Navigation, Pages, NavBindHandleType, navBindPlatformFn, NavBindPrimitives, routeVariantType } from "./navigation/index.js";
 export type {
     NavRoutes, NavRouteConfig, NavConfig, RouteVariantOf, NavHandleType, BoundNav, PageConstructors, PagesHandlers, PagesBody,
 } from "./navigation/index.js";
@@ -81,8 +81,8 @@ export {
     type UIComponentDef,
     type UIComponentOptions,
 } from "./extension.js";
-export { State, SliceApplyImpl, sliceDimensions, sliceFields, sliceMatches, sliceBreakdown, sliceSeries, SLICE_SERIES_PALETTE, Clipboard, Download, Share } from "./platform/index.js";
-export { SliceConfigType, sliceConfigTypeFor, SliceChromeType, SliceStateType, SliceBindType } from "./platform/slice/index.js";
+export { State, StateBindPrimitives, SliceApplyImpl, sliceDimensions, sliceFields, sliceMatches, sliceBreakdown, sliceSeries, SLICE_SERIES_PALETTE, Clipboard, Download, Share } from "./platform/index.js";
+export { SliceConfigType, sliceConfigTypeFor, SliceChromeType, SliceStateType, SliceBindType, SliceBindPrimitives } from "./platform/slice/index.js";
 export { SliceAffordanceType, type SliceAffordanceLiteral } from "./contracts/slice-affordances.js";
 export {
     Slice,

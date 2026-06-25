@@ -18,6 +18,7 @@ export {
     Pages,
     NavBindHandleType,
     navBindPlatformFn,
+    NavBindPrimitives,
     routeVariantType,
     type NavRoutes,
     type NavRouteConfig,

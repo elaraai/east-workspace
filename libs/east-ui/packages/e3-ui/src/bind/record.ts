@@ -248,6 +248,56 @@ export const recordBindPlatformFn = East.genericPlatform(
     { optional: true },
 );
 
+// Low-level primitives backing a `Record.bind` handle's methods (issue #106).
+//
+// The handle's read/status/history/start and the nested mutate.* methods are
+// thin `East.function`s over these primitives, capturing only the plain-data
+// record name (+ per-mutation name; the state type rides as a type-arg on
+// `record_read`). So a `Record.bind` handle — including its nested mutate
+// struct — is ordinary serializable East data and re-binds to the decoder's
+// runtime. Implemented by `RecordRuntime` in `@elaraai/e3-ui-components`.
+//
+// `record_mutate` is generic over the per-mutation `ArgsStruct` `A` (the N args
+// bundled into one struct, since platform fns are fixed-arity): the impl recovers
+// the per-arg types from `A`'s fields and the values from the passed struct.
+const record_read = East.genericPlatform("record_read", ["T"], [StringType], "T", { optional: true });
+const record_status = East.platform("record_status", [StringType], DatasetStatusType, { optional: true });
+const record_history = East.platform("record_history", [StringType], OptionType(ArrayType(RecordCommitInfoType)), { optional: true });
+const record_start = East.platform("record_start", [StringType], NullType, { optional: true });
+const record_mutate_pending = East.platform("record_mutate_pending", [StringType], BooleanType, { optional: true });
+const record_mutate_status = East.platform("record_mutate_status", [StringType], RecordMutateStatusType, { optional: true });
+const record_mutate_error = East.platform("record_mutate_error", [StringType], OptionType(RecordErrorType), { optional: true });
+const record_mutate_cancel = East.platform("record_mutate_cancel", [StringType], NullType, { optional: true });
+const record_mutate = East.genericPlatform("record_mutate", ["A"], [StringType, StringType, "A"], NullType, { optional: true });
+
+/**
+ * Low-level platform primitives that back {@link Record.bind}'s handle methods.
+ *
+ * @internal Not for direct use — author against {@link Record.bind}. These exist
+ * so the handle's methods (incl. the nested `mutate.*`) can be IR-bearing
+ * `East.function`s (serializable) rather than raw host closures.
+ */
+export const RecordBindPrimitives = {
+    /** `record_read([T], name) -> T` — reactive dataset-cache read. */
+    read: record_read,
+    /** `record_status(name) -> DatasetStatus`. */
+    status: record_status,
+    /** `record_history(name) -> Option(Array(RecordCommitInfo))`. */
+    history: record_history,
+    /** `record_start(name) -> Null` — drain inflight, then launch dataflow. */
+    start: record_start,
+    /** `record_mutate_pending(name) -> Bool`. */
+    mutatePending: record_mutate_pending,
+    /** `record_mutate_status(name) -> RecordMutateStatus`. */
+    mutateStatus: record_mutate_status,
+    /** `record_mutate_error(name) -> Option(RecordError)`. */
+    mutateError: record_mutate_error,
+    /** `record_mutate_cancel(name) -> Null`. */
+    mutateCancel: record_mutate_cancel,
+    /** `record_mutate([ArgsStruct], recordName, mutationName, argsStruct) -> Null`. */
+    mutate: record_mutate,
+} as const;
+
 // ============================================================================
 // User-facing factory.
 // ============================================================================

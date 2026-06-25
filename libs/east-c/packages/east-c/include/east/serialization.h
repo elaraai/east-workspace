@@ -74,10 +74,4 @@ EastValue *east_parse_value_with_error(const char *text, EastType *type, char **
 char *east_print_type(EastType *type);
 EastType *east_parse_type(const char *text);
 
-// BEAST2 with handles: re-encodes function values as handle IDs instead of IR+captures.
-// alloc_fn is called for each function value; returns handle ID (>0) or 0 on error.
-typedef int (*Beast2HandleAllocFn)(EastValue *fn_value, void *user_data);
-ByteBuffer *east_beast2_encode_full_with_handles(EastValue *value, EastType *type,
-                                                 Beast2HandleAllocFn alloc_fn, void *user_data);
-
 #endif

@@ -218,9 +218,6 @@ void beast2_mutable_values_free(Beast2MutableValues *mv);
 /* ================================================================== */
 
 typedef struct {
-    /* Optional: when set, function values are encoded as handle IDs */
-    Beast2HandleAllocFn fn_handle_alloc;
-    void *fn_handle_user_data;
     /* v2 flat type table (NULL if v1 mode) */
     Beast2FlatTypeTable *flat_type_table;
     /* v2 string table (NULL if headerless/v1 mode) */

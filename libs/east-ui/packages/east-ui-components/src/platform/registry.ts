@@ -31,6 +31,5 @@ export function registerPlatformImplementation(impls: PlatformFunction[]): () =>
  * Get all registered platform implementations for IR compilation.
  */
 export function getRegisteredPlatformImplementations(): PlatformFunction[] {
-    console.log('[registry.read]', platformFunctions.map(p => p.name));
     return platformFunctions;
 }

@@ -21,29 +21,39 @@
 
 import { useCallback, useMemo, useSyncExternalStore } from 'react';
 import {
+    East,
     OptionType,
     StringType,
+    NullType,
+    ArrayType,
+    fromEastTypeValue,
+    toEastTypeValue,
     encodeBeast2For,
     decodeBeast2For,
     variant,
     some,
     none,
     type ValueTypeOf,
+    type EastTypeValue,
 } from '@elaraai/east';
 import type { PlatformFunction } from '@elaraai/east/internal';
 import type { TreePath } from '@elaraai/e3-types';
 import {
     decisionBindPlatformFn,
+    DecisionBindPrimitives,
     DiffBindingType,
+    DecisionType,
     DecisionHandleType,
     DecisionHandleRefType,
     CommitStateType,
     JudgementInputType,
     DecisionConstraintType,
+    AnswerType,
     VerdictType,
+    judgementInputType,
     type AnswerLiteral,
 } from '@elaraai/e3-ui/internal';
-import { StateRuntime, registerPlatformImplementation, buildSliceHandle, DEFAULT_SLICE_STATE, getSomeorUndefined } from '@elaraai/east-ui-components';
+import { StateRuntime, registerPlatformImplementation, getRegisteredPlatformImplementations, buildSliceHandle, DEFAULT_SLICE_STATE, getSomeorUndefined } from '@elaraai/east-ui-components/platform';
 import type { Slice as SliceNS } from '@elaraai/east-ui/internal';
 
 type SliceStateValue = ValueTypeOf<typeof SliceNS.Types.State>;
@@ -153,135 +163,264 @@ function hashString(s: string): string {
     return (h >>> 0).toString(36);
 }
 
-function buildDecisionHandle(decisions: DiffBindingValue[], judgements: DiffBindingValue, sliceInit?: SliceStateValue) {
-    const selectionKey = deriveSelectionKey(decisions);
+// =============================================================================
+// Host helpers (issue #106) — shared by the primitive impls and the slice rows
+// getter. Lifted to module scope so each takes the binding descriptor as a
+// parameter rather than closing over it: the IR-bearing handle methods carry
+// ONLY the plain-data descriptors, and these resolve the live views / store from
+// those descriptors at call time.
+// =============================================================================
 
-    const readSelection = (): SelectionValue => {
-        StateRuntime.trackKey(selectionKey);
-        const bytes = StateRuntime.getStore().read(selectionKey);
-        return bytes === undefined ? none : decodeSelection(bytes) as SelectionValue;
+function readSelectionAt(selectionKey: string): SelectionValue {
+    StateRuntime.trackKey(selectionKey);
+    const bytes = StateRuntime.getStore().read(selectionKey);
+    return bytes === undefined ? none : decodeSelection(bytes) as SelectionValue;
+}
+function writeSelectionAt(selectionKey: string, value: SelectionValue): null {
+    StateRuntime.getStore().write(selectionKey, encodeSelection(value));
+    return null;
+}
+function hostQueue(decisions: DiffBindingValue[]): Decision[] {
+    return decisions.flatMap(b => viewFor(b).read() as Decision[]);
+}
+function readJudgementsAt(judgements: DiffBindingValue): Map<string, Judgement> {
+    return viewFor(judgements).read() as Map<string, Judgement>;
+}
+function judgementForAt(judgements: DiffBindingValue, caseId: string): Judgement {
+    return readJudgementsAt(judgements).get(caseId) ?? {
+        caseId,
+        answers: new Map(),
+        knowledge: none,
+        constraints: [],
+        verdict: none,
+        resolvedAt: none,
     };
-    const writeSelection = (value: SelectionValue): null => {
-        StateRuntime.getStore().write(selectionKey, encodeSelection(value));
-        return null;
-    };
-
-    const queue = (): Decision[] => decisions.flatMap(b => viewFor(b).read() as Decision[]);
-
-    const readJudgements = (): Map<string, Judgement> => viewFor(judgements).read() as Map<string, Judgement>;
-    const writeJudgements = (next: Map<string, Judgement>): void => { viewFor(judgements).write(next); };
-
-    const judgementFor = (caseId: string): Judgement =>
-        readJudgements().get(caseId) ?? {
-            caseId,
-            answers: new Map(),
-            knowledge: none,
-            constraints: [],
-            verdict: none,
-            resolvedAt: none,
-        };
-
-    const stageJudgement = (caseId: string, change: Partial<Judgement>): null => {
-        const dict = new Map(readJudgements());
-        dict.set(caseId, { ...judgementFor(caseId), ...change });
-        writeJudgements(dict);
-        return null;
-    };
-
-    const removeFromOwningView = (caseId: string): void => {
-        for (const binding of decisions) {
-            const view = viewFor(binding);
-            const rows = view.read() as Decision[];
-            if (rows.some(d => d.id === caseId)) {
-                view.write(rows.filter(d => d.id !== caseId));
-            }
+}
+function stageJudgementAt(judgements: DiffBindingValue, caseId: string, change: Partial<Judgement>): null {
+    const dict = new Map(readJudgementsAt(judgements));
+    dict.set(caseId, { ...judgementForAt(judgements, caseId), ...change });
+    viewFor(judgements).write(dict);
+    return null;
+}
+function removeFromOwningView(decisions: DiffBindingValue[], caseId: string): void {
+    for (const binding of decisions) {
+        const view = viewFor(binding);
+        const rows = view.read() as Decision[];
+        if (rows.some(d => d.id === caseId)) {
+            view.write(rows.filter(d => d.id !== caseId));
         }
+    }
+}
+
+// =============================================================================
+// Compiled handle methods (issue #106) — each method is a thin IR-bearing
+// East.function over a decision_* primitive, capturing only the plain-data
+// descriptors. Cached per (descriptors + contract): the method IR is a pure
+// function of them, and the primitives resolve the live views / store at call
+// time, so a cached set still re-binds.
+// =============================================================================
+
+const decisionHandleCache = new Map<string, Record<string, unknown>>();
+
+/** Cycle-safe structural token for a constraint type value (by-name contracts
+ *  may be recursive), so the cache never serves methods compiled for a
+ *  different contract `C`. */
+function typeToken(tv: EastTypeValue): string {
+    const seen = new WeakSet<object>();
+    return JSON.stringify(tv, (_k, v) => {
+        if (typeof v === 'object' && v !== null) {
+            if (seen.has(v)) return '<cyc>';
+            seen.add(v);
+        }
+        return typeof v === 'bigint' ? `${v}n` : v;
+    });
+}
+
+function compileDecisionMethods(
+    constraintType: EastTypeValue,
+    decisions: DiffBindingValue[],
+    judgements: DiffBindingValue,
+    selectionKey: string,
+): Record<string, unknown> {
+    const platform = getRegisteredPlatformImplementations();
+    const c = fromEastTypeValue(constraintType);
+    const decisionsExpr = East.value(decisions as never, ArrayType(DiffBindingType));
+    const judgementsExpr = East.value(judgements as never, DiffBindingType);
+    const selKeyExpr = East.value(selectionKey, StringType);
+    const {
+        queue, selected, select, clearSelection, decision, update,
+        judgement, answer, addKnowledge, inject, resolve, commitState,
+    } = DecisionBindPrimitives;
+
+    return {
+        queue:          East.compile(East.function([], ArrayType(DecisionType), ($) => { $.return(queue(decisionsExpr)); }), platform),
+        selected:       East.compile(East.function([], OptionType(StringType), ($) => { $.return(selected(selKeyExpr)); }), platform),
+        select:         East.compile(East.function([StringType], NullType, ($, id) => { $.return(select(selKeyExpr, id)); }), platform),
+        clearSelection: East.compile(East.function([], NullType, ($) => { $.return(clearSelection(selKeyExpr)); }), platform),
+        decision:       East.compile(East.function([], OptionType(DecisionType), ($) => { $.return(decision(decisionsExpr, selKeyExpr)); }), platform),
+        update:         East.compile(East.function([DecisionType], NullType, ($, edited) => { $.return(update(decisionsExpr, edited)); }), platform),
+        judgement:      East.compile(East.function([StringType], judgementInputType(c), ($, id) => { $.return(judgement([c], judgementsExpr, id)); }), platform),
+        answer:         East.compile(East.function([StringType, StringType, AnswerType], NullType, ($, id, prompt, ans) => { $.return(answer(judgementsExpr, id, prompt, ans)); }), platform),
+        addKnowledge:   East.compile(East.function([StringType, StringType], NullType, ($, id, text) => { $.return(addKnowledge(judgementsExpr, id, text)); }), platform),
+        inject:         East.compile(East.function([StringType, c], NullType, ($, id, con) => { $.return(inject([c], judgementsExpr, id, con)); }), platform),
+        resolve:        East.compile(East.function([StringType, VerdictType], NullType, ($, id, verdict) => { $.return(resolve(decisionsExpr, judgementsExpr, selKeyExpr, id, verdict)); }), platform),
+        commitState:    East.compile(East.function([StringType], CommitStateType, ($, id) => { $.return(commitState(decisionsExpr, judgementsExpr, id)); }), platform),
     };
+}
+
+/** The decoded/runtime shape of a {@link DecisionHandleType} value — the methods
+ *  the renderer + React hook call. The compiled East.functions are typed loosely
+ *  by inference, so we re-assert the call shapes here. */
+interface DecisionHandleFns {
+    decisions: DiffBindingValue[];
+    judgements: DiffBindingValue;
+    sliceInit: unknown;
+    slice: ReturnType<typeof buildSliceHandle>;
+    queue: () => Decision[];
+    selected: () => SelectionValue;
+    select: (caseId: string) => unknown;
+    clearSelection: () => unknown;
+    decision: () => unknown;
+    update: (next: Decision) => unknown;
+    judgement: (caseId: string) => Judgement;
+    answer: (caseId: string, promptId: string, response: unknown) => unknown;
+    addKnowledge: (caseId: string, text: string) => unknown;
+    inject: (caseId: string, constraint: ConstraintValue) => unknown;
+    resolve: (caseId: string, verdict: Verdict) => unknown;
+    commitState: (caseId: string) => CommitState;
+    journal: () => Judgement[];
+}
+
+/**
+ * Build a decision handle from its binding descriptors. The descriptor fields
+ * (decisions / judgements / sliceInit) are plain data; the 12 methods are
+ * IR-bearing East.functions capturing only those descriptors, so the whole
+ * handle is serializable East data (issue #106). `journal` is a host-only helper
+ * the React hook calls on the locally-built handle (not part of the encodable
+ * handle type). `constraintType` is the contract `C` — supplied by the platform
+ * resolver for East-side callers; the hook omits it (the methods' runtime
+ * behaviour is contract-agnostic, so the default contract's types suffice for a
+ * never-encoded local handle).
+ */
+function buildDecisionHandle(
+    decisions: DiffBindingValue[],
+    judgements: DiffBindingValue,
+    sliceInit?: SliceStateValue,
+    constraintType?: EastTypeValue,
+): DecisionHandleFns {
+    const cType = constraintType ?? toEastTypeValue(DecisionConstraintType);
+    const selectionKey = deriveSelectionKey(decisions);
 
     const slice = buildSliceHandle(
         deriveSliceKey(decisions, sliceInit),
         DECISION_SLICE_CONFIG,
         sliceInit ?? DEFAULT_SLICE_STATE,
-        () => queue(),
+        () => hostQueue(decisions),
         none,
     );
+
+    const journal = (): Judgement[] => {
+        const entries = [...readJudgementsAt(judgements).values()].filter(j => j.verdict.type === 'some');
+        const at = (j: Judgement) => (j.resolvedAt.type === 'some' ? j.resolvedAt.value.getTime() : 0);
+        return entries.sort((a, b) => at(b) - at(a));
+    };
+
+    const cacheKey = `${hashString(stableStringify({ decisions, judgements }))}|${typeToken(cType)}`;
+    let methods = decisionHandleCache.get(cacheKey);
+    if (methods === undefined) {
+        methods = compileDecisionMethods(cType, decisions, judgements, selectionKey);
+        decisionHandleCache.set(cacheKey, methods);
+    }
 
     return {
         decisions,
         judgements,
         sliceInit: sliceInit !== undefined ? some(sliceInit) : none,
         slice,
-        queue,
-        selected: readSelection,
-        select: (caseId: string) => writeSelection(some(caseId)),
-        clearSelection: () => writeSelection(none),
-        decision: () => {
-            const selection = readSelection();
-            if (selection.type === 'none') return none;
-            const found = queue().find(d => d.id === selection.value);
-            return found === undefined ? none : some(found);
-        },
-        update: (edited: Decision): null => {
-            for (const binding of decisions) {
-                const view = viewFor(binding);
-                const rows = view.read() as Decision[];
-                if (rows.some(d => d.id === edited.id)) {
-                    view.write(rows.map(d => (d.id === edited.id ? edited : d)));
-                }
-            }
-            return null;
-        },
-        judgement: judgementFor,
-        answer: (caseId: string, prompt: string, response: Judgement['answers'] extends Map<string, infer A> ? A : never): null => {
-            const answers = new Map(judgementFor(caseId).answers);
-            answers.set(prompt, response);
-            return stageJudgement(caseId, { answers });
-        },
-        addKnowledge: (caseId: string, text: string): null =>
-            stageJudgement(caseId, { knowledge: some(text) }),
-        inject: (caseId: string, constraint: ConstraintValue): null => {
-            // Upsert by contract case name — one constraint per lever.
-            const constraints = judgementFor(caseId).constraints
-                .filter(c => c.type !== constraint.type)
-                .concat([constraint]);
-            return stageJudgement(caseId, { constraints });
-        },
-        resolve: (caseId: string, verdict: Verdict): null => {
-            stageJudgement(caseId, { verdict: some(verdict), resolvedAt: some(new Date()) });
-            removeFromOwningView(caseId);
-            writeSelection(none);
-            return null;
-        },
-        journal: (): Judgement[] => {
-            const entries = [...readJudgements().values()].filter(j => j.verdict.type === 'some');
-            const at = (j: Judgement) => (j.resolvedAt.type === 'some' ? j.resolvedAt.value.getTime() : 0);
-            return entries.sort((a, b) => at(b) - at(a));
-        },
-        commitState: (caseId: string): CommitState => {
-            const decision = queue().find(d => d.id === caseId);
-            const prompts = decision?.prompts ?? [];
-            const answers = judgementFor(caseId).answers;
-            const responses = prompts.map(p => answers.get(p.id)?.type);
-            if (responses.some(r => r === 'no')) return variant('blocked', null);
-            if (responses.some(r => r === 'unknown')) return variant('handoff', null);
-            const unanswered = responses.filter(r => r === undefined).length;
-            if (unanswered > 0) return variant('gated', BigInt(unanswered));
-            return variant('ready', null);
-        },
-    };
+        journal,
+        ...methods,
+    } as unknown as DecisionHandleFns;
 }
 
-/** The `decision_bind` implementation. Registered on module load. */
+/** The `decision_bind` implementation + its backing primitives. Registered on
+ *  module load. */
 export const DecisionBindPlatform: PlatformFunction[] = [
-    // Generic over the constraint contract — the type argument resolver
-    // receives the contract type value; the JS impl is type-agnostic.
-    decisionBindPlatformFn.implement((_constraintType: unknown) =>
+    // Generic over the constraint contract — the resolver receives the contract
+    // type value and threads it into the IR-bearing judgement / inject methods.
+    decisionBindPlatformFn.implement((constraintType: EastTypeValue) =>
         (decisionsArg: unknown, judgementsArg: unknown, sliceInitArg: unknown) =>
             buildDecisionHandle(
                 decisionsArg as DiffBindingValue[],
                 judgementsArg as DiffBindingValue,
                 getSomeorUndefined(sliceInitArg as never) as SliceStateValue | undefined,
+                constraintType,
             )),
+
+    // ── issue #106 primitives — host I/O backing the IR-bearing handle methods.
+    // Each is a faithful lift of the original closure body, taking the plain-data
+    // descriptor(s) + the selection key as arguments. ──
+    DecisionBindPrimitives.queue.implement((decisions: unknown) =>
+        hostQueue(decisions as DiffBindingValue[]) as never),
+    DecisionBindPrimitives.selected.implement((selectionKey: unknown) =>
+        readSelectionAt(selectionKey as string)),
+    DecisionBindPrimitives.select.implement((selectionKey: unknown, caseId: unknown) =>
+        writeSelectionAt(selectionKey as string, some(caseId as string))),
+    DecisionBindPrimitives.clearSelection.implement((selectionKey: unknown) =>
+        writeSelectionAt(selectionKey as string, none)),
+    DecisionBindPrimitives.decision.implement((decisions: unknown, selectionKey: unknown) => {
+        const sel = readSelectionAt(selectionKey as string);
+        if (sel.type === 'none') return none as never;
+        const found = hostQueue(decisions as DiffBindingValue[]).find(d => d.id === sel.value);
+        return (found === undefined ? none : some(found)) as never;
+    }),
+    DecisionBindPrimitives.update.implement((decisions: unknown, edited: unknown) => {
+        const e = edited as Decision;
+        for (const binding of decisions as DiffBindingValue[]) {
+            const view = viewFor(binding);
+            const rows = view.read() as Decision[];
+            if (rows.some(d => d.id === e.id)) {
+                view.write(rows.map(d => (d.id === e.id ? e : d)));
+            }
+        }
+        return null;
+    }),
+    DecisionBindPrimitives.judgement.implement((_c: EastTypeValue) =>
+        (judgements: unknown, caseId: unknown) =>
+            judgementForAt(judgements as DiffBindingValue, caseId as string) as never),
+    DecisionBindPrimitives.answer.implement((judgements: unknown, caseId: unknown, prompt: unknown, response: unknown) => {
+        const answers = new Map(judgementForAt(judgements as DiffBindingValue, caseId as string).answers);
+        answers.set(prompt as string, response as Judgement['answers'] extends Map<string, infer A> ? A : never);
+        return stageJudgementAt(judgements as DiffBindingValue, caseId as string, { answers });
+    }),
+    DecisionBindPrimitives.addKnowledge.implement((judgements: unknown, caseId: unknown, text: unknown) =>
+        stageJudgementAt(judgements as DiffBindingValue, caseId as string, { knowledge: some(text as string) })),
+    DecisionBindPrimitives.inject.implement((_c: EastTypeValue) =>
+        (judgements: unknown, caseId: unknown, constraint: unknown) => {
+            // Upsert by contract case name — one constraint per lever.
+            const con = constraint as ConstraintValue;
+            const constraints = judgementForAt(judgements as DiffBindingValue, caseId as string).constraints
+                .filter(x => x.type !== con.type)
+                .concat([con]);
+            return stageJudgementAt(judgements as DiffBindingValue, caseId as string, { constraints });
+        }),
+    DecisionBindPrimitives.resolve.implement((decisions: unknown, judgements: unknown, selectionKey: unknown, caseId: unknown, verdict: unknown) => {
+        stageJudgementAt(judgements as DiffBindingValue, caseId as string, { verdict: some(verdict as Verdict), resolvedAt: some(new Date()) });
+        removeFromOwningView(decisions as DiffBindingValue[], caseId as string);
+        writeSelectionAt(selectionKey as string, none);
+        return null;
+    }),
+    DecisionBindPrimitives.commitState.implement((decisions: unknown, judgements: unknown, caseId: unknown) => {
+        const cid = caseId as string;
+        const decision = hostQueue(decisions as DiffBindingValue[]).find(d => d.id === cid);
+        const prompts = decision?.prompts ?? [];
+        const answers = judgementForAt(judgements as DiffBindingValue, cid).answers;
+        const responses = prompts.map(p => answers.get(p.id)?.type);
+        if (responses.some(r => r === 'no')) return variant('blocked', null) as never;
+        if (responses.some(r => r === 'unknown')) return variant('handoff', null) as never;
+        const unanswered = responses.filter(r => r === undefined).length;
+        if (unanswered > 0) return variant('gated', BigInt(unanswered)) as never;
+        return variant('ready', null) as never;
+    }),
 ];
 
 registerPlatformImplementation(DecisionBindPlatform);

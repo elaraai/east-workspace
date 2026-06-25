@@ -27,6 +27,13 @@
  */
 
 import {
+    East,
+    StructType,
+    OptionType,
+    BooleanType,
+    NullType,
+    StringType,
+    fromEastTypeValue,
     type EastType,
     type EastTypeValue,
     type ValueTypeOf,
@@ -37,7 +44,7 @@ import {
     variant,
 } from "@elaraai/east";
 import { type PlatformFunction, EastTypeType } from "@elaraai/east/internal";
-import { funcBindPlatformFn, type FuncErrorType } from "@elaraai/e3-ui/internal";
+import { funcBindPlatformFn, FuncBindPrimitives, FuncStatusType, FuncErrorType } from "@elaraai/e3-ui/internal";
 import {
     workspaceFunctionList,
     workspaceFunctionCall,
@@ -227,6 +234,12 @@ export class FuncRuntime extends TrackedChannelStore<FuncEntry> {
     // Signature lists are fetched once per workspace and cached.
     private signatureLists = new Map<string, Promise<FunctionSignature[]>>();
 
+    // Compiled-handle cache (issue #106 perf): buildHandle compiles 6 East.functions
+    // per bind, and binds re-run every reactive frame. The method IR is a pure
+    // function of the function name (which fixes the handle type), and the methods
+    // resolve workspace/api LIVE, so a cached handle still re-binds. Cleared on clear().
+    private readonly handleCache = new Map<string, Record<string, unknown>>();
+
     protected createEntry(): FuncEntry {
         return { status: "idle", launchSeq: 0 };
     }
@@ -246,6 +259,7 @@ export class FuncRuntime extends TrackedChannelStore<FuncEntry> {
         this.workspace = null;
         this.clearChannels();
         this.signatureLists.clear();
+        this.handleCache.clear();
     }
 
     /** The deployed signature list for a workspace (fetched once). */
@@ -344,59 +358,116 @@ export class FuncRuntime extends TrackedChannelStore<FuncEntry> {
         })();
     }
 
-    /** Build the handle value for one `Func.bind` platform evaluation. */
-    buildHandle(handleType: EastTypeValue, name: string): Record<string, unknown> {
-        const sig = signatureOfFuncHandleType(handleType);
+    /**
+     * The 6 low-level primitives backing handle methods, bound to THIS runtime.
+     * Registered globally (extension registry) and included by the scoped
+     * platform (e3 `ui()` tasks) so a decoded handle re-binds to whatever runtime
+     * resolves the primitives on the decode side. The host effects (launch /
+     * channel reads + reactive tracking) live here, keyed only on the plain-data
+     * function name; the output type rides as a type-arg.
+     */
+    buildPrimitives(): PlatformFunction[] {
         // eslint-disable-next-line @typescript-eslint/no-this-alias
         const runtime = this;
-
         const resolveWorkspace = (): string => {
             if (!runtime.workspace) {
                 throw new Error("Func.bind: no workspace configured — mount a provider (or call initializeFunctionApi) first");
             }
             return runtime.workspace;
         };
-        const channel = (): { key: string; entry: FuncEntry } => {
+        const channel = (name: string): { key: string; entry: FuncEntry } => {
             const key = funcChannelKey(resolveWorkspace(), name);
             return { key, entry: runtime.entry(key) };
         };
-
-        return {
-            call: (...args: unknown[]) => {
-                runtime.launch(resolveWorkspace(), name, sig, args);
-                return null;
-            },
-            read: () => {
-                const { key, entry } = channel();
+        return [
+            // call: recover per-arg input types from the ArgsStruct type-arg + the
+            // values from the passed struct (field order), and the output type from O.
+            FuncBindPrimitives.call.implement((argsStructType: EastTypeValue, outputType: EastTypeValue) =>
+                (nameArg: unknown, argsStruct: unknown) => {
+                    const fields = (argsStructType as { value: { name: string; type: EastTypeValue }[] }).value;
+                    const obj = argsStruct as Record<string, unknown>;
+                    const inputs = fields.map(f => f.type);
+                    const args = fields.map(f => obj[f.name]);
+                    runtime.launch(resolveWorkspace(), nameArg as string, { inputs, output: outputType }, args);
+                    return null;
+                }),
+            FuncBindPrimitives.read.implement((_outputType: EastTypeValue) => (nameArg: unknown) => {
+                const { key, entry } = channel(nameArg as string);
                 runtime.track(key);
-                return entry.result !== undefined
-                    ? variant("some", entry.result)
-                    : variant("none", null);
-            },
-            status: () => {
-                const { key, entry } = channel();
+                return entry.result !== undefined ? variant("some", entry.result) : variant("none", null);
+            }),
+            FuncBindPrimitives.status.implement((nameArg: unknown) => {
+                const { key, entry } = channel(nameArg as string);
                 runtime.track(key);
                 return variant(entry.status, null);
-            },
-            error: () => {
-                const { key, entry } = channel();
+            }),
+            FuncBindPrimitives.error.implement((nameArg: unknown) => {
+                const { key, entry } = channel(nameArg as string);
                 runtime.track(key);
                 return entry.status === "failed" && entry.error !== undefined
                     ? variant("some", entry.error)
                     : variant("none", null);
-            },
-            pending: () => {
-                const { key, entry } = channel();
+            }),
+            FuncBindPrimitives.pending.implement((nameArg: unknown) => {
+                const { key, entry } = channel(nameArg as string);
                 runtime.track(key);
                 return entry.status === "running";
-            },
-            cancel: () => {
-                const { key } = channel();
+            }),
+            FuncBindPrimitives.cancel.implement((nameArg: unknown) => {
+                const { key } = channel(nameArg as string);
                 runtime.cancelChannel(key);
                 return null;
-            },
+            }),
+        ];
+    }
+
+    /**
+     * Build the handle value for one `Func.bind` evaluation. The methods are
+     * thin IR-bearing `East.function`s over {@link buildPrimitives}, capturing
+     * only the function name (and the signature types via type-args) — so the
+     * handle is ordinary serializable East data (issue #106).
+     */
+    buildHandle(handleType: EastTypeValue, name: string): Record<string, unknown> {
+        // Compiled-handle cache (issue #106 perf): the name fixes the signature, so
+        // the 6 method IRs are identical across renders; methods resolve api/ws live.
+        const cached = this.handleCache.get(name);
+        if (cached) return cached;
+
+        const sig = signatureOfFuncHandleType(handleType);
+        const inputsEast = sig.inputs.map(t => fromEastTypeValue(t));
+        const outputEast = fromEastTypeValue(sig.output);
+        // Bundle the N positional call-args into one struct so a single
+        // fixed-arity primitive can carry them (call is otherwise variadic).
+        const ArgsStruct = StructType(Object.fromEntries(inputsEast.map((t, i) => [`arg${i}`, t])));
+        const nameExpr = East.value(name, StringType);
+        const platform = this.buildPrimitives();
+        const { call, read, status, error, pending, cancel } = FuncBindPrimitives;
+
+        const handle: Record<string, unknown> = {
+            call: East.compile(East.function(inputsEast, NullType, ($, ...args) => {
+                const obj: Record<string, unknown> = {};
+                args.forEach((a, i) => { obj[`arg${i}`] = a; });
+                $.return(call([ArgsStruct, outputEast], nameExpr, East.value(obj as never, ArgsStruct)));
+            }), platform),
+            read: East.compile(East.function([], OptionType(outputEast), ($) => {
+                $.return(read([outputEast], nameExpr));
+            }), platform),
+            status: East.compile(East.function([], FuncStatusType, ($) => {
+                $.return(status(nameExpr));
+            }), platform),
+            error: East.compile(East.function([], OptionType(FuncErrorType), ($) => {
+                $.return(error(nameExpr));
+            }), platform),
+            pending: East.compile(East.function([], BooleanType, ($) => {
+                $.return(pending(nameExpr));
+            }), platform),
+            cancel: East.compile(East.function([], NullType, ($) => {
+                $.return(cancel(nameExpr));
+            }), platform),
             binding: { name },
         };
+        this.handleCache.set(name, handle);
+        return handle;
     }
 
     // ----- platform building -------------------------------------------------
@@ -438,12 +509,24 @@ export function clearFunctionApi(): void {
     defaultFuncRuntime.clear();
 }
 
-/** Global, manifest-unscoped `Func.bind` impl. Registered on module load. */
-export const FuncPlatform: PlatformFunction[] = [defaultFuncRuntime.buildPlatform(null)];
+/** Global, manifest-unscoped `Func.bind` impl + its backing primitives.
+ *  Registered on module load (powers the extension registry decode path). */
+export const FuncPlatform: PlatformFunction[] = [
+    defaultFuncRuntime.buildPlatform(null),
+    ...defaultFuncRuntime.buildPrimitives(),
+];
 
-/** Build a manifest-scoped `Func.bind` implementation. */
+/** Build a manifest-scoped `Func.bind` implementation + its backing primitives.
+ *
+ *  The `function_*` primitives MUST ship with the scoped platform: e3 `ui()`
+ *  tasks render through `createScoped*()` arrays (UITaskPreview), NOT the global
+ *  registry, so a serialized handle's methods would otherwise decode to
+ *  "Platform function 'function_call' is not available". */
 export function createScopedFuncPlatform(functions: readonly string[]): PlatformFunction[] {
-    return [defaultFuncRuntime.buildPlatform(new Set(functions))];
+    return [
+        defaultFuncRuntime.buildPlatform(new Set(functions)),
+        ...defaultFuncRuntime.buildPrimitives(),
+    ];
 }
 
 // =============================================================================

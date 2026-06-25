@@ -26,6 +26,7 @@ export {
     DataBindHandleType,
     type DataBindOptions,
     bindPlatformFn,
+    DataBindPrimitives,
 } from './bind/data.js';
 export {
     Func,
@@ -35,6 +36,7 @@ export {
     FuncBindHandleType,
     type BoundFunc,
     funcBindPlatformFn,
+    FuncBindPrimitives,
 } from './bind/func.js';
 export {
     Record,
@@ -44,6 +46,7 @@ export {
     RecordBindHandleType,
     type BoundRecord,
     recordBindPlatformFn,
+    RecordBindPrimitives,
 } from './bind/record.js';
 export { DataManifestType, type DataManifest, encodeManifest, decodeManifest } from './utils/manifest.js';
 export { deriveManifest } from './utils/derive.js';
@@ -102,6 +105,7 @@ export {
 export {
     decisionBind,
     decisionBindPlatformFn,
+    DecisionBindPrimitives,
     DecisionHandleType,
     DecisionHandleRefType,
     CommitStateType,

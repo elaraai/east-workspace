@@ -170,6 +170,56 @@ export const bindPlatformFn = East.genericPlatform(
     { optional: true },
 );
 
+// Low-level primitives backing a `Data.bind` handle's methods (issue #106).
+//
+// Every handle method is a thin `East.function` over one of these primitives,
+// capturing only the plain-data {source, patch, mode} descriptor (the source
+// type rides as a type-arg). The host work — the mode×patch matrix + the async
+// write queue — stays in the primitive impls, which resolve cache/workspace
+// LIVE, so a `Data.bind` handle is ordinary serializable East data and re-binds
+// to the decoder's cache. Implemented by `BindRuntime` in `@elaraai/e3-ui-components`.
+const DESCRIPTOR = [TreePathType, OptionType(TreePathType), DataBindModeType] as const;
+const data_read = East.genericPlatform("data_read", ["T"], [...DESCRIPTOR], "T", { optional: true });
+const data_source = East.genericPlatform("data_source", ["T"], [...DESCRIPTOR], "T", { optional: true });
+const data_write = East.genericPlatform("data_write", ["T"], [...DESCRIPTOR, "T"], NullType, { optional: true });
+const data_write_and_start = East.genericPlatform("data_write_and_start", ["T"], [...DESCRIPTOR, "T"], NullType, { optional: true });
+const data_start = East.genericPlatform("data_start", ["T"], [...DESCRIPTOR], NullType, { optional: true });
+const data_pending = East.genericPlatform("data_pending", ["T"], [...DESCRIPTOR], BooleanType, { optional: true });
+const data_commit = East.genericPlatform("data_commit", ["T"], [...DESCRIPTOR], NullType, { optional: true });
+const data_discard = East.genericPlatform("data_discard", ["T"], [...DESCRIPTOR], NullType, { optional: true });
+const data_has = East.genericPlatform("data_has", ["T"], [...DESCRIPTOR], BooleanType, { optional: true });
+const data_status = East.genericPlatform("data_status", ["T"], [...DESCRIPTOR], DatasetStatusType, { optional: true });
+
+/**
+ * Low-level platform primitives that back {@link Data.bind}'s handle methods.
+ *
+ * @internal Not for direct use — author against {@link Data.bind}. These exist
+ * so the handle's methods can be IR-bearing `East.function`s (serializable)
+ * rather than raw host closures.
+ */
+export const DataBindPrimitives = {
+    /** `data_read([T], source, patch, mode) -> T` — the binding's view (mode×patch). */
+    read: data_read,
+    /** `data_source([T], source, patch, mode) -> T` — raw source, no overlay. */
+    source: data_source,
+    /** `data_write([T], source, patch, mode, value) -> Null`. */
+    write: data_write,
+    /** `data_write_and_start([T], source, patch, mode, value) -> Null`. */
+    writeAndStart: data_write_and_start,
+    /** `data_start([T], source, patch, mode) -> Null`. */
+    start: data_start,
+    /** `data_pending([T], source, patch, mode) -> Bool`. */
+    pending: data_pending,
+    /** `data_commit([T], source, patch, mode) -> Null`. */
+    commit: data_commit,
+    /** `data_discard([T], source, patch, mode) -> Null`. */
+    discard: data_discard,
+    /** `data_has([T], source, patch, mode) -> Bool`. */
+    has: data_has,
+    /** `data_status([T], source, patch, mode) -> DatasetStatus`. */
+    status: data_status,
+} as const;
+
 // ============================================================================
 // User-facing factory.
 // ============================================================================

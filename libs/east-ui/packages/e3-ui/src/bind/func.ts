@@ -206,6 +206,47 @@ export const funcBindPlatformFn = East.genericPlatform(
     { optional: true },
 );
 
+// Low-level primitives backing a `Func.bind` handle's methods (issue #106).
+//
+// The handle's `call`/`read`/… are thin `East.function`s over these primitives,
+// capturing only the plain-data function name (the arg/return types ride as
+// type-args), so a `Func.bind` handle is ordinary serializable East data and
+// re-binds to the decoder's runtime on decode. Implemented by `FuncRuntime` in
+// `@elaraai/e3-ui-components`.
+//
+// `call` is variadic but platform fns are fixed-arity, so its N positional args
+// are bundled into one `ArgsStruct` (StructType({arg0,arg1,…})); `function_call`
+// is generic over that struct type `A` *and* the output type `O` so the impl can
+// recover per-arg types from `A`'s fields and `launch` keeps its output type.
+const function_call = East.genericPlatform("function_call", ["A", "O"], [StringType, "A"], NullType, { optional: true });
+const function_read = East.genericPlatform("function_read", ["O"], [StringType], OptionType("O"), { optional: true });
+const function_status = East.platform("function_status", [StringType], FuncStatusType, { optional: true });
+const function_error = East.platform("function_error", [StringType], OptionType(FuncErrorType), { optional: true });
+const function_pending = East.platform("function_pending", [StringType], BooleanType, { optional: true });
+const function_cancel = East.platform("function_cancel", [StringType], NullType, { optional: true });
+
+/**
+ * Low-level platform primitives that back {@link Func.bind}'s handle methods.
+ *
+ * @internal Not for direct use — author against {@link Func.bind}. These exist
+ * so the handle's methods can be IR-bearing `East.function`s (serializable)
+ * rather than raw host closures.
+ */
+export const FuncBindPrimitives = {
+    /** `function_call([ArgsStruct, O], name, argsStruct) -> Null` — launch. */
+    call: function_call,
+    /** `function_read([O], name) -> Option(O)` — last successful result. */
+    read: function_read,
+    /** `function_status(name) -> FuncStatus`. */
+    status: function_status,
+    /** `function_error(name) -> Option(FuncError)`. */
+    error: function_error,
+    /** `function_pending(name) -> Bool`. */
+    pending: function_pending,
+    /** `function_cancel(name) -> Null`. */
+    cancel: function_cancel,
+} as const;
+
 // ============================================================================
 // User-facing factory.
 // ============================================================================
