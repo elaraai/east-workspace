@@ -459,8 +459,13 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
         return out;
     }, [value.rows]);
 
-    const renderCellBody = (row: PlannerRowValue, colIndex: number) => {
-        if (buckets.length === 0) {
+    // Bucketing is decided PER ROW (`rowBucketed`), not globally: a row renders
+    // the bucket sub-grid only when the axis declares buckets AND the row carries
+    // at least one bucketed event. Rows whose events are all `bucket: none` (under
+    // the same bucketed axis) fall through to the flat branch — one cell per day —
+    // instead of vanishing (those events match no bucket sub-cell).
+    const renderCellBody = (row: PlannerRowValue, colIndex: number, rowBucketed: boolean) => {
+        if (!rowBucketed) {
             return cellEvents(row, colIndex).map((ev, i) => (
                 <EventChip key={i} event={ev} eventStyle={eventStyleFor(ev)} gripStyle={base.grip} />
             ));
@@ -533,6 +538,10 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
                     )}
                     {group.rows.map(({ row, index }) => {
                         const rowStatusTag = hasReview ? getSomeorUndefined(row.status)?.type : undefined;
+                        // Per-row bucketing: bucketed iff the axis declares buckets
+                        // AND this row has ≥1 event sitting in one (else its
+                        // `bucket: none` events render flat, one cell per column).
+                        const rowBucketed = buckets.length > 0 && row.events.some((ev) => getSomeorUndefined(ev.bucket) !== undefined);
                         return (
                         <Box
                             key={index}
@@ -597,14 +606,14 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
                                     let cellCss: Record<string, unknown> = past
                                         ? { ...base.cell, background: "bg.muted" }
                                         : { ...base.cell };
-                                    if (buckets.length > 0) cellCss = { ...cellCss, ...base.bucketedCell };
+                                    if (rowBucketed) cellCss = { ...cellCss, ...base.bucketedCell };
                                     else cellCss = { ...cellCss, height: `${unitH}px` };
                                     if (ci === cols.length - 1) cellCss = { ...cellCss, borderRightWidth: "0" };
                                     // Anchor the marker ring/icon to THIS cell (not the timeline pane).
                                     cellCss = { ...cellCss, position: "relative" };
                                     return (
                                         <Box key={c.key} data-slot="cell" data-past={past ? "" : undefined} css={cellCss}>
-                                            {renderCellBody(row, ci)}
+                                            {renderCellBody(row, ci, rowBucketed)}
                                             {marker && mStyle && <Box css={mStyle.markerRing} data-slot="markerRing" />}
                                             {marker && mStyle && (
                                                 <Tooltip.Root openDelay={150}>

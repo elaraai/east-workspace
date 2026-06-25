@@ -1,14 +1,14 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1359,
+    "totalEntries": 1361,
     "totalFiles": 180,
     "packages": {
       "east": 489,
       "east-node-std": 42,
       "east-node-io": 63,
       "east-py-datascience": 89,
-      "east-ui": 616,
+      "east-ui": 618,
       "e3-ui": 53,
       "e3": 7
     }
@@ -15981,7 +15981,7 @@
         "select"
       ],
       "imports": [
-        "import { East, NullType, some, none, variant, example } from \"@elaraai/east\";",
+        "import { East, NullType, FloatType, ArrayType, some, none, variant, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
         "import { Planner, Text, VStack } from \"@elaraai/east-ui\";"
       ],
@@ -16006,7 +16006,7 @@
         "diff"
       ],
       "imports": [
-        "import { East, NullType, some, none, variant, example } from \"@elaraai/east\";",
+        "import { East, NullType, FloatType, ArrayType, some, none, variant, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
         "import { Planner, Text, VStack } from \"@elaraai/east-ui\";"
       ],
@@ -16029,11 +16029,36 @@
         "afternoon"
       ],
       "imports": [
-        "import { East, NullType, some, none, variant, example } from \"@elaraai/east\";",
+        "import { East, NullType, FloatType, ArrayType, some, none, variant, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
         "import { Planner, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// Labelled sub-slot buckets per column (three named shifts)\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Planner.Point\n                data={[{ name: \"Alice\" }, { name: \"Bob\" }]}\n                axis={Planner.axis.number({\n                    buckets: [\n                        { key: \"morning\", label: \"AM\" },\n                        { key: \"afternoon\", label: \"PM\" },\n                        { key: \"evening\", label: \"EV\" },\n                    ],\n                    range: { min: 1, max: 3 },\n                })}\n                columns={[{ key: \"name\", frozen: true, value: r => r.name }]}\n                events={_r => [\n                    Planner.event({ slot: Planner.at.number(1), bucket: \"morning\", label: \"A\", state: \"committed\" }),\n                    Planner.event({ slot: Planner.at.number(1), bucket: \"evening\", label: \"B\", state: \"added\" }),\n                ]}\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:planner.examples.tsx:plannerMixedBuckets",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/planner.examples.tsx",
+      "suite": "",
+      "test": "Per-row bucketing: an AM/PM-bucketed group beside an unbucketed group (bucket: none events) under one shared day axis",
+      "keywords": [
+        "Planner",
+        "bucket",
+        "per-row",
+        "mixed",
+        "unbucketed",
+        "none",
+        "shift",
+        "flat",
+        "ifElse"
+      ],
+      "imports": [
+        "import { East, NullType, FloatType, ArrayType, some, none, variant, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Planner, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Per-row bucketing: an AM/PM-bucketed group beside an unbucketed group (bucket: none events) under one shared day axis\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        // Two static event lists, each bound with its East type so the per-row\n        // `ifElse` branches return a typed `Array<PlannerEvent>`.\n        const shiftEvents = $.const([\n            Planner.event({ slot: Planner.at.number(1), bucket: \"am\", label: \"✓\", state: \"committed\" }),\n            Planner.event({ slot: Planner.at.number(2), bucket: \"pm\", label: \"✓\", state: \"committed\" }),\n            Planner.event({ slot: Planner.at.number(3), bucket: \"am\", label: \"plan\", state: \"added\" }),\n        ], ArrayType(Planner.Types.Event));\n        const dailyEvents = $.const([\n            Planner.event({ slot: Planner.at.number(1), label: \"12\", state: \"committed\" }),\n            Planner.event({ slot: Planner.at.number(2), label: \"15\", state: \"committed\" }),\n            Planner.event({ slot: Planner.at.number(3), label: \"9\", state: \"added\" }),\n        ], ArrayType(Planner.Types.Event));\n        return (\n            <Planner.Point\n                data={[\n                    { name: \"Alice\", group: \"Shifts\", bucketed: true },\n                    { name: \"Bob\", group: \"Shifts\", bucketed: true },\n                    { name: \"Headcount\", group: \"Daily\", bucketed: false },\n                    { name: \"Output\", group: \"Daily\", bucketed: false },\n                ]}\n                axis={Planner.axis.number({ buckets: [{ key: \"am\", label: \"AM\" }, { key: \"pm\", label: \"PM\" }], range: { min: 1, max: 5 } })}\n                groupBy={r => r.group}\n                columns={[{ key: \"name\", frozen: true, value: r => r.name }]}\n                // Per row: bucketed rows emit AM/PM events (vertical sub-grid),\n                // unbucketed rows emit bucketless events (one flat cell per day).\n                events={r => r.bucketed.ifElse(() => shiftEvents, () => dailyEvents)}\n            />\n        );\n    })"
     },
     {
       "id": "east-ui:planner.examples.tsx:plannerOrdinalAxis",
@@ -16051,11 +16076,36 @@
         "axis"
       ],
       "imports": [
-        "import { East, NullType, some, none, variant, example } from \"@elaraai/east\";",
+        "import { East, NullType, FloatType, ArrayType, some, none, variant, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
         "import { Planner, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// Ordinal phase axis, one slot per column\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Planner.Point\n                data={[{ name: \"Item\" }]}\n                axis={Planner.axis.ordinal({ range: [\"backlog\", \"active\", \"review\", \"done\"] })}\n                columns={[{ key: \"name\", frozen: true, value: r => r.name }]}\n                events={_r => [\n                    Planner.event({ slot: Planner.at.ordinal(\"active\"), label: \"Start\", state: \"committed\" }),\n                    Planner.event({ slot: Planner.at.ordinal(\"done\"), label: \"Wrap up\", state: \"model\" }),\n                ]}\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:planner.examples.tsx:plannerDataDrivenRange",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/planner.examples.tsx",
+      "suite": "",
+      "test": "Data-driven numeric axis extent — range.max is a FloatType expression; the now marker beyond the last event stays on-grid",
+      "keywords": [
+        "Planner",
+        "axis",
+        "range",
+        "data-driven",
+        "expression",
+        "now",
+        "horizon",
+        "FloatType",
+        "SubtypeExprOrValue"
+      ],
+      "imports": [
+        "import { East, NullType, FloatType, ArrayType, some, none, variant, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Planner, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Data-driven numeric axis extent — range.max is a FloatType expression; the now marker beyond the last event stays on-grid\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        // A runtime-derived horizon (last event day 3 + a 4-day tail = 7) — proves\n        // range.max accepts a FloatType *expression*, not just a literal.\n        const lastEventDay = $.const(3.0, FloatType);\n        const horizon = $.const(lastEventDay.add(4.0), FloatType);\n        return (\n            <Planner.Point\n                data={[{ name: \"Fermenter A\" }, { name: \"Fermenter B\" }]}\n                axis={Planner.axis.number({ range: { min: 1, max: horizon } })}\n                columns={[{ key: \"name\", frozen: true, value: r => r.name }]}\n                events={_r => [\n                    Planner.event({ slot: Planner.at.number(1), label: \"✓\", state: \"committed\" }),\n                    Planner.event({ slot: Planner.at.number(2), label: \"✓\", state: \"committed\" }),\n                    Planner.event({ slot: Planner.at.number(3), label: \"plan\", state: \"added\" }),\n                ]}\n                now={Planner.at.number(7)}\n            />\n        );\n    })"
     },
     {
       "id": "east-ui:planner.examples.tsx:plannerColumns",
@@ -16076,7 +16126,7 @@
         "capacity"
       ],
       "imports": [
-        "import { East, NullType, some, none, variant, example } from \"@elaraai/east\";",
+        "import { East, NullType, FloatType, ArrayType, some, none, variant, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
         "import { Planner, Text, VStack } from \"@elaraai/east-ui\";"
       ],
@@ -16101,7 +16151,7 @@
         "tooltip"
       ],
       "imports": [
-        "import { East, NullType, some, none, variant, example } from \"@elaraai/east\";",
+        "import { East, NullType, FloatType, ArrayType, some, none, variant, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
         "import { Planner, Text, VStack } from \"@elaraai/east-ui\";"
       ],
@@ -16122,7 +16172,7 @@
         "rich"
       ],
       "imports": [
-        "import { East, NullType, some, none, variant, example } from \"@elaraai/east\";",
+        "import { East, NullType, FloatType, ArrayType, some, none, variant, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
         "import { Planner, Text, VStack } from \"@elaraai/east-ui\";"
       ],
@@ -16145,7 +16195,7 @@
         "timeline"
       ],
       "imports": [
-        "import { East, NullType, some, none, variant, example } from \"@elaraai/east\";",
+        "import { East, NullType, FloatType, ArrayType, some, none, variant, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
         "import { Planner, Text, VStack } from \"@elaraai/east-ui\";"
       ],
@@ -16167,7 +16217,7 @@
         "size"
       ],
       "imports": [
-        "import { East, NullType, some, none, variant, example } from \"@elaraai/east\";",
+        "import { East, NullType, FloatType, ArrayType, some, none, variant, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
         "import { Planner, Text, VStack } from \"@elaraai/east-ui\";"
       ],
@@ -16193,7 +16243,7 @@
         "row"
       ],
       "imports": [
-        "import { East, NullType, some, none, variant, example } from \"@elaraai/east\";",
+        "import { East, NullType, FloatType, ArrayType, some, none, variant, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
         "import { Planner, Text, VStack } from \"@elaraai/east-ui\";"
       ],

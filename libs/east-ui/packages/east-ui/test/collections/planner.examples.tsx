@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, NullType, some, none, variant, example } from "@elaraai/east";
+import { East, NullType, FloatType, ArrayType, some, none, variant, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
 import { Planner, Text, VStack } from "@elaraai/east-ui";
 
@@ -100,6 +100,51 @@ export const plannerBuckets = example({
 });
 
 /**
+ * Per-row bucketing — one Planner mixes bucketed rows (the `Shifts` group, split
+ * AM/PM) with unbucketed rows (the `Daily` group, one value per day) under a
+ * single shared day axis. The axis declares the `am`/`pm` buckets (for the
+ * bucketed group); rows whose events all carry no bucket (`bucket: none`)
+ * collapse to one cell per column instead of being dropped. `events` branches
+ * per row on the East boolean `bucketed` field — bucketed rows emit `am`/`pm`
+ * events, unbucketed rows emit bucketless ones.
+ */
+export const plannerMixedBuckets = example({
+    keywords: ["Planner", "bucket", "per-row", "mixed", "unbucketed", "none", "shift", "flat", "ifElse"],
+    description: "Per-row bucketing: an AM/PM-bucketed group beside an unbucketed group (bucket: none events) under one shared day axis",
+    fn: East.function([], UIComponentType, ($) => {
+        // Two static event lists, each bound with its East type so the per-row
+        // `ifElse` branches return a typed `Array<PlannerEvent>`.
+        const shiftEvents = $.const([
+            Planner.event({ slot: Planner.at.number(1), bucket: "am", label: "✓", state: "committed" }),
+            Planner.event({ slot: Planner.at.number(2), bucket: "pm", label: "✓", state: "committed" }),
+            Planner.event({ slot: Planner.at.number(3), bucket: "am", label: "plan", state: "added" }),
+        ], ArrayType(Planner.Types.Event));
+        const dailyEvents = $.const([
+            Planner.event({ slot: Planner.at.number(1), label: "12", state: "committed" }),
+            Planner.event({ slot: Planner.at.number(2), label: "15", state: "committed" }),
+            Planner.event({ slot: Planner.at.number(3), label: "9", state: "added" }),
+        ], ArrayType(Planner.Types.Event));
+        return (
+            <Planner.Point
+                data={[
+                    { name: "Alice", group: "Shifts", bucketed: true },
+                    { name: "Bob", group: "Shifts", bucketed: true },
+                    { name: "Headcount", group: "Daily", bucketed: false },
+                    { name: "Output", group: "Daily", bucketed: false },
+                ]}
+                axis={Planner.axis.number({ buckets: [{ key: "am", label: "AM" }, { key: "pm", label: "PM" }], range: { min: 1, max: 5 } })}
+                groupBy={r => r.group}
+                columns={[{ key: "name", frozen: true, value: r => r.name }]}
+                // Per row: bucketed rows emit AM/PM events (vertical sub-grid),
+                // unbucketed rows emit bucketless events (one flat cell per day).
+                events={r => r.bucketed.ifElse(() => shiftEvents, () => dailyEvents)}
+            />
+        );
+    }),
+    inputs: [],
+});
+
+/**
  * An ordinal axis (named phases), one slot per column (no buckets).
  */
 export const plannerOrdinalAxis = example({
@@ -115,6 +160,37 @@ export const plannerOrdinalAxis = example({
                     Planner.event({ slot: Planner.at.ordinal("active"), label: "Start", state: "committed" }),
                     Planner.event({ slot: Planner.at.ordinal("done"), label: "Wrap up", state: "model" }),
                 ]}
+            />
+        );
+    }),
+    inputs: [],
+});
+
+/**
+ * Data-driven axis extent — `range.max` is a runtime `FloatType` expression
+ * (not a literal), so the day axis can be pinned to bound/computed data. Here a
+ * `horizon` day past the last event pins the grid, keeping the `now` marker (a
+ * day with no events) on-grid instead of clipped off the right edge.
+ */
+export const plannerDataDrivenRange = example({
+    keywords: ["Planner", "axis", "range", "data-driven", "expression", "now", "horizon", "FloatType", "SubtypeExprOrValue"],
+    description: "Data-driven numeric axis extent — range.max is a FloatType expression; the now marker beyond the last event stays on-grid",
+    fn: East.function([], UIComponentType, ($) => {
+        // A runtime-derived horizon (last event day 3 + a 4-day tail = 7) — proves
+        // range.max accepts a FloatType *expression*, not just a literal.
+        const lastEventDay = $.const(3.0, FloatType);
+        const horizon = $.const(lastEventDay.add(4.0), FloatType);
+        return (
+            <Planner.Point
+                data={[{ name: "Fermenter A" }, { name: "Fermenter B" }]}
+                axis={Planner.axis.number({ range: { min: 1, max: horizon } })}
+                columns={[{ key: "name", frozen: true, value: r => r.name }]}
+                events={_r => [
+                    Planner.event({ slot: Planner.at.number(1), label: "✓", state: "committed" }),
+                    Planner.event({ slot: Planner.at.number(2), label: "✓", state: "committed" }),
+                    Planner.event({ slot: Planner.at.number(3), label: "plan", state: "added" }),
+                ]}
+                now={Planner.at.number(7)}
             />
         );
     }),
