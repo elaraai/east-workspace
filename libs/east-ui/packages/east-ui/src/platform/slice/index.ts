@@ -849,6 +849,99 @@ export const SliceBindType = StructType({
 });
 export type SliceBindType = typeof SliceBindType;
 
+// ============================================================================
+// slice_* primitives — low-level host I/O backing a Slice.bind handle's methods
+// (issue #106)
+//
+// The `Slice.bind` handle is a struct of ~27 closures. For it to serialize, each
+// closure must be an IR-bearing `East.function` rather than a raw host closure —
+// so a captured handle (e.g. `onClick={() => slice.setSearch(some(q))}`) encodes
+// through beast2 and `decodeBeast2For({ platform })` re-binds it to the decoder's
+// store + bound-rows registry. The handle methods are thin `East.function`s over
+// these primitives, capturing only the plain-data store key.
+//
+// Every primitive is NON-generic (`East.platform`): keys, slice state, and all
+// outputs are concrete types — the row type `T` never appears (the data-derived
+// primitives resolve the bound rows from a host registry keyed by `key`, so they
+// don't carry `T`). Only `slice_bind` / `slice_rows` stay generic over `T`.
+// Implemented by `SliceImpl` in `@elaraai/east-ui-components`.
+// ----------------------------------------------------------------------------
+
+// --- raw read / write ---
+const slice_read          = East.platform("slice_read",          [StringType], SliceStateType, { optional: true });
+const slice_write         = East.platform("slice_write",         [StringType, SliceStateType], NullType, { optional: true });
+// --- range ---
+const slice_set_range     = East.platform("slice_set_range",     [StringType, OptionType(SliceRangeType)], NullType, { optional: true });
+const slice_set_compare   = East.platform("slice_set_compare",   [StringType, OptionType(SliceCompareType)], NullType, { optional: true });
+// --- filters ---
+const slice_add_filter    = East.platform("slice_add_filter",    [StringType, SlicePredicateType], NullType, { optional: true });
+const slice_remove_filter = East.platform("slice_remove_filter", [StringType, IntegerType], NullType, { optional: true });
+const slice_clear_filters = East.platform("slice_clear_filters", [StringType], NullType, { optional: true });
+// --- cohorts ---
+const slice_define_cohort = East.platform("slice_define_cohort", [StringType, SliceCohortType], NullType, { optional: true });
+const slice_update_cohort = East.platform("slice_update_cohort", [StringType, StringType, SliceCohortType], NullType, { optional: true });
+const slice_remove_cohort = East.platform("slice_remove_cohort", [StringType, StringType], NullType, { optional: true });
+const slice_toggle_cohort = East.platform("slice_toggle_cohort", [StringType, StringType], NullType, { optional: true });
+// --- breakdown / search / visible / selection ---
+const slice_set_breakdown = East.platform("slice_set_breakdown", [StringType, OptionType(SliceBreakdownType)], NullType, { optional: true });
+const slice_set_search    = East.platform("slice_set_search",    [StringType, OptionType(StringType)], NullType, { optional: true });
+const slice_set_visible   = East.platform("slice_set_visible",   [StringType, OptionType(SetType(StringType))], NullType, { optional: true });
+const slice_select        = East.platform("slice_select",        [StringType, OptionType(IntegerType)], NullType, { optional: true });
+// --- derived ---
+const slice_is_active     = East.platform("slice_is_active",     [StringType], BooleanType, { optional: true });
+const slice_active_count  = East.platform("slice_active_count",  [StringType], IntegerType, { optional: true });
+// --- config-derived metadata ---
+const slice_dimensions    = East.platform("slice_dimensions",    [StringType], SliceDimensionArrayType, { optional: true });
+const slice_fields_meta   = East.platform("slice_fields_meta",   [StringType], SliceFieldDescriptorArrayType, { optional: true });
+const slice_search_fields = East.platform("slice_search_fields", [StringType], ArrayType(StringType), { optional: true });
+const slice_range_field   = East.platform("slice_range_field",   [StringType], OptionType(StringType), { optional: true });
+// --- data-derived results (over the rows bound at Slice.bind) ---
+const slice_total_count   = East.platform("slice_total_count",   [StringType], IntegerType, { optional: true });
+const slice_result_count  = East.platform("slice_result_count",  [StringType], IntegerType, { optional: true });
+const slice_groups        = East.platform("slice_groups",        [StringType], SliceBreakdownGroupArrayType, { optional: true });
+const slice_series_data   = East.platform("slice_series_data",   [StringType, StringType, StringType], SliceSeriesArrayType, { optional: true });
+const slice_matches       = East.platform("slice_matches",       [StringType], SliceSearchMatchArrayType, { optional: true });
+const slice_cohort_counts = East.platform("slice_cohort_counts", [StringType], DictType(StringType, IntegerType), { optional: true });
+
+/**
+ * Low-level platform primitives that back {@link Slice.bind}'s handle methods.
+ *
+ * @internal Not for direct use — author against {@link Slice.bind}. These exist
+ * so each handle method can be an IR-bearing `East.function` (serializable)
+ * rather than a raw host closure. Keyed entirely by the slice's store key; the
+ * data-derived primitives resolve the bound rows / config / `toMatch` from a host
+ * registry that `Slice.bind` refreshes on every bind.
+ */
+export const SliceBindPrimitives = {
+    read: slice_read,
+    write: slice_write,
+    setRange: slice_set_range,
+    setCompare: slice_set_compare,
+    addFilter: slice_add_filter,
+    removeFilter: slice_remove_filter,
+    clearFilters: slice_clear_filters,
+    defineCohort: slice_define_cohort,
+    updateCohort: slice_update_cohort,
+    removeCohort: slice_remove_cohort,
+    toggleCohort: slice_toggle_cohort,
+    setBreakdown: slice_set_breakdown,
+    setSearch: slice_set_search,
+    setVisible: slice_set_visible,
+    select: slice_select,
+    isActive: slice_is_active,
+    activeCount: slice_active_count,
+    dimensions: slice_dimensions,
+    fields: slice_fields_meta,
+    searchFieldIds: slice_search_fields,
+    rangeFieldId: slice_range_field,
+    totalCount: slice_total_count,
+    resultCount: slice_result_count,
+    groups: slice_groups,
+    series: slice_series_data,
+    matches: slice_matches,
+    cohortCounts: slice_cohort_counts,
+} as const;
+
 const slice_bind = East.genericPlatform("slice_bind", ["T"],
     [StringType, SliceConfigType, SliceStateType, ArrayType("T"), OptionType(FunctionType(["T"], SliceSearchMatchType))],
     SliceBindType,

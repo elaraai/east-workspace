@@ -364,7 +364,10 @@ const EastChakraDecisionQueue = memo(function EastChakraDecisionQueue({ value, s
     // Its narrowing applies whether or not a rail shows — initial state with
     // no rail is an invisible author scope.
     const railAffordances = getSomeorUndefined(value.slice);
-    const sliceHandle = handle.slice;
+    // `buildSliceHandle` now returns a serializable IR handle typed loosely
+    // (`Record<string, unknown>`, issue #106); narrow to the methods this view
+    // reads. `read()` yields the decoded SliceState (cast `as never` at use).
+    const sliceHandle = handle.slice as { key: string; read: () => unknown } | null;
     useSliceReactivity(sliceHandle?.key as string | undefined);
     // Read at render level: the handle's identity is stable across slice
     // writes, so the narrowing memo must depend on the state value itself
