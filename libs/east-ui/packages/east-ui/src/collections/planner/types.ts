@@ -390,16 +390,18 @@ export interface AxisOptions {
  * @remarks
  * Supply `range` to pin the visible calendar window regardless of event
  * coverage; omit it to let the renderer derive the extent from the earliest
- * and latest event slots. `min` and `max` are plain JS `Date` values — the
- * builder coerces them to the `PlannerRangeType` `time` arm automatically.
+ * and latest event slots. `min` and `max` accept a plain JS `Date` *or* a
+ * `DateTimeType` expression (a data-driven calendar window) — the builder
+ * coerces either to the `PlannerRangeType` `time` arm automatically.
  *
  * @property buckets - The labelled sub-slot buckets ([] = one slot per column)
  * @property format - Optional tick-label format pattern (e.g. `"MMM"` for month abbreviations)
- * @property range - Optional explicit datetime extent; omit to derive from event slots
+ * @property range - Optional explicit datetime extent (plain `Date` or expression); omit to derive from event slots
  */
 export interface AxisTimeOptions extends AxisOptions {
-    /** Optional explicit datetime extent; omit to derive from event slots. */
-    range?: { min: Date; max: Date };
+    /** Optional explicit datetime extent; omit to derive from event slots.
+     *  `min`/`max` accept a plain JS `Date` or a `DateTimeType` expression. */
+    range?: { min: SubtypeExprOrValue<DateTimeType>; max: SubtypeExprOrValue<DateTimeType> };
 }
 
 /**
@@ -409,15 +411,18 @@ export interface AxisTimeOptions extends AxisOptions {
  * Supply `range` to fix the slot domain (e.g. days 1–31 for a monthly roster)
  * so the grid stays stable even when some slots have no events. Without it the
  * renderer derives `min` and `max` from the event slots present, which can
- * cause the grid to shrink on sparse days.
+ * cause the grid to shrink on sparse days. `min`/`max` accept a plain JS
+ * `number` *or* a `FloatType` expression, so the extent can be pinned to
+ * runtime/bound data (e.g. `max: row.decision_day.toFloat()`).
  *
  * @property buckets - The labelled sub-slot buckets ([] = one slot per column)
  * @property format - Optional tick-label format pattern
- * @property range - Optional explicit numeric extent; omit to derive from event slots
+ * @property range - Optional explicit numeric extent (plain `number` or expression); omit to derive from event slots
  */
 export interface AxisNumberOptions extends AxisOptions {
-    /** Optional explicit numeric extent; omit to derive from event slots. */
-    range?: { min: number; max: number };
+    /** Optional explicit numeric extent; omit to derive from event slots.
+     *  `min`/`max` accept a plain JS `number` or a `FloatType` expression. */
+    range?: { min: SubtypeExprOrValue<FloatType>; max: SubtypeExprOrValue<FloatType> };
 }
 
 /**
@@ -429,13 +434,15 @@ export interface AxisNumberOptions extends AxisOptions {
  * the renderer derives the order from the set of ordinal slot values present
  * in the events, which is insertion-ordered and may be unstable across data
  * updates. Supply it whenever column order is semantically meaningful (e.g.
- * workflow phases: `["backlog", "active", "review", "done"]`).
+ * workflow phases: `["backlog", "active", "review", "done"]`). Accepts a plain
+ * JS `string[]` *or* an `Array<String>` expression (a data-driven category set).
  *
  * @property buckets - The labelled sub-slot buckets ([] = one slot per column)
  * @property format - Optional tick-label format pattern
- * @property range - Optional explicit ordered category labels; omit to derive from event slots
+ * @property range - Optional explicit ordered category labels (plain `string[]` or expression); omit to derive from event slots
  */
 export interface AxisOrdinalOptions extends AxisOptions {
-    /** Optional explicit ordered category labels; omit to derive from event slots. */
-    range?: string[];
+    /** Optional explicit ordered category labels; omit to derive from event slots.
+     *  Accepts a plain JS `string[]` or an `Array<String>` expression. */
+    range?: SubtypeExprOrValue<ArrayType<StringType>>;
 }
