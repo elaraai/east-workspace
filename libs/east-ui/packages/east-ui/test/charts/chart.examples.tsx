@@ -162,8 +162,8 @@ export const lineNumericX = example({
 });
 
 export const lineSampleFan = example({
-    keywords: ["Chart", "Line", "opacity", "legend", "fan", "sample-path", "by", "overlay"],
-    description: "A faint fan of generative sample paths (low stroke opacity, kept out of the legend) behind a bold median line",
+    keywords: ["Chart", "Line", "opacity", "legend", "tooltip", "fan", "sample-path", "by", "overlay", "decoration"],
+    description: "A faint fan of generative sample paths (low stroke opacity, kept out of both the legend and the tooltip) behind a bold median line",
     fn: East.function([], UIComponentType, ($) => {
         const fan = $.const([
             { t: 0n, sid: "s0", y: 10.0 }, { t: 1n, sid: "s0", y: 14.0 }, { t: 2n, sid: "s0", y: 13.0 },
@@ -177,12 +177,14 @@ export const lineSampleFan = example({
             <Box height="260px" width="100%">
                 <Chart
                     layers={[
-                        Chart.Line(fan, { x: r => r.t, y: r => r.y, by: r => r.sid }, { opacity: 0.2, legend: false, dots: false }),
+                        // Decoration layer: out of the legend AND the tooltip, so hovering
+                        // surfaces only the median rather than one row per sample id.
+                        Chart.Line(fan, { x: r => r.t, y: r => r.y, by: r => r.sid }, { opacity: 0.2, legend: false, tooltip: false, dots: false }),
                         Chart.Line(median, { x: r => r.t, y: r => r.y }, { key: "Median", color: "blue.solid", width: 2, dots: false }),
                     ]}
                     x={{ label: "Step", scale: "linear" }}
                     y={{ label: "Value" }}
-                    legend grid
+                    legend grid tooltip
                 />
             </Box>
         );

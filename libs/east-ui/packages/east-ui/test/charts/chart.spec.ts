@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { IntegerType, StringType, StructType, ArrayType } from "@elaraai/east";
+import { IntegerType, StringType, StructType, ArrayType, FloatType } from "@elaraai/east";
 import { Chart } from "@elaraai/east-ui/internal";
 import * as ex from "./chart.examples.js";
 
@@ -63,7 +63,7 @@ describeEast("Chart", (test) => {
     });
 
     // =========================================================================
-    // Per-line stroke opacity + per-layer legend opt-out (issue #108)
+    // Per-line stroke opacity + per-layer legend / tooltip opt-out (issues #108, #117)
     // =========================================================================
 
     test("MarkStyle.opacity lowers to some(opacity) on the series node", $ => {
@@ -89,7 +89,43 @@ describeEast("Chart", (test) => {
         $(Assert.equal(series.opacity.hasTag("none"), true));
     });
 
-    test("omitting opacity + legend leaves both fields none (backward compatible)", $ => {
+    test("MarkStyle.tooltip false lowers to some(false) on a by-split series node", $ => {
+        const rows = $.const([
+            { month: "Jan", os: "Mac", n: 10n }, { month: "Jan", os: "Linux", n: 120n },
+            { month: "Feb", os: "Mac", n: 95n }, { month: "Feb", os: "Linux", n: 110n },
+        ], ArrayType(StructType({ month: StringType, os: StringType, n: IntegerType })));
+        const chart = $.let(Chart.Root(Chart.Line(rows, { x: r => r.month, y: r => r.n, by: r => r.os }, { tooltip: false }), { grid: false }));
+        const series = $.const(chart.unwrap().unwrap("VisxChart").unwrap().unwrap("frame").children.get(0n).unwrap().unwrap("series"));
+        $(Assert.equal(series.tooltip.hasTag("some"), true));
+        $(Assert.equal(series.tooltip.unwrap("some"), false));
+        // legend is a separate, untouched knob.
+        $(Assert.equal(series.legend.hasTag("none"), true));
+    });
+
+    test("MarkStyle legend and tooltip are independent: legend false leaves tooltip none", $ => {
+        const rows = $.const([
+            { month: "Jan", os: "Mac", n: 10n }, { month: "Jan", os: "Linux", n: 120n },
+            { month: "Feb", os: "Mac", n: 95n }, { month: "Feb", os: "Linux", n: 110n },
+        ], ArrayType(StructType({ month: StringType, os: StringType, n: IntegerType })));
+        const chart = $.let(Chart.Root(Chart.Line(rows, { x: r => r.month, y: r => r.n, by: r => r.os }, { legend: false }), { grid: false }));
+        const series = $.const(chart.unwrap().unwrap("VisxChart").unwrap().unwrap("frame").children.get(0n).unwrap().unwrap("series"));
+        $(Assert.equal(series.legend.unwrap("some"), false));
+        $(Assert.equal(series.tooltip.hasTag("none"), true));
+    });
+
+    test("both legend and tooltip false lower to some(false) — the decoration-layer case", $ => {
+        const rows = $.const([
+            { t: 0n, sid: "s0", y: 10.0 }, { t: 1n, sid: "s0", y: 14.0 },
+            { t: 0n, sid: "s1", y: 11.0 }, { t: 1n, sid: "s1", y: 9.0 },
+        ], ArrayType(StructType({ t: IntegerType, sid: StringType, y: FloatType })));
+        const chart = $.let(Chart.Root(Chart.Line(rows, { x: r => r.t, y: r => r.y, by: r => r.sid }, { opacity: 0.2, legend: false, tooltip: false }), { grid: false }));
+        const series = $.const(chart.unwrap().unwrap("VisxChart").unwrap().unwrap("frame").children.get(0n).unwrap().unwrap("series"));
+        $(Assert.equal(series.legend.unwrap("some"), false));
+        $(Assert.equal(series.tooltip.unwrap("some"), false));
+        $(Assert.equal(series.opacity.unwrap("some"), 0.2));
+    });
+
+    test("omitting opacity + legend + tooltip leaves all three fields none (backward compatible)", $ => {
         const rows = $.const([
             { month: "Jan", sales: 100n }, { month: "Feb", sales: 150n },
         ], ArrayType(StructType({ month: StringType, sales: IntegerType })));
@@ -97,5 +133,6 @@ describeEast("Chart", (test) => {
         const series = $.const(chart.unwrap().unwrap("VisxChart").unwrap().unwrap("frame").children.get(0n).unwrap().unwrap("series"));
         $(Assert.equal(series.opacity.hasTag("none"), true));
         $(Assert.equal(series.legend.hasTag("none"), true));
+        $(Assert.equal(series.tooltip.hasTag("none"), true));
     });
 }, { platformFns: TestImpl });

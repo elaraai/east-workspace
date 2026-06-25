@@ -5,7 +5,7 @@
 
 import { memo, useMemo, useCallback, createContext, useContext, type ReactNode, type MouseEvent } from "react";
 import { Box, useChakraContext, useSlotRecipe } from "@chakra-ui/react";
-import { useTooltip, TooltipWithBounds } from "@visx/tooltip";
+import { useTooltip, useTooltipInPortal } from "@visx/tooltip";
 import { match, equalFor, some, none, variant, type ValueTypeOf } from "@elaraai/east";
 import { Chart, Slice as SliceInternal } from "@elaraai/east-ui/internal";
 import { SliceRailCluster } from "../../slice/rail";
@@ -91,6 +91,10 @@ interface ChartStyle {
     barRadius: number;
     /** Emphasis colour for annotation marks (reference dot / labels). */
     accent: string;
+    /** Stacking tier for the hover tooltip's portal — the design system's `zIndex.tooltip`
+     *  token (top of the overlay stack), so the tooltip sits above sticky chart-chrome
+     *  (Planner / Gantt x-axes), drawers, dialogs and popovers rather than under them. */
+    tooltipZIndex: number;
     /** Resolve a data-driven token (e.g. a series colour) to a CSS value. */
     color: (token: string) => string;
 }
@@ -203,12 +207,14 @@ const useScales = (): ScaleCtx => {
 /** Centre-x accessor for a point (band centre / time / linear position). */
 const useCx = () => useScales().cx;
 
-/** Gather every coloured `series` under a node, for the hover tooltip. */
+/** Gather every coloured `series` under a node, for the hover tooltip. A layer
+ *  whose per-layer `tooltip` flag is explicitly `false` contributes no rows, so a
+ *  `by`-split decorative fan stays out of the tooltip (mirrors {@link collectLegend}). */
 function collectSeries(node: Spec, out: Series[]): void {
     match(node, {
         frame: f => { for (const c of f.children) collectSeries(c, out); },
         group: g => { for (const c of g.children) collectSeries(c, out); },
-        series: s => { out.push(...s.data); },
+        series: s => { if (getSomeorUndefined(s.tooltip) === false) return; out.push(...s.data); },
     }, undefined);
 }
 
@@ -586,6 +592,7 @@ function Frame({ node, brush, onBrushEnd, brushKey }: { node: Spec; brush?: bool
         scatterRadius: 3.4,
         barRadius: 2,
         accent: system.token("colors.fg", "#1a202c"),
+        tooltipZIndex: Number(system.token("zIndex.tooltip", 1800)),
         color: (t: string) => {
             const k = t.replace(/[{}]/g, "");
             return system.token(k.startsWith("colors.") ? k : `colors.${k}`, t);
@@ -602,6 +609,11 @@ function Frame({ node, brush, onBrushEnd, brushKey }: { node: Spec; brush?: bool
  */
 function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style: ChartStyle; brush?: boolean | undefined; onBrushEnd?: BrushEnd | undefined; brushKey?: string | undefined }): ReactNode {
     const { tooltipData, tooltipLeft, tooltipTop, showTooltip, hideTooltip } = useTooltip<TooltipDatum>();
+    // Render the tooltip in a Portal (escaping the chart's local stacking context
+    // and any sticky sibling chrome — Planner / Gantt x-axes) at the `zIndex.tooltip`
+    // tier. `containerRef` on the plot box converts the container-relative left/top
+    // we already compute into page coordinates; `detectBounds` keeps it on-screen.
+    const { containerRef, TooltipInPortal } = useTooltipInPortal({ detectBounds: true, scroll: true, zIndex: style.tooltipZIndex });
     return match(node, {
         frame: f => {
             const xKind: ScaleKind = match(f.xScale, { band: () => "band" as const, linear: () => "linear" as const, time: () => "time" as const });
@@ -715,7 +727,7 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
                 const focusX = tooltipData?.x;
 
                 return (
-                    <Box position="relative">
+                    <Box position="relative" ref={containerRef}>
                         <svg width={w} height={svgH} style={{ display: "block", overflow: "visible" }}>
                             <Group left={margin.left} top={margin.top}>
                                 <ScaleContext.Provider value={{ cx, cxKey, bandWidth, xAxisScale, xTickValues, xKind, y, y2, sizeR, innerW, innerH, margin, style }}>
@@ -755,7 +767,7 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
                             </Box>
                         )}
                         {tooltipOn && tooltipData !== undefined && tooltipLeft != null && tooltipTop != null && (
-                            <TooltipWithBounds left={tooltipLeft} top={tooltipTop} style={{ position: "absolute", pointerEvents: "none" }}>
+                            <TooltipInPortal left={tooltipLeft} top={tooltipTop} style={{ position: "absolute", pointerEvents: "none" }}>
                                 <Box background="bg.surface" borderWidth="1px" borderColor="border.strong" borderRadius="4px" boxShadow="md" paddingX="10px" paddingY="8px" fontFamily="mono" fontSize="10.5px" color="fg" display="flex" flexDirection="column" gap="{spacing.1.5}" minWidth="120px">
                                     <Box as="span" fontWeight="semibold" letterSpacing="0.04em" color="fg.muted">{xKind === "time" ? new Date(tooltipData.x).toLocaleDateString() : tooltipData.x}</Box>
                                     {tooltipData.rows.map((rw, i) => (
@@ -766,7 +778,7 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
                                         </Box>
                                     ))}
                                 </Box>
-                            </TooltipWithBounds>
+                            </TooltipInPortal>
                         )}
                     </Box>
                 );

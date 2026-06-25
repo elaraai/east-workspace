@@ -119,6 +119,7 @@ type AnyAccessor = (row: any) => SubtypeExprOrValue<CoordScalar>;
  * @property fillOpacity - Fill opacity (area / bar marks)
  * @property opacity     - Stroke opacity (line / area / scatter marks; distinct from fillOpacity)
  * @property legend      - Include this layer's series in the legend
+ * @property tooltip     - Include this layer's series in the tooltip
  * @property stack       - Stack group id; layers sharing one stack accumulate
  * @property axis        - Which y-axis the layer scales against
  * @property order       - Draw order among sibling layers (higher draws later)
@@ -146,6 +147,10 @@ export interface MarkStyle {
     /** Include this layer's series in the legend. Default true; set `false` to keep a
      *  `by`-split layer's per-series keys (for colour / tooltip) out of the legend. */
     legend?: SubtypeExprOrValue<BooleanType>;
+    /** Include this layer's series in the tooltip. Default true; set `false` to keep a
+     *  `by`-split layer's per-series rows (decorative fans, dense small-multiples) out of
+     *  the tooltip. Independent of {@link MarkStyle.legend} and of the chart-global tooltip. */
+    tooltip?: SubtypeExprOrValue<BooleanType>;
     /** Stack group id; layers sharing one stack accumulate together. */
     stack?: SubtypeExprOrValue<StringType>;
     /** Which y-axis the layer scales against (structural — picks the axis node). */
@@ -415,6 +420,7 @@ function seriesOptions(style: MarkStyle, stackOffset?: "none" | "expand", radius
         fillOpacity: style.fillOpacity,
         opacity: style.opacity,
         legend: style.legend,
+        tooltip: style.tooltip,
         radius,
         stackOffset: style.stack !== undefined ? stackOffset ?? "none" : undefined,
     }) as ChartSeriesOptions;
