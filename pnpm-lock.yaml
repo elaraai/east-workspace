@@ -650,6 +650,94 @@ importers:
         specifier: ~5.9.2
         version: 5.9.3
 
+  libs/east-ui/packages/e3-ui-cli:
+    dependencies:
+      '@elaraai/e3-api-server':
+        specifier: workspace:*
+        version: link:../../../e3/packages/e3-api-server
+      '@elaraai/east':
+        specifier: workspace:*
+        version: link:../../../east
+      commander:
+        specifier: ^12.0.0
+        version: 12.1.0
+      esbuild:
+        specifier: ^0.27.2
+        version: 0.27.7
+      playwright:
+        specifier: ^1.49.0
+        version: 1.59.1
+    devDependencies:
+      '@chakra-ui/react':
+        specifier: ^3.0.0
+        version: 3.34.0(@emotion/react@11.14.0(@types/react@19.2.14)(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@elaraai/e3-api-client':
+        specifier: workspace:*
+        version: link:../../../e3/packages/e3-api-client
+      '@elaraai/e3-types':
+        specifier: workspace:*
+        version: link:../../../e3/packages/e3-types
+      '@elaraai/e3-ui':
+        specifier: workspace:*
+        version: link:../e3-ui
+      '@elaraai/e3-ui-components':
+        specifier: workspace:*
+        version: link:../e3-ui-components
+      '@elaraai/east-ui':
+        specifier: workspace:*
+        version: link:../east-ui
+      '@elaraai/east-ui-components':
+        specifier: workspace:*
+        version: link:../east-ui-components
+      '@fontsource-variable/dm-sans':
+        specifier: ^5.2.0
+        version: 5.2.8
+      '@fontsource-variable/inter-tight':
+        specifier: ^5.2.0
+        version: 5.2.7
+      '@fontsource-variable/jetbrains-mono':
+        specifier: ^5.2.0
+        version: 5.2.8
+      '@tanstack/react-query':
+        specifier: ^5.62.0
+        version: 5.96.1(react@19.2.4)
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.14
+      '@types/react-dom':
+        specifier: ^19.0.0
+        version: 19.2.3(@types/react@19.2.14)
+      '@typescript-eslint/eslint-plugin':
+        specifier: ^8.47.0
+        version: 8.58.0(@typescript-eslint/parser@8.58.0(eslint@9.39.4)(typescript@5.9.3))(eslint@9.39.4)(typescript@5.9.3)
+      '@typescript-eslint/parser':
+        specifier: ^8.47.0
+        version: 8.58.0(eslint@9.39.4)(typescript@5.9.3)
+      '@vitejs/plugin-react':
+        specifier: ^4.3.0
+        version: 4.7.0(vite@6.4.1(@types/node@22.19.15)(tsx@4.21.0))
+      eslint:
+        specifier: ^9.0.0
+        version: 9.39.4
+      eslint-plugin-headers:
+        specifier: ^1.3.3
+        version: 1.3.4(eslint@9.39.4)
+      react:
+        specifier: ^19.0.0
+        version: 19.2.4
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.4(react@19.2.4)
+      typescript:
+        specifier: ~5.9.2
+        version: 5.9.3
+      vite:
+        specifier: ^6.0.0
+        version: 6.4.1(@types/node@22.19.15)(tsx@4.21.0)
+
   libs/east-ui/packages/e3-ui-components:
     dependencies:
       '@emotion/react':
