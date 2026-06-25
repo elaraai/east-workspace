@@ -117,6 +117,8 @@ type AnyAccessor = (row: any) => SubtypeExprOrValue<CoordScalar>;
  * @property dash        - SVG dash pattern (line marks)
  * @property dots        - Draw point markers on line marks
  * @property fillOpacity - Fill opacity (area / bar marks)
+ * @property opacity     - Stroke opacity (line / area / scatter marks; distinct from fillOpacity)
+ * @property legend      - Include this layer's series in the legend
  * @property stack       - Stack group id; layers sharing one stack accumulate
  * @property axis        - Which y-axis the layer scales against
  * @property order       - Draw order among sibling layers (higher draws later)
@@ -139,6 +141,11 @@ export interface MarkStyle {
     dots?: SubtypeExprOrValue<BooleanType>;
     /** Fill opacity (area / bar marks). */
     fillOpacity?: SubtypeExprOrValue<FloatType>;
+    /** Stroke opacity 0–1 for line / area / scatter marks (the stroke, distinct from {@link MarkStyle.fillOpacity}). Default 1. */
+    opacity?: SubtypeExprOrValue<FloatType>;
+    /** Include this layer's series in the legend. Default true; set `false` to keep a
+     *  `by`-split layer's per-series keys (for colour / tooltip) out of the legend. */
+    legend?: SubtypeExprOrValue<BooleanType>;
     /** Stack group id; layers sharing one stack accumulate together. */
     stack?: SubtypeExprOrValue<StringType>;
     /** Which y-axis the layer scales against (structural — picks the axis node). */
@@ -406,6 +413,8 @@ function seriesOptions(style: MarkStyle, stackOffset?: "none" | "expand", radius
         dashArray: style.dash,
         dots: style.dots,
         fillOpacity: style.fillOpacity,
+        opacity: style.opacity,
+        legend: style.legend,
         radius,
         stackOffset: style.stack !== undefined ? stackOffset ?? "none" : undefined,
     }) as ChartSeriesOptions;

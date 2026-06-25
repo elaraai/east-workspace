@@ -215,6 +215,8 @@ export function chartFrame(children: Array<ChartSpecValue>, options: ChartFrameO
  * @property dots        - Draw point markers on line marks
  * @property fillOpacity - Fill opacity for area and bar marks
  * @property radius      - Marker radius for scatter marks
+ * @property opacity     - Stroke opacity for line, area, and scatter marks (distinct from `fillOpacity`)
+ * @property legend      - Include this layer's series in the legend
  */
 export interface ChartSeriesOptions {
     /** Line/area interpolation. */
@@ -235,6 +237,10 @@ export interface ChartSeriesOptions {
     fillOpacity?: SubtypeExprOrValue<FloatType>;
     /** Marker radius for scatter marks. */
     radius?: SubtypeExprOrValue<FloatType>;
+    /** Stroke opacity 0–1 for line and scatter marks (distinct from `fillOpacity`). */
+    opacity?: SubtypeExprOrValue<FloatType>;
+    /** Include this layer's series in the legend (default true). */
+    legend?: SubtypeExprOrValue<BooleanType>;
 }
 
 /**
@@ -267,6 +273,8 @@ export function chartSeries(
         dots:        options?.dots !== undefined ? some(options.dots) : none,
         fillOpacity: options?.fillOpacity !== undefined ? some(options.fillOpacity) : none,
         radius:      options?.radius !== undefined ? some(options.radius) : none,
+        opacity:     options?.opacity !== undefined ? some(options.opacity) : none,
+        legend:      options?.legend !== undefined ? some(options.legend) : none,
     }), ChartSpecType);
 }
 
@@ -1000,6 +1008,9 @@ export const ChartSpec = {
          * @property dashArray   - SVG dash pattern for line marks
          * @property dots        - Draw point markers on line marks
          * @property fillOpacity - Fill opacity for area / bar marks
+         * @property radius      - Marker radius for scatter marks
+         * @property opacity     - Stroke opacity for line / area / scatter marks (distinct from fill opacity)
+         * @property legend      - Include this layer's series in the legend
          */
         SeriesMark: ChartSeriesMarkType,
         /**
