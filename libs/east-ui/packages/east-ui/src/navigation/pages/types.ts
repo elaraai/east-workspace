@@ -140,3 +140,33 @@ export const navBindPlatformFn = East.genericPlatform(
     "H",
     { optional: true },
 );
+
+// Low-level primitives backing a `Navigation.bind` handle's methods (issue #106).
+//
+// The handle's path-stack ops become thin `East.function`s over these primitives,
+// capturing only the plain-data store key (+ the seed path for the decode-side
+// fallback). `P` is the path type (`ArrayType(Route)`); `V` is one route's payload
+// type. current/depth/canPop are derived in East from `nav_read`. So a nav handle
+// is ordinary serializable East data and re-binds to the decoder's store.
+const nav_read = East.genericPlatform("nav_read", ["P"], [StringType, "P"], "P", { optional: true });
+const nav_write = East.genericPlatform("nav_write", ["P"], [StringType, "P"], NullType, { optional: true });
+const nav_pop = East.genericPlatform("nav_pop", ["P"], [StringType, "P"], NullType, { optional: true });
+const nav_go = East.genericPlatform("nav_go", ["P", "V"], [StringType, StringType, "V", "P"], NullType, { optional: true });
+
+/**
+ * Low-level platform primitives that back {@link Navigation.bind}'s handle methods.
+ *
+ * @internal Not for direct use — author against {@link Navigation.bind}. These
+ * exist so the handle's methods can be IR-bearing `East.function`s (serializable)
+ * rather than raw host closures.
+ */
+export const NavBindPrimitives = {
+    /** `nav_read([P], key, initial) -> P` — the path stack (tracks the key). */
+    read: nav_read,
+    /** `nav_write([P], key, path) -> Null` — replace the whole stack. */
+    write: nav_write,
+    /** `nav_pop([P], key, initial) -> Null` — drop the leaf (if depth > 1). */
+    pop: nav_pop,
+    /** `nav_go([P, V], key, routeName, payload, initial) -> Null` — push a route. */
+    go: nav_go,
+} as const;

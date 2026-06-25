@@ -40,6 +40,7 @@ import {
 export {
     NavBindHandleType,
     navBindPlatformFn,
+    NavBindPrimitives,
     routeVariantType,
     type NavRoutes,
     type NavRouteConfig,
