@@ -254,6 +254,31 @@ export const decisionQueueJudgement = example({
     inputs: [],
 });
 
+export const decisionQueueFacets = example({
+    keywords: ['DecisionQueue', 'facets', 'evidence', 'judgement', 'include', 'reduced'],
+    description: 'A reduced facet set — only Evidence and Judgement tabs show (Options hidden via the facets include-list)',
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <Reactive>{$ => {
+                const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));
+                const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));
+                const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));
+                const urgent = $.let(decisions.read().firstMap(($, d) =>
+                    d.urgency.hasTag('overdue').ifElse(() => some(d), () => none)));
+                return (
+                    <DecisionQueue
+                        handle={handle}
+                        heading="Decisions waiting"
+                        defaultExpanded={urgent}
+                        facets={["evidence", "judgement"]}
+                    />
+                );
+            }}</Reactive>
+        );
+    }),
+    inputs: [],
+});
+
 // ============================================================================
 // 3. Options facet open — the ranked stack with zero-anchored bars.
 // ============================================================================

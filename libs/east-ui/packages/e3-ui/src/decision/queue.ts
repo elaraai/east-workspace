@@ -61,6 +61,21 @@ export type FacetType = typeof FacetType;
 export type FacetLiteral = "evidence" | "options" | "judgement" | "modify";
 
 /**
+ * The author-selectable *data* facets — `modify` is excluded because it is
+ * gated purely by its callback prop. The `facets` include-list is typed over
+ * this subset so listing a facet without its data is impossible.
+ */
+export const DataFacetType = VariantType({
+    evidence: NullType,
+    options: NullType,
+    judgement: NullType,
+});
+/** Type alias for {@link DataFacetType}. */
+export type DataFacetType = typeof DataFacetType;
+/** String-literal proxy for {@link DataFacetType}. */
+export type DataFacetLiteral = "evidence" | "options" | "judgement";
+
+/**
  * The `DecisionQueue` component payload.
  *
  * @property handle - The surface's decision handle ref (binding descriptors).
@@ -76,6 +91,9 @@ export type FacetLiteral = "evidence" | "options" | "judgement" | "modify";
  *   selection).
  * @property defaultFacet - The facet the expansion opens with (defaults to
  *   `evidence`).
+ * @property facets - Optional include-list of data facets to show
+ *   (`evidence` / `options` / `judgement`); absent ⇒ all. `modify` is always
+ *   callback-gated and composes with this list.
  * @property onApply - Optional side-effect hook fired with the decision when
  *   Apply resolves it (the resolution itself goes through the handle).
  * @property onReject - Optional side-effect hook fired with the decision
@@ -94,6 +112,7 @@ export const DecisionQueuePayloadType = StructType({
     detail: OptionType(FunctionType([DecisionType], UIComponentType)),
     defaultExpanded: OptionType(DecisionType),
     defaultFacet: OptionType(FacetType),
+    facets: OptionType(ArrayType(DataFacetType)),
     onApply: OptionType(FunctionType([DecisionType], NullType)),
     onReject: OptionType(FunctionType([DecisionType], NullType)),
     slice: OptionType(ArrayType(SliceAffordanceType)),
@@ -154,6 +173,8 @@ export interface DecisionQueueOptions {
     detail?: (decision: ExprType<DecisionType>) => SubtypeExprOrValue<UIComponentType>;
     defaultExpanded?: SubtypeExprOrValue<OptionType<DecisionType>>;
     defaultFacet?: FacetLiteral | SubtypeExprOrValue<FacetType>;
+    /** Include-list of data facets to show (`evidence` / `options` / `judgement`); omit ⇒ all. `modify` stays callback-gated. */
+    facets?: DataFacetLiteral[];
     onApply?: (decision: ExprType<DecisionType>) => SubtypeExprOrValue<NullType>;
     onReject?: (decision: ExprType<DecisionType>) => SubtypeExprOrValue<NullType>;
     slice?: SliceAffordanceLiteral[] | true;
@@ -177,6 +198,7 @@ export const DecisionQueue: {
         Payload: DecisionQueuePayloadType;
         Update: DecisionUpdateType;
         Facet: FacetType;
+        DataFacet: DataFacetType;
     };
 } = {
     /**
@@ -209,6 +231,9 @@ export const DecisionQueue: {
             : some(typeof options.defaultFacet === "string"
                 ? East.value(variant(options.defaultFacet, null), FacetType)
                 : options.defaultFacet);
+        const facets = options.facets === undefined
+            ? none
+            : some(East.value(options.facets.map(f => variant(f, null)), ArrayType(DataFacetType)));
         const sliceAffordances = options.slice === undefined
             ? undefined
             : options.slice === true ? (["filter", "search"] as SliceAffordanceLiteral[]) : options.slice;
@@ -236,6 +261,7 @@ export const DecisionQueue: {
                 ? East.value(options.defaultExpanded, OptionType(DecisionType))
                 : none,
             defaultFacet,
+            facets,
             onApply,
             onReject,
             slice,
@@ -252,5 +278,7 @@ export const DecisionQueue: {
         Update: DecisionUpdateType,
         /** The expanded row's facet variant. */
         Facet: FacetType,
+        /** The author-selectable data-facet subset (`evidence` / `options` / `judgement`). */
+        DataFacet: DataFacetType,
     },
 } as const;

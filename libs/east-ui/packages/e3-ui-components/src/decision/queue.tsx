@@ -127,13 +127,15 @@ interface RowProps {
     modify: ((d: Decision, update: (next: Decision) => void) => unknown) | undefined;
     detail: ((d: Decision) => unknown) | undefined;
     defaultFacet: FacetKey;
+    /** Author include-list of data facets; `null` ⇒ all. `modify` stays callback-gated. */
+    facetInclude: ReadonlySet<FacetKey> | null;
     apply: (d: Decision) => void;
     reject: (d: Decision) => void;
     leaving: ExitReason | undefined;
     storageKey: string;
 }
 
-const Row = memo(function Row({ decision, handle, selected, narrow, leverPayloads, modify, detail, defaultFacet, apply, reject, leaving, storageKey }: RowProps) {
+const Row = memo(function Row({ decision, handle, selected, narrow, leverPayloads, modify, detail, defaultFacet, facetInclude, apply, reject, leaving, storageKey }: RowProps) {
     const dq = useSlotRecipe({ key: 'decisionQueue' });
     const status = useSlotRecipe({ key: 'status' });
     const tabs = useSlotRecipe({ key: 'facetTabs' });
@@ -142,8 +144,18 @@ const Row = memo(function Row({ decision, handle, selected, narrow, leverPayload
     const ts = tabs({});
     const st = status({ status: URGENCY_TONE[decision.urgency.type], size: 'md' });
 
-    const [facet, setFacet] = useState<FacetKey>(defaultFacet);
-    useEffect(() => { if (!selected) setFacet(defaultFacet); }, [selected, defaultFacet]);
+    // Visible facets: the author include-list ANDed with the modify callback gate.
+    const visibleFacets = useMemo(
+        () => FACETS.filter(f => f.key === 'modify' ? modify !== undefined : (facetInclude === null || facetInclude.has(f.key))),
+        [modify, facetInclude],
+    );
+    // Open the configured default facet, or the first available one when it is disabled.
+    const effectiveDefault = visibleFacets.some(f => f.key === defaultFacet)
+        ? defaultFacet
+        : (visibleFacets[0]?.key ?? defaultFacet);
+
+    const [facet, setFacet] = useState<FacetKey>(effectiveDefault);
+    useEffect(() => { if (!selected) setFacet(effectiveDefault); }, [selected, effectiveDefault]);
 
     const gate = handle.commitStateFor(decision.id);
     const applyEnabled = gate === null || gate.type === 'ready';
@@ -170,7 +182,7 @@ const Row = memo(function Row({ decision, handle, selected, narrow, leverPayload
 
     const facetTabs = (
         <Box css={ts.root} {...(narrow ? { display: 'flex', width: '100%' } : {})}>
-            {FACETS.filter(f => f.key !== 'modify' || modify !== undefined).map(f => (
+            {visibleFacets.map(f => (
                 <Box
                     key={f.key}
                     as="button"
@@ -435,6 +447,11 @@ const EastChakraDecisionQueue = memo(function EastChakraDecisionQueue({ value, s
         [value.detail],
     );
     const defaultFacet = (getSomeorUndefined(value.defaultFacet)?.type ?? 'evidence') as FacetKey;
+    // Author include-list of data facets (`null` ⇒ all). `modify` stays callback-gated.
+    const facetInclude = useMemo<ReadonlySet<FacetKey> | null>(() => {
+        const facets = getSomeorUndefined(value.facets);
+        return facets === undefined ? null : new Set(facets.map(f => f.type as FacetKey));
+    }, [value.facets]);
     const defaultExpanded = getSomeorUndefined(value.defaultExpanded);
 
     // Selection is the expanded row; before any selection exists the host's
@@ -538,6 +555,7 @@ const EastChakraDecisionQueue = memo(function EastChakraDecisionQueue({ value, s
                         modify={modify}
                         detail={detail}
                         defaultFacet={defaultFacet}
+                        facetInclude={facetInclude}
                         apply={apply}
                         reject={reject}
                         leaving={exitingReasons.get(d.id)}

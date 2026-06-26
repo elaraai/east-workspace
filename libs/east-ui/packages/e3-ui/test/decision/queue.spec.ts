@@ -10,6 +10,7 @@ describeEast("DecisionQueue", (test) => {
     Assert.examples(test, {
         decisionQueueCase: ex.decisionQueueCase,
         decisionQueueJudgement: ex.decisionQueueJudgement,
+        decisionQueueFacets: ex.decisionQueueFacets,
         decisionQueueOptions: ex.decisionQueueOptions,
         decisionQueueNarrow: ex.decisionQueueNarrow,
         decisionQueueScroll: ex.decisionQueueScroll,
