@@ -245,6 +245,48 @@ describe("Chart renderer — per-layer tooltip opt-out (issue #117)", () => {
     });
 });
 
+describe("Chart renderer — skeleton until measured (#125)", () => {
+    // ResizeObserver is stubbed at the top of this file, so visx ParentSize
+    // never reports a width — an auto-width chart stays unmeasured (width 0),
+    // exactly the pre-first-paint state where the old code painted at 320px.
+    const autoWidthFrame = (height: number) =>
+        variant("frame", {
+            height,
+            width: none,                          // responsive → must be measured first
+            margin: some({ top: 8, right: 8, bottom: 24, left: 40 }),
+            xScale: variant("band", null),
+            yScale: variant("linear", null),
+            yScale2: none,
+            tooltip: none,
+            legend: none,
+            slice: none,
+            children: [
+                lineNode([series("A", "blue.solid", [pt("Jan", 1), pt("Feb", 2)])]),
+                axisNode("axisBottom"),
+                axisNode("axisLeft"),
+            ],
+        });
+
+    test("an unmeasured auto-width chart shows a skeleton, not a wrong-width SVG", () => {
+        const { container } = ui(<EastVisxChart value={autoWidthFrame(240) as never} />);
+        // The 320px fallback paint never reaches the DOM — no chart SVG yet …
+        expect(container.querySelector("svg")).toBeNull();
+        // … but a placeholder is rendered in its place (no blank gap).
+        expect(container.firstElementChild).not.toBeNull();
+    });
+
+    test("an explicit-width chart paints immediately with no skeleton round-trip", () => {
+        // `frame` sets width: some(400) ⇒ render() is called directly, bypassing
+        // ParentSize, so the SVG is present on first paint.
+        const { container } = ui(<EastVisxChart value={frame([
+            lineNode([series("A", "blue.solid", [pt("Jan", 1), pt("Feb", 2)])]),
+            axisNode("axisBottom"),
+            axisNode("axisLeft"),
+        ]) as never} />);
+        expect(container.querySelector("svg")).not.toBeNull();
+    });
+});
+
 describe("Chart renderer — tooltip portal + stacking tier", () => {
     test("the hover tooltip renders in a body-level portal raised to the tooltip z-index tier", () => {
         // Regression guard: the tooltip must escape the chart's local stacking context

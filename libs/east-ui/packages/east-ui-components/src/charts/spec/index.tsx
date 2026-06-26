@@ -4,7 +4,7 @@
  */
 
 import { memo, useMemo, useCallback, createContext, useContext, type ReactNode, type MouseEvent } from "react";
-import { Box, useChakraContext, useSlotRecipe } from "@chakra-ui/react";
+import { Box, Skeleton, useChakraContext, useSlotRecipe } from "@chakra-ui/react";
 import { useTooltip, useTooltipInPortal } from "@visx/tooltip";
 import { match, equalFor, some, none, variant, type ValueTypeOf } from "@elaraai/east";
 import { Chart, Slice as SliceInternal } from "@elaraai/east-ui/internal";
@@ -783,13 +783,27 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
                     </Box>
                 );
             };
+            // An SVG chart needs a pixel width up front (scales, axes, tick
+            // density), so the parent must be measured before the first real
+            // paint. Until then show a Skeleton of the chart's eventual
+            // footprint rather than painting at a wrong fallback width and
+            // visibly growing on screen (#125). The footprint height is the
+            // full chart height — `f.height` (svg + legend) for an explicit
+            // height, or `100%` of the definite-height parent for `height:"fill"`.
+            const skeletonHeight = f.height > 0 ? `${f.height}px` : "100%";
+            const renderFrame = (w: number, h?: number) =>
+                w > 0 && (f.height > 0 || (h ?? 0) > 0)
+                    ? render(w, h)
+                    : <Skeleton width="100%" height={skeletonHeight} />;
+            // `debounceTime={0}` makes the skeleton→chart swap immediate (visx
+            // ParentSize otherwise debounces measurement by ~300ms).
             // height <= 0 is the "fill parent" sentinel (Chart `height: "fill"`):
             // measure the parent's height as well as its width. Requires a
             // parent with a definite height (a sized Box, a Story stage, ...).
             if (f.height <= 0) {
-                return <ParentSize>{({ width, height }) => render(width || 320, height || 240)}</ParentSize>;
+                return <ParentSize debounceTime={0}>{({ width, height }) => renderFrame(width, height)}</ParentSize>;
             }
-            return explicitW !== undefined ? render(explicitW) : <ParentSize>{({ width }) => render(width || 320)}</ParentSize>;
+            return explicitW !== undefined ? render(explicitW) : <ParentSize debounceTime={0}>{({ width }) => renderFrame(width)}</ParentSize>;
         },
     }, null);
 }
