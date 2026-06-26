@@ -137,6 +137,12 @@ export const OptionsFacet = memo(function OptionsFacet({ decision, narrow }: Opt
     const options = rankOptions(decision);
     const maxUp = Math.max(...options.map(o => Math.max(o.value, 0)), 1e-9);
     const maxDown = Math.max(...options.map(o => Math.abs(o.downside ?? 0)), 1e-9);
+    // Value-axis descriptor: relabel the "Uplift" column and, when `signed`
+    // is false, drop the force-sign + green so a non-benefit (likelihood /
+    // horizon / magnitude) reads as a plain value (#135).
+    const valueAxis = getSomeorUndefined(decision.valueAxis);
+    const upLabel = valueAxis?.label ?? 'Uplift';
+    const signed = valueAxis?.signed ?? true;
 
     if (narrow) {
         const meter = (label: string, frac: number, display: string, tone: 'success' | 'danger' | 'neutral') => (
@@ -154,7 +160,7 @@ export const OptionsFacet = memo(function OptionsFacet({ decision, narrow }: Opt
                 {options.map(o => (
                     <Box key={o.rank} display="flex" flexDirection="column" gap="4px" pl="8px" {...(o.recommended ? { boxShadow: 'inset 2px 0 0 var(--chakra-colors-accent-brand)' } : {})}>
                         <Text fontSize="12.5px"><Text as="span" fontFamily="mono" color="fg.subtle">{o.rank}</Text> <Text as="span" fontWeight={o.recommended ? 'semibold' : 'normal'}>{o.label}</Text></Text>
-                        {meter('Uplift', o.value / maxUp, fmt(decision, o.value, true), 'success')}
+                        {meter(upLabel, o.value / maxUp, fmt(decision, o.value, signed), signed ? 'success' : 'neutral')}
                         {meter('If wrong', (o.downside ?? 0) / maxDown, o.downside !== undefined ? fmt(decision, o.downside, true) : '—', 'danger')}
                     </Box>
                 ))}
@@ -167,7 +173,7 @@ export const OptionsFacet = memo(function OptionsFacet({ decision, narrow }: Opt
             <Box display="grid" gridTemplateColumns="minmax(180px, 1.1fr) 1fr 1fr" alignItems="baseline" gap="8px">
                 <Text {...caption} color="fg">Options · {options.length} evaluated</Text>
                 <Text {...caption} textAlign="center">If wrong</Text>
-                <Text {...caption} textAlign="right">Uplift</Text>
+                <Text {...caption} textAlign="right">{upLabel}</Text>
             </Box>
             {options.map(o => {
                 const downFrac = Math.min(Math.abs(o.downside ?? 0) / maxDown, 1);
@@ -200,8 +206,8 @@ export const OptionsFacet = memo(function OptionsFacet({ decision, narrow }: Opt
                         <Box display="flex" alignItems="center" gap="6px" height="16px" borderLeftWidth="1px" borderColor="border.strong">
                             {o.value > 0 && (
                                 <>
-                                    <Box height="12px" width={`${Math.round(upFrac * 100)}%`} bg="fg.success" opacity={0.6} />
-                                    <Text fontSize="10.5px" fontFamily="mono" color="fg.success" flexShrink={0}>{fmt(decision, o.value, true)}</Text>
+                                    <Box height="12px" width={`${Math.round(upFrac * 100)}%`} bg={signed ? 'fg.success' : 'fg.subtle'} opacity={0.6} />
+                                    <Text fontSize="10.5px" fontFamily="mono" color={signed ? 'fg.success' : 'fg.muted'} flexShrink={0}>{fmt(decision, o.value, signed)}</Text>
                                 </>
                             )}
                         </Box>

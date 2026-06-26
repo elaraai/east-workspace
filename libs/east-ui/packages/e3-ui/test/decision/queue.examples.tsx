@@ -69,6 +69,7 @@ export const queueDecisions = e3.input(
             value: 80000,
             deadline: some(new Date(Date.now() - 2 * 3_600_000)),
             format: some(CURRENCY),
+            valueAxis: none,
             summary: some('SE region · wk 09-16'),
             downside: some(-8000),
             confidence: some(0.82),
@@ -97,6 +98,7 @@ export const queueDecisions = e3.input(
             value: 42000,
             deadline: some(new Date(new Date().setHours(16, 0, 0, 0))),
             format: some(CURRENCY),
+            valueAxis: none,
             summary: some('supplier lead time 6 days'),
             downside: some(-5000),
             confidence: some(0.77),
@@ -117,6 +119,7 @@ export const queueDecisions = e3.input(
             value: 1200,
             deadline: none,
             format: some(CURRENCY),
+            valueAxis: none,
             summary: none,
             downside: none,
             confidence: none,
@@ -135,9 +138,32 @@ export const queueDecisions = e3.input(
             value: 800,
             deadline: none,
             format: some(CURRENCY),
+            valueAxis: none,
             summary: none,
             downside: none,
             confidence: none,
+            detail: none,
+            stakes: none,
+            prompts: [],
+            levers: [],
+            evidence: [],
+            alternatives: [],
+        },
+        {
+            // A non-benefit headline: a press-ETA in days. `valueAxis` relabels
+            // the axis "Day" and `signed: false` stops it reading as a green
+            // "+2 Uplift" — it's a plain forecast horizon (#135).
+            id: 'eta-press-a',
+            kind: 'forecast',
+            title: 'Press A ready in ~2 days',
+            urgency: variant('routine', null),
+            value: 2,
+            deadline: none,
+            format: none,
+            valueAxis: some({ label: 'Day', signed: false }),
+            summary: some('decision_day + p95 + buffer'),
+            downside: none,
+            confidence: some(0.7),
             detail: none,
             stakes: none,
             prompts: [],
@@ -271,6 +297,30 @@ export const decisionQueueFacets = example({
                         heading="Decisions waiting"
                         defaultExpanded={urgent}
                         facets={["evidence", "judgement"]}
+                    />
+                );
+            }}</Reactive>
+        );
+    }),
+    inputs: [],
+});
+
+export const decisionQueueValueAxis = example({
+    keywords: ['DecisionQueue', 'valueAxis', 'signed', 'label', 'horizon', 'uplift', 'non-benefit'],
+    description: 'A non-benefit headline — the press-ETA case carries a valueAxis ("Day", signed:false) so its value reads as a plain magnitude, not a green signed "Uplift"',
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <Reactive>{$ => {
+                const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));
+                const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));
+                const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));
+                const eta = $.let(decisions.read().firstMap(($, d) =>
+                    East.equal(d.kind, 'forecast').ifElse(() => some(d), () => none)));
+                return (
+                    <DecisionQueue
+                        handle={handle}
+                        heading="Decisions waiting"
+                        defaultExpanded={eta}
                     />
                 );
             }}</Reactive>

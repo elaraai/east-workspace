@@ -238,9 +238,12 @@ const Row = memo(function Row({ decision, handle, selected, narrow, leverPayload
             <Box as="span" css={st.label}>{decision.urgency.type}{deadlineSuffix(decision)}</Box>
         </Box>
     );
+    // Value-axis descriptor: when `signed` is false, the headline value reads
+    // as a plain magnitude — no force-sign, no green-when-positive (#135).
+    const valueSigned = getSomeorUndefined(decision.valueAxis)?.signed ?? true;
     const valueText = (
-        <Text fontFamily="mono" fontWeight="semibold" textAlign="right" {...(decision.value >= 0 && selected ? { color: 'fg.success' } : {})}>
-            {decisionValue(decision, decision.value, selected)}
+        <Text fontFamily="mono" fontWeight="semibold" textAlign="right" {...(valueSigned && decision.value >= 0 && selected ? { color: 'fg.success' } : {})}>
+            {decisionValue(decision, decision.value, valueSigned && selected)}
         </Text>
     );
 

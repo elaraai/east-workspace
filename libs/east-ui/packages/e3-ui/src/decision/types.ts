@@ -198,6 +198,20 @@ export type DecisionOptionType = typeof DecisionOptionType;
 // availability, and utilisation decisions share one queue; `kind` groups them.
 // ============================================================================
 
+/**
+ * Per-decision value-axis descriptor — relabels and de-signs the headline
+ * `value` so a non-benefit (likelihood / forecast-horizon / magnitude) isn't
+ * forced to read as a green signed "Uplift".
+ *
+ * @property label - Replaces the hard-coded "Uplift" column/meter label (e.g. "Likelihood", "Day", "Move")
+ * @property signed - When `false`, suppresses the force-sign AND the green-when-positive treatment, so the value reads as a plain magnitude
+ */
+export const DecisionValueAxisType = StructType({
+    label: StringType,
+    signed: BooleanType,
+});
+export type DecisionValueAxisType = typeof DecisionValueAxisType;
+
 export const DecisionType = StructType({
     // ── required core (the queue row) ──
     id: StringType,
@@ -209,6 +223,7 @@ export const DecisionType = StructType({
     // ── optional ──
     deadline: OptionType(DateTimeType), // when action is needed → "overdue 2h" label + intra-bucket sort
     format: OptionType(TickFormat), // how to render value/downside/option values (Format.Currency, …)
+    valueAxis: OptionType(DecisionValueAxisType), // relabel + de-sign `value` (none ⇒ green signed "Uplift")
     summary: OptionType(StringType), // "SE region · wk 09-16"
     downside: OptionType(FloatType), // if-wrong magnitude (hero "−$8k")
     confidence: OptionType(FloatType), // 0..1
@@ -413,6 +428,8 @@ export interface DecisionInput {
     value: SubtypeExprOrValue<FloatType>;
     deadline?: SubtypeExprOrValue<DateTimeType>;
     format?: SubtypeExprOrValue<TickFormatType>;
+    /** Value-axis descriptor — relabels + optionally de-signs the headline `value` (omit ⇒ green signed "Uplift"). */
+    valueAxis?: { label: SubtypeExprOrValue<StringType>; signed: SubtypeExprOrValue<BooleanType> };
     summary?: SubtypeExprOrValue<StringType>;
     downside?: SubtypeExprOrValue<FloatType>;
     confidence?: SubtypeExprOrValue<FloatType>;
@@ -476,6 +493,9 @@ function createDecision(input: DecisionInput): ExprType<DecisionType> {
         value: input.value,
         deadline: input.deadline !== undefined ? some(input.deadline) : none,
         format: input.format !== undefined ? some(input.format) : none,
+        valueAxis: input.valueAxis !== undefined
+            ? some(East.value({ label: input.valueAxis.label, signed: input.valueAxis.signed }, DecisionValueAxisType))
+            : none,
         summary: input.summary !== undefined ? some(input.summary) : none,
         downside: input.downside !== undefined ? some(input.downside) : none,
         confidence: input.confidence !== undefined ? some(input.confidence) : none,
