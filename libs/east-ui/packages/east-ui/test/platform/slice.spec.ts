@@ -826,13 +826,25 @@ describeEast("Slice", (test) => {
         $(Assert.equal(Slice.apply.matches([RowType], state, cfg, rUp),   true));
     });
 
-    test("apply.matches: search with no configured fields matches nothing", $ => {
+    test("apply.matches: search auto-derives string fields when searchFieldIds omitted (#129)", $ => {
         const RowType = StructType({ sku: StringType });
+        // No explicit searchFieldIds ⇒ defaults to every string field, so the
+        // search works out of the box.
         const cfg = $.let(Slice.config(RowType, { fields: { sku: { label: "SKU" } } }));
         const state = $.const(Slice.state({
             search: some("abc"),
         }));
         const r = $.const(East.value({ sku: "SKU-ABC" }, RowType));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, r), true));
+    });
+
+    test("apply.matches: a config with no string fields searches nothing", $ => {
+        const RowType = StructType({ count: IntegerType });
+        const cfg = $.let(Slice.config(RowType, { fields: { count: { label: "Count" } } }));
+        const state = $.const(Slice.state({
+            search: some("abc"),
+        }));
+        const r = $.const(East.value({ count: 5n }, RowType));
         $(Assert.equal(Slice.apply.matches([RowType], state, cfg, r), false));
     });
 

@@ -365,10 +365,15 @@ function createSliceConfig<
         );
         fieldEntries.push([fieldId, variant(kind, { label: fieldConfig.label, accessor })]);
     }
+    // Default `searchFieldIds` to every string field when not given, so the
+    // search affordance works out of the box (#129). Explicit ids still win.
+    const stringFieldIds = fieldEntries
+        .filter(([, spec]) => (spec as { type: string }).type === "string")
+        .map(([id]) => id);
     return East.value({
         fields: new Map(fieldEntries) as unknown as Map<string, never>,
         rangeFieldId:      userConfig.rangeFieldId !== undefined ? some(userConfig.rangeFieldId) : none,
-        searchFieldIds:    [...(userConfig.searchFieldIds    ?? [])],
+        searchFieldIds:    userConfig.searchFieldIds !== undefined ? [...userConfig.searchFieldIds] : stringFieldIds,
         breakdownFieldIds: [...(userConfig.breakdownFieldIds ?? [])],
     }, sliceConfigFor(rowType));
 }

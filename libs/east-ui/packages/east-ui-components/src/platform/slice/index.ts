@@ -435,14 +435,30 @@ export const SliceImpl: PlatformFunction[] = [
         const k = key as string;
         trackKey(k);
         const e = boundByKey.get(k);
-        if (e === undefined || e.toMatch === undefined) return [];
+        if (e === undefined) return [];
         const s = readState(k);
         const now = new Date();
         const hits = s.search.type === "some"
             ? boundRows(e).filter(r => sliceMatches(only({ search: s.search }) as never, e.config, r, now))
             : boundRows(e);
         // `Match.meta` is the loose `variant`; the output is `option<string>`.
-        return hits.map(e.toMatch) as never;
+        if (e.toMatch !== undefined) return hits.map(e.toMatch) as never;
+        // No `toMatch` supplied: auto-derive matches from the config's first
+        // searchable string field so search works out of the box (#129). Project
+        // each hit to `{ id, label, meta: none }`; a per-row ordinal keeps `id`
+        // unique when the field has duplicate values.
+        const cfg = e.config as unknown as {
+            searchFieldIds: string[];
+            fields: Map<string, { type: string; value: { accessor: (r: unknown) => unknown } }>;
+        };
+        const stringId = cfg.searchFieldIds.find(id => cfg.fields.get(id)?.type === "string")
+            ?? [...cfg.fields].find(([, f]) => f.type === "string")?.[0];
+        if (stringId === undefined) return [];   // genuinely un-derivable (no string fields)
+        const accessor = cfg.fields.get(stringId)!.value.accessor;
+        return hits.map((r, i) => {
+            const label = String(accessor(r));
+            return { id: `${label} ${i}`, label, meta: none };
+        }) as never;
     }),
     SliceBindPrimitives.cohortCounts.implement((key: unknown) => {
         const k = key as string;
