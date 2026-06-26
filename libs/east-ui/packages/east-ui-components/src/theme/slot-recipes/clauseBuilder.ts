@@ -27,7 +27,11 @@ export const clauseBuilderSlotRecipe = defineSlotRecipe({
         // width:100% select triggers to min-content and truncate them.
         row: {
             display: "grid",
-            gridTemplateColumns: "minmax(0, 1.3fr) minmax(84px, max-content) minmax(80px, 1fr) auto",
+            // op floor sized so the longest common operator label ("contains"
+            // / "between" / "not in") fits without ellipsis once the trigger
+            // reserves chevron padding (#130), while still fitting the 320px
+            // Slice.Edit popover.
+            gridTemplateColumns: "minmax(0, 1.3fr) minmax(100px, max-content) minmax(80px, 1fr) auto",
             alignItems: "center",
             gap: "{spacing.2}",
             minWidth: "0",

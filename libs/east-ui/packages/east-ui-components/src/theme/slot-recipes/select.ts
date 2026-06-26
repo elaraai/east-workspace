@@ -33,6 +33,14 @@ export const selectSlotRecipe = defineSlotRecipe({
         },
         valueText: {
             flex: 1,
+            // Shrink + ellipsis-truncate a long value INSIDE the trigger's
+            // reserved area instead of running under the absolutely-positioned
+            // chevron (#130). A flex item's default `min-width: auto` won't
+            // shrink below its content, so `minWidth: 0` is required.
+            minWidth: 0,
+            overflow: "hidden",
+            whiteSpace: "nowrap",
+            textOverflow: "ellipsis",
             textAlign: "left",
             color: "fg",
             _placeholder: { color: "fg.subtle" },
@@ -88,10 +96,13 @@ export const selectSlotRecipe = defineSlotRecipe({
                 },
             },
         },
+        // Reserve room at the inline-end for the absolutely-positioned chevron
+        // (`indicatorGroup` sits over the trigger's right edge), so the value
+        // text never collides with it — per size (#130).
         size: {
-            sm: { trigger: { fontSize: "{fontSizes.xs}", paddingX: "{spacing.2}", paddingY: "{spacing.1}" } },
-            md: { trigger: { fontSize: "{fontSizes.control}", paddingX: "10px", paddingY: "7px" } },
-            lg: { trigger: { fontSize: "{fontSizes.md}", paddingX: "{spacing.4}", paddingY: "{spacing.3}" } },
+            sm: { trigger: { fontSize: "{fontSizes.xs}", paddingX: "{spacing.2}", paddingInlineEnd: "28px", paddingY: "{spacing.1}" } },
+            md: { trigger: { fontSize: "{fontSizes.control}", paddingX: "10px", paddingInlineEnd: "30px", paddingY: "7px" } },
+            lg: { trigger: { fontSize: "{fontSizes.md}", paddingX: "{spacing.4}", paddingInlineEnd: "38px", paddingY: "{spacing.3}" } },
         },
     },
     defaultVariants: {
