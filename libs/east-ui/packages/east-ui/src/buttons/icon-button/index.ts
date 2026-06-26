@@ -19,6 +19,7 @@ import type { IconPayload } from "../button/types.js";
 import {
     IconButtonStyleType,
     IconButtonType,
+    IconButtonAttentionType,
     ButtonVariantType,
     type IconButtonStyle,
     type IconButtonOptions,
@@ -29,8 +30,10 @@ import {
 export {
     IconButtonStyleType,
     IconButtonType,
+    IconButtonAttentionType,
     type IconButtonStyle,
     type IconButtonOptions,
+    type IconButtonAttentionLiteral,
 } from "./types.js";
 
 // ============================================================================
@@ -75,9 +78,21 @@ export {
 function createIconButton(
     options: IconButtonOptions,
 ): ExprType<UIComponentType> {
-    const { prefix, name, label, loadingIcon, loading, disabled, onClick, ...visual } = options;
+    const { prefix, name, label, loadingIcon, loading, disabled, onClick, badge, badgeColorPalette, attention, ...visual } = options;
     const styleValue = Object.values(visual).some(field => field !== undefined)
-        ? buildIconButtonStyle(options)
+        ? buildIconButtonStyle(visual)
+        : undefined;
+
+    const badgeColorPaletteValue = badgeColorPalette !== undefined
+        ? (typeof badgeColorPalette === "string"
+            ? East.value(variant(badgeColorPalette, null), ColorSchemeType)
+            : badgeColorPalette)
+        : undefined;
+
+    const attentionValue = attention !== undefined
+        ? (typeof attention === "string"
+            ? East.value(variant(attention, null), IconButtonAttentionType)
+            : attention)
         : undefined;
 
     return East.value(variant("IconButton", {
@@ -88,6 +103,9 @@ function createIconButton(
         loading: loading !== undefined ? some(loading) : none,
         disabled: disabled !== undefined ? some(disabled) : none,
         onClick: onClick ? some(onClick) : none,
+        badge: badge !== undefined ? some(badge) : none,
+        badgeColorPalette: badgeColorPaletteValue ? some(badgeColorPaletteValue) : none,
+        attention: attentionValue ? some(attentionValue) : none,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
 }
@@ -227,5 +245,10 @@ export const IconButton = {
          * @property plain - Unadorned pressable icon
          */
         Variant: ButtonVariantType,
+        /**
+         * Attention-animation variant (`none` / `pulse` / `ring`). See
+         * {@link IconButtonAttentionType}.
+         */
+        Attention: IconButtonAttentionType,
     },
 } as const;

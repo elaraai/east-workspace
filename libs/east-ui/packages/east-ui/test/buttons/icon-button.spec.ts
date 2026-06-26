@@ -12,6 +12,7 @@ describeEast("IconButton", (test) => {
         iconButtonBasic: ex.iconButtonBasic,
         iconButtonLoading: ex.iconButtonLoading,
         iconButtonColoured: ex.iconButtonColoured,
+        iconButtonBadgeAndAttention: ex.iconButtonBadgeAndAttention,
         iconButtonOnClickReactive: ex.iconButtonOnClickReactive,
     });
 

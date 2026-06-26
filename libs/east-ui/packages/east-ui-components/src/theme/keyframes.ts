@@ -10,6 +10,7 @@
  * config slot accepts them.
  *
  *  - `elara-pulse`         — generic opacity pulse (Skeleton / pulsing dots).
+ *  - `elara-ping`          — expanding, fading ring (IconButton attention).
  *  - `elara-spin`          — full rotation (Spinner default).
  *  - `elara-shimmer`       — background-position sweep (Skeleton variant).
  *  - `spec-pulse-live`     — pattern_spec `.dot.live` (2.4 s ring pulse).
@@ -25,6 +26,10 @@ export const keyframes = defineKeyframes({
     "elara-pulse": {
         "0%, 100%": { opacity: 1 },
         "50%":      { opacity: 0.4 },
+    },
+    "elara-ping": {
+        "0%":        { transform: "scale(1)",   opacity: 0.55 },
+        "75%, 100%": { transform: "scale(1.7)", opacity: 0 },
     },
     "elara-spin": {
         "0%":   { transform: "rotate(0deg)" },

@@ -70,6 +70,7 @@ import { switchSlotRecipe } from "./slot-recipes/switch.js";
 import { radioGroupSlotRecipe } from "./slot-recipes/radioGroup.js";
 import { accordionSlotRecipe } from "./slot-recipes/accordion.js";
 import { selectSlotRecipe } from "./slot-recipes/select.js";
+import { iconButtonSlotRecipe } from "./slot-recipes/iconButton.js";
 import { sliderSlotRecipe } from "./slot-recipes/slider.js";
 import { segmentGroupSlotRecipe } from "./slot-recipes/segmentGroup.js";
 import { navListSlotRecipe } from "./slot-recipes/navList.js";
@@ -158,6 +159,7 @@ const config = defineConfig({
             radioGroup:      radioGroupSlotRecipe,
             accordion:       accordionSlotRecipe,
             select:          selectSlotRecipe,
+            iconButton:      iconButtonSlotRecipe,
             slider:          sliderSlotRecipe,
             segmentGroup:    segmentGroupSlotRecipe,
             navList:         navListSlotRecipe,
