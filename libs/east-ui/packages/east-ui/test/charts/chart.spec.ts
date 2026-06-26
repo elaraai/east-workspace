@@ -18,6 +18,8 @@ describeEast("Chart", (test) => {
         lineDashedTargetOverlay: ex.lineDashedTargetOverlay,
         lineTemporal: ex.lineTemporal,
         lineNumericX: ex.lineNumericX,
+        lineRuntimeDomain: ex.lineRuntimeDomain,
+        lineRuntimeTimeDomain: ex.lineRuntimeTimeDomain,
         lineSampleFan: ex.lineSampleFan,
         barBasic: ex.barBasic,
         barPerCategory: ex.barPerCategory,

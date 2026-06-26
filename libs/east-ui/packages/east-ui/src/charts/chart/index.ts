@@ -555,14 +555,30 @@ function createRefDot(options: RefDotOptions): RefLayer {
 // Chart.Root — assemble layers into the VisxChart value
 // ============================================================================
 
+/**
+ * Explicit `[min, max]` extent for a chart axis — either numeric or temporal.
+ * Each bound accepts a plain host value (`number` / `Date`) **or** an East
+ * expression ({@link SubtypeExprOrValue}), so an axis extent can be fixed at
+ * author time or driven at runtime (e.g. ending on a data-derived day such as
+ * `decision_day + p95 + buffer`). Host `[0, 6]` / `[Date, Date]` literals stay
+ * valid, so this is backward-compatible.
+ */
+export type AxisDomain =
+    | [SubtypeExprOrValue<FloatType>, SubtypeExprOrValue<FloatType>]
+    | [SubtypeExprOrValue<DateTimeType>, SubtypeExprOrValue<DateTimeType>];
+
 /** Axis configuration for one of `Chart.Root`'s axes. */
 export interface AxisOptions {
     /** Axis caption. */
     label?: SubtypeExprOrValue<StringType>;
     /** Tick-label format (see {@link Chart.format}). */
     format?: SubtypeExprOrValue<ChartTickFormatType>;
-    /** Explicit `[min, max]` extent (numbers or dates). */
-    domain?: [number, number] | [Date, Date];
+    /**
+     * Explicit `[min, max]` extent for a linear/time axis (numbers or dates,
+     * each a plain value or a runtime expression — see {@link AxisDomain}).
+     * Omit to derive from the data; not meaningful for a `band` scale.
+     */
+    domain?: AxisDomain;
     /** Force the x-scale kind instead of inferring it from the data. */
     scale?: ScaleKind;
 }
@@ -602,13 +618,20 @@ export interface ChartOptions {
     affordances?: SliceAffordanceLiteral[];
 }
 
+/** Whether a domain bound is temporal — a host `Date` or a `DateTime` expression (vs a numeric bound). */
+function isTemporalBound(bound: SubtypeExprOrValue<FloatType> | SubtypeExprOrValue<DateTimeType>): boolean {
+    if (bound instanceof Date) return true;
+    if (typeof bound === "number") return false;
+    return typeTag(bound as SubtypeExprOrValue<ScalarType>) === "DateTime";
+}
+
 /** Translate an {@link AxisOptions} domain into a {@link ChartDomainType} expr. */
-function domainExpr(domain: [number, number] | [Date, Date] | undefined): ExprType<ChartDomainType> | undefined {
+function domainExpr(domain: AxisDomain | undefined): ExprType<ChartDomainType> | undefined {
     if (domain === undefined) return undefined;
     const [lo, hi] = domain;
-    const arm = lo instanceof Date
-        ? variant("time", { min: lo, max: hi as Date })
-        : variant("number", { min: lo as number, max: hi as number });
+    const arm = isTemporalBound(lo)
+        ? variant("time", { min: lo as SubtypeExprOrValue<DateTimeType>, max: hi as SubtypeExprOrValue<DateTimeType> })
+        : variant("number", { min: lo as SubtypeExprOrValue<FloatType>, max: hi as SubtypeExprOrValue<FloatType> });
     return East.value(arm, ChartDomainType);
 }
 
