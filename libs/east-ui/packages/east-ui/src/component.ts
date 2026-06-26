@@ -175,6 +175,9 @@ import {
     PlannerAxisType,
     PlannerStateType,
     PlannerMarkerType,
+    PlannerStretchType,
+    PlannerContentType,
+    PlannerAnimationType,
     PlannerColumnType,
     PlannerCellType,
     PlannerVariantType,
@@ -772,6 +775,9 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         rows: ArrayType(StructType({
             group: OptionType(StringType),
             cells: DictType(StringType, PlannerCellType),
+            // Mirror `PlannerEventType` in `collections/planner/index.ts` — `popover`
+            // / `hovercard` are spelled with the recursion `node` here (the resolved
+            // `UIComponentType` there).
             events: ArrayType(StructType({
                 key: OptionType(StringType),
                 slot: PlannerSlotType,
@@ -780,6 +786,11 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
                 label: StringType,
                 state: PlannerStateType,
                 popover: OptionType(node),
+                stretch: OptionType(PlannerStretchType),
+                content: OptionType(PlannerContentType),
+                tone: OptionType(StatusValueType),
+                animation: OptionType(PlannerAnimationType),
+                hovercard: OptionType(node),
             })),
             markers: ArrayType(PlannerMarkerType),
             status: OptionType(StatusValueType),
@@ -803,6 +814,7 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
             onRerun: OptionType(FunctionType([], NullType)),
             rerunLabel: StringType,
         })),
+        rowHover: OptionType(BooleanType),
     }),
 
     // Roster — people × days-of-week shift grid (drag & drop target role)

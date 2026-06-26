@@ -4,7 +4,7 @@
  */
 
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
-import { Box, Popover, Portal, Tooltip, useRecipe, useSlotRecipe } from "@chakra-ui/react";
+import { Box, HoverCard, Popover, Portal, Tooltip, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import {
     useReactTable, getCoreRowModel, createColumnHelper,
     type ColumnDef, type ColumnSizingState, type Updater,
@@ -195,39 +195,115 @@ function formatSlot(slot: PlannerSlotValue): string {
 }
 
 // ============================================================================
-// Event chip (with optional popover + conflict marker)
+// Event chip (with optional popover / hovercard + conflict marker)
 // ============================================================================
 
-function EventChip({ event, eventStyle, gripStyle }: {
+/** A content-alignment tag → its flexbox value. */
+const CONTENT_ALIGN: Record<string, "flex-start" | "center" | "flex-end"> = {
+    start: "flex-start", center: "center", end: "flex-end",
+};
+
+/**
+ * Derive the per-event geometry CSS (stretch fill + content alignment) from an
+ * event's `stretch` / `content` fields. Inline (not a recipe variant) because it
+ * is data-driven per event — the sanctioned dynamic exception to the
+ * recipe-only rule (the enumerable styling — tone / animation / row hover — all
+ * lives on the recipe).
+ */
+function eventGeom(event: PlannerEventValue, shape: "point" | "span"): Record<string, unknown> {
+    const stretch = getSomeorUndefined(event.stretch)?.type;
+    const content = getSomeorUndefined(event.content);
+    const contentH = content ? getSomeorUndefined(content.horizontal)?.type : undefined;
+    const contentV = content ? getSomeorUndefined(content.vertical)?.type : undefined;
+    const geom: Record<string, unknown> = {};
+    if (stretch === "horizontal" || stretch === "both") geom.width = "100%";
+    if (stretch === "vertical" || stretch === "both") geom.height = "100%";
+    // Content alignment inside the tile (visible once the tile is larger than its
+    // label — i.e. when stretched): horizontal → justifyContent, vertical → alignItems.
+    if (contentH) geom.justifyContent = CONTENT_ALIGN[contentH];
+    if (contentV) geom.alignItems = CONTENT_ALIGN[contentV];
+    // Point chips: place the (possibly normal-size) tile within its cell. Default
+    // top-left (alignSelf: flex-start), overridden by content.vertical — this is
+    // the deliberate change from today's cell-level vertical centering. Span bars
+    // fill the row via the recipe + the absolute wrapper, so their vertical
+    // placement is owned there; don't fight it with alignSelf.
+    if (shape === "point") geom.alignSelf = contentV ? CONTENT_ALIGN[contentV] : "flex-start";
+    return geom;
+}
+
+function EventChip({ event, eventStyle, gripStyle, shape }: {
     event: PlannerEventValue;
     eventStyle: Record<string, unknown>;
     gripStyle: Record<string, unknown> | undefined;
+    shape: "point" | "span";
 }) {
     const popover = getSomeorUndefined(event.popover);
+    const hovercard = getSomeorUndefined(event.hovercard);
     const sk = stateKey(event.state);
     const showGrip = sk === "proposedAdded" || sk === "proposedModel" || sk === "proposedRemoved";
 
     // With a grip, tighten the left inset so the handle sits as close to the
     // edge as the 3px top/bottom padding (the default 8px reads lop-sided).
+    // `geom` carries the data-driven stretch/content overrides (item 1).
+    const chipCss = { ...eventStyle, ...eventGeom(event, shape), ...(showGrip ? { paddingInlineStart: "3px" } : {}) };
     const chip = (
-        <Box css={showGrip ? { ...eventStyle, paddingInlineStart: "3px" } : eventStyle} data-slot="event" data-state={sk}>
+        <Box css={chipCss} data-slot="event" data-state={sk}>
             {showGrip && <Box as="span" css={gripStyle} data-slot="grip"><FontAwesomeIcon icon={faGripVertical} /></Box>}
             <Box as="span" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" minW={0}>{event.label}</Box>
         </Box>
     );
-    if (popover === undefined) return chip;
+
+    if (popover === undefined && hovercard === undefined) return chip;
+
+    const hoverBody = hovercard !== undefined ? (
+        <Portal>
+            <HoverCard.Positioner>
+                <HoverCard.Content padding="14px 16px" minW="240px" maxW="360px" fontSize="13px">
+                    <EastChakraComponent value={hovercard} storageKey="planner.hovercard" />
+                </HoverCard.Content>
+            </HoverCard.Positioner>
+        </Portal>
+    ) : null;
+    const popBody = popover !== undefined ? (
+        <Portal>
+            <Popover.Positioner>
+                <Popover.Content padding="14px 16px" minW="240px" maxW="360px" fontSize="13px">
+                    <Popover.Body padding={0}>
+                        <EastChakraComponent value={popover} storageKey="planner.popover" />
+                    </Popover.Body>
+                </Popover.Content>
+            </Popover.Positioner>
+        </Portal>
+    ) : null;
+
+    // popover (click) + hovercard (hover) may coexist on one chip — hover
+    // previews, click pins. Stack the two triggers on the same chip via nested
+    // `asChild` (the canonical Ark pattern) so both machines drive it.
+    if (popover !== undefined && hovercard !== undefined) {
+        return (
+            <Popover.Root positioning={{ placement: "top" }}>
+                <HoverCard.Root openDelay={150} positioning={{ placement: "top" }}>
+                    <Popover.Trigger asChild>
+                        <HoverCard.Trigger asChild>{chip}</HoverCard.Trigger>
+                    </Popover.Trigger>
+                    {hoverBody}
+                </HoverCard.Root>
+                {popBody}
+            </Popover.Root>
+        );
+    }
+    if (hovercard !== undefined) {
+        return (
+            <HoverCard.Root openDelay={150} positioning={{ placement: "top" }}>
+                <HoverCard.Trigger asChild>{chip}</HoverCard.Trigger>
+                {hoverBody}
+            </HoverCard.Root>
+        );
+    }
     return (
         <Popover.Root positioning={{ placement: "top" }}>
             <Popover.Trigger asChild>{chip}</Popover.Trigger>
-            <Portal>
-                <Popover.Positioner>
-                    <Popover.Content padding="14px 16px" minW="240px" maxW="360px" fontSize="13px">
-                        <Popover.Body padding={0}>
-                            <EastChakraComponent value={popover} storageKey="planner.popover" />
-                        </Popover.Body>
-                    </Popover.Content>
-                </Popover.Positioner>
-            </Portal>
+            {popBody}
         </Popover.Root>
     );
 }
@@ -242,7 +318,10 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
     const size = sizeFromDensity(value);
     const recipe = useSlotRecipe({ key: "planner" });
     const tableRecipe = useSlotRecipe({ key: "table" });
-    const base = useMemo(() => recipe({ size }) as unknown as RecipeStyles, [recipe, size]);
+    // Opt-in row-hover affordance (#120 item 5) — the recipe `rowHover` variant
+    // adds the `_hover` outline to the `row` slot, so no inline hover styling.
+    const rowHoverOn = getSomeorUndefined(value.rowHover) === true;
+    const base = useMemo(() => recipe({ size, rowHover: rowHoverOn } as Record<string, unknown>) as unknown as RecipeStyles, [recipe, size, rowHoverOn]);
     // Header cells reuse the shared `table` columnHeader chrome (solid wash +
     // strong bottom rule) — one source across Table / Gantt / Planner / Matrix.
     const headerCellStyle = useMemo(() => (tableRecipe({ size }) as unknown as RecipeStyles).columnHeader ?? {}, [tableRecipe, size]);
@@ -270,6 +349,27 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
         for (const s of ["success", "warning", "danger", "info", "neutral"]) out[s] = recipe({ size, status: s } as Record<string, unknown>) as unknown as RecipeStyles;
         return out;
     }, [recipe, size]);
+
+    // Per-event tone (#120 item 3) — pick ONLY the colour properties the `tone`
+    // recipe variant sets, so merging over a state style recolours fill/text/
+    // border without disturbing the state's borderStyle / textDecoration (the
+    // committed / proposed / removed / rejected audit cues survive a recolour).
+    const toneStyles = useMemo(() => {
+        const out: Record<string, Record<string, unknown>> = {};
+        for (const t of ["success", "warning", "danger", "info", "neutral"]) {
+            const ev = (recipe({ size, shape, tone: t } as Record<string, unknown>) as unknown as RecipeStyles).event ?? {};
+            out[t] = { background: ev.background, color: ev.color, borderColor: ev.borderColor };
+        }
+        return out;
+    }, [recipe, size, shape]);
+
+    // The pulse animation string from the recipe (`animation: pulse`), applied
+    // additively to the resolved event style with an explicit reduced-motion guard
+    // so opted-out users see no motion regardless of how the recipe is resolved.
+    const pulseStyle = useMemo(() => {
+        const ev = (recipe({ size, shape, animation: "pulse" } as Record<string, unknown>) as unknown as RecipeStyles).event ?? {};
+        return { animation: ev.animation, "@media (prefers-reduced-motion: reduce)": { animation: "none" } } as Record<string, unknown>;
+    }, [recipe, size, shape]);
 
     // Row selection (interactive-state pattern).
     const onSelectRow = useMemo(() => getSomeorUndefined(value.onSelectRow), [value.onSelectRow]);
@@ -406,7 +506,15 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
     const now = getSomeorUndefined(value.now);
     const nowCol = now !== undefined ? slotToCol(now, cols) : -1;
 
-    const eventStyleFor = (ev: PlannerEventValue) => stateStyles[stateKey(ev.state)];
+    // The resolved chip style: the state grammar, then the optional `tone` tint
+    // (colours only), then the optional `pulse` animation (#120 item 3).
+    const eventStyleFor = (ev: PlannerEventValue) => {
+        let style = stateStyles[stateKey(ev.state)];
+        const tone = getSomeorUndefined(ev.tone)?.type;
+        if (tone !== undefined && toneStyles[tone] !== undefined) style = { ...style, ...toneStyles[tone] };
+        if (getSomeorUndefined(ev.animation)?.type === "pulse") style = { ...style, ...pulseStyle };
+        return style;
+    };
 
     const cellEvents = (row: PlannerRowValue, colIndex: number, bucketKey?: string) =>
         row.events.filter((ev) => {
@@ -414,6 +522,11 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
             const b = getSomeorUndefined(ev.bucket);
             return bucketKey === undefined ? b === undefined : b === bucketKey;
         });
+
+    // All events in a column, regardless of bucket — used to decide per-cell
+    // bucketing (cellEvents with no bucketKey returns only the *bucketless* ones).
+    const columnEvents = (row: PlannerRowValue, colIndex: number) =>
+        row.events.filter((ev) => slotToCol(ev.slot, cols) === colIndex);
 
     // The conflict marker wraps the whole cell (spec). Conflicts are declared
     // parallel to events (row.markers), each locating its own cell by slot.
@@ -459,27 +572,67 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
         return out;
     }, [value.rows]);
 
-    // Bucketing is decided PER ROW (`rowBucketed`), not globally: a row renders
-    // the bucket sub-grid only when the axis declares buckets AND the row carries
-    // at least one bucketed event. Rows whose events are all `bucket: none` (under
-    // the same bucketed axis) fall through to the flat branch — one cell per day —
-    // instead of vanishing (those events match no bucket sub-cell).
-    const renderCellBody = (row: PlannerRowValue, colIndex: number, rowBucketed: boolean) => {
-        if (!rowBucketed) {
+    // Rows with an accidental same-cell mix (#120 item 6): a cell holding BOTH a
+    // bucketed and a bucketless event. Such a row shows an "N/A" lane in every
+    // bucketed cell so the orphan surfaces (labelled) instead of vanishing.
+    const rowNeedsNA = useMemo(() => {
+        const set = new Set<number>();
+        if (buckets.length > 0) {
+            value.rows.forEach((row, ri) => {
+                const mixed = cols.some((_c, ci) =>
+                    row.events.some((ev) => slotToCol(ev.slot, cols) === ci && getSomeorUndefined(ev.bucket) !== undefined) &&
+                    row.events.some((ev) => slotToCol(ev.slot, cols) === ci && getSomeorUndefined(ev.bucket) === undefined));
+                if (mixed) set.add(ri);
+            });
+        }
+        return set;
+    }, [value.rows, cols, buckets]);
+
+    useEffect(() => {
+        if (rowNeedsNA.size > 0) {
+            console.warn(`[Planner] ${rowNeedsNA.size} row(s) have a bucketless event sharing a bucketed cell — rendered in an "N/A" lane. Give the event a bucket, or move it to its own column.`);
+        }
+    }, [rowNeedsNA]);
+
+    // Bucketing is decided PER CELL (`cellBucketed`), not per row (#120 item 6): a
+    // cell renders the bucket sub-grid iff the axis declares buckets AND this cell
+    // carries ≥1 bucketed event. So within one row a bucketed column (am/pm) and a
+    // flat column coexist, and a bucketless event lands in its column's flat cell
+    // instead of vanishing (the old per-row test dropped it whenever the row had
+    // any other bucketed event).
+    const cellBucketed = (row: PlannerRowValue, colIndex: number) =>
+        buckets.length > 0 && columnEvents(row, colIndex).some((ev) => getSomeorUndefined(ev.bucket) !== undefined);
+
+    // The synthetic orphan lane key (item 6) — when a single cell accidentally
+    // mixes a bucketed + a bucketless event, the bucketless one(s) land here.
+    const NA_BUCKET = { key: "__na__", label: "N/A" };
+
+    // Render a single timeline cell's body. `needsNA` is row-level: if ANY cell in
+    // the row mixes a bucketed + a bucketless event, every bucketed cell in the row
+    // gains a trailing "N/A" lane (holding that cell's orphan bucketless events, if
+    // any) so the bucket sub-grid stays aligned across the row and nothing is
+    // silently dropped.
+    const renderCellBody = (row: PlannerRowValue, colIndex: number, needsNA: boolean) => {
+        if (!cellBucketed(row, colIndex)) {
             return cellEvents(row, colIndex).map((ev, i) => (
-                <EventChip key={i} event={ev} eventStyle={eventStyleFor(ev)} gripStyle={base.grip} />
+                <EventChip key={i} event={ev} eventStyle={eventStyleFor(ev)} gripStyle={base.grip} shape="point" />
             ));
         }
         // Bucketed cells are a vertical sub-grid; the cell box itself carries
         // `bucketedCell` (grid + flat 2px inset), so no extra wrapper here.
-        return buckets.map((bk) => (
-            <Box key={bk.key} css={base.bucket} data-slot="bucket" height={`${unitH}px`}>
-                <Box css={base.bucketLabel} data-slot="bucketLabel">{bk.label}</Box>
-                {cellEvents(row, colIndex, bk.key).map((ev, i) => (
-                    <EventChip key={i} event={ev} eventStyle={eventStyleFor(ev)} gripStyle={base.grip} />
-                ))}
-            </Box>
-        ));
+        const lanes = needsNA ? [...buckets, NA_BUCKET] : buckets;
+        return lanes.map((bk) => {
+            const isNA = bk.key === NA_BUCKET.key;
+            const laneEvents = isNA ? cellEvents(row, colIndex, undefined) : cellEvents(row, colIndex, bk.key);
+            return (
+                <Box key={bk.key} css={isNA ? { ...base.bucket, ...base.bucketNA } : base.bucket} data-slot="bucket" data-na={isNA ? "" : undefined} height={`${unitH}px`}>
+                    <Box css={base.bucketLabel} data-slot="bucketLabel">{bk.label}</Box>
+                    {laneEvents.map((ev, i) => (
+                        <EventChip key={i} event={ev} eventStyle={eventStyleFor(ev)} gripStyle={base.grip} shape="point" />
+                    ))}
+                </Box>
+            );
+        });
     };
 
     const plannerContent = (
@@ -538,10 +691,10 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
                     )}
                     {group.rows.map(({ row, index }) => {
                         const rowStatusTag = hasReview ? getSomeorUndefined(row.status)?.type : undefined;
-                        // Per-row bucketing: bucketed iff the axis declares buckets
-                        // AND this row has ≥1 event sitting in one (else its
-                        // `bucket: none` events render flat, one cell per column).
-                        const rowBucketed = buckets.length > 0 && row.events.some((ev) => getSomeorUndefined(ev.bucket) !== undefined);
+                        // Per-cell bucketing (#120 item 6) — each cell decides flat
+                        // vs sub-grid independently; `needsNA` adds the orphan lane
+                        // to this row's bucketed cells when a same-cell mix exists.
+                        const needsNA = rowNeedsNA.has(index);
                         return (
                         <Box
                             key={index}
@@ -606,14 +759,18 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
                                     let cellCss: Record<string, unknown> = past
                                         ? { ...base.cell, background: "bg.muted" }
                                         : { ...base.cell };
-                                    if (rowBucketed) cellCss = { ...cellCss, ...base.bucketedCell };
+                                    // Per-cell bucketing — this cell is a sub-grid
+                                    // iff it holds a bucketed event, else a flat
+                                    // unitH cell (so a flat column can sit beside a
+                                    // bucketed one in the same row).
+                                    if (cellBucketed(row, ci)) cellCss = { ...cellCss, ...base.bucketedCell };
                                     else cellCss = { ...cellCss, height: `${unitH}px` };
                                     if (ci === cols.length - 1) cellCss = { ...cellCss, borderRightWidth: "0" };
                                     // Anchor the marker ring/icon to THIS cell (not the timeline pane).
                                     cellCss = { ...cellCss, position: "relative" };
                                     return (
                                         <Box key={c.key} data-slot="cell" data-past={past ? "" : undefined} css={cellCss}>
-                                            {renderCellBody(row, ci, rowBucketed)}
+                                            {renderCellBody(row, ci, needsNA)}
                                             {marker && mStyle && <Box css={mStyle.markerRing} data-slot="markerRing" />}
                                             {marker && mStyle && (
                                                 <Tooltip.Root openDelay={150}>
@@ -634,17 +791,24 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
                                 })}
                                 {shape === "span" && (
                                     <>
-                                        {cols.map((c) => (<Box key={c.key} css={base.cell} />))}
+                                        {/* Span timeline cells carry the density `unitH` so the row
+                                            has a real height (the bar fills it) rather than collapsing
+                                            to the old fixed 22px (#120 item 2). */}
+                                        {cols.map((c) => (<Box key={c.key} css={base.cell} height={`${unitH}px`} />))}
                                         {row.events.map((ev, i) => {
                                             const start = slotToCol(ev.slot, cols);
                                             if (start < 0) return null;
                                             const endSlot = getSomeorUndefined(ev.endSlot);
                                             const end = endSlot !== undefined ? slotToCol(endSlot, cols) : start;
                                             const span = Math.max(end, start) - start + 1;
+                                            // The wrapper now spans the full cell height (top:0/bottom:0)
+                                            // and centres the bar; no horizontal padding, so the coloured
+                                            // bar reaches both column edges (the chip keeps its own
+                                            // interior 0 8px from the recipe) (#120 item 2).
                                             return (
-                                                <Box key={i} position="absolute" top="50%" transform="translateY(-50%)" paddingX="8px"
+                                                <Box key={i} position="absolute" top="0" bottom="0" display="flex" alignItems="center"
                                                     left={`calc(${start} * (100% / ${nCols}))`} width={`calc(${span} * (100% / ${nCols}))`}>
-                                                    <EventChip event={ev} eventStyle={eventStyleFor(ev)} gripStyle={base.grip} />
+                                                    <EventChip event={ev} eventStyle={eventStyleFor(ev)} gripStyle={base.grip} shape="span" />
                                                 </Box>
                                             );
                                         })}

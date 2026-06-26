@@ -254,6 +254,87 @@ export const PlannerMarkerType = StructType({
 export type PlannerMarkerType = typeof PlannerMarkerType;
 
 // ============================================================================
+// Event geometry — stretch + content alignment + animation
+// ============================================================================
+
+/**
+ * Which axis an event tile stretches to fill its cell on. Absent ⇒ the tile is
+ * content-sized (intrinsic). Deliberately `stretch` (not `fill`) to avoid
+ * confusion with the background-colour fill — it matches the flexbox
+ * `alignItems: stretch` vocabulary the renderer already uses.
+ *
+ * @remarks
+ * Pass the string shorthand (`"horizontal"` / `"vertical"` / `"both"`) to
+ * `Planner.event`'s `stretch` field. A horizontal stretch fills the cell width,
+ * a vertical stretch fills its height (so a single-occupant event paints the
+ * whole day cell), and `both` fills both axes. A vertical-stretch tile that
+ * shares a cell with others stretches to its flex-line height, not the full
+ * cell.
+ *
+ * @property horizontal - Fill the cell width
+ * @property vertical - Fill the cell height
+ * @property both - Fill both axes
+ */
+export const PlannerStretchType = VariantType({ horizontal: NullType, vertical: NullType, both: NullType });
+export type PlannerStretchType = typeof PlannerStretchType;
+
+/** String-literal shorthand for {@link PlannerStretchType}. */
+export type PlannerStretchLiteral = "horizontal" | "vertical" | "both";
+
+/**
+ * One alignment position for an event tile's content along a single axis.
+ *
+ * @remarks
+ * Used for both axes of {@link PlannerContentType}. Maps to `justifyContent`
+ * (horizontal) / `alignItems` (vertical) inside the tile, and positions a
+ * normal-size tile within a taller cell. Defaults to `start` on each axis.
+ *
+ * @property start - Align to the start (left / top)
+ * @property center - Centre
+ * @property end - Align to the end (right / bottom)
+ */
+export const PlannerContentAlignType = VariantType({ start: NullType, center: NullType, end: NullType });
+export type PlannerContentAlignType = typeof PlannerContentAlignType;
+
+/** String-literal shorthand for {@link PlannerContentAlignType}. */
+export type PlannerContentAlignLiteral = "start" | "center" | "end";
+
+/**
+ * Where an event tile's content sits inside the tile — a two-axis alignment.
+ *
+ * @remarks
+ * Both axes default to `start` (top-left) when omitted. `horizontal` drives the
+ * tile's `justifyContent`; `vertical` its `alignItems`. Meaningful even without
+ * `stretch` — it positions a normal-size tile within a taller (e.g. bucketed or
+ * mixed) cell.
+ *
+ * @property horizontal - Horizontal content alignment (→ `justifyContent`)
+ * @property vertical - Vertical content alignment (→ `alignItems`)
+ */
+export const PlannerContentType = StructType({
+    horizontal: OptionType(PlannerContentAlignType),
+    vertical:   OptionType(PlannerContentAlignType),
+});
+export type PlannerContentType = typeof PlannerContentType;
+
+/**
+ * An event tile's optional attention animation.
+ *
+ * @remarks
+ * Pass `"pulse"` to `Planner.event`'s `animation` field to draw a gentle
+ * opacity pulse (the shared `elara-pulse` keyframe); `"none"` (or absent) is
+ * static. The pulse honours `prefers-reduced-motion`.
+ *
+ * @property none - No animation (the default)
+ * @property pulse - A gentle opacity pulse
+ */
+export const PlannerAnimationType = VariantType({ none: NullType, pulse: NullType });
+export type PlannerAnimationType = typeof PlannerAnimationType;
+
+/** String-literal shorthand for {@link PlannerAnimationType}. */
+export type PlannerAnimationLiteral = "none" | "pulse";
+
+// ============================================================================
 // Columns — one flat shape (value + eyebrow)
 // ============================================================================
 

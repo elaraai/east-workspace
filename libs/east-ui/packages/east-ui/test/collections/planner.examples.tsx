@@ -390,3 +390,140 @@ export const plannerReview = example({
     }),
     inputs: [],
 });
+
+/**
+ * Per-event `stretch` + content orientation — a tile fills its cell on one or
+ * both axes, with its content positioned inside. Absent ⇒ a normal-size,
+ * top-left tile (the new default).
+ */
+export const plannerStretch = example({
+    keywords: ["Planner", "stretch", "fill", "content", "align", "orientation", "tile", "both", "horizontal"],
+    description: "Per-event stretch + content alignment — a both-axis tile filling its cell with centred content, a width-filling tile, and a normal top-left tile",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <Planner.Point
+                data={[{ name: "Line A" }, { name: "Line B" }]}
+                axis={Planner.axis.number({ range: { min: 1, max: 4 } })}
+                density="comfortable"
+                columns={[{ key: "name", frozen: true, value: r => r.name }]}
+                events={_r => [
+                    Planner.event({ slot: Planner.at.number(1), label: "Full", state: "committed", stretch: "both", content: { horizontal: "center", vertical: "center" } }),
+                    Planner.event({ slot: Planner.at.number(2), label: "Wide", state: "added", stretch: "horizontal" }),
+                    Planner.event({ slot: Planner.at.number(3), label: "Top-left", state: "committed" }),
+                ]}
+            />
+        );
+    }),
+    inputs: [],
+});
+
+/**
+ * Per-event colour override (`tone`) + attention `animation`. `tone` tints
+ * fill/text/border while keeping the state's audit cues (border-style /
+ * strike-through); `pulse` draws a gentle opacity pulse (honouring
+ * `prefers-reduced-motion`).
+ */
+export const plannerEventTone = example({
+    keywords: ["Planner", "tone", "colour", "override", "animation", "pulse", "attention", "warning", "danger"],
+    description: "Per-event tone colour override + pulse animation — a danger-toned committed event pulses for attention while keeping its audit cues",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <Planner.Point
+                data={[{ name: "Reactor" }]}
+                axis={Planner.axis.number({ range: { min: 1, max: 4 } })}
+                columns={[{ key: "name", frozen: true, value: r => r.name }]}
+                events={_r => [
+                    Planner.event({ slot: Planner.at.number(1), label: "OK", state: "committed" }),
+                    Planner.event({ slot: Planner.at.number(2), label: "Watch", state: "committed", tone: "warning" }),
+                    Planner.event({ slot: Planner.at.number(3), label: "Breach", state: "committed", tone: "danger", animation: "pulse" }),
+                ]}
+            />
+        );
+    }),
+    inputs: [],
+});
+
+/**
+ * Open-on-hover `hovercard` (rich UIComponent), coexisting with the click
+ * `popover` on one event — hover previews, click pins.
+ */
+export const plannerHovercard = example({
+    keywords: ["Planner", "hovercard", "hover", "popover", "preview", "rich", "coexist"],
+    description: "Open-on-hover HoverCard on an event, coexisting with the click popover (hover previews, click pins)",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <Planner.Point
+                data={[{ name: "Alice" }]}
+                axis={Planner.axis.number({ range: { min: 1, max: 3 } })}
+                columns={[{ key: "name", frozen: true, value: r => r.name }]}
+                events={_r => [
+                    Planner.event({
+                        slot: Planner.at.number(2), label: "Review", state: "committed",
+                        hovercard: (
+                            <VStack gap="1">
+                                <Text fontWeight="semibold">Review</Text>
+                                <Text color="fg.muted">Hover preview · click to pin</Text>
+                            </VStack>
+                        ),
+                        popover: (
+                            <VStack gap="1">
+                                <Text fontWeight="semibold">Review details</Text>
+                                <Text color="fg.muted">Owner: Alice</Text>
+                            </VStack>
+                        ),
+                    }),
+                ]}
+            />
+        );
+    }),
+    inputs: [],
+});
+
+/**
+ * Opt-in `rowHover` — a light brand outline draws around the whole row (over
+ * both panes) on hover. Pure visual affordance; works on read-only planners.
+ */
+export const plannerRowHover = example({
+    keywords: ["Planner", "rowHover", "hover", "row", "highlight", "outline"],
+    description: "Opt-in row-hover highlight — a light brand outline draws around the whole row on hover",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <Planner.Point
+                data={[{ name: "Alice" }, { name: "Bob" }, { name: "Carol" }]}
+                axis={Planner.axis.number({ range: { min: 1, max: 4 } })}
+                rowHover={true}
+                columns={[{ key: "name", frozen: true, value: r => r.name }]}
+                events={_r => [Planner.event({ slot: Planner.at.number(1), label: "Task", state: "committed" })]}
+            />
+        );
+    }),
+    inputs: [],
+});
+
+/**
+ * Per-cell bucketing — within one row, the day-1 cell splits into am/pm lanes
+ * while day-2 stays a single flat slot. A stray bucketless event sharing the
+ * bucketed day-1 cell falls into a synthetic `N/A` lane (instead of vanishing).
+ */
+export const plannerPerCellBuckets = example({
+    keywords: ["Planner", "bucket", "per-cell", "mixed", "flat", "N/A", "orphan", "fallback"],
+    description: "Per-cell bucketing — day-1 splits into am/pm lanes while day-2 stays flat in the same row; a stray bucketless event in the bucketed cell falls into an N/A lane",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <Planner.Point
+                data={[{ name: "Press A" }]}
+                axis={Planner.axis.number({ buckets: [{ key: "am", label: "AM" }, { key: "pm", label: "PM" }], range: { min: 1, max: 3 } })}
+                columns={[{ key: "name", frozen: true, value: r => r.name }]}
+                events={_r => [
+                    // Day 1 — bucketed (am + pm) plus a stray bucketless event ⇒ N/A lane.
+                    Planner.event({ slot: Planner.at.number(1), bucket: "am", label: "Setup", state: "committed" }),
+                    Planner.event({ slot: Planner.at.number(1), bucket: "pm", label: "Run", state: "committed" }),
+                    Planner.event({ slot: Planner.at.number(1), label: "Note", state: "added" }),
+                    // Day 2 — flat (bucketless) cell in the same row.
+                    Planner.event({ slot: Planner.at.number(2), label: "Idle", state: "committed" }),
+                ]}
+            />
+        );
+    }),
+    inputs: [],
+});

@@ -30,7 +30,7 @@ export const plannerSlotRecipe = defineSlotRecipe({
         "root", "header", "colHeader", "headerCell", "leftPanel",
         "row", "groupHead", "groupHeadCell", "rowHeader", "rowHeaderName", "rowHeaderSub",
         "cell",
-        "bucketedCell", "bucket", "bucketLabel",
+        "bucketedCell", "bucket", "bucketLabel", "bucketNA",
         "event", "grip", "nowLine", "nowPip", "nowHint", "markerRing", "markerIcon", "axis",
         "decisionHeader", "decisionCol", "statusDot",
     ],
@@ -185,6 +185,16 @@ export const plannerSlotRecipe = defineSlotRecipe({
             overflow: "hidden",
             textOverflow: "ellipsis",
         },
+        // The synthetic "N/A" lane — holds the orphan(s) when a single bucketed
+        // cell accidentally also carries a bucketless event (so nothing is dropped
+        // and the accident is visible). A muted dashed treatment marks it apart
+        // from the declared buckets; its label inherits the danger tint.
+        bucketNA: {
+            background: "bg.danger.subtle",
+            borderWidth: "1px",
+            borderStyle: "dashed",
+            borderColor: "{colors.status.neg}",
+        },
         // Event chip (`.evt`) — base shared by every state; `shape` + `state` colour it.
         event: {
             display: "inline-flex",
@@ -314,9 +324,14 @@ export const plannerSlotRecipe = defineSlotRecipe({
     },
     variants: {
         size: {
-            sm: { rowHeader: { paddingY: "{spacing.1}" }, row: { minHeight: "36px" }, colHeader: { paddingY: "{spacing.1.5}" }, headerCell: { paddingY: "{spacing.1.5}" }, decisionHeader: { paddingY: "{spacing.1.5}" } },
+            // NB no `row.minHeight` here: the row takes its height from the
+            // per-cell `unitH` the renderer sets (the density `sizes.density.row`
+            // token). A separate `row.minHeight` floor (formerly 36/56) exceeded
+            // that cell height at compact/comfortable and left an uncovered strip
+            // at the bottom of every row that no cell wash filled (#120 item 2).
+            sm: { rowHeader: { paddingY: "{spacing.1}" }, colHeader: { paddingY: "{spacing.1.5}" }, headerCell: { paddingY: "{spacing.1.5}" }, decisionHeader: { paddingY: "{spacing.1.5}" } },
             md: {},
-            lg: { rowHeader: { paddingY: "{spacing.3}" }, row: { minHeight: "56px" }, colHeader: { paddingY: "{spacing.3}" }, headerCell: { paddingY: "{spacing.3}" }, decisionHeader: { paddingY: "{spacing.3}" } },
+            lg: { rowHeader: { paddingY: "{spacing.3}" }, colHeader: { paddingY: "{spacing.3}" }, headerCell: { paddingY: "{spacing.3}" }, decisionHeader: { paddingY: "{spacing.3}" } },
         },
         // Event geometry — slot-bound chip vs multi-slot bar.
         shape: {
@@ -328,7 +343,11 @@ export const plannerSlotRecipe = defineSlotRecipe({
                     display: "flex",
                     alignItems: "center",
                     width: "100%",
-                    height: "22px",
+                    // Fill the row height (the renderer now sizes span cells to the
+                    // density `unitH` and wraps the bar top:0/bottom:0), leaving a
+                    // ~6px gutter top/bottom so stacked bars don't visually fuse —
+                    // no longer a fixed 22px that reads short in taller rows (#120).
+                    height: "calc(100% - 6px)",
                     padding: "0 8px",
                     fontSize: "11px",
                     overflow: "hidden",
@@ -366,6 +385,31 @@ export const plannerSlotRecipe = defineSlotRecipe({
             info:    { markerRing: { borderColor: "{colors.status.info}", background: "bg.info.subtle"    }, markerIcon: { color: "{colors.status.info}" }, statusDot: { background: "{colors.status.info}" } },
             neutral: { markerRing: { borderColor: "border.strong",        background: "transparent"       }, markerIcon: { color: "fg.subtle"            }, statusDot: { background: "fg.subtle"            } },
         },
+        // Per-event semantic colour override (`event.tone`). A *tint* — it sets
+        // only fill / text / border-colour on the chip; the renderer keeps the
+        // state's border-style + text-decoration so the committed / proposed /
+        // removed / rejected audit cues survive a recolour.
+        tone: {
+            success: { event: { background: "bg.success.subtle", color: "{colors.status.pos}",  borderColor: "{colors.status.pos}"  } },
+            warning: { event: { background: "bg.warning.subtle", color: "{colors.status.warn}", borderColor: "{colors.status.warn}" } },
+            danger:  { event: { background: "bg.danger.subtle",  color: "{colors.status.neg}",  borderColor: "{colors.status.neg}"  } },
+            info:    { event: { background: "bg.info.subtle",    color: "{colors.status.info}", borderColor: "{colors.status.info}" } },
+            neutral: { event: { background: "transparent",       color: "fg.default",           borderColor: "border.strong"        } },
+        },
+        // Per-event attention animation (`event.animation`). `pulse` is the shared
+        // `elara-pulse` opacity keyframe; gated behind `prefers-reduced-motion`.
+        animation: {
+            none:  {},
+            pulse: { event: { animation: "elara-pulse 1.6s ease-in-out infinite", "@media (prefers-reduced-motion: reduce)": { animation: "none" } } },
+        },
+        // Opt-in row hover affordance (`root.rowHover`). A light brand outline
+        // drawn just inside the row edge (`outlineOffset: -2px` so the planner's
+        // `overflow: hidden` root never clips it at the first/last row). Coexists
+        // with the brand.600 selection ring.
+        rowHover: {
+            true:  { row: { _hover: { outline: "2px solid {colors.brand.400}", outlineOffset: "-2px" } } },
+            false: {},
+        },
     },
-    defaultVariants: { size: "md", shape: "point" },
+    defaultVariants: { size: "md", shape: "point", animation: "none", rowHover: false },
 });
