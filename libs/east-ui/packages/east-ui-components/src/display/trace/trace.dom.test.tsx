@@ -59,8 +59,10 @@ describe("Trace ragged tracks (#126)", () => {
         );
         const grid = gridOf(container);
 
-        // Real step cells (each titled) = 5 + 6 = 11; padding spans = (6-5) = 1.
-        expect(grid.querySelectorAll("[title]").length).toBe(11);
+        // Real step cells (each holds a value <span>) = 5 + 6 = 11; padding
+        // spans = (6-5) = 1. (Step cells AND stubs carry a `title` now, so count
+        // step cells by their value span, not by `[title]`.)
+        expect(grid.querySelectorAll("span:not([aria-hidden='true'])").length).toBe(11);
         expect(grid.querySelectorAll("span[aria-hidden='true']").length).toBe(1);
 
         // Every track occupies exactly one full row: stub + steps(max) cells.
@@ -87,7 +89,7 @@ describe("Trace ragged tracks (#126)", () => {
         );
         const grid = gridOf(container);
         expect(grid.querySelectorAll("span[aria-hidden='true']").length).toBe(0);
-        expect(grid.querySelectorAll("[title]").length).toBe(6);
+        expect(grid.querySelectorAll("span:not([aria-hidden='true'])").length).toBe(6);
         expect(grid.children.length).toBe(2 * (3 + 1));
         expect(warn).not.toHaveBeenCalled();
         warn.mockRestore();

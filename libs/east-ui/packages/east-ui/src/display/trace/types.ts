@@ -67,10 +67,12 @@ export type TraceTrackType = typeof TraceTrackType;
  *
  * @property brandColor - Override the heat hue used by the `brand` / `diverge` scales
  * @property nowLineColor - Override the colour of the now-line
+ * @property labelWidth - Width of the left-hand track-name gutter (any CSS length); omit for the density default
  */
 export const TraceStyleType = StructType({
     brandColor: OptionType(StringType),
     nowLineColor: OptionType(StringType),
+    labelWidth: OptionType(StringType),
 });
 export type TraceStyleType = typeof TraceStyleType;
 
@@ -137,4 +139,6 @@ export interface TraceOptions {
     brandColor?: SubtypeExprOrValue<StringType>;
     /** Override the colour of the now-line. */
     nowLineColor?: SubtypeExprOrValue<StringType>;
+    /** Width of the left-hand track-name gutter (any CSS length, e.g. `"120px"`); omit for the density default. */
+    labelWidth?: SubtypeExprOrValue<StringType>;
 }

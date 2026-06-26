@@ -35,7 +35,12 @@ export const traceSlotRecipe = defineSlotRecipe({
             textTransform: "uppercase",
             color: "fg.muted",
             paddingRight: "6px",
+            // Clip to the gutter width with an ellipsis; the renderer's `title`
+            // surfaces the full label on hover (#137).
+            minWidth: 0,
+            overflow: "hidden",
             whiteSpace: "nowrap",
+            textOverflow: "ellipsis",
             fontSize: "var(--t-stub-fs)",
         },
         grid: {

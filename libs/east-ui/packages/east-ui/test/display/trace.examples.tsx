@@ -91,6 +91,26 @@ export const traceRagged = example({
     inputs: [],
 });
 
+export const traceLabelWidth = example({
+    keywords: ["Trace", "labelWidth", "gutter", "label", "truncate", "width"],
+    description: "A wider label gutter (labelWidth) so a per-track total folded into the name stays legible instead of truncating",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <Trace
+                tracks={[
+                    { name: "R & R · 20", values: [12, 14, 13, 18, 20, 22] },
+                    { name: "Pumpover · 8", values: [3, 5, 4, 6, 8, 7] },
+                    { name: "Additions · 12", values: [8, 10, 9, 11, 12, 10] },
+                ]}
+                now={4n}
+                density="compact"
+                labelWidth="120px"
+            />
+        );
+    }),
+    inputs: [],
+});
+
 export const traceWithChipRail = example({
     keywords: ["Trace", "ChipRail", "density", "table", "align", "row"],
     description: "A Trace and a ChipRail at the same density sit at matching heights — the case for adjacent table cells",

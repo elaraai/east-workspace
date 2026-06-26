@@ -83,6 +83,9 @@ export const EastChakraTrace = memo(function EastChakraTrace({ value, storageKey
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
     const brandHue = (style ? getSomeorUndefined(style.brandColor) : undefined) ?? "var(--chakra-colors-brand-600)";
     const nowColor = style ? getSomeorUndefined(style.nowLineColor) : undefined;
+    // Optional label-gutter width override (#137) — overrides the density
+    // default `--t-stub-w`, which both the grid columns and now-line read.
+    const labelWidth = style ? getSomeorUndefined(style.labelWidth) : undefined;
 
     const nowRaw = useMemo(() => getSomeorUndefined(value.now), [value.now]);
     const now = nowRaw !== undefined ? Number(nowRaw) : undefined;
@@ -113,7 +116,7 @@ export const EastChakraTrace = memo(function EastChakraTrace({ value, storageKey
     const showAxis = density === "comfortable" && axis !== undefined && axis.length > 0;
 
     return (
-        <ChakraBox css={styles.root} data-future={future}>
+        <ChakraBox css={styles.root} data-future={future} {...(labelWidth !== undefined ? { style: { ["--t-stub-w"]: labelWidth } as React.CSSProperties } : {})}>
             {showAxis && (
                 <ChakraBox css={styles.axis} style={{ gridTemplateColumns: columns }}>
                     <span />
@@ -131,7 +134,7 @@ export const EastChakraTrace = memo(function EastChakraTrace({ value, storageKey
                     const hue = scale === "categorical" ? CATEGORICAL[ti % CATEGORICAL.length]! : brandHue;
                     return (
                         <Fragment key={`${storageKey}.track.${ti}`}>
-                            <ChakraBox css={styles.stub}>{track.name}</ChakraBox>
+                            <ChakraBox css={styles.stub} title={track.name}>{track.name}</ChakraBox>
                             {values.map((v, i) => {
                                 const isFuture = now !== undefined && i >= now;
                                 const { fill, edge, hot } = computeFill(v, min, max, mid, scale, hue, isFuture);
