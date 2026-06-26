@@ -127,6 +127,7 @@ export function createTagsInput_(
     return East.value({
         value,
         defaultValue: style?.defaultValue !== undefined ? some(style.defaultValue) : none,
+        suggestions: style?.suggestions !== undefined ? some(style.suggestions) : none,
         max: maxValue !== undefined ? some(maxValue) : none,
         maxLength: maxLengthValue !== undefined ? some(maxLengthValue) : none,
         disabled: style?.disabled !== undefined ? some(style.disabled) : none,

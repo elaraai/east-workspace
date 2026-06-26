@@ -198,6 +198,7 @@ interface ConfigLike {
     readonly rangeFieldId: variant;
     readonly searchFieldIds: ReadonlyArray<string>;
     readonly breakdownFieldIds: ReadonlyArray<string>;
+    readonly fieldHints?: Map<string, ReadonlyArray<string>>;
 }
 
 interface CohortLike {
@@ -397,11 +398,13 @@ export function sliceDimensions(config: ConfigLike): Array<{ fieldId: string; la
 // fields — every filterable field + label + primitive kind (predicate builder)
 // ---------------------------------------------------------------------------
 
-export function sliceFields(config: ConfigLike): Array<{ fieldId: string; label: string; kind: string }> {
+export function sliceFields(config: ConfigLike): Array<{ fieldId: string; label: string; kind: string; hints: string[] }> {
     return [...config.fields.entries()].map(([fieldId, spec]) => {
         const kind = (spec as variant).type;
         const label = ((spec as variant).value as { label?: string } | undefined)?.label ?? fieldId;
-        return { fieldId, label, kind };
+        // Explicit autocomplete hints from `Slice.config` (#131); empty when none.
+        const hints = [...(config.fieldHints?.get(fieldId) ?? [])];
+        return { fieldId, label, kind, hints };
     });
 }
 

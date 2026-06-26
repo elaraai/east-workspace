@@ -233,6 +233,15 @@ describeEast("Slice", (test) => {
     // String ops: eq, neq, in, notIn, contains, matches
     // -----------------------------------------------------------------------
 
+    test("config carries explicit per-field hints (#131)", $ => {
+        const RowType = StructType({ country: StringType });
+        const cfg = $.let(Slice.config(RowType, {
+            fields: { country: { label: "Country", hints: ["NA", "EU", "APAC"] } },
+        }));
+        $(Assert.equal(cfg.fieldHints.get("country").length(), 3n));
+        $(Assert.equal(cfg.fieldHints.get("country").get(0n), "NA"));
+    });
+
     test("apply.matches: string/eq", $ => {
         const RowType = StructType({ country: StringType });
         const cfg   = $.let(Slice.config(RowType, { fields: { country: { label: "Country" } } }));

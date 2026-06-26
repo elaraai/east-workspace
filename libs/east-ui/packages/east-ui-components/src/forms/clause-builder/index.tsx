@@ -33,11 +33,13 @@ import { EastChakraTagsInput } from "../tags-input/index.js";
 /** The primitive kinds a clause field can have. */
 export type ClauseKind = "string" | "integer" | "float" | "datetime" | "boolean";
 
-/** One authorable field: id (the clause's subject), display label, kind. */
+/** One authorable field: id (the clause's subject), display label, kind, and
+ *  optional autocomplete hints for the set / string value controls (#131). */
 export interface ClauseFieldSpec {
     readonly id: string;
     readonly label: string;
     readonly kind: ClauseKind;
+    readonly hints?: readonly string[];
 }
 
 /** One operator choice: `tag` identifies it, `glyph` is the label, `input`
@@ -227,7 +229,7 @@ export function ClauseBuilder({ fields, opsFor, onSubmit, initial, lockField, su
                 )}
             />
         ) : input === "set" ? (
-            <EastChakraTagsInput key={controlKey} value={{ value: valRef.current as string[], placeholder: some("a, b, c"), onChange: some((v: string[]) => { valRef.current = v; }), style: inputStyle } as never} />
+            <EastChakraTagsInput key={controlKey} value={{ value: valRef.current as string[], placeholder: some("a, b, c"), suggestions: field?.hints !== undefined && field.hints.length > 0 ? some([...field.hints]) : none, onChange: some((v: string[]) => { valRef.current = v; }), style: inputStyle } as never} />
         ) : input === "range" ? (
             <Box display="flex" alignItems="center" gap="{spacing.2}" minWidth="0">
                 {controls.rangeMin}
