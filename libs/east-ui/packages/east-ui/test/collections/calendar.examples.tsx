@@ -77,6 +77,30 @@ export const calendarMinimal = example({
     inputs: [],
 });
 
+export const calendarDensity = example({
+    keywords: ["Calendar", "density", "comfortable", "compact", "condensed", "sizes"],
+    description: "The three densities stacked — cell + label sizing comfortable → compact → condensed",
+    fn: East.function([], UIComponentType, ($) => {
+        const days = $.const([
+            { week: "W1", day: "Mon", v: 4.0 }, { week: "W1", day: "Tue", v: 7.0 },
+            { week: "W1", day: "Wed", v: 9.0 }, { week: "W1", day: "Thu", v: 5.0 },
+            { week: "W2", day: "Mon", v: 6.0 }, { week: "W2", day: "Tue", v: 11.0 },
+            { week: "W2", day: "Wed", v: 3.0 }, { week: "W2", day: "Thu", v: 8.0 },
+        ]);
+        const comfortable = $.const(<Calendar data={days} density="comfortable" cell={d => ({ week: d.week, day: d.day, value: d.v })} />);
+        const compact = $.const(<Calendar data={days} density="compact" cell={d => ({ week: d.week, day: d.day, value: d.v })} />);
+        const condensed = $.const(<Calendar data={days} density="condensed" cell={d => ({ week: d.week, day: d.day, value: d.v })} />);
+        return (
+            <VStack gap="6">
+                {comfortable}
+                {compact}
+                {condensed}
+            </VStack>
+        );
+    }),
+    inputs: [],
+});
+
 export const calendarInteractive = example({
     keywords: ["Calendar", "Reactive", "State", "onSelect", "interactive"],
     description: "Heatmap whose onSelect tracks the drilled day",

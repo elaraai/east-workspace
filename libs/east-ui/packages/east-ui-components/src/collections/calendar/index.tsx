@@ -8,6 +8,7 @@ import { Box, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Calendar } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
+import { useDensity } from "../../contracts/density";
 
 const calendarEqual = equalFor(Calendar.Types.Calendar);
 
@@ -39,7 +40,12 @@ function formatDelta(delta: number): string {
  * footer summary and the `onSelect` / `onAction` callbacks.
  */
 export const EastChakraCalendar = memo(function EastChakraCalendar({ value }: EastChakraCalendarProps) {
-    const styles = useSlotRecipe({ key: "calendar" })() as SlotStyles;
+    // Density: the calendar's own field, else an enclosing DensityProvider,
+    // else comfortable (#134).
+    const inheritedDensity = useDensity();
+    const density = getSomeorUndefined(value.density)?.type ?? inheritedDensity ?? "comfortable";
+    const styles = useSlotRecipe({ key: "calendar" })({ density }) as SlotStyles;
+    const weekColW = density === "condensed" ? "40px" : density === "compact" ? "48px" : "56px";
 
     const onSelectFn = useMemo(() => getSomeorUndefined(value.onSelect), [value.onSelect]);
     const onActionFn = useMemo(() => getSomeorUndefined(value.onAction), [value.onAction]);
@@ -89,7 +95,7 @@ export const EastChakraCalendar = memo(function EastChakraCalendar({ value }: Ea
             <Box css={styles.header}>
                 <Box as="span" css={styles.legend}>{value.legend}</Box>
             </Box>
-            <Box css={styles.grid} style={{ gridTemplateColumns: `56px repeat(${WEEK.length}, 1fr)` }}>
+            <Box css={styles.grid} style={{ gridTemplateColumns: `${weekColW} repeat(${WEEK.length}, 1fr)` }}>
                 <Box css={styles.dayHeader} />
                 {WEEK.map(day => (
                     <Box key={day} css={styles.dayHeader}>{day}</Box>

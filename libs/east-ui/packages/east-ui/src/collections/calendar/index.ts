@@ -32,6 +32,8 @@ import {
 } from "@elaraai/east";
 
 import { UIComponentType } from "../../component.js";
+import { DensityType } from "../../style.js";
+import type { DensityLiteral } from "../../style.js";
 import {
     CalendarRootType,
     CalendarCellType,
@@ -108,6 +110,8 @@ export interface CalendarConfig<R extends StructType> {
     onAction?: SubtypeExprOrValue<FunctionType<[CalendarCellRefType], NullType>>;
     /** Optional cell-click callback. */
     onSelect?: SubtypeExprOrValue<FunctionType<[CalendarCellRefType], NullType>>;
+    /** Optional density preset (comfortable | compact | condensed). Default comfortable. */
+    density?: SubtypeExprOrValue<DensityType> | DensityLiteral;
 }
 
 function buildRoot(
@@ -131,6 +135,12 @@ function buildRoot(
             }, CalendarCellType);
         });
 
+    const densityValue = config.density !== undefined
+        ? (typeof config.density === "string"
+            ? East.value(variant(config.density, null), DensityType)
+            : config.density)
+        : undefined;
+
     return East.value(variant("Calendar", {
         legend: config.legend ?? "low → high",
         cells,
@@ -141,6 +151,7 @@ function buildRoot(
         actionLabel: config.actionLabel !== undefined ? some(config.actionLabel) : none,
         onAction: config.onAction !== undefined ? some(config.onAction) : none,
         onSelect: config.onSelect !== undefined ? some(config.onSelect) : none,
+        density: densityValue !== undefined ? some(densityValue) : none,
     }), UIComponentType);
 }
 

@@ -13,6 +13,8 @@ import {
     StructType,
 } from "@elaraai/east";
 
+import { DensityType } from "../../style.js";
+
 /**
  * A cell reference on the calendar grid — what `onSelect` receives.
  *
@@ -80,6 +82,7 @@ export type CalendarCellType = typeof CalendarCellType;
  * @property actionLabel - Optional footer-right drill label
  * @property onAction - Optional footer-right drill callback (receives the selected cell)
  * @property onSelect - Optional cell-click callback
+ * @property density - Optional density preset (comfortable | compact | condensed)
  */
 export const CalendarRootType = StructType({
     /** Intensity caption (decodes the colour ramp) */
@@ -99,6 +102,8 @@ export const CalendarRootType = StructType({
     onAction: OptionType(FunctionType([CalendarCellRefType], NullType)),
     /** Optional cell-click callback */
     onSelect: OptionType(FunctionType([CalendarCellRefType], NullType)),
+    /** Optional density preset (comfortable | compact | condensed); default comfortable */
+    density: OptionType(DensityType),
 });
 
 /**

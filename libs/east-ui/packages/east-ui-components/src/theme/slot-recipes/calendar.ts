@@ -130,4 +130,34 @@ export const calendarSlotRecipe = defineSlotRecipe({
             "&[data-disabled]": { color: "fg.subtle", cursor: "default" },
         },
     },
+    variants: {
+        // Density presets sized like Trace's step heights (15/22/34) but a
+        // touch taller, since calendar cells are interactive day tiles (#134).
+        density: {
+            comfortable: {
+                cell: { fontSize: "11px", paddingY: "{spacing.2}", minHeight: "34px" },
+                dayHeader: { fontSize: "10px" },
+                weekLabel: { fontSize: "10px" },
+                legend: { fontSize: "10px" },
+                grid: { gap: "{spacing.1}" },
+            },
+            compact: {
+                cell: { fontSize: "10px", paddingY: "{spacing.1.5}", minHeight: "28px" },
+                dayHeader: { fontSize: "9px" },
+                weekLabel: { fontSize: "9px" },
+                legend: { fontSize: "9px" },
+                grid: { gap: "{spacing.1}" },
+            },
+            condensed: {
+                cell: { fontSize: "9px", paddingY: "{spacing.1}", minHeight: "22px" },
+                dayHeader: { fontSize: "9px" },
+                weekLabel: { fontSize: "9px" },
+                legend: { fontSize: "9px" },
+                grid: { gap: "{spacing.0.5}" },
+            },
+        },
+    },
+    defaultVariants: {
+        density: "comfortable",
+    },
 });

@@ -12,6 +12,7 @@ describeEast("Calendar", (test) => {
     Assert.examples(test, {
         calendarDemand: ex.calendarDemand,
         calendarMinimal: ex.calendarMinimal,
+        calendarDensity: ex.calendarDensity,
         calendarInteractive: ex.calendarInteractive,
     });
 
