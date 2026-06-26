@@ -160,6 +160,8 @@ function buildCardStyle(style: CardStyle): ExprType<CardStyleType> {
         headerBackground: style.headerBackground !== undefined ? some(style.headerBackground) : none,
         footerBackground: style.footerBackground !== undefined ? some(style.footerBackground) : none,
         accentColor: style.accentColor !== undefined ? some(style.accentColor) : none,
+        bodyPadding: style.bodyPadding !== undefined ? some(style.bodyPadding) : none,
+        flush: style.flush !== undefined ? some(style.flush) : none,
     }, CardStyleType);
 }
 
@@ -691,6 +693,8 @@ export const Card = {
          * @property headerBackground - Explicit header background override
          * @property footerBackground - Explicit footer background override
          * @property accentColor - Left-edge accent stripe colour
+         * @property bodyPadding - CSS padding shorthand for the body (default `"18px 20px"`)
+         * @property flush - Removes body padding for full-bleed content (overrides `bodyPadding`)
          */
         Style: CardStyleType,
     },
