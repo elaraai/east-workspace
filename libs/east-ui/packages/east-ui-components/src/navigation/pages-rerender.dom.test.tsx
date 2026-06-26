@@ -41,19 +41,24 @@ const routes = Navigation.config({
 const KEY = "issue114.route";
 const initialPath = [routes.Page.a()];
 
-/** Build the live `Pages`-in-`Reactive` UI value. */
+/**
+ * Build the live `Pages`-in-`Reactive` UI value. Post-#124 the nav handle is
+ * bound once in the enclosing `Reactive` and passed to `<Pages>` as a prop, so
+ * the switcher reads `nav.current()` on that shared handle (no internal
+ * re-bind) — the construction that fixes #114 by sharing one subscription.
+ */
 function buildPagesValue(): ValueTypeOf<typeof UIComponentType> {
     const program = East.function([], UIComponentType, (_$) =>
-        Reactive.Root(East.function([], UIComponentType, (_$2) =>
-            Pages.Root(routes)({
-                stateKey: KEY,
-                initial: initialPath,
+        Reactive.Root(East.function([], UIComponentType, ($2) => {
+            const nav = $2.let(Navigation.bind(routes, KEY, initialPath));
+            return Pages.Root({
+                nav,
                 pages: {
                     a: () => Text.Root("PAGE_A"),
                     b: () => Text.Root("PAGE_B"),
                 },
-            }),
-        )),
+            });
+        })),
     );
     return East.compile(program, getRegisteredPlatformImplementations())() as ValueTypeOf<typeof UIComponentType>;
 }

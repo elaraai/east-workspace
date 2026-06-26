@@ -167,68 +167,68 @@ export type PagesHandlers<R extends NavRoutes> = {
 };
 
 /**
- * The body of a `<Pages>` switcher (everything but the config): the path's store
- * key, the initial path, and the typed page registry. Split from the config so the
- * curried {@link Pages.Root} fixes `R` from the config first, then contextually
- * types every `pages` handler (a single-object form leaves the handler params
- * `any`, a TS inference limitation).
+ * The input to the `<Pages>` switcher: the nav handle (bound once in the
+ * enclosing `<Reactive>` via `Navigation.bind`, shared with the chrome) plus
+ * the typed page registry.
+ *
+ * @remarks
+ * Taking the **bound handle** as a prop — rather than re-binding internally
+ * from a key — is what makes Pages re-render on navigation inside an e3 `ui()`
+ * task (#114): one binding, subscribed via the correct store, drives both the
+ * writer (`nav.go.*` / `nav.pop()`) and the Pages render (`nav.current()`).
+ * `R` is fixed by `nav`, so every `pages` handler is contextually typed.
  */
-export interface PagesBody<R extends NavRoutes> {
-    /** The browser-local store key the path is persisted under (same key as the chrome's `Navigation.bind`). */
-    stateKey: string;
-    /** The initial path (e.g. `[config.Page.overview()]`). */
-    initial: SubtypeExprOrValue<ArrayType<RouteVariantOf<R>>>;
-    /** One body per route — see {@link PagesHandlers}. */
-    pages: PagesHandlers<R>;
+export interface PagesInput<R extends NavRoutes> {
+    /** The nav handle from `Navigation.bind(config, key, initial)`, bound in the enclosing `<Reactive>`. */
+    nav: BoundNav<R>;
+    /** One body per route — see {@link PagesHandlers}. `R` is fixed by `nav`, so the handlers are contextually typed. */
+    pages: PagesHandlers<NoInfer<R>>;
 }
 
 /**
- * Build a `<Pages>` content-switcher from a config + a typed page registry.
+ * Build a `<Pages>` content-switcher from a bound nav handle + a typed page
+ * registry.
  *
- * Curried: `Pages.Root(config)({ stateKey, initial, pages })`. The factory inlines,
- * at build time, a nullary `render` function: re-bind the navigator by key, read
- * `current()`, and `match` the active route to its page body. Because the bodies
- * live in the match arms (in the IR), the manifest walk collects every page's binds
- * (the union); because only the matched arm executes, the renderer mounts just the
- * active page (leaf-only, visible-only). No East-scope captures — the route names,
- * key, and initial path are baked in from the config.
+ * The nullary `render` reads `current()` on the **passed** handle (no internal
+ * re-bind) and `match`es the active route to its page body. The bodies live in
+ * the match arms (in the IR), so the manifest walk collects every page's binds
+ * (the union) while only the matched arm executes — the renderer mounts just
+ * the active page (leaf-only, visible-only). The render closes over `nav`, so
+ * its `current()` read subscribes to the same store the app's handle is bound
+ * to (#114).
  *
- * @param config - A {@link Navigation.config} value (fixes the route types).
- * @returns A function taking the {@link PagesBody} → a `Pages` `UIComponentType` value.
+ * @param input - The {@link PagesInput} (`nav` handle + `pages` registry).
+ * @returns A `Pages` `UIComponentType` value.
  */
-function createPages<R extends NavRoutes>(config: NavConfig<R>) {
-    return (body: PagesBody<R>): ExprType<typeof UIComponentType> => {
-        const { stateKey, initial, pages } = body;
-        // Build the match arms in host TS (outside the East block): one arm per route,
-        // forwarding the typed payload + the (re-bound) handle to the page body.
-        const armsFor = (nav: BoundNav<R>): Record<string, (h: BlockBuilder<typeof UIComponentType>, payload: never) => unknown> => {
-            const handlers = pages as Record<string, (h: unknown, p: unknown, n: unknown) => unknown>;
-            const arms: Record<string, (h: BlockBuilder<typeof UIComponentType>, payload: never) => unknown> = {};
-            for (const name of Object.keys(config.routes)) {
-                const fn = handlers[name]!;
-                arms[name] = (h, payload) => fn(h, payload, nav);
-            }
-            return arms;
-        };
-        const render = East.function([], UIComponentType, ($) => {
-            // Re-bind by key inside the free render body (bound once — no capture of an outer handle).
-            const nav = $.const(bindNavigation(config, stateKey, initial)) as unknown as BoundNav<R>;
-            const cur = $.const(nav.current());
-            return (cur as unknown as { match(h: unknown): ExprType<typeof UIComponentType> }).match(armsFor(nav));
-        });
-        return East.value(variant("Pages", { render, navKey: stateKey }), UIComponentType);
+function createPages<R extends NavRoutes>({ nav, pages }: PagesInput<R>): ExprType<typeof UIComponentType> {
+    const handlers = pages as Record<string, (h: unknown, p: unknown, n: unknown) => unknown>;
+    // Build the match arms in host TS (outside the East block): one arm per
+    // route, forwarding the typed payload + the shared handle to the page body.
+    const armsFor = (navH: BoundNav<R>): Record<string, (h: BlockBuilder<typeof UIComponentType>, payload: never) => unknown> => {
+        const arms: Record<string, (h: BlockBuilder<typeof UIComponentType>, payload: never) => unknown> = {};
+        for (const name of Object.keys(handlers)) {
+            const fn = handlers[name]!;
+            arms[name] = (h, payload) => fn(h, payload, navH);
+        }
+        return arms;
     };
+    const render = East.function([], UIComponentType, ($) => {
+        const cur = $.const(nav.current());
+        return (cur as unknown as { match(h: unknown): ExprType<typeof UIComponentType> }).match(armsFor(nav));
+    });
+    return East.value(variant("Pages", { render, navKey: nav.key }), UIComponentType);
 }
 
 /**
  * The `Pages` namespace — the first-class navigation content-switcher.
  *
  * @remarks
- * `Pages.Root(config, { key, initial, pages })` renders the active route's page
- * (leaf-only) and remounts on a route change. Pair it with `Navigation.bind` for
- * chrome (`<Breadcrumb nav>` / `<NavList nav>`) on the same key.
+ * Authored as the `<Pages nav={…} pages={{…}} />` tag; `Pages.Root({ nav,
+ * pages })` is the underlying factory. Bind the handle once with
+ * `Navigation.bind` in the enclosing `<Reactive>` and share it with the chrome
+ * (`<Breadcrumb nav>` / `<NavList nav>`).
  */
 export const Pages = {
-    /** Build a `<Pages>` content-switcher. See {@link createPages}. */
+    /** Build a `<Pages>` content-switcher from `{ nav, pages }`. See {@link createPages}. */
     Root: createPages,
 } as const;
