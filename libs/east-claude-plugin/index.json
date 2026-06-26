@@ -1,15 +1,15 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1361,
+    "totalEntries": 1379,
     "totalFiles": 180,
     "packages": {
       "east": 489,
       "east-node-std": 42,
       "east-node-io": 63,
       "east-py-datascience": 89,
-      "east-ui": 618,
-      "e3-ui": 53,
+      "east-ui": 634,
+      "e3-ui": 55,
       "e3": 7
     }
   },
@@ -14016,6 +14016,30 @@
       "source": "// Branded IconButton with hex colour escape hatches\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <IconButton\n                prefix=\"fas\"\n                name=\"rocket\"\n                label=\"Deploy\"\n                color=\"#ffffff\"\n                background=\"#1a2234\"\n                borderColor=\"#3d5cff\"\n                hoverBackground=\"#25345a\"\n                size=\"md\"\n            />\n        );\n    })"
     },
     {
+      "id": "east-ui:icon-button.examples.tsx:iconButtonBadgeAndAttention",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/buttons/icon-button.examples.tsx",
+      "suite": "",
+      "test": "Notification badge (count, 99+ cap, dot-only) plus attention animations — pulse the badge, ring the button",
+      "keywords": [
+        "IconButton",
+        "badge",
+        "count",
+        "notification",
+        "attention",
+        "pulse",
+        "ring",
+        "dot"
+      ],
+      "imports": [
+        "import { East, IntegerType, NullType, example } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { IconButton, Reactive, VStack, Stat } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Notification badge (count, 99+ cap, dot-only) plus attention animations — pulse the badge, ring the button\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <VStack gap=\"4\">\n                <IconButton prefix=\"fas\" name=\"bell\" label=\"Alerts\" variant=\"ghost\" badge=\"3\" />\n                <IconButton prefix=\"fas\" name=\"bell\" label=\"Many alerts\" variant=\"ghost\" badge=\"99+\" badgeColorPalette=\"orange\" />\n                <IconButton prefix=\"fas\" name=\"inbox\" label=\"Unread\" variant=\"ghost\" badge=\"\" />\n                <IconButton prefix=\"fas\" name=\"bell\" label=\"Pulsing alerts\" variant=\"subtle\" colorPalette=\"red\" badge=\"5\" attention=\"pulse\" />\n                <IconButton prefix=\"fas\" name=\"circle-exclamation\" label=\"Attention\" variant=\"solid\" colorPalette=\"blue\" attention=\"ring\" />\n            </VStack>\n        );\n    })"
+    },
+    {
       "id": "east-ui:icon-button.examples.tsx:iconButtonOnClickReactive",
       "skill": "east-ui",
       "package": "east-ui",
@@ -14272,6 +14296,56 @@
         "import { Box, Chart, Reactive } from \"@elaraai/east-ui\";"
       ],
       "source": "// Continuous numeric x-axis with an explicit domain\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { dose: 0.5, response: 12.0 }, { dose: 1.0, response: 30.0 },\n            { dose: 2.5, response: 55.0 }, { dose: 5.0, response: 70.0 },\n        ], ArrayType(StructType({ dose: FloatType, response: FloatType })));\n        return (\n            <Box height=\"240px\" width=\"100%\">\n                <Chart\n                    layers={Chart.Line(rows, { x: r => r.dose, y: r => r.response }, { color: \"purple.solid\" })}\n                    x={{ label: \"Dose\", scale: \"linear\", domain: [0, 6] }}\n                    y={{ label: \"Response\" }}\n                    grid\n                />\n            </Box>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:chart.examples.tsx:lineRuntimeDomain",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/charts/chart.examples.tsx",
+      "suite": "",
+      "test": "Numeric x-axis whose upper extent is runtime-driven — the domain max is an East expression (decision day + p95 + buffer)",
+      "keywords": [
+        "Chart",
+        "Line",
+        "domain",
+        "axis",
+        "extent",
+        "runtime",
+        "expression",
+        "SubtypeExprOrValue",
+        "forecast"
+      ],
+      "imports": [
+        "import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Chart, Reactive } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Numeric x-axis whose upper extent is runtime-driven — the domain max is an East expression (decision day + p95 + buffer)\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { day: 0.0, value: 10.0 }, { day: 1.5, value: 22.0 },\n            { day: 3.0, value: 41.0 }, { day: 4.0, value: 52.0 },\n        ], ArrayType(StructType({ day: FloatType, value: FloatType })));\n        // A data-derived press-ETA: the axis ends exactly where the forecast does,\n        // rather than at a compile-time constant.\n        const decisionDay = $.const(2.0, FloatType);\n        const p95 = $.const(3.5, FloatType);\n        const buffer = $.const(1.0, FloatType);\n        return (\n            <Box height=\"240px\" width=\"100%\">\n                <Chart\n                    layers={Chart.Line(rows, { x: r => r.day, y: r => r.value }, { color: \"teal.solid\" })}\n                    x={{ label: \"Day\", scale: \"linear\", domain: [0, decisionDay.add(p95).add(buffer)] }}\n                    y={{ label: \"Forecast\" }}\n                    grid\n                />\n            </Box>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:chart.examples.tsx:lineRuntimeTimeDomain",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/charts/chart.examples.tsx",
+      "suite": "",
+      "test": "Time x-axis whose extent is given by DateTime expressions (runtime-driven temporal domain)",
+      "keywords": [
+        "Chart",
+        "Line",
+        "domain",
+        "time",
+        "DateTime",
+        "axis",
+        "extent",
+        "runtime",
+        "expression"
+      ],
+      "imports": [
+        "import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Chart, Reactive } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Time x-axis whose extent is given by DateTime expressions (runtime-driven temporal domain)\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { at: new Date(\"2025-01-01\"), v: 10.0 },\n            { at: new Date(\"2025-02-01\"), v: 18.0 },\n            { at: new Date(\"2025-03-01\"), v: 26.0 },\n        ], ArrayType(StructType({ at: DateTimeType, v: FloatType })));\n        const start = $.const(new Date(\"2024-12-15\"), DateTimeType);\n        const end = $.const(new Date(\"2025-03-20\"), DateTimeType);\n        return (\n            <Box height=\"240px\" width=\"100%\">\n                <Chart\n                    layers={Chart.Line(rows, { x: r => r.at, y: r => r.v })}\n                    x={{ label: \"Month\", scale: \"time\", domain: [start, end], format: Chart.format.date(\"MMM YYYY\") }}\n                    y={{ label: \"Value\" }}\n                    grid\n                />\n            </Box>\n        );\n    })"
     },
     {
       "id": "east-ui:chart.examples.tsx:lineSampleFan",
@@ -14939,6 +15013,28 @@
       "source": "// Minimal sparse heatmap — missing days render the neutral fill\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const days = $.const([\n            { week: \"W1\", day: \"Mon\", v: 4.0 },\n            { week: \"W1\", day: \"Wed\", v: 9.0 },\n            { week: \"W1\", day: \"Fri\", v: 2.0 },\n            { week: \"W2\", day: \"Tue\", v: 6.0 },\n            { week: \"W2\", day: \"Sat\", v: 12.0 },\n        ]);\n        return (\n            <Calendar\n                data={days}\n                cell={d => ({ week: d.week, day: d.day, value: d.v })}\n            />\n        );\n    })"
     },
     {
+      "id": "east-ui:calendar.examples.tsx:calendarDensity",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/calendar.examples.tsx",
+      "suite": "",
+      "test": "The three densities stacked — cell + label sizing comfortable → compact → condensed",
+      "keywords": [
+        "Calendar",
+        "density",
+        "comfortable",
+        "compact",
+        "condensed",
+        "sizes"
+      ],
+      "imports": [
+        "import { East, StringType, NullType, example } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Calendar, Reactive, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// The three densities stacked — cell + label sizing comfortable → compact → condensed\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const days = $.const([\n            { week: \"W1\", day: \"Mon\", v: 4.0 }, { week: \"W1\", day: \"Tue\", v: 7.0 },\n            { week: \"W1\", day: \"Wed\", v: 9.0 }, { week: \"W1\", day: \"Thu\", v: 5.0 },\n            { week: \"W2\", day: \"Mon\", v: 6.0 }, { week: \"W2\", day: \"Tue\", v: 11.0 },\n            { week: \"W2\", day: \"Wed\", v: 3.0 }, { week: \"W2\", day: \"Thu\", v: 8.0 },\n        ]);\n        const comfortable = $.const(<Calendar data={days} density=\"comfortable\" cell={d => ({ week: d.week, day: d.day, value: d.v })} />);\n        const compact = $.const(<Calendar data={days} density=\"compact\" cell={d => ({ week: d.week, day: d.day, value: d.v })} />);\n        const condensed = $.const(<Calendar data={days} density=\"condensed\" cell={d => ({ week: d.week, day: d.day, value: d.v })} />);\n        return (\n            <VStack gap=\"6\">\n                {comfortable}\n                {compact}\n                {condensed}\n            </VStack>\n        );\n    })"
+    },
+    {
       "id": "east-ui:calendar.examples.tsx:calendarInteractive",
       "skill": "east-ui",
       "package": "east-ui",
@@ -15145,6 +15241,28 @@
         "import { Badge, Gantt, Reactive, Table, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// Simple project timeline with tasks\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Gantt\n                data={[\n                    { task: \"Planning\", owner: \"Alice\", start: new Date(\"2024-01-01\"), end: new Date(\"2024-01-15\") },\n                    { task: \"Design\", owner: \"Bob\", start: new Date(\"2024-01-10\"), end: new Date(\"2024-02-01\") },\n                    { task: \"Development\", owner: \"Charlie\", start: new Date(\"2024-01-20\"), end: new Date(\"2024-03-15\") },\n                    { task: \"Testing\", owner: \"Diana\", start: new Date(\"2024-03-01\"), end: new Date(\"2024-03-30\") },\n                ]}\n                columns={[\"task\", \"owner\"]}\n                rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:gantt.examples.tsx:ganttRowHeight",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/gantt.examples.tsx",
+      "suite": "",
+      "test": "Explicit pixel rowHeight overrides the density preset — fixed 44px rows across both panes and the bars",
+      "keywords": [
+        "Gantt",
+        "Root",
+        "rowHeight",
+        "pixel",
+        "override",
+        "density"
+      ],
+      "imports": [
+        "import { East, DateTimeType, IntegerType, NullType, StringType, variant, example } from \"@elaraai/east\";",
+        "import { State, Style, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Badge, Gantt, Reactive, Table, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Explicit pixel rowHeight overrides the density preset — fixed 44px rows across both panes and the bars\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Gantt\n                rowHeight={44n}\n                data={[\n                    { task: \"Planning\", owner: \"Alice\", start: new Date(\"2024-01-01\"), end: new Date(\"2024-01-15\") },\n                    { task: \"Design\", owner: \"Bob\", start: new Date(\"2024-01-10\"), end: new Date(\"2024-02-01\") },\n                    { task: \"Development\", owner: \"Charlie\", start: new Date(\"2024-01-20\"), end: new Date(\"2024-03-15\") },\n                ]}\n                columns={[\"task\", \"owner\"]}\n                rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}\n            />\n        );\n    })"
     },
     {
       "id": "east-ui:gantt.examples.tsx:ganttCustomHeaders",
@@ -16252,6 +16370,125 @@
       "source": "// Optional per-row approval — Approve/Reject decision column + batch foot, with a quiet status dot on flagged lines\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Planner.Point\n                data={[\n                    { name: \"Press A\", line: \"die-set 12\", flagged: false },\n                    { name: \"Press B\", line: \"die-set 07\", flagged: false },\n                    { name: \"Weld cell\", line: \"fixture 3\", flagged: true },\n                    { name: \"Paint line\", line: \"batch 19\", flagged: false },\n                    { name: \"Assembly\", line: \"station 5\", flagged: true },\n                ]}\n                axis={Planner.axis.number({ buckets: [{ key: \"am\", label: \"AM\" }, { key: \"pm\", label: \"PM\" }], range: { min: 1, max: 6 } })}\n                columns={[{ key: \"name\", frozen: true, value: r => r.name, sublabel: r => r.line }]}\n                events={_r => [\n                    Planner.event({ slot: Planner.at.number(1), bucket: \"am\", label: \"✓\", state: \"committed\" }),\n                    Planner.event({ slot: Planner.at.number(2), bucket: \"pm\", label: \"✓\", state: \"committed\" }),\n                    Planner.event({ slot: Planner.at.number(4), bucket: \"am\", label: \"plan\", state: \"added\" }),\n                    Planner.event({ slot: Planner.at.number(5), bucket: \"pm\", label: \"? shift\", state: \"model\" }),\n                ]}\n                now={Planner.at.number(3)}\n                status={r => r.flagged.ifElse(() => some(variant(\"warning\", null)), () => none)}\n                approval={r => r.flagged.ifElse(() => some(variant(\"pending\", null)), () => some(variant(\"approved\", null)))}\n                review={{\n                    columnLabel: \"Decision\",\n                    rerunLabel: \"Rerun\",\n                    summary: <Text color=\"fg.muted\">5 lines · 2 flagged need a call · −$24k wage/fn</Text>,\n                    onApprove: East.function([Planner.Types.ApproveEvent], NullType, _$ => null),\n                    onReject: East.function([Planner.Types.ApproveEvent], NullType, _$ => null),\n                    onApproveAll: East.function([], NullType, _$ => null),\n                    onRejectAll: East.function([], NullType, _$ => null),\n                    onRerun: East.function([], NullType, _$ => null),\n                }}\n            />\n        );\n    })"
     },
     {
+      "id": "east-ui:planner.examples.tsx:plannerStretch",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/planner.examples.tsx",
+      "suite": "",
+      "test": "Per-event stretch + content alignment — a both-axis tile filling its cell with centred content, a width-filling tile, and a normal top-left tile",
+      "keywords": [
+        "Planner",
+        "stretch",
+        "fill",
+        "content",
+        "align",
+        "orientation",
+        "tile",
+        "both",
+        "horizontal"
+      ],
+      "imports": [
+        "import { East, NullType, FloatType, ArrayType, some, none, variant, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Planner, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Per-event stretch + content alignment — a both-axis tile filling its cell with centred content, a width-filling tile, and a normal top-left tile\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Planner.Point\n                data={[{ name: \"Line A\" }, { name: \"Line B\" }]}\n                axis={Planner.axis.number({ range: { min: 1, max: 4 } })}\n                density=\"comfortable\"\n                columns={[{ key: \"name\", frozen: true, value: r => r.name }]}\n                events={_r => [\n                    Planner.event({ slot: Planner.at.number(1), label: \"Full\", state: \"committed\", stretch: \"both\", content: { horizontal: \"center\", vertical: \"center\" } }),\n                    Planner.event({ slot: Planner.at.number(2), label: \"Wide\", state: \"added\", stretch: \"horizontal\" }),\n                    Planner.event({ slot: Planner.at.number(3), label: \"Top-left\", state: \"committed\" }),\n                ]}\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:planner.examples.tsx:plannerEventTone",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/planner.examples.tsx",
+      "suite": "",
+      "test": "Per-event tone colour override + pulse animation — a danger-toned committed event pulses for attention while keeping its audit cues",
+      "keywords": [
+        "Planner",
+        "tone",
+        "colour",
+        "override",
+        "animation",
+        "pulse",
+        "attention",
+        "warning",
+        "danger"
+      ],
+      "imports": [
+        "import { East, NullType, FloatType, ArrayType, some, none, variant, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Planner, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Per-event tone colour override + pulse animation — a danger-toned committed event pulses for attention while keeping its audit cues\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Planner.Point\n                data={[{ name: \"Reactor\" }]}\n                axis={Planner.axis.number({ range: { min: 1, max: 4 } })}\n                columns={[{ key: \"name\", frozen: true, value: r => r.name }]}\n                events={_r => [\n                    Planner.event({ slot: Planner.at.number(1), label: \"OK\", state: \"committed\" }),\n                    Planner.event({ slot: Planner.at.number(2), label: \"Watch\", state: \"committed\", tone: \"warning\" }),\n                    Planner.event({ slot: Planner.at.number(3), label: \"Breach\", state: \"committed\", tone: \"danger\", animation: \"pulse\" }),\n                ]}\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:planner.examples.tsx:plannerHovercard",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/planner.examples.tsx",
+      "suite": "",
+      "test": "Open-on-hover HoverCard on an event, coexisting with the click popover (hover previews, click pins)",
+      "keywords": [
+        "Planner",
+        "hovercard",
+        "hover",
+        "popover",
+        "preview",
+        "rich",
+        "coexist"
+      ],
+      "imports": [
+        "import { East, NullType, FloatType, ArrayType, some, none, variant, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Planner, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Open-on-hover HoverCard on an event, coexisting with the click popover (hover previews, click pins)\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Planner.Point\n                data={[{ name: \"Alice\" }]}\n                axis={Planner.axis.number({ range: { min: 1, max: 3 } })}\n                columns={[{ key: \"name\", frozen: true, value: r => r.name }]}\n                events={_r => [\n                    Planner.event({\n                        slot: Planner.at.number(2), label: \"Review\", state: \"committed\",\n                        hovercard: (\n                            <VStack gap=\"1\">\n                                <Text fontWeight=\"semibold\">Review</Text>\n                                <Text color=\"fg.muted\">Hover preview · click to pin</Text>\n                            </VStack>\n                        ),\n                        popover: (\n                            <VStack gap=\"1\">\n                                <Text fontWeight=\"semibold\">Review details</Text>\n                                <Text color=\"fg.muted\">Owner: Alice</Text>\n                            </VStack>\n                        ),\n                    }),\n                ]}\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:planner.examples.tsx:plannerRowHover",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/planner.examples.tsx",
+      "suite": "",
+      "test": "Opt-in row-hover highlight — a light brand outline draws around the whole row on hover",
+      "keywords": [
+        "Planner",
+        "rowHover",
+        "hover",
+        "row",
+        "highlight",
+        "outline"
+      ],
+      "imports": [
+        "import { East, NullType, FloatType, ArrayType, some, none, variant, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Planner, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Opt-in row-hover highlight — a light brand outline draws around the whole row on hover\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Planner.Point\n                data={[{ name: \"Alice\" }, { name: \"Bob\" }, { name: \"Carol\" }]}\n                axis={Planner.axis.number({ range: { min: 1, max: 4 } })}\n                rowHover={true}\n                columns={[{ key: \"name\", frozen: true, value: r => r.name }]}\n                events={_r => [Planner.event({ slot: Planner.at.number(1), label: \"Task\", state: \"committed\" })]}\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:planner.examples.tsx:plannerPerCellBuckets",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/planner.examples.tsx",
+      "suite": "",
+      "test": "Per-cell bucketing — day-1 splits into am/pm lanes while day-2 stays flat in the same row; a stray bucketless event in the bucketed cell falls into an N/A lane",
+      "keywords": [
+        "Planner",
+        "bucket",
+        "per-cell",
+        "mixed",
+        "flat",
+        "N/A",
+        "orphan",
+        "fallback"
+      ],
+      "imports": [
+        "import { East, NullType, FloatType, ArrayType, some, none, variant, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Planner, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Per-cell bucketing — day-1 splits into am/pm lanes while day-2 stays flat in the same row; a stray bucketless event in the bucketed cell falls into an N/A lane\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Planner.Point\n                data={[{ name: \"Press A\" }]}\n                axis={Planner.axis.number({ buckets: [{ key: \"am\", label: \"AM\" }, { key: \"pm\", label: \"PM\" }], range: { min: 1, max: 3 } })}\n                columns={[{ key: \"name\", frozen: true, value: r => r.name }]}\n                events={_r => [\n                    // Day 1 — bucketed (am + pm) plus a stray bucketless event ⇒ N/A lane.\n                    Planner.event({ slot: Planner.at.number(1), bucket: \"am\", label: \"Setup\", state: \"committed\" }),\n                    Planner.event({ slot: Planner.at.number(1), bucket: \"pm\", label: \"Run\", state: \"committed\" }),\n                    Planner.event({ slot: Planner.at.number(1), label: \"Note\", state: \"added\" }),\n                    // Day 2 — flat (bucketless) cell in the same row.\n                    Planner.event({ slot: Planner.at.number(2), label: \"Idle\", state: \"committed\" }),\n                ]}\n            />\n        );\n    })"
+    },
+    {
       "id": "east-ui:roster.examples.tsx:rosterEdit",
       "skill": "east-ui",
       "package": "east-ui",
@@ -16362,9 +16599,32 @@
       "imports": [
         "import { East, ArrayType, FloatType, IntegerType, NullType, OptionType, StringType, StructType, example, variant, some, none } from \"@elaraai/east\";",
         "import { State, StatusTokenType, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Reactive, Schematic, Text, VStack } from \"@elaraai/east-ui\";"
+        "import { Reactive, Schematic, Slice, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// Plant floor — tanks and lines in halls with a walkway band and pipe runs\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const equipment = $.const([\n            { id: \"TANK-04\", x: 3.0, y: 2.6, kind: \"fermenter · 40 kL\", fill: 28.8, cap: 40.0, metric: \"28.8 kL\", state: some(variant(\"success\", null)), w: 4.5 },\n            { id: \"TANK-05\", x: 8.0, y: 2.6, kind: \"fermenter · 40 kL\", fill: 36.8, cap: 40.0, metric: \"36.8 kL\", state: some(variant(\"warning\", null)), w: 4.5 },\n            { id: \"TANK-06\", x: 13.0, y: 2.6, kind: \"fermenter · 40 kL\", fill: 20.4, cap: 40.0, metric: \"20.4 kL\", state: some(variant(\"success\", null)), w: 4.5 },\n            { id: \"TANK-07\", x: 18.0, y: 2.6, kind: \"fermenter · 60 kL\", fill: 0.0, cap: 60.0, metric: \"empty\", state: some(variant(\"neutral\", null)), w: 4.5 },\n            { id: \"QA-1\", x: 25.0, y: 2.6, kind: \"qa hold · 8h\", fill: 4.0, cap: 8.0, metric: \"4h left\", state: some(variant(\"info\", null)), w: 4.5 },\n            { id: \"LINE-2\", x: 8.0, y: 9.8, kind: \"pack · sku-241\", fill: 0.0, cap: 0.0, metric: \"1,800 u/h\", state: some(variant(\"success\", null)), w: 13.0 },\n            { id: \"BAY-OUT\", x: 24.0, y: 9.8, kind: \"pallets · 5 slots\", fill: 3.0, cap: 5.0, metric: \"3 / 5\", state: some(variant(\"success\", null)), w: 4.5 },\n        ]);\n        const areas = $.const([\n            { id: \"hall-b\", name: \"Fermentation Hall · Hall B\", x: 0.6, y: 0.6, w: 20.0, h: 4.4, pattern: Schematic.outline() },\n            { id: \"qa-cell\", name: \"QA Cell\", x: 22.5, y: 0.6, w: 5.5, h: 4.4, pattern: Schematic.outline() },\n            { id: \"aisle-3\", name: \"Aisle 3 · 1.6 m walkway\", x: 0.6, y: 6.2, w: 28.0, h: 1.6, pattern: Schematic.hatch() },\n            { id: \"dispatch\", name: \"Dispatch\", x: 20.5, y: 8.4, w: 8.1, h: 3.2, pattern: Schematic.outline() },\n        ]);\n        // Already the resolved link type — passed through with no `link` mapper.\n        const orthogonal = variant(\"orthogonal\", { corner: none });\n        const pipes = $.const([\n            { key: \"p1\", from: \"TANK-04\", to: \"LINE-2\", style: Schematic.solid(), route: orthogonal, via: [] },\n            { key: \"p2\", from: \"TANK-05\", to: \"LINE-2\", style: Schematic.solid(), route: orthogonal, via: [] },\n            { key: \"p3\", from: \"TANK-06\", to: \"LINE-2\", style: Schematic.solid(), route: orthogonal, via: [] },\n            { key: \"p4\", from: \"QA-1\", to: \"BAY-OUT\", style: Schematic.dashed(), route: orthogonal, via: [{ x: 26.5, y: 6.8 }] },\n        ], ArrayType(Schematic.Types.Link));\n        return (\n            <Schematic\n                extent={{ width: 29, height: 12.5 }}\n                height=\"440px\"\n                items={equipment}\n                item={e => ({\n                    key: e.id, x: e.x, y: e.y, label: e.id,\n                    sublabel: e.kind, icon: \"database\",\n                    status: e.state,\n                    meter: { value: e.fill, max: e.cap },\n                    metric: e.metric,\n                    width: e.w,\n                })}\n                zones={areas}\n                zone={z => ({ key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h, pattern: z.pattern })}\n                links={pipes}\n                scaleUnit=\"m\"\n                grid={true}\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:schematic.examples.tsx:schematicSlice",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/schematic.examples.tsx",
+      "suite": "",
+      "test": "Schematic with a full-width top-edge Slice rail (search + filter) replacing the built-in navigator search; rows fed explicitly via Slice.rows",
+      "keywords": [
+        "Schematic",
+        "slice",
+        "chrome",
+        "search",
+        "filter",
+        "rail",
+        "affordances"
+      ],
+      "imports": [
+        "import { East, ArrayType, FloatType, IntegerType, NullType, OptionType, StringType, StructType, example, variant, some, none } from \"@elaraai/east\";",
+        "import { State, StatusTokenType, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Reactive, Schematic, Slice, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Schematic with a full-width top-edge Slice rail (search + filter) replacing the built-in navigator search; rows fed explicitly via Slice.rows\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const EquipType = StructType({ id: StringType, x: FloatType, y: FloatType, kind: StringType });\n        const cfg = Slice.config(EquipType, {\n            fields: { id: { label: \"ID\" }, kind: { label: \"Kind\" } },\n            searchFieldIds: [\"id\", \"kind\"],\n        });\n        return (\n            <Reactive>{$ => {\n                const data = $.const([\n                    { id: \"TANK-04\", x: 3.0, y: 2.6, kind: \"fermenter\" },\n                    { id: \"TANK-05\", x: 8.0, y: 2.6, kind: \"fermenter\" },\n                    { id: \"LINE-2\", x: 8.0, y: 9.8, kind: \"pack\" },\n                    { id: \"BAY-OUT\", x: 24.0, y: 9.8, kind: \"pallets\" },\n                ], ArrayType(EquipType));\n                const slice = $.let(Slice.bind([EquipType], \"ex.schematic.slice\", cfg, Slice.state(), data, none));\n                const narrowed = $.let(Slice.rows([EquipType], slice));\n                return (\n                    <Schematic\n                        extent={{ width: 29, height: 12.5 }}\n                        height=\"400px\"\n                        items={narrowed}\n                        item={e => ({ key: e.id, x: e.x, y: e.y, label: e.id, sublabel: e.kind, icon: \"database\" })}\n                        slice={slice}\n                        affordances={[\"search\", \"filter\"]}\n                    />\n                );\n            }}</Reactive>\n        );\n    })"
     },
     {
       "id": "east-ui:schematic.examples.tsx:schematicMinimal",
@@ -16381,7 +16641,7 @@
       "imports": [
         "import { East, ArrayType, FloatType, IntegerType, NullType, OptionType, StringType, StructType, example, variant, some, none } from \"@elaraai/east\";",
         "import { State, StatusTokenType, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Reactive, Schematic, Text, VStack } from \"@elaraai/east-ui\";"
+        "import { Reactive, Schematic, Slice, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// Minimal placement — items only, no zones or links\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rooms = $.const([\n            { id: \"DOCK-1\", x: 3.0, y: 2.0 },\n            { id: \"DOCK-2\", x: 9.0, y: 2.0 },\n            { id: \"STAGE\", x: 6.0, y: 5.5 },\n        ]);\n        return (\n            <Schematic\n                extent={{ width: 12, height: 7 }}\n                height=\"440px\"\n                items={rooms}\n                item={r => ({ key: r.id, x: r.x, y: r.y, label: r.id, icon: \"warehouse\" })}\n            />\n        );\n    })"
     },
@@ -16402,7 +16662,7 @@
       "imports": [
         "import { East, ArrayType, FloatType, IntegerType, NullType, OptionType, StringType, StructType, example, variant, some, none } from \"@elaraai/east\";",
         "import { State, StatusTokenType, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Reactive, Schematic, Text, VStack } from \"@elaraai/east-ui\";"
+        "import { Reactive, Schematic, Slice, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// Canvas whose onSelect tracks the inspected item\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const bind = $.let(State.bind([StringType], \"schematic_selected\", \"none\"));\n            const onSelect = $.const(East.function([StringType], NullType, ($, key) => {\n                $(bind.write(key));\n            }));\n            const selected = $.let(bind.read());\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <Schematic\n                        extent={{ width: 12, height: 6 }}\n                        height=\"440px\"\n                        items={[\n                            { id: \"CELL-A\", x: 3.0, y: 3.0 },\n                            { id: \"CELL-B\", x: 9.0, y: 3.0 },\n                        ]}\n                        item={r => ({ key: r.id, x: r.x, y: r.y, label: r.id, icon: \"industry\" })}\n                        onSelect={onSelect}\n                    />\n                    <Text.MonoLabel>{East.str`INSPECTING · ${selected}`}</Text.MonoLabel>\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
     },
@@ -16412,7 +16672,7 @@
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/collections/schematic.examples.tsx",
       "suite": "",
-      "test": "500-unit facility — navigator rail, minimap, semantic zoom, search-to-fly; rows generated with East.Array.generate, each carrying a varied footprint shape/size (circle / square / triangle / diamond)",
+      "test": "500-unit facility — navigator rail, minimap, semantic zoom, click-to-fly from the navigator; rows generated with East.Array.generate, each carrying a varied footprint shape/size (circle / square / triangle / diamond)",
       "keywords": [
         "Schematic",
         "facility",
@@ -16420,7 +16680,7 @@
         "minimap",
         "zoom",
         "LOD",
-        "search",
+        "click-to-fly",
         "large",
         "generate",
         "footprint",
@@ -16432,9 +16692,9 @@
       "imports": [
         "import { East, ArrayType, FloatType, IntegerType, NullType, OptionType, StringType, StructType, example, variant, some, none } from \"@elaraai/east\";",
         "import { State, StatusTokenType, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Reactive, Schematic, Text, VStack } from \"@elaraai/east-ui\";"
+        "import { Reactive, Schematic, Slice, Text, VStack } from \"@elaraai/east-ui\";"
       ],
-      "source": "// 500-unit facility — navigator rail, minimap, semantic zoom, search-to-fly; rows generated with East.Array.generate, each carrying a varied footprint shape/size (circle / square / triangle / diamond)\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const UnitType = StructType({\n            key: StringType,\n            x: FloatType,\n            y: FloatType,\n            kind: StringType,\n            fill: FloatType,\n            cap: FloatType,\n            metric: StringType,\n            status: OptionType(StatusTokenType),\n            // Footprint discriminator + half-size (world units) — the item\n            // mapper turns these into a circle / square / triangle / diamond.\n            shape: IntegerType,\n            size: FloatType,\n        });\n        const statuses = $.const([\n            some(variant(\"success\", null)),\n            some(variant(\"success\", null)),\n            some(variant(\"success\", null)),\n            some(variant(\"warning\", null)),\n            some(variant(\"info\", null)),\n            some(variant(\"neutral\", null)),\n        ], ArrayType(OptionType(StatusTokenType)));\n        // One generated grid block per zone — geometry and pseudo-random\n        // fill computed with East expressions over the unit index. Blocks\n        // mix row spacing (tight ⇢ sparse) and add hash jitter so the\n        // semantic-zoom declutter has real density variation to chew on.\n        const block = $.const(East.function(\n            [StringType, FloatType, FloatType, IntegerType, IntegerType, FloatType, FloatType],\n            ArrayType(UnitType),\n            (_$, prefix, x0, y0, count, cols, spacing, cap) =>\n                East.Array.generate(count, UnitType, ($, i) => {\n                    const col = $.let(i.remainder(cols));\n                    const row = $.let(i.subtract(col).divide(cols));\n                    const fill = $.let(i.add(1n).multiply(7919n).remainder(100n).toFloat().divide(100.0).multiply(cap));\n                    const jx = $.let(i.multiply(2654435761n).remainder(97n).toFloat().divide(97.0).subtract(0.5).multiply(spacing.multiply(0.3)));\n                    const jy = $.let(i.multiply(40503n).remainder(89n).toFloat().divide(89.0).subtract(0.5).multiply(spacing.multiply(0.3)));\n                    // Cycle the four footprint shapes (period 4) and three sizes\n                    // (period 3) independently, so consecutive cells vary in both.\n                    const shape = $.let(i.remainder(4n));\n                    const size = $.let(i.remainder(3n).toFloat().multiply(0.3).add(0.55));\n                    return {\n                        key: East.str`${prefix}-${East.print(i.add(1n))}`,\n                        x: x0.add(col.toFloat().multiply(spacing)).add(jx),\n                        y: y0.add(row.toFloat().multiply(spacing)).add(jy),\n                        kind: East.str`${East.Float.printFixed(cap, 0n)} t cell`,\n                        fill,\n                        cap,\n                        metric: East.str`${East.Float.printFixed(fill, 1n)} t`,\n                        status: statuses.get(i.remainder(6n)),\n                        shape,\n                        size,\n                    };\n                }),\n        ));\n        const units = $.let(\n            block(\"IN\", 3.0, 3.5, 16n, 8n, 3.1, 20.0)\n                .concat(block(\"PA\", 33.0, 3.5, 84n, 14n, 3.1, 40.0))\n                .concat(block(\"PB\", 33.0, 27.5, 84n, 21n, 2.0, 40.0))\n                .concat(block(\"ST\", 3.0, 15.5, 80n, 10n, 1.6, 12.0))\n                .concat(block(\"QA\", 81.0, 3.5, 30n, 5n, 3.6, 60.0))\n                .concat(block(\"OUT\", 81.0, 27.5, 12n, 4n, 4.8, 24.0)));\n        const areas = $.const([\n            { id: \"inbound\", name: \"Inbound\", x: 1.0, y: 1.0, w: 28.0, h: 10.0 },\n            { id: \"hall-a\", name: \"Process Hall A\", x: 31.0, y: 1.0, w: 46.0, h: 22.0 },\n            { id: \"hall-b\", name: \"Process Hall B\", x: 31.0, y: 25.0, w: 46.0, h: 22.0 },\n            { id: \"storage\", name: \"Storage\", x: 1.0, y: 13.0, w: 28.0, h: 34.0 },\n            { id: \"qa\", name: \"Quality\", x: 79.0, y: 1.0, w: 20.0, h: 22.0 },\n            { id: \"outbound\", name: \"Outbound\", x: 79.0, y: 25.0, w: 20.0, h: 22.0 },\n        ]);\n        return (\n            <Schematic\n                extent={{ width: 100, height: 48 }}\n                height=\"440px\"\n                items={units}\n                item={u => ({\n                    key: u.key, x: u.x, y: u.y, label: u.key,\n                    sublabel: u.kind, icon: \"cube\",\n                    status: u.status,\n                    meter: { value: u.fill, max: u.cap },\n                    metric: u.metric,\n                    // Four footprint shapes of varying size, centred on the\n                    // unit's (x, y) anchor — polygon vertices are absolute world\n                    // coords, so they are offset from the anchor by ±size.\n                    footprint: u.shape.equal(0n).ifElse(\n                        _$ => Schematic.circle(u.size),\n                        _$ => u.shape.equal(1n).ifElse(\n                            _$ => Schematic.polygon([                                      // square\n                                { x: u.x.subtract(u.size), y: u.y.subtract(u.size) },\n                                { x: u.x.add(u.size), y: u.y.subtract(u.size) },\n                                { x: u.x.add(u.size), y: u.y.add(u.size) },\n                                { x: u.x.subtract(u.size), y: u.y.add(u.size) },\n                            ]),\n                            _$ => u.shape.equal(2n).ifElse(\n                                _$ => Schematic.polygon([                                  // triangle\n                                    { x: u.x, y: u.y.subtract(u.size) },\n                                    { x: u.x.add(u.size), y: u.y.add(u.size) },\n                                    { x: u.x.subtract(u.size), y: u.y.add(u.size) },\n                                ]),\n                                _$ => Schematic.polygon([                                  // diamond\n                                    { x: u.x, y: u.y.subtract(u.size) },\n                                    { x: u.x.add(u.size), y: u.y },\n                                    { x: u.x, y: u.y.add(u.size) },\n                                    { x: u.x.subtract(u.size), y: u.y },\n                                ]),\n                            ),\n                        ),\n                    ),\n                })}\n                zones={areas}\n                zone={z => ({ key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h })}\n                scaleUnit=\"m\"\n                grid={true}\n                navigator={true}\n                minimap={true}\n            />\n        );\n    })"
+      "source": "// 500-unit facility — navigator rail, minimap, semantic zoom, click-to-fly from the navigator; rows generated with East.Array.generate, each carrying a varied footprint shape/size (circle / square / triangle / diamond)\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const UnitType = StructType({\n            key: StringType,\n            x: FloatType,\n            y: FloatType,\n            kind: StringType,\n            fill: FloatType,\n            cap: FloatType,\n            metric: StringType,\n            status: OptionType(StatusTokenType),\n            // Footprint discriminator + half-size (world units) — the item\n            // mapper turns these into a circle / square / triangle / diamond.\n            shape: IntegerType,\n            size: FloatType,\n        });\n        const statuses = $.const([\n            some(variant(\"success\", null)),\n            some(variant(\"success\", null)),\n            some(variant(\"success\", null)),\n            some(variant(\"warning\", null)),\n            some(variant(\"info\", null)),\n            some(variant(\"neutral\", null)),\n        ], ArrayType(OptionType(StatusTokenType)));\n        // One generated grid block per zone — geometry and pseudo-random\n        // fill computed with East expressions over the unit index. Blocks\n        // mix row spacing (tight ⇢ sparse) and add hash jitter so the\n        // semantic-zoom declutter has real density variation to chew on.\n        const block = $.const(East.function(\n            [StringType, FloatType, FloatType, IntegerType, IntegerType, FloatType, FloatType],\n            ArrayType(UnitType),\n            (_$, prefix, x0, y0, count, cols, spacing, cap) =>\n                East.Array.generate(count, UnitType, ($, i) => {\n                    const col = $.let(i.remainder(cols));\n                    const row = $.let(i.subtract(col).divide(cols));\n                    const fill = $.let(i.add(1n).multiply(7919n).remainder(100n).toFloat().divide(100.0).multiply(cap));\n                    const jx = $.let(i.multiply(2654435761n).remainder(97n).toFloat().divide(97.0).subtract(0.5).multiply(spacing.multiply(0.3)));\n                    const jy = $.let(i.multiply(40503n).remainder(89n).toFloat().divide(89.0).subtract(0.5).multiply(spacing.multiply(0.3)));\n                    // Cycle the four footprint shapes (period 4) and three sizes\n                    // (period 3) independently, so consecutive cells vary in both.\n                    const shape = $.let(i.remainder(4n));\n                    const size = $.let(i.remainder(3n).toFloat().multiply(0.3).add(0.55));\n                    return {\n                        key: East.str`${prefix}-${East.print(i.add(1n))}`,\n                        x: x0.add(col.toFloat().multiply(spacing)).add(jx),\n                        y: y0.add(row.toFloat().multiply(spacing)).add(jy),\n                        kind: East.str`${East.Float.printFixed(cap, 0n)} t cell`,\n                        fill,\n                        cap,\n                        metric: East.str`${East.Float.printFixed(fill, 1n)} t`,\n                        status: statuses.get(i.remainder(6n)),\n                        shape,\n                        size,\n                    };\n                }),\n        ));\n        const units = $.let(\n            block(\"IN\", 3.0, 3.5, 16n, 8n, 3.1, 20.0)\n                .concat(block(\"PA\", 33.0, 3.5, 84n, 14n, 3.1, 40.0))\n                .concat(block(\"PB\", 33.0, 27.5, 84n, 21n, 2.0, 40.0))\n                .concat(block(\"ST\", 3.0, 15.5, 80n, 10n, 1.6, 12.0))\n                .concat(block(\"QA\", 81.0, 3.5, 30n, 5n, 3.6, 60.0))\n                .concat(block(\"OUT\", 81.0, 27.5, 12n, 4n, 4.8, 24.0)));\n        const areas = $.const([\n            { id: \"inbound\", name: \"Inbound\", x: 1.0, y: 1.0, w: 28.0, h: 10.0 },\n            { id: \"hall-a\", name: \"Process Hall A\", x: 31.0, y: 1.0, w: 46.0, h: 22.0 },\n            { id: \"hall-b\", name: \"Process Hall B\", x: 31.0, y: 25.0, w: 46.0, h: 22.0 },\n            { id: \"storage\", name: \"Storage\", x: 1.0, y: 13.0, w: 28.0, h: 34.0 },\n            { id: \"qa\", name: \"Quality\", x: 79.0, y: 1.0, w: 20.0, h: 22.0 },\n            { id: \"outbound\", name: \"Outbound\", x: 79.0, y: 25.0, w: 20.0, h: 22.0 },\n        ]);\n        return (\n            <Schematic\n                extent={{ width: 100, height: 48 }}\n                height=\"440px\"\n                items={units}\n                item={u => ({\n                    key: u.key, x: u.x, y: u.y, label: u.key,\n                    sublabel: u.kind, icon: \"cube\",\n                    status: u.status,\n                    meter: { value: u.fill, max: u.cap },\n                    metric: u.metric,\n                    // Four footprint shapes of varying size, centred on the\n                    // unit's (x, y) anchor — polygon vertices are absolute world\n                    // coords, so they are offset from the anchor by ±size.\n                    footprint: u.shape.equal(0n).ifElse(\n                        _$ => Schematic.circle(u.size),\n                        _$ => u.shape.equal(1n).ifElse(\n                            _$ => Schematic.polygon([                                      // square\n                                { x: u.x.subtract(u.size), y: u.y.subtract(u.size) },\n                                { x: u.x.add(u.size), y: u.y.subtract(u.size) },\n                                { x: u.x.add(u.size), y: u.y.add(u.size) },\n                                { x: u.x.subtract(u.size), y: u.y.add(u.size) },\n                            ]),\n                            _$ => u.shape.equal(2n).ifElse(\n                                _$ => Schematic.polygon([                                  // triangle\n                                    { x: u.x, y: u.y.subtract(u.size) },\n                                    { x: u.x.add(u.size), y: u.y.add(u.size) },\n                                    { x: u.x.subtract(u.size), y: u.y.add(u.size) },\n                                ]),\n                                _$ => Schematic.polygon([                                  // diamond\n                                    { x: u.x, y: u.y.subtract(u.size) },\n                                    { x: u.x.add(u.size), y: u.y },\n                                    { x: u.x, y: u.y.add(u.size) },\n                                    { x: u.x.subtract(u.size), y: u.y },\n                                ]),\n                            ),\n                        ),\n                    ),\n                })}\n                zones={areas}\n                zone={z => ({ key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h })}\n                scaleUnit=\"m\"\n                grid={true}\n                navigator={true}\n                minimap={true}\n            />\n        );\n    })"
     },
     {
       "id": "east-ui:schematic.examples.tsx:schematicGeometry",
@@ -16459,7 +16719,7 @@
       "imports": [
         "import { East, ArrayType, FloatType, IntegerType, NullType, OptionType, StringType, StructType, example, variant, some, none } from \"@elaraai/east\";",
         "import { State, StatusTokenType, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Reactive, Schematic, Text, VStack } from \"@elaraai/east-ui\";"
+        "import { Reactive, Schematic, Slice, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// Shape geometry — polygon & arc-aware polyline zones (rotated hall, curvy service road) plus polygon / circle item footprints (pump, tank, valve)\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        // Equipment with real footprints: `round` ⇒ circle body (a tank),\n        // else `fp` ⇒ polygon body, else point + icon. The `x/y` anchor stays\n        // the item identity used by the sidebar, links, and declutter;\n        // `footprint` is additive (a circle centres on that anchor).\n        const equipment = $.const([\n            { id: \"PUMP-1\", x: 6.0, y: 4.0, kind: \"transfer pump\", state: some(variant(\"success\", null)), fp: true, round: false, r: 0.0,\n              pts: [{ x: 3.5, y: 2.2, bulge: 0.0 }, { x: 8.6, y: 3.0, bulge: 0.0 }, { x: 8.0, y: 6.0, bulge: 0.0 }, { x: 2.9, y: 5.2, bulge: 0.0 }] },\n            { id: \"TANK-9\", x: 16.0, y: 4.5, kind: \"storage tank\", state: some(variant(\"warning\", null)), fp: false, round: true, r: 2.4,\n              pts: [{ x: 16.0, y: 4.5, bulge: 0.0 }] },\n            { id: \"VALVE-3\", x: 21.6, y: 4.5, kind: \"manifold\", state: some(variant(\"info\", null)), fp: false, round: false, r: 0.0,\n              pts: [{ x: 21.6, y: 4.5, bulge: 0.0 }] },\n        ]);\n        // Zones with shape geometry: a rotated polygon hall and a curvy\n        // polyline service road whose bends are true arcs (vertex `bulge`),\n        // widened into a world-space band. The required x/y/w/h bounding box\n        // still drives the navigator / minimap / fly-to.\n        const areas = $.const([\n            { id: \"hall-c\", name: \"Hall C\", x: 1.5, y: 1.2, w: 9.1, h: 6.4, road: false,\n              pts: [{ x: 1.8, y: 2.0, bulge: 0.0 }, { x: 10.2, y: 1.3, bulge: 0.0 }, { x: 10.6, y: 7.0, bulge: 0.0 }, { x: 2.2, y: 7.6, bulge: 0.0 }] },\n            { id: \"svc-rd\", name: \"Service Rd\", x: 1.0, y: 9.0, w: 23.5, h: 3.4, road: true,\n              pts: [{ x: 1.5, y: 11.6, bulge: 0.0 }, { x: 7.0, y: 9.8, bulge: 0.5 }, { x: 13.0, y: 11.4, bulge: -0.5 }, { x: 19.0, y: 9.6, bulge: 0.4 }, { x: 24.0, y: 10.8, bulge: 0.0 }] },\n        ]);\n        return (\n            <Schematic\n                extent={{ width: 26, height: 14 }}\n                height=\"440px\"\n                items={equipment}\n                item={e => ({\n                    key: e.id, x: e.x, y: e.y, label: e.id,\n                    sublabel: e.kind, status: e.state, icon: \"industry\",\n                    footprint: e.round.ifElse(\n                        _$ => Schematic.circle(e.r),\n                        _$ => e.fp.ifElse(_$ => Schematic.polygon(e.pts), _$ => Schematic.rect()),\n                    ),\n                })}\n                zones={areas}\n                zone={z => ({\n                    key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h,\n                    geometry: z.road.ifElse(\n                        _$ => Schematic.polyline(z.pts, { width: 1.4 }),\n                        _$ => Schematic.polygon(z.pts),\n                    ),\n                })}\n                scaleUnit=\"m\"\n                grid={true}\n            />\n        );\n    })"
     },
@@ -16482,7 +16742,7 @@
       "imports": [
         "import { East, ArrayType, FloatType, IntegerType, NullType, OptionType, StringType, StructType, example, variant, some, none } from \"@elaraai/east\";",
         "import { State, StatusTokenType, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Reactive, Schematic, Text, VStack } from \"@elaraai/east-ui\";"
+        "import { Reactive, Schematic, Slice, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// Per-entity colour overrides — raw \n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        // Each unit carries an explicit CSS colour: `color` tints the stroke /\n        // marker, `bg` fills the circle footprint — a category palette that is\n        // independent of `status`.\n        const units = $.const([\n            { id: \"U-1\", x: 4.0, y: 4.0, r: 1.4, fill: \"#2D7FF9\" },\n            { id: \"U-2\", x: 8.0, y: 4.0, r: 1.4, fill: \"#16A34A\" },\n            { id: \"U-3\", x: 12.0, y: 4.0, r: 1.4, fill: \"#9333EA\" },\n        ]);\n        const areas = $.const([\n            { id: \"bay\", name: \"Bay\", x: 1.5, y: 1.5, w: 13.0, h: 5.5 },\n        ]);\n        return (\n            <Schematic\n                extent={{ width: 16, height: 8 }}\n                height=\"360px\"\n                items={units}\n                item={e => ({\n                    key: e.id, x: e.x, y: e.y, label: e.id,\n                    footprint: Schematic.circle(e.r),\n                    color: e.fill,        // raw stroke / marker tint\n                    bg: e.fill,           // raw footprint fill\n                    fillOpacity: 0.18,\n                })}\n                zones={areas}\n                zone={z => ({\n                    key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h,\n                    tone: \"brand\",        // semantic, theme-resolved\n                    bg: \"#2D7FF9\",        // opt-in area fill\n                })}\n                scaleUnit=\"m\"\n            />\n        );\n    })"
     },
@@ -16721,6 +16981,29 @@
         "import { Badge, Box, HStack, Reactive, Table, Tag, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// Compact density — the \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Table\n                variant=\"line\"\n                density=\"compact\"\n                data={East.Array.range(0n, 6n).map((_$, i) => ({\n                    name: East.str`Row ${i}`,\n                    status: \"Active\",\n                }))}\n                columns={{ name: { header: \"Name\" }, status: { header: \"Status\" } }}\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:table.examples.tsx:tableRowHeight",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/table.examples.tsx",
+      "suite": "",
+      "test": "Explicit pixel rowHeight overrides the density preset — fixed 48px rows fed to the virtualizer",
+      "keywords": [
+        "Table",
+        "Root",
+        "rowHeight",
+        "pixel",
+        "override",
+        "density",
+        "virtualization"
+      ],
+      "imports": [
+        "import { East, ArrayType, IntegerType, NullType, StringType, example } from \"@elaraai/east\";",
+        "import { State, Style, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Badge, Box, HStack, Reactive, Table, Tag, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Explicit pixel rowHeight overrides the density preset — fixed 48px rows fed to the virtualizer\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Table\n                variant=\"line\"\n                rowHeight={48n}\n                data={East.Array.range(0n, 6n).map((_$, i) => ({\n                    name: East.str`Row ${i}`,\n                    status: \"Active\",\n                }))}\n                columns={{ name: { header: \"Name\" }, status: { header: \"Status\" } }}\n            />\n        );\n    })"
     },
     {
       "id": "east-ui:table.examples.tsx:tableExpandedRichDetail",
@@ -17145,6 +17428,27 @@
         "import { Badge, Button, Card, Text, HStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// Fixed height and scroll overflow\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Card header={{ eyebrow: \"Sized card\" }} height=\"200px\" overflow=\"auto\">\n                <Text>This card has a fixed height of 200px and will scroll if content overflows.</Text>\n                <Text>The dimension properties allow precise control over card sizing.</Text>\n            </Card>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:card.examples.tsx:cardFlush",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/container/card.examples.tsx",
+      "suite": "",
+      "test": "A flush card (zero body padding) for full-bleed content, beside a card with a custom bodyPadding",
+      "keywords": [
+        "Card",
+        "flush",
+        "bodyPadding",
+        "full-bleed",
+        "padding"
+      ],
+      "imports": [
+        "import { East, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Badge, Button, Card, Text, HStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// A flush card (zero body padding) for full-bleed content, beside a card with a custom bodyPadding\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <HStack gap=\"4\">\n                <Card header={{ eyebrow: \"Full bleed\" }} width=\"240px\" flush>\n                    <Badge>fills the body edge-to-edge</Badge>\n                </Card>\n                <Card header={{ eyebrow: \"Tight\" }} width=\"240px\" bodyPadding=\"6px 8px\">\n                    <Text>Custom 6×8 body padding.</Text>\n                </Card>\n            </HStack>\n        );\n    })"
     },
     {
       "id": "east-ui:card.examples.tsx:cardFlexible",
@@ -19930,6 +20234,51 @@
       "source": "// The three colour encodings — sequential brand, diverging about each track\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const tracks = [\n            { name: \"A\", values: [12, 14, 13, 18, 20, 22] },\n            { name: \"B\", values: [40, 38, 35, 30, 28, 25] },\n            { name: \"C\", values: [5, 9, 7, 11, 8, 14] },\n        ];\n        const brand = $.const(<Trace tracks={tracks} now={4n} density=\"compact\" scale=\"brand\" />);\n        const diverge = $.const(<Trace tracks={tracks} now={4n} density=\"compact\" scale=\"diverge\" />);\n        const categorical = $.const(<Trace tracks={tracks} now={4n} density=\"compact\" scale=\"categorical\" />);\n        return (\n            <Stack direction=\"column\" gap=\"6\">\n                {brand}\n                {diverge}\n                {categorical}\n            </Stack>\n        );\n    })"
     },
     {
+      "id": "east-ui:trace.examples.tsx:traceRagged",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/display/trace.examples.tsx",
+      "suite": "",
+      "test": "Tracks of unequal length — the longer track is padded into its own row rather than overflowing into a stub-less phantom row",
+      "keywords": [
+        "Trace",
+        "ragged",
+        "unequal",
+        "lengths",
+        "padding",
+        "phantom",
+        "row"
+      ],
+      "imports": [
+        "import { East, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Trace, ChipRail, Tag, Stack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Tracks of unequal length — the longer track is padded into its own row rather than overflowing into a stub-less phantom row\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Trace\n                tracks={[\n                    { name: \"Bé\", values: [12, 11, 10, 9, 8] },        // 5 steps\n                    { name: \"°C\", values: [22, 23, 24, 25, 26, 27] },  // 6 steps — one longer\n                ]}\n                now={4n}\n                future=\"ghost\"\n                density=\"compact\"\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:trace.examples.tsx:traceLabelWidth",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/display/trace.examples.tsx",
+      "suite": "",
+      "test": "A wider label gutter (labelWidth) so a per-track total folded into the name stays legible instead of truncating",
+      "keywords": [
+        "Trace",
+        "labelWidth",
+        "gutter",
+        "label",
+        "truncate",
+        "width"
+      ],
+      "imports": [
+        "import { East, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Trace, ChipRail, Tag, Stack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// A wider label gutter (labelWidth) so a per-track total folded into the name stays legible instead of truncating\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Trace\n                tracks={[\n                    { name: \"R & R · 20\", values: [12, 14, 13, 18, 20, 22] },\n                    { name: \"Pumpover · 8\", values: [3, 5, 4, 6, 8, 7] },\n                    { name: \"Additions · 12\", values: [8, 10, 9, 11, 12, 10] },\n                ]}\n                now={4n}\n                density=\"compact\"\n                labelWidth=\"120px\"\n            />\n        );\n    })"
+    },
+    {
       "id": "east-ui:trace.examples.tsx:traceWithChipRail",
       "skill": "east-ui",
       "package": "east-ui",
@@ -21753,6 +22102,28 @@
       "source": "// Multi-tag entry control\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return <TagsInput value={[\"react\", \"typescript\"]} label=\"Technologies\" placeholder=\"Add tag...\" max={5} />;\n    })"
     },
     {
+      "id": "east-ui:tags-input.examples.tsx:tagsInputSuggestions",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/forms/tags-input.examples.tsx",
+      "suite": "",
+      "test": "Autocomplete suggestions surfaced as you type (free entry still allowed)",
+      "keywords": [
+        "TagsInput",
+        "Root",
+        "suggestions",
+        "autocomplete",
+        "hints",
+        "datalist"
+      ],
+      "imports": [
+        "import { East, ArrayType, NullType, OptionType, StringType, example, none } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { TagsInput, Text, VStack, Reactive } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Autocomplete suggestions surfaced as you type (free entry still allowed)\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return <TagsInput value={[\"NA\"]} label=\"Regions\" placeholder=\"Add region...\" suggestions={[\"NA\", \"EU\", \"APAC\", \"LATAM\"]} />;\n    })"
+    },
+    {
       "id": "east-ui:tags-input.examples.tsx:tagsInputInteractive",
       "skill": "east-ui",
       "package": "east-ui",
@@ -23564,9 +23935,9 @@
       "imports": [
         "import { East, NullType, StringType, IntegerType, StructType, some, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Navigation, NavBindHandleType, Pages, Reactive, VStack, HStack, Box, Text, Button, NavList, Breadcrumb } from \"@elaraai/east-ui\";"
+        "import { Navigation, Pages, Reactive, VStack, HStack, Box, Text, Button, NavList, Breadcrumb } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Two-page navigation — overview opens a typed detail page; back pops the stack\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const nav = $.let(Navigation.bind(opsRoutes, OPS_KEY, [opsRoutes.Page.overview()]));\n\n            // Page bodies as $.const closures — each takes its typed payload + the\n            // nav handle (so they capture nothing) and navigates the stack.\n            const overviewPage = $.const(East.function([], UIComponentType, ($) => {\n                const open = $.const(East.function([], NullType, $ => {\n                    $(nav.go.detail(East.value({ id: \"item-1\", value: 42n }, ItemRow)));\n                }));\n                return (\n                    <VStack gap=\"3\" align=\"stretch\">\n                        <Text>Overview — pick an item</Text>\n                        <Button onClick={open}>Open item-1</Button>\n                    </VStack>\n                );\n            }));\n            const detailPage = $.const(East.function([ItemRow], UIComponentType, ($, row) => {\n                const back = $.const(East.function([], NullType, $ => { $(nav.pop()); }));\n                return (\n                    <VStack gap=\"2\" align=\"stretch\">\n                        <Text>{East.str`Item ${row.id} — value ${East.print(row.value)}`}</Text>\n                        <Button onClick={back}>← Back</Button>\n                    </VStack>\n                );\n            }));\n\n            return (\n                <VStack gap=\"4\" align=\"stretch\">\n                    <Text fontWeight=\"bold\">{East.str`Ops console · depth ${East.print(nav.depth())}`}</Text>\n                    {Pages.Root(opsRoutes)({\n                        stateKey: OPS_KEY,\n                        initial: [opsRoutes.Page.overview()],\n                        pages: {\n                            overview: ($) => overviewPage(),\n                            detail: ($, row) => detailPage(row),\n                        },\n                    })}\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
+      "source": "// Two-page navigation — overview opens a typed detail page; back pops the stack\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const ItemRow = StructType({ id: StringType, value: IntegerType });\n        const routes = Navigation.config({\n            overview: { value: NullType, label: \"Overview\" },\n            detail: { value: ItemRow, label: \"Item\" },\n        });\n        return (\n            <Reactive>{$ => {\n                const nav = $.let(Navigation.bind(routes, \"ops.route\", [routes.Page.overview()]));\n\n                // Page bodies as $.const closures — they navigate via the shared handle.\n                const overviewPage = $.const(East.function([], UIComponentType, ($) => {\n                    const open = $.const(East.function([], NullType, $ => {\n                        $(nav.go.detail(East.value({ id: \"item-1\", value: 42n }, ItemRow)));\n                    }));\n                    return (\n                        <VStack gap=\"3\" align=\"stretch\">\n                            <Text>Overview — pick an item</Text>\n                            <Button onClick={open}>Open item-1</Button>\n                        </VStack>\n                    );\n                }));\n                const detailPage = $.const(East.function([ItemRow], UIComponentType, ($, row) => {\n                    const back = $.const(East.function([], NullType, $ => { $(nav.pop()); }));\n                    return (\n                        <VStack gap=\"2\" align=\"stretch\">\n                            <Text>{East.str`Item ${row.id} — value ${East.print(row.value)}`}</Text>\n                            <Button onClick={back}>← Back</Button>\n                        </VStack>\n                    );\n                }));\n\n                return (\n                    <VStack gap=\"4\" align=\"stretch\">\n                        <Text fontWeight=\"bold\">{East.str`Ops console · depth ${East.print(nav.depth())}`}</Text>\n                        <Pages nav={nav} pages={{\n                            overview: () => overviewPage(),\n                            detail: (_$, row) => detailPage(row),\n                        }} />\n                    </VStack>\n                );\n            }}</Reactive>\n        );\n    })"
     },
     {
       "id": "east-ui:pages.examples.tsx:pagesAppShell",
@@ -23589,9 +23960,9 @@
       "imports": [
         "import { East, NullType, StringType, IntegerType, StructType, some, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Navigation, NavBindHandleType, Pages, Reactive, VStack, HStack, Box, Text, Button, NavList, Breadcrumb } from \"@elaraai/east-ui\";"
+        "import { Navigation, Pages, Reactive, VStack, HStack, Box, Text, Button, NavList, Breadcrumb } from \"@elaraai/east-ui\";"
       ],
-      "source": "// App shell — NavList rail + breadcrumb app bar from nav.path() + Pages content; navigateTo drives all three\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const nav = $.let(Navigation.bind(shellRoutes, SHELL_KEY, [shellRoutes.Page.overview()]));\n\n            // Page bodies as $.const closures.\n            const overviewPage = $.const(East.function([NullType, ShellHandle], UIComponentType, ($, _v, nav) => {\n                const open = $.const(East.function([], NullType, $ => {\n                    $(nav.go.detail(East.value({ id: \"item-1\", group: \"A\" }, DetailRow)));\n                }));\n                return (\n                    <VStack gap=\"3\" align=\"stretch\">\n                        <Text>Overview — item list</Text>\n                        <Button onClick={open}>Open item-1</Button>\n                    </VStack>\n                );\n            }));\n            const scenariosPage = $.const(East.function([NullType, ShellHandle], UIComponentType, (_$, _v, _nav) => <Text>Scenarios</Text>));\n            const auditPage = $.const(East.function([NullType, ShellHandle], UIComponentType, (_$, _v, _nav) => <Text>Audit trail</Text>));\n            const detailPage = $.const(East.function([DetailRow, ShellHandle], UIComponentType, ($, row, nav) => {\n                const back = $.const(East.function([], NullType, $ => { $(nav.pop()); }));\n                return (\n                    <VStack gap=\"2\" align=\"stretch\">\n                        <Text>{East.str`Item ${row.id} · group ${row.group}`}</Text>\n                        <Button onClick={back}>← Back</Button>\n                    </VStack>\n                );\n            }));\n\n            // Breadcrumb items derived live from the path: label via a per-route\n            // match, current = is-leaf, onClick = navigate back to that prefix.\n            const crumbs = nav.path().map(($, seg, i) => {\n                const label = seg.match({\n                    overview: (_$, _v) => \"Overview\",\n                    scenarios: (_$, _v) => \"Scenarios\",\n                    audit: (_$, _v) => \"Audit\",\n                    detail: (_$, r) => East.str`Item ${r.id}`,\n                });\n                const prefixLen = $.let(i.add(1n));\n                const isLeaf = $.let(East.equal(i, nav.path().size().subtract(1n)));\n                const jump = $.const(East.function([], NullType, $ => {\n                    $(nav.navigateTo(nav.path().slice(0n, prefixLen)));\n                }));\n                // Coerce to the item type so `some(...)` widens to the Option fields\n                // and the field order is normalised (the map element isn't otherwise\n                // contextually typed against BreadcrumbItemType).\n                const item = $.const({ label, current: some(isLeaf), onClick: some(jump) }, Breadcrumb.Types.Item);\n                return item;\n            });\n\n            // The rail navigates to a top-level (argless) route by key.\n            const onSelect = $.const(East.function([StringType], NullType, ($, key) => {\n                $.if(East.equal(key, \"scenarios\"), $ => { $(nav.navigateTo([shellRoutes.Page.scenarios()])); });\n                $.if(East.equal(key, \"audit\"), $ => { $(nav.navigateTo([shellRoutes.Page.audit()])); });\n                $.if(East.equal(key, \"overview\"), $ => { $(nav.navigateTo([shellRoutes.Page.overview()])); });\n            }));\n\n            return (\n                <VStack gap=\"0\" align=\"stretch\">\n                    <Box padding=\"3\">\n                        <Breadcrumb items={crumbs} />\n                    </Box>\n                    <HStack gap=\"4\" align=\"stretch\">\n                        <NavList\n                            sections={[{ items: [\n                                { key: \"overview\", label: \"Overview\" },\n                                { key: \"scenarios\", label: \"Scenarios\" },\n                                { key: \"audit\", label: \"Audit\" },\n                            ] }]}\n                            onSelect={onSelect}\n                        />\n                        {Pages.Root(shellRoutes)({\n                            stateKey: SHELL_KEY,\n                            initial: [shellRoutes.Page.overview()],\n                            pages: {\n                                overview: (_$, _v, nav) => overviewPage(_v, nav),\n                                scenarios: (_$, _v, nav) => scenariosPage(_v, nav),\n                                audit: (_$, _v, nav) => auditPage(_v, nav),\n                                detail: (_$, row, nav) => detailPage(row, nav),\n                            },\n                        })}\n                    </HStack>\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
+      "source": "// App shell — NavList rail + breadcrumb app bar from nav.path() + Pages content; navigateTo drives all three\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const DetailRow = StructType({ id: StringType, group: StringType });\n        const routes = Navigation.config({\n            overview: { value: NullType, label: \"Overview\" },\n            scenarios: { value: NullType, label: \"Scenarios\" },\n            audit: { value: NullType, label: \"Audit\" },\n            detail: { value: DetailRow, label: \"Item\" },\n        });\n        return (\n            <Reactive>{$ => {\n                const nav = $.let(Navigation.bind(routes, \"shell.route\", [routes.Page.overview()]));\n\n                // Page bodies as $.const closures capturing the shared handle.\n                const overviewPage = $.const(East.function([], UIComponentType, ($) => {\n                    const open = $.const(East.function([], NullType, $ => {\n                        $(nav.go.detail(East.value({ id: \"item-1\", group: \"A\" }, DetailRow)));\n                    }));\n                    return (\n                        <VStack gap=\"3\" align=\"stretch\">\n                            <Text>Overview — item list</Text>\n                            <Button onClick={open}>Open item-1</Button>\n                        </VStack>\n                    );\n                }));\n                const scenariosPage = $.const(East.function([], UIComponentType, (_$) => <Text>Scenarios</Text>));\n                const auditPage = $.const(East.function([], UIComponentType, (_$) => <Text>Audit trail</Text>));\n                const detailPage = $.const(East.function([DetailRow], UIComponentType, ($, row) => {\n                    const back = $.const(East.function([], NullType, $ => { $(nav.pop()); }));\n                    return (\n                        <VStack gap=\"2\" align=\"stretch\">\n                            <Text>{East.str`Item ${row.id} · group ${row.group}`}</Text>\n                            <Button onClick={back}>← Back</Button>\n                        </VStack>\n                    );\n                }));\n\n                // Breadcrumb items derived live from the path: label via a per-route\n                // match, current = is-leaf, onClick = navigate back to that prefix.\n                const crumbs = nav.path().map(($, seg, i) => {\n                    const label = seg.match({\n                        overview: (_$, _v) => \"Overview\",\n                        scenarios: (_$, _v) => \"Scenarios\",\n                        audit: (_$, _v) => \"Audit\",\n                        detail: (_$, r) => East.str`Item ${r.id}`,\n                    });\n                    const prefixLen = $.let(i.add(1n));\n                    const isLeaf = $.let(East.equal(i, nav.path().size().subtract(1n)));\n                    const jump = $.const(East.function([], NullType, $ => {\n                        $(nav.navigateTo(nav.path().slice(0n, prefixLen)));\n                    }));\n                    const item = $.const({ label, current: some(isLeaf), onClick: some(jump) }, Breadcrumb.Types.Item);\n                    return item;\n                });\n\n                // The rail navigates to a top-level (argless) route by key.\n                const onSelect = $.const(East.function([StringType], NullType, ($, key) => {\n                    $.if(East.equal(key, \"scenarios\"), $ => { $(nav.navigateTo([routes.Page.scenarios()])); });\n                    $.if(East.equal(key, \"audit\"), $ => { $(nav.navigateTo([routes.Page.audit()])); });\n                    $.if(East.equal(key, \"overview\"), $ => { $(nav.navigateTo([routes.Page.overview()])); });\n                }));\n\n                return (\n                    <VStack gap=\"0\" align=\"stretch\">\n                        <Box padding=\"3\">\n                            <Breadcrumb items={crumbs} />\n                        </Box>\n                        <HStack gap=\"4\" align=\"stretch\">\n                            <NavList\n                                sections={[{ items: [\n                                    { key: \"overview\", label: \"Overview\" },\n                                    { key: \"scenarios\", label: \"Scenarios\" },\n                                    { key: \"audit\", label: \"Audit\" },\n                                ] }]}\n                                onSelect={onSelect}\n                            />\n                            <Pages nav={nav} pages={{\n                                overview: () => overviewPage(),\n                                scenarios: () => scenariosPage(),\n                                audit: () => auditPage(),\n                                detail: (_$, row) => detailPage(row),\n                            }} />\n                        </HStack>\n                    </VStack>\n                );\n            }}</Reactive>\n        );\n    })"
     },
     {
       "id": "east-ui:command-palette.examples.tsx:commandPaletteBasic",
@@ -27182,10 +27553,10 @@
       "imports": [
         "import {",
         "import { Box, Chart, Field, Reactive, Slice, UIComponentType } from '@elaraai/east-ui';",
-        "import { Data, Decision, DecisionQueue } from '@elaraai/e3-ui';",
+        "import { Data, Decision, DecisionQueue, DecisionType } from '@elaraai/e3-ui';",
         "import * as e3 from '@elaraai/e3';"
       ],
-      "source": "// The Decide surface — urgency-sorted queue; the overdue case expanded on the Evidence facet with the model’s argument and the host’s demand-vs-capacity detail canvas\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Reactive>{$ => {\n                const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));\n                const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));\n                const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));\n                // \"the overdue case\" — a predicate, not an id or a position.\n                const urgent = $.let(decisions.read().firstMap(($, d) =>\n                    d.urgency.hasTag('overdue').ifElse(() => some(d), () => none)));\n                const forecast = $.const([\n                    { week: 9n, demand: 82.0, capacity: 96.0 },\n                    { week: 10n, demand: 85.0, capacity: 96.0 },\n                    { week: 11n, demand: 88.0, capacity: 96.0 },\n                    { week: 12n, demand: 91.0, capacity: 96.0 },\n                    { week: 13n, demand: 95.0, capacity: 96.0 },\n                    { week: 14n, demand: 99.0, capacity: 96.0 },\n                    { week: 15n, demand: 104.0, capacity: 96.0 },\n                ], ArrayType(StructType({ week: IntegerType, demand: FloatType, capacity: FloatType })));\n                return (\n                    <DecisionQueue\n                        handle={handle}\n                        heading=\"Decisions waiting\"\n                        defaultExpanded={urgent}\n                        modify={(decision, update) => (\n                            <Field.Slider\n                                label=\"Uplift target\"\n                                value={decision.value}\n                                min={0}\n                                max={120000}\n                                step={1000}\n                                helperText=\"Probe the recommendation — committing re-runs the optimizer against the revised target.\"\n                                onChangeEnd={East.function([FloatType], NullType, ($, v) => {\n                                    $(update({ ...decision, value: v }));\n                                })}\n                            />\n                        )}\n                        detail={() => (\n                            <Chart\n                                layers={[\n                                    Chart.Area(forecast, { x: r => r.week, y: r => r.demand }, { color: 'teal.solid', fillOpacity: 0.25 }),\n                                    Chart.Line(forecast, { x: r => r.week, y: r => r.capacity }, { color: 'red.solid' }),\n                                ]}\n                                grid\n                                height={160}\n                            />\n                        )}\n                    />\n                );\n            }}</Reactive>\n        );\n    })"
+      "source": "// The Decide surface — urgency-sorted queue; the overdue case expanded on the Evidence facet with the model’s argument and the host’s demand-vs-capacity detail canvas\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Reactive>{$ => {\n                const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));\n                const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));\n                const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));\n                // \"the overdue case\" — a predicate, not an id or a position.\n                const urgent = $.let(decisions.read().firstMap(($, d) =>\n                    d.urgency.hasTag('overdue').ifElse(() => some(d), () => none)));\n                const forecast = $.const([\n                    { week: 9n, demand: 82.0, capacity: 96.0 },\n                    { week: 10n, demand: 85.0, capacity: 96.0 },\n                    { week: 11n, demand: 88.0, capacity: 96.0 },\n                    { week: 12n, demand: 91.0, capacity: 96.0 },\n                    { week: 13n, demand: 95.0, capacity: 96.0 },\n                    { week: 14n, demand: 99.0, capacity: 96.0 },\n                    { week: 15n, demand: 104.0, capacity: 96.0 },\n                ], ArrayType(StructType({ week: IntegerType, demand: FloatType, capacity: FloatType })));\n                return (\n                    <DecisionQueue\n                        handle={handle}\n                        heading=\"Decisions waiting\"\n                        defaultExpanded={urgent}\n                        modify={East.function([DecisionType, DecisionQueue.Types.Update], UIComponentType, (_$, decision, update) => (\n                            <Field.Slider\n                                label=\"Uplift target\"\n                                value={decision.value}\n                                min={0}\n                                max={120000}\n                                step={1000}\n                                helperText=\"Probe the recommendation — committing re-runs the optimizer against the revised target.\"\n                                onChangeEnd={East.function([FloatType], NullType, ($, v) => {\n                                    // East has no struct spread — rebuild the decision with the probed `value`.\n                                    const edited = $.const({\n                                        id: decision.id,\n                                        kind: decision.kind,\n                                        title: decision.title,\n                                        urgency: decision.urgency,\n                                        value: v,\n                                        deadline: decision.deadline,\n                                        format: decision.format,\n                                        valueAxis: decision.valueAxis,\n                                        summary: decision.summary,\n                                        downside: decision.downside,\n                                        confidence: decision.confidence,\n                                        detail: decision.detail,\n                                        stakes: decision.stakes,\n                                        prompts: decision.prompts,\n                                        levers: decision.levers,\n                                        evidence: decision.evidence,\n                                        alternatives: decision.alternatives,\n                                    }, DecisionType);\n                                    $(update(edited));\n                                })}\n                            />\n                        ))}\n                        detail={East.function([DecisionType], UIComponentType, (_$, _decision) => (\n                            <Chart\n                                layers={[\n                                    Chart.Area(forecast, { x: r => r.week, y: r => r.demand }, { color: 'teal.solid', fillOpacity: 0.25 }),\n                                    Chart.Line(forecast, { x: r => r.week, y: r => r.capacity }, { color: 'red.solid' }),\n                                ]}\n                                grid\n                                height={160}\n                            />\n                        ))}\n                    />\n                );\n            }}</Reactive>\n        );\n    })"
     },
     {
       "id": "e3-ui:queue.examples.tsx:decisionQueueJudgement",
@@ -27206,10 +27577,57 @@
       "imports": [
         "import {",
         "import { Box, Chart, Field, Reactive, Slice, UIComponentType } from '@elaraai/east-ui';",
-        "import { Data, Decision, DecisionQueue } from '@elaraai/e3-ui';",
+        "import { Data, Decision, DecisionQueue, DecisionType } from '@elaraai/e3-ui';",
         "import * as e3 from '@elaraai/e3';"
       ],
       "source": "// The Judgement facet — prompt gating Apply, knowledge capture, a staged constraint chip, and the typed lever builder derived from the solution’s constraint contract\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Reactive>{$ => {\n                const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));\n                const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));\n                const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));\n                const urgent = $.let(decisions.read().firstMap(($, d) =>\n                    d.urgency.hasTag('overdue').ifElse(() => some(d), () => none)));\n                return (\n                    <DecisionQueue\n                        handle={handle}\n                        heading=\"Decisions waiting\"\n                        defaultExpanded={urgent}\n                        defaultFacet=\"judgement\"\n                    />\n                );\n            }}</Reactive>\n        );\n    })"
+    },
+    {
+      "id": "e3-ui:queue.examples.tsx:decisionQueueFacets",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/decision/queue.examples.tsx",
+      "suite": "",
+      "test": "A reduced facet set — only Evidence and Judgement tabs show (Options hidden via the facets include-list)",
+      "keywords": [
+        "DecisionQueue",
+        "facets",
+        "evidence",
+        "judgement",
+        "include",
+        "reduced"
+      ],
+      "imports": [
+        "import {",
+        "import { Box, Chart, Field, Reactive, Slice, UIComponentType } from '@elaraai/east-ui';",
+        "import { Data, Decision, DecisionQueue, DecisionType } from '@elaraai/e3-ui';",
+        "import * as e3 from '@elaraai/e3';"
+      ],
+      "source": "// A reduced facet set — only Evidence and Judgement tabs show (Options hidden via the facets include-list)\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Reactive>{$ => {\n                const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));\n                const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));\n                const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));\n                const urgent = $.let(decisions.read().firstMap(($, d) =>\n                    d.urgency.hasTag('overdue').ifElse(() => some(d), () => none)));\n                return (\n                    <DecisionQueue\n                        handle={handle}\n                        heading=\"Decisions waiting\"\n                        defaultExpanded={urgent}\n                        facets={[\"evidence\", \"judgement\"]}\n                    />\n                );\n            }}</Reactive>\n        );\n    })"
+    },
+    {
+      "id": "e3-ui:queue.examples.tsx:decisionQueueValueAxis",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/decision/queue.examples.tsx",
+      "suite": "",
+      "test": "A non-benefit headline — the press-ETA case carries a valueAxis (",
+      "keywords": [
+        "DecisionQueue",
+        "valueAxis",
+        "signed",
+        "label",
+        "horizon",
+        "uplift",
+        "non-benefit"
+      ],
+      "imports": [
+        "import {",
+        "import { Box, Chart, Field, Reactive, Slice, UIComponentType } from '@elaraai/east-ui';",
+        "import { Data, Decision, DecisionQueue, DecisionType } from '@elaraai/e3-ui';",
+        "import * as e3 from '@elaraai/e3';"
+      ],
+      "source": "// A non-benefit headline — the press-ETA case carries a valueAxis (\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Reactive>{$ => {\n                const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));\n                const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));\n                const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));\n                const eta = $.let(decisions.read().firstMap(($, d) =>\n                    East.equal(d.kind, 'forecast').ifElse(() => some(d), () => none)));\n                return (\n                    <DecisionQueue\n                        handle={handle}\n                        heading=\"Decisions waiting\"\n                        defaultExpanded={eta}\n                    />\n                );\n            }}</Reactive>\n        );\n    })"
     },
     {
       "id": "e3-ui:queue.examples.tsx:decisionQueueOptions",
@@ -27229,7 +27647,7 @@
       "imports": [
         "import {",
         "import { Box, Chart, Field, Reactive, Slice, UIComponentType } from '@elaraai/east-ui';",
-        "import { Data, Decision, DecisionQueue } from '@elaraai/e3-ui';",
+        "import { Data, Decision, DecisionQueue, DecisionType } from '@elaraai/e3-ui';",
         "import * as e3 from '@elaraai/e3';"
       ],
       "source": "// The Options facet — the recommendation and its alternatives ranked by uplift, downside and uplift bars sharing a zero anchor\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Reactive>{$ => {\n                const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));\n                const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));\n                const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));\n                const urgent = $.let(decisions.read().firstMap(($, d) =>\n                    d.urgency.hasTag('overdue').ifElse(() => some(d), () => none)));\n                return (\n                    <DecisionQueue\n                        handle={handle}\n                        heading=\"Decisions waiting\"\n                        defaultExpanded={urgent}\n                        defaultFacet=\"options\"\n                    />\n                );\n            }}</Reactive>\n        );\n    })"
@@ -27252,7 +27670,7 @@
       "imports": [
         "import {",
         "import { Box, Chart, Field, Reactive, Slice, UIComponentType } from '@elaraai/east-ui';",
-        "import { Data, Decision, DecisionQueue } from '@elaraai/e3-ui';",
+        "import { Data, Decision, DecisionQueue, DecisionType } from '@elaraai/e3-ui';",
         "import * as e3 from '@elaraai/e3';"
       ],
       "source": "// The narrow variant — the same queue in a ~360px rail: two-line rows, full-width facet segment, stacked Options facet\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Reactive>{$ => {\n                const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));\n                const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));\n                const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));\n                const urgent = $.let(decisions.read().firstMap(($, d) =>\n                    d.urgency.hasTag('overdue').ifElse(() => some(d), () => none)));\n                return (\n                    <Box width=\"360px\">\n                        <DecisionQueue\n                            handle={handle}\n                            heading=\"Decisions waiting\"\n                            defaultExpanded={urgent}\n                            defaultFacet=\"options\"\n                        />\n                    </Box>\n                );\n            }}</Reactive>\n        );\n    })"
@@ -27274,7 +27692,7 @@
       "imports": [
         "import {",
         "import { Box, Chart, Field, Reactive, Slice, UIComponentType } from '@elaraai/east-ui';",
-        "import { Data, Decision, DecisionQueue } from '@elaraai/e3-ui';",
+        "import { Data, Decision, DecisionQueue, DecisionType } from '@elaraai/e3-ui';",
         "import * as e3 from '@elaraai/e3';"
       ],
       "source": "// Queue capped with maxHeight — the header stays pinned while the rows scroll\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Reactive>{$ => {\n                const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));\n                const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));\n                const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));\n                return <DecisionQueue handle={handle} heading=\"Decisions waiting\" maxHeight=\"220px\" />;\n            }}</Reactive>\n        );\n    })"
@@ -27300,7 +27718,7 @@
       "imports": [
         "import {",
         "import { Box, Chart, Field, Reactive, Slice, UIComponentType } from '@elaraai/east-ui';",
-        "import { Data, Decision, DecisionQueue } from '@elaraai/e3-ui';",
+        "import { Data, Decision, DecisionQueue, DecisionType } from '@elaraai/e3-ui';",
         "import * as e3 from '@elaraai/e3';"
       ],
       "source": "// The handle-owned slice — Decision.bind seeds the initial state (kind = roster, shown as a removable chip); the queue\\\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Reactive>{$ => {\n                const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));\n                const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));\n                const handle = $.let(Decision.bind([RosterConstraint], {\n                    decisions: [decisions],\n                    judgements,\n                    slice: Slice.state({\n                        filters: [variant('string', { fieldId: 'kind', op: variant('eq', 'roster') })],\n                    }),\n                }));\n                return (\n                    <DecisionQueue\n                        handle={handle}\n                        heading=\"Decisions waiting\"\n                        slice={['filter', 'search']}\n                    />\n                );\n            }}</Reactive>\n        );\n    })"
