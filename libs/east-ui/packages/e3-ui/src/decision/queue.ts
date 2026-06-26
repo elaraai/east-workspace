@@ -166,11 +166,17 @@ export const DecisionQueueComponent = EastUI.component("DecisionQueue", Decision
 export interface DecisionQueueOptions {
     handle: DecisionHandleLike;
     heading?: SubtypeExprOrValue<StringType>;
-    modify?: (
-        decision: ExprType<DecisionType>,
-        update: ExprType<DecisionUpdateType>,
-    ) => SubtypeExprOrValue<UIComponentType>;
-    detail?: (decision: ExprType<DecisionType>) => SubtypeExprOrValue<UIComponentType>;
+    /**
+     * Per-kind probe editor — a pass-through `East.function` value (like
+     * `Table` column `render`), not invoked at build time. Authoring it as a
+     * real function means the host builds the editor inside (capturing only the
+     * `decision` + `update` params + plain data / bind-handles), so the body
+     * never captures a pre-built `UIComponentType` — which crashes the beast2
+     * encoder (#136).
+     */
+    modify?: SubtypeExprOrValue<FunctionType<[DecisionType, DecisionUpdateType], UIComponentType>>;
+    /** Per-decision canvas — a pass-through `East.function` value, not invoked at build time (#136). */
+    detail?: SubtypeExprOrValue<FunctionType<[DecisionType], UIComponentType>>;
     defaultExpanded?: SubtypeExprOrValue<OptionType<DecisionType>>;
     defaultFacet?: FacetLiteral | SubtypeExprOrValue<FacetType>;
     /** Include-list of data facets to show (`evidence` / `options` / `judgement`); omit ⇒ all. `modify` stays callback-gated. */
@@ -208,14 +214,15 @@ export const DecisionQueue: {
      * @returns An East expression of {@link UIComponentType}.
      */
     Root(options: DecisionQueueOptions): ExprType<UIComponentType> {
+        // Pass the render functions through untouched (like Table column
+        // `render`) — never invoke them at build time, so the host builds the
+        // editor inside the function and captures no pre-built UIComponentType.
         const modify = options.modify === undefined
             ? none
-            : some(East.function([DecisionType, DecisionUpdateType], UIComponentType, (_$, decision, update) =>
-                East.value(options.modify!(decision, update), UIComponentType)));
+            : some(East.value(options.modify, FunctionType([DecisionType, DecisionUpdateType], UIComponentType)));
         const detail = options.detail === undefined
             ? none
-            : some(East.function([DecisionType], UIComponentType, (_$, decision) =>
-                East.value(options.detail!(decision), UIComponentType)));
+            : some(East.value(options.detail, FunctionType([DecisionType], UIComponentType)));
         const onApply = options.onApply === undefined
             ? none
             : some(East.function([DecisionType], NullType, ($, decision) => {

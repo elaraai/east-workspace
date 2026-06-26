@@ -22,7 +22,7 @@ import {
     NullType, IntegerType, some, none, variant, example,
 } from '@elaraai/east';
 import { Box, Chart, Field, Reactive, Slice, UIComponentType } from '@elaraai/east-ui';
-import { Data, Decision, DecisionQueue } from '@elaraai/e3-ui';
+import { Data, Decision, DecisionQueue, DecisionType } from '@elaraai/e3-ui';
 import * as e3 from '@elaraai/e3';
 
 // ============================================================================
@@ -219,7 +219,7 @@ export const decisionQueueCase = example({
                         handle={handle}
                         heading="Decisions waiting"
                         defaultExpanded={urgent}
-                        modify={(decision, update) => (
+                        modify={East.function([DecisionType, DecisionQueue.Types.Update], UIComponentType, (_$, decision, update) => (
                             <Field.Slider
                                 label="Uplift target"
                                 value={decision.value}
@@ -228,11 +228,31 @@ export const decisionQueueCase = example({
                                 step={1000}
                                 helperText="Probe the recommendation — committing re-runs the optimizer against the revised target."
                                 onChangeEnd={East.function([FloatType], NullType, ($, v) => {
-                                    $(update({ ...decision, value: v }));
+                                    // East has no struct spread — rebuild the decision with the probed `value`.
+                                    const edited = $.const({
+                                        id: decision.id,
+                                        kind: decision.kind,
+                                        title: decision.title,
+                                        urgency: decision.urgency,
+                                        value: v,
+                                        deadline: decision.deadline,
+                                        format: decision.format,
+                                        valueAxis: decision.valueAxis,
+                                        summary: decision.summary,
+                                        downside: decision.downside,
+                                        confidence: decision.confidence,
+                                        detail: decision.detail,
+                                        stakes: decision.stakes,
+                                        prompts: decision.prompts,
+                                        levers: decision.levers,
+                                        evidence: decision.evidence,
+                                        alternatives: decision.alternatives,
+                                    }, DecisionType);
+                                    $(update(edited));
                                 })}
                             />
-                        )}
-                        detail={() => (
+                        ))}
+                        detail={East.function([DecisionType], UIComponentType, (_$, _decision) => (
                             <Chart
                                 layers={[
                                     Chart.Area(forecast, { x: r => r.week, y: r => r.demand }, { color: 'teal.solid', fillOpacity: 0.25 }),
@@ -241,7 +261,7 @@ export const decisionQueueCase = example({
                                 grid
                                 height={160}
                             />
-                        )}
+                        ))}
                     />
                 );
             }}</Reactive>
