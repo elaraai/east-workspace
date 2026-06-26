@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, FloatType, IntegerType, NullType, OptionType, StringType, StructType, example, variant, some, none } from "@elaraai/east";
 import { State, StatusTokenType, UIComponentType } from "@elaraai/east-ui";
-import { Reactive, Schematic, Text, VStack } from "@elaraai/east-ui";
+import { Reactive, Schematic, Slice, Text, VStack } from "@elaraai/east-ui";
 
 export const schematicPlant = example({
     keywords: ["Schematic", "canvas", "items", "zones", "links", "meter", "status", "hatch"],
@@ -53,6 +53,41 @@ export const schematicPlant = example({
                 scaleUnit="m"
                 grid={true}
             />
+        );
+    }),
+    inputs: [],
+});
+
+export const schematicSlice = example({
+    keywords: ["Schematic", "slice", "chrome", "search", "filter", "rail", "affordances"],
+    description: "Schematic with a full-width top-edge Slice rail (search + filter) replacing the built-in navigator search; rows fed explicitly via Slice.rows",
+    fn: East.function([], UIComponentType, (_$) => {
+        const EquipType = StructType({ id: StringType, x: FloatType, y: FloatType, kind: StringType });
+        const cfg = Slice.config(EquipType, {
+            fields: { id: { label: "ID" }, kind: { label: "Kind" } },
+            searchFieldIds: ["id", "kind"],
+        });
+        return (
+            <Reactive>{$ => {
+                const data = $.const([
+                    { id: "TANK-04", x: 3.0, y: 2.6, kind: "fermenter" },
+                    { id: "TANK-05", x: 8.0, y: 2.6, kind: "fermenter" },
+                    { id: "LINE-2", x: 8.0, y: 9.8, kind: "pack" },
+                    { id: "BAY-OUT", x: 24.0, y: 9.8, kind: "pallets" },
+                ], ArrayType(EquipType));
+                const slice = $.let(Slice.bind([EquipType], "ex.schematic.slice", cfg, Slice.state(), data, none));
+                const narrowed = $.let(Slice.rows([EquipType], slice));
+                return (
+                    <Schematic
+                        extent={{ width: 29, height: 12.5 }}
+                        height="400px"
+                        items={narrowed}
+                        item={e => ({ key: e.id, x: e.x, y: e.y, label: e.id, sublabel: e.kind, icon: "database" })}
+                        slice={slice}
+                        affordances={["search", "filter"]}
+                    />
+                );
+            }}</Reactive>
         );
     }),
     inputs: [],
@@ -110,8 +145,8 @@ export const schematicInteractive = example({
 });
 
 export const schematicFacility = example({
-    keywords: ["Schematic", "facility", "navigator", "minimap", "zoom", "LOD", "search", "large", "generate", "footprint", "geometry", "circle", "polygon", "shape"],
-    description: "500-unit facility — navigator rail, minimap, semantic zoom, search-to-fly; rows generated with East.Array.generate, each carrying a varied footprint shape/size (circle / square / triangle / diamond)",
+    keywords: ["Schematic", "facility", "navigator", "minimap", "zoom", "LOD", "click-to-fly", "large", "generate", "footprint", "geometry", "circle", "polygon", "shape"],
+    description: "500-unit facility — navigator rail, minimap, semantic zoom, click-to-fly from the navigator; rows generated with East.Array.generate, each carrying a varied footprint shape/size (circle / square / triangle / diamond)",
     fn: East.function([], UIComponentType, ($) => {
         const UnitType = StructType({
             key: StringType,

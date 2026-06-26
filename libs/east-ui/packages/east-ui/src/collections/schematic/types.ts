@@ -16,6 +16,7 @@ import {
 } from "@elaraai/east";
 
 import { StatusTokenType } from "../../style/interaction.js";
+import { SliceChromeType } from "../../platform/slice/index.js";
 
 /**
  * Theme tone for zone strokes, hatching, and links.
@@ -416,6 +417,8 @@ export const SchematicRootType = StructType({
     navigator: OptionType(BooleanType),
     /** Minimap with the viewport rectangle; default: shown for large canvases */
     minimap: OptionType(BooleanType),
+    /** Optional Slice chrome — a full-width top-edge rail mounting the affordances (replaces the built-in search) */
+    slice: OptionType(SliceChromeType),
     /** Optional fixed panel height (any CSS length, e.g. `"400px"`); default: aspect-driven, capped at 75vh */
     height: OptionType(StringType),
     /** Optional item-click callback (receives the item key) */

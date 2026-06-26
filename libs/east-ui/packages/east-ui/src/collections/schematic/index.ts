@@ -36,6 +36,8 @@ import {
 import { UIComponentType } from "../../component.js";
 import { StatusTokenType } from "../../style/interaction.js";
 import { type IconName } from "../../display/icon/types.js";
+import { SliceBindType, SliceChromeType } from "../../platform/slice/index.js";
+import { SliceAffordanceType, type SliceAffordanceLiteral } from "../../contracts/slice-affordances.js";
 import {
     SchematicRootType,
     SchematicItemType,
@@ -434,6 +436,15 @@ export interface SchematicConfig<
     navigator?: SubtypeExprOrValue<BooleanType> | boolean;
     /** Minimap with the viewport rectangle; default: shown for 25+ items. */
     minimap?: SubtypeExprOrValue<BooleanType> | boolean;
+    /**
+     * Slice chrome — pass the bound handle and the Schematic renders a
+     * full-width top-edge rail mounting the `affordances` (default
+     * `["search"]`), replacing the old built-in navigator search. The search
+     * affordance narrows the bound items (and flies to the top hit on Enter).
+     */
+    slice?: SubtypeExprOrValue<SliceBindType>;
+    /** Rail affordances when `slice` is set. Default `["search"]`. */
+    affordances?: SliceAffordanceLiteral[];
     /** Optional fixed panel height (any CSS length, e.g. `"400px"`); default: aspect-driven, capped at 75vh. */
     height?: SubtypeExprOrValue<StringType> | string;
     /** Optional item-click callback (receives the item key). */
@@ -524,6 +535,19 @@ function buildRoot(
                 }, SchematicLinkType);
             });
 
+    if (config.affordances?.includes("brush")) {
+        throw new Error("Schematic does not support the 'brush' affordance — its 2D canvas has no continuous 1D axis.");
+    }
+    const sliceChromeValue = config.slice !== undefined
+        ? East.value({
+            slice: config.slice,
+            affordances: East.value(
+                (config.affordances ?? ["search"]).map(a => variant(a, null)),
+                ArrayType(SliceAffordanceType),
+            ),
+        }, SliceChromeType)
+        : undefined;
+
     return East.value(variant("Schematic", {
         extent: { width: config.extent.width, height: config.extent.height },
         items: resolvedItems,
@@ -533,6 +557,7 @@ function buildRoot(
         grid: config.grid !== undefined ? some(config.grid) : none,
         navigator: config.navigator !== undefined ? some(config.navigator) : none,
         minimap: config.minimap !== undefined ? some(config.minimap) : none,
+        slice: sliceChromeValue ? some(sliceChromeValue) : none,
         height: config.height !== undefined ? some(config.height) : none,
         onSelect: config.onSelect !== undefined ? some(config.onSelect) : none,
     }), UIComponentType);

@@ -11,6 +11,7 @@ import * as ex from "./schematic.examples.js";
 describeEast("Schematic", (test) => {
     Assert.examples(test, {
         schematicPlant: ex.schematicPlant,
+        schematicSlice: ex.schematicSlice,
         schematicMinimal: ex.schematicMinimal,
         schematicInteractive: ex.schematicInteractive,
         schematicFacility: ex.schematicFacility,
