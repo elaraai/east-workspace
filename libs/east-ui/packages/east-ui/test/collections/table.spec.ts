@@ -21,6 +21,7 @@ describeEast("Table", (test) => {
         tableRowStatus: ex.tableRowStatus,
         tableReactivePagination: ex.tableReactivePagination,
         tableDensityCompact: ex.tableDensityCompact,
+        tableRowHeight: ex.tableRowHeight,
         tableExpandedRichDetail: ex.tableExpandedRichDetail,
         tableMultiRowFooter: ex.tableMultiRowFooter,
         tableNestedColumnGroups: ex.tableNestedColumnGroups,

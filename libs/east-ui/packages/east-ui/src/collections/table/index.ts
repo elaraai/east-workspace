@@ -624,7 +624,8 @@ export function createTable<T extends SubtypeExprOrValue<ArrayType<StructType>>>
         (style as any).hoverBackground !== undefined ||
         (style as any).selectedBackground !== undefined ||
         (style as any).selectedBorderColor !== undefined ||
-        (style as any).footerBackground !== undefined
+        (style as any).footerBackground !== undefined ||
+        (style as any).rowHeight !== undefined
     );
 
     const styleValue = hasVisualStyle ? East.value({
@@ -643,6 +644,7 @@ export function createTable<T extends SubtypeExprOrValue<ArrayType<StructType>>>
         selectedBackground: (style as any)?.selectedBackground !== undefined ? some((style as any).selectedBackground) : none,
         selectedBorderColor: (style as any)?.selectedBorderColor !== undefined ? some((style as any).selectedBorderColor) : none,
         footerBackground: (style as any)?.footerBackground !== undefined ? some((style as any).footerBackground) : none,
+        rowHeight: (style as any)?.rowHeight !== undefined ? some((style as any).rowHeight) : none,
     }, TableStyleType) : undefined;
 
     const densityValue = style?.density

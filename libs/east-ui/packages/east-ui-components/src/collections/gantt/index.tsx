@@ -215,7 +215,12 @@ const GanttCore = function GanttCore({
     // Row + header height come from the SAME shared density tokens the Table
     // consumes (`useDensityHeights`), so a Gantt row is exactly a Table row.
     const { header: headerHeight, row: densityRowHeight } = useDensityHeights(ganttSize);
-    const effectiveRowHeight = densityTag ? densityRowHeight : rowHeight;
+    // An explicit pixel `rowHeight` (IR) wins over the density preset; else the
+    // density token; else the JS `rowHeight` prop. Gantt is fixed-height (no
+    // measureElement) so this estimate flows cleanly to both panes + bars (#127).
+    const rowHeightOverride = style ? getSomeorUndefined(style.rowHeight) : undefined;
+    const explicitRowHeight = rowHeightOverride !== undefined ? Number(rowHeightOverride) : undefined;
+    const effectiveRowHeight = explicitRowHeight ?? (densityTag ? densityRowHeight : rowHeight);
     const ganttSlotStyles = useSlotRecipe({ key: "gantt" })({ size: ganttSize });
     // The left pane IS a Table — consume the SAME `table` columnHeader slot so
     // the header font/size/padding are identical to the Table component.

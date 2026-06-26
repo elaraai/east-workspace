@@ -27,6 +27,26 @@ export const ganttBasic = example({
     inputs: [],
 });
 
+export const ganttRowHeight = example({
+    keywords: ["Gantt", "Root", "rowHeight", "pixel", "override", "density"],
+    description: "Explicit pixel rowHeight overrides the density preset — fixed 44px rows across both panes and the bars",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <Gantt
+                rowHeight={44n}
+                data={[
+                    { task: "Planning", owner: "Alice", start: new Date("2024-01-01"), end: new Date("2024-01-15") },
+                    { task: "Design", owner: "Bob", start: new Date("2024-01-10"), end: new Date("2024-02-01") },
+                    { task: "Development", owner: "Charlie", start: new Date("2024-01-20"), end: new Date("2024-03-15") },
+                ]}
+                columns={["task", "owner"]}
+                rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
+            />
+        );
+    }),
+    inputs: [],
+});
+
 export const ganttCustomHeaders = example({
     keywords: ["Gantt", "Root", "header", "width", "minWidth", "maxWidth"],
     description: "Object config with custom column headers and widths",

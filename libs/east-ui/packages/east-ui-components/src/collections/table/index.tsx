@@ -220,6 +220,11 @@ const TableCore = function TableCore({
     // via raw inline style outside the recipe's cell slot.
     const densityPadYPx = tableSize === "sm" ? 6 : tableSize === "lg" ? 12 : 10;
     const densityRowHeight = useDensityHeights(tableSize).row;
+    // Explicit pixel row-height override (IR `style.rowHeight`) — wins over the
+    // density preset and is fed to the virtualizer; non-expanded rows are
+    // clamped to it below so estimate == measured (#127).
+    const rowHeightOverride = style ? getSomeorUndefined(style.rowHeight) : undefined;
+    const explicitRowHeight = rowHeightOverride !== undefined ? Number(rowHeightOverride) : undefined;
     // Group / footer cells sit outside the recipe's cell/columnHeader slots and
     // set padding via raw inline `style`; mirror the same density padding.
     const densityCellPadX = tableSize === "sm" ? "8px" : tableSize === "lg" ? "16px" : "14px";
@@ -589,9 +594,9 @@ const TableCore = function TableCore({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [table.getState().columnSizingInfo, table.getState().columnSizing]);
 
-    // Virtual row setup. Density token overrides the default rowHeight
-    // unless the consumer passed a JS-side rowHeight prop explicitly.
-    const effectiveRowHeight = densityTag ? densityRowHeight : rowHeight;
+    // Virtual row setup. An explicit pixel `rowHeight` (IR) wins; else the
+    // density token overrides the default; else the JS-side `rowHeight` prop.
+    const effectiveRowHeight = explicitRowHeight ?? (densityTag ? densityRowHeight : rowHeight);
     const virtualizer = useVirtualizer({
         count: rows.length,
         getScrollElement: () => tableContainerRef.current,
@@ -964,6 +969,17 @@ const TableCore = function TableCore({
 
                         const isExpanded = expandedRows.has(virtualRow.index);
 
+                        // With an explicit pixel rowHeight, clamp non-expanded
+                        // rows to exactly that height (+ overflow hidden) so
+                        // `measureElement` reports the estimate and virtual-scroll
+                        // offsets stay exact; expanded rows keep measuring their
+                        // real height so `expandedContent` still pushes siblings
+                        // down (#127). Without an override, rows stay min-height
+                        // so wrapping content can grow.
+                        const rowHeightStyle: React.CSSProperties = explicitRowHeight !== undefined && !isExpanded
+                            ? { height: `${effectiveRowHeight}px`, overflow: "hidden" }
+                            : { minHeight: `${effectiveRowHeight}px` };
+
                         return (
                             <div
                                 key={row.id}
@@ -990,11 +1006,12 @@ const TableCore = function TableCore({
                                 style={{
                                     display: 'flex',
                                     width: '100%',
-                                    // minHeight (not a fixed height) so a row with wrapping
+                                    // Default: minHeight (not fixed) so a row with wrapping
                                     // cell content (e.g. a tags column) grows to fit instead
                                     // of clipping into the next row; `measureElement` reports
-                                    // the true height back to the virtualizer.
-                                    minHeight: `${effectiveRowHeight}px`,
+                                    // the true height. With an explicit pixel rowHeight, a
+                                    // non-expanded row is hard-clamped instead (see above).
+                                    ...rowHeightStyle,
                                     cursor: (onRowClickFn || onRowDoubleClickFn) ? 'pointer' : undefined,
                                     background: "transparent",
                                     boxShadow: isSelected && selectedBorderColor
