@@ -72,6 +72,25 @@ export const traceScales = example({
     inputs: [],
 });
 
+export const traceRagged = example({
+    keywords: ["Trace", "ragged", "unequal", "lengths", "padding", "phantom", "row"],
+    description: "Tracks of unequal length — the longer track is padded into its own row rather than overflowing into a stub-less phantom row",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <Trace
+                tracks={[
+                    { name: "Bé", values: [12, 11, 10, 9, 8] },        // 5 steps
+                    { name: "°C", values: [22, 23, 24, 25, 26, 27] },  // 6 steps — one longer
+                ]}
+                now={4n}
+                future="ghost"
+                density="compact"
+            />
+        );
+    }),
+    inputs: [],
+});
+
 export const traceWithChipRail = example({
     keywords: ["Trace", "ChipRail", "density", "table", "align", "row"],
     description: "A Trace and a ChipRail at the same density sit at matching heights — the case for adjacent table cells",

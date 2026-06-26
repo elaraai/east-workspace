@@ -11,6 +11,7 @@ describeEast("Trace", (test) => {
         traceBasic: ex.traceBasic,
         traceDensities: ex.traceDensities,
         traceScales: ex.traceScales,
+        traceRagged: ex.traceRagged,
         traceWithChipRail: ex.traceWithChipRail,
     });
 

@@ -10,7 +10,7 @@
  * per-step heat fill, and the now-line position.
  */
 
-import { memo, Fragment, useMemo } from "react";
+import { memo, Fragment, useEffect, useMemo } from "react";
 import { Box as ChakraBox, useSlotRecipe } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Trace } from "@elaraai/east-ui/internal";
@@ -88,8 +88,23 @@ export const EastChakraTrace = memo(function EastChakraTrace({ value, storageKey
     const now = nowRaw !== undefined ? Number(nowRaw) : undefined;
 
     const tracks = value.tracks;
-    const steps = tracks.length > 0 ? tracks[0]!.values.length : 0;
+    // Tracks share one step grid; size it to the LONGEST track so a longer
+    // track can't auto-flow its surplus cells onto a new, stub-less row (#126).
+    // Shorter tracks are padded with empty trailing cells (below) so each track
+    // stays on exactly one grid row.
+    const steps = tracks.reduce((m, t) => Math.max(m, t.values.length), 0);
     const columns = `var(--t-stub-w) repeat(${steps}, var(--t-step-w))`;
+
+    // Tracks are expected to share one step grid (equal lengths). Ragged tracks
+    // are now padded rather than producing a phantom row, but surface the
+    // mismatch so authors can correct the data.
+    useEffect(() => {
+        if (tracks.length < 2) return;
+        const lens = tracks.map(t => t.values.length);
+        if (lens.some(l => l !== lens[0])) {
+            console.warn(`<Trace>: tracks have unequal value lengths [${lens.join(", ")}]; short tracks padded to ${steps} steps — tracks are expected to share one step grid.`);
+        }
+    }, [tracks, steps]);
     const showNow = now !== undefined && now > 0 && now < steps;
     // x of the now-line: past the stub, past `now` step columns + their gaps,
     // back-shifted half a gap to sit between the measured and predicted steps.
@@ -143,6 +158,12 @@ export const EastChakraTrace = memo(function EastChakraTrace({ value, storageKey
                                     </ChakraBox>
                                 );
                             })}
+                            {/* Pad a short track to the shared step count so its
+                                row stays full and the next track's stub starts
+                                on a fresh row instead of wrapping into this one (#126). */}
+                            {Array.from({ length: steps - values.length }, (_, k) => (
+                                <span key={`pad.${ti}.${k}`} aria-hidden="true" />
+                            ))}
                         </Fragment>
                     );
                 })}
