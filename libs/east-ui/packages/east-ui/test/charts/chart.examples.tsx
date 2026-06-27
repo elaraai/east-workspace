@@ -161,6 +161,58 @@ export const lineNumericX = example({
     inputs: [],
 });
 
+export const lineRuntimeDomain = example({
+    keywords: ["Chart", "Line", "domain", "axis", "extent", "runtime", "expression", "SubtypeExprOrValue", "forecast"],
+    description: "Numeric x-axis whose upper extent is runtime-driven — the domain max is an East expression (decision day + p95 + buffer)",
+    fn: East.function([], UIComponentType, ($) => {
+        const rows = $.const([
+            { day: 0.0, value: 10.0 }, { day: 1.5, value: 22.0 },
+            { day: 3.0, value: 41.0 }, { day: 4.0, value: 52.0 },
+        ], ArrayType(StructType({ day: FloatType, value: FloatType })));
+        // A data-derived press-ETA: the axis ends exactly where the forecast does,
+        // rather than at a compile-time constant.
+        const decisionDay = $.const(2.0, FloatType);
+        const p95 = $.const(3.5, FloatType);
+        const buffer = $.const(1.0, FloatType);
+        return (
+            <Box height="240px" width="100%">
+                <Chart
+                    layers={Chart.Line(rows, { x: r => r.day, y: r => r.value }, { color: "teal.solid" })}
+                    x={{ label: "Day", scale: "linear", domain: [0, decisionDay.add(p95).add(buffer)] }}
+                    y={{ label: "Forecast" }}
+                    grid
+                />
+            </Box>
+        );
+    }),
+    inputs: [],
+});
+
+export const lineRuntimeTimeDomain = example({
+    keywords: ["Chart", "Line", "domain", "time", "DateTime", "axis", "extent", "runtime", "expression"],
+    description: "Time x-axis whose extent is given by DateTime expressions (runtime-driven temporal domain)",
+    fn: East.function([], UIComponentType, ($) => {
+        const rows = $.const([
+            { at: new Date("2025-01-01"), v: 10.0 },
+            { at: new Date("2025-02-01"), v: 18.0 },
+            { at: new Date("2025-03-01"), v: 26.0 },
+        ], ArrayType(StructType({ at: DateTimeType, v: FloatType })));
+        const start = $.const(new Date("2024-12-15"), DateTimeType);
+        const end = $.const(new Date("2025-03-20"), DateTimeType);
+        return (
+            <Box height="240px" width="100%">
+                <Chart
+                    layers={Chart.Line(rows, { x: r => r.at, y: r => r.v })}
+                    x={{ label: "Month", scale: "time", domain: [start, end], format: Chart.format.date("MMM YYYY") }}
+                    y={{ label: "Value" }}
+                    grid
+                />
+            </Box>
+        );
+    }),
+    inputs: [],
+});
+
 export const lineSampleFan = example({
     keywords: ["Chart", "Line", "opacity", "legend", "tooltip", "fan", "sample-path", "by", "overlay", "decoration"],
     description: "A faint fan of generative sample paths (low stroke opacity, kept out of both the legend and the tooltip) behind a bold median line",

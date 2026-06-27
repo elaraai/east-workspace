@@ -22,7 +22,7 @@ import {
     NullType, IntegerType, some, none, variant, example,
 } from '@elaraai/east';
 import { Box, Chart, Field, Reactive, Slice, UIComponentType } from '@elaraai/east-ui';
-import { Data, Decision, DecisionQueue } from '@elaraai/e3-ui';
+import { Data, Decision, DecisionQueue, DecisionType } from '@elaraai/e3-ui';
 import * as e3 from '@elaraai/e3';
 
 // ============================================================================
@@ -69,6 +69,7 @@ export const queueDecisions = e3.input(
             value: 80000,
             deadline: some(new Date(Date.now() - 2 * 3_600_000)),
             format: some(CURRENCY),
+            valueAxis: none,
             summary: some('SE region · wk 09-16'),
             downside: some(-8000),
             confidence: some(0.82),
@@ -97,6 +98,7 @@ export const queueDecisions = e3.input(
             value: 42000,
             deadline: some(new Date(new Date().setHours(16, 0, 0, 0))),
             format: some(CURRENCY),
+            valueAxis: none,
             summary: some('supplier lead time 6 days'),
             downside: some(-5000),
             confidence: some(0.77),
@@ -117,6 +119,7 @@ export const queueDecisions = e3.input(
             value: 1200,
             deadline: none,
             format: some(CURRENCY),
+            valueAxis: none,
             summary: none,
             downside: none,
             confidence: none,
@@ -135,9 +138,32 @@ export const queueDecisions = e3.input(
             value: 800,
             deadline: none,
             format: some(CURRENCY),
+            valueAxis: none,
             summary: none,
             downside: none,
             confidence: none,
+            detail: none,
+            stakes: none,
+            prompts: [],
+            levers: [],
+            evidence: [],
+            alternatives: [],
+        },
+        {
+            // A non-benefit headline: a press-ETA in days. `valueAxis` relabels
+            // the axis "Day" and `signed: false` stops it reading as a green
+            // "+2 Uplift" — it's a plain forecast horizon (#135).
+            id: 'eta-press-a',
+            kind: 'forecast',
+            title: 'Press A ready in ~2 days',
+            urgency: variant('routine', null),
+            value: 2,
+            deadline: none,
+            format: none,
+            valueAxis: some({ label: 'Day', signed: false }),
+            summary: some('decision_day + p95 + buffer'),
+            downside: none,
+            confidence: some(0.7),
             detail: none,
             stakes: none,
             prompts: [],
@@ -164,12 +190,12 @@ export const queueJudgements = e3.input(
 );
 
 // ============================================================================
-// 1. Evidence facet open — the model's argument + the host's detail canvas.
+// 1. Evidence facet open — the model's argument + the host's evidence canvas.
 // ============================================================================
 
 export const decisionQueueCase = example({
     keywords: ['DecisionQueue', 'Decide', 'queue', 'facet', 'evidence', 'detail', 'canvas', 'contract'],
-    description: 'The Decide surface — urgency-sorted queue; the overdue case expanded on the Evidence facet with the model’s argument and the host’s demand-vs-capacity detail canvas',
+    description: 'The Decide surface — urgency-sorted queue; the overdue case expanded on the Evidence facet with the model’s argument and the host’s demand-vs-capacity evidence canvas',
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
@@ -193,7 +219,7 @@ export const decisionQueueCase = example({
                         handle={handle}
                         heading="Decisions waiting"
                         defaultExpanded={urgent}
-                        modify={(decision, update) => (
+                        modify={East.function([DecisionType, DecisionQueue.Types.Update], UIComponentType, (_$, decision, update) => (
                             <Field.Slider
                                 label="Uplift target"
                                 value={decision.value}
@@ -202,11 +228,31 @@ export const decisionQueueCase = example({
                                 step={1000}
                                 helperText="Probe the recommendation — committing re-runs the optimizer against the revised target."
                                 onChangeEnd={East.function([FloatType], NullType, ($, v) => {
-                                    $(update({ ...decision, value: v }));
+                                    // East has no struct spread — rebuild the decision with the probed `value`.
+                                    const edited = $.const({
+                                        id: decision.id,
+                                        kind: decision.kind,
+                                        title: decision.title,
+                                        urgency: decision.urgency,
+                                        value: v,
+                                        deadline: decision.deadline,
+                                        format: decision.format,
+                                        valueAxis: decision.valueAxis,
+                                        summary: decision.summary,
+                                        downside: decision.downside,
+                                        confidence: decision.confidence,
+                                        detail: decision.detail,
+                                        stakes: decision.stakes,
+                                        prompts: decision.prompts,
+                                        levers: decision.levers,
+                                        evidence: decision.evidence,
+                                        alternatives: decision.alternatives,
+                                    }, DecisionType);
+                                    $(update(edited));
                                 })}
                             />
-                        )}
-                        detail={() => (
+                        ))}
+                        evidence={East.function([DecisionType], UIComponentType, (_$, _decision) => (
                             <Chart
                                 layers={[
                                     Chart.Area(forecast, { x: r => r.week, y: r => r.demand }, { color: 'teal.solid', fillOpacity: 0.25 }),
@@ -215,7 +261,7 @@ export const decisionQueueCase = example({
                                 grid
                                 height={160}
                             />
-                        )}
+                        ))}
                     />
                 );
             }}</Reactive>
@@ -246,6 +292,55 @@ export const decisionQueueJudgement = example({
                         heading="Decisions waiting"
                         defaultExpanded={urgent}
                         defaultFacet="judgement"
+                    />
+                );
+            }}</Reactive>
+        );
+    }),
+    inputs: [],
+});
+
+export const decisionQueueFacets = example({
+    keywords: ['DecisionQueue', 'facets', 'evidence', 'judgement', 'include', 'reduced'],
+    description: 'A reduced facet set — only Evidence and Judgement tabs show (Options hidden via the facets include-list)',
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <Reactive>{$ => {
+                const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));
+                const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));
+                const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));
+                const urgent = $.let(decisions.read().firstMap(($, d) =>
+                    d.urgency.hasTag('overdue').ifElse(() => some(d), () => none)));
+                return (
+                    <DecisionQueue
+                        handle={handle}
+                        heading="Decisions waiting"
+                        defaultExpanded={urgent}
+                        facets={["evidence", "judgement"]}
+                    />
+                );
+            }}</Reactive>
+        );
+    }),
+    inputs: [],
+});
+
+export const decisionQueueValueAxis = example({
+    keywords: ['DecisionQueue', 'valueAxis', 'signed', 'label', 'horizon', 'uplift', 'non-benefit'],
+    description: 'A non-benefit headline — the press-ETA case carries a valueAxis ("Day", signed:false) so its value reads as a plain magnitude, not a green signed "Uplift"',
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <Reactive>{$ => {
+                const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));
+                const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));
+                const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));
+                const eta = $.let(decisions.read().firstMap(($, d) =>
+                    East.equal(d.kind, 'forecast').ifElse(() => some(d), () => none)));
+                return (
+                    <DecisionQueue
+                        handle={handle}
+                        heading="Decisions waiting"
+                        defaultExpanded={eta}
                     />
                 );
             }}</Reactive>

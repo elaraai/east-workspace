@@ -737,7 +737,8 @@ function createGantt<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
         style.striped !== undefined ||
         style.stickyHeader !== undefined ||
         style.showColumnBorder !== undefined ||
-        style.showToday !== undefined
+        style.showToday !== undefined ||
+        style.rowHeight !== undefined
     );
 
     const styleValue = hasStyle ? East.value({
@@ -749,6 +750,7 @@ function createGantt<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
         stickyHeader: style!.stickyHeader !== undefined ? some(style!.stickyHeader) : none,
         showColumnBorder: style!.showColumnBorder !== undefined ? some(style!.showColumnBorder) : none,
         showToday: style!.showToday !== undefined ? some(style!.showToday) : none,
+        rowHeight: style!.rowHeight !== undefined ? some(style!.rowHeight) : none,
     }, GanttStyleType) : undefined;
 
     const sliceChromeValue = style?.slice !== undefined

@@ -100,24 +100,29 @@ export const plannerBuckets = example({
 });
 
 /**
- * Per-row bucketing — one Planner mixes bucketed rows (the `Shifts` group, split
- * AM/PM) with unbucketed rows (the `Daily` group, one value per day) under a
- * single shared day axis. The axis declares the `am`/`pm` buckets (for the
- * bucketed group); rows whose events all carry no bucket (`bucket: none`)
- * collapse to one cell per column instead of being dropped. `events` branches
- * per row on the East boolean `bucketed` field — bucketed rows emit `am`/`pm`
- * events, unbucketed rows emit bucketless ones.
+ * Per-cell bucketing across a grouped Planner — `Alice` mixes stretched
+ * bucketed cells (day-1 am/pm fill their lanes) with an unstretched unbucketed
+ * cell (day-3, a flat tile that still fills the taller row); `Bob` has a
+ * stretched unbucketed cell (day-1); the `Daily` group is plain flat rows.
+ * `events` branches per row on boolean fields so each resource emits its own
+ * typed `Array<PlannerEvent>`.
  */
 export const plannerMixedBuckets = example({
-    keywords: ["Planner", "bucket", "per-row", "mixed", "unbucketed", "none", "shift", "flat", "ifElse"],
-    description: "Per-row bucketing: an AM/PM-bucketed group beside an unbucketed group (bucket: none events) under one shared day axis",
+    keywords: ["Planner", "bucket", "per-cell", "mixed", "unbucketed", "stretch", "flat", "ifElse", "group"],
+    description: "Per-cell bucketing in a grouped Planner — Alice mixes stretched bucketed cells with an unstretched flat cell, Bob has a stretched flat cell, the Daily group is plain flat rows",
     fn: East.function([], UIComponentType, ($) => {
-        // Two static event lists, each bound with its East type so the per-row
-        // `ifElse` branches return a typed `Array<PlannerEvent>`.
-        const shiftEvents = $.const([
-            Planner.event({ slot: Planner.at.number(1), bucket: "am", label: "✓", state: "committed" }),
-            Planner.event({ slot: Planner.at.number(2), bucket: "pm", label: "✓", state: "committed" }),
-            Planner.event({ slot: Planner.at.number(3), bucket: "am", label: "plan", state: "added" }),
+        // One typed event list per resource so the per-row `ifElse` branches
+        // each return a typed `Array<PlannerEvent>`.
+        const aliceEvents = $.const([
+            // Day 1 — stretched bucketed cells: am + pm fill their lane bands.
+            Planner.event({ slot: Planner.at.number(1), bucket: "am", label: "Open", state: "committed", stretch: "both" }),
+            Planner.event({ slot: Planner.at.number(1), bucket: "pm", label: "Mid", state: "committed", stretch: "both" }),
+            // Day 3 — an unstretched unbucketed (flat) cell beside the bucketed one.
+            Planner.event({ slot: Planner.at.number(3), label: "OT", state: "added" }),
+        ], ArrayType(Planner.Types.Event));
+        const bobEvents = $.const([
+            // Day 1 — a stretched unbucketed (flat) cell filling its cell.
+            Planner.event({ slot: Planner.at.number(1), label: "Cover", state: "committed", stretch: "both" }),
         ], ArrayType(Planner.Types.Event));
         const dailyEvents = $.const([
             Planner.event({ slot: Planner.at.number(1), label: "12", state: "committed" }),
@@ -127,17 +132,15 @@ export const plannerMixedBuckets = example({
         return (
             <Planner.Point
                 data={[
-                    { name: "Alice", group: "Shifts", bucketed: true },
-                    { name: "Bob", group: "Shifts", bucketed: true },
-                    { name: "Headcount", group: "Daily", bucketed: false },
-                    { name: "Output", group: "Daily", bucketed: false },
+                    { name: "Alice", group: "Shifts", isAlice: true, isBob: false },
+                    { name: "Bob", group: "Shifts", isAlice: false, isBob: true },
+                    { name: "Headcount", group: "Daily", isAlice: false, isBob: false },
+                    { name: "Output", group: "Daily", isAlice: false, isBob: false },
                 ]}
                 axis={Planner.axis.number({ buckets: [{ key: "am", label: "AM" }, { key: "pm", label: "PM" }], range: { min: 1, max: 5 } })}
                 groupBy={r => r.group}
                 columns={[{ key: "name", frozen: true, value: r => r.name }]}
-                // Per row: bucketed rows emit AM/PM events (vertical sub-grid),
-                // unbucketed rows emit bucketless events (one flat cell per day).
-                events={r => r.bucketed.ifElse(() => shiftEvents, () => dailyEvents)}
+                events={r => r.isAlice.ifElse(() => aliceEvents, () => r.isBob.ifElse(() => bobEvents, () => dailyEvents))}
             />
         );
     }),
@@ -385,6 +388,154 @@ export const plannerReview = example({
                     onRejectAll: East.function([], NullType, _$ => null),
                     onRerun: East.function([], NullType, _$ => null),
                 }}
+            />
+        );
+    }),
+    inputs: [],
+});
+
+/**
+ * Per-event `stretch` + content orientation — a tile fills its cell on one or
+ * both axes, with its content positioned inside. Absent ⇒ a normal-size,
+ * top-left tile (the new default).
+ */
+export const plannerStretch = example({
+    keywords: ["Planner", "stretch", "fill", "content", "align", "orientation", "tile", "both", "horizontal"],
+    description: "Per-event stretch + content alignment — a both-axis tile filling its cell with centred content, a width-filling tile, and a normal top-left tile",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <Planner.Point
+                data={[{ name: "Line A" }, { name: "Line B" }]}
+                axis={Planner.axis.number({ range: { min: 1, max: 4 } })}
+                density="comfortable"
+                columns={[{ key: "name", frozen: true, value: r => r.name }]}
+                events={_r => [
+                    Planner.event({ slot: Planner.at.number(1), label: "Full", state: "committed", stretch: "both", content: { horizontal: "center", vertical: "center" } }),
+                    Planner.event({ slot: Planner.at.number(2), label: "Wide", state: "added", stretch: "horizontal" }),
+                    Planner.event({ slot: Planner.at.number(3), label: "Top-left", state: "committed" }),
+                ]}
+            />
+        );
+    }),
+    inputs: [],
+});
+
+/**
+ * Per-event colour override (`tone`) + attention `animation`. `tone` tints
+ * fill/text/border while keeping the state's audit cues (border-style /
+ * strike-through); `pulse` draws a gentle opacity pulse (honouring
+ * `prefers-reduced-motion`).
+ */
+export const plannerEventTone = example({
+    keywords: ["Planner", "tone", "colour", "override", "animation", "pulse", "attention", "warning", "danger"],
+    description: "Per-event tone colour override + pulse animation — a danger-toned committed event pulses for attention while keeping its audit cues",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <Planner.Point
+                data={[{ name: "Reactor" }]}
+                axis={Planner.axis.number({ range: { min: 1, max: 4 } })}
+                columns={[{ key: "name", frozen: true, value: r => r.name }]}
+                events={_r => [
+                    Planner.event({ slot: Planner.at.number(1), label: "OK", state: "committed" }),
+                    Planner.event({ slot: Planner.at.number(2), label: "Watch", state: "committed", tone: "warning" }),
+                    Planner.event({ slot: Planner.at.number(3), label: "Breach", state: "committed", tone: "danger", animation: "pulse" }),
+                ]}
+            />
+        );
+    }),
+    inputs: [],
+});
+
+/**
+ * Open-on-hover `hovercard` (rich UIComponent), coexisting with the click
+ * `popover` on one event — hover previews, click pins.
+ */
+export const plannerHovercard = example({
+    keywords: ["Planner", "hovercard", "hover", "popover", "preview", "rich", "coexist"],
+    description: "Open-on-hover HoverCard on an event, coexisting with the click popover (hover previews, click pins)",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <Planner.Point
+                data={[{ name: "Alice" }]}
+                axis={Planner.axis.number({ range: { min: 1, max: 3 } })}
+                columns={[{ key: "name", frozen: true, value: r => r.name }]}
+                events={_r => [
+                    Planner.event({
+                        slot: Planner.at.number(2), label: "Review", state: "committed",
+                        hovercard: (
+                            <VStack gap="1">
+                                <Text fontWeight="semibold">Review</Text>
+                                <Text color="fg.muted">Hover preview · click to pin</Text>
+                            </VStack>
+                        ),
+                        popover: (
+                            <VStack gap="1">
+                                <Text fontWeight="semibold">Review details</Text>
+                                <Text color="fg.muted">Owner: Alice</Text>
+                            </VStack>
+                        ),
+                    }),
+                ]}
+            />
+        );
+    }),
+    inputs: [],
+});
+
+/**
+ * Opt-in `rowHover` — a light brand outline draws around the whole row (over
+ * both panes) on hover. Pure visual affordance; works on read-only planners.
+ */
+export const plannerRowHover = example({
+    keywords: ["Planner", "rowHover", "hover", "row", "highlight", "outline"],
+    description: "Opt-in row-hover highlight — a light brand outline draws around the whole row on hover",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <Planner.Point
+                data={[{ name: "Alice" }, { name: "Bob" }, { name: "Carol" }]}
+                axis={Planner.axis.number({ range: { min: 1, max: 4 } })}
+                rowHover={true}
+                columns={[{ key: "name", frozen: true, value: r => r.name }]}
+                events={_r => [Planner.event({ slot: Planner.at.number(1), label: "Task", state: "committed" })]}
+            />
+        );
+    }),
+    inputs: [],
+});
+
+/**
+ * Per-cell bucketing composed with `stretch` — `Press A` is bucketed (its day-1
+ * am/pm lanes are stretched to fill their band, a stray bucketless event drops
+ * to an `N/A` lane, and day-2 is a normal-sized bucketed cell); `Press B` is
+ * flat (a stretched unbucketed tile filling day-1, a normal tile on day-2).
+ */
+export const plannerPerCellBuckets = example({
+    keywords: ["Planner", "bucket", "per-cell", "mixed", "flat", "N/A", "orphan", "stretch", "fill"],
+    description: "Per-cell bucketing with stretch — Press A's bucketed day-1 lanes are stretched to fill (a stray bucketless event drops to an N/A lane) beside a normal bucketed cell; Press B is flat, with a stretched unbucketed cell beside a normal one",
+    fn: East.function([], UIComponentType, ($) => {
+        // Press A — bucketed: day-1 am/pm lanes stretched to fill their band (+ a
+        // stray bucketless event ⇒ N/A lane); day-2 a normal-sized bucketed cell.
+        const pressA = $.const([
+            Planner.event({ slot: Planner.at.number(1), bucket: "am", label: "Setup", state: "committed", stretch: "both" }),
+            Planner.event({ slot: Planner.at.number(1), bucket: "pm", label: "Run", state: "committed", stretch: "both" }),
+            Planner.event({ slot: Planner.at.number(1), label: "Note", state: "added" }),
+            Planner.event({ slot: Planner.at.number(2), bucket: "am", label: "QA", state: "committed" }),
+        ], ArrayType(Planner.Types.Event));
+        // Press B — flat (unbucketed): day-1 a stretched tile filling the cell,
+        // day-2 a normal content-sized tile.
+        const pressB = $.const([
+            Planner.event({ slot: Planner.at.number(1), label: "Maint", state: "committed", stretch: "both" }),
+            Planner.event({ slot: Planner.at.number(2), label: "Idle", state: "added" }),
+        ], ArrayType(Planner.Types.Event));
+        return (
+            <Planner.Point
+                data={[
+                    { name: "Press A", bucketed: true },
+                    { name: "Press B", bucketed: false },
+                ]}
+                axis={Planner.axis.number({ buckets: [{ key: "am", label: "AM" }, { key: "pm", label: "PM" }], range: { min: 1, max: 3 } })}
+                columns={[{ key: "name", frozen: true, value: r => r.name }]}
+                events={r => r.bucketed.ifElse(() => pressA, () => pressB)}
             />
         );
     }),

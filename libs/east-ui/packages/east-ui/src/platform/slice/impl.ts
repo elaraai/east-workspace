@@ -46,7 +46,7 @@
 
 import {
     some, none, variant,
-    equalFor, lessFor, lessEqualFor, greaterFor, greaterEqualFor,
+    equalFor, lessFor, lessEqualFor, greaterFor, greaterEqualFor, isValueOf,
     StringType, IntegerType, FloatType, DateTimeType, BooleanType,
 } from "@elaraai/east";
 
@@ -76,21 +76,32 @@ interface PredicateBody {
     readonly op: variant;
 }
 
+// Each matcher VALIDATES the row value against the predicate family's East type
+// (`isValueOf`) before comparing, then uses the already-correct JS value — never
+// a blind `String()`/`BigInt()`/`new Date()` coercion. A value that isn't of the
+// field's type (a kind-mismatched predicate, or the field absent from the row)
+// can't satisfy the predicate → it returns `false` (excludes the row) instead of
+// crashing (`BigInt(3.5)`, `new Date(7n)`) or mis-coercing (`String(undefined)`
+// → "undefined"). The comparators still come from East's `comparison.ts`.
+
 function matchStringOp(op: variant, value: unknown): boolean {
-    const v = String(value);
+    if (!isValueOf(value, StringType)) return false;
+    const v = value as string;
     switch (op.type) {
         case "eq":       return eqString(v, op.value as string);
         case "neq":      return !eqString(v, op.value as string);
         case "in":       return (op.value as Set<string>).has(v);
         case "notIn":    return !(op.value as Set<string>).has(v);
         case "contains": return v.includes(op.value as string);
-        case "matches":  return new RegExp(op.value as string).test(v);
+        // A half-typed regex in a live filter must narrow to nothing, not crash.
+        case "matches":  { try { return new RegExp(op.value as string).test(v); } catch { return false; } }
         default: throw new Error(`unknown string op: ${op.type}`);
     }
 }
 
 function matchIntegerOp(op: variant, value: unknown): boolean {
-    const v = BigInt(value as bigint | number | string);
+    if (!isValueOf(value, IntegerType)) return false;
+    const v = value as bigint;
     switch (op.type) {
         case "eq":  return  eqInteger(v, op.value as bigint);
         case "neq": return !eqInteger(v, op.value as bigint);
@@ -104,7 +115,8 @@ function matchIntegerOp(op: variant, value: unknown): boolean {
 }
 
 function matchFloatOp(op: variant, value: unknown): boolean {
-    const v = Number(value);
+    if (!isValueOf(value, FloatType)) return false;
+    const v = value as number;
     const d = op.value as number;
     switch (op.type) {
         case "lt":  return  ltFloat(v, d);
@@ -116,7 +128,8 @@ function matchFloatOp(op: variant, value: unknown): boolean {
 }
 
 function matchDateTimeOp(op: variant, value: unknown): boolean {
-    const v = value instanceof Date ? value : new Date(value as string | number);
+    if (!isValueOf(value, DateTimeType)) return false;
+    const v = value as Date;
     switch (op.type) {
         case "before": return ltDateTime(v, op.value as Date);
         case "after":  return gtDateTime(v, op.value as Date);
@@ -130,7 +143,8 @@ function matchDateTimeOp(op: variant, value: unknown): boolean {
 
 function matchBooleanOp(op: variant, value: unknown): boolean {
     if (op.type !== "is") throw new Error(`unknown boolean op: ${op.type}`);
-    return eqBoolean(Boolean(value), op.value as boolean);
+    if (!isValueOf(value, BooleanType)) return false;
+    return eqBoolean(value as boolean, op.value as boolean);
 }
 
 function predicateMatches(pred: variant, row: Record<string, unknown>): boolean {
@@ -163,26 +177,34 @@ function resolveDateTimePreset(preset: variant, now: Date): { from: Date; to: Da
     }
 }
 
+// A range whose arm kind doesn't match the rangeFieldId's actual value type is a
+// config error; rather than crash (`new Date(7n)`) or silently mis-narrow
+// (`BigInt(date)` → epoch millis compared against [0,100]), the mismatched range
+// is INERT — the row passes (`true`), so a broken range simply doesn't filter.
 function rangeMatches(range: variant, value: unknown, now: Date): boolean {
     switch (range.type) {
         case "datetimePreset": {
+            if (!isValueOf(value, DateTimeType)) return true;
             const { from, to } = resolveDateTimePreset(range.value as variant, now);
-            const v = value instanceof Date ? value : new Date(value as string | number);
+            const v = value as Date;
             return lteDateTime(from, v) && lteDateTime(v, to);
         }
         case "datetime": {
+            if (!isValueOf(value, DateTimeType)) return true;
             const { from, to } = range.value as { from: Date; to: Date };
-            const v = value instanceof Date ? value : new Date(value as string | number);
+            const v = value as Date;
             return lteDateTime(from, v) && lteDateTime(v, to);
         }
         case "integer": {
+            if (!isValueOf(value, IntegerType)) return true;
             const { from, to } = range.value as { from: bigint; to: bigint };
-            const v = BigInt(value as bigint | number | string);
+            const v = value as bigint;
             return lteInteger(from, v) && lteInteger(v, to);
         }
         case "float": {
+            if (!isValueOf(value, FloatType)) return true;
             const { from, to } = range.value as { from: number; to: number };
-            const v = Number(value);
+            const v = value as number;
             return lteFloat(from, v) && lteFloat(v, to);
         }
         default: throw new Error(`unknown range tag: ${range.type}`);
@@ -198,6 +220,7 @@ interface ConfigLike {
     readonly rangeFieldId: variant;
     readonly searchFieldIds: ReadonlyArray<string>;
     readonly breakdownFieldIds: ReadonlyArray<string>;
+    readonly fieldHints?: Map<string, ReadonlyArray<string>>;
 }
 
 interface CohortLike {
@@ -239,10 +262,19 @@ export function sliceMatches(state: StateLike, config: ConfigLike, row: Record<s
             if (!predicateMatches(f, row)) return false;
         }
     }
-    // Search — case-insensitive substring across any configured string search field
+    // Search — case-insensitive substring across the searchable string fields.
+    // Resolve them the SAME way the suggestion projection (autoDeriveMatches) does:
+    // the configured `searchFieldIds` that are string-typed, else fall back to
+    // every string field. Otherwise a `searchFieldIds` that names only non-string
+    // fields would make the search exclude every row while the dropdown still
+    // offers (fallback) suggestions — a silent dead filter (#129 bug-hunt).
     if (state.search.type === "some") {
         const q = (state.search.value as string).toLowerCase();
-        const any = config.searchFieldIds.some(id => {
+        const configured = config.searchFieldIds.filter(id => config.fields.get(id)?.type === "string");
+        const searchable = configured.length > 0
+            ? configured
+            : [...config.fields].filter(([, spec]) => (spec as variant).type === "string").map(([id]) => id);
+        const any = searchable.some(id => {
             const v = row[id];
             return typeof v === "string" && v.toLowerCase().includes(q);
         });
@@ -255,10 +287,17 @@ export function sliceMatches(state: StateLike, config: ConfigLike, row: Record<s
 // breakdownKey — stringified row value at the active breakdown's field
 // ---------------------------------------------------------------------------
 
+/** Stable, locale/timezone-independent group key for a row value — Dates encode
+ *  as ISO (matching `sliceSeries`' `xKey`) so a `visible` whitelist captured under
+ *  one timezone still matches the same instant under another (#120 bug-hunt). */
+function breakdownKeyOf(value: unknown): string {
+    return value instanceof Date ? value.toISOString() : String(value);
+}
+
 function sliceBreakdownKey(state: StateLike, _config: ConfigLike, row: Record<string, unknown>): variant {
     if (state.breakdown.type !== "some") return none;
     const { fieldId } = state.breakdown.value as { fieldId: string };
-    return some(String(row[fieldId]));
+    return some(breakdownKeyOf(row[fieldId]));
 }
 
 // ---------------------------------------------------------------------------
@@ -296,11 +335,14 @@ export function sliceBreakdown(
     const counts = new Map<string, number>();
     for (const row of data) {
         if (!sliceMatches(state, config, row, now)) continue;
-        const key = String(row[bd.fieldId]);
+        const key = breakdownKeyOf(row[bd.fieldId]);
         counts.set(key, (counts.get(key) ?? 0) + 1);
     }
     const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]);
-    const limit = bd.limit.type === "some" ? Number(bd.limit.value as bigint) : undefined;
+    // A non-positive top-N (0 / negative) means "no limit" — never collapse every
+    // category into a single "other" bucket or slice from the end (Array.slice).
+    const rawLimit = bd.limit.type === "some" ? Number(bd.limit.value as bigint) : undefined;
+    const limit = rawLimit !== undefined && rawLimit > 0 ? rawLimit : undefined;
     if (limit !== undefined && sorted.length > limit) {
         const top = sorted.slice(0, limit);
         const other = sorted.slice(limit).reduce((sum, [, n]) => sum + n, 0);
@@ -397,11 +439,13 @@ export function sliceDimensions(config: ConfigLike): Array<{ fieldId: string; la
 // fields — every filterable field + label + primitive kind (predicate builder)
 // ---------------------------------------------------------------------------
 
-export function sliceFields(config: ConfigLike): Array<{ fieldId: string; label: string; kind: string }> {
+export function sliceFields(config: ConfigLike): Array<{ fieldId: string; label: string; kind: string; hints: string[] }> {
     return [...config.fields.entries()].map(([fieldId, spec]) => {
         const kind = (spec as variant).type;
         const label = ((spec as variant).value as { label?: string } | undefined)?.label ?? fieldId;
-        return { fieldId, label, kind };
+        // Explicit autocomplete hints from `Slice.config` (#131); empty when none.
+        const hints = [...(config.fieldHints?.get(fieldId) ?? [])];
+        return { fieldId, label, kind, hints };
     });
 }
 

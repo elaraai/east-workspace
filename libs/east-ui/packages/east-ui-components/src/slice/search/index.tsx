@@ -5,6 +5,8 @@
 
 import { memo, useState, useEffect, useMemo, useCallback } from "react";
 import { Box, Combobox as ChakraCombobox, Portal, createListCollection, useSlotRecipe } from "@chakra-ui/react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faXmark } from "@fortawesome/free-solid-svg-icons";
 import { type ValueTypeOf, some, none } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
@@ -50,13 +52,31 @@ export const EastChakraSliceSearch = memo(function EastChakraSliceSearch({ value
 
     const handleInput = useCallback((d: { inputValue: string }) => {
         setInputValue(d.inputValue);
+        // Emptying the box (typing-delete or the × button) clears the committed
+        // search, so the narrowing is removed — not left stuck.
         queueMicrotask(() => slice.setSearch(d.inputValue === "" ? none : some(d.inputValue)));
     }, [slice]);
 
     const handleSelect = useCallback((d: { value: string[] }) => {
         const id = d.value[0];
-        if (id !== undefined) queueMicrotask(() => slice.setSearch(some(id)));
+        // Selecting commits the (clean) value as the query; a cleared selection
+        // clears the search.
+        if (id === undefined) { setInputValue(""); queueMicrotask(() => slice.setSearch(none)); return; }
+        setInputValue(id);
+        queueMicrotask(() => slice.setSearch(some(id)));
     }, [slice]);
+
+    const clearSearch = useCallback(() => {
+        setInputValue("");
+        queueMicrotask(() => slice.setSearch(none));
+    }, [slice]);
+
+    // The × affordance — only when the box carries a value.
+    const clearButton = inputValue !== "" ? (
+        <Box as="span" role="button" tabIndex={0} css={styles.searchClear} onClick={clearSearch} aria-label="Clear search">
+            <FontAwesomeIcon icon={faXmark} style={{ fontSize: "11px" }} />
+        </Box>
+    ) : null;
 
     const dropdown = (
         <Portal>
@@ -65,11 +85,14 @@ export const EastChakraSliceSearch = memo(function EastChakraSliceSearch({ value
                     <ChakraCombobox.Empty>No matches</ChakraCombobox.Empty>
                     {collection.items.map(item => (
                         <ChakraCombobox.Item key={item.value} item={item}>
-                            <Box display="flex" gap="{spacing.3}" alignItems="baseline" width="full">
-                                <Box as="span" fontFamily="mono" fontWeight="semibold" minWidth="6rem">{item.value}</Box>
-                                <Box as="span" flex="1" color="fg">{item.label}</Box>
+                            {/* One row, never wrapping: the id keeps a fixed gutter, the
+                                label flexes and truncates with an ellipsis, the meta hugs
+                                its content on the right. */}
+                            <Box display="flex" gap="{spacing.3}" alignItems="baseline" width="full" minWidth="0">
+                                <Box as="span" fontFamily="mono" fontWeight="semibold" flexShrink={0} minWidth="6rem" maxWidth="9rem" whiteSpace="nowrap" overflow="hidden" textOverflow="ellipsis">{item.value}</Box>
+                                <Box as="span" flex="1" minWidth="0" color="fg" whiteSpace="nowrap" overflow="hidden" textOverflow="ellipsis">{item.label}</Box>
                                 {item.meta !== undefined && (
-                                    <Box as="span" css={styles.footerLabel} color="fg.muted">{item.meta}</Box>
+                                    <Box as="span" css={styles.footerLabel} color="fg.muted" flexShrink={0} whiteSpace="nowrap">{item.meta}</Box>
                                 )}
                             </Box>
                             <ChakraCombobox.ItemIndicator />
@@ -86,6 +109,7 @@ export const EastChakraSliceSearch = memo(function EastChakraSliceSearch({ value
         return (
             <ChakraCombobox.Root
                 collection={collection}
+                value={[]}
                 inputValue={inputValue}
                 onInputValueChange={handleInput}
                 onValueChange={handleSelect}
@@ -96,7 +120,7 @@ export const EastChakraSliceSearch = memo(function EastChakraSliceSearch({ value
             >
                 <ChakraCombobox.Control css={styles.searchPill}>
                     <ChakraCombobox.Input placeholder="Search…" />
-                    <Box as="span" css={styles.searchKbd}>/</Box>
+                    {clearButton ?? <Box as="span" css={styles.searchKbd}>/</Box>}
                 </ChakraCombobox.Control>
                 {dropdown}
             </ChakraCombobox.Root>
@@ -112,6 +136,7 @@ export const EastChakraSliceSearch = memo(function EastChakraSliceSearch({ value
             <Box css={styles.body}>
                 <ChakraCombobox.Root
                     collection={collection}
+                    value={[]}
                     inputValue={inputValue}
                     onInputValueChange={handleInput}
                     onValueChange={handleSelect}
@@ -121,6 +146,7 @@ export const EastChakraSliceSearch = memo(function EastChakraSliceSearch({ value
                     <ChakraCombobox.Control>
                         <ChakraCombobox.Input placeholder="Search…" fontFamily="mono" />
                         <ChakraCombobox.IndicatorGroup>
+                            {clearButton}
                             <ChakraCombobox.Trigger />
                         </ChakraCombobox.IndicatorGroup>
                     </ChakraCombobox.Control>

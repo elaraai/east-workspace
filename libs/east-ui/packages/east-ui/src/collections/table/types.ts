@@ -300,6 +300,7 @@ export const TableStyleType = StructType({
     selectedBackground: OptionType(StringType),
     selectedBorderColor: OptionType(StringType),
     footerBackground: OptionType(StringType),
+    rowHeight: OptionType(IntegerType),
 });
 
 export type TableStyleType = typeof TableStyleType;
@@ -393,4 +394,6 @@ export interface TableStyle<ColumnKeys extends string = string> {
     rowStatus?: SubtypeExprOrValue<FunctionType<[IntegerType], StatusTokenType>>;
     /** Density preset. */
     density?: SubtypeExprOrValue<DensityType> | DensityLiteral;
+    /** Explicit pixel row height. Overrides the `density` preset when set, and is fed to the virtualizer so scroll offsets stay correct. */
+    rowHeight?: SubtypeExprOrValue<IntegerType>;
 }

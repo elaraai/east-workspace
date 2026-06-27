@@ -22,6 +22,11 @@ describeEast("Planner", (test) => {
         plannerSpan: ex.plannerSpan,
         plannerDensity: ex.plannerDensity,
         plannerReview: ex.plannerReview,
+        plannerStretch: ex.plannerStretch,
+        plannerEventTone: ex.plannerEventTone,
+        plannerHovercard: ex.plannerHovercard,
+        plannerRowHover: ex.plannerRowHover,
+        plannerPerCellBuckets: ex.plannerPerCellBuckets,
     });
 
     // =========================================================================
@@ -213,5 +218,83 @@ describeEast("Planner", (test) => {
             },
         ));
         $(Assert.equal(p.unwrap().unwrap("Planner").onSelectRow.hasTag("some"), true));
+    });
+
+    // =========================================================================
+    // Per-event geometry / tone / animation / hovercard (issue #120)
+    // =========================================================================
+
+    test("stretch + content resolve from the string shorthands", $ => {
+        const p = $.let(Planner.Point(
+            [{ name: "A" }],
+            {
+                axis: Planner.axis.number(),
+                columns: [{ key: "name", value: r => r.name }],
+                events: _r => [Planner.event({
+                    slot: Planner.at.number(1), label: "x", state: "committed",
+                    stretch: "both", content: { horizontal: "center", vertical: "end" },
+                })],
+            },
+        ));
+        const ev = $.let(p.unwrap().unwrap("Planner").rows.get(0n).events.get(0n));
+        $(Assert.equal(ev.stretch.unwrap("some").hasTag("both"), true));
+        $(Assert.equal(ev.content.unwrap("some").horizontal.unwrap("some").hasTag("center"), true));
+        $(Assert.equal(ev.content.unwrap("some").vertical.unwrap("some").hasTag("end"), true));
+    });
+
+    test("tone + animation resolve from the string shorthands", $ => {
+        const p = $.let(Planner.Point(
+            [{ name: "A" }],
+            {
+                axis: Planner.axis.number(),
+                columns: [{ key: "name", value: r => r.name }],
+                events: _r => [Planner.event({
+                    slot: Planner.at.number(1), label: "x", state: "committed",
+                    tone: "danger", animation: "pulse",
+                })],
+            },
+        ));
+        const ev = $.let(p.unwrap().unwrap("Planner").rows.get(0n).events.get(0n));
+        $(Assert.equal(ev.tone.unwrap("some").hasTag("danger"), true));
+        $(Assert.equal(ev.animation.unwrap("some").hasTag("pulse"), true));
+    });
+
+    test("absent geometry / tone / animation default to none", $ => {
+        const p = $.let(Planner.Point(
+            [{ name: "A" }],
+            {
+                axis: Planner.axis.number(),
+                columns: [{ key: "name", value: r => r.name }],
+                events: _r => [Planner.event({ slot: Planner.at.number(1), label: "x", state: "committed" })],
+            },
+        ));
+        const ev = $.let(p.unwrap().unwrap("Planner").rows.get(0n).events.get(0n));
+        $(Assert.equal(ev.stretch.hasTag("none"), true));
+        $(Assert.equal(ev.content.hasTag("none"), true));
+        $(Assert.equal(ev.tone.hasTag("none"), true));
+        $(Assert.equal(ev.animation.hasTag("none"), true));
+        $(Assert.equal(ev.hovercard.hasTag("none"), true));
+    });
+
+    test("rowHover presence is preserved on the root", $ => {
+        const on = $.let(Planner.Point(
+            [{ name: "A" }],
+            {
+                axis: Planner.axis.number(),
+                rowHover: true,
+                columns: [{ key: "name", value: r => r.name }],
+                events: _r => [Planner.event({ slot: Planner.at.number(1), label: "x", state: "committed" })],
+            },
+        ));
+        const off = $.let(Planner.Point(
+            [{ name: "A" }],
+            {
+                axis: Planner.axis.number(),
+                columns: [{ key: "name", value: r => r.name }],
+                events: _r => [Planner.event({ slot: Planner.at.number(1), label: "x", state: "committed" })],
+            },
+        ));
+        $(Assert.equal(on.unwrap().unwrap("Planner").rowHover.unwrap("some"), true));
+        $(Assert.equal(off.unwrap().unwrap("Planner").rowHover.hasTag("none"), true));
     });
 }, { platformFns: TestImpl });

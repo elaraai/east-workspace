@@ -7,3 +7,4 @@
 
 export { Breadcrumb } from "./breadcrumb.js";
 export { NavList } from "./nav-list.js";
+export { Pages } from "./pages.js";

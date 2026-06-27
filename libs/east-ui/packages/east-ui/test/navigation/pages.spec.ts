@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Navigation, Pages, Text } from "@elaraai/east-ui/internal";
+import { Navigation } from "@elaraai/east-ui/internal";
 import { IntegerType, NullType, StringType, StructType } from "@elaraai/east";
 import * as ex from "./pages.examples.js";
 
@@ -33,15 +33,7 @@ describeEast("Pages", (test) => {
         $(Assert.equal(seg.unwrap("detail").value, 42n));
     });
 
-    test("Pages variant carries the navKey", $ => {
-        const pages = $.let(Pages.Root(routes)({
-            stateKey: "ops.route",
-            initial: [routes.Page.overview()],
-            pages: {
-                overview: (_$, _v, _nav) => Text.Root("overview"),
-                detail: (_$, row, _nav) => Text.Root(row.id),
-            },
-        }));
-        $(Assert.equal(pages.unwrap().unwrap("Pages").navKey, "ops.route"));
-    });
+    // `<Pages>` builds a Pages content-switcher from a bound nav handle — the
+    // `pagesBasic` / `pagesAppShell` examples (wired above) exercise the full
+    // build (handle bound in the enclosing Reactive, shared with the switcher).
 }, { platformFns: TestImpl });

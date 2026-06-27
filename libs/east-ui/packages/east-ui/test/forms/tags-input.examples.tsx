@@ -16,6 +16,15 @@ export const tagsInputBasic = example({
     inputs: [],
 });
 
+export const tagsInputSuggestions = example({
+    keywords: ["TagsInput", "Root", "suggestions", "autocomplete", "hints", "datalist"],
+    description: "Autocomplete suggestions surfaced as you type (free entry still allowed)",
+    fn: East.function([], UIComponentType, (_$) => {
+        return <TagsInput value={["NA"]} label="Regions" placeholder="Add region..." suggestions={["NA", "EU", "APAC", "LATAM"]} />;
+    }),
+    inputs: [],
+});
+
 export const tagsInputInteractive = example({
     keywords: ["TagsInput", "Root", "Reactive", "State", "onChange", "interactive"],
     description: "Add/remove tags to see onChange callback",

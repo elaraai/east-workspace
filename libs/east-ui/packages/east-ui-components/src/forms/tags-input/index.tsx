@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useMemo, useCallback, useState, useEffect } from "react";
+import { memo, useMemo, useCallback, useState, useEffect, useId } from "react";
 import { TagsInput as ChakraTagsInput, type TagsInputRootProps } from "@chakra-ui/react";
 import { equalFor, some, none, type ValueTypeOf } from "@elaraai/east";
 import { TagsInput } from "@elaraai/east-ui/internal";
@@ -89,6 +89,12 @@ export const EastChakraTagsInput = memo(function EastChakraTagsInput({ value }: 
         }
     }, [onHighlightChangeFn]);
 
+    // Optional autocomplete: surface suggestions via a native <datalist> linked
+    // to the text input (free entry still allowed; #131).
+    const suggestions = useMemo(() => getSomeorUndefined(value.suggestions), [value.suggestions]);
+    const listId = useId();
+    const hasSuggestions = suggestions !== undefined && suggestions.length > 0;
+
     return (
         <ChakraTagsInput.Root
             {...props}
@@ -108,8 +114,13 @@ export const EastChakraTagsInput = memo(function EastChakraTagsInput({ value }: 
                         </ChakraTagsInput.Item>
                     ))}
                 </ChakraTagsInput.Context>
-                <ChakraTagsInput.Input placeholder={placeholder} />
+                <ChakraTagsInput.Input placeholder={placeholder} list={hasSuggestions ? listId : undefined} />
             </ChakraTagsInput.Control>
+            {hasSuggestions && (
+                <datalist id={listId}>
+                    {suggestions.map(s => <option key={s} value={s} />)}
+                </datalist>
+            )}
             <ChakraTagsInput.HiddenInput />
         </ChakraTagsInput.Root>
     );

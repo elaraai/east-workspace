@@ -55,6 +55,23 @@ export const iconButtonColoured = example({
     inputs: [],
 });
 
+export const iconButtonBadgeAndAttention = example({
+    keywords: ["IconButton", "badge", "count", "notification", "attention", "pulse", "ring", "dot"],
+    description: "Notification badge (count, 99+ cap, dot-only) plus attention animations — pulse the badge, ring the button",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <VStack gap="4">
+                <IconButton prefix="fas" name="bell" label="Alerts" variant="ghost" badge="3" />
+                <IconButton prefix="fas" name="bell" label="Many alerts" variant="ghost" badge="99+" badgeColorPalette="orange" />
+                <IconButton prefix="fas" name="inbox" label="Unread" variant="ghost" badge="" />
+                <IconButton prefix="fas" name="bell" label="Pulsing alerts" variant="subtle" colorPalette="red" badge="5" attention="pulse" />
+                <IconButton prefix="fas" name="circle-exclamation" label="Attention" variant="solid" colorPalette="blue" attention="ring" />
+            </VStack>
+        );
+    }),
+    inputs: [],
+});
+
 export const iconButtonOnClickReactive = example({
     keywords: ["IconButton", "Root", "onClick", "Reactive", "State", "counter", "interactive"],
     description: "Reactive IconButton that increments a counter on click",

@@ -45,10 +45,11 @@ function buildTrack(track: TraceTrack): ExprType<TraceTrackType> {
 
 function buildStyle(options: TraceOptions | undefined): ExprType<TraceStyleType> | undefined {
     if (options === undefined) return undefined;
-    if (options.brandColor === undefined && options.nowLineColor === undefined) return undefined;
+    if (options.brandColor === undefined && options.nowLineColor === undefined && options.labelWidth === undefined) return undefined;
     return East.value({
         brandColor: options.brandColor !== undefined ? some(options.brandColor) : none,
         nowLineColor: options.nowLineColor !== undefined ? some(options.nowLineColor) : none,
+        labelWidth: options.labelWidth !== undefined ? some(options.labelWidth) : none,
     }, TraceStyleType);
 }
 

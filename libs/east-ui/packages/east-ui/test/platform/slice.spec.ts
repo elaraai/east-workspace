@@ -233,6 +233,15 @@ describeEast("Slice", (test) => {
     // String ops: eq, neq, in, notIn, contains, matches
     // -----------------------------------------------------------------------
 
+    test("config carries explicit per-field hints (#131)", $ => {
+        const RowType = StructType({ country: StringType });
+        const cfg = $.let(Slice.config(RowType, {
+            fields: { country: { label: "Country", hints: ["NA", "EU", "APAC"] } },
+        }));
+        $(Assert.equal(cfg.fieldHints.get("country").length(), 3n));
+        $(Assert.equal(cfg.fieldHints.get("country").get(0n), "NA"));
+    });
+
     test("apply.matches: string/eq", $ => {
         const RowType = StructType({ country: StringType });
         const cfg   = $.let(Slice.config(RowType, { fields: { country: { label: "Country" } } }));
@@ -826,14 +835,251 @@ describeEast("Slice", (test) => {
         $(Assert.equal(Slice.apply.matches([RowType], state, cfg, rUp),   true));
     });
 
-    test("apply.matches: search with no configured fields matches nothing", $ => {
+    test("apply.matches: search auto-derives string fields when searchFieldIds omitted (#129)", $ => {
         const RowType = StructType({ sku: StringType });
+        // No explicit searchFieldIds ⇒ defaults to every string field, so the
+        // search works out of the box.
         const cfg = $.let(Slice.config(RowType, { fields: { sku: { label: "SKU" } } }));
         const state = $.const(Slice.state({
             search: some("abc"),
         }));
         const r = $.const(East.value({ sku: "SKU-ABC" }, RowType));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, r), true));
+    });
+
+    test("apply.matches: a config with no string fields searches nothing", $ => {
+        const RowType = StructType({ count: IntegerType });
+        const cfg = $.let(Slice.config(RowType, { fields: { count: { label: "Count" } } }));
+        const state = $.const(Slice.state({
+            search: some("abc"),
+        }));
+        const r = $.const(East.value({ count: 5n }, RowType));
         $(Assert.equal(Slice.apply.matches([RowType], state, cfg, r), false));
+    });
+
+    // =======================================================================
+    // Combinations — every narrowing composes as a strict AND. The "search does
+    // weird stuff" class of bugs lives in how search interacts with the rest.
+    // =======================================================================
+
+    test("apply.matches: search AND a filter both narrow", $ => {
+        const RowType = StructType({ country: StringType, sessions: IntegerType });
+        const cfg = $.let(Slice.config(RowType, {
+            fields: { country: { label: "Country" }, sessions: { label: "Sessions" } },
+            searchFieldIds: ["country"],
+        }));
+        const state = $.const(Slice.state({
+            filters: [variant("integer", { fieldId: "sessions", op: variant("gte", 10n) })],
+            search: some("ger"),
+        }));
+        const both       = $.const(East.value({ country: "Germany", sessions: 20n }, RowType));
+        const searchOnly = $.const(East.value({ country: "Germany", sessions: 5n  }, RowType));
+        const filterOnly = $.const(East.value({ country: "France",  sessions: 20n }, RowType));
+        const neither    = $.const(East.value({ country: "France",  sessions: 5n  }, RowType));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, both),       true));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, searchOnly), false));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, filterOnly), false));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, neither),    false));
+    });
+
+    test("apply.matches: two filters on the SAME field AND together (a manual between)", $ => {
+        const RowType = StructType({ n: IntegerType });
+        const cfg = $.let(Slice.config(RowType, { fields: { n: { label: "N" } } }));
+        const state = $.const(Slice.state({
+            filters: [
+                variant("integer", { fieldId: "n", op: variant("gte", 5n) }),
+                variant("integer", { fieldId: "n", op: variant("lte", 10n) }),
+            ],
+        }));
+        const inLo  = $.const(East.value({ n: 5n  }, RowType));
+        const mid   = $.const(East.value({ n: 7n  }, RowType));
+        const inHi  = $.const(East.value({ n: 10n }, RowType));
+        const below = $.const(East.value({ n: 4n  }, RowType));
+        const above = $.const(East.value({ n: 11n }, RowType));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, inLo),  true));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, mid),   true));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, inHi),  true));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, below), false));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, above), false));
+    });
+
+    test("apply.matches: contradictory filters match nothing", $ => {
+        const RowType = StructType({ country: StringType });
+        const cfg = $.let(Slice.config(RowType, { fields: { country: { label: "Country" } } }));
+        const state = $.const(Slice.state({
+            filters: [
+                variant("string", { fieldId: "country", op: variant("eq", "US") }),
+                variant("string", { fieldId: "country", op: variant("eq", "UK") }),
+            ],
+        }));
+        const us = $.const(East.value({ country: "US" }, RowType));
+        const uk = $.const(East.value({ country: "UK" }, RowType));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, us), false));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, uk), false));
+    });
+
+    test("apply.matches: filters on DIFFERENT fields AND together", $ => {
+        const RowType = StructType({ country: StringType, sessions: IntegerType });
+        const cfg = $.let(Slice.config(RowType, { fields: { country: { label: "Country" }, sessions: { label: "Sessions" } } }));
+        const state = $.const(Slice.state({
+            filters: [
+                variant("string",  { fieldId: "country",  op: variant("eq", "US") }),
+                variant("integer", { fieldId: "sessions", op: variant("gt", 10n) }),
+            ],
+        }));
+        const both  = $.const(East.value({ country: "US", sessions: 20n }, RowType));
+        const one   = $.const(East.value({ country: "US", sessions: 5n  }, RowType));
+        const other = $.const(East.value({ country: "UK", sessions: 20n }, RowType));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, both),  true));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, one),   false));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, other), false));
+    });
+
+    test("apply.matches: search AND an active cohort AND a filter all narrow", $ => {
+        const RowType = StructType({ country: StringType, tier: StringType, sessions: IntegerType });
+        const cfg = $.let(Slice.config(RowType, {
+            fields: { country: { label: "Country" }, tier: { label: "Tier" }, sessions: { label: "Sessions" } },
+            searchFieldIds: ["country"],
+        }));
+        const state = $.const(Slice.state({
+            filters: [variant("integer", { fieldId: "sessions", op: variant("gte", 10n) })],
+            search: some("ger"),
+            cohorts: [{ id: "pro", name: "Pro", filters: [variant("string", { fieldId: "tier", op: variant("eq", "pro") })] }],
+            activeCohorts: new Set(["pro"]),
+        }));
+        const all      = $.const(East.value({ country: "Germany", tier: "pro",  sessions: 20n }, RowType));
+        const noTier   = $.const(East.value({ country: "Germany", tier: "free", sessions: 20n }, RowType));
+        const noSearch = $.const(East.value({ country: "France",  tier: "pro",  sessions: 20n }, RowType));
+        const noFilter = $.const(East.value({ country: "Germany", tier: "pro",  sessions: 5n  }, RowType));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, all),      true));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, noTier),   false));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, noSearch), false));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, noFilter), false));
+    });
+
+    test("apply.matches: clearing search (none) drops the search narrowing", $ => {
+        const RowType = StructType({ country: StringType });
+        const cfg = $.let(Slice.config(RowType, { fields: { country: { label: "Country" } }, searchFieldIds: ["country"] }));
+        const withSearch = $.const(Slice.state({ search: some("zzz") }));
+        const cleared    = $.const(Slice.state({ search: none }));
+        const r = $.const(East.value({ country: "Germany" }, RowType));
+        $(Assert.equal(Slice.apply.matches([RowType], withSearch, cfg, r), false)); // "germany" has no "zzz"
+        $(Assert.equal(Slice.apply.matches([RowType], cleared,    cfg, r), true));  // no search ⇒ passes
+    });
+
+    test("apply.matches: empty state passes every row", $ => {
+        const RowType = StructType({ country: StringType });
+        const cfg = $.let(Slice.config(RowType, { fields: { country: { label: "Country" } } }));
+        const state = $.const(Slice.state({}));
+        const r = $.const(East.value({ country: "anything" }, RowType));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, r), true));
+    });
+
+    // =======================================================================
+    // Robustness — a kind-mismatched / missing / malformed predicate must not
+    // crash or silently mis-coerce (adversarial bug-hunt repros). Each matcher
+    // validates the value against its East type (`isValueOf`) before comparing.
+    // =======================================================================
+
+    test("apply.matches: string/matches with an invalid regex narrows to nothing, not a crash", $ => {
+        const RowType = StructType({ sku: StringType });
+        const cfg   = $.let(Slice.config(RowType, { fields: { sku: { label: "SKU" } } }));
+        const state = $.const(Slice.state({
+            filters: [variant("string", { fieldId: "sku", op: variant("matches", "(US") })],   // half-typed regex
+        }));
+        const r = $.const(East.value({ sku: "US-123" }, RowType));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, r), false));
+    });
+
+    test("apply.matches: integer predicate on a float field is a clean non-match, not a RangeError", $ => {
+        const RowType = StructType({ x: FloatType });
+        const cfg = $.let(Slice.config(RowType, { fields: { x: { label: "X" } } }));
+        const state = $.const(Slice.state({
+            filters: [variant("integer", { fieldId: "x", op: variant("eq", 3n) })],
+        }));
+        const r = $.const(East.value({ x: 3.5 }, RowType));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, r), false));
+    });
+
+    test("apply.matches: integer predicate on a field absent from the row is a clean non-match", $ => {
+        const RowType = StructType({ sessions: IntegerType });
+        const cfg = $.let(Slice.config(RowType, { fields: { sessions: { label: "Sessions" } } }));
+        const state = $.const(Slice.state({
+            cohorts: [{ id: "c1", name: "C1", filters: [variant("integer", { fieldId: "missing", op: variant("gte", 1n) })] }],
+            activeCohorts: new Set(["c1"]),
+        }));
+        const r = $.const(East.value({ sessions: 5n }, RowType));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, r), false));
+    });
+
+    test("apply.matches: string predicate on an absent field doesn't spuriously match via 'undefined'", $ => {
+        const RowType = StructType({ sessions: IntegerType });
+        const cfg = $.let(Slice.config(RowType, { fields: { sessions: { label: "Sessions" } } }));
+        const state = $.const(Slice.state({
+            cohorts: [{ id: "c1", name: "C1", filters: [variant("string", { fieldId: "tier", op: variant("neq", "pro") })] }],
+            activeCohorts: new Set(["c1"]),
+        }));
+        const r = $.const(East.value({ sessions: 5n }, RowType));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, r), false));
+    });
+
+    test("range: datetime arm on an integer rangeFieldId is inert (row passes), not a crash", $ => {
+        const RowType = StructType({ sessions: IntegerType });
+        const cfg = $.let(Slice.config(RowType, { fields: { sessions: { label: "Sessions" } }, rangeFieldId: "sessions" }));
+        const state = $.const(Slice.state({
+            range: some(variant("datetimePreset", variant("last30d", null))),
+        }));
+        const r = $.const(East.value({ sessions: 7n }, RowType));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, r), true));
+    });
+
+    test("range: integer arm on a datetime rangeFieldId is inert, not a silent epoch-millis compare", $ => {
+        const RowType = StructType({ when: DateTimeType });
+        const cfg = $.let(Slice.config(RowType, { fields: { when: { label: "When" } }, rangeFieldId: "when" }));
+        const state = $.const(Slice.state({
+            range: some(variant("integer", { from: 0n, to: 100n })),
+        }));
+        const r = $.const(East.value({ when: new Date("2023-06-01T00:00:00Z") }, RowType));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, r), true));
+    });
+
+    test("apply.matches: search falls back to a string field when searchFieldIds names only a non-string one", $ => {
+        const RowType = StructType({ region: StringType, sessions: IntegerType });
+        const cfg = $.let(Slice.config(RowType, {
+            fields: { region: { label: "Region" }, sessions: { label: "Sessions" } },
+            searchFieldIds: ["sessions"],   // names ONLY the non-string field
+        }));
+        const state = $.const(Slice.state({ search: some("apac") }));
+        const r = $.const(East.value({ region: "APAC", sessions: 5n }, RowType));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, r), true));
+    });
+
+    test("apply.breakdown: a datetime breakdown key is a stable ISO string", $ => {
+        const RowType = StructType({ when: DateTimeType });
+        const cfg = $.let(Slice.config(RowType, { fields: { when: { label: "When" } }, breakdownFieldIds: ["when"] }));
+        const state = $.const(Slice.state({ breakdown: some({ fieldId: "when", limit: none }) }));
+        const data = $.const(East.value([
+            { when: new Date("2023-06-01T00:00:00Z") },
+            { when: new Date("2023-06-01T00:00:00Z") },
+        ], ArrayType(RowType)));
+        const bd = $.let(Slice.apply.breakdown([RowType], state, cfg, data), ArrayType(Slice.Types.BreakdownGroup));
+        $(Assert.equal(bd.length(), 1n));
+        $(Assert.equal(bd.get(0n).count, 2n));
+        $(Assert.equal(bd.get(0n).key, "2023-06-01T00:00:00.000Z"));
+    });
+
+    test("apply.breakdown: a non-positive top-N limit means 'no limit' (no collapse into one 'other' bucket)", $ => {
+        const RowType = StructType({ region: StringType });
+        const cfg = $.let(Slice.config(RowType, { fields: { region: { label: "Region" } }, breakdownFieldIds: ["region"] }));
+        const state = $.const(Slice.state({ breakdown: some({ fieldId: "region", limit: some(0n) }) }));
+        const data = $.const(East.value(
+            [{ region: "EU" }, { region: "NA" }, { region: "APAC" }],
+            ArrayType(RowType),
+        ));
+        const bd = $.let(Slice.apply.breakdown([RowType], state, cfg, data), ArrayType(Slice.Types.BreakdownGroup));
+        // limit 0 must NOT collapse all categories into a single "other" bucket.
+        $(Assert.equal(bd.length(), 3n));
+        $(Assert.equal(bd.filter(($, g) => East.equal(g.key, "other")).length(), 0n));
     });
 
     // =======================================================================

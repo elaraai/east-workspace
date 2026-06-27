@@ -7,6 +7,7 @@ import {
     type SubtypeExprOrValue,
     OptionType,
     StructType,
+    VariantType,
     BooleanType,
     StringType,
     FunctionType,
@@ -15,6 +16,29 @@ import {
 
 import { SizeType, ColorSchemeType } from "../../style.js";
 import type { SizeLiteral, ColorSchemeLiteral } from "../../style.js";
+
+// ============================================================================
+// IconButton attention animation
+// ============================================================================
+
+/**
+ * Attention animation drawing the eye to an IconButton.
+ *
+ * @property none - No animation (default)
+ * @property pulse - Pulses the badge (the count blinks for attention)
+ * @property ring - An expanding "ping" ring around the button
+ */
+export const IconButtonAttentionType = VariantType({
+    none: NullType,
+    pulse: NullType,
+    ring: NullType,
+});
+
+/** Type representing the IconButton attention-animation variant. */
+export type IconButtonAttentionType = typeof IconButtonAttentionType;
+
+/** String-literal shorthands for {@link IconButtonAttentionType}. */
+export type IconButtonAttentionLiteral = "none" | "pulse" | "ring";
 import { ButtonVariantType, type ButtonVariantLiteral } from "../button/types.js";
 import { IconType } from "../../display/icon/types.js";
 import type { IconPayload } from "../button/types.js";
@@ -111,6 +135,9 @@ export interface IconButtonStyle {
  * @property loading - Loading state — renderer shows a spinner and blocks interaction
  * @property disabled - Disabled state — renderer greys out and blocks interaction
  * @property onClick - Click-handler callback (zero-arg East function)
+ * @property badge - Optional superscript badge text/count (`""` ⇒ dot-only); absent ⇒ no badge
+ * @property badgeColorPalette - Colour scheme for the badge bubble (default `red`)
+ * @property attention - Optional attention animation (`none` / `pulse` / `ring`)
  * @property style - Optional visual-presentation sub-struct
  */
 export const IconButtonType = StructType({
@@ -122,6 +149,9 @@ export const IconButtonType = StructType({
     loading: OptionType(BooleanType),
     disabled: OptionType(BooleanType),
     onClick: OptionType(FunctionType([], NullType)),
+    badge: OptionType(StringType),
+    badgeColorPalette: OptionType(ColorSchemeType),
+    attention: OptionType(IconButtonAttentionType),
     style: OptionType(IconButtonStyleType),
 });
 
@@ -163,4 +193,10 @@ export interface IconButtonOptions extends IconButtonStyle {
     disabled?: SubtypeExprOrValue<BooleanType>;
     /** Click-handler callback (zero-arg East function) */
     onClick?: SubtypeExprOrValue<FunctionType<[], NullType>>;
+    /** Superscript badge text/count (a number, `"99+"`, or `""` for a dot-only indicator); absent ⇒ no badge. */
+    badge?: SubtypeExprOrValue<StringType>;
+    /** Colour scheme for the badge bubble. Default `"red"`. */
+    badgeColorPalette?: SubtypeExprOrValue<ColorSchemeType> | ColorSchemeLiteral;
+    /** Attention animation — `"pulse"` blinks the badge, `"ring"` rings the button. */
+    attention?: SubtypeExprOrValue<IconButtonAttentionType> | IconButtonAttentionLiteral;
 }

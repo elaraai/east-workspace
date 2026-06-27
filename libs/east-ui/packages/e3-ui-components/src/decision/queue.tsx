@@ -125,15 +125,17 @@ interface RowProps {
     narrow: boolean;
     leverPayloads: Record<string, TypeNode>;
     modify: ((d: Decision, update: (next: Decision) => void) => unknown) | undefined;
-    detail: ((d: Decision) => unknown) | undefined;
+    evidence: ((d: Decision) => unknown) | undefined;
     defaultFacet: FacetKey;
+    /** Author include-list of data facets; `null` ⇒ all. `modify` stays callback-gated. */
+    facetInclude: ReadonlySet<FacetKey> | null;
     apply: (d: Decision) => void;
     reject: (d: Decision) => void;
     leaving: ExitReason | undefined;
     storageKey: string;
 }
 
-const Row = memo(function Row({ decision, handle, selected, narrow, leverPayloads, modify, detail, defaultFacet, apply, reject, leaving, storageKey }: RowProps) {
+const Row = memo(function Row({ decision, handle, selected, narrow, leverPayloads, modify, evidence, defaultFacet, facetInclude, apply, reject, leaving, storageKey }: RowProps) {
     const dq = useSlotRecipe({ key: 'decisionQueue' });
     const status = useSlotRecipe({ key: 'status' });
     const tabs = useSlotRecipe({ key: 'facetTabs' });
@@ -142,8 +144,18 @@ const Row = memo(function Row({ decision, handle, selected, narrow, leverPayload
     const ts = tabs({});
     const st = status({ status: URGENCY_TONE[decision.urgency.type], size: 'md' });
 
-    const [facet, setFacet] = useState<FacetKey>(defaultFacet);
-    useEffect(() => { if (!selected) setFacet(defaultFacet); }, [selected, defaultFacet]);
+    // Visible facets: the author include-list ANDed with the modify callback gate.
+    const visibleFacets = useMemo(
+        () => FACETS.filter(f => f.key === 'modify' ? modify !== undefined : (facetInclude === null || facetInclude.has(f.key))),
+        [modify, facetInclude],
+    );
+    // Open the configured default facet, or the first available one when it is disabled.
+    const effectiveDefault = visibleFacets.some(f => f.key === defaultFacet)
+        ? defaultFacet
+        : (visibleFacets[0]?.key ?? defaultFacet);
+
+    const [facet, setFacet] = useState<FacetKey>(effectiveDefault);
+    useEffect(() => { if (!selected) setFacet(effectiveDefault); }, [selected, effectiveDefault]);
 
     const gate = handle.commitStateFor(decision.id);
     const applyEnabled = gate === null || gate.type === 'ready';
@@ -164,13 +176,13 @@ const Row = memo(function Row({ decision, handle, selected, narrow, leverPayload
         return modify(decision, handle.update);
     }, [selected, facet, modify, decision, handle.update]);
     const canvas = useMemo<unknown>(() => {
-        if (!selected || facet !== 'evidence' || !detail) return null;
-        return detail(decision);
-    }, [selected, facet, detail, decision]);
+        if (!selected || facet !== 'evidence' || !evidence) return null;
+        return evidence(decision);
+    }, [selected, facet, evidence, decision]);
 
     const facetTabs = (
         <Box css={ts.root} {...(narrow ? { display: 'flex', width: '100%' } : {})}>
-            {FACETS.filter(f => f.key !== 'modify' || modify !== undefined).map(f => (
+            {visibleFacets.map(f => (
                 <Box
                     key={f.key}
                     as="button"
@@ -226,9 +238,12 @@ const Row = memo(function Row({ decision, handle, selected, narrow, leverPayload
             <Box as="span" css={st.label}>{decision.urgency.type}{deadlineSuffix(decision)}</Box>
         </Box>
     );
+    // Value-axis descriptor: when `signed` is false, the headline value reads
+    // as a plain magnitude — no force-sign, no green-when-positive (#135).
+    const valueSigned = getSomeorUndefined(decision.valueAxis)?.signed ?? true;
     const valueText = (
-        <Text fontFamily="mono" fontWeight="semibold" textAlign="right" {...(decision.value >= 0 && selected ? { color: 'fg.success' } : {})}>
-            {decisionValue(decision, decision.value, selected)}
+        <Text fontFamily="mono" fontWeight="semibold" textAlign="right" {...(valueSigned && decision.value >= 0 && selected ? { color: 'fg.success' } : {})}>
+            {decisionValue(decision, decision.value, valueSigned && selected)}
         </Text>
     );
 
@@ -265,7 +280,7 @@ const Row = memo(function Row({ decision, handle, selected, narrow, leverPayload
                     {facet === 'evidence' && (
                         <EvidenceFacet decision={decision}>
                             {canvas != null && (
-                                <EastChakraComponent value={canvas as never} storageKey={`${storageKey}-detail-${decision.id}`} />
+                                <EastChakraComponent value={canvas as never} storageKey={`${storageKey}-evidence-${decision.id}`} />
                             )}
                         </EvidenceFacet>
                     )}
@@ -430,11 +445,16 @@ const EastChakraDecisionQueue = memo(function EastChakraDecisionQueue({ value, s
             ((d: Decision, update: (next: Decision) => void) => unknown) | undefined,
         [value.modify],
     );
-    const detail = useMemo(
-        () => getSomeorUndefined(value.detail) as ((d: Decision) => unknown) | undefined,
-        [value.detail],
+    const evidence = useMemo(
+        () => getSomeorUndefined(value.evidence) as ((d: Decision) => unknown) | undefined,
+        [value.evidence],
     );
     const defaultFacet = (getSomeorUndefined(value.defaultFacet)?.type ?? 'evidence') as FacetKey;
+    // Author include-list of data facets (`null` ⇒ all). `modify` stays callback-gated.
+    const facetInclude = useMemo<ReadonlySet<FacetKey> | null>(() => {
+        const facets = getSomeorUndefined(value.facets);
+        return facets === undefined ? null : new Set(facets.map(f => f.type as FacetKey));
+    }, [value.facets]);
     const defaultExpanded = getSomeorUndefined(value.defaultExpanded);
 
     // Selection is the expanded row; before any selection exists the host's
@@ -536,8 +556,9 @@ const EastChakraDecisionQueue = memo(function EastChakraDecisionQueue({ value, s
                         narrow={narrow}
                         leverPayloads={leverPayloads}
                         modify={modify}
-                        detail={detail}
+                        evidence={evidence}
                         defaultFacet={defaultFacet}
+                        facetInclude={facetInclude}
                         apply={apply}
                         reject={reject}
                         leaving={exitingReasons.get(d.id)}

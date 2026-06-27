@@ -155,6 +155,10 @@ export const EastChakraCard = memo(function EastChakraCard({ value, storageKey }
     const headerBackground = style ? getSomeorUndefined(style.headerBackground) : undefined;
     const footerBackground = style ? getSomeorUndefined(style.footerBackground) : undefined;
     const accentColor = style ? getSomeorUndefined(style.accentColor) : undefined;
+    // Body padding: `flush` ⇒ full-bleed (0) for Planner/Table/Chart/Map;
+    // else explicit `bodyPadding`; else the default 18×20 (#132).
+    const bodyPadding = style ? getSomeorUndefined(style.bodyPadding) : undefined;
+    const flush = (style ? getSomeorUndefined(style.flush) : undefined) === true;
 
     const isDisabled = stateTag === "disabled";
     const isStale = stateTag === "stale";
@@ -206,12 +210,10 @@ export const EastChakraCard = memo(function EastChakraCard({ value, storageKey }
             {/* Body — bsys Frame body: 18px padding, flex column so multiple
                 children get breathing room rather than stacking flush. */}
             <ChakraCard.Body
-                paddingTop="18px"
-                paddingBottom="18px"
-                paddingX="20px"
+                padding={flush ? "0" : (bodyPadding ?? "18px 20px")}
                 display="flex"
                 flexDirection="column"
-                gap="3"
+                gap={flush ? "0" : "3"}
                 opacity={isStale ? 0.6 : undefined}
             >
                 {hasFallbackBody ? (

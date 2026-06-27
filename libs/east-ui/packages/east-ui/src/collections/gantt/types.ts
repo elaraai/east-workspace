@@ -341,6 +341,7 @@ export const GanttStyleType = StructType({
     stickyHeader: OptionType(BooleanType),
     showColumnBorder: OptionType(BooleanType),
     showToday: OptionType(BooleanType),
+    rowHeight: OptionType(IntegerType),
 });
 
 /**
@@ -404,6 +405,8 @@ export interface GanttStyle<ColumnKeys extends string = string> {
     size?: SubtypeExprOrValue<TableSizeType> | TableSizeLiteral;
     /** Density preset driving row + header height (compact / condensed / comfortable). Overrides `size` when set. */
     density?: SubtypeExprOrValue<DensityType> | DensityLiteral;
+    /** Explicit pixel row height. Overrides `density` when set, and flows through to the virtualizer (both panes + bars). */
+    rowHeight?: SubtypeExprOrValue<IntegerType>;
     /** Whether to show zebra stripes on rows. */
     striped?: SubtypeExprOrValue<BooleanType>;
     /** Whether the header sticks when scrolling. */

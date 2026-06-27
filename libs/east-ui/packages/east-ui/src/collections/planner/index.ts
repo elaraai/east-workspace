@@ -28,6 +28,7 @@ import {
     StringType,
     FloatType,
     DateTimeType,
+    BooleanType,
     NullType,
     variant,
     some,
@@ -47,6 +48,13 @@ import {
     PlannerFlavourType,
     PlannerStateType,
     PlannerMarkerType,
+    PlannerStretchType,
+    type PlannerStretchLiteral,
+    PlannerContentAlignType,
+    type PlannerContentAlignLiteral,
+    PlannerContentType,
+    PlannerAnimationType,
+    type PlannerAnimationLiteral,
     PlannerAlignType,
     type PlannerAlignLiteral,
     PlannerColumnType,
@@ -72,6 +80,13 @@ export {
     PlannerFlavourType,
     PlannerStateType,
     PlannerMarkerType,
+    PlannerStretchType,
+    type PlannerStretchLiteral,
+    PlannerContentAlignType,
+    type PlannerContentAlignLiteral,
+    PlannerContentType,
+    PlannerAnimationType,
+    type PlannerAnimationLiteral,
     PlannerAlignType,
     type PlannerAlignLiteral,
     PlannerColumnType,
@@ -103,6 +118,11 @@ export {
  * @property state - The audit state (see {@link PlannerStateType})
  * @property key - Optional stable event identity (drag-grammar cell refs)
  * @property popover - Optional click-triggered rich body (UIComponent)
+ * @property stretch - Optional fill axis (horizontal / vertical / both); absent ⇒ content-sized
+ * @property content - Optional content alignment inside the tile (defaults to top-left)
+ * @property tone - Optional semantic colour override (tints fill/text/border; none ⇒ the state grammar)
+ * @property animation - Optional attention animation (pulse / none)
+ * @property hovercard - Optional open-on-hover rich body (UIComponent); coexists with `popover`
  */
 export const PlannerEventType: StructType<{
     key: OptionType<StringType>,
@@ -112,14 +132,24 @@ export const PlannerEventType: StructType<{
     label: StringType,
     state: PlannerStateType,
     popover: OptionType<UIComponentType>,
+    stretch: OptionType<PlannerStretchType>,
+    content: OptionType<PlannerContentType>,
+    tone: OptionType<StatusValueType>,
+    animation: OptionType<PlannerAnimationType>,
+    hovercard: OptionType<UIComponentType>,
 }> = StructType({
-    key:      OptionType(StringType),
-    slot:     PlannerSlotType,
-    endSlot:  OptionType(PlannerSlotType),
-    bucket:   OptionType(StringType),
-    label:    StringType,
-    state:    PlannerStateType,
-    popover:  OptionType(UIComponentType),
+    key:       OptionType(StringType),
+    slot:      PlannerSlotType,
+    endSlot:   OptionType(PlannerSlotType),
+    bucket:    OptionType(StringType),
+    label:     StringType,
+    state:     PlannerStateType,
+    popover:   OptionType(UIComponentType),
+    stretch:   OptionType(PlannerStretchType),
+    content:   OptionType(PlannerContentType),
+    tone:      OptionType(StatusValueType),
+    animation: OptionType(PlannerAnimationType),
+    hovercard: OptionType(UIComponentType),
 });
 export type PlannerEventType = typeof PlannerEventType;
 
@@ -199,6 +229,7 @@ export type PlannerReviewType = typeof PlannerReviewType;
  * @property density - Optional density (row / header rhythm)
  * @property slotMinWidth - Optional min-width (CSS) per x-axis slot column; the timeline scrolls when slots can't fit
  * @property onSelectRow - Optional row-selection callback
+ * @property rowHover - Optional opt-in row-highlight outline on hover (absent/false ⇒ no hover affordance)
  */
 export const PlannerRootType: StructType<{
     variant: PlannerVariantType,
@@ -210,6 +241,7 @@ export const PlannerRootType: StructType<{
     slotMinWidth: OptionType<StringType>,
     onSelectRow: OptionType<FunctionType<[PlannerSelectEventType], NullType>>,
     review: OptionType<PlannerReviewType>,
+    rowHover: OptionType<BooleanType>,
 }> = StructType({
     variant:      PlannerVariantType,
     axis:         PlannerAxisType,
@@ -223,6 +255,9 @@ export const PlannerRootType: StructType<{
     // approve-all/reject-all foot. Absent ⇒ a plain Planner (the decision column
     // and foot do not render and the row `status`/`approval` are inert).
     review:       OptionType(PlannerReviewType),
+    // Opt-in hover affordance — draws a light brand outline around the whole row
+    // (over both panes) on hover. Absent/false ⇒ no hover highlight.
+    rowHover:     OptionType(BooleanType),
 });
 export type PlannerRootType = typeof PlannerRootType;
 
@@ -368,6 +403,11 @@ function slotOrdinal(s: SubtypeExprOrValue<StringType>): ExprType<PlannerSlotTyp
  * @property label - The event's text
  * @property state - The audit state — a `PlannerStateType` value or a string shorthand
  * @property popover - Optional click-triggered rich body (UIComponent)
+ * @property stretch - Optional fill axis (`"horizontal"` / `"vertical"` / `"both"`); absent ⇒ content-sized
+ * @property content - Optional content alignment inside the tile (defaults to top-left)
+ * @property tone - Optional semantic colour override — a `StatusValueType` value or a status string
+ * @property animation - Optional attention animation (`"pulse"` / `"none"`)
+ * @property hovercard - Optional open-on-hover rich body (UIComponent); coexists with `popover`
  */
 export interface EventInput {
     /** Optional stable event identity — referenced by drag-grammar cell refs. */
@@ -384,6 +424,26 @@ export interface EventInput {
     state: SubtypeExprOrValue<PlannerStateType> | "committed" | "rejected" | "added" | "model" | "removed";
     /** Optional click-triggered rich body (UIComponent). */
     popover?: SubtypeExprOrValue<UIComponentType>;
+    /** Optional fill axis — fills the cell width (`"horizontal"`), height (`"vertical"`),
+     *  or both. Absent ⇒ content-sized (intrinsic). */
+    stretch?: SubtypeExprOrValue<PlannerStretchType> | PlannerStretchLiteral;
+    /** Optional content alignment inside the tile — each axis a `PlannerContentAlignType`
+     *  value or a `"start"` / `"center"` / `"end"` string. Defaults to top-left. */
+    content?: {
+        /** Horizontal content alignment (→ `justifyContent`). */
+        horizontal?: SubtypeExprOrValue<PlannerContentAlignType> | PlannerContentAlignLiteral;
+        /** Vertical content alignment (→ `alignItems`). */
+        vertical?: SubtypeExprOrValue<PlannerContentAlignType> | PlannerContentAlignLiteral;
+    };
+    /** Optional semantic colour override — tints fill/text/border-colour while keeping
+     *  the state's border-style + text-decoration. Absent ⇒ the state grammar. */
+    tone?: SubtypeExprOrValue<StatusValueType> | StatusValueLiteral;
+    /** Optional attention animation. `"pulse"` draws a gentle opacity pulse (honouring
+     *  `prefers-reduced-motion`); `"none"` / absent is static. */
+    animation?: SubtypeExprOrValue<PlannerAnimationType> | PlannerAnimationLiteral;
+    /** Optional open-on-hover rich body (UIComponent). Coexists with `popover` — hover
+     *  previews, click pins. */
+    hovercard?: SubtypeExprOrValue<UIComponentType>;
 }
 
 function resolveState(state: EventInput["state"]): SubtypeExprOrValue<PlannerStateType> {
@@ -397,23 +457,57 @@ function resolveState(state: EventInput["state"]): SubtypeExprOrValue<PlannerSta
     }
 }
 
+/** Resolve the `stretch` string shorthand into a {@link PlannerStretchType} value. */
+function resolveStretch(s: NonNullable<EventInput["stretch"]>): SubtypeExprOrValue<PlannerStretchType> {
+    return typeof s === "string" ? East.value(variant(s, null), PlannerStretchType) : s;
+}
+
+/** Resolve a content-alignment string shorthand into a {@link PlannerContentAlignType} value. */
+function resolveContentAlign(a: SubtypeExprOrValue<PlannerContentAlignType> | PlannerContentAlignLiteral): SubtypeExprOrValue<PlannerContentAlignType> {
+    return typeof a === "string" ? East.value(variant(a, null), PlannerContentAlignType) : a;
+}
+
+/** Resolve the `content` two-axis input into a {@link PlannerContentType} value. */
+function resolveContent(c: NonNullable<EventInput["content"]>): ExprType<PlannerContentType> {
+    return East.value({
+        horizontal: c.horizontal !== undefined ? some(resolveContentAlign(c.horizontal)) : none,
+        vertical:   c.vertical   !== undefined ? some(resolveContentAlign(c.vertical))   : none,
+    }, PlannerContentType);
+}
+
+/** Resolve the `animation` string shorthand into a {@link PlannerAnimationType} value. */
+function resolveAnimation(a: NonNullable<EventInput["animation"]>): SubtypeExprOrValue<PlannerAnimationType> {
+    return typeof a === "string" ? East.value(variant(a, null), PlannerAnimationType) : a;
+}
+
+/** Resolve the `tone` status string shorthand into a {@link StatusValueType} value. */
+function resolveTone(t: NonNullable<EventInput["tone"]>): SubtypeExprOrValue<StatusValueType> {
+    return typeof t === "string" ? East.value(variant(t, null), StatusValueType) : t;
+}
+
 /**
  * Builds a single Planner event from a flat TS input. Normalises optional fields
  * into their `OptionType` envelopes and resolves the `state` string shorthands
- * (`"committed"` / `"rejected"` / `"added"` / `"model"` / `"removed"`).
+ * (`"committed"` / `"rejected"` / `"added"` / `"model"` / `"removed"`) as well as
+ * the `stretch` / `content` / `tone` / `animation` shorthands.
  *
  * @param input - The event configuration ({@link EventInput})
  * @returns An East expression of {@link PlannerEventType}
  */
 function createEvent(input: EventInput): ExprType<PlannerEventType> {
     return East.value({
-        key:      input.key !== undefined ? some(input.key) : none,
-        slot:     input.slot,
-        endSlot:  input.endSlot !== undefined ? some(input.endSlot) : none,
-        bucket:   input.bucket !== undefined ? some(input.bucket) : none,
-        label:    input.label,
-        state:    resolveState(input.state),
-        popover:  input.popover !== undefined ? some(input.popover) : none,
+        key:       input.key !== undefined ? some(input.key) : none,
+        slot:      input.slot,
+        endSlot:   input.endSlot !== undefined ? some(input.endSlot) : none,
+        bucket:    input.bucket !== undefined ? some(input.bucket) : none,
+        label:     input.label,
+        state:     resolveState(input.state),
+        popover:   input.popover !== undefined ? some(input.popover) : none,
+        stretch:   input.stretch !== undefined ? some(resolveStretch(input.stretch)) : none,
+        content:   input.content !== undefined ? some(resolveContent(input.content)) : none,
+        tone:      input.tone !== undefined ? some(resolveTone(input.tone)) : none,
+        animation: input.animation !== undefined ? some(resolveAnimation(input.animation)) : none,
+        hovercard: input.hovercard !== undefined ? some(input.hovercard) : none,
     }, PlannerEventType);
 }
 
@@ -551,6 +645,10 @@ export interface PlannerConfig<R extends StructType> {
     /** Optional review chrome — the per-row Approve/Reject decision column + the
      *  approve-all / reject-all foot. Presence is the opt-in. */
     review?: PlannerReviewConfig;
+    /** Optional opt-in row-highlight outline on hover (a light brand outline around
+     *  the whole row over both panes). Absent/false ⇒ no hover affordance. Works on
+     *  read-only planners, independent of `onSelectRow`. */
+    rowHover?: SubtypeExprOrValue<BooleanType>;
 }
 
 /**
@@ -634,6 +732,7 @@ function buildRoot(
         slotMinWidth: config.slotMinWidth !== undefined ? some(config.slotMinWidth) : none,
         onSelectRow:  config.onSelectRow !== undefined ? some(config.onSelectRow) : none,
         review:       config.review !== undefined ? some(buildReview(config.review)) : none,
+        rowHover:     config.rowHover !== undefined ? some(config.rowHover) : none,
     }), UIComponentType);
 }
 
@@ -789,6 +888,14 @@ export interface PlannerNamespace {
         Flavour: typeof PlannerFlavourType;
         /** The three event states. */
         State: typeof PlannerStateType;
+        /** The event-tile fill axis (horizontal / vertical / both). */
+        Stretch: typeof PlannerStretchType;
+        /** A single content-alignment position (start / center / end). */
+        ContentAlign: typeof PlannerContentAlignType;
+        /** The event-tile two-axis content alignment. */
+        Content: typeof PlannerContentType;
+        /** The event-tile attention animation (none / pulse). */
+        Animation: typeof PlannerAnimationType;
         /** A status marker (slot + status + message). */
         Marker: typeof PlannerMarkerType;
         /** A single placed event. */
@@ -1075,6 +1182,53 @@ export const Planner: PlannerNamespace = {
          * @property rejected - Reviewed and declined; kept for diff
          */
         State: PlannerStateType,
+        /**
+         * Which axis an event tile stretches to fill its cell on.
+         *
+         * @remarks
+         * The optional `stretch` of a {@link PlannerEventType}; absent ⇒
+         * content-sized. Deliberately `stretch` (not `fill`) to avoid confusion
+         * with the background-colour fill.
+         *
+         * @property horizontal - Fill the cell width
+         * @property vertical - Fill the cell height
+         * @property both - Fill both axes
+         */
+        Stretch: PlannerStretchType,
+        /**
+         * One content-alignment position along a single axis.
+         *
+         * @remarks
+         * Used for both axes of {@link PlannerContentType}.
+         *
+         * @property start - Align to the start (left / top)
+         * @property center - Centre
+         * @property end - Align to the end (right / bottom)
+         */
+        ContentAlign: PlannerContentAlignType,
+        /**
+         * Where an event tile's content sits inside the tile — a two-axis
+         * alignment.
+         *
+         * @remarks
+         * The optional `content` of a {@link PlannerEventType}; both axes default
+         * to `start` (top-left).
+         *
+         * @property horizontal - Horizontal content alignment (→ `justifyContent`)
+         * @property vertical - Vertical content alignment (→ `alignItems`)
+         */
+        Content: PlannerContentType,
+        /**
+         * An event tile's optional attention animation.
+         *
+         * @remarks
+         * The optional `animation` of a {@link PlannerEventType}; `pulse` honours
+         * `prefers-reduced-motion`.
+         *
+         * @property none - No animation (the default)
+         * @property pulse - A gentle opacity pulse
+         */
+        Animation: PlannerAnimationType,
         /**
          * A status marker placed at a slot — declared parallel to events (in the
          * row's `markers`, not on an event). The renderer rings the cell at

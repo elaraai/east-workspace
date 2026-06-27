@@ -364,6 +364,25 @@ export const tableDensityCompact = example({
     inputs: [],
 });
 
+export const tableRowHeight = example({
+    keywords: ["Table", "Root", "rowHeight", "pixel", "override", "density", "virtualization"],
+    description: "Explicit pixel rowHeight overrides the density preset — fixed 48px rows fed to the virtualizer",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <Table
+                variant="line"
+                rowHeight={48n}
+                data={East.Array.range(0n, 6n).map((_$, i) => ({
+                    name: East.str`Row ${i}`,
+                    status: "Active",
+                }))}
+                columns={{ name: { header: "Name" }, status: { header: "Status" } }}
+            />
+        );
+    }),
+    inputs: [],
+});
+
 export const tableExpandedRichDetail = example({
     keywords: ["Table", "Root", "expandedContent", "rich detail", "Stack", "Stat"],
     description: "Expandable rows with rich detail content — Stack of Stat + Text components nested in the detail panel",

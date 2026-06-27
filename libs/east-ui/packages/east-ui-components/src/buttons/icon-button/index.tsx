@@ -4,7 +4,7 @@
  */
 
 import { memo, useMemo, useCallback } from "react";
-import { IconButton as ChakraIconButton, type IconButtonProps } from "@chakra-ui/react";
+import { Box, Float, IconButton as ChakraIconButton, useSlotRecipe, type IconButtonProps } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { library } from "@fortawesome/fontawesome-svg-core";
 import { fas } from "@fortawesome/free-solid-svg-icons";
@@ -69,10 +69,16 @@ export type EastChakraIconButtonProps = {
  */
 export const EastChakraIconButton = memo(function EastChakraIconButton({ value, ...rest }: EastChakraIconButtonProps) {
     const visual = useMemo(() => toChakraIconButton(value), [value]);
+    const recipe = useSlotRecipe({ key: "iconButton" });
 
     const loading = getSomeorUndefined(value.loading);
     const disabled = getSomeorUndefined(value.disabled);
     const loadingIcon = getSomeorUndefined(value.loadingIcon) as IconValue | undefined;
+
+    // Optional superscript badge + attention animation (#123).
+    const badge = getSomeorUndefined(value.badge);
+    const badgeColorPalette = getSomeorUndefined(value.badgeColorPalette)?.type ?? "red";
+    const attention = getSomeorUndefined(value.attention)?.type ?? "none";
 
     const onClickFn = useMemo(() => getSomeorUndefined(value.onClick), [value.onClick]);
     const handleClick = useCallback(() => {
@@ -86,7 +92,13 @@ export const EastChakraIconButton = memo(function EastChakraIconButton({ value, 
     const activePrefix = loading && loadingIcon ? loadingIcon.prefix : value.prefix;
     const activeName = loading && loadingIcon ? loadingIcon.name : value.name;
 
-    return (
+    // Static badge/ring chrome (+ reduced-motion guards) lives in the recipe;
+    // only the dynamic palette + badge text are inline. `pulse` blinks the
+    // badge, `ring` rings the button.
+    const showRing = attention === "ring";
+    const chrome = recipe({ shape: badge === "" ? "dot" : "count", pulse: attention === "pulse" });
+
+    const button = (
         <ChakraIconButton
             {...rest}
             variant={visual.variant}
@@ -103,5 +115,21 @@ export const EastChakraIconButton = memo(function EastChakraIconButton({ value, 
         >
             <FontAwesomeIcon icon={[activePrefix as IconPrefix, activeName as IconName]} />
         </ChakraIconButton>
+    );
+
+    if (badge === undefined && !showRing) return button;
+
+    return (
+        <Box css={chrome.wrapper}>
+            {showRing && <Box css={chrome.ring} colorPalette={visual.colorPalette ?? "gray"} />}
+            {button}
+            {badge !== undefined && (
+                <Float placement="top-end">
+                    <Box css={chrome.badge} colorPalette={badgeColorPalette}>
+                        {badge === "" ? null : badge}
+                    </Box>
+                </Float>
+            )}
+        </Box>
     );
 }, (prev, next) => iconButtonEqual(prev.value, next.value));

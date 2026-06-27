@@ -10,9 +10,11 @@ import { findIconDefinition, library } from "@fortawesome/fontawesome-svg-core";
 import { fas, faAnglesLeft, faAnglesRight, faCaretRight, faChevronLeft, faChevronRight, faExpand, faMinus, faPlus } from "@fortawesome/free-solid-svg-icons";
 import RBush from "rbush";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Schematic } from "@elaraai/east-ui/internal";
+import { Schematic, Slice as SliceInternal } from "@elaraai/east-ui/internal";
 import type { IconName } from "@fortawesome/fontawesome-common-types";
 import { getSomeorUndefined } from "../../utils";
+import { SliceRailCluster } from "../../slice/rail";
+import { useSliceReactivity } from "../../slice/use-slice-reactivity";
 import { usePersistedState } from "../../hooks/usePersistedState";
 import { MARKER_LABEL_FONT, markerHit, markerHitbox, paintSchematic, type SchematicPalette } from "./paint";
 import {
@@ -216,11 +218,19 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     const showGrid = getSomeorUndefined(value.grid) ?? true;
     const showNavigator = getSomeorUndefined(value.navigator) ?? value.zones.length > 0;
     const showMinimap = getSomeorUndefined(value.minimap) ?? value.items.length >= MINIMAP_AUTO;
+    // Optional Slice chrome — a full-width top-edge rail (replaces the built-in
+    // navigator search; #128). The narrowing itself is fed upstream via
+    // `Slice.rows` into `items`, the same "chrome only" model Table/Chart use.
+    const sliceChrome = getSomeorUndefined(value.slice) as
+        { slice: unknown; affordances: ReadonlyArray<{ type: string }> } | undefined;
+    const sliceHandle = sliceChrome?.slice as ValueTypeOf<typeof SliceInternal.Types.Bind> | undefined;
+    useSliceReactivity(sliceHandle?.key);
+    const sliceFrameStyles = useSlotRecipe({ key: "sliceFrame" })();
+    const hasSliceChrome = sliceChrome !== undefined && sliceHandle !== undefined;
     // A fixed height pins the panel instead of the extent's aspect ratio.
     const fixedHeight = getSomeorUndefined(value.height);
 
     const [selected, setSelected] = useState<string | null>(null);
-    const [query, setQuery] = useState("");
     const [openZone, setOpenZone] = useState<string | null>(null);
     // Index-rail collapse is a durable layout preference — persist it under
     // `storageKey` (issue #57, P8). The camera and selection are transient
@@ -392,10 +402,6 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     const lod: LodTier = ppu >= LOD_CARD_PPU ? "card" : ppu >= LOD_LABEL_PPU ? "label" : "dot";
     const centerTree = useMemo(() => buildCenterTree(visibleItems), [visibleItems]);
     const tiers = useMemo(() => declutterTiers(visibleItems, centerTree, lod, ppu, selected), [visibleItems, centerTree, lod, ppu, selected]);
-    const lowerQuery = query.trim().toLowerCase();
-    const searchHits = useMemo(() => lowerQuery === "" ? [] : value.items
-        .filter(i => i.key.toLowerCase().includes(lowerQuery) || i.label.toLowerCase().includes(lowerQuery))
-        .slice(0, 12), [lowerQuery, value.items]);
 
     const scaleLen = ppu > 0 ? niceScaleLength(ppu, 100) : 0;
 
@@ -832,7 +838,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         );
     };
 
-    return (
+    const schematicBody = (
         <Box css={styles.root} {...(fixedHeight !== undefined ? { style: { height: fixedHeight, maxHeight: fixedHeight } } : {})}>
             <SchematicPaletteProbe onResolve={setPalette} />
             {showNavigator && navCollapsed && (
@@ -846,40 +852,16 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                         <Box as="span" css={styles.navTitle}>Index</Box>
                         <Box as="button" css={styles.navToggle} aria-label="Collapse index" title="Hide index" onClick={() => setNavCollapsed(true)}><FontAwesomeIcon icon={faAnglesLeft} /></Box>
                     </Box>
-                    <Box
-                        as="input"
-                        css={styles.navSearch}
-                        {...{
-                            placeholder: "Find…",
-                            value: query,
-                            onChange: (e: React.ChangeEvent<HTMLInputElement>) => setQuery(e.target.value),
-                            onKeyDown: (e: React.KeyboardEvent) => {
-                                if (e.key === "Enter" && searchHits[0] !== undefined) {
-                                    flyToItem(searchHits[0]);
-                                    setQuery("");
-                                }
-                            },
-                        }}
-                    />
+                    {/* Search lives in the optional top-edge Slice rail now (#128) —
+                        the navigator is a pure zones→items TOC. */}
                     <Box ref={navTreeRef} css={styles.navTree}>
-                        {lowerQuery !== ""
-                            ? searchHits.map(item => (
-                                <Box key={item.key} as="button" css={styles.navItem} style={{ paddingLeft: "8px" }} onClick={() => { flyToItem(item); setQuery(""); }}>
-                                    <Box as="span" css={styles.statusDot} data-tone={statusTone(item.status) ?? "neutral"} />
-                                    {item.label}
-                                </Box>
-                            ))
-                            : (
-                                <>
-                                    {nav.roots.map(node => renderNavZone(node, 0))}
-                                    {nav.floor.map(item => (
-                                        <Box key={item.key} as="button" css={styles.navItem} data-nav-key={item.key} style={{ paddingLeft: "8px" }} onClick={() => flyToItem(item)}>
-                                            <Box as="span" css={styles.statusDot} data-tone={statusTone(item.status) ?? "neutral"} />
-                                            {item.label}
-                                        </Box>
-                                    ))}
-                                </>
-                            )}
+                        {nav.roots.map(node => renderNavZone(node, 0))}
+                        {nav.floor.map(item => (
+                            <Box key={item.key} as="button" css={styles.navItem} data-nav-key={item.key} style={{ paddingLeft: "8px" }} onClick={() => flyToItem(item)}>
+                                <Box as="span" css={styles.statusDot} data-tone={statusTone(item.status) ?? "neutral"} />
+                                {item.label}
+                            </Box>
+                        ))}
                     </Box>
                 </Box>
             )}
@@ -1032,6 +1014,20 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                         )}
                     </>
                 )}
+            </Box>
+        </Box>
+    );
+
+    // No slice chrome → render the schematic bare (built-in navigator search stays).
+    if (!hasSliceChrome) return schematicBody;
+    // Slice chrome → a full-width top-edge rail above the schematic frame (#128).
+    return (
+        <Box css={{ ...sliceFrameStyles.root, display: "flex", flexDirection: "column", minHeight: 0, ...(fixedHeight !== undefined ? { height: fixedHeight, maxHeight: fixedHeight } : {}) }}>
+            <Box css={{ ...sliceFrameStyles.frameEyebrow, flexShrink: 0 }}>
+                <SliceRailCluster slice={sliceHandle!} affordanceKinds={sliceChrome!.affordances.map(a => a.type)} />
+            </Box>
+            <Box css={{ ...sliceFrameStyles.frameBody, flex: "1 1 0%", minHeight: 0, position: "relative" }}>
+                {schematicBody}
             </Box>
         </Box>
     );

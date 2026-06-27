@@ -79,6 +79,24 @@ export const cardDimensions = example({
     inputs: [],
 });
 
+export const cardFlush = example({
+    keywords: ["Card", "flush", "bodyPadding", "full-bleed", "padding"],
+    description: "A flush card (zero body padding) for full-bleed content, beside a card with a custom bodyPadding",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <HStack gap="4">
+                <Card header={{ eyebrow: "Full bleed" }} width="240px" flush>
+                    <Badge>fills the body edge-to-edge</Badge>
+                </Card>
+                <Card header={{ eyebrow: "Tight" }} width="240px" bodyPadding="6px 8px">
+                    <Text>Custom 6×8 body padding.</Text>
+                </Card>
+            </HStack>
+        );
+    }),
+    inputs: [],
+});
+
 export const cardFlexible = example({
     keywords: ["Card", "Root", "flex", "Stack", "HStack"],
     description: "Card that grows with flex",

@@ -28,5 +28,5 @@ export {
     type BoundNav,
     type PageConstructors,
     type PagesHandlers,
-    type PagesBody,
+    type PagesInput,
 } from "./pages/index.js";

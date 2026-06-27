@@ -239,6 +239,7 @@ export function sliceConfigTypeFor<T extends EastType>(rowType: T) {
         rangeFieldId:      OptionType(StringType),
         searchFieldIds:    ArrayType(StringType),
         breakdownFieldIds: ArrayType(StringType),
+        fieldHints:        DictType(StringType, ArrayType(StringType)),
     });
 }
 
@@ -247,6 +248,7 @@ export const SliceConfigType = StructType({
     rangeFieldId:      OptionType(StringType),
     searchFieldIds:    ArrayType(StringType),
     breakdownFieldIds: ArrayType(StringType),
+    fieldHints:        DictType(StringType, ArrayType(StringType)),
 });
 
 // Internal: materialise a concrete `SliceConfig` East type for the given
@@ -258,6 +260,7 @@ function sliceConfigFor<T>(rowType: T) {
         rangeFieldId:      OptionType(StringType),
         searchFieldIds:    ArrayType(StringType),
         breakdownFieldIds: ArrayType(StringType),
+        fieldHints:        DictType(StringType, ArrayType(StringType)),
     });
 }
 
@@ -278,9 +281,11 @@ const FIELD_KIND_BY_TYPE_TAG: Record<string, "string" | "integer" | "float" | "d
  * row's struct field type.
  *
  * @property label - Human-readable label shown in filter / breakdown UI
+ * @property hints - Optional candidate values surfaced as autocomplete in the filter's `in` / `notIn` / `eq` / `neq` controls
  */
 export interface SliceFieldUserConfig {
     label: string;
+    hints?: ReadonlyArray<string>;
 }
 
 /**
@@ -347,6 +352,9 @@ function createSliceConfig<
     //   { type: "Struct", fields: { fieldName: <EastType>, ... } }
     const rowFields = (rowType as unknown as { fields?: Record<string, EastType> }).fields ?? {};
     const fieldEntries: Array<[string, unknown]> = [];
+    // Explicit per-field autocomplete hints for the filter `in`/`notIn`/`eq`/`neq`
+    // controls (#131); omitted ⇒ no entry.
+    const fieldHints = new Map<string, string[]>();
     for (const [fieldId, fieldConfig] of Object.entries(userConfig.fields) as Array<[string, SliceFieldUserConfig]>) {
         const fieldType = rowFields[fieldId];
         if (!fieldType) {
@@ -364,12 +372,19 @@ function createSliceConfig<
             (_$, row) => (row as unknown as Record<string, ExprType<EastType>>)[fieldId] as never,
         );
         fieldEntries.push([fieldId, variant(kind, { label: fieldConfig.label, accessor })]);
+        if (fieldConfig.hints !== undefined) fieldHints.set(fieldId, [...fieldConfig.hints]);
     }
+    // Default `searchFieldIds` to every string field when not given, so the
+    // search affordance works out of the box (#129). Explicit ids still win.
+    const stringFieldIds = fieldEntries
+        .filter(([, spec]) => (spec as { type: string }).type === "string")
+        .map(([id]) => id);
     return East.value({
         fields: new Map(fieldEntries) as unknown as Map<string, never>,
         rangeFieldId:      userConfig.rangeFieldId !== undefined ? some(userConfig.rangeFieldId) : none,
-        searchFieldIds:    [...(userConfig.searchFieldIds    ?? [])],
+        searchFieldIds:    userConfig.searchFieldIds !== undefined ? [...userConfig.searchFieldIds] : stringFieldIds,
         breakdownFieldIds: [...(userConfig.breakdownFieldIds ?? [])],
+        fieldHints:        fieldHints as unknown as Map<string, never>,
     }, sliceConfigFor(rowType));
 }
 
@@ -623,11 +638,13 @@ export type SliceDimensionArrayType = typeof SliceDimensionArrayType;
  * @property fieldId - Field id (key into `config.fields`)
  * @property label   - Human label
  * @property kind    - Primitive kind: `string` / `integer` / `float` / `datetime` / `boolean`
+ * @property hints   - Explicit autocomplete candidate values (from `Slice.config`); empty when none
  */
 export const SliceFieldDescriptorType = StructType({
     fieldId: StringType,
     label:   StringType,
     kind:    StringType,
+    hints:   ArrayType(StringType),
 });
 export type SliceFieldDescriptorType = typeof SliceFieldDescriptorType;
 

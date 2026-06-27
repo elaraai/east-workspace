@@ -14,6 +14,7 @@ describeEast("Card", (test) => {
         cardHeaderTitle: ex.cardHeaderTitle,
         cardFooter: ex.cardFooter,
         cardDimensions: ex.cardDimensions,
+        cardFlush: ex.cardFlush,
         cardFlexible: ex.cardFlexible,
         cardMultiple: ex.cardMultiple,
         cardWithCompoundHeader: ex.cardWithCompoundHeader,

@@ -80,12 +80,14 @@ export { Input, Checkbox, RadioGroup, RadioCardGroup, TimeRangeInput, DateRangeI
 export { Progress, Banner, EmptyState, Skeleton, Status } from "./runtime/feedback/index.js";
 
 // Navigation
-export { Breadcrumb, NavList } from "./runtime/navigation/index.js";
+export { Breadcrumb, NavList, Pages } from "./runtime/navigation/index.js";
 export { NavListType, NavSectionType, NavItemType } from "./navigation/index.js";
 export type { NavListStyle, NavSectionInput, NavItemInput } from "./navigation/index.js";
-// First-class navigation: the Navigation config/bind handle API (like State / Slice)
-// + the Pages content-switcher factory. A `<Pages>` JSX tag follows.
-export { Navigation, Pages, NavBindHandleType } from "./navigation/index.js";
+// First-class navigation: the Navigation config/bind handle API (like State / Slice).
+// `Pages` is the `<Pages nav pages>` JSX tag (re-exported above); its `.Root`
+// factory takes `{ nav, pages }` and `Pages.Types.Handle(routes)` is the handle
+// type builder (namespaced — never bare-exported).
+export { Navigation } from "./navigation/index.js";
 export type {
     NavRoutes, NavRouteConfig, NavConfig, RouteVariantOf, NavHandleType, BoundNav, PageConstructors,
 } from "./navigation/index.js";

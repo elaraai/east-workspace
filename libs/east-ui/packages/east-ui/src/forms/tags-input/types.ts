@@ -121,6 +121,7 @@ export type TagsInputStyleType = typeof TagsInputStyleType;
  * @property allowOverflow - Whether to allow exceeding `max`
  * @property label - Descriptive label
  * @property placeholder - Placeholder text for input
+ * @property suggestions - Optional autocomplete suggestions surfaced as you type (free entry still allowed)
  * @property onChange - Callback fired when the tag list changes
  * @property onInputChange - Callback fired when the input text changes
  * @property onHighlightChange - Callback fired when the highlighted tag changes
@@ -129,6 +130,7 @@ export type TagsInputStyleType = typeof TagsInputStyleType;
 export const TagsInputRootType = StructType({
     value: ArrayType(StringType),
     defaultValue: OptionType(ArrayType(StringType)),
+    suggestions: OptionType(ArrayType(StringType)),
 
     max: OptionType(IntegerType),
     maxLength: OptionType(IntegerType),
@@ -194,6 +196,8 @@ export type TagsInputRootType = typeof TagsInputRootType;
 export interface TagsInputStyle {
     /** Initial tag values. */
     defaultValue?: SubtypeExprOrValue<ArrayType<typeof StringType>> | string[];
+    /** Autocomplete suggestions surfaced as you type (free entry still allowed). */
+    suggestions?: SubtypeExprOrValue<ArrayType<typeof StringType>> | string[];
     /** Maximum number of tags allowed. */
     max?: SubtypeExprOrValue<IntegerType> | number;
     /** Maximum characters per tag. */

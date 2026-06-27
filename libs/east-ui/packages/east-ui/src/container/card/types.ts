@@ -8,6 +8,7 @@ import {
     OptionType,
     StructType,
     StringType,
+    BooleanType,
 } from "@elaraai/east";
 
 import { OverflowType } from "../../style.js";
@@ -38,6 +39,8 @@ import type { OverflowLiteral } from "../../style.js";
  * @property headerBackground - Background applied to the header strip
  * @property footerBackground - Background applied to the footer strip
  * @property accentColor - Left-edge accent stripe colour
+ * @property bodyPadding - CSS padding shorthand for the body (default `"18px 20px"`)
+ * @property flush - When `true`, removes body padding (full-bleed) — a convenience shortcut overriding `bodyPadding`
  */
 export const CardStyleType = StructType({
     height: OptionType(StringType),
@@ -53,6 +56,8 @@ export const CardStyleType = StructType({
     headerBackground: OptionType(StringType),
     footerBackground: OptionType(StringType),
     accentColor: OptionType(StringType),
+    bodyPadding: OptionType(StringType),
+    flush: OptionType(BooleanType),
 });
 
 /**
@@ -80,6 +85,8 @@ export type CardStyleType = typeof CardStyleType;
  * @property headerBackground - Background applied to the header strip
  * @property footerBackground - Background applied to the footer strip
  * @property accentColor - Left / top accent stripe colour
+ * @property bodyPadding - CSS padding shorthand for the body (default `"18px 20px"`)
+ * @property flush - When `true`, removes body padding so full-bleed content fills the card
  */
 export interface CardStyle {
     /** Height (Chakra UI size token or CSS value) */
@@ -108,4 +115,8 @@ export interface CardStyle {
     footerBackground?: SubtypeExprOrValue<StringType>;
     /** Left / top accent stripe colour */
     accentColor?: SubtypeExprOrValue<StringType>;
+    /** CSS padding shorthand for the body (default `"18px 20px"`). */
+    bodyPadding?: SubtypeExprOrValue<StringType>;
+    /** When `true`, removes body padding (full-bleed) so a Planner / Table / Chart fills the card body. Overrides `bodyPadding`. */
+    flush?: SubtypeExprOrValue<BooleanType>;
 }

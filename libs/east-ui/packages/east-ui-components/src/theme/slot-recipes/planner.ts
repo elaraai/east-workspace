@@ -180,7 +180,9 @@ export const plannerSlotRecipe = defineSlotRecipe({
             color: "{colors.gray.400}",
             fontWeight: "bold",
             flexShrink: 0,
-            width: "18px",
+            // Wide enough for the 3-glyph "N/A" orphan-lane label so every lane's
+            // label gutter is the same width and the chips stay column-aligned.
+            width: "24px",
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
@@ -314,9 +316,14 @@ export const plannerSlotRecipe = defineSlotRecipe({
     },
     variants: {
         size: {
-            sm: { rowHeader: { paddingY: "{spacing.1}" }, row: { minHeight: "36px" }, colHeader: { paddingY: "{spacing.1.5}" }, headerCell: { paddingY: "{spacing.1.5}" }, decisionHeader: { paddingY: "{spacing.1.5}" } },
+            // NB no `row.minHeight` here: the row takes its height from the
+            // per-cell `unitH` the renderer sets (the density `sizes.density.row`
+            // token). A separate `row.minHeight` floor (formerly 36/56) exceeded
+            // that cell height at compact/comfortable and left an uncovered strip
+            // at the bottom of every row that no cell wash filled (#120 item 2).
+            sm: { rowHeader: { paddingY: "{spacing.1}" }, colHeader: { paddingY: "{spacing.1.5}" }, headerCell: { paddingY: "{spacing.1.5}" }, decisionHeader: { paddingY: "{spacing.1.5}" } },
             md: {},
-            lg: { rowHeader: { paddingY: "{spacing.3}" }, row: { minHeight: "56px" }, colHeader: { paddingY: "{spacing.3}" }, headerCell: { paddingY: "{spacing.3}" }, decisionHeader: { paddingY: "{spacing.3}" } },
+            lg: { rowHeader: { paddingY: "{spacing.3}" }, colHeader: { paddingY: "{spacing.3}" }, headerCell: { paddingY: "{spacing.3}" }, decisionHeader: { paddingY: "{spacing.3}" } },
         },
         // Event geometry — slot-bound chip vs multi-slot bar.
         shape: {
@@ -328,7 +335,11 @@ export const plannerSlotRecipe = defineSlotRecipe({
                     display: "flex",
                     alignItems: "center",
                     width: "100%",
-                    height: "22px",
+                    // Fill the row height (the renderer now sizes span cells to the
+                    // density `unitH` and wraps the bar top:0/bottom:0), leaving a
+                    // ~6px gutter top/bottom so stacked bars don't visually fuse —
+                    // no longer a fixed 22px that reads short in taller rows (#120).
+                    height: "calc(100% - 6px)",
                     padding: "0 8px",
                     fontSize: "11px",
                     overflow: "hidden",
@@ -366,6 +377,39 @@ export const plannerSlotRecipe = defineSlotRecipe({
             info:    { markerRing: { borderColor: "{colors.status.info}", background: "bg.info.subtle"    }, markerIcon: { color: "{colors.status.info}" }, statusDot: { background: "{colors.status.info}" } },
             neutral: { markerRing: { borderColor: "border.strong",        background: "transparent"       }, markerIcon: { color: "fg.subtle"            }, statusDot: { background: "fg.subtle"            } },
         },
+        // Per-event attention animation (`event.animation`). `pulse` is the shared
+        // `elara-pulse` opacity keyframe; gated behind `prefers-reduced-motion`.
+        // (The per-event `tone` tint is data-driven, applied inline by the renderer
+        // from the shared status tokens.)
+        animation: {
+            none:  {},
+            pulse: { event: { animation: "elara-pulse 1.6s ease-in-out infinite", "@media (prefers-reduced-motion: reduce)": { animation: "none" } } },
+        },
+        // Opt-in row hover affordance (`root.rowHover`). A dark brand (cyan) ring
+        // drawn as a `::after` overlay over BOTH panes (zIndex above the sticky
+        // panes), `inset: 0` so the planner root's `overflow: hidden` never clips
+        // it. Mirrors the selection overlay the renderer draws, but on hover —
+        // pointer-events: none so it never blocks a click.
+        rowHover: {
+            true: {
+                row: {
+                    _hover: {
+                        _after: {
+                            content: '""',
+                            position: "absolute",
+                            inset: "0",
+                            pointerEvents: "none",
+                            borderWidth: "2px",
+                            borderStyle: "solid",
+                            borderColor: "{colors.brand.600}",
+                            borderRadius: "2px",
+                            zIndex: 4,
+                        },
+                    },
+                },
+            },
+            false: {},
+        },
     },
-    defaultVariants: { size: "md", shape: "point" },
+    defaultVariants: { size: "md", shape: "point", animation: "none", rowHover: false },
 });

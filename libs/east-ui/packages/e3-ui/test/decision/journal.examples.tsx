@@ -32,6 +32,7 @@ export const journalDecisions = e3.input(
             value: 22000,
             deadline: none,
             format: none,
+            valueAxis: none,
             summary: some('NE region · wk 10'),
             downside: some(-4000),
             confidence: some(0.7),

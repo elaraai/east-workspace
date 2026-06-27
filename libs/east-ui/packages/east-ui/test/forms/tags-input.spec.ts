@@ -10,6 +10,7 @@ import * as ex from "./tags-input.examples.js";
 describeEast("TagsInput", (test) => {
     Assert.examples(test, {
         tagsInputBasic: ex.tagsInputBasic,
+        tagsInputSuggestions: ex.tagsInputSuggestions,
         tagsInputInteractive: ex.tagsInputInteractive,
         tagsInputOnInputChange: ex.tagsInputOnInputChange,
         tagsInputOnHighlightChange: ex.tagsInputOnHighlightChange,

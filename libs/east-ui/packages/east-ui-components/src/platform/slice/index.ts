@@ -261,13 +261,81 @@ function bindImpl(key: unknown, config: unknown, initial: unknown, data: unknown
     /* Refresh the live bound entry EVERY bind (rows getter / config / toMatch),
      * before the cache check — so a cached handle's primitives always resolve the
      * current rows + config. */
-    boundByKey.set(k, { rows: (typeof rowsSource === "function" ? rowsSource : liveRows()), config: cfg, toMatch: toMatchFn });
+    // Store the GUARDED `liveRows` getter (not the raw source) so a getter that
+    // transiently returns undefined (data not yet loaded) yields `[]`, not a
+    // `totalCount` crash — the `?? []` guard must cover both branches.
+    boundByKey.set(k, { rows: (typeof rowsSource === "function" ? liveRows : liveRows()), config: cfg, toMatch: toMatchFn });
 
     const cached = sliceHandleCache.get(k);
     if (cached) return cached;
     const handle = buildSliceHandleIR(k);
     sliceHandleCache.set(k, handle);
     return handle;
+}
+
+/**
+ * Auto-derive search dropdown options from the matching rows when the slice
+ * declares no `toMatch`: project each row's first searchable string field to a
+ * **distinct** `{ id, label, meta }`, using the clean field VALUE as both id and
+ * label so selecting an option commits a valid query (#129). Pure + exported so
+ * the projection can be tested directly without standing up the store.
+ *
+ * @param hits - the rows already narrowed by the active search query
+ * @param config - the slice config (its `searchFieldIds` + `fields` accessors)
+ * @returns one option per distinct value (empty when no string field exists)
+ */
+export function autoDeriveMatches(
+    hits: ReadonlyArray<unknown>,
+    config: {
+        searchFieldIds: ReadonlyArray<string>;
+        fields: Map<string, { type: string; value: { accessor: (r: unknown) => unknown } }>;
+    },
+): Array<{ id: string; label: string; meta: typeof none }> {
+    // First searchable string field, else the first string field at all.
+    const stringId = config.searchFieldIds.find(id => config.fields.get(id)?.type === "string")
+        ?? [...config.fields].find(([, f]) => f.type === "string")?.[0];
+    if (stringId === undefined) return [];   // no string field → genuinely un-derivable
+    const accessor = config.fields.get(stringId)!.value.accessor;
+    const seen = new Set<string>();
+    const out: Array<{ id: string; label: string; meta: typeof none }> = [];
+    for (const r of hits) {
+        const v = accessor(r);
+        if (v === undefined || v === null) continue;   // never offer a "null"/"undefined" suggestion (cf. autoDeriveFieldHints)
+        const label = String(v);
+        if (seen.has(label)) continue;   // distinct values only
+        seen.add(label);
+        out.push({ id: label, label, meta: none });
+    }
+    return out;
+}
+
+/** Cap on auto-derived hints per field — a high-cardinality field shouldn't
+ *  flood the suggestion list (free entry beyond the cap stays allowed). */
+const FIELD_HINT_CAP = 50;
+
+/**
+ * Distinct field VALUES across the bound rows — the auto-derived autocomplete
+ * suggestions for the filter `in`/`notIn`/`eq` value controls (#131). Capped at
+ * {@link FIELD_HINT_CAP}; null/undefined skipped. Pure + exported for testing.
+ *
+ * @param rows - the bound rows
+ * @param accessor - the field's value accessor
+ * @param cap - max distinct values to collect
+ * @returns the distinct string values (insertion order), capped
+ */
+export function autoDeriveFieldHints(
+    rows: ReadonlyArray<unknown>,
+    accessor: (r: unknown) => unknown,
+    cap: number = FIELD_HINT_CAP,
+): string[] {
+    const seen = new Set<string>();
+    for (const r of rows) {
+        const v = accessor(r);
+        if (v === undefined || v === null) continue;
+        seen.add(String(v));
+        if (seen.size >= cap) break;
+    }
+    return [...seen];
 }
 
 export const SliceImpl: PlatformFunction[] = [
@@ -306,9 +374,15 @@ export const SliceImpl: PlatformFunction[] = [
         const i = Number(idx as bigint);
         return updateState(key as string, s => ({ ...s, filters: s.filters.filter((_, j) => j !== i) }));
     }),
-    /* Per the declaration: clears filters AND active cohorts. */
+    // "Clear all" must zero every NARROWING the Summary counts — filters,
+    // active cohorts, range, and search — not just filters/cohorts (else the
+    // count can never reach 0). Breakdown (grouping), visible (legend whitelist)
+    // and selectedIndex (selection) are presentation, not narrowings: left alone,
+    // matching activeCount/isActive.
     SliceBindPrimitives.clearFilters.implement((key: unknown) =>
-        updateState(key as string, s => ({ ...s, filters: [], activeCohorts: new Set<string>() }))),
+        updateState(key as string, s => ({
+            ...s, filters: [], activeCohorts: new Set<string>(), range: none, search: none,
+        }))),
 
     // --- cohorts ---
     SliceBindPrimitives.defineCohort.implement((key: unknown, cohort: unknown) => {
@@ -358,28 +432,29 @@ export const SliceImpl: PlatformFunction[] = [
         const k = key as string;
         trackKey(k);
         const s = readState(k);
+        // Active iff a NARROWING is set (mirrors activeCount + clearFilters).
+        // breakdown (grouping), visible (legend whitelist) and selectedIndex
+        // (selection) don't narrow the row set, so they don't count.
         return (
             s.range.type === "some" ||
             s.filters.length > 0 ||
             s.activeCohorts.size > 0 ||
-            s.breakdown.type === "some" ||
-            s.search.type === "some" ||
-            s.visible.type === "some" ||
-            s.selectedIndex.type === "some"
+            s.search.type === "some"
         );
     }),
     SliceBindPrimitives.activeCount.implement((key: unknown) => {
         const k = key as string;
         trackKey(k);
         const s = readState(k);
+        // Count NARROWINGS only — exactly what "clear all" (clearFilters) resets.
+        // Breakdown (grouping), visible (legend whitelist) and selectedIndex
+        // (selection) don't narrow the row set, so they're excluded; otherwise
+        // "clear all" could never zero the displayed count.
         let n = 0;
         if (s.range.type === "some") n++;
         n += s.filters.length;
         n += s.activeCohorts.size;
-        if (s.breakdown.type === "some") n++;
         if (s.search.type === "some") n++;
-        if (s.visible.type === "some") n++;
-        if (s.selectedIndex.type === "some") n++;
         return BigInt(n);
     }),
 
@@ -390,7 +465,22 @@ export const SliceImpl: PlatformFunction[] = [
     }),
     SliceBindPrimitives.fields.implement((key: unknown) => {
         const e = boundByKey.get(key as string);
-        return e ? sliceFields(e.config as Parameters<typeof sliceFields>[0]) : [];
+        if (e === undefined) return [];
+        const base = sliceFields(e.config as Parameters<typeof sliceFields>[0]);
+        // Auto-derive distinct value hints from the bound data for string fields
+        // that carry no explicit `hints` (#131) — so picking `in`/`notIn`/`eq` on,
+        // e.g., `country` suggests the values actually present. Explicit hints win;
+        // free entry stays allowed (suggestions, not an allow-list).
+        const fieldsMap = (e.config as unknown as {
+            fields: Map<string, { type: string; value: { accessor: (r: unknown) => unknown } }>;
+        }).fields;
+        const rows = boundRows(e);
+        return base.map(f => {
+            if (f.hints.length > 0 || f.kind !== "string") return f;
+            const accessor = fieldsMap.get(f.fieldId)?.value?.accessor;
+            if (accessor === undefined) return f;
+            return { ...f, hints: autoDeriveFieldHints(rows, accessor) };
+        });
     }),
     SliceBindPrimitives.searchFieldIds.implement((key: unknown) => {
         const e = boundByKey.get(key as string);
@@ -435,14 +525,17 @@ export const SliceImpl: PlatformFunction[] = [
         const k = key as string;
         trackKey(k);
         const e = boundByKey.get(k);
-        if (e === undefined || e.toMatch === undefined) return [];
+        if (e === undefined) return [];
         const s = readState(k);
         const now = new Date();
         const hits = s.search.type === "some"
             ? boundRows(e).filter(r => sliceMatches(only({ search: s.search }) as never, e.config, r, now))
             : boundRows(e);
         // `Match.meta` is the loose `variant`; the output is `option<string>`.
-        return hits.map(e.toMatch) as never;
+        if (e.toMatch !== undefined) return hits.map(e.toMatch) as never;
+        // No `toMatch`: auto-derive distinct search options from the config's
+        // first searchable string field so search works out of the box (#129).
+        return autoDeriveMatches(hits, e.config as never) as never;
     }),
     SliceBindPrimitives.cohortCounts.implement((key: unknown) => {
         const k = key as string;

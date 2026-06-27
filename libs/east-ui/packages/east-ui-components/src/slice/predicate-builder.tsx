@@ -73,7 +73,7 @@ export function SlicePredicateBuilder({ fields, onAdd, initial, lockField, submi
 
     return (
         <ClauseBuilder
-            fields={fields.map(f => ({ id: f.fieldId, label: f.label, kind: f.kind as ClauseKind }))}
+            fields={fields.map(f => ({ id: f.fieldId, label: f.label, kind: f.kind as ClauseKind, hints: f.hints }))}
             opsFor={kind => OPS_BY_KIND[kind] ?? STRING_OPS}
             onSubmit={onSubmit}
             {...(seed !== undefined ? {
