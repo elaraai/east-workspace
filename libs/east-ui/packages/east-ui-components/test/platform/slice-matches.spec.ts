@@ -14,7 +14,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { autoDeriveMatches } from "../../src/platform/slice/index.js";
+import { autoDeriveMatches, autoDeriveFieldHints } from "../../src/platform/slice/index.js";
 
 /** Build a minimal config exposing one or more string/non-string fields. */
 function cfg(fields: Record<string, { type: string; get: (r: any) => unknown }>, searchFieldIds: string[] = []) {
@@ -83,4 +83,29 @@ test("autoDeriveMatches: skips a configured search field that isn't a string", (
         cfg({ sessions: { type: "integer", get: (r) => r.sessions }, region: { type: "string", get: (r) => r.region } }, ["sessions", "region"]),
     );
     assert.deepEqual(out.map(o => o.id), ["APAC"]);
+});
+
+// ---------------------------------------------------------------------------
+// autoDeriveFieldHints — #131: distinct value suggestions from the bound data
+// ---------------------------------------------------------------------------
+
+test("autoDeriveFieldHints: distinct values in insertion order", () => {
+    const rows = [{ c: "EU" }, { c: "NA" }, { c: "EU" }, { c: "APAC" }, { c: "NA" }];
+    assert.deepEqual(autoDeriveFieldHints(rows, (r: any) => r.c), ["EU", "NA", "APAC"]);
+});
+
+test("autoDeriveFieldHints: caps at the requested top-N (free entry beyond)", () => {
+    const rows = Array.from({ length: 200 }, (_, i) => ({ c: `v${i}` }));
+    const out = autoDeriveFieldHints(rows, (r: any) => r.c, 50);
+    assert.equal(out.length, 50);
+    assert.equal(out[0], "v0");
+});
+
+test("autoDeriveFieldHints: skips null / undefined values", () => {
+    const rows = [{ c: "A" }, { c: null }, { c: undefined }, { c: "B" }];
+    assert.deepEqual(autoDeriveFieldHints(rows, (r: any) => r.c), ["A", "B"]);
+});
+
+test("autoDeriveFieldHints: empty rows → empty", () => {
+    assert.deepEqual(autoDeriveFieldHints([], (r: any) => r.c), []);
 });

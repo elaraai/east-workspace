@@ -304,6 +304,35 @@ export function autoDeriveMatches(
     return out;
 }
 
+/** Cap on auto-derived hints per field — a high-cardinality field shouldn't
+ *  flood the suggestion list (free entry beyond the cap stays allowed). */
+const FIELD_HINT_CAP = 50;
+
+/**
+ * Distinct field VALUES across the bound rows — the auto-derived autocomplete
+ * suggestions for the filter `in`/`notIn`/`eq` value controls (#131). Capped at
+ * {@link FIELD_HINT_CAP}; null/undefined skipped. Pure + exported for testing.
+ *
+ * @param rows - the bound rows
+ * @param accessor - the field's value accessor
+ * @param cap - max distinct values to collect
+ * @returns the distinct string values (insertion order), capped
+ */
+export function autoDeriveFieldHints(
+    rows: ReadonlyArray<unknown>,
+    accessor: (r: unknown) => unknown,
+    cap: number = FIELD_HINT_CAP,
+): string[] {
+    const seen = new Set<string>();
+    for (const r of rows) {
+        const v = accessor(r);
+        if (v === undefined || v === null) continue;
+        seen.add(String(v));
+        if (seen.size >= cap) break;
+    }
+    return [...seen];
+}
+
 export const SliceImpl: PlatformFunction[] = [
     Slice.rows.implement((_T: EastTypeValue) => (handle: unknown) => {
         const k = (handle as { key: string }).key;
@@ -424,7 +453,22 @@ export const SliceImpl: PlatformFunction[] = [
     }),
     SliceBindPrimitives.fields.implement((key: unknown) => {
         const e = boundByKey.get(key as string);
-        return e ? sliceFields(e.config as Parameters<typeof sliceFields>[0]) : [];
+        if (e === undefined) return [];
+        const base = sliceFields(e.config as Parameters<typeof sliceFields>[0]);
+        // Auto-derive distinct value hints from the bound data for string fields
+        // that carry no explicit `hints` (#131) — so picking `in`/`notIn`/`eq` on,
+        // e.g., `country` suggests the values actually present. Explicit hints win;
+        // free entry stays allowed (suggestions, not an allow-list).
+        const fieldsMap = (e.config as unknown as {
+            fields: Map<string, { type: string; value: { accessor: (r: unknown) => unknown } }>;
+        }).fields;
+        const rows = boundRows(e);
+        return base.map(f => {
+            if (f.hints.length > 0 || f.kind !== "string") return f;
+            const accessor = fieldsMap.get(f.fieldId)?.value?.accessor;
+            if (accessor === undefined) return f;
+            return { ...f, hints: autoDeriveFieldHints(rows, accessor) };
+        });
     }),
     SliceBindPrimitives.searchFieldIds.implement((key: unknown) => {
         const e = boundByKey.get(key as string);
