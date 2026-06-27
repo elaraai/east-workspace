@@ -261,7 +261,10 @@ function bindImpl(key: unknown, config: unknown, initial: unknown, data: unknown
     /* Refresh the live bound entry EVERY bind (rows getter / config / toMatch),
      * before the cache check — so a cached handle's primitives always resolve the
      * current rows + config. */
-    boundByKey.set(k, { rows: (typeof rowsSource === "function" ? rowsSource : liveRows()), config: cfg, toMatch: toMatchFn });
+    // Store the GUARDED `liveRows` getter (not the raw source) so a getter that
+    // transiently returns undefined (data not yet loaded) yields `[]`, not a
+    // `totalCount` crash — the `?? []` guard must cover both branches.
+    boundByKey.set(k, { rows: (typeof rowsSource === "function" ? liveRows : liveRows()), config: cfg, toMatch: toMatchFn });
 
     const cached = sliceHandleCache.get(k);
     if (cached) return cached;
@@ -296,7 +299,9 @@ export function autoDeriveMatches(
     const seen = new Set<string>();
     const out: Array<{ id: string; label: string; meta: typeof none }> = [];
     for (const r of hits) {
-        const label = String(accessor(r));
+        const v = accessor(r);
+        if (v === undefined || v === null) continue;   // never offer a "null"/"undefined" suggestion (cf. autoDeriveFieldHints)
+        const label = String(v);
         if (seen.has(label)) continue;   // distinct values only
         seen.add(label);
         out.push({ id: label, label, meta: none });
@@ -369,9 +374,15 @@ export const SliceImpl: PlatformFunction[] = [
         const i = Number(idx as bigint);
         return updateState(key as string, s => ({ ...s, filters: s.filters.filter((_, j) => j !== i) }));
     }),
-    /* Per the declaration: clears filters AND active cohorts. */
+    // "Clear all" must zero every NARROWING the Summary counts — filters,
+    // active cohorts, range, and search — not just filters/cohorts (else the
+    // count can never reach 0). Breakdown (grouping), visible (legend whitelist)
+    // and selectedIndex (selection) are presentation, not narrowings: left alone,
+    // matching activeCount/isActive.
     SliceBindPrimitives.clearFilters.implement((key: unknown) =>
-        updateState(key as string, s => ({ ...s, filters: [], activeCohorts: new Set<string>() }))),
+        updateState(key as string, s => ({
+            ...s, filters: [], activeCohorts: new Set<string>(), range: none, search: none,
+        }))),
 
     // --- cohorts ---
     SliceBindPrimitives.defineCohort.implement((key: unknown, cohort: unknown) => {
@@ -421,28 +432,29 @@ export const SliceImpl: PlatformFunction[] = [
         const k = key as string;
         trackKey(k);
         const s = readState(k);
+        // Active iff a NARROWING is set (mirrors activeCount + clearFilters).
+        // breakdown (grouping), visible (legend whitelist) and selectedIndex
+        // (selection) don't narrow the row set, so they don't count.
         return (
             s.range.type === "some" ||
             s.filters.length > 0 ||
             s.activeCohorts.size > 0 ||
-            s.breakdown.type === "some" ||
-            s.search.type === "some" ||
-            s.visible.type === "some" ||
-            s.selectedIndex.type === "some"
+            s.search.type === "some"
         );
     }),
     SliceBindPrimitives.activeCount.implement((key: unknown) => {
         const k = key as string;
         trackKey(k);
         const s = readState(k);
+        // Count NARROWINGS only — exactly what "clear all" (clearFilters) resets.
+        // Breakdown (grouping), visible (legend whitelist) and selectedIndex
+        // (selection) don't narrow the row set, so they're excluded; otherwise
+        // "clear all" could never zero the displayed count.
         let n = 0;
         if (s.range.type === "some") n++;
         n += s.filters.length;
         n += s.activeCohorts.size;
-        if (s.breakdown.type === "some") n++;
         if (s.search.type === "some") n++;
-        if (s.visible.type === "some") n++;
-        if (s.selectedIndex.type === "some") n++;
         return BigInt(n);
     }),
 

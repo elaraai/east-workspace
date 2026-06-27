@@ -75,6 +75,15 @@ test("autoDeriveMatches: falls back to the first string field when searchFieldId
     assert.deepEqual(out.map(o => o.id), ["Alice"]);
 });
 
+test("autoDeriveMatches: skips null / undefined values — never offers a 'null'/'undefined' suggestion", () => {
+    // Handle-owned slices (e.g. DecisionQueue) feed untyped JS rows; a missing
+    // value must not become a junk substring query when selected.
+    const rows = [{ country: "EU" }, { country: null }, { country: undefined }, { country: "NA" }];
+    const out = autoDeriveMatches(rows, cfg({ country: { type: "string", get: (r) => r.country } }, ["country"]));
+    assert.deepEqual(out.map(o => o.id), ["EU", "NA"]);
+    for (const o of out) assert.ok(o.id !== "null" && o.id !== "undefined");
+});
+
 test("autoDeriveMatches: skips a configured search field that isn't a string", () => {
     const rows = [{ sessions: 5n, region: "APAC" }];
     // searchFieldIds names the integer field first; it must be skipped for the string one.

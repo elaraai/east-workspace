@@ -976,6 +976,113 @@ describeEast("Slice", (test) => {
     });
 
     // =======================================================================
+    // Robustness — a kind-mismatched / missing / malformed predicate must not
+    // crash or silently mis-coerce (adversarial bug-hunt repros). Each matcher
+    // validates the value against its East type (`isValueOf`) before comparing.
+    // =======================================================================
+
+    test("apply.matches: string/matches with an invalid regex narrows to nothing, not a crash", $ => {
+        const RowType = StructType({ sku: StringType });
+        const cfg   = $.let(Slice.config(RowType, { fields: { sku: { label: "SKU" } } }));
+        const state = $.const(Slice.state({
+            filters: [variant("string", { fieldId: "sku", op: variant("matches", "(US") })],   // half-typed regex
+        }));
+        const r = $.const(East.value({ sku: "US-123" }, RowType));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, r), false));
+    });
+
+    test("apply.matches: integer predicate on a float field is a clean non-match, not a RangeError", $ => {
+        const RowType = StructType({ x: FloatType });
+        const cfg = $.let(Slice.config(RowType, { fields: { x: { label: "X" } } }));
+        const state = $.const(Slice.state({
+            filters: [variant("integer", { fieldId: "x", op: variant("eq", 3n) })],
+        }));
+        const r = $.const(East.value({ x: 3.5 }, RowType));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, r), false));
+    });
+
+    test("apply.matches: integer predicate on a field absent from the row is a clean non-match", $ => {
+        const RowType = StructType({ sessions: IntegerType });
+        const cfg = $.let(Slice.config(RowType, { fields: { sessions: { label: "Sessions" } } }));
+        const state = $.const(Slice.state({
+            cohorts: [{ id: "c1", name: "C1", filters: [variant("integer", { fieldId: "missing", op: variant("gte", 1n) })] }],
+            activeCohorts: new Set(["c1"]),
+        }));
+        const r = $.const(East.value({ sessions: 5n }, RowType));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, r), false));
+    });
+
+    test("apply.matches: string predicate on an absent field doesn't spuriously match via 'undefined'", $ => {
+        const RowType = StructType({ sessions: IntegerType });
+        const cfg = $.let(Slice.config(RowType, { fields: { sessions: { label: "Sessions" } } }));
+        const state = $.const(Slice.state({
+            cohorts: [{ id: "c1", name: "C1", filters: [variant("string", { fieldId: "tier", op: variant("neq", "pro") })] }],
+            activeCohorts: new Set(["c1"]),
+        }));
+        const r = $.const(East.value({ sessions: 5n }, RowType));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, r), false));
+    });
+
+    test("range: datetime arm on an integer rangeFieldId is inert (row passes), not a crash", $ => {
+        const RowType = StructType({ sessions: IntegerType });
+        const cfg = $.let(Slice.config(RowType, { fields: { sessions: { label: "Sessions" } }, rangeFieldId: "sessions" }));
+        const state = $.const(Slice.state({
+            range: some(variant("datetimePreset", variant("last30d", null))),
+        }));
+        const r = $.const(East.value({ sessions: 7n }, RowType));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, r), true));
+    });
+
+    test("range: integer arm on a datetime rangeFieldId is inert, not a silent epoch-millis compare", $ => {
+        const RowType = StructType({ when: DateTimeType });
+        const cfg = $.let(Slice.config(RowType, { fields: { when: { label: "When" } }, rangeFieldId: "when" }));
+        const state = $.const(Slice.state({
+            range: some(variant("integer", { from: 0n, to: 100n })),
+        }));
+        const r = $.const(East.value({ when: new Date("2023-06-01T00:00:00Z") }, RowType));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, r), true));
+    });
+
+    test("apply.matches: search falls back to a string field when searchFieldIds names only a non-string one", $ => {
+        const RowType = StructType({ region: StringType, sessions: IntegerType });
+        const cfg = $.let(Slice.config(RowType, {
+            fields: { region: { label: "Region" }, sessions: { label: "Sessions" } },
+            searchFieldIds: ["sessions"],   // names ONLY the non-string field
+        }));
+        const state = $.const(Slice.state({ search: some("apac") }));
+        const r = $.const(East.value({ region: "APAC", sessions: 5n }, RowType));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, r), true));
+    });
+
+    test("apply.breakdown: a datetime breakdown key is a stable ISO string", $ => {
+        const RowType = StructType({ when: DateTimeType });
+        const cfg = $.let(Slice.config(RowType, { fields: { when: { label: "When" } }, breakdownFieldIds: ["when"] }));
+        const state = $.const(Slice.state({ breakdown: some({ fieldId: "when", limit: none }) }));
+        const data = $.const(East.value([
+            { when: new Date("2023-06-01T00:00:00Z") },
+            { when: new Date("2023-06-01T00:00:00Z") },
+        ], ArrayType(RowType)));
+        const bd = $.let(Slice.apply.breakdown([RowType], state, cfg, data), ArrayType(Slice.Types.BreakdownGroup));
+        $(Assert.equal(bd.length(), 1n));
+        $(Assert.equal(bd.get(0n).count, 2n));
+        $(Assert.equal(bd.get(0n).key, "2023-06-01T00:00:00.000Z"));
+    });
+
+    test("apply.breakdown: a non-positive top-N limit means 'no limit' (no collapse into one 'other' bucket)", $ => {
+        const RowType = StructType({ region: StringType });
+        const cfg = $.let(Slice.config(RowType, { fields: { region: { label: "Region" } }, breakdownFieldIds: ["region"] }));
+        const state = $.const(Slice.state({ breakdown: some({ fieldId: "region", limit: some(0n) }) }));
+        const data = $.const(East.value(
+            [{ region: "EU" }, { region: "NA" }, { region: "APAC" }],
+            ArrayType(RowType),
+        ));
+        const bd = $.let(Slice.apply.breakdown([RowType], state, cfg, data), ArrayType(Slice.Types.BreakdownGroup));
+        // limit 0 must NOT collapse all categories into a single "other" bucket.
+        $(Assert.equal(bd.length(), 3n));
+        $(Assert.equal(bd.filter(($, g) => East.equal(g.key, "other")).length(), 0n));
+    });
+
+    // =======================================================================
     // Slice.apply.where — element-level assertions, not just length
     // =======================================================================
 
