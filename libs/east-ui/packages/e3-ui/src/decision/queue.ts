@@ -179,8 +179,10 @@ export interface DecisionQueueOptions {
     detail?: SubtypeExprOrValue<FunctionType<[DecisionType], UIComponentType>>;
     defaultExpanded?: SubtypeExprOrValue<OptionType<DecisionType>>;
     defaultFacet?: FacetLiteral | SubtypeExprOrValue<FacetType>;
-    /** Include-list of data facets to show (`evidence` / `options` / `judgement`); omit ⇒ all. `modify` stays callback-gated. */
-    facets?: DataFacetLiteral[];
+    /** Include-list of data facets to show (`evidence` / `options` / `judgement`); omit ⇒ all.
+     *  `modify` stays callback-gated. Accepts a string-literal array OR a runtime
+     *  `Array<DataFacet>` expression (mirrors `defaultFacet`). */
+    facets?: DataFacetLiteral[] | SubtypeExprOrValue<ArrayType<DataFacetType>>;
     onApply?: (decision: ExprType<DecisionType>) => SubtypeExprOrValue<NullType>;
     onReject?: (decision: ExprType<DecisionType>) => SubtypeExprOrValue<NullType>;
     slice?: SliceAffordanceLiteral[] | true;
@@ -240,7 +242,12 @@ export const DecisionQueue: {
                 : options.defaultFacet);
         const facets = options.facets === undefined
             ? none
-            : some(East.value(options.facets.map(f => variant(f, null)), ArrayType(DataFacetType)));
+            // A plain string-literal include-list → lift each into its DataFacet
+            // variant; anything else (a `DataFacet` value array or a runtime
+            // `Array<DataFacet>` expression) passes straight through.
+            : some(Array.isArray(options.facets) && options.facets.every(f => typeof f === "string")
+                ? East.value((options.facets as DataFacetLiteral[]).map(f => variant(f, null)), ArrayType(DataFacetType))
+                : East.value(options.facets as SubtypeExprOrValue<ArrayType<DataFacetType>>, ArrayType(DataFacetType)));
         const sliceAffordances = options.slice === undefined
             ? undefined
             : options.slice === true ? (["filter", "search"] as SliceAffordanceLiteral[]) : options.slice;
