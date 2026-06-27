@@ -190,12 +190,12 @@ export const queueJudgements = e3.input(
 );
 
 // ============================================================================
-// 1. Evidence facet open — the model's argument + the host's detail canvas.
+// 1. Evidence facet open — the model's argument + the host's evidence canvas.
 // ============================================================================
 
 export const decisionQueueCase = example({
     keywords: ['DecisionQueue', 'Decide', 'queue', 'facet', 'evidence', 'detail', 'canvas', 'contract'],
-    description: 'The Decide surface — urgency-sorted queue; the overdue case expanded on the Evidence facet with the model’s argument and the host’s demand-vs-capacity detail canvas',
+    description: 'The Decide surface — urgency-sorted queue; the overdue case expanded on the Evidence facet with the model’s argument and the host’s demand-vs-capacity evidence canvas',
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
@@ -252,7 +252,7 @@ export const decisionQueueCase = example({
                                 })}
                             />
                         ))}
-                        detail={East.function([DecisionType], UIComponentType, (_$, _decision) => (
+                        evidence={East.function([DecisionType], UIComponentType, (_$, _decision) => (
                             <Chart
                                 layers={[
                                     Chart.Area(forecast, { x: r => r.week, y: r => r.demand }, { color: 'teal.solid', fillOpacity: 0.25 }),

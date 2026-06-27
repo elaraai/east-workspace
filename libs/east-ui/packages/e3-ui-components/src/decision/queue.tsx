@@ -125,7 +125,7 @@ interface RowProps {
     narrow: boolean;
     leverPayloads: Record<string, TypeNode>;
     modify: ((d: Decision, update: (next: Decision) => void) => unknown) | undefined;
-    detail: ((d: Decision) => unknown) | undefined;
+    evidence: ((d: Decision) => unknown) | undefined;
     defaultFacet: FacetKey;
     /** Author include-list of data facets; `null` ⇒ all. `modify` stays callback-gated. */
     facetInclude: ReadonlySet<FacetKey> | null;
@@ -135,7 +135,7 @@ interface RowProps {
     storageKey: string;
 }
 
-const Row = memo(function Row({ decision, handle, selected, narrow, leverPayloads, modify, detail, defaultFacet, facetInclude, apply, reject, leaving, storageKey }: RowProps) {
+const Row = memo(function Row({ decision, handle, selected, narrow, leverPayloads, modify, evidence, defaultFacet, facetInclude, apply, reject, leaving, storageKey }: RowProps) {
     const dq = useSlotRecipe({ key: 'decisionQueue' });
     const status = useSlotRecipe({ key: 'status' });
     const tabs = useSlotRecipe({ key: 'facetTabs' });
@@ -176,9 +176,9 @@ const Row = memo(function Row({ decision, handle, selected, narrow, leverPayload
         return modify(decision, handle.update);
     }, [selected, facet, modify, decision, handle.update]);
     const canvas = useMemo<unknown>(() => {
-        if (!selected || facet !== 'evidence' || !detail) return null;
-        return detail(decision);
-    }, [selected, facet, detail, decision]);
+        if (!selected || facet !== 'evidence' || !evidence) return null;
+        return evidence(decision);
+    }, [selected, facet, evidence, decision]);
 
     const facetTabs = (
         <Box css={ts.root} {...(narrow ? { display: 'flex', width: '100%' } : {})}>
@@ -280,7 +280,7 @@ const Row = memo(function Row({ decision, handle, selected, narrow, leverPayload
                     {facet === 'evidence' && (
                         <EvidenceFacet decision={decision}>
                             {canvas != null && (
-                                <EastChakraComponent value={canvas as never} storageKey={`${storageKey}-detail-${decision.id}`} />
+                                <EastChakraComponent value={canvas as never} storageKey={`${storageKey}-evidence-${decision.id}`} />
                             )}
                         </EvidenceFacet>
                     )}
@@ -445,9 +445,9 @@ const EastChakraDecisionQueue = memo(function EastChakraDecisionQueue({ value, s
             ((d: Decision, update: (next: Decision) => void) => unknown) | undefined,
         [value.modify],
     );
-    const detail = useMemo(
-        () => getSomeorUndefined(value.detail) as ((d: Decision) => unknown) | undefined,
-        [value.detail],
+    const evidence = useMemo(
+        () => getSomeorUndefined(value.evidence) as ((d: Decision) => unknown) | undefined,
+        [value.evidence],
     );
     const defaultFacet = (getSomeorUndefined(value.defaultFacet)?.type ?? 'evidence') as FacetKey;
     // Author include-list of data facets (`null` ⇒ all). `modify` stays callback-gated.
@@ -556,7 +556,7 @@ const EastChakraDecisionQueue = memo(function EastChakraDecisionQueue({ value, s
                         narrow={narrow}
                         leverPayloads={leverPayloads}
                         modify={modify}
-                        detail={detail}
+                        evidence={evidence}
                         defaultFacet={defaultFacet}
                         facetInclude={facetInclude}
                         apply={apply}

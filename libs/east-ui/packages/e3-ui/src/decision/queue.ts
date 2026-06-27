@@ -9,7 +9,7 @@
  * routine tail collapsed. The case view is the row's expanded state, not a
  * sibling component: selecting a row opens one compact facet at a time
  * beneath it — `Evidence` (the model's argument + the host's per-decision
- * `detail` canvas), `Options` (the ranked stack), `Judgement` (prompts ·
+ * `evidence` canvas), `Options` (the ranked stack), `Judgement` (prompts ·
  * knowledge · lever builder, gating Apply), `Modify` (the host's per-kind
  * probe via the `modify` slot). Apply / Reject stay on the row and resolve
  * through the handle.
@@ -83,7 +83,7 @@ export type DataFacetLiteral = "evidence" | "options" | "judgement";
  * @property modify - Optional per-kind probe editor: `(decision, update) =>
  *   UIComponentType`; renders as the expanded row's Modify facet.
  *   `update(edited)` writes the decision back through its owning binding.
- * @property detail - Optional per-decision canvas: `(decision) =>
+ * @property evidence - Optional per-decision Evidence-tab canvas: `(decision) =>
  *   UIComponentType`; renders inside the Evidence facet (the host's chart /
  *   working surface / trajectory).
  * @property defaultExpanded - The case shown expanded before any selection
@@ -109,7 +109,7 @@ export const DecisionQueuePayloadType = StructType({
     handle: DecisionHandleRefType,
     heading: OptionType(StringType),
     modify: OptionType(FunctionType([DecisionType, DecisionUpdateType], UIComponentType)),
-    detail: OptionType(FunctionType([DecisionType], UIComponentType)),
+    evidence: OptionType(FunctionType([DecisionType], UIComponentType)),
     defaultExpanded: OptionType(DecisionType),
     defaultFacet: OptionType(FacetType),
     facets: OptionType(ArrayType(DataFacetType)),
@@ -140,7 +140,7 @@ export const DecisionQueueComponent = EastUI.component("DecisionQueue", Decision
  * @property modify - Optional per-kind probe editor `(decision, update) =>
  *   UIComponentType` — the expanded row's Modify facet. (A typed arrow; the
  *   factory lifts it to an `East.function`.)
- * @property detail - Optional per-decision canvas `(decision) =>
+ * @property evidence - Optional per-decision Evidence-tab canvas `(decision) =>
  *   UIComponentType` — rendered inside the Evidence facet.
  * @property defaultExpanded - The case shown expanded before any selection
  *   exists — an *option*: pass a `firstMap` predicate's result directly.
@@ -175,16 +175,18 @@ export interface DecisionQueueOptions {
      * encoder (#136).
      */
     modify?: SubtypeExprOrValue<FunctionType<[DecisionType, DecisionUpdateType], UIComponentType>>;
-    /** Per-decision canvas — a pass-through `East.function` value, not invoked at build time (#136). */
-    detail?: SubtypeExprOrValue<FunctionType<[DecisionType], UIComponentType>>;
+    /** Per-decision Evidence-tab canvas — a pass-through `East.function` value, not invoked at build time (#136). */
+    evidence?: SubtypeExprOrValue<FunctionType<[DecisionType], UIComponentType>>;
     defaultExpanded?: SubtypeExprOrValue<OptionType<DecisionType>>;
     defaultFacet?: FacetLiteral | SubtypeExprOrValue<FacetType>;
     /** Include-list of data facets to show (`evidence` / `options` / `judgement`); omit ⇒ all.
      *  `modify` stays callback-gated. Accepts a string-literal array OR a runtime
      *  `Array<DataFacet>` expression (mirrors `defaultFacet`). */
     facets?: DataFacetLiteral[] | SubtypeExprOrValue<ArrayType<DataFacetType>>;
-    onApply?: (decision: ExprType<DecisionType>) => SubtypeExprOrValue<NullType>;
-    onReject?: (decision: ExprType<DecisionType>) => SubtypeExprOrValue<NullType>;
+    /** Per-row Apply side-effect hook — a pass-through `East.function` value (like `modify`/`evidence`), not invoked at build time. */
+    onApply?: SubtypeExprOrValue<FunctionType<[DecisionType], NullType>>;
+    /** Per-row Reject side-effect hook — a pass-through `East.function` value, not invoked at build time. */
+    onReject?: SubtypeExprOrValue<FunctionType<[DecisionType], NullType>>;
     slice?: SliceAffordanceLiteral[] | true;
     maxHeight?: SubtypeExprOrValue<StringType>;
     density?: SubtypeExprOrValue<OptionType<DensityType>> | DensityLiteral;
@@ -194,7 +196,7 @@ export interface DecisionQueueOptions {
  * The Decision queue component namespace — the Decide surface.
  *
  * @remarks
- * Use `DecisionQueue.Root({ handle, modify: …, detail: … })` inside a
+ * Use `DecisionQueue.Root({ handle, modify: …, evidence: … })` inside a
  * `Reactive` block, with the handle from `Decision.bind`. The `Component`
  * property is the {@link EastUI.component} carrier the renderer registers
  * against.
@@ -222,19 +224,18 @@ export const DecisionQueue: {
         const modify = options.modify === undefined
             ? none
             : some(East.value(options.modify, FunctionType([DecisionType, DecisionUpdateType], UIComponentType)));
-        const detail = options.detail === undefined
+        const evidence = options.evidence === undefined
             ? none
-            : some(East.value(options.detail, FunctionType([DecisionType], UIComponentType)));
+            : some(East.value(options.evidence, FunctionType([DecisionType], UIComponentType)));
+        // Apply / Reject hooks pass through untouched (like `modify`/`evidence`) —
+        // never invoked at build time, so the author writes them as real
+        // `East.function` values that capture only data + bind-handles.
         const onApply = options.onApply === undefined
             ? none
-            : some(East.function([DecisionType], NullType, ($, decision) => {
-                $(East.value(options.onApply!(decision), NullType));
-            }));
+            : some(East.value(options.onApply, FunctionType([DecisionType], NullType)));
         const onReject = options.onReject === undefined
             ? none
-            : some(East.function([DecisionType], NullType, ($, decision) => {
-                $(East.value(options.onReject!(decision), NullType));
-            }));
+            : some(East.value(options.onReject, FunctionType([DecisionType], NullType)));
         const defaultFacet = options.defaultFacet === undefined
             ? none
             : some(typeof options.defaultFacet === "string"
@@ -270,7 +271,7 @@ export const DecisionQueue: {
             }, DecisionHandleRefType),
             heading: options.heading !== undefined ? some(options.heading) : none,
             modify,
-            detail,
+            evidence,
             defaultExpanded: options.defaultExpanded !== undefined
                 ? East.value(options.defaultExpanded, OptionType(DecisionType))
                 : none,
