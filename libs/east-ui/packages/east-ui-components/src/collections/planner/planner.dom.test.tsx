@@ -99,7 +99,9 @@ describe("Planner per-cell bucketing (#120)", () => {
         expect(screen.getByText("Idle")).toBeTruthy();
         // The orphan bucketless event sharing a bucketed cell lands in an N/A lane.
         expect(screen.getByText("Note")).toBeTruthy();
-        expect(screen.getByText("N/A")).toBeTruthy();
+        // Once a row needs an N/A lane, every bucketed cell in the row carries one
+        // (empty where unused) so the sub-grid stays aligned — so there is ≥1 "N/A".
+        expect(screen.getAllByText("N/A").length).toBeGreaterThanOrEqual(1);
         // The declared buckets still render.
         expect(screen.getByText("Setup")).toBeTruthy();
         expect(screen.getByText("Run")).toBeTruthy();

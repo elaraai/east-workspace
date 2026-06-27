@@ -100,24 +100,29 @@ export const plannerBuckets = example({
 });
 
 /**
- * Per-row bucketing — one Planner mixes bucketed rows (the `Shifts` group, split
- * AM/PM) with unbucketed rows (the `Daily` group, one value per day) under a
- * single shared day axis. The axis declares the `am`/`pm` buckets (for the
- * bucketed group); rows whose events all carry no bucket (`bucket: none`)
- * collapse to one cell per column instead of being dropped. `events` branches
- * per row on the East boolean `bucketed` field — bucketed rows emit `am`/`pm`
- * events, unbucketed rows emit bucketless ones.
+ * Per-cell bucketing across a grouped Planner — `Alice` mixes stretched
+ * bucketed cells (day-1 am/pm fill their lanes) with an unstretched unbucketed
+ * cell (day-3, a flat tile that still fills the taller row); `Bob` has a
+ * stretched unbucketed cell (day-1); the `Daily` group is plain flat rows.
+ * `events` branches per row on boolean fields so each resource emits its own
+ * typed `Array<PlannerEvent>`.
  */
 export const plannerMixedBuckets = example({
-    keywords: ["Planner", "bucket", "per-row", "mixed", "unbucketed", "none", "shift", "flat", "ifElse"],
-    description: "Per-row bucketing: an AM/PM-bucketed group beside an unbucketed group (bucket: none events) under one shared day axis",
+    keywords: ["Planner", "bucket", "per-cell", "mixed", "unbucketed", "stretch", "flat", "ifElse", "group"],
+    description: "Per-cell bucketing in a grouped Planner — Alice mixes stretched bucketed cells with an unstretched flat cell, Bob has a stretched flat cell, the Daily group is plain flat rows",
     fn: East.function([], UIComponentType, ($) => {
-        // Two static event lists, each bound with its East type so the per-row
-        // `ifElse` branches return a typed `Array<PlannerEvent>`.
-        const shiftEvents = $.const([
-            Planner.event({ slot: Planner.at.number(1), bucket: "am", label: "✓", state: "committed" }),
-            Planner.event({ slot: Planner.at.number(2), bucket: "pm", label: "✓", state: "committed" }),
-            Planner.event({ slot: Planner.at.number(3), bucket: "am", label: "plan", state: "added" }),
+        // One typed event list per resource so the per-row `ifElse` branches
+        // each return a typed `Array<PlannerEvent>`.
+        const aliceEvents = $.const([
+            // Day 1 — stretched bucketed cells: am + pm fill their lane bands.
+            Planner.event({ slot: Planner.at.number(1), bucket: "am", label: "Open", state: "committed", stretch: "both" }),
+            Planner.event({ slot: Planner.at.number(1), bucket: "pm", label: "Mid", state: "committed", stretch: "both" }),
+            // Day 3 — an unstretched unbucketed (flat) cell beside the bucketed one.
+            Planner.event({ slot: Planner.at.number(3), label: "OT", state: "added" }),
+        ], ArrayType(Planner.Types.Event));
+        const bobEvents = $.const([
+            // Day 1 — a stretched unbucketed (flat) cell filling its cell.
+            Planner.event({ slot: Planner.at.number(1), label: "Cover", state: "committed", stretch: "both" }),
         ], ArrayType(Planner.Types.Event));
         const dailyEvents = $.const([
             Planner.event({ slot: Planner.at.number(1), label: "12", state: "committed" }),
@@ -127,17 +132,15 @@ export const plannerMixedBuckets = example({
         return (
             <Planner.Point
                 data={[
-                    { name: "Alice", group: "Shifts", bucketed: true },
-                    { name: "Bob", group: "Shifts", bucketed: true },
-                    { name: "Headcount", group: "Daily", bucketed: false },
-                    { name: "Output", group: "Daily", bucketed: false },
+                    { name: "Alice", group: "Shifts", isAlice: true, isBob: false },
+                    { name: "Bob", group: "Shifts", isAlice: false, isBob: true },
+                    { name: "Headcount", group: "Daily", isAlice: false, isBob: false },
+                    { name: "Output", group: "Daily", isAlice: false, isBob: false },
                 ]}
                 axis={Planner.axis.number({ buckets: [{ key: "am", label: "AM" }, { key: "pm", label: "PM" }], range: { min: 1, max: 5 } })}
                 groupBy={r => r.group}
                 columns={[{ key: "name", frozen: true, value: r => r.name }]}
-                // Per row: bucketed rows emit AM/PM events (vertical sub-grid),
-                // unbucketed rows emit bucketless events (one flat cell per day).
-                events={r => r.bucketed.ifElse(() => shiftEvents, () => dailyEvents)}
+                events={r => r.isAlice.ifElse(() => aliceEvents, () => r.isBob.ifElse(() => bobEvents, () => dailyEvents))}
             />
         );
     }),

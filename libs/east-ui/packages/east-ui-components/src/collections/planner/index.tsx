@@ -608,8 +608,18 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
     // flat column coexist, and a bucketless event lands in its column's flat cell
     // instead of vanishing (the old per-row test dropped it whenever the row had
     // any other bucketed event).
-    const cellBucketed = (row: PlannerRowValue, colIndex: number) =>
-        buckets.length > 0 && columnEvents(row, colIndex).some((ev) => getSomeorUndefined(ev.bucket) !== undefined);
+    // A row is "bucketed" if it carries ≥1 bucketed event anywhere. Within a
+    // bucketed row every cell keeps the am/pm rhythm EXCEPT a cell that holds
+    // only a bucketless event (that one renders flat) — so an EMPTY column still
+    // shows the (empty) lanes and the grid stays even (no stub-flat gap, #120).
+    const rowHasBucket = (row: PlannerRowValue) =>
+        buckets.length > 0 && row.events.some((ev) => getSomeorUndefined(ev.bucket) !== undefined);
+    const cellBucketed = (row: PlannerRowValue, colIndex: number) => {
+        if (!rowHasBucket(row)) return false;
+        const cev = columnEvents(row, colIndex);
+        if (cev.length === 0) return true; // empty cell in a bucketed row → keep the rhythm
+        return cev.some((ev) => getSomeorUndefined(ev.bucket) !== undefined);
+    };
 
     // The synthetic orphan lane key (item 6) — when a single cell accidentally
     // mixes a bucketed + a bucketless event, the bucketless one(s) land here.
@@ -774,8 +784,13 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
                                     // iff it holds a bucketed event, else a flat
                                     // unitH cell (so a flat column can sit beside a
                                     // bucketed one in the same row).
+                                    // Flat cells use `minHeight` (not a fixed height) so
+                                    // they STRETCH to the grid row height when another cell
+                                    // in the row is bucketed (taller) — otherwise the flat
+                                    // cell, its background wash, and any marker ring come up
+                                    // short of the row. The grid row stretches its items.
                                     if (cellBucketed(row, ci)) cellCss = { ...cellCss, ...base.bucketedCell };
-                                    else cellCss = { ...cellCss, height: `${unitH}px` };
+                                    else cellCss = { ...cellCss, minHeight: `${unitH}px` };
                                     if (ci === cols.length - 1) cellCss = { ...cellCss, borderRightWidth: "0" };
                                     // Anchor the marker ring/icon to THIS cell (not the timeline pane).
                                     cellCss = { ...cellCss, position: "relative" };
