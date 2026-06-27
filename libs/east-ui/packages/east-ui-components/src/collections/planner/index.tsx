@@ -204,13 +204,27 @@ const CONTENT_ALIGN: Record<string, "flex-start" | "center" | "flex-end"> = {
 };
 
 /**
+ * Per-event `tone` tint (#120 item 3) — overrides ONLY fill / text / border
+ * colour, so the state's border-style + text-decoration (the committed /
+ * proposed / removed / rejected audit cues) survive a recolour. Data-driven per
+ * event (the sanctioned dynamic exception), using the shared status tokens.
+ */
+const TONE_TINT: Record<string, Record<string, unknown>> = {
+    success: { background: "bg.success.subtle", color: "{colors.status.pos}",  borderColor: "{colors.status.pos}"  },
+    warning: { background: "bg.warning.subtle", color: "{colors.status.warn}", borderColor: "{colors.status.warn}" },
+    danger:  { background: "bg.danger.subtle",  color: "{colors.status.neg}",  borderColor: "{colors.status.neg}"  },
+    info:    { background: "bg.info.subtle",    color: "{colors.status.info}", borderColor: "{colors.status.info}" },
+    neutral: { background: "transparent",        color: "fg.default",           borderColor: "border.strong"        },
+};
+
+/**
  * Derive the per-event geometry CSS (stretch fill + content alignment) from an
  * event's `stretch` / `content` fields. Inline (not a recipe variant) because it
  * is data-driven per event — the sanctioned dynamic exception to the
  * recipe-only rule (the enumerable styling — tone / animation / row hover — all
  * lives on the recipe).
  */
-function eventGeom(event: PlannerEventValue, shape: "point" | "span"): Record<string, unknown> {
+function eventGeom(event: PlannerEventValue, shape: "point" | "span", inLane: boolean): Record<string, unknown> {
     const stretch = getSomeorUndefined(event.stretch)?.type;
     const content = getSomeorUndefined(event.content);
     const contentH = content ? getSomeorUndefined(content.horizontal)?.type : undefined;
@@ -222,20 +236,27 @@ function eventGeom(event: PlannerEventValue, shape: "point" | "span"): Record<st
     // label — i.e. when stretched): horizontal → justifyContent, vertical → alignItems.
     if (contentH) geom.justifyContent = CONTENT_ALIGN[contentH];
     if (contentV) geom.alignItems = CONTENT_ALIGN[contentV];
-    // Point chips: place the (possibly normal-size) tile within its cell. Default
-    // top-left (alignSelf: flex-start), overridden by content.vertical — this is
-    // the deliberate change from today's cell-level vertical centering. Span bars
-    // fill the row via the recipe + the absolute wrapper, so their vertical
-    // placement is owned there; don't fight it with alignSelf.
-    if (shape === "point") geom.alignSelf = contentV ? CONTENT_ALIGN[contentV] : "flex-start";
+    // Vertical placement of a point tile within its container.
+    //  - In a FLAT cell: default top-left (a normal tile sits at the top of a
+    //    taller/mixed cell, aligned with the first bucket lane beside it).
+    //  - In a BUCKET LANE: the lane is one `unitH` band, so centre the tile to
+    //    line it up with the lane's vertically-centred AM/PM label.
+    // `content.vertical` overrides either default. Span bars own their own
+    // vertical placement (the absolute wrapper centres them), so leave them be.
+    if (shape === "point") {
+        if (contentV) geom.alignSelf = CONTENT_ALIGN[contentV];
+        else if (!inLane) geom.alignSelf = "flex-start";
+    }
     return geom;
 }
 
-function EventChip({ event, eventStyle, gripStyle, shape }: {
+function EventChip({ event, eventStyle, gripStyle, shape, inLane = false }: {
     event: PlannerEventValue;
     eventStyle: Record<string, unknown>;
     gripStyle: Record<string, unknown> | undefined;
     shape: "point" | "span";
+    /** True when the chip sits in a bucket lane (centre it) vs a flat cell (top-left). */
+    inLane?: boolean;
 }) {
     const popover = getSomeorUndefined(event.popover);
     const hovercard = getSomeorUndefined(event.hovercard);
@@ -245,7 +266,7 @@ function EventChip({ event, eventStyle, gripStyle, shape }: {
     // With a grip, tighten the left inset so the handle sits as close to the
     // edge as the 3px top/bottom padding (the default 8px reads lop-sided).
     // `geom` carries the data-driven stretch/content overrides (item 1).
-    const chipCss = { ...eventStyle, ...eventGeom(event, shape), ...(showGrip ? { paddingInlineStart: "3px" } : {}) };
+    const chipCss = { ...eventStyle, ...eventGeom(event, shape, inLane), ...(showGrip ? { paddingInlineStart: "3px" } : {}) };
     const chip = (
         <Box css={chipCss} data-slot="event" data-state={sk}>
             {showGrip && <Box as="span" css={gripStyle} data-slot="grip"><FontAwesomeIcon icon={faGripVertical} /></Box>}
@@ -349,19 +370,6 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
         for (const s of ["success", "warning", "danger", "info", "neutral"]) out[s] = recipe({ size, status: s } as Record<string, unknown>) as unknown as RecipeStyles;
         return out;
     }, [recipe, size]);
-
-    // Per-event tone (#120 item 3) — pick ONLY the colour properties the `tone`
-    // recipe variant sets, so merging over a state style recolours fill/text/
-    // border without disturbing the state's borderStyle / textDecoration (the
-    // committed / proposed / removed / rejected audit cues survive a recolour).
-    const toneStyles = useMemo(() => {
-        const out: Record<string, Record<string, unknown>> = {};
-        for (const t of ["success", "warning", "danger", "info", "neutral"]) {
-            const ev = (recipe({ size, shape, tone: t } as Record<string, unknown>) as unknown as RecipeStyles).event ?? {};
-            out[t] = { background: ev.background, color: ev.color, borderColor: ev.borderColor };
-        }
-        return out;
-    }, [recipe, size, shape]);
 
     // The pulse animation string from the recipe (`animation: pulse`), applied
     // additively to the resolved event style with an explicit reduced-motion guard
@@ -511,7 +519,7 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
     const eventStyleFor = (ev: PlannerEventValue) => {
         let style = stateStyles[stateKey(ev.state)];
         const tone = getSomeorUndefined(ev.tone)?.type;
-        if (tone !== undefined && toneStyles[tone] !== undefined) style = { ...style, ...toneStyles[tone] };
+        if (tone !== undefined && TONE_TINT[tone] !== undefined) style = { ...style, ...TONE_TINT[tone] };
         if (getSomeorUndefined(ev.animation)?.type === "pulse") style = { ...style, ...pulseStyle };
         return style;
     };
@@ -624,11 +632,14 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
         return lanes.map((bk) => {
             const isNA = bk.key === NA_BUCKET.key;
             const laneEvents = isNA ? cellEvents(row, colIndex, undefined) : cellEvents(row, colIndex, bk.key);
+            // The N/A orphan lane renders exactly like a declared bucket lane —
+            // same padding / positioning / label gutter — the "N/A" label is the
+            // only marker (the dev-time warning surfaces the accident in code).
             return (
-                <Box key={bk.key} css={isNA ? { ...base.bucket, ...base.bucketNA } : base.bucket} data-slot="bucket" data-na={isNA ? "" : undefined} height={`${unitH}px`}>
+                <Box key={bk.key} css={base.bucket} data-slot="bucket" data-na={isNA ? "" : undefined} height={`${unitH}px`}>
                     <Box css={base.bucketLabel} data-slot="bucketLabel">{bk.label}</Box>
                     {laneEvents.map((ev, i) => (
-                        <EventChip key={i} event={ev} eventStyle={eventStyleFor(ev)} gripStyle={base.grip} shape="point" />
+                        <EventChip key={i} event={ev} eventStyle={eventStyleFor(ev)} gripStyle={base.grip} shape="point" inLane />
                     ))}
                 </Box>
             );

@@ -65,11 +65,14 @@ export const EastChakraSliceSearch = memo(function EastChakraSliceSearch({ value
                     <ChakraCombobox.Empty>No matches</ChakraCombobox.Empty>
                     {collection.items.map(item => (
                         <ChakraCombobox.Item key={item.value} item={item}>
-                            <Box display="flex" gap="{spacing.3}" alignItems="baseline" width="full">
-                                <Box as="span" fontFamily="mono" fontWeight="semibold" minWidth="6rem">{item.value}</Box>
-                                <Box as="span" flex="1" color="fg">{item.label}</Box>
+                            {/* One row, never wrapping: the id keeps a fixed gutter, the
+                                label flexes and truncates with an ellipsis, the meta hugs
+                                its content on the right. */}
+                            <Box display="flex" gap="{spacing.3}" alignItems="baseline" width="full" minWidth="0">
+                                <Box as="span" fontFamily="mono" fontWeight="semibold" flexShrink={0} minWidth="6rem" maxWidth="9rem" whiteSpace="nowrap" overflow="hidden" textOverflow="ellipsis">{item.value}</Box>
+                                <Box as="span" flex="1" minWidth="0" color="fg" whiteSpace="nowrap" overflow="hidden" textOverflow="ellipsis">{item.label}</Box>
                                 {item.meta !== undefined && (
-                                    <Box as="span" css={styles.footerLabel} color="fg.muted">{item.meta}</Box>
+                                    <Box as="span" css={styles.footerLabel} color="fg.muted" flexShrink={0} whiteSpace="nowrap">{item.meta}</Box>
                                 )}
                             </Box>
                             <ChakraCombobox.ItemIndicator />

@@ -501,27 +501,38 @@ export const plannerRowHover = example({
 });
 
 /**
- * Per-cell bucketing — within one row, the day-1 cell splits into am/pm lanes
- * while day-2 stays a single flat slot. A stray bucketless event sharing the
- * bucketed day-1 cell falls into a synthetic `N/A` lane (instead of vanishing).
+ * Per-cell bucketing composed with `stretch` — `Press A` is bucketed (its day-1
+ * am/pm lanes are stretched to fill their band, a stray bucketless event drops
+ * to an `N/A` lane, and day-2 is a normal-sized bucketed cell); `Press B` is
+ * flat (a stretched unbucketed tile filling day-1, a normal tile on day-2).
  */
 export const plannerPerCellBuckets = example({
-    keywords: ["Planner", "bucket", "per-cell", "mixed", "flat", "N/A", "orphan", "fallback"],
-    description: "Per-cell bucketing — day-1 splits into am/pm lanes while day-2 stays flat in the same row; a stray bucketless event in the bucketed cell falls into an N/A lane",
-    fn: East.function([], UIComponentType, (_$) => {
+    keywords: ["Planner", "bucket", "per-cell", "mixed", "flat", "N/A", "orphan", "stretch", "fill"],
+    description: "Per-cell bucketing with stretch — Press A's bucketed day-1 lanes are stretched to fill (a stray bucketless event drops to an N/A lane) beside a normal bucketed cell; Press B is flat, with a stretched unbucketed cell beside a normal one",
+    fn: East.function([], UIComponentType, ($) => {
+        // Press A — bucketed: day-1 am/pm lanes stretched to fill their band (+ a
+        // stray bucketless event ⇒ N/A lane); day-2 a normal-sized bucketed cell.
+        const pressA = $.const([
+            Planner.event({ slot: Planner.at.number(1), bucket: "am", label: "Setup", state: "committed", stretch: "both" }),
+            Planner.event({ slot: Planner.at.number(1), bucket: "pm", label: "Run", state: "committed", stretch: "both" }),
+            Planner.event({ slot: Planner.at.number(1), label: "Note", state: "added" }),
+            Planner.event({ slot: Planner.at.number(2), bucket: "am", label: "QA", state: "committed" }),
+        ], ArrayType(Planner.Types.Event));
+        // Press B — flat (unbucketed): day-1 a stretched tile filling the cell,
+        // day-2 a normal content-sized tile.
+        const pressB = $.const([
+            Planner.event({ slot: Planner.at.number(1), label: "Maint", state: "committed", stretch: "both" }),
+            Planner.event({ slot: Planner.at.number(2), label: "Idle", state: "added" }),
+        ], ArrayType(Planner.Types.Event));
         return (
             <Planner.Point
-                data={[{ name: "Press A" }]}
+                data={[
+                    { name: "Press A", bucketed: true },
+                    { name: "Press B", bucketed: false },
+                ]}
                 axis={Planner.axis.number({ buckets: [{ key: "am", label: "AM" }, { key: "pm", label: "PM" }], range: { min: 1, max: 3 } })}
                 columns={[{ key: "name", frozen: true, value: r => r.name }]}
-                events={_r => [
-                    // Day 1 — bucketed (am + pm) plus a stray bucketless event ⇒ N/A lane.
-                    Planner.event({ slot: Planner.at.number(1), bucket: "am", label: "Setup", state: "committed" }),
-                    Planner.event({ slot: Planner.at.number(1), bucket: "pm", label: "Run", state: "committed" }),
-                    Planner.event({ slot: Planner.at.number(1), label: "Note", state: "added" }),
-                    // Day 2 — flat (bucketless) cell in the same row.
-                    Planner.event({ slot: Planner.at.number(2), label: "Idle", state: "committed" }),
-                ]}
+                events={r => r.bucketed.ifElse(() => pressA, () => pressB)}
             />
         );
     }),

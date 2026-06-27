@@ -107,7 +107,13 @@ export async function captureFiles(cfg: CaptureConfig): Promise<{ captured: numb
     let captured = 0;
     let failed = 0;
     try {
-        browser = await chromium.launch({ headless: true });
+        browser = await chromium.launch({
+            headless: true,
+            // Allow pointing at a system / Chrome-for-Testing binary when
+            // Playwright's bundled Chromium isn't available for the host OS.
+            ...(process.env.PW_EXECUTABLE_PATH ? { executablePath: process.env.PW_EXECUTABLE_PATH } : {}),
+            args: ['--no-sandbox', '--disable-gpu'],
+        });
         const context = await browser.newContext({ viewport });
         await fs.mkdir(cfg.outDir, { recursive: true });
 

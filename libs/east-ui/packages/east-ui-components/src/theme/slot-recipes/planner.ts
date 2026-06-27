@@ -30,7 +30,7 @@ export const plannerSlotRecipe = defineSlotRecipe({
         "root", "header", "colHeader", "headerCell", "leftPanel",
         "row", "groupHead", "groupHeadCell", "rowHeader", "rowHeaderName", "rowHeaderSub",
         "cell",
-        "bucketedCell", "bucket", "bucketLabel", "bucketNA",
+        "bucketedCell", "bucket", "bucketLabel",
         "event", "grip", "nowLine", "nowPip", "nowHint", "markerRing", "markerIcon", "axis",
         "decisionHeader", "decisionCol", "statusDot",
     ],
@@ -180,20 +180,12 @@ export const plannerSlotRecipe = defineSlotRecipe({
             color: "{colors.gray.400}",
             fontWeight: "bold",
             flexShrink: 0,
-            width: "18px",
+            // Wide enough for the 3-glyph "N/A" orphan-lane label so every lane's
+            // label gutter is the same width and the chips stay column-aligned.
+            width: "24px",
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
-        },
-        // The synthetic "N/A" lane — holds the orphan(s) when a single bucketed
-        // cell accidentally also carries a bucketless event (so nothing is dropped
-        // and the accident is visible). A muted dashed treatment marks it apart
-        // from the declared buckets; its label inherits the danger tint.
-        bucketNA: {
-            background: "bg.danger.subtle",
-            borderWidth: "1px",
-            borderStyle: "dashed",
-            borderColor: "{colors.status.neg}",
         },
         // Event chip (`.evt`) — base shared by every state; `shape` + `state` colour it.
         event: {
@@ -385,29 +377,37 @@ export const plannerSlotRecipe = defineSlotRecipe({
             info:    { markerRing: { borderColor: "{colors.status.info}", background: "bg.info.subtle"    }, markerIcon: { color: "{colors.status.info}" }, statusDot: { background: "{colors.status.info}" } },
             neutral: { markerRing: { borderColor: "border.strong",        background: "transparent"       }, markerIcon: { color: "fg.subtle"            }, statusDot: { background: "fg.subtle"            } },
         },
-        // Per-event semantic colour override (`event.tone`). A *tint* — it sets
-        // only fill / text / border-colour on the chip; the renderer keeps the
-        // state's border-style + text-decoration so the committed / proposed /
-        // removed / rejected audit cues survive a recolour.
-        tone: {
-            success: { event: { background: "bg.success.subtle", color: "{colors.status.pos}",  borderColor: "{colors.status.pos}"  } },
-            warning: { event: { background: "bg.warning.subtle", color: "{colors.status.warn}", borderColor: "{colors.status.warn}" } },
-            danger:  { event: { background: "bg.danger.subtle",  color: "{colors.status.neg}",  borderColor: "{colors.status.neg}"  } },
-            info:    { event: { background: "bg.info.subtle",    color: "{colors.status.info}", borderColor: "{colors.status.info}" } },
-            neutral: { event: { background: "transparent",       color: "fg.default",           borderColor: "border.strong"        } },
-        },
         // Per-event attention animation (`event.animation`). `pulse` is the shared
         // `elara-pulse` opacity keyframe; gated behind `prefers-reduced-motion`.
+        // (The per-event `tone` tint is data-driven, applied inline by the renderer
+        // from the shared status tokens.)
         animation: {
             none:  {},
             pulse: { event: { animation: "elara-pulse 1.6s ease-in-out infinite", "@media (prefers-reduced-motion: reduce)": { animation: "none" } } },
         },
-        // Opt-in row hover affordance (`root.rowHover`). A light brand outline
-        // drawn just inside the row edge (`outlineOffset: -2px` so the planner's
-        // `overflow: hidden` root never clips it at the first/last row). Coexists
-        // with the brand.600 selection ring.
+        // Opt-in row hover affordance (`root.rowHover`). A dark brand (cyan) ring
+        // drawn as a `::after` overlay over BOTH panes (zIndex above the sticky
+        // panes), `inset: 0` so the planner root's `overflow: hidden` never clips
+        // it. Mirrors the selection overlay the renderer draws, but on hover —
+        // pointer-events: none so it never blocks a click.
         rowHover: {
-            true:  { row: { _hover: { outline: "2px solid {colors.brand.400}", outlineOffset: "-2px" } } },
+            true: {
+                row: {
+                    _hover: {
+                        _after: {
+                            content: '""',
+                            position: "absolute",
+                            inset: "0",
+                            pointerEvents: "none",
+                            borderWidth: "2px",
+                            borderStyle: "solid",
+                            borderColor: "{colors.brand.600}",
+                            borderRadius: "2px",
+                            zIndex: 4,
+                        },
+                    },
+                },
+            },
             false: {},
         },
     },

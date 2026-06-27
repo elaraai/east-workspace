@@ -26,7 +26,12 @@ export const iconButtonSlotRecipe = defineSlotRecipe({
     base: {
         wrapper: {
             position: "relative",
+            // `fit-content` so the wrapper hugs the button even inside a
+            // stretch-aligned flex parent (e.g. VStack); otherwise it spans the
+            // full width and the badge floats to the container edge while the
+            // `inset:0` ring becomes a full-width band (#123).
             display: "inline-flex",
+            width: "fit-content",
         },
         ring: {
             position: "absolute",
@@ -46,10 +51,16 @@ export const iconButtonSlotRecipe = defineSlotRecipe({
             borderColor: "bg.surface",
             fontSize: "9px",
             fontWeight: "bold",
+            // This font renders bold numerals slightly low in their line box, so
+            // a flex-centred digit reads a hair below the circle centre. A 1px
+            // bottom padding shrinks the content box from the bottom, nudging the
+            // digit UP onto the true centre (the `dot` shape has no text).
             lineHeight: "1",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
+            textAlign: "center",
+            fontVariantNumeric: "tabular-nums",
             pointerEvents: "none",
         },
     },
@@ -58,7 +69,7 @@ export const iconButtonSlotRecipe = defineSlotRecipe({
         // growing to a pill via minWidth + horizontal padding on overflow).
         shape: {
             dot:   { badge: { minWidth: "8px",  height: "8px",  paddingX: "0" } },
-            count: { badge: { minWidth: "16px", height: "16px", paddingX: "1" } },
+            count: { badge: { minWidth: "16px", height: "16px", paddingX: "1", paddingBottom: "1px" } },
         },
         // Pulse the badge to draw the eye to the count.
         pulse: {
