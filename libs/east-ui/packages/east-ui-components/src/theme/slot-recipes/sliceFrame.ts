@@ -28,7 +28,7 @@ export const sliceFrameSlotRecipe = defineSlotRecipe({
         "frameEyebrow", "frameEyebrowControls", "frameEyebrowMeta",
         "frameAffordanceIcon",
         "frameBody", "frameFooter", "frameFooterStat", "frameFooterDelta",
-        "searchPill", "searchKbd",
+        "searchPill", "searchKbd", "searchClear",
         "legendRail", "legendItem", "legendSwatch", "legendLabel", "legendValue",
     ],
     base: {
@@ -226,6 +226,21 @@ export const sliceFrameSlotRecipe = defineSlotRecipe({
             fontWeight: "semibold",
             color: "fg.muted",
             lineHeight: "1",
+        },
+        // The clear (×) affordance — shown only when the search box carries a
+        // value; clicking it empties the input AND the committed search.
+        searchClear: {
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: "16px",
+            height: "16px",
+            borderRadius: "2px",
+            color: "fg.muted",
+            cursor: "pointer",
+            flexShrink: 0,
+            transition: "color 0.12s ease, background 0.12s ease",
+            _hover: { color: "fg", background: "bg.canvas" },
         },
 
         // Slice.Legend — bare inline rail beneath a chart (spec `Slice.Legend`):

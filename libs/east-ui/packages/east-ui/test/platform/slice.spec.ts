@@ -858,6 +858,124 @@ describeEast("Slice", (test) => {
     });
 
     // =======================================================================
+    // Combinations — every narrowing composes as a strict AND. The "search does
+    // weird stuff" class of bugs lives in how search interacts with the rest.
+    // =======================================================================
+
+    test("apply.matches: search AND a filter both narrow", $ => {
+        const RowType = StructType({ country: StringType, sessions: IntegerType });
+        const cfg = $.let(Slice.config(RowType, {
+            fields: { country: { label: "Country" }, sessions: { label: "Sessions" } },
+            searchFieldIds: ["country"],
+        }));
+        const state = $.const(Slice.state({
+            filters: [variant("integer", { fieldId: "sessions", op: variant("gte", 10n) })],
+            search: some("ger"),
+        }));
+        const both       = $.const(East.value({ country: "Germany", sessions: 20n }, RowType));
+        const searchOnly = $.const(East.value({ country: "Germany", sessions: 5n  }, RowType));
+        const filterOnly = $.const(East.value({ country: "France",  sessions: 20n }, RowType));
+        const neither    = $.const(East.value({ country: "France",  sessions: 5n  }, RowType));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, both),       true));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, searchOnly), false));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, filterOnly), false));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, neither),    false));
+    });
+
+    test("apply.matches: two filters on the SAME field AND together (a manual between)", $ => {
+        const RowType = StructType({ n: IntegerType });
+        const cfg = $.let(Slice.config(RowType, { fields: { n: { label: "N" } } }));
+        const state = $.const(Slice.state({
+            filters: [
+                variant("integer", { fieldId: "n", op: variant("gte", 5n) }),
+                variant("integer", { fieldId: "n", op: variant("lte", 10n) }),
+            ],
+        }));
+        const inLo  = $.const(East.value({ n: 5n  }, RowType));
+        const mid   = $.const(East.value({ n: 7n  }, RowType));
+        const inHi  = $.const(East.value({ n: 10n }, RowType));
+        const below = $.const(East.value({ n: 4n  }, RowType));
+        const above = $.const(East.value({ n: 11n }, RowType));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, inLo),  true));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, mid),   true));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, inHi),  true));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, below), false));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, above), false));
+    });
+
+    test("apply.matches: contradictory filters match nothing", $ => {
+        const RowType = StructType({ country: StringType });
+        const cfg = $.let(Slice.config(RowType, { fields: { country: { label: "Country" } } }));
+        const state = $.const(Slice.state({
+            filters: [
+                variant("string", { fieldId: "country", op: variant("eq", "US") }),
+                variant("string", { fieldId: "country", op: variant("eq", "UK") }),
+            ],
+        }));
+        const us = $.const(East.value({ country: "US" }, RowType));
+        const uk = $.const(East.value({ country: "UK" }, RowType));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, us), false));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, uk), false));
+    });
+
+    test("apply.matches: filters on DIFFERENT fields AND together", $ => {
+        const RowType = StructType({ country: StringType, sessions: IntegerType });
+        const cfg = $.let(Slice.config(RowType, { fields: { country: { label: "Country" }, sessions: { label: "Sessions" } } }));
+        const state = $.const(Slice.state({
+            filters: [
+                variant("string",  { fieldId: "country",  op: variant("eq", "US") }),
+                variant("integer", { fieldId: "sessions", op: variant("gt", 10n) }),
+            ],
+        }));
+        const both  = $.const(East.value({ country: "US", sessions: 20n }, RowType));
+        const one   = $.const(East.value({ country: "US", sessions: 5n  }, RowType));
+        const other = $.const(East.value({ country: "UK", sessions: 20n }, RowType));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, both),  true));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, one),   false));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, other), false));
+    });
+
+    test("apply.matches: search AND an active cohort AND a filter all narrow", $ => {
+        const RowType = StructType({ country: StringType, tier: StringType, sessions: IntegerType });
+        const cfg = $.let(Slice.config(RowType, {
+            fields: { country: { label: "Country" }, tier: { label: "Tier" }, sessions: { label: "Sessions" } },
+            searchFieldIds: ["country"],
+        }));
+        const state = $.const(Slice.state({
+            filters: [variant("integer", { fieldId: "sessions", op: variant("gte", 10n) })],
+            search: some("ger"),
+            cohorts: [{ id: "pro", name: "Pro", filters: [variant("string", { fieldId: "tier", op: variant("eq", "pro") })] }],
+            activeCohorts: new Set(["pro"]),
+        }));
+        const all      = $.const(East.value({ country: "Germany", tier: "pro",  sessions: 20n }, RowType));
+        const noTier   = $.const(East.value({ country: "Germany", tier: "free", sessions: 20n }, RowType));
+        const noSearch = $.const(East.value({ country: "France",  tier: "pro",  sessions: 20n }, RowType));
+        const noFilter = $.const(East.value({ country: "Germany", tier: "pro",  sessions: 5n  }, RowType));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, all),      true));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, noTier),   false));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, noSearch), false));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, noFilter), false));
+    });
+
+    test("apply.matches: clearing search (none) drops the search narrowing", $ => {
+        const RowType = StructType({ country: StringType });
+        const cfg = $.let(Slice.config(RowType, { fields: { country: { label: "Country" } }, searchFieldIds: ["country"] }));
+        const withSearch = $.const(Slice.state({ search: some("zzz") }));
+        const cleared    = $.const(Slice.state({ search: none }));
+        const r = $.const(East.value({ country: "Germany" }, RowType));
+        $(Assert.equal(Slice.apply.matches([RowType], withSearch, cfg, r), false)); // "germany" has no "zzz"
+        $(Assert.equal(Slice.apply.matches([RowType], cleared,    cfg, r), true));  // no search ⇒ passes
+    });
+
+    test("apply.matches: empty state passes every row", $ => {
+        const RowType = StructType({ country: StringType });
+        const cfg = $.let(Slice.config(RowType, { fields: { country: { label: "Country" } } }));
+        const state = $.const(Slice.state({}));
+        const r = $.const(East.value({ country: "anything" }, RowType));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, r), true));
+    });
+
+    // =======================================================================
     // Slice.apply.where — element-level assertions, not just length
     // =======================================================================
 

@@ -270,6 +270,40 @@ function bindImpl(key: unknown, config: unknown, initial: unknown, data: unknown
     return handle;
 }
 
+/**
+ * Auto-derive search dropdown options from the matching rows when the slice
+ * declares no `toMatch`: project each row's first searchable string field to a
+ * **distinct** `{ id, label, meta }`, using the clean field VALUE as both id and
+ * label so selecting an option commits a valid query (#129). Pure + exported so
+ * the projection can be tested directly without standing up the store.
+ *
+ * @param hits - the rows already narrowed by the active search query
+ * @param config - the slice config (its `searchFieldIds` + `fields` accessors)
+ * @returns one option per distinct value (empty when no string field exists)
+ */
+export function autoDeriveMatches(
+    hits: ReadonlyArray<unknown>,
+    config: {
+        searchFieldIds: ReadonlyArray<string>;
+        fields: Map<string, { type: string; value: { accessor: (r: unknown) => unknown } }>;
+    },
+): Array<{ id: string; label: string; meta: typeof none }> {
+    // First searchable string field, else the first string field at all.
+    const stringId = config.searchFieldIds.find(id => config.fields.get(id)?.type === "string")
+        ?? [...config.fields].find(([, f]) => f.type === "string")?.[0];
+    if (stringId === undefined) return [];   // no string field → genuinely un-derivable
+    const accessor = config.fields.get(stringId)!.value.accessor;
+    const seen = new Set<string>();
+    const out: Array<{ id: string; label: string; meta: typeof none }> = [];
+    for (const r of hits) {
+        const label = String(accessor(r));
+        if (seen.has(label)) continue;   // distinct values only
+        seen.add(label);
+        out.push({ id: label, label, meta: none });
+    }
+    return out;
+}
+
 export const SliceImpl: PlatformFunction[] = [
     Slice.rows.implement((_T: EastTypeValue) => (handle: unknown) => {
         const k = (handle as { key: string }).key;
@@ -443,22 +477,9 @@ export const SliceImpl: PlatformFunction[] = [
             : boundRows(e);
         // `Match.meta` is the loose `variant`; the output is `option<string>`.
         if (e.toMatch !== undefined) return hits.map(e.toMatch) as never;
-        // No `toMatch` supplied: auto-derive matches from the config's first
-        // searchable string field so search works out of the box (#129). Project
-        // each hit to `{ id, label, meta: none }`; a per-row ordinal keeps `id`
-        // unique when the field has duplicate values.
-        const cfg = e.config as unknown as {
-            searchFieldIds: string[];
-            fields: Map<string, { type: string; value: { accessor: (r: unknown) => unknown } }>;
-        };
-        const stringId = cfg.searchFieldIds.find(id => cfg.fields.get(id)?.type === "string")
-            ?? [...cfg.fields].find(([, f]) => f.type === "string")?.[0];
-        if (stringId === undefined) return [];   // genuinely un-derivable (no string fields)
-        const accessor = cfg.fields.get(stringId)!.value.accessor;
-        return hits.map((r, i) => {
-            const label = String(accessor(r));
-            return { id: `${label} ${i}`, label, meta: none };
-        }) as never;
+        // No `toMatch`: auto-derive distinct search options from the config's
+        // first searchable string field so search works out of the box (#129).
+        return autoDeriveMatches(hits, e.config as never) as never;
     }),
     SliceBindPrimitives.cohortCounts.implement((key: unknown) => {
         const k = key as string;
