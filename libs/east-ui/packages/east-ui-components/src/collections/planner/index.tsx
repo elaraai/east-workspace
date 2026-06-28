@@ -520,6 +520,16 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
         let style = stateStyles[stateKey(ev.state)];
         const tone = getSomeorUndefined(ev.tone)?.type;
         if (tone !== undefined && TONE_TINT[tone] !== undefined) style = { ...style, ...TONE_TINT[tone] };
+        // Optional brand-colour override (#148) — tints fill/text/border to match a
+        // paired Chart series, keeping the state's border-style + strike-through.
+        // A raw `color` token wins over `colorPalette`; both win over `tone`.
+        const rawColor = getSomeorUndefined(ev.color);
+        const pal = getSomeorUndefined(ev.colorPalette)?.type;
+        if (rawColor !== undefined) {
+            style = { ...style, background: "transparent", color: rawColor, borderColor: rawColor };
+        } else if (pal !== undefined) {
+            style = { ...style, colorPalette: pal, background: "colorPalette.subtle", color: "colorPalette.fg", borderColor: "colorPalette.solid" };
+        }
         if (getSomeorUndefined(ev.animation)?.type === "pulse") style = { ...style, ...pulseStyle };
         return style;
     };

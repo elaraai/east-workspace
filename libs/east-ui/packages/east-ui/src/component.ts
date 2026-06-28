@@ -90,6 +90,7 @@ import { BannerStyleType } from "./feedback/banner/types.js";
 import { EmptyStateStyleType } from "./feedback/empty-state/types.js";
 import { SkeletonType } from "./feedback/skeleton/types.js";
 import { StatusValueType, StatusStyleType } from "./feedback/status/types.js";
+import { ColorSchemeType } from "./style/scheme.js";
 
 // Navigation
 import { BreadcrumbRootType } from "./navigation/breadcrumb/types.js";
@@ -789,6 +790,8 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
                 stretch: OptionType(PlannerStretchType),
                 content: OptionType(PlannerContentType),
                 tone: OptionType(StatusValueType),
+                color: OptionType(StringType),
+                colorPalette: OptionType(ColorSchemeType),
                 animation: OptionType(PlannerAnimationType),
                 hovercard: OptionType(node),
             })),

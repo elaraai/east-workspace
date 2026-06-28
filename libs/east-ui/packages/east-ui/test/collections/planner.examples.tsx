@@ -447,6 +447,31 @@ export const plannerEventTone = example({
 });
 
 /**
+ * Per-event brand colour (`color` raw token / `colorPalette` palette) so planner
+ * rows can match a paired Chart's series colours — overriding the `tone` tint
+ * while keeping the state's border-style.
+ */
+export const plannerEventColor = example({
+    keywords: ["Planner", "color", "colorPalette", "brand", "teal", "purple", "match", "chart", "series"],
+    description: "Per-event brand colour — color (raw token e.g. 'teal.solid') and colorPalette ('purple') so planner rows match their paired chart series colours",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <Planner.Point
+                data={[{ name: "Ferment" }]}
+                axis={Planner.axis.number({ range: { min: 1, max: 4 } })}
+                columns={[{ key: "name", frozen: true, value: r => r.name }]}
+                events={_r => [
+                    Planner.event({ slot: Planner.at.number(1), label: "Bé", state: "committed", color: "teal.solid" }),
+                    Planner.event({ slot: Planner.at.number(2), label: "Alc", state: "committed", colorPalette: "purple" }),
+                    Planner.event({ slot: Planner.at.number(3), label: "Set", state: "committed", color: "black" }),
+                ]}
+            />
+        );
+    }),
+    inputs: [],
+});
+
+/**
  * Open-on-hover `hovercard` (rich UIComponent), coexisting with the click
  * `popover` on one event — hover previews, click pins.
  */

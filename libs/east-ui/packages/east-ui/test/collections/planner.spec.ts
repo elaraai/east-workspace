@@ -24,6 +24,7 @@ describeEast("Planner", (test) => {
         plannerReview: ex.plannerReview,
         plannerStretch: ex.plannerStretch,
         plannerEventTone: ex.plannerEventTone,
+        plannerEventColor: ex.plannerEventColor,
         plannerHovercard: ex.plannerHovercard,
         plannerRowHover: ex.plannerRowHover,
         plannerPerCellBuckets: ex.plannerPerCellBuckets,
