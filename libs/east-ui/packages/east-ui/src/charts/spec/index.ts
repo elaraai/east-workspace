@@ -309,6 +309,13 @@ export interface AxisNodeOptions {
     label?: SubtypeExprOrValue<StringType>;
     /** Suggested tick count (a hint; the scale chooses nice ticks). */
     numTicks?: SubtypeExprOrValue<FloatType>;
+    /** Explicit tick positions (domain values), overriding `numTicks` — e.g.
+     *  integer day ticks `[0,1,2,…]` to line up with a stacked Planner. */
+    tickValues?: SubtypeExprOrValue<ArrayType<FloatType>>;
+    /** Hide the small tick marks (labels stay). */
+    hideTicks?: SubtypeExprOrValue<BooleanType>;
+    /** Hide the axis baseline rule. */
+    hideLine?: SubtypeExprOrValue<BooleanType>;
     /** Explicit `[min, max]` domain for a linear/time axis (see {@link ChartDomainType}). */
     domain?: SubtypeExprOrValue<ChartDomainType>;
     /** Tick-label format (see {@link ChartTickFormatType}). */
@@ -320,8 +327,9 @@ function axisFields(options?: AxisNodeOptions) {
     return {
         label:      options?.label !== undefined ? some(options.label) : none,
         numTicks:   options?.numTicks !== undefined ? some(options.numTicks) : none,
-        hideTicks:  none,
-        hideLine:   none,
+        tickValues: options?.tickValues !== undefined ? some(options.tickValues) : none,
+        hideTicks:  options?.hideTicks !== undefined ? some(options.hideTicks) : none,
+        hideLine:   options?.hideLine !== undefined ? some(options.hideLine) : none,
         domain:     options?.domain !== undefined ? some(options.domain) : none,
         tickFormat: options?.tickFormat !== undefined ? some(options.tickFormat) : none,
     };

@@ -581,6 +581,18 @@ export interface AxisOptions {
     domain?: AxisDomain;
     /** Force the x-scale kind instead of inferring it from the data. */
     scale?: ScaleKind;
+    /** Suggested tick count (the renderer may round to nice values). A hint. */
+    numTicks?: SubtypeExprOrValue<FloatType>;
+    /**
+     * Explicit tick positions — e.g. integer day ticks `[0, 1, 2, …]` to line up
+     * with a stacked `<Planner>`'s columns. Overrides `numTicks`'s auto-"nice"
+     * ticks. (Numbers are the axis-domain values, not pixels.)
+     */
+    tickValues?: SubtypeExprOrValue<ArrayType<FloatType>>;
+    /** Hide the small tick marks (labels stay). */
+    hideTicks?: SubtypeExprOrValue<BooleanType>;
+    /** Hide the axis baseline rule. */
+    hideLine?: SubtypeExprOrValue<BooleanType>;
 }
 
 /** Options for {@link createChartRoot}. */
@@ -661,9 +673,9 @@ function createChartRoot(layers: ChartLayer | ChartLayer[], options?: ChartOptio
     const children: ChartSpecValue[] = [
         ...(grid ? [chartGridRows({ dashArray: "2 4" }), chartGridColumns({ dashArray: "2 4" })] : []),
         ...markNodes,
-        chartAxisBottom(compact({ label: opts.x?.label, domain: domainExpr(opts.x?.domain), tickFormat: opts.x?.format })),
-        chartAxisLeft(compact({ label: opts.y?.label, domain: domainExpr(opts.y?.domain), tickFormat: opts.y?.format })),
-        ...(dualAxis ? [chartAxisRight(compact({ label: opts.y2?.label, domain: domainExpr(opts.y2?.domain), tickFormat: opts.y2?.format }))] : []),
+        chartAxisBottom(compact({ label: opts.x?.label, numTicks: opts.x?.numTicks, tickValues: opts.x?.tickValues, hideTicks: opts.x?.hideTicks, hideLine: opts.x?.hideLine, domain: domainExpr(opts.x?.domain), tickFormat: opts.x?.format })),
+        chartAxisLeft(compact({ label: opts.y?.label, numTicks: opts.y?.numTicks, tickValues: opts.y?.tickValues, hideTicks: opts.y?.hideTicks, hideLine: opts.y?.hideLine, domain: domainExpr(opts.y?.domain), tickFormat: opts.y?.format })),
+        ...(dualAxis ? [chartAxisRight(compact({ label: opts.y2?.label, numTicks: opts.y2?.numTicks, tickValues: opts.y2?.tickValues, hideTicks: opts.y2?.hideTicks, hideLine: opts.y2?.hideLine, domain: domainExpr(opts.y2?.domain), tickFormat: opts.y2?.format }))] : []),
     ];
 
     const sliceChrome = opts.slice !== undefined

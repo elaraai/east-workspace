@@ -300,6 +300,7 @@ export type ChartMarginType = typeof ChartMarginType;
  *
  * @property label     - Optional axis caption
  * @property numTicks  - Suggested tick count (renderer may round to nice values)
+ * @property tickValues - Explicit tick positions (domain values), overriding `numTicks` — e.g. integer day ticks to line up with a Planner
  * @property hideTicks - Hide the small tick marks (keep labels)
  * @property hideLine  - Hide the axis baseline rule
  * @property domain     - Explicit extent for a linear/time axis (see {@link ChartDomainType}); omit to derive from the data, and not meaningful for a `band` scale
@@ -308,6 +309,7 @@ export type ChartMarginType = typeof ChartMarginType;
 export const ChartAxisType = StructType({
     label:      OptionType(StringType),
     numTicks:   OptionType(FloatType),
+    tickValues: OptionType(ArrayType(FloatType)),
     hideTicks:  OptionType(BooleanType),
     hideLine:   OptionType(BooleanType),
     domain:     OptionType(ChartDomainType),

@@ -178,6 +178,28 @@ export const lineNumericX = example({
     inputs: [],
 });
 
+export const lineIntegerDayTicks = example({
+    keywords: ["Chart", "axis", "numTicks", "tickValues", "ticks", "integer", "day", "align", "Planner"],
+    description: "Explicit integer day ticks (tickValues) on the x-axis — pins the ticks to [0,1,…,6] so a stacked Planner's day columns line up, instead of the auto-niced set",
+    fn: East.function([], UIComponentType, ($) => {
+        const rows = $.const([
+            { day: 0.0, temp: 22.0 }, { day: 2.0, temp: 20.5 },
+            { day: 4.0, temp: 18.0 }, { day: 6.0, temp: 16.5 },
+        ], ArrayType(StructType({ day: FloatType, temp: FloatType })));
+        return (
+            <Box height="240px" width="100%">
+                <Chart
+                    layers={Chart.Line(rows, { x: r => r.day, y: r => r.temp }, { color: "teal.solid" })}
+                    x={{ label: "Ferment day", scale: "linear", domain: [0, 6], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0] }}
+                    y={{ label: "°C", numTicks: 3 }}
+                    grid
+                />
+            </Box>
+        );
+    }),
+    inputs: [],
+});
+
 export const lineRuntimeDomain = example({
     keywords: ["Chart", "Line", "domain", "axis", "extent", "runtime", "expression", "SubtypeExprOrValue", "forecast"],
     description: "Numeric x-axis whose upper extent is runtime-driven — the domain max is an East expression (decision day + p95 + buffer)",

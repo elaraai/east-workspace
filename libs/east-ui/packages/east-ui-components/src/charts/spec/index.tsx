@@ -489,14 +489,23 @@ function AxisBMark({ value }: { value: Axis }): ReactNode {
     const { xAxisScale, xTickValues, xKind, innerW, innerH, margin, style } = useScales();
     const fmt = tickFormatter(getSomeorUndefined(value.tickFormat), xKind);
     const label = getSomeorUndefined(value.label);
+    // #149 — explicit tick control (numTicks / tickValues / hideTicks / hideLine).
+    // Explicit `tickValues` win over the band scale's category positions; defaults
+    // preserve today's look (ticks hidden, baseline shown on the x-axis).
+    const numTicks = getSomeorUndefined(value.numTicks);
+    const tickValues = getSomeorUndefined(value.tickValues) ?? xTickValues;
+    const hideTicks = getSomeorUndefined(value.hideTicks) ?? true;
+    const hideLine = getSomeorUndefined(value.hideLine) ?? false;
     return (
         <>
             <AxisBottom
                 top={innerH}
                 scale={xAxisScale}
                 stroke={style.axisStroke}
-                hideTicks
-                {...(xTickValues ? { tickValues: xTickValues } : {})}
+                hideTicks={hideTicks}
+                hideAxisLine={hideLine}
+                {...(numTicks !== undefined ? { numTicks: Number(numTicks) } : {})}
+                {...(tickValues ? { tickValues } : {})}
                 tickFormat={v => fmt(v)}
                 tickLabelProps={() => ({ textAnchor: "middle", dy: "0.25em", style: { fontFamily: style.font, fontSize: style.labelSize, fill: style.labelColor } })}
             />
@@ -508,13 +517,15 @@ function AxisLMark({ value }: { value: Axis }): ReactNode {
     const { y, innerH, margin, style } = useScales();
     const fmt = tickFormatter(getSomeorUndefined(value.tickFormat), "linear");
     const label = getSomeorUndefined(value.label);
+    const tickValues = getSomeorUndefined(value.tickValues);
     return (
         <>
             <AxisLeft
                 scale={y}
-                numTicks={getSomeorUndefined(value.numTicks) ?? 4}
-                hideAxisLine
-                hideTicks
+                numTicks={Number(getSomeorUndefined(value.numTicks) ?? 4)}
+                hideAxisLine={getSomeorUndefined(value.hideLine) ?? true}
+                hideTicks={getSomeorUndefined(value.hideTicks) ?? true}
+                {...(tickValues ? { tickValues } : {})}
                 tickFormat={v => fmt(v)}
                 tickLabelProps={() => ({ textAnchor: "end", dx: "-0.25em", dy: "0.25em", style: { fontFamily: style.font, fontSize: style.labelSize, fill: style.labelColor } })}
             />
@@ -527,14 +538,16 @@ function AxisRMark({ value }: { value: Axis }): ReactNode {
     const scale = y2 ?? y;
     const fmt = tickFormatter(getSomeorUndefined(value.tickFormat), "linear");
     const label = getSomeorUndefined(value.label);
+    const tickValues = getSomeorUndefined(value.tickValues);
     return (
         <>
             <AxisRight
                 left={innerW}
                 scale={scale}
-                numTicks={getSomeorUndefined(value.numTicks) ?? 4}
-                hideAxisLine
-                hideTicks
+                numTicks={Number(getSomeorUndefined(value.numTicks) ?? 4)}
+                hideAxisLine={getSomeorUndefined(value.hideLine) ?? true}
+                hideTicks={getSomeorUndefined(value.hideTicks) ?? true}
+                {...(tickValues ? { tickValues } : {})}
                 tickFormat={v => fmt(v)}
                 tickLabelProps={() => ({ textAnchor: "start", dx: "0.25em", dy: "0.25em", style: { fontFamily: style.font, fontSize: style.labelSize, fill: style.labelColor } })}
             />
