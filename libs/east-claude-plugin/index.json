@@ -1,14 +1,14 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1382,
+    "totalEntries": 1383,
     "totalFiles": 180,
     "packages": {
       "east": 489,
       "east-node-std": 42,
       "east-node-io": 63,
       "east-py-datascience": 89,
-      "east-ui": 637,
+      "east-ui": 638,
       "e3-ui": 55,
       "e3": 7
     }
@@ -14320,6 +14320,31 @@
         "import { Box, Chart, Reactive } from \"@elaraai/east-ui\";"
       ],
       "source": "// Continuous numeric x-axis with an explicit domain\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { dose: 0.5, response: 12.0 }, { dose: 1.0, response: 30.0 },\n            { dose: 2.5, response: 55.0 }, { dose: 5.0, response: 70.0 },\n        ], ArrayType(StructType({ dose: FloatType, response: FloatType })));\n        return (\n            <Box height=\"240px\" width=\"100%\">\n                <Chart\n                    layers={Chart.Line(rows, { x: r => r.dose, y: r => r.response }, { color: \"purple.solid\" })}\n                    x={{ label: \"Dose\", scale: \"linear\", domain: [0, 6] }}\n                    y={{ label: \"Response\" }}\n                    grid\n                />\n            </Box>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:chart.examples.tsx:lineIntegerDayTicks",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/charts/chart.examples.tsx",
+      "suite": "",
+      "test": "Explicit integer day ticks (tickValues) on the x-axis — pins the ticks to [0,1,…,6] so a stacked Planner",
+      "keywords": [
+        "Chart",
+        "axis",
+        "numTicks",
+        "tickValues",
+        "ticks",
+        "integer",
+        "day",
+        "align",
+        "Planner"
+      ],
+      "imports": [
+        "import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Chart, Reactive } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Explicit integer day ticks (tickValues) on the x-axis — pins the ticks to [0,1,…,6] so a stacked Planner\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { day: 0.0, temp: 22.0 }, { day: 2.0, temp: 20.5 },\n            { day: 4.0, temp: 18.0 }, { day: 6.0, temp: 16.5 },\n        ], ArrayType(StructType({ day: FloatType, temp: FloatType })));\n        return (\n            <Box height=\"240px\" width=\"100%\">\n                <Chart\n                    layers={Chart.Line(rows, { x: r => r.day, y: r => r.temp }, { color: \"teal.solid\" })}\n                    x={{ label: \"Ferment day\", scale: \"linear\", domain: [0, 6], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0] }}\n                    y={{ label: \"°C\", numTicks: 3 }}\n                    grid\n                />\n            </Box>\n        );\n    })"
     },
     {
       "id": "east-ui:chart.examples.tsx:lineRuntimeDomain",
