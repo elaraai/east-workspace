@@ -1,14 +1,14 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1380,
+    "totalEntries": 1382,
     "totalFiles": 180,
     "packages": {
       "east": 489,
       "east-node-std": 42,
       "east-node-io": 63,
       "east-py-datascience": 89,
-      "east-ui": 635,
+      "east-ui": 637,
       "e3-ui": 55,
       "e3": 7
     }
@@ -14234,6 +14234,30 @@
       "source": "// Stepped line, thick stroke, no point markers\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { month: \"Jan\", price: 100n }, { month: \"Feb\", price: 120n },\n            { month: \"Mar\", price: 115n }, { month: \"Apr\", price: 140n },\n        ], ArrayType(StructType({ month: StringType, price: IntegerType })));\n        return (\n            <Box height=\"220px\" width=\"100%\">\n                <Chart layers={Chart.Line(rows, { x: r => r.month, y: r => r.price }, { curve: \"step\", width: 2, dots: false, color: \"orange.solid\" })} grid />\n            </Box>\n        );\n    })"
     },
     {
+      "id": "east-ui:chart.examples.tsx:lineStepAfterSetpoint",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/charts/chart.examples.tsx",
+      "suite": "",
+      "test": "stepAfter curve — a held setpoint extends forward from each point until the next change (riser after the point); stepBefore holds up to the point",
+      "keywords": [
+        "Chart",
+        "Line",
+        "curve",
+        "stepAfter",
+        "stepBefore",
+        "step",
+        "setpoint",
+        "held"
+      ],
+      "imports": [
+        "import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Chart, Reactive } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// stepAfter curve — a held setpoint extends forward from each point until the next change (riser after the point); stepBefore holds up to the point\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { day: 0n, setpoint: 18.0 }, { day: 2n, setpoint: 22.0 },\n            { day: 5n, setpoint: 20.0 }, { day: 8n, setpoint: 16.0 },\n        ], ArrayType(StructType({ day: IntegerType, setpoint: FloatType })));\n        return (\n            <Box height=\"220px\" width=\"100%\">\n                <Chart layers={Chart.Line(rows, { x: r => r.day, y: r => r.setpoint }, { curve: \"stepAfter\", width: 2, color: \"black\" })} grid />\n            </Box>\n        );\n    })"
+    },
+    {
       "id": "east-ui:chart.examples.tsx:lineDashedTargetOverlay",
       "skill": "east-ui",
       "package": "east-ui",
@@ -16418,6 +16442,31 @@
         "import { Planner, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// Per-event tone colour override + pulse animation — a danger-toned committed event pulses for attention while keeping its audit cues\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Planner.Point\n                data={[{ name: \"Reactor\" }]}\n                axis={Planner.axis.number({ range: { min: 1, max: 4 } })}\n                columns={[{ key: \"name\", frozen: true, value: r => r.name }]}\n                events={_r => [\n                    Planner.event({ slot: Planner.at.number(1), label: \"OK\", state: \"committed\" }),\n                    Planner.event({ slot: Planner.at.number(2), label: \"Watch\", state: \"committed\", tone: \"warning\" }),\n                    Planner.event({ slot: Planner.at.number(3), label: \"Breach\", state: \"committed\", tone: \"danger\", animation: \"pulse\" }),\n                ]}\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:planner.examples.tsx:plannerEventColor",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/planner.examples.tsx",
+      "suite": "",
+      "test": "Per-event brand colour — color (raw token e.g. ",
+      "keywords": [
+        "Planner",
+        "color",
+        "colorPalette",
+        "brand",
+        "teal",
+        "purple",
+        "match",
+        "chart",
+        "series"
+      ],
+      "imports": [
+        "import { East, NullType, FloatType, ArrayType, some, none, variant, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Planner, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Per-event brand colour — color (raw token e.g. \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Planner.Point\n                data={[{ name: \"Ferment\" }]}\n                axis={Planner.axis.number({ range: { min: 1, max: 4 } })}\n                columns={[{ key: \"name\", frozen: true, value: r => r.name }]}\n                events={_r => [\n                    Planner.event({ slot: Planner.at.number(1), label: \"Bé\", state: \"committed\", color: \"teal.solid\" }),\n                    Planner.event({ slot: Planner.at.number(2), label: \"Alc\", state: \"committed\", colorPalette: \"purple\" }),\n                    Planner.event({ slot: Planner.at.number(3), label: \"Set\", state: \"committed\", color: \"black\" }),\n                ]}\n            />\n        );\n    })"
     },
     {
       "id": "east-ui:planner.examples.tsx:plannerHovercard",
@@ -24264,7 +24313,7 @@
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/overlays/drawer.examples.tsx",
       "suite": "",
-      "test": "Full-bleed, fill-height drawer body (flush + fillBody) so a single child fills the panel and owns its own scroll; pair with bodyPadding for a custom inset",
+      "test": "Body padding control: a full-bleed fill-height body (flush + fillBody) so a single child fills the panel and owns its own scroll, plus a custom bodyPadding inset",
       "keywords": [
         "Drawer",
         "flush",
@@ -24280,7 +24329,7 @@
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Box, Button, Drawer, Reactive, Status, Text, VStack } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Full-bleed, fill-height drawer body (flush + fillBody) so a single child fills the panel and owns its own scroll; pair with bodyPadding for a custom inset\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Drawer trigger={<Button>Open Full-bleed Drawer</Button>} eyebrow=\"Rail · data\" title=\"Full-bleed body\" placement=\"end\" size=\"md\" flush fillBody>\n                <Box height=\"100%\" overflowY=\"auto\">\n                    <VStack gap=\"2\" align=\"stretch\">\n                        <Text>This body is flush (zero padding) and fills the panel height.</Text>\n                        <Text color=\"fg.muted\">A single height:100% child owns its scrollbar instead of the whole panel scrolling.</Text>\n                    </VStack>\n                </Box>\n            </Drawer>\n        );\n    })"
+      "source": "// Body padding control: a full-bleed fill-height body (flush + fillBody) so a single child fills the panel and owns its own scroll, plus a custom bodyPadding inset\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <VStack gap=\"2\" align=\"flex-start\">\n                <Drawer trigger={<Button>Open Full-bleed Drawer</Button>} eyebrow=\"Rail · data\" title=\"Full-bleed body\" placement=\"end\" size=\"md\" flush fillBody>\n                    <Box height=\"100%\" overflowY=\"auto\">\n                        <VStack gap=\"2\" align=\"stretch\">\n                            <Text>This body is flush (zero padding) and fills the panel height.</Text>\n                            <Text color=\"fg.muted\">A single height:100% child owns its scrollbar instead of the whole panel scrolling.</Text>\n                        </VStack>\n                    </Box>\n                </Drawer>\n                <Drawer trigger={<Button variant=\"outline\">Open Custom-inset Drawer</Button>} title=\"Custom inset\" placement=\"end\" size=\"md\" bodyPadding=\"8px 12px\">\n                    <Text>This body uses a custom bodyPadding of 8px 12px instead of the default 16px 20px.</Text>\n                </Drawer>\n            </VStack>\n        );\n    })"
     },
     {
       "id": "east-ui:hover-card.examples.tsx:hoverCardProfile",
