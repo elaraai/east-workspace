@@ -514,14 +514,14 @@ const EastChakraDecisionQueue = memo(function EastChakraDecisionQueue({ value, s
 
     if (decisions === null) {
         return (
-            <Box layerStyle="frame" p="16px">
+            <Box layerStyle="surface.frameless" p="16px">
                 <Text color="fg.muted" fontSize="13px">Loading decisions…</Text>
             </Box>
         );
     }
 
     return (
-        <Box ref={rootRef} layerStyle="frame" overflow="hidden">
+        <Box ref={rootRef} layerStyle="surface.frameless" overflow="hidden">
             <Box css={es.root}>
                 <Box css={es.lbl}>{heading}</Box>
                 {sliceHandle !== null && railAffordances !== undefined && (

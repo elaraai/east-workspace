@@ -228,7 +228,7 @@ function LoadingSkeleton() {
     const line = (w: string, h: string) => <Box css={sk({ variant: 'line' })} width={w} height={h} />;
     const block = (h: string) => <Box css={sk({ variant: 'block' })} width="100%" minHeight={h} />;
     return (
-        <Box layerStyle="frame" overflow="visible">
+        <Box layerStyle="surface.frameless" overflow="visible">
             <Box layerStyle="header.bar" display="flex" alignItems="center" gap="3.5">
                 {line('260px', '20px')}
                 <Box flex="1" />
@@ -506,9 +506,9 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
         const bindError = data.error ?? configsBind.error ?? journalBind.error;
         const bindMsg = bindError instanceof Error ? bindError.message : bindError != null ? String(bindError) : null;
         // Terminal states (error / nothing to show / failed run) get a compact message.
-        if (bindMsg) return <Box layerStyle="frame" p="6"><Text textStyle="body.sm" color="fg.danger">Couldn’t load the experiment {which}: {bindMsg}</Text></Box>;
-        if (noConfigs) return <Box layerStyle="frame" p="6"><Text textStyle="body.sm" color="fg.muted">No questions to show — bind a non-empty configs list.</Text></Box>;
-        if (failed && experiment.error) return <Box layerStyle="frame" p="6"><RunError error={experiment.error} /></Box>;
+        if (bindMsg) return <Box layerStyle="surface.frameless" p="6"><Text textStyle="body.sm" color="fg.danger">Couldn’t load the experiment {which}: {bindMsg}</Text></Box>;
+        if (noConfigs) return <Box layerStyle="surface.frameless" p="6"><Text textStyle="body.sm" color="fg.muted">No questions to show — bind a non-empty configs list.</Text></Box>;
+        if (failed && experiment.error) return <Box layerStyle="surface.frameless" p="6"><RunError error={experiment.error} /></Box>;
         // Still resolving `data` / `configs` — show the full-surface skeleton so the shell
         // is stable and live content fills in without a layout jump.
         return <LoadingSkeleton />;
@@ -561,7 +561,7 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
 
     return (
         <GuidanceProvider on={guidance} vars={helpVars}>
-        <Box layerStyle="frame" overflow="visible">
+        <Box layerStyle="surface.frameless" overflow="visible">
             {/* header */}
             <Box layerStyle="header.bar" display="flex" alignItems="center" gap="3.5">
                 {/* The title IS the question selector (spec #79, GitHub-repo-picker style): when
