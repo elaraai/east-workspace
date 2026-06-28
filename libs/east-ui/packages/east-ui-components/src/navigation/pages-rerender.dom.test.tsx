@@ -99,3 +99,59 @@ describe("issue #114 — Pages switches on navigation", () => {
         expect(container.textContent).toContain("PAGE_B");
     });
 });
+
+// Issue #142 — the residual of #114. When BOTH page bodies are themselves
+// `<Reactive>`, the bodies the switcher matches between are `ReactiveComponent`
+// values differing ONLY by a render function. `equalFor` treats every function as
+// equal (comparison.ts), so `EastChakraComponent`'s memo declares overview-body
+// === detail-body and bails the swap — the page never changes. The plain-`Text`
+// guard above can't catch this (its bodies differ structurally). `EastChakraPages`
+// remounts the active page by the route's store version, fixing it.
+const KEY142 = "issue142.route";
+
+function buildReactivePagesValue(): ValueTypeOf<typeof UIComponentType> {
+    const program = East.function([], UIComponentType, (_$) =>
+        Reactive.Root(East.function([], UIComponentType, ($2) => {
+            const nav = $2.let(Navigation.bind(routes, KEY142, initialPath));
+            return Pages.Root({
+                nav,
+                pages: {
+                    // Each page is its own <Reactive> — the case that defeats the memo.
+                    a: () => Reactive.Root(East.function([], UIComponentType, (_$2) => Text.Root("PAGE_A"))),
+                    b: () => Reactive.Root(East.function([], UIComponentType, (_$2) => Text.Root("PAGE_B"))),
+                },
+            });
+        })),
+    );
+    return East.compile(program, getRegisteredPlatformImplementations())() as ValueTypeOf<typeof UIComponentType>;
+}
+
+function navGoB142(): void {
+    const handle = NavImpl[0]!.fn!(
+        toEastTypeValue(NavBindHandleType(routes.routes)),
+        toEastTypeValue(routes.Route),
+    )(KEY142, initialPath) as { go: { b: (p: unknown) => null } };
+    handle.go.b(null);
+}
+
+describe("issue #142 — Pages switches when both page bodies are <Reactive>", () => {
+    test("LIVE value switches reactive page on navigation (memo would bail on equalFor)", () => {
+        initializeStore(new UIStore());
+        const { container } = mount(buildReactivePagesValue());
+        expect(container.textContent).toContain("PAGE_A");
+        act(() => { navGoB142(); });
+        expect(container.textContent).toContain("PAGE_B");
+        expect(container.textContent).not.toContain("PAGE_A");
+    });
+
+    test("DECODED value switches reactive page on navigation", () => {
+        initializeStore(new UIStore());
+        const bytes = encodeBeast2For(UIComponentType)(buildReactivePagesValue());
+        const decoded = decodeBeast2For(UIComponentType, { platform: getRegisteredPlatformImplementations() })(bytes) as ValueTypeOf<typeof UIComponentType>;
+        const { container } = mount(decoded);
+        expect(container.textContent).toContain("PAGE_A");
+        act(() => { navGoB142(); });
+        expect(container.textContent).toContain("PAGE_B");
+        expect(container.textContent).not.toContain("PAGE_A");
+    });
+});
