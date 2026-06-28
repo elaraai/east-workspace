@@ -15,6 +15,7 @@ describeEast("Chart", (test) => {
         lineBreakdown: ex.lineBreakdown,
         lineCurveNatural: ex.lineCurveNatural,
         lineStepNoDots: ex.lineStepNoDots,
+        lineStepAfterSetpoint: ex.lineStepAfterSetpoint,
         lineDashedTargetOverlay: ex.lineDashedTargetOverlay,
         lineTemporal: ex.lineTemporal,
         lineNumericX: ex.lineNumericX,

@@ -97,6 +97,23 @@ export const lineStepNoDots = example({
     inputs: [],
 });
 
+export const lineStepAfterSetpoint = example({
+    keywords: ["Chart", "Line", "curve", "stepAfter", "stepBefore", "step", "setpoint", "held"],
+    description: "stepAfter curve — a held setpoint extends forward from each point until the next change (riser after the point); stepBefore holds up to the point",
+    fn: East.function([], UIComponentType, ($) => {
+        const rows = $.const([
+            { day: 0n, setpoint: 18.0 }, { day: 2n, setpoint: 22.0 },
+            { day: 5n, setpoint: 20.0 }, { day: 8n, setpoint: 16.0 },
+        ], ArrayType(StructType({ day: IntegerType, setpoint: FloatType })));
+        return (
+            <Box height="220px" width="100%">
+                <Chart layers={Chart.Line(rows, { x: r => r.day, y: r => r.setpoint }, { curve: "stepAfter", width: 2, color: "black" })} grid />
+            </Box>
+        );
+    }),
+    inputs: [],
+});
+
 export const lineDashedTargetOverlay = example({
     keywords: ["Chart", "Line", "dash", "layers", "per-series-style"],
     description: "Actual vs dashed target as two styled line layers",

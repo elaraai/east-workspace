@@ -15,7 +15,7 @@ import { ParentSize } from "@visx/responsive";
 import { Group } from "@visx/group";
 import { scaleBand, scaleLinear, scaleTime, scaleSqrt } from "@visx/scale";
 import { LinePath, AreaClosed, Area, Bar, Line, Circle } from "@visx/shape";
-import { curveMonotoneX, curveLinear, curveNatural, curveStep } from "@visx/curve";
+import { curveMonotoneX, curveLinear, curveNatural, curveStep, curveStepBefore, curveStepAfter } from "@visx/curve";
 import { GridRows, GridColumns } from "@visx/grid";
 import { Brush } from "@visx/brush";
 import type { Bounds } from "@visx/brush/lib/types";
@@ -106,6 +106,8 @@ function curveFor(c: Curve | undefined): typeof curveMonotoneX {
         linear: () => curveLinear,
         natural: () => curveNatural,
         step: () => curveStep,
+        stepBefore: () => curveStepBefore,
+        stepAfter: () => curveStepAfter,
     });
 }
 

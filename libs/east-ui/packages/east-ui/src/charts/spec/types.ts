@@ -201,21 +201,25 @@ export type ChartTickFormatType = typeof ChartTickFormatType;
 /**
  * Line/area interpolation (visx `@visx/curve`).
  *
- * @property monotoneX - Smooth monotone-in-x (the default spec curve)
- * @property linear    - Straight segments
- * @property natural   - Natural cubic spline
- * @property step      - Step interpolation
+ * @property monotoneX  - Smooth monotone-in-x (the default spec curve)
+ * @property linear     - Straight segments
+ * @property natural    - Natural cubic spline
+ * @property step       - Step interpolation, riser at the midpoint between points
+ * @property stepBefore - Step interpolation, riser before each point (value held up to the point)
+ * @property stepAfter  - Step interpolation, riser after each point (value held forward from the point — e.g. a setpoint held until the next change)
  */
 export const ChartCurveType = VariantType({
-    monotoneX: NullType,
-    linear:    NullType,
-    natural:   NullType,
-    step:      NullType,
+    monotoneX:  NullType,
+    linear:     NullType,
+    natural:    NullType,
+    step:       NullType,
+    stepBefore: NullType,
+    stepAfter:  NullType,
 });
 export type ChartCurveType = typeof ChartCurveType;
 
 /** String-literal shorthand for {@link ChartCurveType}. */
-export type ChartCurveLiteral = "monotoneX" | "linear" | "natural" | "step";
+export type ChartCurveLiteral = "monotoneX" | "linear" | "natural" | "step" | "stepBefore" | "stepAfter";
 
 /** The mark a `series` node draws, one per series. */
 export const ChartMarkType = VariantType({
