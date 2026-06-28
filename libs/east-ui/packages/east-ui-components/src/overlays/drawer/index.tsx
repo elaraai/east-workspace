@@ -85,6 +85,10 @@ export function DrawerContent({ value, storageKey, trigger, open, onClose, onExi
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
     const onOpenChangeFn = useMemo(() => style ? getSomeorUndefined(style.onOpenChange) : undefined, [style]);
     const onExitCompleteFn = useMemo(() => style ? getSomeorUndefined(style.onExitComplete) : undefined, [style]);
+    // #145 — body padding / fill-height affordance (applied inline on ChakraDrawer.Body).
+    const bodyPadding = useMemo(() => style ? getSomeorUndefined(style.bodyPadding) : undefined, [style]);
+    const flush = useMemo(() => (style ? getSomeorUndefined(style.flush) : undefined) === true, [style]);
+    const fillBody = useMemo(() => (style ? getSomeorUndefined(style.fillBody) : undefined) === true, [style]);
 
     const handleOpenChange = useCallback((details: { open: boolean }) => {
         if (!details.open && onClose) {
@@ -146,7 +150,10 @@ export function DrawerContent({ value, storageKey, trigger, open, onClose, onExi
                                 <FontAwesomeIcon icon={isFullscreen ? faCompress : faExpand} />
                             </IconButton>
                         </ChakraDrawer.Header>
-                        <ChakraDrawer.Body>
+                        <ChakraDrawer.Body
+                            padding={flush ? "0" : (bodyPadding ?? "16px 20px")}
+                            {...(fillBody ? { display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" } : {})}
+                        >
                             {value.body.map((child, index) => (
                                 <EastChakraComponent key={index} value={child} storageKey={`${storageKey}.${index}`} />
                             ))}

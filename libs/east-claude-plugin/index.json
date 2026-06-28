@@ -1,14 +1,14 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1379,
+    "totalEntries": 1380,
     "totalFiles": 180,
     "packages": {
       "east": 489,
       "east-node-std": 42,
       "east-node-io": 63,
       "east-py-datascience": 89,
-      "east-ui": 634,
+      "east-ui": 635,
       "e3-ui": 55,
       "e3": 7
     }
@@ -24190,7 +24190,7 @@
       "imports": [
         "import { East, BooleanType, IntegerType, NullType, example, some, none } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Button, Drawer, Reactive, Status, Text, VStack } from \"@elaraai/east-ui\";"
+        "import { Box, Button, Drawer, Reactive, Status, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// Slide-in panel from right with the surface-header eyebrow\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Drawer trigger={<Button>Open Drawer</Button>} eyebrow=\"Rail · detail\" title=\"Drawer Title\" description=\"Slide-in panel\" placement=\"end\" size=\"md\">\n                <VStack gap=\"4\">\n                    <Text>This is a drawer panel that slides in from the side.</Text>\n                    <Text color=\"fg.muted\">Great for navigation, settings, or detailed content.</Text>\n                </VStack>\n            </Drawer>\n        );\n    })"
     },
@@ -24212,7 +24212,7 @@
       "imports": [
         "import { East, BooleanType, IntegerType, NullType, example, some, none } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Button, Drawer, Reactive, Status, Text, VStack } from \"@elaraai/east-ui\";"
+        "import { Box, Button, Drawer, Reactive, Status, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// Slide-in panel from left\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Drawer trigger={<Button variant=\"outline\">Open Navigation</Button>} title=\"Navigation\" placement=\"start\">\n                <VStack gap=\"1\" align=\"stretch\">\n                    <Button variant=\"ghost\" size=\"sm\">Overview</Button>\n                    <Button variant=\"ghost\" size=\"sm\">Projects</Button>\n                    <Button variant=\"ghost\" size=\"sm\">Team</Button>\n                    <Button variant=\"ghost\" size=\"sm\">Settings</Button>\n                </VStack>\n            </Drawer>\n        );\n    })"
     },
@@ -24234,7 +24234,7 @@
       "imports": [
         "import { East, BooleanType, IntegerType, NullType, example, some, none } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Button, Drawer, Reactive, Status, Text, VStack } from \"@elaraai/east-ui\";"
+        "import { Box, Button, Drawer, Reactive, Status, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// Drawer with onOpenChange callback\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const openCountBind = $.let(State.bind([IntegerType], \"drawer_open_count\", 0n));\n            const onOpenChange = $.const(East.function([BooleanType], NullType, ($, isOpen) => {\n                const openCount = $.let(openCountBind.read());\n                $.if(isOpen, $ => {\n                    $(openCountBind.write(openCount.add(1n)));\n                });\n            }));\n            const openCount = $.let(openCountBind.read());\n            return (\n                <VStack gap=\"3\" align=\"flex-start\">\n                    <Drawer trigger={<Button>Open Drawer</Button>} title=\"Interactive Drawer\" placement=\"end\" onOpenChange={onOpenChange}>\n                        <VStack gap=\"4\">\n                            <Text>This drawer counts how many times it’s been opened.</Text>\n                            <Status label={<Text>{East.str`OPENED · ${East.print(openCount)} TIMES`}</Text>} value=\"info\" />\n                        </VStack>\n                    </Drawer>\n                    <Status label={<Text>{East.str`DRAWER OPENED · ${East.print(openCount)} TIMES`}</Text>} value=\"info\" />\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
     },
@@ -24254,9 +24254,33 @@
       "imports": [
         "import { East, BooleanType, IntegerType, NullType, example, some, none } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Button, Drawer, Reactive, Status, Text, VStack } from \"@elaraai/east-ui\";"
+        "import { Box, Button, Drawer, Reactive, Status, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// Drawer.open() without trigger — defaults to brand-d primary button\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Button\n                variant=\"solid\"\n                onClick={East.function([], NullType, $ => {\n                    $(Drawer.open(East.value({\n                        body: [\n                            <VStack gap=\"4\">\n                                <Text>This drawer was opened programmatically using Drawer.open().</Text>\n                                <Text color=\"fg.muted\">Great for navigation, notifications, or dynamic content.</Text>\n                            </VStack>,\n                        ],\n                        eyebrow: some(\"Rail · programmatic\"),\n                        title: some(\"Programmatic Drawer\"),\n                        description: some(\"Opened via Drawer.open()\"),\n                        style: none,\n                    }, Drawer.Types.OpenInput)));\n                })}\n            >Open Drawer Programmatically</Button>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:drawer.examples.tsx:drawerFlush",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/overlays/drawer.examples.tsx",
+      "suite": "",
+      "test": "Full-bleed, fill-height drawer body (flush + fillBody) so a single child fills the panel and owns its own scroll; pair with bodyPadding for a custom inset",
+      "keywords": [
+        "Drawer",
+        "flush",
+        "bodyPadding",
+        "fillBody",
+        "full-bleed",
+        "padding",
+        "fill-height",
+        "scroll"
+      ],
+      "imports": [
+        "import { East, BooleanType, IntegerType, NullType, example, some, none } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Button, Drawer, Reactive, Status, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Full-bleed, fill-height drawer body (flush + fillBody) so a single child fills the panel and owns its own scroll; pair with bodyPadding for a custom inset\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Drawer trigger={<Button>Open Full-bleed Drawer</Button>} eyebrow=\"Rail · data\" title=\"Full-bleed body\" placement=\"end\" size=\"md\" flush fillBody>\n                <Box height=\"100%\" overflowY=\"auto\">\n                    <VStack gap=\"2\" align=\"stretch\">\n                        <Text>This body is flush (zero padding) and fills the panel height.</Text>\n                        <Text color=\"fg.muted\">A single height:100% child owns its scrollbar instead of the whole panel scrolling.</Text>\n                    </VStack>\n                </Box>\n            </Drawer>\n        );\n    })"
     },
     {
       "id": "east-ui:hover-card.examples.tsx:hoverCardProfile",

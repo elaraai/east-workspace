@@ -162,7 +162,8 @@ function createDrawer(
         : undefined;
 
     const hasStyle = sizeValue || placementValue || style.contained !== undefined ||
-        style.onOpenChange !== undefined || style.onExitComplete !== undefined;
+        style.onOpenChange !== undefined || style.onExitComplete !== undefined ||
+        style.bodyPadding !== undefined || style.flush !== undefined || style.fillBody !== undefined;
 
     return East.value(variant("Drawer", {
         trigger: trigger,
@@ -177,6 +178,9 @@ function createDrawer(
                 contained: style.contained !== undefined ? some(style.contained) : none,
                 onOpenChange: style.onOpenChange !== undefined ? some(style.onOpenChange) : none,
                 onExitComplete: style.onExitComplete !== undefined ? some(style.onExitComplete) : none,
+                bodyPadding: style.bodyPadding !== undefined ? some(style.bodyPadding) : none,
+                flush: style.flush !== undefined ? some(style.flush) : none,
+                fillBody: style.fillBody !== undefined ? some(style.fillBody) : none,
             }, DrawerStyleType))
             : none,
     }), UIComponentType);
@@ -298,6 +302,9 @@ export const Drawer = {
          * @property size - Drawer size variant
          * @property placement - Edge placement
          * @property contained - Render within parent container
+         * @property bodyPadding - CSS padding shorthand for the body (default `"16px 20px"`)
+         * @property flush - Removes body padding (full-bleed); overrides `bodyPadding`
+         * @property fillBody - Body becomes a definite-height flex column so a single child fills + owns its scroll
          */
         Style: DrawerStyleType,
         /**
