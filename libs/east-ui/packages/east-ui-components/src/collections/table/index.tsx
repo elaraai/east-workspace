@@ -135,6 +135,10 @@ interface TablePersistedState {
     sorting: SortingState;
     columnSizing: Record<string, number>;
     pinnedColumns: string[];
+    /** Top visible ROW INDEX (not a pixel offset) — restored on mount, clamped to
+     *  the current row count. A clamped index survives data changes where a raw
+     *  scrollTop would not (#143). */
+    scrollIndex?: number;
 }
 
 /**
@@ -323,7 +327,7 @@ const TableCore = function TableCore({
     // Consolidated persisted state (sorting + column sizing)
     const { state: persistedState, setState: setPersistedState } = usePersistedState<TablePersistedState>(
         storageKey,
-        { sorting: [], columnSizing: {}, pinnedColumns: [...value.frozen] },
+        { sorting: [], columnSizing: {}, pinnedColumns: [...value.frozen], scrollIndex: 0 },
     );
     const sorting = persistedState.sorting;
     const setSorting = useCallback((updater: SortingState | ((prev: SortingState) => SortingState)) => {
@@ -623,6 +627,37 @@ const TableCore = function TableCore({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [virtualizationEnabled, virtualizer, rows.length, effectiveRowHeight, virtualizer.getVirtualItems()]);
 
+    // ── Scroll position persistence (#143) ──────────────────────────────────
+    // Persist the top visible ROW INDEX (never a pixel scrollTop — a clamped
+    // index survives data changes). Saved debounced on scroll, restored once on
+    // mount clamped to the current row count.
+    const scrollSaveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+    const handleScrollPersist = useCallback(() => {
+        if (scrollSaveTimer.current) clearTimeout(scrollSaveTimer.current);
+        scrollSaveTimer.current = setTimeout(() => {
+            const topIndex = virtualizationEnabled
+                ? (virtualizer.getVirtualItems()[0]?.index ?? 0)
+                : Math.round((tableContainerRef.current?.scrollTop ?? 0) / effectiveRowHeight);
+            setPersistedState(prev => prev.scrollIndex === topIndex ? prev : { ...prev, scrollIndex: topIndex });
+        }, 150);
+    }, [virtualizationEnabled, virtualizer, effectiveRowHeight, setPersistedState]);
+
+    const didRestoreScroll = useRef(false);
+    useEffect(() => {
+        if (didRestoreScroll.current || rows.length === 0) return;
+        didRestoreScroll.current = true;
+        const saved = persistedState.scrollIndex ?? 0;
+        if (saved <= 0) return;
+        const idx = Math.min(saved, rows.length - 1);
+        // rAF so the container has a measured height before we scroll to it.
+        requestAnimationFrame(() => {
+            if (virtualizationEnabled) virtualizer.scrollToIndex(idx, { align: "start" });
+            else if (tableContainerRef.current) tableContainerRef.current.scrollTop = idx * effectiveRowHeight;
+        });
+    // Restore once, as soon as rows exist; deliberately not re-run on later changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [rows.length]);
+
     // Process visible rows for loading state
     useEffect(() => {
         const currentVisible = new Set<RowKey>();
@@ -688,6 +723,7 @@ const TableCore = function TableCore({
     const tableContent = (
         <Box
             ref={tableContainerRef}
+            onScroll={handleScrollPersist}
             height={(style ? getSomeorUndefined(style.height) : undefined) ?? height}
             overflowY="auto"
             overflowX={hasFrozen ? 'auto' : undefined}
