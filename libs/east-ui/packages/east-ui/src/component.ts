@@ -810,6 +810,7 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         now: OptionType(PlannerSlotType),
         density: OptionType(DensityType),
         slotMinWidth: OptionType(StringType),
+        plotGutter: OptionType(PlotGutterType),
         onSelectRow: OptionType(FunctionType([PlannerSelectEventType], NullType)),
         // Optional review chrome — the per-row decision column + batch foot.
         // Mirror this shape with `PlannerReviewType` in

@@ -5,7 +5,8 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, FloatType, StringType, StructType, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { AlignedStack, Box, Calendar, Chart, Matrix, Table, Trace } from "@elaraai/east-ui";
+import { NullType } from "@elaraai/east";
+import { AlignedStack, Box, Calendar, Chart, Matrix, Planner, Table, Trace } from "@elaraai/east-ui";
 
 /**
  * Two charts on the same day axis, stacked in an `<AlignedStack>` with a shared
@@ -213,6 +214,51 @@ export const alignedStackChartTable = example({
                         thu: { header: "Thu" }, fri: { header: "Fri" },
                     }}
                     frozen={["resource"]}
+                />
+            </AlignedStack>
+        );
+    }),
+    inputs: [],
+});
+
+/**
+ * A `<Chart>` stacked over a `<Planner>` in an `<AlignedStack>` — the canonical
+ * acceptance case (#147). The Planner inherits the gutter from context, so its
+ * frozen channel column fills `left`, the day-slot timeline fills `[left, W−right]`,
+ * and horizontal scroll is dropped — the slot lane lines up under the chart's day
+ * axis. (Match the chart's interval count to the slot count for the interior
+ * day-lines to coincide; the gutter always aligns the lane edges.)
+ */
+export const alignedStackChartPlanner = example({
+    keywords: ["AlignedStack", "plotGutter", "Chart", "Planner", "frozen", "timeline", "day", "axis", "align"],
+    description: "A Chart stacked over a Planner sharing one gutter — the frozen channel fills `left` and the day-slot timeline lines up under the chart's day axis",
+    fn: East.function([], UIComponentType, ($) => {
+        const temp = $.const([
+            { day: 0.0, v: 12.0 }, { day: 1.0, v: 14.0 }, { day: 2.0, v: 18.0 },
+            { day: 3.0, v: 20.0 }, { day: 4.0, v: 19.0 }, { day: 5.0, v: 16.0 }, { day: 6.0, v: 13.0 },
+        ], ArrayType(StructType({ day: FloatType, v: FloatType })));
+        return (
+            <AlignedStack gutter={{ left: "140px", right: "12px" }} gap="8px">
+                <Box height="150px" width="100%">
+                    <Chart
+                        layers={Chart.Line(temp, { x: r => r.day, y: r => r.v }, { color: "teal.solid" })}
+                        x={{ scale: "linear", domain: [0, 6], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0] }}
+                        y={{ label: "°C" }}
+                        grid
+                    />
+                </Box>
+                <Planner.Point
+                    data={[{ name: "Tank A", role: "Ferment" }, { name: "Tank B", role: "Ferment" }]}
+                    axis={Planner.axis.number({ range: { min: 0, max: 6 } })}
+                    columns={[{ key: "name", frozen: true, value: r => r.name, sublabel: r => r.role }]}
+                    events={_r => [
+                        Planner.event({ slot: Planner.at.number(0), label: "✓", state: "committed" }),
+                        Planner.event({ slot: Planner.at.number(2), label: "✓", state: "committed" }),
+                        Planner.event({ slot: Planner.at.number(4), label: "plan", state: "added" }),
+                        Planner.event({ slot: Planner.at.number(6), label: "?", state: "model" }),
+                    ]}
+                    now={Planner.at.number(4)}
+                    onSelectRow={East.function([Planner.Types.SelectEvent], NullType, _$ => null)}
                 />
             </AlignedStack>
         );

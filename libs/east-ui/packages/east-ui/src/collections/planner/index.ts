@@ -37,6 +37,7 @@ import {
 
 import { UIComponentType } from "../../component.js";
 import { DensityType, type DensityLiteral } from "../../style/interaction.js";
+import { PlotGutterType, type PlotGutter } from "../../shared/plot-gutter.js";
 
 import {
     PlannerSlotType,
@@ -244,6 +245,7 @@ export const PlannerRootType: StructType<{
     now: OptionType<PlannerSlotType>,
     density: OptionType<DensityType>,
     slotMinWidth: OptionType<StringType>,
+    plotGutter: OptionType<PlotGutterType>,
     onSelectRow: OptionType<FunctionType<[PlannerSelectEventType], NullType>>,
     review: OptionType<PlannerReviewType>,
     rowHover: OptionType<BooleanType>,
@@ -255,6 +257,7 @@ export const PlannerRootType: StructType<{
     now:          OptionType(PlannerSlotType),
     density:      OptionType(DensityType),
     slotMinWidth: OptionType(StringType),
+    plotGutter:   OptionType(PlotGutterType),
     onSelectRow:  OptionType(FunctionType([PlannerSelectEventType], NullType)),
     // Optional review chrome — the per-row Approve/Reject decision column + the
     // approve-all/reject-all foot. Absent ⇒ a plain Planner (the decision column
@@ -652,6 +655,8 @@ export interface PlannerConfig<R extends StructType> {
     /** Optional min-width (CSS) per x-axis slot column. With it set, the
      *  timeline scrolls horizontally rather than squeezing slots below it. */
     slotMinWidth?: SubtypeExprOrValue<StringType>;
+    /** Shared plot gutter (#147) — pins the timeline grid to `[left, W−right]` (px) so the Planner lines up under a stacked Chart on a shared day axis; the frozen channel columns fill `left`. Usually supplied by an enclosing `<AlignedStack>`. */
+    plotGutter?: PlotGutter;
     /** Optional row-selection callback. */
     onSelectRow?: SubtypeExprOrValue<FunctionType<[PlannerSelectEventType], NullType>>;
     /** Optional per-row status — the quiet dot beside the resource (some ⇒ flagged,
@@ -750,6 +755,12 @@ function buildRoot(
         now:          config.now !== undefined ? some(config.now) : none,
         density,
         slotMinWidth: config.slotMinWidth !== undefined ? some(config.slotMinWidth) : none,
+        plotGutter:   config.plotGutter !== undefined
+            ? some(East.value({
+                left:  config.plotGutter.left  !== undefined ? some(config.plotGutter.left)  : none,
+                right: config.plotGutter.right !== undefined ? some(config.plotGutter.right) : none,
+            }, PlotGutterType))
+            : none,
         onSelectRow:  config.onSelectRow !== undefined ? some(config.onSelectRow) : none,
         review:       config.review !== undefined ? some(buildReview(config.review)) : none,
         rowHover:     config.rowHover !== undefined ? some(config.rowHover) : none,

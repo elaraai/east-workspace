@@ -25,6 +25,7 @@ import {
 } from "../shared/column-pinning";
 import { useDensityHeights } from "../shared/helpers";
 import { DensityProvider } from "../../contracts/density";
+import { usePlotGutter } from "../../contracts/plot-gutter.js";
 
 const plannerRootEqual = equalFor(Planner.Types.Root);
 
@@ -511,6 +512,33 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
     const stickyRight = { position: "sticky" as const, right: 0, zIndex: 1, background: "bg.surface" };
     const stickyRightHeader = { ...stickyRight, zIndex: 2, background: "bg.panel" };
 
+    // Shared plot gutter (#147) — own field wins over an enclosing <AlignedStack>'s
+    // context. When active the timeline grid is pinned to [left, W−right]: the
+    // frozen channel pane is scaled to `left` (the column size-vars are scaled so
+    // the inner cells match the outer track), the outer grid gains a trailing
+    // right-gutter track, slots fill flush (minmax 0), and horizontal scroll is
+    // dropped so the lane is exactly the container width. The day axis then lines
+    // up under a stacked Chart. (Acceptance case: Chart over Planner.)
+    const ctxGutter = usePlotGutter();
+    const ownGutter = getSomeorUndefined(value.plotGutter);
+    const gLeft = (ownGutter ? getSomeorUndefined(ownGutter.left) : undefined) ?? ctxGutter?.left;
+    const gRight = (ownGutter ? getSomeorUndefined(ownGutter.right) : undefined) ?? ctxGutter?.right;
+    const gutterActive = gLeft !== undefined || gRight !== undefined;
+    const gRightCol = gRight ?? "0px";
+    const gLeftPx = gLeft !== undefined ? parseFloat(gLeft) : undefined;
+    const totalLeftPx = table.getTotalSize();
+    const frozenScale = (gutterActive && gLeftPx !== undefined && totalLeftPx > 0) ? gLeftPx / totalLeftPx : 1;
+    const effectiveSizeVars = frozenScale !== 1
+        ? Object.fromEntries(Object.entries(columnSizeVars).map(([k, v]) =>
+            [k, typeof v === "string" && v.endsWith("px") ? `${parseFloat(v) * frozenScale}px` : v]))
+        : columnSizeVars;
+    const effectiveLeftPane = gLeft ?? leftPaneWidth;
+    const outerCols = gutterActive
+        ? (hasReview ? `${effectiveLeftPane} 1fr ${gRightCol} ${DECISION_WIDTH}` : `${effectiveLeftPane} 1fr ${gRightCol}`)
+        : gridTemplate;
+    const rightSlotCols = gutterActive ? `repeat(${nCols}, minmax(0, 1fr))` : slotTemplate;
+    const outerMinWidth = gutterActive ? undefined : gridMinWidth;
+
     const now = getSomeorUndefined(value.now);
     const nowCol = now !== undefined ? slotToCol(now, cols) : -1;
 
@@ -667,10 +695,10 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
     };
 
     const plannerContent = (
-        <Box css={base.root}>
+        <Box css={base.root} {...(gutterActive ? { width: "100%" } : {})}>
             {/* Header: left data-column headers (Table chrome) + right slot axis. */}
-            <Box css={base.header} data-slot="header" display="grid" gridTemplateColumns={gridTemplate} minWidth={gridMinWidth} height={`${headerH}px`}>
-                <Box css={stickyLeftHeader} display="flex" width="100%" style={columnSizeVars}>
+            <Box css={base.header} data-slot="header" display="grid" gridTemplateColumns={outerCols} minWidth={outerMinWidth} height={`${headerH}px`}>
+                <Box css={stickyLeftHeader} display="flex" width="100%" style={effectiveSizeVars}>
                     {headerCells.map((header) => (
                         <Box
                             key={header.id}
@@ -690,7 +718,7 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
                         </Box>
                     ))}
                 </Box>
-                <Box position="relative" display="grid" gridTemplateColumns={slotTemplate}>
+                <Box position="relative" display="grid" gridTemplateColumns={rightSlotCols}>
                     {cols.map((c, ci) => (
                         <Box
                             key={c.key}
@@ -716,7 +744,7 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
             {groups.map((group, gi) => (
                 <Box key={gi}>
                     {group.label !== undefined && (
-                        <Box css={base.groupHead} data-slot="groupHead" minWidth={gridMinWidth} display="grid" gridTemplateColumns={gridTemplate}>
+                        <Box css={base.groupHead} data-slot="groupHead" minWidth={outerMinWidth} display="grid" gridTemplateColumns={outerCols}>
                             <Box css={{ ...stickyLeft, ...base.groupHeadCell, background: "bg.panel" }} data-slot="groupHeadCell">{group.label}</Box>
                         </Box>
                     )}
@@ -732,8 +760,8 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
                             css={base.row}
                             position="relative"
                             display="grid"
-                            gridTemplateColumns={gridTemplate}
-                            minWidth={gridMinWidth}
+                            gridTemplateColumns={outerCols}
+                            minWidth={outerMinWidth}
                             onClick={onSelectRow ? () => selectRow(index) : undefined}
                             cursor={onSelectRow ? "pointer" : undefined}
                         >
@@ -744,7 +772,7 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
                                     borderWidth="2px" borderColor="{colors.brand.600}" borderRadius="2px" />
                             )}
                             {/* Left pane — widths/pin from TanStack, styling from planner slots. */}
-                            <Box css={stickyLeft} display="flex" width="100%" style={columnSizeVars}>
+                            <Box css={stickyLeft} display="flex" width="100%" style={effectiveSizeVars}>
                                 {leftColumns.map((column, ci) => {
                                     const columnKey = column.columnDef.meta?.columnKey ?? column.id;
                                     const cellData = row.cells.get(columnKey);
@@ -777,7 +805,7 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
                                 })}
                             </Box>
                             {/* Right pane — the slot/bucket timeline (unchanged). */}
-                            <Box position="relative" display="grid" gridTemplateColumns={slotTemplate}>
+                            <Box position="relative" display="grid" gridTemplateColumns={rightSlotCols}>
                                 {shape === "point" && cols.map((c, ci) => {
                                     const marker = cellMarker(row, ci);
                                     const mStyle = marker ? statusStyles[marker.status.type] ?? statusStyles.info : undefined;
