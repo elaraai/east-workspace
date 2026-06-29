@@ -17,6 +17,7 @@ import {
 
 import { DensityType } from "../../style.js";
 import type { DensityLiteral } from "../../style.js";
+import { PlotGutterType, type PlotGutter } from "../../shared/plot-gutter.js";
 
 /**
  * Colour encoding for a Trace's heat fills.
@@ -68,11 +69,13 @@ export type TraceTrackType = typeof TraceTrackType;
  * @property brandColor - Override the heat hue used by the `brand` / `diverge` scales
  * @property nowLineColor - Override the colour of the now-line
  * @property labelWidth - Width of the left-hand track-name gutter (any CSS length); omit for the density default
+ * @property plotGutter - Shared plot gutter (#147): pins the lane to `[left, W−right]` so a stacked Chart/Trace line up. `left` supersedes `labelWidth`; presence makes the lane fill the container (flexible steps)
  */
 export const TraceStyleType = StructType({
     brandColor: OptionType(StringType),
     nowLineColor: OptionType(StringType),
     labelWidth: OptionType(StringType),
+    plotGutter: OptionType(PlotGutterType),
 });
 export type TraceStyleType = typeof TraceStyleType;
 
@@ -141,4 +144,6 @@ export interface TraceOptions {
     nowLineColor?: SubtypeExprOrValue<StringType>;
     /** Width of the left-hand track-name gutter (any CSS length, e.g. `"120px"`); omit for the density default. */
     labelWidth?: SubtypeExprOrValue<StringType>;
+    /** Shared plot gutter (#147) — pins the step lane to `[left, W−right]` (px) so a Trace stacked under a Chart lines up on a common x. `left` supersedes `labelWidth`; when present the steps become flexible (`1fr`) and the lane fills the container. Usually supplied by an enclosing `<AlignedStack>`. */
+    plotGutter?: PlotGutter;
 }

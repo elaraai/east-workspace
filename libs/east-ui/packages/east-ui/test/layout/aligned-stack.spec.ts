@@ -11,6 +11,7 @@ describeEast("AlignedStack", (test) => {
     // (fixed{left,right} / auto) + children encode + round-trip as valid East IR.
     Assert.examples(test, {
         alignedStackCharts: ex.alignedStackCharts,
+        alignedStackChartTrace: ex.alignedStackChartTrace,
         alignedStackAuto: ex.alignedStackAuto,
     });
 }, { platformFns: TestImpl });

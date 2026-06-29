@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, FloatType, StructType, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { AlignedStack, Box, Chart } from "@elaraai/east-ui";
+import { AlignedStack, Box, Chart, Trace } from "@elaraai/east-ui";
 
 /**
  * Two charts on the same day axis, stacked in an `<AlignedStack>` with a shared
@@ -41,6 +41,43 @@ export const alignedStackCharts = example({
                         grid
                     />
                 </Box>
+            </AlignedStack>
+        );
+    }),
+    inputs: [],
+});
+
+/**
+ * A `<Chart>` stacked over a `<Trace>` in an `<AlignedStack>` — both inherit the
+ * gutter from context, so the Trace's step lane fills `[left, W−right]` and lines
+ * up under the chart's day axis (the canonical Chart-over-lane alignment). (#147)
+ */
+export const alignedStackChartTrace = example({
+    keywords: ["AlignedStack", "plotGutter", "Chart", "Trace", "align", "lane", "axis", "day"],
+    description: "A Chart stacked over a Trace sharing one gutter — the Trace's step lane lines up under the chart's day axis",
+    fn: East.function([], UIComponentType, ($) => {
+        const temp = $.const([
+            { day: 0.0, v: 22.0 }, { day: 2.0, v: 20.0 }, { day: 4.0, v: 18.0 }, { day: 6.0, v: 16.0 },
+        ], ArrayType(StructType({ day: FloatType, v: FloatType })));
+        return (
+            <AlignedStack gutter={{ left: "48px", right: "16px" }} gap="8px">
+                <Box height="160px" width="100%">
+                    <Chart
+                        layers={Chart.Line(temp, { x: r => r.day, y: r => r.v }, { color: "teal.solid" })}
+                        x={{ scale: "linear", domain: [0, 6], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0] }}
+                        y={{ label: "°C" }}
+                        grid
+                    />
+                </Box>
+                <Trace
+                    tracks={[
+                        { name: "Bé", values: [12.0, 13.0, 14.0, 16.0, 18.0, 20.0, 22.0] },
+                        { name: "Alc", values: [1.0, 2.0, 3.0, 5.0, 7.0, 9.0, 11.0] },
+                    ]}
+                    now={4n}
+                    axis={["0", "1", "2", "3", "4", "5", "6"]}
+                    density="comfortable"
+                />
             </AlignedStack>
         );
     }),
