@@ -39,6 +39,7 @@ import { useSliceReactivity } from "../../slice/use-slice-reactivity";
 import { RowStateManager, type RowKey, type RowState } from "../../utils/RowStateManager";
 import { useRowStatusBg, useDensityHeights } from "../shared/helpers";
 import { DensityProvider } from "../../contracts/density";
+import { usePlotGutter } from "../../contracts/plot-gutter.js";
 
 // Pre-define equality function at module level
 const tableRootEqual = equalFor(Table.Types.Root);
@@ -703,6 +704,31 @@ const TableCore = function TableCore({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [hasFrozen, table.getState().columnSizing, table.getState().columnSizingInfo]);
 
+    // Shared plot gutter (#147) — own field wins over an enclosing <AlignedStack>'s
+    // context. When active the data columns are pinned to [left, W−right]: the
+    // frozen pane is scaled to `left` (or a left spacer fills it when there are no
+    // frozen columns), the centre columns flex-fill the lane, a `right` spacer
+    // trails, and horizontal scroll is dropped so the lane is exactly the
+    // container width. All of this is gated behind `gutterActive`, so a Table
+    // without a gutter renders byte-identically to before.
+    const ctxGutter = usePlotGutter();
+    const ownGutter = style ? getSomeorUndefined(style.plotGutter) : undefined;
+    const gLeft = (ownGutter ? getSomeorUndefined(ownGutter.left) : undefined) ?? ctxGutter?.left;
+    const gRight = (ownGutter ? getSomeorUndefined(ownGutter.right) : undefined) ?? ctxGutter?.right;
+    const gutterActive = gLeft !== undefined || gRight !== undefined;
+    const gutterRightPx = gRight ?? "0px";
+    const gLeftPx = gLeft !== undefined ? parseFloat(gLeft) : undefined;
+    // Scale the frozen pane so its columns sum to `left`; left spacer covers the
+    // remainder (the whole of `left` when there are no frozen columns).
+    const frozenScale = (gutterActive && gLeftPx !== undefined && frozenPanelWidth > 0)
+        ? gLeftPx / frozenPanelWidth : 1;
+    const leftSpacerPx = (gutterActive && gLeftPx !== undefined && frozenPanelWidth === 0) ? gLeft : undefined;
+    // Per-cell override for the centre (non-pinned) columns: flex-fill the lane.
+    const gutterCenterStyle = (column: ReturnType<typeof table.getAllColumns>[number]): CSSProperties =>
+        (gutterActive && !column.getIsPinned())
+            ? { flex: "1 1 0", width: "auto", minWidth: 0, position: "relative", left: undefined }
+            : {};
+
     // ── TanStack pinning styles (applied per-cell) ────────────────────
 
     const getCommonPinningStyles = (column: ReturnType<typeof table.getAllColumns>[number]): CSSProperties => {
@@ -714,7 +740,9 @@ const TableCore = function TableCore({
             left: isPinned === 'left' ? `${column.getStart('left')}px` : undefined,
             right: isPinned === 'right' ? `${column.getAfter('right')}px` : undefined,
             position: isPinned ? 'sticky' : 'relative',
-            width: column.getSize(),
+            // Under an active gutter the frozen pane is scaled to occupy exactly
+            // `left` (no horizontal scroll, so the sticky offset never engages).
+            width: column.getSize() * frozenScale,
             zIndex: isPinned ? 1 : 0,
             backgroundColor: isPinned ? 'var(--chakra-colors-bg-canvas, #fafafa)' : undefined,
         };
@@ -726,16 +754,17 @@ const TableCore = function TableCore({
             onScroll={handleScrollPersist}
             height={(style ? getSomeorUndefined(style.height) : undefined) ?? height}
             overflowY="auto"
-            overflowX={hasFrozen ? 'auto' : undefined}
+            overflowX={gutterActive ? 'hidden' : (hasFrozen ? 'auto' : undefined)}
             position="relative"
+            {...(gutterActive ? { width: "100%" } : {})}
         >
             <ChakraTable.Root
                 {...props}
                 size={tableSize}
                 style={{
                     ...columnSizeVars,
-                    width: hasFrozen ? table.getCenterTotalSize() + frozenPanelWidth : '100%',
-                    minWidth: hasFrozen ? table.getCenterTotalSize() + frozenPanelWidth : table.getCenterTotalSize(),
+                    width: gutterActive ? '100%' : (hasFrozen ? table.getCenterTotalSize() + frozenPanelWidth : '100%'),
+                    minWidth: gutterActive ? 0 : (hasFrozen ? table.getCenterTotalSize() + frozenPanelWidth : table.getCenterTotalSize()),
                     tableLayout: 'fixed',
                 }}
             >
@@ -852,6 +881,10 @@ const TableCore = function TableCore({
                                     )}
                                 </ChakraTable.ColumnHeader>
                             )}
+                            {/* Gutter: left spacer when there are no frozen columns to fill `left` (#147). */}
+                            {leftSpacerPx !== undefined && (
+                                <ChakraTable.ColumnHeader aria-hidden="true" bg={headerBackground} style={{ flex: "none", width: leftSpacerPx, padding: 0, borderColor, height: `${effectiveRowHeight}px` }} />
+                            )}
                             {headerGroup.headers.map((header) => {
                                 const sortIndex = getSortIndex(header.id);
                                 const isSorted = header.column.getIsSorted();
@@ -886,8 +919,10 @@ const TableCore = function TableCore({
                                             // sits at the top while body cells are centered).
                                             display: 'flex',
                                             alignItems: 'center',
+                                            // Gutter: centre columns flex-fill the lane (#147).
+                                            ...gutterCenterStyle(header.column),
                                         }}
-                                        position={isPinned ? "sticky" : "relative"}
+                                        position={isPinned && !gutterActive ? "sticky" : "relative"}
                                     >
                                         <HStack justify="space-between" align="center" width="100%" pr={enableColumnResizing ? "4px" : "0"}>
                                             {/* Inherit the columnHeader slot's mono/10px/0.16em/uppercase/
@@ -959,6 +994,10 @@ const TableCore = function TableCore({
                                     </ChakraTable.ColumnHeader>
                                 );
                             })}
+                            {/* Gutter: trailing right-gutter spacer so the lane ends at W−right (#147). */}
+                            {gutterActive && (
+                                <ChakraTable.ColumnHeader aria-hidden="true" bg={headerBackground} style={{ flex: "none", width: gutterRightPx, padding: 0, borderColor, height: `${effectiveRowHeight}px` }} />
+                            )}
                         </ChakraTable.Row>
                     ))}
                 </ChakraTable.Header>
@@ -1126,6 +1165,10 @@ const TableCore = function TableCore({
                                         </Box>
                                     </ChakraTable.Cell>
                                 )}
+                                {/* Gutter: left spacer when there are no frozen columns to fill `left` (#147). */}
+                                {leftSpacerPx !== undefined && (
+                                    <ChakraTable.Cell aria-hidden="true" style={{ flex: "none", width: leftSpacerPx, padding: 0, borderColor }} />
+                                )}
                                 {row.getVisibleCells().map((cell) => {
                                     const cellValue = cell.getValue() as TableCellValue | undefined;
                                     const meta = cell.column.columnDef.meta;
@@ -1150,6 +1193,8 @@ const TableCore = function TableCore({
                                         // sticky-column bg.
                                         background: pinningStyles.backgroundColor ?? "transparent",
                                         ...pinningStyles,
+                                        // Gutter: centre columns flex-fill the lane (#147).
+                                        ...gutterCenterStyle(cell.column),
                                     };
 
                                     const cellClickHandler = onCellClickFn ? (e: React.MouseEvent) => {
@@ -1227,6 +1272,10 @@ const TableCore = function TableCore({
                                         </ChakraTable.Cell>
                                     );
                                 })}
+                                {/* Gutter: trailing right-gutter spacer so the lane ends at W−right (#147). */}
+                                {gutterActive && (
+                                    <ChakraTable.Cell aria-hidden="true" style={{ flex: "none", width: gutterRightPx, padding: 0, borderColor }} />
+                                )}
                             </ChakraTable.Row>
                             {/* Expandable detail panel — rendered when this row is in
                                 `expandedRows`. Spans the full table width. The wrapper

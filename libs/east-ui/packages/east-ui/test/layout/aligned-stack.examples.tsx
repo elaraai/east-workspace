@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, FloatType, StringType, StructType, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { AlignedStack, Box, Calendar, Chart, Matrix, Trace } from "@elaraai/east-ui";
+import { AlignedStack, Box, Calendar, Chart, Matrix, Table, Trace } from "@elaraai/east-ui";
 
 /**
  * Two charts on the same day axis, stacked in an `<AlignedStack>` with a shared
@@ -171,6 +171,48 @@ export const alignedStackChartMatrix = example({
                         Matrix.segment({ fill: "brand", weight: r.booked.get(col.key) }),
                         Matrix.segment({ fill: "free", weight: East.value(1.0, FloatType).subtract(r.booked.get(col.key)) }),
                     ] })}
+                />
+            </AlignedStack>
+        );
+    }),
+    inputs: [],
+});
+
+/**
+ * A `<Chart>` stacked over a `<Table>` in an `<AlignedStack>` — the Table inherits
+ * the gutter from context, so the frozen `resource` column fills `left`, the data
+ * columns flex-fill `[left, W−right]`, and horizontal scroll is dropped. The data
+ * lane lines up under the chart's day axis on shared categories. (#147)
+ */
+export const alignedStackChartTable = example({
+    keywords: ["AlignedStack", "plotGutter", "Chart", "Table", "frozen", "align", "lane", "categories"],
+    description: "A Chart stacked over a Table sharing one gutter — the frozen column fills `left` and the data columns line up under the chart's day axis",
+    fn: East.function([], UIComponentType, ($) => {
+        const load = $.const([
+            { day: 0.0, v: 0.45 }, { day: 1.0, v: 0.70 }, { day: 2.0, v: 0.85 },
+            { day: 3.0, v: 0.60 }, { day: 4.0, v: 0.30 },
+        ], ArrayType(StructType({ day: FloatType, v: FloatType })));
+        return (
+            <AlignedStack gutter={{ left: "120px", right: "12px" }} gap="8px">
+                <Box height="150px" width="100%">
+                    <Chart
+                        layers={Chart.Line(load, { x: r => r.day, y: r => r.v }, { color: "teal.solid" })}
+                        x={{ scale: "linear", domain: [0, 4], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0] }}
+                        y={{ label: "load" }}
+                        grid
+                    />
+                </Box>
+                <Table
+                    data={[
+                        { resource: "Alice", mon: "0.45", tue: "0.70", wed: "0.85", thu: "0.60", fri: "0.30" },
+                        { resource: "Bob", mon: "0.35", tue: "0.60", wed: "0.30", thu: "0.75", fri: "0.50" },
+                    ]}
+                    columns={{
+                        resource: { header: "Resource" },
+                        mon: { header: "Mon" }, tue: { header: "Tue" }, wed: { header: "Wed" },
+                        thu: { header: "Thu" }, fri: { header: "Fri" },
+                    }}
+                    frozen={["resource"]}
                 />
             </AlignedStack>
         );
