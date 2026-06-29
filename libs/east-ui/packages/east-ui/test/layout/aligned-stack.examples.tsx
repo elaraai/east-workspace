@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, FloatType, StringType, StructType, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { AlignedStack, Box, Calendar, Chart, Trace } from "@elaraai/east-ui";
+import { AlignedStack, Box, Calendar, Chart, Matrix, Trace } from "@elaraai/east-ui";
 
 /**
  * Two charts on the same day axis, stacked in an `<AlignedStack>` with a shared
@@ -122,6 +122,55 @@ export const alignedStackChartCalendar = example({
                     data={grid}
                     cell={d => ({ week: d.week, day: d.day, value: d.demand })}
                     legend="low → high"
+                />
+            </AlignedStack>
+        );
+    }),
+    inputs: [],
+});
+
+/**
+ * A `<Chart>` stacked over a `<Matrix>` in an `<AlignedStack>` — the Matrix inherits
+ * the gutter from context, so its row-header pane fills `left` and the value-grid
+ * columns fill `[left, W−right]`, lining up column-for-column under the chart's day
+ * axis. (#147)
+ */
+export const alignedStackChartMatrix = example({
+    keywords: ["AlignedStack", "plotGutter", "Chart", "Matrix", "align", "lane", "grid", "day"],
+    description: "A Chart stacked over a Matrix sharing one gutter — the Matrix value-grid lines up column-for-column under the chart's day axis",
+    fn: East.function([], UIComponentType, ($) => {
+        const load = $.const([
+            { day: 0.0, v: 0.45 }, { day: 1.0, v: 0.70 }, { day: 2.0, v: 0.85 },
+            { day: 3.0, v: 0.60 }, { day: 4.0, v: 0.30 },
+        ], ArrayType(StructType({ day: FloatType, v: FloatType })));
+        return (
+            <AlignedStack gutter={{ left: "120px", right: "12px" }} gap="8px">
+                <Box height="150px" width="100%">
+                    <Chart
+                        layers={Chart.Line(load, { x: r => r.day, y: r => r.v }, { color: "teal.solid" })}
+                        x={{ scale: "linear", domain: [0, 4], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0] }}
+                        y={{ label: "load" }}
+                        grid
+                    />
+                </Box>
+                <Matrix
+                    data={[
+                        { name: "Alice", booked: new Map([["mon", 0.45], ["tue", 0.70], ["wed", 0.85], ["thu", 0.60], ["fri", 0.30]]) },
+                        { name: "Bob", booked: new Map([["mon", 0.35], ["tue", 0.60], ["wed", 0.30], ["thu", 0.75], ["fri", 0.50]]) },
+                    ]}
+                    columns={[
+                        Matrix.column({ key: "mon", label: "Mon" }),
+                        Matrix.column({ key: "tue", label: "Tue" }),
+                        Matrix.column({ key: "wed", label: "Wed" }),
+                        Matrix.column({ key: "thu", label: "Thu" }),
+                        Matrix.column({ key: "fri", label: "Fri" }),
+                    ]}
+                    rowKey={r => r.name}
+                    rowHeader="Resource"
+                    cell={(r, col) => Matrix.cell({ segments: [
+                        Matrix.segment({ fill: "brand", weight: r.booked.get(col.key) }),
+                        Matrix.segment({ fill: "free", weight: East.value(1.0, FloatType).subtract(r.booked.get(col.key)) }),
+                    ] })}
                 />
             </AlignedStack>
         );

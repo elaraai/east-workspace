@@ -40,7 +40,7 @@ import { BoxStyleType } from "./layout/box/types.js";
 import { FlexStyleType } from "./layout/flex/types.js";
 import { StackStyleType } from "./layout/stack/types.js";
 import { AlignedStackStyleType } from "./layout/aligned-stack/types.js";
-import { AlignedGutterType } from "./shared/plot-gutter.js";
+import { AlignedGutterType, PlotGutterType } from "./shared/plot-gutter.js";
 import { SeparatorStyleType } from "./layout/separator/types.js";
 import { GridStyleType } from "./layout/grid/types.js";
 import { SplitterStyleType } from "./layout/splitter/types.js";
@@ -642,6 +642,7 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         legend: OptionType(ArrayType(MatrixLegendEntryType)),
         minLabelSize: OptionType(FloatType),
         density: OptionType(DensityType),
+        plotGutter: OptionType(PlotGutterType),
         onCellClick: OptionType(FunctionType([MatrixCellClickEventType], NullType)),
         onSegmentClick: OptionType(FunctionType([MatrixSegmentClickEventType], NullType)),
         onSegmentChange: OptionType(FunctionType([MatrixSegmentChangeEventType], NullType)),

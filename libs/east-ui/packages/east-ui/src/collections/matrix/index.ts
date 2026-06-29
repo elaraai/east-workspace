@@ -31,6 +31,7 @@ import {
     type AlignLiteral,
 } from "../../style.js";
 import { DensityType, type DensityLiteral } from "../../style/interaction.js";
+import { PlotGutterType, type PlotGutter } from "../../shared/plot-gutter.js";
 import { UIComponentType } from "../../component.js";
 import {
     MatrixFillType,
@@ -192,6 +193,7 @@ export const MatrixRootType: StructType<{
     legend: OptionType<ArrayType<MatrixLegendEntryType>>,
     minLabelSize: OptionType<FloatType>,
     density: OptionType<DensityType>,
+    plotGutter: OptionType<PlotGutterType>,
     onCellClick: OptionType<FunctionType<[MatrixCellClickEventType], NullType>>,
     onSegmentClick: OptionType<FunctionType<[MatrixSegmentClickEventType], NullType>>,
     onSegmentChange: OptionType<FunctionType<[MatrixSegmentChangeEventType], NullType>>,
@@ -203,6 +205,7 @@ export const MatrixRootType: StructType<{
     legend: OptionType(ArrayType(MatrixLegendEntryType)),
     minLabelSize: OptionType(FloatType),
     density: OptionType(DensityType),
+    plotGutter: OptionType(PlotGutterType),
     onCellClick: OptionType(FunctionType([MatrixCellClickEventType], NullType)),
     onSegmentClick: OptionType(FunctionType([MatrixSegmentClickEventType], NullType)),
     onSegmentChange: OptionType(FunctionType([MatrixSegmentChangeEventType], NullType)),
@@ -457,6 +460,8 @@ export interface MatrixConfig<R extends StructType> {
     minLabelSize?: SubtypeExprOrValue<FloatType>;
     /** Density preset (header / row rhythm). */
     density?: SubtypeExprOrValue<DensityType> | DensityLiteral;
+    /** Shared plot gutter (#147) — pins the value-grid columns to `[left, W−right]` (px) so the Matrix lines up under a stacked Chart; `left` is the row-header column. Usually supplied by an enclosing `<AlignedStack>`. */
+    plotGutter?: PlotGutter;
     /** Cell-click callback. */
     onCellClick?: SubtypeExprOrValue<FunctionType<[MatrixCellClickEventType], NullType>>;
     /** Segment-click callback. */
@@ -533,6 +538,13 @@ function createMatrix<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
         ? some(typeof cfg.density === "string" ? East.value(variant(cfg.density, null), DensityType) : cfg.density)
         : none;
 
+    const plotGutter = cfg.plotGutter !== undefined
+        ? some(East.value({
+            left:  cfg.plotGutter.left  !== undefined ? some(cfg.plotGutter.left)  : none,
+            right: cfg.plotGutter.right !== undefined ? some(cfg.plotGutter.right) : none,
+        }, PlotGutterType))
+        : none;
+
     return East.value(variant("Matrix", {
         rows,
         columns: columns_expr,
@@ -541,6 +553,7 @@ function createMatrix<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
         legend,
         minLabelSize: cfg.minLabelSize !== undefined ? some(cfg.minLabelSize) : none,
         density,
+        plotGutter,
         onCellClick: cfg.onCellClick !== undefined ? some(cfg.onCellClick) : none,
         onSegmentClick: cfg.onSegmentClick !== undefined ? some(cfg.onSegmentClick) : none,
         onSegmentChange: cfg.onSegmentChange !== undefined ? some(cfg.onSegmentChange) : none,

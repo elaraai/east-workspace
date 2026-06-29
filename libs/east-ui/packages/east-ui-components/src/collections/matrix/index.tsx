@@ -24,6 +24,7 @@ import {
 } from "../shared/column-pinning";
 import { useDensityHeights } from "../shared/helpers";
 import { DensityProvider } from "../../contracts/density";
+import { usePlotGutter } from "../../contracts/plot-gutter.js";
 
 const matrixRootEqual = equalFor(Matrix.Types.Root);
 
@@ -434,6 +435,27 @@ export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageK
     const stickyLeft = { position: "sticky" as const, left: 0, zIndex: 1, background: "bg.surface" };
     const stickyLeftHeader = { ...stickyLeft, zIndex: 2, background: "bg.panel" };
 
+    // Shared plot gutter (#147) — own field wins over an enclosing <AlignedStack>'s
+    // context. When active the value-grid is pinned to [left, W−right]: the
+    // row-header pane becomes `left` (overriding its resizable width), the outer
+    // row grid gains a trailing right-gutter track, columns fill flush (minmax 0),
+    // and horizontal scroll is dropped so the lane is exactly the container width.
+    const ctxGutter = usePlotGutter();
+    const ownGutter = useMemo(() => getSomeorUndefined(value.plotGutter), [value.plotGutter]);
+    const gLeft = (ownGutter ? getSomeorUndefined(ownGutter.left) : undefined) ?? ctxGutter?.left;
+    const gRight = (ownGutter ? getSomeorUndefined(ownGutter.right) : undefined) ?? ctxGutter?.right;
+    const gutterActive = gLeft !== undefined || gRight !== undefined;
+    const rightCol = gRight ?? "0px";
+    const effectiveLeftPane = gLeft ?? leftPaneWidth;
+    // When `left` pins the header pane, override the TanStack size vars so the
+    // inner cells match the outer track (otherwise the 180px cell overflows `left`).
+    const effectiveSizeVars = gLeft !== undefined
+        ? { ...columnSizeVars, "--col-__rowheader__-size": gLeft, "--header-__rowheader__-size": gLeft }
+        : columnSizeVars;
+    const outerCols = gutterActive ? `${effectiveLeftPane} 1fr ${rightCol}` : `${leftPaneWidth} 1fr`;
+    const rightCols = gutterActive ? `repeat(${nCols}, minmax(0, 1fr))` : slotTemplate;
+    const outerMinWidth = gutterActive ? undefined : gridMinWidth;
+
     const legendEntries = getSomeorUndefined(value.legend);
 
     const groups = useMemo(() => {
@@ -448,10 +470,10 @@ export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageK
     }, [value.rows]);
 
     const matrixContent = (
-        <Box css={base.root}>
+        <Box css={base.root} {...(gutterActive ? { width: "100%" } : {})}>
             {/* Header: the row-header column header (corner) + the column axis. */}
-            <Box css={base.header} data-slot="header" display="grid" gridTemplateColumns={`${leftPaneWidth} 1fr`} minWidth={gridMinWidth} height={`${headerH}px`}>
-                <Box css={stickyLeftHeader} display="flex" width="100%" style={columnSizeVars}>
+            <Box css={base.header} data-slot="header" display="grid" gridTemplateColumns={outerCols} minWidth={outerMinWidth} height={`${headerH}px`}>
+                <Box css={stickyLeftHeader} display="flex" width="100%" style={effectiveSizeVars}>
                     {headerCells.map((header) => (
                         <Box
                             key={header.id}
@@ -469,7 +491,7 @@ export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageK
                         </Box>
                     ))}
                 </Box>
-                <Box display="grid" gridTemplateColumns={slotTemplate}>
+                <Box display="grid" gridTemplateColumns={rightCols}>
                     {cols.map((c, ci) => (
                         <Box
                             key={c.key}
@@ -487,7 +509,7 @@ export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageK
             {groups.map((group, gi) => (
                 <Box key={gi}>
                     {group.label !== undefined && (
-                        <Box css={base.groupHead} data-slot="groupHead" minWidth={gridMinWidth} display="grid" gridTemplateColumns={`${leftPaneWidth} 1fr`}>
+                        <Box css={base.groupHead} data-slot="groupHead" minWidth={outerMinWidth} display="grid" gridTemplateColumns={outerCols}>
                             <Box css={{ ...stickyLeft, ...base.groupHeadCell, background: "bg.panel" }} data-slot="groupHeadCell">{group.label}</Box>
                         </Box>
                     )}
@@ -497,11 +519,11 @@ export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageK
                             css={base.row}
                             position="relative"
                             display="grid"
-                            gridTemplateColumns={`${leftPaneWidth} 1fr`}
-                            minWidth={gridMinWidth}
+                            gridTemplateColumns={outerCols}
+                            minWidth={outerMinWidth}
                         >
                             {/* Left pane — the single row-header column. */}
-                            <Box css={stickyLeft} display="flex" width="100%" style={columnSizeVars}>
+                            <Box css={stickyLeft} display="flex" width="100%" style={effectiveSizeVars}>
                                 {table.getVisibleLeafColumns().map((column) => {
                                     const sub = getSomeorUndefined(row.sublabel);
                                     return (
@@ -518,7 +540,7 @@ export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageK
                                 })}
                             </Box>
                             {/* Right pane — the cell grid. */}
-                            <Box display="grid" gridTemplateColumns={slotTemplate}>
+                            <Box display="grid" gridTemplateColumns={rightCols}>
                                 {cols.map((c, ci) => {
                                     const cell = row.cells.get(c.key);
                                     const orientation: Orientation = cell
