@@ -79,7 +79,7 @@ export const traceRagged = example({
         return (
             <Trace
                 tracks={[
-                    { name: "Bé", values: [12, 11, 10, 9, 8] },        // 5 steps
+                    { name: "Series A", values: [12, 11, 10, 9, 8] },  // 5 steps
                     { name: "°C", values: [22, 23, 24, 25, 26, 27] },  // 6 steps — one longer
                 ]}
                 now={4n}
@@ -98,9 +98,9 @@ export const traceLabelWidth = example({
         return (
             <Trace
                 tracks={[
-                    { name: "R & R · 20", values: [12, 14, 13, 18, 20, 22] },
-                    { name: "Pumpover · 8", values: [3, 5, 4, 6, 8, 7] },
-                    { name: "Additions · 12", values: [8, 10, 9, 11, 12, 10] },
+                    { name: "Series A · 20", values: [12, 14, 13, 18, 20, 22] },
+                    { name: "Series B · 8", values: [3, 5, 4, 6, 8, 7] },
+                    { name: "Series C · 12", values: [8, 10, 9, 11, 12, 10] },
                 ]}
                 now={4n}
                 density="compact"

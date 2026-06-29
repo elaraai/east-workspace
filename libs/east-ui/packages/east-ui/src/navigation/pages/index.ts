@@ -56,8 +56,8 @@ export {
 /**
  * Per-route typed segment constructors. `Page.<route>(payload)` returns
  * `variant(route, payload)`, type-checked against the config's payload — so a
- * whole typed path is `[Page.overview(), Page.fermenter(row)]` (identical to the
- * raw `[variant("overview", null), variant("fermenter", row)]`).
+ * whole typed path is `[Page.overview(), Page.detail(row)]` (identical to the
+ * raw `[variant("overview", null), variant("detail", row)]`).
  */
 export type PageConstructors<R extends NavRoutes> = {
     [K in keyof R]: R[K]["value"] extends typeof NullType

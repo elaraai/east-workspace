@@ -312,7 +312,7 @@ tier so they stay subordinate to tags at every density.
 
 // Or scope it to a row:
 <HStack density="condensed" gap="2">
-    <Tag>Shiraz</Tag>
+    <Tag>Line A</Tag>
     <Badge>WK 12</Badge>
     <Meter value={72.0} tone="success" />
 </HStack>

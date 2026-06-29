@@ -50,7 +50,7 @@ describe("Trace ragged tracks (#126)", () => {
             <ChakraProvider value={system}>
                 <EastChakraTrace
                     value={traceValue([
-                        { name: "Bé", values: [12, 11, 10, 9, 8] },        // 5 steps
+                        { name: "Series A", values: [12, 11, 10, 9, 8] },  // 5 steps
                         { name: "°C", values: [22, 23, 24, 25, 26, 27] },  // 6 steps — one longer
                     ])}
                     storageKey="t"

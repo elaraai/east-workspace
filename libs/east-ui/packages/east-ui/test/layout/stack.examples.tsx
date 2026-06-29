@@ -138,17 +138,17 @@ export const stackDensityCascade = example({
         return (
             <Stack direction="column" gap="6">
                 <HStack density="condensed" gap="2">
-                    <Tag>Shiraz</Tag>
+                    <Tag>Line A</Tag>
                     <Badge>WK 12</Badge>
                     <Box width="160px"><Meter value={72.0} tone="success" /></Box>
                 </HStack>
                 <HStack density="compact" gap="2">
-                    <Tag>Shiraz</Tag>
+                    <Tag>Line A</Tag>
                     <Badge>WK 12</Badge>
                     <Box width="160px"><Meter value={72.0} tone="success" /></Box>
                 </HStack>
                 <HStack density="comfortable" gap="2">
-                    <Tag>Shiraz</Tag>
+                    <Tag>Line A</Tag>
                     <Badge>WK 12</Badge>
                     <Box width="160px"><Meter value={72.0} tone="success" /></Box>
                 </HStack>

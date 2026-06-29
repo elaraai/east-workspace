@@ -185,7 +185,7 @@ export const plannerDataDrivenRange = example({
         const horizon = $.const(lastEventDay.add(4.0), FloatType);
         return (
             <Planner.Point
-                data={[{ name: "Fermenter A" }, { name: "Fermenter B" }]}
+                data={[{ name: "Line A" }, { name: "Line B" }]}
                 axis={Planner.axis.number({ range: { min: 1, max: horizon } })}
                 columns={[{ key: "name", frozen: true, value: r => r.name }]}
                 events={_r => [
@@ -457,12 +457,12 @@ export const plannerEventColor = example({
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Planner.Point
-                data={[{ name: "Ferment" }]}
+                data={[{ name: "Line" }]}
                 axis={Planner.axis.number({ range: { min: 1, max: 4 } })}
                 columns={[{ key: "name", frozen: true, value: r => r.name }]}
                 events={_r => [
-                    Planner.event({ slot: Planner.at.number(1), label: "Bé", state: "committed", color: "teal.solid" }),
-                    Planner.event({ slot: Planner.at.number(2), label: "Alc", state: "committed", colorPalette: "purple" }),
+                    Planner.event({ slot: Planner.at.number(1), label: "Series A", state: "committed", color: "teal.solid" }),
+                    Planner.event({ slot: Planner.at.number(2), label: "Series B", state: "committed", colorPalette: "purple" }),
                     Planner.event({ slot: Planner.at.number(3), label: "Set", state: "committed", color: "black" }),
                 ]}
             />

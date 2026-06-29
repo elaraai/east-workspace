@@ -186,19 +186,19 @@ export const tabsWithCountBadges = example({
 
 export const tabsTwoLine = example({
     keywords: ["Tabs", "Root", "Item", "trigger", "two-line", "rich"],
-    description: "Rich two-line trigger mirroring the shift-optimiser Week / Vintage header",
+    description: "Rich two-line trigger mirroring the Week / Period header",
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Tabs
                 items={[
                     Tabs.Item(
                         "week-06",
-                        <VStack gap="0" align="flex-start"><Text fontWeight="semibold">Week 06</Text><Text color="fg.muted">Vintage · 3–9 Feb</Text></VStack>,
+                        <VStack gap="0" align="flex-start"><Text fontWeight="semibold">Week 06</Text><Text color="fg.muted">Cycle · 3–9 Feb</Text></VStack>,
                         [<Box padding="4"><Text>Week 06 detail.</Text></Box>],
                     ),
                     Tabs.Item(
                         "week-12",
-                        <VStack gap="0" align="flex-start"><Text fontWeight="semibold">Week 12</Text><Text color="fg.muted">Vintage · 17–23 Mar</Text></VStack>,
+                        <VStack gap="0" align="flex-start"><Text fontWeight="semibold">Week 12</Text><Text color="fg.muted">Cycle · 17–23 Mar</Text></VStack>,
                         [<Box padding="4"><Text>Week 12 detail.</Text></Box>],
                     ),
                 ]}

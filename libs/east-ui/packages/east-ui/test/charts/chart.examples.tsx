@@ -190,7 +190,7 @@ export const lineIntegerDayTicks = example({
             <Box height="240px" width="100%">
                 <Chart
                     layers={Chart.Line(rows, { x: r => r.day, y: r => r.temp }, { color: "teal.solid" })}
-                    x={{ label: "Ferment day", scale: "linear", domain: [0, 6], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0] }}
+                    x={{ label: "Day", scale: "linear", domain: [0, 6], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0] }}
                     y={{ label: "°C", numTicks: 3 }}
                     grid
                 />

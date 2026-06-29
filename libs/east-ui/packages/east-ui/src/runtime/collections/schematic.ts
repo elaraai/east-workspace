@@ -30,7 +30,7 @@ import { UIComponentType } from "../../component.js";
  *     <Schematic
  *         extent={{ width: 30, height: 12 }}
  *         items={[
- *             { id: "TANK-04", x: 4.0, y: 2.5, kind: "fermenter · 40 kL", fill: 28.8, cap: 40.0,
+ *             { id: "UNIT-04", x: 4.0, y: 2.5, kind: "unit · 40 kL", fill: 28.8, cap: 40.0,
  *               state: variant("some", variant("success", null)) },
  *         ]}
  *         item={{
@@ -39,7 +39,7 @@ import { UIComponentType } from "../../component.js";
  *             status: e => e.state,
  *             meter: { value: e => e.fill, max: e => e.cap },
  *         }}
- *         zones={[{ id: "hall-b", name: "Fermentation Hall · Hall B", x: 0.5, y: 0.5, w: 18.0, h: 5.0,
+ *         zones={[{ id: "hall-b", name: "Hall B", x: 0.5, y: 0.5, w: 18.0, h: 5.0,
  *                   pattern: Schematic.outline() }]}
  *         zone={{ key: z => z.id, label: z => z.name, x: z => z.x, y: z => z.y,
  *                 width: z => z.w, height: z => z.h, pattern: z => z.pattern }}

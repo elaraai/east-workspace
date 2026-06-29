@@ -152,7 +152,7 @@ export const comboboxInteractive = example({
                             Combobox.Item("date", "Date"),
                             Combobox.Item("elderberry", "Elderberry"),
                             Combobox.Item("fig", "Fig"),
-                            Combobox.Item("grape", "Grape"),
+                            Combobox.Item("guava", "Guava"),
                         ]}
                         placeholder="Search fruits..."
                         onChange={onChange}
