@@ -60,6 +60,7 @@ import { SliceAffordanceType, type SliceAffordanceLiteral } from "../../contract
 import { Text } from "../../typography/index.js";
 import { DensityType } from "../../style/interaction.js";
 import { StatusTokenType } from "../../style/interaction.js";
+import { PlotGutterType } from "../../shared/plot-gutter.js";
 
 // ============================================================================
 // Table Footer Cell
@@ -625,7 +626,8 @@ export function createTable<T extends SubtypeExprOrValue<ArrayType<StructType>>>
         (style as any).selectedBackground !== undefined ||
         (style as any).selectedBorderColor !== undefined ||
         (style as any).footerBackground !== undefined ||
-        (style as any).rowHeight !== undefined
+        (style as any).rowHeight !== undefined ||
+        (style as any).plotGutter !== undefined
     );
 
     const styleValue = hasVisualStyle ? East.value({
@@ -645,6 +647,12 @@ export function createTable<T extends SubtypeExprOrValue<ArrayType<StructType>>>
         selectedBorderColor: (style as any)?.selectedBorderColor !== undefined ? some((style as any).selectedBorderColor) : none,
         footerBackground: (style as any)?.footerBackground !== undefined ? some((style as any).footerBackground) : none,
         rowHeight: (style as any)?.rowHeight !== undefined ? some((style as any).rowHeight) : none,
+        plotGutter: (style as any)?.plotGutter !== undefined
+            ? some(East.value({
+                left:  (style as any).plotGutter.left  !== undefined ? some((style as any).plotGutter.left)  : none,
+                right: (style as any).plotGutter.right !== undefined ? some((style as any).plotGutter.right) : none,
+            }, PlotGutterType))
+            : none,
     }, TableStyleType) : undefined;
 
     const densityValue = style?.density

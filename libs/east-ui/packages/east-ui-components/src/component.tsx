@@ -29,6 +29,7 @@ import { EastVisxChart } from "./charts/spec";
 import { EastChakraBox } from "./layout/box";
 import { EastChakraFlex } from "./layout/flex";
 import { EastChakraStack } from "./layout/stack";
+import { EastChakraAlignedStack } from "./layout/aligned-stack";
 import { EastChakraSeparator } from "./layout/separator";
 import { EastChakraGrid } from "./layout/grid";
 import { EastChakraSplitter } from "./layout/splitter";
@@ -113,6 +114,7 @@ import {
 } from "./overlays";
 import { EastChakraHotkey } from "./platform/hotkey";
 import { EastReactiveComponent } from "./reactive";
+import { EastChakraPages } from "./navigation/pages.js";
 import { EastChakraExtension } from "./extension/index.js";
 
 // Pre-define the equality function at module level
@@ -160,6 +162,7 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
             Box: (v) => <EastChakraBox value={v} storageKey={storageKey} />,
             Flex: (v) => <EastChakraFlex value={v} storageKey={storageKey} />,
             Stack: (v) => <EastChakraStack value={v} storageKey={storageKey} />,
+            AlignedStack: (v) => <EastChakraAlignedStack value={v} storageKey={childKey(storageKey, "AlignedStack")} />,
             Separator: (v) => <EastChakraSeparator value={v} storageKey={storageKey} />,
             Grid: (v) => <EastChakraGrid value={v} storageKey={storageKey} />,
             Splitter: (v) => <EastChakraSplitter value={v} storageKey={childKey(storageKey, "Splitter")} />,
@@ -197,9 +200,11 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
             Breadcrumb: (v) => <EastChakraBreadcrumb value={v} />,
             NavList: (v) => <EastChakraNavList value={v} />,
             // Pages — the content-switcher. `render()` reads nav.current() (tracked) and
-            // matches the active route, so the reactive renderer evaluates only the active
-            // page (leaf-only) and re-renders on navigation. The extra `navKey` is ignored here.
-            Pages: (v) => <EastReactiveComponent value={v} storageKey={childKey(storageKey, "Pages")} />,
+            // matches the active route. EastChakraPages keys the reactive subtree by the
+            // route's store version so the active page REMOUNTS on navigation — the page
+            // bodies are ReactiveComponents that equalFor can't tell apart (functions
+            // compare equal), so the generic memo'd swap would otherwise bail (#114).
+            Pages: (v) => <EastChakraPages value={v as never} storageKey={childKey(storageKey, "Pages")} />,
 
             // Display
             Icon: (v) => <EastChakraIcon value={v} />,

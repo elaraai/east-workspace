@@ -16,6 +16,7 @@ import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Trace } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { useDensity, type Density } from "../../contracts/density";
+import { usePlotGutter } from "../../contracts/plot-gutter.js";
 
 const traceEqual = equalFor(Trace.Types.Trace);
 
@@ -86,6 +87,16 @@ export const EastChakraTrace = memo(function EastChakraTrace({ value, storageKey
     // Optional label-gutter width override (#137) — overrides the density
     // default `--t-stub-w`, which both the grid columns and now-line read.
     const labelWidth = style ? getSomeorUndefined(style.labelWidth) : undefined;
+    // Shared plot gutter (#147) — own prop wins over an enclosing <AlignedStack>'s
+    // context. When active the step lane fills [left, W−right] (flexible columns,
+    // no gap → a continuous band that lines up with a stacked Chart's plot).
+    const ctxGutter = usePlotGutter();
+    const ownGutter = useMemo(() => (style ? getSomeorUndefined(style.plotGutter) : undefined), [style]);
+    const gLeft = (ownGutter ? getSomeorUndefined(ownGutter.left) : undefined) ?? ctxGutter?.left;
+    const gRight = (ownGutter ? getSomeorUndefined(ownGutter.right) : undefined) ?? ctxGutter?.right;
+    const gutterActive = gLeft !== undefined || gRight !== undefined;
+    const leftCol = gLeft ?? labelWidth ?? "var(--t-stub-w)";
+    const rightCol = gRight ?? "0px";
 
     const nowRaw = useMemo(() => getSomeorUndefined(value.now), [value.now]);
     const now = nowRaw !== undefined ? Number(nowRaw) : undefined;
@@ -96,7 +107,9 @@ export const EastChakraTrace = memo(function EastChakraTrace({ value, storageKey
     // Shorter tracks are padded with empty trailing cells (below) so each track
     // stays on exactly one grid row.
     const steps = tracks.reduce((m, t) => Math.max(m, t.values.length), 0);
-    const columns = `var(--t-stub-w) repeat(${steps}, var(--t-step-w))`;
+    const columns = gutterActive
+        ? `${leftCol} repeat(${steps}, minmax(0, 1fr)) ${rightCol}`
+        : `var(--t-stub-w) repeat(${steps}, var(--t-step-w))`;
 
     // Tracks are expected to share one step grid (equal lengths). Ragged tracks
     // are now padded rather than producing a phantom row, but surface the
@@ -111,18 +124,26 @@ export const EastChakraTrace = memo(function EastChakraTrace({ value, storageKey
     const showNow = now !== undefined && now > 0 && now < steps;
     // x of the now-line: past the stub, past `now` step columns + their gaps,
     // back-shifted half a gap to sit between the measured and predicted steps.
-    const nowLeft = `calc(var(--t-stub-w) + var(--t-gap) + ${now} * (var(--t-step-w) + var(--t-gap)) - var(--t-gap) / 2)`;
+    const nowLeft = gutterActive
+        ? `calc(${leftCol} + (100% - ${leftCol} - ${rightCol}) * ${now} / ${steps})`
+        : `calc(var(--t-stub-w) + var(--t-gap) + ${now} * (var(--t-step-w) + var(--t-gap)) - var(--t-gap) / 2)`;
 
     const showAxis = density === "comfortable" && axis !== undefined && axis.length > 0;
 
     return (
-        <ChakraBox css={styles.root} data-future={future} {...(labelWidth !== undefined ? { style: { ["--t-stub-w"]: labelWidth } as React.CSSProperties } : {})}>
+        <ChakraBox
+            css={styles.root}
+            data-future={future}
+            {...(gutterActive ? { display: "block", width: "100%" } : {})}
+            {...(labelWidth !== undefined ? { style: { ["--t-stub-w"]: labelWidth } as React.CSSProperties } : {})}
+        >
             {showAxis && (
                 <ChakraBox css={styles.axis} style={{ gridTemplateColumns: columns }}>
                     <span />
                     {Array.from({ length: steps }, (_, k) => (
                         <ChakraBox key={`ax.${k}`} css={styles.axisCell}>{axis![k] ?? ""}</ChakraBox>
                     ))}
+                    {gutterActive && <span />}
                 </ChakraBox>
             )}
             <ChakraBox css={styles.grid} style={{ gridTemplateColumns: columns }} position="relative">
@@ -167,6 +188,8 @@ export const EastChakraTrace = memo(function EastChakraTrace({ value, storageKey
                             {Array.from({ length: steps - values.length }, (_, k) => (
                                 <span key={`pad.${ti}.${k}`} aria-hidden="true" />
                             ))}
+                            {/* trailing right-gutter cell so the lane ends at W−right (#147) */}
+                            {gutterActive && <span key={`rpad.${ti}`} aria-hidden="true" />}
                         </Fragment>
                     );
                 })}

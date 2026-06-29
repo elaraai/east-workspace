@@ -51,7 +51,11 @@ export const drawerSlotRecipe = defineSlotRecipe({
             color: "{colors.brand.700}",
             marginTop: "{spacing.1}",
         },
-        body: { paddingX: "{spacing.5}", paddingY: "{spacing.4}" },
+        // Body padding + fill-height are owned inline by the renderer
+        // (overlays/drawer/index.tsx) so `flush` / `bodyPadding` / `fillBody`
+        // can override cleanly. Stock Chakra `flex:1` + `overflow:auto` survive
+        // the merge and remain the non-fillBody default.
+        body: {},
         footer: {
             paddingX: "{spacing.5}", paddingY: "{spacing.3}",
             borderTopWidth: "1px", borderTopColor: "border.strong",

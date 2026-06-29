@@ -7,7 +7,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { Box, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { findIconDefinition, library } from "@fortawesome/fontawesome-svg-core";
-import { fas, faAnglesLeft, faAnglesRight, faCaretRight, faChevronLeft, faChevronRight, faExpand, faMinus, faPlus } from "@fortawesome/free-solid-svg-icons";
+import { fas, faAnglesLeft, faAnglesRight, faCaretRight, faChevronLeft, faChevronRight, faExpand, faHand, faMinus, faObjectGroup, faPlus } from "@fortawesome/free-solid-svg-icons";
 import RBush from "rbush";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Schematic, Slice as SliceInternal } from "@elaraai/east-ui/internal";
@@ -284,6 +284,20 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     const modeRef = useRef<CameraMode>("idle");
     const animRef = useRef<number | null>(null);
     const [cameraSnapshot, setCameraSnapshot] = useState<Viewport>(IDENTITY);
+
+    // Interaction tool (#153): `grab` drag-pans (default), `select` drags a box
+    // that the view then flies into. Momentary keyboard overrides — hold Space
+    // (grab) / Ctrl (select) while hovering — set `tempTool`; `effectiveTool` is
+    // what the cursor + drag obey. The button highlight tracks the persistent tool.
+    const [tool, setTool] = useState<"grab" | "select">("grab");
+    const [tempTool, setTempTool] = useState<"grab" | "select" | null>(null);
+    const effectiveTool = tempTool ?? tool;
+    const effectiveToolRef = useRef(effectiveTool); effectiveToolRef.current = effectiveTool;
+    const hoveredRef = useRef(false);
+    // Live screen-space selection box (px, relative to the canvas host) while a
+    // select-drag is in flight; drives the dashed overlay and the fly-to on release.
+    const selStartRef = useRef<{ sx: number; sy: number } | null>(null);
+    const [selRect, setSelRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
 
     const fit = size !== null ? Math.min(size.w / W, size.h / H) : 0;
     const ppu = fit * cameraSnapshot.zoom;
@@ -667,12 +681,29 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         // excluded — a drag-pan can start anywhere, including over a card; a
         // tap (no drag) over the card is resolved by pickAt on pointerup.
         if ((e.target as HTMLElement).closest("button") !== null) return;
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+        movedRef.current = false;
+        // Select tool (#153): start a screen-space selection box instead of a pan.
+        if (effectiveToolRef.current === "select") {
+            const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+            const sx = e.clientX - r.left, sy = e.clientY - r.top;
+            selStartRef.current = { sx, sy };
+            setSelRect({ x: sx, y: sy, w: 0, h: 0 });
+            return;
+        }
         transition("pointerDown");
         panRef.current = { x: e.clientX, y: e.clientY, tx: cameraRef.current.tx, ty: cameraRef.current.ty };
-        movedRef.current = false;
-        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     }, [transition]);
     const onCanvasPointerMove = useCallback((e: React.PointerEvent) => {
+        // Select-drag: grow the screen-space box from its start corner.
+        const sel = selStartRef.current;
+        if (sel !== null) {
+            const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+            const cx = e.clientX - r.left, cy = e.clientY - r.top;
+            if (Math.abs(cx - sel.sx) > 4 || Math.abs(cy - sel.sy) > 4) movedRef.current = true;
+            setSelRect({ x: Math.min(sel.sx, cx), y: Math.min(sel.sy, cy), w: Math.abs(cx - sel.sx), h: Math.abs(cy - sel.sy) });
+            return;
+        }
         const pan = panRef.current;
         if (!pan) return;
         if (Math.abs(e.clientX - pan.x) > 4 || Math.abs(e.clientY - pan.y) > 4) movedRef.current = true;
@@ -688,6 +719,23 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         return true;
     }, [transition]);
     const onCanvasPointerUp = useCallback((e: React.PointerEvent) => {
+        // Select-drag release: fly the view into the boxed world region (#153).
+        const sel = selStartRef.current;
+        if (sel !== null) {
+            selStartRef.current = null;
+            const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+            const cx = e.clientX - r.left, cy = e.clientY - r.top;
+            const x0 = Math.min(sel.sx, cx), y0 = Math.min(sel.sy, cy);
+            const sw = Math.abs(cx - sel.sx), sh = Math.abs(cy - sel.sy);
+            setSelRect(null);
+            const cam = cameraRef.current;
+            const ppuLive = fitRef.current * cam.zoom;
+            // Only a real box zooms; a tap / sliver is ignored (no accidental warp).
+            if (sw > 6 && sh > 6 && ppuLive > 0) {
+                flyTo({ x: (x0 - cam.tx) / ppuLive, y: (y0 - cam.ty) / ppuLive, w: sw / ppuLive, h: sh / ppuLive });
+            }
+            return;
+        }
         const wasPress = endPan();
         if (!wasPress || movedRef.current) return;   // not a canvas tap, or it was a drag
         // A tap selects the item under it; a tap on empty background clears the
@@ -695,13 +743,15 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         // does NOT call onSelect: that channel is item-key-only, and a deselect
         // event would need a first-class API rather than an out-of-band sentinel.
         if (!pickAt(e.currentTarget as HTMLElement, e.clientX, e.clientY)) setSelected(null);
-    }, [endPan, pickAt]);
-    // pointercancel / lost capture: a pan that loses its grip mid-gesture must
-    // still end (issue #57, P10). After a normal release the pan is already
-    // ended (panRef null) so this is a no-op then, and it never cancels a fly
-    // the tap may have just started.
+    }, [endPan, pickAt, flyTo]);
+    // pointercancel / lost capture: a pan OR select-drag that loses its grip
+    // mid-gesture must still end (issue #57, P10). After a normal release the
+    // pan is already ended (panRef null) so this is a no-op then, and it never
+    // cancels a fly the tap may have just started.
     const onCanvasPointerCancel = useCallback(() => {
         movedRef.current = false;
+        selStartRef.current = null;
+        setSelRect(null);
         endPan();
     }, [endPan]);
     const resetView = useCallback(() => {
@@ -716,6 +766,30 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         cameraRef.current = zoomAbout(cameraRef.current, factor, sz.w / 2, sz.h / 2, 1, MAX_ZOOM);
         requestRender();
     }, [transition, requestRender]);
+
+    // Momentary tool overrides (#153): while the schematic is hovered, holding
+    // Space → grab, Ctrl → select, reverting on release. Gated on hover so the
+    // page's Space-scroll / Ctrl-modifier is untouched elsewhere; window blur and
+    // pointer-leave clear a stuck override.
+    useEffect(() => {
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (!hoveredRef.current || e.repeat) return;
+            if (e.code === "Space") { e.preventDefault(); setTempTool("grab"); }
+            else if (e.key === "Control") setTempTool("select");
+        };
+        const onKeyUp = (e: KeyboardEvent) => {
+            if (e.code === "Space" || e.key === "Control") setTempTool(null);
+        };
+        const clear = () => setTempTool(null);
+        window.addEventListener("keydown", onKeyDown);
+        window.addEventListener("keyup", onKeyUp);
+        window.addEventListener("blur", clear);
+        return () => {
+            window.removeEventListener("keydown", onKeyDown);
+            window.removeEventListener("keyup", onKeyUp);
+            window.removeEventListener("blur", clear);
+        };
+    }, []);
     // Minimap is a camera writer (jump on press, follow on drag — invariant 8).
     const minimapDragRef = useRef(false);
     const minimapJump = useCallback((el: HTMLElement, clientX: number, clientY: number) => {
@@ -869,7 +943,14 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                 ref={canvasRef}
                 css={styles.canvas}
                 data-schematic-canvas=""
-                style={fixedHeight !== undefined ? { minHeight: 0 } : { aspectRatio: `${W} / ${H}` }}
+                style={{
+                    ...(fixedHeight !== undefined ? { minHeight: 0 } : { aspectRatio: `${W} / ${H}` }),
+                    // Cursor follows the effective tool (#153): crosshair for select,
+                    // grab for pan (→ grabbing while a drag is active, via the recipe).
+                    cursor: effectiveTool === "select" ? "crosshair" : "grab",
+                }}
+                onPointerEnter={() => { hoveredRef.current = true; }}
+                onPointerLeave={() => { hoveredRef.current = false; setTempTool(null); }}
                 onPointerDown={onCanvasPointerDown}
                 onPointerMove={onCanvasPointerMove}
                 onPointerUp={onCanvasPointerUp}
@@ -936,15 +1017,25 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                                 );
                             })}
                         </Box>
+                        {/* Drag-select marquee (#153) — screen-space, host-relative. */}
+                        {selRect !== null && (
+                            <Box css={styles.selectBox} style={{ left: selRect.x, top: selRect.y, width: selRect.w, height: selRect.h }} aria-hidden="true" />
+                        )}
                         <Box css={styles.controls}>
+                            {/* Tool group: grab (pan, default) + select (zoom-to-box). */}
+                            <Box css={styles.controlGroup}>
+                                <Box as="button" css={styles.controlButton} {...(tool === "grab" ? { "data-active": "" } : {})} aria-label="Grab / pan tool" aria-pressed={tool === "grab"} title="Grab — drag to pan (hold Space)" onClick={() => setTool("grab")}><FontAwesomeIcon icon={faHand} /></Box>
+                                <Box as="button" css={styles.controlButton} {...(tool === "select" ? { "data-active": "" } : {})} aria-label="Select-region tool" aria-pressed={tool === "select"} title="Select — drag a box to zoom in (hold Ctrl)" onClick={() => setTool("select")}><FontAwesomeIcon icon={faObjectGroup} /></Box>
+                            </Box>
                             <Box as="button" css={styles.controlButton} aria-label="Zoom in" title="Zoom in (scroll)" onClick={() => zoomBy(1.5)}><FontAwesomeIcon icon={faPlus} /></Box>
                             <Box as="button" css={styles.controlButton} aria-label="Zoom out" title="Zoom out (scroll)" onClick={() => zoomBy(1 / 1.5)}><FontAwesomeIcon icon={faMinus} /></Box>
                             <Box as="button" css={styles.controlButton} aria-label="Fit view" title="Fit view (double-click)" onClick={resetView}><FontAwesomeIcon icon={faExpand} /></Box>
+                            {/* Back / forward through items — its own vertical group. */}
                             {selected !== null && (
-                                <>
+                                <Box css={styles.controlGroup}>
                                     <Box as="button" css={styles.controlButton} aria-label="Previous item" title="Previous item" onClick={() => stepSelection(-1)}><FontAwesomeIcon icon={faChevronLeft} /></Box>
                                     <Box as="button" css={styles.controlButton} aria-label="Next item" title="Next item" onClick={() => stepSelection(1)}><FontAwesomeIcon icon={faChevronRight} /></Box>
-                                </>
+                                </Box>
                             )}
                         </Box>
                         {scaleUnit !== undefined && scaleLen > 0 && (() => {

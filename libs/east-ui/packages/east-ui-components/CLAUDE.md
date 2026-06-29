@@ -346,8 +346,11 @@ Row virtualization via `@tanstack/react-virtual`:
 - Scroll sync between dual panes (table + timeline) uses direct DOM ref
   manipulation, not state.
 
-**Do NOT persist scroll position.** It's tied to virtualizer row count
-which changes with data.
+**Persist scroll as a clamped ROW INDEX, never a pixel `scrollTop`.** The
+top visible row index survives data changes (restore clamps to the current
+row count); a raw pixel offset does not. The `Table` does this via its
+consolidated persisted state (`scrollIndex`, restored once on mount — #143).
+Do **not** persist a pixel offset.
 
 ### Module-level constants
 

@@ -39,6 +39,8 @@ import { DensityType, AlignType, LabelInputType } from "./style.js";
 import { BoxStyleType } from "./layout/box/types.js";
 import { FlexStyleType } from "./layout/flex/types.js";
 import { StackStyleType } from "./layout/stack/types.js";
+import { AlignedStackStyleType } from "./layout/aligned-stack/types.js";
+import { AlignedGutterType, PlotGutterType } from "./shared/plot-gutter.js";
 import { SeparatorStyleType } from "./layout/separator/types.js";
 import { GridStyleType } from "./layout/grid/types.js";
 import { SplitterStyleType } from "./layout/splitter/types.js";
@@ -90,6 +92,7 @@ import { BannerStyleType } from "./feedback/banner/types.js";
 import { EmptyStateStyleType } from "./feedback/empty-state/types.js";
 import { SkeletonType } from "./feedback/skeleton/types.js";
 import { StatusValueType, StatusStyleType } from "./feedback/status/types.js";
+import { ColorSchemeType } from "./style/scheme.js";
 
 // Navigation
 import { BreadcrumbRootType } from "./navigation/breadcrumb/types.js";
@@ -352,6 +355,11 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         children: ArrayType(node),
         density: OptionType(DensityType),
         style: OptionType(StackStyleType),
+    }),
+    AlignedStack: StructType({
+        children: ArrayType(node),
+        gutter: OptionType(AlignedGutterType),
+        style: OptionType(AlignedStackStyleType),
     }),
 
     Separator: StructType({
@@ -634,6 +642,7 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         legend: OptionType(ArrayType(MatrixLegendEntryType)),
         minLabelSize: OptionType(FloatType),
         density: OptionType(DensityType),
+        plotGutter: OptionType(PlotGutterType),
         onCellClick: OptionType(FunctionType([MatrixCellClickEventType], NullType)),
         onSegmentClick: OptionType(FunctionType([MatrixSegmentClickEventType], NullType)),
         onSegmentChange: OptionType(FunctionType([MatrixSegmentChangeEventType], NullType)),
@@ -789,6 +798,8 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
                 stretch: OptionType(PlannerStretchType),
                 content: OptionType(PlannerContentType),
                 tone: OptionType(StatusValueType),
+                color: OptionType(StringType),
+                colorPalette: OptionType(ColorSchemeType),
                 animation: OptionType(PlannerAnimationType),
                 hovercard: OptionType(node),
             })),
@@ -799,6 +810,7 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         now: OptionType(PlannerSlotType),
         density: OptionType(DensityType),
         slotMinWidth: OptionType(StringType),
+        plotGutter: OptionType(PlotGutterType),
         onSelectRow: OptionType(FunctionType([PlannerSelectEventType], NullType)),
         // Optional review chrome — the per-row decision column + batch foot.
         // Mirror this shape with `PlannerReviewType` in

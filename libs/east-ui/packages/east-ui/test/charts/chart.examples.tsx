@@ -97,6 +97,23 @@ export const lineStepNoDots = example({
     inputs: [],
 });
 
+export const lineStepAfterSetpoint = example({
+    keywords: ["Chart", "Line", "curve", "stepAfter", "stepBefore", "step", "setpoint", "held"],
+    description: "stepAfter curve — a held setpoint extends forward from each point until the next change (riser after the point); stepBefore holds up to the point",
+    fn: East.function([], UIComponentType, ($) => {
+        const rows = $.const([
+            { day: 0n, setpoint: 18.0 }, { day: 2n, setpoint: 22.0 },
+            { day: 5n, setpoint: 20.0 }, { day: 8n, setpoint: 16.0 },
+        ], ArrayType(StructType({ day: IntegerType, setpoint: FloatType })));
+        return (
+            <Box height="220px" width="100%">
+                <Chart layers={Chart.Line(rows, { x: r => r.day, y: r => r.setpoint }, { curve: "stepAfter", width: 2, color: "black" })} grid />
+            </Box>
+        );
+    }),
+    inputs: [],
+});
+
 export const lineDashedTargetOverlay = example({
     keywords: ["Chart", "Line", "dash", "layers", "per-series-style"],
     description: "Actual vs dashed target as two styled line layers",
@@ -153,6 +170,28 @@ export const lineNumericX = example({
                     layers={Chart.Line(rows, { x: r => r.dose, y: r => r.response }, { color: "purple.solid" })}
                     x={{ label: "Dose", scale: "linear", domain: [0, 6] }}
                     y={{ label: "Response" }}
+                    grid
+                />
+            </Box>
+        );
+    }),
+    inputs: [],
+});
+
+export const lineIntegerDayTicks = example({
+    keywords: ["Chart", "axis", "numTicks", "tickValues", "ticks", "integer", "day", "align", "Planner"],
+    description: "Explicit integer day ticks (tickValues) on the x-axis — pins the ticks to [0,1,…,6] so a stacked Planner's day columns line up, instead of the auto-niced set",
+    fn: East.function([], UIComponentType, ($) => {
+        const rows = $.const([
+            { day: 0.0, temp: 22.0 }, { day: 2.0, temp: 20.5 },
+            { day: 4.0, temp: 18.0 }, { day: 6.0, temp: 16.5 },
+        ], ArrayType(StructType({ day: FloatType, temp: FloatType })));
+        return (
+            <Box height="240px" width="100%">
+                <Chart
+                    layers={Chart.Line(rows, { x: r => r.day, y: r => r.temp }, { color: "teal.solid" })}
+                    x={{ label: "Day", scale: "linear", domain: [0, 6], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0] }}
+                    y={{ label: "°C", numTicks: 3 }}
                     grid
                 />
             </Box>

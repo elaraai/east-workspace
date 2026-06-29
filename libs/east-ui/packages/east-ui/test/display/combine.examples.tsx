@@ -12,9 +12,9 @@ export const combineDensities = example({
     description: "One density prop on the Table cascades to every display component in its cells — the same mixed surface at condensed, compact and comfortable",
     fn: East.function([], UIComponentType, ($) => {
         const lines = $.let(East.value([
-            { line: "Crush A", owner: "Mia Kerr", state: "Running", mix: ["Shiraz", "Grenache"], trend: [12.0, 14.0, 13.0, 18.0, 20.0], util: 82.0, delta: "+4.2%" },
-            { line: "Crush B", owner: "Tom Ode", state: "Changeover", mix: ["Riesling"], trend: [30.0, 28.0, 26.0, 22.0, 18.0], util: 41.0, delta: "+1.1%" },
-            { line: "Press 1", owner: "Ana Diaz", state: "Running", mix: ["Shiraz", "Mataro", "Viognier"], trend: [8.0, 9.0, 12.0, 14.0, 17.0], util: 67.0, delta: "+6.8%" },
+            { line: "Line A", owner: "Mia Kerr", state: "Running", mix: ["Grade A", "Grade B"], trend: [12.0, 14.0, 13.0, 18.0, 20.0], util: 82.0, delta: "+4.2%" },
+            { line: "Line B", owner: "Tom Ode", state: "Changeover", mix: ["Grade C"], trend: [30.0, 28.0, 26.0, 22.0, 18.0], util: 41.0, delta: "+1.1%" },
+            { line: "Line C", owner: "Ana Diaz", state: "Running", mix: ["Grade A", "Grade D", "Grade E"], trend: [8.0, 9.0, 12.0, 14.0, 17.0], util: 67.0, delta: "+6.8%" },
         ]));
         const condensed = $.const(
             <Table

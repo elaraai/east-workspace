@@ -37,6 +37,7 @@ import {
 
 import { UIComponentType } from "../../component.js";
 import { DensityType, type DensityLiteral } from "../../style/interaction.js";
+import { PlotGutterType, type PlotGutter } from "../../shared/plot-gutter.js";
 
 import {
     PlannerSlotType,
@@ -68,6 +69,7 @@ import {
     type AxisOrdinalOptions,
 } from "./types.js";
 import { StatusValueType, type StatusValueLiteral } from "../../feedback/status/types.js";
+import { ColorSchemeType, type ColorSchemeLiteral } from "../../style/scheme.js";
 
 // Re-export the UIComp-free types so consumers reach everything via this barrel.
 export {
@@ -135,21 +137,25 @@ export const PlannerEventType: StructType<{
     stretch: OptionType<PlannerStretchType>,
     content: OptionType<PlannerContentType>,
     tone: OptionType<StatusValueType>,
+    color: OptionType<StringType>,
+    colorPalette: OptionType<ColorSchemeType>,
     animation: OptionType<PlannerAnimationType>,
     hovercard: OptionType<UIComponentType>,
 }> = StructType({
-    key:       OptionType(StringType),
-    slot:      PlannerSlotType,
-    endSlot:   OptionType(PlannerSlotType),
-    bucket:    OptionType(StringType),
-    label:     StringType,
-    state:     PlannerStateType,
-    popover:   OptionType(UIComponentType),
-    stretch:   OptionType(PlannerStretchType),
-    content:   OptionType(PlannerContentType),
-    tone:      OptionType(StatusValueType),
-    animation: OptionType(PlannerAnimationType),
-    hovercard: OptionType(UIComponentType),
+    key:          OptionType(StringType),
+    slot:         PlannerSlotType,
+    endSlot:      OptionType(PlannerSlotType),
+    bucket:       OptionType(StringType),
+    label:        StringType,
+    state:        PlannerStateType,
+    popover:      OptionType(UIComponentType),
+    stretch:      OptionType(PlannerStretchType),
+    content:      OptionType(PlannerContentType),
+    tone:         OptionType(StatusValueType),
+    color:        OptionType(StringType),
+    colorPalette: OptionType(ColorSchemeType),
+    animation:    OptionType(PlannerAnimationType),
+    hovercard:    OptionType(UIComponentType),
 });
 export type PlannerEventType = typeof PlannerEventType;
 
@@ -239,6 +245,7 @@ export const PlannerRootType: StructType<{
     now: OptionType<PlannerSlotType>,
     density: OptionType<DensityType>,
     slotMinWidth: OptionType<StringType>,
+    plotGutter: OptionType<PlotGutterType>,
     onSelectRow: OptionType<FunctionType<[PlannerSelectEventType], NullType>>,
     review: OptionType<PlannerReviewType>,
     rowHover: OptionType<BooleanType>,
@@ -250,6 +257,7 @@ export const PlannerRootType: StructType<{
     now:          OptionType(PlannerSlotType),
     density:      OptionType(DensityType),
     slotMinWidth: OptionType(StringType),
+    plotGutter:   OptionType(PlotGutterType),
     onSelectRow:  OptionType(FunctionType([PlannerSelectEventType], NullType)),
     // Optional review chrome — the per-row Approve/Reject decision column + the
     // approve-all/reject-all foot. Absent ⇒ a plain Planner (the decision column
@@ -438,6 +446,14 @@ export interface EventInput {
     /** Optional semantic colour override — tints fill/text/border-colour while keeping
      *  the state's border-style + text-decoration. Absent ⇒ the state grammar. */
     tone?: SubtypeExprOrValue<StatusValueType> | StatusValueLiteral;
+    /** Optional brand colour palette (e.g. `"teal"`, `"purple"`, `"gray"`) — tints
+     *  fill/text/border to match a paired Chart series, overriding `tone`'s colours
+     *  while keeping the state's border-style + strike-through. */
+    colorPalette?: SubtypeExprOrValue<ColorSchemeType> | ColorSchemeLiteral;
+    /** Optional raw colour token (e.g. `"teal.solid"`, `"black"`) — tints text +
+     *  border for an exact match to a Chart series colour. Takes precedence over
+     *  `colorPalette` and `tone`. */
+    color?: SubtypeExprOrValue<StringType>;
     /** Optional attention animation. `"pulse"` draws a gentle opacity pulse (honouring
      *  `prefers-reduced-motion`); `"none"` / absent is static. */
     animation?: SubtypeExprOrValue<PlannerAnimationType> | PlannerAnimationLiteral;
@@ -485,6 +501,11 @@ function resolveTone(t: NonNullable<EventInput["tone"]>): SubtypeExprOrValue<Sta
     return typeof t === "string" ? East.value(variant(t, null), StatusValueType) : t;
 }
 
+/** Resolve the `colorPalette` string shorthand into a {@link ColorSchemeType} value. */
+function resolveColorPalette(c: NonNullable<EventInput["colorPalette"]>): SubtypeExprOrValue<ColorSchemeType> {
+    return typeof c === "string" ? East.value(variant(c, null), ColorSchemeType) : c;
+}
+
 /**
  * Builds a single Planner event from a flat TS input. Normalises optional fields
  * into their `OptionType` envelopes and resolves the `state` string shorthands
@@ -505,9 +526,11 @@ function createEvent(input: EventInput): ExprType<PlannerEventType> {
         popover:   input.popover !== undefined ? some(input.popover) : none,
         stretch:   input.stretch !== undefined ? some(resolveStretch(input.stretch)) : none,
         content:   input.content !== undefined ? some(resolveContent(input.content)) : none,
-        tone:      input.tone !== undefined ? some(resolveTone(input.tone)) : none,
-        animation: input.animation !== undefined ? some(resolveAnimation(input.animation)) : none,
-        hovercard: input.hovercard !== undefined ? some(input.hovercard) : none,
+        tone:         input.tone !== undefined ? some(resolveTone(input.tone)) : none,
+        color:        input.color !== undefined ? some(input.color) : none,
+        colorPalette: input.colorPalette !== undefined ? some(resolveColorPalette(input.colorPalette)) : none,
+        animation:    input.animation !== undefined ? some(resolveAnimation(input.animation)) : none,
+        hovercard:    input.hovercard !== undefined ? some(input.hovercard) : none,
     }, PlannerEventType);
 }
 
@@ -632,6 +655,8 @@ export interface PlannerConfig<R extends StructType> {
     /** Optional min-width (CSS) per x-axis slot column. With it set, the
      *  timeline scrolls horizontally rather than squeezing slots below it. */
     slotMinWidth?: SubtypeExprOrValue<StringType>;
+    /** Shared plot gutter (#147) — pins the timeline grid to `[left, W−right]` (px) so the Planner lines up under a stacked Chart on a shared day axis; the frozen channel columns fill `left`. Usually supplied by an enclosing `<AlignedStack>`. */
+    plotGutter?: PlotGutter;
     /** Optional row-selection callback. */
     onSelectRow?: SubtypeExprOrValue<FunctionType<[PlannerSelectEventType], NullType>>;
     /** Optional per-row status — the quiet dot beside the resource (some ⇒ flagged,
@@ -730,6 +755,12 @@ function buildRoot(
         now:          config.now !== undefined ? some(config.now) : none,
         density,
         slotMinWidth: config.slotMinWidth !== undefined ? some(config.slotMinWidth) : none,
+        plotGutter:   config.plotGutter !== undefined
+            ? some(East.value({
+                left:  config.plotGutter.left  !== undefined ? some(config.plotGutter.left)  : none,
+                right: config.plotGutter.right !== undefined ? some(config.plotGutter.right) : none,
+            }, PlotGutterType))
+            : none,
         onSelectRow:  config.onSelectRow !== undefined ? some(config.onSelectRow) : none,
         review:       config.review !== undefined ? some(buildReview(config.review)) : none,
         rowHover:     config.rowHover !== undefined ? some(config.rowHover) : none,

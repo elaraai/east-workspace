@@ -28,6 +28,7 @@ import {
     type DensityLiteral,
     StatusTokenType,
 } from "../../style/interaction.js";
+import { PlotGutterType, type PlotGutter } from "../../shared/plot-gutter.js";
 
 // ============================================================================
 // Table Variant Types
@@ -301,6 +302,7 @@ export const TableStyleType = StructType({
     selectedBorderColor: OptionType(StringType),
     footerBackground: OptionType(StringType),
     rowHeight: OptionType(IntegerType),
+    plotGutter: OptionType(PlotGutterType),
 });
 
 export type TableStyleType = typeof TableStyleType;
@@ -396,4 +398,6 @@ export interface TableStyle<ColumnKeys extends string = string> {
     density?: SubtypeExprOrValue<DensityType> | DensityLiteral;
     /** Explicit pixel row height. Overrides the `density` preset when set, and is fed to the virtualizer so scroll offsets stay correct. */
     rowHeight?: SubtypeExprOrValue<IntegerType>;
+    /** Shared plot gutter (#147) — pins the data columns to `[left, W−right]` (px) so a Table stacked under a Chart lines up on shared categories; the frozen columns fill `left`. Usually supplied by an enclosing `<AlignedStack>`. */
+    plotGutter?: PlotGutter;
 }

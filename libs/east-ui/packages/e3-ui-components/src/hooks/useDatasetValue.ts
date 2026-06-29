@@ -84,12 +84,7 @@ export function useDatasetValue(
         queryKey: ['datasetValue', apiUrl, repo, workspace, datasetPath, hash ?? null],
         queryFn: async (): Promise<DatasetValueResult> => {
             const result = await datasetGet(apiUrl, repo, workspace!, pathParts, reqOpts);
-            const t0 = performance.now();
             const decoded = decodeBeast2For(type, { platform: platformImpls })(result.data);
-            const kind = (type as { type?: string })?.type ?? 'unknown';
-            console.log(
-                `[east-value] decode ${kind} ${(result.data.length / 1024).toFixed(1)}KB in ${(performance.now() - t0).toFixed(1)}ms (${datasetPath})`,
-            );
             return { decoded, sizeBytes: result.data.length };
         },
         enabled: enabled && !!workspace && !!datasetPath && hash != null,

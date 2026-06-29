@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useMemo, useCallback, createContext, useContext, type ReactNode, type MouseEvent } from "react";
+import { memo, useId, useMemo, useCallback, createContext, useContext, type ReactNode, type MouseEvent } from "react";
 import { Box, Skeleton, useChakraContext, useSlotRecipe } from "@chakra-ui/react";
 import { useTooltip, useTooltipInPortal } from "@visx/tooltip";
 import { match, equalFor, some, none, variant, type ValueTypeOf } from "@elaraai/east";
@@ -15,12 +15,13 @@ import { ParentSize } from "@visx/responsive";
 import { Group } from "@visx/group";
 import { scaleBand, scaleLinear, scaleTime, scaleSqrt } from "@visx/scale";
 import { LinePath, AreaClosed, Area, Bar, Line, Circle } from "@visx/shape";
-import { curveMonotoneX, curveLinear, curveNatural, curveStep } from "@visx/curve";
+import { curveMonotoneX, curveLinear, curveNatural, curveStep, curveStepBefore, curveStepAfter } from "@visx/curve";
 import { GridRows, GridColumns } from "@visx/grid";
 import { Brush } from "@visx/brush";
 import type { Bounds } from "@visx/brush/lib/types";
 import { AxisBottom, AxisLeft, AxisRight, type AxisScale } from "@visx/axis";
 import { getSomeorUndefined } from "../../utils";
+import { usePlotGutter } from "../../contracts/plot-gutter.js";
 
 const T = Chart.Spec.Types;
 type Spec = ValueTypeOf<typeof T.Spec>;
@@ -106,6 +107,8 @@ function curveFor(c: Curve | undefined): typeof curveMonotoneX {
         linear: () => curveLinear,
         natural: () => curveNatural,
         step: () => curveStep,
+        stepBefore: () => curveStepBefore,
+        stepAfter: () => curveStepAfter,
     });
 }
 
@@ -196,6 +199,12 @@ interface ScaleCtx {
     innerW: number;
     innerH: number;
     margin: Margin;
+    /** x of the rotated y-axis title — pinned to its NATURAL margin (just past the
+     *  tick labels), not the gutter-widened `margin.left`, so a shared plotGutter
+     *  doesn't fling the title to the far left away from the axis (#147). */
+    yTitleX: number;
+    /** x of the rotated y2-axis title — natural right margin (mirror of yTitleX). */
+    y2TitleX: number;
     style: ChartStyle;
 }
 const ScaleContext = createContext<ScaleCtx | null>(null);
@@ -487,14 +496,23 @@ function AxisBMark({ value }: { value: Axis }): ReactNode {
     const { xAxisScale, xTickValues, xKind, innerW, innerH, margin, style } = useScales();
     const fmt = tickFormatter(getSomeorUndefined(value.tickFormat), xKind);
     const label = getSomeorUndefined(value.label);
+    // #149 — explicit tick control (numTicks / tickValues / hideTicks / hideLine).
+    // Explicit `tickValues` win over the band scale's category positions; defaults
+    // preserve today's look (ticks hidden, baseline shown on the x-axis).
+    const numTicks = getSomeorUndefined(value.numTicks);
+    const tickValues = getSomeorUndefined(value.tickValues) ?? xTickValues;
+    const hideTicks = getSomeorUndefined(value.hideTicks) ?? true;
+    const hideLine = getSomeorUndefined(value.hideLine) ?? false;
     return (
         <>
             <AxisBottom
                 top={innerH}
                 scale={xAxisScale}
                 stroke={style.axisStroke}
-                hideTicks
-                {...(xTickValues ? { tickValues: xTickValues } : {})}
+                hideTicks={hideTicks}
+                hideAxisLine={hideLine}
+                {...(numTicks !== undefined ? { numTicks: Number(numTicks) } : {})}
+                {...(tickValues ? { tickValues } : {})}
                 tickFormat={v => fmt(v)}
                 tickLabelProps={() => ({ textAnchor: "middle", dy: "0.25em", style: { fontFamily: style.font, fontSize: style.labelSize, fill: style.labelColor } })}
             />
@@ -503,40 +521,44 @@ function AxisBMark({ value }: { value: Axis }): ReactNode {
     );
 }
 function AxisLMark({ value }: { value: Axis }): ReactNode {
-    const { y, innerH, margin, style } = useScales();
+    const { y, innerH, yTitleX, style } = useScales();
     const fmt = tickFormatter(getSomeorUndefined(value.tickFormat), "linear");
     const label = getSomeorUndefined(value.label);
+    const tickValues = getSomeorUndefined(value.tickValues);
     return (
         <>
             <AxisLeft
                 scale={y}
-                numTicks={getSomeorUndefined(value.numTicks) ?? 4}
-                hideAxisLine
-                hideTicks
+                numTicks={Number(getSomeorUndefined(value.numTicks) ?? 4)}
+                hideAxisLine={getSomeorUndefined(value.hideLine) ?? true}
+                hideTicks={getSomeorUndefined(value.hideTicks) ?? true}
+                {...(tickValues ? { tickValues } : {})}
                 tickFormat={v => fmt(v)}
                 tickLabelProps={() => ({ textAnchor: "end", dx: "-0.25em", dy: "0.25em", style: { fontFamily: style.font, fontSize: style.labelSize, fill: style.labelColor } })}
             />
-            {label && <text transform={`translate(${-(margin.left - 11)}, ${innerH / 2}) rotate(-90)`} textAnchor="middle" style={{ fontFamily: style.font, fontSize: "11px", fill: style.labelColor, fontWeight: 600 }}>{label}</text>}
+            {label && <text transform={`translate(${yTitleX}, ${innerH / 2}) rotate(-90)`} textAnchor="middle" style={{ fontFamily: style.font, fontSize: "11px", fill: style.labelColor, fontWeight: 600 }}>{label}</text>}
         </>
     );
 }
 function AxisRMark({ value }: { value: Axis }): ReactNode {
-    const { y, y2, innerW, innerH, margin, style } = useScales();
+    const { y, y2, innerW, innerH, y2TitleX, style } = useScales();
     const scale = y2 ?? y;
     const fmt = tickFormatter(getSomeorUndefined(value.tickFormat), "linear");
     const label = getSomeorUndefined(value.label);
+    const tickValues = getSomeorUndefined(value.tickValues);
     return (
         <>
             <AxisRight
                 left={innerW}
                 scale={scale}
-                numTicks={getSomeorUndefined(value.numTicks) ?? 4}
-                hideAxisLine
-                hideTicks
+                numTicks={Number(getSomeorUndefined(value.numTicks) ?? 4)}
+                hideAxisLine={getSomeorUndefined(value.hideLine) ?? true}
+                hideTicks={getSomeorUndefined(value.hideTicks) ?? true}
+                {...(tickValues ? { tickValues } : {})}
                 tickFormat={v => fmt(v)}
                 tickLabelProps={() => ({ textAnchor: "start", dx: "0.25em", dy: "0.25em", style: { fontFamily: style.font, fontSize: style.labelSize, fill: style.labelColor } })}
             />
-            {label && <text transform={`translate(${innerW + margin.right - 11}, ${innerH / 2}) rotate(90)`} textAnchor="middle" style={{ fontFamily: style.font, fontSize: "11px", fill: style.labelColor, fontWeight: 600 }}>{label}</text>}
+            {label && <text transform={`translate(${y2TitleX}, ${innerH / 2}) rotate(90)`} textAnchor="middle" style={{ fontFamily: style.font, fontSize: "11px", fill: style.labelColor, fontWeight: 600 }}>{label}</text>}
         </>
     );
 }
@@ -552,15 +574,21 @@ function GridColsMark({ value }: { value: ValueTypeOf<typeof T.Grid> }): ReactNo
 }
 
 /** Render one ChartSpec node (recursive); marks read scales from context. */
-function renderNode(node: Spec, k: string | number): ReactNode {
+function renderNode(node: Spec, k: string | number, clipId?: string): ReactNode {
+    // #152 — clip the data-series marks (line/area/band/bar/scatter) to the plot
+    // rect so out-of-domain points are cut at the edge; axes, grid, reference
+    // marks and text stay UNCLIPPED (they live in the margin / span the edges).
+    const clip = clipId !== undefined
+        ? (el: ReactNode) => <g key={k} clipPath={`url(#${clipId})`}>{el}</g>
+        : (el: ReactNode) => el;
     return match(node, {
-        group: g => <Group key={k} left={g.left} top={g.top}>{g.children.map((c, i) => renderNode(c, i))}</Group>,
-        series: v => <Group key={k}><SeriesMarks value={v} /></Group>,
-        linePath: v => <LinePathMark key={k} value={v} />,
-        area: v => <AreaMark key={k} value={v} />,
-        bandArea: v => <BandAreaMark key={k} value={v} />,
-        bars: v => <BarsMark key={k} value={v} />,
-        points: v => <PointsMark key={k} value={v} />,
+        group: g => <Group key={k} left={g.left} top={g.top}>{g.children.map((c, i) => renderNode(c, i, clipId))}</Group>,
+        series: v => clip(<Group><SeriesMarks value={v} /></Group>),
+        linePath: v => clip(<LinePathMark value={v} />),
+        area: v => clip(<AreaMark value={v} />),
+        bandArea: v => clip(<BandAreaMark value={v} />),
+        bars: v => clip(<BarsMark value={v} />),
+        points: v => clip(<PointsMark value={v} />),
         rule: v => <RuleMark key={k} value={v} />,
         referenceDot: v => <RefDotMark key={k} value={v} />,
         referenceArea: v => <RefAreaMark key={k} value={v} />,
@@ -614,6 +642,15 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
     // tier. `containerRef` on the plot box converts the container-relative left/top
     // we already compute into page coordinates; `detectBounds` keeps it on-screen.
     const { containerRef, TooltipInPortal } = useTooltipInPortal({ detectBounds: true, scroll: true, zIndex: style.tooltipZIndex });
+    // #152 — a per-chart clipPath id; series marks are clipped to the plot rect so
+    // a point past a pinned `domain` is cut at the edge, not smeared over the y2 labels.
+    const clipId = useId();
+    // #147 — inherit a shared plot gutter from an enclosing <AlignedStack>, so this
+    // chart's plot lane lines up with stacked siblings on a common x. Pin
+    // margin.left/right to the gutter px (parsed from the CSS length).
+    const ctxGutter = usePlotGutter();
+    const gutterLeft = ctxGutter?.left !== undefined ? parseFloat(ctxGutter.left) : undefined;
+    const gutterRight = ctxGutter?.right !== undefined ? parseFloat(ctxGutter.right) : undefined;
     return match(node, {
         frame: f => {
             const xKind: ScaleKind = match(f.xScale, { band: () => "band" as const, linear: () => "linear" as const, time: () => "time" as const });
@@ -641,13 +678,15 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
                 axisBottom: (v: Axis) => { const d = getSomeorUndefined(v.domain); if (d) bottomDomain = domainBounds(d); if (getSomeorUndefined(v.label)) xLabel = true; },
             }, undefined);
 
-            // Margins: base, widened for axis titles + the right axis.
+            // Margins: base, widened for axis titles + the right axis. A shared
+            // plot gutter (#147, from an <AlignedStack>) pins left/right exactly so
+            // the lane aligns with stacked siblings — overriding the derived widths.
             const base = getSomeorUndefined(f.margin) ?? { top: 8, right: 8, bottom: 24, left: 40 };
             const margin: Margin = {
                 top: base.top,
-                right: Math.max(base.right, hasY2 ? 44 : 8) + (y2Label ? 14 : 0),
+                right: gutterRight ?? (Math.max(base.right, hasY2 ? 44 : 8) + (y2Label ? 14 : 0)),
                 bottom: base.bottom + (xLabel ? 16 : 0),
-                left: base.left + (yLabel ? 14 : 0),
+                left: gutterLeft ?? (base.left + (yLabel ? 14 : 0)),
             };
 
             const legendOn = getSomeorUndefined(f.legend) !== undefined;
@@ -674,6 +713,11 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
                 const svgH = (hOverride ?? f.height) - legendH;
                 const innerW = Math.max(0, w - margin.left - margin.right);
                 const innerH = Math.max(0, svgH - margin.top - margin.bottom);
+                // Axis-title x at the NATURAL margin (just past the tick labels), not
+                // the gutter-widened `margin.left/right` — so a shared plotGutter keeps
+                // the rotated y / y2 titles by their axis instead of the lane edge (#147).
+                const yTitleX = -((base.left + (yLabel ? 14 : 0)) - 11);
+                const y2TitleX = innerW + ((Math.max(base.right, hasY2 ? 44 : 8) + (y2Label ? 14 : 0)) - 11);
 
                 const mkY = (dom: [number, number] | undefined, dMin: number, dMax: number): YScale =>
                     dom ? scaleLinear<number>({ domain: dom, range: [innerH, 0] }) : scaleLinear<number>({ domain: [Math.min(0, dMin), dMax || 1], range: [innerH, 0], nice: true });
@@ -730,8 +774,15 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
                     <Box position="relative" ref={containerRef}>
                         <svg width={w} height={svgH} style={{ display: "block", overflow: "visible" }}>
                             <Group left={margin.left} top={margin.top}>
-                                <ScaleContext.Provider value={{ cx, cxKey, bandWidth, xAxisScale, xTickValues, xKind, y, y2, sizeR, innerW, innerH, margin, style }}>
-                                    {f.children.map((c, i) => renderNode(c, i))}
+                                {/* #152 — plot-rect clip for the series marks (userSpaceOnUse:
+                                    the rect is in this Group's [0,0,innerW,innerH] coords). */}
+                                <defs>
+                                    <clipPath id={clipId}>
+                                        <rect x={0} y={0} width={innerW} height={innerH} />
+                                    </clipPath>
+                                </defs>
+                                <ScaleContext.Provider value={{ cx, cxKey, bandWidth, xAxisScale, xTickValues, xKind, y, y2, sizeR, innerW, innerH, margin, yTitleX, y2TitleX, style }}>
+                                    {f.children.map((c, i) => renderNode(c, i, clipId))}
                                 </ScaleContext.Provider>
                                 {!brush && tooltipOn && focusX !== undefined && (
                                     <Line from={{ x: cxKey(focusX), y: 0 }} to={{ x: cxKey(focusX), y: innerH }} stroke={style.axisStroke} strokeWidth={1} strokeDasharray="2 3" />

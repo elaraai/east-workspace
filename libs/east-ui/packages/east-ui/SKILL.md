@@ -177,7 +177,7 @@ Task → Which tag?
 │
 ├─ Overlays (floating content) — `trigger` is a UIComponent prop; body is children
 │   ├─ <Dialog trigger={<Button>…</Button>} title="…"> body </Dialog> — modal
-│   ├─ <Drawer trigger={…} side="right"> body </Drawer> — side panel
+│   ├─ <Drawer trigger={…} placement="end"> body </Drawer> — side panel; placement start|end|top|bottom; flush / bodyPadding control body padding; fillBody ⇒ a single height:100% child (Table/Planner) fills + owns its scroll
 │   ├─ <Popover trigger={…}> body </Popover> — click-triggered floating panel
 │   ├─ <HoverCard trigger={…}> body </HoverCard> — hover preview card
 │   ├─ <Tooltip trigger={…} content="…"> — hover tooltip (content is a string)
@@ -312,7 +312,7 @@ tier so they stay subordinate to tags at every density.
 
 // Or scope it to a row:
 <HStack density="condensed" gap="2">
-    <Tag>Shiraz</Tag>
+    <Tag>Line A</Tag>
     <Badge>WK 12</Badge>
     <Meter value={72.0} tone="success" />
 </HStack>

@@ -74,6 +74,9 @@ export type DrawerPlacementLiteral = "start" | "end" | "top" | "bottom";
  * @property contained - Render within parent container
  * @property onOpenChange - Callback triggered when open state changes
  * @property onExitComplete - Callback triggered when exit animation completes
+ * @property bodyPadding - CSS padding shorthand for the body (default `"16px 20px"`)
+ * @property flush - When `true`, removes body padding (full-bleed); overrides `bodyPadding`
+ * @property fillBody - When `true`, body becomes a definite-height flex column so a single `height:100%`/`flex:1` child fills the panel and owns its own scroll
  */
 export const DrawerStyleType = StructType({
     size: OptionType(DrawerSizeType),
@@ -83,6 +86,12 @@ export const DrawerStyleType = StructType({
     onOpenChange: OptionType(FunctionType([BooleanType], NullType)),
     /** Callback triggered when exit animation completes */
     onExitComplete: OptionType(FunctionType([], NullType)),
+    /** CSS padding shorthand for the body (default `"16px 20px"`) */
+    bodyPadding: OptionType(StringType),
+    /** When `true`, removes body padding (full-bleed); overrides `bodyPadding` */
+    flush: OptionType(BooleanType),
+    /** When `true`, body becomes a definite-height flex column so a single child fills + owns its scroll */
+    fillBody: OptionType(BooleanType),
 });
 
 export type DrawerStyleType = typeof DrawerStyleType;
@@ -108,6 +117,9 @@ export type DrawerStyleType = typeof DrawerStyleType;
  * @property unmountOnExit - Unmount when closed
  * @property onOpenChange - Callback triggered when open state changes
  * @property onExitComplete - Callback triggered when exit animation completes
+ * @property bodyPadding - CSS padding shorthand for the body (default `"16px 20px"`)
+ * @property flush - When `true`, removes body padding (full-bleed); overrides `bodyPadding`
+ * @property fillBody - When `true`, the body fills the panel height so a single child owns its scroll
  */
 export interface DrawerStyle {
     /** Drawer size variant */
@@ -138,4 +150,10 @@ export interface DrawerStyle {
     onOpenChange?: SubtypeExprOrValue<FunctionType<[BooleanType], NullType>>;
     /** Callback triggered when exit animation completes */
     onExitComplete?: SubtypeExprOrValue<FunctionType<[], NullType>>;
+    /** CSS padding shorthand for the body (default `"16px 20px"`). */
+    bodyPadding?: SubtypeExprOrValue<StringType>;
+    /** When `true`, removes body padding (full-bleed) so a Table / Planner / Chart fills the drawer body. Overrides `bodyPadding`. */
+    flush?: SubtypeExprOrValue<BooleanType>;
+    /** When `true`, the body is a definite-height flex column (`minHeight:0`, clipped) so a single `height:100%`/`flex:1` child fills the panel and owns its internal scroll instead of the whole panel scrolling. */
+    fillBody?: SubtypeExprOrValue<BooleanType>;
 }

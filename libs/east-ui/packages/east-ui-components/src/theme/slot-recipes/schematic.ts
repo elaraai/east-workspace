@@ -21,7 +21,7 @@ export const schematicSlotRecipe = defineSlotRecipe({
         "item", "itemHead", "itemIcon", "itemLabel", "statusDot",
         "itemSublabel", "meterTrack", "meterFill", "itemMetric",
         "itemDot", "itemPin",
-        "controls", "controlButton", "scaleBar", "scaleRuler", "scaleLabel",
+        "controls", "controlButton", "controlGroup", "selectBox", "scaleBar", "scaleRuler", "scaleLabel",
         "minimap", "minimapZone", "minimapViewport",
         "nav", "navCollapsed", "navHeader", "navTitle", "navToggle",
         "navSearch", "navTree", "navZone", "navCaret",
@@ -372,6 +372,33 @@ export const schematicSlotRecipe = defineSlotRecipe({
             cursor: "pointer",
             boxShadow: "xs",
             "&:hover": { color: "fg", borderColor: "border.strong" },
+            // Active tool (#153) — the selected segment reads as pressed.
+            "&[data-active]": { color: "{colors.white}", background: "{colors.brand.600}", borderColor: "{colors.brand.600}" },
+            "&[data-active]:hover": { color: "{colors.white}", background: "{colors.brand.600}", borderColor: "{colors.brand.600}" },
+        },
+        // A vertical segmented group of `controlButton`s (#153) — same button
+        // visual, attached: outer corners rounded (overflow-clipped), one shared
+        // shadow, and the inner border collapsed so adjacent buttons share a rule.
+        controlGroup: {
+            display: "flex",
+            flexDirection: "column",
+            borderRadius: "{radii.sm}",
+            overflow: "hidden",
+            boxShadow: "xs",
+            "& > button": { borderRadius: "0", boxShadow: "none" },
+            "& > button:not(:first-of-type)": { borderTopWidth: "0" },
+        },
+        // Drag-select marquee (#153) — dashed brand box over the canvas showing
+        // the region a select-drag will zoom into.
+        selectBox: {
+            position: "absolute",
+            pointerEvents: "none",
+            borderWidth: "1px",
+            borderStyle: "dashed",
+            borderColor: "{colors.brand.600}",
+            background: "color-mix(in oklch, {colors.brand.600} 12%, transparent)",
+            borderRadius: "{radii.xs}",
+            zIndex: "5",
         },
         minimap: {
             position: "absolute",

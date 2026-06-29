@@ -14,6 +14,7 @@ import {
 } from "@elaraai/east";
 
 import { DensityType } from "../../style.js";
+import { PlotGutterType } from "../../shared/plot-gutter.js";
 
 /**
  * A cell reference on the calendar grid — what `onSelect` receives.
@@ -104,6 +105,8 @@ export const CalendarRootType = StructType({
     onSelect: OptionType(FunctionType([CalendarCellRefType], NullType)),
     /** Optional density preset (comfortable | compact | condensed); default comfortable */
     density: OptionType(DensityType),
+    /** Shared plot gutter (#147) — pins the day grid to `[left, W−right]` so a Calendar stacked under a Chart lines up; `left` is the week-label column width */
+    plotGutter: OptionType(PlotGutterType),
 });
 
 /**

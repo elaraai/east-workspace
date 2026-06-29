@@ -14,6 +14,7 @@ import {
 
 import { UIComponentType } from "../../component.js";
 import { DensityType } from "../../style.js";
+import { PlotGutterType } from "../../shared/plot-gutter.js";
 import {
     TraceScaleType,
     TraceFutureType,
@@ -45,11 +46,19 @@ function buildTrack(track: TraceTrack): ExprType<TraceTrackType> {
 
 function buildStyle(options: TraceOptions | undefined): ExprType<TraceStyleType> | undefined {
     if (options === undefined) return undefined;
-    if (options.brandColor === undefined && options.nowLineColor === undefined && options.labelWidth === undefined) return undefined;
+    if (options.brandColor === undefined && options.nowLineColor === undefined &&
+        options.labelWidth === undefined && options.plotGutter === undefined) return undefined;
+    const g = options.plotGutter;
     return East.value({
         brandColor: options.brandColor !== undefined ? some(options.brandColor) : none,
         nowLineColor: options.nowLineColor !== undefined ? some(options.nowLineColor) : none,
         labelWidth: options.labelWidth !== undefined ? some(options.labelWidth) : none,
+        plotGutter: g !== undefined
+            ? some(East.value({
+                left:  g.left  !== undefined ? some(g.left)  : none,
+                right: g.right !== undefined ? some(g.right) : none,
+            }, PlotGutterType))
+            : none,
     }, TraceStyleType);
 }
 

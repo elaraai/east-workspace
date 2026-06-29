@@ -20,6 +20,7 @@ import {
 import { TableCellClickEventType, TableRowClickEventType, TableSortEventType } from "../table/types.js";
 
 import { StatusTokenType, DensityType, type DensityLiteral } from "../../style/interaction.js";
+import { PlotGutterType, type PlotGutter } from "../../shared/plot-gutter.js";
 import { SliceBindType } from "../../platform/slice/index.js";
 import { type SliceAffordanceLiteral } from "../../contracts/slice-affordances.js";
 
@@ -342,6 +343,7 @@ export const GanttStyleType = StructType({
     showColumnBorder: OptionType(BooleanType),
     showToday: OptionType(BooleanType),
     rowHeight: OptionType(IntegerType),
+    plotGutter: OptionType(PlotGutterType),
 });
 
 /**
@@ -407,6 +409,8 @@ export interface GanttStyle<ColumnKeys extends string = string> {
     density?: SubtypeExprOrValue<DensityType> | DensityLiteral;
     /** Explicit pixel row height. Overrides `density` when set, and flows through to the virtualizer (both panes + bars). */
     rowHeight?: SubtypeExprOrValue<IntegerType>;
+    /** Shared plot gutter (#147) — pins the timeline to `[left, W−right]` (px) so the Gantt lines up under a stacked Chart on a shared time axis; the frozen table columns fill `left`. Usually supplied by an enclosing `<AlignedStack>`. */
+    plotGutter?: PlotGutter;
     /** Whether to show zebra stripes on rows. */
     striped?: SubtypeExprOrValue<BooleanType>;
     /** Whether the header sticks when scrolling. */

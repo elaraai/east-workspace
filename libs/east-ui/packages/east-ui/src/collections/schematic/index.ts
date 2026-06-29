@@ -580,7 +580,7 @@ function buildRoot(
  *
  * const example = East.function([], UIComponentType, _$ =>
  *     Schematic.Root(
- *         [{ id: "TANK-04", x: 3.0, y: 2.0, kind: "fermenter", fill: 28.8, cap: 40.0 }],
+ *         [{ id: "UNIT-04", x: 3.0, y: 2.0, kind: "unit", fill: 28.8, cap: 40.0 }],
  *         {
  *             extent: { width: 30, height: 12 },
  *             item: e => ({
@@ -639,7 +639,7 @@ export const Schematic = {
      *
      * const example = East.function([], UIComponentType, _$ =>
      *     Schematic.Root(
-     *         [{ id: "TANK-04", x: 3.0, y: 2.0 }],
+     *         [{ id: "UNIT-04", x: 3.0, y: 2.0 }],
      *         {
      *             extent: { width: 30, height: 12 },
      *             item: e => ({ key: e.id, x: e.x, y: e.y, label: e.id }),

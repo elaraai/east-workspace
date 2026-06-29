@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, BooleanType, IntegerType, NullType, example, some, none } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Button, Drawer, Reactive, Status, Text, VStack } from "@elaraai/east-ui";
+import { Box, Button, Drawer, Reactive, Status, Text, VStack } from "@elaraai/east-ui";
 
 export const drawerRight = example({
     keywords: ["Drawer", "Root", "placement", "end", "right", "eyebrow"],
@@ -92,6 +92,29 @@ export const drawerProgrammatic = example({
                     }, Drawer.Types.OpenInput)));
                 })}
             >Open Drawer Programmatically</Button>
+        );
+    }),
+    inputs: [],
+});
+
+export const drawerFlush = example({
+    keywords: ["Drawer", "flush", "bodyPadding", "fillBody", "full-bleed", "padding", "fill-height", "scroll"],
+    description: "Body padding control: a full-bleed fill-height body (flush + fillBody) so a single child fills the panel and owns its own scroll, plus a custom bodyPadding inset",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <VStack gap="2" align="flex-start">
+                <Drawer trigger={<Button>Open Full-bleed Drawer</Button>} eyebrow="Rail · data" title="Full-bleed body" placement="end" size="md" flush fillBody>
+                    <Box height="100%" overflowY="auto">
+                        <VStack gap="2" align="stretch">
+                            <Text>This body is flush (zero padding) and fills the panel height.</Text>
+                            <Text color="fg.muted">A single height:100% child owns its scrollbar instead of the whole panel scrolling.</Text>
+                        </VStack>
+                    </Box>
+                </Drawer>
+                <Drawer trigger={<Button variant="outline">Open Custom-inset Drawer</Button>} title="Custom inset" placement="end" size="md" bodyPadding="8px 12px">
+                    <Text>This body uses a custom bodyPadding of 8px 12px instead of the default 16px 20px.</Text>
+                </Drawer>
+            </VStack>
         );
     }),
     inputs: [],

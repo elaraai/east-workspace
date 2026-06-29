@@ -202,7 +202,7 @@ describe("Chart renderer — per-layer tooltip opt-out (issue #117)", () => {
     });
 
     test("the decoration case: one layer with legend:false AND tooltip:false is absent from BOTH the legend and the hover tooltip", () => {
-        // The headline winemaking case: a faint fan opts out of both surfaces, a
+        // The headline case: a faint fan opts out of both surfaces, a
         // bold median stays in both. Proves criterion (i) on a single both-flags
         // layer (not just as a composition of the two independent tests).
         const node = frame([

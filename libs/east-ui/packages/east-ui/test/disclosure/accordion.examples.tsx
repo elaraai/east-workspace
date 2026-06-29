@@ -119,14 +119,14 @@ export const accordionInteractive = example({
 
 export const accordionGridTrigger = example({
     keywords: ["Accordion", "Root", "Item", "title", "meta", "count"],
-    description: "Accordion headers with title + trailing meta count (shift-optimiser mockup)",
+    description: "Accordion headers with title + trailing meta count (scheduling mockup)",
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Box width="100%">
                 <Accordion
                     items={[
-                        Accordion.Item("red-vintage", "Red Vintage", [<Box padding="4"><Text>Detail panel — per-block schedule, assumptions, guardrails.</Text></Box>], { meta: "3,200 kg · 17–23 Mar" }),
-                        Accordion.Item("white-sauv", "White Sauvignon", [<Box padding="4"><Text>White Sauv detail panel.</Text></Box>], { meta: "1,800 kg · 17–23 Mar" }),
+                        Accordion.Item("block-a", "Block A", [<Box padding="4"><Text>Detail panel — per-block schedule, assumptions, guardrails.</Text></Box>], { meta: "3,200 kg · 17–23 Mar" }),
+                        Accordion.Item("block-b", "Block B", [<Box padding="4"><Text>Block B detail panel.</Text></Box>], { meta: "1,800 kg · 17–23 Mar" }),
                     ]}
                     multiple={true}
                     collapsible={true}

@@ -63,7 +63,7 @@ export {
  *
  * ChipRail.Root([
  *     Tag.Root("Week 12"),
- *     Tag.Root("Vintage"),
+ *     Tag.Root("Cycle"),
  *     Tag.Root("17–23 Mar"),
  * ], { density: "compact", separator: "dot" });
  * ```

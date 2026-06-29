@@ -1244,7 +1244,7 @@ const EastChakraDiff = memo(function EastChakraDiff({ value }: EastChakraDiffPro
     if (visibleBindings.length === 0) {
         return (
             <Box
-                layerStyle="frame"
+                layerStyle="surface.frameless"
                 p="28px"
                 textAlign="center"
                 color="fg.subtle"
@@ -1281,7 +1281,7 @@ const EastChakraDiff = memo(function EastChakraDiff({ value }: EastChakraDiffPro
 
     return (
         <Box
-            layerStyle="frame"
+            layerStyle="surface.frameless"
             fontFamily="body"
             borderColor={inConflictMode ? "fg.warning" : "border.strong"}
         >

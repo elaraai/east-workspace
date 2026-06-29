@@ -177,7 +177,7 @@ export const plannerSlotRecipe = defineSlotRecipe({
             fontSize: "8.5px",
             letterSpacing: "0.12em",
             textTransform: "uppercase",
-            color: "{colors.gray.400}",
+            color: "{colors.gray.600}",
             fontWeight: "bold",
             flexShrink: 0,
             // Wide enough for the 3-glyph "N/A" orphan-lane label so every lane's

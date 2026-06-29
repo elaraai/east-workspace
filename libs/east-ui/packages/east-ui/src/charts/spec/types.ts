@@ -201,21 +201,25 @@ export type ChartTickFormatType = typeof ChartTickFormatType;
 /**
  * Line/area interpolation (visx `@visx/curve`).
  *
- * @property monotoneX - Smooth monotone-in-x (the default spec curve)
- * @property linear    - Straight segments
- * @property natural   - Natural cubic spline
- * @property step      - Step interpolation
+ * @property monotoneX  - Smooth monotone-in-x (the default spec curve)
+ * @property linear     - Straight segments
+ * @property natural    - Natural cubic spline
+ * @property step       - Step interpolation, riser at the midpoint between points
+ * @property stepBefore - Step interpolation, riser before each point (value held up to the point)
+ * @property stepAfter  - Step interpolation, riser after each point (value held forward from the point — e.g. a setpoint held until the next change)
  */
 export const ChartCurveType = VariantType({
-    monotoneX: NullType,
-    linear:    NullType,
-    natural:   NullType,
-    step:      NullType,
+    monotoneX:  NullType,
+    linear:     NullType,
+    natural:    NullType,
+    step:       NullType,
+    stepBefore: NullType,
+    stepAfter:  NullType,
 });
 export type ChartCurveType = typeof ChartCurveType;
 
 /** String-literal shorthand for {@link ChartCurveType}. */
-export type ChartCurveLiteral = "monotoneX" | "linear" | "natural" | "step";
+export type ChartCurveLiteral = "monotoneX" | "linear" | "natural" | "step" | "stepBefore" | "stepAfter";
 
 /** The mark a `series` node draws, one per series. */
 export const ChartMarkType = VariantType({
@@ -296,6 +300,7 @@ export type ChartMarginType = typeof ChartMarginType;
  *
  * @property label     - Optional axis caption
  * @property numTicks  - Suggested tick count (renderer may round to nice values)
+ * @property tickValues - Explicit tick positions (domain values), overriding `numTicks` — e.g. integer day ticks to line up with a Planner
  * @property hideTicks - Hide the small tick marks (keep labels)
  * @property hideLine  - Hide the axis baseline rule
  * @property domain     - Explicit extent for a linear/time axis (see {@link ChartDomainType}); omit to derive from the data, and not meaningful for a `band` scale
@@ -304,6 +309,7 @@ export type ChartMarginType = typeof ChartMarginType;
 export const ChartAxisType = StructType({
     label:      OptionType(StringType),
     numTicks:   OptionType(FloatType),
+    tickValues: OptionType(ArrayType(FloatType)),
     hideTicks:  OptionType(BooleanType),
     hideLine:   OptionType(BooleanType),
     domain:     OptionType(ChartDomainType),

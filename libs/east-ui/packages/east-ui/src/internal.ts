@@ -50,7 +50,7 @@ export {
     Numeric, Note,
 } from "./typography/index.js";
 export {
-    Box, Flex, Stack, Separator, Grid, Splitter,
+    Box, Flex, Stack, AlignedStack, Separator, Grid, Splitter,
     Sticky, ScrollArea,
 } from "./layout/index.js";
 export { Button, IconButton, CopyButton, CloseButton, Toggle, ButtonGroup } from "./buttons/index.js";
@@ -98,6 +98,8 @@ export type { JsxTag, ContainerProps, ContentProps, ValueProps, OptionsProps } f
 // Standalone style/data types (renderers reference these directly).
 export * from "./layout/box/types.js";
 export * from "./layout/stack/types.js";
+export * from "./layout/aligned-stack/types.js";
+export * from "./shared/plot-gutter.js";
 export * from "./layout/grid/types.js";
 export * from "./layout/separator/types.js";
 export * from "./layout/splitter/types.js";

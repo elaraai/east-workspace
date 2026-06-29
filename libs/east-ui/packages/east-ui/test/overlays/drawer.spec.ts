@@ -12,5 +12,6 @@ describeEast("Drawer", (test) => {
         drawerLeft: ex.drawerLeft,
         drawerInteractive: ex.drawerInteractive,
         drawerProgrammatic: ex.drawerProgrammatic,
+        drawerFlush: ex.drawerFlush,
     });
 }, { platformFns: TestImpl });

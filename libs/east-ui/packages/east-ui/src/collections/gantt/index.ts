@@ -49,6 +49,7 @@ import { UIComponentType } from "../../component.js";
 import { SliceChromeType } from "../../platform/slice/index.js";
 import { SliceAffordanceType } from "../../contracts/slice-affordances.js";
 import { DensityType } from "../../style/interaction.js";
+import { PlotGutterType } from "../../shared/plot-gutter.js";
 import {
     TableCellType,
     TableColumnType,
@@ -738,9 +739,11 @@ function createGantt<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
         style.stickyHeader !== undefined ||
         style.showColumnBorder !== undefined ||
         style.showToday !== undefined ||
-        style.rowHeight !== undefined
+        style.rowHeight !== undefined ||
+        (style as GanttStyle).plotGutter !== undefined
     );
 
+    const gutterCfg = (style as GanttStyle | undefined)?.plotGutter;
     const styleValue = hasStyle ? East.value({
         height: style!.height ? some(style!.height) : none,
         variant: variantValue ? some(variantValue) : none,
@@ -751,6 +754,12 @@ function createGantt<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
         showColumnBorder: style!.showColumnBorder !== undefined ? some(style!.showColumnBorder) : none,
         showToday: style!.showToday !== undefined ? some(style!.showToday) : none,
         rowHeight: style!.rowHeight !== undefined ? some(style!.rowHeight) : none,
+        plotGutter: gutterCfg !== undefined
+            ? some(East.value({
+                left:  gutterCfg.left  !== undefined ? some(gutterCfg.left)  : none,
+                right: gutterCfg.right !== undefined ? some(gutterCfg.right) : none,
+            }, PlotGutterType))
+            : none,
     }, GanttStyleType) : undefined;
 
     const sliceChromeValue = style?.slice !== undefined

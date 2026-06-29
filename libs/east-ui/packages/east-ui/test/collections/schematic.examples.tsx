@@ -12,16 +12,16 @@ export const schematicPlant = example({
     description: "Plant floor — tanks and lines in halls with a walkway band and pipe runs",
     fn: East.function([], UIComponentType, ($) => {
         const equipment = $.const([
-            { id: "TANK-04", x: 3.0, y: 2.6, kind: "fermenter · 40 kL", fill: 28.8, cap: 40.0, metric: "28.8 kL", state: some(variant("success", null)), w: 4.5 },
-            { id: "TANK-05", x: 8.0, y: 2.6, kind: "fermenter · 40 kL", fill: 36.8, cap: 40.0, metric: "36.8 kL", state: some(variant("warning", null)), w: 4.5 },
-            { id: "TANK-06", x: 13.0, y: 2.6, kind: "fermenter · 40 kL", fill: 20.4, cap: 40.0, metric: "20.4 kL", state: some(variant("success", null)), w: 4.5 },
-            { id: "TANK-07", x: 18.0, y: 2.6, kind: "fermenter · 60 kL", fill: 0.0, cap: 60.0, metric: "empty", state: some(variant("neutral", null)), w: 4.5 },
+            { id: "UNIT-04", x: 3.0, y: 2.6, kind: "unit · 40 kL", fill: 28.8, cap: 40.0, metric: "28.8 kL", state: some(variant("success", null)), w: 4.5 },
+            { id: "UNIT-05", x: 8.0, y: 2.6, kind: "unit · 40 kL", fill: 36.8, cap: 40.0, metric: "36.8 kL", state: some(variant("warning", null)), w: 4.5 },
+            { id: "UNIT-06", x: 13.0, y: 2.6, kind: "unit · 40 kL", fill: 20.4, cap: 40.0, metric: "20.4 kL", state: some(variant("success", null)), w: 4.5 },
+            { id: "UNIT-07", x: 18.0, y: 2.6, kind: "unit · 60 kL", fill: 0.0, cap: 60.0, metric: "empty", state: some(variant("neutral", null)), w: 4.5 },
             { id: "QA-1", x: 25.0, y: 2.6, kind: "qa hold · 8h", fill: 4.0, cap: 8.0, metric: "4h left", state: some(variant("info", null)), w: 4.5 },
             { id: "LINE-2", x: 8.0, y: 9.8, kind: "pack · sku-241", fill: 0.0, cap: 0.0, metric: "1,800 u/h", state: some(variant("success", null)), w: 13.0 },
             { id: "BAY-OUT", x: 24.0, y: 9.8, kind: "pallets · 5 slots", fill: 3.0, cap: 5.0, metric: "3 / 5", state: some(variant("success", null)), w: 4.5 },
         ]);
         const areas = $.const([
-            { id: "hall-b", name: "Fermentation Hall · Hall B", x: 0.6, y: 0.6, w: 20.0, h: 4.4, pattern: Schematic.outline() },
+            { id: "hall-b", name: "Hall B", x: 0.6, y: 0.6, w: 20.0, h: 4.4, pattern: Schematic.outline() },
             { id: "qa-cell", name: "QA Cell", x: 22.5, y: 0.6, w: 5.5, h: 4.4, pattern: Schematic.outline() },
             { id: "aisle-3", name: "Aisle 3 · 1.6 m walkway", x: 0.6, y: 6.2, w: 28.0, h: 1.6, pattern: Schematic.hatch() },
             { id: "dispatch", name: "Dispatch", x: 20.5, y: 8.4, w: 8.1, h: 3.2, pattern: Schematic.outline() },
@@ -29,9 +29,9 @@ export const schematicPlant = example({
         // Already the resolved link type — passed through with no `link` mapper.
         const orthogonal = variant("orthogonal", { corner: none });
         const pipes = $.const([
-            { key: "p1", from: "TANK-04", to: "LINE-2", style: Schematic.solid(), route: orthogonal, via: [] },
-            { key: "p2", from: "TANK-05", to: "LINE-2", style: Schematic.solid(), route: orthogonal, via: [] },
-            { key: "p3", from: "TANK-06", to: "LINE-2", style: Schematic.solid(), route: orthogonal, via: [] },
+            { key: "p1", from: "UNIT-04", to: "LINE-2", style: Schematic.solid(), route: orthogonal, via: [] },
+            { key: "p2", from: "UNIT-05", to: "LINE-2", style: Schematic.solid(), route: orthogonal, via: [] },
+            { key: "p3", from: "UNIT-06", to: "LINE-2", style: Schematic.solid(), route: orthogonal, via: [] },
             { key: "p4", from: "QA-1", to: "BAY-OUT", style: Schematic.dashed(), route: orthogonal, via: [{ x: 26.5, y: 6.8 }] },
         ], ArrayType(Schematic.Types.Link));
         return (
@@ -70,8 +70,8 @@ export const schematicSlice = example({
         return (
             <Reactive>{$ => {
                 const data = $.const([
-                    { id: "TANK-04", x: 3.0, y: 2.6, kind: "fermenter" },
-                    { id: "TANK-05", x: 8.0, y: 2.6, kind: "fermenter" },
+                    { id: "UNIT-04", x: 3.0, y: 2.6, kind: "unit" },
+                    { id: "UNIT-05", x: 8.0, y: 2.6, kind: "unit" },
                     { id: "LINE-2", x: 8.0, y: 9.8, kind: "pack" },
                     { id: "BAY-OUT", x: 24.0, y: 9.8, kind: "pallets" },
                 ], ArrayType(EquipType));
@@ -279,7 +279,7 @@ export const schematicGeometry = example({
         const equipment = $.const([
             { id: "PUMP-1", x: 6.0, y: 4.0, kind: "transfer pump", state: some(variant("success", null)), fp: true, round: false, r: 0.0,
               pts: [{ x: 3.5, y: 2.2, bulge: 0.0 }, { x: 8.6, y: 3.0, bulge: 0.0 }, { x: 8.0, y: 6.0, bulge: 0.0 }, { x: 2.9, y: 5.2, bulge: 0.0 }] },
-            { id: "TANK-9", x: 16.0, y: 4.5, kind: "storage tank", state: some(variant("warning", null)), fp: false, round: true, r: 2.4,
+            { id: "UNIT-9", x: 16.0, y: 4.5, kind: "storage tank", state: some(variant("warning", null)), fp: false, round: true, r: 2.4,
               pts: [{ x: 16.0, y: 4.5, bulge: 0.0 }] },
             { id: "VALVE-3", x: 21.6, y: 4.5, kind: "manifold", state: some(variant("info", null)), fp: false, round: false, r: 0.0,
               pts: [{ x: 21.6, y: 4.5, bulge: 0.0 }] },
