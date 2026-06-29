@@ -27,9 +27,12 @@ export interface EastChakraAlignedStackProps {
  * {@link PlotGutterProvider}; each lane reads it (`usePlotGutter`) and insets its
  * data lane to `[left, W − right]`.
  *
- * `gutter="auto"` (measure the max gutter across children) is not yet wired — it
- * needs a measure→reduce pass and lands with the Gantt phase; `auto` currently
- * imposes nothing (children keep their own gutters).
+ * `gutter="auto"` (measure the max gutter across children) is a follow-up: it
+ * needs a measure→report→reduce pass where each lane reports the natural gutter
+ * its own chrome needs (the chart's y-axis width, a grid's frozen-pane width, …)
+ * and the stack imposes the max. Until then `auto` imposes nothing (each child
+ * keeps its own gutter); an explicit `gutter={{ left, right }}` is fully wired and
+ * is the recommended path for aligning stacked lanes.
  */
 export const EastChakraAlignedStack = memo(function EastChakraAlignedStack({ value, storageKey }: EastChakraAlignedStackProps) {
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
