@@ -199,6 +199,12 @@ interface ScaleCtx {
     innerW: number;
     innerH: number;
     margin: Margin;
+    /** x of the rotated y-axis title — pinned to its NATURAL margin (just past the
+     *  tick labels), not the gutter-widened `margin.left`, so a shared plotGutter
+     *  doesn't fling the title to the far left away from the axis (#147). */
+    yTitleX: number;
+    /** x of the rotated y2-axis title — natural right margin (mirror of yTitleX). */
+    y2TitleX: number;
     style: ChartStyle;
 }
 const ScaleContext = createContext<ScaleCtx | null>(null);
@@ -515,7 +521,7 @@ function AxisBMark({ value }: { value: Axis }): ReactNode {
     );
 }
 function AxisLMark({ value }: { value: Axis }): ReactNode {
-    const { y, innerH, margin, style } = useScales();
+    const { y, innerH, yTitleX, style } = useScales();
     const fmt = tickFormatter(getSomeorUndefined(value.tickFormat), "linear");
     const label = getSomeorUndefined(value.label);
     const tickValues = getSomeorUndefined(value.tickValues);
@@ -530,12 +536,12 @@ function AxisLMark({ value }: { value: Axis }): ReactNode {
                 tickFormat={v => fmt(v)}
                 tickLabelProps={() => ({ textAnchor: "end", dx: "-0.25em", dy: "0.25em", style: { fontFamily: style.font, fontSize: style.labelSize, fill: style.labelColor } })}
             />
-            {label && <text transform={`translate(${-(margin.left - 11)}, ${innerH / 2}) rotate(-90)`} textAnchor="middle" style={{ fontFamily: style.font, fontSize: "11px", fill: style.labelColor, fontWeight: 600 }}>{label}</text>}
+            {label && <text transform={`translate(${yTitleX}, ${innerH / 2}) rotate(-90)`} textAnchor="middle" style={{ fontFamily: style.font, fontSize: "11px", fill: style.labelColor, fontWeight: 600 }}>{label}</text>}
         </>
     );
 }
 function AxisRMark({ value }: { value: Axis }): ReactNode {
-    const { y, y2, innerW, innerH, margin, style } = useScales();
+    const { y, y2, innerW, innerH, y2TitleX, style } = useScales();
     const scale = y2 ?? y;
     const fmt = tickFormatter(getSomeorUndefined(value.tickFormat), "linear");
     const label = getSomeorUndefined(value.label);
@@ -552,7 +558,7 @@ function AxisRMark({ value }: { value: Axis }): ReactNode {
                 tickFormat={v => fmt(v)}
                 tickLabelProps={() => ({ textAnchor: "start", dx: "0.25em", dy: "0.25em", style: { fontFamily: style.font, fontSize: style.labelSize, fill: style.labelColor } })}
             />
-            {label && <text transform={`translate(${innerW + margin.right - 11}, ${innerH / 2}) rotate(90)`} textAnchor="middle" style={{ fontFamily: style.font, fontSize: "11px", fill: style.labelColor, fontWeight: 600 }}>{label}</text>}
+            {label && <text transform={`translate(${y2TitleX}, ${innerH / 2}) rotate(90)`} textAnchor="middle" style={{ fontFamily: style.font, fontSize: "11px", fill: style.labelColor, fontWeight: 600 }}>{label}</text>}
         </>
     );
 }
@@ -707,6 +713,11 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
                 const svgH = (hOverride ?? f.height) - legendH;
                 const innerW = Math.max(0, w - margin.left - margin.right);
                 const innerH = Math.max(0, svgH - margin.top - margin.bottom);
+                // Axis-title x at the NATURAL margin (just past the tick labels), not
+                // the gutter-widened `margin.left/right` — so a shared plotGutter keeps
+                // the rotated y / y2 titles by their axis instead of the lane edge (#147).
+                const yTitleX = -((base.left + (yLabel ? 14 : 0)) - 11);
+                const y2TitleX = innerW + ((Math.max(base.right, hasY2 ? 44 : 8) + (y2Label ? 14 : 0)) - 11);
 
                 const mkY = (dom: [number, number] | undefined, dMin: number, dMax: number): YScale =>
                     dom ? scaleLinear<number>({ domain: dom, range: [innerH, 0] }) : scaleLinear<number>({ domain: [Math.min(0, dMin), dMax || 1], range: [innerH, 0], nice: true });
@@ -770,7 +781,7 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
                                         <rect x={0} y={0} width={innerW} height={innerH} />
                                     </clipPath>
                                 </defs>
-                                <ScaleContext.Provider value={{ cx, cxKey, bandWidth, xAxisScale, xTickValues, xKind, y, y2, sizeR, innerW, innerH, margin, style }}>
+                                <ScaleContext.Provider value={{ cx, cxKey, bandWidth, xAxisScale, xTickValues, xKind, y, y2, sizeR, innerW, innerH, margin, yTitleX, y2TitleX, style }}>
                                     {f.children.map((c, i) => renderNode(c, i, clipId))}
                                 </ScaleContext.Provider>
                                 {!brush && tooltipOn && focusX !== undefined && (

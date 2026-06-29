@@ -138,7 +138,7 @@ export const EastChakraTrace = memo(function EastChakraTrace({ value, storageKey
             {...(labelWidth !== undefined ? { style: { ["--t-stub-w"]: labelWidth } as React.CSSProperties } : {})}
         >
             {showAxis && (
-                <ChakraBox css={styles.axis} style={{ gridTemplateColumns: columns, ...(gutterActive ? { gap: "0" } : {}) }}>
+                <ChakraBox css={styles.axis} style={{ gridTemplateColumns: columns }}>
                     <span />
                     {Array.from({ length: steps }, (_, k) => (
                         <ChakraBox key={`ax.${k}`} css={styles.axisCell}>{axis![k] ?? ""}</ChakraBox>
@@ -146,7 +146,7 @@ export const EastChakraTrace = memo(function EastChakraTrace({ value, storageKey
                     {gutterActive && <span />}
                 </ChakraBox>
             )}
-            <ChakraBox css={styles.grid} style={{ gridTemplateColumns: columns, ...(gutterActive ? { gap: "0" } : {}) }} position="relative">
+            <ChakraBox css={styles.grid} style={{ gridTemplateColumns: columns }} position="relative">
                 {tracks.map((track, ti) => {
                     const values = track.values as unknown as number[];
                     const min = Math.min(...values);

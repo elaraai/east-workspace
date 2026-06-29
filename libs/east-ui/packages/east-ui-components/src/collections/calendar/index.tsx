@@ -115,7 +115,7 @@ export const EastChakraCalendar = memo(function EastChakraCalendar({ value }: Ea
                 css={styles.grid}
                 style={{
                     gridTemplateColumns: gridColumns,
-                    ...(gutterActive ? { gap: "0", paddingLeft: "0", paddingRight: "0" } : {}),
+                    ...(gutterActive ? { paddingLeft: "0", paddingRight: "0" } : {}),
                 }}
             >
                 <Box css={styles.dayHeader} />
