@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useMemo, useCallback, createContext, useContext, type ReactNode, type MouseEvent } from "react";
+import { memo, useId, useMemo, useCallback, createContext, useContext, type ReactNode, type MouseEvent } from "react";
 import { Box, Skeleton, useChakraContext, useSlotRecipe } from "@chakra-ui/react";
 import { useTooltip, useTooltipInPortal } from "@visx/tooltip";
 import { match, equalFor, some, none, variant, type ValueTypeOf } from "@elaraai/east";
@@ -568,15 +568,21 @@ function GridColsMark({ value }: { value: ValueTypeOf<typeof T.Grid> }): ReactNo
 }
 
 /** Render one ChartSpec node (recursive); marks read scales from context. */
-function renderNode(node: Spec, k: string | number): ReactNode {
+function renderNode(node: Spec, k: string | number, clipId?: string): ReactNode {
+    // #152 — clip the data-series marks (line/area/band/bar/scatter) to the plot
+    // rect so out-of-domain points are cut at the edge; axes, grid, reference
+    // marks and text stay UNCLIPPED (they live in the margin / span the edges).
+    const clip = clipId !== undefined
+        ? (el: ReactNode) => <g key={k} clipPath={`url(#${clipId})`}>{el}</g>
+        : (el: ReactNode) => el;
     return match(node, {
-        group: g => <Group key={k} left={g.left} top={g.top}>{g.children.map((c, i) => renderNode(c, i))}</Group>,
-        series: v => <Group key={k}><SeriesMarks value={v} /></Group>,
-        linePath: v => <LinePathMark key={k} value={v} />,
-        area: v => <AreaMark key={k} value={v} />,
-        bandArea: v => <BandAreaMark key={k} value={v} />,
-        bars: v => <BarsMark key={k} value={v} />,
-        points: v => <PointsMark key={k} value={v} />,
+        group: g => <Group key={k} left={g.left} top={g.top}>{g.children.map((c, i) => renderNode(c, i, clipId))}</Group>,
+        series: v => clip(<Group><SeriesMarks value={v} /></Group>),
+        linePath: v => clip(<LinePathMark value={v} />),
+        area: v => clip(<AreaMark value={v} />),
+        bandArea: v => clip(<BandAreaMark value={v} />),
+        bars: v => clip(<BarsMark value={v} />),
+        points: v => clip(<PointsMark value={v} />),
         rule: v => <RuleMark key={k} value={v} />,
         referenceDot: v => <RefDotMark key={k} value={v} />,
         referenceArea: v => <RefAreaMark key={k} value={v} />,
@@ -630,6 +636,9 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
     // tier. `containerRef` on the plot box converts the container-relative left/top
     // we already compute into page coordinates; `detectBounds` keeps it on-screen.
     const { containerRef, TooltipInPortal } = useTooltipInPortal({ detectBounds: true, scroll: true, zIndex: style.tooltipZIndex });
+    // #152 — a per-chart clipPath id; series marks are clipped to the plot rect so
+    // a point past a pinned `domain` is cut at the edge, not smeared over the y2 labels.
+    const clipId = useId();
     // #147 — inherit a shared plot gutter from an enclosing <AlignedStack>, so this
     // chart's plot lane lines up with stacked siblings on a common x. Pin
     // margin.left/right to the gutter px (parsed from the CSS length).
@@ -754,8 +763,15 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
                     <Box position="relative" ref={containerRef}>
                         <svg width={w} height={svgH} style={{ display: "block", overflow: "visible" }}>
                             <Group left={margin.left} top={margin.top}>
+                                {/* #152 — plot-rect clip for the series marks (userSpaceOnUse:
+                                    the rect is in this Group's [0,0,innerW,innerH] coords). */}
+                                <defs>
+                                    <clipPath id={clipId}>
+                                        <rect x={0} y={0} width={innerW} height={innerH} />
+                                    </clipPath>
+                                </defs>
                                 <ScaleContext.Provider value={{ cx, cxKey, bandWidth, xAxisScale, xTickValues, xKind, y, y2, sizeR, innerW, innerH, margin, style }}>
-                                    {f.children.map((c, i) => renderNode(c, i))}
+                                    {f.children.map((c, i) => renderNode(c, i, clipId))}
                                 </ScaleContext.Provider>
                                 {!brush && tooltipOn && focusX !== undefined && (
                                     <Line from={{ x: cxKey(focusX), y: 0 }} to={{ x: cxKey(focusX), y: innerH }} stroke={style.axisStroke} strokeWidth={1} strokeDasharray="2 3" />
