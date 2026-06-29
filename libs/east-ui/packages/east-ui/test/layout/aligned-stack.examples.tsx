@@ -72,8 +72,8 @@ export const alignedStackChartTrace = example({
                 </Box>
                 <Trace
                     tracks={[
-                        { name: "Bé", values: [12.0, 13.0, 14.0, 16.0, 18.0, 20.0, 22.0] },
-                        { name: "Alc", values: [1.0, 2.0, 3.0, 5.0, 7.0, 9.0, 11.0] },
+                        { name: "Series A", values: [12.0, 13.0, 14.0, 16.0, 18.0, 20.0, 22.0] },
+                        { name: "Series B", values: [1.0, 2.0, 3.0, 5.0, 7.0, 9.0, 11.0] },
                     ]}
                     now={4n}
                     axis={["0", "1", "2", "3", "4", "5", "6"]}
@@ -248,7 +248,7 @@ export const alignedStackChartPlanner = example({
                     />
                 </Box>
                 <Planner.Point
-                    data={[{ name: "Tank A", role: "Ferment" }, { name: "Tank B", role: "Ferment" }]}
+                    data={[{ name: "Line A", role: "Primary" }, { name: "Line B", role: "Backup" }]}
                     axis={Planner.axis.number({ range: { min: 0, max: 6 } })}
                     columns={[{ key: "name", frozen: true, value: r => r.name, sublabel: r => r.role }]}
                     events={_r => [
@@ -296,6 +296,117 @@ export const alignedStackChartGantt = example({
                         { task: "Build", owner: "Carol", start: new Date("2024-01-25"), end: new Date("2024-03-01") },
                     ]}
                     columns={["task", "owner"]}
+                    rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
+                />
+            </AlignedStack>
+        );
+    }),
+    inputs: [],
+});
+
+/**
+ * The kitchen-sink — ONE `<AlignedStack gutter>` lines up **seven** stacked lane
+ * components on a single shared day axis: a `<Chart>` trajectory over a `<Trace>`
+ * heat-strip, a `<Matrix>` utilisation grid, a `<Planner>` activity timeline, a
+ * `<Calendar>` week band, a `<Table>` of per-day metrics, and a `<Gantt>` phase
+ * timeline. Every component inherits the same `{ left, right }` gutter from
+ * context — the frozen label columns / row headers / week labels all fill `left`,
+ * and each data lane fills `[left, W−right]`, so the day columns line up top to
+ * bottom without the consumer hand-matching a single number. (#147)
+ */
+export const alignedStackAll = example({
+    keywords: ["AlignedStack", "plotGutter", "gutter", "Chart", "Trace", "Matrix", "Planner", "Calendar", "Table", "Gantt", "align", "stack", "dashboard", "all", "shared"],
+    description: "One AlignedStack gutter lines up seven stacked lane components — Chart, Trace, Matrix, Planner, Calendar, Table and Gantt — on a common day axis",
+    fn: East.function([], UIComponentType, ($) => {
+        const trend = $.const([
+            { day: 0.0, v: 12.0 }, { day: 1.0, v: 14.0 }, { day: 2.0, v: 18.0 },
+            { day: 3.0, v: 20.0 }, { day: 4.0, v: 19.0 }, { day: 5.0, v: 16.0 }, { day: 6.0, v: 13.0 },
+        ], ArrayType(StructType({ day: FloatType, v: FloatType })));
+        return (
+            <AlignedStack gutter={{ left: "150px", right: "14px" }} gap="10px">
+                {/* 1 — Chart: the metric trajectory, the reference axis. */}
+                <Box height="140px" width="100%">
+                    <Chart
+                        layers={Chart.Line(trend, { x: r => r.day, y: r => r.v }, { color: "teal.solid" })}
+                        x={{ scale: "linear", domain: [0, 6], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0] }}
+                        y={{ label: "value" }}
+                        grid
+                    />
+                </Box>
+                {/* 2 — Trace: a two-series heat strip, one cell per day. */}
+                <Trace
+                    tracks={[
+                        { name: "Series A", values: [12.0, 13.0, 14.0, 16.0, 18.0, 20.0, 22.0] },
+                        { name: "Series B", values: [1.0, 2.0, 3.0, 5.0, 7.0, 9.0, 11.0] },
+                    ]}
+                    now={4n}
+                    axis={["0", "1", "2", "3", "4", "5", "6"]}
+                    density="comfortable"
+                />
+                {/* 3 — Matrix: per-line booked/free utilisation, one column per day. */}
+                <Matrix
+                    data={[
+                        { line: "Line A", booked: new Map([["d0", 0.4], ["d1", 0.7], ["d2", 0.85], ["d3", 0.6], ["d4", 0.8], ["d5", 0.3], ["d6", 0.2]]) },
+                        { line: "Line B", booked: new Map([["d0", 0.5], ["d1", 0.6], ["d2", 0.7], ["d3", 0.9], ["d4", 0.4], ["d5", 0.2], ["d6", 0.1]]) },
+                    ]}
+                    columns={[
+                        Matrix.column({ key: "d0", label: "0" }), Matrix.column({ key: "d1", label: "1" }),
+                        Matrix.column({ key: "d2", label: "2" }), Matrix.column({ key: "d3", label: "3" }),
+                        Matrix.column({ key: "d4", label: "4" }), Matrix.column({ key: "d5", label: "5" }),
+                        Matrix.column({ key: "d6", label: "6" }),
+                    ]}
+                    rowKey={r => r.line}
+                    rowHeader="Line"
+                    cell={(r, col) => Matrix.cell({ segments: [
+                        Matrix.segment({ fill: "brand", weight: r.booked.get(col.key) }),
+                        Matrix.segment({ fill: "free", weight: East.value(1.0, FloatType).subtract(r.booked.get(col.key)) }),
+                    ] })}
+                />
+                {/* 4 — Planner: per-line activity, one slot per day. */}
+                <Planner.Point
+                    data={[{ name: "Line A" }, { name: "Line B" }]}
+                    axis={Planner.axis.number({ range: { min: 0, max: 6 } })}
+                    columns={[{ key: "name", frozen: true, value: r => r.name }]}
+                    events={_r => [
+                        Planner.event({ slot: Planner.at.number(0), label: "✓", state: "committed" }),
+                        Planner.event({ slot: Planner.at.number(2), label: "✓", state: "committed" }),
+                        Planner.event({ slot: Planner.at.number(4), label: "plan", state: "added" }),
+                        Planner.event({ slot: Planner.at.number(6), label: "?", state: "model" }),
+                    ]}
+                    now={Planner.at.number(4)}
+                />
+                {/* 5 — Calendar: a week band coloured by demand (week-label fills `left`). */}
+                <Calendar
+                    data={[
+                        { week: "W37", day: "Mon", demand: 0.4 }, { week: "W37", day: "Tue", demand: 0.7 },
+                        { week: "W37", day: "Wed", demand: 0.85 }, { week: "W37", day: "Thu", demand: 0.6 },
+                        { week: "W37", day: "Fri", demand: 0.8 }, { week: "W37", day: "Sat", demand: 0.3 },
+                        { week: "W37", day: "Sun", demand: 0.2 },
+                    ]}
+                    cell={d => ({ week: d.week, day: d.day, value: d.demand })}
+                    legend="low → high"
+                />
+                {/* 6 — Table: per-day metric row, frozen label column fills `left`. */}
+                <Table
+                    data={[
+                        { metric: "Output", d0: "12", d1: "14", d2: "18", d3: "20", d4: "19", d5: "16", d6: "13" },
+                        { metric: "Target", d0: "12", d1: "13", d2: "14", d3: "16", d4: "18", d5: "20", d6: "22" },
+                    ]}
+                    columns={{
+                        metric: { header: "Metric" },
+                        d0: { header: "0" }, d1: { header: "1" }, d2: { header: "2" }, d3: { header: "3" },
+                        d4: { header: "4" }, d5: { header: "5" }, d6: { header: "6" },
+                    }}
+                    frozen={["metric"]}
+                />
+                {/* 7 — Gantt: phase timeline (its own time axis; the LANE still aligns). */}
+                <Gantt
+                    data={[
+                        { phase: "Setup", owner: "—", start: new Date("2024-01-01"), end: new Date("2024-01-02") },
+                        { phase: "Run", owner: "—", start: new Date("2024-01-02"), end: new Date("2024-01-06") },
+                        { phase: "Wrap", owner: "—", start: new Date("2024-01-06"), end: new Date("2024-01-07") },
+                    ]}
+                    columns={["phase", "owner"]}
                     rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
                 />
             </AlignedStack>
