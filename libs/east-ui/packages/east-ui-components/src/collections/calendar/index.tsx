@@ -9,6 +9,7 @@ import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Calendar } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { useDensity } from "../../contracts/density";
+import { usePlotGutter } from "../../contracts/plot-gutter.js";
 
 const calendarEqual = equalFor(Calendar.Types.Calendar);
 
@@ -46,6 +47,21 @@ export const EastChakraCalendar = memo(function EastChakraCalendar({ value }: Ea
     const density = getSomeorUndefined(value.density)?.type ?? inheritedDensity ?? "comfortable";
     const styles = useSlotRecipe({ key: "calendar" })({ density }) as SlotStyles;
     const weekColW = density === "condensed" ? "40px" : density === "compact" ? "48px" : "56px";
+
+    // Shared plot gutter (#147) — own field wins over an enclosing <AlignedStack>'s
+    // context. When active the 7 day columns become a continuous lane pinned to
+    // [left, W−right] (no gap, zero inline padding) so the calendar lines up under
+    // a stacked Chart's plot; `left` defaults to the week-label column.
+    const ctxGutter = usePlotGutter();
+    const ownGutter = useMemo(() => getSomeorUndefined(value.plotGutter), [value.plotGutter]);
+    const gLeft = (ownGutter ? getSomeorUndefined(ownGutter.left) : undefined) ?? ctxGutter?.left;
+    const gRight = (ownGutter ? getSomeorUndefined(ownGutter.right) : undefined) ?? ctxGutter?.right;
+    const gutterActive = gLeft !== undefined || gRight !== undefined;
+    const leftCol = gLeft ?? weekColW;
+    const rightCol = gRight ?? "0px";
+    const gridColumns = gutterActive
+        ? `${leftCol} repeat(${WEEK.length}, minmax(0, 1fr)) ${rightCol}`
+        : `${weekColW} repeat(${WEEK.length}, 1fr)`;
 
     const onSelectFn = useMemo(() => getSomeorUndefined(value.onSelect), [value.onSelect]);
     const onActionFn = useMemo(() => getSomeorUndefined(value.onAction), [value.onAction]);
@@ -91,15 +107,23 @@ export const EastChakraCalendar = memo(function EastChakraCalendar({ value }: Ea
     const showFooter = selected !== null || actionLabel !== undefined;
 
     return (
-        <Box css={styles.root}>
+        <Box css={styles.root} {...(gutterActive ? { display: "block", width: "100%" } : {})}>
             <Box css={styles.header}>
                 <Box as="span" css={styles.legend}>{value.legend}</Box>
             </Box>
-            <Box css={styles.grid} style={{ gridTemplateColumns: `${weekColW} repeat(${WEEK.length}, 1fr)` }}>
+            <Box
+                css={styles.grid}
+                style={{
+                    gridTemplateColumns: gridColumns,
+                    ...(gutterActive ? { gap: "0", paddingLeft: "0", paddingRight: "0" } : {}),
+                }}
+            >
                 <Box css={styles.dayHeader} />
                 {WEEK.map(day => (
                     <Box key={day} css={styles.dayHeader}>{day}</Box>
                 ))}
+                {/* trailing right-gutter cell so the day band ends at W−right (#147) */}
+                {gutterActive && <Box key="hdr-rpad" aria-hidden="true" />}
                 {weeks.map(week => [
                     <Box key={`${week}-label`} css={styles.weekLabel}>{week}</Box>,
                     ...WEEK.map(day => {
@@ -118,6 +142,7 @@ export const EastChakraCalendar = memo(function EastChakraCalendar({ value }: Ea
                             </Box>
                         );
                     }),
+                    ...(gutterActive ? [<Box key={`${week}-rpad`} aria-hidden="true" />] : []),
                 ])}
             </Box>
             {showFooter && (

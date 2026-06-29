@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, ArrayType, FloatType, StructType, example } from "@elaraai/east";
+import { East, ArrayType, FloatType, StringType, StructType, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { AlignedStack, Box, Chart, Trace } from "@elaraai/east-ui";
+import { AlignedStack, Box, Calendar, Chart, Trace } from "@elaraai/east-ui";
 
 /**
  * Two charts on the same day axis, stacked in an `<AlignedStack>` with a shared
@@ -77,6 +77,51 @@ export const alignedStackChartTrace = example({
                     now={4n}
                     axis={["0", "1", "2", "3", "4", "5", "6"]}
                     density="comfortable"
+                />
+            </AlignedStack>
+        );
+    }),
+    inputs: [],
+});
+
+/**
+ * A `<Chart>` stacked over a `<Calendar>` in an `<AlignedStack>` — the Calendar
+ * inherits the gutter from context, so its 7-day band fills `[left, W−right]` and
+ * lines up under the chart's day axis. `left` (the week-label column) and `right`
+ * come from the shared gutter, not the calendar's own density. (#147)
+ */
+export const alignedStackChartCalendar = example({
+    keywords: ["AlignedStack", "plotGutter", "Chart", "Calendar", "align", "lane", "day", "week"],
+    description: "A Chart stacked over a Calendar sharing one gutter — the Calendar's day band lines up under the chart's day axis",
+    fn: East.function([], UIComponentType, ($) => {
+        const load = $.const([
+            { day: 0.0, v: 0.4 }, { day: 1.0, v: 0.7 }, { day: 2.0, v: 0.9 },
+            { day: 3.0, v: 0.6 }, { day: 4.0, v: 0.8 }, { day: 5.0, v: 0.3 }, { day: 6.0, v: 0.2 },
+        ], ArrayType(StructType({ day: FloatType, v: FloatType })));
+        const grid = $.const([
+            { week: "W37", day: "Mon", demand: 0.4 }, { week: "W37", day: "Tue", demand: 0.7 },
+            { week: "W37", day: "Wed", demand: 0.9 }, { week: "W37", day: "Thu", demand: 0.6 },
+            { week: "W37", day: "Fri", demand: 0.8 }, { week: "W37", day: "Sat", demand: 0.3 },
+            { week: "W37", day: "Sun", demand: 0.2 },
+            { week: "W38", day: "Mon", demand: 0.5 }, { week: "W38", day: "Tue", demand: 0.6 },
+            { week: "W38", day: "Wed", demand: 0.7 }, { week: "W38", day: "Thu", demand: 0.9 },
+            { week: "W38", day: "Fri", demand: 0.4 }, { week: "W38", day: "Sat", demand: 0.2 },
+            { week: "W38", day: "Sun", demand: 0.1 },
+        ], ArrayType(StructType({ week: StringType, day: StringType, demand: FloatType })));
+        return (
+            <AlignedStack gutter={{ left: "56px", right: "12px" }} gap="8px">
+                <Box height="150px" width="100%">
+                    <Chart
+                        layers={Chart.Line(load, { x: r => r.day, y: r => r.v }, { color: "teal.solid" })}
+                        x={{ scale: "linear", domain: [0, 6], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0] }}
+                        y={{ label: "load" }}
+                        grid
+                    />
+                </Box>
+                <Calendar
+                    data={grid}
+                    cell={d => ({ week: d.week, day: d.day, value: d.demand })}
+                    legend="low → high"
                 />
             </AlignedStack>
         );

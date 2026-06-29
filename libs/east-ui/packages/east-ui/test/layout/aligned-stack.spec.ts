@@ -12,6 +12,7 @@ describeEast("AlignedStack", (test) => {
     Assert.examples(test, {
         alignedStackCharts: ex.alignedStackCharts,
         alignedStackChartTrace: ex.alignedStackChartTrace,
+        alignedStackChartCalendar: ex.alignedStackChartCalendar,
         alignedStackAuto: ex.alignedStackAuto,
     });
 }, { platformFns: TestImpl });

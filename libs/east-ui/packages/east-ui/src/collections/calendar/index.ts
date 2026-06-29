@@ -34,6 +34,8 @@ import {
 import { UIComponentType } from "../../component.js";
 import { DensityType } from "../../style.js";
 import type { DensityLiteral } from "../../style.js";
+import { PlotGutterType } from "../../shared/plot-gutter.js";
+import type { PlotGutter } from "../../shared/plot-gutter.js";
 import {
     CalendarRootType,
     CalendarCellType,
@@ -112,6 +114,8 @@ export interface CalendarConfig<R extends StructType> {
     onSelect?: SubtypeExprOrValue<FunctionType<[CalendarCellRefType], NullType>>;
     /** Optional density preset (comfortable | compact | condensed). Default comfortable. */
     density?: SubtypeExprOrValue<DensityType> | DensityLiteral;
+    /** Shared plot gutter (#147) — pins the day grid to `[left, W−right]` (px) so a Calendar stacked under a Chart lines up; `left` is the week-label column width. Usually supplied by an enclosing `<AlignedStack>`. */
+    plotGutter?: PlotGutter;
 }
 
 function buildRoot(
@@ -152,6 +156,12 @@ function buildRoot(
         onAction: config.onAction !== undefined ? some(config.onAction) : none,
         onSelect: config.onSelect !== undefined ? some(config.onSelect) : none,
         density: densityValue !== undefined ? some(densityValue) : none,
+        plotGutter: config.plotGutter !== undefined
+            ? some(East.value({
+                left:  config.plotGutter.left  !== undefined ? some(config.plotGutter.left)  : none,
+                right: config.plotGutter.right !== undefined ? some(config.plotGutter.right) : none,
+            }, PlotGutterType))
+            : none,
     }), UIComponentType);
 }
 
