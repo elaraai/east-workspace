@@ -88,8 +88,9 @@ export const EastChakraTrace = memo(function EastChakraTrace({ value, storageKey
     // default `--t-stub-w`, which both the grid columns and now-line read.
     const labelWidth = style ? getSomeorUndefined(style.labelWidth) : undefined;
     // Shared plot gutter (#147) — own prop wins over an enclosing <AlignedStack>'s
-    // context. When active the step lane fills [left, W−right] (flexible columns,
-    // no gap → a continuous band that lines up with a stacked Chart's plot).
+    // context. When active the step lane fills [left, W−right] via leading/trailing
+    // gutter tracks (the flexible step columns keep their inter-cell gap) so the
+    // lane lines up with a stacked Chart's plot.
     const ctxGutter = usePlotGutter();
     const ownGutter = useMemo(() => (style ? getSomeorUndefined(style.plotGutter) : undefined), [style]);
     const gLeft = (ownGutter ? getSomeorUndefined(ownGutter.left) : undefined) ?? ctxGutter?.left;

@@ -33,7 +33,7 @@ import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 import { useRowStatusBg, useDensityHeights } from "../shared/helpers";
 import { DensityProvider } from "../../contracts/density";
-import { usePlotGutter } from "../../contracts/plot-gutter.js";
+import { usePlotGutter, gutterPx } from "../../contracts/plot-gutter.js";
 import { RowStateManager, type RowKey, type RowState } from "../../utils/RowStateManager";
 import { useColumnPinning, HeaderControls, getHeaderCellStyle, getCellStyle, createGetSortIndex, useColumnSizeVars, useLastUnpinnedColumnId } from "../shared/column-pinning";
 import { EventAxis, tierInterval, type GanttTier } from "./EventAxis";
@@ -200,8 +200,8 @@ const GanttCore = function GanttCore({
     const gLeft = (ownGutter ? getSomeorUndefined(ownGutter.left) : undefined) ?? ctxGutter?.left;
     const gRight = (ownGutter ? getSomeorUndefined(ownGutter.right) : undefined) ?? ctxGutter?.right;
     const gutterActive = gLeft !== undefined || gRight !== undefined;
-    const gLeftPx = gLeft !== undefined ? parseFloat(gLeft) : undefined;
-    const gRightPx = gRight !== undefined ? parseFloat(gRight) : 0;
+    const gLeftPx = gutterPx(gLeft);
+    const gRightPx = gutterPx(gRight) ?? 0;
 
     const onCellClickFn = getSomeorUndefined(value.onCellClick);
     const onCellDoubleClickFn = getSomeorUndefined(value.onCellDoubleClick);

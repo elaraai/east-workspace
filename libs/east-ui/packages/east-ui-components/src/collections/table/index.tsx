@@ -39,7 +39,7 @@ import { useSliceReactivity } from "../../slice/use-slice-reactivity";
 import { RowStateManager, type RowKey, type RowState } from "../../utils/RowStateManager";
 import { useRowStatusBg, useDensityHeights } from "../shared/helpers";
 import { DensityProvider } from "../../contracts/density";
-import { usePlotGutter } from "../../contracts/plot-gutter.js";
+import { usePlotGutter, gutterPx } from "../../contracts/plot-gutter.js";
 
 // Pre-define equality function at module level
 const tableRootEqual = equalFor(Table.Types.Root);
@@ -717,7 +717,7 @@ const TableCore = function TableCore({
     const gRight = (ownGutter ? getSomeorUndefined(ownGutter.right) : undefined) ?? ctxGutter?.right;
     const gutterActive = gLeft !== undefined || gRight !== undefined;
     const gutterRightPx = gRight ?? "0px";
-    const gLeftPx = gLeft !== undefined ? parseFloat(gLeft) : undefined;
+    const gLeftPx = gutterPx(gLeft);
     // Scale the frozen pane so its columns sum to `left`; left spacer covers the
     // remainder (the whole of `left` when there are no frozen columns).
     const frozenScale = (gutterActive && gLeftPx !== undefined && frozenPanelWidth > 0)

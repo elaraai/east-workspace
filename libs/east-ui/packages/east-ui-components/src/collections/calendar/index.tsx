@@ -49,9 +49,10 @@ export const EastChakraCalendar = memo(function EastChakraCalendar({ value }: Ea
     const weekColW = density === "condensed" ? "40px" : density === "compact" ? "48px" : "56px";
 
     // Shared plot gutter (#147) — own field wins over an enclosing <AlignedStack>'s
-    // context. When active the 7 day columns become a continuous lane pinned to
-    // [left, W−right] (no gap, zero inline padding) so the calendar lines up under
-    // a stacked Chart's plot; `left` defaults to the week-label column.
+    // context. When active the 7 day columns become a lane pinned to [left, W−right]
+    // via leading/trailing gutter tracks and zeroed inline padding (the inter-cell
+    // gap is kept — the grid's own spacing, not part of the gutter) so the calendar
+    // lines up under a stacked Chart's plot; `left` defaults to the week-label column.
     const ctxGutter = usePlotGutter();
     const ownGutter = useMemo(() => getSomeorUndefined(value.plotGutter), [value.plotGutter]);
     const gLeft = (ownGutter ? getSomeorUndefined(ownGutter.left) : undefined) ?? ctxGutter?.left;

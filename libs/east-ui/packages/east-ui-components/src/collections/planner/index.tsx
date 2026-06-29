@@ -25,7 +25,7 @@ import {
 } from "../shared/column-pinning";
 import { useDensityHeights } from "../shared/helpers";
 import { DensityProvider } from "../../contracts/density";
-import { usePlotGutter } from "../../contracts/plot-gutter.js";
+import { usePlotGutter, gutterPx } from "../../contracts/plot-gutter.js";
 
 const plannerRootEqual = equalFor(Planner.Types.Root);
 
@@ -525,7 +525,7 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
     const gRight = (ownGutter ? getSomeorUndefined(ownGutter.right) : undefined) ?? ctxGutter?.right;
     const gutterActive = gLeft !== undefined || gRight !== undefined;
     const gRightCol = gRight ?? "0px";
-    const gLeftPx = gLeft !== undefined ? parseFloat(gLeft) : undefined;
+    const gLeftPx = gutterPx(gLeft);
     const totalLeftPx = table.getTotalSize();
     const frozenScale = (gutterActive && gLeftPx !== undefined && totalLeftPx > 0) ? gLeftPx / totalLeftPx : 1;
     const effectiveSizeVars = frozenScale !== 1
@@ -534,7 +534,7 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
         : columnSizeVars;
     const effectiveLeftPane = gLeft ?? leftPaneWidth;
     const outerCols = gutterActive
-        ? (hasReview ? `${effectiveLeftPane} 1fr ${gRightCol} ${DECISION_WIDTH}` : `${effectiveLeftPane} 1fr ${gRightCol}`)
+        ? (hasReview ? `${effectiveLeftPane} 1fr ${DECISION_WIDTH} ${gRightCol}` : `${effectiveLeftPane} 1fr ${gRightCol}`)
         : gridTemplate;
     const rightSlotCols = gutterActive ? `repeat(${nCols}, minmax(0, 1fr))` : slotTemplate;
     const outerMinWidth = gutterActive ? undefined : gridMinWidth;

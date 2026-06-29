@@ -25,7 +25,7 @@ const none = variant("none", null);
 
 function tagValue(density?: "condensed" | "compact" | "comfortable"): TagValue {
     return {
-        label: "Shiraz",
+        label: "Active",
         closable: none,
         onClose: none,
         density: density ? variant("some", variant(density, null)) : none,
