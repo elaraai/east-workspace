@@ -65,7 +65,7 @@ export {
 
 // Layout
 export {
-    Box, Flex, Stack, VStack, HStack, Separator, Grid, Splitter,
+    Box, Flex, Stack, VStack, HStack, AlignedStack, Separator, Grid, Splitter,
     Sticky, ScrollArea,
 } from "./runtime/layout/index.js";
 

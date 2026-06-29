@@ -29,6 +29,7 @@ import { EastVisxChart } from "./charts/spec";
 import { EastChakraBox } from "./layout/box";
 import { EastChakraFlex } from "./layout/flex";
 import { EastChakraStack } from "./layout/stack";
+import { EastChakraAlignedStack } from "./layout/aligned-stack";
 import { EastChakraSeparator } from "./layout/separator";
 import { EastChakraGrid } from "./layout/grid";
 import { EastChakraSplitter } from "./layout/splitter";
@@ -161,6 +162,7 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
             Box: (v) => <EastChakraBox value={v} storageKey={storageKey} />,
             Flex: (v) => <EastChakraFlex value={v} storageKey={storageKey} />,
             Stack: (v) => <EastChakraStack value={v} storageKey={storageKey} />,
+            AlignedStack: (v) => <EastChakraAlignedStack value={v} storageKey={childKey(storageKey, "AlignedStack")} />,
             Separator: (v) => <EastChakraSeparator value={v} storageKey={storageKey} />,
             Grid: (v) => <EastChakraGrid value={v} storageKey={storageKey} />,
             Splitter: (v) => <EastChakraSplitter value={v} storageKey={childKey(storageKey, "Splitter")} />,

@@ -8,6 +8,7 @@
 export { Box } from "./box.js";
 export { Flex } from "./flex.js";
 export { Stack, VStack, HStack } from "./stack.js";
+export { AlignedStack } from "./aligned-stack.js";
 export { ScrollArea } from "./scroll-area.js";
 export { Sticky } from "./sticky.js";
 export { Separator } from "./separator.js";

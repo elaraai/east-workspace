@@ -39,6 +39,8 @@ import { DensityType, AlignType, LabelInputType } from "./style.js";
 import { BoxStyleType } from "./layout/box/types.js";
 import { FlexStyleType } from "./layout/flex/types.js";
 import { StackStyleType } from "./layout/stack/types.js";
+import { AlignedStackStyleType } from "./layout/aligned-stack/types.js";
+import { AlignedGutterType } from "./shared/plot-gutter.js";
 import { SeparatorStyleType } from "./layout/separator/types.js";
 import { GridStyleType } from "./layout/grid/types.js";
 import { SplitterStyleType } from "./layout/splitter/types.js";
@@ -353,6 +355,11 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         children: ArrayType(node),
         density: OptionType(DensityType),
         style: OptionType(StackStyleType),
+    }),
+    AlignedStack: StructType({
+        children: ArrayType(node),
+        gutter: OptionType(AlignedGutterType),
+        style: OptionType(AlignedStackStyleType),
     }),
 
     Separator: StructType({

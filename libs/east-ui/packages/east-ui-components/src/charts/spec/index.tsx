@@ -21,6 +21,7 @@ import { Brush } from "@visx/brush";
 import type { Bounds } from "@visx/brush/lib/types";
 import { AxisBottom, AxisLeft, AxisRight, type AxisScale } from "@visx/axis";
 import { getSomeorUndefined } from "../../utils";
+import { usePlotGutter } from "../../contracts/plot-gutter.js";
 
 const T = Chart.Spec.Types;
 type Spec = ValueTypeOf<typeof T.Spec>;
@@ -629,6 +630,12 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
     // tier. `containerRef` on the plot box converts the container-relative left/top
     // we already compute into page coordinates; `detectBounds` keeps it on-screen.
     const { containerRef, TooltipInPortal } = useTooltipInPortal({ detectBounds: true, scroll: true, zIndex: style.tooltipZIndex });
+    // #147 — inherit a shared plot gutter from an enclosing <AlignedStack>, so this
+    // chart's plot lane lines up with stacked siblings on a common x. Pin
+    // margin.left/right to the gutter px (parsed from the CSS length).
+    const ctxGutter = usePlotGutter();
+    const gutterLeft = ctxGutter?.left !== undefined ? parseFloat(ctxGutter.left) : undefined;
+    const gutterRight = ctxGutter?.right !== undefined ? parseFloat(ctxGutter.right) : undefined;
     return match(node, {
         frame: f => {
             const xKind: ScaleKind = match(f.xScale, { band: () => "band" as const, linear: () => "linear" as const, time: () => "time" as const });
@@ -656,13 +663,15 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
                 axisBottom: (v: Axis) => { const d = getSomeorUndefined(v.domain); if (d) bottomDomain = domainBounds(d); if (getSomeorUndefined(v.label)) xLabel = true; },
             }, undefined);
 
-            // Margins: base, widened for axis titles + the right axis.
+            // Margins: base, widened for axis titles + the right axis. A shared
+            // plot gutter (#147, from an <AlignedStack>) pins left/right exactly so
+            // the lane aligns with stacked siblings — overriding the derived widths.
             const base = getSomeorUndefined(f.margin) ?? { top: 8, right: 8, bottom: 24, left: 40 };
             const margin: Margin = {
                 top: base.top,
-                right: Math.max(base.right, hasY2 ? 44 : 8) + (y2Label ? 14 : 0),
+                right: gutterRight ?? (Math.max(base.right, hasY2 ? 44 : 8) + (y2Label ? 14 : 0)),
                 bottom: base.bottom + (xLabel ? 16 : 0),
-                left: base.left + (yLabel ? 14 : 0),
+                left: gutterLeft ?? (base.left + (yLabel ? 14 : 0)),
             };
 
             const legendOn = getSomeorUndefined(f.legend) !== undefined;
