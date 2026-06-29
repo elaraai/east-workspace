@@ -4,6 +4,7 @@
  */
 
 import { type SubtypeExprOrValue, OptionType, StringType, StructType } from "@elaraai/east";
+import { DensityType, type DensityLiteral } from "../../style/interaction.js";
 
 /**
  * Style for {@link AlignedStack} — a vertical stack of axis/lane components that
@@ -13,12 +14,14 @@ import { type SubtypeExprOrValue, OptionType, StringType, StructType } from "@el
  * @property width     - Stack width (default `100%`)
  * @property height    - Stack height
  * @property minHeight - Stack min-height
+ * @property density   - Density preset imposed on every lane child (comfortable | compact | condensed)
  */
 export const AlignedStackStyleType = StructType({
     gap:       OptionType(StringType),
     width:     OptionType(StringType),
     height:    OptionType(StringType),
     minHeight: OptionType(StringType),
+    density:   OptionType(DensityType),
 });
 export type AlignedStackStyleType = typeof AlignedStackStyleType;
 
@@ -29,6 +32,7 @@ export type AlignedStackStyleType = typeof AlignedStackStyleType;
  * @property width     - Stack width (default `100%`)
  * @property height    - Stack height
  * @property minHeight - Stack min-height
+ * @property density   - Density preset imposed on every lane child
  */
 export interface AlignedStackStyle {
     /** Vertical spacing between stacked children (CSS length / token). */
@@ -39,4 +43,6 @@ export interface AlignedStackStyle {
     height?: SubtypeExprOrValue<StringType>;
     /** Stack min-height. */
     minHeight?: SubtypeExprOrValue<StringType>;
+    /** Density preset imposed on every lane child (comfortable | compact | condensed). Each child still overrides with its own `density` if set. */
+    density?: SubtypeExprOrValue<DensityType> | DensityLiteral;
 }

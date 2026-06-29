@@ -16,6 +16,7 @@ import {
 } from "@elaraai/east";
 
 import { UIComponentType } from "../../component.js";
+import { DensityType } from "../../style/interaction.js";
 
 /**
  * Standalone East type for `AlignedStack` data — mirrors the inline arm in
@@ -94,9 +95,15 @@ function createAlignedStack(
     options?: AlignedStackOptions,
 ): ExprType<UIComponentType> {
     const gutter = resolveGutter(options?.gutter);
+    const densityValue = options?.density !== undefined
+        ? (typeof options.density === "string"
+            ? East.value(variant(options.density, null), DensityType)
+            : options.density)
+        : undefined;
     const hasStyle = options !== undefined &&
         (options.gap !== undefined || options.width !== undefined ||
-         options.height !== undefined || options.minHeight !== undefined);
+         options.height !== undefined || options.minHeight !== undefined ||
+         options.density !== undefined);
     return East.value(variant("AlignedStack", {
         children,
         gutter: gutter !== undefined ? some(gutter) : none,
@@ -106,6 +113,7 @@ function createAlignedStack(
                 width:     options!.width     !== undefined ? some(options!.width)     : none,
                 height:    options!.height    !== undefined ? some(options!.height)    : none,
                 minHeight: options!.minHeight !== undefined ? some(options!.minHeight) : none,
+                density:   densityValue !== undefined ? some(densityValue) : none,
             }, AlignedStackStyleType))
             : none,
     }), UIComponentType);

@@ -10,6 +10,7 @@ import { AlignedStack } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 import { PlotGutterProvider, type PlotGutter } from "../../contracts/plot-gutter.js";
+import { DensityProvider, type Density } from "../../contracts/density";
 
 const alignedStackEqual = equalFor(AlignedStack.Types.AlignedStack);
 
@@ -46,6 +47,14 @@ export const EastChakraAlignedStack = memo(function EastChakraAlignedStack({ val
         return { ...(left !== undefined ? { left } : {}), ...(right !== undefined ? { right } : {}) };
     }, [value.gutter]);
 
+    // Density imposed on every lane child (#147) — published via the same
+    // DensityProvider the components already read (`useDensity`); a child's own
+    // `density` still wins.
+    const density = useMemo<Density | undefined>(
+        () => (style ? getSomeorUndefined(style.density)?.type : undefined),
+        [style],
+    );
+
     const content = (
         <Flex
             direction="column"
@@ -60,7 +69,10 @@ export const EastChakraAlignedStack = memo(function EastChakraAlignedStack({ val
         </Flex>
     );
 
-    return gutter !== undefined
-        ? <PlotGutterProvider value={gutter}>{content}</PlotGutterProvider>
-        : content;
+    // Compose the providers: density (outermost) → gutter → content. Either is
+    // applied only when set, so a plain AlignedStack adds no wrappers.
+    let node = content;
+    if (gutter !== undefined) node = <PlotGutterProvider value={gutter}>{node}</PlotGutterProvider>;
+    if (density !== undefined) node = <DensityProvider value={density}>{node}</DensityProvider>;
+    return node;
 }, (prev, next) => alignedStackEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
