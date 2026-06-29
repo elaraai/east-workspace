@@ -1,14 +1,14 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1383,
-    "totalFiles": 180,
+    "totalEntries": 1391,
+    "totalFiles": 181,
     "packages": {
       "east": 489,
       "east-node-std": 42,
       "east-node-io": 63,
       "east-py-datascience": 89,
-      "east-ui": 638,
+      "east-ui": 646,
       "e3-ui": 55,
       "e3": 7
     }
@@ -22476,6 +22476,205 @@
         "import { Text, TimeRangeInput, VStack, Reactive } from \"@elaraai/east-ui\";"
       ],
       "source": "// Disabled range — no editing, both inputs greyed\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const start = $.let(360n, IntegerType);\n        const end = $.let(840n, IntegerType);\n        return <TimeRangeInput startValue={start} endValue={end} step={15n} disabled={true} />;\n    })"
+    },
+    {
+      "id": "east-ui:aligned-stack.examples.tsx:alignedStackCharts",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/layout/aligned-stack.examples.tsx",
+      "suite": "",
+      "test": "Two stacked charts share one plot gutter so their x-axes line up on a common day axis",
+      "keywords": [
+        "AlignedStack",
+        "plotGutter",
+        "gutter",
+        "align",
+        "Chart",
+        "stack",
+        "axis",
+        "shared"
+      ],
+      "imports": [
+        "import { East, ArrayType, FloatType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { NullType } from \"@elaraai/east\";",
+        "import { AlignedStack, Box, Calendar, Chart, Gantt, Matrix, Planner, Table, Trace } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Two stacked charts share one plot gutter so their x-axes line up on a common day axis\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const temp = $.const([\n            { day: 0.0, v: 22.0 }, { day: 2.0, v: 20.5 }, { day: 4.0, v: 18.0 }, { day: 6.0, v: 16.5 },\n        ], ArrayType(StructType({ day: FloatType, v: FloatType })));\n        const rate = $.const([\n            { day: 0.0, v: 1.2 }, { day: 2.0, v: 0.9 }, { day: 4.0, v: 0.6 }, { day: 6.0, v: 0.3 },\n        ], ArrayType(StructType({ day: FloatType, v: FloatType })));\n        return (\n            <AlignedStack gutter={{ left: \"48px\", right: \"16px\" }} gap=\"8px\">\n                <Box height=\"180px\" width=\"100%\">\n                    <Chart\n                        layers={Chart.Line(temp, { x: r => r.day, y: r => r.v }, { color: \"teal.solid\" })}\n                        x={{ scale: \"linear\", domain: [0, 6], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0] }}\n                        y={{ label: \"°C\" }}\n                        grid\n                    />\n                </Box>\n                <Box height=\"180px\" width=\"100%\">\n                    <Chart\n                        layers={Chart.Line(rate, { x: r => r.day, y: r => r.v }, { color: \"purple.solid\" })}\n                        x={{ scale: \"linear\", domain: [0, 6], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0] }}\n                        y={{ label: \"rate\" }}\n                        grid\n                    />\n                </Box>\n            </AlignedStack>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:aligned-stack.examples.tsx:alignedStackChartTrace",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/layout/aligned-stack.examples.tsx",
+      "suite": "",
+      "test": "A Chart stacked over a Trace sharing one gutter — the Trace",
+      "keywords": [
+        "AlignedStack",
+        "plotGutter",
+        "Chart",
+        "Trace",
+        "align",
+        "lane",
+        "axis",
+        "day"
+      ],
+      "imports": [
+        "import { East, ArrayType, FloatType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { NullType } from \"@elaraai/east\";",
+        "import { AlignedStack, Box, Calendar, Chart, Gantt, Matrix, Planner, Table, Trace } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// A Chart stacked over a Trace sharing one gutter — the Trace\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const temp = $.const([\n            { day: 0.0, v: 22.0 }, { day: 2.0, v: 20.0 }, { day: 4.0, v: 18.0 }, { day: 6.0, v: 16.0 },\n        ], ArrayType(StructType({ day: FloatType, v: FloatType })));\n        return (\n            <AlignedStack gutter={{ left: \"48px\", right: \"16px\" }} gap=\"8px\">\n                <Box height=\"160px\" width=\"100%\">\n                    <Chart\n                        layers={Chart.Line(temp, { x: r => r.day, y: r => r.v }, { color: \"teal.solid\" })}\n                        x={{ scale: \"linear\", domain: [0, 6], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0] }}\n                        y={{ label: \"°C\" }}\n                        grid\n                    />\n                </Box>\n                <Trace\n                    tracks={[\n                        { name: \"Bé\", values: [12.0, 13.0, 14.0, 16.0, 18.0, 20.0, 22.0] },\n                        { name: \"Alc\", values: [1.0, 2.0, 3.0, 5.0, 7.0, 9.0, 11.0] },\n                    ]}\n                    now={4n}\n                    axis={[\"0\", \"1\", \"2\", \"3\", \"4\", \"5\", \"6\"]}\n                    density=\"comfortable\"\n                />\n            </AlignedStack>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:aligned-stack.examples.tsx:alignedStackChartCalendar",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/layout/aligned-stack.examples.tsx",
+      "suite": "",
+      "test": "A Chart stacked over a Calendar sharing one gutter — the Calendar",
+      "keywords": [
+        "AlignedStack",
+        "plotGutter",
+        "Chart",
+        "Calendar",
+        "align",
+        "lane",
+        "day",
+        "week"
+      ],
+      "imports": [
+        "import { East, ArrayType, FloatType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { NullType } from \"@elaraai/east\";",
+        "import { AlignedStack, Box, Calendar, Chart, Gantt, Matrix, Planner, Table, Trace } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// A Chart stacked over a Calendar sharing one gutter — the Calendar\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const load = $.const([\n            { day: 0.0, v: 0.4 }, { day: 1.0, v: 0.7 }, { day: 2.0, v: 0.9 },\n            { day: 3.0, v: 0.6 }, { day: 4.0, v: 0.8 }, { day: 5.0, v: 0.3 }, { day: 6.0, v: 0.2 },\n        ], ArrayType(StructType({ day: FloatType, v: FloatType })));\n        const grid = $.const([\n            { week: \"W37\", day: \"Mon\", demand: 0.4 }, { week: \"W37\", day: \"Tue\", demand: 0.7 },\n            { week: \"W37\", day: \"Wed\", demand: 0.9 }, { week: \"W37\", day: \"Thu\", demand: 0.6 },\n            { week: \"W37\", day: \"Fri\", demand: 0.8 }, { week: \"W37\", day: \"Sat\", demand: 0.3 },\n            { week: \"W37\", day: \"Sun\", demand: 0.2 },\n            { week: \"W38\", day: \"Mon\", demand: 0.5 }, { week: \"W38\", day: \"Tue\", demand: 0.6 },\n            { week: \"W38\", day: \"Wed\", demand: 0.7 }, { week: \"W38\", day: \"Thu\", demand: 0.9 },\n            { week: \"W38\", day: \"Fri\", demand: 0.4 }, { week: \"W38\", day: \"Sat\", demand: 0.2 },\n            { week: \"W38\", day: \"Sun\", demand: 0.1 },\n        ], ArrayType(StructType({ week: StringType, day: StringType, demand: FloatType })));\n        return (\n            <AlignedStack gutter={{ left: \"56px\", right: \"12px\" }} gap=\"8px\">\n                <Box height=\"150px\" width=\"100%\">\n                    <Chart\n                        layers={Chart.Line(load, { x: r => r.day, y: r => r.v }, { color: \"teal.solid\" })}\n                        x={{ scale: \"linear\", domain: [0, 6], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0] }}\n                        y={{ label: \"load\" }}\n                        grid\n                    />\n                </Box>\n                <Calendar\n                    data={grid}\n                    cell={d => ({ week: d.week, day: d.day, value: d.demand })}\n                    legend=\"low → high\"\n                />\n            </AlignedStack>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:aligned-stack.examples.tsx:alignedStackChartMatrix",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/layout/aligned-stack.examples.tsx",
+      "suite": "",
+      "test": "A Chart stacked over a Matrix sharing one gutter — the Matrix value-grid lines up column-for-column under the chart",
+      "keywords": [
+        "AlignedStack",
+        "plotGutter",
+        "Chart",
+        "Matrix",
+        "align",
+        "lane",
+        "grid",
+        "day"
+      ],
+      "imports": [
+        "import { East, ArrayType, FloatType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { NullType } from \"@elaraai/east\";",
+        "import { AlignedStack, Box, Calendar, Chart, Gantt, Matrix, Planner, Table, Trace } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// A Chart stacked over a Matrix sharing one gutter — the Matrix value-grid lines up column-for-column under the chart\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const load = $.const([\n            { day: 0.0, v: 0.45 }, { day: 1.0, v: 0.70 }, { day: 2.0, v: 0.85 },\n            { day: 3.0, v: 0.60 }, { day: 4.0, v: 0.30 },\n        ], ArrayType(StructType({ day: FloatType, v: FloatType })));\n        return (\n            <AlignedStack gutter={{ left: \"120px\", right: \"12px\" }} gap=\"8px\">\n                <Box height=\"150px\" width=\"100%\">\n                    <Chart\n                        layers={Chart.Line(load, { x: r => r.day, y: r => r.v }, { color: \"teal.solid\" })}\n                        x={{ scale: \"linear\", domain: [0, 4], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0] }}\n                        y={{ label: \"load\" }}\n                        grid\n                    />\n                </Box>\n                <Matrix\n                    data={[\n                        { name: \"Alice\", booked: new Map([[\"mon\", 0.45], [\"tue\", 0.70], [\"wed\", 0.85], [\"thu\", 0.60], [\"fri\", 0.30]]) },\n                        { name: \"Bob\", booked: new Map([[\"mon\", 0.35], [\"tue\", 0.60], [\"wed\", 0.30], [\"thu\", 0.75], [\"fri\", 0.50]]) },\n                    ]}\n                    columns={[\n                        Matrix.column({ key: \"mon\", label: \"Mon\" }),\n                        Matrix.column({ key: \"tue\", label: \"Tue\" }),\n                        Matrix.column({ key: \"wed\", label: \"Wed\" }),\n                        Matrix.column({ key: \"thu\", label: \"Thu\" }),\n                        Matrix.column({ key: \"fri\", label: \"Fri\" }),\n                    ]}\n                    rowKey={r => r.name}\n                    rowHeader=\"Resource\"\n                    cell={(r, col) => Matrix.cell({ segments: [\n                        Matrix.segment({ fill: \"brand\", weight: r.booked.get(col.key) }),\n                        Matrix.segment({ fill: \"free\", weight: East.value(1.0, FloatType).subtract(r.booked.get(col.key)) }),\n                    ] })}\n                />\n            </AlignedStack>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:aligned-stack.examples.tsx:alignedStackChartTable",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/layout/aligned-stack.examples.tsx",
+      "suite": "",
+      "test": "A Chart stacked over a Table sharing one gutter — the frozen column fills ",
+      "keywords": [
+        "AlignedStack",
+        "plotGutter",
+        "Chart",
+        "Table",
+        "frozen",
+        "align",
+        "lane",
+        "categories"
+      ],
+      "imports": [
+        "import { East, ArrayType, FloatType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { NullType } from \"@elaraai/east\";",
+        "import { AlignedStack, Box, Calendar, Chart, Gantt, Matrix, Planner, Table, Trace } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// A Chart stacked over a Table sharing one gutter — the frozen column fills \n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const load = $.const([\n            { day: 0.0, v: 0.45 }, { day: 1.0, v: 0.70 }, { day: 2.0, v: 0.85 },\n            { day: 3.0, v: 0.60 }, { day: 4.0, v: 0.30 },\n        ], ArrayType(StructType({ day: FloatType, v: FloatType })));\n        return (\n            <AlignedStack gutter={{ left: \"120px\", right: \"12px\" }} gap=\"8px\">\n                <Box height=\"150px\" width=\"100%\">\n                    <Chart\n                        layers={Chart.Line(load, { x: r => r.day, y: r => r.v }, { color: \"teal.solid\" })}\n                        x={{ scale: \"linear\", domain: [0, 4], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0] }}\n                        y={{ label: \"load\" }}\n                        grid\n                    />\n                </Box>\n                <Table\n                    data={[\n                        { resource: \"Alice\", mon: \"0.45\", tue: \"0.70\", wed: \"0.85\", thu: \"0.60\", fri: \"0.30\" },\n                        { resource: \"Bob\", mon: \"0.35\", tue: \"0.60\", wed: \"0.30\", thu: \"0.75\", fri: \"0.50\" },\n                    ]}\n                    columns={{\n                        resource: { header: \"Resource\" },\n                        mon: { header: \"Mon\" }, tue: { header: \"Tue\" }, wed: { header: \"Wed\" },\n                        thu: { header: \"Thu\" }, fri: { header: \"Fri\" },\n                    }}\n                    frozen={[\"resource\"]}\n                />\n            </AlignedStack>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:aligned-stack.examples.tsx:alignedStackChartPlanner",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/layout/aligned-stack.examples.tsx",
+      "suite": "",
+      "test": "A Chart stacked over a Planner sharing one gutter — the frozen channel fills ",
+      "keywords": [
+        "AlignedStack",
+        "plotGutter",
+        "Chart",
+        "Planner",
+        "frozen",
+        "timeline",
+        "day",
+        "axis",
+        "align"
+      ],
+      "imports": [
+        "import { East, ArrayType, FloatType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { NullType } from \"@elaraai/east\";",
+        "import { AlignedStack, Box, Calendar, Chart, Gantt, Matrix, Planner, Table, Trace } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// A Chart stacked over a Planner sharing one gutter — the frozen channel fills \n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const temp = $.const([\n            { day: 0.0, v: 12.0 }, { day: 1.0, v: 14.0 }, { day: 2.0, v: 18.0 },\n            { day: 3.0, v: 20.0 }, { day: 4.0, v: 19.0 }, { day: 5.0, v: 16.0 }, { day: 6.0, v: 13.0 },\n        ], ArrayType(StructType({ day: FloatType, v: FloatType })));\n        return (\n            <AlignedStack gutter={{ left: \"140px\", right: \"12px\" }} gap=\"8px\">\n                <Box height=\"150px\" width=\"100%\">\n                    <Chart\n                        layers={Chart.Line(temp, { x: r => r.day, y: r => r.v }, { color: \"teal.solid\" })}\n                        x={{ scale: \"linear\", domain: [0, 6], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0] }}\n                        y={{ label: \"°C\" }}\n                        grid\n                    />\n                </Box>\n                <Planner.Point\n                    data={[{ name: \"Tank A\", role: \"Ferment\" }, { name: \"Tank B\", role: \"Ferment\" }]}\n                    axis={Planner.axis.number({ range: { min: 0, max: 6 } })}\n                    columns={[{ key: \"name\", frozen: true, value: r => r.name, sublabel: r => r.role }]}\n                    events={_r => [\n                        Planner.event({ slot: Planner.at.number(0), label: \"✓\", state: \"committed\" }),\n                        Planner.event({ slot: Planner.at.number(2), label: \"✓\", state: \"committed\" }),\n                        Planner.event({ slot: Planner.at.number(4), label: \"plan\", state: \"added\" }),\n                        Planner.event({ slot: Planner.at.number(6), label: \"?\", state: \"model\" }),\n                    ]}\n                    now={Planner.at.number(4)}\n                    onSelectRow={East.function([Planner.Types.SelectEvent], NullType, _$ => null)}\n                />\n            </AlignedStack>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:aligned-stack.examples.tsx:alignedStackChartGantt",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/layout/aligned-stack.examples.tsx",
+      "suite": "",
+      "test": "A Chart stacked over a Gantt sharing one gutter — the frozen table panel fills ",
+      "keywords": [
+        "AlignedStack",
+        "plotGutter",
+        "Chart",
+        "Gantt",
+        "timeline",
+        "splitter",
+        "frozen",
+        "align",
+        "time"
+      ],
+      "imports": [
+        "import { East, ArrayType, FloatType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { NullType } from \"@elaraai/east\";",
+        "import { AlignedStack, Box, Calendar, Chart, Gantt, Matrix, Planner, Table, Trace } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// A Chart stacked over a Gantt sharing one gutter — the frozen table panel fills \n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const load = $.const([\n            { d: 0.0, v: 0.3 }, { d: 1.0, v: 0.6 }, { d: 2.0, v: 0.8 }, { d: 3.0, v: 0.5 },\n        ], ArrayType(StructType({ d: FloatType, v: FloatType })));\n        return (\n            <AlignedStack gutter={{ left: \"180px\", right: \"14px\" }} gap=\"8px\">\n                <Box height=\"150px\" width=\"100%\">\n                    <Chart\n                        layers={Chart.Line(load, { x: r => r.d, y: r => r.v }, { color: \"teal.solid\" })}\n                        x={{ scale: \"linear\", domain: [0, 3] }}\n                        y={{ label: \"load\" }}\n                        grid\n                    />\n                </Box>\n                <Gantt\n                    data={[\n                        { task: \"Planning\", owner: \"Alice\", start: new Date(\"2024-01-01\"), end: new Date(\"2024-01-20\") },\n                        { task: \"Design\", owner: \"Bob\", start: new Date(\"2024-01-15\"), end: new Date(\"2024-02-05\") },\n                        { task: \"Build\", owner: \"Carol\", start: new Date(\"2024-01-25\"), end: new Date(\"2024-03-01\") },\n                    ]}\n                    columns={[\"task\", \"owner\"]}\n                    rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}\n                />\n            </AlignedStack>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:aligned-stack.examples.tsx:alignedStackAuto",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/layout/aligned-stack.examples.tsx",
+      "suite": "",
+      "test": "AlignedStack with gutter=",
+      "keywords": [
+        "AlignedStack",
+        "gutter",
+        "auto",
+        "measure",
+        "align"
+      ],
+      "imports": [
+        "import { East, ArrayType, FloatType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { NullType } from \"@elaraai/east\";",
+        "import { AlignedStack, Box, Calendar, Chart, Gantt, Matrix, Planner, Table, Trace } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// AlignedStack with gutter=\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { day: 0.0, v: 10.0 }, { day: 3.0, v: 14.0 }, { day: 6.0, v: 9.0 },\n        ], ArrayType(StructType({ day: FloatType, v: FloatType })));\n        return (\n            <AlignedStack gutter=\"auto\" gap=\"6px\">\n                <Box height=\"160px\" width=\"100%\">\n                    <Chart layers={Chart.Line(rows, { x: r => r.day, y: r => r.v }, { color: \"teal.solid\" })} grid />\n                </Box>\n            </AlignedStack>\n        );\n    })"
     },
     {
       "id": "east-ui:box.examples.tsx:boxBasic",
