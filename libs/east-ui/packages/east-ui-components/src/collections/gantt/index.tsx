@@ -33,6 +33,7 @@ import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 import { useRowStatusBg, useDensityHeights } from "../shared/helpers";
 import { DensityProvider } from "../../contracts/density";
+import { usePlotGutter } from "../../contracts/plot-gutter.js";
 import { RowStateManager, type RowKey, type RowState } from "../../utils/RowStateManager";
 import { useColumnPinning, HeaderControls, getHeaderCellStyle, getCellStyle, createGetSortIndex, useColumnSizeVars, useLastUnpinnedColumnId } from "../shared/column-pinning";
 import { EventAxis, tierInterval, type GanttTier } from "./EventAxis";
@@ -187,6 +188,21 @@ const GanttCore = function GanttCore({
 
     // Extract East-side callbacks from style
     const style = getSomeorUndefined(value.style);
+
+    // Shared plot gutter (#147) — own style field wins over an enclosing
+    // <AlignedStack>'s context. When active the timeline is pinned to
+    // [left, W−right]: the splitter's table panel is forced to `left` (so the
+    // timeline panel starts at the chart's plot-left), the table columns shrink
+    // to fit, and the x-scale range is inset by `right` so the time axis ends at
+    // W−right. The splitter resize handle is hidden so the gutter stays put.
+    const ctxGutter = usePlotGutter();
+    const ownGutter = style ? getSomeorUndefined(style.plotGutter) : undefined;
+    const gLeft = (ownGutter ? getSomeorUndefined(ownGutter.left) : undefined) ?? ctxGutter?.left;
+    const gRight = (ownGutter ? getSomeorUndefined(ownGutter.right) : undefined) ?? ctxGutter?.right;
+    const gutterActive = gLeft !== undefined || gRight !== undefined;
+    const gLeftPx = gLeft !== undefined ? parseFloat(gLeft) : undefined;
+    const gRightPx = gRight !== undefined ? parseFloat(gRight) : 0;
+
     const onCellClickFn = getSomeorUndefined(value.onCellClick);
     const onCellDoubleClickFn = getSomeorUndefined(value.onCellDoubleClick);
     const onRowClickFn = getSomeorUndefined(value.onRowClick);
@@ -293,9 +309,12 @@ const GanttCore = function GanttCore({
     // One visx time scale shared by the gridlines + now-line (and the same
     // [start,end]→[0,width] linear mapping the bars/milestones use). `.ticks()`
     // lets the scale choose a human-friendly tick count for the dashed lines.
+    // Under an active gutter the time axis ends `right` px short of the panel so
+    // the lane is [left, W−right] (the table panel already supplies `left`).
+    const timelineRange = gutterActive ? Math.max(0, timelineWidth - gRightPx) : timelineWidth;
     const xScale = useMemo(
-        () => scaleTime({ domain: [dateRange.start, dateRange.end], range: [0, timelineWidth] }),
-        [dateRange.start, dateRange.end, timelineWidth],
+        () => scaleTime({ domain: [dateRange.start, dateRange.end], range: [0, timelineRange] }),
+        [dateRange.start, dateRange.end, timelineRange],
     );
 
     const gridLinePositions = useMemo(
@@ -679,8 +698,13 @@ const GanttCore = function GanttCore({
         return Math.min(Math.max((columnTotalWidth / containerWidth) * 100, 15), 75);
     }, [tablePanelSizeProp, columnTotalWidth, containerWidth]);
 
-    // Effective: dragging > persisted (user-dragged) > computed from column widths
-    const effectiveTablePanelSize = dragSize ?? persistedState.tablePanelSize ?? computedTablePanelSize;
+    // Effective: an active gutter pins the table panel to `left` (so the timeline
+    // panel starts at the chart's plot-left); otherwise dragging > persisted > computed.
+    const gutterTablePanelSize = (gutterActive && gLeftPx !== undefined && containerWidth > 0)
+        ? Math.min(Math.max((gLeftPx / containerWidth) * 100, 1), 99)
+        : undefined;
+    const effectiveTablePanelSize = gutterTablePanelSize
+        ?? dragSize ?? persistedState.tablePanelSize ?? computedTablePanelSize;
 
     // Last unpinned column stretches to fill remaining panel space
     // (shared derivation, also used by Planner).
@@ -784,7 +808,9 @@ const GanttCore = function GanttCore({
                         style={{
                             ...columnSizeVars,
                             width: "100%",
-                            minWidth: table.getCenterTotalSize(),
+                            // Under a gutter the table panel is pinned to `left`, so let the
+                            // columns shrink to fit it instead of forcing a horizontal scroll.
+                            minWidth: gutterActive ? 0 : table.getCenterTotalSize(),
                             tableLayout: "fixed",
                         }}
                     >
@@ -954,7 +980,9 @@ const GanttCore = function GanttCore({
 
             {/* Base grip from the `splitter` slot recipe; nudge it into the
                 rows area (below the header) — a runtime offset, not a recipe value. */}
-            <Splitter.ResizeTrigger id="table:timeline" css={{ _after: { top: `calc(50% + ${headerHeight / 2}px)` } }} />
+            {!gutterActive && (
+                <Splitter.ResizeTrigger id="table:timeline" css={{ _after: { top: `calc(50% + ${headerHeight / 2}px)` } }} />
+            )}
 
             {/* Timeline Panel */}
             <Splitter.Panel id="timeline">

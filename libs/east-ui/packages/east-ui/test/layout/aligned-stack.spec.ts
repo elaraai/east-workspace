@@ -16,6 +16,7 @@ describeEast("AlignedStack", (test) => {
         alignedStackChartMatrix: ex.alignedStackChartMatrix,
         alignedStackChartTable: ex.alignedStackChartTable,
         alignedStackChartPlanner: ex.alignedStackChartPlanner,
+        alignedStackChartGantt: ex.alignedStackChartGantt,
         alignedStackAuto: ex.alignedStackAuto,
     });
 }, { platformFns: TestImpl });

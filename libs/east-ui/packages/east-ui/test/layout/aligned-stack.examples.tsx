@@ -6,7 +6,7 @@
 import { East, ArrayType, FloatType, StringType, StructType, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
 import { NullType } from "@elaraai/east";
-import { AlignedStack, Box, Calendar, Chart, Matrix, Planner, Table, Trace } from "@elaraai/east-ui";
+import { AlignedStack, Box, Calendar, Chart, Gantt, Matrix, Planner, Table, Trace } from "@elaraai/east-ui";
 
 /**
  * Two charts on the same day axis, stacked in an `<AlignedStack>` with a shared
@@ -259,6 +259,44 @@ export const alignedStackChartPlanner = example({
                     ]}
                     now={Planner.at.number(4)}
                     onSelectRow={East.function([Planner.Types.SelectEvent], NullType, _$ => null)}
+                />
+            </AlignedStack>
+        );
+    }),
+    inputs: [],
+});
+
+/**
+ * A `<Chart>` stacked over a `<Gantt>` in an `<AlignedStack>` — the Gantt inherits
+ * the gutter from context, so its frozen table panel is pinned to `left` (the
+ * splitter no longer drags) and its time-axis timeline fills `[left, W−right]`,
+ * lining up under the chart's plot. (#147)
+ */
+export const alignedStackChartGantt = example({
+    keywords: ["AlignedStack", "plotGutter", "Chart", "Gantt", "timeline", "splitter", "frozen", "align", "time"],
+    description: "A Chart stacked over a Gantt sharing one gutter — the frozen table panel fills `left` and the timeline lines up under the chart's plot",
+    fn: East.function([], UIComponentType, ($) => {
+        const load = $.const([
+            { d: 0.0, v: 0.3 }, { d: 1.0, v: 0.6 }, { d: 2.0, v: 0.8 }, { d: 3.0, v: 0.5 },
+        ], ArrayType(StructType({ d: FloatType, v: FloatType })));
+        return (
+            <AlignedStack gutter={{ left: "180px", right: "14px" }} gap="8px">
+                <Box height="150px" width="100%">
+                    <Chart
+                        layers={Chart.Line(load, { x: r => r.d, y: r => r.v }, { color: "teal.solid" })}
+                        x={{ scale: "linear", domain: [0, 3] }}
+                        y={{ label: "load" }}
+                        grid
+                    />
+                </Box>
+                <Gantt
+                    data={[
+                        { task: "Planning", owner: "Alice", start: new Date("2024-01-01"), end: new Date("2024-01-20") },
+                        { task: "Design", owner: "Bob", start: new Date("2024-01-15"), end: new Date("2024-02-05") },
+                        { task: "Build", owner: "Carol", start: new Date("2024-01-25"), end: new Date("2024-03-01") },
+                    ]}
+                    columns={["task", "owner"]}
+                    rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
                 />
             </AlignedStack>
         );
