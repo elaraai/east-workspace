@@ -1,6 +1,6 @@
 {
   "name": "@elaraai/east-diagnostics",
-  "version": "1.0.27",
+  "version": "1.0.28",
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "description": "East-aware diagnostic rules over the TypeScript checker — one shared engine for the editor (tsserver plugin), the agent (headless daemon), and CI.",
