@@ -93,7 +93,7 @@ export interface CalendarCellFields {
  *
  * @typeParam R - The day-row struct
  * @property cell - Cell row mapper (omit when rows are already resolved)
- * @property legend - Intensity caption (defaults to `low → high`)
+ * @property legend - Intensity caption (omitted by default; pass a string to caption the colour ramp)
  * @property domain - Optional explicit intensity domain (default: observed min/max)
  * @property actionLabel - Optional footer-right drill label
  * @property onAction - Optional drill callback (receives the selected cell)
@@ -102,7 +102,7 @@ export interface CalendarCellFields {
 export interface CalendarConfig<R extends StructType> {
     /** Cell row mapper; omit when `data` is already `ArrayType(Calendar.Types.Cell)`. */
     cell?: (day: ExprType<R>) => CalendarCellFields;
-    /** Intensity caption (defaults to `low → high`). */
+    /** Intensity caption (omitted by default; pass a string to caption the colour ramp). */
     legend?: SubtypeExprOrValue<StringType>;
     /** Optional explicit intensity domain (default: observed min/max). */
     domain?: { min: SubtypeExprOrValue<FloatType>; max: SubtypeExprOrValue<FloatType> };
@@ -146,7 +146,7 @@ function buildRoot(
         : undefined;
 
     return East.value(variant("Calendar", {
-        legend: config.legend ?? "low → high",
+        legend: config.legend ?? "",
         cells,
         domain: config.domain !== undefined
             ? some(East.value({ min: config.domain.min, max: config.domain.max },

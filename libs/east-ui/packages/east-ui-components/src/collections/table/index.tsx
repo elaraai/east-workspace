@@ -994,9 +994,13 @@ const TableCore = function TableCore({
                                     </ChakraTable.ColumnHeader>
                                 );
                             })}
-                            {/* Gutter: trailing right-gutter spacer so the lane ends at W−right (#147). */}
+                            {/* Gutter: trailing right-gutter spacer so the lane ends at W−right
+                                (#147). Paints the surface colour (NOT the header wash) so the
+                                grey header band stops level with the day columns, matching the
+                                transparent body-row spacer below — otherwise the band bleeds the
+                                gutter's width past the columns. */}
                             {gutterActive && (
-                                <ChakraTable.ColumnHeader aria-hidden="true" bg={headerBackground} style={{ flex: "none", width: gutterRightPx, padding: 0, borderColor, height: `${effectiveRowHeight}px` }} />
+                                <ChakraTable.ColumnHeader aria-hidden="true" bg="bg.surface" style={{ flex: "none", width: gutterRightPx, padding: 0, border: "none", height: `${effectiveRowHeight}px` }} />
                             )}
                         </ChakraTable.Row>
                     ))}
@@ -1274,7 +1278,7 @@ const TableCore = function TableCore({
                                 })}
                                 {/* Gutter: trailing right-gutter spacer so the lane ends at W−right (#147). */}
                                 {gutterActive && (
-                                    <ChakraTable.Cell aria-hidden="true" style={{ flex: "none", width: gutterRightPx, padding: 0, borderColor }} />
+                                    <ChakraTable.Cell aria-hidden="true" bg="bg.surface" style={{ flex: "none", width: gutterRightPx, padding: 0, border: "none" }} />
                                 )}
                             </ChakraTable.Row>
                             {/* Expandable detail panel — rendered when this row is in

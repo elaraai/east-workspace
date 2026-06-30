@@ -16,14 +16,14 @@ describeEast("Calendar", (test) => {
         calendarInteractive: ex.calendarInteractive,
     });
 
-    test("resolves cells with default formatting and legend", $ => {
+    test("resolves cells with default formatting and an empty (omitted) legend", $ => {
         const cal = $.let(Calendar.Root(
             [{ week: "W1", day: "Mon", v: 4.5 }],
             { cell: d => ({ week: d.week, day: d.day, value: d.v }) },
         ));
         const root = $.let(cal.unwrap().unwrap("Calendar"));
 
-        $(Assert.equal(root.legend, "low → high"));
+        $(Assert.equal(root.legend, ""));
         $(Assert.equal(root.cells.size(), 1n));
         $(Assert.equal(root.cells.get(0n).week, "W1"));
         $(Assert.equal(root.cells.get(0n).day, "Mon"));

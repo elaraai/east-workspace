@@ -109,9 +109,11 @@ export const EastChakraCalendar = memo(function EastChakraCalendar({ value }: Ea
 
     return (
         <Box css={styles.root} {...(gutterActive ? { display: "block", width: "100%" } : {})}>
-            <Box css={styles.header}>
-                <Box as="span" css={styles.legend}>{value.legend}</Box>
-            </Box>
+            {value.legend !== "" && (
+                <Box css={styles.header}>
+                    <Box as="span" css={styles.legend}>{value.legend}</Box>
+                </Box>
+            )}
             <Box
                 css={styles.grid}
                 style={{

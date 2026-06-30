@@ -503,6 +503,11 @@ export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageK
                         </Box>
                     ))}
                 </Box>
+                {/* Trailing right-gutter spacer (#147): the header band's `bg.panel` wash fills
+                    the whole outer grid; this paints the surface colour over the gutter track so
+                    the wash stops level with the day columns (the per-cell bottom rule already
+                    stops there). */}
+                {gutterActive && <Box data-slot="headerGutter" aria-hidden="true" background="bg.surface" />}
             </Box>
 
             {/* Body: group-head rows + data rows. */}
@@ -522,6 +527,13 @@ export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageK
                             gridTemplateColumns={outerCols}
                             minWidth={outerMinWidth}
                         >
+                            {/* Trailing right-gutter mask (#147): stop the row's full-width bottom
+                                rule (base.row) at W−right; `bottom:-1px` covers both the gutter
+                                strip and that 1px rule with the surface colour. */}
+                            {gutterActive && (
+                                <Box position="absolute" top="0" bottom="-1px" right="0" width={rightCol}
+                                    background="bg.surface" pointerEvents="none" zIndex={3} aria-hidden="true" />
+                            )}
                             {/* Left pane — the single row-header column. */}
                             <Box css={stickyLeft} display="flex" width="100%" style={effectiveSizeVars}>
                                 {table.getVisibleLeafColumns().map((column) => {

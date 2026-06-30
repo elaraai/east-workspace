@@ -125,9 +125,7 @@ export const alignedStackChartCalendar = example({
                 </Box>
                 <Calendar
                     data={grid}
-                    cell={d => ({ week: d.week, day: d.day, value: d.demand })}
-                    legend="low → high"
-                />
+                    cell={d => ({ week: d.week, day: d.day, value: d.demand })}                />
             </AlignedStack>
         );
     }),
@@ -392,9 +390,7 @@ export const alignedStackAll = example({
                         { week: "W37", day: "Fri", demand: 0.8 }, { week: "W37", day: "Sat", demand: 0.3 },
                         { week: "W37", day: "Sun", demand: 0.2 },
                     ]}
-                    cell={d => ({ week: d.week, day: d.day, value: d.demand })}
-                    legend="low → high"
-                />
+                    cell={d => ({ week: d.week, day: d.day, value: d.demand })}                />
                 {/* 6 — Table: per-day metric row, frozen label column fills `left`. */}
                 <Table
                     data={[
@@ -494,9 +490,7 @@ export const alignedStackAllCompact = example({
                         { week: "W37", day: "Fri", demand: 0.8 }, { week: "W37", day: "Sat", demand: 0.3 },
                         { week: "W37", day: "Sun", demand: 0.2 },
                     ]}
-                    cell={d => ({ week: d.week, day: d.day, value: d.demand })}
-                    legend="low → high"
-                />
+                    cell={d => ({ week: d.week, day: d.day, value: d.demand })}                />
                 <Table
                     data={[
                         { metric: "Output", d0: "12", d1: "14", d2: "18", d3: "20", d4: "19", d5: "16", d6: "13" },
@@ -592,9 +586,7 @@ export const alignedStackAllCondensed = example({
                         { week: "W37", day: "Fri", demand: 0.8 }, { week: "W37", day: "Sat", demand: 0.3 },
                         { week: "W37", day: "Sun", demand: 0.2 },
                     ]}
-                    cell={d => ({ week: d.week, day: d.day, value: d.demand })}
-                    legend="low → high"
-                />
+                    cell={d => ({ week: d.week, day: d.day, value: d.demand })}                />
                 <Table
                     data={[
                         { metric: "Output", d0: "12", d1: "14", d2: "18", d3: "20", d4: "19", d5: "16", d6: "13" },

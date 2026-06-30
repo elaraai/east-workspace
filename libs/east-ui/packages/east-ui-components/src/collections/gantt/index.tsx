@@ -1006,6 +1006,13 @@ const GanttCore = function GanttCore({
                             tier={axisTier}
                             format={axisFormat}
                         />
+                        {/* Trailing right-gutter mask (#147): the header band's wash fills the
+                            whole timeline panel, so without this it bleeds into the `right`
+                            gutter past where the axis ends (timelineRange = width − right).
+                            Painting the surface colour over the gutter stops it at the lane edge. */}
+                        {gutterActive && gRightPx > 0 && (
+                            <Box position="absolute" top={0} right={0} width={`${gRightPx}px`} height={`${headerHeight}px`} background="bg.surface" pointerEvents="none" zIndex={1} />
+                        )}
                         {timelineBrush && (
                             // Brush capture over the header: the time scale spans
                             // the pane (no horizontal scroll), so pixel → time is
@@ -1087,6 +1094,12 @@ const GanttCore = function GanttCore({
                                             background: timelineRowBg,
                                         }}
                                     >
+                                        {/* Trailing right-gutter mask (#147): stop the row's
+                                            full-width bottom rule at W−right; `bottom:-1px` covers
+                                            the gutter strip and that 1px rule with the surface colour. */}
+                                        {gutterActive && gRightPx > 0 && (
+                                            <Box position="absolute" top={0} right={0} bottom="-1px" width={`${gRightPx}px`} background="bg.surface" pointerEvents="none" zIndex={2} aria-hidden="true" />
+                                        )}
                                         <ChakraTable.Cell
                                             style={{ width: "100%", padding: 0 }}
                                         >
