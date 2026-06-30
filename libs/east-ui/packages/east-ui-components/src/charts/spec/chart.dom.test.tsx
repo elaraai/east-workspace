@@ -314,3 +314,43 @@ describe("Chart renderer — tooltip portal + stacking tier", () => {
         expect(portalRoot!.style.zIndex).toBe("1800"); // Chakra zIndex.tooltip
     });
 });
+
+describe("Chart renderer — series clipped to the plot rect (#152)", () => {
+    test("only the series is wrapped in a clipPath-bound group; the axes are not clipped", () => {
+        const node = frame([
+            lineNode([series("A", "teal.solid", [pt("Jan", 10), pt("Feb", 20)])]),
+            axisNode("axisBottom"),
+            axisNode("axisLeft"),
+        ]);
+        const { container } = ui(<EastVisxChart value={node as never} />);
+
+        // A clipPath is defined for the plot rect, and exactly one group is bound to
+        // it — the series. The two axes (and any grid/reference marks) live OUTSIDE
+        // the clip, in the margin, so they are never sheared.
+        const clip = container.querySelector("clipPath");
+        expect(clip).not.toBeNull();
+        expect(clip!.id).toBeTruthy();
+
+        const clipped = container.querySelectorAll(`g[clip-path="url(#${clip!.id})"]`);
+        expect(clipped.length).toBe(1);
+        expect(clipped[0]!.querySelector("path")).not.toBeNull(); // the line path is inside
+    });
+
+    test("the clip is EXACTLY the plot rect — an edge marker is halved at the gutter, not bled past it", () => {
+        const node = frame([
+            lineNode([series("A", "teal.solid", [pt("Jan", 10), pt("Feb", 20)])]),
+            axisNode("axisBottom"),
+            axisNode("axisLeft"),
+        ]);
+        const { container } = ui(<EastVisxChart value={node as never} />);
+
+        const rect = container.querySelector("clipPath rect")!;
+        expect(rect).not.toBeNull();
+        // The rect is the plot rect, NOT padded outward: a point sitting on the
+        // domain edge is cleanly clipped at the boundary so a chart stacked in an
+        // <AlignedStack> stays aligned to [left, W−right]. innerW = 400 − 40 − 8.
+        expect(Number(rect.getAttribute("x"))).toBe(0);
+        expect(Number(rect.getAttribute("y"))).toBe(0);
+        expect(Number(rect.getAttribute("width"))).toBe(352);
+    });
+});

@@ -16,6 +16,8 @@
  *   `closeDelay` across every hover-to-open primitive.
  * - `density` / `verbosity` (§1.1 / §0.4): React contexts + hooks for the
  *   `DensityType` / `VerbosityType` cascade.
+ * - `plot-gutter` (#147): React context + hook for the shared `{ left, right }`
+ *   plot gutter that `<AlignedStack>` imposes on its axis/lane children.
  *
  * Pure value resolvers (TextStyle, Elevation, Motion, Focus, Animation) live
  * under `../style/` — the split is: this folder owns contract enforcement
@@ -34,3 +36,4 @@ export {
     DensityProvider, useDensity,
     VerbosityProvider, useVerbosity,
 } from "./density.js";
+export { type PlotGutter, type PlotGutterProviderProps, PlotGutterProvider, usePlotGutter } from "./plot-gutter.js";

@@ -21,7 +21,7 @@ import { Brush } from "@visx/brush";
 import type { Bounds } from "@visx/brush/lib/types";
 import { AxisBottom, AxisLeft, AxisRight, type AxisScale } from "@visx/axis";
 import { getSomeorUndefined } from "../../utils";
-import { usePlotGutter } from "../../contracts/plot-gutter.js";
+import { usePlotGutter, gutterPx } from "../../contracts/plot-gutter.js";
 
 const T = Chart.Spec.Types;
 type Spec = ValueTypeOf<typeof T.Spec>;
@@ -500,7 +500,10 @@ function AxisBMark({ value }: { value: Axis }): ReactNode {
     // Explicit `tickValues` win over the band scale's category positions; defaults
     // preserve today's look (ticks hidden, baseline shown on the x-axis).
     const numTicks = getSomeorUndefined(value.numTicks);
-    const tickValues = getSomeorUndefined(value.tickValues) ?? xTickValues;
+    // Pin to the data-point positions by default — UNLESS the caller asked for an
+    // explicit `numTicks` (#149); otherwise the default would shadow numTicks on x
+    // (visx prefers tickValues over numTicks), unlike the y / y2 axes.
+    const tickValues = getSomeorUndefined(value.tickValues) ?? (numTicks !== undefined ? undefined : xTickValues);
     const hideTicks = getSomeorUndefined(value.hideTicks) ?? true;
     const hideLine = getSomeorUndefined(value.hideLine) ?? false;
     return (
@@ -649,8 +652,8 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
     // chart's plot lane lines up with stacked siblings on a common x. Pin
     // margin.left/right to the gutter px (parsed from the CSS length).
     const ctxGutter = usePlotGutter();
-    const gutterLeft = ctxGutter?.left !== undefined ? parseFloat(ctxGutter.left) : undefined;
-    const gutterRight = ctxGutter?.right !== undefined ? parseFloat(ctxGutter.right) : undefined;
+    const gutterLeft = gutterPx(ctxGutter?.left);
+    const gutterRight = gutterPx(ctxGutter?.right);
     return match(node, {
         frame: f => {
             const xKind: ScaleKind = match(f.xScale, { band: () => "band" as const, linear: () => "linear" as const, time: () => "time" as const });
@@ -681,6 +684,9 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
             // Margins: base, widened for axis titles + the right axis. A shared
             // plot gutter (#147, from an <AlignedStack>) pins left/right exactly so
             // the lane aligns with stacked siblings — overriding the derived widths.
+            // (The gutter wins unconditionally: the Chart factory always fills
+            // `margin` with a default, so there's no renderer-visible signal for an
+            // author-set margin to defer to — `gutterLeft ?? base.left` is correct.)
             const base = getSomeorUndefined(f.margin) ?? { top: 8, right: 8, bottom: 24, left: 40 };
             const margin: Margin = {
                 top: base.top,
@@ -775,7 +781,11 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
                         <svg width={w} height={svgH} style={{ display: "block", overflow: "visible" }}>
                             <Group left={margin.left} top={margin.top}>
                                 {/* #152 — plot-rect clip for the series marks (userSpaceOnUse:
-                                    the rect is in this Group's [0,0,innerW,innerH] coords). */}
+                                    the rect is in this Group's [0,0,innerW,innerH] coords). The
+                                    clip is EXACTLY the plot rect — a marker on the domain edge is
+                                    cleanly halved at the gutter boundary rather than bleeding past
+                                    it, so a chart stacked in an <AlignedStack> stays aligned to
+                                    [left, W−right] (padding the rect outward broke that). */}
                                 <defs>
                                     <clipPath id={clipId}>
                                         <rect x={0} y={0} width={innerW} height={innerH} />

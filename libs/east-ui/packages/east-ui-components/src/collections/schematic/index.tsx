@@ -685,6 +685,9 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         movedRef.current = false;
         // Select tool (#153): start a screen-space selection box instead of a pan.
         if (effectiveToolRef.current === "select") {
+            // Cancel any in-flight fly-to so the camera stops moving under the
+            // marquee (the grab branch gets this for free via "pointerDown").
+            transition("cancel");
             const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
             const sx = e.clientX - r.left, sy = e.clientY - r.top;
             selStartRef.current = { sx, sy };
@@ -773,9 +776,11 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     // pointer-leave clear a stuck override.
     useEffect(() => {
         const onKeyDown = (e: KeyboardEvent) => {
-            if (!hoveredRef.current || e.repeat) return;
-            if (e.code === "Space") { e.preventDefault(); setTempTool("grab"); }
-            else if (e.key === "Control") setTempTool("select");
+            if (!hoveredRef.current) return;
+            // preventDefault on EVERY Space (incl. auto-repeat) so the page never
+            // scrolls while panning; only the first sets the tool.
+            if (e.code === "Space") { e.preventDefault(); if (!e.repeat) setTempTool("grab"); }
+            else if (e.key === "Control" && !e.repeat) setTempTool("select");
         };
         const onKeyUp = (e: KeyboardEvent) => {
             if (e.code === "Space" || e.key === "Control") setTempTool(null);
@@ -945,9 +950,10 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                 data-schematic-canvas=""
                 style={{
                     ...(fixedHeight !== undefined ? { minHeight: 0 } : { aspectRatio: `${W} / ${H}` }),
-                    // Cursor follows the effective tool (#153): crosshair for select,
-                    // grab for pan (→ grabbing while a drag is active, via the recipe).
-                    cursor: effectiveTool === "select" ? "crosshair" : "grab",
+                    // Select shows a crosshair; for grab we leave the cursor to the
+                    // recipe (grab → grabbing on :active) — an inline value would
+                    // outrank the recipe and freeze the cursor on 'grab' mid-pan (#153).
+                    ...(effectiveTool === "select" ? { cursor: "crosshair" } : {}),
                 }}
                 onPointerEnter={() => { hoveredRef.current = true; }}
                 onPointerLeave={() => { hoveredRef.current = false; setTempTool(null); }}

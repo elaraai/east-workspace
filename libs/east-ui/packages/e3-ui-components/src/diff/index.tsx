@@ -157,7 +157,8 @@ function getOpt<T>(opt: { type: "none"; value: null } | { type: "some"; value: T
 
 // =============================================================================
 // Density — compact / condensed presets shrink the per-row dimensions while
-// the Card frame (header / footer / overall border) stays stable.
+// the header / footer chrome stays stable (the component renders frameless
+// since #151 — no card border around it).
 // =============================================================================
 
 type Density = "comfortable" | "compact" | "condensed";
@@ -1283,7 +1284,6 @@ const EastChakraDiff = memo(function EastChakraDiff({ value }: EastChakraDiffPro
         <Box
             layerStyle="surface.frameless"
             fontFamily="body"
-            borderColor={inConflictMode ? "fg.warning" : "border.strong"}
         >
             {/* Header — single eyebrow-row: label · counts · status flag. */}
             <Box css={es.root}>

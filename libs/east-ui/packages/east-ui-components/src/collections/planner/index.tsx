@@ -25,7 +25,7 @@ import {
 } from "../shared/column-pinning";
 import { useDensityHeights } from "../shared/helpers";
 import { DensityProvider } from "../../contracts/density";
-import { usePlotGutter } from "../../contracts/plot-gutter.js";
+import { usePlotGutter, gutterPx } from "../../contracts/plot-gutter.js";
 
 const plannerRootEqual = equalFor(Planner.Types.Root);
 
@@ -525,7 +525,7 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
     const gRight = (ownGutter ? getSomeorUndefined(ownGutter.right) : undefined) ?? ctxGutter?.right;
     const gutterActive = gLeft !== undefined || gRight !== undefined;
     const gRightCol = gRight ?? "0px";
-    const gLeftPx = gLeft !== undefined ? parseFloat(gLeft) : undefined;
+    const gLeftPx = gutterPx(gLeft);
     const totalLeftPx = table.getTotalSize();
     const frozenScale = (gutterActive && gLeftPx !== undefined && totalLeftPx > 0) ? gLeftPx / totalLeftPx : 1;
     const effectiveSizeVars = frozenScale !== 1
@@ -534,7 +534,7 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
         : columnSizeVars;
     const effectiveLeftPane = gLeft ?? leftPaneWidth;
     const outerCols = gutterActive
-        ? (hasReview ? `${effectiveLeftPane} 1fr ${gRightCol} ${DECISION_WIDTH}` : `${effectiveLeftPane} 1fr ${gRightCol}`)
+        ? (hasReview ? `${effectiveLeftPane} 1fr ${DECISION_WIDTH} ${gRightCol}` : `${effectiveLeftPane} 1fr ${gRightCol}`)
         : gridTemplate;
     const rightSlotCols = gutterActive ? `repeat(${nCols}, minmax(0, 1fr))` : slotTemplate;
     const outerMinWidth = gutterActive ? undefined : gridMinWidth;
@@ -738,6 +738,12 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
                         {review.columnLabel}
                     </Box>
                 )}
+                {/* Trailing right-gutter spacer (#147): the header band's `bg.panel`
+                    wash fills the whole outer grid, so without this it bleeds into the
+                    `gRightCol` gutter track past where the day columns end. Painting the
+                    surface colour over the gutter track stops the wash at W−right, level
+                    with the column cells (whose bottom rule already stops there). */}
+                {gutterActive && <Box data-slot="headerGutter" aria-hidden="true" background="bg.surface" />}
             </Box>
 
             {/* Body: group-head rows + data rows. */}
@@ -770,6 +776,14 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
                             {selected === index && (
                                 <Box position="absolute" inset="0" pointerEvents="none" zIndex={4}
                                     borderWidth="2px" borderColor="{colors.brand.600}" borderRadius="2px" />
+                            )}
+                            {/* Trailing right-gutter mask (#147): the row's full-width bottom rule
+                                (base.row) otherwise extends into the `right` gutter past the day
+                                columns. `bottom:-1px` paints the surface colour over both the gutter
+                                strip and that 1px rule, so the separator stops at W−right. */}
+                            {gutterActive && (
+                                <Box position="absolute" top="0" bottom="-1px" right="0" width={gRightCol}
+                                    background="bg.surface" pointerEvents="none" zIndex={3} aria-hidden="true" />
                             )}
                             {/* Left pane — widths/pin from TanStack, styling from planner slots. */}
                             <Box css={stickyLeft} display="flex" width="100%" style={effectiveSizeVars}>

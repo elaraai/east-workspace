@@ -77,8 +77,9 @@ export function EastReactiveComponent({ value, storageKey }: { value: ReactiveVa
             }
         }
         return () => unsubs.forEach(fn => fn());
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [trackers, storageKey]);
+        // depsRef is a stable ref; `trackers` is the only reactive input (mirrors
+        // getSnapshot below). storageKey is not read here, so it's not a dep.
+    }, [trackers]);
 
     // Snapshot based on our dependencies' versions across all trackers
     const getSnapshot = useCallback(() => {

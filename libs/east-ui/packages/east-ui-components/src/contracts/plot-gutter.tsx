@@ -41,3 +41,17 @@ export function PlotGutterProvider({ value, children }: PlotGutterProviderProps)
 export function usePlotGutter(): PlotGutter | undefined {
     return useContext(PlotGutterContext);
 }
+
+/**
+ * Parse a gutter length to a pixel number for layout math (frozen-pane scaling,
+ * chart margins). Accepts only a bare number or a `px` length — a different unit
+ * (`rem`, `%`, `em`, `calc(…)`) returns `undefined` so callers fall back to
+ * natural sizing rather than misreading e.g. `"1rem"` as `1px` (the trap a bare
+ * `parseFloat` falls into). The raw string is still used verbatim for the CSS
+ * grid track, which understands every unit — only the pixel maths degrades.
+ */
+export function gutterPx(length: string | undefined): number | undefined {
+    if (length === undefined) return undefined;
+    const m = /^\s*(-?\d*\.?\d+)\s*(?:px)?\s*$/.exec(length);
+    return m ? parseFloat(m[1]!) : undefined;
+}

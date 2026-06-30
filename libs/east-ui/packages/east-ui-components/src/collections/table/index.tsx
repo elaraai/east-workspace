@@ -39,7 +39,7 @@ import { useSliceReactivity } from "../../slice/use-slice-reactivity";
 import { RowStateManager, type RowKey, type RowState } from "../../utils/RowStateManager";
 import { useRowStatusBg, useDensityHeights } from "../shared/helpers";
 import { DensityProvider } from "../../contracts/density";
-import { usePlotGutter } from "../../contracts/plot-gutter.js";
+import { usePlotGutter, gutterPx } from "../../contracts/plot-gutter.js";
 
 // Pre-define equality function at module level
 const tableRootEqual = equalFor(Table.Types.Root);
@@ -717,7 +717,7 @@ const TableCore = function TableCore({
     const gRight = (ownGutter ? getSomeorUndefined(ownGutter.right) : undefined) ?? ctxGutter?.right;
     const gutterActive = gLeft !== undefined || gRight !== undefined;
     const gutterRightPx = gRight ?? "0px";
-    const gLeftPx = gLeft !== undefined ? parseFloat(gLeft) : undefined;
+    const gLeftPx = gutterPx(gLeft);
     // Scale the frozen pane so its columns sum to `left`; left spacer covers the
     // remainder (the whole of `left` when there are no frozen columns).
     const frozenScale = (gutterActive && gLeftPx !== undefined && frozenPanelWidth > 0)
@@ -994,9 +994,13 @@ const TableCore = function TableCore({
                                     </ChakraTable.ColumnHeader>
                                 );
                             })}
-                            {/* Gutter: trailing right-gutter spacer so the lane ends at W−right (#147). */}
+                            {/* Gutter: trailing right-gutter spacer so the lane ends at W−right
+                                (#147). Paints the surface colour (NOT the header wash) so the
+                                grey header band stops level with the day columns, matching the
+                                transparent body-row spacer below — otherwise the band bleeds the
+                                gutter's width past the columns. */}
                             {gutterActive && (
-                                <ChakraTable.ColumnHeader aria-hidden="true" bg={headerBackground} style={{ flex: "none", width: gutterRightPx, padding: 0, borderColor, height: `${effectiveRowHeight}px` }} />
+                                <ChakraTable.ColumnHeader aria-hidden="true" bg="bg.surface" style={{ flex: "none", width: gutterRightPx, padding: 0, border: "none", height: `${effectiveRowHeight}px` }} />
                             )}
                         </ChakraTable.Row>
                     ))}
@@ -1274,7 +1278,7 @@ const TableCore = function TableCore({
                                 })}
                                 {/* Gutter: trailing right-gutter spacer so the lane ends at W−right (#147). */}
                                 {gutterActive && (
-                                    <ChakraTable.Cell aria-hidden="true" style={{ flex: "none", width: gutterRightPx, padding: 0, borderColor }} />
+                                    <ChakraTable.Cell aria-hidden="true" bg="bg.surface" style={{ flex: "none", width: gutterRightPx, padding: 0, border: "none" }} />
                                 )}
                             </ChakraTable.Row>
                             {/* Expandable detail panel — rendered when this row is in
