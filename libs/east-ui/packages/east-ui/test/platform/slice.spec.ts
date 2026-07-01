@@ -3,6 +3,8 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
+import { test as pureTest } from "node:test";
+import nodeAssert from "node:assert/strict";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import {
     East,
@@ -18,7 +20,7 @@ import {
     StructType,
     ArrayType,
 } from "@elaraai/east";
-import { Slice, SliceApplyImpl } from "@elaraai/east-ui/internal";
+import { Slice, SliceApplyImpl, sliceBreakdown, sliceSeries } from "@elaraai/east-ui/internal";
 import * as ex from "./slice.examples.js";
 
 // ---------------------------------------------------------------------------
@@ -1082,6 +1084,27 @@ describeEast("Slice", (test) => {
         $(Assert.equal(bd.filter(($, g) => East.equal(g.key, "other")).length(), 0n));
     });
 
+    test("apply.breakdown: a positive top-N limit keeps the top groups and rolls the tail into a muted 'other' bucket", $ => {
+        const RowType = StructType({ region: StringType });
+        const cfg = $.let(Slice.config(RowType, { fields: { region: { label: "Region" } }, breakdownFieldIds: ["region"] }));
+        const state = $.const(Slice.state({ breakdown: some({ fieldId: "region", limit: some(2n) }) }));
+        const data = $.const([
+            { region: "EU" }, { region: "EU" }, { region: "EU" },
+            { region: "NA" }, { region: "NA" },
+            { region: "APAC" },
+            { region: "LATAM" },
+        ], ArrayType(RowType));
+        const bd = $.let(Slice.apply.breakdown([RowType], state, cfg, data), ArrayType(Slice.Types.BreakdownGroup));
+        $(Assert.equal(bd.length(), 3n));
+        $(Assert.equal(bd.get(0n).key,   "EU"));
+        $(Assert.equal(bd.get(0n).count, 3n));
+        $(Assert.equal(bd.get(1n).key,   "NA"));
+        $(Assert.equal(bd.get(1n).count, 2n));
+        $(Assert.equal(bd.get(2n).key,   "other"));
+        $(Assert.equal(bd.get(2n).count, 2n));                      // APAC + LATAM rolled up
+        $(Assert.equal(bd.get(2n).color, "{colors.gray.400}"));     // muted bucket colour
+    });
+
     // =======================================================================
     // Slice.apply.where — element-level assertions, not just length
     // =======================================================================
@@ -1229,3 +1252,110 @@ describeEast("Slice", (test) => {
         $(Assert.equal(key.getTag(), "none"));
     });
 }, { platformFns: [...TestImpl, ...SliceApplyImpl] });
+
+// ===========================================================================
+// Pure-engine parity — sliceSeries must agree with sliceBreakdown on group
+// identity (stable ISO keys for Dates), order, colours, and the top-N `other`
+// roll-up (#162). There is no East-level `Slice.apply.series`, so the parity
+// contract is pinned directly against the exported pure functions with plain
+// decoded values (options/variants built via `some`/`none`/`variant` — never
+// hand-rolled `{type,value}` literals).
+// ===========================================================================
+
+type EngineState  = Parameters<typeof sliceBreakdown>[0];
+type EngineConfig = Parameters<typeof sliceBreakdown>[1];
+
+/** A full engine state with every narrowing off, patched per test. */
+const engineState = (patch: Partial<EngineState>): EngineState => ({
+    range: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
+    breakdown: none, search: none, visible: none, selectedIndex: none,
+    ...patch,
+});
+
+const engineConfig: EngineConfig = {
+    fields: new Map(),
+    rangeFieldId: none,
+    searchFieldIds: [],
+    breakdownFieldIds: ["when", "region"],
+};
+
+pureTest("sliceSeries keys Date groups by ISO — identical to sliceBreakdown — and the legend whitelist controls exactly one series", () => {
+    const d1 = new Date("2026-01-02T00:00:00Z");
+    const d2 = new Date("2026-01-03T00:00:00Z");
+    const rows = [
+        { when: d1, day: "Mon", sessions: 5 },
+        { when: d1, day: "Tue", sessions: 3 },
+        { when: d1, day: "Wed", sessions: 2 },
+        { when: d2, day: "Mon", sessions: 4 },
+        { when: d2, day: "Tue", sessions: 1 },
+    ];
+    const now = new Date("2026-06-01T00:00:00Z");
+    const state = engineState({ breakdown: some({ fieldId: "when", limit: none }) });
+
+    const groups = sliceBreakdown(state, engineConfig, rows, now);
+    const series = sliceSeries(state, engineConfig, rows, "day", "sessions", now);
+
+    // Group identity + order + colour are identical across legend and chart.
+    nodeAssert.deepEqual(groups.map(g => g.key), [d1.toISOString(), d2.toISOString()]);
+    nodeAssert.deepEqual(series.map(s => s.key),   groups.map(g => g.key));
+    nodeAssert.deepEqual(series.map(s => s.color), groups.map(g => g.color));
+
+    // A `visible` whitelist holding ONE group key (what Slice.Legend writes)
+    // keeps exactly that series — the chart must NOT go empty (#162 defect 1).
+    const visibleState = engineState({
+        breakdown: some({ fieldId: "when", limit: none }),
+        visible: some(new Set([groups[0]!.key])),
+    });
+    const visibleSeries = sliceSeries(visibleState, engineConfig, rows, "day", "sessions", now);
+    nodeAssert.equal(visibleSeries.length, 1);
+    nodeAssert.equal(visibleSeries[0]!.key, groups[0]!.key);
+    nodeAssert.ok(visibleSeries[0]!.points.length > 0);
+});
+
+pureTest("sliceSeries applies the top-N limit roll-up identically to sliceBreakdown (same groups, colours, and a summed 'other' series)", () => {
+    const rows = [
+        { region: "EU",    day: "Mon", sessions: 1 },
+        { region: "EU",    day: "Tue", sessions: 1 },
+        { region: "EU",    day: "Wed", sessions: 1 },
+        { region: "NA",    day: "Mon", sessions: 2 },
+        { region: "NA",    day: "Tue", sessions: 2 },
+        { region: "APAC",  day: "Mon", sessions: 5 },
+        { region: "LATAM", day: "Tue", sessions: 7 },
+    ];
+    const now = new Date("2026-06-01T00:00:00Z");
+    const state = engineState({ breakdown: some({ fieldId: "region", limit: some(2n) }) });
+
+    const groups = sliceBreakdown(state, engineConfig, rows, now);
+    const series = sliceSeries(state, engineConfig, rows, "day", "sessions", now);
+
+    // Same entry count, same keys in the same order, same colour per index —
+    // including the muted `other` bucket (#162 defect 2: series used to emit
+    // one uncapped series per raw key, so the tail drew with no legend chip).
+    nodeAssert.equal(series.length, groups.length);
+    nodeAssert.deepEqual(series.map(s => s.key),   ["EU", "NA", "other"]);
+    nodeAssert.deepEqual(groups.map(g => g.key),   ["EU", "NA", "other"]);
+    nodeAssert.deepEqual(series.map(s => s.color), groups.map(g => g.color));
+    nodeAssert.equal(groups[2]!.color, "{colors.gray.400}");
+    nodeAssert.equal(groups[2]!.count, 2n);
+
+    // The `other` series carries the tail groups' summed values per x, in
+    // global first-seen x order (Mon before Tue).
+    const other = series[2]!;
+    nodeAssert.deepEqual(
+        other.points.map(p => ({ x: p.x, value: p.value })),
+        [
+            { x: variant("category", "Mon"), value: 5 },
+            { x: variant("category", "Tue"), value: 7 },
+        ],
+    );
+
+    // The legend's `other` chip controls the rolled-up series: whitelisting
+    // only `other` keeps exactly the one merged series.
+    const visibleState = engineState({
+        breakdown: some({ fieldId: "region", limit: some(2n) }),
+        visible: some(new Set(["other"])),
+    });
+    const onlyOther = sliceSeries(visibleState, engineConfig, rows, "day", "sessions", now);
+    nodeAssert.equal(onlyOther.length, 1);
+    nodeAssert.equal(onlyOther[0]!.key, "other");
+});
