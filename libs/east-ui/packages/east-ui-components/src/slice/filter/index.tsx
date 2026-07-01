@@ -16,6 +16,7 @@ import { SlicePredicateBuilder } from "../predicate-builder";
 import { SliceEditPopover } from "../edit";
 import { useSliceDensity } from "../density";
 import { useSliceReactivity } from "../use-slice-reactivity";
+import { uniqueSlug } from "../slug";
 
 /** East Slice.Filter value type. */
 export type SliceFilterValue = ValueTypeOf<typeof Slice.Filter.Types.Filter>;
@@ -63,11 +64,14 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
     // Replace the clause at `i` in place (op / value edit keeps order).
     const replaceFilter = (i: number, pred: PredicateValue) => slice.write({ ...state, filters: filters.map((f, j) => j === i ? pred : f) });
 
-    // Save the active filter set as a reusable cohort and apply it.
+    // Save the active filter set as a reusable cohort and apply it. The id is
+    // deduped against the existing cohorts (the shared `uniqueSlug` the Cohort
+    // renderer uses) so a name that slugifies to an existing id yields a fresh
+    // one (`eu` → `eu-2`) instead of tripping `defineCohort`'s throw-on-duplicate.
     const saveCohort = () => {
         const name = cohortName.trim();
         if (name === "") return;
-        const id = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "cohort";
+        const id = uniqueSlug(name, state.cohorts.map(c => c.id));
         slice.defineCohort({ id, name, filters: [...filters] });
         slice.toggleCohort(id);
         setCohortName("");

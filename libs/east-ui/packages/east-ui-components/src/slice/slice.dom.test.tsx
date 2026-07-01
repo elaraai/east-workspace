@@ -37,7 +37,14 @@ function fakeSlice(init: Record<string, unknown> = {}) {
         addFilter: (p: unknown) => set({ filters: [...s.filters, p] }),
         removeFilter: (i: unknown) => set({ filters: s.filters.filter((_: unknown, j: number) => j !== Number(i)) }),
         clearFilters: () => set({ filters: [], activeCohorts: new Set<string>() }),
-        defineCohort: (c: any) => set({ cohorts: [...s.cohorts, c] }),
+        // Faithful to the real `Slice.bind` primitive (platform/slice/index.ts):
+        // defining a duplicate id throws. The DOM fake previously just appended,
+        // which is why the Filter "Save as cohort" duplicate-id bug (#161) was
+        // invisible to tests.
+        defineCohort: (c: any) => {
+            if (s.cohorts.some((x: any) => x.id === c.id)) throw new Error(`[Slice.bind] cohort id "${c.id}" already exists`);
+            set({ cohorts: [...s.cohorts, c] });
+        },
         updateCohort: (id: string, c: any) => set({ cohorts: s.cohorts.map((x: any) => x.id === id ? c : x) }),
         removeCohort: (id: string) => { const a = new Set<string>(s.activeCohorts); a.delete(id); set({ cohorts: s.cohorts.filter((c: any) => c.id !== id), activeCohorts: a }); },
         toggleCohort: (id: string) => { const a = new Set<string>(s.activeCohorts); a.has(id) ? a.delete(id) : a.add(id); set({ activeCohorts: a }); },
@@ -170,6 +177,49 @@ describe("Slice.Filter — add-filter builder applies (in a Slice.Edit popover)"
 
         fireEvent.click(screen.getByLabelText("Remove filter"));
         expect(slice.read().filters.length).toBe(0);
+    });
+
+    // #161 — the Filter "Save as cohort" path must dedup the derived id against
+    // the existing cohorts. Without the fix it re-derives an existing id (`eu`)
+    // and `defineCohort` throws (the fake now mirrors that contract), dropping
+    // the save. With the fix it yields a fresh `eu-2` and applies it.
+    test("Save as cohort dedups a colliding id → eu-2, applies it, never throws (#161)", async () => {
+        const slice = fakeSlice({
+            // A pre-seeded cohort whose id `eu` collides with what "EU" slugifies to.
+            cohorts: [{ id: "eu", name: "EU", filters: [variant("string", { fieldId: "region", op: variant("eq", "EU") })] }],
+            // Two filters — "Save as cohort →" only surfaces at ≥2 clauses.
+            filters: [
+                variant("string", { fieldId: "region", op: variant("eq", "EU") }),
+                variant("integer", { fieldId: "sessions", op: variant("gte", 20n) }),
+            ],
+        });
+        const value: any = { slice, unit: none, density: some(variant("compact", null)), editOpen: none };
+
+        // jsdom reports every element as 0×0, so the priority-plus overflow hook
+        // never collapses anything and the "+N more" popover (which hosts "Save as
+        // cohort") never appears. Give elements a non-zero offsetWidth against a
+        // 0-width row so everything overflows and the popover renders.
+        const owDesc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth");
+        Object.defineProperty(HTMLElement.prototype, "offsetWidth", { configurable: true, get() { return 100; } });
+        try {
+            const user = userEvent.setup();
+            ui(<EastChakraSliceFilter value={value} />);
+
+            await user.click(screen.getByText("+2 more"));                                   // open the overflow popover
+            await user.click(await screen.findByRole("button", { name: "Save as cohort →" })); // reveal the save form
+            fireEvent.change(await screen.findByLabelText("Cohort name"), { target: { value: "EU" } });
+            fireEvent.click(screen.getByRole("button", { name: "Save" }));                    // would throw pre-fix
+        } finally {
+            if (owDesc) Object.defineProperty(HTMLElement.prototype, "offsetWidth", owDesc);
+            else delete (HTMLElement.prototype as any).offsetWidth;
+        }
+
+        const st = slice.read();
+        expect([...st.cohorts].map((c: any) => c.id).sort()).toEqual(["eu", "eu-2"]); // fresh id, original kept
+        const created = st.cohorts.find((c: any) => c.id === "eu-2");
+        expect(created?.name).toBe("EU");
+        expect(created?.filters.length).toBe(2);          // the active filter set was captured
+        expect(st.activeCohorts.has("eu-2")).toBe(true);  // and the new cohort is applied
     });
 });
 

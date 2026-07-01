@@ -15,6 +15,7 @@ import { formatPredicate } from "../predicate-format";
 import { SlicePredicateBuilder } from "../predicate-builder";
 import { SliceEditPopover } from "../edit";
 import { useSliceReactivity } from "../use-slice-reactivity";
+import { uniqueSlug } from "../slug";
 
 /** East Slice.Cohort value type. */
 export type SliceCohortValue = ValueTypeOf<typeof Slice.Cohort.Types.Cohort>;
@@ -37,16 +38,6 @@ function fmtCount(n: bigint): string {
     return num >= 1000
         ? `${(num / 1000).toLocaleString(undefined, { maximumFractionDigits: 1 })}k`
         : num.toLocaleString();
-}
-
-/** Slugify `name` into a cohort id, unique against `existing`. */
-function uniqueSlug(name: string, existing: ReadonlyArray<string>): string {
-    const base = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "cohort";
-    const ids = new Set(existing);
-    if (!ids.has(base)) return base;
-    let n = 2;
-    while (ids.has(`${base}-${n}`)) n++;
-    return `${base}-${n}`;
 }
 
 /**
