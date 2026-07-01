@@ -16,7 +16,7 @@ import { getSomeorUndefined } from "../../utils";
 import { SliceRailCluster } from "../../slice/rail";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity";
 import { usePersistedState } from "../../hooks/usePersistedState";
-import { MARKER_LABEL_FONT, markerHit, markerHitbox, paintSchematic, type SchematicPalette } from "./paint";
+import { MARKER_LABEL_FONT, markerHit, markerHitbox, paintSchematic, type SchematicPalette, type SchematicPaintEffect } from "./paint";
 import {
     type CameraEvent, type CameraMode, type RafCoalescer, type Viewport,
     IDENTITY, cancelsFly, cardTranslateCss, cardWidthCss, makeRafCoalescer, nextMode, zoomAbout,
@@ -53,6 +53,10 @@ const LOD_CARD_PPU = 30;
 const LOD_LABEL_PPU = 16;
 /** Item-count threshold for the minimap default. */
 const MINIMAP_AUTO = 25;
+/** Shared empty key set — the paint-layer excluded set when nothing is dimmed. */
+const EMPTY_STRING_SET: ReadonlySet<string> = new Set();
+/** Pulse animation period in ms (the matched-item breathing ring). */
+const PULSE_PERIOD_MS = 1600;
 
 function statusTone(status: SchematicItemValue["status"]): string | undefined {
     return status.type === "some" ? status.value.type : undefined;
@@ -230,6 +234,44 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     // A fixed height pins the panel instead of the extent's aspect ratio.
     const fixedHeight = getSomeorUndefined(value.height);
 
+    // --- Slice effect: how filtered-out items render instead of vanishing. ---
+    // Feed the FULL item set with each item's `excluded` flag set; the effect
+    // decides the treatment. Absent ⇒ no effect (today's behaviour). Types are
+    // inferred from the East `Schematic.Types` — no hand-rolled variant shapes.
+    const sliceEffect = getSomeorUndefined(value.sliceEffect);
+    const hasEffect = sliceEffect !== undefined;
+    // Absent excluded style ⇒ `hide` (the default). `keep` carries the modifiers.
+    const excludedVariant = sliceEffect !== undefined ? getSomeorUndefined(sliceEffect.excluded) : undefined;
+    const excludedMode: "hide" | "keep" = excludedVariant?.type === "keep" ? "keep" : "hide";
+    const keepCfg = excludedVariant?.type === "keep" ? excludedVariant.value : undefined;
+    const excludedOpacity = keepCfg !== undefined ? (getSomeorUndefined(keepCfg.opacity) ?? 1) : 1;
+    const excludedDesaturate = keepCfg !== undefined ? (getSomeorUndefined(keepCfg.desaturate) ?? false) : false;
+    const excludedDot = keepCfg !== undefined ? (getSomeorUndefined(keepCfg.dot) ?? false) : false;
+    const emphasis: "halo" | "pulse" | undefined = sliceEffect !== undefined
+        ? getSomeorUndefined(sliceEffect.emphasis)?.type
+        : undefined;
+    const frameVariant = sliceEffect !== undefined ? getSomeorUndefined(sliceEffect.frame) : undefined;
+    const frameEnabled = frameVariant !== undefined;
+    const frameFit = frameVariant !== undefined ? (getSomeorUndefined(frameVariant.fit) ?? false) : false;
+
+    // Which items are slice-excluded (only meaningful when an effect is set).
+    const excludedKeys = useMemo(() => {
+        const s = new Set<string>();
+        if (hasEffect) for (const it of value.items) if (getSomeorUndefined(it.excluded) === true) s.add(it.key);
+        return s;
+    }, [value.items, hasEffect]);
+    // The effect only "engages" once something is actually excluded — otherwise
+    // emphasis / frame would decorate every item (no narrowing active).
+    const effectActive = hasEffect && excludedKeys.size > 0;
+    // In `hide` mode, excluded items drop out of the whole working set (centres,
+    // culling index, navigator) so nothing dangles; every other mode keeps them.
+    const items = useMemo(
+        () => (effectActive && excludedMode === "hide")
+            ? value.items.filter(it => !excludedKeys.has(it.key))
+            : value.items,
+        [value.items, effectActive, excludedMode, excludedKeys],
+    );
+
     const [selected, setSelected] = useState<string | null>(null);
     const [openZone, setOpenZone] = useState<string | null>(null);
     // Index-rail collapse is a durable layout preference — persist it under
@@ -304,15 +346,15 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
 
     const centers = useMemo(() => {
         const out = new Map<string, Pt>();
-        for (const item of value.items) out.set(item.key, { x: item.x, y: item.y });
+        for (const item of items) out.set(item.key, { x: item.x, y: item.y });
         return out;
-    }, [value.items]);
+    }, [items]);
 
     // Spatial index for viewport culling (item half-extent ~2.4 world units
     // covers the widest constant-size marker at the card threshold).
     const index = useMemo(() => {
         const tree = new RBush<ItemBox>();
-        tree.load(value.items.map(item => {
+        tree.load(items.map(item => {
             const hw = (getSomeorUndefined(item.width) ?? 0) / 2 + 2.4;
             let minX = item.x - hw, minY = item.y - 2, maxX = item.x + hw, maxY = item.y + 2;
             // A footprint can reach past the marker box — union its world
@@ -331,7 +373,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
             return { minX, minY, maxX, maxY, item };
         }));
         return tree;
-    }, [value.items]);
+    }, [items]);
 
     const visibleItems = useMemo(() => {
         if (size === null || ppu === 0) return [];
@@ -341,7 +383,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         }).map(b => b.item);
     }, [index, size, ppu, cameraSnapshot]);
 
-    const nav = useMemo(() => buildNavTree(value.zones, value.items), [value.zones, value.items]);
+    const nav = useMemo(() => buildNavTree(value.zones, items), [value.zones, items]);
 
     // Duplicate zone labels are real (tank farms repeat a code) — the
     // navigator needs a unique handle per row, so repeats get an ordinal.
@@ -415,9 +457,46 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
 
     const lod: LodTier = ppu >= LOD_CARD_PPU ? "card" : ppu >= LOD_LABEL_PPU ? "label" : "dot";
     const centerTree = useMemo(() => buildCenterTree(visibleItems), [visibleItems]);
-    const tiers = useMemo(() => declutterTiers(visibleItems, centerTree, lod, ppu, selected), [visibleItems, centerTree, lod, ppu, selected]);
+    const tiers = useMemo(() => {
+        const base = declutterTiers(visibleItems, centerTree, lod, ppu, selected);
+        // `keep` + `dot`: collapse excluded items to a bare marker (drop them out
+        // of the card / label tiers) so the matched survivors dominate.
+        if (effectActive && excludedMode === "keep" && excludedDot) {
+            for (const key of excludedKeys) if (base.has(key)) base.set(key, "dot");
+        }
+        return base;
+    }, [visibleItems, centerTree, lod, ppu, selected, effectActive, excludedMode, excludedDot, excludedKeys]);
 
     const scaleLen = ppu > 0 ? niceScaleLength(ppu, 100) : 0;
+
+    // World bbox over ALL matched items (not just the visible ones) so the frame
+    // is stable while panning; undefined when framing is off / effect inactive.
+    const frameRect = useMemo(() => {
+        if (!(effectActive && frameEnabled)) return undefined;
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const it of value.items) {
+            if (excludedKeys.has(it.key)) continue;
+            if (it.x < minX) minX = it.x;
+            if (it.y < minY) minY = it.y;
+            if (it.x > maxX) maxX = it.x;
+            if (it.y > maxY) maxY = it.y;
+        }
+        return Number.isFinite(minX) ? { minX, minY, maxX, maxY } : undefined;
+    }, [value.items, excludedKeys, effectActive, frameEnabled]);
+
+    // Paint-layer effect params, minus the live pulse phase (injected at paint
+    // time from a ref so the animation loop need not re-render React). `hide`
+    // mode already dropped the excluded items upstream, so its dim-set is empty.
+    const paintEffect = useMemo<Omit<SchematicPaintEffect, "pulsePhase"> | undefined>(() => {
+        if (!effectActive) return undefined;
+        return {
+            excluded: excludedMode === "keep" ? excludedKeys : EMPTY_STRING_SET,
+            excludedOpacity,
+            excludedDesaturate,
+            emphasis: emphasis as "halo" | "pulse" | undefined,
+            frame: frameRect,
+        };
+    }, [effectActive, excludedMode, excludedKeys, excludedOpacity, excludedDesaturate, emphasis, frameRect]);
 
     // --- Single synchronized camera apply (Phase 2). ------------------------
     // Mirror render-derived values into refs so `applyCamera` — a raw rAF
@@ -433,6 +512,11 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     const selectedRef = useRef(selected); selectedRef.current = selected;
     const centersRef = useRef(centers); centersRef.current = centers;
     const openZoneRef = useRef(openZone); openZoneRef.current = openZone;
+    // Slice-effect paint params + the live pulse phase (mutated by the rAF
+    // ticker, read by `applyCamera` without a React re-render).
+    const paintEffectRef = useRef(paintEffect); paintEffectRef.current = paintEffect;
+    const pulsePhaseRef = useRef(0);
+    const frameRectRef = useRef(frameRect); frameRectRef.current = frameRect;
 
     // Skip an apply whose inputs are referentially identical to the last —
     // covers redundant idle re-renders / repeated requestRender with no change.
@@ -442,6 +526,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     const lastPaintRef = useRef<{
         zoom: number; tx: number; ty: number; vis: unknown; tiers: unknown;
         sel: string | null; pal: SchematicPalette | null; w: number; h: number; dpr: number; val: unknown;
+        eff: unknown; phase: number;
     } | null>(null);
 
     // Apply the LIVE camera to ALL surfaces in one step: card-layer CSS vars +
@@ -481,21 +566,27 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
             && last.zoom === cam.zoom && last.tx === cam.tx && last.ty === cam.ty
             && last.vis === visibleItemsRef.current && last.tiers === tiersRef.current
             && last.sel === selectedRef.current && last.pal === pal
-            && last.w === sz.w && last.h === sz.h && last.dpr === dprLive && last.val === valueRef.current) return;
+            && last.w === sz.w && last.h === sz.h && last.dpr === dprLive && last.val === valueRef.current
+            && last.eff === paintEffectRef.current && last.phase === pulsePhaseRef.current) return;
         lastPaintRef.current = {
             zoom: cam.zoom, tx: cam.tx, ty: cam.ty, vis: visibleItemsRef.current, tiers: tiersRef.current,
             sel: selectedRef.current, pal, w: sz.w, h: sz.h, dpr: dprLive, val: valueRef.current,
+            eff: paintEffectRef.current, phase: pulsePhaseRef.current,
         };
         const bw = Math.round(sz.w * dprLive), bh = Math.round(sz.h * dprLive);
         if (canvas.width !== bw || canvas.height !== bh) { canvas.width = bw; canvas.height = bh; }
         const ctx = canvas.getContext("2d");
         if (ctx === null) return;
         ctx.setTransform(dprLive, 0, 0, dprLive, 0, 0);
+        const eff = paintEffectRef.current;
         paintSchematic({
             ctx, value: valueRef.current, cam: { ppu: ppuLive, tx: cam.tx, ty: cam.ty },
             width: sz.w, height: sz.h,
             visibleItems: visibleItemsRef.current, tiers: tiersRef.current,
             selected: selectedRef.current, centers: centersRef.current, palette: pal,
+            // Spread `effect` only when set — `exactOptionalPropertyTypes` forbids
+            // passing an explicit `undefined` to the optional `effect?` field.
+            ...(eff !== undefined ? { effect: { ...eff, pulsePhase: pulsePhaseRef.current } } : {}),
         });
     }, []);
 
@@ -820,7 +911,46 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     // canvas and cards stay aligned even on a snapshot-cadence re-render.
     useLayoutEffect(() => {
         applyCamera();
-    }, [applyCamera, value, visibleItems, tiers, selected, palette, size, dpr, fit, cameraSnapshot]);
+    }, [applyCamera, value, visibleItems, tiers, selected, palette, size, dpr, fit, cameraSnapshot, paintEffect]);
+
+    // Pulse emphasis: a self-contained rAF loop that advances the pulse phase and
+    // repaints, only while `emphasis === "pulse"` and the effect is engaged (some
+    // items excluded). `halo` / no-emphasis never spins this up; on teardown the
+    // phase resets and one final repaint clears the last ring frame.
+    useEffect(() => {
+        if (!(effectActive && emphasis === "pulse")) return;
+        let raf = 0;
+        const start = performance.now();
+        const tick = (now: number) => {
+            pulsePhaseRef.current = ((now - start) % PULSE_PERIOD_MS) / PULSE_PERIOD_MS;
+            applyCamera();
+            raf = requestAnimationFrame(tick);
+        };
+        raf = requestAnimationFrame(tick);
+        return () => {
+            cancelAnimationFrame(raf);
+            pulsePhaseRef.current = 0;
+            applyCamera();
+        };
+    }, [effectActive, emphasis, applyCamera]);
+
+    // Frame + `fit`: fly the camera to the matched extent whenever that set
+    // changes (the frame's world bbox is the signature). A gesture can still pan
+    // away afterwards — this only re-aims when the matched region itself moves.
+    const frameSig = frameRect !== undefined
+        ? `${frameRect.minX},${frameRect.minY},${frameRect.maxX},${frameRect.maxY}`
+        : null;
+    useEffect(() => {
+        // Value-keyed on `frameSig`; the live rect comes from a ref so a
+        // referentially-new-but-equal `frameRect` doesn't re-fly.
+        const rect = frameRectRef.current;
+        if (!(effectActive && frameFit) || rect === undefined) return;
+        flyTo({
+            x: rect.minX, y: rect.minY,
+            w: Math.max(1e-3, rect.maxX - rect.minX),
+            h: Math.max(1e-3, rect.maxY - rect.minY),
+        });
+    }, [frameSig, effectActive, frameFit, flyTo]);
 
     // Accordion: one open zone; its ancestors stay open so the path is visible.
     const toggleZone = useCallback((key: string) => {
@@ -984,6 +1114,12 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                                 if ((tiers.get(item.key) ?? lod) !== "card") return null;
                                 const tone = statusTone(item.status);
                                 const isSelected = selected === item.key;
+                                // Slice-effect card treatment: a kept-excluded card fades /
+                                // desaturates (dynamic data binding); a matched card carries the
+                                // emphasis hook the recipe styles. `hide` / `dot` cards never reach
+                                // here (filtered out / demoted to a canvas dot).
+                                const isExcludedCard = effectActive && excludedMode === "keep" && excludedKeys.has(item.key);
+                                const isEmphasized = effectActive && emphasis !== undefined && !excludedKeys.has(item.key);
                                 const sublabel = getSomeorUndefined(item.sublabel);
                                 const icon = getSomeorUndefined(item.icon);
                                 const meter = getSomeorUndefined(item.meter);
@@ -998,10 +1134,13 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                                         css={styles.item}
                                         data-card-key={item.key}
                                         {...(isSelected ? { "data-selected": "" } : {})}
+                                        {...(isEmphasized ? { "data-emphasis": emphasis } : {})}
+                                        {...(isExcludedCard ? { "data-excluded": "" } : {})}
                                         style={{
                                             left: 0, top: 0,
                                             transform: `${cardTranslateCss(item.x, item.y)} translate(-50%, -50%)`,
                                             ...(typeof width === "number" ? { width: cardWidthCss(width) } : {}),
+                                            ...(isExcludedCard ? { opacity: excludedOpacity, ...(excludedDesaturate ? { filter: "grayscale(1)" } : {}) } : {}),
                                         }}
                                     >{/* No onClick / stopPropagation: a drag-pan can start on a
                                         card, and a tap is resolved by the canvas pickAt (pointerup). */}

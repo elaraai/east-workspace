@@ -287,6 +287,10 @@ export const SchematicItemType = StructType({
     fillOpacity: OptionType(FloatType),
     /** Optional stroke width in px */
     weight: OptionType(FloatType),
+    /** Optional slice-excluded flag — when a {@link SchematicSliceEffectType}
+     * is active, a `some(true)` item is treated as filtered-out (ghosted /
+     * hidden per the effect); absent / `some(false)` ⇒ included / normal. */
+    excluded: OptionType(BooleanType),
 });
 
 /**
@@ -376,6 +380,111 @@ export const SchematicLinkType = StructType({
 export type SchematicLinkType = typeof SchematicLinkType;
 
 /**
+ * How a slice-excluded item (its `excluded` flag `some(true)`) renders when a
+ * {@link SchematicSliceEffectType} is active.
+ *
+ * @remarks
+ * `hide` drops the item entirely — the default, and today's behaviour when
+ * data is pre-narrowed through `Slice.rows`. `keep` retains the item as spatial
+ * context, with optional, composable de-emphasis: `opacity` fades it,
+ * `desaturate` drains its colour to grey, and `dot` collapses it to a bare
+ * marker (dropping its card / label / footprint) so survivors dominate. A
+ * `keep` with no modifiers leaves the item at full styling — a pure
+ * "emphasise the remainder" effect.
+ *
+ * @property hide - Remove excluded items entirely (the default)
+ * @property keep - Retain excluded items, optionally de-emphasized
+ */
+export const SchematicExcludedStyleType = VariantType({
+    /** Remove excluded items entirely (the default). */
+    hide: NullType,
+    /** Retain excluded items, optionally de-emphasized. */
+    keep: StructType({
+        /** Fade alpha (0–1) for excluded items; absent ⇒ full opacity. */
+        opacity: OptionType(FloatType),
+        /** Drain excluded items' colour to grey. */
+        desaturate: OptionType(BooleanType),
+        /** Collapse excluded items to a bare dot (drop card / label / footprint). */
+        dot: OptionType(BooleanType),
+    }),
+});
+
+/**
+ * Type representing the excluded-item render style.
+ */
+export type SchematicExcludedStyleType = typeof SchematicExcludedStyleType;
+
+/**
+ * Positive emphasis applied to the remaining (matched) items when a
+ * {@link SchematicSliceEffectType} is active.
+ *
+ * @remarks
+ * `halo` draws a static highlight ring behind each matched marker / card;
+ * `pulse` animates that ring (a slow breathing glow) to pull the eye to the
+ * survivors. `pulse` runs a lightweight animation loop; `halo` repaints on the
+ * normal frame path.
+ *
+ * @property halo - Static highlight ring on matched items
+ * @property pulse - Animated pulse ring on matched items
+ */
+export const SchematicEmphasisType = VariantType({
+    /** Static highlight ring on matched items. */
+    halo: NullType,
+    /** Animated pulse ring on matched items. */
+    pulse: NullType,
+});
+
+/**
+ * Type representing the matched-item emphasis style.
+ */
+export type SchematicEmphasisType = typeof SchematicEmphasisType;
+
+/**
+ * A bounding frame drawn around the matched-item set.
+ *
+ * @property fit - Auto-fit the camera to the matched extent when it changes
+ */
+export const SchematicFrameType = StructType({
+    /** Auto-fit the camera to the matched extent when the matched set changes. */
+    fit: OptionType(BooleanType),
+});
+
+/**
+ * Type representing the matched-set bounding frame.
+ */
+export type SchematicFrameType = typeof SchematicFrameType;
+
+/**
+ * Optional slice-driven render effect — how the Schematic treats items once a
+ * bound slice narrows them, instead of the default "hidden completely".
+ *
+ * @remarks
+ * Feed the **full** item set (not `Slice.rows`) and mark each item's `excluded`
+ * flag (e.g. via `Slice.partition`, or `Slice.apply.matches(...).not()`). Each
+ * axis is independently optional: `excluded` styles the filtered-out items
+ * (absent ⇒ `hide`), `emphasis` highlights the remainder (absent ⇒ none), and
+ * `frame` draws a box around the matched set (absent ⇒ none). All three absent
+ * is a no-op.
+ *
+ * @property excluded - Treatment of filtered-out items (absent ⇒ `hide`)
+ * @property emphasis - Positive emphasis on matched items (absent ⇒ none)
+ * @property frame - Bounding frame around the matched set (absent ⇒ none)
+ */
+export const SchematicSliceEffectType = StructType({
+    /** Treatment of filtered-out items; absent ⇒ `hide`. */
+    excluded: OptionType(SchematicExcludedStyleType),
+    /** Positive emphasis on matched items; absent ⇒ none. */
+    emphasis: OptionType(SchematicEmphasisType),
+    /** Bounding frame around the matched set; absent ⇒ none. */
+    frame: OptionType(SchematicFrameType),
+});
+
+/**
+ * Type representing the slice-driven render effect.
+ */
+export type SchematicSliceEffectType = typeof SchematicSliceEffectType;
+
+/**
  * East StructType for the Schematic component.
  *
  * @remarks
@@ -392,6 +501,8 @@ export type SchematicLinkType = typeof SchematicLinkType;
  * @property grid - Metric grid aligned to the scale legend
  * @property navigator - Navigator rail (zones → items TOC)
  * @property minimap - Minimap with the viewport rectangle
+ * @property slice - Optional Slice chrome rail mounting the affordances
+ * @property sliceEffect - Optional slice-driven render effect (ghost / emphasis / frame)
  * @property height - Optional fixed panel height (any CSS length)
  * @property onSelect - Optional item-click callback (receives the item key)
  */
@@ -419,6 +530,8 @@ export const SchematicRootType = StructType({
     minimap: OptionType(BooleanType),
     /** Optional Slice chrome — a full-width top-edge rail mounting the affordances (replaces the built-in search) */
     slice: OptionType(SliceChromeType),
+    /** Optional slice-driven render effect — ghost / desaturate / shrink filtered-out items and emphasise the remainder (halo / pulse / frame); absent ⇒ excluded items are hidden completely */
+    sliceEffect: OptionType(SchematicSliceEffectType),
     /** Optional fixed panel height (any CSS length, e.g. `"400px"`); default: aspect-driven, capped at 75vh */
     height: OptionType(StringType),
     /** Optional item-click callback (receives the item key) */

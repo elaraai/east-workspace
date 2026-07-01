@@ -93,6 +93,53 @@ export const schematicSlice = example({
     inputs: [],
 });
 
+export const schematicSliceEffect = example({
+    keywords: ["Schematic", "slice", "sliceEffect", "excluded", "ghost", "desaturate", "pulse", "halo", "frame", "partition", "filter"],
+    description: "Schematic slice effect — filtered-out items stay as ghosted / desaturated context (Slice.partition tags each row, `excluded` marks the losers) while the matched remainder is emphasised with a pulse ring and a bounding frame, instead of vanishing",
+    fn: East.function([], UIComponentType, (_$) => {
+        const EquipType = StructType({ id: StringType, x: FloatType, y: FloatType, kind: StringType });
+        const cfg = Slice.config(EquipType, {
+            fields: { id: { label: "ID" }, kind: { label: "Kind" } },
+            searchFieldIds: ["id", "kind"],
+        });
+        return (
+            <Reactive>{$ => {
+                const data = $.const([
+                    { id: "UNIT-04", x: 4.0, y: 2.8, kind: "unit" },
+                    { id: "UNIT-05", x: 11.0, y: 6.4, kind: "unit" },
+                    { id: "LINE-2", x: 8.0, y: 9.8, kind: "pack" },
+                    { id: "BAY-OUT", x: 24.0, y: 4.0, kind: "pallets" },
+                ], ArrayType(EquipType));
+                // Seed an active filter (kind = "unit") so two rows already fail
+                // the narrowing — the effect is visible at first render: the
+                // "pack" / "pallets" units ghost out, the "unit" survivors pulse.
+                const slice = $.let(Slice.bind([EquipType], "ex.schematic.effect", cfg, Slice.state({
+                    filters: [variant("string", { fieldId: "kind", op: variant("eq", "unit") })],
+                }), data, none));
+                // Full set tagged with pass/fail — excluded rows STAY (ghosted),
+                // rather than the pre-narrowed `Slice.rows`.
+                const tagged = $.let(Slice.partition([EquipType], slice));
+                return (
+                    <Schematic
+                        extent={{ width: 29, height: 12.5 }}
+                        height="400px"
+                        items={tagged}
+                        item={t => ({
+                            key: t.value.id, x: t.value.x, y: t.value.y, label: t.value.id,
+                            sublabel: t.value.kind, icon: "database",
+                            excluded: t.matched.not(),
+                        })}
+                        slice={slice}
+                        affordances={["search", "filter"]}
+                        sliceEffect={{ excluded: { opacity: 0.25, desaturate: true }, emphasis: "pulse", frame: true }}
+                    />
+                );
+            }}</Reactive>
+        );
+    }),
+    inputs: [],
+});
+
 export const schematicMinimal = example({
     keywords: ["Schematic", "canvas", "minimal"],
     description: "Minimal placement — items only, no zones or links",

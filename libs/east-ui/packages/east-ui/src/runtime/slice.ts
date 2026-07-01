@@ -76,6 +76,8 @@ type SliceTags = {
     config: typeof SliceFactory.config;
     bind: typeof SliceFactory.bind;
     rows: typeof SliceFactory.rows;
+    partition: typeof SliceFactory.partition;
+    partitionRowType: typeof SliceFactory.partitionRowType;
     state: typeof SliceFactory.state;
     apply: typeof SliceFactory.apply;
     Types: typeof SliceFactory.Types;
@@ -438,6 +440,10 @@ export const Slice: SliceTags = {
     bind: SliceFactory.bind,
     /** Narrowed rows for a bound slice — the typed data feed (`Slice.rows([RowType], slice)`). */
     rows: SliceFactory.rows,
+    /** Full bound rows tagged `{ value, matched }` — the "keep the excluded" feed. */
+    partition: SliceFactory.partition,
+    /** Materialise the `{ value, matched }` partition-row type for a row type. */
+    partitionRowType: SliceFactory.partitionRowType,
     state: SliceFactory.state,
     apply: SliceFactory.apply,
     Types: SliceFactory.Types,

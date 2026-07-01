@@ -69,6 +69,28 @@ export interface PaintCamera {
     ty: number;
 }
 
+/**
+ * Slice-effect paint parameters — how filtered-out items are de-emphasized and
+ * the remainder emphasized. Absent from {@link PaintInput} ⇒ no effect (today's
+ * behaviour). `hide`-mode excluded items are already dropped from `visibleItems`
+ * upstream, so `excluded` here only ever holds *kept* (shown, de-emphasized)
+ * item keys.
+ */
+export interface SchematicPaintEffect {
+    /** Keys of kept-but-excluded items among `visibleItems` (dimmed / greyed). */
+    excluded: ReadonlySet<string>;
+    /** Fade alpha (0–1) applied to kept-excluded items; `1` ⇒ no fade. */
+    excludedOpacity: number;
+    /** Drain kept-excluded items' colour to grey. */
+    excludedDesaturate: boolean;
+    /** Positive emphasis on matched items; `undefined` ⇒ none. */
+    emphasis: "halo" | "pulse" | undefined;
+    /** Animated pulse phase in `[0, 1)`; only read when `emphasis === "pulse"`. */
+    pulsePhase: number;
+    /** World-coordinate bbox to frame the matched set; `undefined` ⇒ no frame. */
+    frame: Bbox | undefined;
+}
+
 /** Everything {@link paintSchematic} needs for one frame. */
 export interface PaintInput {
     ctx: CanvasRenderingContext2D;
@@ -85,6 +107,8 @@ export interface PaintInput {
     /** Item key → world centre, for link endpoints. */
     centers: ReadonlyMap<string, Pt>;
     palette: SchematicPalette;
+    /** Optional slice-effect paint parameters (ghost / emphasis / frame). */
+    effect?: SchematicPaintEffect;
 }
 
 const css = (c: RGB, a = 1): string =>
@@ -378,10 +402,15 @@ function zoneWorldBbox(zone: SchematicZoneValue, geom: SchematicGeometryValue | 
 
 /** Draw the schematic's bulk-shape layer for one frame. Clears first. */
 export function paintSchematic(input: PaintInput): void {
-    const { ctx, value, cam, width, height, visibleItems, tiers, selected, centers, palette: p } = input;
+    const { ctx, value, cam, width, height, visibleItems, tiers, selected, centers, palette: p, effect } = input;
     const wx = (x: number) => x * cam.ppu + cam.tx;
     const wy = (y: number) => y * cam.ppu + cam.ty;
     const ppu = cam.ppu;
+    // Per-item slice-effect state — `excludedOf` is the kept-excluded alpha (1 =
+    // not excluded / not fading); `tintOf` re-tints a desaturated excluded item.
+    const isExcluded = (key: string): boolean => effect?.excluded.has(key) ?? false;
+    const alphaOf = (key: string): number => (effect !== undefined && isExcluded(key)) ? effect.excludedOpacity : 1;
+    const desatOf = (key: string): boolean => (effect !== undefined && isExcluded(key) && effect.excludedDesaturate);
     // The world rect currently on screen — zones / links whose geometry bbox
     // misses it are culled (issue #57, P6). Items are already viewport-culled
     // into `visibleItems` by the React layer's rbush.
@@ -550,24 +579,77 @@ export function paintSchematic(input: PaintInput): void {
         ctx.lineCap = "butt";
     }
 
+    // ---- slice-effect: frame the matched set, then emphasise the survivors ---
+    // Drawn between links and items so the frame sits under the markers and the
+    // emphasis rings glow behind them. Card-tier emphasis is a DOM concern (the
+    // React layer styles the card element); here we ring only dot / label markers.
+    if (effect !== undefined) {
+        if (effect.frame !== undefined) {
+            const pad = 10;
+            const fx = wx(effect.frame.minX) - pad, fy = wy(effect.frame.minY) - pad;
+            const fw = (effect.frame.maxX - effect.frame.minX) * ppu + pad * 2;
+            const fh = (effect.frame.maxY - effect.frame.minY) * ppu + pad * 2;
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(fx, fy, fw, fh);
+            ctx.globalAlpha = 0.07;
+            ctx.fillStyle = css(p.brand500);
+            ctx.fill();
+            ctx.restore();
+            ctx.save();
+            ctx.setLineDash([7, 5]);
+            ctx.lineWidth = 1.5;
+            ctx.strokeStyle = css(p.brand600);
+            ctx.strokeRect(fx, fy, fw, fh);
+            ctx.setLineDash([]);
+            ctx.restore();
+        }
+        if (effect.emphasis !== undefined) {
+            const pulse = effect.emphasis === "pulse";
+            // Breathing 0..1 sinusoid; `halo` is static (the ring's steady state).
+            const b = pulse ? (Math.sin(effect.pulsePhase * Math.PI * 2) * 0.5 + 0.5) : 1;
+            for (const item of visibleItems) {
+                if (isExcluded(item.key)) continue;                    // matched only
+                const tier = tiers.get(item.key) ?? "dot";
+                if (tier === "card") continue;                         // card ring is CSS
+                const baseR = tier === "label" ? 18 : 11;
+                const r = baseR + (pulse ? b * 7 : 4);
+                const alpha = pulse ? 0.14 + 0.30 * (1 - b) : 0.34;
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(wx(item.x), wy(item.y), r, 0, Math.PI * 2);
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = css(p.brand500, alpha);
+                ctx.stroke();
+                ctx.restore();
+            }
+        }
+    }
+
     // ---- item footprints (close zoom only — semantic zoom) ------------------
+    // Wrapped in save/restore per item so a slice-excluded footprint can fade
+    // (globalAlpha) / desaturate (grey tint) without leaking state to the next.
     for (const item of visibleItems) {
         const footprint = getSomeorUndefined(item.footprint);
         if (footprint === undefined || footprint.type === "rect") continue;
         if ((tiers.get(item.key) ?? "dot") !== "card") continue;
         const isSel = selected === item.key;
-        const tint = resolveTint(p, getSomeorUndefined(item.color), getSomeorUndefined(item.tone)?.type, statusRGB(p, statusTone(item.status)));
+        let tint = resolveTint(p, getSomeorUndefined(item.color), getSomeorUndefined(item.tone)?.type, statusRGB(p, statusTone(item.status)));
+        if (desatOf(item.key)) tint = css(p.fgMuted);
+        const a = alphaOf(item.key);
         const ibg = getSomeorUndefined(item.bg);
         const fillAlpha = getSomeorUndefined(item.fillOpacity) ?? (isSel ? 0.24 : 0.12);
         const stroke = getSomeorUndefined(item.weight) ?? (isSel ? 2.5 : 1.5);
         const fillShape = () => {
             ctx.save();
-            ctx.globalAlpha = fillAlpha;
-            ctx.fillStyle = ibg ?? tint;
+            ctx.globalAlpha = fillAlpha * a;
+            ctx.fillStyle = desatOf(item.key) ? tint : (ibg ?? tint);
             ctx.fill();
             ctx.restore();
         };
 
+        ctx.save();
+        ctx.globalAlpha = a;
         if (footprint.type === "circle") {
             ctx.beginPath();
             ctx.arc(wx(item.x), wy(item.y), footprint.value.radius * ppu, 0, Math.PI * 2);
@@ -575,35 +657,41 @@ export function paintSchematic(input: PaintInput): void {
             ctx.lineWidth = stroke;
             ctx.strokeStyle = tint;
             ctx.stroke();
-            continue;
-        }
-
-        const pts = footprint.value.vertices.map(q => ({ x: wx(q.x), y: wy(q.y), bulge: q.bulge }));
-        if (pts.length === 0) continue;
-        ctx.beginPath();
-        if (footprint.type === "polygon") {
-            traceVertices(ctx, pts, true);
-            fillShape();
-            ctx.lineWidth = stroke;
         } else {
-            traceVertices(ctx, pts, false);
-            const band = footprint.value.width.type === "some" ? footprint.value.width.value * ppu : undefined;
-            ctx.lineCap = "round";
-            ctx.lineWidth = getSomeorUndefined(item.weight) ?? band ?? (isSel ? 2.5 : 1.5);
+            const pts = footprint.value.vertices.map(q => ({ x: wx(q.x), y: wy(q.y), bulge: q.bulge }));
+            if (pts.length > 0) {
+                ctx.beginPath();
+                if (footprint.type === "polygon") {
+                    traceVertices(ctx, pts, true);
+                    fillShape();
+                    ctx.lineWidth = stroke;
+                } else {
+                    traceVertices(ctx, pts, false);
+                    const band = footprint.value.width.type === "some" ? footprint.value.width.value * ppu : undefined;
+                    ctx.lineCap = "round";
+                    ctx.lineWidth = getSomeorUndefined(item.weight) ?? band ?? (isSel ? 2.5 : 1.5);
+                }
+                ctx.strokeStyle = tint;
+                ctx.stroke();
+                ctx.lineCap = "butt";
+            }
         }
-        ctx.strokeStyle = tint;
-        ctx.stroke();
-        ctx.lineCap = "butt";
+        ctx.restore();
     }
 
     // ---- item LOD markers: dots + labelled pins (cards are DOM) --------------
+    // Save/restore per item so a slice-excluded marker fades / desaturates
+    // without leaking alpha or font state into the next marker.
     for (const item of visibleItems) {
         const tier = tiers.get(item.key) ?? "dot";
         if (tier === "card") continue; // rich card rendered by the React layer
-        const tint = resolveTint(p, getSomeorUndefined(item.color), getSomeorUndefined(item.tone)?.type, statusRGB(p, statusTone(item.status)));
+        let tint = resolveTint(p, getSomeorUndefined(item.color), getSomeorUndefined(item.tone)?.type, statusRGB(p, statusTone(item.status)));
+        if (desatOf(item.key)) tint = css(p.fgMuted);
         const isSel = selected === item.key;
         const x = wx(item.x), y = wy(item.y);
 
+        ctx.save();
+        ctx.globalAlpha = alphaOf(item.key);
         if (tier === "dot") {
             ctx.beginPath();
             ctx.arc(x, y, MARKER_DOT_RADIUS, 0, Math.PI * 2);
@@ -619,29 +707,30 @@ export function paintSchematic(input: PaintInput): void {
                 ctx.strokeStyle = css(p.fg);
                 ctx.stroke();
             }
-            continue;
+        } else {
+            // labelled pin — bounds come from the SHARED markerHitbox so the drawn
+            // pill and the click target are identical (issue #57, P11).
+            ctx.font = MARKER_LABEL_FONT;
+            const box = markerHitbox(item, "label", cam, t => ctx.measureText(t).width);
+            if (box.kind === "rect") {
+                const { left, top, w, h } = box;
+                ctx.beginPath();
+                ctx.roundRect?.(left, top, w, h, h / 2);
+                if (!ctx.roundRect) ctx.rect(left, top, w, h);
+                ctx.fillStyle = css(p.bgSurface);
+                ctx.fill();
+                ctx.lineWidth = 1;
+                ctx.strokeStyle = isSel ? css(p.fg) : css(p.borderStrong);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.arc(left + MARKER_PIN_PAD_X + MARKER_PIN_DOT_W / 2, y, MARKER_PIN_DOT_W / 2, 0, Math.PI * 2);
+                ctx.fillStyle = tint;
+                ctx.fill();
+                ctx.fillStyle = css(p.fg);
+                ctx.textBaseline = "middle";
+                ctx.fillText(item.label, left + MARKER_PIN_PAD_X + MARKER_PIN_DOT_W + MARKER_PIN_GAP, y);
+            }
         }
-
-        // labelled pin — bounds come from the SHARED markerHitbox so the drawn
-        // pill and the click target are identical (issue #57, P11).
-        ctx.font = MARKER_LABEL_FONT;
-        const box = markerHitbox(item, "label", cam, t => ctx.measureText(t).width);
-        if (box.kind !== "rect") continue;
-        const { left, top, w, h } = box;
-        ctx.beginPath();
-        ctx.roundRect?.(left, top, w, h, h / 2);
-        if (!ctx.roundRect) ctx.rect(left, top, w, h);
-        ctx.fillStyle = css(p.bgSurface);
-        ctx.fill();
-        ctx.lineWidth = 1;
-        ctx.strokeStyle = isSel ? css(p.fg) : css(p.borderStrong);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.arc(left + MARKER_PIN_PAD_X + MARKER_PIN_DOT_W / 2, y, MARKER_PIN_DOT_W / 2, 0, Math.PI * 2);
-        ctx.fillStyle = tint;
-        ctx.fill();
-        ctx.fillStyle = css(p.fg);
-        ctx.textBaseline = "middle";
-        ctx.fillText(item.label, left + MARKER_PIN_PAD_X + MARKER_PIN_DOT_W + MARKER_PIN_GAP, y);
+        ctx.restore();
     }
 }

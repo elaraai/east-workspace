@@ -50,6 +50,8 @@ import {
     SchematicLinkStyleType,
     SchematicRouteType,
     SchematicToneType,
+    SchematicFrameType,
+    SchematicSliceEffectType,
 } from "./types.js";
 
 // Re-export types
@@ -65,6 +67,10 @@ export {
     SchematicLinkStyleType,
     SchematicRouteType,
     SchematicToneType,
+    SchematicExcludedStyleType,
+    SchematicEmphasisType,
+    SchematicFrameType,
+    SchematicSliceEffectType,
 } from "./types.js";
 
 /** String literal form of {@link SchematicToneType} tags. */
@@ -315,6 +321,10 @@ export interface SchematicItemFields {
     fillOpacity?: SubtypeExprOrValue<FloatType>;
     /** Optional stroke width in px. */
     weight?: SubtypeExprOrValue<FloatType>;
+    /** Optional slice-excluded flag — when a `sliceEffect` is set, a `true` item
+     * is treated as filtered-out (ghosted / hidden per the effect). Typically
+     * `Slice.apply.matches(state, cfg, row).not()`, or read from `Slice.partition`. */
+    excluded?: SubtypeExprOrValue<BooleanType>;
 }
 
 /**
@@ -388,6 +398,65 @@ export interface SchematicLinkFields {
     via?: SubtypeExprOrValue<ArrayType<SchematicPointType>>;
 }
 
+/**
+ * Treatment of slice-excluded items, accepted by {@link SchematicConfig.sliceEffect}.
+ *
+ * - `"hide"` — remove excluded items entirely (the default).
+ * - `"none"` — keep them at full styling (a pure "emphasise the remainder" effect).
+ * - an object — keep them, de-emphasized: `opacity` fades, `desaturate` greys,
+ *   `dot` collapses to a bare marker. Modifiers compose.
+ */
+export type SchematicExcludedConfig =
+    | "hide"
+    | "none"
+    | {
+        /** Fade alpha (0–1); absent ⇒ full opacity. */
+        opacity?: number;
+        /** Drain colour to grey. */
+        desaturate?: boolean;
+        /** Collapse to a bare dot (drop card / label / footprint). */
+        dot?: boolean;
+    };
+
+/**
+ * The slice-driven render effect, accepted by {@link SchematicConfig.sliceEffect}.
+ * Each axis is independently optional.
+ *
+ * @property excluded - Treatment of filtered-out items (default `"hide"`)
+ * @property emphasis - Positive emphasis on matched items (`"halo"` / `"pulse"`; default none)
+ * @property frame - Bounding frame around the matched set (`true` / `{ fit }`; default none)
+ */
+export interface SchematicSliceEffect {
+    /** Treatment of filtered-out items; absent ⇒ `"hide"`. */
+    excluded?: SchematicExcludedConfig;
+    /** Positive emphasis on matched items; absent ⇒ none. */
+    emphasis?: "halo" | "pulse";
+    /** Bounding frame around the matched set; `true` = box, `{ fit: true }` also auto-fits the camera; absent ⇒ none. */
+    frame?: boolean | { fit?: boolean };
+}
+
+/** Build the East `SchematicSliceEffect` value from the plain JS config shape. */
+function toSliceEffect(effect: SchematicSliceEffect): ExprType<SchematicSliceEffectType> {
+    const excluded = effect.excluded === undefined
+        ? none
+        : effect.excluded === "hide"
+            ? some(variant("hide", null))
+            : effect.excluded === "none"
+                ? some(variant("keep", { opacity: none, desaturate: none, dot: none }))
+                : some(variant("keep", {
+                    opacity: effect.excluded.opacity !== undefined ? some(effect.excluded.opacity) : none,
+                    desaturate: effect.excluded.desaturate !== undefined ? some(effect.excluded.desaturate) : none,
+                    dot: effect.excluded.dot !== undefined ? some(effect.excluded.dot) : none,
+                }));
+    const emphasis = effect.emphasis !== undefined ? some(variant(effect.emphasis, null)) : none;
+    const frame = effect.frame === undefined || effect.frame === false
+        ? none
+        : effect.frame === true
+            ? some(East.value({ fit: none }, SchematicFrameType))
+            : some(East.value({ fit: effect.frame.fit !== undefined ? some(effect.frame.fit) : none }, SchematicFrameType));
+    return East.value({ excluded, emphasis, frame }, SchematicSliceEffectType);
+}
+
 // ============================================================================
 // Root factory
 // ============================================================================
@@ -445,6 +514,14 @@ export interface SchematicConfig<
     slice?: SubtypeExprOrValue<SliceBindType>;
     /** Rail affordances when `slice` is set. Default `["search"]`. */
     affordances?: SliceAffordanceLiteral[];
+    /**
+     * Slice-driven render effect — instead of hiding filtered-out items, keep
+     * them as ghosted / desaturated / shrunk context and emphasise the
+     * remainder (`halo` / `pulse` / `frame`). Feed the **full** item set and
+     * mark each item's `excluded` flag (via `Slice.partition`, or
+     * `Slice.apply.matches(...).not()`). Absent ⇒ excluded items hidden.
+     */
+    sliceEffect?: SchematicSliceEffect;
     /** Optional fixed panel height (any CSS length, e.g. `"400px"`); default: aspect-driven, capped at 75vh. */
     height?: SubtypeExprOrValue<StringType> | string;
     /** Optional item-click callback (receives the item key). */
@@ -481,6 +558,7 @@ function buildRoot(
                 bg: r.bg !== undefined ? some(r.bg) : none,
                 fillOpacity: r.fillOpacity !== undefined ? some(r.fillOpacity) : none,
                 weight: r.weight !== undefined ? some(r.weight) : none,
+                excluded: r.excluded !== undefined ? some(r.excluded) : none,
             }, SchematicItemType);
         });
 
@@ -558,6 +636,7 @@ function buildRoot(
         navigator: config.navigator !== undefined ? some(config.navigator) : none,
         minimap: config.minimap !== undefined ? some(config.minimap) : none,
         slice: sliceChromeValue ? some(sliceChromeValue) : none,
+        sliceEffect: config.sliceEffect !== undefined ? some(toSliceEffect(config.sliceEffect)) : none,
         height: config.height !== undefined ? some(config.height) : none,
         onSelect: config.onSelect !== undefined ? some(config.onSelect) : none,
     }), UIComponentType);

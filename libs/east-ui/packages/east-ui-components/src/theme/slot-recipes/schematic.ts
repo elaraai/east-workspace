@@ -289,6 +289,14 @@ export const schematicSlotRecipe = defineSlotRecipe({
                 outlineColor: "fg",
                 outlineOffset: "-1px",
             },
+            /* Slice-effect emphasis: a matched card gets a brand ring + soft glow.
+             * The animated "pulse" breathing lives on the canvas dot / label
+             * markers; a card carries the same static highlight for both `halo`
+             * and `pulse` so the survivor set reads at card zoom too. */
+            "&[data-emphasis]": {
+                borderColor: "{colors.brand.600}",
+                boxShadow: "0 0 0 2px color-mix(in oklch, {colors.brand.600} 35%, transparent)",
+            },
         },
         itemHead: {
             display: "flex",

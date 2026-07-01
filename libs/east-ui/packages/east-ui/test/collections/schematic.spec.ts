@@ -12,6 +12,7 @@ describeEast("Schematic", (test) => {
     Assert.examples(test, {
         schematicPlant: ex.schematicPlant,
         schematicSlice: ex.schematicSlice,
+        schematicSliceEffect: ex.schematicSliceEffect,
         schematicMinimal: ex.schematicMinimal,
         schematicInteractive: ex.schematicInteractive,
         schematicFacility: ex.schematicFacility,
@@ -178,5 +179,64 @@ describeEast("Schematic", (test) => {
         $(Assert.equal(zone.color.unwrap("some"), "#DC2626"));
         $(Assert.equal(zone.bg.unwrap("some"), "#DC2626"));
         $(Assert.equal(zone.weight.unwrap("some"), 1.5));
+    });
+
+    test("excluded flag + a composed slice effect (ghost + pulse + fitted frame) carry through", $ => {
+        const sch = $.let(Schematic.Root(
+            [{ id: "A", x: 2.0, y: 2.0, out: true }, { id: "B", x: 5.0, y: 2.0, out: false }],
+            {
+                extent: { width: 8, height: 6 },
+                item: e => ({ key: e.id, x: e.x, y: e.y, label: e.id, excluded: e.out }),
+                sliceEffect: { excluded: { opacity: 0.25, desaturate: true }, emphasis: "pulse", frame: { fit: true } },
+            },
+        ));
+        const root = $.let(sch.unwrap().unwrap("Schematic"));
+
+        $(Assert.equal(root.items.get(0n).excluded.unwrap("some"), true));
+        $(Assert.equal(root.items.get(1n).excluded.unwrap("some"), false));
+
+        const eff = $.let(root.sliceEffect.unwrap("some"));
+        const keep = $.let(eff.excluded.unwrap("some"));
+        $(Assert.equal(keep.hasTag("keep"), true));
+        $(Assert.equal(keep.unwrap("keep").opacity.unwrap("some"), 0.25));
+        $(Assert.equal(keep.unwrap("keep").desaturate.unwrap("some"), true));
+        $(Assert.equal(keep.unwrap("keep").dot.hasTag("none"), true));
+        $(Assert.equal(eff.emphasis.unwrap("some").hasTag("pulse"), true));
+        $(Assert.equal(eff.frame.unwrap("some").fit.unwrap("some"), true));
+    });
+
+    test("excluded style shorthands: `hide` and `none`, plus a bare `frame`", $ => {
+        const hide = $.let(Schematic.Root(
+            [{ id: "A", x: 1.0, y: 1.0 }],
+            {
+                extent: { width: 4, height: 4 },
+                item: e => ({ key: e.id, x: e.x, y: e.y, label: e.id }),
+                sliceEffect: { excluded: "hide" },
+            },
+        ).unwrap().unwrap("Schematic"));
+        // Default (unset) item excluded flag is `none`.
+        $(Assert.equal(hide.items.get(0n).excluded.hasTag("none"), true));
+        $(Assert.equal(hide.sliceEffect.unwrap("some").excluded.unwrap("some").hasTag("hide"), true));
+        // No emphasis / frame set ⇒ both `none`.
+        $(Assert.equal(hide.sliceEffect.unwrap("some").emphasis.hasTag("none"), true));
+        $(Assert.equal(hide.sliceEffect.unwrap("some").frame.hasTag("none"), true));
+
+        const bare = $.let(Schematic.Root(
+            [{ id: "A", x: 1.0, y: 1.0 }],
+            {
+                extent: { width: 4, height: 4 },
+                item: e => ({ key: e.id, x: e.x, y: e.y, label: e.id }),
+                sliceEffect: { excluded: "none", emphasis: "halo", frame: true },
+            },
+        ).unwrap().unwrap("Schematic"));
+        const eff = $.let(bare.sliceEffect.unwrap("some"));
+        // `"none"` ⇒ `keep` with every modifier absent (full styling, kept).
+        const keep = $.let(eff.excluded.unwrap("some"));
+        $(Assert.equal(keep.hasTag("keep"), true));
+        $(Assert.equal(keep.unwrap("keep").opacity.hasTag("none"), true));
+        $(Assert.equal(keep.unwrap("keep").desaturate.hasTag("none"), true));
+        $(Assert.equal(eff.emphasis.unwrap("some").hasTag("halo"), true));
+        // `frame: true` ⇒ framed, but no auto-fit.
+        $(Assert.equal(eff.frame.unwrap("some").fit.hasTag("none"), true));
     });
 }, { platformFns: TestImpl });
