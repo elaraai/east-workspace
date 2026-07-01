@@ -17,10 +17,19 @@ const OP_GLYPH: Record<string, string> = {
     before: "before", after: "after", between: "between", is: "=",
 };
 
-/** Render the typed value carried by a predicate's op variant. */
+/** Set previews show at most this many members before collapsing to `+N`. */
+const SET_PREVIEW_MAX = 3;
+
+/** Render the typed value carried by a predicate's op variant. Set values
+ *  preview the first {@link SET_PREVIEW_MAX} members then collapse the rest
+ *  into a `+N` tail — a 100-member `in` set must stay a legible chip. */
 function formatValue(v: unknown): string {
     if (v === null || v === undefined) return "";
-    if (v instanceof Set) return [...v].join(", ");
+    if (v instanceof Set) {
+        const members = [...v].map(formatValue);
+        if (members.length <= SET_PREVIEW_MAX) return members.join(", ");
+        return `${members.slice(0, SET_PREVIEW_MAX).join(", ")} +${members.length - SET_PREVIEW_MAX}`;
+    }
     if (v instanceof Date) return v.toLocaleDateString();
     if (typeof v === "bigint") return v.toString();
     if (typeof v === "object") {
