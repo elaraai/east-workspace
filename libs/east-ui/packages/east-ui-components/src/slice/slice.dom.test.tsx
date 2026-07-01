@@ -170,6 +170,35 @@ describe("Slice.Filter — add-filter builder applies (in a Slice.Edit popover)"
         expect(filters[0].value.op.value).toBe(20n);
     });
 
+    // #166 — integer fields offer set-membership `in`: the TagsInput entries
+    // parse to a Set<bigint>, dropping malformed ones (never a crash).
+    test("builder offers integer 'in'; tags parse to a bigint set with malformed entries dropped (#166)", async () => {
+        const slice = fakeSlice();
+        const value: any = { slice, unit: none, density: none, editOpen: some(true) };
+        ui(<EastChakraSliceFilter value={value} />);
+
+        const user = userEvent.setup();
+        await pickOption(user, "Field", "Sessions");
+        await pickOption(user, "Operator", "in");
+        // Commit one tag per paste+Enter, clearing between entries — per-key
+        // typing (and back-to-back entries) race Zag's rAF input-clear under
+        // jsdom and concatenate digits (cf. the spinbutton note above).
+        const tags = screen.getByPlaceholderText("a, b, c");
+        for (const entry of ["10", "20", "abc"]) {
+            await user.click(tags);
+            await user.clear(tags);
+            await user.paste(entry);
+            await user.keyboard("{Enter}");
+        }
+        fireEvent.click(screen.getByText("Add"));
+
+        const filters = slice.read().filters;
+        expect(filters.length).toBe(1);
+        expect(filters[0].type).toBe("integer");
+        expect(filters[0].value.op.type).toBe("in");
+        expect(filters[0].value.op.value).toEqual(new Set([10n, 20n]));  // "abc" dropped
+    });
+
     // #171 — presence ops carry no comparison value: picking "is empty" hides
     // the value control (input:"none") and Add submits a NullType-armed op.
     test("builder offers 'is empty' with no value control and Add appends an isEmpty predicate (#171)", async () => {
