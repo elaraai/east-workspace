@@ -29,10 +29,10 @@ export const schematicPlant = example({
         // Already the resolved link type — passed through with no `link` mapper.
         const orthogonal = variant("orthogonal", { corner: none });
         const pipes = $.const([
-            { key: "p1", from: "UNIT-04", to: "LINE-2", style: Schematic.solid(), route: orthogonal, via: [] },
-            { key: "p2", from: "UNIT-05", to: "LINE-2", style: Schematic.solid(), route: orthogonal, via: [] },
-            { key: "p3", from: "UNIT-06", to: "LINE-2", style: Schematic.solid(), route: orthogonal, via: [] },
-            { key: "p4", from: "QA-1", to: "BAY-OUT", style: Schematic.dashed(), route: orthogonal, via: [{ x: 26.5, y: 6.8 }] },
+            { key: "p1", from: "UNIT-04", to: "LINE-2", style: Schematic.solid(), route: orthogonal, via: [], layer: none },
+            { key: "p2", from: "UNIT-05", to: "LINE-2", style: Schematic.solid(), route: orthogonal, via: [], layer: none },
+            { key: "p3", from: "UNIT-06", to: "LINE-2", style: Schematic.solid(), route: orthogonal, via: [], layer: none },
+            { key: "p4", from: "QA-1", to: "BAY-OUT", style: Schematic.dashed(), route: orthogonal, via: [{ x: 26.5, y: 6.8 }], layer: none },
         ], ArrayType(Schematic.Types.Link));
         return (
             <Schematic
@@ -135,6 +135,49 @@ export const schematicSliceEffect = example({
                     />
                 );
             }}</Reactive>
+        );
+    }),
+    inputs: [],
+});
+
+export const schematicLayers = example({
+    keywords: ["Schematic", "layers", "layer", "visibility", "solo", "lock", "opacity", "toggle", "legend"],
+    description: "Named layers — items / zones / links grouped into toggleable layers (a locked + dimmed building shell, and a maintenance layer that ships hidden); the canvas layer button opens a panel to show / hide / solo / lock each layer",
+    fn: East.function([], UIComponentType, ($) => {
+        const equipment = $.const([
+            { id: "GATE", x: 2.5, y: 6.0, kind: "entry", sys: "shell" },
+            { id: "PUMP-1", x: 6.0, y: 4.0, kind: "pump", sys: "process" },
+            { id: "TANK-2", x: 12.0, y: 4.0, kind: "tank", sys: "process" },
+            { id: "VALVE-3", x: 18.0, y: 7.0, kind: "valve", sys: "utilities" },
+            { id: "SENS-4", x: 9.0, y: 9.0, kind: "sensor", sys: "maintenance" },
+        ]);
+        const rooms = $.const([
+            { id: "hall", name: "Hall A", x: 1.0, y: 1.0, w: 22.0, h: 11.0 },
+        ]);
+        const pipes = $.const([
+            { id: "p1", a: "PUMP-1", b: "TANK-2" },
+            { id: "p2", a: "TANK-2", b: "VALVE-3" },
+        ]);
+        return (
+            <Schematic
+                extent={{ width: 24, height: 13 }}
+                height="420px"
+                items={equipment}
+                item={e => ({ key: e.id, x: e.x, y: e.y, label: e.id, sublabel: e.kind, icon: "gear", layer: e.sys })}
+                zones={rooms}
+                zone={z => ({ key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h, layer: "shell" })}
+                links={pipes}
+                link={l => ({ key: l.id, from: l.a, to: l.b, layer: "utilities" })}
+                layers={[
+                    // Locked + dimmed backdrop (the GATE item + Hall zone read as context).
+                    { key: "shell", label: "Building shell", tone: "muted", locked: true, opacity: 0.45 },
+                    { key: "process", label: "Process", tone: "brand" },
+                    { key: "utilities", label: "Utilities", tone: "success" },
+                    // Ships hidden — SENS-4 is absent until toggled on in the panel.
+                    { key: "maintenance", label: "Maintenance", tone: "warning", visible: false },
+                ]}
+                scaleUnit="m"
+            />
         );
     }),
     inputs: [],

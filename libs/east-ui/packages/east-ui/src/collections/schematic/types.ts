@@ -291,6 +291,10 @@ export const SchematicItemType = StructType({
      * is active, a `some(true)` item is treated as filtered-out (ghosted /
      * hidden per the effect); absent / `some(false)` ⇒ included / normal. */
     excluded: OptionType(BooleanType),
+    /** Optional layer membership — the `key` of a {@link SchematicLayerType} in
+     * the root `layers`. Hidden when its layer is hidden; absent ⇒ unlayered
+     * (always visible). An unknown key is treated as always-visible. */
+    layer: OptionType(StringType),
 });
 
 /**
@@ -342,6 +346,9 @@ export const SchematicZoneType = StructType({
     fillOpacity: OptionType(FloatType),
     /** Optional stroke width in px */
     weight: OptionType(FloatType),
+    /** Optional layer membership — the `key` of a {@link SchematicLayerType};
+     * hidden when its layer is hidden. Absent ⇒ unlayered (always visible). */
+    layer: OptionType(StringType),
 });
 
 /**
@@ -372,6 +379,10 @@ export const SchematicLinkType = StructType({
     route: SchematicRouteType,
     /** Optional world-coordinate waypoints, in order */
     via: ArrayType(SchematicPointType),
+    /** Optional layer membership — the `key` of a {@link SchematicLayerType};
+     * hidden when its layer is hidden (a link also vanishes when either endpoint
+     * item is hidden). Absent ⇒ unlayered (always visible). */
+    layer: OptionType(StringType),
 });
 
 /**
@@ -485,6 +496,47 @@ export const SchematicSliceEffectType = StructType({
 export type SchematicSliceEffectType = typeof SchematicSliceEffectType;
 
 /**
+ * A named layer — a cross-cutting group of items / zones / links that can be
+ * shown, hidden, isolated (solo), locked, or dimmed together via the canvas
+ * layer button.
+ *
+ * @remarks
+ * Membership is by `key`: an entity's `layer` field names the layer it belongs
+ * to. Layer visibility / lock are VIEW state (owned by the renderer, persisted
+ * per panel); the `visible` / `locked` here are the AUTHOR defaults the user's
+ * toggles override. `opacity` dims the layer's items (markers / footprints) in
+ * v1 (zone / link dimming is not yet applied). `tone` colours the panel swatch
+ * (theme-owned). Membership is strictly per-entity — hiding a container zone
+ * does not hide the items geometrically inside it.
+ *
+ * @property key - Layer identity — entities reference it via their `layer` field
+ * @property label - Display name shown in the layer panel
+ * @property visible - Author default visibility; absent / `some(true)` ⇒ shown, `some(false)` ⇒ ships hidden
+ * @property locked - Author default lock (non-selectable); absent ⇒ unlocked
+ * @property opacity - Optional item dim (0–1) for the layer's items; absent ⇒ full
+ * @property tone - Optional panel swatch tone
+ */
+export const SchematicLayerType = StructType({
+    /** Layer identity — entities reference it via their `layer` field. */
+    key: StringType,
+    /** Display name shown in the layer panel. */
+    label: StringType,
+    /** Author default visibility; `some(false)` ships hidden, absent ⇒ shown. */
+    visible: OptionType(BooleanType),
+    /** Author default lock (non-selectable); absent ⇒ unlocked. */
+    locked: OptionType(BooleanType),
+    /** Optional item dim (0–1) for the layer's items; absent ⇒ full. */
+    opacity: OptionType(FloatType),
+    /** Optional panel swatch tone. */
+    tone: OptionType(SchematicToneType),
+});
+
+/**
+ * Type representing a schematic layer.
+ */
+export type SchematicLayerType = typeof SchematicLayerType;
+
+/**
  * East StructType for the Schematic component.
  *
  * @remarks
@@ -503,6 +555,7 @@ export type SchematicSliceEffectType = typeof SchematicSliceEffectType;
  * @property minimap - Minimap with the viewport rectangle
  * @property slice - Optional Slice chrome rail mounting the affordances
  * @property sliceEffect - Optional slice-driven render effect (ghost / emphasis / frame)
+ * @property layers - Optional named layers (visibility / solo / lock / dim via the layer button)
  * @property height - Optional fixed panel height (any CSS length)
  * @property onSelect - Optional item-click callback (receives the item key)
  */
@@ -532,6 +585,8 @@ export const SchematicRootType = StructType({
     slice: OptionType(SliceChromeType),
     /** Optional slice-driven render effect — ghost / desaturate / shrink filtered-out items and emphasise the remainder (halo / pulse / frame); absent ⇒ excluded items are hidden completely */
     sliceEffect: OptionType(SchematicSliceEffectType),
+    /** Optional named layers — cross-cutting groups toggled (visibility / solo / lock / dim) from the canvas layer button; absent ⇒ no layer chrome */
+    layers: OptionType(ArrayType(SchematicLayerType)),
     /** Optional fixed panel height (any CSS length, e.g. `"400px"`); default: aspect-driven, capped at 75vh */
     height: OptionType(StringType),
     /** Optional item-click callback (receives the item key) */

@@ -13,6 +13,7 @@ describeEast("Schematic", (test) => {
         schematicPlant: ex.schematicPlant,
         schematicSlice: ex.schematicSlice,
         schematicSliceEffect: ex.schematicSliceEffect,
+        schematicLayers: ex.schematicLayers,
         schematicMinimal: ex.schematicMinimal,
         schematicInteractive: ex.schematicInteractive,
         schematicFacility: ex.schematicFacility,
@@ -238,5 +239,56 @@ describeEast("Schematic", (test) => {
         $(Assert.equal(eff.emphasis.unwrap("some").hasTag("halo"), true));
         // `frame: true` ⇒ framed, but no auto-fit.
         $(Assert.equal(eff.frame.unwrap("some").fit.hasTag("none"), true));
+    });
+
+    test("layers declaration + per-entity layer tags (items / zones / links) carry through", $ => {
+        const sch = $.let(Schematic.Root(
+            [{ id: "A", x: 1.0, y: 1.0, sys: "process" }, { id: "B", x: 5.0, y: 1.0, sys: "maintenance" }],
+            {
+                extent: { width: 8, height: 6 },
+                item: e => ({ key: e.id, x: e.x, y: e.y, label: e.id, layer: e.sys }),
+                zones: [{ id: "z", name: "Z", x: 0.0, y: 0.0, w: 4.0, h: 3.0 }],
+                zone: z => ({ key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h, layer: "shell" }),
+                links: [{ id: "l", src: "A", dst: "B", lyr: "utilities" }],
+                link: l => ({ key: l.id, from: l.src, to: l.dst, layer: l.lyr }),
+                layers: [
+                    { key: "shell", label: "Shell", tone: "muted", locked: true, opacity: 0.5 },
+                    { key: "process", label: "Process", tone: "brand" },
+                    { key: "maintenance", label: "Maint", visible: false },
+                ],
+            },
+        ));
+        const root = $.let(sch.unwrap().unwrap("Schematic"));
+
+        const ls = $.let(root.layers.unwrap("some"));
+        $(Assert.equal(ls.size(), 3n));
+        const shell = $.let(ls.get(0n));
+        $(Assert.equal(shell.key, "shell"));
+        $(Assert.equal(shell.label, "Shell"));
+        $(Assert.equal(shell.locked.unwrap("some"), true));
+        $(Assert.equal(shell.opacity.unwrap("some"), 0.5));
+        $(Assert.equal(shell.tone.unwrap("some").hasTag("muted"), true));
+        // Unset author visibility ⇒ `none` (resolves to visible); an explicit `false` ships hidden.
+        $(Assert.equal(shell.visible.hasTag("none"), true));
+        $(Assert.equal(ls.get(2n).visible.unwrap("some"), false));
+
+        // Per-entity layer tags across all three kinds.
+        $(Assert.equal(root.items.get(0n).layer.unwrap("some"), "process"));
+        $(Assert.equal(root.items.get(1n).layer.unwrap("some"), "maintenance"));
+        $(Assert.equal(root.zones.get(0n).layer.unwrap("some"), "shell"));
+        $(Assert.equal(root.links.get(0n).layer.unwrap("some"), "utilities"));
+    });
+
+    test("no layers ⇒ root.layers none and each entity layer none", $ => {
+        const sch = $.let(Schematic.Root(
+            [{ id: "A", x: 1.0, y: 1.0 }],
+            {
+                extent: { width: 4, height: 4 },
+                item: e => ({ key: e.id, x: e.x, y: e.y, label: e.id }),
+            },
+        ));
+        const root = $.let(sch.unwrap().unwrap("Schematic"));
+        $(Assert.equal(root.layers.hasTag("none"), true));
+        $(Assert.equal(root.items.get(0n).layer.hasTag("none"), true));
     });
 }, { platformFns: TestImpl });

@@ -52,6 +52,7 @@ import {
     SchematicToneType,
     SchematicFrameType,
     SchematicSliceEffectType,
+    SchematicLayerType,
 } from "./types.js";
 
 // Re-export types
@@ -71,6 +72,7 @@ export {
     SchematicEmphasisType,
     SchematicFrameType,
     SchematicSliceEffectType,
+    SchematicLayerType,
 } from "./types.js";
 
 /** String literal form of {@link SchematicToneType} tags. */
@@ -325,6 +327,9 @@ export interface SchematicItemFields {
      * is treated as filtered-out (ghosted / hidden per the effect). Typically
      * `Slice.apply.matches(state, cfg, row).not()`, or read from `Slice.partition`. */
     excluded?: SubtypeExprOrValue<BooleanType>;
+    /** Optional layer membership — the `key` of a `layers` entry; hidden when
+     * that layer is hidden. Absent ⇒ unlayered (always visible). */
+    layer?: SubtypeExprOrValue<StringType>;
 }
 
 /**
@@ -371,6 +376,9 @@ export interface SchematicZoneFields {
     fillOpacity?: SubtypeExprOrValue<FloatType>;
     /** Optional stroke width in px. */
     weight?: SubtypeExprOrValue<FloatType>;
+    /** Optional layer membership — the `key` of a `layers` entry; hidden when
+     * that layer is hidden. Absent ⇒ unlayered (always visible). */
+    layer?: SubtypeExprOrValue<StringType>;
 }
 
 /**
@@ -396,6 +404,9 @@ export interface SchematicLinkFields {
     route?: SubtypeExprOrValue<SchematicRouteType>;
     /** Optional world-coordinate waypoints, in order. */
     via?: SubtypeExprOrValue<ArrayType<SchematicPointType>>;
+    /** Optional layer membership — the `key` of a `layers` entry; hidden when
+     * that layer is hidden (or when either endpoint item is hidden). */
+    layer?: SubtypeExprOrValue<StringType>;
 }
 
 /**
@@ -455,6 +466,44 @@ function toSliceEffect(effect: SchematicSliceEffect): ExprType<SchematicSliceEff
             ? some(East.value({ fit: none }, SchematicFrameType))
             : some(East.value({ fit: effect.frame.fit !== undefined ? some(effect.frame.fit) : none }, SchematicFrameType));
     return East.value({ excluded, emphasis, frame }, SchematicSliceEffectType);
+}
+
+/**
+ * A layer declaration for {@link SchematicConfig.layers}. Only `key` + `label`
+ * are required; the rest are author defaults the user's panel toggles override.
+ *
+ * @property key - Layer identity — entities reference it via their `layer` field
+ * @property label - Panel display name
+ * @property visible - Author default visibility (default `true`); `false` ⇒ ships hidden
+ * @property locked - Author default lock / non-selectable (default `false`)
+ * @property opacity - Item-level dim (0–1) for the layer's items (default `1`)
+ * @property tone - Panel swatch tone
+ */
+export interface SchematicLayerInput {
+    /** Layer identity — entities reference it via their `layer` field. */
+    key: string;
+    /** Panel display name. */
+    label: string;
+    /** Author default visibility (default `true`); `false` ⇒ ships hidden. */
+    visible?: boolean;
+    /** Author default lock / non-selectable (default `false`). */
+    locked?: boolean;
+    /** Item-level dim (0–1) for the layer's items (default `1`). */
+    opacity?: number;
+    /** Panel swatch tone. */
+    tone?: SchematicToneLiteral;
+}
+
+/** Build the East `SchematicLayer` value from the plain JS declaration. */
+function toLayer(l: SchematicLayerInput): ExprType<SchematicLayerType> {
+    return East.value({
+        key: l.key,
+        label: l.label,
+        visible: l.visible !== undefined ? some(l.visible) : none,
+        locked: l.locked !== undefined ? some(l.locked) : none,
+        opacity: l.opacity !== undefined ? some(l.opacity) : none,
+        tone: toneValue(l.tone),
+    }, SchematicLayerType);
 }
 
 // ============================================================================
@@ -522,6 +571,12 @@ export interface SchematicConfig<
      * `Slice.apply.matches(...).not()`). Absent ⇒ excluded items hidden.
      */
     sliceEffect?: SchematicSliceEffect;
+    /**
+     * Named layers — cross-cutting groups of items / zones / links, toggled
+     * (visibility / solo / lock / dim) from a layer button on the canvas. Tag
+     * each entity with a matching `layer` key. Absent ⇒ no layer chrome.
+     */
+    layers?: SchematicLayerInput[];
     /** Optional fixed panel height (any CSS length, e.g. `"400px"`); default: aspect-driven, capped at 75vh. */
     height?: SubtypeExprOrValue<StringType> | string;
     /** Optional item-click callback (receives the item key). */
@@ -559,6 +614,7 @@ function buildRoot(
                 fillOpacity: r.fillOpacity !== undefined ? some(r.fillOpacity) : none,
                 weight: r.weight !== undefined ? some(r.weight) : none,
                 excluded: r.excluded !== undefined ? some(r.excluded) : none,
+                layer: r.layer !== undefined ? some(r.layer) : none,
             }, SchematicItemType);
         });
 
@@ -586,6 +642,7 @@ function buildRoot(
                     bg: r.bg !== undefined ? some(r.bg) : none,
                     fillOpacity: r.fillOpacity !== undefined ? some(r.fillOpacity) : none,
                     weight: r.weight !== undefined ? some(r.weight) : none,
+                    layer: r.layer !== undefined ? some(r.layer) : none,
                 }, SchematicZoneType);
             });
 
@@ -610,6 +667,7 @@ function buildRoot(
                     via: r.via !== undefined
                         ? East.value(r.via, ArrayType(SchematicPointType))
                         : East.value([], ArrayType(SchematicPointType)),
+                    layer: r.layer !== undefined ? some(r.layer) : none,
                 }, SchematicLinkType);
             });
 
@@ -637,6 +695,9 @@ function buildRoot(
         minimap: config.minimap !== undefined ? some(config.minimap) : none,
         slice: sliceChromeValue ? some(sliceChromeValue) : none,
         sliceEffect: config.sliceEffect !== undefined ? some(toSliceEffect(config.sliceEffect)) : none,
+        layers: config.layers !== undefined
+            ? some(East.value(config.layers.map(toLayer), ArrayType(SchematicLayerType)))
+            : none,
         height: config.height !== undefined ? some(config.height) : none,
         onSelect: config.onSelect !== undefined ? some(config.onSelect) : none,
     }), UIComponentType);
@@ -937,5 +998,16 @@ export const Schematic = {
          * @property bulge - DXF bulge for the edge to the next vertex (0 = straight)
          */
         Vertex: SchematicVertexType,
+        /**
+         * A named layer — a toggleable group of items / zones / links.
+         *
+         * @property key - Layer identity (entities reference it via `layer`)
+         * @property label - Panel display name
+         * @property visible - Author default visibility
+         * @property locked - Author default lock (non-selectable)
+         * @property opacity - Item dim (0–1)
+         * @property tone - Panel swatch tone
+         */
+        Layer: SchematicLayerType,
     },
 } as const;

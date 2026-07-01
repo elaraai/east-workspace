@@ -7,7 +7,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { Box, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { findIconDefinition, library } from "@fortawesome/fontawesome-svg-core";
-import { fas, faAnglesLeft, faAnglesRight, faCaretRight, faChevronLeft, faChevronRight, faExpand, faHand, faMinus, faObjectGroup, faPlus } from "@fortawesome/free-solid-svg-icons";
+import { fas, faAnglesLeft, faAnglesRight, faBullseye, faCaretRight, faChevronLeft, faChevronRight, faExpand, faEye, faEyeSlash, faHand, faLayerGroup, faLock, faLockOpen, faMinus, faObjectGroup, faPlus } from "@fortawesome/free-solid-svg-icons";
 import RBush from "rbush";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Schematic, Slice as SliceInternal } from "@elaraai/east-ui/internal";
@@ -39,6 +39,9 @@ export type SchematicZoneValue = ValueTypeOf<typeof Schematic.Types.Zone>;
 /** East Schematic shape-geometry value type (`rect` / `circle` / `polyline` / `polygon`). */
 export type SchematicGeometryValue = ValueTypeOf<typeof Schematic.Types.Geometry>;
 
+/** East Schematic layer value type. */
+export type SchematicLayerValue = ValueTypeOf<typeof Schematic.Types.Layer>;
+
 export interface EastChakraSchematicProps {
     value: SchematicValue;
     storageKey: string;
@@ -55,6 +58,9 @@ const LOD_LABEL_PPU = 16;
 const MINIMAP_AUTO = 25;
 /** Shared empty key set — the paint-layer excluded set when nothing is dimmed. */
 const EMPTY_STRING_SET: ReadonlySet<string> = new Set();
+/** Shared empty layer-override map — the default before any user toggle (stable
+ *  identity so it never churns the layer-resolution memo). */
+const EMPTY_LAYER_OVERRIDES: Record<string, boolean> = {};
 /** Pulse animation period in ms (the matched-item breathing ring). */
 const PULSE_PERIOD_MS = 1600;
 
@@ -263,24 +269,122 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     // The effect only "engages" once something is actually excluded — otherwise
     // emphasis / frame would decorate every item (no narrowing active).
     const effectActive = hasEffect && excludedKeys.size > 0;
-    // In `hide` mode, excluded items drop out of the whole working set (centres,
-    // culling index, navigator) so nothing dangles; every other mode keeps them.
-    const items = useMemo(
-        () => (effectActive && excludedMode === "hide")
-            ? value.items.filter(it => !excludedKeys.has(it.key))
-            : value.items,
-        [value.items, effectActive, excludedMode, excludedKeys],
-    );
 
     const [selected, setSelected] = useState<string | null>(null);
     const [openZone, setOpenZone] = useState<string | null>(null);
     // Index-rail collapse is a durable layout preference — persist it under
     // `storageKey` (issue #57, P8). The camera and selection are transient
     // interaction state (per the renderer conventions) and stay ephemeral.
-    const { state: persisted, setState: setPersisted } = usePersistedState(storageKey, { navCollapsed: false });
+    // Consolidated durable prefs: the nav-rail collapse plus the layer-panel
+    // visibility / lock overrides (sparse maps: layerKey → user's explicit bool).
+    const { state: persisted, setState: setPersisted } = usePersistedState(storageKey,
+        { navCollapsed: false, layerVis: {} as Record<string, boolean>, layerLocks: {} as Record<string, boolean> });
     const navCollapsed = persisted.navCollapsed;
     const setNavCollapsed = useCallback((next: boolean) => setPersisted(prev => ({ ...prev, navCollapsed: next })), [setPersisted]);
+
+    // --- Layers: named groups toggled from the layer button. -----------------
+    // Visibility / lock are VIEW state (persisted above; solo is transient); the
+    // East `layers` carry only the author defaults. Absent ⇒ no layer chrome.
+    const layers = useMemo(() => getSomeorUndefined(value.layers) ?? [], [value.layers]);
+    const hasLayers = layers.length > 0;
+    const layerVis = persisted.layerVis ?? EMPTY_LAYER_OVERRIDES;
+    const layerLocks = persisted.layerLocks ?? EMPTY_LAYER_OVERRIDES;
+    const [soloLayer, setSoloLayer] = useState<string | null>(null);
+    const [layersOpen, setLayersOpen] = useState(false);
+
+    // Resolve effective visibility / lock / dim per layer, then project onto the
+    // entities in one pass. `layerHiddenKeys`/`lockedKeys` are ENTITY keys;
+    // `layerHiddenLayers` is the LAYER keys hidden (drives the panel eye state).
+    const { layerHiddenKeys, lockedKeys, layerAlpha, layerHiddenLayers } = useMemo(() => {
+        const byKey = new Map<string, SchematicLayerValue>();
+        for (const l of layers) byKey.set(l.key, l);
+        const authorVisible = (k: string) => { const l = byKey.get(k); return l === undefined ? true : (getSomeorUndefined(l.visible) ?? true); };
+        const authorLocked = (k: string) => { const l = byKey.get(k); return l === undefined ? false : (getSomeorUndefined(l.locked) ?? false); };
+        const authorOpacity = (k: string) => { const l = byKey.get(k); return l === undefined ? 1 : (getSomeorUndefined(l.opacity) ?? 1); };
+        // Solo isolates one layer; else a per-layer override, else the author default.
+        const isHidden = (k: string) => soloLayer !== null ? k !== soloLayer : ((layerVis[k] ?? authorVisible(k)) === false);
+        const isLocked = (k: string) => layerLocks[k] ?? authorLocked(k);
+        const hiddenLayers = new Set<string>();
+        for (const l of layers) if (isHidden(l.key)) hiddenLayers.add(l.key);
+        const hiddenKeys = new Set<string>();
+        const locked = new Set<string>();
+        const alpha = new Map<string, number>();
+        const scan = (key: string, lk: string | undefined) => {
+            if (lk === undefined) return;                 // unlayered ⇒ always visible
+            if (isHidden(lk)) { hiddenKeys.add(key); return; }
+            if (isLocked(lk)) locked.add(key);
+            const a = authorOpacity(lk);
+            if (a < 1) alpha.set(key, a);
+        };
+        for (const it of value.items) scan(it.key, getSomeorUndefined(it.layer));
+        for (const z of value.zones) scan(z.key, getSomeorUndefined(z.layer));
+        for (const l of value.links) scan(l.key, getSomeorUndefined(l.layer));
+        return { layerHiddenKeys: hiddenKeys, lockedKeys: locked, layerAlpha: alpha, layerHiddenLayers: hiddenLayers };
+    }, [layers, value.items, value.zones, value.links, layerVis, layerLocks, soloLayer]);
+    // The view is "filtered" (drives the button's active state) whenever a layer
+    // is hidden or a solo is active.
+    const layersFiltered = layerHiddenLayers.size > 0 || soloLayer !== null;
+
+    // Panel affordances. Author defaults are read from the layer defs; the user's
+    // overrides live in the persisted sparse maps (solo is transient).
+    const layerByKey = useMemo(() => new Map(layers.map(l => [l.key, l] as const)), [layers]);
+    const authorVisibleOf = useCallback((k: string) => getSomeorUndefined(layerByKey.get(k)?.visible) ?? true, [layerByKey]);
+    const authorLockedOf = useCallback((k: string) => getSomeorUndefined(layerByKey.get(k)?.locked) ?? false, [layerByKey]);
+    const layerCounts = useMemo(() => {
+        const m = new Map<string, number>();
+        const add = (k: string | undefined) => { if (k !== undefined) m.set(k, (m.get(k) ?? 0) + 1); };
+        for (const it of value.items) add(getSomeorUndefined(it.layer));
+        for (const z of value.zones) add(getSomeorUndefined(z.layer));
+        for (const l of value.links) add(getSomeorUndefined(l.layer));
+        return m;
+    }, [value.items, value.zones, value.links]);
+    // Eye toggles a layer's visibility override (and clears solo); lock toggles
+    // its non-selectable override; solo isolates one layer; reset clears all.
+    const toggleLayerVis = useCallback((key: string) => {
+        setSoloLayer(null);
+        setPersisted(prev => {
+            const vis = prev.layerVis ?? {};
+            const cur = vis[key] ?? authorVisibleOf(key);
+            return { ...prev, layerVis: { ...vis, [key]: !cur } };
+        });
+    }, [setPersisted, authorVisibleOf]);
+    const toggleLayerLock = useCallback((key: string) => {
+        setPersisted(prev => {
+            const lk = prev.layerLocks ?? {};
+            const cur = lk[key] ?? authorLockedOf(key);
+            return { ...prev, layerLocks: { ...lk, [key]: !cur } };
+        });
+    }, [setPersisted, authorLockedOf]);
+    const toggleSolo = useCallback((key: string) => setSoloLayer(prev => prev === key ? null : key), []);
+    const resetLayers = useCallback(() => {
+        setSoloLayer(null);
+        setPersisted(prev => ({ ...prev, layerVis: {}, layerLocks: {} }));
+    }, [setPersisted]);
+
+    // The item working set: layer-hidden is a HARD pre-filter that wins over the
+    // slice-effect keep (an off layer means "not at all"); union with slice-hide.
+    // Propagates for free to centers / rbush index / visibleItems / LOD / nav.
+    const items = useMemo(() => {
+        const sliceHide = effectActive && excludedMode === "hide";
+        if (!sliceHide && layerHiddenKeys.size === 0) return value.items;
+        return value.items.filter(it => !layerHiddenKeys.has(it.key) && !(sliceHide && excludedKeys.has(it.key)));
+    }, [value.items, effectActive, excludedMode, excludedKeys, layerHiddenKeys]);
+
+    // Zones are read at several surfaces (nav TOC, minimap, viewport spy, labels);
+    // drop hidden-layer zones once here. Links are filtered inside paint.
+    const shownZones = useMemo(
+        () => layerHiddenKeys.size === 0 ? value.zones : value.zones.filter(z => !layerHiddenKeys.has(z.key)),
+        [value.zones, layerHiddenKeys],
+    );
+
     const [palette, setPalette] = useState<SchematicPalette | null>(null);
+
+    // Selection hygiene: if the selected item left the working set (its layer was
+    // hidden), clear the selection so prev/next stepping stays consistent and the
+    // controls' back/forward group hides.
+    useEffect(() => {
+        if (selected !== null && !items.some(it => it.key === selected)) setSelected(null);
+    }, [items, selected]);
     const navTreeRef = useRef<HTMLDivElement | null>(null);
 
     const canvasRef = useRef<HTMLDivElement | null>(null);
@@ -383,20 +487,20 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         }).map(b => b.item);
     }, [index, size, ppu, cameraSnapshot]);
 
-    const nav = useMemo(() => buildNavTree(value.zones, items), [value.zones, items]);
+    const nav = useMemo(() => buildNavTree(shownZones, items), [shownZones, items]);
 
     // Duplicate zone labels are real (tank farms repeat a code) — the
     // navigator needs a unique handle per row, so repeats get an ordinal.
     const zoneDisplay = useMemo(() => {
         const counts = new Map<string, number>();
         const out = new Map<string, string>();
-        for (const zone of value.zones) {
+        for (const zone of shownZones) {
             const n = (counts.get(zone.label) ?? 0) + 1;
             counts.set(zone.label, n);
             out.set(zone.key, n > 1 ? `${zone.label} · ${n}` : zone.label);
         }
         return out;
-    }, [value.zones]);
+    }, [shownZones]);
 
     // Selection stepping order: zones alphabetical (natural-numeric), each
     // zone's items alphabetical within it, nested zones after their
@@ -441,19 +545,19 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         };
         let best: string | undefined;
         let bestScore = 0;
-        for (const z of value.zones) {
+        for (const z of shownZones) {
             const score = scoreOf(z);
             if (score > bestScore) { best = z.key; bestScore = score; }
         }
         setCurrentZone(prev => {
             if (prev !== undefined) {
-                const holder = value.zones.find(z => z.key === prev);
+                const holder = shownZones.find(z => z.key === prev);
                 const holderScore = holder !== undefined ? scoreOf(holder) : 0;
                 if (holderScore >= SPY_STAY && (best === prev || bestScore < holderScore + SPY_MARGIN)) return prev;
             }
             return bestScore >= SPY_ENTER ? best : undefined;
         });
-    }, [size, ppu, cameraSnapshot, value.zones]);
+    }, [size, ppu, cameraSnapshot, shownZones]);
 
     const lod: LodTier = ppu >= LOD_CARD_PPU ? "card" : ppu >= LOD_LABEL_PPU ? "label" : "dot";
     const centerTree = useMemo(() => buildCenterTree(visibleItems), [visibleItems]);
@@ -475,14 +579,14 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         if (!(effectActive && frameEnabled)) return undefined;
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
         for (const it of value.items) {
-            if (excludedKeys.has(it.key)) continue;
+            if (excludedKeys.has(it.key) || layerHiddenKeys.has(it.key)) continue;
             if (it.x < minX) minX = it.x;
             if (it.y < minY) minY = it.y;
             if (it.x > maxX) maxX = it.x;
             if (it.y > maxY) maxY = it.y;
         }
         return Number.isFinite(minX) ? { minX, minY, maxX, maxY } : undefined;
-    }, [value.items, excludedKeys, effectActive, frameEnabled]);
+    }, [value.items, excludedKeys, layerHiddenKeys, effectActive, frameEnabled]);
 
     // Paint-layer effect params, minus the live pulse phase (injected at paint
     // time from a ref so the animation loop need not re-render React). `hide`
@@ -517,6 +621,10 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     const paintEffectRef = useRef(paintEffect); paintEffectRef.current = paintEffect;
     const pulsePhaseRef = useRef(0);
     const frameRectRef = useRef(frameRect); frameRectRef.current = frameRect;
+    // Layer masks for the canvas paint (zones/links that read raw `value`) —
+    // mirrored into refs so `applyCamera` sees the live sets without React.
+    const layerHiddenKeysRef = useRef(layerHiddenKeys); layerHiddenKeysRef.current = layerHiddenKeys;
+    const layerAlphaRef = useRef(layerAlpha); layerAlphaRef.current = layerAlpha;
 
     // Skip an apply whose inputs are referentially identical to the last —
     // covers redundant idle re-renders / repeated requestRender with no change.
@@ -526,7 +634,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     const lastPaintRef = useRef<{
         zoom: number; tx: number; ty: number; vis: unknown; tiers: unknown;
         sel: string | null; pal: SchematicPalette | null; w: number; h: number; dpr: number; val: unknown;
-        eff: unknown; phase: number;
+        eff: unknown; phase: number; lay: unknown; alp: unknown;
     } | null>(null);
 
     // Apply the LIVE camera to ALL surfaces in one step: card-layer CSS vars +
@@ -567,11 +675,13 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
             && last.vis === visibleItemsRef.current && last.tiers === tiersRef.current
             && last.sel === selectedRef.current && last.pal === pal
             && last.w === sz.w && last.h === sz.h && last.dpr === dprLive && last.val === valueRef.current
-            && last.eff === paintEffectRef.current && last.phase === pulsePhaseRef.current) return;
+            && last.eff === paintEffectRef.current && last.phase === pulsePhaseRef.current
+            && last.lay === layerHiddenKeysRef.current && last.alp === layerAlphaRef.current) return;
         lastPaintRef.current = {
             zoom: cam.zoom, tx: cam.tx, ty: cam.ty, vis: visibleItemsRef.current, tiers: tiersRef.current,
             sel: selectedRef.current, pal, w: sz.w, h: sz.h, dpr: dprLive, val: valueRef.current,
             eff: paintEffectRef.current, phase: pulsePhaseRef.current,
+            lay: layerHiddenKeysRef.current, alp: layerAlphaRef.current,
         };
         const bw = Math.round(sz.w * dprLive), bh = Math.round(sz.h * dprLive);
         if (canvas.width !== bw || canvas.height !== bh) { canvas.width = bw; canvas.height = bh; }
@@ -584,6 +694,9 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
             width: sz.w, height: sz.h,
             visibleItems: visibleItemsRef.current, tiers: tiersRef.current,
             selected: selectedRef.current, centers: centersRef.current, palette: pal,
+            // Layer masks for the zone / link paint passes (items are already
+            // pre-filtered out of visibleItems); `layerAlpha` dims item markers.
+            layerHiddenKeys: layerHiddenKeysRef.current, layerAlpha: layerAlphaRef.current,
             // Spread `effect` only when set — `exactOptionalPropertyTypes` forbids
             // passing an explicit `undefined` to the optional `effect?` field.
             ...(eff !== undefined ? { effect: { ...eff, pulsePhase: pulsePhaseRef.current } } : {}),
@@ -730,7 +843,9 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
             if (onSelectFn) queueMicrotask(() => onSelectFn(key));
         };
         // 1) footprint shape (the exact world-space geometry the painter drew).
+        // Items in a locked layer are non-selectable — the pick falls through them.
         for (const it of visibleItems) {
+            if (lockedKeys.has(it.key)) continue;
             if ((tiers.get(it.key) ?? lod) !== "card") continue;
             const fp = getSomeorUndefined(it.footprint);
             if (fp === undefined || fp.type === "rect") continue;
@@ -740,11 +855,13 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
             if (hit) { select(it.key); return true; }
         }
         // 2) the real DOM card under the pointer — hit-test the actual rendered
-        // element (pixel-accurate), not an estimate of its box.
+        // element (pixel-accurate), not an estimate of its box. (Locked cards
+        // carry pointerEvents:none, so elementFromPoint already skips them; the
+        // guard is belt-and-suspenders.)
         if (typeof document !== "undefined") {
             const cardKey = document.elementFromPoint(clientX, clientY)
                 ?.closest("[data-card-key]")?.getAttribute("data-card-key");
-            if (cardKey !== null && cardKey !== undefined) { select(cardKey); return true; }
+            if (cardKey !== null && cardKey !== undefined && !lockedKeys.has(cardKey)) { select(cardKey); return true; }
         }
         // 3) dot / label markers: nearest hit against the full rendered extent (P11).
         const ctx = drawRef.current?.getContext("2d") ?? null;
@@ -754,6 +871,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         const camScreen = { ppu: ppuLive, tx: cam.tx, ty: cam.ty };
         let best: SchematicItemValue | null = null, bestD = Infinity;
         for (const it of visibleItems) {
+            if (lockedKeys.has(it.key)) continue;
             const tier = tiers.get(it.key) ?? lod;
             if (tier === "card") continue;
             const box = markerHitbox(it, tier, camScreen, t => ctx !== null ? ctx.measureText(t).width : t.length * 6);
@@ -764,7 +882,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         if (ctx !== null) ctx.restore();
         if (best !== null) { flyToItem(best); return true; }
         return false;
-    }, [tiers, lod, visibleItems, onSelectFn, flyToItem]);
+    }, [tiers, lod, visibleItems, onSelectFn, flyToItem, lockedKeys]);
 
     const onCanvasPointerDown = useCallback((e: React.PointerEvent) => {
         if (e.button !== 0) return;
@@ -911,7 +1029,10 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     // canvas and cards stay aligned even on a snapshot-cadence re-render.
     useLayoutEffect(() => {
         applyCamera();
-    }, [applyCamera, value, visibleItems, tiers, selected, palette, size, dpr, fit, cameraSnapshot, paintEffect]);
+        // `layerHiddenKeys` / `layerAlpha` are essential here: a zone/link-only
+        // layer toggle changes neither `items` nor `visibleItems`, so without them
+        // the canvas would stay stale until the next camera nudge.
+    }, [applyCamera, value, visibleItems, tiers, selected, palette, size, dpr, fit, cameraSnapshot, paintEffect, layerHiddenKeys, layerAlpha]);
 
     // Pulse emphasis: a self-contained rAF loop that advances the pulse phase and
     // repaints, only while `emphasis === "pulse"` and the effect is engaged (some
@@ -1120,6 +1241,10 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                                 // here (filtered out / demoted to a canvas dot).
                                 const isExcludedCard = effectActive && excludedMode === "keep" && excludedKeys.has(item.key);
                                 const isEmphasized = effectActive && emphasis !== undefined && !excludedKeys.has(item.key);
+                                // Layer treatment: dim (opacity × slice-keep opacity) + lock (non-selectable
+                                // — clicks fall through to entities beneath, matching the pickAt lock skip).
+                                const isLockedCard = lockedKeys.has(item.key);
+                                const cardOpacity = (isExcludedCard ? excludedOpacity : 1) * (layerAlpha.get(item.key) ?? 1);
                                 const sublabel = getSomeorUndefined(item.sublabel);
                                 const icon = getSomeorUndefined(item.icon);
                                 const meter = getSomeorUndefined(item.meter);
@@ -1140,7 +1265,9 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                                             left: 0, top: 0,
                                             transform: `${cardTranslateCss(item.x, item.y)} translate(-50%, -50%)`,
                                             ...(typeof width === "number" ? { width: cardWidthCss(width) } : {}),
-                                            ...(isExcludedCard ? { opacity: excludedOpacity, ...(excludedDesaturate ? { filter: "grayscale(1)" } : {}) } : {}),
+                                            ...(cardOpacity < 1 ? { opacity: cardOpacity } : {}),
+                                            ...(isExcludedCard && excludedDesaturate ? { filter: "grayscale(1)" } : {}),
+                                            ...(isLockedCard ? { pointerEvents: "none" as const } : {}),
                                         }}
                                     >{/* No onClick / stopPropagation: a drag-pan can start on a
                                         card, and a tap is resolved by the canvas pickAt (pointerup). */}
@@ -1175,6 +1302,11 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                             <Box as="button" css={styles.controlButton} aria-label="Zoom in" title="Zoom in (scroll)" onClick={() => zoomBy(1.5)}><FontAwesomeIcon icon={faPlus} /></Box>
                             <Box as="button" css={styles.controlButton} aria-label="Zoom out" title="Zoom out (scroll)" onClick={() => zoomBy(1 / 1.5)}><FontAwesomeIcon icon={faMinus} /></Box>
                             <Box as="button" css={styles.controlButton} aria-label="Fit view" title="Fit view (double-click)" onClick={resetView}><FontAwesomeIcon icon={faExpand} /></Box>
+                            {/* Layer selector — visible only when the schematic declares layers.
+                                Active when the view is filtered (a layer hidden / a solo). */}
+                            {hasLayers && (
+                                <Box as="button" css={styles.controlButton} {...(layersFiltered ? { "data-active": "" } : {})} aria-label="Layers" aria-expanded={layersOpen} title="Layers" onClick={() => setLayersOpen(o => !o)}><FontAwesomeIcon icon={faLayerGroup} /></Box>
+                            )}
                             {/* Back / forward through items — its own vertical group. */}
                             {selected !== null && (
                                 <Box css={styles.controlGroup}>
@@ -1183,6 +1315,33 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                                 </Box>
                             )}
                         </Box>
+                        {/* Layer panel — a small dropdown under the layer button. Its own
+                            pointer-down stops the canvas pan (the canvas only exempts
+                            <button>s); each row toggles eye / solo / lock. */}
+                        {hasLayers && layersOpen && (
+                            <Box css={styles.layerPanel} onPointerDown={e => e.stopPropagation()}>
+                                <Box css={styles.layerHeader}>
+                                    <Box as="span" css={styles.layerTitle}>Layers</Box>
+                                    <Box as="button" css={styles.layerReset} onClick={resetLayers}>Show all</Box>
+                                </Box>
+                                {layers.map(l => {
+                                    const hidden = layerHiddenLayers.has(l.key);
+                                    const solo = soloLayer === l.key;
+                                    const locked = layerLocks[l.key] ?? authorLockedOf(l.key);
+                                    const toneName = getSomeorUndefined(l.tone)?.type ?? "muted";
+                                    return (
+                                        <Box key={l.key} css={styles.layerRow} {...(hidden ? { "data-hidden": "" } : {})}>
+                                            <Box as="span" css={styles.layerSwatch} data-tone={toneName} />
+                                            <Box as="span" css={styles.layerLabel}>{l.label}</Box>
+                                            <Box as="span" css={styles.layerCount}>{layerCounts.get(l.key) ?? 0}</Box>
+                                            <Box as="button" css={styles.layerToggle} {...(solo ? { "data-active": "" } : {})} aria-label="Isolate layer" title="Isolate" onClick={() => toggleSolo(l.key)}><FontAwesomeIcon icon={faBullseye} /></Box>
+                                            <Box as="button" css={styles.layerToggle} {...(locked ? { "data-active": "" } : {})} aria-label={locked ? "Unlock layer" : "Lock layer"} title={locked ? "Locked (click to unlock)" : "Lock (non-selectable)"} onClick={() => toggleLayerLock(l.key)}><FontAwesomeIcon icon={locked ? faLock : faLockOpen} /></Box>
+                                            <Box as="button" css={styles.layerToggle} aria-label={hidden ? "Show layer" : "Hide layer"} title={hidden ? "Show" : "Hide"} onClick={() => toggleLayerVis(l.key)}><FontAwesomeIcon icon={hidden ? faEyeSlash : faEye} /></Box>
+                                        </Box>
+                                    );
+                                })}
+                            </Box>
+                        )}
                         {scaleUnit !== undefined && scaleLen > 0 && (() => {
                             const len = scaleLen * ppu;
                             const quarter = (k: number, h: number) => `M ${(len * k) / 4} 6.5 V ${h}`;
@@ -1225,7 +1384,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                                     (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
                                 }}
                             >
-                                {value.zones.map(zone => (
+                                {shownZones.map(zone => (
                                     <Box
                                         key={zone.key}
                                         css={styles.minimapZone}

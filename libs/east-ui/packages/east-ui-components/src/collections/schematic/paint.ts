@@ -109,6 +109,13 @@ export interface PaintInput {
     palette: SchematicPalette;
     /** Optional slice-effect paint parameters (ghost / emphasis / frame). */
     effect?: SchematicPaintEffect;
+    /** Entity keys in a hidden layer — zones / links with a hidden-layer key are
+     * skipped (items are already pre-filtered out of `visibleItems`). Empty ⇒ no
+     * layer filtering. */
+    layerHiddenKeys?: ReadonlySet<string>;
+    /** Item key → layer opacity (0–1), for items in a dimmed layer. Multiplies
+     * the item marker / footprint alpha. Absent / missing key ⇒ full. */
+    layerAlpha?: ReadonlyMap<string, number>;
 }
 
 const css = (c: RGB, a = 1): string =>
@@ -402,14 +409,16 @@ function zoneWorldBbox(zone: SchematicZoneValue, geom: SchematicGeometryValue | 
 
 /** Draw the schematic's bulk-shape layer for one frame. Clears first. */
 export function paintSchematic(input: PaintInput): void {
-    const { ctx, value, cam, width, height, visibleItems, tiers, selected, centers, palette: p, effect } = input;
+    const { ctx, value, cam, width, height, visibleItems, tiers, selected, centers, palette: p, effect, layerHiddenKeys, layerAlpha } = input;
     const wx = (x: number) => x * cam.ppu + cam.tx;
     const wy = (y: number) => y * cam.ppu + cam.ty;
     const ppu = cam.ppu;
-    // Per-item slice-effect state — `excludedOf` is the kept-excluded alpha (1 =
-    // not excluded / not fading); `tintOf` re-tints a desaturated excluded item.
+    // Per-item render alpha / tint. `alphaOf` folds the slice-keep fade and the
+    // layer dim (multiplicative); `desatOf` re-tints a desaturated excluded item.
     const isExcluded = (key: string): boolean => effect?.excluded.has(key) ?? false;
-    const alphaOf = (key: string): number => (effect !== undefined && isExcluded(key)) ? effect.excludedOpacity : 1;
+    const layerHidden = (key: string): boolean => layerHiddenKeys?.has(key) ?? false;
+    const alphaOf = (key: string): number =>
+        ((effect !== undefined && isExcluded(key)) ? effect.excludedOpacity : 1) * (layerAlpha?.get(key) ?? 1);
     const desatOf = (key: string): boolean => (effect !== undefined && isExcluded(key) && effect.excludedDesaturate);
     // The world rect currently on screen — zones / links whose geometry bbox
     // misses it are culled (issue #57, P6). Items are already viewport-culled
@@ -428,6 +437,7 @@ export function paintSchematic(input: PaintInput): void {
 
     // ---- zones: rect outline / hatch + polyline / polygon geometry ----------
     for (const zone of value.zones) {
+        if (layerHidden(zone.key)) continue;   // zone in a hidden layer
         const geom = getSomeorUndefined(zone.geometry);
         if (!bboxOverlaps(zoneWorldBbox(zone, geom), viewBbox)) continue;
         const pattern = zone.pattern;
@@ -545,8 +555,9 @@ export function paintSchematic(input: PaintInput): void {
 
     // ---- links --------------------------------------------------------------
     for (const link of value.links) {
+        if (layerHidden(link.key)) continue;   // link in a hidden layer
         const from = centers.get(link.from), to = centers.get(link.to);
-        if (!from || !to) continue;
+        if (!from || !to) continue;   // endpoint item hidden (layer or slice) ⇒ no centre
         // Cull by the AABB over ALL anchors (endpoints + waypoints), not the
         // endpoints alone — a trunk whose two ends sit off-screen but whose
         // segment crosses the viewport must NOT be culled (issue #57, 1e).
