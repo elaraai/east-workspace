@@ -12,6 +12,8 @@ export type PredicateValue = ValueTypeOf<typeof Slice.Types.Predicate>;
 const OP_GLYPH: Record<string, string> = {
     eq: "=", neq: "≠", lt: "<", lte: "≤", gt: ">", gte: "≥",
     in: "in", notIn: "not in", contains: "contains", matches: "~",
+    startsWith: "starts with", endsWith: "ends with",
+    isEmpty: "is empty", isNotEmpty: "is not empty",
     before: "before", after: "after", between: "between", is: "=",
 };
 

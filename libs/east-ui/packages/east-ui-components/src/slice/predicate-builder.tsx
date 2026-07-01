@@ -20,6 +20,10 @@ const STRING_OPS: ReadonlyArray<ClauseOpSpec> = [
     { tag: "in", glyph: "in", input: "set" },
     { tag: "notIn", glyph: "not in", input: "set" },
     { tag: "matches", glyph: "~" },
+    { tag: "startsWith", glyph: "starts with" },
+    { tag: "endsWith", glyph: "ends with" },
+    { tag: "isEmpty", glyph: "is empty", input: "none" },
+    { tag: "isNotEmpty", glyph: "is not empty", input: "none" },
 ];
 // Integer supports eq/neq/in; float is ordered-only (the apply engine omits
 // float equality — float `eq` is unreliable). Keep these aligned with

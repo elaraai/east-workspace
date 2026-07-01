@@ -470,14 +470,31 @@ function createSliceState(opts: SliceStateOptions = {}) {
 // values of its family's type. Mismatch is impossible by construction.
 // ============================================================================
 
-/** Operators for string-typed dimensions. */
+/**
+ * Operators for string-typed dimensions.
+ *
+ * @property eq         - exact equality
+ * @property neq        - exact inequality
+ * @property in         - membership in a value set
+ * @property notIn      - non-membership in a value set
+ * @property contains   - substring match
+ * @property matches    - regular-expression match (an invalid pattern narrows to nothing)
+ * @property startsWith - prefix match
+ * @property endsWith   - suffix match
+ * @property isEmpty    - empty or whitespace-only value (carries no comparison value)
+ * @property isNotEmpty - non-whitespace content present (carries no comparison value)
+ */
 export const SliceStringOpType = VariantType({
-    eq:       StringType,
-    neq:      StringType,
-    in:       SetType(StringType),
-    notIn:    SetType(StringType),
-    contains: StringType,
-    matches:  StringType,
+    eq:         StringType,
+    neq:        StringType,
+    in:         SetType(StringType),
+    notIn:      SetType(StringType),
+    contains:   StringType,
+    matches:    StringType,
+    startsWith: StringType,
+    endsWith:   StringType,
+    isEmpty:    NullType,
+    isNotEmpty: NullType,
 });
 export type SliceStringOpType = typeof SliceStringOpType;
 

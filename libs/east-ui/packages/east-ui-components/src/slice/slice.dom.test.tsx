@@ -170,6 +170,27 @@ describe("Slice.Filter — add-filter builder applies (in a Slice.Edit popover)"
         expect(filters[0].value.op.value).toBe(20n);
     });
 
+    // #171 — presence ops carry no comparison value: picking "is empty" hides
+    // the value control (input:"none") and Add submits a NullType-armed op.
+    test("builder offers 'is empty' with no value control and Add appends an isEmpty predicate (#171)", async () => {
+        const slice = fakeSlice();
+        const value: any = { slice, unit: none, density: none, editOpen: some(true) };
+        ui(<EastChakraSliceFilter value={value} />);
+
+        const user = userEvent.setup();
+        expect(screen.queryByRole("textbox")).not.toBeNull();     // contains → string value control
+        await pickOption(user, "Operator", "is empty");
+        expect(screen.queryByRole("textbox")).toBeNull();         // presence op → no value control
+        fireEvent.click(screen.getByText("Add"));
+
+        const filters = slice.read().filters;
+        expect(filters.length).toBe(1);
+        expect(filters[0].type).toBe("string");
+        expect(filters[0].value.fieldId).toBe("scenario");
+        expect(filters[0].value.op.type).toBe("isEmpty");
+        expect(filters[0].value.op.value).toBe(null);
+    });
+
     test("remove chip calls removeFilter", () => {
         const slice = fakeSlice({ filters: [variant("integer", { fieldId: "sessions", op: variant("gte", 20n) })] });
         const value: any = { slice, unit: none, density: none, editOpen: none };

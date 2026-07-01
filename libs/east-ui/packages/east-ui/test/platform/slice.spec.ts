@@ -326,6 +326,62 @@ describeEast("Slice", (test) => {
         $(Assert.equal(Slice.apply.matches([RowType], state, cfg, rMid), false));
     });
 
+    test("apply.matches: string/startsWith (#171)", $ => {
+        const RowType = StructType({ sku: StringType });
+        const cfg   = $.let(Slice.config(RowType, { fields: { sku: { label: "SKU" } } }));
+        const state = $.const(Slice.state({
+            filters: [variant("string", { fieldId: "sku", op: variant("startsWith", "SKU-") })],
+        }));
+        const rHit  = $.const({ sku: "SKU-ABC" },   RowType);
+        const rMid  = $.const({ sku: "X-SKU-ABC" }, RowType);
+        const rMiss = $.const({ sku: "ABC" },       RowType);
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, rHit),  true));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, rMid),  false));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, rMiss), false));
+    });
+
+    test("apply.matches: string/endsWith (#171)", $ => {
+        const RowType = StructType({ sku: StringType });
+        const cfg   = $.let(Slice.config(RowType, { fields: { sku: { label: "SKU" } } }));
+        const state = $.const(Slice.state({
+            filters: [variant("string", { fieldId: "sku", op: variant("endsWith", "-001") })],
+        }));
+        const rHit  = $.const({ sku: "SKU-ABC-001" }, RowType);
+        const rMid  = $.const({ sku: "SKU-001-XYZ" }, RowType);
+        const rMiss = $.const({ sku: "SKU-ABC-002" }, RowType);
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, rHit),  true));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, rMid),  false));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, rMiss), false));
+    });
+
+    test("apply.matches: string/isEmpty treats whitespace-only as empty (#171)", $ => {
+        const RowType = StructType({ note: StringType });
+        const cfg   = $.let(Slice.config(RowType, { fields: { note: { label: "Note" } } }));
+        const state = $.const(Slice.state({
+            filters: [variant("string", { fieldId: "note", op: variant("isEmpty", null) })],
+        }));
+        const rEmpty = $.const({ note: "" },      RowType);
+        const rBlank = $.const({ note: "   " },   RowType);
+        const rText  = $.const({ note: "hello" }, RowType);
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, rEmpty), true));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, rBlank), true));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, rText),  false));
+    });
+
+    test("apply.matches: string/isNotEmpty excludes empty and whitespace-only (#171)", $ => {
+        const RowType = StructType({ note: StringType });
+        const cfg   = $.let(Slice.config(RowType, { fields: { note: { label: "Note" } } }));
+        const state = $.const(Slice.state({
+            filters: [variant("string", { fieldId: "note", op: variant("isNotEmpty", null) })],
+        }));
+        const rEmpty = $.const({ note: "" },      RowType);
+        const rBlank = $.const({ note: "   " },   RowType);
+        const rText  = $.const({ note: "hello" }, RowType);
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, rEmpty), false));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, rBlank), false));
+        $(Assert.equal(Slice.apply.matches([RowType], state, cfg, rText),  true));
+    });
+
     // -----------------------------------------------------------------------
     // Integer ops: eq, neq, lt, lte, gt, gte, in
     // -----------------------------------------------------------------------

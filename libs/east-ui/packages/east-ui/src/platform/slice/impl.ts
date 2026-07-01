@@ -95,6 +95,11 @@ function matchStringOp(op: variant, value: unknown): boolean {
         case "contains": return v.includes(op.value as string);
         // A half-typed regex in a live filter must narrow to nothing, not crash.
         case "matches":  { try { return new RegExp(op.value as string).test(v); } catch { return false; } }
+        case "startsWith": return v.startsWith(op.value as string);
+        case "endsWith":   return v.endsWith(op.value as string);
+        // Presence ops treat whitespace-only as empty (#171).
+        case "isEmpty":    return v.trim() === "";
+        case "isNotEmpty": return v.trim() !== "";
         default: throw new Error(`unknown string op: ${op.type}`);
     }
 }
