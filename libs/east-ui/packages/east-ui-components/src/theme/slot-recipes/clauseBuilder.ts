@@ -15,7 +15,7 @@ import { defineSlotRecipe } from "@chakra-ui/react";
 
 export const clauseBuilderSlotRecipe = defineSlotRecipe({
     className: "elara-clause-builder",
-    slots: ["row", "rowStacked", "fieldLock", "rangeJoin", "chip", "chipField", "chipOp", "chipVal"],
+    slots: ["row", "rowStacked", "fieldLock", "rangeJoin", "hint", "chip", "chipField", "chipOp", "chipVal"],
     base: {
         // One inline row: field · op · value (flexes) · submit. minmax(0,1fr)
         // lets the value control shrink instead of forcing a wrap.
@@ -54,6 +54,15 @@ export const clauseBuilderSlotRecipe = defineSlotRecipe({
             color: "fg.subtle",
             fontSize: "{fontSizes.xs}",
             flexShrink: 0,
+        },
+        // Inline "why can't I Add" caption under the row (mirrors the cohort
+        // name field's disable + hint grammar). Spans the grid's full width;
+        // inert in the stacked flex layout.
+        hint: {
+            gridColumn: "1 / -1",
+            fontFamily: "mono",
+            fontSize: "{fontSizes.2xs}",
+            color: "fg.muted",
         },
         // Authored clause rendered as a compact chip: field · op · value.
         chip: {

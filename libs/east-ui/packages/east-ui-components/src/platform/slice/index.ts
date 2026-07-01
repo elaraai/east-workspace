@@ -47,6 +47,7 @@ import {
     none,
     encodeBeast2For,
     decodeBeast2For,
+    equalFor,
     type variant,
 } from "@elaraai/east";
 import { type PlatformFunction, type EastTypeValue } from "@elaraai/east/internal";
@@ -79,6 +80,10 @@ interface SliceCohortLike {
 
 const encodeState = encodeBeast2For(Slice.Types.State);
 const decodeState = decodeBeast2For(Slice.Types.State);
+/** Structural predicate equality — nested variant/struct/Date/Set payloads.
+ *  (Loose-`variant` boundary cast, same as `writeState` — the runtime shape
+ *  is identical to the strict East-generated one the comparator expects.) */
+const predicateEqual = equalFor(Slice.Types.Predicate) as (x: unknown, y: unknown) => boolean;
 
 export const DEFAULT_SLICE_STATE: SliceStateLike = {
     range:         none,
@@ -368,8 +373,17 @@ export const SliceImpl: PlatformFunction[] = [
         updateState(key as string, s => ({ ...s, compare: opt as variant }))),
 
     // --- filters ---
-    SliceBindPrimitives.addFilter.implement((key: unknown, pred: unknown) =>
-        updateState(key as string, s => ({ ...s, filters: [...s.filters, pred as variant] }))),
+    // Appending a structurally-equal predicate is a no-op (no write, no
+    // re-render) — an accidental double Add can't inflate the active count
+    // (#164). Structural equality via East's equalFor, which handles the
+    // nested variant/struct/Date/Set payloads correctly.
+    SliceBindPrimitives.addFilter.implement((key: unknown, pred: unknown) => {
+        const k = key as string;
+        const s = readState(k);
+        if (s.filters.some(f => predicateEqual(f, pred))) return null;
+        writeState(k, { ...s, filters: [...s.filters, pred as variant] });
+        return null;
+    }),
     SliceBindPrimitives.removeFilter.implement((key: unknown, idx: unknown) => {
         const i = Number(idx as bigint);
         return updateState(key as string, s => ({ ...s, filters: s.filters.filter((_, j) => j !== i) }));

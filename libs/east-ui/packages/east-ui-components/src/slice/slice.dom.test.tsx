@@ -15,11 +15,15 @@ import { describe, test, expect, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
-import { variant, some, none } from "@elaraai/east";
+import { variant, some, none, equalFor } from "@elaraai/east";
+import { Slice } from "@elaraai/east-ui/internal";
 import { system } from "../theme/index.js";
 import { EastChakraSliceCohort } from "./cohort/index.js";
 import { EastChakraSliceFilter } from "./filter/index.js";
 import { EastChakraSliceSearch } from "./search/index.js";
+
+/** Structural predicate equality — the same comparator the real impl uses. */
+const predEqual = equalFor(Slice.Types.Predicate) as (x: unknown, y: unknown) => boolean;
 
 /** Minimal `SliceBind` closure over mutable JS state — mirrors the runtime impl. */
 function fakeSlice(init: Record<string, unknown> = {}) {
@@ -34,7 +38,9 @@ function fakeSlice(init: Record<string, unknown> = {}) {
         write: (ns: any) => { s = ns; },
         setRange: (o: unknown) => set({ range: o }),
         setCompare: (o: unknown) => set({ compare: o }),
-        addFilter: (p: unknown) => set({ filters: [...s.filters, p] }),
+        // Faithful to the real primitive: a structurally-equal predicate is a
+        // no-op (#164 dedup).
+        addFilter: (p: unknown) => { if (!s.filters.some((f: unknown) => predEqual(f, p))) set({ filters: [...s.filters, p] }); },
         removeFilter: (i: unknown) => set({ filters: s.filters.filter((_: unknown, j: number) => j !== Number(i)) }),
         clearFilters: () => set({ filters: [], activeCohorts: new Set<string>() }),
         // Faithful to the real `Slice.bind` primitive (platform/slice/index.ts):
@@ -168,6 +174,37 @@ describe("Slice.Filter — add-filter builder applies (in a Slice.Edit popover)"
         expect(filters[0].type).toBe("integer");
         expect(filters[0].value.op.type).toBe("gte");
         expect(filters[0].value.op.value).toBe(20n);
+    });
+
+    // #164 — the add path gives feedback: Add is disabled (with a hint) while
+    // the value is empty, a successful Add closes the popover (the new chip is
+    // the confirmation; the lazy-mounted builder resets), and re-adding the
+    // identical clause dedups instead of stacking a duplicate chip.
+    test("Add disables on empty value, closes the popover on success, and an identical re-add dedups (#164)", async () => {
+        const slice = fakeSlice();
+        const value: any = { slice, unit: none, density: none, editOpen: some(true) };
+        ui(<EastChakraSliceFilter value={value} />);
+        const user = userEvent.setup();
+
+        // Fresh builder: string `contains` with an empty value — disabled + hint.
+        expect((screen.getByText("Add") as HTMLButtonElement).disabled).toBe(true);
+        expect(screen.getByText("Enter a value.")).toBeTruthy();
+
+        const buildSessionsGte20 = async () => {
+            await pickOption(user, "Field", "Sessions");
+            await pickOption(user, "Operator", "≥");
+            await user.click(screen.getByRole("spinbutton"));
+            await user.paste("20");
+            fireEvent.click(screen.getByText("Add"));
+        };
+        await buildSessionsGte20();
+        expect(slice.read().filters.length).toBe(1);
+        expect(screen.queryByLabelText("Field")).toBeNull();   // popover closed after Add
+
+        // Reopen the (freshly reset) builder and submit the identical clause.
+        await user.click(screen.getByText("add filter"));
+        await buildSessionsGte20();
+        expect(slice.read().filters.length).toBe(1);           // deduped, no second chip
     });
 
     // #166 — integer fields offer set-membership `in`: the TagsInput entries

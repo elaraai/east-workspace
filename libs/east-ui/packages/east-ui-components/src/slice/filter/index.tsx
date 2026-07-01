@@ -113,7 +113,11 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
                 </Box>
             }
         >
-            {open === "add" ? <SlicePredicateBuilder fields={fields} onAdd={pred => { slice.addFilter(pred); }} /> : null}
+            {/* Add applies the clause and CLOSES the popover — consistent with
+                the edit path — so the new chip appearing in the rail is the
+                visible confirmation; the lazy-mounted builder unmounts and the
+                next open starts fresh (#164). */}
+            {open === "add" ? <SlicePredicateBuilder fields={fields} onAdd={pred => { slice.addFilter(pred); setOpen(null); }} /> : null}
         </SliceEditPopover>
     );
 
