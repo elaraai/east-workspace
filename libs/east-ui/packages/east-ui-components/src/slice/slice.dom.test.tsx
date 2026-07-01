@@ -20,13 +20,16 @@ import { Slice } from "@elaraai/east-ui/internal";
 import { system } from "../theme/index.js";
 import { EastChakraSliceCohort } from "./cohort/index.js";
 import { EastChakraSliceFilter } from "./filter/index.js";
+import { EastChakraSliceLegend } from "./legend/index.js";
 import { EastChakraSliceSearch } from "./search/index.js";
 
 /** Structural predicate equality — the same comparator the real impl uses. */
 const predEqual = equalFor(Slice.Types.Predicate) as (x: unknown, y: unknown) => boolean;
 
-/** Minimal `SliceBind` closure over mutable JS state — mirrors the runtime impl. */
-function fakeSlice(init: Record<string, unknown> = {}) {
+/** Minimal `SliceBind` closure over mutable JS state — mirrors the runtime
+ *  impl. `derived` overrides the data-derived stubs (groups, fields, …) for
+ *  tests that need non-empty platform-computed results. */
+function fakeSlice(init: Record<string, unknown> = {}, derived: Record<string, unknown> = {}) {
     let s: any = {
         range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
         breakdown: none, search: none, visible: none, selectedIndex: none, ...init,
@@ -41,6 +44,12 @@ function fakeSlice(init: Record<string, unknown> = {}) {
         // Faithful to the real primitive: a structurally-equal predicate is a
         // no-op (#164 dedup).
         addFilter: (p: unknown) => { if (!s.filters.some((f: unknown) => predEqual(f, p))) set({ filters: [...s.filters, p] }); },
+        // Faithful to the real primitive: idempotent add/remove over structural
+        // equality (#165).
+        toggleFilter: (p: unknown) => {
+            const i = s.filters.findIndex((f: unknown) => predEqual(f, p));
+            set({ filters: i >= 0 ? s.filters.filter((_: unknown, j: number) => j !== i) : [...s.filters, p] });
+        },
         removeFilter: (i: unknown) => set({ filters: s.filters.filter((_: unknown, j: number) => j !== Number(i)) }),
         clearFilters: () => set({ filters: [], activeCohorts: new Set<string>() }),
         // Faithful to the real `Slice.bind` primitive (platform/slice/index.ts):
@@ -75,6 +84,7 @@ function fakeSlice(init: Record<string, unknown> = {}) {
         cohortCounts: () => new Map<string, bigint>(),
         searchFieldIds: () => [] as string[],
         rangeFieldId: () => none,
+        ...derived,
     };
 }
 
@@ -307,6 +317,64 @@ describe("Slice.Filter — add-filter builder applies (in a Slice.Edit popover)"
         expect(created?.name).toBe("EU");
         expect(created?.filters.length).toBe(2);          // the active filter set was captured
         expect(st.activeCohorts.has("eu-2")).toBe(true);  // and the new cohort is applied
+    });
+});
+
+describe("Slice.Legend — the filter-to gesture toggles a real narrowing (#165)", () => {
+    const legendGroups = () => [
+        { key: "EU", count: 3n, color: "{colors.brand.600}" },
+        { key: "NA", count: 2n, color: "{colors.brand.800}" },
+    ];
+
+    test("clicking the filter icon toggles an equality predicate on the breakdown field — on and off", () => {
+        const slice = fakeSlice(
+            { breakdown: some({ fieldId: "region", limit: none }) },
+            { groups: legendGroups },
+        );
+        const value: any = { slice };
+        ui(<EastChakraSliceLegend value={value} />);
+
+        fireEvent.click(screen.getByLabelText("Filter to EU"));
+        let filters = slice.read().filters;
+        expect(filters.length).toBe(1);
+        expect(filters[0].type).toBe("string");
+        expect(filters[0].value.fieldId).toBe("region");
+        expect(filters[0].value.op.type).toBe("eq");
+        expect(filters[0].value.op.value).toBe("EU");
+
+        // The same gesture removes the structurally-equal clause (idempotent).
+        fireEvent.click(screen.getByLabelText("Filter to EU"));
+        expect(slice.read().filters.length).toBe(0);
+    });
+
+    test("the visibility toggle stays distinct — it writes the whitelist, never a filter", () => {
+        const slice = fakeSlice(
+            { breakdown: some({ fieldId: "region", limit: none }) },
+            { groups: legendGroups },
+        );
+        const value: any = { slice };
+        ui(<EastChakraSliceLegend value={value} />);
+
+        // The main legend item button (label EU) toggles series visibility.
+        fireEvent.click(screen.getByText("EU"));
+        expect(slice.read().filters.length).toBe(0);            // no narrowing
+        expect(slice.read().visible.type).toBe("some");         // whitelist written
+        expect([...slice.read().visible.value]).toEqual(["NA"]); // EU hidden
+    });
+
+    test("the roll-up 'other' bucket gets no filter gesture when a limit is active", () => {
+        const slice = fakeSlice(
+            { breakdown: some({ fieldId: "region", limit: some(1n) }) },
+            { groups: () => [
+                { key: "EU", count: 3n, color: "{colors.brand.600}" },
+                { key: "other", count: 2n, color: "{colors.gray.400}" },
+            ] },
+        );
+        const value: any = { slice };
+        ui(<EastChakraSliceLegend value={value} />);
+
+        expect(screen.queryByLabelText("Filter to EU")).not.toBeNull();
+        expect(screen.queryByLabelText("Filter to other")).toBeNull();  // synthetic bucket
     });
 });
 

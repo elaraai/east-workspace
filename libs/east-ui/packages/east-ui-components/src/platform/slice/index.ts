@@ -197,7 +197,7 @@ function buildSliceHandleIR(key: string): Record<string, unknown> {
     // Bare identifiers (not `SliceBindPrimitives.read(...)`): platform calls inside
     // an `East.function` body read cleaner and match the State/Nav handle builders.
     const {
-        read, write, setRange, setCompare, addFilter, removeFilter, clearFilters,
+        read, write, setRange, setCompare, addFilter, removeFilter, clearFilters, toggleFilter,
         defineCohort, updateCohort, removeCohort, toggleCohort,
         setBreakdown, setSearch, setVisible, select, isActive, activeCount,
         dimensions, fields, searchFieldIds, rangeFieldId,
@@ -248,6 +248,9 @@ function buildSliceHandleIR(key: string): Record<string, unknown> {
         series:       East.compile(East.function([StringType, StringType], ArrayType(T.Series), ($, x, v) => { $.return(series(keyExpr, x, v)); }), platform),
         matches:      East.compile(East.function([], ArrayType(T.SearchMatch), ($) => { $.return(matches(keyExpr)); }), platform),
         cohortCounts: East.compile(East.function([], DictType(StringType, IntegerType), ($) => { $.return(cohortCounts(keyExpr)); }), platform),
+
+        // --- cross-filtering (#165 — appended last, matching the struct order) ---
+        toggleFilter: East.compile(East.function([T.Predicate], NullType, ($, p) => { $.return(toggleFilter(keyExpr, p)); }), platform),
     };
 }
 
@@ -388,6 +391,16 @@ export const SliceImpl: PlatformFunction[] = [
         const i = Number(idx as bigint);
         return updateState(key as string, s => ({ ...s, filters: s.filters.filter((_, j) => j !== i) }));
     }),
+    // Idempotent toggle (#165): append when absent, remove the structurally-
+    // equal clause when present — the "filter to this" gesture both narrows
+    // and un-narrows.
+    SliceBindPrimitives.toggleFilter.implement((key: unknown, pred: unknown) =>
+        updateState(key as string, s => {
+            const i = s.filters.findIndex(f => predicateEqual(f, pred));
+            return i >= 0
+                ? { ...s, filters: s.filters.filter((_, j) => j !== i) }
+                : { ...s, filters: [...s.filters, pred as variant] };
+        })),
     // "Clear all" must zero every NARROWING the Summary counts — filters,
     // active cohorts, range, and search — not just filters/cohorts (else the
     // count can never reach 0). Breakdown (grouping), visible (legend whitelist)

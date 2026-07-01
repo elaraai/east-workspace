@@ -19,7 +19,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { none, some } from "@elaraai/east";
+import { none, some, variant } from "@elaraai/east";
 import { SliceImpl, buildSliceHandle } from "../../src/platform/slice/index.js";
 import { initializeStore } from "../../src/platform/state-runtime.js";
 import { UIStore } from "../../src/platform/state-store.js";
@@ -79,6 +79,30 @@ test("activeCount/isActive ignore non-narrowing state — selection + legend vis
     assert.equal(call("slice_result_count", "s"), 2n);       // still narrows no rows
     assert.equal(call("slice_active_count", "s"), 0n);       // was: 1n
     assert.equal(call("slice_is_active", "s"), false);       // was: true
+});
+
+test("slice_toggle_filter is an idempotent add/remove toggle over structural equality (#165)", () => {
+    initializeStore(new UIStore());
+    const searchCfg = {
+        fields: new Map([["id", { type: "string", value: { accessor: (r: { id: string }) => r.id } }]]),
+        rangeFieldId: none, searchFieldIds: ["id"], breakdownFieldIds: [],
+    };
+    buildSliceHandle("tf", searchCfg, initial, [{ id: "a" }, { id: "b" }], none);
+
+    // First toggle appends and actually narrows the bound rows.
+    call("slice_toggle_filter", "tf", variant("string", { fieldId: "id", op: variant("eq", "a") }));
+    assert.equal((call("slice_read", "tf") as { filters: unknown[] }).filters.length, 1);
+    assert.equal(call("slice_result_count", "tf"), 1n);
+
+    // A SECOND, structurally-equal (not identical) predicate removes it.
+    call("slice_toggle_filter", "tf", variant("string", { fieldId: "id", op: variant("eq", "a") }));
+    assert.equal((call("slice_read", "tf") as { filters: unknown[] }).filters.length, 0);
+    assert.equal(call("slice_result_count", "tf"), 2n);
+
+    // Toggling a DIFFERENT clause never removes a non-equal one.
+    call("slice_toggle_filter", "tf", variant("string", { fieldId: "id", op: variant("eq", "a") }));
+    call("slice_toggle_filter", "tf", variant("string", { fieldId: "id", op: variant("eq", "b") }));
+    assert.equal((call("slice_read", "tf") as { filters: unknown[] }).filters.length, 2);
 });
 
 test("a real narrowing (search) DOES count, and clears cleanly (sanity)", () => {

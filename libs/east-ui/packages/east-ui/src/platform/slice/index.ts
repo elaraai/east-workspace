@@ -880,6 +880,16 @@ export const SliceBindType = StructType({
         matches: FunctionType([], SliceSearchMatchArrayType),
         /** Size of each cohort over the bound rows, keyed by cohort id — Cohort chips. */
         cohortCounts: FunctionType([], DictType(StringType, IntegerType)),
+
+        // --- cross-filtering (#165 — appended last: wire-order compatibility) ---
+        /**
+         * Idempotent filter toggle: appends the predicate when no
+         * structurally-equal clause is applied, removes the structurally-equal
+         * one when it is. Backs the "filter to this" gestures (Legend /
+         * Breakdown click-to-filter), so the same gesture narrows and
+         * un-narrows every view sharing this slice key.
+         */
+        toggleFilter: FunctionType([SlicePredicateType], NullType),
 });
 export type SliceBindType = typeof SliceBindType;
 
@@ -911,6 +921,7 @@ const slice_set_compare   = East.platform("slice_set_compare",   [StringType, Op
 const slice_add_filter    = East.platform("slice_add_filter",    [StringType, SlicePredicateType], NullType, { optional: true });
 const slice_remove_filter = East.platform("slice_remove_filter", [StringType, IntegerType], NullType, { optional: true });
 const slice_clear_filters = East.platform("slice_clear_filters", [StringType], NullType, { optional: true });
+const slice_toggle_filter = East.platform("slice_toggle_filter", [StringType, SlicePredicateType], NullType, { optional: true });
 // --- cohorts ---
 const slice_define_cohort = East.platform("slice_define_cohort", [StringType, SliceCohortType], NullType, { optional: true });
 const slice_update_cohort = East.platform("slice_update_cohort", [StringType, StringType, SliceCohortType], NullType, { optional: true });
@@ -954,6 +965,7 @@ export const SliceBindPrimitives = {
     addFilter: slice_add_filter,
     removeFilter: slice_remove_filter,
     clearFilters: slice_clear_filters,
+    toggleFilter: slice_toggle_filter,
     defineCohort: slice_define_cohort,
     updateCohort: slice_update_cohort,
     removeCohort: slice_remove_cohort,

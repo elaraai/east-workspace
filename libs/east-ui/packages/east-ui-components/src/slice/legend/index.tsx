@@ -6,10 +6,11 @@
 import { memo } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faEye, faEyeSlash } from "@fortawesome/free-solid-svg-icons";
+import { faEye, faEyeSlash, faFilter } from "@fortawesome/free-solid-svg-icons";
 import { type ValueTypeOf, some, none } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
+import { breakdownKeyPredicate, predicateEqual } from "../key-predicate";
 import { useSliceReactivity } from "../use-slice-reactivity";
 
 /** East Slice.Legend value type. */
@@ -29,12 +30,29 @@ export const EastChakraSliceLegend = memo(function EastChakraSliceLegend({ value
     const { slice } = value;
     useSliceReactivity(slice.key);
     const groups = slice.groups();
-    const visible = getSomeorUndefined(slice.read().visible);
+    const state = slice.read();
+    const visible = getSomeorUndefined(state.visible);
 
     const chip = useRecipe({ key: "chip" });
     const styles = useSlotRecipe({ key: "sliceFrame" })();
     const allKeys = groups.map(g => g.key);
     const visibleSet = visible !== undefined ? new Set(visible) : new Set(allKeys);
+
+    // The distinct "filter to this" gesture (#165): an equality predicate on
+    // the active breakdown field, toggled idempotently — narrows every view
+    // sharing this slice key (unlike the visibility toggle, which only hides
+    // chart series). Hidden for the top-N `other` roll-up (not a field value)
+    // and for kinds with no equality op.
+    const breakdown = getSomeorUndefined(state.breakdown);
+    const breakdownFieldId = breakdown?.fieldId;
+    const limitActive = breakdown !== undefined && getSomeorUndefined(breakdown.limit) !== undefined;
+    const breakdownKind = breakdownFieldId !== undefined
+        ? slice.fields().find(f => f.fieldId === breakdownFieldId)?.kind
+        : undefined;
+    const filterPredicate = (key: string) =>
+        breakdownFieldId === undefined || breakdownKind === undefined || (limitActive && key === "other")
+            ? undefined
+            : breakdownKeyPredicate(breakdownKind, breakdownFieldId, key);
 
     const toggle = (key: string) => {
         const next = new Set(visibleSet);
@@ -59,15 +77,31 @@ export const EastChakraSliceLegend = memo(function EastChakraSliceLegend({ value
         <Box css={styles.legendRail}>
             {shown.map((g) => {
                 const on = visibleSet.has(g.key);
+                const pred = filterPredicate(g.key);
+                const applied = pred !== undefined && state.filters.some(f => predicateEqual(f, pred));
                 return (
-                    <chakra.button key={g.key} type="button" onClick={() => toggle(g.key)} css={styles.legendItem} opacity={on ? 1 : 0.5}>
-                        <Box as="span" css={styles.legendSwatch} background={g.color} opacity={on ? 1 : 0.45} />
-                        <Box as="span" css={styles.legendLabel}>{g.key}</Box>
-                        <Box as="span" css={styles.legendValue}>{pct(Number(g.count))}</Box>
-                        <Box as="span" color={on ? "{colors.brand.600}" : "fg.muted"} fontSize="9px">
-                            <FontAwesomeIcon icon={on ? faEye : faEyeSlash} />
-                        </Box>
-                    </chakra.button>
+                    <Box key={g.key} css={styles.legendGroup}>
+                        <chakra.button type="button" onClick={() => toggle(g.key)} css={styles.legendItem} opacity={on ? 1 : 0.5}>
+                            <Box as="span" css={styles.legendSwatch} background={g.color} opacity={on ? 1 : 0.45} />
+                            <Box as="span" css={styles.legendLabel}>{g.key}</Box>
+                            <Box as="span" css={styles.legendValue}>{pct(Number(g.count))}</Box>
+                            <Box as="span" color={on ? "{colors.brand.600}" : "fg.muted"} fontSize="9px">
+                                <FontAwesomeIcon icon={on ? faEye : faEyeSlash} />
+                            </Box>
+                        </chakra.button>
+                        {pred !== undefined && (
+                            <chakra.button
+                                type="button"
+                                css={styles.filterTo}
+                                onClick={() => slice.toggleFilter(pred)}
+                                aria-label={`Filter to ${g.key}`}
+                                aria-pressed={applied}
+                                color={applied ? "{colors.brand.600}" : undefined}
+                            >
+                                <FontAwesomeIcon icon={faFilter} />
+                            </chakra.button>
+                        )}
+                    </Box>
                 );
             })}
             {rest.length > 0 && (

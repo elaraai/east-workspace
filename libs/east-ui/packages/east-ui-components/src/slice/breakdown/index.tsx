@@ -6,13 +6,14 @@
 import { memo, useState } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faPlus } from "@fortawesome/free-solid-svg-icons";
+import { faPlus, faFilter } from "@fortawesome/free-solid-svg-icons";
 import { type ValueTypeOf, some, none } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { SLICE_SERIES_PALETTE } from "../palette";
 import { SliceEditPopover } from "../edit";
 import { useSliceDensity } from "../density";
+import { breakdownKeyPredicate, predicateEqual } from "../key-predicate";
 import { useSliceReactivity } from "../use-slice-reactivity";
 
 /** East Slice.Breakdown value type. */
@@ -46,9 +47,19 @@ export const EastChakraSliceBreakdown = memo(function EastChakraSliceBreakdown({
     const dimensions = slice.dimensions();
     const groups = slice.groups();
 
-    const breakdown = getSomeorUndefined(slice.read().breakdown);
+    const state = slice.read();
+    const breakdown = getSomeorUndefined(state.breakdown);
     const active = breakdown?.fieldId;
     const limit = breakdown !== undefined ? getSomeorUndefined(breakdown.limit) : undefined;
+
+    // "Filter to this" gesture on the resulting-series chips (#165) — an
+    // idempotent equality toggle on the active breakdown field. Hidden for the
+    // `other` roll-up bucket and kinds with no equality op.
+    const activeKind = active !== undefined ? slice.fields().find(f => f.fieldId === active)?.kind : undefined;
+    const groupPredicate = (key: string) =>
+        active === undefined || activeKind === undefined || (limit !== undefined && key === "other")
+            ? undefined
+            : breakdownKeyPredicate(activeKind, active, key);
 
     const [pickOpen, setPickOpen] = useState(false);
     const setBreakdown = (fieldId: string) => slice.setBreakdown(some({ fieldId, limit: none }));
@@ -149,6 +160,23 @@ export const EastChakraSliceBreakdown = memo(function EastChakraSliceBreakdown({
                                     <Box as="span" width="8px" height="8px" borderRadius="full" background={SLICE_SERIES_PALETTE[i % SLICE_SERIES_PALETTE.length]} />
                                     <Box as="span" fontWeight="semibold" color="fg">{g.key}</Box>
                                     <Box as="span" fontFamily="mono" fontVariantNumeric="tabular-nums" color="fg.muted">{Number(g.count).toLocaleString()}</Box>
+                                    {(() => {
+                                        const pred = groupPredicate(g.key);
+                                        if (pred === undefined) return null;
+                                        const applied = state.filters.some(f => predicateEqual(f, pred));
+                                        return (
+                                            <chakra.button
+                                                type="button"
+                                                css={styles.filterTo}
+                                                onClick={() => slice.toggleFilter(pred)}
+                                                aria-label={`Filter to ${g.key}`}
+                                                aria-pressed={applied}
+                                                color={applied ? "{colors.brand.600}" : undefined}
+                                            >
+                                                <FontAwesomeIcon icon={faFilter} />
+                                            </chakra.button>
+                                        );
+                                    })()}
                                 </Box>
                             ))}
                             {moreCount > 0 && (

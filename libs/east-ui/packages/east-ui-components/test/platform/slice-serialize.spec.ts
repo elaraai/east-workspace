@@ -94,7 +94,7 @@ test("#106 — a decoded handle's data-derived methods resolve the bound rows by
 
 test("#106 — SliceImpl ships the backing primitives (decode path)", () => {
     const names = new Set(getRegisteredPlatformImplementations().map(p => p.name));
-    for (const name of ["slice_bind", "slice_read", "slice_write", "slice_set_search", "slice_add_filter", "slice_matches", "slice_total_count"]) {
+    for (const name of ["slice_bind", "slice_read", "slice_write", "slice_set_search", "slice_add_filter", "slice_toggle_filter", "slice_matches", "slice_total_count"]) {
         assert.ok(names.has(name), `platform '${name}' must be registered for handle decode to re-bind`);
     }
 });
