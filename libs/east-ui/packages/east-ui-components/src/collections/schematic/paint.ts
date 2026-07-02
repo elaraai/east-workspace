@@ -412,7 +412,7 @@ export function parallelLanes<L extends { key: string; from: string; to: string 
     const groups = new Map<string, string[]>();
     for (const link of links) {
         if (!eligible(link)) continue;
-        const pair = link.from < link.to ? `${link.from} ${link.to}` : `${link.to} ${link.from}`;
+        const pair = link.from < link.to ? `${link.from}\x00${link.to}` : `${link.to}\x00${link.from}`;
         const g = groups.get(pair);
         if (g !== undefined) g.push(link.key); else groups.set(pair, [link.key]);
     }
