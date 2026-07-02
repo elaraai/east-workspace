@@ -31,12 +31,12 @@ type Point = ValueTypeOf<typeof T.Point>;
 type Series = ValueTypeOf<typeof T.Series>;
 type BandSeries = ValueTypeOf<typeof T.BandSeries>;
 type XCoord = ValueTypeOf<typeof T.XCoord>;
-type TickFormat = ValueTypeOf<typeof T.TickFormat>;
+export type TickFormat = ValueTypeOf<typeof T.TickFormat>;
 type Domain = ValueTypeOf<typeof T.Domain>;
 type Axis = ValueTypeOf<typeof T.Axis>;
 type SeriesMark = ValueTypeOf<typeof T.SeriesMark>;
 type Margin = { top: number; right: number; bottom: number; left: number };
-type ScaleKind = "band" | "linear" | "time";
+export type ScaleKind = "band" | "linear" | "time";
 
 /**
  * A stable string key for a typed x coordinate — the band category as-is, a
@@ -136,8 +136,8 @@ export function formatDatePattern(pattern: string, d: Date): string {
     return pattern.replace(/YYYY|YY|MMMM|MMM|MM|DD|HH|mm|ss/g, t => map[t] ?? t);
 }
 
-/** Build a tick formatter for an axis from its optional {@link TickFormat} + scale kind. */
-function tickFormatter(fmt: TickFormat | undefined, kind: ScaleKind): (v: unknown) => string {
+/** Build a tick formatter for an axis from its optional {@link TickFormat} + scale kind. Shared with the `Slice.Rail` brush axis (#190). */
+export function tickFormatter(fmt: TickFormat | undefined, kind: ScaleKind): (v: unknown) => string {
     if (fmt === undefined) {
         if (kind === "time") return v => (v instanceof Date ? v.toLocaleDateString() : String(v));
         if (kind === "band") return v => String(v);

@@ -26,6 +26,8 @@ import {
     VariantType,
 } from "@elaraai/east";
 
+import { ValueFormatType } from "../../contracts/format.js";
+
 /**
  * A typed x-axis coordinate. The arm chooses the scale the renderer builds —
  * `category` → band, `number` → linear, `time` → time — so the scale kind is
@@ -175,27 +177,11 @@ export type ChartScaleLiteral = "band" | "linear" | "time";
  * the author never pre-formats values (see {@link ChartXType}).
  *
  * @remarks
- * Built with the `Chart.format.*` helpers. `date` / `time` / `datetime` carry a
- * format pattern; `currency` carries its code and a compact flag; the rest are
- * flag-only.
- *
- * @property number   - Plain number formatting
- * @property currency - Currency formatting (`code` + `compact`)
- * @property percent  - Percentage formatting
- * @property compact  - Compact magnitude formatting (e.g. 1.2k)
- * @property date     - Date pattern (e.g. `"MMM YYYY"`)
- * @property time     - Time pattern
- * @property datetime - Datetime pattern
+ * The canonical definition is the shared {@link ValueFormatType} contract
+ * (#190) — slice fields declare the same vocabulary via `Slice.config`. This
+ * alias keeps the chart-facing name; the two are ONE East type.
  */
-export const ChartTickFormatType = VariantType({
-    number:   NullType,
-    currency: StructType({ code: StringType, compact: BooleanType }),
-    percent:  NullType,
-    compact:  NullType,
-    date:     StringType,
-    time:     StringType,
-    datetime: StringType,
-});
+export const ChartTickFormatType = ValueFormatType;
 export type ChartTickFormatType = typeof ChartTickFormatType;
 
 /**

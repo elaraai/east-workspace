@@ -291,6 +291,46 @@ export function boundRangeDomain(key: string): { kind: "datetime" | "integer" | 
 }
 
 /**
+ * Row-count histogram over the range field's domain (#190) — the density
+ * strip behind the standalone `Slice.Rail` brush. Buckets the bound rows by
+ * the range field's accessor into `buckets` equal-width bins across
+ * {@link boundRangeDomain}. Counted **self-excluding**: under the current
+ * narrowing minus the range itself (consistent with #188's facet semantics),
+ * so the histogram reacts to filters/search/cohorts but never collapses
+ * under its own window.
+ *
+ * @param key - the slice's store key
+ * @param buckets - number of equal-width bins (callers default this)
+ * @returns per-bucket row counts (all zeros when nothing matches), or
+ *          `undefined` when the slice has no usable range domain
+ */
+export function boundRangeHistogram(key: string, buckets: number): number[] | undefined {
+    const bound = boundByKey.get(key);
+    const domain = boundRangeDomain(key);
+    if (bound === undefined || domain === undefined || buckets < 1) return undefined;
+    const cfg = bound.config as unknown as {
+        rangeFieldId: { type: string; value: string };
+        fields: Map<string, { type: string; value: { accessor: (r: unknown) => unknown } }>;
+    };
+    const field = cfg.fields.get(cfg.rangeFieldId.value);
+    if (field === undefined) return undefined;
+    const s = readState(key);
+    const facetState = { ...s, range: none };
+    const now = new Date();
+    const span = domain.max - domain.min;
+    const counts = new Array<number>(buckets).fill(0);
+    for (const r of boundRows(bound)) {
+        if (!sliceMatches(facetState as never, bound.config, r as Row, now)) continue;
+        const v = field.value.accessor(r);
+        const n = v instanceof Date ? v.getTime() : Number(v);
+        if (!Number.isFinite(n)) continue;
+        const idx = span <= 0 ? 0 : Math.min(buckets - 1, Math.floor(((n - domain.min) / span) * buckets));
+        if (idx >= 0) counts[idx]! += 1;
+    }
+    return counts;
+}
+
+/**
  * Build a live slice handle outside the platform-function path — for
  * components that own their slice internally (a `DecisionQueue`'s rows
  * arrive via binding descriptors, so the host can't bind one). Same
@@ -627,12 +667,14 @@ export const SliceImpl: PlatformFunction[] = [
             fields: Map<string, { type: string; value: { accessor: (r: unknown) => unknown } }>;
         }).fields;
         const rows = boundRows(e);
+        // (Loose `variant` format field vs the strict platform output — same
+        // boundary cast as `writeState`; identical runtime shape.)
         return base.map(f => {
             if (f.hints.length > 0 || f.kind !== "string") return f;
             const accessor = fieldsMap.get(f.fieldId)?.value?.accessor;
             if (accessor === undefined) return f;
             return { ...f, hints: autoDeriveFieldHints(rows, accessor) };
-        });
+        }) as never;
     }),
     SliceBindPrimitives.searchFieldIds.implement((key: unknown) => {
         const e = boundByKey.get(key as string);

@@ -87,6 +87,7 @@ import {
 
 import { ChartXType } from "../../charts/spec/types.js";
 import { SliceAffordanceType } from "../../contracts/slice-affordances.js";
+import { ValueFormatType } from "../../contracts/format.js";
 
 // ============================================================================
 // DateTimeRange — generic { from, to } interval
@@ -186,11 +187,11 @@ export type SliceCompareType = typeof SliceCompareType;
  * concrete value internally.
  */
 const SliceFieldSpecType = VariantType({
-    string:   StructType({ label: StringType, accessor: FunctionType(["T"], StringType) }),
-    integer:  StructType({ label: StringType, accessor: FunctionType(["T"], IntegerType) }),
-    float:    StructType({ label: StringType, accessor: FunctionType(["T"], FloatType) }),
-    datetime: StructType({ label: StringType, accessor: FunctionType(["T"], DateTimeType) }),
-    boolean:  StructType({ label: StringType, accessor: FunctionType(["T"], BooleanType) }),
+    string:   StructType({ label: StringType, accessor: FunctionType(["T"], StringType), format: OptionType(ValueFormatType) }),
+    integer:  StructType({ label: StringType, accessor: FunctionType(["T"], IntegerType), format: OptionType(ValueFormatType) }),
+    float:    StructType({ label: StringType, accessor: FunctionType(["T"], FloatType), format: OptionType(ValueFormatType) }),
+    datetime: StructType({ label: StringType, accessor: FunctionType(["T"], DateTimeType), format: OptionType(ValueFormatType) }),
+    boolean:  StructType({ label: StringType, accessor: FunctionType(["T"], BooleanType), format: OptionType(ValueFormatType) }),
 });
 
 // Internal: materialise a concrete `SliceFieldSpec` East type for the
@@ -198,11 +199,11 @@ const SliceFieldSpecType = VariantType({
 // don't need a hand on it.
 function sliceFieldSpecFor<T>(rowType: T) {
     return VariantType({
-        string:   StructType({ label: StringType, accessor: FunctionType([rowType], StringType) }),
-        integer:  StructType({ label: StringType, accessor: FunctionType([rowType], IntegerType) }),
-        float:    StructType({ label: StringType, accessor: FunctionType([rowType], FloatType) }),
-        datetime: StructType({ label: StringType, accessor: FunctionType([rowType], DateTimeType) }),
-        boolean:  StructType({ label: StringType, accessor: FunctionType([rowType], BooleanType) }),
+        string:   StructType({ label: StringType, accessor: FunctionType([rowType], StringType), format: OptionType(ValueFormatType) }),
+        integer:  StructType({ label: StringType, accessor: FunctionType([rowType], IntegerType), format: OptionType(ValueFormatType) }),
+        float:    StructType({ label: StringType, accessor: FunctionType([rowType], FloatType), format: OptionType(ValueFormatType) }),
+        datetime: StructType({ label: StringType, accessor: FunctionType([rowType], DateTimeType), format: OptionType(ValueFormatType) }),
+        boolean:  StructType({ label: StringType, accessor: FunctionType([rowType], BooleanType), format: OptionType(ValueFormatType) }),
     });
 }
 
@@ -275,17 +276,41 @@ const FIELD_KIND_BY_TYPE_TAG: Record<string, "string" | "integer" | "float" | "d
 };
 
 /**
+ * Display-format shorthand for a `Slice.config` field (#190) — the same
+ * vocabulary as `Chart.format.*` ({@link ValueFormatType}): a string literal
+ * for the flag-only formats, an object for the parameterised ones.
+ */
+export type SliceFieldFormat =
+    | "number" | "percent" | "compact"
+    | { currency: { code?: string; compact?: boolean } }
+    | { date: string } | { time: string } | { datetime: string };
+
+/** Build the {@link ValueFormatType} variant value for a field-format shorthand. */
+function toValueFormat(f: SliceFieldFormat): unknown {
+    if (typeof f === "string") return variant(f, null);
+    if ("currency" in f) return variant("currency", { code: f.currency.code ?? "USD", compact: f.currency.compact ?? false });
+    if ("date" in f) return variant("date", f.date);
+    if ("time" in f) return variant("time", f.time);
+    return variant("datetime", f.datetime);
+}
+
+/**
  * One field declaration in `Slice.config`. Only the label is required —
  * the accessor is auto-derived as `r => r[fieldId]` and the field's kind
  * (string / integer / float / datetime / boolean) is inferred from the
  * row's struct field type.
  *
- * @property label - Human-readable label shown in filter / breakdown UI
- * @property hints - Optional candidate values surfaced as autocomplete in the filter's `in` / `notIn` / `eq` / `neq` controls
+ * @property label  - Human-readable label shown in filter / breakdown UI
+ * @property hints  - Optional candidate values surfaced as autocomplete in the filter's `in` / `notIn` / `eq` / `neq` controls
+ * @property format - Optional display format ({@link SliceFieldFormat}, the
+ *                    `Chart.format.*` vocabulary) — formats this field's
+ *                    values everywhere the chrome renders them: the rail
+ *                    brush axis, the Range pill, predicate chips (#190)
  */
 export interface SliceFieldUserConfig {
     label: string;
     hints?: ReadonlyArray<string>;
+    format?: SliceFieldFormat;
 }
 
 /**
@@ -371,7 +396,11 @@ function createSliceConfig<
             fieldType,
             (_$, row) => (row as unknown as Record<string, ExprType<EastType>>)[fieldId] as never,
         );
-        fieldEntries.push([fieldId, variant(kind, { label: fieldConfig.label, accessor })]);
+        fieldEntries.push([fieldId, variant(kind, {
+            label: fieldConfig.label,
+            accessor,
+            format: fieldConfig.format !== undefined ? some(toValueFormat(fieldConfig.format)) : none,
+        })]);
         if (fieldConfig.hints !== undefined) fieldHints.set(fieldId, [...fieldConfig.hints]);
     }
     // Default `searchFieldIds` to every string field when not given, so the
@@ -662,6 +691,8 @@ export const SliceFieldDescriptorType = StructType({
     label:   StringType,
     kind:    StringType,
     hints:   ArrayType(StringType),
+    /** Declared display format for the field's values (#190) — `none` = kind default. */
+    format:  OptionType(ValueFormatType),
 });
 export type SliceFieldDescriptorType = typeof SliceFieldDescriptorType;
 
@@ -773,6 +804,25 @@ export const SliceDensityType = VariantType({
     focused: NullType,
 });
 export type SliceDensityType = typeof SliceDensityType;
+
+/**
+ * Presentation options for the standalone `Slice.Rail` brush strip (#190).
+ * All fields optional — absent means the rich default (axis + count ON): the
+ * bare track gave no scale or density hint.
+ *
+ * @property axis    - Show formatted min / tick / max labels beneath the track
+ *                     (the range field's declared `format`, else a kind default).
+ * @property count   - Show the row-count histogram behind the track (computed
+ *                     self-excluding — under the current narrowing minus the
+ *                     range itself, so it never collapses under its own window).
+ * @property buckets - Histogram bucket count (default 32).
+ */
+export const SliceBrushStyleType = StructType({
+    axis:    OptionType(BooleanType),
+    count:   OptionType(BooleanType),
+    buckets: OptionType(IntegerType),
+});
+export type SliceBrushStyleType = typeof SliceBrushStyleType;
 
 /**
  * Where a slice's state persists beyond the in-memory store (#168) — opt-in

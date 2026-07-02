@@ -371,6 +371,118 @@ export const sliceExpressiveFilters = example({
 //    over the row type's datetime field) and the derived-count footer.
 // ============================================================================
 
+// ============================================================================
+// 9. Brush over time — the rich brush strip on a datetime domain (#190).
+//    Exercises: per-field `format: { date: "MMM DD" }` driving the axis
+//    labels, the self-excluding count histogram, and a Table + Summary
+//    narrowing live to the brushed window.
+// ============================================================================
+
+export const sliceBrushDatetime = example({
+    keywords: ["Slice", "Rail", "brush", "axis", "count", "histogram", "datetime", "format", "date"],
+    description: "Brush over time — a standalone Slice.Rail brush strip on a datetime domain: the field's `format: { date: \"MMM DD\" }` drives the axis labels under the track, the count histogram behind it shows where the bookings cluster (self-excluding — the bars keep showing the full distribution while you brush), and the Table + Summary below narrow live to the seeded window",
+    fn: East.function([], UIComponentType, (_$) => {
+        const BookingType = StructType({ when: DateTimeType, route: StringType, seats: IntegerType });
+        const cfg = Slice.config(BookingType, {
+            fields: {
+                when:  { label: "Departure", format: { date: "MMM DD" } },
+                route: { label: "Route" },
+                seats: { label: "Seats" },
+            },
+            rangeFieldId: "when",
+        });
+        return (
+            <Reactive>{$ => {
+                const data = $.const([
+                    { when: new Date("2025-03-02"), route: "SYD→MEL", seats: 140n },
+                    { when: new Date("2025-03-03"), route: "SYD→BNE", seats: 96n },
+                    { when: new Date("2025-03-04"), route: "MEL→SYD", seats: 152n },
+                    { when: new Date("2025-03-05"), route: "SYD→MEL", seats: 88n },
+                    { when: new Date("2025-03-21"), route: "SYD→PER", seats: 44n },
+                    { when: new Date("2025-04-08"), route: "MEL→SYD", seats: 120n },
+                    { when: new Date("2025-04-09"), route: "SYD→MEL", seats: 134n },
+                    { when: new Date("2025-04-10"), route: "SYD→BNE", seats: 61n },
+                    { when: new Date("2025-04-11"), route: "MEL→BNE", seats: 105n },
+                    { when: new Date("2025-04-12"), route: "SYD→MEL", seats: 149n },
+                ], ArrayType(BookingType));
+                const slice = $.let(Slice.bind([BookingType], "ex.slice.brush.datetime", cfg, Slice.state({
+                    range: some(variant("datetime", {
+                        from: new Date("2025-04-07"),
+                        to:   new Date("2025-04-13"),
+                    })),
+                }), data, none));
+                const narrowed = $.let(Slice.rows([BookingType], slice));
+                return (
+                    <VStack gap="3" align="stretch">
+                        <Slice.Rail slice={slice} affordances={["brush"]} />
+                        <Table data={narrowed} columns={{
+                            when:  { header: "Departure" },
+                            route: { header: "Route" },
+                            seats: { header: "Seats" },
+                        }} />
+                        <Slice.Summary slice={slice} />
+                    </VStack>
+                );
+            }}</Reactive>
+        );
+    }),
+    inputs: [],
+});
+
+// ============================================================================
+// 10. Brush over money — the rich brush strip on a currency domain (#190).
+//     Exercises: per-field `format: { currency: { compact } }` on the axis,
+//     the count histogram over a skewed value distribution, and the
+//     `brush` style option (default rich; `{ axis: false, count: false }`
+//     restores the bare track).
+// ============================================================================
+
+export const sliceBrushCurrency = example({
+    keywords: ["Slice", "Rail", "brush", "axis", "count", "histogram", "currency", "compact", "format"],
+    description: "Brush over money — the Slice.Rail brush strip on an integer order-value domain: `format: { currency: { code: \"USD\", compact: true } }` renders the axis as `$0 … $12K`, the histogram exposes the skew (many small orders, a long thin tail), and brushing the big-ticket tail narrows the Table live; pass `brush={{ axis: false, count: false }}` to restore the minimal bare track",
+    fn: East.function([], UIComponentType, (_$) => {
+        const OrderType = StructType({ customer: StringType, value: IntegerType });
+        const cfg = Slice.config(OrderType, {
+            fields: {
+                customer: { label: "Customer" },
+                value:    { label: "Order value", format: { currency: { code: "USD", compact: true } } },
+            },
+            rangeFieldId: "value",
+        });
+        return (
+            <Reactive>{$ => {
+                const data = $.const([
+                    { customer: "Acme",     value: 180n },
+                    { customer: "Birch",    value: 240n },
+                    { customer: "Cobalt",   value: 310n },
+                    { customer: "Dover",    value: 420n },
+                    { customer: "Ember",    value: 480n },
+                    { customer: "Foundry",  value: 650n },
+                    { customer: "Gale",     value: 900n },
+                    { customer: "Harbor",   value: 1400n },
+                    { customer: "Ionia",    value: 4200n },
+                    { customer: "Juniper",  value: 12000n },
+                ], ArrayType(OrderType));
+                const slice = $.let(Slice.bind([OrderType], "ex.slice.brush.currency", cfg, Slice.state({
+                    range: some(variant("integer", { from: 800n, to: 12000n })),
+                }), data, none));
+                const narrowed = $.let(Slice.rows([OrderType], slice));
+                return (
+                    <VStack gap="3" align="stretch">
+                        <Slice.Rail slice={slice} affordances={["brush"]} />
+                        <Table data={narrowed} columns={{
+                            customer: { header: "Customer" },
+                            value:    { header: "Order value" },
+                        }} />
+                        <Slice.Summary slice={slice} />
+                    </VStack>
+                );
+            }}</Reactive>
+        );
+    }),
+    inputs: [],
+});
+
 export const sliceGanttChrome = example({
     keywords: ["Slice", "Gantt", "slice", "chrome", "filter", "search", "range", "timeline"],
     description: "Ops Gantt — Gantt with the `slice` chrome option: a header rail (`filter`, `search`, `range`) plus the `brush` affordance — drag a window on the timeline header to set the slice's range; a derived-count footer; rows fed explicitly via `Slice.rows`",

@@ -30,6 +30,7 @@ export const sliceFrameSlotRecipe = defineSlotRecipe({
         "frameBody", "frameFooter", "frameFooterStat", "frameFooterDelta",
         "searchPill", "searchKbd", "searchClear",
         "legendRail", "legendItem", "legendSwatch", "legendLabel", "legendValue",
+        "brushAxis",
     ],
     base: {
         root: {
@@ -265,6 +266,16 @@ export const sliceFrameSlotRecipe = defineSlotRecipe({
             border: "none",
             padding: "0",
             cursor: "pointer",
+        },
+        // Formatted scale beneath the Slice.Rail brush strip (#190):
+        // min · ⅓ · ⅔ · max labels, evenly spread under the track.
+        brushAxis: {
+            display: "flex",
+            justifyContent: "space-between",
+            fontFamily: "mono",
+            fontSize: "9px",
+            lineHeight: "1",
+            color: "fg.muted",
         },
         legendSwatch: {
             width: "14px",

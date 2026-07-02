@@ -137,7 +137,7 @@ import { SliceLegendType } from "./slice/legend/types.js";
 import { SliceBreakdownPickerType } from "./slice/breakdown/types.js";
 import { SliceSearchType } from "./slice/search/types.js";
 import { SliceCohortPickerType } from "./slice/cohort/types.js";
-import { SliceBindType, SliceChromeType, SlicePersistType } from "./platform/slice/index.js";
+import { SliceBindType, SliceBrushStyleType, SliceChromeType, SlicePersistType } from "./platform/slice/index.js";
 import { SliceAffordanceType } from "./contracts/slice-affordances.js";
 import { IconType } from "./display/icon/types.js";
 
@@ -601,6 +601,7 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         slice: SliceBindType,
         affordances: ArrayType(SliceAffordanceType),
         persist: OptionType(SlicePersistType),
+        brush: OptionType(SliceBrushStyleType),
     }),
 
     // Container

@@ -563,6 +563,7 @@ describe("Slice.Rail — the legend is an explicit affordance, never implicit (#
             slice: withLegend,
             affordances: [variant("filter", null), variant("legend", null)],
             persist: none,
+            brush: none,
         } as any} />);
         expect(screen.getByText("EU")).toBeTruthy();          // legend item rendered
         expect(screen.getByLabelText("Filter to EU")).toBeTruthy();
@@ -573,8 +574,56 @@ describe("Slice.Rail — the legend is an explicit affordance, never implicit (#
             slice: without,
             affordances: [variant("filter", null)],
             persist: none,
+            brush: none,
         } as any} />);
         expect(screen.queryByText("EU")).toBeNull();          // nothing mounts implicitly
+    });
+});
+
+describe("Slice.Rail brush — formatted axis + count histogram, rich by default (#190)", () => {
+    const brushInitial = {
+        range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
+        breakdown: none, search: none, visible: none, selectedIndex: none,
+    };
+    const currencyCfg = {
+        fields: new Map<string, unknown>([
+            ["qty", { type: "integer", value: { label: "Qty", accessor: (r: { qty: bigint }) => r.qty, format: some(variant("currency", { code: "USD", compact: true })) } }],
+        ]),
+        rangeFieldId: some("qty"), searchFieldIds: [], breakdownFieldIds: [],
+    };
+    const rows = [
+        { qty: 0n }, { qty: 100n }, { qty: 150n }, { qty: 200n },
+        { qty: 900n }, { qty: 950n }, { qty: 1000n },
+    ];
+
+    test("by default the strip shows currency-formatted axis labels and histogram bars", () => {
+        initializeStore(new UIStore());
+        const handle: any = buildSliceHandle("brush.rich", currencyCfg, brushInitial, rows, none);
+        const { container } = ui(<EastChakraSliceRail value={{
+            slice: handle,
+            affordances: [variant("brush", null)],
+            persist: none,
+            brush: none,                                       // absent options = rich default
+        } as any} />);
+
+        // The field's declared currency format drives the axis (min … max).
+        expect(screen.getAllByText(/\$/).length).toBeGreaterThanOrEqual(2);
+        // The self-excluding count histogram renders behind the track.
+        expect(container.querySelectorAll("[data-brush-bar]").length).toBeGreaterThan(0);
+    });
+
+    test("brush={{ axis: false, count: false }} restores the minimal bare track", () => {
+        initializeStore(new UIStore());
+        const handle: any = buildSliceHandle("brush.bare", currencyCfg, brushInitial, rows, none);
+        const { container } = ui(<EastChakraSliceRail value={{
+            slice: handle,
+            affordances: [variant("brush", null)],
+            persist: none,
+            brush: some({ axis: some(false), count: some(false), buckets: none }),
+        } as any} />);
+
+        expect(screen.queryByText(/\$/)).toBeNull();
+        expect(container.querySelectorAll("[data-brush-bar]").length).toBe(0);
     });
 });
 

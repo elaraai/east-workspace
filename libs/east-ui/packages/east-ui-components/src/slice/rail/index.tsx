@@ -28,7 +28,10 @@ import { faFilter, faLayerGroup, faUsers, faMagnifyingGlass, faCalendar, faChevr
 import { type ValueTypeOf } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
-import { boundRangeDomain, enableSlicePersistence, type SlicePersistMode } from "../../platform/slice";
+import { boundRangeDomain, boundRangeHistogram, enableSlicePersistence, type SlicePersistMode } from "../../platform/slice";
+// Function-declaration import across the rail ↔ charts module cycle is safe
+// (hoisted; charts/spec imports SliceRailCluster from here the same way).
+import { tickFormatter, type TickFormat } from "../../charts/spec/index.js";
 import { SliceDensityContext } from "../density";
 import { useSliceReactivity } from "../use-slice-reactivity";
 import { SliceEditPopover } from "../edit";
@@ -242,16 +245,29 @@ export interface EastChakraSliceRailProps {
         slice: unknown;
         affordances: ReadonlyArray<{ type: string }>;
         persist: { type: "some"; value: { type: SlicePersistMode } } | { type: "none"; value: null };
+        brush:
+            | { type: "some"; value: { axis: { type: string; value: boolean | null }; count: { type: string; value: boolean | null }; buckets: { type: string; value: bigint | null } } }
+            | { type: "none"; value: null };
     };
 }
 
+/** Resolved brush-strip presentation (#190) — rich by default. */
+interface BrushStyle { axis: boolean; count: boolean; buckets: number; }
+
+/** Default histogram resolution. */
+const BRUSH_BUCKETS = 32;
+
 /**
- * The standalone rail's brush strip — a slim track over the range field's
- * full bound domain; drag a window to write the slice's range (a
- * sub-threshold drag clears it). The gesture form of the `range` pill, for
- * compositions with no chart or timeline to brush on.
+ * The standalone rail's brush strip — a track over the range field's full
+ * bound domain; drag a window to write the slice's range (a sub-threshold
+ * drag clears it). The gesture form of the `range` pill, for compositions
+ * with no chart or timeline to brush on. Rich by default (#190): a
+ * row-count histogram behind the track (self-excluding, so it never
+ * collapses under its own window) and a formatted min / tick / max axis
+ * beneath it, per the range field's declared `format` or a kind default.
  */
-function RailBrushStrip({ slice }: { slice: ValueTypeOf<typeof Slice.Types.Bind> }) {
+function RailBrushStrip({ slice, style }: { slice: ValueTypeOf<typeof Slice.Types.Bind>; style: BrushStyle }) {
+    const frameStyles = useSlotRecipe({ key: "sliceFrame" })();
     const domain = boundRangeDomain(slice.key);
     const [drag, setDrag] = useState<{ x1: number; x2: number; width: number } | null>(null);
     if (domain === undefined || domain.max <= domain.min) return null;
@@ -263,6 +279,23 @@ function RailBrushStrip({ slice }: { slice: ValueTypeOf<typeof Slice.Types.Bind>
     const winFrom = applied !== undefined ? Math.max(0, (toMs(applied.value.from) - domain.min) / span) : 0;
     const winTo = applied !== undefined ? Math.min(1, (toMs(applied.value.to) - domain.min) / span) : 1;
     const fromFraction = (f: number) => domain.min + Math.max(0, Math.min(1, f)) * span;
+
+    // Density histogram (#190) — self-excluding row counts per bucket,
+    // max-normalised for bar heights. Empty/flat data renders no bars.
+    const counts = style.count ? boundRangeHistogram(slice.key, style.buckets) : undefined;
+    const maxCount = counts !== undefined ? Math.max(...counts) : 0;
+
+    // Formatted axis labels (#190) — the range field's declared `format`
+    // wins; else the kind default (datetime → locale date, numeric → number).
+    const rangeFieldId = (getSomeorUndefined(slice.rangeFieldId() as never) ?? undefined) as string | undefined;
+    const fieldFormat = rangeFieldId !== undefined
+        ? getSomeorUndefined((slice.fields().find(f => f.fieldId === rangeFieldId) as { format?: never } | undefined)?.format as never) as TickFormat | undefined
+        : undefined;
+    const fmt = tickFormatter(fieldFormat, domain.kind === "datetime" ? "time" : "linear");
+    const axisLabel = (f: number) => {
+        const v = fromFraction(f);
+        return fmt(domain.kind === "datetime" ? new Date(v) : v);
+    };
     const commit = (x1: number, x2: number, width: number) => {
         const [a, b] = [Math.min(x1, x2), Math.max(x1, x2)];
         if (b - a < 5) { slice.setRange(none); return; }
@@ -278,55 +311,85 @@ function RailBrushStrip({ slice }: { slice: ValueTypeOf<typeof Slice.Types.Bind>
     };
 
     return (
-        <Box
-            position="relative"
-            height="18px"
-            borderRadius="4px"
-            background="bg.muted"
-            cursor="crosshair"
-            onPointerDown={(e) => {
-                const el = e.currentTarget as HTMLElement;
-                el.setPointerCapture(e.pointerId);
-                const rect = el.getBoundingClientRect();
-                setDrag({ x1: e.clientX - rect.left, x2: e.clientX - rect.left, width: rect.width });
-            }}
-            onPointerMove={(e) => {
-                if (!drag) return;
-                const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                setDrag({ ...drag, x2: e.clientX - rect.left });
-            }}
-            onPointerUp={() => {
-                if (!drag) return;
-                setDrag(null);
-                commit(drag.x1, drag.x2, drag.width);
-            }}
-        >
-            {/* applied window (or full domain when no range) */}
+        <Box display="flex" flexDirection="column" gap="2px" minWidth="0">
             <Box
-                position="absolute"
-                top={0}
-                bottom={0}
-                left={`${winFrom * 100}%`}
-                width={`${Math.max(0, winTo - winFrom) * 100}%`}
-                background="accent.brand"
-                opacity={applied !== undefined ? 0.3 : 0.12}
+                position="relative"
+                height={style.count ? "28px" : "18px"}
                 borderRadius="4px"
-                pointerEvents="none"
-            />
-            {/* in-flight drag selection */}
-            {drag && (
+                background="bg.muted"
+                cursor="crosshair"
+                overflow="hidden"
+                onPointerDown={(e) => {
+                    const el = e.currentTarget as HTMLElement;
+                    el.setPointerCapture(e.pointerId);
+                    const rect = el.getBoundingClientRect();
+                    setDrag({ x1: e.clientX - rect.left, x2: e.clientX - rect.left, width: rect.width });
+                }}
+                onPointerMove={(e) => {
+                    if (!drag) return;
+                    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                    setDrag({ ...drag, x2: e.clientX - rect.left });
+                }}
+                onPointerUp={() => {
+                    if (!drag) return;
+                    setDrag(null);
+                    commit(drag.x1, drag.x2, drag.width);
+                }}
+            >
+                {/* density histogram — row counts per bucket (#190); geometry is data-driven */}
+                {counts !== undefined && maxCount > 0 && counts.map((c, i) => (
+                    c > 0 && (
+                        <Box
+                            key={i}
+                            data-brush-bar
+                            position="absolute"
+                            bottom={0}
+                            left={`${(i / counts.length) * 100}%`}
+                            width={`${(1 / counts.length) * 100}%`}
+                            height={`${Math.max(8, (c / maxCount) * 100)}%`}
+                            background="border.strong"
+                            opacity={0.55}
+                            borderRadius="1px"
+                            pointerEvents="none"
+                        />
+                    )
+                ))}
+                {/* applied window (or full domain when no range) */}
                 <Box
                     position="absolute"
                     top={0}
                     bottom={0}
-                    left={`${Math.min(drag.x1, drag.x2)}px`}
-                    width={`${Math.abs(drag.x2 - drag.x1)}px`}
+                    left={`${winFrom * 100}%`}
+                    width={`${Math.max(0, winTo - winFrom) * 100}%`}
                     background="accent.brand"
-                    opacity={0.35}
-                    borderXWidth="1px"
-                    borderColor="accent.brand"
+                    opacity={applied !== undefined ? 0.3 : 0.12}
+                    borderRadius="4px"
                     pointerEvents="none"
                 />
+                {/* in-flight drag selection */}
+                {drag && (
+                    <Box
+                        position="absolute"
+                        top={0}
+                        bottom={0}
+                        left={`${Math.min(drag.x1, drag.x2)}px`}
+                        width={`${Math.abs(drag.x2 - drag.x1)}px`}
+                        background="accent.brand"
+                        opacity={0.35}
+                        borderXWidth="1px"
+                        borderColor="accent.brand"
+                        pointerEvents="none"
+                    />
+                )}
+            </Box>
+            {/* formatted scale beneath the track (#190) — min · ⅓ · ⅔ · max */}
+            {style.axis && (
+                <Box css={frameStyles.brushAxis} aria-hidden="true">
+                    <Box as="span">{axisLabel(0)}</Box>
+                    <Box as="span">{axisLabel(1 / 3)}</Box>
+                    <Box as="span">{axisLabel(2 / 3)}</Box>
+                    <Box as="span">{axisLabel(1)}</Box>
+                </Box>
             )}
         </Box>
     );
@@ -360,12 +423,20 @@ export const EastChakraSliceRail = memo(function EastChakraSliceRail({ value }: 
     const brushEnabled = configuredKinds.includes("brush");
     // Explicit only (#187) — the legend renders when listed, never implicitly.
     const legendEnabled = configuredKinds.includes("legend");
+    // Brush presentation (#190) — rich by default; opt out per option.
+    // (Optional-chained: fabricated host payloads may predate the field.)
+    const brushOpts = value.brush?.type === "some" ? value.brush.value : undefined;
+    const brushStyle: BrushStyle = {
+        axis:    (brushOpts?.axis.type === "some" ? brushOpts.axis.value as boolean : undefined) ?? true,
+        count:   (brushOpts?.count.type === "some" ? brushOpts.count.value as boolean : undefined) ?? true,
+        buckets: brushOpts?.buckets.type === "some" ? Number(brushOpts.buckets.value as bigint) : BRUSH_BUCKETS,
+    };
     return (
         <Box display="flex" flexDirection="column" gap="{spacing.1.5}" minWidth="0">
             <Box display="flex" alignItems="center" minWidth="0">
                 <SliceRailCluster slice={slice} affordanceKinds={affordanceKinds} />
             </Box>
-            {brushEnabled && <RailBrushStrip slice={slice} />}
+            {brushEnabled && <RailBrushStrip slice={slice} style={brushStyle} />}
             {legendEnabled && <EastChakraSliceLegend value={{ slice } as never} />}
         </Box>
     );

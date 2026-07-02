@@ -18,5 +18,7 @@ describeEast("Slice", (test) => {
         sliceCrossFilterDashboard: ex.sliceCrossFilterDashboard,
         sliceExpressiveFilters:    ex.sliceExpressiveFilters,
         sliceGanttChrome:          ex.sliceGanttChrome,
+        sliceBrushDatetime:        ex.sliceBrushDatetime,
+        sliceBrushCurrency:        ex.sliceBrushCurrency,
     });
 }, { platformFns: TestImpl });

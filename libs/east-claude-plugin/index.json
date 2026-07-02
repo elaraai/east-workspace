@@ -1,14 +1,14 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1397,
+    "totalEntries": 1399,
     "totalFiles": 181,
     "packages": {
       "east": 489,
       "east-node-std": 42,
       "east-node-io": 63,
       "east-py-datascience": 89,
-      "east-ui": 652,
+      "east-ui": 654,
       "e3-ui": 55,
       "e3": 7,
       "e3-ui-cli": 3
@@ -25457,6 +25457,56 @@
         "import { Box, Chart, Gantt, Reactive, Slice, State, Table, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// The widened filter vocabulary on one rail — \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const OrderType = StructType({ sku: StringType, note: StringType, day: DateTimeType, qty: IntegerType });\n        const cfg = Slice.config(OrderType, {\n            fields: { sku: { label: \"SKU\" }, note: { label: \"Note\" }, day: { label: \"Day\" }, qty: { label: \"Qty\" } },\n            searchFieldIds: [\"sku\", \"note\"],\n        });\n        return (\n            <Reactive>{$ => {\n                const data = $.const([\n                    { sku: \"SKU-100\", note: \"rush order\", day: new Date(\"2025-01-10\"), qty: 10n },\n                    { sku: \"SKU-200\", note: \"  \",         day: new Date(\"2025-02-14\"), qty: 20n },\n                    { sku: \"SKU-300\", note: \"fragile\",    day: new Date(\"2025-03-01\"), qty: 30n },\n                    { sku: \"ALT-400\", note: \"reseller\",   day: new Date(\"2025-02-02\"), qty: 40n },\n                    { sku: \"SKU-500\", note: \"priority\",   day: new Date(\"2025-05-20\"), qty: 50n },\n                ], ArrayType(OrderType));\n                const slice = $.let(Slice.bind([OrderType], \"ex.slice.expressive\", cfg, Slice.state({\n                    filters: [\n                        variant(\"string\",   { fieldId: \"sku\",  op: variant(\"startsWith\", \"SKU-\") }),\n                        variant(\"string\",   { fieldId: \"note\", op: variant(\"isNotEmpty\", null) }),\n                        variant(\"datetime\", { fieldId: \"day\",  op: variant(\"between\", { from: new Date(\"2025-01-05\"), to: new Date(\"2025-03-28\") }) }),\n                        variant(\"integer\",  { fieldId: \"qty\",  op: variant(\"in\", new Set([10n, 20n, 30n, 40n, 50n])) }),\n                    ],\n                }), data, none));\n                const narrowed = $.let(Slice.rows([OrderType], slice));\n                return (\n                    <VStack gap=\"3\" align=\"stretch\">\n                        <Slice.Rail slice={slice} affordances={[\"filter\"]} />\n                        <Table data={narrowed} columns={{\n                            sku:  { header: \"SKU\" },\n                            note: { header: \"Note\" },\n                            day:  { header: \"Day\" },\n                            qty:  { header: \"Qty\" },\n                        }} />\n                        <Slice.Summary slice={slice} />\n                    </VStack>\n                );\n            }}</Reactive>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:slice.examples.tsx:sliceBrushDatetime",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/slice/slice.examples.tsx",
+      "suite": "",
+      "test": "Brush over time — a standalone Slice.Rail brush strip on a datetime domain: the field",
+      "keywords": [
+        "Slice",
+        "Rail",
+        "brush",
+        "axis",
+        "count",
+        "histogram",
+        "datetime",
+        "format",
+        "date"
+      ],
+      "imports": [
+        "import { East, DateTimeType, StringType, IntegerType, NullType, ArrayType, StructType, variant, some, none, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Chart, Gantt, Reactive, Slice, State, Table, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Brush over time — a standalone Slice.Rail brush strip on a datetime domain: the field\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const BookingType = StructType({ when: DateTimeType, route: StringType, seats: IntegerType });\n        const cfg = Slice.config(BookingType, {\n            fields: {\n                when:  { label: \"Departure\", format: { date: \"MMM DD\" } },\n                route: { label: \"Route\" },\n                seats: { label: \"Seats\" },\n            },\n            rangeFieldId: \"when\",\n        });\n        return (\n            <Reactive>{$ => {\n                const data = $.const([\n                    { when: new Date(\"2025-03-02\"), route: \"SYD→MEL\", seats: 140n },\n                    { when: new Date(\"2025-03-03\"), route: \"SYD→BNE\", seats: 96n },\n                    { when: new Date(\"2025-03-04\"), route: \"MEL→SYD\", seats: 152n },\n                    { when: new Date(\"2025-03-05\"), route: \"SYD→MEL\", seats: 88n },\n                    { when: new Date(\"2025-03-21\"), route: \"SYD→PER\", seats: 44n },\n                    { when: new Date(\"2025-04-08\"), route: \"MEL→SYD\", seats: 120n },\n                    { when: new Date(\"2025-04-09\"), route: \"SYD→MEL\", seats: 134n },\n                    { when: new Date(\"2025-04-10\"), route: \"SYD→BNE\", seats: 61n },\n                    { when: new Date(\"2025-04-11\"), route: \"MEL→BNE\", seats: 105n },\n                    { when: new Date(\"2025-04-12\"), route: \"SYD→MEL\", seats: 149n },\n                ], ArrayType(BookingType));\n                const slice = $.let(Slice.bind([BookingType], \"ex.slice.brush.datetime\", cfg, Slice.state({\n                    range: some(variant(\"datetime\", {\n                        from: new Date(\"2025-04-07\"),\n                        to:   new Date(\"2025-04-13\"),\n                    })),\n                }), data, none));\n                const narrowed = $.let(Slice.rows([BookingType], slice));\n                return (\n                    <VStack gap=\"3\" align=\"stretch\">\n                        <Slice.Rail slice={slice} affordances={[\"brush\"]} />\n                        <Table data={narrowed} columns={{\n                            when:  { header: \"Departure\" },\n                            route: { header: \"Route\" },\n                            seats: { header: \"Seats\" },\n                        }} />\n                        <Slice.Summary slice={slice} />\n                    </VStack>\n                );\n            }}</Reactive>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:slice.examples.tsx:sliceBrushCurrency",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/slice/slice.examples.tsx",
+      "suite": "",
+      "test": "Brush over money — the Slice.Rail brush strip on an integer order-value domain: ",
+      "keywords": [
+        "Slice",
+        "Rail",
+        "brush",
+        "axis",
+        "count",
+        "histogram",
+        "currency",
+        "compact",
+        "format"
+      ],
+      "imports": [
+        "import { East, DateTimeType, StringType, IntegerType, NullType, ArrayType, StructType, variant, some, none, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Chart, Gantt, Reactive, Slice, State, Table, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Brush over money — the Slice.Rail brush strip on an integer order-value domain: \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const OrderType = StructType({ customer: StringType, value: IntegerType });\n        const cfg = Slice.config(OrderType, {\n            fields: {\n                customer: { label: \"Customer\" },\n                value:    { label: \"Order value\", format: { currency: { code: \"USD\", compact: true } } },\n            },\n            rangeFieldId: \"value\",\n        });\n        return (\n            <Reactive>{$ => {\n                const data = $.const([\n                    { customer: \"Acme\",     value: 180n },\n                    { customer: \"Birch\",    value: 240n },\n                    { customer: \"Cobalt\",   value: 310n },\n                    { customer: \"Dover\",    value: 420n },\n                    { customer: \"Ember\",    value: 480n },\n                    { customer: \"Foundry\",  value: 650n },\n                    { customer: \"Gale\",     value: 900n },\n                    { customer: \"Harbor\",   value: 1400n },\n                    { customer: \"Ionia\",    value: 4200n },\n                    { customer: \"Juniper\",  value: 12000n },\n                ], ArrayType(OrderType));\n                const slice = $.let(Slice.bind([OrderType], \"ex.slice.brush.currency\", cfg, Slice.state({\n                    range: some(variant(\"integer\", { from: 800n, to: 12000n })),\n                }), data, none));\n                const narrowed = $.let(Slice.rows([OrderType], slice));\n                return (\n                    <VStack gap=\"3\" align=\"stretch\">\n                        <Slice.Rail slice={slice} affordances={[\"brush\"]} />\n                        <Table data={narrowed} columns={{\n                            customer: { header: \"Customer\" },\n                            value:    { header: \"Order value\" },\n                        }} />\n                        <Slice.Summary slice={slice} />\n                    </VStack>\n                );\n            }}</Reactive>\n        );\n    })"
     },
     {
       "id": "east-ui:slice.examples.tsx:sliceGanttChrome",

@@ -20,7 +20,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { none, some, variant } from "@elaraai/east";
-import { SliceImpl, buildSliceHandle, boundRangeDomain } from "../../src/platform/slice/index.js";
+import { SliceImpl, buildSliceHandle, boundRangeDomain, boundRangeHistogram } from "../../src/platform/slice/index.js";
 import { initializeStore } from "../../src/platform/state-runtime.js";
 import { UIStore } from "../../src/platform/state-store.js";
 
@@ -283,6 +283,33 @@ test("slice_facet_groups is SELF-EXCLUDING — the breakdown field's own filters
     // Filters on OTHER fields still narrow the facet counts.
     call("slice_add_filter", "fg", variant("integer", { fieldId: "n", op: variant("gte", 2n) }));
     assert.deepEqual((call("slice_facet_groups", "fg") as Array<{ key: string; count: bigint }>).map(g => [g.key, g.count]), [["EU", 1n], ["NA", 1n]]);
+});
+
+test("boundRangeHistogram buckets the range field self-excluding; other-field filters narrow it (#190)", () => {
+    initializeStore(new UIStore());
+    const cfgN = {
+        fields: new Map<string, unknown>([
+            ["qty", { type: "integer", value: { accessor: (r: { qty: bigint }) => r.qty } }],
+            ["sku", { type: "string",  value: { accessor: (r: { sku: string }) => r.sku } }],
+        ]),
+        rangeFieldId: some("qty"), searchFieldIds: [], breakdownFieldIds: [],
+    };
+    // Domain 0..30: rows cluster at both ends.
+    buildSliceHandle("hist", cfgN, initial, [
+        { qty: 0n, sku: "a" }, { qty: 1n, sku: "a" }, { qty: 2n, sku: "b" },
+        { qty: 29n, sku: "a" }, { qty: 30n, sku: "b" },
+    ], none);
+
+    const h = boundRangeHistogram("hist", 3)!;
+    assert.deepEqual(h, [3, 0, 2]);                          // both clusters, empty middle
+
+    // SELF-EXCLUDING: an applied range never empties its own histogram…
+    call("slice_set_range", "hist", some(variant("integer", { from: 0n, to: 2n })));
+    assert.deepEqual(boundRangeHistogram("hist", 3), [3, 0, 2]);
+
+    // …but a filter on ANOTHER field does narrow the counts.
+    call("slice_add_filter", "hist", variant("string", { fieldId: "sku", op: variant("eq", "a") }));
+    assert.deepEqual(boundRangeHistogram("hist", 3), [2, 0, 1]);
 });
 
 test("a real narrowing (search) DOES count, and clears cleanly (sanity)", () => {

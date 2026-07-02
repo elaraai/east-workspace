@@ -495,13 +495,17 @@ export function sliceDimensions(config: ConfigLike): Array<{ fieldId: string; la
 // fields — every filterable field + label + primitive kind (predicate builder)
 // ---------------------------------------------------------------------------
 
-export function sliceFields(config: ConfigLike): Array<{ fieldId: string; label: string; kind: string; hints: string[] }> {
+export function sliceFields(config: ConfigLike): Array<{ fieldId: string; label: string; kind: string; hints: string[]; format: variant }> {
     return [...config.fields.entries()].map(([fieldId, spec]) => {
         const kind = (spec as variant).type;
-        const label = ((spec as variant).value as { label?: string } | undefined)?.label ?? fieldId;
+        const payload = (spec as variant).value as { label?: string; format?: variant } | undefined;
+        const label = payload?.label ?? fieldId;
         // Explicit autocomplete hints from `Slice.config` (#131); empty when none.
         const hints = [...(config.fieldHints?.get(fieldId) ?? [])];
-        return { fieldId, label, kind, hints };
+        // Declared display format (#190); `none` when absent (incl. hand-built
+        // test configs predating the field).
+        const format = payload?.format ?? none;
+        return { fieldId, label, kind, hints, format };
     });
 }
 

@@ -44,6 +44,15 @@ export interface SliceRailOptions {
      * every mutation writes back, debounced. Absent = in-memory only.
      */
     persist?: "local" | "session" | "url";
+    /**
+     * Presentation of the brush strip (#190). The strip is rich by default —
+     * a formatted axis (min / ticks / max, per the range field's declared
+     * `format` or a kind default) and a row-count histogram behind the track
+     * (self-excluding, so it never collapses under its own window). Pass
+     * `{ axis: false, count: false }` for the minimal bare track, or
+     * `buckets` to change the histogram resolution (default 32).
+     */
+    brush?: { axis?: boolean; count?: boolean; buckets?: number };
 }
 
 /**
@@ -73,6 +82,13 @@ function createSliceRail(options: SliceRailOptions): ExprType<UIComponentType> {
         slice: options.slice,
         affordances: East.value(affordances, ArrayType(SliceAffordanceType)),
         persist: options.persist !== undefined ? some(variant(options.persist, null)) : none,
+        brush: options.brush !== undefined
+            ? some({
+                axis:    options.brush.axis !== undefined ? some(options.brush.axis) : none,
+                count:   options.brush.count !== undefined ? some(options.brush.count) : none,
+                buckets: options.brush.buckets !== undefined ? some(BigInt(options.brush.buckets)) : none,
+            })
+            : none,
     }), UIComponentType);
 }
 

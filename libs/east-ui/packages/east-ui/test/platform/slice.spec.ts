@@ -235,6 +235,21 @@ describeEast("Slice", (test) => {
     // String ops: eq, neq, in, notIn, contains, matches
     // -----------------------------------------------------------------------
 
+    test("config: a field's declared display format flows into the field spec (#190)", $ => {
+        const RowType = StructType({ qty: IntegerType, price: FloatType });
+        const cfg = $.let(Slice.config(RowType, {
+            fields: {
+                qty:   { label: "Qty",   format: "compact" },
+                price: { label: "Price", format: { currency: { code: "EUR" } } },
+            },
+        }));
+        const qty = $.let(cfg.fields.get("qty").unwrap("integer"));
+        $(Assert.equal(qty.format.unwrap("some").getTag(), "compact"));
+        const price = $.let(cfg.fields.get("price").unwrap("float"));
+        $(Assert.equal(price.format.unwrap("some").getTag(), "currency"));
+        $(Assert.equal(price.format.unwrap("some").unwrap("currency").code, "EUR"));
+    });
+
     test("config carries explicit per-field hints (#131)", $ => {
         const RowType = StructType({ country: StringType });
         const cfg = $.let(Slice.config(RowType, {
