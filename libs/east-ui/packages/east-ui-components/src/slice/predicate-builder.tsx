@@ -109,6 +109,32 @@ export function predicateOpValue(kind: string, op: string, raw: unknown): unknow
     return raw;
 }
 
+/**
+ * The inverse of {@link predicateOpValue}: convert a predicate op's typed
+ * payload into the shape the shared clause CONTROLS edit, for seeding the
+ * builder in edit mode. Set members become the TagsInput's string entries
+ * (bigints stringify — `predicateOpValue` parses them back on submit), and a
+ * datetime `between`'s `{ from, to }` becomes the range pair's `{ min, max }`.
+ * Without this an integer in-set seeded the validity check with bigints
+ * (`s.trim is not a function` at mount) and a between seed fed the whole
+ * range object to a single date field.
+ *
+ * @param kind - the field's primitive kind
+ * @param op - the operator tag
+ * @param raw - the typed payload the predicate's op variant carries
+ * @returns the control-shaped seed value
+ */
+export function predicateControlValue(kind: string, op: string, raw: unknown): unknown {
+    if (op === "in" || op === "notIn") {
+        return raw instanceof Set ? [...raw].map(v => String(v)) : raw;
+    }
+    if (op === "between" && kind === "datetime") {
+        const { from, to } = raw as { from: Date; to: Date };
+        return { min: from, max: to };
+    }
+    return raw;
+}
+
 export function SlicePredicateBuilder({ fields, onAdd, initial, lockField, submitLabel }: SlicePredicateBuilderProps) {
     const seed = initial as { type: string; value: { fieldId: string; op: { type: string; value: unknown } } } | undefined;
 
@@ -124,7 +150,11 @@ export function SlicePredicateBuilder({ fields, onAdd, initial, lockField, submi
             opsFor={kind => OPS_BY_KIND[kind] ?? STRING_OPS}
             onSubmit={onSubmit}
             {...(seed !== undefined ? {
-                initial: { fieldId: seed.value.fieldId, op: seed.value.op.type, value: seed.value.op.value },
+                initial: {
+                    fieldId: seed.value.fieldId,
+                    op: seed.value.op.type,
+                    value: predicateControlValue(seed.type, seed.value.op.type, seed.value.op.value),
+                },
             } : {})}
             {...(lockField !== undefined ? { lockField } : {})}
             {...(submitLabel !== undefined ? { submitLabel } : {})}

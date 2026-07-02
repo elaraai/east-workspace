@@ -10,7 +10,7 @@
  */
 
 import { describe, test, expect } from "vitest";
-import { predicateOpValue } from "./predicate-builder.js";
+import { predicateOpValue, predicateControlValue } from "./predicate-builder.js";
 
 describe("predicateOpValue", () => {
     test("string in/notIn wrap the entries in a Set<string>", () => {
@@ -36,5 +36,38 @@ describe("predicateOpValue", () => {
     test("single-value ops pass through untouched", () => {
         expect(predicateOpValue("string", "contains", "abc")).toBe("abc");
         expect(predicateOpValue("integer", "gte", 10n)).toBe(10n);
+    });
+});
+
+describe("predicateControlValue (the edit-mode seed — inverse of predicateOpValue)", () => {
+    test("an integer in-set seeds STRING tag entries (bigint members crashed the eager validity check)", () => {
+        expect(predicateControlValue("integer", "in", new Set([10n, 20n])))
+            .toEqual(["10", "20"]);
+    });
+
+    test("a string in/notIn set seeds its entries as-is", () => {
+        expect(predicateControlValue("string", "notIn", new Set(["a", "b"]))).toEqual(["a", "b"]);
+    });
+
+    test("datetime between remaps { from, to } to the range pair's { min, max }", () => {
+        const from = new Date("2025-01-05T00:00:00Z");
+        const to = new Date("2025-03-28T00:00:00Z");
+        expect(predicateControlValue("datetime", "between", { from, to })).toEqual({ min: from, max: to });
+    });
+
+    test("single-value ops pass through untouched", () => {
+        expect(predicateControlValue("string", "startsWith", "SKU-")).toBe("SKU-");
+        expect(predicateControlValue("integer", "eq", 7n)).toBe(7n);
+    });
+
+    test("round-trip: control seed → submit conversion restores the typed payload", () => {
+        const seeded = predicateControlValue("integer", "in", new Set([10n, 20n])) as string[];
+        expect(predicateOpValue("integer", "in", seeded)).toEqual(new Set([10n, 20n]));
+        const window = predicateControlValue("datetime", "between", {
+            from: new Date("2025-01-05T00:00:00Z"), to: new Date("2025-03-28T00:00:00Z"),
+        }) as { min: Date; max: Date };
+        expect(predicateOpValue("datetime", "between", window)).toEqual({
+            from: new Date("2025-01-05T00:00:00Z"), to: new Date("2025-03-28T00:00:00Z"),
+        });
     });
 });

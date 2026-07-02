@@ -124,7 +124,10 @@ function emptyValue(kind: ClauseKind, input: ClauseOpSpec["input"]): unknown {
 function invalidReason(kind: ClauseKind, input: ClauseOpSpec["input"], value: unknown): string | undefined {
     if (input === "none") return undefined;
     if (input === "set") {
-        const entries = (value as string[]).map(s => s.trim()).filter(Boolean);
+        // Entries are strings from the TagsInput, but an edit seed may carry
+        // typed members (bigints from an integer in-set) — stringify, never
+        // assume (`bigint.trim` is not a function).
+        const entries = (value as unknown[]).map(s => String(s).trim()).filter(Boolean);
         if (entries.length === 0) return "Enter at least one value.";
         if (kind === "integer" && !entries.some(e => { try { BigInt(e); return true; } catch { return false; } })) {
             return "Enter at least one whole number.";
@@ -164,8 +167,10 @@ export function ClauseBuilder({ fields, opsFor, onSubmit, initial, lockField, su
     // control's payload identity-stable per field/op (and remounting on
     // field/op change via `key`) means typing never round-trips through a
     // parent re-render — which would reset the control mid-edit.
+    // A Set seed becomes the TagsInput's string entries regardless of member
+    // type (bigints round-trip back through the consumer's submit conversion).
     const seedValue = initial !== undefined
-        ? (initial.value instanceof Set ? [...initial.value] : initial.value)
+        ? (initial.value instanceof Set ? [...initial.value].map(v => String(v)) : initial.value)
         : emptyValue(kind, input);
     const valRef = useRef<unknown>(seedValue);
     // Validity mirrors valRef for the submit button + hint. Commits call
@@ -199,31 +204,36 @@ export function ClauseBuilder({ fields, opsFor, onSubmit, initial, lockField, su
         if (invalidReason(kind, input, valRef.current) !== undefined) return;
         let value: unknown = valRef.current;
         if (input === "set") {
-            value = (value as string[]).map(s => s.trim()).filter(Boolean);
+            value = (value as unknown[]).map(s => String(s).trim()).filter(Boolean);
         }
         onSubmit({ fieldId: field.id, kind, op: op.tag, value });
     };
 
     // Stable per-(field, op) payloads for the typed value controls — built
-    // once per remount key, so keystroke commits never recreate them.
+    // once per remount key, so keystroke commits never recreate them. Range
+    // controls take their OWN bound (`v.min` / `v.max`) and a distinct key —
+    // feeding the whole `{min,max}` object to a date field is an Invalid
+    // Date crash, and sibling controls sharing one key collide.
     const controls = useMemo(() => {
         const v = valRef.current;
-        const single = (onChange: (next: unknown) => void): ReactNode => {
+        const single = (keySuffix: string, val: unknown, onChange: (next: unknown) => void): ReactNode => {
+            const key = `${controlKey}${keySuffix}`;
             switch (kind) {
                 case "integer":
-                    return <EastChakraIntegerInput key={controlKey} value={{ value: v as bigint, onChange: some(onChange), style: inputStyle } as never} />;
+                    return <EastChakraIntegerInput key={key} value={{ value: val as bigint, onChange: some(onChange), style: inputStyle } as never} />;
                 case "float":
-                    return <EastChakraFloatInput key={controlKey} value={{ value: v as number, onChange: some(onChange), style: inputStyle } as never} />;
+                    return <EastChakraFloatInput key={key} value={{ value: val as number, onChange: some(onChange), style: inputStyle } as never} />;
                 case "datetime":
-                    return <EastChakraDateTimeInput key={controlKey} value={{ value: v as Date, onChange: some(onChange), style: inputStyle } as never} />;
+                    return <EastChakraDateTimeInput key={key} value={{ value: val as Date, onChange: some(onChange), style: inputStyle } as never} />;
                 default:
-                    return <EastChakraStringInput key={controlKey} value={{ value: String(v ?? ""), onChange: some(onChange), style: inputStyle } as never} />;
+                    return <EastChakraStringInput key={key} value={{ value: String(val ?? ""), onChange: some(onChange), style: inputStyle } as never} />;
             }
         };
+        const range = v as { min?: unknown; max?: unknown } | undefined;
         return {
-            single: single(next => { commit(next); }),
-            rangeMin: single(next => { commit({ ...(valRef.current as object), min: next }); }),
-            rangeMax: single(next => { commit({ ...(valRef.current as object), max: next }); }),
+            single: single("", v, next => { commit(next); }),
+            rangeMin: single(":min", range?.min, next => { commit({ ...(valRef.current as object), min: next }); }),
+            rangeMax: single(":max", range?.max, next => { commit({ ...(valRef.current as object), max: next }); }),
         };
     }, [controlKey, kind, inputStyle, commit]);
 

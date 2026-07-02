@@ -260,6 +260,55 @@ describe("Slice.Filter — add-filter builder applies (in a Slice.Edit popover)"
         expect(filters[0].value.op.value).toEqual(new Set([10n, 20n]));  // "abc" dropped
     });
 
+    // Regression (crashed live in the showcase): OPENING the edit builder for
+    // the new typed clauses must not blow up the eager validity check — an
+    // integer in-set seeded bigints into `.trim()` (#164 + #166 interaction),
+    // and a between seed fed `{from,to}` to a single date field.
+    test("editing an integer 'in' clause seeds string tags and Apply round-trips back to a bigint set", async () => {
+        const slice = fakeSlice({
+            filters: [variant("integer", { fieldId: "sessions", op: variant("in", new Set([10n, 20n, 30n, 40n, 50n])) })],
+        });
+        const value: any = { slice, unit: none, density: none, editOpen: none };
+        ui(<EastChakraSliceFilter value={value} />);
+
+        const user = userEvent.setup();
+        await user.click(screen.getByText(/sessions in 10, 20, 30 \+2/));   // ← threw "s.trim is not a function" pre-fix
+        expect(await screen.findByText("Apply")).toBeTruthy();
+        expect(screen.getByText("40")).toBeTruthy();                        // seeded as string tag entries
+
+        fireEvent.click(screen.getByText("Apply"));
+        const filters = slice.read().filters;
+        expect(filters.length).toBe(1);
+        expect(filters[0].value.op.type).toBe("in");
+        expect(filters[0].value.op.value).toEqual(new Set([10n, 20n, 30n, 40n, 50n]));  // typed again
+    });
+
+    test("editing a datetime 'between' clause seeds the min–max date pair without crashing", async () => {
+        const from = new Date("2025-01-05T00:00:00Z");
+        const to = new Date("2025-03-28T00:00:00Z");
+        const slice = fakeSlice(
+            { filters: [variant("datetime", { fieldId: "when", op: variant("between", { from, to }) })] },
+            { fields: () => [
+                { fieldId: "scenario", label: "Scenario", kind: "string" },
+                { fieldId: "when", label: "When", kind: "datetime" },
+            ] },
+        );
+        const value: any = { slice, unit: none, density: none, editOpen: none };
+        ui(<EastChakraSliceFilter value={value} />);
+
+        const user = userEvent.setup();
+        await user.click(screen.getByText(/when between/));
+        expect(await screen.findByText("Apply")).toBeTruthy();
+        expect(screen.getAllByRole("spinbutton").length).toBeGreaterThanOrEqual(6);  // two date fields mounted
+
+        fireEvent.click(screen.getByText("Apply"));                          // untouched seed applies as-is
+        const filters = slice.read().filters;
+        expect(filters.length).toBe(1);
+        expect(filters[0].value.op.type).toBe("between");
+        expect(filters[0].value.op.value.from.getTime()).toBe(from.getTime());
+        expect(filters[0].value.op.value.to.getTime()).toBe(to.getTime());
+    });
+
     // #171 — presence ops carry no comparison value: picking "is empty" hides
     // the value control (input:"none") and Add submits a NullType-armed op.
     test("builder offers 'is empty' with no value control and Add appends an isEmpty predicate (#171)", async () => {
