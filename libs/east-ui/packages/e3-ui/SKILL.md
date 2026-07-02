@@ -261,3 +261,6 @@ Tested examples live in `test/*.examples.tsx`:
 - **east-ontology** — the `<Ontology>` editor's node/link model and the workshop
   method for building one.
 - **east-design** — decide where a decision surface fits in the overall solution.
+- **e3-ui-cli** — screenshot a surface from the terminal: `e3-ui shot
+  --from-source` renders a zero-input `ui()` task; `--from-task` renders a
+  deployed task's computed output.

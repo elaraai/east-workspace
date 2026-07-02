@@ -20,7 +20,7 @@ libs/
 ├── east-c/              # C runtime (CMake)
 ├── east-py/             # Python runtime + datascience + I/O (uv workspace)
 ├── e3/                  # Execution engine — e3-types, e3, e3-core, e3-api-client, e3-cli, e3-api-server, e3-api-tests
-├── east-ui/             # UI components — east-ui, east-ui-components, e3-ui, e3-ui-components, showcases, east-ui-extension (VS Code extension)
+├── east-ui/             # UI components — east-ui, east-ui-components, e3-ui, e3-ui-components, e3-ui-cli, showcases, east-ui-extension (VS Code extension)
 └── east-claude-plugin/  # Claude Code plugin — skills (symlinked from libs), hooks, MCP search server, project scaffold + install scripts
 ```
 
@@ -65,7 +65,7 @@ cd libs/e3 && make help
 ## Plugin skills (DO NOT EDIT WITHOUT INTENT)
 
 The following `SKILL.md` files back Claude Code plugin skills
-(`east:east`, `east:e3`, `east:east-ui`, `east:e3-ui`,
+(`east:east`, `east:e3`, `east:east-ui`, `east:e3-ui`, `east:e3-ui-cli`,
 `east:east-node-std`, `east:east-node-io`, `east:east-py`,
 `east:east-py-std`, `east:east-py-io`, `east:east-py-datascience`).
 Editing them changes plugin behaviour — coordinate before touching. The
@@ -75,12 +75,15 @@ index (`libs/east-claude-plugin/index.json`) is regenerated from each lib's
 `*.examples.ts` and must be re-run when these change (see the
 `plugin-artifacts` workflow). `east:east-py`, `east:east-py-std`, and
 `east:east-py-io` are **skill-file-only** for now — no `*.examples.py` are
-indexed.
+indexed. `east:e3-ui-cli` is indexed via hand-written `index.static.json`
+stubs (the `e3` precedent) — its CLI surface is not East-expression code, so
+it has no `*.examples.ts`.
 
 - `libs/east/SKILL.md`
 - `libs/e3/SKILL.md`
 - `libs/east-ui/packages/east-ui/SKILL.md`
 - `libs/east-ui/packages/e3-ui/SKILL.md`
+- `libs/east-ui/packages/e3-ui-cli/SKILL.md`
 - `libs/east-node/packages/east-node-std/SKILL.md`
 - `libs/east-node/packages/east-node-io/SKILL.md`
 - `libs/east-py/packages/east-py/SKILL.md`

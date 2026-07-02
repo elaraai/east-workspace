@@ -1,7 +1,7 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1394,
+    "totalEntries": 1397,
     "totalFiles": 181,
     "packages": {
       "east": 489,
@@ -10,7 +10,8 @@
       "east-py-datascience": 89,
       "east-ui": 649,
       "e3-ui": 55,
-      "e3": 7
+      "e3": 7,
+      "e3-ui-cli": 3
     }
   },
   "entries": [
@@ -28917,6 +28918,73 @@
         "import e3 from '@elaraai/e3';"
       ],
       "source": "// Complete e3 package with input, task, package, and export\nconst name = e3.input('name', StringType, 'World');\n\nconst greet = e3.task(\n  'greet',\n  [name],\n  East.function([StringType], StringType, ($, n) =>\n    East.str`Hello, ${n}!`\n  )\n);\n\nconst pkg = e3.package('hello', '1.0.0', greet);\nawait e3.export(pkg, '/tmp/hello.zip');\nexport default pkg;"
+    },
+    {
+      "id": "e3-ui-cli:static:shot-from-source",
+      "skill": "e3-ui-cli",
+      "package": "e3-ui-cli",
+      "file": "static",
+      "suite": "e3-ui shot",
+      "test": "Screenshot a .tsx component (or a ui() task) to PNG from the command line",
+      "keywords": [
+        "e3-ui-cli",
+        "shot",
+        "screenshot",
+        "png",
+        "render",
+        "cli",
+        "from-source",
+        "ui task",
+        "surface",
+        "headless",
+        "chromium"
+      ],
+      "imports": [],
+      "source": "# One-time per machine (add --with-deps on a fresh Linux server):\ne3-ui install-browser\n\n# A .tsx exporting an East function returning UIComponentType, or an e3 ui() task:\ne3-ui shot --from-source ./dashboard.tsx -o dashboard.png\n\n# Pick an export, set a viewport, also emit standalone HTML:\ne3-ui shot --from-source src/ui/index.tsx --export surface --viewport 800x600 --html"
+    },
+    {
+      "id": "e3-ui-cli:static:shot-from-task",
+      "skill": "e3-ui-cli",
+      "package": "e3-ui-cli",
+      "file": "static",
+      "suite": "e3-ui shot",
+      "test": "Screenshot a live e3 task's computed output with real workspace data",
+      "keywords": [
+        "e3-ui-cli",
+        "shot",
+        "from-task",
+        "workspace",
+        "repo",
+        "live",
+        "dataflow",
+        "screenshot",
+        "png"
+      ],
+      "imports": [],
+      "source": "# The workspace dataflow must have already produced the task output:\ne3-ui shot --from-task main.dashboard --repo ./.repos -o dashboard.png\n\n# Serialized component IR also works (stdin with -):\ne3-ui shot --from-ir ./component.beast2 -o component.png"
+    },
+    {
+      "id": "e3-ui-cli:static:render-to-png",
+      "skill": "e3-ui-cli",
+      "package": "e3-ui-cli",
+      "file": "static",
+      "suite": "programmatic",
+      "test": "Render a component to PNG from Node with renderToPng",
+      "keywords": [
+        "e3-ui-cli",
+        "renderToPng",
+        "renderTaskToPng",
+        "programmatic",
+        "node",
+        "png",
+        "screenshot",
+        "doctor",
+        "install-browser"
+      ],
+      "imports": [
+        "import { renderToPng, renderTaskToPng } from '@elaraai/e3-ui-cli';"
+      ],
+      "source": "// Source/IR input -> PNG (and optional standalone HTML):\nawait renderToPng({\n  input: { path: './dashboard.tsx' },\n  output: 'dashboard.png',\n  html: 'dashboard.html',\n});\n\n// A deployed e3 task's computed output:\nawait renderTaskToPng({ repo: './.repos', workspace: 'main', task: 'dashboard', output: 'dashboard.png' });"
     }
   ]
 }

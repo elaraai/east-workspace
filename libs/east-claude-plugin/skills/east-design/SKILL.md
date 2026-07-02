@@ -129,6 +129,7 @@ For each capability the answers surface, record (a) the skill to load and (b) th
 | e3 pipeline / tasks | e3 | `e3.input e3.task package export dataflow` |
 | Dashboard / interactive UI | e3-ui | `ui Data.bind commit dataset` |
 | Charts / tables / layout | east-ui | `Chart Line Table Stack layout` |
+| Screenshot / visually verify a surface (CLI) | e3-ui-cli | `shot from-source png doctor` |
 
 Always run the searches — the East API is large and idiom-heavy, and grounding the design in real examples beats guessing from type signatures. Prefer **embedding the actual extract** of the 1–2 closest matches into the design doc; if a search is broad, record the **query** so the implementer reruns it. The prompt-submit hook also auto-injects examples, so glance at what it surfaced before searching again.
 

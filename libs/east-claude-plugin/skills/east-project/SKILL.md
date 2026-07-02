@@ -32,7 +32,7 @@ You get: `package.json`, `tsconfig.json`, `pyproject.toml` (e3 only), `src/index
 After scaffolding, edit `src/index.ts` to build the user's actual logic:
 - Inputs and tasks → **e3** skill (`e3.input`, `e3.task`, `e3.package`, `e3.export`).
 - East functions inside tasks → **east** skill.
-- Dashboards / UI tasks → **east-ui** + **e3-ui** skills (`ui()`, `Data.bind`).
+- Decision surfaces / UI tasks → **east-ui** + **e3-ui** skills (`ui()`, `Data.bind`); screenshot them with **e3-ui-cli** (`npm run shot` in `--ui` scaffolds).
 - ML / optimisation tasks → **east-py-datascience** skill.
 
 ## Project-owned platform modules (`--platform`)
@@ -102,6 +102,7 @@ npm run test      # e3: build + export IR + TS & Python tests; east: build + TS 
 npm run deploy    # e3: repo create (--exist-ok) + workspace deploy --from-source
 npm run start     # e3: deploy, then dataflow run
 npm run watch     # e3: e3 watch ./src/index.ts .repos <ws> --start  (live reload)
+npm run shot      # e3 --ui scaffolds: render src/ui/index.tsx to surface.png (e3-ui-cli)
 ```
 
 Under the hood the e3 scripts use the e3 CLI's source-deploy:
@@ -125,5 +126,6 @@ e3 dataset get .repos <ws>.<name>                              # read a result (
 
 - **e3** — the SDK + CLI this builds on.
 - **east** — the language for task bodies.
-- **east-ui** / **e3-ui** — dashboards.
+- **east-ui** / **e3-ui** — decision surfaces.
+- **e3-ui-cli** — screenshot a scaffolded surface (`npm run shot`, `e3-ui doctor`).
 - **east-py-datascience** — ML/optimisation tasks.

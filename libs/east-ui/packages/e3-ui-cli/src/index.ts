@@ -18,3 +18,4 @@ export {
 export { capture, type CaptureOptions, type CaptureMode } from './capture.js';
 export { loadComponentFromSource, type EastFunctionLike } from './load-source.js';
 export { startRepoServer, type RepoServerHandle } from './e3-server.js';
+export { launchBrowser, installBrowser, doctor, type BrowserSource } from './browser.js';

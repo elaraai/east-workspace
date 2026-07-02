@@ -54,6 +54,27 @@ test('loadComponentFromSource resolves the default export from a .tsx', async ()
     assert.equal(typeof fn.toIR, 'function');
 });
 
+test('loadComponentFromSource unwraps a zero-input ui() task to its stored fn IR', async () => {
+    const fixture = resolve(dirname(FIXTURE), 'ui-task.tsx');
+    const fn = await loadComponentFromSource(fixture, 'surface');
+    const bundle = fn.toIR() as { ir?: unknown };
+    assert.ok(bundle.ir, 'unwrapped ui() task carries the EastIR bundle');
+    // The sole-renderable-export fallback finds it too (a TaskDef itself has
+    // no toIR, so only the unwrap makes it renderable).
+    const sole = await loadComponentFromSource(fixture);
+    assert.deepEqual(sole.toIR(), fn.toIR());
+    // And the bundle is real component IR: it encodes into a payload.
+    const { kind, b64 } = await buildPayload({ path: fixture, from: 'ts' });
+    assert.equal(kind, 'component');
+    assert.ok(decodeEastIR(Buffer.from(b64, 'base64')).ir);
+});
+
+test('loadComponentFromSource rejects a parameterized ui() task with the --from-task remediation', async () => {
+    const fixture = resolve(dirname(FIXTURE), 'ui-task-parameterized.tsx');
+    await assert.rejects(() => loadComponentFromSource(fixture, 'surface'), /--from-task/);
+    await assert.rejects(() => loadComponentFromSource(fixture), /--from-task/);
+});
+
 test('buildPayload: .tsx source loads, encodes, and round-trips to a Function IR', async () => {
     const { kind, b64 } = await buildPayload({ path: FIXTURE, from: 'ts' });
     assert.equal(kind, 'component');

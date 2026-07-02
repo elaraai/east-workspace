@@ -345,5 +345,5 @@ tier so they stay subordinate to tags at every density.
   as reactive `ui()` e3 tasks; pair it with east-ui whenever the UI reads,
   writes, or commits real data.
 - **e3** — the engine that runs UI tasks.
-</content>
-</invoke>
+- **e3-ui-cli** — screenshot a component from the terminal (`e3-ui shot
+  --from-source`) or Node (`renderToPng`), with managed headless Chromium.

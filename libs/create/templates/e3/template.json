@@ -8,7 +8,9 @@
     "ui": {
       "default": false,
       "files": ["src/ui/index.tsx"],
-      "dependencies": ["@elaraai/east-ui", "@elaraai/e3-ui"]
+      "dependencies": ["@elaraai/east-ui", "@elaraai/e3-ui"],
+      "devDependencies": ["@elaraai/e3-ui-cli"],
+      "scripts": ["shot"]
     },
     "platform": {
       "default": false,
