@@ -898,9 +898,11 @@ function SliceChromeFrame({ node, chrome }: { node: Spec; chrome: { slice: unkno
 
     const state = slice.read();
     const configuredKinds = chrome.affordances.map(a => a.type);
+    // `brush` and `legend` are host-rendered (plot gesture / below-plot rail),
+    // not rail chips.
     const railKinds = (state.cohorts.length > 0 && !configuredKinds.includes("cohort")
         ? [...configuredKinds, "cohort"]
-        : configuredKinds).filter(k => k !== "brush");
+        : configuredKinds).filter(k => k !== "brush" && k !== "legend");
 
     // Brush: enabled by the affordance; the range arm (datetime vs float)
     // follows the slice's range field kind.
@@ -925,6 +927,10 @@ function SliceChromeFrame({ node, chrome }: { node: Spec; chrome: { slice: unkno
         ? "none"
         : JSON.stringify(rangeVal, (_k, v) => typeof v === "bigint" ? v.toString() : v instanceof Date ? v.toISOString() : v);
 
+    // The legend mounts ONLY when the `legend` affordance is listed (#187) —
+    // like every other chrome piece. Composing an external <Slice.Legend>
+    // therefore never doubles it.
+    const legendEnabled = configuredKinds.includes("legend");
     const breakdownActive = getSomeorUndefined(state.breakdown) !== undefined;
 
     return (
@@ -941,7 +947,7 @@ function SliceChromeFrame({ node, chrome }: { node: Spec; chrome: { slice: unkno
                     onBrushEnd={onBrushEnd}
                     brushKey={brushKey}
                 />
-                {breakdownActive && <EastChakraSliceLegend value={{ slice } as never} />}
+                {legendEnabled && breakdownActive && <EastChakraSliceLegend value={{ slice } as never} />}
             </Box>
         </Box>
     );

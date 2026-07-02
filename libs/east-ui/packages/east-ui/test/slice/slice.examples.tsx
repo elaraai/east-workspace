@@ -84,7 +84,7 @@ export const sliceTableChrome = example({
 
 export const sliceChartChrome = example({
     keywords: ["Slice", "Chart", "slice", "chrome", "Series", "breakdown", "legend", "brush", "range"],
-    description: "Sessions chart — Chart with the `slice` chrome option: its own header rail (`breakdown`, `range`, `brush`), a `Chart.Series` layer splitting the narrowed rows into one coloured series per active-breakdown value, the colour-matched legend beneath the plot, and drag-to-range brushing on the time x-axis",
+    description: "Sessions chart — Chart with the `slice` chrome option: its own header rail (`breakdown`, `range`, `brush`), a `Chart.Series` layer splitting the narrowed rows into one coloured series per active-breakdown value, the colour-matched legend beneath the plot (the explicit `legend` affordance — nothing mounts one implicitly), and drag-to-range brushing on the time x-axis",
     fn: East.function([], UIComponentType, (_$) => {
         const EventType = StructType({ day: DateTimeType, region: StringType, sessions: IntegerType });
         const cfg = Slice.config(EventType, {
@@ -111,7 +111,7 @@ export const sliceChartChrome = example({
                     <Chart
                         layers={[Chart.Series(slice, { x: "day", value: "sessions" })]}
                         slice={slice}
-                        affordances={["breakdown", "range", "brush"]}
+                        affordances={["breakdown", "range", "brush", "legend"]}
                         height={180}
                     />
                 );

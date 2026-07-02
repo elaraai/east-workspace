@@ -28,6 +28,7 @@ import { system } from "../theme/index.js";
 import { EastChakraSliceCohort } from "./cohort/index.js";
 import { EastChakraSliceFilter } from "./filter/index.js";
 import { EastChakraSliceLegend } from "./legend/index.js";
+import { EastChakraSliceRail } from "./rail/index.js";
 import { EastChakraSliceRange } from "./range/index.js";
 import { EastChakraSliceSearch } from "./search/index.js";
 import { EastChakraSliceSummary } from "./summary/index.js";
@@ -520,6 +521,33 @@ describe("N of M — the denominator renders wherever counts do (#169)", () => {
         ui(<EastChakraSliceSummary value={value} />);
         expect(screen.getByText("of 12")).toBeTruthy();
         expect(screen.getByText("results")).toBeTruthy();
+    });
+});
+
+describe("Slice.Rail — the legend is an explicit affordance, never implicit (#187)", () => {
+    const legendGroups = () => [
+        { key: "EU", count: 3n, color: "{colors.brand.600}" },
+        { key: "NA", count: 2n, color: "{colors.brand.800}" },
+    ];
+
+    test("listing 'legend' renders the legend beneath the cluster; omitting it renders none", () => {
+        const withLegend = fakeSlice({ breakdown: some({ fieldId: "region", limit: none }) }, { groups: legendGroups });
+        const first = ui(<EastChakraSliceRail value={{
+            slice: withLegend,
+            affordances: [variant("filter", null), variant("legend", null)],
+            persist: none,
+        } as any} />);
+        expect(screen.getByText("EU")).toBeTruthy();          // legend item rendered
+        expect(screen.getByLabelText("Filter to EU")).toBeTruthy();
+        first.unmount();
+
+        const without = fakeSlice({ breakdown: some({ fieldId: "region", limit: none }) }, { groups: legendGroups });
+        ui(<EastChakraSliceRail value={{
+            slice: without,
+            affordances: [variant("filter", null)],
+            persist: none,
+        } as any} />);
+        expect(screen.queryByText("EU")).toBeNull();          // nothing mounts implicitly
     });
 });
 

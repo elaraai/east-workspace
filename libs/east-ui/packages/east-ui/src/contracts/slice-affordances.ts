@@ -40,6 +40,11 @@ import { East, NullType, variant, VariantType, type ExprType } from "@elaraai/ea
  *   render it natively: a Chart brushes the plot's continuous x, a Gantt the
  *   timeline, a standalone `Slice.Rail` the mini brush strip. Hosts with no
  *   continuous axis reject it at the factory.
+ * @property legend - The colour-matched series legend (visibility toggles +
+ *   filter-to gestures), rendered natively by the host: a Chart mounts it
+ *   beneath the plot, a standalone `Slice.Rail` beneath the cluster. Explicit
+ *   only (#187) — nothing mounts a legend the author didn't list; compose
+ *   `<Slice.Legend>` directly to place it anywhere else.
  */
 export const SliceAffordanceType = VariantType({
     filter: NullType,
@@ -49,13 +54,14 @@ export const SliceAffordanceType = VariantType({
     cohort: NullType,
     brush: NullType,
     presets: NullType,
+    legend: NullType,
 });
 
 /** Type representing slice affordance variant values. */
 export type SliceAffordanceType = typeof SliceAffordanceType;
 
 /** String literal type for slice affordances. */
-export type SliceAffordanceLiteral = "filter" | "search" | "breakdown" | "range" | "cohort" | "brush" | "presets";
+export type SliceAffordanceLiteral = "filter" | "search" | "breakdown" | "range" | "cohort" | "brush" | "presets" | "legend";
 
 /**
  * Creates a slice affordance variant expression.

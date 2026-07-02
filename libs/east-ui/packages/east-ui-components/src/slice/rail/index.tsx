@@ -37,6 +37,7 @@ import { EastChakraSliceSearch } from "../search";
 import { EastChakraSliceBreakdown } from "../breakdown";
 import { EastChakraSliceRange } from "../range";
 import { EastChakraSliceCohort } from "../cohort";
+import { EastChakraSliceLegend } from "../legend";
 
 /** Per-affordance icon + label — section headers in the editor, count chips on the ladder. */
 const AFFORDANCE_META: Record<string, { icon: IconDefinition; label: string }> = {
@@ -354,14 +355,18 @@ export const EastChakraSliceRail = memo(function EastChakraSliceRail({ value }: 
     const withCohort = state.cohorts.length > 0 && !configuredKinds.includes("cohort")
         ? [...configuredKinds, "cohort"]
         : configuredKinds;
-    const affordanceKinds = withCohort.filter(k => k !== "brush");
+    // `brush` and `legend` render beneath the cluster, not as rail chips.
+    const affordanceKinds = withCohort.filter(k => k !== "brush" && k !== "legend");
     const brushEnabled = configuredKinds.includes("brush");
+    // Explicit only (#187) — the legend renders when listed, never implicitly.
+    const legendEnabled = configuredKinds.includes("legend");
     return (
         <Box display="flex" flexDirection="column" gap="{spacing.1.5}" minWidth="0">
             <Box display="flex" alignItems="center" minWidth="0">
                 <SliceRailCluster slice={slice} affordanceKinds={affordanceKinds} />
             </Box>
             {brushEnabled && <RailBrushStrip slice={slice} />}
+            {legendEnabled && <EastChakraSliceLegend value={{ slice } as never} />}
         </Box>
     );
 }, () => false);
