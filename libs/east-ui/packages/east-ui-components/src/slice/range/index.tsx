@@ -10,6 +10,7 @@ import { faCalendar, faChevronDown } from "@fortawesome/free-solid-svg-icons";
 import { type ValueTypeOf, some, none, variant } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
+import { EastChakraDateTimeInput } from "../../forms/input/index.js";
 import { SliceEditPopover } from "../edit";
 import { useSliceDensity } from "../density";
 import { useSliceReactivity } from "../use-slice-reactivity";
@@ -109,14 +110,25 @@ export const EastChakraSliceRange = memo(function EastChakraSliceRange({ value }
 
     const setPreset = (tag: PresetTag) =>
         slice.setRange(some(variant("datetimePreset", variant(tag, null))));
+    // Write an exact pinned window; inverted input pairs are ignored rather
+    // than silently swapped (the from/to controls stay authoritative).
+    const writeCustom = (from: Date, to: Date) => {
+        if (from.getTime() <= to.getTime()) slice.setRange(some(variant("datetime", { from, to })));
+    };
+    // "Custom…" pins the currently-resolved window (a preset's absolute dates,
+    // or last-30-days when nothing is active) as the STARTING point — the
+    // from/to inputs below then author the exact window. It no longer
+    // hard-overwrites to a fixed 30-day window with nothing to adjust (#167).
     const setCustom = () => {
+        if (win !== null) { writeCustom(win.from, win.to); return; }
         const to = new Date();
         const from = new Date();
         from.setDate(from.getDate() - 30);
-        slice.setRange(some(variant("datetime", { from, to })));
+        writeCustom(from, to);
     };
     const setCompareTag = (tag: CompareTag | null) =>
         slice.setCompare(tag === null ? none : some(variant(tag, null)));
+    const inputStyle = some({ size: some(variant("sm", null)) });
 
     const dayCount = win ? Math.max(1, Math.round((win.to.getTime() - win.from.getTime()) / 86_400_000)) : undefined;
 
@@ -142,6 +154,15 @@ export const EastChakraSliceRange = memo(function EastChakraSliceRange({ value }
                 ))}
                 <Chip label="Custom…" active={customActive} dashed onClick={setCustom} />
             </Box>
+            {/* An active custom window exposes real from/to date inputs — pick
+                the exact fiscal quarter / incident window from the pill (#167). */}
+            {customActive && win !== null && (
+                <Box display="flex" alignItems="center" gap="{spacing.2}" minWidth="0">
+                    <EastChakraDateTimeInput value={{ value: win.from, onChange: some((d: Date) => writeCustom(d, win.to)), style: inputStyle } as never} />
+                    <Box as="span" css={edit.clauseConj}>–</Box>
+                    <EastChakraDateTimeInput value={{ value: win.to, onChange: some((d: Date) => writeCustom(win.from, d)), style: inputStyle } as never} />
+                </Box>
+            )}
             <Box as="span" css={edit.clauseConj} textAlign="left">COMPARE WITH</Box>
             <Box display="flex" gap="{spacing.2}" flexWrap="wrap" alignItems="center">
                 {COMPARE.map(c => (

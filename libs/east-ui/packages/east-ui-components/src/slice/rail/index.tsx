@@ -266,9 +266,13 @@ function RailBrushStrip({ slice }: { slice: ValueTypeOf<typeof Slice.Types.Bind>
         if (b - a < 5) { slice.setRange(none); return; }
         const lo = fromFraction(a / width);
         const hi = fromFraction(b / width);
+        // The arm must match the range field's TRUE kind — an Integer field
+        // needs bigint bounds or the range is inert (isValueOf guard, #167).
         slice.setRange(some(domain.kind === "datetime"
             ? variant("datetime", { from: new Date(lo), to: new Date(hi) })
-            : variant("float", { from: lo, to: hi })));
+            : domain.kind === "integer"
+                ? variant("integer", { from: BigInt(Math.floor(lo)), to: BigInt(Math.ceil(hi)) })
+                : variant("float", { from: lo, to: hi })));
     };
 
     return (

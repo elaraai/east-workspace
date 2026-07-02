@@ -140,8 +140,11 @@ function boundRows(entry: { rows: Row[] | (() => Row[]) }): Row[] {
  * The bound rows' domain over the slice's range field — feeds the standalone
  * `Slice.Rail` brush strip (track = full domain, window = applied range).
  * Values are epoch ms for datetime fields, plain numbers for float/integer.
+ * The kind reports the field's TRUE primitive: an Integer field must yield
+ * `"integer"` so the brush writes an `integer` range arm — a `float` arm is
+ * inert for bigint values (`isValueOf` guard) and silently filters nothing (#167).
  */
-export function boundRangeDomain(key: string): { kind: "datetime" | "float"; min: number; max: number } | undefined {
+export function boundRangeDomain(key: string): { kind: "datetime" | "integer" | "float"; min: number; max: number } | undefined {
     const bound = boundByKey.get(key);
     if (bound === undefined) return undefined;
     const boundRowsList = boundRows(bound);
@@ -153,7 +156,9 @@ export function boundRangeDomain(key: string): { kind: "datetime" | "float"; min
     if (cfg.rangeFieldId.type !== "some") return undefined;
     const field = cfg.fields.get(cfg.rangeFieldId.value);
     if (field === undefined) return undefined;
-    const kind = field.type === "datetime" ? "datetime" as const : "float" as const;
+    const kind = field.type === "datetime" ? "datetime" as const
+        : field.type === "integer" ? "integer" as const
+            : "float" as const;
     let min = Infinity;
     let max = -Infinity;
     for (const r of boundRowsList) {

@@ -21,6 +21,7 @@ import { system } from "../theme/index.js";
 import { EastChakraSliceCohort } from "./cohort/index.js";
 import { EastChakraSliceFilter } from "./filter/index.js";
 import { EastChakraSliceLegend } from "./legend/index.js";
+import { EastChakraSliceRange } from "./range/index.js";
 import { EastChakraSliceSearch } from "./search/index.js";
 
 /** Structural predicate equality — the same comparator the real impl uses. */
@@ -435,6 +436,45 @@ describe("Slice.Legend — the filter-to gesture toggles a real narrowing (#165)
 
         expect(screen.queryByLabelText("Filter to EU")).not.toBeNull();
         expect(screen.queryByLabelText("Filter to other")).toBeNull();  // synthetic bucket
+    });
+});
+
+describe("Slice.Range — Custom pins the resolved window and exposes from/to inputs (#167)", () => {
+    test("clicking Custom… pins the ACTIVE preset's resolved window — not a hardwired 30d", async () => {
+        const slice = fakeSlice({ range: some(variant("datetimePreset", variant("last7d", null))) });
+        const value: any = { slice, editOpen: some(true) };
+        ui(<EastChakraSliceRange value={value} />);
+
+        const user = userEvent.setup();
+        await user.click(screen.getByText("Custom…"));
+
+        const range = slice.read().range;
+        expect(range.type).toBe("some");
+        expect(range.value.type).toBe("datetime");
+        const { from, to } = range.value.value as { from: Date; to: Date };
+        const days = Math.round((to.getTime() - from.getTime()) / 86_400_000);
+        expect(days).toBe(7);   // last7d's resolved window, not 30
+    });
+
+    test("an active custom range renders editable from/to date fields", () => {
+        const slice = fakeSlice({
+            range: some(variant("datetime", {
+                from: new Date("2026-01-01T00:00:00Z"),
+                to:   new Date("2026-03-31T00:00:00Z"),
+            })),
+        });
+        const value: any = { slice, editOpen: some(true) };
+        ui(<EastChakraSliceRange value={value} />);
+
+        // Two react-aria date fields → month/day/year segments (spinbuttons).
+        expect(screen.getAllByRole("spinbutton").length).toBeGreaterThanOrEqual(6);
+    });
+
+    test("a preset range renders NO date fields (the editor is custom-only)", () => {
+        const slice = fakeSlice({ range: some(variant("datetimePreset", variant("last30d", null))) });
+        const value: any = { slice, editOpen: some(true) };
+        ui(<EastChakraSliceRange value={value} />);
+        expect(screen.queryAllByRole("spinbutton").length).toBe(0);
     });
 });
 

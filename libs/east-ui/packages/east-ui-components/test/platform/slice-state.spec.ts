@@ -20,7 +20,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { none, some, variant } from "@elaraai/east";
-import { SliceImpl, buildSliceHandle } from "../../src/platform/slice/index.js";
+import { SliceImpl, buildSliceHandle, boundRangeDomain } from "../../src/platform/slice/index.js";
 import { initializeStore } from "../../src/platform/state-runtime.js";
 import { UIStore } from "../../src/platform/state-store.js";
 
@@ -103,6 +103,27 @@ test("slice_toggle_filter is an idempotent add/remove toggle over structural equ
     call("slice_toggle_filter", "tf", variant("string", { fieldId: "id", op: variant("eq", "a") }));
     call("slice_toggle_filter", "tf", variant("string", { fieldId: "id", op: variant("eq", "b") }));
     assert.equal((call("slice_read", "tf") as { filters: unknown[] }).filters.length, 2);
+});
+
+test("an integer range narrows integer-field rows; the brush domain reports the TRUE kind (#167)", () => {
+    initializeStore(new UIStore());
+    const intCfg = {
+        fields: new Map([["qty", { type: "integer", value: { accessor: (r: { qty: bigint }) => r.qty } }]]),
+        rangeFieldId: some("qty"), searchFieldIds: [], breakdownFieldIds: [],
+    };
+    buildSliceHandle("ir", intCfg, initial, [{ qty: 5n }, { qty: 20n }, { qty: 50n }], none);
+
+    // Was "float" — which made the Rail brush write an inert float arm.
+    assert.deepEqual(boundRangeDomain("ir"), { kind: "integer", min: 5, max: 50 });
+
+    // A correctly-armed integer range actually filters the bound rows.
+    call("slice_set_range", "ir", some(variant("integer", { from: 10n, to: 30n })));
+    assert.equal(call("slice_result_count", "ir"), 1n);      // only qty=20
+
+    // The old bug shape stays inert by design (mismatched arm never crashes) —
+    // this pins WHY the domain kind matters.
+    call("slice_set_range", "ir", some(variant("float", { from: 10, to: 30 })));
+    assert.equal(call("slice_result_count", "ir"), 3n);      // filters nothing
 });
 
 test("a real narrowing (search) DOES count, and clears cleanly (sanity)", () => {
