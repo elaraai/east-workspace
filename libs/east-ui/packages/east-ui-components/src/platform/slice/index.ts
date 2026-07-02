@@ -111,11 +111,130 @@ function writeState(key: string, state: SliceStateLike): void {
      * `type` / `value` fields. Cast at the boundary to bridge the static
      * gap. */
     getStore().write(key, encodeState(state as Parameters<typeof encodeState>[0]));
+    // Every slice mutation funnels through here — the one choke point the
+    // opt-in persistence write-back needs (#168).
+    schedulePersist(key);
 }
 
 function updateState(key: string, fn: (s: SliceStateLike) => SliceStateLike): null {
     writeState(key, fn(readState(key)));
     return null;
+}
+
+// ---------------------------------------------------------------------------
+// Opt-in slice persistence (#168) — hydrate a slice's state from
+// localStorage / sessionStorage / a URL query parameter on mount, and
+// debounce-write every mutation back. The blob is the state's beast2 bytes,
+// base64url-encoded (compact, URL-safe). A blob that fails to decode (a
+// foreign value, or a wire shape from another build) is ignored — the seeded
+// state stands.
+// ---------------------------------------------------------------------------
+
+/** Where a persisted slice's state lives. */
+export type SlicePersistMode = "local" | "session" | "url";
+
+/** Debounce for the persisted write-back — mutations are chatty (brush drags). */
+const PERSIST_DEBOUNCE_MS = 150;
+
+const persistedSlices = new Map<string, { mode: SlicePersistMode; timer: ReturnType<typeof setTimeout> | undefined }>();
+
+/** Storage / query-parameter name for a persisted slice. */
+const persistName = (key: string) => `east-ui.slice.${key}`;
+
+function bytesToBase64url(bytes: Uint8Array): string {
+    let bin = "";
+    for (const b of bytes) bin += String.fromCharCode(b);
+    return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function base64urlToBytes(s: string): Uint8Array {
+    const b64 = s.replace(/-/g, "+").replace(/_/g, "/");
+    const bin = atob(b64);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+}
+
+function readPersistedBlob(key: string, mode: SlicePersistMode): string | undefined {
+    if (typeof window === "undefined") return undefined;
+    if (mode === "url") {
+        return new URLSearchParams(window.location.search).get(persistName(key)) ?? undefined;
+    }
+    return (mode === "local" ? window.localStorage : window.sessionStorage).getItem(persistName(key)) ?? undefined;
+}
+
+function writePersistedBlob(key: string, mode: SlicePersistMode, blob: string): void {
+    if (typeof window === "undefined") return;
+    if (mode === "url") {
+        const url = new URL(window.location.href);
+        url.searchParams.set(persistName(key), blob);
+        window.history.replaceState(null, "", url);
+        return;
+    }
+    (mode === "local" ? window.localStorage : window.sessionStorage).setItem(persistName(key), blob);
+}
+
+function persistNow(key: string): void {
+    const entry = persistedSlices.get(key);
+    if (entry === undefined) return;
+    const encoded = getStore().read(key);
+    if (encoded === undefined) return;
+    writePersistedBlob(key, entry.mode, bytesToBase64url(encoded));
+}
+
+function schedulePersist(key: string): void {
+    const entry = persistedSlices.get(key);
+    if (entry === undefined) return;
+    if (entry.timer !== undefined) clearTimeout(entry.timer);
+    entry.timer = setTimeout(() => { entry.timer = undefined; persistNow(key); }, PERSIST_DEBOUNCE_MS);
+}
+
+/**
+ * Opt a bound slice's state into persistence (#168). Registers the key once:
+ * hydrates the store from the persisted blob when one exists (replacing the
+ * seeded state — a blob that fails to decode is ignored), then debounce-writes
+ * every subsequent mutation back to the chosen store. The `Slice.Rail`
+ * renderer calls this on mount when its `persist` chrome option is set.
+ *
+ * @param key - the slice's store key
+ * @param mode - where the state persists (`local` / `session` / `url`)
+ */
+export function enableSlicePersistence(key: string, mode: SlicePersistMode): void {
+    if (persistedSlices.has(key)) return;
+    persistedSlices.set(key, { mode, timer: undefined });
+    const blob = readPersistedBlob(key, mode);
+    if (blob === undefined) return;
+    try {
+        writeState(key, decodeState(base64urlToBytes(blob)) as SliceStateLike);
+    } catch {
+        /* stale / foreign blob (e.g. an older wire shape) — keep the seed */
+    }
+}
+
+/**
+ * Flush any pending debounced persistence writes immediately. Deterministic
+ * tests call this instead of sleeping out the debounce window.
+ */
+export function flushSlicePersistence(): void {
+    for (const [key, entry] of persistedSlices) {
+        if (entry.timer !== undefined) {
+            clearTimeout(entry.timer);
+            entry.timer = undefined;
+            persistNow(key);
+        }
+    }
+}
+
+/**
+ * Drop every persistence registration (pending timers cancelled, storage left
+ * untouched). Test isolation only.
+ * @internal
+ */
+export function resetSlicePersistence(): void {
+    for (const [, entry] of persistedSlices) {
+        if (entry.timer !== undefined) clearTimeout(entry.timer);
+    }
+    persistedSlices.clear();
 }
 
 /** Synthetic single-narrowing state, for per-aspect counts. */

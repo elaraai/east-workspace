@@ -31,7 +31,7 @@ export interface EastChakraSliceFilterProps {
  * one row of as many brand pills as fit with remove `×`, a `+N more` pill opening a
  * `Slice.Edit` list, and a dashed `+ filter` pill opening the builder popover.
  * **Focused** (standalone): the same chip rail plus a `SHOWING N {unit}` footer
- * and `Save view →`. The add-filter builder always lives in a `Slice.Edit`
+ * (result **of** total). The add-filter builder always lives in a `Slice.Edit`
  * popover, so opening it never re-flows the surface.
  */
 export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value }: EastChakraSliceFilterProps) {
@@ -207,13 +207,15 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
                     {addPopover}
                 </Box>
             </Box>
+            {/* No "Save view →" affordance here: full named-view snapshots are
+                a tracked follow-up (#168) — the UI must not advertise a
+                non-feature. Cohorts cover saving filter bundles. */}
             <Box css={frame.footer}>
                 {/* Result OF total (#169) — "1,284 of 50,000 events" gives the
                     denominator context a bare count lacks. */}
                 <Box as="span" css={frame.footerLabel}>
                     {`SHOWING ${Number(slice.resultCount()).toLocaleString()}${Number(slice.totalCount()) > 0 ? ` OF ${Number(slice.totalCount()).toLocaleString()}` : ""}${unit !== undefined ? ` ${unit}` : ""}`}
                 </Box>
-                <Box as="span" css={frame.footerAction}>Save view →</Box>
             </Box>
         </Box>
     );

@@ -9,6 +9,8 @@ import {
     East,
     ArrayType,
     variant,
+    some,
+    none,
 } from "@elaraai/east";
 
 import { UIComponentType } from "../../component.js";
@@ -33,6 +35,15 @@ export interface SliceRailOptions {
      * the sectioned `Slice.Edit` popover floating over whatever sits below.
      */
     affordances?: SliceRailAffordance[];
+    /**
+     * Opt the slice's state into persistence (#168): `"local"` /
+     * `"session"` storage keyed by the slice key (survives reloads), or
+     * `"url"` — a query parameter holding the encoded state, so the exact
+     * narrowing is bookmarkable and shareable. On mount the rail hydrates the
+     * slice from the chosen store (a stale or foreign blob is ignored);
+     * every mutation writes back, debounced. Absent = in-memory only.
+     */
+    persist?: "local" | "session" | "url";
 }
 
 /**
@@ -61,6 +72,7 @@ function createSliceRail(options: SliceRailOptions): ExprType<UIComponentType> {
     return East.value(variant("SliceRail", {
         slice: options.slice,
         affordances: East.value(affordances, ArrayType(SliceAffordanceType)),
+        persist: options.persist !== undefined ? some(variant(options.persist, null)) : none,
     }), UIComponentType);
 }
 

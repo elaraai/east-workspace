@@ -774,6 +774,24 @@ export const SliceDensityType = VariantType({
 });
 export type SliceDensityType = typeof SliceDensityType;
 
+/**
+ * Where a slice's state persists beyond the in-memory store (#168) — opt-in
+ * chrome on `Slice.Rail`. Absent = today's in-memory behaviour.
+ *
+ * @property local   - `localStorage`, keyed by the slice key: survives reloads
+ *                     and new tabs on the same origin.
+ * @property session - `sessionStorage`: survives reloads within the tab.
+ * @property url     - a query parameter holding the encoded state: the view is
+ *                     bookmarkable / shareable — opening the link restores the
+ *                     same narrowing.
+ */
+export const SlicePersistType = VariantType({
+    local:   NullType,
+    session: NullType,
+    url:     NullType,
+});
+export type SlicePersistType = typeof SlicePersistType;
+
 // ============================================================================
 // slice_bind — stateful platform
 // ============================================================================

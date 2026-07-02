@@ -20,7 +20,7 @@
  * surface: nothing folds inside it and nothing opens a further popover.
  */
 
-import { useLayoutEffect, useRef, useState, memo, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, memo, type ReactNode } from "react";
 import { some, none, variant } from "@elaraai/east";
 import { Box, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -28,7 +28,7 @@ import { faFilter, faLayerGroup, faUsers, faMagnifyingGlass, faCalendar, faChevr
 import { type ValueTypeOf } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
-import { boundRangeDomain } from "../../platform/slice";
+import { boundRangeDomain, enableSlicePersistence, type SlicePersistMode } from "../../platform/slice";
 import { SliceDensityContext } from "../density";
 import { useSliceReactivity } from "../use-slice-reactivity";
 import { SliceEditPopover } from "../edit";
@@ -240,6 +240,7 @@ export interface EastChakraSliceRailProps {
     value: {
         slice: unknown;
         affordances: ReadonlyArray<{ type: string }>;
+        persist: { type: "some"; value: { type: SlicePersistMode } } | { type: "none"; value: null };
     };
 }
 
@@ -341,6 +342,13 @@ function RailBrushStrip({ slice }: { slice: ValueTypeOf<typeof Slice.Types.Bind>
 export const EastChakraSliceRail = memo(function EastChakraSliceRail({ value }: EastChakraSliceRailProps) {
     const slice = value.slice as ValueTypeOf<typeof Slice.Types.Bind>;
     useSliceReactivity(slice.key);
+    // Opt-in persistence (#168): hydrate once on mount from the chosen store
+    // (localStorage / sessionStorage / URL param), then every mutation
+    // debounce-writes back. Keyed by the slice key; registration is once-only.
+    const persistMode = value.persist.type === "some" ? value.persist.value.type : undefined;
+    useEffect(() => {
+        if (persistMode !== undefined) enableSlicePersistence(slice.key, persistMode);
+    }, [slice.key, persistMode]);
     const state = slice.read();
     const configuredKinds = value.affordances.map(a => a.type);
     const withCohort = state.cohorts.length > 0 && !configuredKinds.includes("cohort")

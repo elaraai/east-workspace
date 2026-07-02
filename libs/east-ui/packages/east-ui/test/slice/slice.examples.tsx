@@ -128,8 +128,8 @@ export const sliceChartChrome = example({
 // ============================================================================
 
 export const sliceRail = example({
-    keywords: ["Slice", "Rail", "rows", "strip", "multi-consumer", "Table", "Summary"],
-    description: "One slice, several consumers — a standalone Slice.Rail strip (with the brush mini-strip over the sessions domain) narrowing a plain Table reading `Slice.rows([RowType], slice)`, with Slice.Summary as the quiet status footer: chrome sits where the author puts it, data flows explicitly",
+    keywords: ["Slice", "Rail", "rows", "strip", "multi-consumer", "Table", "Summary", "persist", "localStorage", "url", "shareable"],
+    description: "One slice, several consumers — a standalone Slice.Rail strip (with the brush mini-strip over the sessions domain) narrowing a plain Table reading `Slice.rows([RowType], slice)`, with Slice.Summary as the quiet status footer: chrome sits where the author puts it, data flows explicitly. `persist=\"local\"` opts the slice state into localStorage — the narrowing survives a reload (`\"url\"` makes it a shareable link)",
     fn: East.function([], UIComponentType, (_$) => {
         const EventType = StructType({ scenario: StringType, region: StringType, sessions: IntegerType });
         const cfg = Slice.config(EventType, {
@@ -152,7 +152,7 @@ export const sliceRail = example({
                 const narrowed = $.let(Slice.rows([EventType], slice));
                 return (
                     <VStack gap="3" align="stretch">
-                        <Slice.Rail slice={slice} affordances={["filter", "search", "brush"]} />
+                        <Slice.Rail slice={slice} affordances={["filter", "search", "brush"]} persist="local" />
                         <Table data={narrowed} columns={{
                             scenario: { header: "Scenario" },
                             region:   { header: "Region" },
