@@ -122,8 +122,9 @@ Task → Which tag?
 │   │     └─ mode published | edit; days (default Mon–Sun); state is a PlannerStateType (Roster.Types.State); DnD target — sources={[libraryId]} + onDrag (add/move/remove), onSelect/onAccept/onAddAt
 │   ├─ <Blend targets={…} config={{ id, target, sources?, diff?, onDrag?, onAmountChange?, onAction? }} /> — blend / batch assembly surface; pairs with a Library; target count picks mode: 1 single | 2 compare (derived diff / Δ table) | 3+ portfolio
 │   │     └─ Blend.allocation({ source, amount, pinned?, state? }), Blend.metric({ key, label, value, numeric?, model?, band? }); sources = DnD add-drop ids
-│   ├─ <Slice.Rail slice={slice} affordances={["filter","search","range","breakdown"]} /> — shared narrowing chrome over one bound dataset; feed consumers via Slice.rows([Row], slice)
-│   │     └─ Slice.bind([Row], key, Slice.config(Row, { fields, rangeFieldId, searchFieldIds, breakdownFieldIds }), Slice.state({…})); per-affordance tags <Slice.Filter/Search/Range/Breakdown/Legend/Cohort/Summary slice={slice} />; pure engine Slice.apply.where/matches/breakdown
+│   ├─ <Slice.Rail slice={slice} affordances={["filter","search","range","breakdown","cohort","presets","brush"]} persist? /> — shared narrowing chrome over one bound dataset; feed consumers via Slice.rows([Row], slice); persist: "local" | "session" | "url" opts the state into reload-surviving / shareable-link storage
+│   │     └─ Slice.bind([Row], key, Slice.config(Row, { fields, rangeFieldId, searchFieldIds, breakdownFieldIds }), Slice.state({…})); per-affordance tags <Slice.Filter/Search/Range/Breakdown/Legend/Cohort/Presets/Summary slice={slice} />; pure engine Slice.apply.where/matches/breakdown
+│   │     └─ cohorts toggle on chip click (<Slice.Cohort mode="toggle"|"manage" allowCreate?>; <Slice.Presets> = toggle-only preset bar); slice.toggleFilter(pred) = idempotent cross-filter (Legend/Breakdown "filter to" gesture); string ops eq/neq/in/notIn/contains/matches/startsWith/endsWith/isEmpty/isNotEmpty, integer in, datetime between; Summary/Filter footers read "N of M"
 │   └─ <Pagination /> — page-number control; siblings + boundaries control ellipsis
 │
 ├─ Charts (visualize data) — layers are a config array of factory values, never child tags
