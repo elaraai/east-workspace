@@ -703,6 +703,62 @@ describe("Slice.Rail brush — slide + edge-resize the applied window (#192)", (
     });
 });
 
+describe("Slice.Range — presets anchor to the DATA's date range; All clears (#195)", () => {
+    const cfg = {
+        fields: new Map<string, unknown>([
+            ["day", { type: "datetime", value: { label: "Day", accessor: (r: { day: Date }) => r.day, format: none } }],
+        ]),
+        rangeFieldId: some("day"), searchFieldIds: [], breakdownFieldIds: [],
+    };
+    // Historical rows — wall-clock presets would miss every one of them.
+    const rows = [
+        { day: new Date("2025-03-01") }, { day: new Date("2025-03-10") },
+        { day: new Date("2025-03-20") }, { day: new Date("2025-03-28") },
+    ];
+    const initial = {
+        range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
+        breakdown: none, search: none, visible: none, selectedIndex: none,
+    };
+    const mountRange = (key: string, seed: object = initial) => {
+        initializeStore(new UIStore());
+        const handle: any = buildSliceHandle(key, cfg, seed, rows, none);
+        ui(<EastChakraSliceRange value={{ slice: handle, editOpen: some(true) } as any} />);
+        return handle;
+    };
+
+    test("a preset click pins a window ending at the data's LAST day — rows actually match", async () => {
+        const handle = mountRange("range.anchor");
+        const user = userEvent.setup();
+        await user.click(screen.getByText("7d"));
+
+        const applied = handle.read().range as { type: string; value: { type: string; value: { from: Date; to: Date } } };
+        expect(applied.type).toBe("some");
+        expect(applied.value.type).toBe("datetime");                     // pinned, not a rolling preset tag
+        const { from, to } = applied.value.value;
+        expect(to.getTime()).toBe(new Date("2025-03-28").getTime());    // anchored to the data max
+        // ~7 days (setDate keeps wall time; allow a DST hour either way).
+        expect(Math.abs(to.getTime() - from.getTime() - 7 * 86_400_000)).toBeLessThanOrEqual(3_600_000);
+        // The window lands ON the data: [Mar 21, Mar 28] holds exactly the Mar 28 row.
+        expect(Number(handle.resultCount())).toBe(1);
+    });
+
+    test("the anchored 'Today' relabels to 'Last day'; All clears the range and shows the data extent", async () => {
+        const handle = mountRange("range.all", {
+            ...initial,
+            range: some(variant("datetime", { from: new Date("2025-03-01"), to: new Date("2025-03-10") })),
+        });
+        const user = userEvent.setup();
+
+        expect(screen.queryByText("Today")).toBeNull();
+        expect(screen.getByText("Last day")).toBeTruthy();
+
+        await user.click(screen.getByText("All"));
+        expect((handle.read().range as { type: string }).type).toBe("none");
+        expect(Number(handle.resultCount())).toBe(4);
+        expect(screen.getByText(/All data ·/)).toBeTruthy();
+    });
+});
+
 describe("Slice.Range — Custom pins the resolved window and exposes from/to inputs (#167)", () => {
     test("clicking Custom… pins the ACTIVE preset's resolved window — not a hardwired 30d", async () => {
         const slice = fakeSlice({ range: some(variant("datetimePreset", variant("last7d", null))) });
