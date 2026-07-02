@@ -12,6 +12,7 @@
 
 import { describe, it, expect } from "vitest";
 import {
+    netGeometry,
     MARKER_DOT_HIT_RADIUS, MARKER_DOT_RADIUS,
     arcFromBulge, hatchLineCount, hatchSpacing, hatchSweepBounds, markerHit, markerHitbox, type BulgeArc,
     parallelLanes, polylineMidpoint,
@@ -246,5 +247,67 @@ describe("parallelLanes (#180 fan-out)", () => {
     it("three-way groups centre around the true path", () => {
         const lanes = parallelLanes([L("a", "A", "B"), L("b", "A", "B"), L("c", "A", "B")], () => true);
         expect(lanes.get("b")).toEqual({ i: 1, n: 3 });   // middle lane = zero offset
+    });
+});
+
+describe("netGeometry (bus-bar manifolds)", () => {
+    it("1→N column: vertical header bar offset toward the trunk, stubs per unit, interior taps only", () => {
+        // The schematicNets CIP fixture: one source at (2,6), four units at x=9.
+        const geo = netGeometry(
+            [{ x: 2, y: 6 }],
+            [{ x: 9, y: 2 }, { x: 9, y: 4.5 }, { x: 9, y: 7 }, { x: 9, y: 9.5 }],
+            [],
+        );
+        // Bar clearance = clamp(gap(7) * 0.3, 0.9, 3) = 2.1 toward the source.
+        expect(geo.bars).toEqual([[{ x: 6.9, y: 2 }, { x: 6.9, y: 9.5 }]]);
+        // Trunk runs source → mid-bar tap; no waypoints.
+        expect(geo.trunk).toEqual([{ x: 2, y: 6 }, { x: 6.9, y: 6 }]);
+        // One horizontal stub per unit, landing on the bar.
+        expect(geo.stubs).toHaveLength(4);
+        expect(geo.stubs.map(st => st[1])).toEqual([
+            { x: 6.9, y: 2 }, { x: 6.9, y: 4.5 }, { x: 6.9, y: 7 }, { x: 6.9, y: 9.5 },
+        ]);
+        // Dots ONLY at 3-way joins: the two interior stubs + the trunk tap —
+        // the span-end stubs are plain elbows.
+        expect(geo.taps).toEqual([{ x: 6.9, y: 4.5 }, { x: 6.9, y: 7 }, { x: 6.9, y: 6 }]);
+    });
+
+    it("2→1 with a via waypoint: bar offset clamps to the 0.9 minimum and the trunk threads the via", () => {
+        // The schematicNets header fixture: PK-A/PK-B → DOCK via (20,6).
+        const geo = netGeometry(
+            [{ x: 17, y: 3.5 }, { x: 17, y: 8 }],
+            [{ x: 23, y: 6 }],
+            [{ x: 20, y: 6 }],
+        );
+        expect(geo.bars).toEqual([[{ x: 17.9, y: 3.5 }, { x: 17.9, y: 8 }]]);
+        expect(geo.trunk).toEqual([{ x: 17.9, y: 6 }, { x: 20, y: 6 }, { x: 23, y: 6 }]);
+        // Both stubs land at the bar ENDS → elbows; the only dot is the trunk tap.
+        expect(geo.taps).toEqual([{ x: 17.9, y: 6 }]);
+    });
+
+    it("1→1 with no waypoints degrades to a plain link — no bars, stubs, or dots", () => {
+        const geo = netGeometry([{ x: 1, y: 1 }], [{ x: 5, y: 1 }], []);
+        expect(geo.trunk).toEqual([{ x: 1, y: 1 }, { x: 5, y: 1 }]);
+        expect(geo.bars).toEqual([]);
+        expect(geo.stubs).toEqual([]);
+        expect(geo.taps).toEqual([]);
+    });
+
+    it("a horizontally-spread side gets a HORIZONTAL bar below/above toward the trunk", () => {
+        // Three sources in a row at y=2 feeding one sink below at (5,8):
+        // spread axis = x, so the bar is horizontal, offset DOWN toward the sink.
+        const geo = netGeometry(
+            [{ x: 2, y: 2 }, { x: 5, y: 2 }, { x: 8, y: 2 }],
+            [{ x: 5, y: 8 }],
+            [],
+        );
+        expect(geo.bars).toHaveLength(1);
+        const [a, b] = geo.bars[0]!;
+        expect(a.y).toBeCloseTo(3.8);          // clamp(6 * 0.3, 0.9, 3) = 1.8 below y=2
+        expect(b.y).toBeCloseTo(3.8);
+        expect([a.x, b.x]).toEqual([2, 8]);    // spans the sources
+        // Trunk drops from the bar tap under the sink's x.
+        expect(geo.trunk[0]).toEqual({ x: 5, y: 3.8 });
+        expect(geo.taps).toEqual([{ x: 5, y: 3.8 }]);   // mid stub + trunk tap coincide → ONE dot
     });
 });

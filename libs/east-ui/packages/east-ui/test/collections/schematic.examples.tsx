@@ -530,38 +530,70 @@ export const schematicHover = example({
 });
 
 export const schematicNets = example({
-    keywords: ["Schematic", "net", "nets", "manifold", "bus", "trunk", "branches", "sources", "destinations", "via", "label", "metric"],
-    description: "Nets — a manifold as ONE row: many sources feeding many destinations drawn as a trunk with branches and junction dots (no pairwise explosion); the second net bridges two banks along an explicit via trunk path with a mid-trunk label",
-    fn: East.function([], UIComponentType, ($) => {
-        const units = $.const([
-            { id: "CIP-1", x: 2.0, y: 6.0 },
-            { id: "U-01", x: 9.0, y: 2.0 }, { id: "U-02", x: 9.0, y: 4.5 },
-            { id: "U-03", x: 9.0, y: 7.0 }, { id: "U-04", x: 9.0, y: 9.5 },
-            { id: "PK-A", x: 17.0, y: 3.5 }, { id: "PK-B", x: 17.0, y: 8.0 },
-            { id: "DOCK", x: 23.0, y: 6.0 },
-        ]);
-        const manifolds = $.const([
-            { id: "cip", srcs: ["CIP-1"], dsts: ["U-01", "U-02", "U-03", "U-04"], name: "CIP supply", flow: "12 m³/h", path: [] },
-            { id: "header", srcs: ["PK-A", "PK-B"], dsts: ["DOCK"], name: "outfeed header", flow: "", path: [{ x: 20.0, y: 6.0 }] },
-        ], ArrayType(StructType({
-            id: StringType,
-            srcs: ArrayType(StringType),
-            dsts: ArrayType(StringType),
-            name: StringType,
-            flow: StringType,
-            path: ArrayType(StructType({ x: FloatType, y: FloatType })),
-        })));
-        return (
-            <Schematic
-                extent={{ width: 26, height: 12 }}
-                height="420px"
-                items={units}
-                item={r => ({ key: r.id, x: r.x, y: r.y, label: r.id, icon: "industry" })}
-                nets={manifolds}
-                net={m => ({ key: m.id, sources: m.srcs, destinations: m.dsts, label: m.name, via: m.path })}
-            />
-        );
-    }),
+    keywords: ["Schematic", "net", "nets", "manifold", "bus", "trunk", "header", "bar", "stubs", "sources", "destinations", "via", "label", "linkMode", "onCreateLink", "session", "Reactive", "State", "Switch"],
+    description: "Nets — a manifold as ONE row: many sources feeding many destinations drawn as a header BAR with stubs and junction-tap dots (no pairwise explosion); the second net bridges two banks along an explicit via trunk path; the connect tool creates nets too (Shift+drag grows the session into one net — draw adds locally, connect mode is event-only), with switches flipping linkMode and readOnlyLinks reactively",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const units = $.const([
+                { id: "CIP-1", x: 2.0, y: 6.0 },
+                { id: "U-01", x: 9.0, y: 2.0 }, { id: "U-02", x: 9.0, y: 4.5 },
+                { id: "U-03", x: 9.0, y: 7.0 }, { id: "U-04", x: 9.0, y: 9.5 },
+                { id: "PK-A", x: 17.0, y: 3.5 }, { id: "PK-B", x: 17.0, y: 8.0 },
+                { id: "DOCK", x: 23.0, y: 6.0 },
+            ]);
+            const manifolds = $.const([
+                { id: "cip", srcs: ["CIP-1"], dsts: ["U-01", "U-02", "U-03", "U-04"], name: "CIP supply", flow: "12 m³/h", path: [] },
+                { id: "header", srcs: ["PK-A", "PK-B"], dsts: ["DOCK"], name: "outfeed header", flow: "", path: [{ x: 20.0, y: 6.0 }] },
+            ], ArrayType(StructType({
+                id: StringType,
+                srcs: ArrayType(StringType),
+                dsts: ArrayType(StringType),
+                name: StringType,
+                flow: StringType,
+                path: ArrayType(StructType({ x: FloatType, y: FloatType })),
+            })));
+            const log = $.let(State.bind([StringType], "schematic_net_log", "—"));
+            // A Shift-session commit reports the WHOLE growing net — upsert by
+            // `net.key` to materialise it as one manifold row.
+            const onCreateLink = $.const(East.function([Schematic.Types.LinkCreateEvent], NullType, ($, ev) => {
+                $(log.write(East.str`net ${ev.net.key} · ${East.print(ev.net.sources.size())} src → ${East.print(ev.net.destinations.size())} dst · additive ${East.print(ev.additive)}`));
+            }));
+            // Reactive mode switches: `connect` = event-only (plan the manifold,
+            // nothing drawn); editable off = readOnlyLinks (connect tool hidden).
+            const connectMode = $.let(State.bind([BooleanType], "ex.net.connectmode", false));
+            const cOn = $.let(connectMode.read());
+            const onC = $.const(East.function([BooleanType], NullType, ($, v) => { $(connectMode.write(v)); }));
+            const lm = $.let(
+                cOn.ifElse(_$ => variant("connect", null), _$ => variant("draw", null)),
+                Schematic.Types.LinkMode,
+            );
+            const editable = $.let(State.bind([BooleanType], "ex.net.editable", true));
+            const eOn = $.let(editable.read());
+            const onE = $.const(East.function([BooleanType], NullType, ($, v) => { $(editable.write(v)); }));
+            const roLinks = $.let(eOn.not(), BooleanType);
+            const txt = $.let(log.read());
+            return (
+                <VStack gap="3" align="stretch">
+                    <HStack gap="4" align="center">
+                        <Switch checked={eOn} label="Links editable" onChange={onE} />
+                        <Switch checked={cOn} label="Connect mode (event-only)" onChange={onC} />
+                        <Text.MonoLabel>{East.str`NET · ${txt}`}</Text.MonoLabel>
+                    </HStack>
+                    <Schematic
+                        extent={{ width: 26, height: 12 }}
+                        height="420px"
+                        items={units}
+                        item={r => ({ key: r.id, x: r.x, y: r.y, label: r.id, icon: "industry" })}
+                        nets={manifolds}
+                        net={m => ({ key: m.id, sources: m.srcs, destinations: m.dsts, label: m.name, via: m.path })}
+                        linkMode={lm}
+                        readOnlyLinks={roLinks}
+                        onCreateLink={onCreateLink}
+                    />
+                </VStack>
+            );
+        }}</Reactive>
+    )),
     inputs: [],
 });
 

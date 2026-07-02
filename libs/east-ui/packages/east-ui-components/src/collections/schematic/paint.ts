@@ -512,6 +512,90 @@ function zoneWorldBbox(zone: SchematicZoneValue, geom: SchematicGeometryValue | 
     return bb;
 }
 
+/** One side of a net resolved to bus-bar geometry (world space). */
+interface NetSide {
+    /** Where the trunk attaches (bar tap for a multi-endpoint side, the item centre for a single one). */
+    anchor: Pt;
+    /** The header-bar segment, when this side has 2+ spread endpoints. */
+    bar?: [Pt, Pt];
+    /** Axis-aligned stub from each endpoint to its bar tap. */
+    stubs: Pt[][];
+    /** Junction DOTS — taps strictly inside the bar span (3-way joins); bar-end taps are elbows, no dot. */
+    taps: Pt[];
+}
+
+/** Net (manifold / bus) geometry, world space — shared verbatim by the
+ *  painter and the hit-test so the clickable shape equals the drawn one. */
+export interface NetGeometry {
+    /** Trunk polyline: source anchor → via… → destination anchor. */
+    trunk: Pt[];
+    bars: Array<[Pt, Pt]>;
+    stubs: Pt[][];
+    taps: Pt[];
+}
+
+/** Resolve one endpoint group to a header BAR + stubs (P&ID bus-bar
+ *  convention), or a bare anchor when the group is a single point.
+ *
+ *  The bar runs along the group's larger spread axis, offset from the
+ *  cluster TOWARD the trunk (30% of the gap, clamped to [0.9, 3] world
+ *  units) so stubs stay short and the bar never spears the items. */
+function netSide(pts: readonly Pt[], toward: Pt): NetSide {
+    const centroid: Pt = {
+        x: pts.reduce((a, q) => a + q.x, 0) / pts.length,
+        y: pts.reduce((a, q) => a + q.y, 0) / pts.length,
+    };
+    if (pts.length === 1) return { anchor: pts[0]!, stubs: [], taps: [] };
+    const minX = Math.min(...pts.map(q => q.x)), maxX = Math.max(...pts.map(q => q.x));
+    const minY = Math.min(...pts.map(q => q.y)), maxY = Math.max(...pts.map(q => q.y));
+    const vertical = (maxY - minY) >= (maxX - minX);
+    // Coordinates along the bar (axis) and across it (perp).
+    const axis = (q: Pt): number => vertical ? q.y : q.x;
+    const perp = (q: Pt): number => vertical ? q.x : q.y;
+    const mk = (a: number, pp: number): Pt => vertical ? { x: pp, y: a } : { x: a, y: pp };
+    const lo = vertical ? minY : minX, hi = vertical ? maxY : maxX;
+    if (hi - lo < 1e-6) return { anchor: centroid, stubs: [], taps: [] };
+    // Bar offset: from the cluster edge FACING the trunk, toward it.
+    const dir = Math.sign(perp(toward) - perp(centroid)) || 1;
+    const edge = dir > 0 ? Math.max(...pts.map(perp)) : Math.min(...pts.map(perp));
+    const gap = Math.abs(perp(toward) - edge);
+    const barPerp = edge + dir * Math.min(Math.max(gap * 0.3, 0.9), 3);
+    const anchor = mk(Math.min(Math.max(axis(toward), lo), hi), barPerp);
+    const stubs = pts.map(q => [q, mk(axis(q), barPerp)]);
+    const isEnd = (a: number): boolean => a - lo < 1e-6 || hi - a < 1e-6;
+    const taps: Pt[] = [];
+    const pushTap = (q: Pt): void => {
+        if (isEnd(axis(q))) return;
+        if (!taps.some(t => Math.abs(t.x - q.x) < 1e-6 && Math.abs(t.y - q.y) < 1e-6)) taps.push(q);
+    };
+    for (const st of stubs) pushTap(st[1]!);
+    pushTap(anchor);
+    return { anchor, bar: [mk(lo, barPerp), mk(hi, barPerp)], stubs, taps };
+}
+
+/** Bus-bar geometry for a whole net: each side becomes a header bar (or a
+ *  bare anchor), the trunk runs bar-tap → `via`… → bar-tap. With one
+ *  endpoint per side and no waypoints this degrades to a plain link. */
+export function netGeometry(sources: readonly Pt[], destinations: readonly Pt[], via: readonly Pt[]): NetGeometry {
+    const centroid = (qs: readonly Pt[]): Pt => ({
+        x: qs.reduce((a, q) => a + q.x, 0) / qs.length,
+        y: qs.reduce((a, q) => a + q.y, 0) / qs.length,
+    });
+    const srcToward = via.length > 0 ? via[0]! : centroid(destinations);
+    const dstToward = via.length > 0 ? via[via.length - 1]! : centroid(sources);
+    const src = netSide(sources, srcToward);
+    const dst = netSide(destinations, dstToward);
+    const bars: Array<[Pt, Pt]> = [];
+    if (src.bar) bars.push(src.bar);
+    if (dst.bar) bars.push(dst.bar);
+    return {
+        trunk: [src.anchor, ...via, dst.anchor],
+        bars,
+        stubs: [...src.stubs, ...dst.stubs],
+        taps: [...src.taps, ...dst.taps],
+    };
+}
+
 /** Draw a mid-path label pill (`label` in fg + optional muted `metric`) at the
  *  routed path's arc-length midpoint — shared by links and net trunks (#180/#189). */
 function drawEdgeLabel(
@@ -811,14 +895,9 @@ export function paintSchematic(input: PaintInput): void {
         const srcPts = net.sources.map(k => centers.get(k)).filter((q): q is Pt => q !== undefined);
         const dstPts = net.destinations.map(k => centers.get(k)).filter((q): q is Pt => q !== undefined);
         if (srcPts.length === 0 || dstPts.length === 0) continue;
-        const centroid = (qs: readonly Pt[]): Pt => ({
-            x: qs.reduce((a, q) => a + q.x, 0) / qs.length,
-            y: qs.reduce((a, q) => a + q.y, 0) / qs.length,
-        });
-        const head = net.via.length > 0 ? net.via[0]! : centroid(srcPts);
-        const tail = net.via.length > 0 ? net.via[net.via.length - 1]! : centroid(dstPts);
-        // Cull by the AABB over every endpoint + waypoint (same rule as links).
-        const netBbox = pointsBbox([...srcPts, ...net.via, ...dstPts, head, tail]);
+        // Cull by the AABB over every endpoint + waypoint (same rule as links;
+        // bar offsets stay within the endpoint↔trunk gap, so the AABB holds).
+        const netBbox = pointsBbox([...srcPts, ...net.via, ...dstPts]);
         if (netBbox !== null && !bboxOverlaps(netBbox, viewBbox)) continue;
         const style = net.style;
         const tone = (style.value.tone.type === "some" ? style.value.tone.value.type : undefined)
@@ -834,45 +913,53 @@ export function paintSchematic(input: PaintInput): void {
             return net.route.type === "orthogonal" ? orthogonalize(screen) : screen;
         };
         const isSel = selectedLink !== undefined && selectedLink.key === net.key;
+        // Bus-bar geometry (shared with the hit-test): header bars spanning
+        // each multi-endpoint side, short stubs tapping in, the trunk running
+        // bar → via… → bar. Dots ONLY where a tap 3-way joins a bar.
+        const geo = netGeometry(srcPts, dstPts, net.via);
         ctx.save();
         ctx.lineCap = "round";
         ctx.setLineDash(style.type === "dashed" ? [6, 5] : []);
-        // Trunk: head → via… → tail, slightly heavier than its branches.
-        const trunkPts = routed([head, ...net.via.slice(net.via.length > 0 ? 1 : 0, net.via.length > 0 ? net.via.length - 1 : 0), tail]);
+        const trunkPts = routed(geo.trunk);
         ctx.strokeStyle = css(color);
         ctx.lineWidth = weight + 1;
         ctx.beginPath();
         traceRounded(ctx, trunkPts, corner);
         ctx.stroke();
-        // Branches: every source into the head junction, every destination off
-        // the tail — the branch weight is the net's base weight.
-        const headS = trunkPts[0]!, tailS = trunkPts[trunkPts.length - 1]!;
-        ctx.lineWidth = weight;
-        for (const q of srcPts) {
+        // Header bars carry the trunk weight; stubs are one step lighter.
+        for (const bar of geo.bars) {
             ctx.beginPath();
-            traceRounded(ctx, net.route.type === "orthogonal" ? orthogonalize([toScreen(q), headS]) : [toScreen(q), headS], corner);
+            traceRounded(ctx, bar.map(toScreen), 0);
             ctx.stroke();
         }
-        for (const q of dstPts) {
+        ctx.lineWidth = weight;
+        for (const stub of geo.stubs) {
             ctx.beginPath();
-            traceRounded(ctx, net.route.type === "orthogonal" ? orthogonalize([tailS, toScreen(q)]) : [tailS, toScreen(q)], corner);
+            traceRounded(ctx, stub.map(toScreen), corner);
             ctx.stroke();
         }
         ctx.setLineDash([]);
-        // Junction dots mark the trunk ends (the manifold's collection points).
+        // Junction dots: 3-way taps on the bars (P&ID convention — a dot
+        // means lines JOIN; plain elbows and crossings stay dot-free).
         ctx.fillStyle = css(color);
-        for (const j of [headS, tailS]) {
+        for (const j of geo.taps.map(toScreen)) {
             ctx.beginPath();
-            ctx.arc(j.x, j.y, weight + 2.5, 0, Math.PI * 2);
+            ctx.arc(j.x, j.y, weight + 1.5, 0, Math.PI * 2);
             ctx.fill();
         }
-        // Selected-net halo (#176 channel) — no endpoint handles (endpoints are sets).
+        // Selected-net halo (#176 channel) — trunk + bars; no endpoint
+        // handles (endpoints are sets).
         if (isSel) {
             ctx.lineWidth = weight + 5;
             ctx.strokeStyle = css(p.brand600, 0.25);
             ctx.beginPath();
             traceRounded(ctx, trunkPts, corner);
             ctx.stroke();
+            for (const bar of geo.bars) {
+                ctx.beginPath();
+                traceRounded(ctx, bar.map(toScreen), 0);
+                ctx.stroke();
+            }
         }
         // Mid-trunk label / metric, like links (#180).
         if (ppu >= LINK_LABEL_MIN_PPU) {

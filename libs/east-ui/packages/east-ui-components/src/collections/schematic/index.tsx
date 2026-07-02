@@ -17,7 +17,7 @@ import { EastChakraComponent } from "../../component";
 import { SliceRailCluster } from "../../slice/rail";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity";
 import { usePersistedState } from "../../hooks/usePersistedState";
-import { LINK_HIT_SLOP, MARKER_LABEL_FONT, distanceToPolyline, markerHit, markerHitbox, orthogonalize, paintSchematic, parallelLanes as paintParallelLanes, LINK_LANE_GAP, type SchematicPalette, type SchematicPaintEffect } from "./paint";
+import { LINK_HIT_SLOP, MARKER_LABEL_FONT, distanceToPolyline, markerHit, markerHitbox, netGeometry, orthogonalize, paintSchematic, parallelLanes as paintParallelLanes, LINK_LANE_GAP, type SchematicPalette, type SchematicPaintEffect } from "./paint";
 import { EMPTY_STRING_SET, type ItemBox, managedSelectionSet, marqueeHits, sameStringSet, sliceWithSelection } from "./selection";
 import { type LodTier, type NavZone, buildCenterTree, buildNavTree, declutterTiers, tierSize } from "./model";
 import {
@@ -804,29 +804,24 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
             const d = distanceToPolyline(pts, sx, sy);
             if (d <= weight / 2 + LINK_HIT_SLOP && d < bestD) { best = link.key; bestD = d; }
         }
-        // Nets (#189): the trunk AND every branch are clickable — routed with the
-        // painter's exact math so the target equals the drawing.
+        // Nets (#189): trunk, header bars, and every stub are clickable — the
+        // SAME netGeometry the painter draws, so the target equals the drawing.
         for (const net of effectiveNets) {
             if (layerHiddenKeys.has(net.key) || lockedKeys.has(net.key)) continue;
             const srcPts = net.sources.map(k => centers.get(k)).filter((q): q is Pt => q !== undefined);
             const dstPts = net.destinations.map(k => centers.get(k)).filter((q): q is Pt => q !== undefined);
             if (srcPts.length === 0 || dstPts.length === 0) continue;
-            const centroid = (qs: readonly Pt[]): Pt => ({
-                x: qs.reduce((a, q) => a + q.x, 0) / qs.length,
-                y: qs.reduce((a, q) => a + q.y, 0) / qs.length,
-            });
-            const head = net.via.length > 0 ? net.via[0]! : centroid(srcPts);
-            const tail = net.via.length > 0 ? net.via[net.via.length - 1]! : centroid(dstPts);
+            const geo = netGeometry(srcPts, dstPts, net.via);
             const toScreen = (q: Pt): Pt => ({ x: q.x * ppuLive + cam.tx, y: q.y * ppuLive + cam.ty });
             const orth = net.route.type === "orthogonal";
-            const routePts = (anchors: Pt[]): Pt[] => orth ? orthogonalize(anchors) : anchors;
+            const routePts = (anchors: readonly Pt[]): Pt[] => orth ? orthogonalize(anchors.map(toScreen)) : anchors.map(toScreen);
             const weight = net.style.value.weight.type === "some" ? net.style.value.weight.value
                 : (net.style.type === "solid" ? 2.5 : 1.5);
-            const trunkPts = routePts([head, ...net.via.slice(net.via.length > 0 ? 1 : 0, net.via.length > 0 ? net.via.length - 1 : 0), tail].map(toScreen));
-            const headS = trunkPts[0]!, tailS = trunkPts[trunkPts.length - 1]!;
-            const polylines: Pt[][] = [trunkPts];
-            for (const q of srcPts) polylines.push(routePts([toScreen(q), headS]));
-            for (const q of dstPts) polylines.push(routePts([tailS, toScreen(q)]));
+            const polylines: Pt[][] = [
+                routePts(geo.trunk),
+                ...geo.bars.map(bar => bar.map(toScreen)),
+                ...geo.stubs.map(stub => routePts(stub)),
+            ];
             for (const pl of polylines) {
                 const d = distanceToPolyline(pl, sx, sy);
                 if (d <= (weight + 1) / 2 + LINK_HIT_SLOP && d < bestD) { best = net.key; bestD = d; }
