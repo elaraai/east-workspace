@@ -28,9 +28,9 @@ const TOKENS: Record<keyof SchematicPalette, string> = {
     borderSubtle: "border.subtle",
     bgSurface: "bg.surface",
     bgPanel: "bg.panel",
-    statusOk: "status.ok",
+    statusOk: "status.pos",
     statusWarn: "status.warn",
-    statusBad: "status.bad",
+    statusBad: "status.neg",
     white: "white",
 };
 const KEYS = Object.keys(TOKENS) as (keyof SchematicPalette)[];
