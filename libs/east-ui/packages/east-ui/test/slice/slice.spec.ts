@@ -14,6 +14,7 @@ describeEast("Slice", (test) => {
         sliceChartChrome: ex.sliceChartChrome,
         sliceRail:        ex.sliceRail,
         sliceNarrow:      ex.sliceNarrow,
+        slicePresetsBar:  ex.slicePresetsBar,
         sliceGanttChrome: ex.sliceGanttChrome,
     });
 }, { platformFns: TestImpl });

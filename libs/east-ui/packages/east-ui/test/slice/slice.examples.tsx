@@ -212,7 +212,55 @@ export const sliceNarrow = example({
 });
 
 // ============================================================================
-// 5. Ops Gantt — Gantt with the `slice` chrome option.
+// 5. Curated preset bar — Slice.Presets (Slice.Cohort in toggle mode, #163).
+//    Exercises: developer-seeded cohorts as pure on/off segment chips with
+//    live counts, no authoring affordances, narrowing a Table via Slice.rows.
+// ============================================================================
+
+export const slicePresetsBar = example({
+    keywords: ["Slice", "Presets", "Cohort", "toggle", "segments", "preset", "on", "off", "counts"],
+    description: "Curated preset bar — `Slice.Presets` (= `Slice.Cohort` with `mode: \"toggle\"`): developer-seeded cohorts render as pure on/off segment chips with live counts and no authoring affordances; toggling a chip narrows the Table below via `Slice.rows`, and `Slice.Summary` reflects the active narrowings",
+    fn: East.function([], UIComponentType, (_$) => {
+        const OrderType = StructType({ sku: StringType, region: StringType, qty: IntegerType });
+        const cfg = Slice.config(OrderType, {
+            fields: { sku: { label: "SKU" }, region: { label: "Region" }, qty: { label: "Qty" } },
+        });
+        return (
+            <Reactive>{$ => {
+                const data = $.const([
+                    { sku: "A-100", region: "EU",   qty: 40n },
+                    { sku: "A-101", region: "EU",   qty: 12n },
+                    { sku: "B-200", region: "NA",   qty: 55n },
+                    { sku: "B-201", region: "NA",   qty: 9n },
+                    { sku: "C-300", region: "APAC", qty: 23n },
+                ], ArrayType(OrderType));
+                const slice = $.let(Slice.bind([OrderType], "ex.slice.presets", cfg, Slice.state({
+                    cohorts: [
+                        { id: "eu",   name: "EU",          filters: [variant("string",  { fieldId: "region", op: variant("eq", "EU") })] },
+                        { id: "bulk", name: "Bulk orders", filters: [variant("integer", { fieldId: "qty",    op: variant("gte", 20n) })] },
+                    ],
+                    activeCohorts: new Set(["bulk"]),
+                }), data, none));
+                const narrowed = $.let(Slice.rows([OrderType], slice));
+                return (
+                    <VStack gap="3" align="stretch">
+                        <Slice.Presets slice={slice} />
+                        <Table data={narrowed} columns={{
+                            sku:    { header: "SKU" },
+                            region: { header: "Region" },
+                            qty:    { header: "Qty" },
+                        }} />
+                        <Slice.Summary slice={slice} />
+                    </VStack>
+                );
+            }}</Reactive>
+        );
+    }),
+    inputs: [],
+});
+
+// ============================================================================
+// 6. Ops Gantt — Gantt with the `slice` chrome option.
 //    Exercises: the rail on a timeline component (filter · search · range
 //    over the row type's datetime field) and the derived-count footer.
 // ============================================================================

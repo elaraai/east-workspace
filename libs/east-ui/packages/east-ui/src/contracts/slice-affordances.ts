@@ -22,7 +22,8 @@ import { East, NullType, variant, VariantType, type ExprType } from "@elaraai/ea
  * |---|---|---|
  * | `filter` | left (flexes, compress ladder) | brand-tint clause pills + `+ filter` |
  * | `breakdown` | left | `Split by` + active dimension chips + `+ dimension` |
- * | `cohort` | left | saved-segment pills |
+ * | `cohort` | left | toggleable saved-segment pills + authoring |
+ * | `presets` | left | curated toggle-only preset pills (`Slice.Cohort` in `toggle` mode) |
  * | `search` | right (fixed) | closed `.search` pill that opens the dropdown |
  * | `range` | right | single date-window pill |
  *
@@ -33,7 +34,8 @@ import { East, NullType, variant, VariantType, type ExprType } from "@elaraai/ea
  * @property search - Typeahead pill (right zone)
  * @property breakdown - Split-by-dimension chips (left zone)
  * @property range - Time-range pill (right zone)
- * @property cohort - Saved-segment pills (left zone)
+ * @property cohort - Toggleable saved-segment pills with authoring (left zone)
+ * @property presets - Curated toggle-only preset pills — no authoring (#163; left zone)
  * @property brush - Drag-a-window gesture writing the slice's range. Hosts
  *   render it natively: a Chart brushes the plot's continuous x, a Gantt the
  *   timeline, a standalone `Slice.Rail` the mini brush strip. Hosts with no
@@ -46,13 +48,14 @@ export const SliceAffordanceType = VariantType({
     range: NullType,
     cohort: NullType,
     brush: NullType,
+    presets: NullType,
 });
 
 /** Type representing slice affordance variant values. */
 export type SliceAffordanceType = typeof SliceAffordanceType;
 
 /** String literal type for slice affordances. */
-export type SliceAffordanceLiteral = "filter" | "search" | "breakdown" | "range" | "cohort" | "brush";
+export type SliceAffordanceLiteral = "filter" | "search" | "breakdown" | "range" | "cohort" | "brush" | "presets";
 
 /**
  * Creates a slice affordance variant expression.

@@ -43,6 +43,7 @@ const AFFORDANCE_META: Record<string, { icon: IconDefinition; label: string }> =
     filter:    { icon: faFilter,          label: "Filter" },
     breakdown: { icon: faLayerGroup,      label: "Split" },
     cohort:    { icon: faUsers,           label: "Cohort" },
+    presets:   { icon: faUsers,           label: "Presets" },
     search:    { icon: faMagnifyingGlass, label: "Search" },
     range:     { icon: faCalendar,        label: "Range" },
 };
@@ -97,6 +98,8 @@ export function SliceRailCluster({ slice, affordanceKinds }: SliceRailClusterPro
             case "filter":    return <EastChakraSliceFilter key={`af-${i}`} value={v} />;
             case "breakdown": return <EastChakraSliceBreakdown key={`af-${i}`} value={v} />;
             case "cohort":    return <EastChakraSliceCohort key={`af-${i}`} value={v} />;
+            // Curated preset bar (#163) — Slice.Cohort pinned to toggle mode.
+            case "presets":   return <EastChakraSliceCohort key={`af-${i}`} value={{ slice, mode: some(variant("toggle", null)) } as never} />;
             case "search":    return <EastChakraSliceSearch key={`af-${i}`} value={v} />;
             case "range":     return <EastChakraSliceRange key={`af-${i}`} value={v} />;
             default:          return null;

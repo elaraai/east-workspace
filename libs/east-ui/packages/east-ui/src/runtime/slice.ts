@@ -15,9 +15,10 @@
  *
  * Component tags fall into three roles:
  * - **Controls** (`<Slice.Summary>`, `<Slice.Range>`, `<Slice.Filter>`,
- *   `<Slice.Breakdown>`, `<Slice.Legend>`, `<Slice.Search>`, `<Slice.Cohort>`)
- *   — self-driving widgets that mutate the bound state on interaction; each
- *   takes a flat options bag whose only required prop is `slice`.
+ *   `<Slice.Breakdown>`, `<Slice.Legend>`, `<Slice.Search>`, `<Slice.Cohort>`,
+ *   `<Slice.Presets>`) — self-driving widgets that mutate the bound state on
+ *   interaction; each takes a flat options bag whose only required prop is
+ *   `slice`.
  * - **Strip** (`<Slice.Rail>`) — the affordance cluster standalone; components
  *   with the `slice` chrome option mount the same cluster in their own header.
  *
@@ -70,6 +71,7 @@ type SliceTags = {
     Legend: JsxTag<OptionsProps<typeof SliceFactory.Legend.Root>>;
     Search: JsxTag<OptionsProps<typeof SliceFactory.Search.Root>>;
     Cohort: JsxTag<OptionsProps<typeof SliceFactory.Cohort.Root>>;
+    Presets: JsxTag<OptionsProps<typeof SliceFactory.Presets.Root>>;
     Rail: JsxTag<OptionsProps<typeof SliceFactory.Rail.Root>>;
     config: typeof SliceFactory.config;
     bind: typeof SliceFactory.bind;
@@ -306,12 +308,14 @@ export const Slice: SliceTags = {
      */
     Search: optionsTag(SliceFactory.Search.Root),
     /**
-     * Saved-segment chips bound to a slice. Each cohort in the bound state is a
-     * named bundle of AND-ed predicates rendered as a chip (active ones
-     * brand-tinted with a remove `×`); toggling one applies it. The focused
-     * cohort's clauses expand into a detail block with Edit / Apply / Remove,
-     * captioned with the author / freshness / re-evaluation meta you pass.
-     * Use it to let people save and recall named segments. Props are flat
+     * Toggleable saved-segment chips bound to a slice. Each cohort in the
+     * bound state is a named bundle of AND-ed predicates rendered as a chip
+     * (swatch · name · live count, active ones brand-tinted); the chip's
+     * primary click toggles it on/off via `slice.toggleCohort(id)` (#163). In
+     * `manage` mode (the default) a secondary pencil opens the editor popover
+     * (clauses + Apply / Remove, captioned with the author / freshness /
+     * re-evaluation meta you pass) and a `+ cohort` pill authors new ones;
+     * `mode: "toggle"` renders a pure preset bar. Props are flat
      * ({@link SliceCohortOptions}); the only required one is `slice`.
      *
      * @example
@@ -346,6 +350,43 @@ export const Slice: SliceTags = {
      * to `Slice.Cohort.Root(options)`.
      */
     Cohort: optionsTag(SliceFactory.Cohort.Root),
+    /**
+     * Curated preset bar — `Slice.Cohort` pinned to `mode: "toggle"` (#163):
+     * developer-seeded cohorts render as pure on/off segment chips with live
+     * counts and no authoring affordances (no pencil, no `+ cohort`). Reach
+     * for it to ship predefined filter groups users just click on and off.
+     * Props are flat ({@link SlicePresetsOptions}); the only required one is
+     * `slice`.
+     *
+     * @example
+     * ```tsx
+     * // .tsx file with the `@jsxImportSource @elaraai/east-ui` pragma
+     * import { East, StructType, StringType, IntegerType, ArrayType, variant, none } from "@elaraai/east";
+     * import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui";
+     *
+     * const view = East.function([], UIComponentType, _$ => {
+     *     const OrderType = StructType({ region: StringType, qty: IntegerType });
+     *     const cfg = Slice.config(OrderType, { fields: { region: { label: "Region" }, qty: { label: "Qty" } } });
+     *     return (
+     *         <Reactive>{$ => {
+     *             const data = $.const([{ region: "EU", qty: 40n }], ArrayType(OrderType));
+     *             const slice = $.let(Slice.bind([OrderType], "ex.slice.presets", cfg, Slice.state({
+     *                 cohorts: [{ id: "eu", name: "EU", filters: [
+     *                     variant("string", { fieldId: "region", op: variant("eq", "EU") }),
+     *                 ] }],
+     *                 activeCohorts: new Set(["eu"]),
+     *             }), data, none));
+     *             return <Slice.Presets slice={slice} />;
+     *         }}</Reactive>
+     *     );
+     * });
+     * ```
+     *
+     * @remarks
+     * Carries `Slice.Presets.Types`. Desugars to `Slice.Presets.Root(options)`
+     * (= `Slice.Cohort.Root` with `mode: "toggle"`).
+     */
+    Presets: optionsTag(SliceFactory.Presets.Root),
     /**
      * The slice affordance cluster as a standalone strip — one row that never
      * wraps, compressing along the chip ladder (whole chips → `+M more` within

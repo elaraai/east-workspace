@@ -212,7 +212,9 @@ describe("Slice.Filter — add-filter builder applies (in a Slice.Edit popover)"
         expect(screen.queryByLabelText("Field")).toBeNull();   // popover closed after Add
 
         // Reopen the (freshly reset) builder and submit the identical clause.
+        // (findBy waits out Zag's rAF-deferred popover mount under jsdom.)
         await user.click(screen.getByText("add filter"));
+        expect(await screen.findByLabelText("Field")).toBeTruthy();
         await buildSessionsGte20();
         expect(slice.read().filters.length).toBe(1);           // deduped, no second chip
     });
@@ -317,6 +319,64 @@ describe("Slice.Filter — add-filter builder applies (in a Slice.Edit popover)"
         expect(created?.name).toBe("EU");
         expect(created?.filters.length).toBe(2);          // the active filter set was captured
         expect(st.activeCohorts.has("eu-2")).toBe(true);  // and the new cohort is applied
+    });
+});
+
+describe("Slice.Cohort — chips toggle on/off; authoring demoted to the pencil (#163)", () => {
+    const seeded = () => fakeSlice(
+        {
+            cohorts: [{ id: "eu", name: "EU", filters: [variant("string", { fieldId: "region", op: variant("eq", "EU") })] }],
+            activeCohorts: new Set<string>(),
+        },
+        { cohortCounts: () => new Map([["eu", 1240n]]) },
+    );
+    const cohortValue = (slice: unknown, extra: Record<string, unknown> = {}): any =>
+        ({ slice, createdBy: none, lastEdited: none, reevaluateEvery: none, density: none, editOpen: none, ...extra });
+
+    test("primary chip click toggles the cohort ON and OFF — the deactivate path is live", () => {
+        const slice = seeded();
+        ui(<EastChakraSliceCohort value={cohortValue(slice)} />);
+
+        const toggle = screen.getByRole("button", { name: "Toggle cohort EU" });
+        expect(toggle.getAttribute("aria-pressed")).toBe("false");
+        expect(screen.getByText(/1\.2k/)).toBeTruthy();          // live count on the chip
+
+        fireEvent.click(toggle);
+        expect(slice.read().activeCohorts.has("eu")).toBe(true);  // ON
+        fireEvent.click(toggle);
+        expect(slice.read().activeCohorts.has("eu")).toBe(false); // OFF — not deletion
+        expect(slice.read().cohorts.length).toBe(1);              // cohort survives
+    });
+
+    test("the pencil (not the chip) opens the editor, without toggling", async () => {
+        const slice = seeded();
+        ui(<EastChakraSliceCohort value={cohortValue(slice)} />);
+        expect(screen.queryByText("Apply")).toBeNull();
+
+        const user = userEvent.setup();
+        await user.click(screen.getByLabelText("Edit cohort EU"));
+        expect(await screen.findByText("Apply")).toBeTruthy();
+        expect(slice.read().activeCohorts.has("eu")).toBe(false); // editing ≠ toggling
+    });
+
+    test("toggle mode renders a pure preset bar — no pencil, no + cohort pill", () => {
+        const slice = seeded();
+        ui(<EastChakraSliceCohort value={cohortValue(slice, { mode: some(variant("toggle", null)) })} />);
+        expect(screen.getByRole("button", { name: "Toggle cohort EU" })).toBeTruthy();
+        expect(screen.queryByLabelText("Edit cohort EU")).toBeNull();
+        expect(screen.queryByText("cohort")).toBeNull();
+    });
+
+    test("Apply is disabled with a hint until the draft has a name and a clause (P1)", () => {
+        const slice = fakeSlice();
+        ui(<EastChakraSliceCohort value={cohortValue(slice, { editOpen: some(true) })} />);
+
+        expect((screen.getByText("Apply") as HTMLButtonElement).disabled).toBe(true);
+        expect(screen.getByText("Give the cohort a name.")).toBeTruthy();
+
+        fireEvent.change(screen.getByLabelText("Cohort name"), { target: { value: "Big EU" } });
+        expect(screen.getByText("Add at least one clause.")).toBeTruthy();
+        expect((screen.getByText("Apply") as HTMLButtonElement).disabled).toBe(true);
     });
 });
 

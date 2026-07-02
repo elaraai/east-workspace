@@ -137,4 +137,6 @@ export {
     SliceSummaryType, SliceRangePickerType, SliceFilterType,
     SliceLegendType, SliceBreakdownPickerType,
     SliceSearchType, SliceSearchMatchType,
+    SliceCohortModeType, SliceCohortPickerType,
 } from "./slice/index.js";
+export { type SliceCohortOptions, type SlicePresetsOptions } from "./slice/cohort/index.js";
