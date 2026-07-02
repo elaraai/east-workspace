@@ -26,6 +26,7 @@ export const sliceEditSlotRecipe = defineSlotRecipe({
         "body", "foot", "footLink", "footDanger", "footActions",
         "clauseRow", "clauseConj", "clauseBox", "clauseField", "clauseOp", "clauseVal",
         "builderRow", "resolveLine", "moreRow", "moreRowEdit", "moreRowRemove",
+        "chipToggle", "chipEdit", "hint",
     ],
     base: {
         content: {
@@ -101,6 +102,39 @@ export const sliceEditSlotRecipe = defineSlotRecipe({
             display: "inline-flex",
             alignItems: "center",
             gap: "{spacing.2}",
+        },
+        // Cohort chip internals (#163): the chip's primary on/off toggle and
+        // the demoted secondary edit-pencil — two sibling buttons inside the
+        // chip chrome (a button cannot nest a button). Both inherit the chip's
+        // font; the pencil is muted until hover.
+        chipToggle: {
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "{spacing.1.5}",
+            background: "transparent",
+            border: "none",
+            padding: "0",
+            cursor: "pointer",
+            font: "inherit",
+            color: "inherit",
+        },
+        chipEdit: {
+            display: "inline-flex",
+            alignItems: "center",
+            background: "transparent",
+            border: "none",
+            padding: "0",
+            cursor: "pointer",
+            fontSize: "9px",
+            color: "fg.muted",
+            _hover: { color: "{colors.brand.600}" },
+        },
+        // Inline "why can't I Apply" caption in the editor body (mirrors the
+        // clause builder's hint grammar).
+        hint: {
+            fontFamily: "mono",
+            fontSize: "{fontSizes.2xs}",
+            color: "fg.muted",
         },
 
         // --- predicate clause rows (cohort edit) ---

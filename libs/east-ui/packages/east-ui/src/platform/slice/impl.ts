@@ -95,6 +95,11 @@ function matchStringOp(op: variant, value: unknown): boolean {
         case "contains": return v.includes(op.value as string);
         // A half-typed regex in a live filter must narrow to nothing, not crash.
         case "matches":  { try { return new RegExp(op.value as string).test(v); } catch { return false; } }
+        case "startsWith": return v.startsWith(op.value as string);
+        case "endsWith":   return v.endsWith(op.value as string);
+        // Presence ops treat whitespace-only as empty (#171).
+        case "isEmpty":    return v.trim() === "";
+        case "isNotEmpty": return v.trim() !== "";
         default: throw new Error(`unknown string op: ${op.type}`);
     }
 }
@@ -320,6 +325,44 @@ export const SLICE_SERIES_PALETTE: readonly string[] = [
 /** Colour for the i-th series (by group order); the `other` roll-up bucket is muted. */
 const seriesColor = (i: number): string => SLICE_SERIES_PALETTE[i % SLICE_SERIES_PALETTE.length]!;
 
+/** The muted colour of the top-N `other` roll-up bucket. */
+const OTHER_COLOR = "{colors.gray.400}";
+
+/** One ordered breakdown group: its stable key, palette colour, the underlying
+ *  group keys it stands for (a singleton, or the rolled-up tail for `other`),
+ *  and the total row count across those members. */
+interface OrderedGroup {
+    readonly key: string;
+    readonly color: string;
+    readonly members: ReadonlyArray<string>;
+    readonly count: number;
+}
+
+/**
+ * Order breakdown groups by count (desc) and apply the top-N `limit` roll-up:
+ * the first `limit` groups keep their palette colour, the tail collapses into a
+ * single muted `other` bucket. A non-positive limit means "no limit".
+ *
+ * This is the ONE source of truth for group identity, order, and colour —
+ * `sliceBreakdown` (legend / group chips) and `sliceSeries` (chart series) must
+ * agree exactly, or the legend's `visible` whitelist cannot control the chart
+ * and the chart draws tail series the legend doesn't list (#162).
+ */
+function orderedGroups(counts: ReadonlyMap<string, number>, limitOpt: variant): OrderedGroup[] {
+    const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+    const rawLimit = limitOpt.type === "some" ? Number(limitOpt.value as bigint) : undefined;
+    const limit = rawLimit !== undefined && rawLimit > 0 ? rawLimit : undefined;
+    if (limit !== undefined && sorted.length > limit) {
+        const top = sorted.slice(0, limit);
+        const tail = sorted.slice(limit);
+        return [
+            ...top.map(([key, n], i) => ({ key, color: seriesColor(i), members: [key], count: n })),
+            { key: "other", color: OTHER_COLOR, members: tail.map(([k]) => k), count: tail.reduce((sum, [, n]) => sum + n, 0) },
+        ];
+    }
+    return sorted.map(([key, n], i) => ({ key, color: seriesColor(i), members: [key], count: n }));
+}
+
 // ---------------------------------------------------------------------------
 // breakdown — group narrowed data by the active dimension and count
 // ---------------------------------------------------------------------------
@@ -338,26 +381,15 @@ export function sliceBreakdown(
         const key = breakdownKeyOf(row[bd.fieldId]);
         counts.set(key, (counts.get(key) ?? 0) + 1);
     }
-    const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]);
-    // A non-positive top-N (0 / negative) means "no limit" — never collapse every
-    // category into a single "other" bucket or slice from the end (Array.slice).
-    const rawLimit = bd.limit.type === "some" ? Number(bd.limit.value as bigint) : undefined;
-    const limit = rawLimit !== undefined && rawLimit > 0 ? rawLimit : undefined;
-    if (limit !== undefined && sorted.length > limit) {
-        const top = sorted.slice(0, limit);
-        const other = sorted.slice(limit).reduce((sum, [, n]) => sum + n, 0);
-        return [
-            ...top.map(([key, n], i) => ({ key, count: BigInt(n), color: seriesColor(i) })),
-            { key: "other", count: BigInt(other), color: "{colors.gray.400}" },
-        ];
-    }
-    return sorted.map(([key, n], i) => ({ key, count: BigInt(n), color: seriesColor(i) }));
+    return orderedGroups(counts, bd.limit).map(g => ({ key: g.key, count: BigInt(g.count), color: g.color }));
 }
 
 // ---------------------------------------------------------------------------
 // series — pivot narrowed data into coloured multi-series long format. Groups
-// by the active breakdown dimension (colour by the same group order as
-// `sliceBreakdown`), aggregates `valueField` per x in data order.
+// by the active breakdown dimension with the SAME group identity (stable
+// breakdownKeyOf keys), order, colours, and top-N `other` roll-up as
+// `sliceBreakdown` — legend chips and chart series must correspond one-to-one
+// (#162). Aggregates `valueField` per x in data order.
 // ---------------------------------------------------------------------------
 
 export function sliceSeries(
@@ -368,9 +400,9 @@ export function sliceSeries(
     valueField: string,
     now: Date,
 ): Array<{ key: string; color: string; points: Array<{ x: variant; value: number; size: typeof none; color: typeof none }> }> {
-    // x key — ISO-encode Dates so a renderer time scale can parse them back; all
-    // other field kinds stringify (band categories / numeric linear).
-    const xKey = (row: Record<string, unknown>): string => { const xv = row[xField]; return xv instanceof Date ? xv.toISOString() : String(xv); };
+    // x key — same stable encoding as breakdown group keys (ISO for Dates) so a
+    // renderer time scale can parse them back; other kinds stringify.
+    const xKey = (row: Record<string, unknown>): string => breakdownKeyOf(row[xField]);
     // Typed x coordinate (band category / linear number / time date) for the
     // chart's ChartXType; the renderer derives the scale from the arm. Keyed by
     // xKey so points aggregate per x while keeping the original typed value.
@@ -394,13 +426,16 @@ export function sliceSeries(
         const label = (config.fields.get(valueField)?.value as { label?: string } | undefined)?.label ?? valueField;
         return [{ key: label, color: seriesColor(0), points: [...xs.entries()].map(([x, value]) => ({ x: coords.get(x)!, value, size: none, color: none })) }];
     }
-    const keyField = (state.breakdown.value as { fieldId: string }).fieldId;
+    const bd = state.breakdown.value as { fieldId: string; limit: variant };
     const counts = new Map<string, number>();
-    // key → (x → summed value); both Maps preserve insertion (data) order.
+    // key → (x → summed value); both Maps preserve insertion (data) order. The
+    // group key uses breakdownKeyOf — the SAME stable encoding sliceBreakdown
+    // uses (ISO for Dates) — so the legend's `visible` whitelist (which stores
+    // group keys) actually matches the series keys (#162).
     const byKey = new Map<string, Map<string, number>>();
     for (const row of data) {
         if (!sliceMatches(state, config, row, now)) continue;
-        const key = String(row[keyField]);
+        const key = breakdownKeyOf(row[bd.fieldId]);
         const xk = xKey(row);
         if (!coords.has(xk)) coords.set(xk, xCoord(row));
         const v = Number(row[valueField] ?? 0);
@@ -409,17 +444,38 @@ export function sliceSeries(
         if (xs === undefined) { xs = new Map(); byKey.set(key, xs); }
         xs.set(xk, (xs.get(xk) ?? 0) + v);
     }
-    // Colour order matches sliceBreakdown: by count desc. Colour is assigned over
-    // the FULL group order (so a series keeps its legend colour even when others
-    // are hidden), then series toggled off via the legend (`state.visible`) drop.
-    const ordered = [...counts.keys()].sort((a, b) => counts.get(b)! - counts.get(a)!);
+    // Group set / order / colour come from the SAME roll-up as sliceBreakdown
+    // (top-N by count desc + a muted `other` tail bucket), so chart series and
+    // legend chips agree one-to-one. Colour is assigned over the FULL group
+    // order (a series keeps its legend colour even when others are hidden),
+    // then series toggled off via the legend (`state.visible`) drop.
+    const groups = orderedGroups(counts, bd.limit);
     const visible = state.visible.type === "some" ? (state.visible.value as Set<string>) : undefined;
-    return ordered
-        .map((key, i) => ({
-            key,
-            color: seriesColor(i),
-            points: [...byKey.get(key)!.entries()].map(([x, value]) => ({ x: coords.get(x)!, value, size: none, color: none })),
-        }))
+    return groups
+        .map(g => {
+            let xs: ReadonlyMap<string, number>;
+            if (g.members.length === 1) {
+                xs = byKey.get(g.members[0]!)!;
+            } else {
+                // The `other` bucket: sum the tail groups' values per x, ordered
+                // by global first-seen x so the merged series stays in data order.
+                const merged = new Map<string, number>();
+                for (const m of g.members) {
+                    for (const [x, v] of byKey.get(m)!) merged.set(x, (merged.get(x) ?? 0) + v);
+                }
+                const inOrder = new Map<string, number>();
+                for (const xk of coords.keys()) {
+                    const v = merged.get(xk);
+                    if (v !== undefined) inOrder.set(xk, v);
+                }
+                xs = inOrder;
+            }
+            return {
+                key: g.key,
+                color: g.color,
+                points: [...xs.entries()].map(([x, value]) => ({ x: coords.get(x)!, value, size: none, color: none })),
+            };
+        })
         .filter(s => visible === undefined || visible.has(s.key));
 }
 
@@ -439,13 +495,17 @@ export function sliceDimensions(config: ConfigLike): Array<{ fieldId: string; la
 // fields — every filterable field + label + primitive kind (predicate builder)
 // ---------------------------------------------------------------------------
 
-export function sliceFields(config: ConfigLike): Array<{ fieldId: string; label: string; kind: string; hints: string[] }> {
+export function sliceFields(config: ConfigLike): Array<{ fieldId: string; label: string; kind: string; hints: string[]; format: variant }> {
     return [...config.fields.entries()].map(([fieldId, spec]) => {
         const kind = (spec as variant).type;
-        const label = ((spec as variant).value as { label?: string } | undefined)?.label ?? fieldId;
+        const payload = (spec as variant).value as { label?: string; format?: variant } | undefined;
+        const label = payload?.label ?? fieldId;
         // Explicit autocomplete hints from `Slice.config` (#131); empty when none.
         const hints = [...(config.fieldHints?.get(fieldId) ?? [])];
-        return { fieldId, label, kind, hints };
+        // Declared display format (#190); `none` when absent (incl. hand-built
+        // test configs predating the field).
+        const format = payload?.format ?? none;
+        return { fieldId, label, kind, hints, format };
     });
 }
 

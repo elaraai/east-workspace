@@ -22,7 +22,7 @@
  * @packageDocumentation
  */
 
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { some, none, variant } from "@elaraai/east";
 import { useDensity } from "../../contracts/density.js";
@@ -99,6 +99,15 @@ function selectValue(
     } as never;
 }
 
+/** A set-op value merged with the TagsInput's in-flight text (#194): text a
+ *  user typed or picked from the suggestions but never Enter-committed into a
+ *  tag still counts — validity and submit both see it. */
+function withPending(tags: unknown, pending: string): unknown[] {
+    const arr = tags as unknown[];
+    const p = pending.trim();
+    return p !== "" ? [...arr, p] : arr;
+}
+
 function emptyValue(kind: ClauseKind, input: ClauseOpSpec["input"]): unknown {
     if (input === "set") return [] as string[];
     if (input === "none") return null;
@@ -112,6 +121,39 @@ function emptyValue(kind: ClauseKind, input: ClauseOpSpec["input"]): unknown {
     if (kind === "datetime") return new Date();
     if (kind === "boolean") return false;
     return "";
+}
+
+/**
+ * Why the in-progress value cannot produce a meaningful clause, or `undefined`
+ * when it can. Drives the submit button's `disabled` + the inline hint so a
+ * click is never a silent no-op (#164). Values here are the raw JS values the
+ * controls produce (string / bigint / number / Date / string[] / {min,max}),
+ * not decoded East values.
+ */
+function invalidReason(kind: ClauseKind, input: ClauseOpSpec["input"], value: unknown): string | undefined {
+    if (input === "none") return undefined;
+    if (input === "set") {
+        // Entries are strings from the TagsInput, but an edit seed may carry
+        // typed members (bigints from an integer in-set) — stringify, never
+        // assume (`bigint.trim` is not a function).
+        const entries = (value as unknown[]).map(s => String(s).trim()).filter(Boolean);
+        if (entries.length === 0) return "Enter at least one value.";
+        if (kind === "integer" && !entries.some(e => { try { BigInt(e); return true; } catch { return false; } })) {
+            return "Enter at least one whole number.";
+        }
+        return undefined;
+    }
+    if (input === "range") {
+        const { min, max } = value as { min: unknown; max: unknown };
+        const inverted = min instanceof Date && max instanceof Date
+            ? min.getTime() > max.getTime()
+            : (typeof min === "bigint" && typeof max === "bigint") || (typeof min === "number" && typeof max === "number")
+                ? min > max
+                : false;
+        return inverted ? "Start must not exceed end." : undefined;
+    }
+    if (kind === "string" && String(value ?? "").trim() === "") return "Enter a value.";
+    return undefined;
 }
 
 export function ClauseBuilder({ fields, opsFor, onSubmit, initial, lockField, submitLabel, size }: ClauseBuilderProps) {
@@ -134,16 +176,36 @@ export function ClauseBuilder({ fields, opsFor, onSubmit, initial, lockField, su
     // control's payload identity-stable per field/op (and remounting on
     // field/op change via `key`) means typing never round-trips through a
     // parent re-render — which would reset the control mid-edit.
+    // A Set seed becomes the TagsInput's string entries regardless of member
+    // type (bigints round-trip back through the consumer's submit conversion).
     const seedValue = initial !== undefined
-        ? (initial.value instanceof Set ? [...initial.value] : initial.value)
+        ? (initial.value instanceof Set ? [...initial.value].map(v => String(v)) : initial.value)
         : emptyValue(kind, input);
     const valRef = useRef<unknown>(seedValue);
+    // Validity mirrors valRef for the submit button + hint. Commits call
+    // setReason with a recomputed string; React bails identical values, so
+    // keystrokes only re-render when validity actually flips (#164).
+    const [reason, setReason] = useState<string | undefined>(() => invalidReason(kind, input, seedValue));
+    // In-flight TagsInput text (#194) — a suggestion pick or plain typing sets
+    // the input's TEXT, and Zag only converts text→tag on Enter/comma; the
+    // pending text must still count toward validity and submit.
+    const pendingRef = useRef("");
     const controlKey = `${fieldId}:${op?.tag ?? ""}`;
     const prevKeyRef = useRef(controlKey);
     if (prevKeyRef.current !== controlKey) {
         prevKeyRef.current = controlKey;
         valRef.current = emptyValue(kind, input);
+        pendingRef.current = "";
+        setReason(invalidReason(kind, input, valRef.current));
     }
+    const commit = useCallback((next: unknown) => {
+        valRef.current = next;
+        setReason(invalidReason(kind, input, input === "set" ? withPending(next, pendingRef.current) : next));
+    }, [kind, input]);
+    const commitPending = useCallback((text: string) => {
+        pendingRef.current = text;
+        setReason(invalidReason(kind, input, withPending(valRef.current, text)));
+    }, [kind, input]);
 
     const onFieldChange = (nextId: string) => {
         const nextKind = fields.find(f => f.id === nextId)?.kind ?? "string";
@@ -156,39 +218,47 @@ export function ClauseBuilder({ fields, opsFor, onSubmit, initial, lockField, su
 
     const submit = () => {
         if (field === undefined || op === undefined) return;
-        let value: unknown = valRef.current;
+        const effective = input === "set" ? withPending(valRef.current, pendingRef.current) : valRef.current;
+        // The button is disabled while invalid; this guard is the backstop.
+        if (invalidReason(kind, input, effective) !== undefined) return;
+        let value: unknown = effective;
         if (input === "set") {
-            const arr = (value as string[]).map(s => s.trim()).filter(Boolean);
-            if (arr.length === 0) return;
-            value = arr;
-        } else if (input === "single" && kind === "string" && String(value).trim() === "") {
-            return;
+            value = [...new Set((effective as unknown[]).map(s => String(s).trim()).filter(Boolean))];
         }
         onSubmit({ fieldId: field.id, kind, op: op.tag, value });
     };
 
     // Stable per-(field, op) payloads for the typed value controls — built
-    // once per remount key, so keystroke commits never recreate them.
+    // once per remount key, so keystroke commits never recreate them. Range
+    // controls take their OWN bound (`v.min` / `v.max`) and a distinct key —
+    // feeding the whole `{min,max}` object to a date field is an Invalid
+    // Date crash, and sibling controls sharing one key collide.
     const controls = useMemo(() => {
         const v = valRef.current;
-        const single = (onChange: (next: unknown) => void): ReactNode => {
+        const single = (keySuffix: string, val: unknown, onChange: (next: unknown) => void): ReactNode => {
+            const key = `${controlKey}${keySuffix}`;
             switch (kind) {
                 case "integer":
-                    return <EastChakraIntegerInput key={controlKey} value={{ value: v as bigint, onChange: some(onChange), style: inputStyle } as never} />;
+                    return <EastChakraIntegerInput key={key} value={{ value: val as bigint, onChange: some(onChange), style: inputStyle } as never} />;
                 case "float":
-                    return <EastChakraFloatInput key={controlKey} value={{ value: v as number, onChange: some(onChange), style: inputStyle } as never} />;
+                    return <EastChakraFloatInput key={key} value={{ value: val as number, onChange: some(onChange), style: inputStyle } as never} />;
                 case "datetime":
-                    return <EastChakraDateTimeInput key={controlKey} value={{ value: v as Date, onChange: some(onChange), style: inputStyle } as never} />;
+                    // Date precision (#196): clause chips format date-only and
+                    // day-grained filtering is the norm — the time segments
+                    // were pure width pressure in the popover. (The Range
+                    // picker's Custom inputs keep full datetime precision.)
+                    return <EastChakraDateTimeInput key={key} value={{ value: val as Date, precision: some(variant("date", null)), onChange: some(onChange), style: inputStyle } as never} />;
                 default:
-                    return <EastChakraStringInput key={controlKey} value={{ value: String(v ?? ""), onChange: some(onChange), style: inputStyle } as never} />;
+                    return <EastChakraStringInput key={key} value={{ value: String(val ?? ""), onChange: some(onChange), style: inputStyle } as never} />;
             }
         };
+        const range = v as { min?: unknown; max?: unknown } | undefined;
         return {
-            single: single(next => { valRef.current = next; }),
-            rangeMin: single(next => { valRef.current = { ...(valRef.current as object), min: next }; }),
-            rangeMax: single(next => { valRef.current = { ...(valRef.current as object), max: next }; }),
+            single: single("", v, next => { commit(next); }),
+            rangeMin: single(":min", range?.min, next => { commit({ ...(valRef.current as object), min: next }); }),
+            rangeMax: single(":max", range?.max, next => { commit({ ...(valRef.current as object), max: next }); }),
         };
-    }, [controlKey, kind, inputStyle]);
+    }, [controlKey, kind, inputStyle, commit]);
 
     const fieldControl = lockField
         ? <Box as="span" css={styles.fieldLock} aria-label="Field">{field?.label}</Box>
@@ -224,37 +294,44 @@ export function ClauseBuilder({ fields, opsFor, onSubmit, initial, lockField, su
                 value={selectValue(
                     String(valRef.current),
                     [{ value: "true", label: "true" }, { value: "false", label: "false" }],
-                    v => { valRef.current = (v === "true"); },
+                    v => { commit(v === "true"); },
                     controlSize,
                 )}
             />
         ) : input === "set" ? (
-            <EastChakraTagsInput key={controlKey} value={{ value: valRef.current as string[], placeholder: some("a, b, c"), suggestions: field?.hints !== undefined && field.hints.length > 0 ? some([...field.hints]) : none, onChange: some((v: string[]) => { valRef.current = v; }), style: inputStyle } as never} />
+            <EastChakraTagsInput key={controlKey} value={{ value: valRef.current as string[], placeholder: some("a, b, c"), suggestions: field?.hints !== undefined && field.hints.length > 0 ? some([...field.hints]) : none, onChange: some((v: string[]) => { commit(v); }), onInputChange: some((s: string) => { commitPending(s); }), style: inputStyle } as never} />
         ) : input === "range" ? (
-            <Box display="flex" alignItems="center" gap="{spacing.2}" minWidth="0">
-                {controls.rangeMin}
+            <Box css={styles.rangeLine}>
+                <Box css={styles.rangeBound}>{controls.rangeMin}</Box>
                 <Box as="span" css={styles.rangeJoin}>–</Box>
-                {controls.rangeMax}
+                <Box css={styles.rangeBound}>{controls.rangeMax}</Box>
             </Box>
         ) : controls.single;
 
+    // Disabled + inline hint while the value can't form a clause — a click is
+    // never a silent no-op (#164). The hint mirrors the cohort-name grammar.
     const submitButton = (
-        <chakra.button type="button" onClick={submit} css={btn({ variant: "solid", size: "xs" })}>
+        <chakra.button type="button" onClick={submit} disabled={reason !== undefined} css={btn({ variant: "solid", size: "xs" })}>
             {submitLabel ?? "Add"}
         </chakra.button>
     );
+    const hint = reason !== undefined ? <Box as="span" css={styles.hint}>{reason}</Box> : null;
 
-    // Set ops author a TagsInput that grows with its values — stack it on its
-    // own full-width line so the tags never cram into a 1fr column.
-    if (input === "set") {
+    // Intrinsically wide value controls stack on their own full-width line
+    // (#193): set ops (a TagsInput grows with its values), range ops (two
+    // bounds + join), and datetime singles (a segmented date input cannot
+    // shrink into the inline grid's value track — it overflowed the popover).
+    // The inline grid stays for the compact singles.
+    if (input === "set" || input === "range" || kind === "datetime") {
         return (
-            <Box css={styles.rowStacked}>
-                <Box display="flex" alignItems="center" gap="{spacing.2}" minWidth="0">
+            <Box css={styles.rowStacked} data-clause-stacked>
+                <Box css={styles.stackControls}>
                     {fieldControl}
                     {opControl}
                 </Box>
-                <Box width="full" minWidth="0">{valueControl}</Box>
-                <Box display="flex" justifyContent="flex-end">{submitButton}</Box>
+                {valueControl !== null && <Box css={styles.stackValue}>{valueControl}</Box>}
+                {hint}
+                <Box css={styles.stackSubmit}>{submitButton}</Box>
             </Box>
         );
     }
@@ -264,6 +341,7 @@ export function ClauseBuilder({ fields, opsFor, onSubmit, initial, lockField, su
             {opControl}
             {valueControl ?? <Box />}
             {submitButton}
+            {hint}
         </Box>
     );
 }

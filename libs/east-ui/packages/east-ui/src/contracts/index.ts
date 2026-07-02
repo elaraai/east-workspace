@@ -39,6 +39,10 @@ export {
 } from "./slice-affordances.js";
 
 export {
+    ValueFormatType,
+} from "./format.js";
+
+export {
     LibraryRefType,
     CellRefType,
     DragSinkType, type DragSinkLiteral,

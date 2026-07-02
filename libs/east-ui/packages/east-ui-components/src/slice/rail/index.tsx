@@ -20,7 +20,7 @@
  * surface: nothing folds inside it and nothing opens a further popover.
  */
 
-import { useLayoutEffect, useRef, useState, memo, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, memo, type ReactNode } from "react";
 import { some, none, variant } from "@elaraai/east";
 import { Box, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -28,8 +28,12 @@ import { faFilter, faLayerGroup, faUsers, faMagnifyingGlass, faCalendar, faChevr
 import { type ValueTypeOf } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
-import { boundRangeDomain } from "../../platform/slice";
+import { boundRangeDomain, boundRangeHistogram, enableSlicePersistence, type SlicePersistMode } from "../../platform/slice";
+// Function-declaration import across the rail ↔ charts module cycle is safe
+// (hoisted; charts/spec imports SliceRailCluster from here the same way).
+import { tickFormatter, type TickFormat } from "../../charts/spec/index.js";
 import { SliceDensityContext } from "../density";
+import { brushHitTest, brushDragWindow, brushRelease, brushCursor, type BrushDrag } from "../brush-math.js";
 import { useSliceReactivity } from "../use-slice-reactivity";
 import { SliceEditPopover } from "../edit";
 import { EastChakraSliceFilter } from "../filter";
@@ -37,12 +41,14 @@ import { EastChakraSliceSearch } from "../search";
 import { EastChakraSliceBreakdown } from "../breakdown";
 import { EastChakraSliceRange } from "../range";
 import { EastChakraSliceCohort } from "../cohort";
+import { EastChakraSliceLegend } from "../legend";
 
 /** Per-affordance icon + label — section headers in the editor, count chips on the ladder. */
 const AFFORDANCE_META: Record<string, { icon: IconDefinition; label: string }> = {
     filter:    { icon: faFilter,          label: "Filter" },
     breakdown: { icon: faLayerGroup,      label: "Split" },
     cohort:    { icon: faUsers,           label: "Cohort" },
+    presets:   { icon: faUsers,           label: "Presets" },
     search:    { icon: faMagnifyingGlass, label: "Search" },
     range:     { icon: faCalendar,        label: "Range" },
 };
@@ -97,6 +103,8 @@ export function SliceRailCluster({ slice, affordanceKinds }: SliceRailClusterPro
             case "filter":    return <EastChakraSliceFilter key={`af-${i}`} value={v} />;
             case "breakdown": return <EastChakraSliceBreakdown key={`af-${i}`} value={v} />;
             case "cohort":    return <EastChakraSliceCohort key={`af-${i}`} value={v} />;
+            // Curated preset bar (#163) — Slice.Cohort pinned to toggle mode.
+            case "presets":   return <EastChakraSliceCohort key={`af-${i}`} value={{ slice, mode: some(variant("toggle", null)) } as never} />;
             case "search":    return <EastChakraSliceSearch key={`af-${i}`} value={v} />;
             case "range":     return <EastChakraSliceRange key={`af-${i}`} value={v} />;
             default:          return null;
@@ -237,18 +245,35 @@ export interface EastChakraSliceRailProps {
     value: {
         slice: unknown;
         affordances: ReadonlyArray<{ type: string }>;
+        persist: { type: "some"; value: { type: SlicePersistMode } } | { type: "none"; value: null };
+        brush:
+            | { type: "some"; value: { axis: { type: string; value: boolean | null }; count: { type: string; value: boolean | null }; buckets: { type: string; value: bigint | null } } }
+            | { type: "none"; value: null };
     };
 }
 
+/** Resolved brush-strip presentation (#190) — rich by default. */
+interface BrushStyle { axis: boolean; count: boolean; buckets: number; }
+
+/** Default histogram resolution. */
+const BRUSH_BUCKETS = 32;
+
 /**
- * The standalone rail's brush strip — a slim track over the range field's
- * full bound domain; drag a window to write the slice's range (a
- * sub-threshold drag clears it). The gesture form of the `range` pill, for
- * compositions with no chart or timeline to brush on.
+ * The standalone rail's brush strip — a track over the range field's full
+ * bound domain; drag a window to write the slice's range (a sub-threshold
+ * drag on empty track clears it). The gesture form of the `range` pill,
+ * for compositions with no chart or timeline to brush on. Rich by default
+ * (#190): a row-count histogram behind the track (self-excluding, so it
+ * never collapses under its own window) and a formatted min / tick / max
+ * axis beneath it, per the range field's declared `format` or a kind
+ * default. The applied window is a full brush selection (#192): drag its
+ * body to slide it (width preserved, `grab`/`grabbing` cursors), drag an
+ * edge hot zone to resize that bound (`ew-resize`).
  */
-function RailBrushStrip({ slice }: { slice: ValueTypeOf<typeof Slice.Types.Bind> }) {
+function RailBrushStrip({ slice, style }: { slice: ValueTypeOf<typeof Slice.Types.Bind>; style: BrushStyle }) {
+    const frameStyles = useSlotRecipe({ key: "sliceFrame" })();
     const domain = boundRangeDomain(slice.key);
-    const [drag, setDrag] = useState<{ x1: number; x2: number; width: number } | null>(null);
+    const [drag, setDrag] = useState<BrushDrag | null>(null);
     if (domain === undefined || domain.max <= domain.min) return null;
 
     const span = domain.max - domain.min;
@@ -257,67 +282,143 @@ function RailBrushStrip({ slice }: { slice: ValueTypeOf<typeof Slice.Types.Bind>
     const toMs = (v: Date | number) => (v instanceof Date ? v.getTime() : Number(v));
     const winFrom = applied !== undefined ? Math.max(0, (toMs(applied.value.from) - domain.min) / span) : 0;
     const winTo = applied !== undefined ? Math.min(1, (toMs(applied.value.to) - domain.min) / span) : 1;
+    // A grabbable window needs literal bounds — a `datetimePreset` arm has
+    // none (its fractions come out NaN), so it renders the decorative tint.
+    const winValid = applied !== undefined && Number.isFinite(winFrom) && Number.isFinite(winTo);
     const fromFraction = (f: number) => domain.min + Math.max(0, Math.min(1, f)) * span;
-    const commit = (x1: number, x2: number, width: number) => {
-        const [a, b] = [Math.min(x1, x2), Math.max(x1, x2)];
-        if (b - a < 5) { slice.setRange(none); return; }
-        const lo = fromFraction(a / width);
-        const hi = fromFraction(b / width);
+
+    // Density histogram (#190) — self-excluding row counts per bucket,
+    // max-normalised for bar heights. Empty/flat data renders no bars.
+    const counts = style.count ? boundRangeHistogram(slice.key, style.buckets) : undefined;
+    const maxCount = counts !== undefined ? Math.max(...counts) : 0;
+
+    // Formatted axis labels (#190) — the range field's declared `format`
+    // wins; else the kind default (datetime → locale date, numeric → number).
+    const rangeFieldId = (getSomeorUndefined(slice.rangeFieldId() as never) ?? undefined) as string | undefined;
+    const fieldFormat = rangeFieldId !== undefined
+        ? getSomeorUndefined((slice.fields().find(f => f.fieldId === rangeFieldId) as { format?: never } | undefined)?.format as never) as TickFormat | undefined
+        : undefined;
+    const fmt = tickFormatter(fieldFormat, domain.kind === "datetime" ? "time" : "linear");
+    const axisLabel = (f: number) => {
+        const v = fromFraction(f);
+        return fmt(domain.kind === "datetime" ? new Date(v) : v);
+    };
+    const commit = (loPx: number, hiPx: number, width: number) => {
+        const lo = fromFraction(loPx / width);
+        const hi = fromFraction(hiPx / width);
+        // The arm must match the range field's TRUE kind — an Integer field
+        // needs bigint bounds or the range is inert (isValueOf guard, #167).
         slice.setRange(some(domain.kind === "datetime"
             ? variant("datetime", { from: new Date(lo), to: new Date(hi) })
-            : variant("float", { from: lo, to: hi })));
+            : domain.kind === "integer"
+                ? variant("integer", { from: BigInt(Math.floor(lo)), to: BigInt(Math.ceil(hi)) })
+                : variant("float", { from: lo, to: hi })));
     };
+    const draft = drag !== null ? brushDragWindow(drag) : undefined;
 
     return (
-        <Box
-            position="relative"
-            height="18px"
-            borderRadius="4px"
-            background="bg.muted"
-            cursor="crosshair"
-            onPointerDown={(e) => {
-                const el = e.currentTarget as HTMLElement;
-                el.setPointerCapture(e.pointerId);
-                const rect = el.getBoundingClientRect();
-                setDrag({ x1: e.clientX - rect.left, x2: e.clientX - rect.left, width: rect.width });
-            }}
-            onPointerMove={(e) => {
-                if (!drag) return;
-                const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                setDrag({ ...drag, x2: e.clientX - rect.left });
-            }}
-            onPointerUp={() => {
-                if (!drag) return;
-                setDrag(null);
-                commit(drag.x1, drag.x2, drag.width);
-            }}
-        >
-            {/* applied window (or full domain when no range) */}
+        <Box display="flex" flexDirection="column" gap="2px" minWidth="0">
             <Box
-                position="absolute"
-                top={0}
-                bottom={0}
-                left={`${winFrom * 100}%`}
-                width={`${Math.max(0, winTo - winFrom) * 100}%`}
-                background="accent.brand"
-                opacity={applied !== undefined ? 0.3 : 0.12}
+                position="relative"
+                height={style.count ? "28px" : "18px"}
                 borderRadius="4px"
-                pointerEvents="none"
-            />
-            {/* in-flight drag selection */}
-            {drag && (
-                <Box
-                    position="absolute"
-                    top={0}
-                    bottom={0}
-                    left={`${Math.min(drag.x1, drag.x2)}px`}
-                    width={`${Math.abs(drag.x2 - drag.x1)}px`}
-                    background="accent.brand"
-                    opacity={0.35}
-                    borderXWidth="1px"
-                    borderColor="accent.brand"
-                    pointerEvents="none"
-                />
+                background="bg.muted"
+                cursor={drag !== null ? brushCursor(drag.mode) : "crosshair"}
+                overflow="hidden"
+                data-brush-track
+                onPointerDown={(e) => {
+                    const el = e.currentTarget as HTMLElement;
+                    try { el.setPointerCapture(e.pointerId); } catch { /* jsdom has no active pointers */ }
+                    const rect = el.getBoundingClientRect();
+                    const x = e.clientX - rect.left;
+                    const win = winValid ? { lo: winFrom * rect.width, hi: winTo * rect.width } : undefined;
+                    setDrag({ mode: brushHitTest(x, win), start: x, current: x, width: rect.width, win });
+                }}
+                onPointerMove={(e) => {
+                    if (!drag) return;
+                    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                    setDrag({ ...drag, current: e.clientX - rect.left });
+                }}
+                onPointerUp={() => {
+                    if (!drag) return;
+                    setDrag(null);
+                    const release = brushRelease(drag);
+                    if (release.kind === "clear") slice.setRange(none);
+                    else if (release.kind === "commit") commit(release.lo, release.hi, drag.width);
+                }}
+            >
+                {/* density histogram — row counts per bucket (#190); geometry is data-driven */}
+                {counts !== undefined && maxCount > 0 && counts.map((c, i) => (
+                    c > 0 && (
+                        <Box
+                            key={i}
+                            data-brush-bar
+                            position="absolute"
+                            bottom={0}
+                            left={`${(i / counts.length) * 100}%`}
+                            width={`${(1 / counts.length) * 100}%`}
+                            height={`${Math.max(8, (c / maxCount) * 100)}%`}
+                            background="border.strong"
+                            opacity={0.55}
+                            borderRadius="1px"
+                            pointerEvents="none"
+                        />
+                    )
+                ))}
+                {/* applied window (#192) — grabbable body (slide) + edge-resize
+                    hot zones; events bubble to the track, which owns the mode
+                    machine. Hidden mid-drag so the draft is the only window. */}
+                {drag === null && winValid && (
+                    <>
+                        <Box
+                            data-brush-window
+                            css={frameStyles.brushWindow}
+                            left={`${winFrom * 100}%`}
+                            width={`${Math.max(0, winTo - winFrom) * 100}%`}
+                            opacity={0.3}
+                        />
+                        <Box data-brush-handle="lo" css={frameStyles.brushHandle} left={`${winFrom * 100}%`} />
+                        <Box data-brush-handle="hi" css={frameStyles.brushHandle} left={`${winTo * 100}%`} />
+                    </>
+                )}
+                {/* decorative full-domain tint when nothing is applied */}
+                {drag === null && !winValid && (
+                    <Box
+                        position="absolute"
+                        top={0}
+                        bottom={0}
+                        left="0%"
+                        width="100%"
+                        background="accent.brand"
+                        opacity={0.12}
+                        borderRadius="4px"
+                        pointerEvents="none"
+                    />
+                )}
+                {/* in-flight drag window (draw / slide / resize) */}
+                {draft !== undefined && (
+                    <Box
+                        position="absolute"
+                        top={0}
+                        bottom={0}
+                        left={`${draft.lo}px`}
+                        width={`${draft.hi - draft.lo}px`}
+                        background="accent.brand"
+                        opacity={0.35}
+                        borderXWidth="1px"
+                        borderColor="accent.brand"
+                        pointerEvents="none"
+                    />
+                )}
+            </Box>
+            {/* formatted scale beneath the track (#190) — min · ⅓ · ⅔ · max */}
+            {style.axis && (
+                <Box css={frameStyles.brushAxis} aria-hidden="true">
+                    <Box as="span">{axisLabel(0)}</Box>
+                    <Box as="span">{axisLabel(1 / 3)}</Box>
+                    <Box as="span">{axisLabel(2 / 3)}</Box>
+                    <Box as="span">{axisLabel(1)}</Box>
+                </Box>
             )}
         </Box>
     );
@@ -334,19 +435,38 @@ function RailBrushStrip({ slice }: { slice: ValueTypeOf<typeof Slice.Types.Bind>
 export const EastChakraSliceRail = memo(function EastChakraSliceRail({ value }: EastChakraSliceRailProps) {
     const slice = value.slice as ValueTypeOf<typeof Slice.Types.Bind>;
     useSliceReactivity(slice.key);
+    // Opt-in persistence (#168): hydrate once on mount from the chosen store
+    // (localStorage / sessionStorage / URL param), then every mutation
+    // debounce-writes back. Keyed by the slice key; registration is once-only.
+    const persistMode = value.persist.type === "some" ? value.persist.value.type : undefined;
+    useEffect(() => {
+        if (persistMode !== undefined) enableSlicePersistence(slice.key, persistMode);
+    }, [slice.key, persistMode]);
     const state = slice.read();
     const configuredKinds = value.affordances.map(a => a.type);
     const withCohort = state.cohorts.length > 0 && !configuredKinds.includes("cohort")
         ? [...configuredKinds, "cohort"]
         : configuredKinds;
-    const affordanceKinds = withCohort.filter(k => k !== "brush");
+    // `brush` and `legend` render beneath the cluster, not as rail chips.
+    const affordanceKinds = withCohort.filter(k => k !== "brush" && k !== "legend");
     const brushEnabled = configuredKinds.includes("brush");
+    // Explicit only (#187) — the legend renders when listed, never implicitly.
+    const legendEnabled = configuredKinds.includes("legend");
+    // Brush presentation (#190) — rich by default; opt out per option.
+    // (Optional-chained: fabricated host payloads may predate the field.)
+    const brushOpts = value.brush?.type === "some" ? value.brush.value : undefined;
+    const brushStyle: BrushStyle = {
+        axis:    (brushOpts?.axis.type === "some" ? brushOpts.axis.value as boolean : undefined) ?? true,
+        count:   (brushOpts?.count.type === "some" ? brushOpts.count.value as boolean : undefined) ?? true,
+        buckets: brushOpts?.buckets.type === "some" ? Number(brushOpts.buckets.value as bigint) : BRUSH_BUCKETS,
+    };
     return (
         <Box display="flex" flexDirection="column" gap="{spacing.1.5}" minWidth="0">
             <Box display="flex" alignItems="center" minWidth="0">
                 <SliceRailCluster slice={slice} affordanceKinds={affordanceKinds} />
             </Box>
-            {brushEnabled && <RailBrushStrip slice={slice} />}
+            {brushEnabled && <RailBrushStrip slice={slice} style={brushStyle} />}
+            {legendEnabled && <EastChakraSliceLegend value={{ slice } as never} />}
         </Box>
     );
 }, () => false);

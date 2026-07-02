@@ -84,7 +84,7 @@ export const sliceTableChrome = example({
 
 export const sliceChartChrome = example({
     keywords: ["Slice", "Chart", "slice", "chrome", "Series", "breakdown", "legend", "brush", "range"],
-    description: "Sessions chart — Chart with the `slice` chrome option: its own header rail (`breakdown`, `range`, `brush`), a `Chart.Series` layer splitting the narrowed rows into one coloured series per active-breakdown value, the colour-matched legend beneath the plot, and drag-to-range brushing on the time x-axis",
+    description: "Sessions chart — Chart with the `slice` chrome option: its own header rail (`breakdown`, `range`, `brush`), a `Chart.Series` layer splitting the narrowed rows into one coloured series per active-breakdown value, the colour-matched legend beneath the plot (the explicit `legend` affordance — nothing mounts one implicitly), and drag-to-range brushing on the time x-axis",
     fn: East.function([], UIComponentType, (_$) => {
         const EventType = StructType({ day: DateTimeType, region: StringType, sessions: IntegerType });
         const cfg = Slice.config(EventType, {
@@ -111,7 +111,7 @@ export const sliceChartChrome = example({
                     <Chart
                         layers={[Chart.Series(slice, { x: "day", value: "sessions" })]}
                         slice={slice}
-                        affordances={["breakdown", "range", "brush"]}
+                        affordances={["breakdown", "range", "brush", "legend"]}
                         height={180}
                     />
                 );
@@ -128,8 +128,8 @@ export const sliceChartChrome = example({
 // ============================================================================
 
 export const sliceRail = example({
-    keywords: ["Slice", "Rail", "rows", "strip", "multi-consumer", "Table", "Summary"],
-    description: "One slice, several consumers — a standalone Slice.Rail strip (with the brush mini-strip over the sessions domain) narrowing a plain Table reading `Slice.rows([RowType], slice)`, with Slice.Summary as the quiet status footer: chrome sits where the author puts it, data flows explicitly",
+    keywords: ["Slice", "Rail", "rows", "strip", "multi-consumer", "Table", "Summary", "persist", "localStorage", "url", "shareable"],
+    description: "One slice, several consumers — a standalone Slice.Rail strip (with the brush mini-strip over the sessions domain) narrowing a plain Table reading `Slice.rows([RowType], slice)`, with Slice.Summary as the quiet status footer: chrome sits where the author puts it, data flows explicitly. `persist=\"local\"` opts the slice state into localStorage — the narrowing survives a reload (`\"url\"` makes it a shareable link)",
     fn: East.function([], UIComponentType, (_$) => {
         const EventType = StructType({ scenario: StringType, region: StringType, sessions: IntegerType });
         const cfg = Slice.config(EventType, {
@@ -152,7 +152,7 @@ export const sliceRail = example({
                 const narrowed = $.let(Slice.rows([EventType], slice));
                 return (
                     <VStack gap="3" align="stretch">
-                        <Slice.Rail slice={slice} affordances={["filter", "search", "brush"]} />
+                        <Slice.Rail slice={slice} affordances={["filter", "search", "brush"]} persist="local" />
                         <Table data={narrowed} columns={{
                             scenario: { header: "Scenario" },
                             region:   { header: "Region" },
@@ -212,10 +212,276 @@ export const sliceNarrow = example({
 });
 
 // ============================================================================
-// 5. Ops Gantt — Gantt with the `slice` chrome option.
+// 5. Curated preset bar — Slice.Presets (Slice.Cohort in toggle mode, #163).
+//    Exercises: developer-seeded cohorts as pure on/off segment chips with
+//    live counts, no authoring affordances, narrowing a Table via Slice.rows.
+// ============================================================================
+
+export const slicePresetsBar = example({
+    keywords: ["Slice", "Presets", "Cohort", "toggle", "segments", "preset", "on", "off", "counts"],
+    description: "Curated preset bar — `Slice.Presets` (= `Slice.Cohort` with `mode: \"toggle\"`): developer-seeded cohorts render as pure on/off segment chips with live counts and no authoring affordances; toggling a chip narrows the Table below via `Slice.rows`, and `Slice.Summary` reflects the active narrowings",
+    fn: East.function([], UIComponentType, (_$) => {
+        const OrderType = StructType({ sku: StringType, region: StringType, qty: IntegerType });
+        const cfg = Slice.config(OrderType, {
+            fields: { sku: { label: "SKU" }, region: { label: "Region" }, qty: { label: "Qty" } },
+        });
+        return (
+            <Reactive>{$ => {
+                const data = $.const([
+                    { sku: "A-100", region: "EU",   qty: 40n },
+                    { sku: "A-101", region: "EU",   qty: 12n },
+                    { sku: "B-200", region: "NA",   qty: 55n },
+                    { sku: "B-201", region: "NA",   qty: 9n },
+                    { sku: "C-300", region: "APAC", qty: 23n },
+                ], ArrayType(OrderType));
+                const slice = $.let(Slice.bind([OrderType], "ex.slice.presets", cfg, Slice.state({
+                    cohorts: [
+                        { id: "eu",   name: "EU",          filters: [variant("string",  { fieldId: "region", op: variant("eq", "EU") })] },
+                        { id: "bulk", name: "Bulk orders", filters: [variant("integer", { fieldId: "qty",    op: variant("gte", 20n) })] },
+                    ],
+                    activeCohorts: new Set(["bulk"]),
+                }), data, none));
+                const narrowed = $.let(Slice.rows([OrderType], slice));
+                return (
+                    <VStack gap="3" align="stretch">
+                        <Slice.Presets slice={slice} />
+                        <Table data={narrowed} columns={{
+                            sku:    { header: "SKU" },
+                            region: { header: "Region" },
+                            qty:    { header: "Qty" },
+                        }} />
+                        <Slice.Summary slice={slice} />
+                    </VStack>
+                );
+            }}</Reactive>
+        );
+    }),
+    inputs: [],
+});
+
+// ============================================================================
+// 6. Cross-filter dashboard — chart + legend + table over ONE slice (#165).
+//    Exercises: breakdown with a top-N roll-up (`other` bucket, #162), the
+//    legend's filter-to gesture beside the visibility eye, and the narrowed
+//    Table + "N of M" Summary that the same gesture drives (#169).
+// ============================================================================
+
+export const sliceCrossFilterDashboard = example({
+    keywords: ["Slice", "cross-filter", "toggleFilter", "Legend", "filter to", "breakdown", "limit", "other", "linked", "dashboard", "Chart", "Table", "Summary"],
+    description: "Cross-filtering dashboard — a Chart (split by region, top-2 + `other` roll-up), its Slice.Legend facet bar, a Table, and a `N of M` Slice.Summary all bound to ONE slice: clicking a legend item toggles it in the field's `in`-set filter (OR within the field), narrowing the chart AND the table, and the self-excluding facet options never disappear while selected — click again to deselect; `<Slice.Legend mode=\"visibility\">` is the chart-decluttering eye rail instead",
+    fn: East.function([], UIComponentType, (_$) => {
+        const EventType = StructType({ day: DateTimeType, region: StringType, sessions: IntegerType });
+        const cfg = Slice.config(EventType, {
+            fields: { day: { label: "Day" }, region: { label: "Region" }, sessions: { label: "Sessions" } },
+            breakdownFieldIds: ["region"],
+            rangeFieldId: "day",
+        });
+        return (
+            <Reactive>{$ => {
+                const data = $.const([
+                    { day: new Date("2025-03-03"), region: "EU",    sessions: 30n },
+                    { day: new Date("2025-03-10"), region: "EU",    sessions: 42n },
+                    { day: new Date("2025-03-17"), region: "EU",    sessions: 38n },
+                    { day: new Date("2025-03-03"), region: "NA",    sessions: 22n },
+                    { day: new Date("2025-03-10"), region: "NA",    sessions: 28n },
+                    { day: new Date("2025-03-03"), region: "APAC",  sessions: 9n },
+                    { day: new Date("2025-03-10"), region: "LATAM", sessions: 7n },
+                ], ArrayType(EventType));
+                const slice = $.let(Slice.bind([EventType], "ex.slice.crossfilter", cfg, Slice.state({
+                    breakdown: some({ fieldId: "region", limit: some(2n) }),
+                }), data, none));
+                const narrowed = $.let(Slice.rows([EventType], slice));
+                return (
+                    <VStack gap="3" align="stretch">
+                        <Chart
+                            layers={[Chart.Series(slice, { x: "day", value: "sessions" })]}
+                            slice={slice}
+                            affordances={["breakdown", "range"]}
+                            height={160}
+                        />
+                        <Slice.Legend slice={slice} />
+                        <Table data={narrowed} columns={{
+                            day:      { header: "Day" },
+                            region:   { header: "Region" },
+                            sessions: { header: "Sessions" },
+                        }} />
+                        <Slice.Summary slice={slice} />
+                    </VStack>
+                );
+            }}</Reactive>
+        );
+    }),
+    inputs: [],
+});
+
+// ============================================================================
+// 7. Expressive filters — the widened predicate vocabulary in one rail.
+//    Exercises: string startsWith / isNotEmpty (#171), datetime between +
+//    integer in (#166), and the capped `first-3 +N` in-set chip preview (#175).
+// ============================================================================
+
+export const sliceExpressiveFilters = example({
+    keywords: ["Slice", "Filter", "startsWith", "isEmpty", "isNotEmpty", "between", "in", "set", "preview", "predicates", "expressive"],
+    description: "The widened filter vocabulary on one rail — `sku starts with SKU-`, `note is not empty` (value-less presence chip), `day between JAN 5 – MAR 28` (datetime range op), and `qty in 10, 20, 30 +2` (integer set-membership, previewing 3 of 5 members with a `+2` tail so a big set stays a legible chip); the Table and `N of M` footer read the composed narrowing",
+    fn: East.function([], UIComponentType, (_$) => {
+        const OrderType = StructType({ sku: StringType, note: StringType, day: DateTimeType, qty: IntegerType });
+        const cfg = Slice.config(OrderType, {
+            fields: { sku: { label: "SKU" }, note: { label: "Note" }, day: { label: "Day" }, qty: { label: "Qty" } },
+            searchFieldIds: ["sku", "note"],
+        });
+        return (
+            <Reactive>{$ => {
+                const data = $.const([
+                    { sku: "SKU-100", note: "rush order", day: new Date("2025-01-10"), qty: 10n },
+                    { sku: "SKU-200", note: "  ",         day: new Date("2025-02-14"), qty: 20n },
+                    { sku: "SKU-300", note: "fragile",    day: new Date("2025-03-01"), qty: 30n },
+                    { sku: "ALT-400", note: "reseller",   day: new Date("2025-02-02"), qty: 40n },
+                    { sku: "SKU-500", note: "priority",   day: new Date("2025-05-20"), qty: 50n },
+                ], ArrayType(OrderType));
+                const slice = $.let(Slice.bind([OrderType], "ex.slice.expressive", cfg, Slice.state({
+                    filters: [
+                        variant("string",   { fieldId: "sku",  op: variant("startsWith", "SKU-") }),
+                        variant("string",   { fieldId: "note", op: variant("isNotEmpty", null) }),
+                        variant("datetime", { fieldId: "day",  op: variant("between", { from: new Date("2025-01-05"), to: new Date("2025-03-28") }) }),
+                        variant("integer",  { fieldId: "qty",  op: variant("in", new Set([10n, 20n, 30n, 40n, 50n])) }),
+                    ],
+                }), data, none));
+                const narrowed = $.let(Slice.rows([OrderType], slice));
+                return (
+                    <VStack gap="3" align="stretch">
+                        <Slice.Rail slice={slice} affordances={["filter"]} />
+                        <Table data={narrowed} columns={{
+                            sku:  { header: "SKU" },
+                            note: { header: "Note" },
+                            day:  { header: "Day" },
+                            qty:  { header: "Qty" },
+                        }} />
+                        <Slice.Summary slice={slice} />
+                    </VStack>
+                );
+            }}</Reactive>
+        );
+    }),
+    inputs: [],
+});
+
+// ============================================================================
+// 8. Ops Gantt — Gantt with the `slice` chrome option.
 //    Exercises: the rail on a timeline component (filter · search · range
 //    over the row type's datetime field) and the derived-count footer.
 // ============================================================================
+
+// ============================================================================
+// 9. Brush over time — the rich brush strip on a datetime domain (#190).
+//    Exercises: per-field `format: { date: "MMM DD" }` driving the axis
+//    labels, the self-excluding count histogram, and a Table + Summary
+//    narrowing live to the brushed window.
+// ============================================================================
+
+export const sliceBrushDatetime = example({
+    keywords: ["Slice", "Rail", "brush", "axis", "count", "histogram", "datetime", "format", "date"],
+    description: "Brush over time — a standalone Slice.Rail brush strip on a datetime domain: the field's `format: { date: \"MMM DD\" }` drives the axis labels under the track, the count histogram behind it shows where the bookings cluster (self-excluding — the bars keep showing the full distribution while you brush), and the Table + Summary below narrow live to the seeded window",
+    fn: East.function([], UIComponentType, (_$) => {
+        const BookingType = StructType({ when: DateTimeType, route: StringType, seats: IntegerType });
+        const cfg = Slice.config(BookingType, {
+            fields: {
+                when:  { label: "Departure", format: { date: "MMM DD" } },
+                route: { label: "Route" },
+                seats: { label: "Seats" },
+            },
+            rangeFieldId: "when",
+        });
+        return (
+            <Reactive>{$ => {
+                const data = $.const([
+                    { when: new Date("2025-03-02"), route: "SYD→MEL", seats: 140n },
+                    { when: new Date("2025-03-03"), route: "SYD→BNE", seats: 96n },
+                    { when: new Date("2025-03-04"), route: "MEL→SYD", seats: 152n },
+                    { when: new Date("2025-03-05"), route: "SYD→MEL", seats: 88n },
+                    { when: new Date("2025-03-21"), route: "SYD→PER", seats: 44n },
+                    { when: new Date("2025-04-08"), route: "MEL→SYD", seats: 120n },
+                    { when: new Date("2025-04-09"), route: "SYD→MEL", seats: 134n },
+                    { when: new Date("2025-04-10"), route: "SYD→BNE", seats: 61n },
+                    { when: new Date("2025-04-11"), route: "MEL→BNE", seats: 105n },
+                    { when: new Date("2025-04-12"), route: "SYD→MEL", seats: 149n },
+                ], ArrayType(BookingType));
+                const slice = $.let(Slice.bind([BookingType], "ex.slice.brush.datetime", cfg, Slice.state({
+                    range: some(variant("datetime", {
+                        from: new Date("2025-04-07"),
+                        to:   new Date("2025-04-13"),
+                    })),
+                }), data, none));
+                const narrowed = $.let(Slice.rows([BookingType], slice));
+                return (
+                    <VStack gap="3" align="stretch">
+                        <Slice.Rail slice={slice} affordances={["brush"]} />
+                        <Table data={narrowed} columns={{
+                            when:  { header: "Departure" },
+                            route: { header: "Route" },
+                            seats: { header: "Seats" },
+                        }} />
+                        <Slice.Summary slice={slice} />
+                    </VStack>
+                );
+            }}</Reactive>
+        );
+    }),
+    inputs: [],
+});
+
+// ============================================================================
+// 10. Brush over money — the rich brush strip on a currency domain (#190).
+//     Exercises: per-field `format: { currency: { compact } }` on the axis,
+//     the count histogram over a skewed value distribution, and the
+//     `brush` style option (default rich; `{ axis: false, count: false }`
+//     restores the bare track).
+// ============================================================================
+
+export const sliceBrushCurrency = example({
+    keywords: ["Slice", "Rail", "brush", "axis", "count", "histogram", "currency", "compact", "format"],
+    description: "Brush over money — the Slice.Rail brush strip on an integer order-value domain: `format: { currency: { code: \"USD\", compact: true } }` renders the axis as `$0 … $12K`, the histogram exposes the skew (many small orders, a long thin tail), and brushing the big-ticket tail narrows the Table live; pass `brush={{ axis: false, count: false }}` to restore the minimal bare track",
+    fn: East.function([], UIComponentType, (_$) => {
+        const OrderType = StructType({ customer: StringType, value: IntegerType });
+        const cfg = Slice.config(OrderType, {
+            fields: {
+                customer: { label: "Customer" },
+                value:    { label: "Order value", format: { currency: { code: "USD", compact: true } } },
+            },
+            rangeFieldId: "value",
+        });
+        return (
+            <Reactive>{$ => {
+                const data = $.const([
+                    { customer: "Acme",     value: 180n },
+                    { customer: "Birch",    value: 240n },
+                    { customer: "Cobalt",   value: 310n },
+                    { customer: "Dover",    value: 420n },
+                    { customer: "Ember",    value: 480n },
+                    { customer: "Foundry",  value: 650n },
+                    { customer: "Gale",     value: 900n },
+                    { customer: "Harbor",   value: 1400n },
+                    { customer: "Ionia",    value: 4200n },
+                    { customer: "Juniper",  value: 12000n },
+                ], ArrayType(OrderType));
+                const slice = $.let(Slice.bind([OrderType], "ex.slice.brush.currency", cfg, Slice.state({
+                    range: some(variant("integer", { from: 800n, to: 12000n })),
+                }), data, none));
+                const narrowed = $.let(Slice.rows([OrderType], slice));
+                return (
+                    <VStack gap="3" align="stretch">
+                        <Slice.Rail slice={slice} affordances={["brush"]} />
+                        <Table data={narrowed} columns={{
+                            customer: { header: "Customer" },
+                            value:    { header: "Order value" },
+                        }} />
+                        <Slice.Summary slice={slice} />
+                    </VStack>
+                );
+            }}</Reactive>
+        );
+    }),
+    inputs: [],
+});
 
 export const sliceGanttChrome = example({
     keywords: ["Slice", "Gantt", "slice", "chrome", "filter", "search", "range", "timeline"],

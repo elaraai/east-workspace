@@ -92,9 +92,49 @@ test("#106 — a decoded handle's data-derived methods resolve the bound rows by
     assert.equal(decoded.totalCount(), 2n, "decoded totalCount resolves the live rows registered under the key");
 });
 
+test("#170 — a FULLY-populated SliceState survives the beast2 round-trip field-for-field", () => {
+    const full = {
+        range: some(variant("datetime", { from: new Date("2026-01-01T00:00:00Z"), to: new Date("2026-03-31T00:00:00Z") })),
+        compare: some(variant("previousPeriod", null)),
+        filters: [
+            variant("string",  { fieldId: "id", op: variant("eq", "a") }),
+            variant("integer", { fieldId: "n",  op: variant("gte", 10n) }),
+        ],
+        cohorts: [{ id: "eu", name: "EU", filters: [variant("string", { fieldId: "id", op: variant("in", new Set(["a", "b"])) })] }],
+        activeCohorts: new Set(["eu"]),
+        breakdown: some({ fieldId: "id", limit: some(2n) }),
+        search: some("hello"),
+        visible: some(new Set(["a", "other"])),
+        selectedIndex: some(3n),
+    };
+    const bytes = encodeBeast2For(Slice.Types.State)(full as never);
+    const back = decodeBeast2For(Slice.Types.State)(bytes) as unknown as typeof full;
+
+    assert.equal(back.range.type, "some");
+    const range = (back.range as { value: { type: string; value: { from: Date; to: Date } } }).value;
+    assert.equal(range.type, "datetime");
+    assert.equal(range.value.from.getTime(), new Date("2026-01-01T00:00:00Z").getTime());
+    assert.equal(range.value.to.getTime(),   new Date("2026-03-31T00:00:00Z").getTime());
+    assert.equal((back.compare as { value: { type: string } }).value.type, "previousPeriod");
+    assert.equal(back.filters.length, 2);
+    assert.equal((back.filters[0] as { value: { op: { value: string } } }).value.op.value, "a");
+    assert.equal((back.filters[1] as { value: { op: { value: bigint } } }).value.op.value, 10n);
+    assert.equal(back.cohorts.length, 1);
+    const cohortSet = (back.cohorts[0]!.filters[0] as { value: { op: { value: Set<string> } } }).value.op.value;
+    assert.equal(cohortSet.has("a") && cohortSet.has("b"), true);       // Set MEMBERS survive
+    assert.equal(back.activeCohorts.has("eu"), true);
+    const bd = (back.breakdown as { value: { fieldId: string; limit: { value: bigint } } }).value;
+    assert.equal(bd.fieldId, "id");
+    assert.equal(bd.limit.value, 2n);
+    assert.equal((back.search as { value: string }).value, "hello");
+    const vis = (back.visible as { value: Set<string> }).value;
+    assert.equal(vis.has("a") && vis.has("other") && vis.size === 2, true);
+    assert.equal((back.selectedIndex as { value: bigint }).value, 3n);
+});
+
 test("#106 — SliceImpl ships the backing primitives (decode path)", () => {
     const names = new Set(getRegisteredPlatformImplementations().map(p => p.name));
-    for (const name of ["slice_bind", "slice_read", "slice_write", "slice_set_search", "slice_add_filter", "slice_matches", "slice_total_count"]) {
+    for (const name of ["slice_bind", "slice_read", "slice_write", "slice_set_search", "slice_add_filter", "slice_toggle_filter", "slice_facet_groups", "slice_matches", "slice_total_count"]) {
         assert.ok(names.has(name), `platform '${name}' must be registered for handle decode to re-bind`);
     }
 });

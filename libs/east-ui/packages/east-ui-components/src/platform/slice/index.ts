@@ -47,6 +47,7 @@ import {
     none,
     encodeBeast2For,
     decodeBeast2For,
+    equalFor,
     type variant,
 } from "@elaraai/east";
 import { type PlatformFunction, type EastTypeValue } from "@elaraai/east/internal";
@@ -79,6 +80,10 @@ interface SliceCohortLike {
 
 const encodeState = encodeBeast2For(Slice.Types.State);
 const decodeState = decodeBeast2For(Slice.Types.State);
+/** Structural predicate equality — nested variant/struct/Date/Set payloads.
+ *  (Loose-`variant` boundary cast, same as `writeState` — the runtime shape
+ *  is identical to the strict East-generated one the comparator expects.) */
+const predicateEqual = equalFor(Slice.Types.Predicate) as (x: unknown, y: unknown) => boolean;
 
 export const DEFAULT_SLICE_STATE: SliceStateLike = {
     range:         none,
@@ -106,11 +111,130 @@ function writeState(key: string, state: SliceStateLike): void {
      * `type` / `value` fields. Cast at the boundary to bridge the static
      * gap. */
     getStore().write(key, encodeState(state as Parameters<typeof encodeState>[0]));
+    // Every slice mutation funnels through here — the one choke point the
+    // opt-in persistence write-back needs (#168).
+    schedulePersist(key);
 }
 
 function updateState(key: string, fn: (s: SliceStateLike) => SliceStateLike): null {
     writeState(key, fn(readState(key)));
     return null;
+}
+
+// ---------------------------------------------------------------------------
+// Opt-in slice persistence (#168) — hydrate a slice's state from
+// localStorage / sessionStorage / a URL query parameter on mount, and
+// debounce-write every mutation back. The blob is the state's beast2 bytes,
+// base64url-encoded (compact, URL-safe). A blob that fails to decode (a
+// foreign value, or a wire shape from another build) is ignored — the seeded
+// state stands.
+// ---------------------------------------------------------------------------
+
+/** Where a persisted slice's state lives. */
+export type SlicePersistMode = "local" | "session" | "url";
+
+/** Debounce for the persisted write-back — mutations are chatty (brush drags). */
+const PERSIST_DEBOUNCE_MS = 150;
+
+const persistedSlices = new Map<string, { mode: SlicePersistMode; timer: ReturnType<typeof setTimeout> | undefined }>();
+
+/** Storage / query-parameter name for a persisted slice. */
+const persistName = (key: string) => `east-ui.slice.${key}`;
+
+function bytesToBase64url(bytes: Uint8Array): string {
+    let bin = "";
+    for (const b of bytes) bin += String.fromCharCode(b);
+    return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function base64urlToBytes(s: string): Uint8Array {
+    const b64 = s.replace(/-/g, "+").replace(/_/g, "/");
+    const bin = atob(b64);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+}
+
+function readPersistedBlob(key: string, mode: SlicePersistMode): string | undefined {
+    if (typeof window === "undefined") return undefined;
+    if (mode === "url") {
+        return new URLSearchParams(window.location.search).get(persistName(key)) ?? undefined;
+    }
+    return (mode === "local" ? window.localStorage : window.sessionStorage).getItem(persistName(key)) ?? undefined;
+}
+
+function writePersistedBlob(key: string, mode: SlicePersistMode, blob: string): void {
+    if (typeof window === "undefined") return;
+    if (mode === "url") {
+        const url = new URL(window.location.href);
+        url.searchParams.set(persistName(key), blob);
+        window.history.replaceState(null, "", url);
+        return;
+    }
+    (mode === "local" ? window.localStorage : window.sessionStorage).setItem(persistName(key), blob);
+}
+
+function persistNow(key: string): void {
+    const entry = persistedSlices.get(key);
+    if (entry === undefined) return;
+    const encoded = getStore().read(key);
+    if (encoded === undefined) return;
+    writePersistedBlob(key, entry.mode, bytesToBase64url(encoded));
+}
+
+function schedulePersist(key: string): void {
+    const entry = persistedSlices.get(key);
+    if (entry === undefined) return;
+    if (entry.timer !== undefined) clearTimeout(entry.timer);
+    entry.timer = setTimeout(() => { entry.timer = undefined; persistNow(key); }, PERSIST_DEBOUNCE_MS);
+}
+
+/**
+ * Opt a bound slice's state into persistence (#168). Registers the key once:
+ * hydrates the store from the persisted blob when one exists (replacing the
+ * seeded state — a blob that fails to decode is ignored), then debounce-writes
+ * every subsequent mutation back to the chosen store. The `Slice.Rail`
+ * renderer calls this on mount when its `persist` chrome option is set.
+ *
+ * @param key - the slice's store key
+ * @param mode - where the state persists (`local` / `session` / `url`)
+ */
+export function enableSlicePersistence(key: string, mode: SlicePersistMode): void {
+    if (persistedSlices.has(key)) return;
+    persistedSlices.set(key, { mode, timer: undefined });
+    const blob = readPersistedBlob(key, mode);
+    if (blob === undefined) return;
+    try {
+        writeState(key, decodeState(base64urlToBytes(blob)) as SliceStateLike);
+    } catch {
+        /* stale / foreign blob (e.g. an older wire shape) — keep the seed */
+    }
+}
+
+/**
+ * Flush any pending debounced persistence writes immediately. Deterministic
+ * tests call this instead of sleeping out the debounce window.
+ */
+export function flushSlicePersistence(): void {
+    for (const [key, entry] of persistedSlices) {
+        if (entry.timer !== undefined) {
+            clearTimeout(entry.timer);
+            entry.timer = undefined;
+            persistNow(key);
+        }
+    }
+}
+
+/**
+ * Drop every persistence registration (pending timers cancelled, storage left
+ * untouched). Test isolation only.
+ * @internal
+ */
+export function resetSlicePersistence(): void {
+    for (const [, entry] of persistedSlices) {
+        if (entry.timer !== undefined) clearTimeout(entry.timer);
+    }
+    persistedSlices.clear();
 }
 
 /** Synthetic single-narrowing state, for per-aspect counts. */
@@ -135,8 +259,11 @@ function boundRows(entry: { rows: Row[] | (() => Row[]) }): Row[] {
  * The bound rows' domain over the slice's range field — feeds the standalone
  * `Slice.Rail` brush strip (track = full domain, window = applied range).
  * Values are epoch ms for datetime fields, plain numbers for float/integer.
+ * The kind reports the field's TRUE primitive: an Integer field must yield
+ * `"integer"` so the brush writes an `integer` range arm — a `float` arm is
+ * inert for bigint values (`isValueOf` guard) and silently filters nothing (#167).
  */
-export function boundRangeDomain(key: string): { kind: "datetime" | "float"; min: number; max: number } | undefined {
+export function boundRangeDomain(key: string): { kind: "datetime" | "integer" | "float"; min: number; max: number } | undefined {
     const bound = boundByKey.get(key);
     if (bound === undefined) return undefined;
     const boundRowsList = boundRows(bound);
@@ -148,7 +275,9 @@ export function boundRangeDomain(key: string): { kind: "datetime" | "float"; min
     if (cfg.rangeFieldId.type !== "some") return undefined;
     const field = cfg.fields.get(cfg.rangeFieldId.value);
     if (field === undefined) return undefined;
-    const kind = field.type === "datetime" ? "datetime" as const : "float" as const;
+    const kind = field.type === "datetime" ? "datetime" as const
+        : field.type === "integer" ? "integer" as const
+            : "float" as const;
     let min = Infinity;
     let max = -Infinity;
     for (const r of boundRowsList) {
@@ -159,6 +288,46 @@ export function boundRangeDomain(key: string): { kind: "datetime" | "float"; min
     }
     if (!Number.isFinite(min) || !Number.isFinite(max)) return undefined;
     return { kind, min, max };
+}
+
+/**
+ * Row-count histogram over the range field's domain (#190) — the density
+ * strip behind the standalone `Slice.Rail` brush. Buckets the bound rows by
+ * the range field's accessor into `buckets` equal-width bins across
+ * {@link boundRangeDomain}. Counted **self-excluding**: under the current
+ * narrowing minus the range itself (consistent with #188's facet semantics),
+ * so the histogram reacts to filters/search/cohorts but never collapses
+ * under its own window.
+ *
+ * @param key - the slice's store key
+ * @param buckets - number of equal-width bins (callers default this)
+ * @returns per-bucket row counts (all zeros when nothing matches), or
+ *          `undefined` when the slice has no usable range domain
+ */
+export function boundRangeHistogram(key: string, buckets: number): number[] | undefined {
+    const bound = boundByKey.get(key);
+    const domain = boundRangeDomain(key);
+    if (bound === undefined || domain === undefined || buckets < 1) return undefined;
+    const cfg = bound.config as unknown as {
+        rangeFieldId: { type: string; value: string };
+        fields: Map<string, { type: string; value: { accessor: (r: unknown) => unknown } }>;
+    };
+    const field = cfg.fields.get(cfg.rangeFieldId.value);
+    if (field === undefined) return undefined;
+    const s = readState(key);
+    const facetState = { ...s, range: none };
+    const now = new Date();
+    const span = domain.max - domain.min;
+    const counts = new Array<number>(buckets).fill(0);
+    for (const r of boundRows(bound)) {
+        if (!sliceMatches(facetState as never, bound.config, r as Row, now)) continue;
+        const v = field.value.accessor(r);
+        const n = v instanceof Date ? v.getTime() : Number(v);
+        if (!Number.isFinite(n)) continue;
+        const idx = span <= 0 ? 0 : Math.min(buckets - 1, Math.floor(((n - domain.min) / span) * buckets));
+        if (idx >= 0) counts[idx]! += 1;
+    }
+    return counts;
 }
 
 /**
@@ -192,7 +361,7 @@ function buildSliceHandleIR(key: string): Record<string, unknown> {
     // Bare identifiers (not `SliceBindPrimitives.read(...)`): platform calls inside
     // an `East.function` body read cleaner and match the State/Nav handle builders.
     const {
-        read, write, setRange, setCompare, addFilter, removeFilter, clearFilters,
+        read, write, setRange, setCompare, addFilter, removeFilter, clearFilters, toggleFilter, facetGroups,
         defineCohort, updateCohort, removeCohort, toggleCohort,
         setBreakdown, setSearch, setVisible, select, isActive, activeCount,
         dimensions, fields, searchFieldIds, rangeFieldId,
@@ -243,6 +412,10 @@ function buildSliceHandleIR(key: string): Record<string, unknown> {
         series:       East.compile(East.function([StringType, StringType], ArrayType(T.Series), ($, x, v) => { $.return(series(keyExpr, x, v)); }), platform),
         matches:      East.compile(East.function([], ArrayType(T.SearchMatch), ($) => { $.return(matches(keyExpr)); }), platform),
         cohortCounts: East.compile(East.function([], DictType(StringType, IntegerType), ($) => { $.return(cohortCounts(keyExpr)); }), platform),
+
+        // --- cross-filtering (#165/#188 — appended last, matching the struct order) ---
+        toggleFilter: East.compile(East.function([T.Predicate], NullType, ($, p) => { $.return(toggleFilter(keyExpr, p)); }), platform),
+        facetGroups:  East.compile(East.function([], ArrayType(T.BreakdownGroup), ($) => { $.return(facetGroups(keyExpr)); }), platform),
     };
 }
 
@@ -368,12 +541,31 @@ export const SliceImpl: PlatformFunction[] = [
         updateState(key as string, s => ({ ...s, compare: opt as variant }))),
 
     // --- filters ---
-    SliceBindPrimitives.addFilter.implement((key: unknown, pred: unknown) =>
-        updateState(key as string, s => ({ ...s, filters: [...s.filters, pred as variant] }))),
+    // Appending a structurally-equal predicate is a no-op (no write, no
+    // re-render) — an accidental double Add can't inflate the active count
+    // (#164). Structural equality via East's equalFor, which handles the
+    // nested variant/struct/Date/Set payloads correctly.
+    SliceBindPrimitives.addFilter.implement((key: unknown, pred: unknown) => {
+        const k = key as string;
+        const s = readState(k);
+        if (s.filters.some(f => predicateEqual(f, pred))) return null;
+        writeState(k, { ...s, filters: [...s.filters, pred as variant] });
+        return null;
+    }),
     SliceBindPrimitives.removeFilter.implement((key: unknown, idx: unknown) => {
         const i = Number(idx as bigint);
         return updateState(key as string, s => ({ ...s, filters: s.filters.filter((_, j) => j !== i) }));
     }),
+    // Idempotent toggle (#165): append when absent, remove the structurally-
+    // equal clause when present — the "filter to this" gesture both narrows
+    // and un-narrows.
+    SliceBindPrimitives.toggleFilter.implement((key: unknown, pred: unknown) =>
+        updateState(key as string, s => {
+            const i = s.filters.findIndex(f => predicateEqual(f, pred));
+            return i >= 0
+                ? { ...s, filters: s.filters.filter((_, j) => j !== i) }
+                : { ...s, filters: [...s.filters, pred as variant] };
+        })),
     // "Clear all" must zero every NARROWING the Summary counts — filters,
     // active cohorts, range, and search — not just filters/cohorts (else the
     // count can never reach 0). Breakdown (grouping), visible (legend whitelist)
@@ -475,12 +667,14 @@ export const SliceImpl: PlatformFunction[] = [
             fields: Map<string, { type: string; value: { accessor: (r: unknown) => unknown } }>;
         }).fields;
         const rows = boundRows(e);
+        // (Loose `variant` format field vs the strict platform output — same
+        // boundary cast as `writeState`; identical runtime shape.)
         return base.map(f => {
             if (f.hints.length > 0 || f.kind !== "string") return f;
             const accessor = fieldsMap.get(f.fieldId)?.value?.accessor;
             if (accessor === undefined) return f;
             return { ...f, hints: autoDeriveFieldHints(rows, accessor) };
-        });
+        }) as never;
     }),
     SliceBindPrimitives.searchFieldIds.implement((key: unknown) => {
         const e = boundByKey.get(key as string);
@@ -512,6 +706,25 @@ export const SliceImpl: PlatformFunction[] = [
         const e = boundByKey.get(k);
         if (e === undefined) return [];
         return sliceBreakdown(readState(k) as never, e.config, boundRows(e), new Date());
+    }),
+    // Self-excluding facet options (#188): the breakdown groups computed with
+    // the breakdown field's OWN filters stripped from the narrowing — a facet
+    // must keep showing every option (with live counts) while some are
+    // selected. Filters on other fields, range, search, and cohorts still
+    // narrow the option counts.
+    SliceBindPrimitives.facetGroups.implement((key: unknown) => {
+        const k = key as string;
+        trackKey(k);
+        const e = boundByKey.get(k);
+        if (e === undefined) return [];
+        const s = readState(k);
+        if (s.breakdown.type !== "some") return [];
+        const fieldId = (s.breakdown.value as { fieldId: string }).fieldId;
+        const facetState = {
+            ...s,
+            filters: s.filters.filter(f => (f.value as { fieldId: string }).fieldId !== fieldId),
+        };
+        return sliceBreakdown(facetState as never, e.config, boundRows(e), new Date());
     }),
     SliceBindPrimitives.series.implement((key: unknown, xFieldId: unknown, valueFieldId: unknown) => {
         const k = key as string;

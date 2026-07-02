@@ -9,6 +9,8 @@ import {
     East,
     ArrayType,
     variant,
+    some,
+    none,
 } from "@elaraai/east";
 
 import { UIComponentType } from "../../component.js";
@@ -33,6 +35,24 @@ export interface SliceRailOptions {
      * the sectioned `Slice.Edit` popover floating over whatever sits below.
      */
     affordances?: SliceRailAffordance[];
+    /**
+     * Opt the slice's state into persistence (#168): `"local"` /
+     * `"session"` storage keyed by the slice key (survives reloads), or
+     * `"url"` — a query parameter holding the encoded state, so the exact
+     * narrowing is bookmarkable and shareable. On mount the rail hydrates the
+     * slice from the chosen store (a stale or foreign blob is ignored);
+     * every mutation writes back, debounced. Absent = in-memory only.
+     */
+    persist?: "local" | "session" | "url";
+    /**
+     * Presentation of the brush strip (#190). The strip is rich by default —
+     * a formatted axis (min / ticks / max, per the range field's declared
+     * `format` or a kind default) and a row-count histogram behind the track
+     * (self-excluding, so it never collapses under its own window). Pass
+     * `{ axis: false, count: false }` for the minimal bare track, or
+     * `buckets` to change the histogram resolution (default 32).
+     */
+    brush?: { axis?: boolean; count?: boolean; buckets?: number };
 }
 
 /**
@@ -61,6 +81,14 @@ function createSliceRail(options: SliceRailOptions): ExprType<UIComponentType> {
     return East.value(variant("SliceRail", {
         slice: options.slice,
         affordances: East.value(affordances, ArrayType(SliceAffordanceType)),
+        persist: options.persist !== undefined ? some(variant(options.persist, null)) : none,
+        brush: options.brush !== undefined
+            ? some({
+                axis:    options.brush.axis !== undefined ? some(options.brush.axis) : none,
+                count:   options.brush.count !== undefined ? some(options.brush.count) : none,
+                buckets: options.brush.buckets !== undefined ? some(BigInt(options.brush.buckets)) : none,
+            })
+            : none,
     }), UIComponentType);
 }
 

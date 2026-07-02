@@ -16,6 +16,7 @@ import { SlicePredicateBuilder } from "../predicate-builder";
 import { SliceEditPopover } from "../edit";
 import { useSliceDensity } from "../density";
 import { useSliceReactivity } from "../use-slice-reactivity";
+import { uniqueSlug } from "../slug";
 
 /** East Slice.Filter value type. */
 export type SliceFilterValue = ValueTypeOf<typeof Slice.Filter.Types.Filter>;
@@ -30,7 +31,7 @@ export interface EastChakraSliceFilterProps {
  * one row of as many brand pills as fit with remove `×`, a `+N more` pill opening a
  * `Slice.Edit` list, and a dashed `+ filter` pill opening the builder popover.
  * **Focused** (standalone): the same chip rail plus a `SHOWING N {unit}` footer
- * and `Save view →`. The add-filter builder always lives in a `Slice.Edit`
+ * (result **of** total). The add-filter builder always lives in a `Slice.Edit`
  * popover, so opening it never re-flows the surface.
  */
 export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value }: EastChakraSliceFilterProps) {
@@ -63,11 +64,14 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
     // Replace the clause at `i` in place (op / value edit keeps order).
     const replaceFilter = (i: number, pred: PredicateValue) => slice.write({ ...state, filters: filters.map((f, j) => j === i ? pred : f) });
 
-    // Save the active filter set as a reusable cohort and apply it.
+    // Save the active filter set as a reusable cohort and apply it. The id is
+    // deduped against the existing cohorts (the shared `uniqueSlug` the Cohort
+    // renderer uses) so a name that slugifies to an existing id yields a fresh
+    // one (`eu` → `eu-2`) instead of tripping `defineCohort`'s throw-on-duplicate.
     const saveCohort = () => {
         const name = cohortName.trim();
         if (name === "") return;
-        const id = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "cohort";
+        const id = uniqueSlug(name, state.cohorts.map(c => c.id));
         slice.defineCohort({ id, name, filters: [...filters] });
         slice.toggleCohort(id);
         setCohortName("");
@@ -109,7 +113,11 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
                 </Box>
             }
         >
-            {open === "add" ? <SlicePredicateBuilder fields={fields} onAdd={pred => { slice.addFilter(pred); }} /> : null}
+            {/* Add applies the clause and CLOSES the popover — consistent with
+                the edit path — so the new chip appearing in the rail is the
+                visible confirmation; the lazy-mounted builder unmounts and the
+                next open starts fresh (#164). */}
+            {open === "add" ? <SlicePredicateBuilder fields={fields} onAdd={pred => { slice.addFilter(pred); setOpen(null); }} /> : null}
         </SliceEditPopover>
     );
 
@@ -199,11 +207,15 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
                     {addPopover}
                 </Box>
             </Box>
+            {/* No "Save view →" affordance here: full named-view snapshots are
+                a tracked follow-up (#168) — the UI must not advertise a
+                non-feature. Cohorts cover saving filter bundles. */}
             <Box css={frame.footer}>
+                {/* Result OF total (#169) — "1,284 of 50,000 events" gives the
+                    denominator context a bare count lacks. */}
                 <Box as="span" css={frame.footerLabel}>
-                    {`SHOWING ${Number(slice.resultCount()).toLocaleString()}${unit !== undefined ? ` ${unit}` : ""}`}
+                    {`SHOWING ${Number(slice.resultCount()).toLocaleString()}${Number(slice.totalCount()) > 0 ? ` OF ${Number(slice.totalCount()).toLocaleString()}` : ""}${unit !== undefined ? ` ${unit}` : ""}`}
                 </Box>
-                <Box as="span" css={frame.footerAction}>Save view →</Box>
             </Box>
         </Box>
     );

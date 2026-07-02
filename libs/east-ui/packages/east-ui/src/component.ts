@@ -137,7 +137,7 @@ import { SliceLegendType } from "./slice/legend/types.js";
 import { SliceBreakdownPickerType } from "./slice/breakdown/types.js";
 import { SliceSearchType } from "./slice/search/types.js";
 import { SliceCohortPickerType } from "./slice/cohort/types.js";
-import { SliceBindType, SliceChromeType } from "./platform/slice/index.js";
+import { SliceBindType, SliceBrushStyleType, SliceChromeType, SlicePersistType } from "./platform/slice/index.js";
 import { SliceAffordanceType } from "./contracts/slice-affordances.js";
 import { IconType } from "./display/icon/types.js";
 
@@ -594,11 +594,14 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
     /**
      * SliceRail — the slice affordance cluster as a standalone strip: one row
      * that never wraps, compressing along the chip ladder, with the sectioned
-     * `Slice.Edit` popover as its only expansion.
+     * `Slice.Edit` popover as its only expansion. `persist` opts the slice's
+     * state into localStorage / sessionStorage / URL persistence (#168).
      */
     SliceRail: StructType({
         slice: SliceBindType,
         affordances: ArrayType(SliceAffordanceType),
+        persist: OptionType(SlicePersistType),
+        brush: OptionType(SliceBrushStyleType),
     }),
 
     // Container

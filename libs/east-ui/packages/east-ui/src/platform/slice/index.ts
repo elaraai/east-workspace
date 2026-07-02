@@ -87,6 +87,7 @@ import {
 
 import { ChartXType } from "../../charts/spec/types.js";
 import { SliceAffordanceType } from "../../contracts/slice-affordances.js";
+import { ValueFormatType } from "../../contracts/format.js";
 
 // ============================================================================
 // DateTimeRange — generic { from, to } interval
@@ -186,11 +187,11 @@ export type SliceCompareType = typeof SliceCompareType;
  * concrete value internally.
  */
 const SliceFieldSpecType = VariantType({
-    string:   StructType({ label: StringType, accessor: FunctionType(["T"], StringType) }),
-    integer:  StructType({ label: StringType, accessor: FunctionType(["T"], IntegerType) }),
-    float:    StructType({ label: StringType, accessor: FunctionType(["T"], FloatType) }),
-    datetime: StructType({ label: StringType, accessor: FunctionType(["T"], DateTimeType) }),
-    boolean:  StructType({ label: StringType, accessor: FunctionType(["T"], BooleanType) }),
+    string:   StructType({ label: StringType, accessor: FunctionType(["T"], StringType), format: OptionType(ValueFormatType) }),
+    integer:  StructType({ label: StringType, accessor: FunctionType(["T"], IntegerType), format: OptionType(ValueFormatType) }),
+    float:    StructType({ label: StringType, accessor: FunctionType(["T"], FloatType), format: OptionType(ValueFormatType) }),
+    datetime: StructType({ label: StringType, accessor: FunctionType(["T"], DateTimeType), format: OptionType(ValueFormatType) }),
+    boolean:  StructType({ label: StringType, accessor: FunctionType(["T"], BooleanType), format: OptionType(ValueFormatType) }),
 });
 
 // Internal: materialise a concrete `SliceFieldSpec` East type for the
@@ -198,11 +199,11 @@ const SliceFieldSpecType = VariantType({
 // don't need a hand on it.
 function sliceFieldSpecFor<T>(rowType: T) {
     return VariantType({
-        string:   StructType({ label: StringType, accessor: FunctionType([rowType], StringType) }),
-        integer:  StructType({ label: StringType, accessor: FunctionType([rowType], IntegerType) }),
-        float:    StructType({ label: StringType, accessor: FunctionType([rowType], FloatType) }),
-        datetime: StructType({ label: StringType, accessor: FunctionType([rowType], DateTimeType) }),
-        boolean:  StructType({ label: StringType, accessor: FunctionType([rowType], BooleanType) }),
+        string:   StructType({ label: StringType, accessor: FunctionType([rowType], StringType), format: OptionType(ValueFormatType) }),
+        integer:  StructType({ label: StringType, accessor: FunctionType([rowType], IntegerType), format: OptionType(ValueFormatType) }),
+        float:    StructType({ label: StringType, accessor: FunctionType([rowType], FloatType), format: OptionType(ValueFormatType) }),
+        datetime: StructType({ label: StringType, accessor: FunctionType([rowType], DateTimeType), format: OptionType(ValueFormatType) }),
+        boolean:  StructType({ label: StringType, accessor: FunctionType([rowType], BooleanType), format: OptionType(ValueFormatType) }),
     });
 }
 
@@ -275,17 +276,41 @@ const FIELD_KIND_BY_TYPE_TAG: Record<string, "string" | "integer" | "float" | "d
 };
 
 /**
+ * Display-format shorthand for a `Slice.config` field (#190) — the same
+ * vocabulary as `Chart.format.*` ({@link ValueFormatType}): a string literal
+ * for the flag-only formats, an object for the parameterised ones.
+ */
+export type SliceFieldFormat =
+    | "number" | "percent" | "compact"
+    | { currency: { code?: string; compact?: boolean } }
+    | { date: string } | { time: string } | { datetime: string };
+
+/** Build the {@link ValueFormatType} variant value for a field-format shorthand. */
+function toValueFormat(f: SliceFieldFormat): unknown {
+    if (typeof f === "string") return variant(f, null);
+    if ("currency" in f) return variant("currency", { code: f.currency.code ?? "USD", compact: f.currency.compact ?? false });
+    if ("date" in f) return variant("date", f.date);
+    if ("time" in f) return variant("time", f.time);
+    return variant("datetime", f.datetime);
+}
+
+/**
  * One field declaration in `Slice.config`. Only the label is required —
  * the accessor is auto-derived as `r => r[fieldId]` and the field's kind
  * (string / integer / float / datetime / boolean) is inferred from the
  * row's struct field type.
  *
- * @property label - Human-readable label shown in filter / breakdown UI
- * @property hints - Optional candidate values surfaced as autocomplete in the filter's `in` / `notIn` / `eq` / `neq` controls
+ * @property label  - Human-readable label shown in filter / breakdown UI
+ * @property hints  - Optional candidate values surfaced as autocomplete in the filter's `in` / `notIn` / `eq` / `neq` controls
+ * @property format - Optional display format ({@link SliceFieldFormat}, the
+ *                    `Chart.format.*` vocabulary) — formats this field's
+ *                    values everywhere the chrome renders them: the rail
+ *                    brush axis, the Range pill, predicate chips (#190)
  */
 export interface SliceFieldUserConfig {
     label: string;
     hints?: ReadonlyArray<string>;
+    format?: SliceFieldFormat;
 }
 
 /**
@@ -371,7 +396,11 @@ function createSliceConfig<
             fieldType,
             (_$, row) => (row as unknown as Record<string, ExprType<EastType>>)[fieldId] as never,
         );
-        fieldEntries.push([fieldId, variant(kind, { label: fieldConfig.label, accessor })]);
+        fieldEntries.push([fieldId, variant(kind, {
+            label: fieldConfig.label,
+            accessor,
+            format: fieldConfig.format !== undefined ? some(toValueFormat(fieldConfig.format)) : none,
+        })]);
         if (fieldConfig.hints !== undefined) fieldHints.set(fieldId, [...fieldConfig.hints]);
     }
     // Default `searchFieldIds` to every string field when not given, so the
@@ -470,14 +499,31 @@ function createSliceState(opts: SliceStateOptions = {}) {
 // values of its family's type. Mismatch is impossible by construction.
 // ============================================================================
 
-/** Operators for string-typed dimensions. */
+/**
+ * Operators for string-typed dimensions.
+ *
+ * @property eq         - exact equality
+ * @property neq        - exact inequality
+ * @property in         - membership in a value set
+ * @property notIn      - non-membership in a value set
+ * @property contains   - substring match
+ * @property matches    - regular-expression match (an invalid pattern narrows to nothing)
+ * @property startsWith - prefix match
+ * @property endsWith   - suffix match
+ * @property isEmpty    - empty or whitespace-only value (carries no comparison value)
+ * @property isNotEmpty - non-whitespace content present (carries no comparison value)
+ */
 export const SliceStringOpType = VariantType({
-    eq:       StringType,
-    neq:      StringType,
-    in:       SetType(StringType),
-    notIn:    SetType(StringType),
-    contains: StringType,
-    matches:  StringType,
+    eq:         StringType,
+    neq:        StringType,
+    in:         SetType(StringType),
+    notIn:      SetType(StringType),
+    contains:   StringType,
+    matches:    StringType,
+    startsWith: StringType,
+    endsWith:   StringType,
+    isEmpty:    NullType,
+    isNotEmpty: NullType,
 });
 export type SliceStringOpType = typeof SliceStringOpType;
 
@@ -645,6 +691,8 @@ export const SliceFieldDescriptorType = StructType({
     label:   StringType,
     kind:    StringType,
     hints:   ArrayType(StringType),
+    /** Declared display format for the field's values (#190) — `none` = kind default. */
+    format:  OptionType(ValueFormatType),
 });
 export type SliceFieldDescriptorType = typeof SliceFieldDescriptorType;
 
@@ -757,6 +805,43 @@ export const SliceDensityType = VariantType({
 });
 export type SliceDensityType = typeof SliceDensityType;
 
+/**
+ * Presentation options for the standalone `Slice.Rail` brush strip (#190).
+ * All fields optional — absent means the rich default (axis + count ON): the
+ * bare track gave no scale or density hint.
+ *
+ * @property axis    - Show formatted min / tick / max labels beneath the track
+ *                     (the range field's declared `format`, else a kind default).
+ * @property count   - Show the row-count histogram behind the track (computed
+ *                     self-excluding — under the current narrowing minus the
+ *                     range itself, so it never collapses under its own window).
+ * @property buckets - Histogram bucket count (default 32).
+ */
+export const SliceBrushStyleType = StructType({
+    axis:    OptionType(BooleanType),
+    count:   OptionType(BooleanType),
+    buckets: OptionType(IntegerType),
+});
+export type SliceBrushStyleType = typeof SliceBrushStyleType;
+
+/**
+ * Where a slice's state persists beyond the in-memory store (#168) — opt-in
+ * chrome on `Slice.Rail`. Absent = today's in-memory behaviour.
+ *
+ * @property local   - `localStorage`, keyed by the slice key: survives reloads
+ *                     and new tabs on the same origin.
+ * @property session - `sessionStorage`: survives reloads within the tab.
+ * @property url     - a query parameter holding the encoded state: the view is
+ *                     bookmarkable / shareable — opening the link restores the
+ *                     same narrowing.
+ */
+export const SlicePersistType = VariantType({
+    local:   NullType,
+    session: NullType,
+    url:     NullType,
+});
+export type SlicePersistType = typeof SlicePersistType;
+
 // ============================================================================
 // slice_bind — stateful platform
 // ============================================================================
@@ -863,6 +948,23 @@ export const SliceBindType = StructType({
         matches: FunctionType([], SliceSearchMatchArrayType),
         /** Size of each cohort over the bound rows, keyed by cohort id — Cohort chips. */
         cohortCounts: FunctionType([], DictType(StringType, IntegerType)),
+
+        // --- cross-filtering (#165 — appended last: wire-order compatibility) ---
+        /**
+         * Idempotent filter toggle: appends the predicate when no
+         * structurally-equal clause is applied, removes the structurally-equal
+         * one when it is. Backs custom "filter to this" wiring; the Legend /
+         * Breakdown facet gestures use in-set semantics over `write` instead.
+         */
+        toggleFilter: FunctionType([SlicePredicateType], NullType),
+        /**
+         * Self-excluding facet options (#188): the active breakdown's groups
+         * computed under the current narrowing MINUS `state.filters` entries
+         * on the breakdown field itself — so a facet keeps showing every
+         * option (with live counts) while some are selected. Feeds the
+         * filter-mode `Slice.Legend`.
+         */
+        facetGroups: FunctionType([], SliceBreakdownGroupArrayType),
 });
 export type SliceBindType = typeof SliceBindType;
 
@@ -894,6 +996,7 @@ const slice_set_compare   = East.platform("slice_set_compare",   [StringType, Op
 const slice_add_filter    = East.platform("slice_add_filter",    [StringType, SlicePredicateType], NullType, { optional: true });
 const slice_remove_filter = East.platform("slice_remove_filter", [StringType, IntegerType], NullType, { optional: true });
 const slice_clear_filters = East.platform("slice_clear_filters", [StringType], NullType, { optional: true });
+const slice_toggle_filter = East.platform("slice_toggle_filter", [StringType, SlicePredicateType], NullType, { optional: true });
 // --- cohorts ---
 const slice_define_cohort = East.platform("slice_define_cohort", [StringType, SliceCohortType], NullType, { optional: true });
 const slice_update_cohort = East.platform("slice_update_cohort", [StringType, StringType, SliceCohortType], NullType, { optional: true });
@@ -916,6 +1019,7 @@ const slice_range_field   = East.platform("slice_range_field",   [StringType], O
 const slice_total_count   = East.platform("slice_total_count",   [StringType], IntegerType, { optional: true });
 const slice_result_count  = East.platform("slice_result_count",  [StringType], IntegerType, { optional: true });
 const slice_groups        = East.platform("slice_groups",        [StringType], SliceBreakdownGroupArrayType, { optional: true });
+const slice_facet_groups  = East.platform("slice_facet_groups",  [StringType], SliceBreakdownGroupArrayType, { optional: true });
 const slice_series_data   = East.platform("slice_series_data",   [StringType, StringType, StringType], SliceSeriesArrayType, { optional: true });
 const slice_matches       = East.platform("slice_matches",       [StringType], SliceSearchMatchArrayType, { optional: true });
 const slice_cohort_counts = East.platform("slice_cohort_counts", [StringType], DictType(StringType, IntegerType), { optional: true });
@@ -937,6 +1041,8 @@ export const SliceBindPrimitives = {
     addFilter: slice_add_filter,
     removeFilter: slice_remove_filter,
     clearFilters: slice_clear_filters,
+    toggleFilter: slice_toggle_filter,
+    facetGroups: slice_facet_groups,
     defineCohort: slice_define_cohort,
     updateCohort: slice_update_cohort,
     removeCohort: slice_remove_cohort,

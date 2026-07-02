@@ -15,6 +15,7 @@ import { formatPredicate } from "../predicate-format";
 import { SlicePredicateBuilder } from "../predicate-builder";
 import { SliceEditPopover } from "../edit";
 import { useSliceReactivity } from "../use-slice-reactivity";
+import { uniqueSlug } from "../slug";
 
 /** East Slice.Cohort value type. */
 export type SliceCohortValue = ValueTypeOf<typeof Slice.Cohort.Types.Cohort>;
@@ -39,24 +40,17 @@ function fmtCount(n: bigint): string {
         : num.toLocaleString();
 }
 
-/** Slugify `name` into a cohort id, unique against `existing`. */
-function uniqueSlug(name: string, existing: ReadonlyArray<string>): string {
-    const base = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "cohort";
-    const ids = new Set(existing);
-    if (!ids.has(base)) return base;
-    let n = 2;
-    while (ids.has(`${base}-${n}`)) n++;
-    return `${base}-${n}`;
-}
-
 /**
- * Renders an East UI `Slice.Cohort` — a rail of saved-segment pills (name ·
- * resolved count, active ones brand-tinted) plus a `+ cohort` pill. Clicking a
- * pill opens the `Slice.Edit` popover holding the predicate editor (clause
- * chips + a builder driven by `slice.fields()`); the editor never renders
- * inline, so the surface never re-flows. Apply commits via
- * `slice.updateCohort` / `defineCohort` and activates the cohort; `Remove
- * cohort` drops it.
+ * Renders an East UI `Slice.Cohort` — a rail of developer-defined, toggleable
+ * segment pills (swatch · name · resolved count, active ones brand-tinted).
+ * The pill's **primary click toggles the cohort on/off** via
+ * `slice.toggleCohort(id)` (#163). In `manage` mode (the default) a secondary
+ * pencil opens the `Slice.Edit` popover holding the predicate editor (clause
+ * chips + a builder driven by `slice.fields()`) and a `+ cohort` pill authors
+ * new ones; `mode: "toggle"` renders a pure preset bar with no authoring. The
+ * editor never renders inline, so the surface never re-flows. Apply commits
+ * via `slice.updateCohort` / `defineCohort` and activates the cohort;
+ * `Remove cohort` drops it.
  */
 export const EastChakraSliceCohort = memo(function EastChakraSliceCohort({ value }: EastChakraSliceCohortProps) {
     const chip = useRecipe({ key: "chip" });
@@ -74,14 +68,25 @@ export const EastChakraSliceCohort = memo(function EastChakraSliceCohort({ value
     const createdBy = getSomeorUndefined(value.createdBy);
     const lastEdited = getSomeorUndefined(value.lastEdited);
     const reevaluateEvery = getSomeorUndefined(value.reevaluateEvery);
+    // `toggle` = curated preset bar: no pencil, no `+ cohort`, no editor.
+    const manage = (getSomeorUndefined(value.mode)?.type ?? "manage") === "manage";
+    const allowCreate = getSomeorUndefined(value.allowCreate) ?? manage;
 
     const [draft, setDraft] = useState<CohortDraft | null>(
-        (getSomeorUndefined(value.editOpen) ?? false)
+        manage && (getSomeorUndefined(value.editOpen) ?? false)
             ? (cohorts[0] !== undefined
                 ? { editId: cohorts[0].id, name: cohorts[0].name, clauses: [...cohorts[0].filters] }
                 : { editId: null, name: "", clauses: [] })
             : null,
     );
+
+    // Why the draft can't Apply yet — drives the disabled button + inline hint
+    // (the silent-no-op Apply was #163's ergonomics gap).
+    const draftInvalid = draft === null
+        ? undefined
+        : draft.editId === null && draft.name.trim() === "" ? "Give the cohort a name."
+            : draft.clauses.length === 0 ? "Add at least one clause."
+                : undefined;
 
     const commit = () => {
         if (draft === null || draft.name.trim() === "" || draft.clauses.length === 0) return;
@@ -124,6 +129,7 @@ export const EastChakraSliceCohort = memo(function EastChakraSliceCohort({ value
                 </Box>
             ))}
             <SlicePredicateBuilder fields={fields} onAdd={pred => setDraft(d => d && { ...d, clauses: [...d.clauses, pred] })} />
+            {draftInvalid !== undefined && <Box as="span" css={edit.hint}>{draftInvalid}</Box>}
             {(createdBy !== undefined || lastEdited !== undefined || reevaluateEvery !== undefined) && (
                 <Box css={edit.resolveLine}>
                     {[
@@ -143,7 +149,7 @@ export const EastChakraSliceCohort = memo(function EastChakraSliceCohort({ value
         actions: (
             <>
                 <chakra.button type="button" css={btn({ variant: "outline", size: "xs" })} onClick={() => setDraft(null)}>Cancel</chakra.button>
-                <chakra.button type="button" css={btn({ variant: "solid", size: "xs" })} onClick={commit}>Apply</chakra.button>
+                <chakra.button type="button" css={btn({ variant: "solid", size: "xs" })} disabled={draftInvalid !== undefined} onClick={commit}>Apply</chakra.button>
             </>
         ),
     };
@@ -154,42 +160,59 @@ export const EastChakraSliceCohort = memo(function EastChakraSliceCohort({ value
                 const on = activeCohorts.has(c.id);
                 const count = counts?.get(c.id);
                 return (
-                    <SliceEditPopover
-                        key={c.id}
-                        open={draft?.editId === c.id}
-                        onOpenChange={open => setDraft(open ? { editId: c.id, name: c.name, clauses: [...c.filters] } : null)}
-                        label={<>{"Edit cohort · "}<Box as="span" css={edit.clauseField}>{c.name}</Box></>}
-                        size="lg"
-                        footLeft={foot.left}
-                        footActions={foot.actions}
-                        trigger={
-                            <Box css={chip({ tone: on ? "brand" : "neutral", numeric: true })} cursor="pointer">
-                                <Box as="span" width="8px" height="8px" borderRadius="full" background={on ? SLICE_SERIES_PALETTE[i % SLICE_SERIES_PALETTE.length] : "border.strong"} />
-                                <Box as="span">{c.name}</Box>
-                                {count !== undefined && <Box as="span" color="fg.muted">{`· ${fmtCount(count)}`}</Box>}
-                                <FontAwesomeIcon icon={faPen} style={{ fontSize: "9px", opacity: 0.7 }} />
-                            </Box>
-                        }
-                    >
-                        {draft?.editId === c.id ? editor : null}
-                    </SliceEditPopover>
+                    // The chip holds two sibling controls: the primary on/off
+                    // toggle (#163 — the previously-dead deactivate path) and,
+                    // in manage mode, the demoted edit pencil that opens the
+                    // authoring popover.
+                    <Box key={c.id} css={chip({ tone: on ? "brand" : "neutral", numeric: true })}>
+                        <chakra.button
+                            type="button"
+                            css={edit.chipToggle}
+                            onClick={() => slice.toggleCohort(c.id)}
+                            aria-pressed={on}
+                            aria-label={`Toggle cohort ${c.name}`}
+                        >
+                            <Box as="span" width="8px" height="8px" borderRadius="full" background={on ? SLICE_SERIES_PALETTE[i % SLICE_SERIES_PALETTE.length] : "border.strong"} />
+                            <Box as="span">{c.name}</Box>
+                            {count !== undefined && <Box as="span" color="fg.muted">{`· ${fmtCount(count)}`}</Box>}
+                        </chakra.button>
+                        {manage && (
+                            <SliceEditPopover
+                                open={draft?.editId === c.id}
+                                onOpenChange={open => setDraft(open ? { editId: c.id, name: c.name, clauses: [...c.filters] } : null)}
+                                label={<>{"Edit cohort · "}<Box as="span" css={edit.clauseField}>{c.name}</Box></>}
+                                size="lg"
+                                footLeft={foot.left}
+                                footActions={foot.actions}
+                                trigger={
+                                    <chakra.button type="button" css={edit.chipEdit} aria-label={`Edit cohort ${c.name}`}>
+                                        <FontAwesomeIcon icon={faPen} />
+                                    </chakra.button>
+                                }
+                            >
+                                {draft?.editId === c.id ? editor : null}
+                            </SliceEditPopover>
+                        )}
+                    </Box>
                 );
             })}
-            <SliceEditPopover
-                open={draft !== null && draft.editId === null}
-                onOpenChange={open => setDraft(open ? { editId: null, name: "", clauses: [] } : null)}
-                label="New cohort"
-                size="lg"
-                footActions={foot.actions}
-                trigger={
-                    <Box css={chip({ tone: "dashed", numeric: true })} cursor="pointer">
-                        <FontAwesomeIcon icon={faPlus} style={{ fontSize: "9px" }} />
-                        <Box as="span">cohort</Box>
-                    </Box>
-                }
-            >
-                {draft !== null && draft.editId === null ? editor : null}
-            </SliceEditPopover>
+            {manage && allowCreate && (
+                <SliceEditPopover
+                    open={draft !== null && draft.editId === null}
+                    onOpenChange={open => setDraft(open ? { editId: null, name: "", clauses: [] } : null)}
+                    label="New cohort"
+                    size="lg"
+                    footActions={foot.actions}
+                    trigger={
+                        <Box css={chip({ tone: "dashed", numeric: true })} cursor="pointer">
+                            <FontAwesomeIcon icon={faPlus} style={{ fontSize: "9px" }} />
+                            <Box as="span">cohort</Box>
+                        </Box>
+                    }
+                >
+                    {draft !== null && draft.editId === null ? editor : null}
+                </SliceEditPopover>
+            )}
         </Box>
     );
 }, () => false);

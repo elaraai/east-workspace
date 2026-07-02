@@ -28,6 +28,7 @@ import {
 import { compareFor, equalFor, printFor, variant, some, none, type ValueTypeOf } from "@elaraai/east";
 import { Gantt, Table, Slice as SliceInternal, type UIComponentType } from "@elaraai/east-ui/internal";
 import { SliceRailCluster } from "../../slice/rail";
+import { brushHitTest, brushDragWindow, brushRelease, brushCursor, type BrushDrag } from "../../slice/brush-math.js";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
@@ -166,10 +167,14 @@ const GanttCore = function GanttCore({
     tablePanelSize: tablePanelSizeProp,
     storageKey,
     timelineBrush,
+    timelineWindow,
 }: EastChakraGanttProps & {
     /** Slice-chrome brush: drag a window on the timeline header to select a
-     *  time range (`null` clears — a sub-threshold drag). */
+     *  time range (`null` clears — a sub-threshold drag on empty track). */
     timelineBrush?: (range: { from: Date; to: Date } | null) => void;
+    /** The applied slice range, rendered as the grabbable brush window on the
+     *  timeline header (#192): drag its body to slide, an edge to resize. */
+    timelineWindow?: { from: Date; to: Date } | undefined;
 }) {
     const props = useMemo(() => toChakraTableRoot(value), [value]);
 
@@ -251,8 +256,10 @@ const GanttCore = function GanttCore({
     const timelineContainerRef = useRef<HTMLDivElement>(null);
     const [timelineWidth, setTimelineWidth] = useState(400);
     // In-flight brush drag (px within the timeline header), when slice chrome
-    // enables the brush affordance.
-    const [brushDrag, setBrushDrag] = useState<{ x1: number; x2: number } | null>(null);
+    // enables the brush affordance. The mode machine (draw / slide / resize)
+    // is the shared brush-math FSM (#192).
+    const [brushDrag, setBrushDrag] = useState<BrushDrag | null>(null);
+    const sliceFrameStyles = useSlotRecipe({ key: "sliceFrame" })();
 
     // Row state management for loading indicators
     const [rowStateManager] = useState(() => new RowStateManager());
@@ -1013,49 +1020,77 @@ const GanttCore = function GanttCore({
                         {gutterActive && gRightPx > 0 && (
                             <Box position="absolute" top={0} right={0} width={`${gRightPx}px`} height={`${headerHeight}px`} background="bg.surface" pointerEvents="none" zIndex={1} />
                         )}
-                        {timelineBrush && (
+                        {timelineBrush && (() => {
                             // Brush capture over the header: the time scale spans
                             // the pane (no horizontal scroll), so pixel → time is
-                            // xScale.invert on the pointer offset.
-                            <Box
-                                position="absolute"
-                                inset={0}
-                                cursor="crosshair"
-                                onPointerDown={(e) => {
-                                    const el = e.currentTarget as HTMLElement;
-                                    el.setPointerCapture(e.pointerId);
-                                    const left = el.getBoundingClientRect().left;
-                                    setBrushDrag({ x1: e.clientX - left, x2: e.clientX - left });
-                                }}
-                                onPointerMove={(e) => {
-                                    if (!brushDrag) return;
-                                    const left = (e.currentTarget as HTMLElement).getBoundingClientRect().left;
-                                    setBrushDrag({ x1: brushDrag.x1, x2: e.clientX - left });
-                                }}
-                                onPointerUp={() => {
-                                    if (!brushDrag) return;
-                                    const [a, b] = [Math.min(brushDrag.x1, brushDrag.x2), Math.max(brushDrag.x1, brushDrag.x2)];
-                                    setBrushDrag(null);
-                                    if (b - a < 5) { timelineBrush(null); return; }
-                                    timelineBrush({ from: xScale.invert(a), to: xScale.invert(b) });
-                                }}
-                            >
-                                {brushDrag && (
-                                    <Box
-                                        position="absolute"
-                                        top={0}
-                                        bottom={0}
-                                        left={`${Math.min(brushDrag.x1, brushDrag.x2)}px`}
-                                        width={`${Math.abs(brushDrag.x2 - brushDrag.x1)}px`}
-                                        bg="accent.brand"
-                                        opacity={0.18}
-                                        borderXWidth="1px"
-                                        borderColor="accent.brand"
-                                        pointerEvents="none"
-                                    />
-                                )}
-                            </Box>
-                        )}
+                            // xScale.invert on the pointer offset. The applied
+                            // window renders grabbable (#192): drag its body to
+                            // slide (width preserved), an edge hot zone to resize.
+                            const winPx = timelineWindow !== undefined
+                                ? {
+                                    lo: Math.max(0, Math.min(timelineRange, xScale(timelineWindow.from))),
+                                    hi: Math.max(0, Math.min(timelineRange, xScale(timelineWindow.to))),
+                                }
+                                : undefined;
+                            const winValid = winPx !== undefined && Number.isFinite(winPx.lo) && Number.isFinite(winPx.hi) && winPx.hi > winPx.lo;
+                            const draft = brushDrag !== null ? brushDragWindow(brushDrag) : undefined;
+                            return (
+                                <Box
+                                    position="absolute"
+                                    inset={0}
+                                    cursor={brushDrag !== null ? brushCursor(brushDrag.mode) : "crosshair"}
+                                    data-brush-track
+                                    onPointerDown={(e) => {
+                                        const el = e.currentTarget as HTMLElement;
+                                        try { el.setPointerCapture(e.pointerId); } catch { /* jsdom has no active pointers */ }
+                                        const rect = el.getBoundingClientRect();
+                                        const x = e.clientX - rect.left;
+                                        const win = winValid ? winPx : undefined;
+                                        setBrushDrag({ mode: brushHitTest(x, win), start: x, current: x, width: timelineRange, win });
+                                    }}
+                                    onPointerMove={(e) => {
+                                        if (!brushDrag) return;
+                                        const left = (e.currentTarget as HTMLElement).getBoundingClientRect().left;
+                                        setBrushDrag({ ...brushDrag, current: e.clientX - left });
+                                    }}
+                                    onPointerUp={() => {
+                                        if (!brushDrag) return;
+                                        setBrushDrag(null);
+                                        const release = brushRelease(brushDrag);
+                                        if (release.kind === "clear") timelineBrush(null);
+                                        else if (release.kind === "commit") timelineBrush({ from: xScale.invert(release.lo), to: xScale.invert(release.hi) });
+                                    }}
+                                >
+                                    {brushDrag === null && winValid && (
+                                        <>
+                                            <Box
+                                                data-brush-window
+                                                css={sliceFrameStyles.brushWindow}
+                                                left={`${winPx.lo}px`}
+                                                width={`${winPx.hi - winPx.lo}px`}
+                                                opacity={0.18}
+                                            />
+                                            <Box data-brush-handle="lo" css={sliceFrameStyles.brushHandle} left={`${winPx.lo}px`} />
+                                            <Box data-brush-handle="hi" css={sliceFrameStyles.brushHandle} left={`${winPx.hi}px`} />
+                                        </>
+                                    )}
+                                    {draft !== undefined && (
+                                        <Box
+                                            position="absolute"
+                                            top={0}
+                                            bottom={0}
+                                            left={`${draft.lo}px`}
+                                            width={`${draft.hi - draft.lo}px`}
+                                            bg="accent.brand"
+                                            opacity={0.18}
+                                            borderXWidth="1px"
+                                            borderColor="accent.brand"
+                                            pointerEvents="none"
+                                        />
+                                    )}
+                                </Box>
+                            );
+                        })()}
                     </Box>
 
                     {/* Timeline Body - uses same table structure for matching row styles */}
@@ -1219,6 +1254,12 @@ export const EastChakraGantt = memo(function EastChakraGantt(props: EastChakraGa
             slice.setRange(some(variant("datetime", { from: range.from, to: range.to })));
         }
         : undefined;
+    // The applied range, for the grabbable header window (#192). Only the
+    // literal `datetime` arm carries bounds; a preset arm renders no window.
+    const appliedRange = brushEnabled
+        ? getSomeorUndefined(state.range) as { type: string; value: { from: Date; to: Date } } | undefined
+        : undefined;
+    const timelineWindow = appliedRange?.type === "datetime" ? appliedRange.value : undefined;
 
     return (
         <Box css={frameStyles.root}>
@@ -1226,7 +1267,7 @@ export const EastChakraGantt = memo(function EastChakraGantt(props: EastChakraGa
                 <SliceRailCluster slice={slice} affordanceKinds={railKinds} />
             </Box>
             <Box css={frameStyles.frameBody}>
-                <GanttCore {...props} {...(timelineBrush !== undefined ? { timelineBrush } : {})} />
+                <GanttCore {...props} {...(timelineBrush !== undefined ? { timelineBrush } : {})} {...(timelineWindow !== undefined ? { timelineWindow } : {})} />
             </Box>
             <Box css={frameStyles.frameFooter}>
                 <Box as="span" css={frameStyles.frameFooterStat}>{result.toLocaleString()}</Box>

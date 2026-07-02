@@ -15,7 +15,11 @@ import { defineSlotRecipe } from "@chakra-ui/react";
 
 export const clauseBuilderSlotRecipe = defineSlotRecipe({
     className: "elara-clause-builder",
-    slots: ["row", "rowStacked", "fieldLock", "rangeJoin", "chip", "chipField", "chipOp", "chipVal"],
+    slots: [
+        "row", "rowStacked", "stackControls", "stackValue", "stackSubmit",
+        "fieldLock", "rangeLine", "rangeBound", "rangeJoin", "hint",
+        "chip", "chipField", "chipOp", "chipVal",
+    ],
     base: {
         // One inline row: field · op · value (flexes) · submit. minmax(0,1fr)
         // lets the value control shrink instead of forcing a wrap.
@@ -36,12 +40,43 @@ export const clauseBuilderSlotRecipe = defineSlotRecipe({
             gap: "{spacing.2}",
             minWidth: "0",
         },
-        // Set-valued ops author a growing TagsInput — stack it on its own line.
+        // Intrinsically wide value controls (set / range / datetime, #193)
+        // stack: field+op line, full-width value line, hint, submit line.
         rowStacked: {
             display: "flex",
             flexDirection: "column",
             gap: "{spacing.2}",
             minWidth: "0",
+        },
+        stackControls: {
+            display: "flex",
+            alignItems: "center",
+            gap: "{spacing.2}",
+            minWidth: "0",
+        },
+        stackValue: {
+            width: "100%",
+            minWidth: "0",
+        },
+        stackSubmit: {
+            display: "flex",
+            justifyContent: "flex-end",
+        },
+        // Range bounds share one line while they fit and WRAP when they don't
+        // (two segmented date inputs inside the Slice.Edit popover) — the row
+        // degrades by wrapping, never by overflowing (#193). `flex-basis:
+        // auto` with NO min-width override keeps each bound's min-content as
+        // the wrap driver — a fixed basis fits two-across nominally and then
+        // clips the real control inside its box (#196).
+        rangeLine: {
+            display: "flex",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: "{spacing.2}",
+            minWidth: "0",
+        },
+        rangeBound: {
+            flex: "1 1 auto",
         },
         // Edit mode pins the field — rendered as a label, not a control.
         fieldLock: {
@@ -54,6 +89,15 @@ export const clauseBuilderSlotRecipe = defineSlotRecipe({
             color: "fg.subtle",
             fontSize: "{fontSizes.xs}",
             flexShrink: 0,
+        },
+        // Inline "why can't I Add" caption under the row (mirrors the cohort
+        // name field's disable + hint grammar). Spans the grid's full width;
+        // inert in the stacked flex layout.
+        hint: {
+            gridColumn: "1 / -1",
+            fontFamily: "mono",
+            fontSize: "{fontSizes.2xs}",
+            color: "fg.muted",
         },
         // Authored clause rendered as a compact chip: field · op · value.
         chip: {

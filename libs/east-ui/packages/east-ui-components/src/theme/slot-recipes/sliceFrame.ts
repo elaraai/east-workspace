@@ -30,6 +30,7 @@ export const sliceFrameSlotRecipe = defineSlotRecipe({
         "frameBody", "frameFooter", "frameFooterStat", "frameFooterDelta",
         "searchPill", "searchKbd", "searchClear",
         "legendRail", "legendItem", "legendSwatch", "legendLabel", "legendValue",
+        "brushAxis", "brushWindow", "brushHandle",
     ],
     base: {
         root: {
@@ -265,6 +266,38 @@ export const sliceFrameSlotRecipe = defineSlotRecipe({
             border: "none",
             padding: "0",
             cursor: "pointer",
+        },
+        // Formatted scale beneath the Slice.Rail brush strip (#190):
+        // min · ⅓ · ⅔ · max labels, evenly spread under the track.
+        brushAxis: {
+            display: "flex",
+            justifyContent: "space-between",
+            fontFamily: "mono",
+            fontSize: "9px",
+            lineHeight: "1",
+            color: "fg.muted",
+        },
+        // The applied brush window (#192) — grabbable: dragging it slides the
+        // whole window, width preserved. The cursor IS the affordance; the
+        // wash opacity is context-driven (set inline per surface).
+        brushWindow: {
+            position: "absolute",
+            top: "0",
+            bottom: "0",
+            background: "accent.brand",
+            borderRadius: "4px",
+            cursor: "grab",
+        },
+        // Invisible edge-resize hot zones centred on each window bound (#192),
+        // 2×BRUSH_HANDLE_PX wide — must stay in lockstep with brush-math's
+        // hit-test geometry.
+        brushHandle: {
+            position: "absolute",
+            top: "0",
+            bottom: "0",
+            width: "10px",
+            transform: "translateX(-50%)",
+            cursor: "ew-resize",
         },
         legendSwatch: {
             width: "14px",
