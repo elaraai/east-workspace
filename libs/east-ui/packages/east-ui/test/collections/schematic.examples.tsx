@@ -459,6 +459,38 @@ export const schematicItemMove = example({
     inputs: [],
 });
 
+export const schematicStress = example({
+    keywords: ["Schematic", "stress", "performance", "LOD", "semantic zoom", "declutter", "minimap", "large", "many items"],
+    description: "Semantic-zoom stress probe — 320 generated items across 4 bays exercise the LOD ladder (cards ⇢ labelled dots ⇢ dots as you zoom out, dense rows degrading as one block instead of checkerboarding), the minimap, and 60 fps pan; the manual perf budget probe for the renderer",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Schematic
+            extent={{ width: 64, height: 34 }}
+            height="460px"
+            items={Array.from({ length: 320 }, (_, i) => {
+                const bay = Math.floor(i / 80), col = i % 16, row = Math.floor((i % 80) / 16);
+                return {
+                    id: `U-${String(i).padStart(3, "0")}`,
+                    x: (bay % 2) * 32 + col * 1.9 + 2.0,
+                    y: Math.floor(bay / 2) * 17 + row * 2.9 + 2.5,
+                    load: (i * 37 % 100) / 100,
+                };
+            })}
+            item={r => ({ key: r.id, x: r.x, y: r.y, label: r.id, icon: "microchip", meter: { value: r.load, max: 1.0 } })}
+            zones={[
+                { id: "bay-a", name: "Bay A", x: 0.5, y: 0.5, w: 31.0, h: 16.0 },
+                { id: "bay-b", name: "Bay B", x: 32.5, y: 0.5, w: 31.0, h: 16.0 },
+                { id: "bay-c", name: "Bay C", x: 0.5, y: 17.5, w: 31.0, h: 16.0 },
+                { id: "bay-d", name: "Bay D", x: 32.5, y: 17.5, w: 31.0, h: 16.0 },
+            ]}
+            zone={z => ({ key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h, pattern: Schematic.outline() })}
+            selectionMode="multiple"
+            minimap={true}
+            scaleUnit="m"
+        />
+    )),
+    inputs: [],
+});
+
 export const schematicHover = example({
     keywords: ["Schematic", "hover", "HoverCard", "itemHover", "zoneHover", "linkHover", "Sparkline", "chart", "inspection", "lazy"],
     description: "Hover cards — dwell on an item, zone body, or link/net stroke to open a card whose content an East function builds LAZILY from the hovered KEY (a Sparkline chart over the entity's history is the headline case); the card survives the pointer moving onto it, and any camera or edit gesture closes it",

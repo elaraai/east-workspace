@@ -53,6 +53,9 @@ export const schematicSlotRecipe = defineSlotRecipe({
             touchAction: "none",
             userSelect: "none",
             "&:active": { cursor: "grabbing" },
+            /* Keyboard traversal (#183 WS7): the canvas is a focusable
+             * application surface — ring only for :focus-visible. */
+            _focusVisible: { outline: "none", boxShadow: "{shadows.focus}" },
         },
         /* Metric grid per the spec plant-floor canvas — minor lines with a
          * heavier major rule; the major cell equals the scale legend. The

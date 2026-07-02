@@ -23,6 +23,7 @@ describeEast("Schematic", (test) => {
         schematicNets: ex.schematicNets,
         schematicItemMove: ex.schematicItemMove,
         schematicHover: ex.schematicHover,
+        schematicStress: ex.schematicStress,
         schematicFacility: ex.schematicFacility,
         schematicGeometry: ex.schematicGeometry,
         schematicColorOverride: ex.schematicColorOverride,

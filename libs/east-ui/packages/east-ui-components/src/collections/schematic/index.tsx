@@ -19,6 +19,7 @@ import { useSliceReactivity } from "../../slice/use-slice-reactivity";
 import { usePersistedState } from "../../hooks/usePersistedState";
 import { LINK_HIT_SLOP, MARKER_LABEL_FONT, distanceToPolyline, markerHit, markerHitbox, orthogonalize, paintSchematic, parallelLanes as paintParallelLanes, LINK_LANE_GAP, type SchematicPalette, type SchematicPaintEffect } from "./paint";
 import { EMPTY_STRING_SET, type ItemBox, managedSelectionSet, marqueeHits, sameStringSet, sliceWithSelection } from "./selection";
+import { type CenterBox, type LodTier, type NavZone, buildCenterTree, buildNavTree, declutterTiers, tierSize } from "./model";
 import {
     type CameraEvent, type CameraMode, type RafCoalescer, type Viewport,
     IDENTITY, cancelsFly, cardTranslateCss, cardWidthCss, makeRafCoalescer, nextMode, viewportWorldBbox, zoomAbout,
@@ -146,129 +147,6 @@ function pointInPolygon(x: number, y: number, pts: readonly Pt[]): boolean {
     }
     return inside;
 }
-
-interface NavZone {
-    zone: SchematicZoneValue;
-    children: NavZone[];
-    items: SchematicItemValue[];
-}
-
-/** Nest zones by smallest-containing-rect and place items into their
- * smallest containing zone — the drawing IS the hierarchy. Hatch zones
- * are annotations (walkways, exclusion strips), not containers: they
- * never host items. */
-function buildNavTree(zones: readonly SchematicZoneValue[], items: readonly SchematicItemValue[]): { roots: NavZone[]; floor: SchematicItemValue[]; zoneOf: Map<string, string>; parentOf: Map<string, string> } {
-    const nodes = new Map<string, NavZone>();
-    const sorted = [...zones].sort((a, b) => (a.width * a.height) - (b.width * b.height));
-    const contains = (outer: SchematicZoneValue, x: number, y: number) =>
-        x >= outer.x && x <= outer.x + outer.width && y >= outer.y && y <= outer.y + outer.height;
-    for (const zone of zones) nodes.set(zone.key, { zone, children: [], items: [] });
-
-    const roots: NavZone[] = [];
-    const parentOf = new Map<string, string>();
-    for (const zone of zones) {
-        const parent = sorted.find(p => p.key !== zone.key
-            && p.width * p.height > zone.width * zone.height
-            && contains(p, zone.x + zone.width / 2, zone.y + zone.height / 2));
-        if (parent !== undefined) {
-            nodes.get(parent.key)!.children.push(nodes.get(zone.key)!);
-            parentOf.set(zone.key, parent.key);
-        } else roots.push(nodes.get(zone.key)!);
-    }
-    const hosts = sorted.filter(z => z.pattern.type === "outline");
-    const floor: SchematicItemValue[] = [];
-    const zoneOf = new Map<string, string>();
-    for (const item of items) {
-        const host = hosts.find(z => contains(z, item.x, item.y));
-        if (host !== undefined) {
-            nodes.get(host.key)!.items.push(item);
-            zoneOf.set(item.key, host.key);
-        } else floor.push(item);
-    }
-    return { roots, floor, zoneOf, parentOf };
-}
-
-type LodTier = "card" | "label" | "dot";
-
-/** Screen-px footprint of an item rendered at `tier`, centred on the
- * item. Translation-invariant, so collisions depend on ppu alone. */
-function tierSize(item: SchematicItemValue, tier: LodTier, ppu: number): { w: number; h: number } {
-    if (tier === "label") return { w: item.label.length * 6 + 28, h: 22 };
-    const sublabel = item.sublabel.type === "some" ? item.sublabel.value : undefined;
-    const explicit = item.width.type === "some" ? item.width.value * ppu : undefined;
-    const w = explicit ?? Math.max(
-        88,
-        item.label.length * 6.6 + (item.icon.type === "some" ? 16 : 0) + (item.status.type === "some" ? 13 : 0) + 20,
-        (sublabel?.length ?? 0) * 5.4 + 20,
-    );
-    const h = 24
-        + (sublabel !== undefined ? 13 : 0)
-        + (item.meter.type === "some" ? 8 : 0)
-        + (item.metric.type === "some" ? 15 : 0);
-    return { w, h };
-}
-
-/** Per-item semantic-zoom tier. The global ppu band picks the richest
- * candidate form; a symmetric nearest-neighbour test then demotes items
- * (card ⇢ labelled dot ⇢ dot). Symmetry is the point: an item only
- * keeps a form if it AND its neighbours would fit at that form, so a
- * uniformly dense row degrades as one block instead of checkerboarding
- * into random survivors, while isolated items keep full cards at the
- * same zoom. Neighbourhoods come from per-item R-tree queries. */
-type CenterBox = { minX: number; minY: number; maxX: number; maxY: number; item: SchematicItemValue };
-
-/** World-coordinate R-tree over item centres — built once per visible
- * set; zooming only changes the (1/ppu-scaled) query boxes. */
-function buildCenterTree(items: readonly SchematicItemValue[]): RBush<CenterBox> {
-    const tree = new RBush<CenterBox>();
-    tree.load(items.map(item => ({ minX: item.x, minY: item.y, maxX: item.x, maxY: item.y, item })));
-    return tree;
-}
-
-function declutterTiers(items: readonly SchematicItemValue[], tree: RBush<CenterBox>, baseLod: LodTier, ppu: number, selected: ReadonlySet<string>): Map<string, LodTier> {
-    const tiers = new Map<string, LodTier>();
-    if (baseLod === "dot") {
-        for (const item of items) tiers.set(item.key, "dot");
-        return tiers;
-    }
-    const GAP = 6;
-    let maxW = 0, maxH = 0;
-    const sizes = new Map<string, { card: { w: number; h: number }; label: { w: number; h: number } }>();
-    for (const item of items) {
-        const card = tierSize(item, "card", ppu);
-        const label = tierSize(item, "label", ppu);
-        sizes.set(item.key, { card, label });
-        maxW = Math.max(maxW, card.w);
-        maxH = Math.max(maxH, card.h);
-    }
-    // Clear of every neighbour when self renders at `tier` and each
-    // neighbour at its own already-decided tier (or `tier` while undecided).
-    const clear = (item: SchematicItemValue, tier: "card" | "label"): boolean => {
-        const self = sizes.get(item.key)![tier];
-        const reachX = ((self.w + maxW) / 2 + GAP) / ppu, reachY = ((self.h + maxH) / 2 + GAP) / ppu;
-        for (const hit of tree.search({ minX: item.x - reachX, minY: item.y - reachY, maxX: item.x + reachX, maxY: item.y + reachY })) {
-            if (hit.item.key === item.key) continue;
-            const neighbourTier = tiers.get(hit.item.key);
-            if (neighbourTier === "dot") continue;
-            const other = sizes.get(hit.item.key) ?? { card: tierSize(hit.item, "card", ppu), label: tierSize(hit.item, "label", ppu) };
-            const otherSize = other[neighbourTier === "label" ? "label" : tier];
-            if (Math.abs(hit.item.x - item.x) * ppu < (self.w + otherSize.w) / 2 + GAP
-                && Math.abs(hit.item.y - item.y) * ppu < (self.h + otherSize.h) / 2 + GAP) return false;
-        }
-        return true;
-    };
-    if (baseLod === "card") {
-        for (const item of items) if (clear(item, "card")) tiers.set(item.key, "card");
-    }
-    for (const item of items) {
-        if (!tiers.has(item.key)) tiers.set(item.key, clear(item, "label") ? "label" : "dot");
-    }
-    // A selected item is an explicit pointer — it never demotes below
-    // the zoom band's richest form.
-    for (const key of selected) if (tiers.has(key)) tiers.set(key, baseLod);
-    return tiers;
-}
-
 
 /**
  * Renders an East UI Schematic value — the 2D world-coordinate canvas with
@@ -731,6 +609,15 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     const connectFlashRef = useRef<{ from: string; to: string; t0: number } | null>(null);
     const flashRafRef = useRef<number | null>(null);
     const selStartRef = useRef<{ sx: number; sy: number; mode: "zoom" | "marquee"; additive: boolean } | null>(null);
+    // Marquee-hit recompute coalescing (#183 WS6): the box rect tracks every
+    // pointermove; the HITS (r-tree + footprint tests) recompute at most once
+    // per animation frame from the latest rect. Display-only — pointerup
+    // recomputes at commit, so a pending frame can never skew the selection.
+    const marqueeRafRef = useRef<number | null>(null);
+    const marqueeRegionRef = useRef<{ x0: number; y0: number; sw: number; sh: number } | null>(null);
+    useEffect(() => () => {
+        if (marqueeRafRef.current !== null) cancelAnimationFrame(marqueeRafRef.current);
+    }, []);
     // Box-gesture render state, consolidated (#172): ONE object per in-flight
     // box drag — the overlay rect, which tool owns it, Shift-additivity, and the
     // live marquee hits. `null` ⇒ no box in flight. The badge count and the
@@ -1521,6 +1408,20 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         const idx = anchor !== null ? (indexOf.get(anchor) ?? -1) : -1;
         flyToItem(ordered[(idx + delta + ordered.length) % ordered.length]!);
     }, [itemOrder, flyToItem, selection.anchor]);
+    // Keyboard traversal (#183 WS7): with the canvas focused, arrows step the
+    // selection through the deterministic item order (the prev/next controls'
+    // exact path — fly + select), Enter opens the anchored item (the dblclick
+    // affordance). Esc / Space / Ctrl / Del stay on the window handler. The
+    // pointer-only gestures (marquee / connect / move) keep their nav-rail and
+    // callback equivalents; this covers traverse + inspect + open.
+    const onCanvasKeyDown = useCallback((e: React.KeyboardEvent) => {
+        if (e.key === "ArrowRight" || e.key === "ArrowDown") { e.preventDefault(); stepSelection(1); }
+        else if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); stepSelection(-1); }
+        else if (e.key === "Enter") {
+            const anchor = renderSnapRef.current.selection.anchor;
+            if (anchor !== null && onItemOpenFn) { const fn = onItemOpenFn; dispatchEast("onItemOpen", () => fn(anchor)); }
+        }
+    }, [stepSelection, onItemOpenFn]);
     const flyToZone = useCallback((zone: SchematicZoneValue) => {
         flyTo({ x: zone.x, y: zone.y, w: zone.width, h: zone.height });
         zoneOverrideRef.current = null;
@@ -1828,20 +1729,31 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
             const cx = e.clientX - r.left, cy = e.clientY - r.top;
             if (Math.abs(cx - sel.sx) > 4 || Math.abs(cy - sel.sy) > 4) movedRef.current = true;
             const x0 = Math.min(sel.sx, cx), y0 = Math.min(sel.sy, cy), sw = Math.abs(cx - sel.sx), sh = Math.abs(cy - sel.sy);
-            // One state write per move: the overlay rect plus (for a marquee) the
-            // live hits — the badge count and the selection preview derive from it.
-            let hits: ReadonlySet<string> = EMPTY_STRING_SET;
+            // One state write per move keeps the overlay rect on the cursor;
+            // the marquee HITS (badge + preview) coalesce to one r-tree pass
+            // per FRAME (#183 WS6), so per-move cost stays bounded at
+            // thousands of items. Hits here are display-only — pointerup
+            // recomputes at commit.
+            setBoxDrag(prev => ({ rect: { x: x0, y: y0, w: sw, h: sh }, mode: sel.mode, additive: sel.additive, hits: prev !== null ? prev.hits : EMPTY_STRING_SET }));
             if (sel.mode === "marquee") {
-                const cam = cameraRef.current;
-                const ppuLive = renderSnapRef.current.fit * cam.zoom;
-                if (sw > 6 && sh > 6 && ppuLive > 0) {
-                    hits = collectMarquee({
-                        minX: (x0 - cam.tx) / ppuLive, minY: (y0 - cam.ty) / ppuLive,
-                        maxX: (x0 + sw - cam.tx) / ppuLive, maxY: (y0 + sh - cam.ty) / ppuLive,
+                marqueeRegionRef.current = { x0, y0, sw, sh };
+                if (marqueeRafRef.current === null) {
+                    marqueeRafRef.current = requestAnimationFrame(() => {
+                        marqueeRafRef.current = null;
+                        const region = marqueeRegionRef.current;
+                        if (region === null || selStartRef.current === null) return;   // drag ended — pointerup owns the commit
+                        const camF = cameraRef.current;
+                        const ppuF = renderSnapRef.current.fit * camF.zoom;
+                        const hits = region.sw > 6 && region.sh > 6 && ppuF > 0
+                            ? collectMarquee({
+                                minX: (region.x0 - camF.tx) / ppuF, minY: (region.y0 - camF.ty) / ppuF,
+                                maxX: (region.x0 + region.sw - camF.tx) / ppuF, maxY: (region.y0 + region.sh - camF.ty) / ppuF,
+                            })
+                            : EMPTY_STRING_SET;
+                        setBoxDrag(prev => prev === null ? prev : { ...prev, hits });
                     });
                 }
             }
-            setBoxDrag({ rect: { x: x0, y: y0, w: sw, h: sh }, mode: sel.mode, additive: sel.additive, hits });
             return;
         }
         const pan = panRef.current;
@@ -2280,6 +2192,10 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                 ref={canvasRef}
                 css={styles.canvas}
                 data-schematic-canvas=""
+                tabIndex={0}
+                role="application"
+                aria-label="Schematic canvas — arrow keys traverse items, Enter opens the selected item"
+                onKeyDown={onCanvasKeyDown}
                 style={{
                     ...(fixedHeight !== undefined ? { minHeight: 0 } : { aspectRatio: `${W} / ${H}` }),
                     // Box tools (zoom / marquee) show a crosshair; for grab we leave

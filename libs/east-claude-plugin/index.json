@@ -1,14 +1,14 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1403,
+    "totalEntries": 1404,
     "totalFiles": 181,
     "packages": {
       "east": 489,
       "east-node-std": 42,
       "east-node-io": 63,
       "east-py-datascience": 89,
-      "east-ui": 658,
+      "east-ui": 659,
       "e3-ui": 55,
       "e3": 7
     }
@@ -16896,6 +16896,31 @@
         "import { HStack, Reactive, Schematic, Slice, Slider, Sparkline, Switch, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// Item drag-to-reposition — the move tool drags an item to a new world position (dragging a SELECTED item moves the whole selection rigidly); positions are local-first (form-input style) and onMoveItem fires once per gesture with the final position, every moved key, and the shared delta; the switch flips readOnlyItems reactively\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const log = $.let(State.bind([StringType], \"schematic_move_log\", \"—\"));\n            const onMoveItem = $.const(East.function([Schematic.Types.ItemMoveEvent], NullType, ($, ev) => {\n                $(log.write(East.str`moved ${East.print(ev.keys.size())} item(s) · ${ev.key} → ${East.Float.printFixed(ev.x, 1n)}, ${East.Float.printFixed(ev.y, 1n)}`));\n            }));\n            const movable = $.let(State.bind([BooleanType], \"ex.move.on\", true));\n            const mOn = $.let(movable.read());\n            const onM = $.const(East.function([BooleanType], NullType, ($, v) => { $(movable.write(v)); }));\n            const roItems = $.let(mOn.not(), BooleanType);\n            const txt = $.let(log.read());\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <HStack gap=\"4\" align=\"center\">\n                        <Switch checked={mOn} label=\"Items movable\" onChange={onM} />\n                        <Text.MonoLabel>{East.str`MOVE · ${txt}`}</Text.MonoLabel>\n                    </HStack>\n                    <Schematic\n                        extent={{ width: 20, height: 10 }}\n                        height=\"420px\"\n                        items={[\n                            { id: \"T1\", x: 4.0, y: 3.0 }, { id: \"T2\", x: 8.0, y: 3.0 },\n                            { id: \"T3\", x: 12.0, y: 3.0 }, { id: \"PK\", x: 8.0, y: 7.5 },\n                        ]}\n                        item={r => ({ key: r.id, x: r.x, y: r.y, label: r.id, icon: \"industry\" })}\n                        links={[{ id: \"l1\", a: \"T2\", b: \"PK\" }]}\n                        link={l => ({ key: l.id, from: l.a, to: l.b })}\n                        selectionMode=\"multiple\"\n                        readOnlyItems={roItems}\n                        onMoveItem={onMoveItem}\n                    />\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "east-ui:schematic.examples.tsx:schematicStress",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/schematic.examples.tsx",
+      "suite": "",
+      "test": "Semantic-zoom stress probe — 320 generated items across 4 bays exercise the LOD ladder (cards ⇢ labelled dots ⇢ dots as you zoom out, dense rows degrading as one block instead of checkerboarding), the minimap, and 60 fps pan; the manual perf budget probe for the renderer",
+      "keywords": [
+        "Schematic",
+        "stress",
+        "performance",
+        "LOD",
+        "semantic zoom",
+        "declutter",
+        "minimap",
+        "large",
+        "many items"
+      ],
+      "imports": [
+        "import { East, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, StringType, StructType, example, variant, some, none } from \"@elaraai/east\";",
+        "import { State, StatusTokenType, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { HStack, Reactive, Schematic, Slice, Slider, Sparkline, Switch, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Semantic-zoom stress probe — 320 generated items across 4 bays exercise the LOD ladder (cards ⇢ labelled dots ⇢ dots as you zoom out, dense rows degrading as one block instead of checkerboarding), the minimap, and 60 fps pan; the manual perf budget probe for the renderer\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Schematic\n            extent={{ width: 64, height: 34 }}\n            height=\"460px\"\n            items={Array.from({ length: 320 }, (_, i) => {\n                const bay = Math.floor(i / 80), col = i % 16, row = Math.floor((i % 80) / 16);\n                return {\n                    id: `U-${String(i).padStart(3, \"0\")}`,\n                    x: (bay % 2) * 32 + col * 1.9 + 2.0,\n                    y: Math.floor(bay / 2) * 17 + row * 2.9 + 2.5,\n                    load: (i * 37 % 100) / 100,\n                };\n            })}\n            item={r => ({ key: r.id, x: r.x, y: r.y, label: r.id, icon: \"microchip\", meter: { value: r.load, max: 1.0 } })}\n            zones={[\n                { id: \"bay-a\", name: \"Bay A\", x: 0.5, y: 0.5, w: 31.0, h: 16.0 },\n                { id: \"bay-b\", name: \"Bay B\", x: 32.5, y: 0.5, w: 31.0, h: 16.0 },\n                { id: \"bay-c\", name: \"Bay C\", x: 0.5, y: 17.5, w: 31.0, h: 16.0 },\n                { id: \"bay-d\", name: \"Bay D\", x: 32.5, y: 17.5, w: 31.0, h: 16.0 },\n            ]}\n            zone={z => ({ key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h, pattern: Schematic.outline() })}\n            selectionMode=\"multiple\"\n            minimap={true}\n            scaleUnit=\"m\"\n        />\n    ))"
     },
     {
       "id": "east-ui:schematic.examples.tsx:schematicHover",
