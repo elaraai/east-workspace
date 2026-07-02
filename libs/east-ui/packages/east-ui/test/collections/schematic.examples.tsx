@@ -386,13 +386,16 @@ export const schematicLinkEdit = example({
             const eOn = $.let(editable.read());
             const onE = $.const(East.function([BooleanType], NullType, ($, v) => { $(editable.write(v)); }));
             const roLinks = $.let(eOn.not(), BooleanType);
+            // The mode READOUT follows the switch — the description must never
+            // claim event-only while draw mode is adding locally.
+            const modeTxt = $.let(cOn.ifElse(_$ => "CONNECT — event-only, nothing added", _$ => "DRAW — adds locally"));
             const txt = $.let(log.read());
             return (
                 <VStack gap="3" align="stretch">
                     <HStack gap="4" align="center">
                         <Switch checked={eOn} label="Links editable" onChange={onE} />
-                        <Switch checked={cOn} label="Connect mode (event-only)" onChange={onC} />
-                        <Text.MonoLabel>{East.str`LINKS · ${txt}`}</Text.MonoLabel>
+                        <Switch checked={cOn} label="Connect mode" onChange={onC} />
+                        <Text.MonoLabel>{East.str`${modeTxt} · ${txt}`}</Text.MonoLabel>
                     </HStack>
                     <Schematic
                         extent={{ width: 22, height: 11 }}
@@ -576,13 +579,16 @@ export const schematicNets = example({
             const eOn = $.let(editable.read());
             const onE = $.const(East.function([BooleanType], NullType, ($, v) => { $(editable.write(v)); }));
             const roLinks = $.let(eOn.not(), BooleanType);
+            // The mode READOUT follows the switch — the description must never
+            // claim event-only while draw mode is adding locally.
+            const modeTxt = $.let(cOn.ifElse(_$ => "CONNECT — event-only, nothing added", _$ => "DRAW — adds locally"));
             const txt = $.let(log.read());
             return (
                 <VStack gap="3" align="stretch">
                     <HStack gap="4" align="center">
                         <Switch checked={eOn} label="Links editable" onChange={onE} />
-                        <Switch checked={cOn} label="Connect mode (event-only)" onChange={onC} />
-                        <Text.MonoLabel>{East.str`NET · ${txt}`}</Text.MonoLabel>
+                        <Switch checked={cOn} label="Connect mode" onChange={onC} />
+                        <Text.MonoLabel>{East.str`${modeTxt} · ${txt}`}</Text.MonoLabel>
                     </HStack>
                     <Schematic
                         extent={{ width: 26, height: 12 }}
