@@ -1,16 +1,17 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1404,
+    "totalEntries": 1412,
     "totalFiles": 181,
     "packages": {
       "east": 489,
       "east-node-std": 42,
       "east-node-io": 63,
       "east-py-datascience": 89,
-      "east-ui": 659,
+      "east-ui": 664,
       "e3-ui": 55,
-      "e3": 7
+      "e3": 7,
+      "e3-ui-cli": 3
     }
   },
   "entries": [
@@ -25621,7 +25622,7 @@
         "import { UIComponentType } from \"@elaraai/east-ui\";",
         "import { Box, Chart, Gantt, Reactive, Slice, State, Table, VStack } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Sessions chart — Chart with the \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const EventType = StructType({ day: DateTimeType, region: StringType, sessions: IntegerType });\n        const cfg = Slice.config(EventType, {\n            fields: { day: { label: \"Day\" }, region: { label: \"Region\" }, sessions: { label: \"Sessions\" } },\n            breakdownFieldIds: [\"region\"],\n            rangeFieldId: \"day\",\n        });\n        return (\n            <Reactive>{$ => {\n                const data = $.const([\n                    { day: new Date(\"2025-03-03\"), region: \"EU\", sessions: 30n },\n                    { day: new Date(\"2025-03-03\"), region: \"NA\", sessions: 22n },\n                    { day: new Date(\"2025-03-10\"), region: \"EU\", sessions: 42n },\n                    { day: new Date(\"2025-03-10\"), region: \"NA\", sessions: 28n },\n                    { day: new Date(\"2025-03-17\"), region: \"EU\", sessions: 38n },\n                    { day: new Date(\"2025-03-17\"), region: \"NA\", sessions: 41n },\n                    { day: new Date(\"2025-03-24\"), region: \"EU\", sessions: 51n },\n                    { day: new Date(\"2025-03-24\"), region: \"NA\", sessions: 36n },\n                ], ArrayType(EventType));\n                const slice = $.let(Slice.bind([EventType], \"ex.slice.chart.chrome\", cfg, Slice.state({\n                    breakdown: some({ fieldId: \"region\", limit: none }),\n                }), data, none));\n                return (\n                    <Chart\n                        layers={[Chart.Series(slice, { x: \"day\", value: \"sessions\" })]}\n                        slice={slice}\n                        affordances={[\"breakdown\", \"range\", \"brush\"]}\n                        height={180}\n                    />\n                );\n            }}</Reactive>\n        );\n    })"
+      "source": "// Sessions chart — Chart with the \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const EventType = StructType({ day: DateTimeType, region: StringType, sessions: IntegerType });\n        const cfg = Slice.config(EventType, {\n            fields: { day: { label: \"Day\" }, region: { label: \"Region\" }, sessions: { label: \"Sessions\" } },\n            breakdownFieldIds: [\"region\"],\n            rangeFieldId: \"day\",\n        });\n        return (\n            <Reactive>{$ => {\n                const data = $.const([\n                    { day: new Date(\"2025-03-03\"), region: \"EU\", sessions: 30n },\n                    { day: new Date(\"2025-03-03\"), region: \"NA\", sessions: 22n },\n                    { day: new Date(\"2025-03-10\"), region: \"EU\", sessions: 42n },\n                    { day: new Date(\"2025-03-10\"), region: \"NA\", sessions: 28n },\n                    { day: new Date(\"2025-03-17\"), region: \"EU\", sessions: 38n },\n                    { day: new Date(\"2025-03-17\"), region: \"NA\", sessions: 41n },\n                    { day: new Date(\"2025-03-24\"), region: \"EU\", sessions: 51n },\n                    { day: new Date(\"2025-03-24\"), region: \"NA\", sessions: 36n },\n                ], ArrayType(EventType));\n                const slice = $.let(Slice.bind([EventType], \"ex.slice.chart.chrome\", cfg, Slice.state({\n                    breakdown: some({ fieldId: \"region\", limit: none }),\n                }), data, none));\n                return (\n                    <Chart\n                        layers={[Chart.Series(slice, { x: \"day\", value: \"sessions\" })]}\n                        slice={slice}\n                        affordances={[\"breakdown\", \"range\", \"brush\", \"legend\"]}\n                        height={180}\n                    />\n                );\n            }}</Reactive>\n        );\n    })"
     },
     {
       "id": "east-ui:slice.examples.tsx:sliceRail",
@@ -25637,14 +25638,18 @@
         "strip",
         "multi-consumer",
         "Table",
-        "Summary"
+        "Summary",
+        "persist",
+        "localStorage",
+        "url",
+        "shareable"
       ],
       "imports": [
         "import { East, DateTimeType, StringType, IntegerType, NullType, ArrayType, StructType, variant, some, none, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
         "import { Box, Chart, Gantt, Reactive, Slice, State, Table, VStack } from \"@elaraai/east-ui\";"
       ],
-      "source": "// One slice, several consumers — a standalone Slice.Rail strip (with the brush mini-strip over the sessions domain) narrowing a plain Table reading \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const EventType = StructType({ scenario: StringType, region: StringType, sessions: IntegerType });\n        const cfg = Slice.config(EventType, {\n            fields: { scenario: { label: \"Scenario\" }, region: { label: \"Region\" }, sessions: { label: \"Sessions\" } },\n            searchFieldIds: [\"scenario\", \"region\"],\n            rangeFieldId: \"sessions\",\n        });\n        return (\n            <Reactive>{$ => {\n                const data = $.const([\n                    { scenario: \"procurement v3\", region: \"EU\",   sessions: 42n },\n                    { scenario: \"procurement v3\", region: \"NA\",   sessions: 18n },\n                    { scenario: \"procurement v2\", region: \"EU\",   sessions: 31n },\n                    { scenario: \"logistics\",      region: \"NA\",   sessions: 56n },\n                    { scenario: \"procurement v3\", region: \"NA\",   sessions: 12n },\n                ], ArrayType(EventType));\n                const slice = $.let(Slice.bind([EventType], \"ex.slice.rail\", cfg, Slice.state({\n                    filters: [variant(\"string\", { fieldId: \"scenario\", op: variant(\"eq\", \"procurement v3\") })],\n                }), data, none));\n                const narrowed = $.let(Slice.rows([EventType], slice));\n                return (\n                    <VStack gap=\"3\" align=\"stretch\">\n                        <Slice.Rail slice={slice} affordances={[\"filter\", \"search\", \"brush\"]} />\n                        <Table data={narrowed} columns={{\n                            scenario: { header: \"Scenario\" },\n                            region:   { header: \"Region\" },\n                            sessions: { header: \"Sessions\" },\n                        }} />\n                        <Slice.Summary slice={slice} />\n                    </VStack>\n                );\n            }}</Reactive>\n        );\n    })"
+      "source": "// One slice, several consumers — a standalone Slice.Rail strip (with the brush mini-strip over the sessions domain) narrowing a plain Table reading \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const EventType = StructType({ scenario: StringType, region: StringType, sessions: IntegerType });\n        const cfg = Slice.config(EventType, {\n            fields: { scenario: { label: \"Scenario\" }, region: { label: \"Region\" }, sessions: { label: \"Sessions\" } },\n            searchFieldIds: [\"scenario\", \"region\"],\n            rangeFieldId: \"sessions\",\n        });\n        return (\n            <Reactive>{$ => {\n                const data = $.const([\n                    { scenario: \"procurement v3\", region: \"EU\",   sessions: 42n },\n                    { scenario: \"procurement v3\", region: \"NA\",   sessions: 18n },\n                    { scenario: \"procurement v2\", region: \"EU\",   sessions: 31n },\n                    { scenario: \"logistics\",      region: \"NA\",   sessions: 56n },\n                    { scenario: \"procurement v3\", region: \"NA\",   sessions: 12n },\n                ], ArrayType(EventType));\n                const slice = $.let(Slice.bind([EventType], \"ex.slice.rail\", cfg, Slice.state({\n                    filters: [variant(\"string\", { fieldId: \"scenario\", op: variant(\"eq\", \"procurement v3\") })],\n                }), data, none));\n                const narrowed = $.let(Slice.rows([EventType], slice));\n                return (\n                    <VStack gap=\"3\" align=\"stretch\">\n                        <Slice.Rail slice={slice} affordances={[\"filter\", \"search\", \"brush\"]} persist=\"local\" />\n                        <Table data={narrowed} columns={{\n                            scenario: { header: \"Scenario\" },\n                            region:   { header: \"Region\" },\n                            sessions: { header: \"Sessions\" },\n                        }} />\n                        <Slice.Summary slice={slice} />\n                    </VStack>\n                );\n            }}</Reactive>\n        );\n    })"
     },
     {
       "id": "east-ui:slice.examples.tsx:sliceNarrow",
@@ -25667,6 +25672,137 @@
         "import { Box, Chart, Gantt, Reactive, Slice, State, Table, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// The compress ladder under width pressure — the same Table chrome in a ~360px rail: chips fold whole into \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const EventType = StructType({ scenario: StringType, region: StringType, sessions: IntegerType });\n        const cfg = Slice.config(EventType, {\n            fields: { scenario: { label: \"Scenario\" }, region: { label: \"Region\" }, sessions: { label: \"Sessions\" } },\n            searchFieldIds: [\"scenario\"],\n        });\n        return (\n            <Reactive>{$ => {\n                const data = $.const([\n                    { scenario: \"procurement v3\", region: \"EU\", sessions: 42n },\n                    { scenario: \"procurement v3\", region: \"NA\", sessions: 18n },\n                    { scenario: \"procurement v2\", region: \"EU\", sessions: 31n },\n                ], ArrayType(EventType));\n                const slice = $.let(Slice.bind([EventType], \"ex.slice.narrow\", cfg, Slice.state({\n                    filters: [\n                        variant(\"string\", { fieldId: \"scenario\", op: variant(\"eq\", \"procurement v3\") }),\n                        variant(\"string\", { fieldId: \"region\", op: variant(\"eq\", \"EU\") }),\n                        variant(\"integer\", { fieldId: \"sessions\", op: variant(\"gte\", 10n) }),\n                    ],\n                }), data, none));\n                const narrowed = $.let(Slice.rows([EventType], slice));\n                return (\n                    <Box width=\"360px\">\n                        <Table data={narrowed} columns={{\n                            scenario: { header: \"Scenario\" },\n                            sessions: { header: \"Sessions\" },\n                        }} slice={slice} />\n                    </Box>\n                );\n            }}</Reactive>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:slice.examples.tsx:slicePresetsBar",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/slice/slice.examples.tsx",
+      "suite": "",
+      "test": "Curated preset bar — ",
+      "keywords": [
+        "Slice",
+        "Presets",
+        "Cohort",
+        "toggle",
+        "segments",
+        "preset",
+        "on",
+        "off",
+        "counts"
+      ],
+      "imports": [
+        "import { East, DateTimeType, StringType, IntegerType, NullType, ArrayType, StructType, variant, some, none, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Chart, Gantt, Reactive, Slice, State, Table, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Curated preset bar — \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const OrderType = StructType({ sku: StringType, region: StringType, qty: IntegerType });\n        const cfg = Slice.config(OrderType, {\n            fields: { sku: { label: \"SKU\" }, region: { label: \"Region\" }, qty: { label: \"Qty\" } },\n        });\n        return (\n            <Reactive>{$ => {\n                const data = $.const([\n                    { sku: \"A-100\", region: \"EU\",   qty: 40n },\n                    { sku: \"A-101\", region: \"EU\",   qty: 12n },\n                    { sku: \"B-200\", region: \"NA\",   qty: 55n },\n                    { sku: \"B-201\", region: \"NA\",   qty: 9n },\n                    { sku: \"C-300\", region: \"APAC\", qty: 23n },\n                ], ArrayType(OrderType));\n                const slice = $.let(Slice.bind([OrderType], \"ex.slice.presets\", cfg, Slice.state({\n                    cohorts: [\n                        { id: \"eu\",   name: \"EU\",          filters: [variant(\"string\",  { fieldId: \"region\", op: variant(\"eq\", \"EU\") })] },\n                        { id: \"bulk\", name: \"Bulk orders\", filters: [variant(\"integer\", { fieldId: \"qty\",    op: variant(\"gte\", 20n) })] },\n                    ],\n                    activeCohorts: new Set([\"bulk\"]),\n                }), data, none));\n                const narrowed = $.let(Slice.rows([OrderType], slice));\n                return (\n                    <VStack gap=\"3\" align=\"stretch\">\n                        <Slice.Presets slice={slice} />\n                        <Table data={narrowed} columns={{\n                            sku:    { header: \"SKU\" },\n                            region: { header: \"Region\" },\n                            qty:    { header: \"Qty\" },\n                        }} />\n                        <Slice.Summary slice={slice} />\n                    </VStack>\n                );\n            }}</Reactive>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:slice.examples.tsx:sliceCrossFilterDashboard",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/slice/slice.examples.tsx",
+      "suite": "",
+      "test": "Cross-filtering dashboard — a Chart (split by region, top-2 + ",
+      "keywords": [
+        "Slice",
+        "cross-filter",
+        "toggleFilter",
+        "Legend",
+        "filter to",
+        "breakdown",
+        "limit",
+        "other",
+        "linked",
+        "dashboard",
+        "Chart",
+        "Table",
+        "Summary"
+      ],
+      "imports": [
+        "import { East, DateTimeType, StringType, IntegerType, NullType, ArrayType, StructType, variant, some, none, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Chart, Gantt, Reactive, Slice, State, Table, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Cross-filtering dashboard — a Chart (split by region, top-2 + \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const EventType = StructType({ day: DateTimeType, region: StringType, sessions: IntegerType });\n        const cfg = Slice.config(EventType, {\n            fields: { day: { label: \"Day\" }, region: { label: \"Region\" }, sessions: { label: \"Sessions\" } },\n            breakdownFieldIds: [\"region\"],\n            rangeFieldId: \"day\",\n        });\n        return (\n            <Reactive>{$ => {\n                const data = $.const([\n                    { day: new Date(\"2025-03-03\"), region: \"EU\",    sessions: 30n },\n                    { day: new Date(\"2025-03-10\"), region: \"EU\",    sessions: 42n },\n                    { day: new Date(\"2025-03-17\"), region: \"EU\",    sessions: 38n },\n                    { day: new Date(\"2025-03-03\"), region: \"NA\",    sessions: 22n },\n                    { day: new Date(\"2025-03-10\"), region: \"NA\",    sessions: 28n },\n                    { day: new Date(\"2025-03-03\"), region: \"APAC\",  sessions: 9n },\n                    { day: new Date(\"2025-03-10\"), region: \"LATAM\", sessions: 7n },\n                ], ArrayType(EventType));\n                const slice = $.let(Slice.bind([EventType], \"ex.slice.crossfilter\", cfg, Slice.state({\n                    breakdown: some({ fieldId: \"region\", limit: some(2n) }),\n                }), data, none));\n                const narrowed = $.let(Slice.rows([EventType], slice));\n                return (\n                    <VStack gap=\"3\" align=\"stretch\">\n                        <Chart\n                            layers={[Chart.Series(slice, { x: \"day\", value: \"sessions\" })]}\n                            slice={slice}\n                            affordances={[\"breakdown\", \"range\"]}\n                            height={160}\n                        />\n                        <Slice.Legend slice={slice} />\n                        <Table data={narrowed} columns={{\n                            day:      { header: \"Day\" },\n                            region:   { header: \"Region\" },\n                            sessions: { header: \"Sessions\" },\n                        }} />\n                        <Slice.Summary slice={slice} />\n                    </VStack>\n                );\n            }}</Reactive>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:slice.examples.tsx:sliceExpressiveFilters",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/slice/slice.examples.tsx",
+      "suite": "",
+      "test": "The widened filter vocabulary on one rail — ",
+      "keywords": [
+        "Slice",
+        "Filter",
+        "startsWith",
+        "isEmpty",
+        "isNotEmpty",
+        "between",
+        "in",
+        "set",
+        "preview",
+        "predicates",
+        "expressive"
+      ],
+      "imports": [
+        "import { East, DateTimeType, StringType, IntegerType, NullType, ArrayType, StructType, variant, some, none, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Chart, Gantt, Reactive, Slice, State, Table, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// The widened filter vocabulary on one rail — \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const OrderType = StructType({ sku: StringType, note: StringType, day: DateTimeType, qty: IntegerType });\n        const cfg = Slice.config(OrderType, {\n            fields: { sku: { label: \"SKU\" }, note: { label: \"Note\" }, day: { label: \"Day\" }, qty: { label: \"Qty\" } },\n            searchFieldIds: [\"sku\", \"note\"],\n        });\n        return (\n            <Reactive>{$ => {\n                const data = $.const([\n                    { sku: \"SKU-100\", note: \"rush order\", day: new Date(\"2025-01-10\"), qty: 10n },\n                    { sku: \"SKU-200\", note: \"  \",         day: new Date(\"2025-02-14\"), qty: 20n },\n                    { sku: \"SKU-300\", note: \"fragile\",    day: new Date(\"2025-03-01\"), qty: 30n },\n                    { sku: \"ALT-400\", note: \"reseller\",   day: new Date(\"2025-02-02\"), qty: 40n },\n                    { sku: \"SKU-500\", note: \"priority\",   day: new Date(\"2025-05-20\"), qty: 50n },\n                ], ArrayType(OrderType));\n                const slice = $.let(Slice.bind([OrderType], \"ex.slice.expressive\", cfg, Slice.state({\n                    filters: [\n                        variant(\"string\",   { fieldId: \"sku\",  op: variant(\"startsWith\", \"SKU-\") }),\n                        variant(\"string\",   { fieldId: \"note\", op: variant(\"isNotEmpty\", null) }),\n                        variant(\"datetime\", { fieldId: \"day\",  op: variant(\"between\", { from: new Date(\"2025-01-05\"), to: new Date(\"2025-03-28\") }) }),\n                        variant(\"integer\",  { fieldId: \"qty\",  op: variant(\"in\", new Set([10n, 20n, 30n, 40n, 50n])) }),\n                    ],\n                }), data, none));\n                const narrowed = $.let(Slice.rows([OrderType], slice));\n                return (\n                    <VStack gap=\"3\" align=\"stretch\">\n                        <Slice.Rail slice={slice} affordances={[\"filter\"]} />\n                        <Table data={narrowed} columns={{\n                            sku:  { header: \"SKU\" },\n                            note: { header: \"Note\" },\n                            day:  { header: \"Day\" },\n                            qty:  { header: \"Qty\" },\n                        }} />\n                        <Slice.Summary slice={slice} />\n                    </VStack>\n                );\n            }}</Reactive>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:slice.examples.tsx:sliceBrushDatetime",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/slice/slice.examples.tsx",
+      "suite": "",
+      "test": "Brush over time — a standalone Slice.Rail brush strip on a datetime domain: the field",
+      "keywords": [
+        "Slice",
+        "Rail",
+        "brush",
+        "axis",
+        "count",
+        "histogram",
+        "datetime",
+        "format",
+        "date"
+      ],
+      "imports": [
+        "import { East, DateTimeType, StringType, IntegerType, NullType, ArrayType, StructType, variant, some, none, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Chart, Gantt, Reactive, Slice, State, Table, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Brush over time — a standalone Slice.Rail brush strip on a datetime domain: the field\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const BookingType = StructType({ when: DateTimeType, route: StringType, seats: IntegerType });\n        const cfg = Slice.config(BookingType, {\n            fields: {\n                when:  { label: \"Departure\", format: { date: \"MMM DD\" } },\n                route: { label: \"Route\" },\n                seats: { label: \"Seats\" },\n            },\n            rangeFieldId: \"when\",\n        });\n        return (\n            <Reactive>{$ => {\n                const data = $.const([\n                    { when: new Date(\"2025-03-02\"), route: \"SYD→MEL\", seats: 140n },\n                    { when: new Date(\"2025-03-03\"), route: \"SYD→BNE\", seats: 96n },\n                    { when: new Date(\"2025-03-04\"), route: \"MEL→SYD\", seats: 152n },\n                    { when: new Date(\"2025-03-05\"), route: \"SYD→MEL\", seats: 88n },\n                    { when: new Date(\"2025-03-21\"), route: \"SYD→PER\", seats: 44n },\n                    { when: new Date(\"2025-04-08\"), route: \"MEL→SYD\", seats: 120n },\n                    { when: new Date(\"2025-04-09\"), route: \"SYD→MEL\", seats: 134n },\n                    { when: new Date(\"2025-04-10\"), route: \"SYD→BNE\", seats: 61n },\n                    { when: new Date(\"2025-04-11\"), route: \"MEL→BNE\", seats: 105n },\n                    { when: new Date(\"2025-04-12\"), route: \"SYD→MEL\", seats: 149n },\n                ], ArrayType(BookingType));\n                const slice = $.let(Slice.bind([BookingType], \"ex.slice.brush.datetime\", cfg, Slice.state({\n                    range: some(variant(\"datetime\", {\n                        from: new Date(\"2025-04-07\"),\n                        to:   new Date(\"2025-04-13\"),\n                    })),\n                }), data, none));\n                const narrowed = $.let(Slice.rows([BookingType], slice));\n                return (\n                    <VStack gap=\"3\" align=\"stretch\">\n                        <Slice.Rail slice={slice} affordances={[\"brush\"]} />\n                        <Table data={narrowed} columns={{\n                            when:  { header: \"Departure\" },\n                            route: { header: \"Route\" },\n                            seats: { header: \"Seats\" },\n                        }} />\n                        <Slice.Summary slice={slice} />\n                    </VStack>\n                );\n            }}</Reactive>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:slice.examples.tsx:sliceBrushCurrency",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/slice/slice.examples.tsx",
+      "suite": "",
+      "test": "Brush over money — the Slice.Rail brush strip on an integer order-value domain: ",
+      "keywords": [
+        "Slice",
+        "Rail",
+        "brush",
+        "axis",
+        "count",
+        "histogram",
+        "currency",
+        "compact",
+        "format"
+      ],
+      "imports": [
+        "import { East, DateTimeType, StringType, IntegerType, NullType, ArrayType, StructType, variant, some, none, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Chart, Gantt, Reactive, Slice, State, Table, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Brush over money — the Slice.Rail brush strip on an integer order-value domain: \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const OrderType = StructType({ customer: StringType, value: IntegerType });\n        const cfg = Slice.config(OrderType, {\n            fields: {\n                customer: { label: \"Customer\" },\n                value:    { label: \"Order value\", format: { currency: { code: \"USD\", compact: true } } },\n            },\n            rangeFieldId: \"value\",\n        });\n        return (\n            <Reactive>{$ => {\n                const data = $.const([\n                    { customer: \"Acme\",     value: 180n },\n                    { customer: \"Birch\",    value: 240n },\n                    { customer: \"Cobalt\",   value: 310n },\n                    { customer: \"Dover\",    value: 420n },\n                    { customer: \"Ember\",    value: 480n },\n                    { customer: \"Foundry\",  value: 650n },\n                    { customer: \"Gale\",     value: 900n },\n                    { customer: \"Harbor\",   value: 1400n },\n                    { customer: \"Ionia\",    value: 4200n },\n                    { customer: \"Juniper\",  value: 12000n },\n                ], ArrayType(OrderType));\n                const slice = $.let(Slice.bind([OrderType], \"ex.slice.brush.currency\", cfg, Slice.state({\n                    range: some(variant(\"integer\", { from: 800n, to: 12000n })),\n                }), data, none));\n                const narrowed = $.let(Slice.rows([OrderType], slice));\n                return (\n                    <VStack gap=\"3\" align=\"stretch\">\n                        <Slice.Rail slice={slice} affordances={[\"brush\"]} />\n                        <Table data={narrowed} columns={{\n                            customer: { header: \"Customer\" },\n                            value:    { header: \"Order value\" },\n                        }} />\n                        <Slice.Summary slice={slice} />\n                    </VStack>\n                );\n            }}</Reactive>\n        );\n    })"
     },
     {
       "id": "east-ui:slice.examples.tsx:sliceGanttChrome",
@@ -29213,6 +29349,73 @@
         "import e3 from '@elaraai/e3';"
       ],
       "source": "// Complete e3 package with input, task, package, and export\nconst name = e3.input('name', StringType, 'World');\n\nconst greet = e3.task(\n  'greet',\n  [name],\n  East.function([StringType], StringType, ($, n) =>\n    East.str`Hello, ${n}!`\n  )\n);\n\nconst pkg = e3.package('hello', '1.0.0', greet);\nawait e3.export(pkg, '/tmp/hello.zip');\nexport default pkg;"
+    },
+    {
+      "id": "e3-ui-cli:static:shot-from-source",
+      "skill": "e3-ui-cli",
+      "package": "e3-ui-cli",
+      "file": "static",
+      "suite": "e3-ui shot",
+      "test": "Screenshot a .tsx component (or a ui() task) to PNG from the command line",
+      "keywords": [
+        "e3-ui-cli",
+        "shot",
+        "screenshot",
+        "png",
+        "render",
+        "cli",
+        "from-source",
+        "ui task",
+        "surface",
+        "headless",
+        "chromium"
+      ],
+      "imports": [],
+      "source": "# One-time per machine (add --with-deps on a fresh Linux server):\ne3-ui install-browser\n\n# A .tsx exporting an East function returning UIComponentType, or an e3 ui() task:\ne3-ui shot --from-source ./dashboard.tsx -o dashboard.png\n\n# Pick an export, set a viewport, also emit standalone HTML:\ne3-ui shot --from-source src/ui/index.tsx --export surface --viewport 800x600 --html"
+    },
+    {
+      "id": "e3-ui-cli:static:shot-from-task",
+      "skill": "e3-ui-cli",
+      "package": "e3-ui-cli",
+      "file": "static",
+      "suite": "e3-ui shot",
+      "test": "Screenshot a live e3 task's computed output with real workspace data",
+      "keywords": [
+        "e3-ui-cli",
+        "shot",
+        "from-task",
+        "workspace",
+        "repo",
+        "live",
+        "dataflow",
+        "screenshot",
+        "png"
+      ],
+      "imports": [],
+      "source": "# The workspace dataflow must have already produced the task output:\ne3-ui shot --from-task main.dashboard --repo ./.repos -o dashboard.png\n\n# Serialized component IR also works (stdin with -):\ne3-ui shot --from-ir ./component.beast2 -o component.png"
+    },
+    {
+      "id": "e3-ui-cli:static:render-to-png",
+      "skill": "e3-ui-cli",
+      "package": "e3-ui-cli",
+      "file": "static",
+      "suite": "programmatic",
+      "test": "Render a component to PNG from Node with renderToPng",
+      "keywords": [
+        "e3-ui-cli",
+        "renderToPng",
+        "renderTaskToPng",
+        "programmatic",
+        "node",
+        "png",
+        "screenshot",
+        "doctor",
+        "install-browser"
+      ],
+      "imports": [
+        "import { renderToPng, renderTaskToPng } from '@elaraai/e3-ui-cli';"
+      ],
+      "source": "// Source/IR input -> PNG (and optional standalone HTML):\nawait renderToPng({\n  input: { path: './dashboard.tsx' },\n  output: 'dashboard.png',\n  html: 'dashboard.html',\n});\n\n// A deployed e3 task's computed output:\nawait renderTaskToPng({ repo: './.repos', workspace: 'main', task: 'dashboard', output: 'dashboard.png' });"
     }
   ]
 }
