@@ -305,6 +305,12 @@ export const schematicSlotRecipe = defineSlotRecipe({
             "&[data-emphasis=pulse]": {
                 boxShadow: "0 0 0 calc(2px + var(--pulse, 0) * 5px) color-mix(in oklch, {colors.brand.600} calc(45% - var(--pulse, 0) * 25%), transparent)",
             },
+            /* canConnect veto (#176): the hovered FORBIDDEN target rings danger
+             * while a connect draft is over it (dot/label rings are canvas). */
+            "&[data-forbidden]": {
+                borderColor: "{colors.status.bad}",
+                boxShadow: "0 0 0 2px color-mix(in oklch, {colors.status.bad} 45%, transparent)",
+            },
         },
         itemHead: {
             display: "flex",

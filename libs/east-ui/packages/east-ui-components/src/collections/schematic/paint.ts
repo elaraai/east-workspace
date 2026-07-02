@@ -120,7 +120,9 @@ export interface PaintInput {
      * the item marker / footprint alpha. Absent / missing key ⇒ full. */
     layerAlpha?: ReadonlyMap<string, number>;
     /** Connect-tool draft edge (#176), world coords — routed like a real link. */
-    draftLink?: { from: Pt; to: Pt; snapped: boolean };
+    /** The in-flight connect draft; `forbiddenKey` = the hovered target the
+     *  canConnect validator vetoed — the edge and its ring go DANGER. */
+    draftLink?: { from: Pt; to: Pt; snapped: boolean; forbiddenKey?: string };
     /** Open connect-session edges (#176, `connect` mode), world coords. */
     /** The open connect-session proposal: one pair is a dashed edge; a grown
      *  session previews as a dashed BUS (same geometry a committed net gets). */
@@ -1023,12 +1025,17 @@ export function paintSchematic(input: PaintInput): void {
         ctx.restore();
     }
     if (draftLink !== undefined) {
+        // A canConnect veto turns the whole draft DANGER — red edge, red target
+        // affordance, and a red ring on the forbidden marker (cards get the
+        // ring via CSS `data-forbidden`; here we ring dot / label tiers).
+        const vetoed = draftLink.forbiddenKey !== undefined;
+        const edge = vetoed ? p.statusBad : p.brand600;
         const pts = routeScreen(draftLink.from, draftLink.to);
         ctx.save();
         ctx.lineCap = "round";
         ctx.setLineDash([6, 5]);
         ctx.lineWidth = 2.5;
-        ctx.strokeStyle = css(p.brand600, draftLink.snapped ? 1 : 0.65);
+        ctx.strokeStyle = css(edge, draftLink.snapped ? 1 : (vetoed ? 0.85 : 0.65));
         ctx.beginPath();
         traceRounded(ctx, pts, 8);
         ctx.stroke();
@@ -1038,13 +1045,25 @@ export function paintSchematic(input: PaintInput): void {
         ctx.setLineDash([]);
         ctx.beginPath();
         ctx.arc(a.x, a.y, 4, 0, Math.PI * 2);
-        ctx.fillStyle = css(p.brand600);
+        ctx.fillStyle = css(edge);
         ctx.fill();
         ctx.beginPath();
         ctx.arc(b.x, b.y, draftLink.snapped ? 9 : 6, 0, Math.PI * 2);
         ctx.lineWidth = 2;
-        ctx.strokeStyle = css(p.brand600, draftLink.snapped ? 1 : 0.5);
+        ctx.strokeStyle = css(edge, draftLink.snapped ? 1 : (vetoed ? 0.85 : 0.5));
         ctx.stroke();
+        if (vetoed) {
+            const fc = centers.get(draftLink.forbiddenKey!);
+            const tier = tiers.get(draftLink.forbiddenKey!) ?? "dot";
+            if (fc !== undefined && tier !== "card") {
+                const r = (tier === "label" ? 18 : 11) + 4;
+                ctx.beginPath();
+                ctx.arc(wx(fc.x), wy(fc.y), r, 0, Math.PI * 2);
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = css(p.statusBad, 0.75);
+                ctx.stroke();
+            }
+        }
         ctx.restore();
     }
     if (connectFlash !== undefined && connectFlash.from !== undefined && connectFlash.to !== undefined) {

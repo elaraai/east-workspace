@@ -669,7 +669,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     // the selection), each mover's ORIGINAL position (for Esc/cancel revert), and
     // the world start point of the gesture.
     const moveDragRef = useRef<{ key: string; keys: readonly string[]; orig: ReadonlyMap<string, Pt>; startWorld: Pt } | null>(null);
-    const [connectDraft, setConnectDraft] = useState<{ from: string; toWorld: Pt; target: string | undefined } | null>(null);
+    const [connectDraft, setConnectDraft] = useState<{ from: string; toWorld: Pt; target: string | undefined; forbidden?: string } | null>(null);
     const linkSessionRef = useRef<{ key: string; links: readonly { key: string; from: string; to: string }[]; drawn: "link" | "net" | "none" } | null>(null);
     const [sessionEdges, setSessionEdges] = useState<readonly { key: string; from: string; to: string }[]>([]);
     const linkKeyCounter = useRef(0);
@@ -723,7 +723,10 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         const from = centers.get(connectDraft.from);
         if (from === undefined) return undefined;
         const to = connectDraft.target !== undefined ? (centers.get(connectDraft.target) ?? connectDraft.toWorld) : connectDraft.toWorld;
-        return { from, to, snapped: connectDraft.target !== undefined };
+        return {
+            from, to, snapped: connectDraft.target !== undefined,
+            ...(connectDraft.forbidden !== undefined ? { forbiddenKey: connectDraft.forbidden } : {}),
+        };
     }, [connectDraft, centers]);
     // The connect-mode proposal preview: one pair is a dashed edge; a grown
     // session renders as a dashed BUS via the same fold + geometry a committed
@@ -1833,7 +1836,10 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                     ? (cd.retarget.movingEnd === "from" ? connectAllowed(tk, cd.from) : connectAllowed(cd.from, tk))
                     : connectAllowed(cd.from, tk));
                 const target = ok ? tk : undefined;
-                setConnectDraft({ from: cd.from, toWorld: { x: wxp, y: wyp }, target });
+                // A vetoed candidate is surfaced, not silent: the draft goes
+                // DANGER (red edge + ring on the target, not-allowed cursor).
+                const forbidden = tk !== undefined && tk !== cd.from && !ok ? tk : undefined;
+                setConnectDraft({ from: cd.from, toWorld: { x: wxp, y: wyp }, target, ...(forbidden !== undefined ? { forbidden } : {}) });
             }
             return;
         }
@@ -2324,7 +2330,9 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                     // Box tools (zoom / marquee) show a crosshair; for grab we leave
                     // the cursor to the recipe (grab → grabbing on :active) — an inline
                     // value would outrank the recipe and freeze it mid-pan (#153).
-                    ...(isBoxTool || effectiveTool === "connect" ? { cursor: "crosshair" } : effectiveTool === "move" ? { cursor: "move" } : {}),
+                    ...(connectDraft?.forbidden !== undefined ? { cursor: "not-allowed" }
+                        : isBoxTool || effectiveTool === "connect" ? { cursor: "crosshair" }
+                            : effectiveTool === "move" ? { cursor: "move" } : {}),
                 }}
                 onPointerEnter={() => { hoveredRef.current = true; }}
                 onPointerLeave={() => { hoveredRef.current = false; setTempTool(null); scheduleHoverClose(); }}
@@ -2381,6 +2389,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                                         {...(isSelected ? { "data-selected": "" } : {})}
                                         {...(isEmphasized ? { "data-emphasis": emphasis } : {})}
                                         {...(isExcludedCard ? { "data-excluded": "" } : {})}
+                                        {...(connectDraft?.forbidden === item.key ? { "data-forbidden": "" } : {})}
                                         style={{
                                             left: 0, top: 0,
                                             transform: `${cardTranslateCss(item.x, item.y)} translate(-50%, -50%)`,
