@@ -12,12 +12,17 @@
  *   e3-ui shot --from-ir <file.beast2|.json>      serialized component IR
  *   e3-ui shot --from-task <ws.task> --repo <r>   a live e3 task's output (dataflow must have run)
  *
+ * Plus the browser lifecycle for headless servers:
+ *   e3-ui install-browser [--with-deps]           download the managed headless Chromium
+ *   e3-ui doctor                                  diagnose the browser setup
+ *
  * @packageDocumentation
  */
 
 import { createRequire } from 'node:module';
 import { Command } from 'commander';
 import { shotCommand } from './commands/shot.js';
+import { installBrowser, doctor } from './browser.js';
 import { CAPTURE_DEFAULTS as D } from './capture.js';
 
 const require = createRequire(import.meta.url);
@@ -51,6 +56,21 @@ program
     .option('--timeout <ms>', `Max time to wait for the render to complete (default ${D.timeoutMs}); raise for slow live tasks`)
     .option('--storage-key <key>', 'Storage key prefix for persisted component state')
     .action(shotCommand);
+
+program
+    .command('install-browser')
+    .description('Download the version-matched headless Chromium into the playwright-managed cache (honors PLAYWRIGHT_BROWSERS_PATH)')
+    .option('--with-deps', 'Also install required system libraries (Linux only)')
+    .action(async (options: { withDeps?: boolean }) => {
+        process.exit(await installBrowser(options));
+    });
+
+program
+    .command('doctor')
+    .description('Diagnose the browser setup: env overrides, launch cascade, and remediation')
+    .action(async () => {
+        process.exit(await doctor());
+    });
 
 program.parseAsync().catch((err: unknown) => {
     console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);

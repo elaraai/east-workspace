@@ -21,7 +21,8 @@ import { existsSync } from 'node:fs';
 import { once } from 'node:events';
 import type { AddressInfo } from 'node:net';
 import * as path from 'node:path';
-import { chromium, type Browser, type Page } from 'playwright';
+import type { Browser, Page } from 'playwright-core';
+import { launchBrowser } from './browser.js';
 import type { ShotPayload } from './payload.js';
 
 /** Default capture parameters — single source of truth (CLI help text in
@@ -223,27 +224,7 @@ export async function capture(opts: CaptureOptions): Promise<void> {
     const { server, baseUrl } = await serveApp(opts.appDir);
     let browser: Browser | undefined;
     try {
-        // Honor a system / custom Chromium so the tool works where Playwright
-        // has no prebuilt browser for the platform (or in locked-down CI).
-        const executablePath = process.env['E3_UI_CHROMIUM_PATH']
-            ?? process.env['PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH'];
-        // Containers / CI often cannot use the Chromium sandbox — opt in to
-        // disabling it (only safe for trusted local components, which is the use case).
-        const noSandbox = process.env['E3_UI_NO_SANDBOX'] === '1' || process.env['E3_UI_NO_SANDBOX'] === 'true';
-        try {
-            browser = await chromium.launch({
-                headless: true,
-                ...(executablePath ? { executablePath } : {}),
-                ...(noSandbox ? { chromiumSandbox: false } : {}),
-            });
-        } catch (err) {
-            const first = err instanceof Error ? err.message.split('\n')[0] : String(err);
-            throw new Error(
-                `Could not launch headless Chromium: ${first}\n` +
-                `Install it with \`npx playwright install chromium\`, or set E3_UI_CHROMIUM_PATH ` +
-                `to a Chrome/Chromium executable.`,
-            );
-        }
+        ({ browser } = await launchBrowser());
         const context = await browser.newContext({ viewport, deviceScaleFactor });
         const page = await context.newPage();
 

@@ -177,16 +177,20 @@ cat > "$PROJ/package.json" <<EOF
     "@elaraai/east-c-cli": "$VERSION",
     "@elaraai/east-node-cli": "$VERSION",
     "@elaraai/e3-cli": "$VERSION",
+    "@elaraai/e3-ui-cli": "$VERSION",
     "@elaraai/east": "$VERSION",
     "@elaraai/east-node-std": "$VERSION",
     "@elaraai/eslint-plugin-east": "$VERSION"
   },
   "scripts": {
-    "smoke": "east-c version && east-node version && e3 --version"
+    "smoke": "east-c version && east-node version && e3 --version && e3-ui --version"
   }
 }
 EOF
-( cd "$PROJ" && npm install --no-fund --no-audit >/dev/null )
+# e3-ui-cli depends on playwright-core (never downloads a browser), and its
+# --version proves the whole module graph loads without launching one; the
+# skip env is belt-and-braces against any future dep regression.
+( cd "$PROJ" && PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install --no-fund --no-audit >/dev/null )
 
 log "Smoke tests (each CLI via npm run, resolved from node_modules/.bin)"
 ( cd "$PROJ" && npm run smoke )

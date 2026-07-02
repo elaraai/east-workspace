@@ -61,7 +61,7 @@ Title prefixes are literal scopes. Map to the directory, then load the per-packa
 | `east-node:` std / io | `libs/east-node/packages/east-node-{std,io}` | `east-node-std` / `east-node-io` |
 | `east-py:` | `libs/east-py/packages/east-py{,-std,-io,-datascience}` | `east-py` / `east-py-std` / `east-py-io` / `east-py-datascience` |
 | `e3` | `libs/e3` | `e3` |
-| `east-ui` / `causal` | `libs/east-ui/packages/{east-ui,e3-ui}` | `east-ui` / `e3-ui` |
+| `east-ui` / `causal` | `libs/east-ui/packages/{east-ui,e3-ui,e3-ui-cli}` | `east-ui` / `e3-ui` / `e3-ui-cli` |
 | `east-c` | `libs/east-c` | **no per-API skill** — read `libs/east-c/CLAUDE.md`, use `make compliance` |
 | dev-tooling | `libs/{east-diagnostics,eslint-plugin-east,tsserver-plugin-east,east-claude-plugin}` | none — read the lib's README/CLAUDE.md |
 
@@ -106,7 +106,8 @@ Heuristic: always `make build` the union; run a downstream lib's **tests** when 
 | ML / optimization / Bayesian / simulation (Python) | `east-py-datascience` | `east-py-datascience` | index / SKILL |
 | Python runtime / std / io | `east-py{,-std,-io}` | `east-py*` | SKILL + grep (not indexed) |
 | C runtime / IR execution / serialization | `libs/east-c` | — | grep `libs/east-c/**/src` + headers; `make compliance` |
-| UI components / tags / dashboards / decision surfaces | `east-ui`, `e3-ui` | `east-ui` / `e3-ui` | index / SKILL |
+| UI components / tags / decision surfaces | `east-ui`, `e3-ui` | `east-ui` / `e3-ui` | index / SKILL |
+| Headless render / screenshot of a component or surface (CLI + programmatic) | `east-ui/packages/e3-ui-cli` | `e3-ui-cli` | SKILL + grep `libs/east-ui/packages/e3-ui-cli/src` |
 | Dev tooling: diagnostics, eslint/tsserver plugin, scaffolds, Claude plugin | `east-diagnostics`, `eslint-plugin-east`, `tsserver-plugin-east`, `create`, `east-claude-plugin` | — | grep that lib's `src` + README |
 
 If a near-match exists, **extend/reuse it** rather than adding a parallel implementation. If a genuinely new capability is needed, place it in the lib that owns the concern (dependency order: `east` → `east-node`/`e3`/`east-ui`; `east-c`/`east-py` consume exported IR). **Record what you searched in the PR body** so review can see duplication was checked. Adding a capability = "register" it: add the `example()` (auto-flows into the index via CI — §6/§8), update the lib SKILL.md table, and add a row here only if a new package/domain appeared.

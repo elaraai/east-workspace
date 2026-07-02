@@ -15,7 +15,8 @@ A Claude Code plugin for the East programming language ecosystem.
 | `east-py-datascience` | `@elaraai/east-py-datascience` | Data science & ML (MADS, Optuna, XGBoost, Torch, GP, SHAP, Causal) |
 | `east-ui` | `@elaraai/east-ui` | UI components (50+ typed components for layouts, forms, charts) |
 | `e3` | `@elaraai/e3` | East Execution Engine - durable execution for East pipelines |
-| `e3-ui` | `@elaraai/e3-ui` | e3 + UI bridge - reactive dashboards as e3 tasks (Data.bind, ui(), Diff, Ontology) |
+| `e3-ui` | `@elaraai/e3-ui` | e3 + UI bridge - reactive decision surfaces as e3 tasks (Data.bind, ui(), Diff, Ontology) |
+| `e3-ui-cli` | `@elaraai/e3-ui-cli` | Render east-ui / e3-ui components to PNG/HTML (`e3-ui shot`), managed headless Chromium, server setup (`install-browser`, `doctor`) |
 | `east-project` | _(plugin-native)_ | Create + manage East/e3 projects — scaffolds via `east-scaffold`, drives the build/deploy/run lifecycle |
 | `east-design` | _(plugin-native)_ | Architect a solution before coding — discovery questions, capability→skill mapping, example searches, design doc |
 | `east-ontology` | _(plugin-native)_ | Build an Economic Ontology of a business and render it with the e3-ui Ontology editor — elicitation methodology, node/link model, `OntologyType` encoding |
@@ -28,7 +29,7 @@ The plugin includes a searchable index of East code examples extracted from the 
 - **Hook** (`hooks/prompt-submit.js`) — automatically injects relevant examples into every prompt based on what you're asking
 - **MCP tool** (`mcp/server.js`) — exposes a `search_east_examples` tool that Claude can call on-demand with targeted queries
 
-The index (`index.json`) is generated from `*.examples.ts` files across all East packages and is kept in sync by the `update-skills` workflow.
+The index (`index.json`) is generated from `*.examples.ts` files across all East packages (plus hand-written `index.static.json` stubs) and is kept in sync by the `plugin-artifacts` workflow.
 
 ### Generating the index locally
 

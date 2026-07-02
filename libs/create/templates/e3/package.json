@@ -14,6 +14,7 @@
     "deploy": "e3 repo create .repos --exist-ok && e3 workspace deploy .repos __WORKSPACE_NAME__ --from-source ./src/index.ts",
     "start": "npm run deploy && e3 dataflow run .repos __WORKSPACE_NAME__",
     "watch": "e3 watch ./src/index.ts .repos __WORKSPACE_NAME__ --start",
+    "shot": "e3-ui shot --from-source src/ui/index.tsx --export surface -o surface.png",
     "lint": "eslint .",
     "clean": "rimraf dist node_modules .venv uv.lock .repos *.tsbuildinfo"
   },
@@ -29,6 +30,7 @@
   },
   "devDependencies": {
     "@elaraai/e3-cli": "workspace:*",
+    "@elaraai/e3-ui-cli": "workspace:*",
     "@elaraai/east-node-cli": "workspace:*",
     "@elaraai/east-c-cli": "workspace:*",
     "@types/node": "^22",

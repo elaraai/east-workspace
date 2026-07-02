@@ -44,10 +44,46 @@ function isExampleDef(x: unknown): x is ExampleDefLike {
     return typeof x === 'object' && x !== null && hasToIR((x as { fn?: unknown }).fn);
 }
 
-/** Pull the East function out of an export (a bare fn, or an `example()` def). */
+/** Structural shape of an e3 `ui()` task definition. The original East
+ *  function is not retained on the TaskDef — `task()` eagerly stores
+ *  `fn.toIR()` (the full EastIR bundle, source map included) as the default of
+ *  its first input dataset, named `function_ir`. Purely structural so this
+ *  package needs no runtime dependency on `@elaraai/e3` / `@elaraai/e3-ui`.
+ *  `TaskDef.command` is ALSO an EastIR (the argv builder) — never unwrap that. */
+interface UiTaskDefLike {
+    kind: 'task';
+    taskKind: 'ui';
+    inputs: Array<{ name?: unknown; default?: unknown }>;
+}
+
+function isUiTaskDef(x: unknown): x is UiTaskDefLike {
+    if (typeof x !== 'object' || x === null) return false;
+    const t = x as { kind?: unknown; taskKind?: unknown; inputs?: unknown };
+    return t.kind === 'task'
+        && t.taskKind === 'ui'
+        && Array.isArray(t.inputs)
+        && (t.inputs[0] as { name?: unknown } | undefined)?.name === 'function_ir'
+        && (t.inputs[0] as { default?: unknown }).default != null;
+}
+
+const PARAMETERIZED_UI_TASK_MESSAGE =
+    `it is a ui() task with compute-time inputs, which a standalone render cannot supply — ` +
+    `render it from a deployed workspace instead: e3-ui shot --from-task <workspace>.<task> --repo <path>`;
+
+/**
+ * Pull the East function out of an export: a bare fn, an `example()` def, or a
+ * zero-input e3 `ui()` task (unwrapped to its stored `fn.toIR()` bundle). A
+ * ui() task WITH compute-time inputs (`inputs.length > 1` — inputs[0] is
+ * always the function_ir dataset) is not renderable standalone; callers
+ * surface {@link PARAMETERIZED_UI_TASK_MESSAGE} for those.
+ */
 function asEastFunction(value: unknown): EastFunctionLike | null {
     if (hasToIR(value)) return value;
     if (isExampleDef(value)) return value.fn;
+    if (isUiTaskDef(value) && value.inputs.length === 1) {
+        const bundle = value.inputs[0]!.default;
+        return { toIR: () => bundle };
+    }
     return null;
 }
 
@@ -125,6 +161,9 @@ export async function loadComponentFromSource(
     if (exportName !== undefined) {
         const fn = asEastFunction(moduleExports[exportName]);
         if (!fn) {
+            if (isUiTaskDef(moduleExports[exportName])) {
+                throw new Error(`Cannot render export "${exportName}" in ${path.basename(filePath)}: ${PARAMETERIZED_UI_TASK_MESSAGE}`);
+            }
             const available = renderableExportNames(moduleExports);
             throw new Error(
                 `Export "${exportName}" is not a renderable East UI function in ${path.basename(filePath)}.` +
@@ -143,6 +182,10 @@ export async function loadComponentFromSource(
 
     if (renderable.length === 1) return renderable[0]![1];
     if (renderable.length === 0) {
+        const parameterized = Object.entries(moduleExports).find(([, v]) => isUiTaskDef(v));
+        if (parameterized) {
+            throw new Error(`Cannot render export "${parameterized[0]}" in ${path.basename(filePath)}: ${PARAMETERIZED_UI_TASK_MESSAGE}`);
+        }
         throw new Error(
             `No renderable East UI function found in ${path.basename(filePath)}. ` +
             `Export a default East function returning a UIComponentType (or an example({ fn })).`,

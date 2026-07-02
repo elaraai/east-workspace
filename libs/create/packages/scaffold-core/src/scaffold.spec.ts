@@ -128,6 +128,8 @@ test("scaffold e3: defaults omit UI and never emit the manifest", () => {
 
   assert.equal(pkg.dependencies["@elaraai/east-ui"], undefined, "UI is opt-in — east-ui must be absent by default");
   assert.equal(pkg.dependencies["@elaraai/e3-ui"], undefined, "UI is opt-in — e3-ui must be absent by default");
+  assert.equal(pkg.devDependencies["@elaraai/e3-ui-cli"], undefined, "UI is opt-in — e3-ui-cli must be absent by default");
+  assert.equal(pkg.scripts["shot"], undefined, "the shot script is UI-only");
   assert.ok(!existsSync(join(dir, "src", "surface.tsx")), "surface.tsx is UI-only");
   assert.ok(!existsSync(join(dir, "src", "index.ui.ts")), "the UI index variant must never be emitted under its source name");
   assert.ok(!existsSync(join(dir, "template.json")), "template.json is build metadata, never scaffolded");
@@ -141,6 +143,8 @@ test("scaffold e3: ui feature adds east-ui + e3-ui and swaps in the UI entry", (
 
   assert.equal(pkg.dependencies["@elaraai/east-ui"], "^9.9.9", "ui adds a pinned east-ui dep");
   assert.equal(pkg.dependencies["@elaraai/e3-ui"], "^9.9.9", "ui adds a pinned e3-ui dep");
+  assert.equal(pkg.devDependencies["@elaraai/e3-ui-cli"], "^9.9.9", "ui adds the pinned screenshot CLI");
+  assert.ok(String(pkg.scripts["shot"]).includes("e3-ui shot --from-source src/ui/index.tsx"), "ui adds the shot script targeting the surface");
   assert.ok(existsSync(join(dir, "src", "ui", "index.tsx")), "ui emits the .tsx decision surface");
 
   const surface = readFileSync(join(dir, "src", "ui", "index.tsx"), "utf8");

@@ -50,6 +50,7 @@ const PKGS = [
   'libs/east-ui/packages/east-ui-components/package.json',
   'libs/east-ui/packages/e3-ui/package.json',
   'libs/east-ui/packages/e3-ui-components/package.json',
+  'libs/east-ui/packages/e3-ui-cli/package.json',
   'libs/east-diagnostics/package.json',
   'libs/eslint-plugin-east/package.json',
   'libs/tsserver-plugin-east/package.json',
