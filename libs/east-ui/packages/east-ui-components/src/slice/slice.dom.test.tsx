@@ -627,6 +627,82 @@ describe("Slice.Rail brush — formatted axis + count histogram, rich by default
     });
 });
 
+describe("Slice.Rail brush — slide + edge-resize the applied window (#192)", () => {
+    const cfg = {
+        fields: new Map<string, unknown>([
+            ["qty", { type: "integer", value: { label: "Qty", accessor: (r: { qty: bigint }) => r.qty, format: none } }],
+        ]),
+        rangeFieldId: some("qty"), searchFieldIds: [], breakdownFieldIds: [],
+    };
+    // Domain 0..1000 over a 1000px-wide mocked track → px === domain units.
+    const rows = [{ qty: 0n }, { qty: 300n }, { qty: 600n }, { qty: 1000n }];
+    const initial = {
+        range: some(variant("integer", { from: 200n, to: 400n })),
+        compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
+        breakdown: none, search: none, visible: none, selectedIndex: none,
+    };
+
+    const mount = (key: string) => {
+        initializeStore(new UIStore());
+        const handle: any = buildSliceHandle(key, cfg, initial, rows, none);
+        const { container } = ui(<EastChakraSliceRail value={{
+            slice: handle,
+            affordances: [variant("brush", null)],
+            persist: none,
+            brush: some({ axis: some(false), count: some(false), buckets: none }),
+        } as any} />);
+        const track = container.querySelector("[data-brush-track]") as HTMLElement;
+        Object.defineProperty(track, "getBoundingClientRect", {
+            value: () => ({ left: 0, top: 0, right: 1000, bottom: 18, width: 1000, height: 18, x: 0, y: 0, toJSON: () => ({}) }),
+        });
+        const appliedRange = () => {
+            const r = handle.read().range;
+            return r.type === "some" ? r.value.value as { from: bigint; to: bigint } : undefined;
+        };
+        return { container, track, appliedRange };
+    };
+
+    test("dragging the window body slides it — width preserved exactly", () => {
+        const { container, track, appliedRange } = mount("brush.slide");
+        // The applied window renders grabbable with two edge hot zones.
+        expect(container.querySelector("[data-brush-window]")).not.toBeNull();
+        expect(container.querySelectorAll("[data-brush-handle]").length).toBe(2);
+
+        fireEvent.pointerDown(track, { clientX: 300, pointerId: 1 }); // inside 200..400
+        fireEvent.pointerMove(track, { clientX: 400, pointerId: 1 }); // +100
+        fireEvent.pointerUp(track, { pointerId: 1 });
+        expect(appliedRange()).toEqual({ from: 300n, to: 500n });
+    });
+
+    test("dragging an edge hot zone resizes only that bound", () => {
+        const { track, appliedRange } = mount("brush.resize");
+        fireEvent.pointerDown(track, { clientX: 200, pointerId: 1 }); // on the lo edge
+        fireEvent.pointerMove(track, { clientX: 100, pointerId: 1 });
+        fireEvent.pointerUp(track, { pointerId: 1 });
+        expect(appliedRange()).toEqual({ from: 100n, to: 400n });
+    });
+
+    test("dragging empty track still draws a fresh window (regression)", () => {
+        const { track, appliedRange } = mount("brush.draw");
+        fireEvent.pointerDown(track, { clientX: 600, pointerId: 1 });
+        fireEvent.pointerMove(track, { clientX: 800, pointerId: 1 });
+        fireEvent.pointerUp(track, { pointerId: 1 });
+        expect(appliedRange()).toEqual({ from: 600n, to: 800n });
+    });
+
+    test("a click outside the window clears; a click inside never nukes the selection", () => {
+        const { track, appliedRange } = mount("brush.click");
+        // Click ON the window: no-op.
+        fireEvent.pointerDown(track, { clientX: 300, pointerId: 1 });
+        fireEvent.pointerUp(track, { pointerId: 1 });
+        expect(appliedRange()).toEqual({ from: 200n, to: 400n });
+        // Click on empty track: clears (the established gesture).
+        fireEvent.pointerDown(track, { clientX: 600, pointerId: 1 });
+        fireEvent.pointerUp(track, { pointerId: 1 });
+        expect(appliedRange()).toBeUndefined();
+    });
+});
+
 describe("Slice.Range — Custom pins the resolved window and exposes from/to inputs (#167)", () => {
     test("clicking Custom… pins the ACTIVE preset's resolved window — not a hardwired 30d", async () => {
         const slice = fakeSlice({ range: some(variant("datetimePreset", variant("last7d", null))) });
