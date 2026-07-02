@@ -46,9 +46,12 @@ const initialState = {
 };
 const rows = [{ id: "a", n: 1n }, { id: "b", n: 2n }];
 
-/** Drive the `Slice.bind` impl as the compiler does → a live handle. */
+/** Drive the `Slice.bind` impl as the compiler does → a live handle. Resolved
+ *  by NAME: positional indexing broke silently when `slice_partition` was
+ *  inserted at index 1 (220a86b) — the tests were driving the partition
+ *  resolver with bind's arguments ever since. */
 function bindSlice(key: string) {
-    const resolver = SliceImpl[1]!.fn!;
+    const resolver = SliceImpl.find(p => p.name === "slice_bind")!.fn!;
     return resolver(rowTypeVal)(key, config, initialState, rows, none);
 }
 
