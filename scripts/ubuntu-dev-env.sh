@@ -68,4 +68,18 @@ corepack prepare "$PNPM_SPEC" --activate
 log "Installing workspace dependencies (make install)"
 make -C "$REPO_ROOT" install
 
+# --- 5. Headless Chromium for `e3-ui shot` (showcase PNG capture) ----------
+# The e3-ui CLI renders east-ui / e3-ui components to PNG via a headless
+# Chromium. Install the chromium-headless-shell build (version-matched to the
+# CLI's playwright-core, incl. the OS libraries it needs) so capture works out
+# of the box. Idempotent — an already-present browser is skipped. Non-fatal:
+# the CLI also finds a system Chrome/Chromium (never Ubuntu's snap shim), or
+# set E3_UI_CHROMIUM_PATH; `e3-ui doctor` diagnoses a broken setup.
+log "Installing headless Chromium for 'e3-ui shot' (showcase PNG capture)"
+if PLAYWRIGHT_WITH_DEPS=1 make -C "$REPO_ROOT" setup-browser; then
+  log "Chromium ready"
+else
+  echo "  ! Chromium install failed — diagnose with 'e3-ui doctor', or set E3_UI_CHROMIUM_PATH to a Chrome/Chromium binary." >&2
+fi
+
 log "Done. Open a new shell (or 'source ~/.bashrc'), then: cd libs/east-ui && make build-showcase"

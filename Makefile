@@ -12,7 +12,7 @@ ifneq ($(words $(CURDIR)),1)
 $(error This checkout is at a path containing spaces: "$(CURDIR)". Clone/move it to a space-free path outside OneDrive, e.g. C:/src/east-workspace. See docs/WINDOWS_SETUP.md.)
 endif
 
-.PHONY: setup install build link test lint clean services-up services-down services-status test-all test-export set-version check-version help check-deps
+.PHONY: setup setup-browser install build link test lint clean services-up services-down services-status test-all test-export set-version check-version help check-deps
 
 # ── Setup (one-time) ─────────────────────────────────────────────────
 
@@ -54,6 +54,14 @@ check-deps:
 	echo "Optional (task-specific):"; \
 	opt docker  "https://docs.docker.com/engine/install/  (only needed for make services-up / test-all)"; \
 	opt zip     "apt install zip  /  brew install zip  (only needed for make link / make extension-install)"; \
+	if ls -d "$${PLAYWRIGHT_BROWSERS_PATH:-$$HOME/.cache/ms-playwright}"/chromium*/ >/dev/null 2>&1 \
+		|| ls -d "$$HOME/Library/Caches/ms-playwright"/chromium*/ >/dev/null 2>&1 \
+		|| ls -d "$${LOCALAPPDATA:-$$HOME/AppData/Local}/ms-playwright"/chromium*/ >/dev/null 2>&1 \
+		|| [ -n "$${E3_UI_CHROMIUM_PATH:-}" ]; then \
+		echo "  ✓ chromium (headless browser for 'e3-ui shot' showcase PNG capture)"; \
+	else \
+		echo "  ○ chromium — not found (optional). Install: make setup-browser  (only needed for 'e3-ui shot' / showcase PNG capture)"; \
+	fi; \
 	if [ -s "$${NVM_DIR:-$$HOME/.nvm}/nvm.sh" ]; then \
 		echo "  ✓ nvm (installed; 'nvm use' reads .nvmrc for the pinned Node)"; \
 	else \
@@ -65,9 +73,29 @@ check-deps:
 		exit 1; \
 	fi
 
-## One-time setup of build tools
-setup: check-deps
+## One-time setup of build tools (+ the headless browser e3-ui shot needs)
+setup: check-deps setup-browser
 	@echo "Setup complete."
+
+## Install the headless Chromium that `e3-ui shot` uses to render east-ui /
+## e3-ui components to PNG (showcase capture / visual review). Installs the
+## chromium-headless-shell build, version-matched to the CLI's playwright-core
+## — the same thing `e3-ui install-browser` does. One-time and idempotent —
+## re-running is a no-op once the browser is present. On Linux set
+## PLAYWRIGHT_WITH_DEPS=1 to also install the OS libraries Chromium needs
+## (sudo). Non-fatal: the CLI also finds a system Chrome/Chromium/Edge by
+## itself, or set E3_UI_CHROMIUM_PATH explicitly; `e3-ui doctor` diagnoses.
+setup-browser:
+	@echo "==> Installing headless Chromium for 'e3-ui shot' (showcase PNG capture)"
+	@deps=""; case "$(PLAYWRIGHT_WITH_DEPS)" in 1|true|yes) deps="--with-deps";; esac; \
+	if ! pnpm --filter '@elaraai/e3-ui-cli' exec playwright-core --version >/dev/null 2>&1; then \
+		echo "  ! playwright-core not resolvable yet — run 'make install' first, then 'make setup-browser'."; \
+	elif pnpm --filter '@elaraai/e3-ui-cli' exec playwright-core install --only-shell $$deps chromium; then \
+		:; \
+	else \
+		echo "  ! Chromium install failed — 'e3-ui shot' also works with a system Chrome/Chromium/Edge,"; \
+		echo "    or set E3_UI_CHROMIUM_PATH to an executable. Diagnose with 'e3-ui doctor'."; \
+	fi
 
 # ── Install ──────────────────────────────────────────────────────────
 
@@ -197,7 +225,8 @@ help:
 	@echo ""
 	@echo "First time:"
 	@echo "  check-deps       - Verify required tools (uv, pnpm, cmake, cc, ...)"
-	@echo "  setup            - Verify required build tools (one-time)"
+	@echo "  setup            - Verify build tools + install the e3-ui shot browser (one-time)"
+	@echo "  setup-browser    - Install headless Chromium for 'e3-ui shot' (showcase PNG capture)"
 	@echo "  install          - Install deps (pnpm + uv)"
 	@echo "  build            - Build everything (east-c + east-py + TS)"
 	@echo "  link             - Link CLIs globally"
