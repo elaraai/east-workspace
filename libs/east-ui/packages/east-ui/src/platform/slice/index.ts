@@ -903,11 +903,18 @@ export const SliceBindType = StructType({
         /**
          * Idempotent filter toggle: appends the predicate when no
          * structurally-equal clause is applied, removes the structurally-equal
-         * one when it is. Backs the "filter to this" gestures (Legend /
-         * Breakdown click-to-filter), so the same gesture narrows and
-         * un-narrows every view sharing this slice key.
+         * one when it is. Backs custom "filter to this" wiring; the Legend /
+         * Breakdown facet gestures use in-set semantics over `write` instead.
          */
         toggleFilter: FunctionType([SlicePredicateType], NullType),
+        /**
+         * Self-excluding facet options (#188): the active breakdown's groups
+         * computed under the current narrowing MINUS `state.filters` entries
+         * on the breakdown field itself — so a facet keeps showing every
+         * option (with live counts) while some are selected. Feeds the
+         * filter-mode `Slice.Legend`.
+         */
+        facetGroups: FunctionType([], SliceBreakdownGroupArrayType),
 });
 export type SliceBindType = typeof SliceBindType;
 
@@ -962,6 +969,7 @@ const slice_range_field   = East.platform("slice_range_field",   [StringType], O
 const slice_total_count   = East.platform("slice_total_count",   [StringType], IntegerType, { optional: true });
 const slice_result_count  = East.platform("slice_result_count",  [StringType], IntegerType, { optional: true });
 const slice_groups        = East.platform("slice_groups",        [StringType], SliceBreakdownGroupArrayType, { optional: true });
+const slice_facet_groups  = East.platform("slice_facet_groups",  [StringType], SliceBreakdownGroupArrayType, { optional: true });
 const slice_series_data   = East.platform("slice_series_data",   [StringType, StringType, StringType], SliceSeriesArrayType, { optional: true });
 const slice_matches       = East.platform("slice_matches",       [StringType], SliceSearchMatchArrayType, { optional: true });
 const slice_cohort_counts = East.platform("slice_cohort_counts", [StringType], DictType(StringType, IntegerType), { optional: true });
@@ -984,6 +992,7 @@ export const SliceBindPrimitives = {
     removeFilter: slice_remove_filter,
     clearFilters: slice_clear_filters,
     toggleFilter: slice_toggle_filter,
+    facetGroups: slice_facet_groups,
     defineCohort: slice_define_cohort,
     updateCohort: slice_update_cohort,
     removeCohort: slice_remove_cohort,

@@ -24,7 +24,7 @@ import { SliceRail } from "./rail/index.js";
 export { SliceSummaryType } from "./summary/types.js";
 export { SliceRangePickerType } from "./range/types.js";
 export { SliceFilterType } from "./filter/types.js";
-export { SliceLegendType } from "./legend/types.js";
+export { SliceLegendModeType, SliceLegendType } from "./legend/types.js";
 export { SliceBreakdownPickerType } from "./breakdown/types.js";
 export { SliceSearchType, SliceSearchMatchType } from "./search/types.js";
 export { SliceCohortModeType, SliceCohortPickerType } from "./cohort/types.js";

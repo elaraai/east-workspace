@@ -29,7 +29,7 @@ export const sliceFrameSlotRecipe = defineSlotRecipe({
         "frameAffordanceIcon",
         "frameBody", "frameFooter", "frameFooterStat", "frameFooterDelta",
         "searchPill", "searchKbd", "searchClear",
-        "legendRail", "legendGroup", "legendItem", "legendSwatch", "legendLabel", "legendValue", "filterTo",
+        "legendRail", "legendItem", "legendSwatch", "legendLabel", "legendValue",
     ],
     base: {
         root: {
@@ -257,13 +257,6 @@ export const sliceFrameSlotRecipe = defineSlotRecipe({
             fontSize: "10.5px",
             lineHeight: "1",
         },
-        // One legend entry = the visibility button + the filter-to button —
-        // two sibling controls (a button cannot nest a button).
-        legendGroup: {
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "{spacing.1}",
-        },
         legendItem: {
             display: "inline-flex",
             alignItems: "center",
@@ -272,20 +265,6 @@ export const sliceFrameSlotRecipe = defineSlotRecipe({
             border: "none",
             padding: "0",
             cursor: "pointer",
-        },
-        // The distinct "filter to this" gesture (#165) on legend items and
-        // breakdown group chips. Muted at rest; the applied state is
-        // data-driven (brand tint set inline). The icon inherits fontSize.
-        filterTo: {
-            display: "inline-flex",
-            alignItems: "center",
-            background: "transparent",
-            border: "none",
-            padding: "0",
-            cursor: "pointer",
-            fontSize: "9px",
-            color: "fg.muted",
-            _hover: { color: "{colors.brand.600}" },
         },
         legendSwatch: {
             width: "14px",

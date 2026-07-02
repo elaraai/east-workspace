@@ -231,11 +231,15 @@ export const Slice: SliceTags = {
      */
     Breakdown: optionsTag(SliceFactory.Breakdown.Root),
     /**
-     * Inline `swatch · label · count · toggle` rail over the slice's active
-     * breakdown series. Toggling a chip flips that group's visibility in the
-     * bound state (none hidden ⇒ all visible), and its colours match whatever
-     * `Chart.Series` is rendering the same series. Drop it beneath a slice
-     * chart to label and gate the series. Props are flat
+     * Inline `swatch · label · count` rail over the slice's active breakdown
+     * series. The default `filter` mode is a **facet bar** (#188): items come
+     * from the self-excluding `slice.facetGroups()` — options never disappear
+     * while selected — and clicking one toggles it in the field's `in`-set
+     * filter (OR within the field, AND across fields), narrowing every view
+     * bound to the same slice key. `mode: "visibility"` is the
+     * chart-decluttering rail instead: clicking flips the series' membership
+     * in `state.visible` (rows untouched). Colours match whatever
+     * `Chart.Series` is rendering the same series. Props are flat
      * ({@link SliceLegendOptions}); the only required one is `slice`.
      *
      * @example

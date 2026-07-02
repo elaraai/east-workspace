@@ -321,7 +321,7 @@ function buildSliceHandleIR(key: string): Record<string, unknown> {
     // Bare identifiers (not `SliceBindPrimitives.read(...)`): platform calls inside
     // an `East.function` body read cleaner and match the State/Nav handle builders.
     const {
-        read, write, setRange, setCompare, addFilter, removeFilter, clearFilters, toggleFilter,
+        read, write, setRange, setCompare, addFilter, removeFilter, clearFilters, toggleFilter, facetGroups,
         defineCohort, updateCohort, removeCohort, toggleCohort,
         setBreakdown, setSearch, setVisible, select, isActive, activeCount,
         dimensions, fields, searchFieldIds, rangeFieldId,
@@ -373,8 +373,9 @@ function buildSliceHandleIR(key: string): Record<string, unknown> {
         matches:      East.compile(East.function([], ArrayType(T.SearchMatch), ($) => { $.return(matches(keyExpr)); }), platform),
         cohortCounts: East.compile(East.function([], DictType(StringType, IntegerType), ($) => { $.return(cohortCounts(keyExpr)); }), platform),
 
-        // --- cross-filtering (#165 — appended last, matching the struct order) ---
+        // --- cross-filtering (#165/#188 — appended last, matching the struct order) ---
         toggleFilter: East.compile(East.function([T.Predicate], NullType, ($, p) => { $.return(toggleFilter(keyExpr, p)); }), platform),
+        facetGroups:  East.compile(East.function([], ArrayType(T.BreakdownGroup), ($) => { $.return(facetGroups(keyExpr)); }), platform),
     };
 }
 
@@ -663,6 +664,25 @@ export const SliceImpl: PlatformFunction[] = [
         const e = boundByKey.get(k);
         if (e === undefined) return [];
         return sliceBreakdown(readState(k) as never, e.config, boundRows(e), new Date());
+    }),
+    // Self-excluding facet options (#188): the breakdown groups computed with
+    // the breakdown field's OWN filters stripped from the narrowing — a facet
+    // must keep showing every option (with live counts) while some are
+    // selected. Filters on other fields, range, search, and cohorts still
+    // narrow the option counts.
+    SliceBindPrimitives.facetGroups.implement((key: unknown) => {
+        const k = key as string;
+        trackKey(k);
+        const e = boundByKey.get(k);
+        if (e === undefined) return [];
+        const s = readState(k);
+        if (s.breakdown.type !== "some") return [];
+        const fieldId = (s.breakdown.value as { fieldId: string }).fieldId;
+        const facetState = {
+            ...s,
+            filters: s.filters.filter(f => (f.value as { fieldId: string }).fieldId !== fieldId),
+        };
+        return sliceBreakdown(facetState as never, e.config, boundRows(e), new Date());
     }),
     SliceBindPrimitives.series.implement((key: unknown, xFieldId: unknown, valueFieldId: unknown) => {
         const k = key as string;

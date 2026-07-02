@@ -264,6 +264,27 @@ test("slice_fields merges auto-derived hints for hint-less string fields; slice_
     assert.equal(counts.get("just-a"), 2n);                             // counted in isolation over bound rows
 });
 
+test("slice_facet_groups is SELF-EXCLUDING — the breakdown field's own filters don't hide its options (#188)", () => {
+    initializeStore(new UIStore());
+    const cfgR = {
+        fields: new Map([["region", { type: "string", value: { accessor: (r: { region: string }) => r.region } }]]),
+        rangeFieldId: none, searchFieldIds: [], breakdownFieldIds: ["region"],
+    };
+    buildSliceHandle("fg", cfgR, { ...initial, breakdown: some({ fieldId: "region", limit: none }) }, [
+        { region: "EU", n: 1n }, { region: "EU", n: 2n }, { region: "NA", n: 3n },
+    ], none);
+
+    call("slice_add_filter", "fg", variant("string", { fieldId: "region", op: variant("in", new Set(["EU"])) }));
+    // The plain groups collapse under the narrowing…
+    assert.deepEqual((call("slice_groups", "fg") as Array<{ key: string }>).map(g => g.key), ["EU"]);
+    // …but the facet options keep every choice (counts under the rest of the state).
+    assert.deepEqual((call("slice_facet_groups", "fg") as Array<{ key: string; count: bigint }>).map(g => [g.key, g.count]), [["EU", 2n], ["NA", 1n]]);
+
+    // Filters on OTHER fields still narrow the facet counts.
+    call("slice_add_filter", "fg", variant("integer", { fieldId: "n", op: variant("gte", 2n) }));
+    assert.deepEqual((call("slice_facet_groups", "fg") as Array<{ key: string; count: bigint }>).map(g => [g.key, g.count]), [["EU", 1n], ["NA", 1n]]);
+});
+
 test("a real narrowing (search) DOES count, and clears cleanly (sanity)", () => {
     initializeStore(new UIStore());
     // A search that actually narrows rows needs a real string-field accessor.

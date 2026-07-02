@@ -92,6 +92,9 @@ function fakeSlice(init: Record<string, unknown> = {}, derived: Record<string, u
         totalCount: () => 0n,
         resultCount: () => BigInt(s.filters.length),
         groups: () => [] as Array<{ key: string; count: bigint }>,
+        // Fake facet options mirror groups (no bound rows to self-exclude over);
+        // override via `derived` when a test needs them to differ.
+        facetGroups: () => [] as Array<{ key: string; count: bigint }>,
         matches: () => [] as Array<{ id: string; label: string; meta: unknown }>,
         cohortCounts: () => new Map<string, bigint>(),
         searchFieldIds: () => [] as string[],
@@ -442,61 +445,85 @@ describe("Slice.Cohort — chips toggle on/off; authoring demoted to the pencil 
     });
 });
 
-describe("Slice.Legend — the filter-to gesture toggles a real narrowing (#165)", () => {
+describe("Slice.Legend — the facet bar (#188): in-set multi-select over self-excluding options", () => {
     const legendGroups = () => [
         { key: "EU", count: 3n, color: "{colors.brand.600}" },
         { key: "NA", count: 2n, color: "{colors.brand.800}" },
+        { key: "APAC", count: 1n, color: "{colors.status.warn}" },
     ];
+    const facetSlice = () => fakeSlice(
+        { breakdown: some({ fieldId: "region", limit: none }) },
+        { facetGroups: legendGroups, groups: legendGroups },
+    );
 
-    test("clicking the filter icon toggles an equality predicate on the breakdown field — on and off", () => {
-        const slice = fakeSlice(
-            { breakdown: some({ fieldId: "region", limit: none }) },
-            { groups: legendGroups },
-        );
-        const value: any = { slice };
-        ui(<EastChakraSliceLegend value={value} />);
+    test("clicks maintain ONE in-set filter — add, add, remove, empty drops it", () => {
+        const slice = facetSlice();
+        ui(<EastChakraSliceLegend value={{ slice } as any} />);
 
         fireEvent.click(screen.getByLabelText("Filter to EU"));
         let filters = slice.read().filters;
         expect(filters.length).toBe(1);
-        expect(filters[0].type).toBe("string");
-        expect(filters[0].value.fieldId).toBe("region");
-        expect(filters[0].value.op.type).toBe("eq");
-        expect(filters[0].value.op.value).toBe("EU");
+        expect(filters[0].value.op.type).toBe("in");
+        expect(filters[0].value.op.value).toEqual(new Set(["EU"]));
 
-        // The same gesture removes the structurally-equal clause (idempotent).
+        // Second selection ORs within the field — never an impossible AND.
+        fireEvent.click(screen.getByLabelText("Filter to NA"));
+        filters = slice.read().filters;
+        expect(filters.length).toBe(1);
+        expect(filters[0].value.op.value).toEqual(new Set(["EU", "NA"]));
+
+        // Un-clicking removes a member; the options never disappeared (facet
+        // items come from facetGroups, still all rendered).
+        expect(screen.getByLabelText("Filter to APAC")).toBeTruthy();
         fireEvent.click(screen.getByLabelText("Filter to EU"));
+        expect(slice.read().filters[0].value.op.value).toEqual(new Set(["NA"]));
+
+        // Emptying the selection drops the managed filter entirely.
+        fireEvent.click(screen.getByLabelText("Filter to NA"));
         expect(slice.read().filters.length).toBe(0);
     });
 
-    test("the visibility toggle stays distinct — it writes the whitelist, never a filter", () => {
+    test("filter mode renders NO eye; other-field filters pass through untouched", () => {
         const slice = fakeSlice(
-            { breakdown: some({ fieldId: "region", limit: none }) },
-            { groups: legendGroups },
+            {
+                breakdown: some({ fieldId: "region", limit: none }),
+                filters: [variant("integer", { fieldId: "sessions", op: variant("gte", 10n) })],
+            },
+            { facetGroups: legendGroups, groups: legendGroups },
         );
-        const value: any = { slice };
-        ui(<EastChakraSliceLegend value={value} />);
+        ui(<EastChakraSliceLegend value={{ slice } as any} />);
+        expect(screen.queryByLabelText(/Toggle visibility/)).toBeNull();   // no eye in filter mode
 
-        // The main legend item button (label EU) toggles series visibility.
-        fireEvent.click(screen.getByText("EU"));
-        expect(slice.read().filters.length).toBe(0);            // no narrowing
-        expect(slice.read().visible.type).toBe("some");         // whitelist written
-        expect([...slice.read().visible.value]).toEqual(["NA"]); // EU hidden
+        fireEvent.click(screen.getByLabelText("Filter to EU"));
+        const filters = slice.read().filters;
+        expect(filters.length).toBe(2);                                    // sessions filter untouched
+        expect(filters.some((f: any) => f.value.fieldId === "sessions")).toBe(true);
     });
 
-    test("the roll-up 'other' bucket gets no filter gesture when a limit is active", () => {
+    test("mode='visibility' is the classic eye rail — whitelist only, no filter gestures", () => {
+        const slice = facetSlice();
+        ui(<EastChakraSliceLegend value={{ slice, mode: some(variant("visibility", null)) } as any} />);
+
+        expect(screen.queryByLabelText(/Filter to/)).toBeNull();
+        fireEvent.click(screen.getByLabelText("Toggle visibility of EU"));
+        expect(slice.read().filters.length).toBe(0);             // no narrowing
+        expect(slice.read().visible.type).toBe("some");          // whitelist written
+        expect([...slice.read().visible.value]).toEqual(["NA", "APAC"]);
+    });
+
+    test("the roll-up 'other' bucket renders as a plain label when a limit is active", () => {
         const slice = fakeSlice(
             { breakdown: some({ fieldId: "region", limit: some(1n) }) },
-            { groups: () => [
+            { facetGroups: () => [
                 { key: "EU", count: 3n, color: "{colors.brand.600}" },
                 { key: "other", count: 2n, color: "{colors.gray.400}" },
             ] },
         );
-        const value: any = { slice };
-        ui(<EastChakraSliceLegend value={value} />);
+        ui(<EastChakraSliceLegend value={{ slice } as any} />);
 
         expect(screen.queryByLabelText("Filter to EU")).not.toBeNull();
-        expect(screen.queryByLabelText("Filter to other")).toBeNull();  // synthetic bucket
+        expect(screen.queryByLabelText("Filter to other")).toBeNull();  // synthetic bucket — inert
+        expect(screen.getByText("other")).toBeTruthy();                 // …but still shown
     });
 });
 
@@ -531,7 +558,7 @@ describe("Slice.Rail — the legend is an explicit affordance, never implicit (#
     ];
 
     test("listing 'legend' renders the legend beneath the cluster; omitting it renders none", () => {
-        const withLegend = fakeSlice({ breakdown: some({ fieldId: "region", limit: none }) }, { groups: legendGroups });
+        const withLegend = fakeSlice({ breakdown: some({ fieldId: "region", limit: none }) }, { groups: legendGroups, facetGroups: legendGroups });
         const first = ui(<EastChakraSliceRail value={{
             slice: withLegend,
             affordances: [variant("filter", null), variant("legend", null)],
@@ -652,6 +679,35 @@ describe("Slice.Filter against the REAL store — round-trip + reactivity (#170)
         // …and the DOM re-rendered from it: chip + count footer.
         expect(await screen.findByText(/sessions ≥ 20/)).toBeTruthy();
         expect(screen.getByText(/SHOWING 2 OF 3 events/)).toBeTruthy();
+    });
+
+    test("the legend facet narrows the REAL store rows while its options never disappear (#188)", async () => {
+        initializeStore(new UIStore());
+        const bdCfg = {
+            fields: new Map<string, unknown>([
+                ["region",   { type: "string",  value: { label: "Region",   accessor: (r: { region: string }) => r.region } }],
+                ["sessions", { type: "integer", value: { label: "Sessions", accessor: (r: { sessions: bigint }) => r.sessions } }],
+            ]),
+            rangeFieldId: none, searchFieldIds: [], breakdownFieldIds: ["region"],
+        };
+        const bdInitial = { ...realInitial, breakdown: some({ fieldId: "region", limit: none }) };
+        const handle: any = buildSliceHandle("real.legend", bdCfg, bdInitial, [
+            { region: "EU", sessions: 1n }, { region: "EU", sessions: 2n }, { region: "NA", sessions: 3n },
+        ], none);
+        const { rerender } = ui(<EastChakraSliceLegend value={{ slice: handle } as never} />);
+
+        // Selecting EU narrows the row feed (what a sibling Table sees)…
+        fireEvent.click(screen.getByLabelText("Filter to EU"));
+        expect(handle.read().filters[0].value.op.value).toEqual(new Set(["EU"]));
+        expect(handle.resultCount()).toBe(2n);
+        // …but the facet options are SELF-EXCLUDING: NA is still offered.
+        expect(handle.facetGroups().map((g: { key: string }) => g.key).sort()).toEqual(["EU", "NA"]);
+
+        // Adding NA ORs within the field — both regions' rows return.
+        rerender(<ChakraProvider value={system}><EastChakraSliceLegend value={{ slice: handle } as never} /></ChakraProvider>);
+        fireEvent.click(screen.getByLabelText("Filter to NA"));
+        expect(handle.read().filters[0].value.op.value).toEqual(new Set(["EU", "NA"]));
+        expect(handle.resultCount()).toBe(3n);
     });
 
     test("a handle mutation OUTSIDE React re-renders the mounted surface (useSliceReactivity)", async () => {

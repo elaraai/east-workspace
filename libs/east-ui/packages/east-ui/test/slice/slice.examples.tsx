@@ -268,7 +268,7 @@ export const slicePresetsBar = example({
 
 export const sliceCrossFilterDashboard = example({
     keywords: ["Slice", "cross-filter", "toggleFilter", "Legend", "filter to", "breakdown", "limit", "other", "linked", "dashboard", "Chart", "Table", "Summary"],
-    description: "Cross-filtering dashboard — a Chart (split by region, top-2 + `other` roll-up), its Slice.Legend, a Table, and a `N of M` Slice.Summary all bound to ONE slice: the legend's filter icon toggles an equality predicate (`slice.toggleFilter`) that narrows the chart AND the table, while the eye only hides chart series; clicking again un-narrows (idempotent)",
+    description: "Cross-filtering dashboard — a Chart (split by region, top-2 + `other` roll-up), its Slice.Legend facet bar, a Table, and a `N of M` Slice.Summary all bound to ONE slice: clicking a legend item toggles it in the field's `in`-set filter (OR within the field), narrowing the chart AND the table, and the self-excluding facet options never disappear while selected — click again to deselect; `<Slice.Legend mode=\"visibility\">` is the chart-decluttering eye rail instead",
     fn: East.function([], UIComponentType, (_$) => {
         const EventType = StructType({ day: DateTimeType, region: StringType, sessions: IntegerType });
         const cfg = Slice.config(EventType, {
