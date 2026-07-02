@@ -99,6 +99,15 @@ function selectValue(
     } as never;
 }
 
+/** A set-op value merged with the TagsInput's in-flight text (#194): text a
+ *  user typed or picked from the suggestions but never Enter-committed into a
+ *  tag still counts — validity and submit both see it. */
+function withPending(tags: unknown, pending: string): unknown[] {
+    const arr = tags as unknown[];
+    const p = pending.trim();
+    return p !== "" ? [...arr, p] : arr;
+}
+
 function emptyValue(kind: ClauseKind, input: ClauseOpSpec["input"]): unknown {
     if (input === "set") return [] as string[];
     if (input === "none") return null;
@@ -177,16 +186,25 @@ export function ClauseBuilder({ fields, opsFor, onSubmit, initial, lockField, su
     // setReason with a recomputed string; React bails identical values, so
     // keystrokes only re-render when validity actually flips (#164).
     const [reason, setReason] = useState<string | undefined>(() => invalidReason(kind, input, seedValue));
+    // In-flight TagsInput text (#194) — a suggestion pick or plain typing sets
+    // the input's TEXT, and Zag only converts text→tag on Enter/comma; the
+    // pending text must still count toward validity and submit.
+    const pendingRef = useRef("");
     const controlKey = `${fieldId}:${op?.tag ?? ""}`;
     const prevKeyRef = useRef(controlKey);
     if (prevKeyRef.current !== controlKey) {
         prevKeyRef.current = controlKey;
         valRef.current = emptyValue(kind, input);
+        pendingRef.current = "";
         setReason(invalidReason(kind, input, valRef.current));
     }
     const commit = useCallback((next: unknown) => {
         valRef.current = next;
-        setReason(invalidReason(kind, input, next));
+        setReason(invalidReason(kind, input, input === "set" ? withPending(next, pendingRef.current) : next));
+    }, [kind, input]);
+    const commitPending = useCallback((text: string) => {
+        pendingRef.current = text;
+        setReason(invalidReason(kind, input, withPending(valRef.current, text)));
     }, [kind, input]);
 
     const onFieldChange = (nextId: string) => {
@@ -200,11 +218,12 @@ export function ClauseBuilder({ fields, opsFor, onSubmit, initial, lockField, su
 
     const submit = () => {
         if (field === undefined || op === undefined) return;
+        const effective = input === "set" ? withPending(valRef.current, pendingRef.current) : valRef.current;
         // The button is disabled while invalid; this guard is the backstop.
-        if (invalidReason(kind, input, valRef.current) !== undefined) return;
-        let value: unknown = valRef.current;
+        if (invalidReason(kind, input, effective) !== undefined) return;
+        let value: unknown = effective;
         if (input === "set") {
-            value = (value as unknown[]).map(s => String(s).trim()).filter(Boolean);
+            value = [...new Set((effective as unknown[]).map(s => String(s).trim()).filter(Boolean))];
         }
         onSubmit({ fieldId: field.id, kind, op: op.tag, value });
     };
@@ -276,12 +295,12 @@ export function ClauseBuilder({ fields, opsFor, onSubmit, initial, lockField, su
                 )}
             />
         ) : input === "set" ? (
-            <EastChakraTagsInput key={controlKey} value={{ value: valRef.current as string[], placeholder: some("a, b, c"), suggestions: field?.hints !== undefined && field.hints.length > 0 ? some([...field.hints]) : none, onChange: some((v: string[]) => { commit(v); }), style: inputStyle } as never} />
+            <EastChakraTagsInput key={controlKey} value={{ value: valRef.current as string[], placeholder: some("a, b, c"), suggestions: field?.hints !== undefined && field.hints.length > 0 ? some([...field.hints]) : none, onChange: some((v: string[]) => { commit(v); }), onInputChange: some((s: string) => { commitPending(s); }), style: inputStyle } as never} />
         ) : input === "range" ? (
-            <Box display="flex" alignItems="center" gap="{spacing.2}" minWidth="0">
-                {controls.rangeMin}
+            <Box css={styles.rangeLine}>
+                <Box css={styles.rangeBound}>{controls.rangeMin}</Box>
                 <Box as="span" css={styles.rangeJoin}>–</Box>
-                {controls.rangeMax}
+                <Box css={styles.rangeBound}>{controls.rangeMax}</Box>
             </Box>
         ) : controls.single;
 
@@ -294,18 +313,21 @@ export function ClauseBuilder({ fields, opsFor, onSubmit, initial, lockField, su
     );
     const hint = reason !== undefined ? <Box as="span" css={styles.hint}>{reason}</Box> : null;
 
-    // Set ops author a TagsInput that grows with its values — stack it on its
-    // own full-width line so the tags never cram into a 1fr column.
-    if (input === "set") {
+    // Intrinsically wide value controls stack on their own full-width line
+    // (#193): set ops (a TagsInput grows with its values), range ops (two
+    // bounds + join), and datetime singles (a segmented date input cannot
+    // shrink into the inline grid's value track — it overflowed the popover).
+    // The inline grid stays for the compact singles.
+    if (input === "set" || input === "range" || kind === "datetime") {
         return (
-            <Box css={styles.rowStacked}>
-                <Box display="flex" alignItems="center" gap="{spacing.2}" minWidth="0">
+            <Box css={styles.rowStacked} data-clause-stacked>
+                <Box css={styles.stackControls}>
                     {fieldControl}
                     {opControl}
                 </Box>
-                <Box width="full" minWidth="0">{valueControl}</Box>
+                {valueControl !== null && <Box css={styles.stackValue}>{valueControl}</Box>}
                 {hint}
-                <Box display="flex" justifyContent="flex-end">{submitButton}</Box>
+                <Box css={styles.stackSubmit}>{submitButton}</Box>
             </Box>
         );
     }
