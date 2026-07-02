@@ -14,6 +14,7 @@ import { describe, it, expect } from "vitest";
 import {
     MARKER_DOT_HIT_RADIUS, MARKER_DOT_RADIUS,
     arcFromBulge, hatchLineCount, hatchSpacing, hatchSweepBounds, markerHit, markerHitbox, type BulgeArc,
+    parallelLanes, polylineMidpoint,
 } from "./paint";
 
 type Pt = { x: number; y: number };
@@ -205,5 +206,45 @@ describe("markerHitbox / markerHit (P11)", () => {
         // Just inside / just outside the right edge.
         expect(markerHit(box, 50 + w / 2 - 1, 50)).toBe(true);
         expect(markerHit(box, 50 + w / 2 + 1, 50)).toBe(false);
+    });
+});
+
+describe("polylineMidpoint (#180 link labels)", () => {
+    it("is the arc-length midpoint, not the chord midpoint", () => {
+        // L-shaped path 0,0 → 10,0 → 10,10 (length 20 ⇒ midpoint at the elbow-adjacent 10,0…10,10 start).
+        const mid = polylineMidpoint([{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }]);
+        expect(mid).toEqual({ x: 10, y: 0 });
+    });
+
+    it("lands mid-segment when the half-length falls inside one", () => {
+        const mid = polylineMidpoint([{ x: 0, y: 0 }, { x: 10, y: 0 }]);
+        expect(mid).toEqual({ x: 5, y: 0 });
+    });
+
+    it("degenerate inputs are safe", () => {
+        expect(polylineMidpoint([])).toEqual({ x: 0, y: 0 });
+        expect(polylineMidpoint([{ x: 3, y: 4 }])).toEqual({ x: 3, y: 4 });
+        expect(polylineMidpoint([{ x: 3, y: 4 }, { x: 3, y: 4 }])).toEqual({ x: 3, y: 4 });
+    });
+});
+
+describe("parallelLanes (#180 fan-out)", () => {
+    const L = (key: string, from: string, to: string) => ({ key, from, to });
+
+    it("assigns deterministic lanes to same-pair links (either direction), none to singles", () => {
+        const lanes = parallelLanes([L("b", "A", "B"), L("a", "B", "A"), L("solo", "A", "C")], () => true);
+        expect(lanes.get("a")).toEqual({ i: 0, n: 2 });   // key-sorted
+        expect(lanes.get("b")).toEqual({ i: 1, n: 2 });
+        expect(lanes.has("solo")).toBe(false);            // a lone edge keeps its true path
+    });
+
+    it("ineligible links (hidden / waypointed / unresolved) never join a group", () => {
+        const lanes = parallelLanes([L("a", "A", "B"), L("b", "A", "B")], l => l.key !== "b");
+        expect(lanes.size).toBe(0);                       // group collapsed to 1 ⇒ no fanning
+    });
+
+    it("three-way groups centre around the true path", () => {
+        const lanes = parallelLanes([L("a", "A", "B"), L("b", "A", "B"), L("c", "A", "B")], () => true);
+        expect(lanes.get("b")).toEqual({ i: 1, n: 3 });   // middle lane = zero offset
     });
 });

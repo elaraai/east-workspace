@@ -56,8 +56,9 @@ function SchematicTag<
     I extends SubtypeExprOrValue<ArrayType<StructType>>,
     Z extends SubtypeExprOrValue<ArrayType<StructType>> = [],
     L extends SubtypeExprOrValue<ArrayType<StructType>> = [],
+    N extends SubtypeExprOrValue<ArrayType<StructType>> = [],
 >(
-    props: { items: I } & SchematicConfig<RowElement<I>, RowElement<Z>, RowElement<L>> & { zones?: Z; links?: L },
+    props: { items: I } & SchematicConfig<RowElement<I>, RowElement<Z>, RowElement<L>, RowElement<N>> & { zones?: Z; links?: L; nets?: N },
 ): ExprType<UIComponentType> {
     const { items, ...config } = props;
     return SchematicFactory.Root(items, config as never);

@@ -21,7 +21,7 @@ export const schematicSlotRecipe = defineSlotRecipe({
         "item", "itemHead", "itemIcon", "itemLabel", "statusDot",
         "itemSublabel", "meterTrack", "meterFill", "itemMetric",
         "itemDot", "itemPin",
-        "controls", "controlButton", "controlGroup", "selectBox", "scaleBar", "scaleRuler", "scaleLabel",
+        "controls", "controlButton", "controlGroup", "selectBox", "selectBoxCount", "scaleBar", "scaleRuler", "scaleLabel",
         "minimap", "minimapZone", "minimapViewport",
         "nav", "navCollapsed", "navHeader", "navTitle", "navToggle",
         "navSearch", "navTree", "navZone", "navCaret",
@@ -291,13 +291,15 @@ export const schematicSlotRecipe = defineSlotRecipe({
                 outlineColor: "fg",
                 outlineOffset: "-1px",
             },
-            /* Slice-effect emphasis: a matched card gets a brand ring + soft glow.
-             * The animated "pulse" breathing lives on the canvas dot / label
-             * markers; a card carries the same static highlight for both `halo`
-             * and `pulse` so the survivor set reads at card zoom too. */
+            /* Slice-effect emphasis: a matched card gets a brand ring. `halo` is a
+             * static ring; `pulse` breathes — its ring width tracks the `--pulse`
+             * var (0..1) the animation loop writes on the card layer each frame. */
             "&[data-emphasis]": {
                 borderColor: "{colors.brand.600}",
                 boxShadow: "0 0 0 2px color-mix(in oklch, {colors.brand.600} 35%, transparent)",
+            },
+            "&[data-emphasis=pulse]": {
+                boxShadow: "0 0 0 calc(2px + var(--pulse, 0) * 5px) color-mix(in oklch, {colors.brand.600} calc(45% - var(--pulse, 0) * 25%), transparent)",
             },
         },
         itemHead: {
@@ -368,12 +370,12 @@ export const schematicSlotRecipe = defineSlotRecipe({
             gap: "2px",
         },
         controlButton: {
-            width: "24px",
-            height: "24px",
+            width: "28px",
+            height: "28px",
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
-            fontSize: "11px",
+            fontSize: "13px",
             color: "fg.muted",
             background: "bg.surface",
             borderWidth: "1px",
@@ -409,6 +411,28 @@ export const schematicSlotRecipe = defineSlotRecipe({
             background: "color-mix(in oklch, {colors.brand.600} 12%, transparent)",
             borderRadius: "{radii.xs}",
             zIndex: "5",
+            // A marquee (#159) reads as a solid brand box; the zoom box stays lighter.
+            "&[data-mode=marquee]": {
+                borderStyle: "solid",
+                background: "color-mix(in oklch, {colors.brand.600} 18%, transparent)",
+            },
+        },
+        // Live hit-count badge pinned to the marquee's top-left corner (#159).
+        selectBoxCount: {
+            position: "absolute",
+            top: "0",
+            left: "0",
+            transform: "translate(-2px, -50%)",
+            fontSize: "0.6875rem",
+            fontWeight: "600",
+            lineHeight: "1",
+            paddingInline: "{spacing.1.5}",
+            paddingBlock: "{spacing.1}",
+            borderRadius: "{radii.sm}",
+            background: "{colors.brand.600}",
+            color: "{colors.white}",
+            boxShadow: "xs",
+            pointerEvents: "none",
         },
         minimap: {
             position: "absolute",
