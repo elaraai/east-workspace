@@ -260,7 +260,113 @@ export const slicePresetsBar = example({
 });
 
 // ============================================================================
-// 6. Ops Gantt — Gantt with the `slice` chrome option.
+// 6. Cross-filter dashboard — chart + legend + table over ONE slice (#165).
+//    Exercises: breakdown with a top-N roll-up (`other` bucket, #162), the
+//    legend's filter-to gesture beside the visibility eye, and the narrowed
+//    Table + "N of M" Summary that the same gesture drives (#169).
+// ============================================================================
+
+export const sliceCrossFilterDashboard = example({
+    keywords: ["Slice", "cross-filter", "toggleFilter", "Legend", "filter to", "breakdown", "limit", "other", "linked", "dashboard", "Chart", "Table", "Summary"],
+    description: "Cross-filtering dashboard — a Chart (split by region, top-2 + `other` roll-up), its Slice.Legend, a Table, and a `N of M` Slice.Summary all bound to ONE slice: the legend's filter icon toggles an equality predicate (`slice.toggleFilter`) that narrows the chart AND the table, while the eye only hides chart series; clicking again un-narrows (idempotent)",
+    fn: East.function([], UIComponentType, (_$) => {
+        const EventType = StructType({ day: DateTimeType, region: StringType, sessions: IntegerType });
+        const cfg = Slice.config(EventType, {
+            fields: { day: { label: "Day" }, region: { label: "Region" }, sessions: { label: "Sessions" } },
+            breakdownFieldIds: ["region"],
+            rangeFieldId: "day",
+        });
+        return (
+            <Reactive>{$ => {
+                const data = $.const([
+                    { day: new Date("2025-03-03"), region: "EU",    sessions: 30n },
+                    { day: new Date("2025-03-10"), region: "EU",    sessions: 42n },
+                    { day: new Date("2025-03-17"), region: "EU",    sessions: 38n },
+                    { day: new Date("2025-03-03"), region: "NA",    sessions: 22n },
+                    { day: new Date("2025-03-10"), region: "NA",    sessions: 28n },
+                    { day: new Date("2025-03-03"), region: "APAC",  sessions: 9n },
+                    { day: new Date("2025-03-10"), region: "LATAM", sessions: 7n },
+                ], ArrayType(EventType));
+                const slice = $.let(Slice.bind([EventType], "ex.slice.crossfilter", cfg, Slice.state({
+                    breakdown: some({ fieldId: "region", limit: some(2n) }),
+                }), data, none));
+                const narrowed = $.let(Slice.rows([EventType], slice));
+                return (
+                    <VStack gap="3" align="stretch">
+                        <Chart
+                            layers={[Chart.Series(slice, { x: "day", value: "sessions" })]}
+                            slice={slice}
+                            affordances={["breakdown", "range"]}
+                            height={160}
+                        />
+                        <Slice.Legend slice={slice} />
+                        <Table data={narrowed} columns={{
+                            day:      { header: "Day" },
+                            region:   { header: "Region" },
+                            sessions: { header: "Sessions" },
+                        }} />
+                        <Slice.Summary slice={slice} />
+                    </VStack>
+                );
+            }}</Reactive>
+        );
+    }),
+    inputs: [],
+});
+
+// ============================================================================
+// 7. Expressive filters — the widened predicate vocabulary in one rail.
+//    Exercises: string startsWith / isNotEmpty (#171), datetime between +
+//    integer in (#166), and the capped `first-3 +N` in-set chip preview (#175).
+// ============================================================================
+
+export const sliceExpressiveFilters = example({
+    keywords: ["Slice", "Filter", "startsWith", "isEmpty", "isNotEmpty", "between", "in", "set", "preview", "predicates", "expressive"],
+    description: "The widened filter vocabulary on one rail — `sku starts with SKU-`, `note is not empty` (value-less presence chip), `day between JAN 5 – MAR 28` (datetime range op), and `qty in 10, 20, 30 +2` (integer set-membership, previewing 3 of 5 members with a `+2` tail so a big set stays a legible chip); the Table and `N of M` footer read the composed narrowing",
+    fn: East.function([], UIComponentType, (_$) => {
+        const OrderType = StructType({ sku: StringType, note: StringType, day: DateTimeType, qty: IntegerType });
+        const cfg = Slice.config(OrderType, {
+            fields: { sku: { label: "SKU" }, note: { label: "Note" }, day: { label: "Day" }, qty: { label: "Qty" } },
+            searchFieldIds: ["sku", "note"],
+        });
+        return (
+            <Reactive>{$ => {
+                const data = $.const([
+                    { sku: "SKU-100", note: "rush order", day: new Date("2025-01-10"), qty: 10n },
+                    { sku: "SKU-200", note: "  ",         day: new Date("2025-02-14"), qty: 20n },
+                    { sku: "SKU-300", note: "fragile",    day: new Date("2025-03-01"), qty: 30n },
+                    { sku: "ALT-400", note: "reseller",   day: new Date("2025-02-02"), qty: 40n },
+                    { sku: "SKU-500", note: "priority",   day: new Date("2025-05-20"), qty: 50n },
+                ], ArrayType(OrderType));
+                const slice = $.let(Slice.bind([OrderType], "ex.slice.expressive", cfg, Slice.state({
+                    filters: [
+                        variant("string",   { fieldId: "sku",  op: variant("startsWith", "SKU-") }),
+                        variant("string",   { fieldId: "note", op: variant("isNotEmpty", null) }),
+                        variant("datetime", { fieldId: "day",  op: variant("between", { from: new Date("2025-01-05"), to: new Date("2025-03-28") }) }),
+                        variant("integer",  { fieldId: "qty",  op: variant("in", new Set([10n, 20n, 30n, 40n, 50n])) }),
+                    ],
+                }), data, none));
+                const narrowed = $.let(Slice.rows([OrderType], slice));
+                return (
+                    <VStack gap="3" align="stretch">
+                        <Slice.Rail slice={slice} affordances={["filter"]} />
+                        <Table data={narrowed} columns={{
+                            sku:  { header: "SKU" },
+                            note: { header: "Note" },
+                            day:  { header: "Day" },
+                            qty:  { header: "Qty" },
+                        }} />
+                        <Slice.Summary slice={slice} />
+                    </VStack>
+                );
+            }}</Reactive>
+        );
+    }),
+    inputs: [],
+});
+
+// ============================================================================
+// 8. Ops Gantt — Gantt with the `slice` chrome option.
 //    Exercises: the rail on a timeline component (filter · search · range
 //    over the row type's datetime field) and the derived-count footer.
 // ============================================================================

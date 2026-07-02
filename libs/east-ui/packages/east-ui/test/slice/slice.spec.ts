@@ -10,11 +10,13 @@ import * as ex from "./slice.examples.js";
 // `UIComponentType`, so `Assert.examples` checks they compile + evaluate.
 describeEast("Slice", (test) => {
     Assert.examples(test, {
-        sliceTableChrome: ex.sliceTableChrome,
-        sliceChartChrome: ex.sliceChartChrome,
-        sliceRail:        ex.sliceRail,
-        sliceNarrow:      ex.sliceNarrow,
-        slicePresetsBar:  ex.slicePresetsBar,
-        sliceGanttChrome: ex.sliceGanttChrome,
+        sliceTableChrome:          ex.sliceTableChrome,
+        sliceChartChrome:          ex.sliceChartChrome,
+        sliceRail:                 ex.sliceRail,
+        sliceNarrow:               ex.sliceNarrow,
+        slicePresetsBar:           ex.slicePresetsBar,
+        sliceCrossFilterDashboard: ex.sliceCrossFilterDashboard,
+        sliceExpressiveFilters:    ex.sliceExpressiveFilters,
+        sliceGanttChrome:          ex.sliceGanttChrome,
     });
 }, { platformFns: TestImpl });
