@@ -113,7 +113,22 @@ import { TraceType } from "./display/trace/types.js";
 import { LibraryRootType } from "./collections/library/types.js";
 import { RosterRootType } from "./collections/roster/types.js";
 import { CalendarRootType } from "./collections/calendar/types.js";
-import { SchematicRootType } from "./collections/schematic/types.js";
+import {
+    SchematicItemType,
+    SchematicZoneType,
+    SchematicLinkType,
+    SchematicNetType,
+    SchematicSliceEffectType,
+    SchematicLayerType,
+    SchematicSelectionModeType,
+    SchematicSelectionEventType,
+    SchematicViewportEventType,
+    SchematicZoneSelectionEventType,
+    SchematicLinkModeType,
+    SchematicLinkCreateEventType,
+    SchematicLinkEditEventType,
+    SchematicItemMoveEventType,
+} from "./collections/schematic/types.js";
 import {
     MapLatLngType,
     MapTileType,
@@ -838,8 +853,46 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
     // Calendar — day-of-week × week intensity grid (visualisation only)
     Calendar: CalendarRootType,
 
-    // Schematic — read-only 2D world-coordinate canvas
-    Schematic: SchematicRootType,
+    // Schematic — 2D world-coordinate canvas. The `itemHover` / `zoneHover` /
+    // `linkHover` builders return arbitrary UI via the recursion `node`; mirror
+    // this shape with `SchematicRootType` in `collections/schematic/index.ts`
+    // (which spells those fields with the resolved `UIComponentType`).
+    Schematic: StructType({
+        extent: StructType({ width: FloatType, height: FloatType }),
+        items: ArrayType(SchematicItemType),
+        zones: ArrayType(SchematicZoneType),
+        links: ArrayType(SchematicLinkType),
+        nets: ArrayType(SchematicNetType),
+        scaleUnit: OptionType(StringType),
+        grid: OptionType(BooleanType),
+        navigator: OptionType(BooleanType),
+        minimap: OptionType(BooleanType),
+        slice: OptionType(SliceChromeType),
+        sliceEffect: OptionType(SchematicSliceEffectType),
+        layers: OptionType(ArrayType(SchematicLayerType)),
+        height: OptionType(StringType),
+        onSelect: OptionType(FunctionType([StringType], NullType)),
+        selectionMode: OptionType(SchematicSelectionModeType),
+        onSelectionChange: OptionType(FunctionType([SchematicSelectionEventType], NullType)),
+        sliceSelectField: OptionType(StringType),
+        selectZoomFocus: OptionType(BooleanType),
+        onViewportChange: OptionType(FunctionType([SchematicViewportEventType], NullType)),
+        onItemOpen: OptionType(FunctionType([StringType], NullType)),
+        onSelectZone: OptionType(FunctionType([StringType], NullType)),
+        onZoneSelectionChange: OptionType(FunctionType([SchematicZoneSelectionEventType], NullType)),
+        linkMode: OptionType(SchematicLinkModeType),
+        onCreateLink: OptionType(FunctionType([SchematicLinkCreateEventType], NullType)),
+        onSelectLink: OptionType(FunctionType([StringType], NullType)),
+        onEditLink: OptionType(FunctionType([SchematicLinkEditEventType], NullType)),
+        onDeleteLink: OptionType(FunctionType([StringType], NullType)),
+        readOnly: OptionType(BooleanType),
+        readOnlyLinks: OptionType(BooleanType),
+        readOnlyItems: OptionType(BooleanType),
+        onMoveItem: OptionType(FunctionType([SchematicItemMoveEventType], NullType)),
+        itemHover: OptionType(FunctionType([StringType], node)),
+        zoneHover: OptionType(FunctionType([StringType], node)),
+        linkHover: OptionType(FunctionType([StringType], node)),
+    }),
 
     // Map — interactive geographic basemap + H3 / area overlay. The
     // `overlays` slot hosts arbitrary UIComponent children via the

@@ -5,7 +5,7 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { East, NullType, StringType, variant, some } from "@elaraai/east";
-import { Schematic } from "@elaraai/east-ui/internal";
+import { Schematic, Text, UIComponentType } from "@elaraai/east-ui/internal";
 import * as ex from "./schematic.examples.js";
 
 describeEast("Schematic", (test) => {
@@ -22,6 +22,7 @@ describeEast("Schematic", (test) => {
         schematicLinkEdit: ex.schematicLinkEdit,
         schematicNets: ex.schematicNets,
         schematicItemMove: ex.schematicItemMove,
+        schematicHover: ex.schematicHover,
         schematicFacility: ex.schematicFacility,
         schematicGeometry: ex.schematicGeometry,
         schematicColorOverride: ex.schematicColorOverride,
@@ -358,6 +359,9 @@ describeEast("Schematic", (test) => {
         $(Assert.equal(root.readOnlyLinks.hasTag("none"), true));
         $(Assert.equal(root.readOnlyItems.hasTag("none"), true));
         $(Assert.equal(root.onMoveItem.hasTag("none"), true));
+        $(Assert.equal(root.itemHover.hasTag("none"), true));
+        $(Assert.equal(root.zoneHover.hasTag("none"), true));
+        $(Assert.equal(root.linkHover.hasTag("none"), true));
     });
 
     test("selectionMode, onSelectionChange, sliceSelectField carry through", $ => {
@@ -383,6 +387,9 @@ describeEast("Schematic", (test) => {
                 readOnlyLinks: false,
                 readOnlyItems: true,
                 onMoveItem: East.function([Schematic.Types.ItemMoveEvent], NullType, (_$, _ev) => { }),
+                itemHover: East.function([StringType], UIComponentType, (_$, _k) => Text.Root("item")),
+                zoneHover: East.function([StringType], UIComponentType, (_$, _k) => Text.Root("zone")),
+                linkHover: East.function([StringType], UIComponentType, (_$, _k) => Text.Root("link")),
                 sliceSelectField: "id",
                 selectZoomFocus: true,
             },
@@ -405,5 +412,8 @@ describeEast("Schematic", (test) => {
         $(Assert.equal(root.readOnlyLinks.unwrap("some"), false));
         $(Assert.equal(root.readOnlyItems.unwrap("some"), true));
         $(Assert.equal(root.onMoveItem.hasTag("some"), true));
+        $(Assert.equal(root.itemHover.hasTag("some"), true));
+        $(Assert.equal(root.zoneHover.hasTag("some"), true));
+        $(Assert.equal(root.linkHover.hasTag("some"), true));
     });
 }, { platformFns: TestImpl });

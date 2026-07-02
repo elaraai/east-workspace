@@ -75,6 +75,7 @@ function mkValue(): SchematicValue {
         onEditLink: none, onDeleteLink: none,
         readOnly: none, readOnlyLinks: none, readOnlyItems: none,
         onMoveItem: none,
+        itemHover: none, zoneHover: none, linkHover: none,
     } as unknown as SchematicValue;
 }
 

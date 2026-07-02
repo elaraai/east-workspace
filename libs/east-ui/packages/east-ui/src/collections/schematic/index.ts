@@ -7,9 +7,11 @@
  * `Schematic` — a 2D world-coordinate canvas for placing real-world
  * entities (tanks, bays, lines, nodes, cells) in space, plus annotation
  * zones (rooms, walkways) and key-addressed links, all from flat data
- * tables with chart-style field encodings. **Read-only**: single-click
- * selection only — appearance belongs to the linked Library entry;
- * position and live metrics are owned here.
+ * tables with chart-style field encodings. Interaction is opt-in per
+ * channel (selection, camera, zone / link / net editing, item moves,
+ * hover cards) — with nothing bound it is a read-only picture; appearance
+ * belongs to the linked Library entry; position and live metrics are
+ * owned here.
  *
  * @packageDocumentation
  */
@@ -24,11 +26,11 @@ import {
     some,
     none,
     ArrayType,
-    type BooleanType,
+    BooleanType,
     FloatType,
-    type FunctionType,
-    type NullType,
-    type OptionType,
+    FunctionType,
+    NullType,
+    OptionType,
     StringType,
     StructType,
 } from "@elaraai/east";
@@ -39,7 +41,6 @@ import { type IconName } from "../../display/icon/types.js";
 import { SliceBindType, SliceChromeType } from "../../platform/slice/index.js";
 import { SliceAffordanceType, type SliceAffordanceLiteral } from "../../contracts/slice-affordances.js";
 import {
-    SchematicRootType,
     SchematicItemType,
     SchematicZoneType,
     SchematicLinkType,
@@ -69,7 +70,6 @@ import {
 
 // Re-export types
 export {
-    SchematicRootType,
     SchematicItemType,
     SchematicZoneType,
     SchematicLinkType,
@@ -96,6 +96,93 @@ export {
     SchematicNetType,
     SchematicItemMoveEventType,
 } from "./types.js";
+
+/**
+ * East type for the Schematic root — the resolved mirror of the inline
+ * `Schematic` struct in `component.ts` (which spells the three `*Hover`
+ * fields with the recursion `node` where this mirror resolves them to
+ * `UIComponentType`). Keep the two spellings in sync field-for-field.
+ *
+ * @remarks
+ * Per-field docs live on {@link SchematicConfig}; events and collection
+ * row types are documented in `./types.ts`.
+ */
+export const SchematicRootType: StructType<{
+    extent: StructType<{ width: FloatType, height: FloatType }>,
+    items: ArrayType<SchematicItemType>,
+    zones: ArrayType<SchematicZoneType>,
+    links: ArrayType<SchematicLinkType>,
+    nets: ArrayType<SchematicNetType>,
+    scaleUnit: OptionType<StringType>,
+    grid: OptionType<BooleanType>,
+    navigator: OptionType<BooleanType>,
+    minimap: OptionType<BooleanType>,
+    slice: OptionType<SliceChromeType>,
+    sliceEffect: OptionType<SchematicSliceEffectType>,
+    layers: OptionType<ArrayType<SchematicLayerType>>,
+    height: OptionType<StringType>,
+    onSelect: OptionType<FunctionType<[StringType], NullType>>,
+    selectionMode: OptionType<SchematicSelectionModeType>,
+    onSelectionChange: OptionType<FunctionType<[SchematicSelectionEventType], NullType>>,
+    sliceSelectField: OptionType<StringType>,
+    selectZoomFocus: OptionType<BooleanType>,
+    onViewportChange: OptionType<FunctionType<[SchematicViewportEventType], NullType>>,
+    onItemOpen: OptionType<FunctionType<[StringType], NullType>>,
+    onSelectZone: OptionType<FunctionType<[StringType], NullType>>,
+    onZoneSelectionChange: OptionType<FunctionType<[SchematicZoneSelectionEventType], NullType>>,
+    linkMode: OptionType<SchematicLinkModeType>,
+    onCreateLink: OptionType<FunctionType<[SchematicLinkCreateEventType], NullType>>,
+    onSelectLink: OptionType<FunctionType<[StringType], NullType>>,
+    onEditLink: OptionType<FunctionType<[SchematicLinkEditEventType], NullType>>,
+    onDeleteLink: OptionType<FunctionType<[StringType], NullType>>,
+    readOnly: OptionType<BooleanType>,
+    readOnlyLinks: OptionType<BooleanType>,
+    readOnlyItems: OptionType<BooleanType>,
+    onMoveItem: OptionType<FunctionType<[SchematicItemMoveEventType], NullType>>,
+    itemHover: OptionType<FunctionType<[StringType], UIComponentType>>,
+    zoneHover: OptionType<FunctionType<[StringType], UIComponentType>>,
+    linkHover: OptionType<FunctionType<[StringType], UIComponentType>>,
+}> = StructType({
+    extent: StructType({ width: FloatType, height: FloatType }),
+    items: ArrayType(SchematicItemType),
+    zones: ArrayType(SchematicZoneType),
+    links: ArrayType(SchematicLinkType),
+    nets: ArrayType(SchematicNetType),
+    scaleUnit: OptionType(StringType),
+    grid: OptionType(BooleanType),
+    navigator: OptionType(BooleanType),
+    minimap: OptionType(BooleanType),
+    slice: OptionType(SliceChromeType),
+    sliceEffect: OptionType(SchematicSliceEffectType),
+    layers: OptionType(ArrayType(SchematicLayerType)),
+    height: OptionType(StringType),
+    onSelect: OptionType(FunctionType([StringType], NullType)),
+    selectionMode: OptionType(SchematicSelectionModeType),
+    onSelectionChange: OptionType(FunctionType([SchematicSelectionEventType], NullType)),
+    sliceSelectField: OptionType(StringType),
+    selectZoomFocus: OptionType(BooleanType),
+    onViewportChange: OptionType(FunctionType([SchematicViewportEventType], NullType)),
+    onItemOpen: OptionType(FunctionType([StringType], NullType)),
+    onSelectZone: OptionType(FunctionType([StringType], NullType)),
+    onZoneSelectionChange: OptionType(FunctionType([SchematicZoneSelectionEventType], NullType)),
+    linkMode: OptionType(SchematicLinkModeType),
+    onCreateLink: OptionType(FunctionType([SchematicLinkCreateEventType], NullType)),
+    onSelectLink: OptionType(FunctionType([StringType], NullType)),
+    onEditLink: OptionType(FunctionType([SchematicLinkEditEventType], NullType)),
+    onDeleteLink: OptionType(FunctionType([StringType], NullType)),
+    readOnly: OptionType(BooleanType),
+    readOnlyLinks: OptionType(BooleanType),
+    readOnlyItems: OptionType(BooleanType),
+    onMoveItem: OptionType(FunctionType([SchematicItemMoveEventType], NullType)),
+    itemHover: OptionType(FunctionType([StringType], UIComponentType)),
+    zoneHover: OptionType(FunctionType([StringType], UIComponentType)),
+    linkHover: OptionType(FunctionType([StringType], UIComponentType)),
+});
+
+/**
+ * Type representing the Schematic component.
+ */
+export type SchematicRootType = typeof SchematicRootType;
 
 /** String literal form of {@link SchematicToneType} tags. */
 export type SchematicToneLiteral = "brand" | "ink" | "muted" | "success" | "warning" | "danger";
@@ -645,6 +732,12 @@ export interface SchematicConfig<
     readOnlyItems?: SubtypeExprOrValue<BooleanType> | boolean;
     /** Optional item-move callback ({@link SchematicItemMoveEventType}) — fired once per move-tool gesture on release; group move rides the current selection. */
     onMoveItem?: SubtypeExprOrValue<FunctionType<[SchematicItemMoveEventType], NullType>>;
+    /** Optional hover-card content builder for ITEMS — receives the hovered item's key and returns arbitrary UI (a `Sparkline` / `Chart` over the entity's history is the headline case), evaluated lazily on hover; absent ⇒ no item hover card. Hover is read-only context — it ignores `readOnly` and locked layers. */
+    itemHover?: SubtypeExprOrValue<FunctionType<[StringType], UIComponentType>>;
+    /** Optional hover-card content builder for ZONES — receives the hovered zone's key; absent ⇒ no zone hover card. */
+    zoneHover?: SubtypeExprOrValue<FunctionType<[StringType], UIComponentType>>;
+    /** Optional hover-card content builder for LINKS and NETS — receives the hovered link / net key (nets share the channel, like `onSelectLink`); absent ⇒ no link hover card. */
+    linkHover?: SubtypeExprOrValue<FunctionType<[StringType], UIComponentType>>;
 }
 
 function buildRoot(
@@ -827,6 +920,9 @@ function buildRoot(
         readOnlyLinks: config.readOnlyLinks !== undefined ? some(config.readOnlyLinks) : none,
         readOnlyItems: config.readOnlyItems !== undefined ? some(config.readOnlyItems) : none,
         onMoveItem: config.onMoveItem !== undefined ? some(config.onMoveItem) : none,
+        itemHover: config.itemHover !== undefined ? some(East.value(config.itemHover, FunctionType([StringType], UIComponentType))) : none,
+        zoneHover: config.zoneHover !== undefined ? some(East.value(config.zoneHover, FunctionType([StringType], UIComponentType))) : none,
+        linkHover: config.linkHover !== undefined ? some(East.value(config.linkHover, FunctionType([StringType], UIComponentType))) : none,
     }), UIComponentType);
 }
 

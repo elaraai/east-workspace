@@ -7,7 +7,6 @@ import {
     ArrayType,
     BooleanType,
     FloatType,
-    FunctionType,
     NullType,
     OptionType,
     StringType,
@@ -16,7 +15,6 @@ import {
 } from "@elaraai/east";
 
 import { StatusTokenType } from "../../style/interaction.js";
-import { SliceChromeType } from "../../platform/slice/index.js";
 
 /**
  * Theme tone for zone strokes, hatching, and links.
@@ -880,121 +878,6 @@ export type SchematicItemMoveEventType = typeof SchematicItemMoveEventType;
 
 
 
-/**
- * East StructType for the Schematic component.
- *
- * @remarks
- * A 2D world-coordinate canvas for placing real-world entities (tanks,
- * bays, lines, cells) plus annotation zones and links, all from flat data
- * tables. Interaction is **selection-only** — single-click selection plus,
- * when `selectionMode` is `multiple` / `range`, a marquee tool that selects
- * a region; there is no drag & drop and editing routes through the linked
- * Library. Selection is reported via `onSelect` (single key) and
- * `onSelectionChange` (the full set).
- *
- * @property extent - World-coordinate bounds (the canvas scales to fit)
- * @property items - The placed items
- * @property zones - Annotation zones (rooms, cells, walkway bands)
- * @property links - Connections between items, addressed by key
- * @property nets - Optional manifold / bus links (many sources → many destinations)
- * @property scaleUnit - Optional unit for the bottom-right scale bar
- * @property grid - Metric grid aligned to the scale legend
- * @property navigator - Navigator rail (zones → items TOC)
- * @property minimap - Minimap with the viewport rectangle
- * @property slice - Optional Slice chrome rail mounting the affordances
- * @property sliceEffect - Optional slice-driven render effect (ghost / emphasis / frame)
- * @property layers - Optional named layers (visibility / solo / lock / dim via the layer button)
- * @property height - Optional fixed panel height (any CSS length)
- * @property onSelect - Optional item-click callback (receives the item key)
- * @property selectionMode - Optional selection cardinality (single / multiple); absent ⇒ single
- * @property onSelectionChange - Optional selection-set change callback (receives the full set)
- * @property sliceSelectField - Optional bound-slice fieldId driven with an `in` filter of the selected item keys
- * @property selectZoomFocus - When true, a canvas selection also moves the camera (single tap flies, marquee fits); default false
- * @property onViewportChange - Optional debounced viewport-settled callback (zoom + visible world rect)
- * @property onItemOpen - Optional item double-click (drill-in) callback (receives the item key)
- * @property onSelectZone - Optional zone-click callback (receives the zone key)
- * @property onZoneSelectionChange - Optional zone selection-set change callback (zones + their child items)
- * @property linkMode - Optional connect-gesture mode (`draw` | `connect`); absent ⇒ draw
- * @property onCreateLink - Optional link-creation callback (newest link + session + existing links)
- * @property onSelectLink - Optional link-click callback (receives the link key)
- * @property onEditLink - Optional link re-target callback (endpoints after the edit)
- * @property onDeleteLink - Optional link-delete callback (receives the link key)
- * @property readOnly - Master read-only switch for ALL editing; absent ⇒ false
- * @property readOnlyLinks - Read-only for link editing only; absent ⇒ false
- * @property readOnlyItems - Read-only for item editing only; absent ⇒ false
- * @property onMoveItem - Optional item-move callback (final position + moved keys + shared delta)
- */
-export const SchematicRootType = StructType({
-    /** World-coordinate bounds (the canvas scales to fit) */
-    extent: StructType({
-        /** World width */
-        width: FloatType,
-        /** World height */
-        height: FloatType,
-    }),
-    /** The placed items */
-    items: ArrayType(SchematicItemType),
-    /** Annotation zones (rooms, cells, walkway bands) */
-    zones: ArrayType(SchematicZoneType),
-    /** Connections between items, addressed by key */
-    links: ArrayType(SchematicLinkType),
-    /** Optional nets — manifold / bus links (many sources → many destinations, drawn as a trunk with branches) */
-    nets: ArrayType(SchematicNetType),
-    /** Optional unit for the bottom-right scale bar */
-    scaleUnit: OptionType(StringType),
-    /** Metric grid aligned to the scale legend; default on */
-    grid: OptionType(BooleanType),
-    /** Navigator rail (zones → items TOC); default: shown when zones exist */
-    navigator: OptionType(BooleanType),
-    /** Minimap with the viewport rectangle; default: shown for large canvases */
-    minimap: OptionType(BooleanType),
-    /** Optional Slice chrome — a full-width top-edge rail mounting the affordances (replaces the built-in search) */
-    slice: OptionType(SliceChromeType),
-    /** Optional slice-driven render effect — ghost / desaturate / shrink filtered-out items and emphasise the remainder (halo / pulse / frame); absent ⇒ excluded items are hidden completely */
-    sliceEffect: OptionType(SchematicSliceEffectType),
-    /** Optional named layers — cross-cutting groups toggled (visibility / solo / lock / dim) from the canvas layer button; absent ⇒ no layer chrome */
-    layers: OptionType(ArrayType(SchematicLayerType)),
-    /** Optional fixed panel height (any CSS length, e.g. `"400px"`); default: aspect-driven, capped at 75vh */
-    height: OptionType(StringType),
-    /** Optional item-click callback (receives the item key) */
-    onSelect: OptionType(FunctionType([StringType], NullType)),
-    /** Optional selection cardinality (single / multiple / range); absent ⇒ single (no selection chrome) */
-    selectionMode: OptionType(SchematicSelectionModeType),
-    /** Optional selection-set change callback — fired on any tap / marquee / clear with the full selected set */
-    onSelectionChange: OptionType(FunctionType([SchematicSelectionEventType], NullType)),
-    /** Optional bound-slice fieldId that selection drives with an `in` filter of the selected item keys (requires a bound `slice`); absent ⇒ selection leaves the slice untouched. Best paired with the ghost `sliceEffect` (items kept) rather than a `Slice.rows` feed on the SAME slice, which would hide the non-selected. */
-    sliceSelectField: OptionType(StringType),
-    /** When true, a canvas selection also moves the camera — a single tap flies to the item, a marquee fits to the selected set — regardless of `selectionMode`; default false (selection never moves the camera). The navigator rail + prev/next always fly. */
-    selectZoomFocus: OptionType(BooleanType),
-    /** Optional viewport-settled callback — fired (debounced) with the zoom + visible world rect after a pan / zoom / fly / resize settles; never per-frame */
-    onViewportChange: OptionType(FunctionType([SchematicViewportEventType], NullType)),
-    /** Optional item-open callback (receives the item key) — fired on double-click / double-tap of an item (the drill-in affordance); a background double-click keeps Fit / reset */
-    onItemOpen: OptionType(FunctionType([StringType], NullType)),
-    /** Optional zone-click callback (receives the zone key) — the single-key channel, parallel to `onSelect`; items take hit-test precedence over zones */
-    onSelectZone: OptionType(FunctionType([StringType], NullType)),
-    /** Optional zone selection-set change callback — fired on any zone tap / nav zone click / clear with the full selected zone set AND their child items */
-    onZoneSelectionChange: OptionType(FunctionType([SchematicZoneSelectionEventType], NullType)),
-    /** Optional link-gesture mode for the connect tool (`draw` adds a physical link locally; `connect` is event-only and repeatable); absent ⇒ draw */
-    linkMode: OptionType(SchematicLinkModeType),
-    /** Optional link-creation callback — fired on every committed connect gesture with the newest link, the accumulated Shift-session, and the pair's existing links */
-    onCreateLink: OptionType(FunctionType([SchematicLinkCreateEventType], NullType)),
-    /** Optional link-click callback (receives the link key) — the link analogue of `onSelect` */
-    onSelectLink: OptionType(FunctionType([StringType], NullType)),
-    /** Optional link-edit callback — fired after an endpoint connector is dragged to a new item, with the endpoints AFTER the re-target */
-    onEditLink: OptionType(FunctionType([SchematicLinkEditEventType], NullType)),
-    /** Optional link-delete callback (receives the deleted link's key) */
-    onDeleteLink: OptionType(FunctionType([StringType], NullType)),
-    /** Master read-only switch — disables ALL editing affordances (the connect tool, connectors, delete; future item / zone editing); absent ⇒ false */
-    readOnly: OptionType(BooleanType),
-    /** Per-domain read-only: disables LINK editing only (connect tool, connectors, delete); effective = `readOnly || readOnlyLinks`; absent ⇒ false */
-    readOnlyLinks: OptionType(BooleanType),
-    /** Per-domain read-only: disables ITEM editing only (the move tool / drag-to-reposition); effective = `readOnly || readOnlyItems`; absent ⇒ false */
-    readOnlyItems: OptionType(BooleanType),
-    /** Optional item-move callback — fired once per move-tool gesture on release, with the pressed item's final position, every moved key (group move rides the selection), and the shared world delta */
-    onMoveItem: OptionType(FunctionType([SchematicItemMoveEventType], NullType)),
-});
-
-/**
- * Type representing the Schematic component.
- */
-export type SchematicRootType = typeof SchematicRootType;
+// `SchematicRootType` lives in `./index.ts` (the resolved mirror of the inline
+// `Schematic` struct in `component.ts`) so its hover builders can reference
+// `UIComponentType`, which this file must not import (circular).

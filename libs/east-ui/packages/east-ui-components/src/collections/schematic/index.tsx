@@ -10,9 +10,10 @@ import { findIconDefinition, library } from "@fortawesome/fontawesome-svg-core";
 import { fas, faAnglesLeft, faAnglesRight, faBullseye, faCaretRight, faChevronLeft, faChevronRight, faExpand, faEye, faEyeSlash, faHand, faLayerGroup, faLink, faLock, faLockOpen, faMinus, faUpDownLeftRight, faObjectGroup, faObjectUngroup, faPlus, faXmark } from "@fortawesome/free-solid-svg-icons";
 import RBush from "rbush";
 import { equalFor, some, none, variant, type ValueTypeOf } from "@elaraai/east";
-import { Schematic, Slice as SliceInternal } from "@elaraai/east-ui/internal";
+import { Schematic, Slice as SliceInternal, type UIComponentType } from "@elaraai/east-ui/internal";
 import type { IconName } from "@fortawesome/fontawesome-common-types";
 import { getSomeorUndefined } from "../../utils";
+import { EastChakraComponent } from "../../component";
 import { SliceRailCluster } from "../../slice/rail";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity";
 import { usePersistedState } from "../../hooks/usePersistedState";
@@ -49,6 +50,9 @@ export type SchematicNetValue = ValueTypeOf<typeof Schematic.Types.Net>;
 /** East Schematic layer value type. */
 export type SchematicLayerValue = ValueTypeOf<typeof Schematic.Types.Layer>;
 
+/** Decoded hover-content builder (#178) — hovered entity key → UI value. */
+type HoverContentFn = (key: string) => ValueTypeOf<UIComponentType>;
+
 export interface EastChakraSchematicProps {
     value: SchematicValue;
     storageKey: string;
@@ -68,6 +72,9 @@ const MINIMAP_AUTO = 25;
 const EMPTY_LAYER_OVERRIDES: Record<string, boolean> = {};
 /** Pulse animation period in ms (the matched-item breathing ring). */
 const PULSE_PERIOD_MS = 1600;
+/** Hover-card dwell before opening and leave-grace before closing (#178). */
+const HOVER_OPEN_MS = 300;
+const HOVER_CLOSE_GRACE_MS = 250;
 /** Screen-px half-extent used to frame a dot-tier item (its marker + touch slop). */
 const DOT_FRAME_ALLOW_PX = 10;
 
@@ -297,6 +304,60 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     // author can forbid item dragging while still allowing link creation.
     const linkEditEnabled = !readOnly && !(getSomeorUndefined(value.readOnlyLinks) ?? false);
     const onMoveItemFn = useMemo(() => getSomeorUndefined(value.onMoveItem), [value.onMoveItem]);
+    // --- Hover cards (#178) — the read-only inspection channel. --------------
+    // Content builders are East functions receiving the hovered entity's KEY,
+    // evaluated lazily at open (no per-entity IR for large schematics). A card
+    // opens after a short dwell, closes on any camera / edit gesture, and
+    // survives the pointer travelling ONTO it (leave-grace) so charts inside
+    // stay inspectable. Hover ignores readOnly — it inspects, never edits.
+    const itemHoverFn = useMemo(() => getSomeorUndefined(value.itemHover) as HoverContentFn | undefined, [value.itemHover]);
+    const zoneHoverFn = useMemo(() => getSomeorUndefined(value.zoneHover) as HoverContentFn | undefined, [value.zoneHover]);
+    const linkHoverFn = useMemo(() => getSomeorUndefined(value.linkHover) as HoverContentFn | undefined, [value.linkHover]);
+    const hoverEnabled = itemHoverFn !== undefined || zoneHoverFn !== undefined || linkHoverFn !== undefined;
+    const [hoverCard, setHoverCard] = useState<{ kind: "item" | "zone" | "link"; key: string; ax: number; ay: number } | null>(null);
+    // Mirror + timer refs keep every helper below DEP-FREE (stable identities),
+    // so the camera / keyboard seams that call closeHover never re-bind.
+    const hoverCardRef = useRef<typeof hoverCard>(null);
+    useEffect(() => { hoverCardRef.current = hoverCard; }, [hoverCard]);
+    const hoverOpenRef = useRef<{ timer: number; target: string } | null>(null);
+    const hoverCloseRef = useRef<number | null>(null);
+    const cancelHoverOpen = useCallback(() => {
+        if (hoverOpenRef.current !== null) { window.clearTimeout(hoverOpenRef.current.timer); hoverOpenRef.current = null; }
+    }, []);
+    const cancelHoverClose = useCallback(() => {
+        if (hoverCloseRef.current !== null) { window.clearTimeout(hoverCloseRef.current); hoverCloseRef.current = null; }
+    }, []);
+    const closeHover = useCallback(() => {
+        cancelHoverOpen();
+        cancelHoverClose();
+        setHoverCard(prev => prev === null ? prev : null);
+    }, [cancelHoverOpen, cancelHoverClose]);
+    // Grace-close: pending until the pointer re-enters the entity or the card.
+    const scheduleHoverClose = useCallback(() => {
+        cancelHoverOpen();
+        if (hoverCardRef.current === null || hoverCloseRef.current !== null) return;
+        hoverCloseRef.current = window.setTimeout(() => {
+            hoverCloseRef.current = null;
+            setHoverCard(null);
+        }, HOVER_CLOSE_GRACE_MS);
+    }, [cancelHoverOpen]);
+    useEffect(() => () => {
+        if (hoverOpenRef.current !== null) window.clearTimeout(hoverOpenRef.current.timer);
+        if (hoverCloseRef.current !== null) window.clearTimeout(hoverCloseRef.current);
+    }, []);
+    // Evaluate the builder ONCE per open card; a throwing builder logs and
+    // renders nothing rather than unmounting the schematic.
+    const hoverContent = useMemo(() => {
+        if (hoverCard === null) return null;
+        const fn = hoverCard.kind === "item" ? itemHoverFn : hoverCard.kind === "zone" ? zoneHoverFn : linkHoverFn;
+        if (fn === undefined) return null;
+        try {
+            return fn(hoverCard.key);
+        } catch (err) {
+            console.error("[Schematic] hover content builder failed:", err);
+            return null;
+        }
+    }, [hoverCard, itemHoverFn, zoneHoverFn, linkHoverFn]);
     const itemEditEnabled = !readOnly && !(getSomeorUndefined(value.readOnlyItems) ?? false);
     const onSelectLinkFn = useMemo(() => getSomeorUndefined(value.onSelectLink), [value.onSelectLink]);
     const onEditLinkFn = useMemo(() => getSomeorUndefined(value.onEditLink), [value.onEditLink]);
@@ -1215,6 +1276,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     // each frame (cancellable by any user input via the mode machine).
     const flyTo = useCallback((rect: { x: number; y: number; w: number; h: number }) => {
         if (renderSnapRef.current.size === null || renderSnapRef.current.fit === 0) return;
+        closeHover();   // a fly is a camera gesture — close, don't re-anchor
         const pad = 1.18;
         // Re-derive the destination from the LIVE viewport every frame, so a
         // resize mid-fly (nav-rail toggle, splitter drag, window resize) re-aims
@@ -1251,7 +1313,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
             else { animRef.current = null; transition("flyEnd"); }
         };
         animRef.current = requestAnimationFrame(step);
-    }, [applyCamera, transition]);
+    }, [applyCamera, transition, closeHover]);
 
     // Fit the camera to a SET of selected items — the bounding box over all of them
     // (not just the last), padded so a single item lands in a comfortable window and a
@@ -1477,6 +1539,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         if (!el) return;
         const onWheel = (e: WheelEvent) => {
             e.preventDefault();
+            closeHover();
             const rect = el.getBoundingClientRect();
             const px = e.clientX - rect.left, py = e.clientY - rect.top;
             transition("wheel");
@@ -1485,7 +1548,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         };
         el.addEventListener("wheel", onWheel, { passive: false });
         return () => el.removeEventListener("wheel", onWheel);
-    }, [transition, requestRender]);
+    }, [transition, requestRender, closeHover]);
 
     // Drag-pan + tap-to-pick on the canvas. The pick runs on POINTERUP, not the
     // `click` event: onCanvasPointerDown captures the pointer for the drag, and
@@ -1583,6 +1646,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
 
     const onCanvasPointerDown = useCallback((e: React.PointerEvent) => {
         if (e.button !== 0) return;
+        closeHover();
         // Presses on the controls / nav buttons are theirs. Cards are NOT
         // excluded — a drag-pan can start anywhere, including over a card; a
         // tap (no drag) over the card is resolved by pickAt on pointerup.
@@ -1668,7 +1732,57 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         }
         transition("pointerDown");
         panRef.current = { x: e.clientX, y: e.clientY, tx: cameraRef.current.tx, ty: cameraRef.current.ty };
-    }, [transition, itemKeyAt, effectiveLinks]);
+    }, [transition, itemKeyAt, effectiveLinks, closeHover]);
+    // Drive the hover state machine from an IDLE pointermove (#178): hit-test
+    // item → zone → link/net (interaction precedence), dwell before opening,
+    // retarget on a new entity, grace-close over empty canvas. Read-only reuse
+    // of the selection hit-testers.
+    const hoverProbe = useCallback((e: React.PointerEvent) => {
+        const host = e.currentTarget as HTMLElement;
+        let kind: "item" | "zone" | "link" | null = null;
+        let key: string | undefined;
+        if (itemHoverFn !== undefined) {
+            key = itemKeyAt(host, e.clientX, e.clientY);
+            if (key !== undefined) kind = "item";
+        }
+        if (kind === null && zoneHoverFn !== undefined) {
+            key = zoneKeyAt(host, e.clientX, e.clientY);
+            if (key !== undefined) kind = "zone";
+        }
+        if (kind === null && linkHoverFn !== undefined) {
+            key = linkKeyAt(host, e.clientX, e.clientY);
+            if (key !== undefined) kind = "link";
+        }
+        if (kind === null || key === undefined) {
+            scheduleHoverClose();
+            return;
+        }
+        const open = hoverCardRef.current;
+        if (open !== null && open.kind === kind && open.key === key) {
+            cancelHoverClose();   // moving within the entity keeps the card
+            return;
+        }
+        const target = `${kind}:${key}`;
+        if (hoverOpenRef.current !== null && hoverOpenRef.current.target === target) return;
+        cancelHoverOpen();
+        // Items anchor at the marker centre (stable, matches the drawing);
+        // zones / links anchor at the dwell point on their body.
+        const rect = host.getBoundingClientRect();
+        let ax = e.clientX - rect.left, ay = e.clientY - rect.top;
+        if (kind === "item") {
+            const cam = cameraRef.current;
+            const ppuLive = renderSnapRef.current.fit * cam.zoom;
+            const c = centers.get(key);
+            if (c !== undefined && ppuLive > 0) { ax = c.x * ppuLive + cam.tx; ay = c.y * ppuLive + cam.ty; }
+        }
+        const kd = kind, kk = key, fx = ax, fy = ay;
+        const timer = window.setTimeout(() => {
+            hoverOpenRef.current = null;
+            cancelHoverClose();   // the open supersedes any pending grace-close
+            setHoverCard({ kind: kd, key: kk, ax: fx, ay: fy });
+        }, HOVER_OPEN_MS);
+        hoverOpenRef.current = { timer, target };
+    }, [itemHoverFn, zoneHoverFn, linkHoverFn, itemKeyAt, zoneKeyAt, linkKeyAt, centers, scheduleHoverClose, cancelHoverOpen, cancelHoverClose]);
     const onCanvasPointerMove = useCallback((e: React.PointerEvent) => {
         // Move drag (#179): every mover follows the shared world delta, clamped
         // to the extent; a PURE functional merge preserves other items' moves.
@@ -1731,11 +1845,14 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
             return;
         }
         const pan = panRef.current;
-        if (!pan) return;
+        if (!pan) {
+            if (hoverEnabled) hoverProbe(e);
+            return;
+        }
         if (Math.abs(e.clientX - pan.x) > 4 || Math.abs(e.clientY - pan.y) > 4) movedRef.current = true;
         cameraRef.current = { ...cameraRef.current, tx: pan.tx + e.clientX - pan.x, ty: pan.ty + e.clientY - pan.y };
         requestRender();
-    }, [requestRender, collectMarquee, itemKeyAt]);
+    }, [requestRender, collectMarquee, itemKeyAt, hoverEnabled, hoverProbe]);
     // End an in-progress canvas drag-pan (panning → idle). Returns whether a pan
     // was active; never disturbs a running fly.
     const endPan = useCallback(() => {
@@ -1918,7 +2035,8 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                 deleteSelectedLink();
             }
             else if (e.key === "Escape") {
-                if (moveDragRef.current !== null) {
+                if (hoverCardRef.current !== null) { closeHover(); }
+                else if (moveDragRef.current !== null) {
                     const md = moveDragRef.current;
                     moveDragRef.current = null;
                     setItemMoves(prev => {
@@ -1947,7 +2065,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
             window.removeEventListener("keyup", onKeyUp);
             window.removeEventListener("blur", clear);
         };
-    }, [clearSelection, clearZoneSelection, endLinkSession, deleteSelectedLink]);
+    }, [clearSelection, clearZoneSelection, endLinkSession, deleteSelectedLink, closeHover]);
     // Minimap is a camera writer (jump on press, follow on drag — invariant 8).
     const minimapDragRef = useRef(false);
     const minimapJump = useCallback((el: HTMLElement, clientX: number, clientY: number) => {
@@ -2170,7 +2288,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                     ...(isBoxTool || effectiveTool === "connect" ? { cursor: "crosshair" } : effectiveTool === "move" ? { cursor: "move" } : {}),
                 }}
                 onPointerEnter={() => { hoveredRef.current = true; }}
-                onPointerLeave={() => { hoveredRef.current = false; setTempTool(null); }}
+                onPointerLeave={() => { hoveredRef.current = false; setTempTool(null); scheduleHoverClose(); }}
                 onPointerDown={onCanvasPointerDown}
                 onPointerMove={onCanvasPointerMove}
                 onPointerUp={onCanvasPointerUp}
@@ -2259,6 +2377,22 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                                 {effectiveTool === "marquee" && marqueeCount > 0 && (
                                     <Box as="span" css={styles.selectBoxCount}>{marqueeCount}</Box>
                                 )}
+                            </Box>
+                        )}
+                        {hoverCard !== null && hoverContent !== null && (
+                            <Box
+                                css={styles.hoverCard}
+                                style={{
+                                    left: Math.round(hoverCard.ax), top: Math.round(hoverCard.ay),
+                                    // Flip away from the near edges without measuring the card.
+                                    transform: `translate(${hoverCard.ax > size.w * 0.6 ? "calc(-100% - 12px)" : "12px"}, ${hoverCard.ay > size.h * 0.6 ? "calc(-100% - 12px)" : "12px"})`,
+                                }}
+                                onPointerEnter={cancelHoverClose}
+                                onPointerLeave={scheduleHoverClose}
+                                onPointerMove={e => e.stopPropagation()}
+                                onPointerDown={e => e.stopPropagation()}
+                            >
+                                <EastChakraComponent value={hoverContent} storageKey={`${storageKey}.hover.${hoverCard.kind}`} />
                             </Box>
                         )}
                         <Box css={styles.controls}>

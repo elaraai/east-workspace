@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, StringType, StructType, example, variant, some, none } from "@elaraai/east";
 import { State, StatusTokenType, UIComponentType } from "@elaraai/east-ui";
-import { HStack, Reactive, Schematic, Slice, Slider, Switch, Text, VStack } from "@elaraai/east-ui";
+import { HStack, Reactive, Schematic, Slice, Slider, Sparkline, Switch, Text, VStack } from "@elaraai/east-ui";
 
 export const schematicPlant = example({
     keywords: ["Schematic", "canvas", "items", "zones", "links", "meter", "status", "hatch", "label", "metric", "parallel", "fan-out", "flow"],
@@ -456,6 +456,44 @@ export const schematicItemMove = example({
             );
         }}</Reactive>
     )),
+    inputs: [],
+});
+
+export const schematicHover = example({
+    keywords: ["Schematic", "hover", "HoverCard", "itemHover", "zoneHover", "linkHover", "Sparkline", "chart", "inspection", "lazy"],
+    description: "Hover cards — dwell on an item, zone body, or link/net stroke to open a card whose content an East function builds LAZILY from the hovered KEY (a Sparkline chart over the entity's history is the headline case); the card survives the pointer moving onto it, and any camera or edit gesture closes it",
+    fn: East.function([], UIComponentType, ($) => {
+        const itemHover = $.const(East.function([StringType], UIComponentType, (_$, key) => (
+            <VStack gap="1" align="flex-start">
+                <Text.MonoLabel>{East.str`${key} · throughput (7d)`}</Text.MonoLabel>
+                <Sparkline data={[3.2, 4.1, 3.8, 5.0, 4.6, 5.4, 5.1]} type="area" width="180px" height="44px" />
+            </VStack>
+        )));
+        const zoneHover = $.const(East.function([StringType], UIComponentType, (_$, key) => (
+            <Text.MonoLabel>{East.str`${key} — CIP window 14:00–15:00`}</Text.MonoLabel>
+        )));
+        const linkHover = $.const(East.function([StringType], UIComponentType, (_$, key) => (
+            <Text.MonoLabel>{East.str`${key} · 12.4 m³/h`}</Text.MonoLabel>
+        )));
+        return (
+            <Schematic
+                extent={{ width: 20, height: 10 }}
+                height="420px"
+                items={[
+                    { id: "UNIT-01", x: 3.5, y: 3.0 }, { id: "UNIT-02", x: 8.0, y: 3.0 },
+                    { id: "CIP-1", x: 3.5, y: 7.5 }, { id: "PK-1", x: 13.0, y: 5.0 },
+                ]}
+                item={r => ({ key: r.id, x: r.x, y: r.y, label: r.id, icon: "industry" })}
+                zones={[{ id: "hall-a", name: "Hall A", x: 1.0, y: 1.0, w: 9.5, h: 8.5 }]}
+                zone={z => ({ key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h, pattern: Schematic.outline() })}
+                links={[{ id: "feed", a: "UNIT-02", b: "PK-1" }]}
+                link={l => ({ key: l.id, from: l.a, to: l.b, label: l.id })}
+                itemHover={itemHover}
+                zoneHover={zoneHover}
+                linkHover={linkHover}
+            />
+        );
+    }),
     inputs: [],
 });
 
