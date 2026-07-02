@@ -21,11 +21,14 @@ export const schematicSlotRecipe = defineSlotRecipe({
         "item", "itemHead", "itemIcon", "itemLabel", "statusDot",
         "itemSublabel", "meterTrack", "meterFill", "itemMetric",
         "itemDot", "itemPin",
-        "controls", "controlButton", "controlGroup", "selectBox", "scaleBar", "scaleRuler", "scaleLabel",
+        "controls", "controlButton", "controlGroup", "selectBox", "selectBoxCount", "scaleBar", "scaleRuler", "scaleLabel",
+        "hoverCard",
         "minimap", "minimapZone", "minimapViewport",
         "nav", "navCollapsed", "navHeader", "navTitle", "navToggle",
         "navSearch", "navTree", "navZone", "navCaret",
         "navZoneLabel", "navCount", "navItem", "navMetric",
+        "layerPanel", "layerHeader", "layerTitle", "layerReset",
+        "layerRow", "layerSwatch", "layerLabel", "layerCount", "layerToggle",
     ],
     base: {
         /* Bare like Table / Planner — identity chrome (title, outer frame)
@@ -50,6 +53,9 @@ export const schematicSlotRecipe = defineSlotRecipe({
             touchAction: "none",
             userSelect: "none",
             "&:active": { cursor: "grabbing" },
+            /* Keyboard traversal (#183 WS7): the canvas is a focusable
+             * application surface — ring only for :focus-visible. */
+            _focusVisible: { outline: "none", boxShadow: "{shadows.focus}" },
         },
         /* Metric grid per the spec plant-floor canvas — minor lines with a
          * heavier major rule; the major cell equals the scale legend. The
@@ -83,9 +89,9 @@ export const schematicSlotRecipe = defineSlotRecipe({
             "& g[data-tone=brand]": { "--schematic-tone": "{colors.brand.600}" },
             "& g[data-tone=ink]": { "--schematic-tone": "{colors.fg}" },
             "& g[data-tone=muted]": { "--schematic-tone": "{colors.fg.muted}" },
-            "& g[data-tone=success]": { "--schematic-tone": "{colors.status.ok}" },
+            "& g[data-tone=success]": { "--schematic-tone": "{colors.status.pos}" },
             "& g[data-tone=warning]": { "--schematic-tone": "{colors.status.warn}" },
-            "& g[data-tone=danger]": { "--schematic-tone": "{colors.status.bad}" },
+            "& g[data-tone=danger]": { "--schematic-tone": "{colors.status.neg}" },
             "& path": {
                 stroke: "var(--schematic-tone)",
                 strokeLinecap: "round",
@@ -102,9 +108,9 @@ export const schematicSlotRecipe = defineSlotRecipe({
             "&[data-tone=brand]": { "--schematic-tone": "{colors.brand.600}" },
             "&[data-tone=ink]": { "--schematic-tone": "{colors.fg}" },
             "&[data-tone=muted]": { "--schematic-tone": "{colors.border.strong}" },
-            "&[data-tone=success]": { "--schematic-tone": "{colors.status.ok}" },
+            "&[data-tone=success]": { "--schematic-tone": "{colors.status.pos}" },
             "&[data-tone=warning]": { "--schematic-tone": "{colors.status.warn}" },
-            "&[data-tone=danger]": { "--schematic-tone": "{colors.status.bad}" },
+            "&[data-tone=danger]": { "--schematic-tone": "{colors.status.neg}" },
             "&[data-pattern=outline]": {
                 borderWidth: "1px",
                 borderStyle: "dashed",
@@ -145,9 +151,9 @@ export const schematicSlotRecipe = defineSlotRecipe({
             "& g[data-tone=brand]": { "--schematic-tone": "{colors.brand.600}" },
             "& g[data-tone=ink]": { "--schematic-tone": "{colors.fg}" },
             "& g[data-tone=muted]": { "--schematic-tone": "{colors.border.strong}" },
-            "& g[data-tone=success]": { "--schematic-tone": "{colors.status.ok}" },
+            "& g[data-tone=success]": { "--schematic-tone": "{colors.status.pos}" },
             "& g[data-tone=warning]": { "--schematic-tone": "{colors.status.warn}" },
-            "& g[data-tone=danger]": { "--schematic-tone": "{colors.status.bad}" },
+            "& g[data-tone=danger]": { "--schematic-tone": "{colors.status.neg}" },
             "& path": {
                 stroke: "var(--schematic-tone)",
                 fill: "none",
@@ -192,9 +198,9 @@ export const schematicSlotRecipe = defineSlotRecipe({
             inset: "0",
             pointerEvents: "none",
             overflow: "visible",
-            "& g[data-tone=success]": { "--schematic-tone": "{colors.status.ok}" },
+            "& g[data-tone=success]": { "--schematic-tone": "{colors.status.pos}" },
             "& g[data-tone=warning]": { "--schematic-tone": "{colors.status.warn}" },
-            "& g[data-tone=danger]": { "--schematic-tone": "{colors.status.bad}" },
+            "& g[data-tone=danger]": { "--schematic-tone": "{colors.status.neg}" },
             "& g[data-tone=info]": { "--schematic-tone": "{colors.brand.500}" },
             "& g[data-tone=neutral]": { "--schematic-tone": "{colors.fg.muted}" },
             "& path": {
@@ -231,9 +237,9 @@ export const schematicSlotRecipe = defineSlotRecipe({
             borderColor: "{colors.white}",
             cursor: "pointer",
             boxShadow: "0 0 0 1px color-mix(in oklch, {colors.fg} 18%, transparent)",
-            "&[data-tone=success]": { background: "{colors.status.ok}" },
+            "&[data-tone=success]": { background: "{colors.status.pos}" },
             "&[data-tone=warning]": { background: "{colors.status.warn}" },
-            "&[data-tone=danger]": { background: "{colors.status.bad}" },
+            "&[data-tone=danger]": { background: "{colors.status.neg}" },
             "&[data-tone=info]": { background: "{colors.brand.500}" },
             "&[data-tone=neutral]": { background: "{colors.fg.muted}" },
             "&[data-selected]": {
@@ -289,6 +295,22 @@ export const schematicSlotRecipe = defineSlotRecipe({
                 outlineColor: "fg",
                 outlineOffset: "-1px",
             },
+            /* Slice-effect emphasis: a matched card gets a brand ring. `halo` is a
+             * static ring; `pulse` breathes — its ring width tracks the `--pulse`
+             * var (0..1) the animation loop writes on the card layer each frame. */
+            "&[data-emphasis]": {
+                borderColor: "{colors.brand.600}",
+                boxShadow: "0 0 0 2px color-mix(in oklch, {colors.brand.600} 35%, transparent)",
+            },
+            "&[data-emphasis=pulse]": {
+                boxShadow: "0 0 0 calc(2px + var(--pulse, 0) * 5px) color-mix(in oklch, {colors.brand.600} calc(45% - var(--pulse, 0) * 25%), transparent)",
+            },
+            /* canConnect veto (#176): the hovered FORBIDDEN target rings danger
+             * while a connect draft is over it (dot/label rings are canvas). */
+            "&[data-forbidden]": {
+                borderColor: "{colors.status.neg}",
+                boxShadow: "0 0 0 2px color-mix(in oklch, {colors.status.neg} 45%, transparent)",
+            },
         },
         itemHead: {
             display: "flex",
@@ -315,9 +337,9 @@ export const schematicSlotRecipe = defineSlotRecipe({
             borderRadius: "{radii.full}",
             marginLeft: "auto",
             flexShrink: "0",
-            "&[data-tone=success]": { background: "{colors.status.ok}" },
+            "&[data-tone=success]": { background: "{colors.status.pos}" },
             "&[data-tone=warning]": { background: "{colors.status.warn}" },
-            "&[data-tone=danger]": { background: "{colors.status.bad}" },
+            "&[data-tone=danger]": { background: "{colors.status.neg}" },
             "&[data-tone=info]": { background: "{colors.brand.500}" },
             "&[data-tone=neutral]": { background: "{colors.fg.muted}" },
         },
@@ -358,12 +380,12 @@ export const schematicSlotRecipe = defineSlotRecipe({
             gap: "2px",
         },
         controlButton: {
-            width: "24px",
-            height: "24px",
+            width: "28px",
+            height: "28px",
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
-            fontSize: "11px",
+            fontSize: "13px",
             color: "fg.muted",
             background: "bg.surface",
             borderWidth: "1px",
@@ -399,6 +421,28 @@ export const schematicSlotRecipe = defineSlotRecipe({
             background: "color-mix(in oklch, {colors.brand.600} 12%, transparent)",
             borderRadius: "{radii.xs}",
             zIndex: "5",
+            // A marquee (#159) reads as a solid brand box; the zoom box stays lighter.
+            "&[data-mode=marquee]": {
+                borderStyle: "solid",
+                background: "color-mix(in oklch, {colors.brand.600} 18%, transparent)",
+            },
+        },
+        // Live hit-count badge pinned to the marquee's top-left corner (#159).
+        selectBoxCount: {
+            position: "absolute",
+            top: "0",
+            left: "0",
+            transform: "translate(-2px, -50%)",
+            fontSize: "0.6875rem",
+            fontWeight: "600",
+            lineHeight: "1",
+            paddingInline: "{spacing.1.5}",
+            paddingBlock: "{spacing.1}",
+            borderRadius: "{radii.sm}",
+            background: "{colors.brand.600}",
+            color: "{colors.white}",
+            boxShadow: "xs",
+            pointerEvents: "none",
         },
         minimap: {
             position: "absolute",
@@ -616,6 +660,122 @@ export const schematicSlotRecipe = defineSlotRecipe({
             fontVariantNumeric: "tabular-nums",
             whiteSpace: "nowrap",
             textShadow: "0 0 3px {colors.bg.panel}, 0 0 3px {colors.bg.panel}, 0 0 2px {colors.bg.panel}",
+        },
+        /* Layer panel — a small dropdown to the left of the layer button. Sits
+         * inside the canvas (no Portal needed): top-aligned with the controls,
+         * offset left of the 24px control column, capped + scrollable so it never
+         * escapes the canvas overflow clip. Each row: swatch · label · count ·
+         * solo · lock · eye. */
+        /* Hover card (#178): the entity-anchored inspection surface hosting
+         * arbitrary East content (charts). Anchored + flipped inline (data
+         * binding); everything visual lives here. */
+        hoverCard: {
+            position: "absolute",
+            zIndex: "45",
+            pointerEvents: "auto",
+            background: "bg.surface",
+            borderWidth: "1px",
+            borderColor: "border.subtle",
+            borderRadius: "{radii.sm}",
+            boxShadow: "md",
+            padding: "{spacing.3}",
+            minWidth: "180px",
+            maxWidth: "340px",
+        },
+        layerPanel: {
+            position: "absolute",
+            top: "{spacing.2}",
+            right: "calc({spacing.2} + 32px)",
+            zIndex: "40",
+            width: "216px",
+            maxHeight: "60%",
+            overflowY: "auto",
+            display: "flex",
+            flexDirection: "column",
+            background: "bg.surface",
+            borderWidth: "1px",
+            borderColor: "border.subtle",
+            borderRadius: "{radii.sm}",
+            boxShadow: "md",
+            padding: "{spacing.1}",
+            fontSize: "11px",
+        },
+        layerHeader: {
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            paddingX: "{spacing.1}",
+            paddingBottom: "{spacing.1}",
+            marginBottom: "2px",
+            borderBottomWidth: "1px",
+            borderColor: "border.subtle",
+        },
+        layerTitle: {
+            fontFamily: "mono",
+            fontSize: "9px",
+            fontWeight: "600",
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+            color: "fg.muted",
+        },
+        layerReset: {
+            fontSize: "10px",
+            color: "{colors.brand.600}",
+            background: "transparent",
+            cursor: "pointer",
+            "&:hover": { textDecoration: "underline" },
+        },
+        layerRow: {
+            display: "flex",
+            alignItems: "center",
+            gap: "{spacing.1}",
+            paddingX: "{spacing.1}",
+            height: "26px",
+            borderRadius: "{radii.xs}",
+            "&:hover": { background: "bg.panel" },
+            /* A hidden layer's row reads muted, but its controls stay live. */
+            "&[data-hidden]": { opacity: "0.5" },
+        },
+        layerSwatch: {
+            width: "9px",
+            height: "9px",
+            borderRadius: "{radii.xs}",
+            flexShrink: "0",
+            "&[data-tone=brand]": { background: "{colors.brand.600}" },
+            "&[data-tone=ink]": { background: "fg" },
+            "&[data-tone=muted]": { background: "{colors.fg.muted}" },
+            "&[data-tone=success]": { background: "{colors.status.pos}" },
+            "&[data-tone=warning]": { background: "{colors.status.warn}" },
+            "&[data-tone=danger]": { background: "{colors.status.neg}" },
+        },
+        layerLabel: {
+            flex: "1",
+            minWidth: "0",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            color: "fg",
+        },
+        layerCount: {
+            fontSize: "10px",
+            color: "fg.subtle",
+            fontVariantNumeric: "tabular-nums",
+            flexShrink: "0",
+        },
+        layerToggle: {
+            width: "20px",
+            height: "20px",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: "10px",
+            color: "fg.subtle",
+            background: "transparent",
+            borderRadius: "{radii.xs}",
+            cursor: "pointer",
+            flexShrink: "0",
+            "&:hover": { color: "fg", background: "bg.panel" },
+            "&[data-active]": { color: "{colors.brand.600}" },
         },
     },
 });

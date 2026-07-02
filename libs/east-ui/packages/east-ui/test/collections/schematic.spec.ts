@@ -4,16 +4,26 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { variant, some } from "@elaraai/east";
-import { Schematic } from "@elaraai/east-ui/internal";
+import { East, BooleanType, NullType, StringType, variant, some } from "@elaraai/east";
+import { Schematic, Text, UIComponentType } from "@elaraai/east-ui/internal";
 import * as ex from "./schematic.examples.js";
 
 describeEast("Schematic", (test) => {
     Assert.examples(test, {
         schematicPlant: ex.schematicPlant,
-        schematicSlice: ex.schematicSlice,
+        schematicSliceEffect: ex.schematicSliceEffect,
+        schematicLayers: ex.schematicLayers,
         schematicMinimal: ex.schematicMinimal,
         schematicInteractive: ex.schematicInteractive,
+        schematicRangeSelect: ex.schematicRangeSelect,
+        schematicSelectFilter: ex.schematicSelectFilter,
+        schematicViewport: ex.schematicViewport,
+        schematicZoneSelect: ex.schematicZoneSelect,
+        schematicLinkEdit: ex.schematicLinkEdit,
+        schematicNets: ex.schematicNets,
+        schematicItemMove: ex.schematicItemMove,
+        schematicHover: ex.schematicHover,
+        schematicStress: ex.schematicStress,
         schematicFacility: ex.schematicFacility,
         schematicGeometry: ex.schematicGeometry,
         schematicColorOverride: ex.schematicColorOverride,
@@ -36,6 +46,7 @@ describeEast("Schematic", (test) => {
         $(Assert.equal(root.items.get(0n).meter.hasTag("none"), true));
         $(Assert.equal(root.zones.size(), 0n));
         $(Assert.equal(root.links.size(), 0n));
+        $(Assert.equal(root.nets.size(), 0n));
         $(Assert.equal(root.scaleUnit.hasTag("none"), true));
     });
 
@@ -56,6 +67,8 @@ describeEast("Schematic", (test) => {
         $(Assert.equal(root.zones.get(0n).pattern.hasTag("outline"), true));
         $(Assert.equal(root.links.get(0n).style.hasTag("solid"), true));
         $(Assert.equal(root.links.get(0n).via.size(), 0n));
+        $(Assert.equal(root.links.get(0n).label.hasTag("none"), true));
+        $(Assert.equal(root.links.get(0n).metric.hasTag("none"), true));
     });
 
     test("typed status, hatch pattern, and waypoints carry through", $ => {
@@ -70,8 +83,8 @@ describeEast("Schematic", (test) => {
                 }),
                 zones: [{ id: "z1", name: "Aisle", x: 0.0, y: 3.0, w: 10.0, h: 1.0, p: Schematic.hatch({ spacing: 10.0 }) }],
                 zone: z => ({ key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h, pattern: z.p }),
-                links: [{ id: "l1", src: "A", dst: "A", s: Schematic.dashed({ tone: "ink" }), via: [{ x: 5.0, y: 2.0 }] }],
-                link: l => ({ key: l.id, from: l.src, to: l.dst, style: l.s, via: l.via }),
+                links: [{ id: "l1", src: "A", dst: "A", s: Schematic.dashed({ tone: "ink" }), via: [{ x: 5.0, y: 2.0 }], lbl: "recirc", m: "2 m³/h" }],
+                link: l => ({ key: l.id, from: l.src, to: l.dst, style: l.s, via: l.via, label: l.lbl, metric: l.m }),
             },
         ));
         const root = $.let(sch.unwrap().unwrap("Schematic"));
@@ -84,6 +97,8 @@ describeEast("Schematic", (test) => {
         $(Assert.equal(root.links.get(0n).route.hasTag("orthogonal"), true));
         $(Assert.equal(root.zones.get(0n).pattern.unwrap("hatch").spacing.unwrap("some"), 10.0));
         $(Assert.equal(root.links.get(0n).via.get(0n).x, 5.0));
+        $(Assert.equal(root.links.get(0n).label.unwrap("some"), "recirc"));
+        $(Assert.equal(root.links.get(0n).metric.unwrap("some"), "2 m³/h"));
     });
 
     test("item footprint and zone geometry default to none", $ => {
@@ -178,5 +193,234 @@ describeEast("Schematic", (test) => {
         $(Assert.equal(zone.color.unwrap("some"), "#DC2626"));
         $(Assert.equal(zone.bg.unwrap("some"), "#DC2626"));
         $(Assert.equal(zone.weight.unwrap("some"), 1.5));
+    });
+
+    test("excluded flag + flat slice-effect props (ghost + pulse + fitted frame) carry through", $ => {
+        const sch = $.let(Schematic.Root(
+            [{ id: "A", x: 2.0, y: 2.0, out: true }, { id: "B", x: 5.0, y: 2.0, out: false }],
+            {
+                extent: { width: 8, height: 6 },
+                item: e => ({ key: e.id, x: e.x, y: e.y, label: e.id, excluded: e.out }),
+                sliceOpacity: 0.25,
+                sliceDesaturate: true,
+                sliceEmphasis: "pulse",
+                sliceFrame: true,
+                sliceFrameFit: true,
+            },
+        ));
+        const root = $.let(sch.unwrap().unwrap("Schematic"));
+
+        $(Assert.equal(root.items.get(0n).excluded.unwrap("some"), true));
+        $(Assert.equal(root.items.get(1n).excluded.unwrap("some"), false));
+
+        const eff = $.let(root.sliceEffect.unwrap("some"));
+        $(Assert.equal(eff.hidden.hasTag("none"), true));              // kept, not hidden
+        $(Assert.equal(eff.opacity.unwrap("some"), 0.25));
+        $(Assert.equal(eff.desaturate.unwrap("some"), true));
+        $(Assert.equal(eff.dot.hasTag("none"), true));
+        $(Assert.equal(eff.emphasis.unwrap("some").hasTag("pulse"), true));
+        $(Assert.equal(eff.frame.unwrap("some"), true));
+        $(Assert.equal(eff.frameFit.unwrap("some"), true));
+    });
+
+    test("slice-effect: `sliceHidden` + `halo`, and unset props default to none", $ => {
+        const hide = $.let(Schematic.Root(
+            [{ id: "A", x: 1.0, y: 1.0 }],
+            {
+                extent: { width: 4, height: 4 },
+                item: e => ({ key: e.id, x: e.x, y: e.y, label: e.id }),
+                sliceHidden: true,
+            },
+        ).unwrap().unwrap("Schematic"));
+        // Default (unset) item excluded flag is `none`.
+        $(Assert.equal(hide.items.get(0n).excluded.hasTag("none"), true));
+        const heff = $.let(hide.sliceEffect.unwrap("some"));
+        $(Assert.equal(heff.hidden.unwrap("some"), true));
+        // No other prop set ⇒ each `none`.
+        $(Assert.equal(heff.emphasis.hasTag("none"), true));
+        $(Assert.equal(heff.frame.hasTag("none"), true));
+        $(Assert.equal(heff.opacity.hasTag("none"), true));
+
+        const bare = $.let(Schematic.Root(
+            [{ id: "A", x: 1.0, y: 1.0 }],
+            {
+                extent: { width: 4, height: 4 },
+                item: e => ({ key: e.id, x: e.x, y: e.y, label: e.id }),
+                sliceEmphasis: "halo",
+                sliceFrame: true,
+            },
+        ).unwrap().unwrap("Schematic"));
+        const eff = $.let(bare.sliceEffect.unwrap("some"));
+        $(Assert.equal(eff.emphasis.unwrap("some").hasTag("halo"), true));
+        $(Assert.equal(eff.frame.unwrap("some"), true));
+        $(Assert.equal(eff.frameFit.hasTag("none"), true));           // frame on, no auto-fit
+        $(Assert.equal(eff.hidden.hasTag("none"), true));             // kept, not hidden
+    });
+
+    test("layers declaration + per-entity layer tags (items / zones / links) carry through", $ => {
+        const sch = $.let(Schematic.Root(
+            [{ id: "A", x: 1.0, y: 1.0, sys: "process" }, { id: "B", x: 5.0, y: 1.0, sys: "maintenance" }],
+            {
+                extent: { width: 8, height: 6 },
+                item: e => ({ key: e.id, x: e.x, y: e.y, label: e.id, layer: e.sys }),
+                zones: [{ id: "z", name: "Z", x: 0.0, y: 0.0, w: 4.0, h: 3.0 }],
+                zone: z => ({ key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h, layer: "shell" }),
+                links: [{ id: "l", src: "A", dst: "B", lyr: "utilities" }],
+                link: l => ({ key: l.id, from: l.src, to: l.dst, layer: l.lyr }),
+                layers: [
+                    { key: "shell", label: "Shell", tone: "muted", locked: true, opacity: 0.5 },
+                    { key: "process", label: "Process", tone: "brand" },
+                    { key: "maintenance", label: "Maint", visible: false },
+                ],
+            },
+        ));
+        const root = $.let(sch.unwrap().unwrap("Schematic"));
+
+        const ls = $.let(root.layers.unwrap("some"));
+        $(Assert.equal(ls.size(), 3n));
+        const shell = $.let(ls.get(0n));
+        $(Assert.equal(shell.key, "shell"));
+        $(Assert.equal(shell.label, "Shell"));
+        $(Assert.equal(shell.locked.unwrap("some"), true));
+        $(Assert.equal(shell.opacity.unwrap("some"), 0.5));
+        $(Assert.equal(shell.tone.unwrap("some").hasTag("muted"), true));
+        // Unset author visibility ⇒ `none` (resolves to visible); an explicit `false` ships hidden.
+        $(Assert.equal(shell.visible.hasTag("none"), true));
+        $(Assert.equal(ls.get(2n).visible.unwrap("some"), false));
+
+        // Per-entity layer tags across all three kinds.
+        $(Assert.equal(root.items.get(0n).layer.unwrap("some"), "process"));
+        $(Assert.equal(root.items.get(1n).layer.unwrap("some"), "maintenance"));
+        $(Assert.equal(root.zones.get(0n).layer.unwrap("some"), "shell"));
+        $(Assert.equal(root.links.get(0n).layer.unwrap("some"), "utilities"));
+    });
+
+    test("no layers ⇒ root.layers none and each entity layer none", $ => {
+        const sch = $.let(Schematic.Root(
+            [{ id: "A", x: 1.0, y: 1.0 }],
+            {
+                extent: { width: 4, height: 4 },
+                item: e => ({ key: e.id, x: e.x, y: e.y, label: e.id }),
+            },
+        ));
+        const root = $.let(sch.unwrap().unwrap("Schematic"));
+        $(Assert.equal(root.layers.hasTag("none"), true));
+        $(Assert.equal(root.items.get(0n).layer.hasTag("none"), true));
+    });
+
+    test("net mapper carries sources / destinations / label through; defaults fill the rest", $ => {
+        const sch = $.let(Schematic.Root(
+            [{ id: "M", x: 1.0, y: 1.0 }, { id: "A", x: 5.0, y: 1.0 }, { id: "B", x: 5.0, y: 3.0 }],
+            {
+                extent: { width: 8, height: 4 },
+                item: e => ({ key: e.id, x: e.x, y: e.y, label: e.id }),
+                nets: [{ id: "n1", srcs: ["M"], dsts: ["A", "B"], name: "supply" }],
+                net: n => ({ key: n.id, sources: n.srcs, destinations: n.dsts, label: n.name }),
+            },
+        ));
+        const root = $.let(sch.unwrap().unwrap("Schematic"));
+        $(Assert.equal(root.nets.size(), 1n));
+        const net = $.let(root.nets.get(0n));
+        $(Assert.equal(net.key, "n1"));
+        $(Assert.equal(net.sources.size(), 1n));
+        $(Assert.equal(net.destinations.size(), 2n));
+        $(Assert.equal(net.destinations.get(1n), "B"));
+        $(Assert.equal(net.label.unwrap("some"), "supply"));
+        $(Assert.equal(net.metric.hasTag("none"), true));
+        $(Assert.equal(net.style.hasTag("solid"), true));
+        $(Assert.equal(net.route.hasTag("orthogonal"), true));
+        $(Assert.equal(net.via.size(), 0n));
+        $(Assert.equal(net.layer.hasTag("none"), true));
+    });
+
+    test("selection defaults: selectionMode / onSelectionChange / onSelect all none", $ => {
+        const sch = $.let(Schematic.Root(
+            [{ id: "A", x: 1.0, y: 1.0 }],
+            {
+                extent: { width: 4, height: 4 },
+                item: e => ({ key: e.id, x: e.x, y: e.y, label: e.id }),
+            },
+        ));
+        const root = $.let(sch.unwrap().unwrap("Schematic"));
+        $(Assert.equal(root.selectionMode.hasTag("none"), true));
+        $(Assert.equal(root.onSelectionChange.hasTag("none"), true));
+        $(Assert.equal(root.onSelect.hasTag("none"), true));
+        $(Assert.equal(root.sliceSelectField.hasTag("none"), true));
+        $(Assert.equal(root.selectZoomFocus.hasTag("none"), true));
+        $(Assert.equal(root.onViewportChange.hasTag("none"), true));
+        $(Assert.equal(root.onItemOpen.hasTag("none"), true));
+        $(Assert.equal(root.onSelectZone.hasTag("none"), true));
+        $(Assert.equal(root.onZoneSelectionChange.hasTag("none"), true));
+        $(Assert.equal(root.linkMode.hasTag("none"), true));
+        $(Assert.equal(root.onCreateLink.hasTag("none"), true));
+        $(Assert.equal(root.onSelectLink.hasTag("none"), true));
+        $(Assert.equal(root.onEditLink.hasTag("none"), true));
+        $(Assert.equal(root.onDeleteLink.hasTag("none"), true));
+        $(Assert.equal(root.readOnly.hasTag("none"), true));
+        $(Assert.equal(root.readOnlyLinks.hasTag("none"), true));
+        $(Assert.equal(root.readOnlyItems.hasTag("none"), true));
+        $(Assert.equal(root.onMoveItem.hasTag("none"), true));
+        $(Assert.equal(root.itemHover.hasTag("none"), true));
+        $(Assert.equal(root.zoneHover.hasTag("none"), true));
+        $(Assert.equal(root.linkHover.hasTag("none"), true));
+        $(Assert.equal(root.onEditNet.hasTag("none"), true));
+        $(Assert.equal(root.canConnect.hasTag("none"), true));
+    });
+
+    test("selectionMode, onSelectionChange, sliceSelectField carry through", $ => {
+        const onChange = East.function([Schematic.Types.SelectionEvent], NullType, (_$, _ev) => { });
+        const onViewport = East.function([Schematic.Types.ViewportEvent], NullType, (_$, _ev) => { });
+        const sch = $.let(Schematic.Root(
+            [{ id: "A", x: 1.0, y: 1.0 }],
+            {
+                extent: { width: 4, height: 4 },
+                item: e => ({ key: e.id, x: e.x, y: e.y, label: e.id }),
+                selectionMode: "multiple",
+                onSelectionChange: onChange,
+                onViewportChange: onViewport,
+                onItemOpen: East.function([StringType], NullType, (_$, _k) => { }),
+                onSelectZone: East.function([StringType], NullType, (_$, _k) => { }),
+                onZoneSelectionChange: East.function([Schematic.Types.ZoneSelectionEvent], NullType, (_$, _ev) => { }),
+                linkMode: "connect",
+                onCreateLink: East.function([Schematic.Types.LinkCreateEvent], NullType, (_$, _ev) => { }),
+                onSelectLink: East.function([StringType], NullType, (_$, _k) => { }),
+                onEditLink: East.function([Schematic.Types.LinkEditEvent], NullType, (_$, _ev) => { }),
+                onDeleteLink: East.function([StringType], NullType, (_$, _k) => { }),
+                readOnly: false,
+                readOnlyLinks: false,
+                readOnlyItems: true,
+                onMoveItem: East.function([Schematic.Types.ItemMoveEvent], NullType, (_$, _ev) => { }),
+                itemHover: East.function([StringType], UIComponentType, (_$, _k) => Text.Root("item")),
+                zoneHover: East.function([StringType], UIComponentType, (_$, _k) => Text.Root("zone")),
+                linkHover: East.function([StringType], UIComponentType, (_$, _k) => Text.Root("link")),
+                onEditNet: East.function([Schematic.Types.NetEndpoints], NullType, (_$, _ev) => { }),
+                canConnect: East.function([StringType, StringType], BooleanType, (_$, _f, _t) => East.value(true)),
+                sliceSelectField: "id",
+                selectZoomFocus: true,
+            },
+        ));
+        const root = $.let(sch.unwrap().unwrap("Schematic"));
+        $(Assert.equal(root.selectionMode.unwrap("some").hasTag("multiple"), true));
+        $(Assert.equal(root.onSelectionChange.hasTag("some"), true));
+        $(Assert.equal(root.sliceSelectField.unwrap("some"), "id"));
+        $(Assert.equal(root.selectZoomFocus.unwrap("some"), true));
+        $(Assert.equal(root.onViewportChange.hasTag("some"), true));
+        $(Assert.equal(root.onItemOpen.hasTag("some"), true));
+        $(Assert.equal(root.onSelectZone.hasTag("some"), true));
+        $(Assert.equal(root.onZoneSelectionChange.hasTag("some"), true));
+        $(Assert.equal(root.linkMode.unwrap("some").hasTag("connect"), true));
+        $(Assert.equal(root.onCreateLink.hasTag("some"), true));
+        $(Assert.equal(root.onSelectLink.hasTag("some"), true));
+        $(Assert.equal(root.onEditLink.hasTag("some"), true));
+        $(Assert.equal(root.onDeleteLink.hasTag("some"), true));
+        $(Assert.equal(root.readOnly.unwrap("some"), false));
+        $(Assert.equal(root.readOnlyLinks.unwrap("some"), false));
+        $(Assert.equal(root.readOnlyItems.unwrap("some"), true));
+        $(Assert.equal(root.onMoveItem.hasTag("some"), true));
+        $(Assert.equal(root.itemHover.hasTag("some"), true));
+        $(Assert.equal(root.zoneHover.hasTag("some"), true));
+        $(Assert.equal(root.linkHover.hasTag("some"), true));
+        $(Assert.equal(root.onEditNet.hasTag("some"), true));
+        $(Assert.equal(root.canConnect.hasTag("some"), true));
     });
 }, { platformFns: TestImpl });

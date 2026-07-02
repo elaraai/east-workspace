@@ -14,7 +14,13 @@
  * Output: `dist-examples/<Category>__<pathKey>.{html,png}`.
  *
  * CLI flags:
- *   --file=<pathKey>   restrict to one file (e.g. `--file=buttons/button`)
+ *   --file=<pathKey>                restrict to one file (e.g. `--file=buttons/button`)
+ *   --file=<pathKey>:<exampleName>  snapshot ONE example from that file, full-bleed
+ *                                   (e.g. `--file=collections/schematic:schematicNets`);
+ *                                   `--example=<name>` alongside `--file=` is equivalent.
+ *
+ * Output: per-file `dist-examples/<Category>__<pathKey>.{html,png}`, or
+ * per-example `<Category>__<pathKey>__<exampleName>.{html,png}`.
  *
  * @packageDocumentation
  */
@@ -31,12 +37,33 @@ const VITE_CONFIG = path.join(SNAPSHOT_ROOT, 'vite.config.ts');
 const TEST_DIR = path.resolve(PKG_ROOT, '../east-ui/test');
 const OUT_DIR = path.join(PKG_ROOT, 'dist-examples');
 
-function parseFileArg(argv: string[]): string | undefined {
+function parseArgs(argv: string[]): { file?: string; example?: string } {
+    let file: string | undefined;
+    let example: string | undefined;
     for (const arg of argv) {
-        const m = /^--file=(.+)$/.exec(arg);
-        if (m) return m[1];
+        const f = /^--file=(.+)$/.exec(arg);
+        if (f) file = f[1];
+        const e = /^--example=(.+)$/.exec(arg);
+        if (e) example = e[1];
     }
-    return undefined;
+    // `--file=path:example` sugar (the Makefile's per-example targets use it).
+    if (file !== undefined && file.includes(":")) {
+        const i = file.indexOf(":");
+        example = example ?? file.slice(i + 1);
+        file = file.slice(0, i);
+    }
+    return { file, example };
+}
+
+/** Export names carrying `example(...)` defs in one examples source file. */
+async function exampleNamesOf(pathKey: string): Promise<string[]> {
+    for (const ext of [".examples.tsx", ".examples.ts"]) {
+        try {
+            const src = await fs.readFile(path.join(TEST_DIR, pathKey + ext), "utf8");
+            return [...src.matchAll(/^export const ([A-Za-z0-9_]+)/gm)].map(m => m[1]!);
+        } catch { /* try the other extension */ }
+    }
+    return [];
 }
 
 function sanitise(s: string): string {
@@ -59,7 +86,7 @@ async function discoverPathKeys(): Promise<string[]> {
 }
 
 async function main(): Promise<void> {
-    const only = parseFileArg(process.argv.slice(2));
+    const { file: only, example } = parseArgs(process.argv.slice(2));
     const keys = await discoverPathKeys();
     const selected = only ? keys.filter(k => k === only) : keys;
     if (only && selected.length === 0) {
@@ -67,10 +94,23 @@ async function main(): Promise<void> {
         console.error(`[snapshot] available pathKeys:\n  ${keys.join('\n  ')}`);
         process.exit(2);
     }
+    if (example !== undefined && only === undefined) {
+        console.error(`[snapshot] --example requires --file=<pathKey>`);
+        process.exit(2);
+    }
+    if (example !== undefined) {
+        const names = await exampleNamesOf(only!);
+        if (!names.includes(example)) {
+            console.error(`[snapshot] no example \`${example}\` in ${only}`);
+            console.error(`[snapshot] available examples:\n  ${names.join('\n  ')}`);
+            process.exit(2);
+        }
+    }
 
     const targets: SnapshotTarget[] = selected.map(pathKey => ({
-        query: { file: pathKey },
-        outName: `${sanitise(categoryOf(pathKey))}__${sanitise(pathKey)}`,
+        query: example !== undefined ? { file: pathKey, example } : { file: pathKey },
+        outName: `${sanitise(categoryOf(pathKey))}__${sanitise(pathKey)}`
+            + (example !== undefined ? `__${sanitise(example)}` : ''),
     }));
     console.log(`[snapshot] ${targets.length} file(s)`);
 

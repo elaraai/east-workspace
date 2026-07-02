@@ -8,6 +8,13 @@
 EAST_UI_EXAMPLE_KEYS := $(shell find packages/east-ui/test \( -name '*.examples.ts' -o -name '*.examples.tsx' \) 2>/dev/null \
                               | sed -e 's|^packages/east-ui/test/||' -e 's|\.examples\.tsx$$||' -e 's|\.examples\.ts$$||')
 
+## Per-EXAMPLE keys — `<pathKey>--<exportName>` for every `export const` in an
+## examples file, so `make east-ui-examples-html-collections/schematic--schematicNets`
+## snapshots ONE example full-bleed (tab-completes like the per-file targets).
+EAST_UI_EXAMPLE_ITEM_KEYS := $(shell for f in $$(find packages/east-ui/test \( -name '*.examples.ts' -o -name '*.examples.tsx' \) 2>/dev/null); do \
+                              key=$$(echo $$f | sed -e 's|^packages/east-ui/test/||' -e 's|\.examples\.tsx$$||' -e 's|\.examples\.ts$$||'); \
+                              grep -hoE '^export const [A-Za-z0-9_]+' $$f | sed -e "s|^export const |$$key--|"; done)
+
 ## Discover e3-ui example keys — top-level `packages/e3-ui/test/<key>.examples.ts`
 ## files (e3-task-bound components: ontology, diff, ...). Each maps 1:1 to
 ## `make e3-ui-examples-html-<key>`, rendered by the e3-ui-components snapshot
@@ -17,6 +24,7 @@ E3_UI_EXAMPLE_KEYS := $(shell find packages/e3-ui/test \( -name '*.examples.ts' 
 
 .PHONY: build test lint showcase build-showcase design design-html-all probe-slice probe-collections clean extension extension-install extension-uninstall examples \
         east-ui-examples-html-all $(EAST_UI_EXAMPLE_KEYS:%=east-ui-examples-html-%) \
+        $(EAST_UI_EXAMPLE_ITEM_KEYS:%=east-ui-examples-html-%) \
         e3-ui-examples-html-all $(E3_UI_EXAMPLE_KEYS:%=e3-ui-examples-html-%) help
 
 ## Build all packages (in dependency `order)
@@ -112,6 +120,15 @@ east-ui-examples-html-all:
 $(EAST_UI_EXAMPLE_KEYS:%=east-ui-examples-html-%): east-ui-examples-html-%:
 	pnpm --filter @elaraai/east-ui-components exec playwright install chromium
 	pnpm --filter @elaraai/east-ui-components exec tsx scripts/snapshot.ts --file=$*
+
+## Snapshot a SINGLE example (full-bleed) from an examples file. Usage:
+##   make east-ui-examples-html-collections/schematic--schematicNets
+## `<pathKey>--<exportName>` maps to `snapshot.ts --file=<pathKey>:<exportName>`;
+## the list is re-derived each invocation, so new `export const` examples
+## tab-complete without Makefile edits.
+$(EAST_UI_EXAMPLE_ITEM_KEYS:%=east-ui-examples-html-%): east-ui-examples-html-%:
+	pnpm --filter @elaraai/east-ui-components exec playwright install chromium
+	pnpm --filter @elaraai/east-ui-components exec tsx scripts/snapshot.ts --file=$(subst --,:,$*)
 
 ## Snapshot every e3-task-bound east-ui example (ontology, diff, ...) to a
 ## paired .html + .png under `packages/e3-ui-components/dist-examples/`. The

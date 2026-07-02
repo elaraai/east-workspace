@@ -521,6 +521,19 @@ export const SliceImpl: PlatformFunction[] = [
         const now = new Date();
         return boundRows(bound).filter(r => sliceMatches(state as never, bound.config, r, now));
     }),
+    // The FULL bound rows, each tagged with whether it passes the active
+    // narrowing — the "keep the excluded" feed. `Slice.rows` is this filtered to
+    // `matched`; here every row survives, carrying its `matched` flag for a
+    // downstream de-emphasis effect (e.g. a Schematic's `excluded`).
+    Slice.partition.implement((_T: EastTypeValue) => (handle: unknown) => {
+        const k = (handle as { key: string }).key;
+        const bound = boundByKey.get(k);
+        if (bound === undefined) return [];
+        trackKey(k);
+        const state = readState(k);
+        const now = new Date();
+        return boundRows(bound).map(r => ({ value: r, matched: sliceMatches(state as never, bound.config, r, now) }));
+    }),
     Slice.bind.implement((_T: EastTypeValue) => bindImpl),
 
     // ── issue #106 primitives — host I/O backing the IR-bearing handle methods.

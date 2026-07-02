@@ -69,6 +69,28 @@ export interface PaintCamera {
     ty: number;
 }
 
+/**
+ * Slice-effect paint parameters — how filtered-out items are de-emphasized and
+ * the remainder emphasized. Absent from {@link PaintInput} ⇒ no effect (today's
+ * behaviour). `hide`-mode excluded items are already dropped from `visibleItems`
+ * upstream, so `excluded` here only ever holds *kept* (shown, de-emphasized)
+ * item keys.
+ */
+export interface SchematicPaintEffect {
+    /** Keys of kept-but-excluded items among `visibleItems` (dimmed / greyed). */
+    excluded: ReadonlySet<string>;
+    /** Fade alpha (0–1) applied to kept-excluded items; `1` ⇒ no fade. */
+    excludedOpacity: number;
+    /** Drain kept-excluded items' colour to grey. */
+    excludedDesaturate: boolean;
+    /** Positive emphasis on matched items; `undefined` ⇒ none. */
+    emphasis: "halo" | "pulse" | undefined;
+    /** Animated pulse phase in `[0, 1)`; only read when `emphasis === "pulse"`. */
+    pulsePhase: number;
+    /** World-coordinate bbox to frame the matched set; `undefined` ⇒ no frame. */
+    frame: Bbox | undefined;
+}
+
 /** Everything {@link paintSchematic} needs for one frame. */
 export interface PaintInput {
     ctx: CanvasRenderingContext2D;
@@ -81,10 +103,37 @@ export interface PaintInput {
     visibleItems: readonly SchematicItemValue[];
     /** Per-item LOD tier after declutter. */
     tiers: ReadonlyMap<string, LodTier>;
-    selected: string | null;
+    /** The set of selected item keys (single/multiple/range all share it). */
+    selected: ReadonlySet<string>;
+    /** The set of selected ZONE keys (#177); absent/empty ⇒ no zone highlight. */
+    selectedZones?: ReadonlySet<string>;
     /** Item key → world centre, for link endpoints. */
     centers: ReadonlyMap<string, Pt>;
     palette: SchematicPalette;
+    /** Optional slice-effect paint parameters (ghost / emphasis / frame). */
+    effect?: SchematicPaintEffect;
+    /** Entity keys in a hidden layer — zones / links with a hidden-layer key are
+     * skipped (items are already pre-filtered out of `visibleItems`). Empty ⇒ no
+     * layer filtering. */
+    layerHiddenKeys?: ReadonlySet<string>;
+    /** Item key → layer opacity (0–1), for items in a dimmed layer. Multiplies
+     * the item marker / footprint alpha. Absent / missing key ⇒ full. */
+    layerAlpha?: ReadonlyMap<string, number>;
+    /** Connect-tool draft edge (#176), world coords — routed like a real link. */
+    /** The in-flight connect draft; `forbiddenKey` = the hovered target the
+     *  canConnect validator vetoed — the edge and its ring go DANGER. */
+    draftLink?: { from: Pt; to: Pt; snapped: boolean; forbiddenKey?: string };
+    /** Open connect-session edges (#176, `connect` mode), world coords. */
+    /** The open connect-session proposal: one pair is a dashed edge; a grown
+     *  session previews as a dashed BUS (same geometry a committed net gets). */
+    session?: { kind: "edge"; from: Pt; to: Pt } | { kind: "net"; sources: readonly Pt[]; destinations: readonly Pt[] };
+    /** One-shot connect commit flash (#176); `phase` 0..1. Endpoints may be
+     * undefined when an item vanished mid-flash — the painter skips then. */
+    connectFlash?: { from: Pt | undefined; to: Pt | undefined; phase: number };
+    /** The selected link (#176): halo stroke; `editable` also draws the
+     * endpoint connector handles for re-targeting. A net LEG selection
+     * narrows the halo to that one stub (#189 follow-up). */
+    selectedLink?: { key: string; editable: boolean; leg?: { end: "source" | "destination"; item: string } };
 }
 
 const css = (c: RGB, a = 1): string =>
@@ -122,16 +171,19 @@ function statusTone(status: SchematicItemValue["status"]): string | undefined {
 /**
  * Resolve an entity's stroke / tint colour to a CSS string, applying the
  * override precedence: a raw `color` string wins, then a semantic `tone`
- * (mapped through the theme palette), then the status / pattern fallback RGB.
+ * (mapped through the theme palette for the entity's `kind` — `muted`
+ * resolves differently for zones vs links/items), then the status / pattern
+ * fallback RGB.
  */
-function resolveTint(p: SchematicPalette, color: string | undefined, tone: string | undefined, fallback: RGB): string {
+function resolveTint(p: SchematicPalette, color: string | undefined, tone: string | undefined, fallback: RGB, kind: "zone" | "link"): string {
     if (color !== undefined) return color;
-    if (tone !== undefined) return css(toneRGB(p, tone, "link"));
+    if (tone !== undefined) return css(toneRGB(p, tone, kind));
     return css(fallback);
 }
 
-/** Expand anchors into an axis-aligned point list (one elbow per diagonal). */
-function orthogonalize(points: Pt[]): Pt[] {
+/** Expand anchors into an axis-aligned point list (one elbow per diagonal).
+ *  Exported so link hit-testing routes exactly like the painter (P11 spirit). */
+export function orthogonalize(points: Pt[]): Pt[] {
     const out: Pt[] = [];
     for (const next of points) {
         const prev = out[out.length - 1];
@@ -289,6 +341,95 @@ export function markerHit(box: MarkerHitbox, sx: number, sy: number): boolean {
         : sx >= box.left && sx <= box.left + box.w && sy >= box.top && sy <= box.top + box.h;
 }
 
+/** Screen-px hit slop around a link stroke (over its drawn weight). */
+export const LINK_HIT_SLOP = 5;
+
+/**
+ * Segment-wise distance from a screen point to a polyline — the link
+ * hit-test's core (routed points, so the clickable path equals the drawn
+ * path, including fan lanes). Exported for unit testing.
+ *
+ * @param pts - the routed points, in order
+ * @param sx - screen x
+ * @param sy - screen y
+ * @returns the minimum distance (Infinity for fewer than 2 points)
+ */
+export function distanceToPolyline(pts: readonly Pt[], sx: number, sy: number): number {
+    let best = Infinity;
+    for (let i = 1; i < pts.length; i++) {
+        const a = pts[i - 1]!, b = pts[i]!;
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const len2 = dx * dx + dy * dy;
+        const t = len2 > 0 ? Math.max(0, Math.min(1, ((sx - a.x) * dx + (sy - a.y) * dy) / len2)) : 0;
+        const d = Math.hypot(sx - (a.x + t * dx), sy - (a.y + t * dy));
+        if (d < best) best = d;
+    }
+    return best;
+}
+
+/** Links hide their mid-path label below this zoom (px per world unit) —
+ *  aligned with the item labelled-pin band. */
+export const LINK_LABEL_MIN_PPU = 16;
+/** Screen-px gap between parallel link lanes (#180 fan-out). */
+export const LINK_LANE_GAP = 7;
+
+/**
+ * The arc-length midpoint of a polyline (screen space) — where a link's label
+ * pill anchors, so it sits centred along the routed path (not the chord).
+ * Exported for unit testing.
+ *
+ * @param pts - the routed points, in order
+ * @returns the midpoint (the sole point / origin for degenerate inputs)
+ */
+export function polylineMidpoint(pts: readonly Pt[]): Pt {
+    if (pts.length === 0) return { x: 0, y: 0 };
+    let total = 0;
+    for (let i = 1; i < pts.length; i++) total += Math.hypot(pts[i]!.x - pts[i - 1]!.x, pts[i]!.y - pts[i - 1]!.y);
+    if (total <= 1e-9) return pts[0]!;
+    let acc = 0;
+    const half = total / 2;
+    for (let i = 1; i < pts.length; i++) {
+        const seg = Math.hypot(pts[i]!.x - pts[i - 1]!.x, pts[i]!.y - pts[i - 1]!.y);
+        if (acc + seg >= half) {
+            const t = seg > 0 ? (half - acc) / seg : 0;
+            return { x: pts[i - 1]!.x + (pts[i]!.x - pts[i - 1]!.x) * t, y: pts[i - 1]!.y + (pts[i]!.y - pts[i - 1]!.y) * t };
+        }
+        acc += seg;
+    }
+    return pts[pts.length - 1]!;
+}
+
+/**
+ * Per-link parallel-fan lanes (#180): links sharing an endpoint pair (either
+ * direction, no explicit waypoints, both endpoints resolved) would overdraw
+ * into one edge — assign each a lane index so the painter can translate the
+ * whole routed polyline rigidly along the pair's perpendicular. Deterministic
+ * (lanes ordered by link key). Exported for unit testing.
+ *
+ * @param links - the links about to paint (pre-filtered upstream is fine)
+ * @param eligible - whether a link participates (endpoints resolved, no `via`, not hidden)
+ * @returns link key → `{ i, n }` lane position, only for groups of 2+
+ */
+export function parallelLanes<L extends { key: string; from: string; to: string }>(
+    links: readonly L[],
+    eligible: (link: L) => boolean,
+): Map<string, { i: number; n: number }> {
+    const groups = new Map<string, string[]>();
+    for (const link of links) {
+        if (!eligible(link)) continue;
+        const pair = link.from < link.to ? `${link.from}\x00${link.to}` : `${link.to}\x00${link.from}`;
+        const g = groups.get(pair);
+        if (g !== undefined) g.push(link.key); else groups.set(pair, [link.key]);
+    }
+    const lanes = new Map<string, { i: number; n: number }>();
+    for (const keys of groups.values()) {
+        if (keys.length < 2) continue;
+        keys.sort();
+        keys.forEach((k, i) => lanes.set(k, { i, n: keys.length }));
+    }
+    return lanes;
+}
+
 /** Clamp a hatch `spacing` to a positive, finite minimum so the line sweep
  * always advances and terminates — a `0` / negative / NaN spacing would
  * otherwise hard-hang or stall the render thread (issue #57, P3). */
@@ -376,12 +517,142 @@ function zoneWorldBbox(zone: SchematicZoneValue, geom: SchematicGeometryValue | 
     return bb;
 }
 
+/** One side of a net resolved to bus-bar geometry (world space). */
+interface NetSide {
+    /** Where the trunk attaches (bar tap for a multi-endpoint side, the item centre for a single one). */
+    anchor: Pt;
+    /** The header-bar segment, when this side has 2+ spread endpoints. */
+    bar?: [Pt, Pt];
+    /** Axis-aligned stub from each endpoint to its bar tap. */
+    stubs: Pt[][];
+    /** Junction DOTS — taps strictly inside the bar span (3-way joins); bar-end taps are elbows, no dot. */
+    taps: Pt[];
+}
+
+/** Net (manifold / bus) geometry, world space — shared verbatim by the
+ *  painter and the hit-test so the clickable shape equals the drawn one. */
+export interface NetGeometry {
+    /** Trunk polyline: source anchor → via… → destination anchor. */
+    trunk: Pt[];
+    bars: Array<[Pt, Pt]>;
+    stubs: Pt[][];
+    taps: Pt[];
+}
+
+/** Resolve one endpoint group to a header BAR + stubs (P&ID bus-bar
+ *  convention), or a bare anchor when the group is a single point.
+ *
+ *  The bar runs along the group's larger spread axis, offset from the
+ *  cluster TOWARD the trunk (30% of the gap, clamped to [0.9, 3] world
+ *  units) so stubs stay short and the bar never spears the items. */
+function netSide(pts: readonly Pt[], toward: Pt): NetSide {
+    const centroid: Pt = {
+        x: pts.reduce((a, q) => a + q.x, 0) / pts.length,
+        y: pts.reduce((a, q) => a + q.y, 0) / pts.length,
+    };
+    if (pts.length === 1) return { anchor: pts[0]!, stubs: [], taps: [] };
+    const minX = Math.min(...pts.map(q => q.x)), maxX = Math.max(...pts.map(q => q.x));
+    const minY = Math.min(...pts.map(q => q.y)), maxY = Math.max(...pts.map(q => q.y));
+    const vertical = (maxY - minY) >= (maxX - minX);
+    // Coordinates along the bar (axis) and across it (perp).
+    const axis = (q: Pt): number => vertical ? q.y : q.x;
+    const perp = (q: Pt): number => vertical ? q.x : q.y;
+    const mk = (a: number, pp: number): Pt => vertical ? { x: pp, y: a } : { x: a, y: pp };
+    const lo = vertical ? minY : minX, hi = vertical ? maxY : maxX;
+    if (hi - lo < 1e-6) return { anchor: centroid, stubs: [], taps: [] };
+    // Bar offset: from the cluster edge FACING the trunk, toward it.
+    const dir = Math.sign(perp(toward) - perp(centroid)) || 1;
+    const edge = dir > 0 ? Math.max(...pts.map(perp)) : Math.min(...pts.map(perp));
+    const gap = Math.abs(perp(toward) - edge);
+    const barPerp = edge + dir * Math.min(Math.max(gap * 0.3, 0.9), 3);
+    const anchor = mk(Math.min(Math.max(axis(toward), lo), hi), barPerp);
+    const stubs = pts.map(q => [q, mk(axis(q), barPerp)]);
+    const isEnd = (a: number): boolean => a - lo < 1e-6 || hi - a < 1e-6;
+    const taps: Pt[] = [];
+    const pushTap = (q: Pt): void => {
+        if (isEnd(axis(q))) return;
+        if (!taps.some(t => Math.abs(t.x - q.x) < 1e-6 && Math.abs(t.y - q.y) < 1e-6)) taps.push(q);
+    };
+    for (const st of stubs) pushTap(st[1]!);
+    pushTap(anchor);
+    return { anchor, bar: [mk(lo, barPerp), mk(hi, barPerp)], stubs, taps };
+}
+
+/** Bus-bar geometry for a whole net: each side becomes a header bar (or a
+ *  bare anchor), the trunk runs bar-tap → `via`… → bar-tap. With one
+ *  endpoint per side and no waypoints this degrades to a plain link. */
+export function netGeometry(sources: readonly Pt[], destinations: readonly Pt[], via: readonly Pt[]): NetGeometry {
+    const centroid = (qs: readonly Pt[]): Pt => ({
+        x: qs.reduce((a, q) => a + q.x, 0) / qs.length,
+        y: qs.reduce((a, q) => a + q.y, 0) / qs.length,
+    });
+    const srcToward = via.length > 0 ? via[0]! : centroid(destinations);
+    const dstToward = via.length > 0 ? via[via.length - 1]! : centroid(sources);
+    const src = netSide(sources, srcToward);
+    const dst = netSide(destinations, dstToward);
+    const bars: Array<[Pt, Pt]> = [];
+    if (src.bar) bars.push(src.bar);
+    if (dst.bar) bars.push(dst.bar);
+    return {
+        trunk: [src.anchor, ...via, dst.anchor],
+        bars,
+        stubs: [...src.stubs, ...dst.stubs],
+        taps: [...src.taps, ...dst.taps],
+    };
+}
+
+/** Draw a mid-path label pill (`label` in fg + optional muted `metric`) at the
+ *  routed path's arc-length midpoint — shared by links and net trunks (#180/#189). */
+function drawEdgeLabel(
+    ctx: CanvasRenderingContext2D,
+    p: SchematicPalette,
+    pts: readonly Pt[],
+    label: string | undefined,
+    metric: string | undefined,
+): void {
+    if (label === undefined && metric === undefined) return;
+    const mid = polylineMidpoint(pts);
+    ctx.save();
+    ctx.font = MARKER_LABEL_FONT;
+    const main = label ?? "";
+    const tail = metric !== undefined ? (label !== undefined ? ` · ${metric}` : metric) : "";
+    const mainW = main !== "" ? ctx.measureText(main).width : 0;
+    const tailW = tail !== "" ? ctx.measureText(tail).width : 0;
+    const w = mainW + tailW + 12, h = 16;
+    const left = mid.x - w / 2, top = mid.y - h / 2;
+    ctx.beginPath();
+    ctx.roundRect?.(left, top, w, h, h / 2);
+    if (!ctx.roundRect) ctx.rect(left, top, w, h);
+    ctx.fillStyle = css(p.bgSurface);
+    ctx.fill();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = css(p.borderSubtle);
+    ctx.stroke();
+    ctx.textBaseline = "middle";
+    if (main !== "") {
+        ctx.fillStyle = css(p.fg);
+        ctx.fillText(main, left + 6, mid.y);
+    }
+    if (tail !== "") {
+        ctx.fillStyle = css(p.fgMuted);
+        ctx.fillText(tail, left + 6 + mainW, mid.y);
+    }
+    ctx.restore();
+}
+
 /** Draw the schematic's bulk-shape layer for one frame. Clears first. */
 export function paintSchematic(input: PaintInput): void {
-    const { ctx, value, cam, width, height, visibleItems, tiers, selected, centers, palette: p } = input;
+    const { ctx, value, cam, width, height, visibleItems, tiers, selected, selectedZones, centers, palette: p, effect, layerHiddenKeys, layerAlpha, draftLink, session, connectFlash, selectedLink } = input;
     const wx = (x: number) => x * cam.ppu + cam.tx;
     const wy = (y: number) => y * cam.ppu + cam.ty;
     const ppu = cam.ppu;
+    // Per-item render alpha / tint. `alphaOf` folds the slice-keep fade and the
+    // layer dim (multiplicative); `desatOf` re-tints a desaturated excluded item.
+    const isExcluded = (key: string): boolean => effect?.excluded.has(key) ?? false;
+    const layerHidden = (key: string): boolean => layerHiddenKeys?.has(key) ?? false;
+    const alphaOf = (key: string): number =>
+        ((effect !== undefined && isExcluded(key)) ? effect.excludedOpacity : 1) * (layerAlpha?.get(key) ?? 1);
+    const desatOf = (key: string): boolean => (effect !== undefined && isExcluded(key) && effect.excludedDesaturate);
     // The world rect currently on screen — zones / links whose geometry bbox
     // misses it are culled (issue #57, P6). Items are already viewport-culled
     // into `visibleItems` by the React layer's rbush.
@@ -399,11 +670,12 @@ export function paintSchematic(input: PaintInput): void {
 
     // ---- zones: rect outline / hatch + polyline / polygon geometry ----------
     for (const zone of value.zones) {
+        if (layerHidden(zone.key)) continue;   // zone in a hidden layer
         const geom = getSomeorUndefined(zone.geometry);
         if (!bboxOverlaps(zoneWorldBbox(zone, geom), viewBbox)) continue;
         const pattern = zone.pattern;
         const patternTone = (pattern.value.tone.type === "some" ? pattern.value.tone.value.type : undefined) ?? "muted";
-        const tint = resolveTint(p, getSomeorUndefined(zone.color), getSomeorUndefined(zone.tone)?.type, toneRGB(p, patternTone, "zone"));
+        const tint = resolveTint(p, getSomeorUndefined(zone.color), getSomeorUndefined(zone.tone)?.type, toneRGB(p, patternTone, "zone"), "zone");
         const zbg = getSomeorUndefined(zone.bg);
         const zFillAlpha = getSomeorUndefined(zone.fillOpacity) ?? 0.15;
         const zWeight = getSomeorUndefined(zone.weight);
@@ -501,6 +773,29 @@ export function paintSchematic(input: PaintInput): void {
             ctx.setLineDash([]);
         }
 
+        // Selected-zone highlight (#177): a light brand wash + solid 2px brand
+        // stroke over the zone's actual shape, drawn above its pattern.
+        if (selectedZones?.has(zone.key) ?? false) {
+            ctx.save();
+            ctx.beginPath();
+            if (geom !== undefined && geom.type === "circle") {
+                ctx.arc(x + w / 2, y + h / 2, geom.value.radius * ppu, 0, Math.PI * 2);
+            } else if (geom !== undefined && geom.type === "polygon") {
+                traceVertices(ctx, geom.value.vertices.map(q => ({ x: wx(q.x), y: wy(q.y), bulge: q.bulge })), true);
+            } else {
+                ctx.rect(x, y, w, h);
+            }
+            ctx.globalAlpha = 0.06;
+            ctx.fillStyle = css(p.brand500);
+            ctx.fill();
+            ctx.globalAlpha = 1;
+            ctx.setLineDash([]);
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = css(p.brand600);
+            ctx.stroke();
+            ctx.restore();
+        }
+
         // eyebrow label at the bbox top-left (the nav / minimap anchor)
         if (w >= zone.label.length * 6.2 + 24) {
             ctx.font = '600 9px ui-monospace, "SF Mono", Menlo, monospace';
@@ -515,15 +810,33 @@ export function paintSchematic(input: PaintInput): void {
     }
 
     // ---- links --------------------------------------------------------------
+    // Parallel-link fan-out (#180): lanes for links sharing an endpoint pair,
+    // so N same-pair links (multi-operation data) read as N distinct edges.
+    const lanes = parallelLanes(value.links, l =>
+        !layerHidden(l.key) && centers.has(l.from) && centers.has(l.to) && l.via.length === 0);
     for (const link of value.links) {
+        if (layerHidden(link.key)) continue;   // link in a hidden layer
         const from = centers.get(link.from), to = centers.get(link.to);
-        if (!from || !to) continue;
+        if (!from || !to) continue;   // endpoint item hidden (layer or slice) ⇒ no centre
         // Cull by the AABB over ALL anchors (endpoints + waypoints), not the
         // endpoints alone — a trunk whose two ends sit off-screen but whose
         // segment crosses the viewport must NOT be culled (issue #57, 1e).
         const linkBbox = pointsBbox([from, ...link.via, to]);
         if (linkBbox !== null && !bboxOverlaps(linkBbox, viewBbox)) continue;
         const anchors = [from, ...link.via, to].map(q => ({ x: wx(q.x), y: wy(q.y) }));
+        // Fan lane: translate the whole routed line rigidly along the pair's
+        // perpendicular (screen px) — parallel lanes stay parallel through
+        // orthogonal elbows, and edges fan at the endpoints like graph editors.
+        const lane = lanes.get(link.key);
+        if (lane !== undefined) {
+            const a0 = anchors[0]!, a1 = anchors[anchors.length - 1]!;
+            const len = Math.hypot(a1.x - a0.x, a1.y - a0.y);
+            if (len > 1e-6) {
+                const d = (lane.i - (lane.n - 1) / 2) * LINK_LANE_GAP;
+                const ox = -(a1.y - a0.y) / len * d, oy = (a1.x - a0.x) / len * d;
+                for (const q of anchors) { q.x += ox; q.y += oy; }
+            }
+        }
         const corner = link.route.type === "orthogonal"
             ? (link.route.value.corner.type === "some" ? link.route.value.corner.value : 8) : 0;
         const pts = link.route.type === "orthogonal" ? orthogonalize(anchors) : anchors;
@@ -541,33 +854,314 @@ export function paintSchematic(input: PaintInput): void {
         traceRounded(ctx, pts, corner);
         ctx.stroke();
         ctx.setLineDash([]);
+        // Selected-link halo (#176) — a soft brand over-stroke; when editable,
+        // endpoint connector handles invite the re-target drag.
+        if (selectedLink !== undefined && selectedLink.key === link.key) {
+            ctx.save();
+            ctx.lineWidth = weight + 4;
+            ctx.strokeStyle = css(p.brand600, 0.25);
+            ctx.beginPath();
+            traceRounded(ctx, pts, corner);
+            ctx.stroke();
+            if (selectedLink.editable) {
+                for (const q of [pts[0]!, pts[pts.length - 1]!]) {
+                    ctx.beginPath();
+                    ctx.arc(q.x, q.y, 5, 0, Math.PI * 2);
+                    ctx.fillStyle = css(p.bgSurface);
+                    ctx.fill();
+                    ctx.lineWidth = 2;
+                    ctx.strokeStyle = css(p.brand600);
+                    ctx.stroke();
+                }
+            }
+            ctx.restore();
+        }
         ctx.fillStyle = css(color);
         for (const end of [anchors[0]!, anchors[anchors.length - 1]!]) {
             ctx.beginPath();
             ctx.arc(end.x, end.y, weight + 1.5, 0, Math.PI * 2);
             ctx.fill();
         }
+        // Mid-path label pill (#180) — hidden when zoomed out past the label band.
+        if (ppu >= LINK_LABEL_MIN_PPU) {
+            drawEdgeLabel(ctx, p, pts, getSomeorUndefined(link.label), getSomeorUndefined(link.metric));
+        }
         ctx.lineCap = "butt";
     }
 
+    // ---- nets: manifold / bus trunks with branches (#189) --------------------
+    // One entity, many endpoints: the trunk spine runs head-junction → via… →
+    // tail-junction (routed like a link; via = TRUNK waypoints; empty via ⇒
+    // centroid heuristic); each resolved source branches into the head, each
+    // destination off the tail. A hidden endpoint just drops its branch; the
+    // whole net hides when either side empties or its layer is hidden.
+    for (const net of value.nets) {
+        if (layerHidden(net.key)) continue;
+        const srcK = net.sources.filter(k => centers.has(k));
+        const dstK = net.destinations.filter(k => centers.has(k));
+        const srcPts = srcK.map(k => centers.get(k)!);
+        const dstPts = dstK.map(k => centers.get(k)!);
+        if (srcPts.length === 0 || dstPts.length === 0) continue;
+        // Cull by the AABB over every endpoint + waypoint (same rule as links;
+        // bar offsets stay within the endpoint↔trunk gap, so the AABB holds).
+        const netBbox = pointsBbox([...srcPts, ...net.via, ...dstPts]);
+        if (netBbox !== null && !bboxOverlaps(netBbox, viewBbox)) continue;
+        const style = net.style;
+        const tone = (style.value.tone.type === "some" ? style.value.tone.value.type : undefined)
+            ?? (style.type === "solid" ? "brand" : "muted");
+        const weight = style.value.weight.type === "some" ? style.value.weight.value
+            : (style.type === "solid" ? 2.5 : 1.5);
+        const corner = net.route.type === "orthogonal"
+            ? (net.route.value.corner.type === "some" ? net.route.value.corner.value : 8) : 0;
+        const color = toneRGB(p, tone, "link");
+        const toScreen = (q: Pt): Pt => ({ x: wx(q.x), y: wy(q.y) });
+        const routed = (worldAnchors: Pt[]): Pt[] => {
+            const screen = worldAnchors.map(toScreen);
+            return net.route.type === "orthogonal" ? orthogonalize(screen) : screen;
+        };
+        const isSel = selectedLink !== undefined && selectedLink.key === net.key;
+        // Bus-bar geometry (shared with the hit-test): header bars spanning
+        // each multi-endpoint side, short stubs tapping in, the trunk running
+        // bar → via… → bar. Dots ONLY where a tap 3-way joins a bar.
+        const geo = netGeometry(srcPts, dstPts, net.via);
+        ctx.save();
+        ctx.lineCap = "round";
+        ctx.setLineDash(style.type === "dashed" ? [6, 5] : []);
+        const trunkPts = routed(geo.trunk);
+        ctx.strokeStyle = css(color);
+        ctx.lineWidth = weight + 1;
+        ctx.beginPath();
+        traceRounded(ctx, trunkPts, corner);
+        ctx.stroke();
+        // Header bars carry the trunk weight; stubs are one step lighter.
+        for (const bar of geo.bars) {
+            ctx.beginPath();
+            traceRounded(ctx, bar.map(toScreen), 0);
+            ctx.stroke();
+        }
+        ctx.lineWidth = weight;
+        for (const stub of geo.stubs) {
+            ctx.beginPath();
+            traceRounded(ctx, stub.map(toScreen), corner);
+            ctx.stroke();
+        }
+        ctx.setLineDash([]);
+        // Junction dots: 3-way taps on the bars (P&ID convention — a dot
+        // means lines JOIN; plain elbows and crossings stay dot-free).
+        ctx.fillStyle = css(color);
+        for (const j of geo.taps.map(toScreen)) {
+            ctx.beginPath();
+            ctx.arc(j.x, j.y, weight + 1.5, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        // Selected-net halo (#176 channel) — trunk + bars, or (leg selection)
+        // ONLY the selected stub; no endpoint handles (endpoints are sets).
+        const selLeg = isSel ? selectedLink?.leg : undefined;
+        if (isSel && selLeg === undefined) {
+            ctx.lineWidth = weight + 5;
+            ctx.strokeStyle = css(p.brand600, 0.25);
+            ctx.beginPath();
+            traceRounded(ctx, trunkPts, corner);
+            ctx.stroke();
+            for (const bar of geo.bars) {
+                ctx.beginPath();
+                traceRounded(ctx, bar.map(toScreen), 0);
+                ctx.stroke();
+            }
+        } else if (selLeg !== undefined) {
+            // Stubs are in netGeometry input order: sources then destinations.
+            const idx = selLeg.end === "source" ? srcK.indexOf(selLeg.item) : dstK.indexOf(selLeg.item);
+            const stub = idx >= 0 ? geo.stubs[selLeg.end === "source" ? idx : srcK.length + idx] : undefined;
+            if (stub !== undefined) {
+                ctx.lineWidth = weight + 5;
+                ctx.strokeStyle = css(p.brand600, 0.35);
+                ctx.beginPath();
+                traceRounded(ctx, stub.map(toScreen), corner);
+                ctx.stroke();
+            }
+        }
+        // Mid-trunk label / metric, like links (#180).
+        if (ppu >= LINK_LABEL_MIN_PPU) {
+            drawEdgeLabel(ctx, p, trunkPts, getSomeorUndefined(net.label), getSomeorUndefined(net.metric));
+        }
+        ctx.lineCap = "butt";
+        ctx.restore();
+    }
+
+    // ---- connect-tool overlays (#176): session edges, draft edge, flash ------
+    // Drawn above real links, below the slice-effect / markers. All routed
+    // through the SAME orthogonal painter as real links (shape constraints).
+    const routeScreen = (a: Pt, b: Pt): Pt[] =>
+        orthogonalize([{ x: wx(a.x), y: wy(a.y) }, { x: wx(b.x), y: wy(b.y) }]);
+    if (session !== undefined) {
+        ctx.save();
+        ctx.lineCap = "round";
+        ctx.setLineDash([6, 5]);
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = css(p.brand500, 0.75);
+        if (session.kind === "edge") {
+            ctx.beginPath();
+            traceRounded(ctx, routeScreen(session.from, session.to), 8);
+            ctx.stroke();
+        } else {
+            // The proposal previews with the SAME bus geometry a committed net
+            // would get — dashed, and without junction dots (it is not real yet).
+            const geo = netGeometry(session.sources, session.destinations, []);
+            const toS = (q: Pt): Pt => ({ x: wx(q.x), y: wy(q.y) });
+            ctx.beginPath();
+            traceRounded(ctx, orthogonalize(geo.trunk.map(toS)), 8);
+            ctx.stroke();
+            for (const bar of geo.bars) {
+                ctx.beginPath();
+                traceRounded(ctx, bar.map(toS), 0);
+                ctx.stroke();
+            }
+            for (const stub of geo.stubs) {
+                ctx.beginPath();
+                traceRounded(ctx, orthogonalize(stub.map(toS)), 8);
+                ctx.stroke();
+            }
+        }
+        ctx.restore();
+    }
+    if (draftLink !== undefined) {
+        // A canConnect veto turns the whole draft DANGER — red edge, red target
+        // affordance, and a red ring on the forbidden marker (cards get the
+        // ring via CSS `data-forbidden`; here we ring dot / label tiers).
+        const vetoed = draftLink.forbiddenKey !== undefined;
+        const edge = vetoed ? p.statusBad : p.brand600;
+        const pts = routeScreen(draftLink.from, draftLink.to);
+        ctx.save();
+        ctx.lineCap = "round";
+        ctx.setLineDash([6, 5]);
+        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = css(edge, draftLink.snapped ? 1 : (vetoed ? 0.85 : 0.65));
+        ctx.beginPath();
+        traceRounded(ctx, pts, 8);
+        ctx.stroke();
+        // Source dot + target affordance: a ring when snapped to a valid item,
+        // a faint open circle at the cursor otherwise.
+        const a = pts[0]!, b = pts[pts.length - 1]!;
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.arc(a.x, a.y, 4, 0, Math.PI * 2);
+        ctx.fillStyle = css(edge);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, draftLink.snapped ? 9 : 6, 0, Math.PI * 2);
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = css(edge, draftLink.snapped ? 1 : (vetoed ? 0.85 : 0.5));
+        ctx.stroke();
+        if (vetoed) {
+            const fc = centers.get(draftLink.forbiddenKey!);
+            const tier = tiers.get(draftLink.forbiddenKey!) ?? "dot";
+            if (fc !== undefined && tier !== "card") {
+                const r = (tier === "label" ? 18 : 11) + 4;
+                ctx.beginPath();
+                ctx.arc(wx(fc.x), wy(fc.y), r, 0, Math.PI * 2);
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = css(p.statusBad, 0.75);
+                ctx.stroke();
+            }
+        }
+        ctx.restore();
+    }
+    if (connectFlash !== undefined && connectFlash.from !== undefined && connectFlash.to !== undefined) {
+        const t = connectFlash.phase;
+        const pts = routeScreen(connectFlash.from, connectFlash.to);
+        ctx.save();
+        ctx.lineCap = "round";
+        // Draw-in: the dash offset sweeps the edge; the whole flash fades out.
+        ctx.setLineDash([10, 6]);
+        ctx.lineDashOffset = -t * 32;
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = css(p.brand600, 0.9 * (1 - t));
+        ctx.beginPath();
+        traceRounded(ctx, pts, 8);
+        ctx.stroke();
+        // Endpoint pulse rings expand + fade on BOTH items.
+        ctx.setLineDash([]);
+        for (const q of [pts[0]!, pts[pts.length - 1]!]) {
+            ctx.beginPath();
+            ctx.arc(q.x, q.y, 6 + t * 12, 0, Math.PI * 2);
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = css(p.brand500, 0.8 * (1 - t));
+            ctx.stroke();
+        }
+        ctx.restore();
+    }
+
+    // ---- slice-effect: frame the matched set, then emphasise the survivors ---
+    // Drawn between links and items so the frame sits under the markers and the
+    // emphasis rings glow behind them. Card-tier emphasis is a DOM concern (the
+    // React layer styles the card element); here we ring only dot / label markers.
+    if (effect !== undefined) {
+        if (effect.frame !== undefined) {
+            const pad = 10;
+            const fx = wx(effect.frame.minX) - pad, fy = wy(effect.frame.minY) - pad;
+            const fw = (effect.frame.maxX - effect.frame.minX) * ppu + pad * 2;
+            const fh = (effect.frame.maxY - effect.frame.minY) * ppu + pad * 2;
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(fx, fy, fw, fh);
+            ctx.globalAlpha = 0.07;
+            ctx.fillStyle = css(p.brand500);
+            ctx.fill();
+            ctx.restore();
+            ctx.save();
+            ctx.setLineDash([7, 5]);
+            ctx.lineWidth = 1.5;
+            ctx.strokeStyle = css(p.brand600);
+            ctx.strokeRect(fx, fy, fw, fh);
+            ctx.setLineDash([]);
+            ctx.restore();
+        }
+        if (effect.emphasis !== undefined) {
+            const pulse = effect.emphasis === "pulse";
+            // Breathing 0..1 sinusoid; `halo` is static (the ring's steady state).
+            const b = pulse ? (Math.sin(effect.pulsePhase * Math.PI * 2) * 0.5 + 0.5) : 1;
+            for (const item of visibleItems) {
+                if (isExcluded(item.key)) continue;                    // matched only
+                const tier = tiers.get(item.key) ?? "dot";
+                if (tier === "card") continue;                         // card ring is CSS
+                const baseR = tier === "label" ? 18 : 11;
+                const r = baseR + (pulse ? b * 7 : 4);
+                const alpha = pulse ? 0.14 + 0.30 * (1 - b) : 0.34;
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(wx(item.x), wy(item.y), r, 0, Math.PI * 2);
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = css(p.brand500, alpha);
+                ctx.stroke();
+                ctx.restore();
+            }
+        }
+    }
+
     // ---- item footprints (close zoom only — semantic zoom) ------------------
+    // Wrapped in save/restore per item so a slice-excluded footprint can fade
+    // (globalAlpha) / desaturate (grey tint) without leaking state to the next.
     for (const item of visibleItems) {
         const footprint = getSomeorUndefined(item.footprint);
         if (footprint === undefined || footprint.type === "rect") continue;
         if ((tiers.get(item.key) ?? "dot") !== "card") continue;
-        const isSel = selected === item.key;
-        const tint = resolveTint(p, getSomeorUndefined(item.color), getSomeorUndefined(item.tone)?.type, statusRGB(p, statusTone(item.status)));
+        const isSel = selected.has(item.key);
+        let tint = resolveTint(p, getSomeorUndefined(item.color), getSomeorUndefined(item.tone)?.type, statusRGB(p, statusTone(item.status)), "link");
+        if (desatOf(item.key)) tint = css(p.fgMuted);
+        const a = alphaOf(item.key);
         const ibg = getSomeorUndefined(item.bg);
         const fillAlpha = getSomeorUndefined(item.fillOpacity) ?? (isSel ? 0.24 : 0.12);
         const stroke = getSomeorUndefined(item.weight) ?? (isSel ? 2.5 : 1.5);
         const fillShape = () => {
             ctx.save();
-            ctx.globalAlpha = fillAlpha;
-            ctx.fillStyle = ibg ?? tint;
+            ctx.globalAlpha = fillAlpha * a;
+            ctx.fillStyle = desatOf(item.key) ? tint : (ibg ?? tint);
             ctx.fill();
             ctx.restore();
         };
 
+        ctx.save();
+        ctx.globalAlpha = a;
         if (footprint.type === "circle") {
             ctx.beginPath();
             ctx.arc(wx(item.x), wy(item.y), footprint.value.radius * ppu, 0, Math.PI * 2);
@@ -575,35 +1169,41 @@ export function paintSchematic(input: PaintInput): void {
             ctx.lineWidth = stroke;
             ctx.strokeStyle = tint;
             ctx.stroke();
-            continue;
-        }
-
-        const pts = footprint.value.vertices.map(q => ({ x: wx(q.x), y: wy(q.y), bulge: q.bulge }));
-        if (pts.length === 0) continue;
-        ctx.beginPath();
-        if (footprint.type === "polygon") {
-            traceVertices(ctx, pts, true);
-            fillShape();
-            ctx.lineWidth = stroke;
         } else {
-            traceVertices(ctx, pts, false);
-            const band = footprint.value.width.type === "some" ? footprint.value.width.value * ppu : undefined;
-            ctx.lineCap = "round";
-            ctx.lineWidth = getSomeorUndefined(item.weight) ?? band ?? (isSel ? 2.5 : 1.5);
+            const pts = footprint.value.vertices.map(q => ({ x: wx(q.x), y: wy(q.y), bulge: q.bulge }));
+            if (pts.length > 0) {
+                ctx.beginPath();
+                if (footprint.type === "polygon") {
+                    traceVertices(ctx, pts, true);
+                    fillShape();
+                    ctx.lineWidth = stroke;
+                } else {
+                    traceVertices(ctx, pts, false);
+                    const band = footprint.value.width.type === "some" ? footprint.value.width.value * ppu : undefined;
+                    ctx.lineCap = "round";
+                    ctx.lineWidth = getSomeorUndefined(item.weight) ?? band ?? (isSel ? 2.5 : 1.5);
+                }
+                ctx.strokeStyle = tint;
+                ctx.stroke();
+                ctx.lineCap = "butt";
+            }
         }
-        ctx.strokeStyle = tint;
-        ctx.stroke();
-        ctx.lineCap = "butt";
+        ctx.restore();
     }
 
     // ---- item LOD markers: dots + labelled pins (cards are DOM) --------------
+    // Save/restore per item so a slice-excluded marker fades / desaturates
+    // without leaking alpha or font state into the next marker.
     for (const item of visibleItems) {
         const tier = tiers.get(item.key) ?? "dot";
         if (tier === "card") continue; // rich card rendered by the React layer
-        const tint = resolveTint(p, getSomeorUndefined(item.color), getSomeorUndefined(item.tone)?.type, statusRGB(p, statusTone(item.status)));
-        const isSel = selected === item.key;
+        let tint = resolveTint(p, getSomeorUndefined(item.color), getSomeorUndefined(item.tone)?.type, statusRGB(p, statusTone(item.status)), "link");
+        if (desatOf(item.key)) tint = css(p.fgMuted);
+        const isSel = selected.has(item.key);
         const x = wx(item.x), y = wy(item.y);
 
+        ctx.save();
+        ctx.globalAlpha = alphaOf(item.key);
         if (tier === "dot") {
             ctx.beginPath();
             ctx.arc(x, y, MARKER_DOT_RADIUS, 0, Math.PI * 2);
@@ -619,29 +1219,30 @@ export function paintSchematic(input: PaintInput): void {
                 ctx.strokeStyle = css(p.fg);
                 ctx.stroke();
             }
-            continue;
+        } else {
+            // labelled pin — bounds come from the SHARED markerHitbox so the drawn
+            // pill and the click target are identical (issue #57, P11).
+            ctx.font = MARKER_LABEL_FONT;
+            const box = markerHitbox(item, "label", cam, t => ctx.measureText(t).width);
+            if (box.kind === "rect") {
+                const { left, top, w, h } = box;
+                ctx.beginPath();
+                ctx.roundRect?.(left, top, w, h, h / 2);
+                if (!ctx.roundRect) ctx.rect(left, top, w, h);
+                ctx.fillStyle = css(p.bgSurface);
+                ctx.fill();
+                ctx.lineWidth = 1;
+                ctx.strokeStyle = isSel ? css(p.fg) : css(p.borderStrong);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.arc(left + MARKER_PIN_PAD_X + MARKER_PIN_DOT_W / 2, y, MARKER_PIN_DOT_W / 2, 0, Math.PI * 2);
+                ctx.fillStyle = tint;
+                ctx.fill();
+                ctx.fillStyle = css(p.fg);
+                ctx.textBaseline = "middle";
+                ctx.fillText(item.label, left + MARKER_PIN_PAD_X + MARKER_PIN_DOT_W + MARKER_PIN_GAP, y);
+            }
         }
-
-        // labelled pin — bounds come from the SHARED markerHitbox so the drawn
-        // pill and the click target are identical (issue #57, P11).
-        ctx.font = MARKER_LABEL_FONT;
-        const box = markerHitbox(item, "label", cam, t => ctx.measureText(t).width);
-        if (box.kind !== "rect") continue;
-        const { left, top, w, h } = box;
-        ctx.beginPath();
-        ctx.roundRect?.(left, top, w, h, h / 2);
-        if (!ctx.roundRect) ctx.rect(left, top, w, h);
-        ctx.fillStyle = css(p.bgSurface);
-        ctx.fill();
-        ctx.lineWidth = 1;
-        ctx.strokeStyle = isSel ? css(p.fg) : css(p.borderStrong);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.arc(left + MARKER_PIN_PAD_X + MARKER_PIN_DOT_W / 2, y, MARKER_PIN_DOT_W / 2, 0, Math.PI * 2);
-        ctx.fillStyle = tint;
-        ctx.fill();
-        ctx.fillStyle = css(p.fg);
-        ctx.textBaseline = "middle";
-        ctx.fillText(item.label, left + MARKER_PIN_PAD_X + MARKER_PIN_DOT_W + MARKER_PIN_GAP, y);
+        ctx.restore();
     }
 }

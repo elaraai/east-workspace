@@ -7,9 +7,11 @@
  * `Schematic` — a 2D world-coordinate canvas for placing real-world
  * entities (tanks, bays, lines, nodes, cells) in space, plus annotation
  * zones (rooms, walkways) and key-addressed links, all from flat data
- * tables with chart-style field encodings. **Read-only**: single-click
- * selection only — appearance belongs to the linked Library entry;
- * position and live metrics are owned here.
+ * tables with chart-style field encodings. Interaction is opt-in per
+ * channel (selection, camera, zone / link / net editing, item moves,
+ * hover cards) — with nothing bound it is a read-only picture; appearance
+ * belongs to the linked Library entry; position and live metrics are
+ * owned here.
  *
  * @packageDocumentation
  */
@@ -24,11 +26,11 @@ import {
     some,
     none,
     ArrayType,
-    type BooleanType,
+    BooleanType,
     FloatType,
-    type FunctionType,
-    type NullType,
-    type OptionType,
+    FunctionType,
+    NullType,
+    OptionType,
     StringType,
     StructType,
 } from "@elaraai/east";
@@ -39,7 +41,6 @@ import { type IconName } from "../../display/icon/types.js";
 import { SliceBindType, SliceChromeType } from "../../platform/slice/index.js";
 import { SliceAffordanceType, type SliceAffordanceLiteral } from "../../contracts/slice-affordances.js";
 import {
-    SchematicRootType,
     SchematicItemType,
     SchematicZoneType,
     SchematicLinkType,
@@ -50,11 +51,25 @@ import {
     SchematicLinkStyleType,
     SchematicRouteType,
     SchematicToneType,
+    SchematicEmphasisType,
+    SchematicSliceEffectType,
+    SchematicLayerType,
+    SchematicSelectionModeType,
+    SchematicRegionType,
+    SchematicSelectionEventType,
+    SchematicViewportEventType,
+    SchematicZoneSelectionEventType,
+    SchematicLinkModeType,
+    SchematicLinkEndpointsType,
+    SchematicLinkCreateEventType,
+    SchematicLinkEditEventType,
+    SchematicNetEndpointsType,
+    SchematicNetType,
+    SchematicItemMoveEventType,
 } from "./types.js";
 
 // Re-export types
 export {
-    SchematicRootType,
     SchematicItemType,
     SchematicZoneType,
     SchematicLinkType,
@@ -65,7 +80,113 @@ export {
     SchematicLinkStyleType,
     SchematicRouteType,
     SchematicToneType,
+    SchematicEmphasisType,
+    SchematicSliceEffectType,
+    SchematicLayerType,
+    SchematicSelectionModeType,
+    SchematicRegionType,
+    SchematicSelectionEventType,
+    SchematicViewportEventType,
+    SchematicZoneSelectionEventType,
+    SchematicLinkModeType,
+    SchematicLinkEndpointsType,
+    SchematicLinkCreateEventType,
+    SchematicLinkEditEventType,
+    SchematicNetEndpointsType,
+    SchematicNetType,
+    SchematicItemMoveEventType,
 } from "./types.js";
+
+/**
+ * East type for the Schematic root — the resolved mirror of the inline
+ * `Schematic` struct in `component.ts` (which spells the three `*Hover`
+ * fields with the recursion `node` where this mirror resolves them to
+ * `UIComponentType`). Keep the two spellings in sync field-for-field.
+ *
+ * @remarks
+ * Per-field docs live on {@link SchematicConfig}; events and collection
+ * row types are documented in `./types.ts`.
+ */
+export const SchematicRootType: StructType<{
+    extent: StructType<{ width: FloatType, height: FloatType }>,
+    items: ArrayType<SchematicItemType>,
+    zones: ArrayType<SchematicZoneType>,
+    links: ArrayType<SchematicLinkType>,
+    nets: ArrayType<SchematicNetType>,
+    scaleUnit: OptionType<StringType>,
+    grid: OptionType<BooleanType>,
+    navigator: OptionType<BooleanType>,
+    minimap: OptionType<BooleanType>,
+    slice: OptionType<SliceChromeType>,
+    sliceEffect: OptionType<SchematicSliceEffectType>,
+    layers: OptionType<ArrayType<SchematicLayerType>>,
+    height: OptionType<StringType>,
+    onSelect: OptionType<FunctionType<[StringType], NullType>>,
+    selectionMode: OptionType<SchematicSelectionModeType>,
+    onSelectionChange: OptionType<FunctionType<[SchematicSelectionEventType], NullType>>,
+    sliceSelectField: OptionType<StringType>,
+    selectZoomFocus: OptionType<BooleanType>,
+    onViewportChange: OptionType<FunctionType<[SchematicViewportEventType], NullType>>,
+    onItemOpen: OptionType<FunctionType<[StringType], NullType>>,
+    onSelectZone: OptionType<FunctionType<[StringType], NullType>>,
+    onZoneSelectionChange: OptionType<FunctionType<[SchematicZoneSelectionEventType], NullType>>,
+    linkMode: OptionType<SchematicLinkModeType>,
+    onCreateLink: OptionType<FunctionType<[SchematicLinkCreateEventType], NullType>>,
+    onSelectLink: OptionType<FunctionType<[StringType], NullType>>,
+    onEditLink: OptionType<FunctionType<[SchematicLinkEditEventType], NullType>>,
+    onDeleteLink: OptionType<FunctionType<[StringType], NullType>>,
+    readOnly: OptionType<BooleanType>,
+    readOnlyLinks: OptionType<BooleanType>,
+    readOnlyItems: OptionType<BooleanType>,
+    onMoveItem: OptionType<FunctionType<[SchematicItemMoveEventType], NullType>>,
+    itemHover: OptionType<FunctionType<[StringType], UIComponentType>>,
+    zoneHover: OptionType<FunctionType<[StringType], UIComponentType>>,
+    linkHover: OptionType<FunctionType<[StringType], UIComponentType>>,
+    onEditNet: OptionType<FunctionType<[SchematicNetEndpointsType], NullType>>,
+    canConnect: OptionType<FunctionType<[StringType, StringType], BooleanType>>,
+}> = StructType({
+    extent: StructType({ width: FloatType, height: FloatType }),
+    items: ArrayType(SchematicItemType),
+    zones: ArrayType(SchematicZoneType),
+    links: ArrayType(SchematicLinkType),
+    nets: ArrayType(SchematicNetType),
+    scaleUnit: OptionType(StringType),
+    grid: OptionType(BooleanType),
+    navigator: OptionType(BooleanType),
+    minimap: OptionType(BooleanType),
+    slice: OptionType(SliceChromeType),
+    sliceEffect: OptionType(SchematicSliceEffectType),
+    layers: OptionType(ArrayType(SchematicLayerType)),
+    height: OptionType(StringType),
+    onSelect: OptionType(FunctionType([StringType], NullType)),
+    selectionMode: OptionType(SchematicSelectionModeType),
+    onSelectionChange: OptionType(FunctionType([SchematicSelectionEventType], NullType)),
+    sliceSelectField: OptionType(StringType),
+    selectZoomFocus: OptionType(BooleanType),
+    onViewportChange: OptionType(FunctionType([SchematicViewportEventType], NullType)),
+    onItemOpen: OptionType(FunctionType([StringType], NullType)),
+    onSelectZone: OptionType(FunctionType([StringType], NullType)),
+    onZoneSelectionChange: OptionType(FunctionType([SchematicZoneSelectionEventType], NullType)),
+    linkMode: OptionType(SchematicLinkModeType),
+    onCreateLink: OptionType(FunctionType([SchematicLinkCreateEventType], NullType)),
+    onSelectLink: OptionType(FunctionType([StringType], NullType)),
+    onEditLink: OptionType(FunctionType([SchematicLinkEditEventType], NullType)),
+    onDeleteLink: OptionType(FunctionType([StringType], NullType)),
+    readOnly: OptionType(BooleanType),
+    readOnlyLinks: OptionType(BooleanType),
+    readOnlyItems: OptionType(BooleanType),
+    onMoveItem: OptionType(FunctionType([SchematicItemMoveEventType], NullType)),
+    itemHover: OptionType(FunctionType([StringType], UIComponentType)),
+    zoneHover: OptionType(FunctionType([StringType], UIComponentType)),
+    linkHover: OptionType(FunctionType([StringType], UIComponentType)),
+    onEditNet: OptionType(FunctionType([SchematicNetEndpointsType], NullType)),
+    canConnect: OptionType(FunctionType([StringType, StringType], BooleanType)),
+});
+
+/**
+ * Type representing the Schematic component.
+ */
+export type SchematicRootType = typeof SchematicRootType;
 
 /** String literal form of {@link SchematicToneType} tags. */
 export type SchematicToneLiteral = "brand" | "ink" | "muted" | "success" | "warning" | "danger";
@@ -315,6 +436,13 @@ export interface SchematicItemFields {
     fillOpacity?: SubtypeExprOrValue<FloatType>;
     /** Optional stroke width in px. */
     weight?: SubtypeExprOrValue<FloatType>;
+    /** Optional slice-excluded flag — when a `sliceEffect` is set, a `true` item
+     * is treated as filtered-out (ghosted / hidden per the effect). Typically
+     * `Slice.apply.matches(state, cfg, row).not()`, or read from `Slice.partition`. */
+    excluded?: SubtypeExprOrValue<BooleanType>;
+    /** Optional layer membership — the `key` of a `layers` entry; hidden when
+     * that layer is hidden. Absent ⇒ unlayered (always visible). */
+    layer?: SubtypeExprOrValue<StringType>;
 }
 
 /**
@@ -361,6 +489,9 @@ export interface SchematicZoneFields {
     fillOpacity?: SubtypeExprOrValue<FloatType>;
     /** Optional stroke width in px. */
     weight?: SubtypeExprOrValue<FloatType>;
+    /** Optional layer membership — the `key` of a `layers` entry; hidden when
+     * that layer is hidden. Absent ⇒ unlayered (always visible). */
+    layer?: SubtypeExprOrValue<StringType>;
 }
 
 /**
@@ -380,12 +511,99 @@ export interface SchematicLinkFields {
     from: SubtypeExprOrValue<StringType>;
     /** Destination item key. */
     to: SubtypeExprOrValue<StringType>;
+    /** Optional label rendered mid-path (a name / flow description); hidden when zoomed out past the label band. */
+    label?: SubtypeExprOrValue<StringType>;
+    /** Optional metric rendered after the label mid-path (a rate / capacity readout), muted. */
+    metric?: SubtypeExprOrValue<StringType>;
     /** Optional style (default `Schematic.solid()`). */
     style?: SubtypeExprOrValue<SchematicLinkStyleType>;
     /** Optional routing (default orthogonal, rounded corners). */
     route?: SubtypeExprOrValue<SchematicRouteType>;
     /** Optional world-coordinate waypoints, in order. */
     via?: SubtypeExprOrValue<ArrayType<SchematicPointType>>;
+    /** Optional layer membership — the `key` of a `layers` entry; hidden when
+     * that layer is hidden (or when either endpoint item is hidden). */
+    layer?: SubtypeExprOrValue<StringType>;
+}
+
+/**
+ * Author-facing fields for one net (manifold / bus), produced by the `net`
+ * mapper — many `sources` feeding many `destinations` through one trunk.
+ */
+export interface SchematicNetFields {
+    /** Net identity. */
+    key: SubtypeExprOrValue<StringType>;
+    /** Source item keys (the feeding side). */
+    sources: SubtypeExprOrValue<ArrayType<StringType>>;
+    /** Destination item keys (the fed side). */
+    destinations: SubtypeExprOrValue<ArrayType<StringType>>;
+    /** Optional label rendered mid-trunk. */
+    label?: SubtypeExprOrValue<StringType>;
+    /** Optional metric rendered after the label mid-trunk, muted. */
+    metric?: SubtypeExprOrValue<StringType>;
+    /** Optional style (default `Schematic.solid()`). */
+    style?: SubtypeExprOrValue<SchematicLinkStyleType>;
+    /** Optional trunk routing (default orthogonal, rounded corners). */
+    route?: SubtypeExprOrValue<SchematicRouteType>;
+    /** Optional world-coordinate trunk waypoints, in order. */
+    via?: SubtypeExprOrValue<ArrayType<SchematicPointType>>;
+    /** Optional layer membership — hidden when that layer is hidden. */
+    layer?: SubtypeExprOrValue<StringType>;
+}
+
+/** String literal form of {@link SchematicEmphasisType} tags. */
+export type SchematicEmphasisLiteral = "halo" | "pulse";
+
+/** String literal form of {@link SchematicSelectionModeType} tags. */
+export type SchematicSelectionModeLiteral = "single" | "multiple";
+
+/** String literal form of {@link SchematicLinkModeType} tags. */
+export type SchematicLinkModeLiteral = "draw" | "connect";
+
+/** Resolve a `sliceEmphasis` prop to its `option<Emphasis>` — a `"halo"` /
+ *  `"pulse"` string is sugar for `some(variant(...))`; an East value is already
+ *  the option (so it can be reactively `none` to turn the ring OFF). */
+function emphasisOption(emphasis: SubtypeExprOrValue<OptionType<SchematicEmphasisType>> | SchematicEmphasisLiteral | undefined) {
+    if (emphasis === undefined) return none;
+    return typeof emphasis === "string" ? some(variant(emphasis, null)) : emphasis;
+}
+
+/**
+ * A layer declaration for {@link SchematicConfig.layers}. Only `key` + `label`
+ * are required; the rest are author defaults the user's panel toggles override.
+ *
+ * @property key - Layer identity — entities reference it via their `layer` field
+ * @property label - Panel display name
+ * @property visible - Author default visibility (default `true`); `false` ⇒ ships hidden
+ * @property locked - Author default lock / non-selectable (default `false`)
+ * @property opacity - Item-level dim (0–1) for the layer's items (default `1`)
+ * @property tone - Panel swatch tone
+ */
+export interface SchematicLayerInput {
+    /** Layer identity — entities reference it via their `layer` field. */
+    key: string;
+    /** Panel display name. */
+    label: string;
+    /** Author default visibility (default `true`); `false` ⇒ ships hidden. */
+    visible?: boolean;
+    /** Author default lock / non-selectable (default `false`). */
+    locked?: boolean;
+    /** Item-level dim (0–1) for the layer's items (default `1`). */
+    opacity?: number;
+    /** Panel swatch tone. */
+    tone?: SchematicToneLiteral;
+}
+
+/** Build the East `SchematicLayer` value from the plain JS declaration. */
+function toLayer(l: SchematicLayerInput): ExprType<SchematicLayerType> {
+    return East.value({
+        key: l.key,
+        label: l.label,
+        visible: l.visible !== undefined ? some(l.visible) : none,
+        locked: l.locked !== undefined ? some(l.locked) : none,
+        opacity: l.opacity !== undefined ? some(l.opacity) : none,
+        tone: toneValue(l.tone),
+    }, SchematicLayerType);
 }
 
 // ============================================================================
@@ -415,6 +633,7 @@ export interface SchematicConfig<
     I extends StructType,
     Z extends StructType,
     L extends StructType,
+    N extends StructType = StructType,
 > {
     /** World-coordinate bounds; the canvas scales to fit. */
     extent: { width: number; height: number };
@@ -428,6 +647,10 @@ export interface SchematicConfig<
     links?: SubtypeExprOrValue<ArrayType<L>>;
     /** Links row mapper; omit when `links` is already `ArrayType(Schematic.Types.Link)`. */
     link?: (link: ExprType<L>) => SchematicLinkFields;
+    /** Optional nets — manifold / bus rows (one row = many sources → many destinations). */
+    nets?: SubtypeExprOrValue<ArrayType<N>>;
+    /** Maps a net row to its {@link SchematicNetFields} (or passes a resolved {@link SchematicNetType} through). */
+    net?: (net: ExprType<N>) => SchematicNetFields;
     /** Optional unit for the bottom-right scale bar. */
     scaleUnit?: SubtypeExprOrValue<StringType>;
     /** Metric grid aligned to the scale legend; default on. */
@@ -445,10 +668,84 @@ export interface SchematicConfig<
     slice?: SubtypeExprOrValue<SliceBindType>;
     /** Rail affordances when `slice` is set. Default `["search"]`. */
     affordances?: SliceAffordanceLiteral[];
+    /**
+     * Slice-driven render effect — instead of hiding filtered-out items, keep
+     * them as ghosted / desaturated / shrunk context and emphasise the remainder.
+     * Feed the **full** item set and mark each item's `excluded` flag (via
+     * `Slice.partition`, or `Slice.apply.matches(...).not()`); every prop below is
+     * `SubtypeExprOrValue`, so any can be static or driven reactively from a
+     * `State.read`. All absent ⇒ excluded items hidden completely (today's default).
+     */
+    /** Remove filtered-out items entirely; absent / `false` ⇒ keep them as context. */
+    sliceHidden?: SubtypeExprOrValue<BooleanType>;
+    /** Ghost opacity (0–1) for kept filtered-out items; absent ⇒ full. */
+    sliceOpacity?: SubtypeExprOrValue<FloatType>;
+    /** Drain kept filtered-out items' colour to grey. */
+    sliceDesaturate?: SubtypeExprOrValue<BooleanType>;
+    /** Collapse kept filtered-out items to a bare dot (drop card / label / footprint). */
+    sliceDot?: SubtypeExprOrValue<BooleanType>;
+    /** Emphasise the matched remainder — `"halo"` (static ring) or `"pulse"`
+     * (animated). A reactive `option<Emphasis>` value can be `none` to turn the
+     * ring off; the string shorthands are sugar for `some(variant(...))`. */
+    sliceEmphasis?: SubtypeExprOrValue<OptionType<SchematicEmphasisType>> | SchematicEmphasisLiteral;
+    /** Draw a bounding frame around the matched set. */
+    sliceFrame?: SubtypeExprOrValue<BooleanType>;
+    /** Auto-fit the camera to the matched frame when the matched set changes. */
+    sliceFrameFit?: SubtypeExprOrValue<BooleanType>;
+    /**
+     * Named layers — cross-cutting groups of items / zones / links, toggled
+     * (visibility / solo / lock / dim) from a layer button on the canvas. Tag
+     * each entity with a matching `layer` key. Absent ⇒ no layer chrome.
+     */
+    layers?: SchematicLayerInput[];
     /** Optional fixed panel height (any CSS length, e.g. `"400px"`); default: aspect-driven, capped at 75vh. */
     height?: SubtypeExprOrValue<StringType> | string;
     /** Optional item-click callback (receives the item key). */
     onSelect?: SubtypeExprOrValue<FunctionType<[StringType], NullType>>;
+    /** Optional selection cardinality (`"single"` / `"multiple"` / `"range"`); absent ⇒ single. `multiple` / `range` reveal the marquee tool. */
+    selectionMode?: SubtypeExprOrValue<SchematicSelectionModeType> | SchematicSelectionModeLiteral;
+    /** Optional selection-set change callback — fired on any tap / marquee / clear with the full selected set ({@link SchematicSelectionEventType}). */
+    onSelectionChange?: SubtypeExprOrValue<FunctionType<[SchematicSelectionEventType], NullType>>;
+    /** Optional bound-slice fieldId that selection drives with an `in` filter of the selected item keys (requires a bound `slice`); absent ⇒ selection leaves the slice untouched. Best paired with the ghost `slice*` effect rather than a `Slice.rows` feed on the same slice. */
+    sliceSelectField?: SubtypeExprOrValue<StringType> | string;
+    /** When true, a canvas selection also moves the camera — a single tap flies to the item, a marquee fits to the selected set — regardless of `selectionMode`; default false. The navigator rail + prev/next always fly. */
+    selectZoomFocus?: SubtypeExprOrValue<BooleanType> | boolean;
+    /** Optional debounced viewport-settled callback ({@link SchematicViewportEventType}: zoom + visible world rect) — fired after a pan / zoom / fly / resize settles, never per-frame. */
+    onViewportChange?: SubtypeExprOrValue<FunctionType<[SchematicViewportEventType], NullType>>;
+    /** Optional item-open callback (receives the item key) — fired on double-click / double-tap of an item (drill-in); a background double-click keeps Fit / reset. Locked-layer items do not open. */
+    onItemOpen?: SubtypeExprOrValue<FunctionType<[StringType], NullType>>;
+    /** Optional zone-click callback (receives the zone key) — the single-key channel, parallel to `onSelect`. Items take hit-test precedence; outline zones only (hatch bands are annotations); innermost zone wins for nested zones. */
+    onSelectZone?: SubtypeExprOrValue<FunctionType<[StringType], NullType>>;
+    /** Optional zone selection-set change callback ({@link SchematicZoneSelectionEventType}) — fired on any zone tap / nav zone click / clear with the full selected zone set AND their `childItemKeys`. Zone gestures follow `selectionMode` (Shift extends in `multiple`). */
+    onZoneSelectionChange?: SubtypeExprOrValue<FunctionType<[SchematicZoneSelectionEventType], NullType>>;
+    /** Optional connect-gesture mode (`"draw"` adds a physical link locally, form-input style; `"connect"` is event-only and repeatable — the plan-an-operation channel); absent ⇒ draw. */
+    linkMode?: SubtypeExprOrValue<SchematicLinkModeType> | SchematicLinkModeLiteral;
+    /** Optional link-creation callback ({@link SchematicLinkCreateEventType}) — fired on every committed connect gesture with the newest link, the accumulated Shift-session (`links`), and the pair's `existing` links. */
+    onCreateLink?: SubtypeExprOrValue<FunctionType<[SchematicLinkCreateEventType], NullType>>;
+    /** Optional link-click callback (receives the link key) — the link analogue of `onSelect`. */
+    onSelectLink?: SubtypeExprOrValue<FunctionType<[StringType], NullType>>;
+    /** Optional link-edit callback ({@link SchematicLinkEditEventType}) — fired after an endpoint connector re-target with the endpoints AFTER the edit. */
+    onEditLink?: SubtypeExprOrValue<FunctionType<[SchematicLinkEditEventType], NullType>>;
+    /** Optional link-delete callback (receives the deleted link's key). */
+    onDeleteLink?: SubtypeExprOrValue<FunctionType<[StringType], NullType>>;
+    /** Master read-only switch — disables ALL editing affordances; default false. */
+    readOnly?: SubtypeExprOrValue<BooleanType> | boolean;
+    /** Read-only for LINK editing only (connect tool, connectors, delete); effective = `readOnly || readOnlyLinks`; default false. */
+    readOnlyLinks?: SubtypeExprOrValue<BooleanType> | boolean;
+    /** Read-only for ITEM editing only (the move tool); effective = `readOnly || readOnlyItems`; default false. */
+    readOnlyItems?: SubtypeExprOrValue<BooleanType> | boolean;
+    /** Optional item-move callback ({@link SchematicItemMoveEventType}) — fired once per move-tool gesture on release; group move rides the current selection. */
+    onMoveItem?: SubtypeExprOrValue<FunctionType<[SchematicItemMoveEventType], NullType>>;
+    /** Optional hover-card content builder for ITEMS — receives the hovered item's key and returns arbitrary UI (a `Sparkline` / `Chart` over the entity's history is the headline case), evaluated lazily on hover; absent ⇒ no item hover card. Hover is read-only context — it ignores `readOnly` and locked layers. */
+    itemHover?: SubtypeExprOrValue<FunctionType<[StringType], UIComponentType>>;
+    /** Optional hover-card content builder for ZONES — receives the hovered zone's key; absent ⇒ no zone hover card. */
+    zoneHover?: SubtypeExprOrValue<FunctionType<[StringType], UIComponentType>>;
+    /** Optional hover-card content builder for LINKS and NETS — receives the hovered link / net key (nets share the channel, like `onSelectLink`); absent ⇒ no link hover card. */
+    linkHover?: SubtypeExprOrValue<FunctionType<[StringType], UIComponentType>>;
+    /** Optional net membership-edit callback — fired after deleting ONE selected leg (a stub) of a net, with the net's endpoints AFTER the removal (upsert by `key`); removing the last endpoint of a side deletes the whole net via `onDeleteLink` instead. Gated by `readOnly` / `readOnlyLinks`. */
+    onEditNet?: SubtypeExprOrValue<FunctionType<[SchematicNetEndpointsType], NullType>>;
+    /** Optional connection validator — receives `(from, to)` item keys BEFORE a connect gesture resolves; return false to forbid the pair: the draft never snaps to that target and releasing does nothing. Applies to draw AND connect modes, Shift-session extensions, and endpoint re-targets. A throwing validator logs and ALLOWS (fail-open) so a broken predicate cannot brick editing. */
+    canConnect?: SubtypeExprOrValue<FunctionType<[StringType, StringType], BooleanType>>;
 }
 
 function buildRoot(
@@ -481,6 +778,8 @@ function buildRoot(
                 bg: r.bg !== undefined ? some(r.bg) : none,
                 fillOpacity: r.fillOpacity !== undefined ? some(r.fillOpacity) : none,
                 weight: r.weight !== undefined ? some(r.weight) : none,
+                excluded: r.excluded !== undefined ? some(r.excluded) : none,
+                layer: r.layer !== undefined ? some(r.layer) : none,
             }, SchematicItemType);
         });
 
@@ -508,6 +807,7 @@ function buildRoot(
                     bg: r.bg !== undefined ? some(r.bg) : none,
                     fillOpacity: r.fillOpacity !== undefined ? some(r.fillOpacity) : none,
                     weight: r.weight !== undefined ? some(r.weight) : none,
+                    layer: r.layer !== undefined ? some(r.layer) : none,
                 }, SchematicZoneType);
             });
 
@@ -523,6 +823,8 @@ function buildRoot(
                     key: r.key,
                     from: r.from,
                     to: r.to,
+                    label: r.label !== undefined ? some(r.label) : none,
+                    metric: r.metric !== undefined ? some(r.metric) : none,
                     style: r.style !== undefined
                         ? r.style
                         : East.value(solid(), SchematicLinkStyleType),
@@ -532,7 +834,34 @@ function buildRoot(
                     via: r.via !== undefined
                         ? East.value(r.via, ArrayType(SchematicPointType))
                         : East.value([], ArrayType(SchematicPointType)),
+                    layer: r.layer !== undefined ? some(r.layer) : none,
                 }, SchematicLinkType);
+            });
+
+    const netMapper = config.net;
+    const resolvedNets = config.nets === undefined
+        ? East.value([], ArrayType(SchematicNetType))
+        : netMapper === undefined
+            ? East.value(config.nets as SubtypeExprOrValue<ArrayType<SchematicNetType>>, ArrayType(SchematicNetType))
+            : (East.value(config.nets) as ExprType<ArrayType<StructType>>).map((_$, row) => {
+                const r = netMapper(row);
+                return East.value({
+                    key: r.key,
+                    sources: East.value(r.sources, ArrayType(StringType)),
+                    destinations: East.value(r.destinations, ArrayType(StringType)),
+                    label: r.label !== undefined ? some(r.label) : none,
+                    metric: r.metric !== undefined ? some(r.metric) : none,
+                    style: r.style !== undefined
+                        ? r.style
+                        : East.value(solid(), SchematicLinkStyleType),
+                    route: r.route !== undefined
+                        ? r.route
+                        : East.value(variant("orthogonal", { corner: none }), SchematicRouteType),
+                    via: r.via !== undefined
+                        ? East.value(r.via, ArrayType(SchematicPointType))
+                        : East.value([], ArrayType(SchematicPointType)),
+                    layer: r.layer !== undefined ? some(r.layer) : none,
+                }, SchematicNetType);
             });
 
     if (config.affordances?.includes("brush")) {
@@ -553,13 +882,57 @@ function buildRoot(
         items: resolvedItems,
         zones: resolvedZones,
         links: resolvedLinks,
+        nets: resolvedNets,
         scaleUnit: config.scaleUnit !== undefined ? some(config.scaleUnit) : none,
         grid: config.grid !== undefined ? some(config.grid) : none,
         navigator: config.navigator !== undefined ? some(config.navigator) : none,
         minimap: config.minimap !== undefined ? some(config.minimap) : none,
         slice: sliceChromeValue ? some(sliceChromeValue) : none,
+        // Flat slice-effect props → the flat effect struct (each field static or
+        // reactive via its `SubtypeExprOrValue`); `some` only when any is set.
+        sliceEffect: (config.sliceHidden ?? config.sliceOpacity ?? config.sliceDesaturate
+            ?? config.sliceDot ?? config.sliceEmphasis ?? config.sliceFrame ?? config.sliceFrameFit) !== undefined
+            ? some(East.value({
+                hidden: config.sliceHidden !== undefined ? some(config.sliceHidden) : none,
+                opacity: config.sliceOpacity !== undefined ? some(config.sliceOpacity) : none,
+                desaturate: config.sliceDesaturate !== undefined ? some(config.sliceDesaturate) : none,
+                dot: config.sliceDot !== undefined ? some(config.sliceDot) : none,
+                emphasis: emphasisOption(config.sliceEmphasis),
+                frame: config.sliceFrame !== undefined ? some(config.sliceFrame) : none,
+                frameFit: config.sliceFrameFit !== undefined ? some(config.sliceFrameFit) : none,
+            }, SchematicSliceEffectType))
+            : none,
+        layers: config.layers !== undefined
+            ? some(East.value(config.layers.map(toLayer), ArrayType(SchematicLayerType)))
+            : none,
         height: config.height !== undefined ? some(config.height) : none,
         onSelect: config.onSelect !== undefined ? some(config.onSelect) : none,
+        selectionMode: config.selectionMode !== undefined
+            ? some(typeof config.selectionMode === "string" ? variant(config.selectionMode, null) : config.selectionMode)
+            : none,
+        onSelectionChange: config.onSelectionChange !== undefined ? some(config.onSelectionChange) : none,
+        sliceSelectField: config.sliceSelectField !== undefined ? some(config.sliceSelectField) : none,
+        selectZoomFocus: config.selectZoomFocus !== undefined ? some(config.selectZoomFocus) : none,
+        onViewportChange: config.onViewportChange !== undefined ? some(config.onViewportChange) : none,
+        onItemOpen: config.onItemOpen !== undefined ? some(config.onItemOpen) : none,
+        onSelectZone: config.onSelectZone !== undefined ? some(config.onSelectZone) : none,
+        onZoneSelectionChange: config.onZoneSelectionChange !== undefined ? some(config.onZoneSelectionChange) : none,
+        linkMode: config.linkMode !== undefined
+            ? some(typeof config.linkMode === "string" ? variant(config.linkMode, null) : config.linkMode)
+            : none,
+        onCreateLink: config.onCreateLink !== undefined ? some(config.onCreateLink) : none,
+        onSelectLink: config.onSelectLink !== undefined ? some(config.onSelectLink) : none,
+        onEditLink: config.onEditLink !== undefined ? some(config.onEditLink) : none,
+        onDeleteLink: config.onDeleteLink !== undefined ? some(config.onDeleteLink) : none,
+        readOnly: config.readOnly !== undefined ? some(config.readOnly) : none,
+        readOnlyLinks: config.readOnlyLinks !== undefined ? some(config.readOnlyLinks) : none,
+        readOnlyItems: config.readOnlyItems !== undefined ? some(config.readOnlyItems) : none,
+        onMoveItem: config.onMoveItem !== undefined ? some(config.onMoveItem) : none,
+        itemHover: config.itemHover !== undefined ? some(East.value(config.itemHover, FunctionType([StringType], UIComponentType))) : none,
+        zoneHover: config.zoneHover !== undefined ? some(East.value(config.zoneHover, FunctionType([StringType], UIComponentType))) : none,
+        linkHover: config.linkHover !== undefined ? some(East.value(config.linkHover, FunctionType([StringType], UIComponentType))) : none,
+        onEditNet: config.onEditNet !== undefined ? some(config.onEditNet) : none,
+        canConnect: config.canConnect !== undefined ? some(config.canConnect) : none,
     }), UIComponentType);
 }
 
@@ -597,9 +970,10 @@ function createSchematic<
     I extends SubtypeExprOrValue<ArrayType<StructType>>,
     Z extends SubtypeExprOrValue<ArrayType<StructType>> = [],
     L extends SubtypeExprOrValue<ArrayType<StructType>> = [],
+    N extends SubtypeExprOrValue<ArrayType<StructType>> = [],
 >(
     items: I,
-    config: SchematicConfig<RowElement<I>, RowElement<Z>, RowElement<L>> & { zones?: Z; links?: L },
+    config: SchematicConfig<RowElement<I>, RowElement<Z>, RowElement<L>, RowElement<N>> & { zones?: Z; links?: L; nets?: N },
 ): ExprType<UIComponentType> {
     return buildRoot(items, config as unknown as SchematicConfig<StructType, StructType, StructType>);
 }
@@ -858,5 +1232,140 @@ export const Schematic = {
          * @property bulge - DXF bulge for the edge to the next vertex (0 = straight)
          */
         Vertex: SchematicVertexType,
+        /**
+         * A named layer — a toggleable group of items / zones / links.
+         *
+         * @property key - Layer identity (entities reference it via `layer`)
+         * @property label - Panel display name
+         * @property visible - Author default visibility
+         * @property locked - Author default lock (non-selectable)
+         * @property opacity - Item dim (0–1)
+         * @property tone - Panel swatch tone
+         */
+        Layer: SchematicLayerType,
+        /**
+         * The flat slice-driven render effect struct (mirrors the `slice*` props).
+         */
+        SliceEffect: SchematicSliceEffectType,
+        /**
+         * Matched-item emphasis (`halo` / `pulse`) — annotate `State` with it to
+         * drive `sliceEmphasis` reactively.
+         */
+        Emphasis: SchematicEmphasisType,
+        /**
+         * Selection cardinality (`single` / `multiple` / `range`) — drive
+         * `selectionMode` reactively or read it back.
+         */
+        SelectionMode: SchematicSelectionModeType,
+        /**
+         * A world-coordinate rectangle swept by a marquee gesture.
+         *
+         * @property minX - Left edge (world units)
+         * @property minY - Top edge (world units)
+         * @property maxX - Right edge (world units)
+         * @property maxY - Bottom edge (world units)
+         */
+        Region: SchematicRegionType,
+        /**
+         * Selection-set change event passed to `onSelectionChange`.
+         *
+         * @property key - The item that triggered the change (some for a tap; none for marquee / clear)
+         * @property selected - Whether `key` is now selected; for bulk changes, whether the set is non-empty
+         * @property selectedKeys - The full selected set after the gesture
+         * @property additive - Whether the gesture added to the prior selection vs replaced it
+         * @property region - The world rectangle a marquee swept (some for a marquee; none otherwise)
+         */
+        SelectionEvent: SchematicSelectionEventType,
+        /**
+         * Viewport-settled event passed to `onViewportChange` — the camera zoom
+         * plus the visible world rectangle, debounced to gesture settle points.
+         *
+         * @property zoom - The settled camera zoom (1 = fully zoomed out)
+         * @property minX - Left edge of the visible world rect
+         * @property minY - Top edge of the visible world rect
+         * @property maxX - Right edge of the visible world rect
+         * @property maxY - Bottom edge of the visible world rect
+         */
+        ViewportEvent: SchematicViewportEventType,
+        /**
+         * Zone selection-set change event passed to `onZoneSelectionChange` —
+         * the selected zones plus the item keys inside them.
+         *
+         * @property key - The zone that triggered the change (some for a tap; none for a clear)
+         * @property selected - Whether `key` is now selected; for bulk changes, whether the set is non-empty
+         * @property selectedKeys - The full selected zone set after the gesture
+         * @property childItemKeys - Item keys inside the selected zones (nested descendants included)
+         * @property additive - Whether the gesture added to the prior selection vs replaced it
+         */
+        ZoneSelectionEvent: SchematicZoneSelectionEventType,
+        /**
+         * Connect-gesture mode (`draw` | `connect`) — `draw` adds a physical
+         * link locally; `connect` is event-only and repeatable.
+         */
+        LinkMode: SchematicLinkModeType,
+        /**
+         * One connection's endpoints — the unit a connect gesture produces.
+         *
+         * @property key - Renderer-generated key for the gesture's connection
+         * @property from - Source item key
+         * @property to - Destination item key
+         */
+        LinkEndpoints: SchematicLinkEndpointsType,
+        /**
+         * Link-creation event passed to `onCreateLink` — the newest link, the
+         * accumulated Shift-session, and the pair's existing links.
+         *
+         * @property link - The newest connection (this drag)
+         * @property links - The full session set, `link` included
+         * @property additive - True when Shift extended an open session
+         * @property existing - Keys of links already joining the newest pair
+         */
+        LinkCreateEvent: SchematicLinkCreateEventType,
+        /**
+         * Link-edit event passed to `onEditLink` — the endpoints AFTER an
+         * endpoint connector re-target.
+         *
+         * @property key - The edited link's key
+         * @property from - Source item key after the edit
+         * @property to - Destination item key after the edit
+         */
+        LinkEditEvent: SchematicLinkEditEventType,
+        /**
+         * A net — a manifold / bus link (many `sources` → many `destinations`,
+         * drawn as a trunk with branches).
+         *
+         * @property key - Net identity
+         * @property sources - Source item keys
+         * @property destinations - Destination item keys
+         * @property label - Optional mid-trunk label
+         * @property metric - Optional mid-trunk metric (muted)
+         * @property style - Stroke style for the whole net
+         * @property route - Trunk routing mode
+         * @property via - Optional trunk waypoints
+         * @property layer - Optional layer membership
+         */
+        Net: SchematicNetType,
+        /**
+         * A connect-session collapsed to net endpoints (stable session `key`)
+         * — carried on every `onCreateLink` for upsert-style handlers.
+         *
+         * @property key - The session key (stable across the session's commits)
+         * @property sources - Distinct source item keys so far
+         * @property destinations - Distinct destination item keys so far
+         */
+        NetEndpoints: SchematicNetEndpointsType,
+        /**
+         * Item-move event passed to `onMoveItem` — the pressed item's final
+         * position, every moved key (group move rides the selection), and the
+         * shared world delta.
+         *
+         * @property key - The pressed item's key
+         * @property x - Final world x
+         * @property y - Final world y
+         * @property keys - Every moved item (`key` included)
+         * @property dx - Shared world x delta
+         * @property dy - Shared world y delta
+         */
+        ItemMoveEvent: SchematicItemMoveEventType,
     },
 } as const;

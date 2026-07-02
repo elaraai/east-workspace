@@ -49,15 +49,22 @@ import { UIComponentType } from "../../component.js";
  * ```
  *
  * @remarks
- * Read-only — single-click selection (`onSelect` receives the item key); no
- * events, no drag & drop. Desugars to `Schematic.Root(items, config)`.
+ * Interaction is opt-in per channel: selection (`selectionMode`, `onSelect`,
+ * `onSelectionChange`), camera (`selectZoomFocus`, `onViewportChange`),
+ * drill-in (`onItemOpen`), zones (`onSelectZone`, `onZoneSelectionChange`),
+ * link / net editing (`linkMode`, `onCreateLink`, `onEditLink`,
+ * `onDeleteLink`, gated by `readOnly` / `readOnlyLinks`), item repositioning
+ * (`onMoveItem`, gated by `readOnlyItems`), and lazy hover cards
+ * (`itemHover` / `zoneHover` / `linkHover`). With no callbacks bound it is a
+ * read-only picture. Desugars to `Schematic.Root(items, config)`.
  */
 function SchematicTag<
     I extends SubtypeExprOrValue<ArrayType<StructType>>,
     Z extends SubtypeExprOrValue<ArrayType<StructType>> = [],
     L extends SubtypeExprOrValue<ArrayType<StructType>> = [],
+    N extends SubtypeExprOrValue<ArrayType<StructType>> = [],
 >(
-    props: { items: I } & SchematicConfig<RowElement<I>, RowElement<Z>, RowElement<L>> & { zones?: Z; links?: L },
+    props: { items: I } & SchematicConfig<RowElement<I>, RowElement<Z>, RowElement<L>, RowElement<N>> & { zones?: Z; links?: L; nets?: N },
 ): ExprType<UIComponentType> {
     const { items, ...config } = props;
     return SchematicFactory.Root(items, config as never);

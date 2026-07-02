@@ -1084,6 +1084,39 @@ const slice_rows = East.genericPlatform("slice_rows", ["T"],
 );
 
 /**
+ * Materialise the concrete partition-row East type for a row type — one bound
+ * row `value` paired with whether it passes the active narrowing (`matched`).
+ * The module-scope {@link SlicePartitionRowType} keeps the `"T"` placeholder for
+ * the `slice_partition` declaration; consumers rarely need this — `Slice.partition`
+ * infers the type at the call site.
+ *
+ * @param rowType - The East row type the slice narrows
+ * @returns The `{ value, matched }` East StructType for that row type
+ */
+export function slicePartitionRowFor<T extends EastType>(rowType: T) {
+    return StructType({ value: rowType, matched: BooleanType });
+}
+
+/** The `{ value: T, matched }` partition row — carries the `"T"` placeholder for
+ *  the `slice_partition` generic-platform declaration. */
+export const SlicePartitionRowType = StructType({ value: "T", matched: BooleanType });
+/** Type alias for {@link SlicePartitionRowType}. */
+export type SlicePartitionRowType = typeof SlicePartitionRowType;
+
+/**
+ * The FULL bound rows for a slice, each tagged with whether it passes the active
+ * narrowing (`matched`) — the "keep the excluded, don't hide them" data feed. Use
+ * it (instead of `Slice.rows`) to drive a de-emphasis effect: feed the tagged
+ * rows to a component and derive per-row styling from `matched` (e.g. a
+ * Schematic's `excluded` flag). `Slice.rows` is `Slice.partition(...).filter(matched)`.
+ */
+const slice_partition = East.genericPlatform("slice_partition", ["T"],
+    [SliceBindType],
+    ArrayType(SlicePartitionRowType),
+    { optional: true },
+);
+
+/**
  * The slice-chrome payload every slice-accepting component carries — the
  * bound handle plus the affordances its rail mounts. Chrome only: the
  * component's data is always fed explicitly (`Slice.rows([RowType], slice)`).
@@ -1231,6 +1264,27 @@ export const Slice = {
     rows: slice_rows,
 
     /**
+     * The FULL bound rows, each tagged `{ value, matched }` — the "keep the
+     * excluded" feed. Drive a de-emphasis effect from `matched` instead of
+     * hiding filtered-out rows.
+     *
+     * @example
+     * ```ts
+     * // Feed the full set to a Schematic and ghost the filtered-out items.
+     * const tagged = $.let(Slice.partition([EquipType], slice));
+     * // Schematic.Root(tagged, {
+     * //   item: t => ({ key: t.value.id, x: t.value.x, y: t.value.y, label: t.value.id,
+     * //                 excluded: t.matched.not() }),
+     * //   slice, sliceEffect: { excluded: { opacity: 0.25 }, emphasis: "pulse" },
+     * // })
+     * ```
+     */
+    partition: slice_partition,
+
+    /** Materialise the `{ value, matched }` partition-row type for a row type. */
+    partitionRowType: slicePartitionRowFor,
+
+    /**
      * Pure narrowing engine. State + config + data → narrowed data.
      * Stateless, deterministic, host-impl-portable.
      */
@@ -1276,6 +1330,7 @@ export const Slice = {
         Field:          SliceFieldDescriptorType,
         SearchMatch:    SliceSearchMatchType,
         Density:        SliceDensityType,
+        PartitionRow:   SlicePartitionRowType,
     },
 
     /**
