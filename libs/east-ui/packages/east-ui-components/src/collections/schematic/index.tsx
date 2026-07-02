@@ -1388,17 +1388,18 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                 drawn = "net";
                 const net = mkCreatedNet(sessionKey, netSources, netDestinations);
                 const priorLinkKey = open !== null && open.drawn === "link" ? open.links[0]?.key : undefined;
-                // Seeded (absorbed) prop links leave the picture with the net's
-                // arrival — locally via the deleted overlay; the event's
-                // `absorbed` tells handlers to delete those rows.
+                // Seeded (absorbed) links leave the picture with the net's
+                // arrival — from BOTH pools: locally-created links are filtered
+                // out of `created` (the deleted overlay only guards prop links),
+                // prop links join the deleted overlay. The event's `absorbed`
+                // tells handlers to delete their rows.
+                const seededSet = new Set(seeded);
                 const deleted = seeded.length > 0
                     ? new Set([...linkEdits.deleted, ...seeded])
                     : linkEdits.deleted;
                 setLinkEdits({
                     ...linkEdits,
-                    created: priorLinkKey !== undefined
-                        ? linkEdits.created.filter(l => l.key !== priorLinkKey)
-                        : linkEdits.created,
+                    created: linkEdits.created.filter(l => l.key !== priorLinkKey && !seededSet.has(l.key)),
                     createdNets: [
                         ...linkEdits.createdNets.filter(n => n.key !== sessionKey),
                         net,
