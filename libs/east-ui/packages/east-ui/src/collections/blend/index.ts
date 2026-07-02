@@ -32,6 +32,7 @@ import {
 } from "@elaraai/east";
 
 import { UIComponentType } from "../../component.js";
+import { mapRows } from "../../shared/reify.js";
 import { type DragEventType } from "../../contracts/drag.js";
 import { PlannerStateType } from "../planner/types.js";
 import {
@@ -234,7 +235,7 @@ function buildRoot(
     const targetMapper = config.target;
     const resolvedTargets = targetMapper === undefined
         ? East.value(targets as SubtypeExprOrValue<ArrayType<BlendTargetType>>, ArrayType(BlendTargetType))
-        : (East.value(targets) as ExprType<ArrayType<StructType>>).map((_$, row) => {
+        : mapRows(East.value(targets) as ExprType<ArrayType<StructType>>, BlendTargetType, (row) => {
             const r: BlendTargetFields | ExprType<BlendTargetType> = targetMapper(row);
             if (r instanceof Expr) return East.value(r, BlendTargetType);
             return East.value({

@@ -37,6 +37,7 @@ import {
 } from "@elaraai/east";
 
 import { UIComponentType } from "../../component.js";
+import { mapRows } from "../../shared/reify.js";
 import { AlignType, type AlignLiteral } from "../../style/content.js";
 import { type StatusTokenType } from "../../style/interaction.js";
 import { type IconName } from "../../display/icon/types.js";
@@ -748,7 +749,7 @@ function buildRoot(
     const markerRows = markers ?? [];
     const resolvedMarkers = markerMapper === undefined
         ? East.value(markerRows as SubtypeExprOrValue<ArrayType<MapMarkerType>>, ArrayType(MapMarkerType))
-        : (East.value(markerRows) as ExprType<ArrayType<StructType>>).map((_$, row) => {
+        : mapRows(East.value(markerRows) as ExprType<ArrayType<StructType>>, MapMarkerType, (row) => {
             const r: MapMarkerFields | ExprType<MapMarkerType> = markerMapper(row);
             if (r instanceof Expr) return East.value(r, MapMarkerType);
             return marker(r);
@@ -759,7 +760,7 @@ function buildRoot(
         ? East.value([], ArrayType(MapAreaType))
         : areaMapper === undefined
             ? East.value(config.areas as SubtypeExprOrValue<ArrayType<MapAreaType>>, ArrayType(MapAreaType))
-            : (East.value(config.areas) as ExprType<ArrayType<StructType>>).map((_$, row) => {
+            : mapRows(East.value(config.areas) as ExprType<ArrayType<StructType>>, MapAreaType, (row) => {
                 const r: MapAreaFields | ExprType<MapAreaType> = areaMapper(row);
                 if (r instanceof Expr) return East.value(r, MapAreaType);
                 return area(r);
@@ -770,7 +771,7 @@ function buildRoot(
         ? East.value([], ArrayType(MapLabelType))
         : labelMapper === undefined
             ? East.value(config.labels as SubtypeExprOrValue<ArrayType<MapLabelType>>, ArrayType(MapLabelType))
-            : (East.value(config.labels) as ExprType<ArrayType<StructType>>).map((_$, row) => {
+            : mapRows(East.value(config.labels) as ExprType<ArrayType<StructType>>, MapLabelType, (row) => {
                 const r: MapLabelFields | ExprType<MapLabelType> = labelMapper(row);
                 if (r instanceof Expr) return East.value(r, MapLabelType);
                 return label(r);
@@ -781,7 +782,7 @@ function buildRoot(
         ? East.value([], ArrayType(MapLineType))
         : lineMapper === undefined
             ? East.value(config.lines as SubtypeExprOrValue<ArrayType<MapLineType>>, ArrayType(MapLineType))
-            : (East.value(config.lines) as ExprType<ArrayType<StructType>>).map((_$, row) => {
+            : mapRows(East.value(config.lines) as ExprType<ArrayType<StructType>>, MapLineType, (row) => {
                 const r: MapLineFields | ExprType<MapLineType> = lineMapper(row);
                 if (r instanceof Expr) return East.value(r, MapLineType);
                 return line(r);

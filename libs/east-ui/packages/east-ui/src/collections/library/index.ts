@@ -35,6 +35,7 @@ import {
 } from "@elaraai/east";
 
 import { UIComponentType } from "../../component.js";
+import { mapRowsBlock } from "../../shared/reify.js";
 import { type IconName } from "../../display/icon/types.js";
 import { StatusTokenType, type StatusTokenLiteral } from "../../style/interaction.js";
 import {
@@ -315,7 +316,7 @@ function buildRoot(
     const dimensions = config.dimensions ?? [];
     const groupDefs = config.groupBy ?? [];
 
-    const items = data_expr.map(($, row) => {
+    const items = mapRowsBlock(data_expr, LibraryItemType, ($, row) => {
         const dims = $.let(new Map(), DictType(StringType, LibraryDimValueType));
         for (const dim of dimensions) {
             $(dims.insert(dim.key, dimValue(dim, row)));

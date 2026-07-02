@@ -42,6 +42,7 @@ import {
 } from "@elaraai/east";
 
 import { UIComponentType } from "../../component.js";
+import { mapRows } from "../../shared/reify.js";
 import { DensityType, type DensityLiteral } from "../../style/interaction.js";
 import { type CellRefType, type DragEventType } from "../../contracts/drag.js";
 import { PlannerStateType } from "../planner/types.js";
@@ -216,7 +217,7 @@ function resolveEntities(
     if (mapper === undefined) {
         return East.value(rows as SubtypeExprOrValue<ArrayType<BoardEntityType>>, ArrayType(BoardEntityType));
     }
-    return (East.value(rows) as ExprType<ArrayType<StructType>>).map((_$, row) => {
+    return mapRows(East.value(rows) as ExprType<ArrayType<StructType>>, BoardEntityType, (row) => {
         const r: BoardEntityFields | ExprType<BoardEntityType> = mapper(row);
         if (r instanceof Expr) return East.value(r, BoardEntityType);
         return East.value({
@@ -238,7 +239,7 @@ function buildRoot(
     const assignmentMapper = config.assignment;
     const resolvedAssignments = assignmentMapper === undefined
         ? East.value(assignments as SubtypeExprOrValue<ArrayType<BoardAssignmentType>>, ArrayType(BoardAssignmentType))
-        : (East.value(assignments) as ExprType<ArrayType<StructType>>).map((_$, row) => {
+        : mapRows(East.value(assignments) as ExprType<ArrayType<StructType>>, BoardAssignmentType, (row) => {
             const r: BoardAssignmentFields | ExprType<BoardAssignmentType> = assignmentMapper(row);
             if (r instanceof Expr) return East.value(r, BoardAssignmentType);
             return East.value({
@@ -255,7 +256,7 @@ function buildRoot(
         ? none
         : some(requirementMapper === undefined
             ? East.value(config.requirements as SubtypeExprOrValue<ArrayType<BoardRequirementType>>, ArrayType(BoardRequirementType))
-            : (East.value(config.requirements) as ExprType<ArrayType<StructType>>).map((_$, row) => {
+            : mapRows(East.value(config.requirements) as ExprType<ArrayType<StructType>>, BoardRequirementType, (row) => {
                 const r: BoardRequirementFields | ExprType<BoardRequirementType> = requirementMapper(row);
                 if (r instanceof Expr) return East.value(r, BoardRequirementType);
                 return East.value({
