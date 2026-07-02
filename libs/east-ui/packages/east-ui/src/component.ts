@@ -112,6 +112,7 @@ import { AvatarGroupType } from "./display/avatar-group/types.js";
 import { TraceType } from "./display/trace/types.js";
 import { LibraryRootType } from "./collections/library/types.js";
 import { RosterRootType } from "./collections/roster/types.js";
+import { BoardRootType } from "./collections/board/types.js";
 import { CalendarRootType } from "./collections/calendar/types.js";
 import {
     SchematicItemType,
@@ -850,6 +851,9 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
 
     // Roster — people × days-of-week shift grid (drag & drop target role)
     Roster: RosterRootType,
+
+    // Board — single-day areas × shifts assignment board (drag & drop target role)
+    Board: BoardRootType,
 
     // Calendar — day-of-week × week intensity grid (visualisation only)
     Calendar: CalendarRootType,

@@ -288,7 +288,7 @@ export const EastChakraRoster = memo(function EastChakraRoster({ value }: EastCh
 
     return (
         <Box css={styles.root}>
-            <Box css={styles.grid} style={{ gridTemplateColumns: `minmax(120px, 1.2fr) repeat(${value.days.length}, 1fr)` }}>
+            <Box css={styles.grid} style={{ gridTemplateColumns: `${getSomeorUndefined(value.personWidth) ?? "150px"} repeat(${value.days.length}, 1fr)` }}>
                 <Box css={styles.headerCell}>{value.personHeader}</Box>
                 {value.days.map(day => (
                     <Box key={day} css={styles.headerCell}>{day}</Box>

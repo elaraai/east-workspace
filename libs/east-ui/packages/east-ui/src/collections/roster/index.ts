@@ -146,6 +146,8 @@ export interface RosterConfig<P extends StructType, S extends StructType> {
     person?: (person: ExprType<P>) => RosterPersonFields;
     /** The frozen person column's header (defaults to `"Operator"`). */
     personHeader?: string;
+    /** Optional CSS width for the frozen person column (omit = the Planner-consistent `150px`). */
+    personWidth?: string;
     /** Shifts row mapper; omit when `shifts` is already `ArrayType(Roster.Types.Shift)`. */
     shift?: (shift: ExprType<S>) => RosterShiftFields;
     /** The day columns, in order (defaults to Mon–Sun). */
@@ -215,6 +217,7 @@ function buildRoot(
         mode,
         days: East.value(config.days ?? WEEK, ArrayType(StringType)),
         personHeader: config.personHeader ?? "Operator",
+        personWidth: config.personWidth !== undefined ? some(config.personWidth) : none,
         people: resolvedPeople,
         shifts: resolvedShifts,
         density,

@@ -76,12 +76,13 @@ normal commit pipeline (State/Data bind → Commit.Bar); no drop writes
 directly. Committed events render with no grip and are pointer-immutable —
 state comes from the data, the renderer enforces it.
 
-## Per-surface matrix (these five)
+## Per-surface matrix
 
 | Surface | add | move | remove | resize |
 |---|---|---|---|---|
 | `Library` | — | — | — | — (pure source) |
 | `Roster` | ✓ | ✓ | ✓ | — |
+| `Board` | ✓ | ✓ | ✓ | — (duplicate-person drops are renderer no-ops) |
 | `Blend` | ✓ | — | ✓ | — |
 | `Schematic` | — | — | — | — (read-only) |
 | `Calendar` | — | — | — | — (visualisation only) |

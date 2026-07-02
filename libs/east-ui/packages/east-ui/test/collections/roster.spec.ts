@@ -35,6 +35,7 @@ describeEast("Roster", (test) => {
         $(Assert.equal(root.days.size(), 7n));
         $(Assert.equal(root.days.get(0n), "Mon"));
         $(Assert.equal(root.personHeader, "Operator"));
+        $(Assert.equal(root.personWidth.hasTag("none"), true));
         $(Assert.equal(root.people.get(0n).key, "patel"));
         $(Assert.equal(root.people.get(0n).sublabel.hasTag("none"), true));
     });
@@ -52,6 +53,7 @@ describeEast("Roster", (test) => {
                 summary: "1 ghost",
                 person: p => ({ key: p.id, label: p.name }),
                 personHeader: "Crew",
+                personWidth: "180px",
                 shift: s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state }),
             },
         ));
@@ -59,6 +61,7 @@ describeEast("Roster", (test) => {
 
         $(Assert.equal(root.mode.hasTag("edit"), true));
         $(Assert.equal(root.personHeader, "Crew"));
+        $(Assert.equal(root.personWidth.unwrap("some"), "180px"));
         $(Assert.equal(root.summary.unwrap("some"), "1 ghost"));
         $(Assert.equal(root.shifts.get(0n).label, "6h"));
         $(Assert.equal(root.shifts.get(0n).state.hasTag("committed"), true));

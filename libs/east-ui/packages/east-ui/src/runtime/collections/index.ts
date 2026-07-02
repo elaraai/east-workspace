@@ -14,6 +14,7 @@ export { Gantt } from "./gantt.js";
 export { Planner } from "./planner.js";
 export { Library } from "./library.js";
 export { Roster } from "./roster.js";
+export { Board } from "./board.js";
 export { Calendar } from "./calendar.js";
 export { Schematic } from "./schematic.js";
 export { Map } from "./map.js";
