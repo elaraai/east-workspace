@@ -71,6 +71,14 @@ describe("ClauseBuilder — wide value controls stack instead of overflowing (#1
         const { container } = mount({ fieldId: "note", op: "in", value: [] });
         expect(container.querySelector("[data-clause-stacked]")).not.toBeNull();
     });
+
+    test("clause datetime controls are date-precision — no time segments to clip (#196)", () => {
+        mount({ fieldId: "day", op: "between", value: { min: new Date("2025-01-05"), max: new Date("2025-03-28") } });
+        // Both bounds render date segments only; the hour/minute spinbuttons
+        // (the part that clipped in the Edit popover) are gone.
+        expect(screen.getAllByRole("spinbutton", { name: /month/i }).length).toBe(2);
+        expect(screen.queryByRole("spinbutton", { name: /hour/i })).toBeNull();
+    });
 });
 
 describe("ClauseBuilder — in-flight TagsInput text counts toward the clause (#194)", () => {

@@ -64,7 +64,10 @@ export const clauseBuilderSlotRecipe = defineSlotRecipe({
         },
         // Range bounds share one line while they fit and WRAP when they don't
         // (two segmented date inputs inside the Slice.Edit popover) — the row
-        // degrades by wrapping, never by overflowing (#193).
+        // degrades by wrapping, never by overflowing (#193). `flex-basis:
+        // auto` with NO min-width override keeps each bound's min-content as
+        // the wrap driver — a fixed basis fits two-across nominally and then
+        // clips the real control inside its box (#196).
         rangeLine: {
             display: "flex",
             alignItems: "center",
@@ -73,8 +76,7 @@ export const clauseBuilderSlotRecipe = defineSlotRecipe({
             minWidth: "0",
         },
         rangeBound: {
-            flex: "1 1 130px",
-            minWidth: "0",
+            flex: "1 1 auto",
         },
         // Edit mode pins the field — rendered as a label, not a control.
         fieldLock: {

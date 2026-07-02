@@ -243,7 +243,11 @@ export function ClauseBuilder({ fields, opsFor, onSubmit, initial, lockField, su
                 case "float":
                     return <EastChakraFloatInput key={key} value={{ value: val as number, onChange: some(onChange), style: inputStyle } as never} />;
                 case "datetime":
-                    return <EastChakraDateTimeInput key={key} value={{ value: val as Date, onChange: some(onChange), style: inputStyle } as never} />;
+                    // Date precision (#196): clause chips format date-only and
+                    // day-grained filtering is the norm — the time segments
+                    // were pure width pressure in the popover. (The Range
+                    // picker's Custom inputs keep full datetime precision.)
+                    return <EastChakraDateTimeInput key={key} value={{ value: val as Date, precision: some(variant("date", null)), onChange: some(onChange), style: inputStyle } as never} />;
                 default:
                     return <EastChakraStringInput key={key} value={{ value: String(val ?? ""), onChange: some(onChange), style: inputStyle } as never} />;
             }
