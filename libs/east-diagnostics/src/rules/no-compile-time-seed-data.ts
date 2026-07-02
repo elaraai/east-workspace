@@ -5,6 +5,7 @@
 import type * as ts from "typescript";
 import type { EastRule, RuleContext, TsModule } from "../types.js";
 import { insideBlockScope } from "../block-scope.js";
+import { importDeclarationOf, resolvesToEastImport } from "../east-source.js";
 
 const NAME = "no-compile-time-seed-data";
 const CODE = 990021;
@@ -15,37 +16,13 @@ function fire(ctx: RuleContext, target: ts.Node, messageText: string): void {
   ctx.report({ ruleName: NAME, code: CODE, start, length: target.getEnd() - start, messageText, category: "warning" });
 }
 
-/** The `ImportDeclaration` a symbol's (local, un-aliased) declaration belongs to. */
-function importDeclOfSymbol(sym: ts.Symbol | undefined, t: TsModule): ts.ImportDeclaration | undefined {
-  for (const d of sym?.declarations ?? []) {
-    let n: ts.Node = d;
-    // ImportSpecifier -> NamedImports -> ImportClause -> ImportDeclaration; a
-    // NamespaceImport sits one level higher; a DEFAULT import binds the
-    // ImportClause itself (`import e3 from "@elaraai/e3"`).
-    if (t.isImportSpecifier(n)) n = n.parent.parent.parent;
-    else if (t.isNamespaceImport(n)) n = n.parent.parent;
-    else if (t.isImportClause(n)) n = n.parent;
-    else continue;
-    if (t.isImportDeclaration(n)) return n;
-  }
-  return undefined;
-}
-
-/** Does `id` resolve to a binding imported from any `@elaraai/*` package? (Keyed by
- * SYMBOL → import specifier, like the other host-vs-East rules — never the text.) */
-function resolvesToEastImport(id: ts.Identifier, ctx: RuleContext): boolean {
-  const t = ctx.ts;
-  const imp = importDeclOfSymbol(ctx.checker.getSymbolAtLocation(id), t);
-  return imp !== undefined && t.isStringLiteral(imp.moduleSpecifier) && imp.moduleSpecifier.text.startsWith("@elaraai/");
-}
-
 /** Is `node` a call `<e3>.input(...)` where `<e3>` is the DEFAULT import of `@elaraai/e3`? */
 function isE3InputCall(node: ts.CallExpression, ctx: RuleContext): boolean {
   const t = ctx.ts;
   const callee = node.expression;
   if (!t.isPropertyAccessExpression(callee) || callee.name.text !== "input") return false;
   if (!t.isIdentifier(callee.expression)) return false;
-  const imp = importDeclOfSymbol(ctx.checker.getSymbolAtLocation(callee.expression), t);
+  const imp = importDeclarationOf(ctx.checker.getSymbolAtLocation(callee.expression), t);
   return imp !== undefined && t.isStringLiteral(imp.moduleSpecifier) && imp.moduleSpecifier.text === "@elaraai/e3";
 }
 
@@ -86,13 +63,13 @@ function embedsHostComputation(expr: ts.Expression, ctx: RuleContext): boolean {
     if (bad) return;
     if (t.isCallExpression(n)) {
       const root = rootIdentifier(n.expression, t);
-      if (root === undefined || !resolvesToEastImport(root, ctx)) {
+      if (root === undefined || !resolvesToEastImport(root, ctx.checker, t)) {
         bad = true;
         return;
       }
     } else if (t.isNewExpression(n)) {
       const ctor = n.expression;
-      const ok = t.isIdentifier(ctor) && (VALUE_CTORS.has(ctor.text) || resolvesToEastImport(ctor, ctx));
+      const ok = t.isIdentifier(ctor) && (VALUE_CTORS.has(ctor.text) || resolvesToEastImport(ctor, ctx.checker, t));
       if (!ok) {
         bad = true;
         return;

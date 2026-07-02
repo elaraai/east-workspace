@@ -4,7 +4,7 @@
  */
 import type * as ts from "typescript";
 import type { EastRule, RuleContext, TsModule } from "../types.js";
-import { isEastExprType, isBlockBuilderType } from "../east-type.js";
+import { isEastExprType, isBlockBuilderType, isEastDefinitionType } from "../east-type.js";
 import { insideBlockScope } from "../block-scope.js";
 import { chainRootReceiver } from "../east-ir.js";
 import { importsEastPackage } from "../east-source.js";
@@ -69,6 +69,12 @@ function containsEastBuilder(expr: ts.Expression, ctx: RuleContext): boolean {
 function returnBuildsEast(r: ts.Expression, ctx: RuleContext): boolean {
   const t = ctx.ts;
   if (isJsx(r, t)) return false;
+  // A DECLARATION factory — a helper returning an e3 definition (`e3.task(…)` →
+  // `TaskDef`, `e3.input(…)` → `DatasetDef`, …) or a platform definition
+  // (`East.platform(…)`) — composes the program's structure, which is exactly
+  // what the host language is FOR. It is not a value macro, even though the
+  // definition it returns has East builders (an `East.function` body) inside.
+  if (isEastDefinitionType(ctx.checker.getTypeAtLocation(r))) return false;
   if (isEastValueConstructor(r, t)) return true;
   if (isEastExprType(ctx.checker.getTypeAtLocation(r))) return true;
   const root = chainRootReceiver(r, ctx);
