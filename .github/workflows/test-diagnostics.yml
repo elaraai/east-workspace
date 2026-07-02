@@ -7,6 +7,7 @@ on:
       - "libs/east/**"
       - "libs/east-diagnostics/**"
       - "libs/eslint-plugin-east/**"
+      - "libs/tsserver-plugin-east/**"
       - "libs/east-claude-plugin/**"
       - ".github/workflows/test-diagnostics.yml"
   pull_request:
@@ -15,6 +16,7 @@ on:
       - "libs/east/**"
       - "libs/east-diagnostics/**"
       - "libs/eslint-plugin-east/**"
+      - "libs/tsserver-plugin-east/**"
       - "libs/east-claude-plugin/**"
       - ".github/workflows/test-diagnostics.yml"
 
@@ -50,6 +52,10 @@ jobs:
 
       - name: Build and test eslint-plugin-east
         working-directory: libs/eslint-plugin-east
+        run: make build && make test
+
+      - name: Build and test tsserver-plugin-east
+        working-directory: libs/tsserver-plugin-east
         run: make build && make test
 
       - name: Build and test east-claude-plugin
