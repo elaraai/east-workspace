@@ -61,6 +61,14 @@ export {
 } from "./roster";
 
 export {
+    EastChakraBoard,
+    type BoardValue,
+    type BoardEntityValue,
+    type BoardAssignmentValue,
+    type EastChakraBoardProps,
+} from "./board";
+
+export {
     EastChakraCalendar,
     type CalendarValue,
     type CalendarCellValue,

@@ -53,6 +53,14 @@ export {
     RosterModeType, type RosterModeLiteral,
 } from "./roster/index.js";
 export {
+    Board,
+    type BoardConfig,
+    type BoardEntityFields,
+    type BoardAssignmentFields,
+    type BoardRequirementFields,
+    BoardModeType, type BoardModeLiteral,
+} from "./board/index.js";
+export {
     Library,
     type LibraryConfig,
     type LibraryCardFields,

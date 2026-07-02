@@ -75,6 +75,7 @@ import { EastChakraBarStrip } from "./display/bar-strip";
 import { EastChakraTrace } from "./display/trace";
 import { EastChakraLibrary } from "./collections/library";
 import { EastChakraRoster } from "./collections/roster";
+import { EastChakraBoard } from "./collections/board";
 import { EastChakraCalendar } from "./collections/calendar";
 import { EastChakraSchematic } from "./collections/schematic";
 import { EastChakraMap } from "./collections/map";
@@ -243,6 +244,7 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
             Planner: (v) => <EastChakraPlanner value={v} storageKey={childKey(storageKey, "Planner")} />,
             Library: (v) => <EastChakraLibrary value={v} storageKey={childKey(storageKey, "Library")} />,
             Roster: (v) => <EastChakraRoster value={v} storageKey={childKey(storageKey, "Roster")} />,
+            Board: (v) => <EastChakraBoard value={v} storageKey={childKey(storageKey, "Board")} />,
             Calendar: (v) => <EastChakraCalendar value={v} storageKey={childKey(storageKey, "Calendar")} />,
             Schematic: (v) => <EastChakraSchematic value={v} storageKey={childKey(storageKey, "Schematic")} />,
             Map: (v) => <EastChakraMap value={v} storageKey={childKey(storageKey, "Map")} />,

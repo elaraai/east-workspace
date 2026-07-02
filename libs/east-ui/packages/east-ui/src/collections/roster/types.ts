@@ -107,6 +107,7 @@ export type RosterShiftType = typeof RosterShiftType;
  * @property mode - `published` (committed-only, immutable) or `edit`
  * @property days - The day columns, in order
  * @property personHeader - The frozen person column's header
+ * @property personWidth - Optional CSS width for the frozen person column
  * @property people - The grid rows
  * @property shifts - The shift chips (joined to people by person key)
  * @property density - Optional density
@@ -127,6 +128,8 @@ export const RosterRootType = StructType({
     days: ArrayType(StringType),
     /** The frozen person column's header */
     personHeader: StringType,
+    /** Optional CSS width for the frozen person column (none = the Planner-consistent 150px) */
+    personWidth: OptionType(StringType),
     /** The grid rows */
     people: ArrayType(RosterPersonType),
     /** The shift chips (joined to people by person key) */
