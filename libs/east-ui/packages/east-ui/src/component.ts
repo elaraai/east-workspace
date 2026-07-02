@@ -894,6 +894,7 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         zoneHover: OptionType(FunctionType([StringType], node)),
         linkHover: OptionType(FunctionType([StringType], node)),
         onEditNet: OptionType(FunctionType([SchematicNetEndpointsType], NullType)),
+        canConnect: OptionType(FunctionType([StringType, StringType], BooleanType)),
     }),
 
     // Map — interactive geographic basemap + H3 / area overlay. The

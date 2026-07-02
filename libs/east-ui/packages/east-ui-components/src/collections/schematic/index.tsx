@@ -269,6 +269,29 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     const onEditLinkFn = useMemo(() => getSomeorUndefined(value.onEditLink), [value.onEditLink]);
     const onDeleteLinkFn = useMemo(() => getSomeorUndefined(value.onDeleteLink), [value.onDeleteLink]);
     const onEditNetFn = useMemo(() => getSomeorUndefined(value.onEditNet), [value.onEditNet]);
+    // Connection validator (#176): gates the connect GESTURE itself — the one
+    // channel behind pairwise links, every Shift-session extension (nets), and
+    // endpoint re-targets — so all three obey the same rule. Verdicts cache per
+    // (from,to) pair (reset when the fn changes) so the pointermove probe never
+    // re-runs the East predicate for the same candidate; a THROWING validator
+    // logs and ALLOWS (fail-open) so a broken predicate cannot brick editing.
+    const canConnectFn = useMemo(() => getSomeorUndefined(value.canConnect) as ((from: string, to: string) => boolean) | undefined, [value.canConnect]);
+    const connectVerdictRef = useRef(new Map<string, boolean>());
+    useEffect(() => { connectVerdictRef.current = new Map(); }, [canConnectFn]);
+    const connectAllowed = useCallback((from: string, to: string): boolean => {
+        if (canConnectFn === undefined) return true;
+        const cacheKey = `${from}\u0000${to}`;
+        const hit = connectVerdictRef.current.get(cacheKey);
+        if (hit !== undefined) return hit;
+        let ok = true;
+        try {
+            ok = canConnectFn(from, to) === true;
+        } catch (err) {
+            console.error("[Schematic] canConnect validator failed (allowing):", err);
+        }
+        connectVerdictRef.current.set(cacheKey, ok);
+        return ok;
+    }, [canConnectFn]);
     // The selected link (single, #176) — selection works even when read-only
     // (inspection + onSelectLink); the connector handles / delete do not. A net
     // STUB click selects one LEG (`leg` non-null): the halo narrows to that stub
@@ -1803,7 +1826,13 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
             if (ppuLive > 0) {
                 const wxp = (e.clientX - r.left - cam.tx) / ppuLive, wyp = (e.clientY - r.top - cam.ty) / ppuLive;
                 const tk = itemKeyAt(host, e.clientX, e.clientY);
-                const target = tk !== undefined && tk !== cd.from ? tk : undefined;
+                // canConnect veto: the draft never snaps to a forbidden pair.
+                // Re-targets validate in the link's REAL direction (the fixed
+                // end may be either side).
+                const ok = tk !== undefined && tk !== cd.from && (cd.retarget !== undefined
+                    ? (cd.retarget.movingEnd === "from" ? connectAllowed(tk, cd.from) : connectAllowed(cd.from, tk))
+                    : connectAllowed(cd.from, tk));
+                const target = ok ? tk : undefined;
                 setConnectDraft({ from: cd.from, toWorld: { x: wxp, y: wyp }, target });
             }
             return;
@@ -1850,7 +1879,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         if (Math.abs(e.clientX - pan.x) > 4 || Math.abs(e.clientY - pan.y) > 4) movedRef.current = true;
         cameraRef.current = { ...cameraRef.current, tx: pan.tx + e.clientX - pan.x, ty: pan.ty + e.clientY - pan.y };
         requestRender();
-    }, [requestRender, collectMarquee, itemKeyAt, hoverEnabled, hoverProbe, W, H]);
+    }, [requestRender, collectMarquee, itemKeyAt, hoverEnabled, hoverProbe, W, H, connectAllowed]);
     // End an in-progress canvas drag-pan (panning → idle). Returns whether a pan
     // was active; never disturbs a running fly.
     const endPan = useCallback(() => {
@@ -1882,8 +1911,13 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
             setConnectDraft(null);
             const tk = itemKeyAt(e.currentTarget as HTMLElement, e.clientX, e.clientY);
             if (tk !== undefined && tk !== cd.from) {
-                if (cd.retarget !== undefined) commitRetarget(cd.retarget.key, cd.retarget.movingEnd, tk);
-                else commitConnect(cd.from, tk, cd.additive);
+                const allowed = cd.retarget !== undefined
+                    ? (cd.retarget.movingEnd === "from" ? connectAllowed(tk, cd.from) : connectAllowed(cd.from, tk))
+                    : connectAllowed(cd.from, tk);
+                if (allowed) {
+                    if (cd.retarget !== undefined) commitRetarget(cd.retarget.key, cd.retarget.movingEnd, tk);
+                    else commitConnect(cd.from, tk, cd.additive);
+                }
             }
             return;
         }
@@ -1954,7 +1988,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                 else if (!e.shiftKey) { clearSelection(); clearZoneSelection(); setSelectedLink(null); }
             }
         }
-    }, [endPan, pickAt, flyTo, flyToSelection, collectMarquee, commitSelection, clearSelection, selectZoomFocus, zoneKeyAt, zoneTap, clearZoneSelection, itemKeyAt, commitConnect, commitRetarget, linkKeyAt, selectLink, commitMove]);
+    }, [endPan, pickAt, flyTo, flyToSelection, collectMarquee, commitSelection, clearSelection, selectZoomFocus, zoneKeyAt, zoneTap, clearZoneSelection, itemKeyAt, commitConnect, commitRetarget, linkKeyAt, selectLink, commitMove, connectAllowed]);
     // pointercancel / lost capture: a pan OR select-drag that loses its grip
     // mid-gesture must still end (issue #57, P10). After a normal release the
     // pan is already ended (panRef null) so this is a no-op then, and it never

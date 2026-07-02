@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { East, NullType, StringType, variant, some } from "@elaraai/east";
+import { East, BooleanType, NullType, StringType, variant, some } from "@elaraai/east";
 import { Schematic, Text, UIComponentType } from "@elaraai/east-ui/internal";
 import * as ex from "./schematic.examples.js";
 
@@ -364,6 +364,7 @@ describeEast("Schematic", (test) => {
         $(Assert.equal(root.zoneHover.hasTag("none"), true));
         $(Assert.equal(root.linkHover.hasTag("none"), true));
         $(Assert.equal(root.onEditNet.hasTag("none"), true));
+        $(Assert.equal(root.canConnect.hasTag("none"), true));
     });
 
     test("selectionMode, onSelectionChange, sliceSelectField carry through", $ => {
@@ -393,6 +394,7 @@ describeEast("Schematic", (test) => {
                 zoneHover: East.function([StringType], UIComponentType, (_$, _k) => Text.Root("zone")),
                 linkHover: East.function([StringType], UIComponentType, (_$, _k) => Text.Root("link")),
                 onEditNet: East.function([Schematic.Types.NetEndpoints], NullType, (_$, _ev) => { }),
+                canConnect: East.function([StringType, StringType], BooleanType, (_$, _f, _t) => East.value(true)),
                 sliceSelectField: "id",
                 selectZoomFocus: true,
             },
@@ -419,5 +421,6 @@ describeEast("Schematic", (test) => {
         $(Assert.equal(root.zoneHover.hasTag("some"), true));
         $(Assert.equal(root.linkHover.hasTag("some"), true));
         $(Assert.equal(root.onEditNet.hasTag("some"), true));
+        $(Assert.equal(root.canConnect.hasTag("some"), true));
     });
 }, { platformFns: TestImpl });

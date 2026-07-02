@@ -361,7 +361,7 @@ export const schematicZoneSelect = example({
 
 export const schematicLinkEdit = example({
     keywords: ["Schematic", "link", "editing", "connect", "linkMode", "session", "onCreateLink", "onSelectLink", "onEditLink", "onDeleteLink", "readOnlyLinks", "readOnly", "draw", "Reactive", "State", "Switch"],
-    description: "Link editing — the connect tool drags item→item to create links (draw mode adds them locally, form-input style; connect mode is event-only for planning operations between areas); Shift+drag ADDS to the session and onCreateLink reports the accumulated links + the pair's existing links; click a link to select it, drag an endpoint handle to re-target, Del deletes; switches flip linkMode and readOnlyLinks reactively",
+    description: "Link editing — the connect tool drags item→item to create links (draw mode adds them locally, form-input style; connect mode is event-only for planning operations between areas); Shift+drag ADDS to the session and onCreateLink reports the accumulated links + the pair's existing links; click a link to select it, drag an endpoint handle to re-target, Del deletes; switches flip linkMode and readOnlyLinks reactively; canConnect forbids mixer→shipping directly (product must pass a packer)",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const log = $.let(State.bind([StringType], "schematic_link_log", "—"));
@@ -387,6 +387,10 @@ export const schematicLinkEdit = example({
             const eOn = $.let(editable.read());
             const onE = $.const(East.function([BooleanType], NullType, ($, v) => { $(editable.write(v)); }));
             const roLinks = $.let(eOn.not(), BooleanType);
+            // Connection validator: mixers never connect DIRECTLY to shipping —
+            // product must pass through a packer (drag MIX-1 → SHIP: no snap).
+            const canConnect = $.const(East.function([StringType, StringType], BooleanType, (_$, from, to) =>
+                from.substring(0n, 3n).equal("MIX").and(() => to.equal("SHIP")).not()));
             // The mode READOUT follows the switch — the description must never
             // claim event-only while draw mode is adding locally.
             const modeTxt = $.let(cOn.ifElse(_$ => "CONNECT — event-only, nothing added", _$ => "DRAW — adds locally"));
@@ -414,6 +418,7 @@ export const schematicLinkEdit = example({
                         onCreateLink={onCreateLink}
                         onEditLink={onEditLink}
                         onDeleteLink={onDeleteLink}
+                        canConnect={canConnect}
                     />
                 </VStack>
             );
@@ -535,7 +540,7 @@ export const schematicHover = example({
 
 export const schematicNets = example({
     keywords: ["Schematic", "net", "nets", "manifold", "bus", "trunk", "header", "bar", "stubs", "sources", "destinations", "via", "label", "linkMode", "onCreateLink", "session", "Reactive", "State", "Switch"],
-    description: "Nets — a manifold as ONE row: many sources feeding many destinations drawn as a header BAR with stubs and junction-tap dots (no pairwise explosion); the second net bridges two banks along an explicit via trunk path; the connect tool creates nets too (Shift+drag grows the session into one net — draw adds locally, connect mode is event-only), with switches flipping linkMode and readOnlyLinks reactively; click a stub to select ONE leg and Del removes just that endpoint (onEditNet)",
+    description: "Nets — a manifold as ONE row: many sources feeding many destinations drawn as a header BAR with stubs and junction-tap dots (no pairwise explosion); the second net bridges two banks along an explicit via trunk path; the connect tool creates nets too (Shift+drag grows the session into one net — draw adds locally, connect mode is event-only), with switches flipping linkMode and readOnlyLinks reactively; click a stub to select ONE leg and Del removes just that endpoint (onEditNet); canConnect makes CIP-1 supply-only — drafts never snap onto it",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const units = $.const([
@@ -567,6 +572,10 @@ export const schematicNets = example({
             const onEditNet = $.const(East.function([Schematic.Types.NetEndpoints], NullType, ($, ev) => {
                 $(log.write(East.str`net ${ev.key} edited · ${East.print(ev.sources.size())} src → ${East.print(ev.destinations.size())} dst`));
             }));
+            // Connection validator: CIP-1 is supply-only — the connect draft
+            // never snaps onto it (covers links, session/net extensions, and
+            // re-targets alike).
+            const canConnect = $.const(East.function([StringType, StringType], BooleanType, (_$, _from, to) => to.notEqual("CIP-1")));
             // Reactive mode switches: `connect` = event-only (plan the manifold,
             // nothing drawn); editable off = readOnlyLinks (connect tool hidden).
             const connectMode = $.let(State.bind([BooleanType], "ex.net.connectmode", false));
@@ -602,6 +611,7 @@ export const schematicNets = example({
                         readOnlyLinks={roLinks}
                         onCreateLink={onCreateLink}
                         onEditNet={onEditNet}
+                        canConnect={canConnect}
                     />
                 </VStack>
             );

@@ -143,6 +143,7 @@ export const SchematicRootType: StructType<{
     zoneHover: OptionType<FunctionType<[StringType], UIComponentType>>,
     linkHover: OptionType<FunctionType<[StringType], UIComponentType>>,
     onEditNet: OptionType<FunctionType<[SchematicNetEndpointsType], NullType>>,
+    canConnect: OptionType<FunctionType<[StringType, StringType], BooleanType>>,
 }> = StructType({
     extent: StructType({ width: FloatType, height: FloatType }),
     items: ArrayType(SchematicItemType),
@@ -179,6 +180,7 @@ export const SchematicRootType: StructType<{
     zoneHover: OptionType(FunctionType([StringType], UIComponentType)),
     linkHover: OptionType(FunctionType([StringType], UIComponentType)),
     onEditNet: OptionType(FunctionType([SchematicNetEndpointsType], NullType)),
+    canConnect: OptionType(FunctionType([StringType, StringType], BooleanType)),
 });
 
 /**
@@ -742,6 +744,8 @@ export interface SchematicConfig<
     linkHover?: SubtypeExprOrValue<FunctionType<[StringType], UIComponentType>>;
     /** Optional net membership-edit callback — fired after deleting ONE selected leg (a stub) of a net, with the net's endpoints AFTER the removal (upsert by `key`); removing the last endpoint of a side deletes the whole net via `onDeleteLink` instead. Gated by `readOnly` / `readOnlyLinks`. */
     onEditNet?: SubtypeExprOrValue<FunctionType<[SchematicNetEndpointsType], NullType>>;
+    /** Optional connection validator — receives `(from, to)` item keys BEFORE a connect gesture resolves; return false to forbid the pair: the draft never snaps to that target and releasing does nothing. Applies to draw AND connect modes, Shift-session extensions, and endpoint re-targets. A throwing validator logs and ALLOWS (fail-open) so a broken predicate cannot brick editing. */
+    canConnect?: SubtypeExprOrValue<FunctionType<[StringType, StringType], BooleanType>>;
 }
 
 function buildRoot(
@@ -928,6 +932,7 @@ function buildRoot(
         zoneHover: config.zoneHover !== undefined ? some(East.value(config.zoneHover, FunctionType([StringType], UIComponentType))) : none,
         linkHover: config.linkHover !== undefined ? some(East.value(config.linkHover, FunctionType([StringType], UIComponentType))) : none,
         onEditNet: config.onEditNet !== undefined ? some(config.onEditNet) : none,
+        canConnect: config.canConnect !== undefined ? some(config.canConnect) : none,
     }), UIComponentType);
 }
 
