@@ -126,6 +126,144 @@ test("an integer range narrows integer-field rows; the brush domain reports the 
     assert.equal(call("slice_result_count", "ir"), 3n);      // filters nothing
 });
 
+// ── #170 — cohort mutators over the real store ──────────────────────────────
+
+test("slice_define_cohort registers; a second define with the same id THROWS (#170)", () => {
+    initializeStore(new UIStore());
+    buildSliceHandle("c.def", cfg, initial, [{ id: "a" }], none);
+    const euCohort = () => ({ id: "eu", name: "EU", filters: [variant("string", { fieldId: "id", op: variant("eq", "a") })] });
+
+    call("slice_define_cohort", "c.def", euCohort());
+    const s = call("slice_read", "c.def") as { cohorts: Array<{ id: string; name: string; filters: unknown[] }> };
+    assert.equal(s.cohorts.length, 1);
+    assert.equal(s.cohorts[0]!.id, "eu");
+    assert.equal(s.cohorts[0]!.filters.length, 1);
+
+    assert.throws(() => call("slice_define_cohort", "c.def", euCohort()), /already exists/);
+});
+
+test("slice_toggle_cohort flips activeCohorts ON then OFF — and activeCount follows (#170)", () => {
+    initializeStore(new UIStore());
+    buildSliceHandle("c.tog", cfg, initial, [{ id: "a" }], none);
+    call("slice_define_cohort", "c.tog", { id: "eu", name: "EU", filters: [variant("string", { fieldId: "id", op: variant("eq", "a") })] });
+
+    call("slice_toggle_cohort", "c.tog", "eu");
+    assert.equal((call("slice_read", "c.tog") as { activeCohorts: Set<string> }).activeCohorts.has("eu"), true);
+    assert.equal(call("slice_active_count", "c.tog"), 1n);
+
+    call("slice_toggle_cohort", "c.tog", "eu");   // the requester's core enable/disable case
+    assert.equal((call("slice_read", "c.tog") as { activeCohorts: Set<string> }).activeCohorts.has("eu"), false);
+    assert.equal(call("slice_active_count", "c.tog"), 0n);
+    assert.equal((call("slice_read", "c.tog") as { cohorts: unknown[] }).cohorts.length, 1);   // OFF ≠ deleted
+});
+
+test("slice_update_cohort replaces in place; slice_remove_cohort drops it AND its active flag (#170)", () => {
+    initializeStore(new UIStore());
+    buildSliceHandle("c.upd", cfg, initial, [{ id: "a" }], none);
+    call("slice_define_cohort", "c.upd", { id: "eu", name: "EU", filters: [variant("string", { fieldId: "id", op: variant("eq", "a") })] });
+    call("slice_toggle_cohort", "c.upd", "eu");
+
+    call("slice_update_cohort", "c.upd", "eu", { id: "eu", name: "EU zone", filters: [
+        variant("string", { fieldId: "id", op: variant("eq", "a") }),
+        variant("string", { fieldId: "id", op: variant("neq", "b") }),
+    ] });
+    let s = call("slice_read", "c.upd") as { cohorts: Array<{ id: string; name: string; filters: unknown[] }>; activeCohorts: Set<string> };
+    assert.equal(s.cohorts.length, 1);
+    assert.equal(s.cohorts[0]!.name, "EU zone");
+    assert.equal(s.cohorts[0]!.filters.length, 2);
+    assert.equal(s.activeCohorts.has("eu"), true);   // update keeps the active state
+
+    call("slice_remove_cohort", "c.upd", "eu");
+    s = call("slice_read", "c.upd") as typeof s;
+    assert.equal(s.cohorts.length, 0);
+    assert.equal(s.activeCohorts.has("eu"), false);  // orphan cleaned up
+});
+
+test("slice_remove_filter removes by INDEX — the survivor is the other clause (#170)", () => {
+    initializeStore(new UIStore());
+    buildSliceHandle("f.rm", cfg, initial, [{ id: "a" }], none);
+    call("slice_add_filter", "f.rm", variant("string", { fieldId: "id", op: variant("eq", "first") }));
+    call("slice_add_filter", "f.rm", variant("string", { fieldId: "id", op: variant("eq", "second") }));
+
+    call("slice_remove_filter", "f.rm", 0n);
+    const s = call("slice_read", "f.rm") as { filters: Array<{ value: { op: { value: string } } }> };
+    assert.equal(s.filters.length, 1);
+    assert.equal(s.filters[0]!.value.op.value, "second");   // element identity, not just length
+});
+
+// ── #170 — remaining setters + data-derived primitives over the real store ──
+
+test("slice_set_range narrows; slice_set_breakdown feeds slice_groups; slice_set_compare round-trips (#170)", () => {
+    initializeStore(new UIStore());
+    const cfgN = {
+        fields: new Map([["n", { type: "integer", value: { accessor: (r: { n: bigint }) => r.n } }]]),
+        rangeFieldId: some("n"), searchFieldIds: [], breakdownFieldIds: ["region"],
+    };
+    buildSliceHandle("d.set", cfgN, initial, [
+        { n: 5n, region: "EU" }, { n: 20n, region: "EU" }, { n: 50n, region: "NA" },
+    ], none);
+
+    call("slice_set_range", "d.set", some(variant("integer", { from: 10n, to: 60n })));
+    assert.equal(call("slice_result_count", "d.set"), 2n);              // 20, 50
+    assert.equal(call("slice_active_count", "d.set"), 1n);              // range IS a narrowing
+
+    call("slice_set_breakdown", "d.set", some({ fieldId: "region", limit: none }));
+    const groups = call("slice_groups", "d.set") as Array<{ key: string; count: bigint }>;
+    assert.deepEqual(groups.map(g => [g.key, g.count]), [["EU", 1n], ["NA", 1n]]);  // grouped UNDER the range
+
+    call("slice_set_compare", "d.set", some(variant("previousPeriod", null)));
+    assert.equal((call("slice_read", "d.set") as { compare: { type: string; value: { type: string } } }).compare.value.type, "previousPeriod");
+});
+
+test("clearFilters preserves breakdown + selectedIndex (presentation, not narrowings) (#170)", () => {
+    initializeStore(new UIStore());
+    buildSliceHandle("d.keep", cfg, initial, [{ id: "a" }], none);
+    call("slice_set_breakdown", "d.keep", some({ fieldId: "id", limit: none }));
+    call("slice_select", "d.keep", some(2n));
+    call("slice_add_filter", "d.keep", variant("string", { fieldId: "id", op: variant("eq", "a") }));
+
+    call("slice_clear_filters", "d.keep");
+    const s = call("slice_read", "d.keep") as { filters: unknown[]; breakdown: { type: string }; selectedIndex: { type: string; value: bigint } };
+    assert.equal(s.filters.length, 0);
+    assert.equal(s.breakdown.type, "some");        // grouping survives "clear all"
+    assert.equal(s.selectedIndex.value, 2n);       // selection survives "clear all"
+});
+
+test("slice_matches: toMatch projection wins; autoDerive falls back to the searchable string field (#170)", () => {
+    initializeStore(new UIStore());
+    const cfgS = {
+        fields: new Map([["id", { type: "string", value: { accessor: (r: { id: string }) => r.id } }]]),
+        rangeFieldId: none, searchFieldIds: ["id"], breakdownFieldIds: [],
+    };
+    const rows = [{ id: "alpha" }, { id: "beta" }];
+
+    buildSliceHandle("m.proj", cfgS, initial, rows, some((r: { id: string }) => ({ id: r.id, label: r.id.toUpperCase(), meta: none })));
+    const projected = call("slice_matches", "m.proj") as Array<{ label: string }>;
+    assert.deepEqual(projected.map(m => m.label), ["ALPHA", "BETA"]);   // via toMatch
+
+    buildSliceHandle("m.auto", cfgS, initial, rows, none);
+    call("slice_set_search", "m.auto", some("alp"));
+    const derived = call("slice_matches", "m.auto") as Array<{ id: string; label: string }>;
+    assert.deepEqual(derived.map(m => m.label), ["alpha"]);             // auto-derived, narrowed by the query
+});
+
+test("slice_fields merges auto-derived hints for hint-less string fields; slice_cohort_counts counts per cohort (#170)", () => {
+    initializeStore(new UIStore());
+    const cfgS = {
+        fields: new Map([["id", { type: "string", value: { label: "Id", accessor: (r: { id: string }) => r.id } }]]),
+        rangeFieldId: none, searchFieldIds: ["id"], breakdownFieldIds: [],
+    };
+    buildSliceHandle("d.fields", cfgS, initial, [{ id: "a" }, { id: "b" }, { id: "a" }], none);
+
+    const fields = call("slice_fields_meta", "d.fields") as Array<{ fieldId: string; kind: string; hints: string[] }>;
+    assert.equal(fields.length, 1);
+    assert.deepEqual(fields[0]!.hints, ["a", "b"]);                     // distinct values, insertion order
+
+    call("slice_define_cohort", "d.fields", { id: "just-a", name: "Just A", filters: [variant("string", { fieldId: "id", op: variant("eq", "a") })] });
+    const counts = call("slice_cohort_counts", "d.fields") as Map<string, bigint>;
+    assert.equal(counts.get("just-a"), 2n);                             // counted in isolation over bound rows
+});
+
 test("a real narrowing (search) DOES count, and clears cleanly (sanity)", () => {
     initializeStore(new UIStore());
     // A search that actually narrows rows needs a real string-field accessor.

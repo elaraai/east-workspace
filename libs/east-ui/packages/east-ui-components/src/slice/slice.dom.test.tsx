@@ -4,11 +4,15 @@
  *
  * @vitest-environment jsdom
  *
- * Interaction tests for the self-driving Slice renderers. The renderers are
- * mounted against a **fake bind closure** (a plain JS object implementing the
- * `SliceBind` contract over mutable JS state) so we exercise the React /
- * useState / builder layer in isolation — no East compile, no store. The real
- * bind + apply logic is covered separately by `test/platform/slice.spec.ts`.
+ * Interaction tests for the self-driving Slice renderers. Most suites mount
+ * against a **fake bind closure** (a plain JS object implementing the
+ * `SliceBind` contract over mutable JS state, kept faithful to the real
+ * mutator contracts — defineCohort throws on a duplicate id, addFilter dedups,
+ * toggleFilter is an idempotent toggle) to exercise the React / useState /
+ * builder layer in isolation. The final suite mounts against a **real**
+ * `Slice.bind` handle + `UIStore` (#170) so the full render → handle → store →
+ * `useSliceReactivity` → chip round-trip is covered too. The apply engine is
+ * covered separately by `test/platform/slice.spec.ts`.
  */
 
 import { describe, test, expect, afterEach } from "vitest";
@@ -17,6 +21,9 @@ import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
 import { variant, some, none, equalFor } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
+import { buildSliceHandle } from "../platform/slice/index.js";
+import { initializeStore } from "../platform/state-runtime.js";
+import { UIStore } from "../platform/state-store.js";
 import { system } from "../theme/index.js";
 import { EastChakraSliceCohort } from "./cohort/index.js";
 import { EastChakraSliceFilter } from "./filter/index.js";
@@ -53,7 +60,9 @@ function fakeSlice(init: Record<string, unknown> = {}, derived: Record<string, u
             set({ filters: i >= 0 ? s.filters.filter((_: unknown, j: number) => j !== i) : [...s.filters, p] });
         },
         removeFilter: (i: unknown) => set({ filters: s.filters.filter((_: unknown, j: number) => j !== Number(i)) }),
-        clearFilters: () => set({ filters: [], activeCohorts: new Set<string>() }),
+        // Faithful to the real primitive: "clear all" zeroes EVERY narrowing —
+        // filters, active cohorts, range, and search.
+        clearFilters: () => set({ filters: [], activeCohorts: new Set<string>(), range: none, search: none }),
         // Faithful to the real `Slice.bind` primitive (platform/slice/index.ts):
         // defining a duplicate id throws. The DOM fake previously just appended,
         // which is why the Filter "Save as cohort" duplicate-id bug (#161) was
@@ -517,5 +526,69 @@ describe("Slice.Search — combobox drives the query", () => {
         const search = slice.read().search;
         expect(search.type).toBe("some");
         expect(search.value).toBe("SKU");
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// #170 — the REAL path: render → compiled handle → UIStore (beast2) →
+// useSliceReactivity → chip. Every suite above runs against the fake; a
+// regression in the real primitives or the store subscription is invisible
+// there. These mount EastChakraSliceFilter over a real Slice.bind handle.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("Slice.Filter against the REAL store — round-trip + reactivity (#170)", () => {
+    const realCfg = {
+        fields: new Map<string, unknown>([
+            ["scenario", { type: "string",  value: { label: "Scenario", accessor: (r: { scenario: string }) => r.scenario } }],
+            ["sessions", { type: "integer", value: { label: "Sessions", accessor: (r: { sessions: bigint }) => r.sessions } }],
+        ]),
+        rangeFieldId: none, searchFieldIds: ["scenario"], breakdownFieldIds: [],
+    };
+    const realInitial = {
+        range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
+        breakdown: none, search: none, visible: none, selectedIndex: none,
+    };
+    const rows = [
+        { scenario: "v3", sessions: 42n },
+        { scenario: "v3", sessions: 12n },
+        { scenario: "v2", sessions: 55n },
+    ];
+
+    test("driving the builder writes the real store AND the chip + SHOWING count render from it", async () => {
+        initializeStore(new UIStore());
+        const handle: any = buildSliceHandle("real.filter", realCfg, realInitial, rows, none);
+        const value: any = { slice: handle, unit: some("events"), density: none, editOpen: some(true) };
+        ui(<EastChakraSliceFilter value={value} />);
+        expect(screen.getByText(/SHOWING 3 OF 3 events/)).toBeTruthy();
+
+        const user = userEvent.setup();
+        await pickOption(user, "Field", "Sessions");
+        await pickOption(user, "Operator", "≥");
+        await user.click(await screen.findByRole("spinbutton"));
+        await user.paste("20");
+        fireEvent.click(screen.getByText("Add"));
+
+        // The store round-tripped through the real primitives (beast2)…
+        const stored = handle.read();
+        expect(stored.filters.length).toBe(1);
+        expect(stored.filters[0].value.op.value).toBe(20n);
+        // …and the DOM re-rendered from it: chip + count footer.
+        expect(await screen.findByText(/sessions ≥ 20/)).toBeTruthy();
+        expect(screen.getByText(/SHOWING 2 OF 3 events/)).toBeTruthy();
+    });
+
+    test("a handle mutation OUTSIDE React re-renders the mounted surface (useSliceReactivity)", async () => {
+        initializeStore(new UIStore());
+        const handle: any = buildSliceHandle("real.reactive", realCfg, realInitial, rows, none);
+        const value: any = { slice: handle, unit: some("events"), density: none, editOpen: none };
+        ui(<EastChakraSliceFilter value={value} />);
+        expect(screen.getByText(/SHOWING 3 OF 3 events/)).toBeTruthy();
+        expect(screen.queryByText(/sessions ≥ 20/)).toBeNull();
+
+        // Not a React event — the raw compiled handle, as any consumer could call it.
+        act(() => { handle.addFilter(variant("integer", { fieldId: "sessions", op: variant("gte", 20n) })); });
+
+        expect(await screen.findByText(/sessions ≥ 20/)).toBeTruthy();   // chip appeared
+        expect(screen.getByText(/SHOWING 2 OF 3 events/)).toBeTruthy();  // count updated
     });
 });
