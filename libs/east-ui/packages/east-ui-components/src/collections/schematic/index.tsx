@@ -664,13 +664,13 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     // render state (the draft edge painted on the canvas). A SESSION accumulates
     // Shift-added connections — `sessionEdges` is the transient visual for
     // `connect` mode (draw mode shows the real created links instead).
-    const connectDragRef = useRef<{ from: string; additive: boolean; retarget?: { key: string; movingEnd: "from" | "to" } } | null>(null);
+    const connectDragRef = useRef<{ from: string; additive: boolean; retarget?: { key: string; movingEnd: "from" | "to" }; netExtend?: string } | null>(null);
     // Move-tool drag (#179): the pressed key, every key moving (group move rides
     // the selection), each mover's ORIGINAL position (for Esc/cancel revert), and
     // the world start point of the gesture.
     const moveDragRef = useRef<{ key: string; keys: readonly string[]; orig: ReadonlyMap<string, Pt>; startWorld: Pt } | null>(null);
     const [connectDraft, setConnectDraft] = useState<{ from: string; toWorld: Pt; target: string | undefined; forbidden?: string } | null>(null);
-    const linkSessionRef = useRef<{ key: string; links: readonly { key: string; from: string; to: string }[]; drawn: "link" | "net" | "none" } | null>(null);
+    const linkSessionRef = useRef<{ key: string; links: readonly { key: string; from: string; to: string }[]; drawn: "link" | "net" | "none"; seeded: readonly string[] } | null>(null);
     const [sessionEdges, setSessionEdges] = useState<readonly { key: string; from: string; to: string }[]>([]);
     const linkKeyCounter = useRef(0);
     // One-shot connect flash (the draw-in + endpoint rings), driven by a short
@@ -1366,6 +1366,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         const ep = { key, from, to };
         const open = shift ? linkSessionRef.current : null;
         const links = open !== null ? [...open.links, ep] : [ep];
+        const seeded = open !== null ? open.seeded : [];
         // The session key is STABLE across the session's commits — the event's
         // `net.key`, so handlers can upsert ONE net per session (#189).
         const sessionKey = open !== null ? open.key : `net-${++linkKeyCounter.current}`;
@@ -1387,6 +1388,12 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                 drawn = "net";
                 const net = mkCreatedNet(sessionKey, netSources, netDestinations);
                 const priorLinkKey = open !== null && open.drawn === "link" ? open.links[0]?.key : undefined;
+                // Seeded (absorbed) prop links leave the picture with the net's
+                // arrival — locally via the deleted overlay; the event's
+                // `absorbed` tells handlers to delete those rows.
+                const deleted = seeded.length > 0
+                    ? new Set([...linkEdits.deleted, ...seeded])
+                    : linkEdits.deleted;
                 setLinkEdits({
                     ...linkEdits,
                     created: priorLinkKey !== undefined
@@ -1396,12 +1403,13 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                         ...linkEdits.createdNets.filter(n => n.key !== sessionKey),
                         net,
                     ],
+                    deleted,
                 });
             }
         } else {
             setSessionEdges(links);
         }
-        linkSessionRef.current = { key: sessionKey, links, drawn };
+        linkSessionRef.current = { key: sessionKey, links, drawn, seeded };
         connectFlashRef.current = { from, to, t0: performance.now() };
         startConnectFlash();
         if (onCreateLinkFn) {
@@ -1409,7 +1417,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
             dispatchEast("onCreateLink", () => fn({
                 link: ep, links: [...links],
                 net: { key: sessionKey, sources: netSources, destinations: netDestinations },
-                additive, existing,
+                additive, existing, absorbed: [...seeded],
             }));
         }
     }, [effectiveLinks, linkMode, linkEdits, onCreateLinkFn, startConnectFlash]);
@@ -1436,6 +1444,24 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         startConnectFlash();
         if (onEditLinkFn) { const fn = onEditLinkFn; dispatchEast("onEditLink", () => fn({ key, from, to })); }
     }, [effectiveLinks, linkEdits, onEditLinkFn, startConnectFlash]);
+    // Extend a selected NET by one member (Shift-drag out of a member): the
+    // dragged-to item joins DOWNSTREAM; local netEdits overlay + onEditNet with
+    // the endpoints AFTER — the exact mirror of leg-delete.
+    const commitNetExtend = useCallback((netKey: string, from: string, to: string) => {
+        const net = effectiveNets.find(n => n.key === netKey);
+        if (net === undefined) return;
+        if (net.sources.includes(to) || net.destinations.includes(to)) return;   // already a member
+        const fromIsMember = net.sources.includes(from) || net.destinations.includes(from);
+        if (!fromIsMember) return;
+        const sources = [...net.sources];
+        const destinations = [...net.destinations, to];
+        const netEdits = new Map(linkEdits.netEdits);
+        netEdits.set(netKey, { sources, destinations });
+        setLinkEdits({ ...linkEdits, netEdits });
+        connectFlashRef.current = { from, to, t0: performance.now() };
+        startConnectFlash();
+        if (onEditNetFn) { const fn = onEditNetFn; dispatchEast("onEditNet", () => fn({ key: netKey, sources, destinations })); }
+    }, [effectiveNets, linkEdits, onEditNetFn, startConnectFlash]);
     // Delete the selected link (Del / Backspace while editable): created links
     // drop locally; prop links join the deleted overlay; onDeleteLink fires.
     const deleteSelectedLink = useCallback(() => {
@@ -1685,8 +1711,10 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         }
         // Connector-handle grab (#176): with an editable selected link, pressing
         // within a handle's reach starts a RE-TARGET drag (any tool) — the draft
-        // anchors at the FIXED end and follows the cursor.
-        if (renderSnapRef.current.linkEditEnabled && renderSnapRef.current.selectedLink !== null) {
+        // anchors at the FIXED end and follows the cursor. SHIFT skips the
+        // handle: Shift-drag from a selected link's endpoint SEEDS a net
+        // session instead (plain = retarget, Shift = extend).
+        if (!e.shiftKey && renderSnapRef.current.linkEditEnabled && renderSnapRef.current.selectedLink !== null) {
             const snap = renderSnapRef.current;
             const lk2 = effectiveLinks.find(l => l.key === snap.selectedLink?.key);
             const cam2 = cameraRef.current;
@@ -1722,6 +1750,29 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                 const wxp = ppuLive > 0 ? (e.clientX - r.left - cam.tx) / ppuLive : 0;
                 const wyp = ppuLive > 0 ? (e.clientY - r.top - cam.ty) / ppuLive : 0;
                 connectDragRef.current = { from, additive: e.shiftKey };
+                // Shift-drag FROM the SELECTED thing extends it (#189 UX):
+                // a selected NET member drags a membership ADD; a selected
+                // pairwise link's endpoint SEEDS the session with that link
+                // (it gets absorbed into the new net on commit).
+                if (e.shiftKey && linkSessionRef.current === null) {
+                    const selL = renderSnapRef.current.selectedLink;
+                    if (selL !== null && selL.leg === null) {
+                        const selNet = effectiveNets.find(n => n.key === selL.key);
+                        if (selNet !== undefined && (selNet.sources.includes(from) || selNet.destinations.includes(from))) {
+                            connectDragRef.current = { from, additive: true, netExtend: selNet.key };
+                        } else {
+                            const selLink = effectiveLinks.find(l => l.key === selL.key);
+                            if (selLink !== undefined && (selLink.from === from || selLink.to === from)) {
+                                linkSessionRef.current = {
+                                    key: `net-${++linkKeyCounter.current}`,
+                                    links: [{ key: selLink.key, from: selLink.from, to: selLink.to }],
+                                    drawn: "none",
+                                    seeded: [selLink.key],
+                                };
+                            }
+                        }
+                    }
+                }
                 setConnectDraft({ from, toWorld: { x: wxp, y: wyp }, target: undefined });
                 return;
             }
@@ -1745,7 +1796,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         if (linkSessionRef.current !== null) endLinkSession();
         transition("pointerDown");
         panRef.current = { x: e.clientX, y: e.clientY, tx: cameraRef.current.tx, ty: cameraRef.current.ty };
-    }, [transition, itemKeyAt, effectiveLinks, closeHover, endLinkSession]);
+    }, [transition, itemKeyAt, effectiveLinks, effectiveNets, closeHover, endLinkSession]);
     // Drive the hover state machine from an IDLE pointermove (#178): hit-test
     // item → zone → link/net (interaction precedence), dwell before opening,
     // retarget on a new entity, grace-close over empty canvas. Read-only reuse
@@ -1922,6 +1973,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                     : connectAllowed(cd.from, tk);
                 if (allowed) {
                     if (cd.retarget !== undefined) commitRetarget(cd.retarget.key, cd.retarget.movingEnd, tk);
+                    else if (cd.netExtend !== undefined) commitNetExtend(cd.netExtend, cd.from, tk);
                     else commitConnect(cd.from, tk, cd.additive);
                 }
             }
@@ -1994,7 +2046,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                 else if (!e.shiftKey) { clearSelection(); clearZoneSelection(); setSelectedLink(null); }
             }
         }
-    }, [endPan, pickAt, flyTo, flyToSelection, collectMarquee, commitSelection, clearSelection, selectZoomFocus, zoneKeyAt, zoneTap, clearZoneSelection, itemKeyAt, commitConnect, commitRetarget, linkKeyAt, selectLink, commitMove, connectAllowed]);
+    }, [endPan, pickAt, flyTo, flyToSelection, collectMarquee, commitSelection, clearSelection, selectZoomFocus, zoneKeyAt, zoneTap, clearZoneSelection, itemKeyAt, commitConnect, commitRetarget, linkKeyAt, selectLink, commitMove, connectAllowed, commitNetExtend]);
     // pointercancel / lost capture: a pan OR select-drag that loses its grip
     // mid-gesture must still end (issue #57, P10). After a normal release the
     // pan is already ended (panRef null) so this is a no-op then, and it never

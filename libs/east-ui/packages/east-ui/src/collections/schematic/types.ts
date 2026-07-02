@@ -799,6 +799,7 @@ export type SchematicNetType = typeof SchematicNetType;
  * @property net - The session collapsed to net endpoints (stable session `key` — upsert-friendly)
  * @property additive - True when Shift extended an open session
  * @property existing - Keys of links already joining the newest from↔to (either direction)
+ * @property absorbed - Keys of existing pairwise links absorbed into the session (selected-link seed)
  */
 export const SchematicLinkCreateEventType = StructType({
     /** The newest connection (this drag). */
@@ -811,6 +812,9 @@ export const SchematicLinkCreateEventType = StructType({
     additive: BooleanType,
     /** Keys of links already joining the newest from↔to (either direction). */
     existing: ArrayType(StringType),
+    /** Keys of EXISTING pairwise links absorbed into this session (a selected
+     *  link's Shift-drag seed) — delete these rows when upserting the net. */
+    absorbed: ArrayType(StringType),
 });
 
 /**

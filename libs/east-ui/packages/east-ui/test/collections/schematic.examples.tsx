@@ -361,7 +361,7 @@ export const schematicZoneSelect = example({
 
 export const schematicLinkEdit = example({
     keywords: ["Schematic", "link", "editing", "connect", "linkMode", "session", "onCreateLink", "onSelectLink", "onEditLink", "onDeleteLink", "readOnlyLinks", "readOnly", "draw", "Reactive", "State", "Switch"],
-    description: "Link editing — the connect tool drags item→item to create links (draw mode adds them locally, form-input style; connect mode is event-only for planning operations between areas); Shift+drag ADDS to the session and onCreateLink reports the accumulated links + the pair's existing links; click a link to select it, drag an endpoint handle to re-target, Del deletes; switches flip linkMode and readOnlyLinks reactively; canConnect forbids mixer→shipping directly (product must pass a packer)",
+    description: "Link editing — the connect tool drags item→item to create links (draw mode adds them locally, form-input style; connect mode is event-only for planning operations between areas); Shift+drag ADDS to the session and onCreateLink reports the accumulated links + the pair's existing links; click a link to select it, drag an endpoint handle to re-target (SHIFT-drag from an endpoint instead SEEDS a net session that absorbs the link), Del deletes; switches flip linkMode and readOnlyLinks reactively; canConnect forbids mixer→shipping directly (product must pass a packer)",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const log = $.let(State.bind([StringType], "schematic_link_log", "—"));
@@ -540,7 +540,7 @@ export const schematicHover = example({
 
 export const schematicNets = example({
     keywords: ["Schematic", "net", "nets", "manifold", "bus", "trunk", "header", "bar", "stubs", "sources", "destinations", "via", "label", "linkMode", "onCreateLink", "session", "Reactive", "State", "Switch"],
-    description: "Nets — a manifold as ONE row: many sources feeding many destinations drawn as a header BAR with stubs and junction-tap dots (no pairwise explosion); the second net bridges two banks along an explicit via trunk path; the connect tool creates nets too (Shift+drag grows the session into one net — draw adds locally, connect mode is event-only), with switches flipping linkMode and readOnlyLinks reactively; click a stub to select ONE leg and Del removes just that endpoint (onEditNet); canConnect makes CIP-1 supply-only — drafts never snap onto it",
+    description: "Nets — a manifold as ONE row: many sources feeding many destinations drawn as a header BAR with stubs and junction-tap dots (no pairwise explosion); the second net bridges two banks along an explicit via trunk path; the connect tool creates nets too (Shift+drag grows the session into one net — draw adds locally, connect mode is event-only; Shift-drag OUT of a selected net's member adds the target as a new leg via onEditNet), with switches flipping linkMode and readOnlyLinks reactively; click a stub to select ONE leg and Del removes just that endpoint (onEditNet); canConnect makes CIP-1 supply-only — drafts never snap onto it",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const units = $.const([
