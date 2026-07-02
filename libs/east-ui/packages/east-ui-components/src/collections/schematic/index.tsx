@@ -363,7 +363,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     }, [value.links, value.nets]);
     const hasLinkEdits = linkEdits.created.length > 0 || linkEdits.createdNets.length > 0
         || linkEdits.retarget.size > 0 || linkEdits.deleted.size > 0;
-    const effectiveLinks = useMemo<readonly SchematicLinkValue[]>(() => {
+    const effectiveLinks = useMemo<SchematicLinkValue[]>(() => {
         if (!hasLinkEdits) return value.links;
         const base = value.links
             .filter(l => !linkEdits.deleted.has(l.key))
@@ -373,10 +373,23 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
             });
         return [...base, ...linkEdits.created];
     }, [value.links, linkEdits, hasLinkEdits]);
-    const effectiveNets = useMemo<readonly SchematicNetValue[]>(() => {
+    const effectiveNets = useMemo<SchematicNetValue[]>(() => {
         if (!hasLinkEdits) return value.nets;
         return [...value.nets.filter(n => !linkEdits.deleted.has(n.key)), ...linkEdits.createdNets];
     }, [value.nets, linkEdits, hasLinkEdits]);
+    // --- Local item positions (#179, move tool) — the form-input model. -------
+    // A position overlay over `value.items`, applied UPSTREAM of the working set
+    // so centers / rbush / LOD / nav / link endpoints all follow a move for free;
+    // a reactive `value.items` change REPLACES the local moves.
+    const [itemMoves, setItemMoves] = useState<ReadonlyMap<string, Pt>>(new Map());
+    useEffect(() => { setItemMoves(new Map()); }, [value.items]);
+    const movedItems = useMemo(() => {
+        if (itemMoves.size === 0) return value.items;
+        return value.items.map(it => {
+            const m = itemMoves.get(it.key);
+            return m !== undefined ? { ...it, x: m.x, y: m.y } : it;
+        });
+    }, [value.items, itemMoves]);
     // The ONE seam feeding local link/net edits to the canvas painter: paint sees
     // a value whose links + nets are the effective sets; everything else untouched.
     const paintValue = useMemo(() => (hasLinkEdits || itemMoves.size > 0)
@@ -544,20 +557,6 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     }, [setPersisted]);
 
     // The item working set: layer-hidden is a HARD pre-filter that wins over the
-    // --- Local item positions (#179, move tool) — the form-input model. -------
-    // A position overlay over `value.items`, applied UPSTREAM of the working set
-    // so centers / rbush / LOD / nav / link endpoints all follow a move for free;
-    // a reactive `value.items` change REPLACES the local moves.
-    const [itemMoves, setItemMoves] = useState<ReadonlyMap<string, Pt>>(new Map());
-    useEffect(() => { setItemMoves(new Map()); }, [value.items]);
-    const movedItems = useMemo(() => {
-        if (itemMoves.size === 0) return value.items;
-        return value.items.map(it => {
-            const m = itemMoves.get(it.key);
-            return m !== undefined ? { ...it, x: m.x, y: m.y } : it;
-        });
-    }, [value.items, itemMoves]);
-
     // slice-effect keep (an off layer means "not at all"); union with slice-hide.
     // Propagates for free to centers / rbush index / visibleItems / LOD / nav.
     const items = useMemo(() => {
