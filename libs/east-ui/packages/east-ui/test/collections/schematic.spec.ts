@@ -363,6 +363,7 @@ describeEast("Schematic", (test) => {
         $(Assert.equal(root.itemHover.hasTag("none"), true));
         $(Assert.equal(root.zoneHover.hasTag("none"), true));
         $(Assert.equal(root.linkHover.hasTag("none"), true));
+        $(Assert.equal(root.onEditNet.hasTag("none"), true));
     });
 
     test("selectionMode, onSelectionChange, sliceSelectField carry through", $ => {
@@ -391,6 +392,7 @@ describeEast("Schematic", (test) => {
                 itemHover: East.function([StringType], UIComponentType, (_$, _k) => Text.Root("item")),
                 zoneHover: East.function([StringType], UIComponentType, (_$, _k) => Text.Root("zone")),
                 linkHover: East.function([StringType], UIComponentType, (_$, _k) => Text.Root("link")),
+                onEditNet: East.function([Schematic.Types.NetEndpoints], NullType, (_$, _ev) => { }),
                 sliceSelectField: "id",
                 selectZoomFocus: true,
             },
@@ -416,5 +418,6 @@ describeEast("Schematic", (test) => {
         $(Assert.equal(root.itemHover.hasTag("some"), true));
         $(Assert.equal(root.zoneHover.hasTag("some"), true));
         $(Assert.equal(root.linkHover.hasTag("some"), true));
+        $(Assert.equal(root.onEditNet.hasTag("some"), true));
     });
 }, { platformFns: TestImpl });

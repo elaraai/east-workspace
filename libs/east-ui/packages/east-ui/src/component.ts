@@ -127,6 +127,7 @@ import {
     SchematicLinkModeType,
     SchematicLinkCreateEventType,
     SchematicLinkEditEventType,
+    SchematicNetEndpointsType,
     SchematicItemMoveEventType,
 } from "./collections/schematic/types.js";
 import {
@@ -892,6 +893,7 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         itemHover: OptionType(FunctionType([StringType], node)),
         zoneHover: OptionType(FunctionType([StringType], node)),
         linkHover: OptionType(FunctionType([StringType], node)),
+        onEditNet: OptionType(FunctionType([SchematicNetEndpointsType], NullType)),
     }),
 
     // Map — interactive geographic basemap + H3 / area overlay. The

@@ -51,6 +51,9 @@ export type SchematicNetValue = ValueTypeOf<typeof Schematic.Types.Net>;
 /** East Schematic layer value type. */
 export type SchematicLayerValue = ValueTypeOf<typeof Schematic.Types.Layer>;
 
+/** One selected net LEG — a stub identified by its side + endpoint item. */
+type NetLeg = { end: "source" | "destination"; item: string };
+
 /** Decoded hover-content builder (#178) — hovered entity key → UI value. */
 type HoverContentFn = (key: string) => ValueTypeOf<UIComponentType>;
 
@@ -240,9 +243,12 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     const onSelectLinkFn = useMemo(() => getSomeorUndefined(value.onSelectLink), [value.onSelectLink]);
     const onEditLinkFn = useMemo(() => getSomeorUndefined(value.onEditLink), [value.onEditLink]);
     const onDeleteLinkFn = useMemo(() => getSomeorUndefined(value.onDeleteLink), [value.onDeleteLink]);
+    const onEditNetFn = useMemo(() => getSomeorUndefined(value.onEditNet), [value.onEditNet]);
     // The selected link (single, #176) — selection works even when read-only
-    // (inspection + onSelectLink); the connector handles / delete do not.
-    const [selectedLink, setSelectedLink] = useState<string | null>(null);
+    // (inspection + onSelectLink); the connector handles / delete do not. A net
+    // STUB click selects one LEG (`leg` non-null): the halo narrows to that stub
+    // and Del removes just that endpoint (#189 follow-up).
+    const [selectedLink, setSelectedLink] = useState<{ key: string; leg: NetLeg | null } | null>(null);
     const scaleUnit = getSomeorUndefined(value.scaleUnit);
     const showGrid = getSomeorUndefined(value.grid) ?? true;
     const showNavigator = getSomeorUndefined(value.navigator) ?? value.zones.length > 0;
@@ -296,12 +302,14 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         createdNets: readonly SchematicNetValue[];
         retarget: ReadonlyMap<string, { from: string; to: string }>;
         deleted: ReadonlySet<string>;
-    }>({ created: [], createdNets: [], retarget: new Map(), deleted: new Set() });
+        /** Leg deletions (#189): full replacement endpoints per edited net. */
+        netEdits: ReadonlyMap<string, { sources: readonly string[]; destinations: readonly string[] }>;
+    }>({ created: [], createdNets: [], retarget: new Map(), deleted: new Set(), netEdits: new Map() });
     useEffect(() => {
-        setLinkEdits({ created: [], createdNets: [], retarget: new Map(), deleted: new Set() });
+        setLinkEdits({ created: [], createdNets: [], retarget: new Map(), deleted: new Set(), netEdits: new Map() });
     }, [value.links, value.nets]);
     const hasLinkEdits = linkEdits.created.length > 0 || linkEdits.createdNets.length > 0
-        || linkEdits.retarget.size > 0 || linkEdits.deleted.size > 0;
+        || linkEdits.retarget.size > 0 || linkEdits.deleted.size > 0 || linkEdits.netEdits.size > 0;
     const effectiveLinks = useMemo<SchematicLinkValue[]>(() => {
         if (!hasLinkEdits) return value.links;
         const base = value.links
@@ -314,7 +322,12 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     }, [value.links, linkEdits, hasLinkEdits]);
     const effectiveNets = useMemo<SchematicNetValue[]>(() => {
         if (!hasLinkEdits) return value.nets;
-        return [...value.nets.filter(n => !linkEdits.deleted.has(n.key)), ...linkEdits.createdNets];
+        // Membership edits apply AFTER the concat so leg-deletes also cover nets
+        // created locally this session.
+        return [...value.nets.filter(n => !linkEdits.deleted.has(n.key)), ...linkEdits.createdNets].map(n => {
+            const e = linkEdits.netEdits.get(n.key);
+            return e !== undefined ? { ...n, sources: [...e.sources], destinations: [...e.destinations] } : n;
+        });
     }, [value.nets, linkEdits, hasLinkEdits]);
     // --- Local item positions (#179, move tool) — the form-input model. -------
     // A position overlay over `value.items`, applied UPSTREAM of the working set
@@ -338,9 +351,17 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     // Selected-link hygiene: clear when the link leaves the effective set
     // (deleted locally or dropped by a prop change).
     useEffect(() => {
-        setSelectedLink(prev => (prev !== null
-            && !effectiveLinks.some(l => l.key === prev)
-            && !effectiveNets.some(n => n.key === prev)) ? null : prev);
+        setSelectedLink(prev => {
+            if (prev === null) return prev;
+            const net = effectiveNets.find(n => n.key === prev.key);
+            if (net === undefined && !effectiveLinks.some(l => l.key === prev.key)) return null;
+            // A selected LEG whose endpoint left the net demotes to the whole net.
+            if (prev.leg !== null && net !== undefined) {
+                const side = prev.leg.end === "source" ? net.sources : net.destinations;
+                if (!side.includes(prev.leg.item)) return { key: prev.key, leg: null };
+            }
+            return prev;
+        });
     }, [effectiveLinks, effectiveNets]);
 
     // Selection state, consolidated (#172): the selected SET and the anchor (the
@@ -771,7 +792,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     // The link under a screen point (#176): every visible link's ROUTED screen
     // polyline — fan lanes included, so the clickable path equals the drawn one
     // — tested segment-wise within the stroke weight + slop; nearest wins.
-    const linkKeyAt = useCallback((host: HTMLElement, clientX: number, clientY: number): string | undefined => {
+    const linkKeyAt = useCallback((host: HTMLElement, clientX: number, clientY: number): { key: string; leg: NetLeg | null } | undefined => {
         const snap = renderSnapRef.current;
         if (snap.size === null) return undefined;
         const cam = cameraRef.current;
@@ -781,7 +802,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         const sx = clientX - rect.left, sy = clientY - rect.top;
         const lanes = paintParallelLanes(effectiveLinks, l =>
             !layerHiddenKeys.has(l.key) && centers.has(l.from) && centers.has(l.to) && l.via.length === 0);
-        let best: string | undefined;
+        let best: { key: string; leg: NetLeg | null } | undefined;
         let bestD = Infinity;
         for (const link of effectiveLinks) {
             if (layerHiddenKeys.has(link.key) || lockedKeys.has(link.key)) continue;
@@ -802,14 +823,16 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
             const weight = link.style.value.weight.type === "some" ? link.style.value.weight.value
                 : (link.style.type === "solid" ? 2.5 : 1.5);
             const d = distanceToPolyline(pts, sx, sy);
-            if (d <= weight / 2 + LINK_HIT_SLOP && d < bestD) { best = link.key; bestD = d; }
+            if (d <= weight / 2 + LINK_HIT_SLOP && d < bestD) { best = { key: link.key, leg: null }; bestD = d; }
         }
         // Nets (#189): trunk, header bars, and every stub are clickable — the
         // SAME netGeometry the painter draws, so the target equals the drawing.
         for (const net of effectiveNets) {
             if (layerHiddenKeys.has(net.key) || lockedKeys.has(net.key)) continue;
-            const srcPts = net.sources.map(k => centers.get(k)).filter((q): q is Pt => q !== undefined);
-            const dstPts = net.destinations.map(k => centers.get(k)).filter((q): q is Pt => q !== undefined);
+            const srcK = net.sources.filter(k => centers.has(k));
+            const dstK = net.destinations.filter(k => centers.has(k));
+            const srcPts = srcK.map(k => centers.get(k)!);
+            const dstPts = dstK.map(k => centers.get(k)!);
             if (srcPts.length === 0 || dstPts.length === 0) continue;
             const geo = netGeometry(srcPts, dstPts, net.via);
             const toScreen = (q: Pt): Pt => ({ x: q.x * ppuLive + cam.tx, y: q.y * ppuLive + cam.ty });
@@ -817,21 +840,26 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
             const routePts = (anchors: readonly Pt[]): Pt[] => orth ? orthogonalize(anchors.map(toScreen)) : anchors.map(toScreen);
             const weight = net.style.value.weight.type === "some" ? net.style.value.weight.value
                 : (net.style.type === "solid" ? 2.5 : 1.5);
-            const polylines: Pt[][] = [
-                routePts(geo.trunk),
-                ...geo.bars.map(bar => bar.map(toScreen)),
-                ...geo.stubs.map(stub => routePts(stub)),
-            ];
-            for (const pl of polylines) {
+            // Trunk + bars hit the WHOLE net; a stub hits its LEG (stubs are in
+            // netGeometry input order: sources then destinations).
+            const legOf = (stubIdx: number): NetLeg => stubIdx < srcK.length
+                ? { end: "source", item: srcK[stubIdx]! }
+                : { end: "destination", item: dstK[stubIdx - srcK.length]! };
+            const whole: Pt[][] = [routePts(geo.trunk), ...geo.bars.map(bar => bar.map(toScreen))];
+            for (const pl of whole) {
                 const d = distanceToPolyline(pl, sx, sy);
-                if (d <= (weight + 1) / 2 + LINK_HIT_SLOP && d < bestD) { best = net.key; bestD = d; }
+                if (d <= (weight + 1) / 2 + LINK_HIT_SLOP && d < bestD) { best = { key: net.key, leg: null }; bestD = d; }
+            }
+            for (const [i, stub] of geo.stubs.entries()) {
+                const d = distanceToPolyline(routePts(stub), sx, sy);
+                if (d <= (weight + 1) / 2 + LINK_HIT_SLOP && d < bestD) { best = { key: net.key, leg: legOf(i) }; bestD = d; }
             }
         }
         return best;
     }, [effectiveLinks, effectiveNets, centers, layerHiddenKeys, lockedKeys]);
     // Click-select a link — selection works read-only (inspection channel).
-    const selectLink = useCallback((key: string) => {
-        setSelectedLink(key);
+    const selectLink = useCallback((key: string, leg: NetLeg | null = null) => {
+        setSelectedLink({ key, leg });
         if (onSelectLinkFn) { const fn = onSelectLinkFn; dispatchEast("onSelectLink", () => fn(key)); }
     }, [onSelectLinkFn]);
 
@@ -1028,7 +1056,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         zoom: number; tx: number; ty: number; vis: unknown; tiers: unknown;
         sel: ReadonlySet<string>; zsel: ReadonlySet<string>; pal: SchematicPalette | null; w: number; h: number; dpr: number; val: unknown;
         eff: unknown; phase: number; lay: unknown; alp: unknown;
-        dl: unknown; sw: unknown; cf: number; slk: string | null; sle: boolean;
+        dl: unknown; sw: unknown; cf: number; slk: unknown; sle: boolean;
     } | null>(null);
 
     // Apply the LIVE camera to ALL surfaces in one step: card-layer CSS vars +
@@ -1107,7 +1135,12 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                 ...(snap.connectDraftWorld !== undefined ? { draftLink: snap.connectDraftWorld } : {}),
                 ...(snap.sessionWorld.length > 0 ? { sessionLinks: snap.sessionWorld } : {}),
                 ...(cf !== null ? { connectFlash: { from: snap.centers.get(cf.from), to: snap.centers.get(cf.to), phase: cfPhase } } : {}),
-                ...(snap.selectedLink !== null ? { selectedLink: { key: snap.selectedLink, editable: snap.linkEditEnabled } } : {}),
+                ...(snap.selectedLink !== null ? {
+                    selectedLink: {
+                        key: snap.selectedLink.key, editable: snap.linkEditEnabled,
+                        ...(snap.selectedLink.leg !== null ? { leg: snap.selectedLink.leg } : {}),
+                    },
+                } : {}),
                 // Spread `effect` only when set — `exactOptionalPropertyTypes` forbids
                 // passing an explicit `undefined` to the optional `effect?` field.
                 ...(eff !== undefined ? { effect: { ...eff, pulsePhase: pulsePhaseRef.current } } : {}),
@@ -1277,9 +1310,28 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         // `net.key`, so handlers can upsert ONE net per session (#189).
         const sessionKey = open !== null ? open.key : `net-${++linkKeyCounter.current}`;
         const additive = open !== null;
-        // The session collapsed to net endpoints: distinct froms → distinct tos.
-        const netSources = [...new Set(links.map(l => l.from))];
-        const netDestinations = [...new Set(links.map(l => l.to))];
+        // Collapse the session to net endpoints with MEMBERSHIP semantics: the
+        // first drag fixes the upstream side; after that a drag FROM an existing
+        // member is just a handle — the NEW item joins downstream — and a drag
+        // from a new item INTO the net joins it upstream. A member never flips
+        // sides (dragging U-03 → U-04 must not make U-03 a second source), so
+        // gestures keep producing ONE clean bus.
+        let netSources: string[] = [];
+        let netDestinations: string[] = [];
+        for (const l of links) {
+            const isMember = (k: string): boolean => netSources.includes(k) || netDestinations.includes(k);
+            if (netSources.length === 0 && netDestinations.length === 0) {
+                netSources = [l.from]; netDestinations = [l.to];
+            } else if (isMember(l.from) && !isMember(l.to)) {
+                netDestinations = [...netDestinations, l.to];
+            } else if (!isMember(l.from) && isMember(l.to)) {
+                netSources = [...netSources, l.from];
+            } else if (!isMember(l.from) && !isMember(l.to)) {
+                netSources = [...netSources, l.from];
+                netDestinations = [...netDestinations, l.to];
+            }
+            // both ends already members → membership unchanged
+        }
         const existing = effectiveLinks
             .filter(l => (l.from === from && l.to === to) || (l.from === to && l.to === from))
             .map(l => l.key);
@@ -1348,8 +1400,28 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     // Delete the selected link (Del / Backspace while editable): created links
     // drop locally; prop links join the deleted overlay; onDeleteLink fires.
     const deleteSelectedLink = useCallback(() => {
-        const key = renderSnapRef.current.selectedLink;
-        if (key === null || !renderSnapRef.current.linkEditEnabled) return;
+        const selL = renderSnapRef.current.selectedLink;
+        if (selL === null || !renderSnapRef.current.linkEditEnabled) return;
+        const key = selL.key;
+        // A selected LEG deletes just that endpoint (#189): the membership
+        // overlay replaces the net's endpoint sets locally and onEditNet reports
+        // the endpoints AFTER; emptying a side falls through to whole-net delete.
+        if (selL.leg !== null) {
+            const net = effectiveNets.find(n => n.key === key);
+            if (net !== undefined) {
+                const leg = selL.leg;
+                const sources = leg.end === "source" ? net.sources.filter(k => k !== leg.item) : [...net.sources];
+                const destinations = leg.end === "destination" ? net.destinations.filter(k => k !== leg.item) : [...net.destinations];
+                if (sources.length > 0 && destinations.length > 0) {
+                    const netEdits = new Map(linkEdits.netEdits);
+                    netEdits.set(key, { sources, destinations });
+                    setLinkEdits({ ...linkEdits, netEdits });
+                    setSelectedLink({ key, leg: null });
+                    if (onEditNetFn) { const fn = onEditNetFn; dispatchEast("onEditNet", () => fn({ key, sources, destinations })); }
+                    return;
+                }
+            }
+        }
         if (linkEdits.created.some(l => l.key === key)) {
             setLinkEdits({ ...linkEdits, created: linkEdits.created.filter(l => l.key !== key) });
         } else if (linkEdits.createdNets.some(n => n.key === key)) {
@@ -1362,7 +1434,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         }
         setSelectedLink(null);
         if (onDeleteLinkFn) { const fn = onDeleteLinkFn; dispatchEast("onDeleteLink", () => fn(key)); }
-    }, [linkEdits, onDeleteLinkFn]);
+    }, [linkEdits, onDeleteLinkFn, effectiveNets, onEditNetFn]);
     // Finish a move gesture: fire onMoveItem ONCE with the pressed item's final
     // (clamped) position, every moved key, and the shared raw world delta.
     const commitMove = useCallback((md: { key: string; keys: readonly string[]; orig: ReadonlyMap<string, Pt>; startWorld: Pt }, dx: number, dy: number) => {
@@ -1577,7 +1649,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         // anchors at the FIXED end and follows the cursor.
         if (renderSnapRef.current.linkEditEnabled && renderSnapRef.current.selectedLink !== null) {
             const snap = renderSnapRef.current;
-            const lk2 = effectiveLinks.find(l => l.key === snap.selectedLink);
+            const lk2 = effectiveLinks.find(l => l.key === snap.selectedLink?.key);
             const cam2 = cameraRef.current;
             const ppu2 = snap.fit * cam2.zoom;
             if (lk2 !== undefined && ppu2 > 0) {
@@ -1646,7 +1718,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
             if (key !== undefined) kind = "zone";
         }
         if (kind === null && linkHoverFn !== undefined) {
-            key = linkKeyAt(host, e.clientX, e.clientY);
+            key = linkKeyAt(host, e.clientX, e.clientY)?.key;
             if (key !== undefined) kind = "link";
         }
         if (kind === null || key === undefined) {
@@ -1837,7 +1909,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                 // A bare tap in marquee mode: link stroke selects the link, zone
                 // body selects the zone; true background clears all (unless Shift).
                 const lk = linkKeyAt(e.currentTarget as HTMLElement, e.clientX, e.clientY);
-                if (lk !== undefined) selectLink(lk);
+                if (lk !== undefined) selectLink(lk.key, lk.leg);
                 else {
                     const zk = zoneKeyAt(e.currentTarget as HTMLElement, e.clientX, e.clientY);
                     if (zk !== undefined) zoneTap(zk, sel.additive);
@@ -1856,7 +1928,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
             // OUTLINE zone body selects the zone (#177), and a true-background
             // tap clears ALL selections (unless Shift).
             const lk = linkKeyAt(e.currentTarget as HTMLElement, e.clientX, e.clientY);
-            if (lk !== undefined) selectLink(lk);
+            if (lk !== undefined) selectLink(lk.key, lk.leg);
             else {
                 const zk = zoneKeyAt(e.currentTarget as HTMLElement, e.clientX, e.clientY);
                 if (zk !== undefined) zoneTap(zk, e.shiftKey);

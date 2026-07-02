@@ -127,8 +127,9 @@ export interface PaintInput {
      * undefined when an item vanished mid-flash — the painter skips then. */
     connectFlash?: { from: Pt | undefined; to: Pt | undefined; phase: number };
     /** The selected link (#176): halo stroke; `editable` also draws the
-     * endpoint connector handles for re-targeting. */
-    selectedLink?: { key: string; editable: boolean };
+     * endpoint connector handles for re-targeting. A net LEG selection
+     * narrows the halo to that one stub (#189 follow-up). */
+    selectedLink?: { key: string; editable: boolean; leg?: { end: "source" | "destination"; item: string } };
 }
 
 const css = (c: RGB, a = 1): string =>
@@ -892,8 +893,10 @@ export function paintSchematic(input: PaintInput): void {
     // whole net hides when either side empties or its layer is hidden.
     for (const net of value.nets) {
         if (layerHidden(net.key)) continue;
-        const srcPts = net.sources.map(k => centers.get(k)).filter((q): q is Pt => q !== undefined);
-        const dstPts = net.destinations.map(k => centers.get(k)).filter((q): q is Pt => q !== undefined);
+        const srcK = net.sources.filter(k => centers.has(k));
+        const dstK = net.destinations.filter(k => centers.has(k));
+        const srcPts = srcK.map(k => centers.get(k)!);
+        const dstPts = dstK.map(k => centers.get(k)!);
         if (srcPts.length === 0 || dstPts.length === 0) continue;
         // Cull by the AABB over every endpoint + waypoint (same rule as links;
         // bar offsets stay within the endpoint↔trunk gap, so the AABB holds).
@@ -947,9 +950,10 @@ export function paintSchematic(input: PaintInput): void {
             ctx.arc(j.x, j.y, weight + 1.5, 0, Math.PI * 2);
             ctx.fill();
         }
-        // Selected-net halo (#176 channel) — trunk + bars; no endpoint
-        // handles (endpoints are sets).
-        if (isSel) {
+        // Selected-net halo (#176 channel) — trunk + bars, or (leg selection)
+        // ONLY the selected stub; no endpoint handles (endpoints are sets).
+        const selLeg = isSel ? selectedLink?.leg : undefined;
+        if (isSel && selLeg === undefined) {
             ctx.lineWidth = weight + 5;
             ctx.strokeStyle = css(p.brand600, 0.25);
             ctx.beginPath();
@@ -958,6 +962,17 @@ export function paintSchematic(input: PaintInput): void {
             for (const bar of geo.bars) {
                 ctx.beginPath();
                 traceRounded(ctx, bar.map(toScreen), 0);
+                ctx.stroke();
+            }
+        } else if (selLeg !== undefined) {
+            // Stubs are in netGeometry input order: sources then destinations.
+            const idx = selLeg.end === "source" ? srcK.indexOf(selLeg.item) : dstK.indexOf(selLeg.item);
+            const stub = idx >= 0 ? geo.stubs[selLeg.end === "source" ? idx : srcK.length + idx] : undefined;
+            if (stub !== undefined) {
+                ctx.lineWidth = weight + 5;
+                ctx.strokeStyle = css(p.brand600, 0.35);
+                ctx.beginPath();
+                traceRounded(ctx, stub.map(toScreen), corner);
                 ctx.stroke();
             }
         }

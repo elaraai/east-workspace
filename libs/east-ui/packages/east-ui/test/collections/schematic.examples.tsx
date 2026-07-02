@@ -531,7 +531,7 @@ export const schematicHover = example({
 
 export const schematicNets = example({
     keywords: ["Schematic", "net", "nets", "manifold", "bus", "trunk", "header", "bar", "stubs", "sources", "destinations", "via", "label", "linkMode", "onCreateLink", "session", "Reactive", "State", "Switch"],
-    description: "Nets — a manifold as ONE row: many sources feeding many destinations drawn as a header BAR with stubs and junction-tap dots (no pairwise explosion); the second net bridges two banks along an explicit via trunk path; the connect tool creates nets too (Shift+drag grows the session into one net — draw adds locally, connect mode is event-only), with switches flipping linkMode and readOnlyLinks reactively",
+    description: "Nets — a manifold as ONE row: many sources feeding many destinations drawn as a header BAR with stubs and junction-tap dots (no pairwise explosion); the second net bridges two banks along an explicit via trunk path; the connect tool creates nets too (Shift+drag grows the session into one net — draw adds locally, connect mode is event-only), with switches flipping linkMode and readOnlyLinks reactively; click a stub to select ONE leg and Del removes just that endpoint (onEditNet)",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const units = $.const([
@@ -557,6 +557,11 @@ export const schematicNets = example({
             // `net.key` to materialise it as one manifold row.
             const onCreateLink = $.const(East.function([Schematic.Types.LinkCreateEvent], NullType, ($, ev) => {
                 $(log.write(East.str`net ${ev.net.key} · ${East.print(ev.net.sources.size())} src → ${East.print(ev.net.destinations.size())} dst · additive ${East.print(ev.additive)}`));
+            }));
+            // Click a STUB to select one leg (narrow halo), Del removes just that
+            // endpoint — onEditNet reports the net's endpoints AFTER the removal.
+            const onEditNet = $.const(East.function([Schematic.Types.NetEndpoints], NullType, ($, ev) => {
+                $(log.write(East.str`net ${ev.key} edited · ${East.print(ev.sources.size())} src → ${East.print(ev.destinations.size())} dst`));
             }));
             // Reactive mode switches: `connect` = event-only (plan the manifold,
             // nothing drawn); editable off = readOnlyLinks (connect tool hidden).
@@ -589,6 +594,7 @@ export const schematicNets = example({
                         linkMode={lm}
                         readOnlyLinks={roLinks}
                         onCreateLink={onCreateLink}
+                        onEditNet={onEditNet}
                     />
                 </VStack>
             );

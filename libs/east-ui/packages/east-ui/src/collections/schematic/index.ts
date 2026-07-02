@@ -142,6 +142,7 @@ export const SchematicRootType: StructType<{
     itemHover: OptionType<FunctionType<[StringType], UIComponentType>>,
     zoneHover: OptionType<FunctionType<[StringType], UIComponentType>>,
     linkHover: OptionType<FunctionType<[StringType], UIComponentType>>,
+    onEditNet: OptionType<FunctionType<[SchematicNetEndpointsType], NullType>>,
 }> = StructType({
     extent: StructType({ width: FloatType, height: FloatType }),
     items: ArrayType(SchematicItemType),
@@ -177,6 +178,7 @@ export const SchematicRootType: StructType<{
     itemHover: OptionType(FunctionType([StringType], UIComponentType)),
     zoneHover: OptionType(FunctionType([StringType], UIComponentType)),
     linkHover: OptionType(FunctionType([StringType], UIComponentType)),
+    onEditNet: OptionType(FunctionType([SchematicNetEndpointsType], NullType)),
 });
 
 /**
@@ -738,6 +740,8 @@ export interface SchematicConfig<
     zoneHover?: SubtypeExprOrValue<FunctionType<[StringType], UIComponentType>>;
     /** Optional hover-card content builder for LINKS and NETS — receives the hovered link / net key (nets share the channel, like `onSelectLink`); absent ⇒ no link hover card. */
     linkHover?: SubtypeExprOrValue<FunctionType<[StringType], UIComponentType>>;
+    /** Optional net membership-edit callback — fired after deleting ONE selected leg (a stub) of a net, with the net's endpoints AFTER the removal (upsert by `key`); removing the last endpoint of a side deletes the whole net via `onDeleteLink` instead. Gated by `readOnly` / `readOnlyLinks`. */
+    onEditNet?: SubtypeExprOrValue<FunctionType<[SchematicNetEndpointsType], NullType>>;
 }
 
 function buildRoot(
@@ -923,6 +927,7 @@ function buildRoot(
         itemHover: config.itemHover !== undefined ? some(East.value(config.itemHover, FunctionType([StringType], UIComponentType))) : none,
         zoneHover: config.zoneHover !== undefined ? some(East.value(config.zoneHover, FunctionType([StringType], UIComponentType))) : none,
         linkHover: config.linkHover !== undefined ? some(East.value(config.linkHover, FunctionType([StringType], UIComponentType))) : none,
+        onEditNet: config.onEditNet !== undefined ? some(config.onEditNet) : none,
     }), UIComponentType);
 }
 
