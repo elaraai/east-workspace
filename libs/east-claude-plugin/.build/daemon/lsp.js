@@ -22,6 +22,37 @@ function isBlockBuilderType(type) {
   const name = type.aliasSymbol?.name ?? type.symbol?.name;
   return name === "BlockBuilder";
 }
+function someTypeName(type, match) {
+  const seen = /* @__PURE__ */ new Set();
+  const stack = [type];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (current === void 0 || seen.has(current))
+      continue;
+    seen.add(current);
+    const name = current.aliasSymbol?.name ?? current.symbol?.name;
+    if (name !== void 0 && match(name))
+      return true;
+    if (current.isUnionOrIntersection())
+      stack.push(...current.types);
+  }
+  return false;
+}
+function isEastPlatformDefinitionType(type) {
+  return someTypeName(type, (name) => name.endsWith("PlatformDefinition"));
+}
+var E3_DEFINITION_NAMES = /* @__PURE__ */ new Set([
+  "TaskDef",
+  "DatasetDef",
+  "DataTreeDef",
+  "FunctionDef",
+  "MutationDef",
+  "RecordDef",
+  "PackageDef"
+]);
+function isEastDefinitionType(type) {
+  return someTypeName(type, (name) => E3_DEFINITION_NAMES.has(name) || name.endsWith("PlatformDefinition"));
+}
 
 // ../east-diagnostics/dist/src/block-builder.js
 function matchBlockBuilderCall(node, ctx) {
@@ -147,6 +178,79 @@ var preferExplicitEastType = {
   }
 };
 
+// ../east-diagnostics/dist/src/east-source.js
+import { existsSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+function importDeclarationOf(sym, t) {
+  for (const d of sym?.declarations ?? []) {
+    let n = d;
+    if (t.isImportSpecifier(n))
+      n = n.parent.parent.parent;
+    else if (t.isNamespaceImport(n))
+      n = n.parent.parent;
+    else if (t.isImportClause(n))
+      n = n.parent;
+    else
+      continue;
+    if (t.isImportDeclaration(n))
+      return n;
+  }
+  return void 0;
+}
+function resolvesToEastImport(id, checker, t) {
+  const imp = importDeclarationOf(checker.getSymbolAtLocation(id), t);
+  return imp !== void 0 && t.isStringLiteral(imp.moduleSpecifier) && imp.moduleSpecifier.text.startsWith("@elaraai/");
+}
+var importsCache = /* @__PURE__ */ new WeakMap();
+function importsEastPackage(sf, t) {
+  const cached = importsCache.get(sf);
+  if (cached !== void 0)
+    return cached;
+  let found = false;
+  for (const stmt of sf.statements) {
+    if (!t.isImportDeclaration(stmt) && !t.isExportDeclaration(stmt))
+      continue;
+    const spec = stmt.moduleSpecifier;
+    if (spec !== void 0 && t.isStringLiteral(spec) && spec.text.startsWith("@elaraai/")) {
+      found = true;
+      break;
+    }
+  }
+  importsCache.set(sf, found);
+  return found;
+}
+var pkgDirCache = /* @__PURE__ */ new Map();
+function packageDirOf(p) {
+  const start = dirname(resolve(p));
+  if (pkgDirCache.has(start))
+    return pkgDirCache.get(start);
+  let dir = start;
+  let result;
+  for (; ; ) {
+    if (existsSync(join(dir, "package.json"))) {
+      result = dir;
+      break;
+    }
+    const parent = dirname(dir);
+    if (parent === dir)
+      break;
+    dir = parent;
+  }
+  pkgDirCache.set(start, result);
+  return result;
+}
+function resolvesWithinOwnPackage(sourceFileName, specifierText) {
+  try {
+    const own = packageDirOf(sourceFileName);
+    if (own === void 0)
+      return false;
+    const targetAbs = resolve(dirname(sourceFileName), specifierText);
+    return packageDirOf(targetAbs) === own;
+  } catch {
+    return true;
+  }
+}
+
 // ../east-diagnostics/dist/src/rules/prefer-some-none.js
 var NAME3 = "prefer-some-none";
 var CODE3 = 990003;
@@ -160,6 +264,8 @@ var preferSomeNone = {
       return;
     const callee = node.expression;
     if (!t.isIdentifier(callee) || callee.text !== "variant")
+      return;
+    if (!resolvesToEastImport(callee, ctx.checker, t))
       return;
     const first = node.arguments[0];
     if (first === void 0 || !t.isStringLiteralLike(first))
@@ -330,59 +436,6 @@ var preferLetConstOverEastValue = {
     });
   }
 };
-
-// ../east-diagnostics/dist/src/east-source.js
-import { existsSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-var importsCache = /* @__PURE__ */ new WeakMap();
-function importsEastPackage(sf, t) {
-  const cached = importsCache.get(sf);
-  if (cached !== void 0)
-    return cached;
-  let found = false;
-  for (const stmt of sf.statements) {
-    if (!t.isImportDeclaration(stmt) && !t.isExportDeclaration(stmt))
-      continue;
-    const spec = stmt.moduleSpecifier;
-    if (spec !== void 0 && t.isStringLiteral(spec) && spec.text.startsWith("@elaraai/")) {
-      found = true;
-      break;
-    }
-  }
-  importsCache.set(sf, found);
-  return found;
-}
-var pkgDirCache = /* @__PURE__ */ new Map();
-function packageDirOf(p) {
-  const start = dirname(resolve(p));
-  if (pkgDirCache.has(start))
-    return pkgDirCache.get(start);
-  let dir = start;
-  let result;
-  for (; ; ) {
-    if (existsSync(join(dir, "package.json"))) {
-      result = dir;
-      break;
-    }
-    const parent = dirname(dir);
-    if (parent === dir)
-      break;
-    dir = parent;
-  }
-  pkgDirCache.set(start, result);
-  return result;
-}
-function resolvesWithinOwnPackage(sourceFileName, specifierText) {
-  try {
-    const own = packageDirOf(sourceFileName);
-    if (own === void 0)
-      return false;
-    const targetAbs = resolve(dirname(sourceFileName), specifierText);
-    return packageDirOf(targetAbs) === own;
-  } catch {
-    return true;
-  }
-}
 
 // ../east-diagnostics/dist/src/rules/no-relative-src-import.js
 var NAME7 = "no-relative-src-import";
@@ -823,27 +876,6 @@ function fire2(ctx, target, messageText) {
   const start = target.getStart(sf);
   ctx.report({ ruleName: NAME14, code: CODE14, start, length: target.getEnd() - start, messageText, category: "warning" });
 }
-function importDeclOfSymbol(sym, t) {
-  for (const d of sym?.declarations ?? []) {
-    let n = d;
-    if (t.isImportSpecifier(n))
-      n = n.parent.parent.parent;
-    else if (t.isNamespaceImport(n))
-      n = n.parent.parent;
-    else if (t.isImportClause(n))
-      n = n.parent;
-    else
-      continue;
-    if (t.isImportDeclaration(n))
-      return n;
-  }
-  return void 0;
-}
-function resolvesToEastImport(id, ctx) {
-  const t = ctx.ts;
-  const imp = importDeclOfSymbol(ctx.checker.getSymbolAtLocation(id), t);
-  return imp !== void 0 && t.isStringLiteral(imp.moduleSpecifier) && imp.moduleSpecifier.text.startsWith("@elaraai/");
-}
 function isE3InputCall(node, ctx) {
   const t = ctx.ts;
   const callee = node.expression;
@@ -851,7 +883,7 @@ function isE3InputCall(node, ctx) {
     return false;
   if (!t.isIdentifier(callee.expression))
     return false;
-  const imp = importDeclOfSymbol(ctx.checker.getSymbolAtLocation(callee.expression), t);
+  const imp = importDeclarationOf(ctx.checker.getSymbolAtLocation(callee.expression), t);
   return imp !== void 0 && t.isStringLiteral(imp.moduleSpecifier) && imp.moduleSpecifier.text === "@elaraai/e3";
 }
 function rootIdentifier(node, t) {
@@ -891,13 +923,13 @@ function embedsHostComputation(expr, ctx) {
       return;
     if (t.isCallExpression(n)) {
       const root = rootIdentifier(n.expression, t);
-      if (root === void 0 || !resolvesToEastImport(root, ctx)) {
+      if (root === void 0 || !resolvesToEastImport(root, ctx.checker, t)) {
         bad = true;
         return;
       }
     } else if (t.isNewExpression(n)) {
       const ctor = n.expression;
-      const ok = t.isIdentifier(ctor) && (VALUE_CTORS.has(ctor.text) || resolvesToEastImport(ctor, ctx));
+      const ok = t.isIdentifier(ctor) && (VALUE_CTORS.has(ctor.text) || resolvesToEastImport(ctor, ctx.checker, t));
       if (!ok) {
         bad = true;
         return;
@@ -987,25 +1019,6 @@ var noCompileTimeSeedData = {
 // ../east-diagnostics/dist/src/rules/no-host-in-east-block.js
 var NAME15 = "no-host-in-east-block";
 var CODE15 = 990020;
-function resolvesToEastImport2(id, ctx) {
-  const t = ctx.ts;
-  const sym = ctx.checker.getSymbolAtLocation(id);
-  for (const d of sym?.declarations ?? []) {
-    let n = d;
-    if (t.isImportSpecifier(n))
-      n = n.parent.parent.parent;
-    else if (t.isNamespaceImport(n))
-      n = n.parent.parent;
-    else if (t.isImportClause(n))
-      n = n.parent;
-    else
-      continue;
-    if (t.isImportDeclaration(n) && t.isStringLiteral(n.moduleSpecifier) && n.moduleSpecifier.text.startsWith("@elaraai/")) {
-      return true;
-    }
-  }
-  return false;
-}
 function resolvesToInBlockEastBinding(id, ctx) {
   const t = ctx.ts;
   const sym = ctx.checker.getSymbolAtLocation(id);
@@ -1036,21 +1049,114 @@ function isEastCall(call, ctx) {
     return true;
   if (t.isPropertyAccessExpression(f) && isEastExprType(ctx.checker.getTypeAtLocation(f.expression)))
     return true;
-  if (t.isIdentifier(root) && resolvesToEastImport2(root, ctx))
+  if (t.isIdentifier(root) && resolvesToEastImport(root, ctx.checker, t))
     return true;
   if (t.isPropertyAccessExpression(f) && t.isIdentifier(root) && resolvesToInBlockEastBinding(root, ctx))
     return true;
+  if (isEastPlatformDefinitionType(ctx.checker.getTypeAtLocation(f)))
+    return true;
+  if (isJsxCompositionCall(call, ctx))
+    return true;
+  if (t.isPropertyAccessExpression(f) && isLibDeclaredEastCall(call, f, ctx))
+    return true;
+  if (isConstantFoldCall(call, ctx))
+    return true;
+  return false;
+}
+function isConstantFoldCall(call, ctx) {
+  const t = ctx.ts;
+  if ((ctx.checker.getTypeAtLocation(call).flags & t.TypeFlags.StringLike) === 0)
+    return false;
+  let constant = true;
+  const visit = (n) => {
+    if (!constant)
+      return;
+    if (t.isIdentifier(n)) {
+      const p = n.parent;
+      if (p !== void 0 && t.isPropertyAccessExpression(p) && p.name === n)
+        return;
+      constant = false;
+      return;
+    }
+    if (t.isTemplateExpression(n)) {
+      constant = false;
+      return;
+    }
+    t.forEachChild(n, visit);
+  };
+  visit(call);
+  return constant;
+}
+function isLibDeclaredEastCall(call, f, ctx) {
+  if (!isEastExprType(ctx.checker.getTypeAtLocation(call)))
+    return false;
+  const inPackageDts = (sym) => (sym?.declarations ?? []).some((d) => {
+    const sf = d.getSourceFile();
+    if (!sf.isDeclarationFile)
+      return false;
+    if (ctx.program !== void 0)
+      return !ctx.program.isSourceFileDefaultLibrary(sf);
+    return !/\/lib\.[^/]*\.d\.ts$/.test(sf.fileName);
+  });
+  if (inPackageDts(ctx.checker.getSymbolAtLocation(f)))
+    return true;
+  const receiverType = ctx.checker.getTypeAtLocation(f.expression);
+  if (inPackageDts(receiverType.aliasSymbol ?? receiverType.symbol))
+    return true;
+  return rootBuiltByEastFactory(chainRootReceiver(f, ctx), ctx);
+}
+function rootBuiltByEastFactory(root, ctx) {
+  const t = ctx.ts;
+  if (!t.isIdentifier(root))
+    return false;
+  let sym = ctx.checker.getSymbolAtLocation(root);
+  if (sym !== void 0 && (sym.flags & t.SymbolFlags.Alias) !== 0) {
+    sym = ctx.checker.getAliasedSymbol(sym);
+  }
+  const decl = sym?.valueDeclaration;
+  if (decl === void 0 || !t.isVariableDeclaration(decl) || decl.initializer === void 0)
+    return false;
+  let init2 = decl.initializer;
+  while (t.isParenthesizedExpression(init2))
+    init2 = init2.expression;
+  if (!t.isCallExpression(init2))
+    return false;
+  const initRoot = chainRootReceiver(init2.expression, ctx);
+  return t.isIdentifier(initRoot) && resolvesToEastImport(initRoot, ctx.checker, t);
+}
+function isJsxCompositionCall(call, ctx) {
+  const t = ctx.ts;
+  if (call.arguments.some((a) => isJsx(a, t) || (t.isArrowFunction(a) || t.isFunctionExpression(a)) && returnExpressions(a, t).some((r) => isJsx(r, t)))) {
+    return true;
+  }
+  const f = call.expression;
+  if (!t.isIdentifier(f))
+    return false;
+  const sym = ctx.checker.getSymbolAtLocation(f);
+  for (const d of sym?.declarations ?? []) {
+    let fn;
+    if (t.isFunctionDeclaration(d) && d.body !== void 0)
+      fn = d;
+    else if (t.isVariableDeclaration(d) && d.initializer !== void 0 && (t.isArrowFunction(d.initializer) || t.isFunctionExpression(d.initializer))) {
+      fn = d.initializer;
+    }
+    if (fn !== void 0 && returnExpressions(fn, t).some((r) => isJsx(r, t)))
+      return true;
+  }
   return false;
 }
 function isEast(expr, ctx) {
   return isEastExprType(ctx.checker.getTypeAtLocation(expr));
 }
-function insideJsx(node, t) {
+function insideJsx(node, ctx) {
+  const t = ctx.ts;
   let cur = node.parent;
   while (cur !== void 0) {
     if (t.isJsxElement(cur) || t.isJsxSelfClosingElement(cur) || t.isJsxFragment(cur) || t.isJsxExpression(cur) || t.isJsxAttribute(cur)) {
       return true;
     }
+    if (isBlockBuilderCallback(cur, ctx))
+      return false;
     cur = cur.parent;
   }
   return false;
@@ -1096,7 +1202,7 @@ var noHostInEastBlock = {
     const t = ctx.ts;
     if (!insideBlockScope(node, ctx))
       return;
-    if (insideJsx(node, t))
+    if (insideJsx(node, ctx))
       return;
     {
       let fn;
@@ -1234,6 +1340,8 @@ function containsEastBuilder(expr, ctx) {
 function returnBuildsEast(r, ctx) {
   const t = ctx.ts;
   if (isJsx2(r, t))
+    return false;
+  if (isEastDefinitionType(ctx.checker.getTypeAtLocation(r)))
     return false;
   if (isEastValueConstructor(r, t))
     return true;
