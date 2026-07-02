@@ -122,7 +122,9 @@ export interface PaintInput {
     /** Connect-tool draft edge (#176), world coords — routed like a real link. */
     draftLink?: { from: Pt; to: Pt; snapped: boolean };
     /** Open connect-session edges (#176, `connect` mode), world coords. */
-    sessionLinks?: readonly { from: Pt; to: Pt }[];
+    /** The open connect-session proposal: one pair is a dashed edge; a grown
+     *  session previews as a dashed BUS (same geometry a committed net gets). */
+    session?: { kind: "edge"; from: Pt; to: Pt } | { kind: "net"; sources: readonly Pt[]; destinations: readonly Pt[] };
     /** One-shot connect commit flash (#176); `phase` 0..1. Endpoints may be
      * undefined when an item vanished mid-flash — the painter skips then. */
     connectFlash?: { from: Pt | undefined; to: Pt | undefined; phase: number };
@@ -638,7 +640,7 @@ function drawEdgeLabel(
 
 /** Draw the schematic's bulk-shape layer for one frame. Clears first. */
 export function paintSchematic(input: PaintInput): void {
-    const { ctx, value, cam, width, height, visibleItems, tiers, selected, selectedZones, centers, palette: p, effect, layerHiddenKeys, layerAlpha, draftLink, sessionLinks, connectFlash, selectedLink } = input;
+    const { ctx, value, cam, width, height, visibleItems, tiers, selected, selectedZones, centers, palette: p, effect, layerHiddenKeys, layerAlpha, draftLink, session, connectFlash, selectedLink } = input;
     const wx = (x: number) => x * cam.ppu + cam.tx;
     const wy = (y: number) => y * cam.ppu + cam.ty;
     const ppu = cam.ppu;
@@ -989,18 +991,36 @@ export function paintSchematic(input: PaintInput): void {
     // through the SAME orthogonal painter as real links (shape constraints).
     const routeScreen = (a: Pt, b: Pt): Pt[] =>
         orthogonalize([{ x: wx(a.x), y: wy(a.y) }, { x: wx(b.x), y: wy(b.y) }]);
-    if (sessionLinks !== undefined) {
-        for (const edge of sessionLinks) {
-            ctx.save();
-            ctx.lineCap = "round";
-            ctx.setLineDash([6, 5]);
-            ctx.lineWidth = 2;
-            ctx.strokeStyle = css(p.brand500, 0.75);
+    if (session !== undefined) {
+        ctx.save();
+        ctx.lineCap = "round";
+        ctx.setLineDash([6, 5]);
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = css(p.brand500, 0.75);
+        if (session.kind === "edge") {
             ctx.beginPath();
-            traceRounded(ctx, routeScreen(edge.from, edge.to), 8);
+            traceRounded(ctx, routeScreen(session.from, session.to), 8);
             ctx.stroke();
-            ctx.restore();
+        } else {
+            // The proposal previews with the SAME bus geometry a committed net
+            // would get — dashed, and without junction dots (it is not real yet).
+            const geo = netGeometry(session.sources, session.destinations, []);
+            const toS = (q: Pt): Pt => ({ x: wx(q.x), y: wy(q.y) });
+            ctx.beginPath();
+            traceRounded(ctx, orthogonalize(geo.trunk.map(toS)), 8);
+            ctx.stroke();
+            for (const bar of geo.bars) {
+                ctx.beginPath();
+                traceRounded(ctx, bar.map(toS), 0);
+                ctx.stroke();
+            }
+            for (const stub of geo.stubs) {
+                ctx.beginPath();
+                traceRounded(ctx, orthogonalize(stub.map(toS)), 8);
+                ctx.stroke();
+            }
         }
+        ctx.restore();
     }
     if (draftLink !== undefined) {
         const pts = routeScreen(draftLink.from, draftLink.to);

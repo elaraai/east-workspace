@@ -51,6 +51,31 @@ export type SchematicNetValue = ValueTypeOf<typeof Schematic.Types.Net>;
 /** East Schematic layer value type. */
 export type SchematicLayerValue = ValueTypeOf<typeof Schematic.Types.Layer>;
 
+/** Fold connect-session gesture pairs into net endpoints with MEMBERSHIP
+ *  semantics: the first drag fixes the upstream side; a drag FROM an existing
+ *  member adds the NEW item downstream; a drag from a new item INTO the net
+ *  joins upstream; a member never flips sides. Shared by the session commit
+ *  and the dashed bus preview so the proposal IS what gets reported. */
+function foldSessionNet(links: readonly { from: string; to: string }[]): { sources: string[]; destinations: string[] } {
+    let sources: string[] = [];
+    let destinations: string[] = [];
+    for (const l of links) {
+        const isMember = (k: string): boolean => sources.includes(k) || destinations.includes(k);
+        if (sources.length === 0 && destinations.length === 0) {
+            sources = [l.from]; destinations = [l.to];
+        } else if (isMember(l.from) && !isMember(l.to)) {
+            destinations = [...destinations, l.to];
+        } else if (!isMember(l.from) && isMember(l.to)) {
+            sources = [...sources, l.from];
+        } else if (!isMember(l.from) && !isMember(l.to)) {
+            sources = [...sources, l.from];
+            destinations = [...destinations, l.to];
+        }
+        // both ends already members → membership unchanged
+    }
+    return { sources, destinations };
+}
+
 /** One selected net LEG — a stub identified by its side + endpoint item. */
 type NetLeg = { end: "source" | "destination"; item: string };
 
@@ -677,13 +702,22 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         const to = connectDraft.target !== undefined ? (centers.get(connectDraft.target) ?? connectDraft.toWorld) : connectDraft.toWorld;
         return { from, to, snapped: connectDraft.target !== undefined };
     }, [connectDraft, centers]);
-    const sessionWorld = useMemo(() => sessionEdges
-        .map(ep => {
+    // The connect-mode proposal preview: one pair is a dashed edge; a grown
+    // session renders as a dashed BUS via the same fold + geometry a committed
+    // net would use — the preview IS the shape the handler was sent.
+    const sessionWorld = useMemo(() => {
+        if (sessionEdges.length === 0) return null;
+        if (sessionEdges.length === 1) {
+            const ep = sessionEdges[0]!;
             const f = centers.get(ep.from), t = centers.get(ep.to);
-            return f !== undefined && t !== undefined ? { from: f, to: t } : undefined;
-        })
-        .filter((x): x is { from: Pt; to: Pt } => x !== undefined),
-    [sessionEdges, centers]);
+            return f !== undefined && t !== undefined ? { kind: "edge" as const, from: f, to: t } : null;
+        }
+        const { sources, destinations } = foldSessionNet(sessionEdges);
+        const srcPts = sources.map(k => centers.get(k)).filter((q): q is Pt => q !== undefined);
+        const dstPts = destinations.map(k => centers.get(k)).filter((q): q is Pt => q !== undefined);
+        if (srcPts.length === 0 || dstPts.length === 0) return null;
+        return { kind: "net" as const, sources: srcPts, destinations: dstPts };
+    }, [sessionEdges, centers]);
 
     // Spatial index for viewport culling (item half-extent ~2.4 world units
     // covers the widest constant-size marker at the card threshold).
@@ -1133,7 +1167,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                 // Connect-tool overlays (#176): the draft edge, the open session's
                 // transient edges, and the one-shot commit flash.
                 ...(snap.connectDraftWorld !== undefined ? { draftLink: snap.connectDraftWorld } : {}),
-                ...(snap.sessionWorld.length > 0 ? { sessionLinks: snap.sessionWorld } : {}),
+                ...(snap.sessionWorld !== null ? { session: snap.sessionWorld } : {}),
                 ...(cf !== null ? { connectFlash: { from: snap.centers.get(cf.from), to: snap.centers.get(cf.to), phase: cfPhase } } : {}),
                 ...(snap.selectedLink !== null ? {
                     selectedLink: {
@@ -1310,28 +1344,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         // `net.key`, so handlers can upsert ONE net per session (#189).
         const sessionKey = open !== null ? open.key : `net-${++linkKeyCounter.current}`;
         const additive = open !== null;
-        // Collapse the session to net endpoints with MEMBERSHIP semantics: the
-        // first drag fixes the upstream side; after that a drag FROM an existing
-        // member is just a handle — the NEW item joins downstream — and a drag
-        // from a new item INTO the net joins it upstream. A member never flips
-        // sides (dragging U-03 → U-04 must not make U-03 a second source), so
-        // gestures keep producing ONE clean bus.
-        let netSources: string[] = [];
-        let netDestinations: string[] = [];
-        for (const l of links) {
-            const isMember = (k: string): boolean => netSources.includes(k) || netDestinations.includes(k);
-            if (netSources.length === 0 && netDestinations.length === 0) {
-                netSources = [l.from]; netDestinations = [l.to];
-            } else if (isMember(l.from) && !isMember(l.to)) {
-                netDestinations = [...netDestinations, l.to];
-            } else if (!isMember(l.from) && isMember(l.to)) {
-                netSources = [...netSources, l.from];
-            } else if (!isMember(l.from) && !isMember(l.to)) {
-                netSources = [...netSources, l.from];
-                netDestinations = [...netDestinations, l.to];
-            }
-            // both ends already members → membership unchanged
-        }
+        const { sources: netSources, destinations: netDestinations } = foldSessionNet(links);
         const existing = effectiveLinks
             .filter(l => (l.from === from && l.to === to) || (l.from === to && l.to === from))
             .map(l => l.key);
@@ -1673,6 +1686,9 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         if (renderSnapRef.current.effectiveTool === "connect") {
             const from = itemKeyAt(e.currentTarget as HTMLElement, e.clientX, e.clientY);
             if (from !== undefined) {
+                // A non-Shift press starts a NEW proposal — the open session
+                // (and its dashed preview) ends now, not at commit.
+                if (!e.shiftKey && linkSessionRef.current !== null) endLinkSession();
                 transition("cancel");
                 const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
                 const cam = cameraRef.current;
@@ -1698,9 +1714,12 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
             setBoxDrag({ rect: { x: sx, y: sy, w: 0, h: 0 }, mode, additive: e.shiftKey, hits: EMPTY_STRING_SET });
             return;
         }
+        // A background press is "click away" — an open connect session (and its
+        // dashed proposal) dismisses, like any pending-selection pattern.
+        if (linkSessionRef.current !== null) endLinkSession();
         transition("pointerDown");
         panRef.current = { x: e.clientX, y: e.clientY, tx: cameraRef.current.tx, ty: cameraRef.current.ty };
-    }, [transition, itemKeyAt, effectiveLinks, closeHover]);
+    }, [transition, itemKeyAt, effectiveLinks, closeHover, endLinkSession]);
     // Drive the hover state machine from an IDLE pointermove (#178): hit-test
     // item → zone → link/net (interaction precedence), dwell before opening,
     // retarget on a new entity, grace-close over empty canvas. Read-only reuse
@@ -1986,6 +2005,9 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         requestRender();
     }, [transition, requestRender]);
 
+    // Flipping draw ↔ connect mid-session would silently change what the next
+    // Shift-extension means — the open proposal dismisses instead.
+    useEffect(() => { endLinkSession(); }, [linkMode, endLinkSession]);
     // Leaving the connect tool cancels any in-flight draft and ends the session;
     // a tool whose domain turns read-only reverts to grab.
     useEffect(() => {
