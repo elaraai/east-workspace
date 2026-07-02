@@ -208,8 +208,10 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
                 </Box>
             </Box>
             <Box css={frame.footer}>
+                {/* Result OF total (#169) — "1,284 of 50,000 events" gives the
+                    denominator context a bare count lacks. */}
                 <Box as="span" css={frame.footerLabel}>
-                    {`SHOWING ${Number(slice.resultCount()).toLocaleString()}${unit !== undefined ? ` ${unit}` : ""}`}
+                    {`SHOWING ${Number(slice.resultCount()).toLocaleString()}${Number(slice.totalCount()) > 0 ? ` OF ${Number(slice.totalCount()).toLocaleString()}` : ""}${unit !== undefined ? ` ${unit}` : ""}`}
                 </Box>
                 <Box as="span" css={frame.footerAction}>Save view →</Box>
             </Box>

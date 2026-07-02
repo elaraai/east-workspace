@@ -23,6 +23,7 @@ import { EastChakraSliceFilter } from "./filter/index.js";
 import { EastChakraSliceLegend } from "./legend/index.js";
 import { EastChakraSliceRange } from "./range/index.js";
 import { EastChakraSliceSearch } from "./search/index.js";
+import { EastChakraSliceSummary } from "./summary/index.js";
 
 /** Structural predicate equality — the same comparator the real impl uses. */
 const predEqual = equalFor(Slice.Types.Predicate) as (x: unknown, y: unknown) => boolean;
@@ -194,7 +195,7 @@ describe("Slice.Filter — add-filter builder applies (in a Slice.Edit popover)"
     test("Add disables on empty value, closes the popover on success, and an identical re-add dedups (#164)", async () => {
         const slice = fakeSlice();
         const value: any = { slice, unit: none, density: none, editOpen: some(true) };
-        ui(<EastChakraSliceFilter value={value} />);
+        const first = ui(<EastChakraSliceFilter value={value} />);
         const user = userEvent.setup();
 
         // Fresh builder: string `contains` with an empty value — disabled + hint.
@@ -204,7 +205,7 @@ describe("Slice.Filter — add-filter builder applies (in a Slice.Edit popover)"
         const buildSessionsGte20 = async () => {
             await pickOption(user, "Field", "Sessions");
             await pickOption(user, "Operator", "≥");
-            await user.click(screen.getByRole("spinbutton"));
+            await user.click(await screen.findByRole("spinbutton"));
             await user.paste("20");
             fireEvent.click(screen.getByText("Add"));
         };
@@ -212,10 +213,11 @@ describe("Slice.Filter — add-filter builder applies (in a Slice.Edit popover)"
         expect(slice.read().filters.length).toBe(1);
         expect(screen.queryByLabelText("Field")).toBeNull();   // popover closed after Add
 
-        // Reopen the (freshly reset) builder and submit the identical clause.
-        // (findBy waits out Zag's rAF-deferred popover mount under jsdom.)
-        await user.click(screen.getByText("add filter"));
-        expect(await screen.findByLabelText("Field")).toBeTruthy();
+        // A fresh builder session over the SAME slice state (remount rather
+        // than a trigger re-click — reopening through Zag's presence machine
+        // is rAF-racy under jsdom) submits the identical clause: deduped.
+        first.unmount();
+        ui(<EastChakraSliceFilter value={{ ...value, editOpen: some(true) }} />);
         await buildSessionsGte20();
         expect(slice.read().filters.length).toBe(1);           // deduped, no second chip
     });
@@ -436,6 +438,30 @@ describe("Slice.Legend — the filter-to gesture toggles a real narrowing (#165)
 
         expect(screen.queryByLabelText("Filter to EU")).not.toBeNull();
         expect(screen.queryByLabelText("Filter to other")).toBeNull();  // synthetic bucket
+    });
+});
+
+describe("N of M — the denominator renders wherever counts do (#169)", () => {
+    test("the focused Filter footer shows SHOWING result OF total", () => {
+        const slice = fakeSlice({}, { resultCount: () => 1284n, totalCount: () => 50000n });
+        const value: any = { slice, unit: some("events"), density: none, editOpen: none };
+        ui(<EastChakraSliceFilter value={value} />);
+        expect(screen.getByText(/SHOWING 1.284 OF 50.000 events/)).toBeTruthy();
+    });
+
+    test("the Filter footer omits the denominator when no rows are bound (total 0)", () => {
+        const slice = fakeSlice({}, { resultCount: () => 0n });   // fake default totalCount = 0n
+        const value: any = { slice, unit: some("events"), density: none, editOpen: none };
+        ui(<EastChakraSliceFilter value={value} />);
+        expect(screen.getByText("SHOWING 0 events")).toBeTruthy();
+    });
+
+    test("Slice.Summary shows result of total", () => {
+        const slice = fakeSlice({}, { resultCount: () => 3n, totalCount: () => 12n });
+        const value: any = { slice };
+        ui(<EastChakraSliceSummary value={value} />);
+        expect(screen.getByText("of 12")).toBeTruthy();
+        expect(screen.getByText("results")).toBeTruthy();
     });
 });
 

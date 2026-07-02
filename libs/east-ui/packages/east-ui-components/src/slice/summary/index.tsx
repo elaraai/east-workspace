@@ -17,15 +17,18 @@ export interface EastChakraSliceSummaryProps {
 }
 
 /**
- * Renders an East UI `Slice.Summary` — a `N results · M filters · clear all`
- * status bar. The count comes from the platform's `slice.activeCount()`;
- * `clear all` calls `slice.clearFilters()`.
+ * Renders an East UI `Slice.Summary` — a `N of M results · K narrowings ·
+ * clear all` status bar. Result and total come from the platform's
+ * `slice.resultCount()` / `slice.totalCount()` (the denominator gives the
+ * essential "1,284 of 50,000" context, #169); the narrowing count from
+ * `slice.activeCount()`; `clear all` calls `slice.clearFilters()`.
  */
 export const EastChakraSliceSummary = memo(function EastChakraSliceSummary({ value }: EastChakraSliceSummaryProps) {
     const { slice } = value;
     useSliceReactivity(slice.key);
     const filterCount = Number(slice.activeCount());
     const resultCount = slice.resultCount();
+    const totalCount = Number(slice.totalCount());
 
     const frame = useSlotRecipe({ key: "sliceFrame" })();
     return (
@@ -33,6 +36,8 @@ export const EastChakraSliceSummary = memo(function EastChakraSliceSummary({ val
             {resultCount !== undefined && (
                 <>
                     <Box as="span" css={frame.frameFooterStat}>{Number(resultCount).toLocaleString()}</Box>
+                    {/* The denominator only reads when a total exists (bound rows). */}
+                    {totalCount > 0 && <Box as="span">{`of ${totalCount.toLocaleString()}`}</Box>}
                     <Box as="span">{Number(resultCount) === 1 ? "result" : "results"}</Box>
                     <Box as="span">·</Box>
                 </>
