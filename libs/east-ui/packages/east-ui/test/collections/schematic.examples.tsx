@@ -196,8 +196,8 @@ export const schematicLayers = example({
 });
 
 export const schematicMinimal = example({
-    keywords: ["Schematic", "canvas", "minimal"],
-    description: "Minimal placement — items only, no zones or links",
+    keywords: ["Schematic", "canvas", "minimal", "readOnly", "static"],
+    description: "Minimal placement — items only, no zones or links; readOnly makes it a pure static picture (the connect / move edit tools never render), leaving just pan / zoom / selection",
     fn: East.function([], UIComponentType, ($) => {
         const rooms = $.const([
             { id: "DOCK-1", x: 3.0, y: 2.0 },
@@ -210,6 +210,7 @@ export const schematicMinimal = example({
                 height="440px"
                 items={rooms}
                 item={r => ({ key: r.id, x: r.x, y: r.y, label: r.id, icon: "warehouse" })}
+                readOnly={true}
             />
         );
     }),

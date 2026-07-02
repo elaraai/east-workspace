@@ -16744,18 +16744,20 @@
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/collections/schematic.examples.tsx",
       "suite": "",
-      "test": "Minimal placement — items only, no zones or links",
+      "test": "Minimal placement — items only, no zones or links; readOnly makes it a pure static picture (the connect / move edit tools never render), leaving just pan / zoom / selection",
       "keywords": [
         "Schematic",
         "canvas",
-        "minimal"
+        "minimal",
+        "readOnly",
+        "static"
       ],
       "imports": [
         "import { East, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, StringType, StructType, example, variant, some, none } from \"@elaraai/east\";",
         "import { State, StatusTokenType, UIComponentType } from \"@elaraai/east-ui\";",
         "import { HStack, Reactive, Schematic, Slice, Slider, Sparkline, Switch, Text, VStack } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Minimal placement — items only, no zones or links\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rooms = $.const([\n            { id: \"DOCK-1\", x: 3.0, y: 2.0 },\n            { id: \"DOCK-2\", x: 9.0, y: 2.0 },\n            { id: \"STAGE\", x: 6.0, y: 5.5 },\n        ]);\n        return (\n            <Schematic\n                extent={{ width: 12, height: 7 }}\n                height=\"440px\"\n                items={rooms}\n                item={r => ({ key: r.id, x: r.x, y: r.y, label: r.id, icon: \"warehouse\" })}\n            />\n        );\n    })"
+      "source": "// Minimal placement — items only, no zones or links; readOnly makes it a pure static picture (the connect / move edit tools never render), leaving just pan / zoom / selection\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rooms = $.const([\n            { id: \"DOCK-1\", x: 3.0, y: 2.0 },\n            { id: \"DOCK-2\", x: 9.0, y: 2.0 },\n            { id: \"STAGE\", x: 6.0, y: 5.5 },\n        ]);\n        return (\n            <Schematic\n                extent={{ width: 12, height: 7 }}\n                height=\"440px\"\n                items={rooms}\n                item={r => ({ key: r.id, x: r.x, y: r.y, label: r.id, icon: \"warehouse\" })}\n                readOnly={true}\n            />\n        );\n    })"
     },
     {
       "id": "east-ui:schematic.examples.tsx:schematicInteractive",
