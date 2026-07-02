@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { East, NullType, variant } from "@elaraai/east";
+import { BooleanType, East, NullType, StringType, variant } from "@elaraai/east";
 import { Board, CellRefType, DragEventType } from "@elaraai/east-ui/internal";
 import * as ex from "./board.examples.js";
 
@@ -44,6 +44,7 @@ describeEast("Board", (test) => {
         $(Assert.equal(root.requirements.hasTag("none"), true));
         $(Assert.equal(root.maxVisible.hasTag("none"), true));
         $(Assert.equal(root.summary.hasTag("none"), true));
+        $(Assert.equal(root.canAssign.hasTag("none"), true));
         $(Assert.equal(root.areas.get(0n).key, "icu"));
         $(Assert.equal(root.areas.get(0n).sublabel.hasTag("none"), true));
         $(Assert.equal(root.shifts.get(0n).label, "AM"));
@@ -114,6 +115,8 @@ describeEast("Board", (test) => {
     test("callbacks are encoded when provided", $ => {
         const onDrag = $.const(East.function([DragEventType], NullType, (_$, _event) => null));
         const onSelect = $.const(East.function([CellRefType], NullType, (_$, _ref) => null));
+        const canAssign = $.const(East.function([StringType, StringType, StringType], BooleanType,
+            (_$, _person, _area, shift) => shift.notEqual("night")));
         const board = $.let(Board.Root(
             [{ id: "icu", name: "ICU" }],
             [{ id: "am", name: "AM" }],
@@ -126,12 +129,16 @@ describeEast("Board", (test) => {
                 shift: s => ({ key: s.id, label: s.name }),
                 person: p => ({ key: p.id, label: p.name }),
                 assignment: x => ({ key: x.id, person: x.personId, area: x.areaId, shift: x.shiftId, state: x.state }),
+                canAssign,
                 onDrag,
                 onSelect,
             },
         ));
         const root = $.let(board.unwrap().unwrap("Board"));
 
+        $(Assert.equal(root.canAssign.hasTag("some"), true));
+        $(Assert.equal(root.canAssign.unwrap("some")("patel", "icu", "am"), true));
+        $(Assert.equal(root.canAssign.unwrap("some")("patel", "icu", "night"), false));
         $(Assert.equal(root.onDrag.hasTag("some"), true));
         $(Assert.equal(root.onSelect.hasTag("some"), true));
         $(Assert.equal(root.onAccept.hasTag("none"), true));

@@ -33,6 +33,7 @@ import {
     some,
     none,
     ArrayType,
+    type BooleanType,
     type FunctionType,
     type IntegerType,
     StringType,
@@ -154,6 +155,7 @@ export interface BoardRequirementFields {
  * @property density - Optional density
  * @property maxVisible - Optional per-cell chip cap before the `+N` overflow
  * @property summary - Optional status-strip text (open / proposed counts)
+ * @property canAssign - Optional assignability predicate `(person, area, shift) => Boolean`
  * @property onDrag - Drag funnel — add / move / remove events
  * @property onSelect - Assignment / cell click callback (a drag-grammar cell ref)
  * @property onAccept - Ghost-assignment acceptance callback
@@ -192,6 +194,11 @@ export interface BoardConfig<
     maxVisible?: SubtypeExprOrValue<IntegerType> | number;
     /** Optional status-strip text (open / proposed counts). */
     summary?: SubtypeExprOrValue<StringType>;
+    /** Optional assignability predicate `(person, area, shift) => Boolean` — a
+     * `false` verdict renders the invalid-drop treatment (red outline + ⊘)
+     * while dragging and vetoes the drop. Fail-open: a throwing predicate
+     * logs and allows. */
+    canAssign?: SubtypeExprOrValue<FunctionType<[StringType, StringType, StringType], BooleanType>>;
     /** Drag funnel — add / move / remove events. */
     onDrag?: SubtypeExprOrValue<FunctionType<[DragEventType], NullType>>;
     /** Assignment / cell click callback (a drag-grammar cell ref). */
@@ -282,6 +289,7 @@ function buildRoot(
         density,
         maxVisible,
         summary: config.summary !== undefined ? some(config.summary) : none,
+        canAssign: config.canAssign !== undefined ? some(config.canAssign) : none,
         onDrag: config.onDrag !== undefined ? some(config.onDrag) : none,
         onSelect: config.onSelect !== undefined ? some(config.onSelect) : none,
         onAccept: config.onAccept !== undefined ? some(config.onAccept) : none,

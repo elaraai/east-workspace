@@ -15038,7 +15038,7 @@
         "summary"
       ],
       "imports": [
-        "import { East, IntegerType, NullType, StringType, example, variant } from \"@elaraai/east\";",
+        "import { BooleanType, East, IntegerType, NullType, StringType, example, variant } from \"@elaraai/east\";",
         "import { CellRefType, DragEventType, State, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Board, Library, Reactive, Text, VStack } from \"@elaraai/east-ui\";"
       ],
@@ -15059,7 +15059,7 @@
         "read-only"
       ],
       "imports": [
-        "import { East, IntegerType, NullType, StringType, example, variant } from \"@elaraai/east\";",
+        "import { BooleanType, East, IntegerType, NullType, StringType, example, variant } from \"@elaraai/east\";",
         "import { CellRefType, DragEventType, State, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Board, Library, Reactive, Text, VStack } from \"@elaraai/east-ui\";"
       ],
@@ -15082,7 +15082,7 @@
         "overstaffed"
       ],
       "imports": [
-        "import { East, IntegerType, NullType, StringType, example, variant } from \"@elaraai/east\";",
+        "import { BooleanType, East, IntegerType, NullType, StringType, example, variant } from \"@elaraai/east\";",
         "import { CellRefType, DragEventType, State, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Board, Library, Reactive, Text, VStack } from \"@elaraai/east-ui\";"
       ],
@@ -15104,7 +15104,7 @@
         "people"
       ],
       "imports": [
-        "import { East, IntegerType, NullType, StringType, example, variant } from \"@elaraai/east\";",
+        "import { BooleanType, East, IntegerType, NullType, StringType, example, variant } from \"@elaraai/east\";",
         "import { CellRefType, DragEventType, State, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Board, Library, Reactive, Text, VStack } from \"@elaraai/east-ui\";"
       ],
@@ -15126,7 +15126,7 @@
         "interactive"
       ],
       "imports": [
-        "import { East, IntegerType, NullType, StringType, example, variant } from \"@elaraai/east\";",
+        "import { BooleanType, East, IntegerType, NullType, StringType, example, variant } from \"@elaraai/east\";",
         "import { CellRefType, DragEventType, State, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Board, Library, Reactive, Text, VStack } from \"@elaraai/east-ui\";"
       ],
@@ -15138,22 +15138,23 @@
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/collections/board.examples.tsx",
       "suite": "",
-      "test": "Library + Board page — drag a person onto an (area, shift) cell to fire the add event",
+      "test": "Library + Board page — drag a person onto an (area, shift) cell to fire the add event; canAssign vetoes Kim on nights",
       "keywords": [
         "Board",
         "Library",
         "drag",
         "add",
         "onDrag",
+        "canAssign",
         "page",
         "composition"
       ],
       "imports": [
-        "import { East, IntegerType, NullType, StringType, example, variant } from \"@elaraai/east\";",
+        "import { BooleanType, East, IntegerType, NullType, StringType, example, variant } from \"@elaraai/east\";",
         "import { CellRefType, DragEventType, State, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Board, Library, Reactive, Text, VStack } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Library + Board page — drag a person onto an (area, shift) cell to fire the add event\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const lastBind = $.let(State.bind([StringType], \"board_last_drop\", \"none yet\"));\n            const onDrag = $.const(East.function([DragEventType], NullType, ($, event) => {\n                $.matchTag(event, \"add\", ($, add) => {\n                    $(lastBind.write(East.str`${add.from.key} → ${add.into.row} · ${add.into.slot}`));\n                });\n            }));\n            const last = $.let(lastBind.read());\n            return (\n                <VStack gap=\"4\" align=\"stretch\">\n                    <Library\n                        id=\"people\"\n                        data={[\n                            { id: \"patel\", name: \"Patel, R.\", role: \"Senior RN\" },\n                            { id: \"cho\", name: \"Cho, J.\", role: \"RN\" },\n                            { id: \"kim\", name: \"Kim, A.\", role: \"EN\" },\n                        ]}\n                        item={p => ({ key: p.id, label: p.name, sublabel: p.role, icon: \"user\" })}\n                    />\n                    <Board\n                        id=\"board-tue\"\n                        sources={[\"people\"]}\n                        mode=\"edit\"\n                        areas={[{ id: \"icu\", name: \"ICU\" }, { id: \"surgical\", name: \"Surgical\" }]}\n                        area={a => ({ key: a.id, label: a.name })}\n                        shifts={[{ id: \"am\", name: \"AM\" }, { id: \"pm\", name: \"PM\" }, { id: \"night\", name: \"Night\" }]}\n                        shift={s => ({ key: s.id, label: s.name })}\n                        people={[{ id: \"patel\", name: \"Patel, R.\" }, { id: \"cho\", name: \"Cho, J.\" }]}\n                        person={p => ({ key: p.id, label: p.name })}\n                        assignments={[\n                            { id: \"x1\", person: \"patel\", area: \"icu\", shift: \"am\", state: variant(\"committed\", null) },\n                            { id: \"x2\", person: \"cho\", area: \"surgical\", shift: \"pm\", state: variant(\"proposed\", variant(\"added\", null)) },\n                        ]}\n                        assignment={x => ({ key: x.id, person: x.person, area: x.area, shift: x.shift, state: x.state })}\n                        requirements={[\n                            { area: \"icu\", shift: \"am\", count: 2n },\n                            { area: \"icu\", shift: \"night\", count: 1n },\n                            { area: \"surgical\", shift: \"pm\", count: 2n },\n                        ]}\n                        requirement={r => ({ area: r.area, shift: r.shift, required: r.count })}\n                        onDrag={onDrag}\n                    />\n                    <Text.MonoLabel>{East.str`LAST DROP · ${last}`}</Text.MonoLabel>\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
+      "source": "// Library + Board page — drag a person onto an (area, shift) cell to fire the add event; canAssign vetoes Kim on nights\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const lastBind = $.let(State.bind([StringType], \"board_last_drop\", \"none yet\"));\n            // Forbidden cells render the invalid treatment (red outline + ⊘)\n            // while dragging, and the drop is a no-op.\n            const canAssign = $.const(East.function([StringType, StringType, StringType], BooleanType,\n                (_$, person, _area, shift) => person.equal(\"kim\").and(() => shift.equal(\"night\")).not()));\n            const onDrag = $.const(East.function([DragEventType], NullType, ($, event) => {\n                $.matchTag(event, \"add\", ($, add) => {\n                    $(lastBind.write(East.str`${add.from.key} → ${add.into.row} · ${add.into.slot}`));\n                });\n            }));\n            const last = $.let(lastBind.read());\n            return (\n                <VStack gap=\"4\" align=\"stretch\">\n                    <Library\n                        id=\"people\"\n                        data={[\n                            { id: \"patel\", name: \"Patel, R.\", role: \"Senior RN\" },\n                            { id: \"cho\", name: \"Cho, J.\", role: \"RN\" },\n                            { id: \"kim\", name: \"Kim, A.\", role: \"EN\" },\n                        ]}\n                        item={p => ({ key: p.id, label: p.name, sublabel: p.role, icon: \"user\" })}\n                    />\n                    <Board\n                        id=\"board-tue\"\n                        sources={[\"people\"]}\n                        mode=\"edit\"\n                        areas={[{ id: \"icu\", name: \"ICU\" }, { id: \"surgical\", name: \"Surgical\" }]}\n                        area={a => ({ key: a.id, label: a.name })}\n                        shifts={[{ id: \"am\", name: \"AM\" }, { id: \"pm\", name: \"PM\" }, { id: \"night\", name: \"Night\" }]}\n                        shift={s => ({ key: s.id, label: s.name })}\n                        people={[{ id: \"patel\", name: \"Patel, R.\" }, { id: \"cho\", name: \"Cho, J.\" }]}\n                        person={p => ({ key: p.id, label: p.name })}\n                        assignments={[\n                            { id: \"x1\", person: \"patel\", area: \"icu\", shift: \"am\", state: variant(\"committed\", null) },\n                            { id: \"x2\", person: \"cho\", area: \"surgical\", shift: \"pm\", state: variant(\"proposed\", variant(\"added\", null)) },\n                        ]}\n                        assignment={x => ({ key: x.id, person: x.person, area: x.area, shift: x.shift, state: x.state })}\n                        requirements={[\n                            { area: \"icu\", shift: \"am\", count: 2n },\n                            { area: \"icu\", shift: \"night\", count: 1n },\n                            { area: \"surgical\", shift: \"pm\", count: 2n },\n                        ]}\n                        requirement={r => ({ area: r.area, shift: r.shift, required: r.count })}\n                        canAssign={canAssign}\n                        onDrag={onDrag}\n                    />\n                    <Text.MonoLabel>{East.str`LAST DROP · ${last}`}</Text.MonoLabel>\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "east-ui:calendar.examples.tsx:calendarDemand",

@@ -77,6 +77,11 @@ export interface DragTargetConfig {
 interface CellRegistration {
     coord: CellCoord;
     disabled: boolean;
+    /** Optional per-payload veto (e.g. a host `canAssign` predicate). A cell
+     * whose surface connects but whose veto returns `false` renders the
+     * invalid treatment (`data-drop-invalid`) while hovered, and the drop is
+     * a no-op. */
+    canDrop?: ((payload: DragPayload) => boolean) | undefined;
 }
 
 interface SinkRegistration {
@@ -86,7 +91,7 @@ interface SinkRegistration {
 }
 
 /** What is being dragged. */
-type DragPayload =
+export type DragPayload =
     | { kind: "item"; from: { library: string; key: string }; label?: string; ghost: ReactNode }
     | { kind: "event"; from: Required<CellCoord>; ghost: ReactNode };
 
@@ -191,8 +196,9 @@ export function DragLayerProvider({ children }: DragLayerProviderProps) {
         return () => { sinks.current.delete(el); };
     }, []);
 
-    /** Whether `reg` is a valid destination for the in-flight payload. */
-    const cellValid = useCallback((reg: CellRegistration, payload: DragPayload): boolean => {
+    /** Whether `reg`'s surface structurally connects to the payload (declared
+     * source / intra-surface move), before per-cell vetoes. */
+    const cellConnected = useCallback((reg: CellRegistration, payload: DragPayload): boolean => {
         if (reg.disabled) return false;
         const target = targets.current.get(reg.coord.surface);
         if (!target) return false;
@@ -202,6 +208,13 @@ export function DragLayerProvider({ children }: DragLayerProviderProps) {
         // Event move: intra-surface only.
         return (target.kinds.move ?? false) && payload.from.surface === reg.coord.surface;
     }, []);
+    /** Whether `reg` is a valid destination for the in-flight payload. */
+    const cellValid = useCallback((reg: CellRegistration, payload: DragPayload): boolean =>
+        cellConnected(reg, payload) && (reg.canDrop?.(payload) ?? true), [cellConnected]);
+    /** Whether `reg` connects but its per-cell veto forbids this payload —
+     * the hovered-invalid (⃠) treatment. */
+    const cellVetoed = useCallback((reg: CellRegistration, payload: DragPayload): boolean =>
+        cellConnected(reg, payload) && reg.canDrop?.(payload) === false, [cellConnected]);
 
     const sinkValid = useCallback((reg: SinkRegistration, payload: DragPayload): boolean => {
         if (payload.kind !== "event") return false;
@@ -218,6 +231,7 @@ export function DragLayerProvider({ children }: DragLayerProviderProps) {
         for (const el of cells.current.keys()) {
             el.removeAttribute("data-drop-valid");
             el.removeAttribute("data-drop-active");
+            el.removeAttribute("data-drop-invalid");
         }
         for (const el of sinks.current.keys()) {
             el.removeAttribute("data-drop-valid");
@@ -294,11 +308,19 @@ export function DragLayerProvider({ children }: DragLayerProviderProps) {
             const valid = dest !== null && dest.hasAttribute("data-drop-valid");
             if (hovered.current && hovered.current !== dest) {
                 hovered.current.removeAttribute("data-drop-active");
+                hovered.current.removeAttribute("data-drop-invalid");
                 hovered.current = null;
             }
             if (dest && valid) {
                 dest.setAttribute("data-drop-active", "");
                 hovered.current = dest;
+            } else if (dest) {
+                // A connected-but-vetoed cell shows the invalid treatment.
+                const reg = cells.current.get(dest);
+                if (reg && cellVetoed(reg, current.payload)) {
+                    dest.setAttribute("data-drop-invalid", "");
+                    hovered.current = dest;
+                }
             }
         };
         const cleanup = () => {
@@ -313,7 +335,7 @@ export function DragLayerProvider({ children }: DragLayerProviderProps) {
         document.addEventListener("pointermove", onMove);
         document.addEventListener("pointerup", onUp);
         document.addEventListener("keydown", onKey, true);
-    }, [cellValid, sinkValid, endDrag]);
+    }, [cellValid, cellVetoed, sinkValid, endDrag]);
 
     const context = useMemo<DragLayerContextValue>(() => ({
         registerTarget,
@@ -366,16 +388,20 @@ export function useDragTarget(config: DragTargetConfig | null): void {
  * Ref callback registering a droppable cell. Pass `null` coord to skip
  * registration (e.g. published mode).
  */
-export function useDropCell(coord: CellCoord | null, disabled = false): (el: HTMLElement | null) => void {
+export function useDropCell(
+    coord: CellCoord | null,
+    disabled = false,
+    canDrop?: (payload: DragPayload) => boolean,
+): (el: HTMLElement | null) => void {
     const layer = useDragLayerOptional();
     const cleanup = useRef<(() => void) | null>(null);
     return useCallback((el: HTMLElement | null) => {
         cleanup.current?.();
         cleanup.current = null;
         if (layer && el && coord) {
-            cleanup.current = layer.registerCell(el, { coord, disabled });
+            cleanup.current = layer.registerCell(el, { coord, disabled, canDrop });
         }
-    }, [layer, coord, disabled]);
+    }, [layer, coord, disabled, canDrop]);
 }
 
 /**

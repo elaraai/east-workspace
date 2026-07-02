@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, IntegerType, NullType, StringType, example, variant } from "@elaraai/east";
+import { BooleanType, East, IntegerType, NullType, StringType, example, variant } from "@elaraai/east";
 import { CellRefType, DragEventType, State, UIComponentType } from "@elaraai/east-ui";
 import { Board, Library, Reactive, Text, VStack } from "@elaraai/east-ui";
 
@@ -245,11 +245,15 @@ export const boardInteractive = example({
 });
 
 export const boardWithLibrary = example({
-    keywords: ["Board", "Library", "drag", "add", "onDrag", "page", "composition"],
-    description: "Library + Board page — drag a person onto an (area, shift) cell to fire the add event",
+    keywords: ["Board", "Library", "drag", "add", "onDrag", "canAssign", "page", "composition"],
+    description: "Library + Board page — drag a person onto an (area, shift) cell to fire the add event; canAssign vetoes Kim on nights",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const lastBind = $.let(State.bind([StringType], "board_last_drop", "none yet"));
+            // Forbidden cells render the invalid treatment (red outline + ⊘)
+            // while dragging, and the drop is a no-op.
+            const canAssign = $.const(East.function([StringType, StringType, StringType], BooleanType,
+                (_$, person, _area, shift) => person.equal("kim").and(() => shift.equal("night")).not()));
             const onDrag = $.const(East.function([DragEventType], NullType, ($, event) => {
                 $.matchTag(event, "add", ($, add) => {
                     $(lastBind.write(East.str`${add.from.key} → ${add.into.row} · ${add.into.slot}`));
@@ -288,6 +292,7 @@ export const boardWithLibrary = example({
                             { area: "surgical", shift: "pm", count: 2n },
                         ]}
                         requirement={r => ({ area: r.area, shift: r.shift, required: r.count })}
+                        canAssign={canAssign}
                         onDrag={onDrag}
                     />
                     <Text.MonoLabel>{East.str`LAST DROP · ${last}`}</Text.MonoLabel>

@@ -67,11 +67,15 @@ assignments naming an unknown area/shift never render, as in Roster).
    `useDragTarget` / `useDropCell` / `useDragEventChip` + the shared sinks.
    Committed chips refuse drags (grammar invariant); `move` is intra-surface
    by drag-layer design.
-3. **Duplicate-person guard = renderer no-op.** The drag layer's cell
-   registration can't express per-payload validity, so a drop of a person
-   onto a cell already holding them applies nothing and fires nothing.
-   Payload-aware `data-drop-valid` invalidity is a deferred drag-layer
-   extension (tracked on epic #197).
+3. **Per-payload vetoes are first-class.** The drag layer's cell
+   registration accepts a `canDrop(payload)` predicate: a connected-but-
+   vetoed cell is never marked `data-drop-valid`, renders the invalid
+   treatment while hovered (`data-drop-invalid` — red outline, ⊘ badge,
+   not-allowed cursor, styled globally alongside the other drag stages), and
+   the drop is a no-op. The board vetoes on **duplicate person in the cell**
+   and on the host's **`canAssign(person, area, shift) => Boolean`**
+   predicate (IR option; verdict-cached, fail-open on throw — the Schematic
+   `canConnect` convention).
 4. **Coverage counts committed + proposed-added**; ghosts fill visually but
    don't count; open slots = `required − filled − ghosts`, each a drop hint
    and an `onAddAt` target. No requirement row → plain stack, no chrome.
@@ -84,7 +88,8 @@ assignments naming an unknown area/shift never render, as in Roster).
 ## Deferred (tracked on epic #197)
 
 Multi-day boards (day-grouped columns; cross-surface chip drags need a
-drag-layer extension) · drag-out from the overflow popover · committed-chip
-drag-to-propose · same-person-two-areas conflict flags · board↔week linked
-selection · e3-ui staged-writes recipe · `Communicate.Swap` routing ·
-per-area / per-shift coverage totals · row virtualization.
+further drag-layer extension) · drag-out from the overflow popover ·
+committed-chip drag-to-propose · same-person-two-areas conflict flags ·
+board↔week linked selection · e3-ui staged-writes recipe ·
+`Communicate.Swap` routing · per-area / per-shift coverage totals · row
+virtualization.

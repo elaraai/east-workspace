@@ -134,10 +134,14 @@ export const globalCss = defineGlobalStyles({
         opacity: "0.8",
     },
     /* Valid destinations are marked before the drop (indicators precede).
-     * A flat wash, not an outline — adjacent grid cells would double their
-     * outlines along shared edges. */
+     * A dashed inset outline per the spec's "dashed = ephemeral" stroke —
+     * the earlier flat brand wash read washed-out when a whole grid of
+     * cells was valid at once. The −2px inset keeps adjacent grid cells
+     * from doubling strokes along shared edges. */
     "[data-drag-cell][data-drop-valid]": {
-        background: "{colors.brand.50}",
+        outline: "1px dashed",
+        outlineColor: "{colors.brand.500}",
+        outlineOffset: "-2px",
     },
     /* Only the active cell carries the outline, inset clear of its
      * neighbours' borders. */
@@ -146,6 +150,27 @@ export const globalCss = defineGlobalStyles({
         outline: "2px solid",
         outlineColor: "{colors.brand.600}",
         outlineOffset: "-3px",
+    },
+    /* A connected-but-vetoed cell (duplicate person, host `canAssign` veto)
+     * while hovered — red outline + the circle-with-cross badge, and the
+     * not-allowed cursor, per the Schematic connect-tool danger treatment. */
+    "[data-drag-cell][data-drop-invalid]": {
+        position: "relative",
+        background: "bg.danger.subtle",
+        outline: "2px solid",
+        outlineColor: "fg.danger",
+        outlineOffset: "-3px",
+        cursor: "not-allowed",
+        "&::after": {
+            content: '"⊘"',
+            position: "absolute",
+            top: "2px",
+            right: "6px",
+            fontSize: "14px",
+            lineHeight: "1",
+            color: "fg.danger",
+            pointerEvents: "none",
+        },
     },
 
     /* Reduced motion — replace transitions with instant.

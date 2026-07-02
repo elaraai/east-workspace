@@ -5,6 +5,7 @@
 
 import {
     ArrayType,
+    BooleanType,
     FunctionType,
     IntegerType,
     NullType,
@@ -149,6 +150,7 @@ export type BoardRequirementType = typeof BoardRequirementType;
  * @property density - Optional density
  * @property maxVisible - Optional per-cell chip cap before the `+N` overflow
  * @property summary - Optional status-strip text (open / proposed counts)
+ * @property canAssign - Optional assignability predicate `(person, area, shift) => Boolean`
  * @property onDrag - Drag funnel — add / move / remove events
  * @property onSelect - Assignment / cell click callback
  * @property onAccept - Ghost-assignment acceptance callback
@@ -181,6 +183,9 @@ export const BoardRootType = StructType({
     maxVisible: OptionType(IntegerType),
     /** Optional status-strip text (open / proposed counts) */
     summary: OptionType(StringType),
+    /** Optional assignability predicate `(person, area, shift) => Boolean` — a
+     * `false` verdict renders the invalid-drop treatment and vetoes the drop */
+    canAssign: OptionType(FunctionType([StringType, StringType, StringType], BooleanType)),
     /** Drag funnel — add / move / remove events */
     onDrag: OptionType(FunctionType([DragEventType], NullType)),
     /** Assignment / cell click callback */

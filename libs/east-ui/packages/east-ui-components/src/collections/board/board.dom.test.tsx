@@ -42,6 +42,7 @@ function boardValue(overrides: Partial<BoardValue>): BoardValue {
         sources: ["people"],
         mode: variant("edit", null),
         areaHeader: none,
+        areaWidth: none,
         areas: [entity("icu", "ICU")],
         shifts: [entity("am", "AM"), entity("pm", "PM")],
         people: [entity("patel", "Patel, R."), entity("cho", "Cho, J.")],
@@ -50,6 +51,7 @@ function boardValue(overrides: Partial<BoardValue>): BoardValue {
         density: none,
         maxVisible: none,
         summary: none,
+        canAssign: none,
         onDrag: none,
         onSelect: none,
         onAccept: none,
@@ -116,7 +118,7 @@ describe("EastChakraBoard", () => {
         expect(getByText("+Hasan, M.")).toBeTruthy();
     });
 
-    test("duplicate-person guard: dropping a person on a cell already holding them is a no-op", async () => {
+    test("duplicate-person guard: dropping a person on a cell already holding them is a no-op with the invalid treatment", async () => {
         const events: DragEventValue[] = [];
         const value = boardValue({
             assignments: [assignment("x1", "patel", "icu", "am")],
@@ -124,12 +126,51 @@ describe("EastChakraBoard", () => {
         });
         const { container, getByTestId, queryByText } = renderBoard(value,
             <Card library="people" itemKey="patel" label="Patel, R." />);
+        const cell = cells(container)[0]!;
 
-        drag(getByTestId("card-patel"), cells(container)[0]!);
+        fireEvent.pointerDown(getByTestId("card-patel"), { clientX: 0, clientY: 0 });
+        // The occupied cell is never marked valid; hovering it shows ⊘.
+        expect(cell.hasAttribute("data-drop-valid")).toBe(false);
+        pointAt(cell);
+        fireEvent.pointerMove(document, { clientX: 10, clientY: 10 });
+        expect(cell.hasAttribute("data-drop-invalid")).toBe(true);
+        fireEvent.pointerUp(document, { clientX: 10, clientY: 10 });
         await microtasks();
 
         expect(events).toHaveLength(0);
         expect(queryByText("+Patel, R.")).toBeNull();
+        expect(cell.hasAttribute("data-drop-invalid")).toBe(false);
+    });
+
+    test("canAssign veto: a forbidden (person, area, shift) shows the invalid treatment and drops nothing", async () => {
+        const events: DragEventValue[] = [];
+        const value = boardValue({
+            // Hasan may not take ICU PM; everything else is allowed.
+            canAssign: some(((person: string, _area: string, shift: string) =>
+                !(person === "hasan" && shift === "pm")) as never),
+            onDrag: some(((event: DragEventValue) => { events.push(event); }) as never),
+        });
+        const { container, getByTestId, getByText, queryByText } = renderBoard(value,
+            <Card library="people" itemKey="hasan" label="Hasan, M." />);
+        const [amCell, pmCell] = cells(container);
+
+        // Forbidden cell: not valid, invalid on hover, drop is a no-op.
+        fireEvent.pointerDown(getByTestId("card-hasan"), { clientX: 0, clientY: 0 });
+        expect(pmCell!.hasAttribute("data-drop-valid")).toBe(false);
+        expect(amCell!.hasAttribute("data-drop-valid")).toBe(true);
+        pointAt(pmCell!);
+        fireEvent.pointerMove(document, { clientX: 10, clientY: 10 });
+        expect(pmCell!.hasAttribute("data-drop-invalid")).toBe(true);
+        fireEvent.pointerUp(document, { clientX: 10, clientY: 10 });
+        await microtasks();
+        expect(events).toHaveLength(0);
+        expect(queryByText("+Hasan, M.")).toBeNull();
+
+        // The allowed cell still accepts the person.
+        drag(getByTestId("card-hasan"), amCell!);
+        await microtasks();
+        expect(events).toHaveLength(1);
+        expect(getByText("+Hasan, M.")).toBeTruthy();
     });
 
     test("coverage: requirements render n/required numerals and open-slot placeholders", () => {

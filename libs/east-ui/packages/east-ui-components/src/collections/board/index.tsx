@@ -3,14 +3,14 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Box, Popover, Portal, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCheck, faGripVertical, faTrashCan } from "@fortawesome/free-solid-svg-icons";
 import { equalFor, match, some, none, variant, type ValueTypeOf } from "@elaraai/east";
 import { Board, type CellRefType } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
-import { useDragTarget, useDropCell, useDragEventChip, type DragEventValue, type DragMeta } from "../../dnd/drag-layer";
+import { useDragTarget, useDropCell, useDragEventChip, type DragEventValue, type DragMeta, type DragPayload } from "../../dnd/drag-layer";
 
 const boardEqual = equalFor(Board.Types.Board);
 
@@ -167,6 +167,8 @@ interface BoardCellProps {
     /** Per-cell chip cap before the `+N` overflow. */
     maxVisible: number | undefined;
     edit: boolean;
+    /** Per-payload drop veto (duplicate person / host `canAssign`). */
+    canDrop: (payload: DragPayload) => boolean;
     styles: SlotStyles;
     onSelect?: ((ref: CellRefValue) => void) | undefined;
     onAccept?: ((ref: CellRefValue) => void) | undefined;
@@ -174,9 +176,9 @@ interface BoardCellProps {
     onAddAt?: ((ref: CellRefValue) => void) | undefined;
 }
 
-function BoardCell({ surface, area, shift, chips, required, maxVisible, edit, styles, onSelect, onAccept, onRemove, onAddAt }: BoardCellProps) {
+function BoardCell({ surface, area, shift, chips, required, maxVisible, edit, canDrop, styles, onSelect, onAccept, onRemove, onAddAt }: BoardCellProps) {
     const coord = useMemo(() => ({ surface, row: area, slot: shift }), [surface, area, shift]);
-    const dropRef = useDropCell(edit ? coord : null);
+    const dropRef = useDropCell(edit ? coord : null, false, canDrop);
     const [overflowOpen, setOverflowOpen] = useState(false);
 
     const filled = chips.filter(c => fills(c.assignment)).length;
@@ -296,6 +298,28 @@ export const EastChakraBoard = memo(function EastChakraBoard({ value }: EastChak
     const [localFaces, setLocalFaces] = useState<Map<string, string>>(() => new Map());
 
     const onDragFn = useMemo(() => getSomeorUndefined(value.onDrag), [value.onDrag]);
+    // Host assignability predicate — verdict-cached per (person, area, shift);
+    // a THROWING predicate logs and ALLOWS (fail-open) so a broken validator
+    // cannot brick the board (the Schematic `canConnect` convention).
+    const canAssignFn = useMemo(() =>
+        getSomeorUndefined(value.canAssign) as ((person: string, area: string, shift: string) => boolean) | undefined,
+    [value.canAssign]);
+    const assignVerdictRef = useRef(new Map<string, boolean>());
+    useEffect(() => { assignVerdictRef.current = new Map(); }, [canAssignFn]);
+    const assignAllowed = useCallback((person: string, area: string, shift: string): boolean => {
+        if (canAssignFn === undefined) return true;
+        const cacheKey = `${person}\u0000${area}\u0000${shift}`;
+        const hit = assignVerdictRef.current.get(cacheKey);
+        if (hit !== undefined) return hit;
+        let ok = true;
+        try {
+            ok = canAssignFn(person, area, shift) === true;
+        } catch (err) {
+            console.error("[Board] canAssign validator failed (allowing):", err);
+        }
+        assignVerdictRef.current.set(cacheKey, ok);
+        return ok;
+    }, [canAssignFn]);
     const onSelectFn = useMemo(() => getSomeorUndefined(value.onSelect), [value.onSelect]);
     const onAcceptFn = useMemo(() => getSomeorUndefined(value.onAccept), [value.onAccept]);
     const onAddAtFn = useMemo(() => getSomeorUndefined(value.onAddAt), [value.onAddAt]);
@@ -312,11 +336,28 @@ export const EastChakraBoard = memo(function EastChakraBoard({ value }: EastChak
         assignments.some(a => a.area === area && a.shift === shift && a.person === person && a.key !== excludeKey),
     [assignments]);
 
+    /** The person a drag payload carries — a Library card's key IS the person
+     * key; a moving chip resolves through its assignment. */
+    const payloadPerson = useCallback((payload: DragPayload): { person: string; excludeKey?: string } | undefined => {
+        if (payload.kind === "item") return { person: payload.from.key };
+        const moving = assignments.find(a => a.key === payload.from.event);
+        return moving !== undefined ? { person: moving.person, excludeKey: moving.key } : undefined;
+    }, [assignments]);
+    /** Per-cell drop veto: duplicate person in the cell, or a host
+     * `canAssign` false verdict. Unresolvable payloads allow (fail-open). */
+    const cellCanDrop = useCallback((area: string, shift: string) => (payload: DragPayload): boolean => {
+        const who = payloadPerson(payload);
+        if (who === undefined) return true;
+        if (occupied(area, shift, who.person, who.excludeKey)) return false;
+        return assignAllowed(who.person, area, shift);
+    }, [payloadPerson, occupied, assignAllowed]);
+
     const handleDrag = useCallback((event: DragEventValue, meta?: DragMeta) => {
         if (event.type === "add") {
             const { from, into } = event.value;
             // Duplicate-person guard: the dragged card's key IS the person key.
             if (occupied(into.row, into.slot, from.key)) return;
+            if (!assignAllowed(from.key, into.row, into.slot)) return;
             setAssignments([...assignments, {
                 key: `local:${from.library}:${from.key}:${into.row}:${into.slot}:${assignments.length}`,
                 person: from.key,
@@ -332,6 +373,7 @@ export const EastChakraBoard = memo(function EastChakraBoard({ value }: EastChak
             const key = from.event.type === "some" ? from.event.value : undefined;
             const moving = assignments.find(a => a.key === key);
             if (moving === undefined || occupied(to.row, to.slot, moving.person, moving.key)) return;
+            if (!assignAllowed(moving.person, to.row, to.slot)) return;
             setAssignments(assignments.map(a => a.key === key
                 ? { ...a, area: to.row, shift: to.slot }
                 : a));
@@ -340,7 +382,7 @@ export const EastChakraBoard = memo(function EastChakraBoard({ value }: EastChak
             setAssignments(assignments.filter(a => a.key !== key));
         }
         if (onDragFn) queueMicrotask(() => onDragFn(event));
-    }, [assignments, faces, occupied, onDragFn]);
+    }, [assignments, faces, occupied, assignAllowed, onDragFn]);
     const handleSelect = useMemo(() => onSelectFn
         ? (ref: CellRefValue) => queueMicrotask(() => onSelectFn(ref))
         : undefined, [onSelectFn]);
@@ -431,6 +473,7 @@ export const EastChakraBoard = memo(function EastChakraBoard({ value }: EastChak
                                 required={requirements.get(`${area.key} ${shift.key}`)}
                                 maxVisible={maxVisible}
                                 edit={edit}
+                                canDrop={cellCanDrop(area.key, shift.key)}
                                 styles={styles}
                                 onSelect={handleSelect}
                                 onAccept={edit ? handleAccept : undefined}

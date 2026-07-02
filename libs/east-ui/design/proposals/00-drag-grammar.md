@@ -59,7 +59,11 @@ export const DragEventType = VariantType({
 The renderer (`east-ui-components`) hosts one `DragLayerProvider` (same
 pattern as `OverlayManagerProvider`): sources register draggable cards,
 targets register droppable cells keyed by `(surface, row, slot)`, and the
-provider matches them by the declared ids. Ghost/indicator/cancel visuals
+provider matches them by the declared ids. A cell registration may carry a
+`canDrop(payload)` predicate — a connected-but-vetoed cell is never marked
+valid, shows the invalid stage (`data-drop-invalid`: red outline + ⊘ +
+not-allowed cursor) while hovered, and the drop is a no-op (Board uses this
+for its duplicate-person guard and host `canAssign` predicate). Ghost/indicator/cancel visuals
 follow `drag-drop-visuals` and live in the theme (layer styles), not in
 components.
 
@@ -82,7 +86,7 @@ state comes from the data, the renderer enforces it.
 |---|---|---|---|---|
 | `Library` | — | — | — | — (pure source) |
 | `Roster` | ✓ | ✓ | ✓ | — |
-| `Board` | ✓ | ✓ | ✓ | — (duplicate-person drops are renderer no-ops) |
+| `Board` | ✓ | ✓ | ✓ | — (duplicate-person / `canAssign` vetoes render the ⊘ invalid stage) |
 | `Blend` | ✓ | — | ✓ | — |
 | `Schematic` | — | — | — | — (read-only) |
 | `Calendar` | — | — | — | — (visualisation only) |
