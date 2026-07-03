@@ -21,7 +21,8 @@ import type { Structure, PackageObject, DatasetRef, FunctionObject, MutationObje
 import { DatasetRefType, PackageObjectType, TaskObjectType, FunctionObjectType, MutationObjectType, RecordObjectType } from '@elaraai/e3-types';
 import type { PackageDef, PackageItem } from './types.js';
 import { runnerToVariant } from './runner.js';
-import { captureEnvironment, type EnvironmentDecl } from './environment.js';
+import { captureEnvironment } from './environment-capture.js';
+import type { EnvironmentDecl } from './environment.js';
 
 /**
  * Exports a package to a .zip bundle.
