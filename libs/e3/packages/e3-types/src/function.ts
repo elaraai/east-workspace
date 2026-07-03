@@ -17,7 +17,7 @@
  * non-TS clients) have the types they need to encode arguments.
  */
 
-import { StructType, StringType, ArrayType, EastTypeType, ValueTypeOf } from '@elaraai/east';
+import { StructType, StringType, ArrayType, EastTypeType, OptionType, ValueTypeOf, decodeBeast2For, none } from '@elaraai/east';
 import { RunnerType } from './runner.js';
 
 /**
@@ -35,7 +35,51 @@ export const FunctionObjectType = StructType({
   /** Author-chosen runtime; resolved to argv by runnerToArgv. One of the known
    *  runtime tags — there is no raw-argv runner for functions. */
   runner: RunnerType,
+  /**
+   * Hash of an `EnvironmentSpecType` object the function executes in;
+   * `none` ⇒ the stock runtime image. Appended LAST (BEAST2 encodes struct
+   * fields positionally) with a legacy dual decoder — see
+   * {@link decodeFunctionObject}.
+   */
+  environment: OptionType(StringType),
 });
 export type FunctionObjectType = typeof FunctionObjectType;
 
 export type FunctionObject = ValueTypeOf<typeof FunctionObjectType>;
+
+/**
+ * The pre-`environment` function object wire shape, kept only so
+ * {@link decodeFunctionObject} can read functions exported before execution
+ * environments existed.
+ */
+const PreEnvironmentFunctionObjectType = StructType({
+  bodyIr: StringType,
+  inputTypes: ArrayType(EastTypeType),
+  outputType: EastTypeType,
+  runner: RunnerType,
+});
+
+const decodeCurrentFunction = decodeBeast2For(FunctionObjectType);
+const decodePreEnvironmentFunction = decodeBeast2For(PreEnvironmentFunctionObjectType);
+
+/**
+ * Decode a `FunctionObject` from BEAST2 bytes, tolerating the
+ * pre-`environment` wire format (dual-decode migration, like
+ * `decodePackageObject`).
+ *
+ * Every function-read path — local AND cloud — must use this instead of
+ * `decodeBeast2For(FunctionObjectType)` directly. Older bytes decode with
+ * `environment` defaulted to `none`.
+ */
+export function decodeFunctionObject(data: Uint8Array): FunctionObject {
+  try {
+    return decodeCurrentFunction(data);
+  } catch (err) {
+    try {
+      const legacy = decodePreEnvironmentFunction(data);
+      return { ...legacy, environment: none };
+    } catch {
+      throw err; // no known shape — surface the current-format error
+    }
+  }
+}

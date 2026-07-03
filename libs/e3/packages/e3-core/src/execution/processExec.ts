@@ -172,6 +172,10 @@ export interface SpawnAndCaptureOptions {
   onStderr?: (data: string) => void;
   /** Per-stream in-memory tail cap in bytes (default 64 KiB). */
   maxLogBytes?: number;
+  /** Executable dirs prepended to the child PATH ahead of everything else —
+   *  a materialized execution environment's bin dir (materializeEnvironment)
+   *  must beat both the project venv and node_modules/.bin. */
+  extraBins?: string[];
   /** Directories whose ancestor `node_modules/.bin` dirs are prepended to
    *  PATH so runner CLIs resolve (deduped, nearest first). */
   searchDirs?: string[];
@@ -277,7 +281,7 @@ export async function spawnAndCapture(
   const pathSep = process.platform === 'win32' ? ';' : ':';
   spawnOpts.env = {
     ...process.env,
-    PATH: [...venvBins, ...projectBins, path.dirname(process.execPath), process.env.PATH ?? '']
+    PATH: [...(options.extraBins ?? []), ...venvBins, ...projectBins, path.dirname(process.execPath), process.env.PATH ?? '']
       .filter(Boolean)
       .join(pathSep),
   };

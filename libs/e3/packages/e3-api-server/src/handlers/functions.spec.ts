@@ -54,6 +54,7 @@ async function seedPackage(storage: InMemoryStorage): Promise<void> {
     inputTypes: [toEastTypeValue(IntegerType)],
     outputType: toEastTypeValue(IntegerType),
     runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }),
+    environment: variant('none', null),
   };
   const fnHash = await storage.objects.write(REPO, encodeBeast2For(FunctionObjectType)(fnObject));
 

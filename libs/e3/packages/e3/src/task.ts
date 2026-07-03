@@ -15,6 +15,7 @@ import type { AsyncFunctionExpr, BlockBuilder, CallableAsyncFunctionExpr, Callab
 import { Expr, variant, ArrayType, StringType, East, IRType, EastIR, AsyncEastIR } from '@elaraai/east';
 import type { DatasetDef, DataTreeDef, TaskDef } from './types.js';
 import { DEFAULT_RUNNER, runnerToCommand, type Runner } from './runner.js';
+import { validateEnvironmentDecl, type EnvironmentDecl } from './environment.js';
 
 /**
  * Helper type to extract East types from DatasetDef array.
@@ -175,14 +176,15 @@ export function task<Name extends string, Inputs extends readonly DatasetDef[], 
     | CallableFunctionExpr<ExtractDatasetTypes<Inputs>, Output>
     | AsyncFunctionExpr<ExtractDatasetTypes<Inputs>, Output>
     | CallableAsyncFunctionExpr<ExtractDatasetTypes<Inputs>, Output>,
-  config?: { runner?: Runner, kind?: string, metadata?: Uint8Array },
+  config?: { runner?: Runner, kind?: string, metadata?: Uint8Array, environment?: EnvironmentDecl },
 ): TaskDef<Output, [variant<'field', 'tasks'>, variant<'field', Name>, variant<'field', 'output'>]>;
 export function task(
   name: string,
   inputs: DatasetDef[],
   fn: FunctionExpr<any, any> | AsyncFunctionExpr<any, any>,
-  config?: { runner?: Runner, kind?: string, metadata?: Uint8Array },
+  config?: { runner?: Runner, kind?: string, metadata?: Uint8Array, environment?: EnvironmentDecl },
 ): TaskDef {
+  if (config?.environment) validateEnvironmentDecl(config.environment, name);
   // Keep the full EastIR bundle (IR + source_map) so we don't drop the
   // source map before it reaches the beast2 encoder in export.ts.
   const eastIR = fn.toIR();
@@ -247,6 +249,7 @@ export function task(
     taskKind: config?.kind,
     metadata: config?.metadata,
     runner: config?.runner ?? DEFAULT_RUNNER,
+    environment: config?.environment,
   };
 
   // Add the task to the output's deps so downstream tasks collect this task's deps
@@ -260,8 +263,9 @@ export function customTask<Name extends string, Inputs extends Array<DatasetDef>
   inputs: Inputs,
   outputType: Output,
   command: ($: BlockBuilder<StringType>, input_paths: ExprType<ArrayType<StringType>>, output_path: ExprType<StringType>) => Expr<StringType> | void,
-  _config?: object,
+  config?: { environment?: EnvironmentDecl },
 ): TaskDef<Output, [variant<'field', 'tasks'>, variant<'field', Name>, variant<'field', 'output'>]> {
+  if (config?.environment) validateEnvironmentDecl(config.environment, name);
 
   // Create the task's subtree at .tasks.${name}
   const taskTree = createTaskTree(name);
@@ -291,6 +295,7 @@ export function customTask<Name extends string, Inputs extends Array<DatasetDef>
     inputs,
     output,
     deps: collectDeps(taskTree, output, inputs),
+    environment: config?.environment,
   };
 
   // Add the task to the output's deps so downstream tasks collect this task's deps

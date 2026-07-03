@@ -39,7 +39,7 @@ import {
   LocalStorage,
   LocalTaskRunner,
 } from '@elaraai/e3-core';
-import { FunctionObjectType, type RunnerValue } from '@elaraai/e3-types';
+import { type RunnerValue, decodeFunctionObject } from '@elaraai/e3-types';
 import {
   functionDescribe,
   functionCall,
@@ -209,7 +209,7 @@ async function callLocal(
     const available = Array.from(pkg.functions.keys()).join(', ');
     exitError(`Function '${spec.fn}' not found in ${pkgName}@${version}. Available: ${available || '(none)'}`);
   }
-  const fnObj = decodeBeast2For(FunctionObjectType)(Buffer.from(await storage.objects.read(repoPath, fnHash)));
+  const fnObj = decodeFunctionObject(Buffer.from(await storage.objects.read(repoPath, fnHash)));
 
   const signature: CallSignature = { inputTypes: fnObj.inputTypes, outputType: fnObj.outputType };
   if (rawArgs.length !== signature.inputTypes.length) {
@@ -227,7 +227,8 @@ async function callLocal(
     args,
     runner: fnObj.runner as RunnerValue,
     limits: LOCAL_LIMITS,
-  });
+    environment: fnObj.environment.type === 'some' ? fnObj.environment.value : undefined,
+  }, { storage });
 
   // Reuse the wire shape for rendering
   const streams = {

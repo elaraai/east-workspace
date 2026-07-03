@@ -10,10 +10,12 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import yazl from 'yazl';
 import yauzl from 'yauzl';
-import { StringType, decodeBeast2For } from '@elaraai/east';
-import { PackageObjectType, DatasetRefType } from '@elaraai/e3-types';
+import { East, StringType, decodeBeast2For } from '@elaraai/east';
+import { PackageObjectType, DatasetRefType, EnvironmentSpecType, decodePackageObject, decodeTaskObject, decodeFunctionObject } from '@elaraai/e3-types';
 import { addObject, export_ } from './export.js';
 import { package_ } from './package.js';
+import { task } from './task.js';
+import { function_ } from './function.js';
 import { input } from './input.js';
 
 describe('addObject', () => {
@@ -222,3 +224,106 @@ describe('export_', () => {
     }
   });
 });
+
+describe('environment capture on export', () => {
+  let projectDir: string;
+  let outDir: string;
+
+  before(() => {
+    projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'e3-env-project-'));
+    outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'e3-env-out-'));
+    // A locked node project with no dependencies (npm pack-able).
+    fs.writeFileSync(path.join(projectDir, 'package.json'), JSON.stringify({
+      name: 'e3-capture-fixture', version: '1.0.0', files: ['index.js'],
+    }));
+    fs.writeFileSync(path.join(projectDir, 'index.js'), 'module.exports = 1;\n');
+    fs.writeFileSync(path.join(projectDir, 'package-lock.json'), JSON.stringify({
+      name: 'e3-capture-fixture', version: '1.0.0', lockfileVersion: 3, requires: true,
+      packages: { '': { name: 'e3-capture-fixture', version: '1.0.0' } },
+    }));
+  });
+
+  after(() => {
+    fs.rmSync(projectDir, { recursive: true, force: true });
+    fs.rmSync(outDir, { recursive: true, force: true });
+  });
+
+  it('rejects a mutable image reference at definition time', () => {
+    const greeting = input('greeting', StringType, 'hi');
+    assert.throws(
+      () => task('bad_env', [greeting], East.function([StringType], StringType, (_$, g) => g), {
+        environment: { image: { digest: 'example.com/img:latest' } },
+      }),
+      /image reference must be a full digest/,
+    );
+  });
+
+  it('captures a node environment into the bundle and stamps the task + function', async () => {
+    const greeting = input('greeting', StringType, 'hi');
+    const echo = task('echo', [greeting], East.function([StringType], StringType, (_$, g) => g), {
+      environment: { node: { project: projectDir } },
+    });
+    const fn = function_('shout',
+      East.function([StringType], StringType, (_$, g) => g),
+      { environment: { node: { project: projectDir } } });
+    const pkg = package_('env-pkg', '1.0.0', greeting, echo, fn);
+
+    const zipPath = path.join(outDir, 'env-pkg.zip');
+    await export_(pkg, zipPath);
+
+    const entries = await readZipEntries(zipPath);
+    const pkgRef = entries.get('packages/env-pkg/1.0.0');
+    assert.ok(pkgRef, 'package ref present');
+    const readObj = (hash: string): Buffer => {
+      const data = entries.get(`objects/${hash.slice(0, 2)}/${hash.slice(2)}.beast2`);
+      assert.ok(data, `object ${hash} present in bundle`);
+      return data;
+    };
+
+    const pkgObj = decodePackageObject(readObj(pkgRef.toString('utf-8').trim()));
+    const taskObj = decodeTaskObject(readObj(pkgObj.tasks.get('echo')!));
+    assert.strictEqual(taskObj.environment.type, 'some');
+    const fnObj = decodeFunctionObject(readObj(pkgObj.functions.get('shout')!));
+    assert.strictEqual(fnObj.environment.type, 'some');
+
+    // Task and function share one declaration — one spec object (memoized capture).
+    const envHash = taskObj.environment.type === 'some' ? taskObj.environment.value : '';
+    assert.strictEqual(fnObj.environment.type === 'some' && fnObj.environment.value, envHash);
+
+    const spec = decodeBeast2For(EnvironmentSpecType)(readObj(envHash));
+    assert.strictEqual(spec.type, 'node');
+    if (spec.type === 'node') {
+      // Every referenced blob rides the bundle: manifest, lockfile, tarball.
+      const manifest = JSON.parse(readObj(spec.value.packageJson).toString('utf-8'));
+      assert.strictEqual(manifest.name, 'e3-capture-fixture');
+      readObj(spec.value.lock);
+      assert.strictEqual(spec.value.tarballs.length, 1);
+      readObj(spec.value.tarballs[0]!);
+    }
+  });
+});
+
+/** Read all zip entries into a map of path -> content. */
+function readZipEntries(zipPath: string): Promise<Map<string, Buffer>> {
+  return new Promise((resolve, reject) => {
+    const entries = new Map<string, Buffer>();
+    yauzl.open(zipPath, { lazyEntries: true }, (err, zf) => {
+      if (err || !zf) return reject(err);
+      zf.readEntry();
+      zf.on('entry', (entry) => {
+        if (entry.fileName.endsWith('/')) return zf.readEntry();
+        zf.openReadStream(entry, (serr, stream) => {
+          if (serr || !stream) return reject(serr);
+          const chunks: Buffer[] = [];
+          stream.on('data', (c) => chunks.push(c));
+          stream.on('end', () => {
+            entries.set(entry.fileName, Buffer.concat(chunks));
+            zf.readEntry();
+          });
+        });
+      });
+      zf.on('end', () => resolve(entries));
+      zf.on('error', reject);
+    });
+  });
+}

@@ -13,7 +13,7 @@ import { existsSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { East, IntegerType, StringType, StructType, decodeBeast2For, encodeBeast2For, variant, none, toEastTypeValue } from '@elaraai/east';
 import e3 from '@elaraai/e3';
-import { WorkspaceStateType, PackageObjectType, TaskObjectType, FunctionObjectType, DataRefType, DatasetRefType, RecordCommitType, MutationObjectType } from '@elaraai/e3-types';
+import { WorkspaceStateType, PackageObjectType, TaskObjectType, FunctionObjectType, DataRefType, DatasetRefType, RecordCommitType, MutationObjectType, EnvironmentSpecType } from '@elaraai/e3-types';
 import type { WorkspaceState, PackageObject, TaskObject } from '@elaraai/e3-types';
 import { repoGc, collectAllRoots, markReachable, sweepBatch } from './storage/local/gc.js';
 import { objectWrite, objectRead } from './storage/local/LocalObjectStore.js';
@@ -508,7 +508,7 @@ describe('gc', () => {
         commandIr: irHash,
         inputs: [[variant('field', 'x')]],
         output: [variant('field', 'y')],
-        kind: variant('none', null), metadata: variant('none', null), runner: variant('custom', { command: [] }),
+        kind: variant('none', null), metadata: variant('none', null), runner: variant('custom', { command: [] }), environment: variant('none', null),
       } as TaskObject);
       const taskHash = 'b'.repeat(64);
 
@@ -538,6 +538,45 @@ describe('gc', () => {
       assert.ok(reachable.has(taskHash), 'task should be reachable');
       assert.ok(reachable.has(irHash), 'IR leaf should be reachable (marked without reading)');
       assert.strictEqual(reachable.size, 3);
+    });
+
+    it('follows TaskObject → EnvironmentSpec → blob chain', async () => {
+      const irHash = 'c'.repeat(64);
+      const pyprojectHash = 'd'.repeat(64);
+      const lockHash = 'e'.repeat(64);
+      const sdistHash = 'f'.repeat(64);
+
+      const specEncoder = encodeBeast2For(EnvironmentSpecType);
+      const specData = specEncoder(variant('python', {
+        pyproject: pyprojectHash,
+        lock: lockHash,
+        sdists: [sdistHash],
+      }));
+      const envHash = 'b'.repeat(63) + '1';
+
+      const taskEncoder = encodeBeast2For(TaskObjectType);
+      const taskData = taskEncoder({
+        commandIr: irHash,
+        inputs: [[variant('field', 'x')]],
+        output: [variant('field', 'y')],
+        kind: variant('none', null), metadata: variant('none', null), runner: variant('custom', { command: [] }), environment: variant('some', envHash),
+      } as TaskObject);
+      const taskHash = 'b'.repeat(64);
+
+      const objects = new Map<string, Uint8Array>();
+      objects.set(taskHash, taskData);
+      objects.set(envHash, specData);
+      // the blobs are leaves — not in the store
+
+      const readObject = async (hash: string) => objects.get(hash) ?? null;
+      const reachable = await markReachable(readObject, new Set([taskHash]));
+
+      assert.ok(reachable.has(envHash), 'environment spec should be reachable');
+      assert.ok(reachable.has(pyprojectHash), 'pyproject blob should be reachable');
+      assert.ok(reachable.has(lockHash), 'lockfile blob should be reachable');
+      assert.ok(reachable.has(sdistHash), 'sdist blob should be reachable');
+      assert.ok(reachable.has(irHash), 'IR leaf should be reachable');
+      assert.strictEqual(reachable.size, 6);
     });
 
     it('follows TreeObject DataRef children', async () => {

@@ -207,6 +207,34 @@ implementation and wire it (the `./platform` export, the Python package, the
 `--platform` scaffold), see the **east-project** skill (and **east** for
 `East.platform(...).implement(...)`, **east-py** for `@platform_function`).
 
+#### Execution environments (bundle your implementation with the package)
+
+A `{ custom: ... }` platform only runs where its implementation is installed.
+Declaring an `environment` on the task (or function) captures the project's
+dependency closure into the exported package — `pyproject.toml` + `uv.lock` +
+an sdist of the project itself (`package.json` + lockfile + `npm pack` for
+node) — as content-addressed objects. The runner materializes it into a
+per-repo cache before spawning (warm after first use), so the package runs on
+repos/machines that never saw your working tree. Because the environment hash
+covers your implementation code, editing it re-executes affected tasks
+(no stale cache reuse).
+
+```typescript
+const forecast = e3.task('forecast', [history],
+  East.function([ArrayType(FloatType)], FloatType, ($, h) => forecastDemand(h)),
+  {
+    runner: { runtime: 'east-py', platforms: [{ custom: 'platform_module' }, 'east-py-std'] },
+    environment: { python: { project: '.' } },  // dir with pyproject.toml + uv.lock
+  });
+
+// node projects: { node: { project: '.' } } (package.json + lockfile);
+// pinned container image (cloud only): { image: { digest: 'repo@sha256:<64 hex>' } }
+```
+
+Environments resolve at `e3.export` time (missing lockfile or failed build ⇒
+export error; a mutable `image` tag is rejected at definition time). Without
+an `environment`, tasks run on the stock runtime image as before.
+
 ### e3.customTask(name, inputs, outputType, command)
 
 Define a task that runs a shell command.

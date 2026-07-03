@@ -43,7 +43,21 @@ export {
 export {
   TaskObjectType,
   type TaskObject,
+  decodeTaskObject,
 } from './task.js';
+
+// Execution environments
+export {
+  EnvironmentSpecType,
+  type EnvironmentSpec,
+  PythonEnvironmentType,
+  type PythonEnvironment,
+  NodeEnvironmentType,
+  type NodeEnvironment,
+  ImageEnvironmentType,
+  type ImageEnvironment,
+  environmentSpecObjectHashes,
+} from './environment.js';
 
 // Data structure and paths
 export {
@@ -78,6 +92,7 @@ export {
 export {
   FunctionObjectType,
   type FunctionObject,
+  decodeFunctionObject,
 } from './function.js';
 
 // Record objects

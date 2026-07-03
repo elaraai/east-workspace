@@ -170,6 +170,16 @@ function isPackageObjectShape(type: any): boolean {
 }
 
 /**
+ * Check if a decoded EastTypeValue represents an EnvironmentSpec.
+ * EnvironmentSpec is a Variant with cases: python, node, image.
+ */
+function isEnvironmentSpecShape(type: any): boolean {
+  if (type?.type !== 'Variant' || !Array.isArray(type.value)) return false;
+  const names = new Set(type.value.map((c: any) => c.name));
+  return names.size === 3 && names.has('python') && names.has('node') && names.has('image');
+}
+
+/**
  * Check if a decoded EastTypeValue represents a TaskObject.
  * TaskObject is a Struct with fields: commandIr, inputs, output
  */
@@ -288,14 +298,20 @@ function extractChildren(
   }
 
   if (isTaskObjectShape(t)) {
-    const task = value as { commandIr: string };
+    const task = value as { commandIr: string; environment?: { type: string; value: string } };
     children.push({ hash: task.commandIr, isLeaf: true }); // IR is a leaf
+    if (task.environment?.type === 'some') {
+      children.push({ hash: task.environment.value, isLeaf: false }); // walk the spec's blobs
+    }
     return children;
   }
 
   if (isFunctionObjectShape(t)) {
-    const fn = value as { bodyIr: string };
+    const fn = value as { bodyIr: string; environment?: { type: string; value: string } };
     children.push({ hash: fn.bodyIr, isLeaf: true }); // IR is a leaf
+    if (fn.environment?.type === 'some') {
+      children.push({ hash: fn.environment.value, isLeaf: false }); // walk the spec's blobs
+    }
     return children;
   }
 
@@ -310,6 +326,21 @@ function extractChildren(
   if (isMutationObjectShape(t)) {
     const mut = value as { bodyIr: string };
     children.push({ hash: mut.bodyIr, isLeaf: true }); // IR is a leaf
+    return children;
+  }
+
+  if (isEnvironmentSpecShape(t)) {
+    const spec = value as { type: string; value: Record<string, unknown> };
+    if (spec.type === 'python') {
+      const env = spec.value as { pyproject: string; lock: string; sdists: string[] };
+      children.push({ hash: env.pyproject, isLeaf: true }, { hash: env.lock, isLeaf: true });
+      for (const sdist of env.sdists) children.push({ hash: sdist, isLeaf: true });
+    } else if (spec.type === 'node') {
+      const env = spec.value as { packageJson: string; lock: string; tarballs: string[] };
+      children.push({ hash: env.packageJson, isLeaf: true }, { hash: env.lock, isLeaf: true });
+      for (const tarball of env.tarballs) children.push({ hash: tarball, isLeaf: true });
+    }
+    // image: no object-store references
     return children;
   }
 
