@@ -17344,7 +17344,7 @@
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/collections/table.examples.tsx",
       "suite": "",
-      "test": "Array and struct fields with value functions for sorting",
+      "test": "Array and struct fields with value functions for sorting; render reaches the FULL row by capturing the data array and indexing ctx.rowIndex",
       "keywords": [
         "Table",
         "Root",
@@ -17352,14 +17352,19 @@
         "render",
         "complex",
         "array",
-        "struct"
+        "struct",
+        "capture",
+        "closure",
+        "rowIndex",
+        "full row",
+        "CellRenderContext"
       ],
       "imports": [
         "import { East, ArrayType, IntegerType, NullType, StringType, example } from \"@elaraai/east\";",
         "import { State, Style, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Badge, Box, HStack, Reactive, Table, Tag, Text, VStack } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Array and struct fields with value functions for sorting\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const complexData = $.let([\n            { name: \"Alice\", skills: [\"TypeScript\", \"React\", \"Node\"], metadata: { level: \"Senior\", years: 5n } },\n            { name: \"Bob\", skills: [\"Python\", \"Django\"], metadata: { level: \"Mid\", years: 3n } },\n            { name: \"Charlie\", skills: [\"Go\", \"Rust\", \"C++\", \"Java\"], metadata: { level: \"Senior\", years: 8n } },\n        ]);\n        return (\n            <Table\n                variant=\"line\"\n                striped={true}\n                data={complexData}\n                columns={{\n                    name: { header: \"Name\" },\n                    skills: {\n                        header: \"Skills\",\n                        value: (skills) => skills.size(),\n                        render: East.function([Table.Types.CellRenderContext], UIComponentType, ($, ctx) => {\n                            const row = $.let(complexData.get(ctx.rowIndex));\n                            return (\n                                <HStack gap=\"1\" wrap=\"wrap\">\n                                    {row.skills.map((_$, s) => <Badge variant=\"subtle\" colorPalette=\"blue\">{s}</Badge>)}\n                                </HStack>\n                            );\n                        }),\n                    },\n                    metadata: {\n                        header: \"Experience\",\n                        value: (meta) => meta.years,\n                        render: East.function([Table.Types.CellRenderContext], UIComponentType, ($, ctx) => {\n                            const row = $.let(complexData.get(ctx.rowIndex));\n                            return <Text>{East.str`${row.metadata.level} (${row.metadata.years} yrs)`}</Text>;\n                        }),\n                    },\n                }}\n            />\n        );\n    })"
+      "source": "// Array and struct fields with value functions for sorting; render reaches the FULL row by capturing the data array and indexing ctx.rowIndex\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const complexData = $.let([\n            { name: \"Alice\", skills: [\"TypeScript\", \"React\", \"Node\"], metadata: { level: \"Senior\", years: 5n } },\n            { name: \"Bob\", skills: [\"Python\", \"Django\"], metadata: { level: \"Mid\", years: 3n } },\n            { name: \"Charlie\", skills: [\"Go\", \"Rust\", \"C++\", \"Java\"], metadata: { level: \"Senior\", years: 8n } },\n        ]);\n        return (\n            <Table\n                variant=\"line\"\n                striped={true}\n                data={complexData}\n                columns={{\n                    name: { header: \"Name\" },\n                    skills: {\n                        header: \"Skills\",\n                        value: (skills) => skills.size(),\n                        render: East.function([Table.Types.CellRenderContext], UIComponentType, ($, ctx) => {\n                            // The render context carries only {rowIndex, columnKey, cellValue} —\n                            // CAPTURE the data array and index ctx.rowIndex for full-row access.\n                            // Captures must be data or bind-handles, never a UIComponentType value.\n                            const row = $.let(complexData.get(ctx.rowIndex));\n                            return (\n                                <HStack gap=\"1\" wrap=\"wrap\">\n                                    {row.skills.map((_$, s) => <Badge variant=\"subtle\" colorPalette=\"blue\">{s}</Badge>)}\n                                </HStack>\n                            );\n                        }),\n                    },\n                    metadata: {\n                        header: \"Experience\",\n                        value: (meta) => meta.years,\n                        render: East.function([Table.Types.CellRenderContext], UIComponentType, ($, ctx) => {\n                            const row = $.let(complexData.get(ctx.rowIndex));\n                            return <Text>{East.str`${row.metadata.level} (${row.metadata.years} yrs)`}</Text>;\n                        }),\n                    },\n                }}\n            />\n        );\n    })"
     },
     {
       "id": "east-ui:table.examples.tsx:tableWrappingTags",
