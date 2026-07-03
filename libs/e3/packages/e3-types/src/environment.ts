@@ -29,17 +29,19 @@ import { ArrayType, StringType, StructType, ValueTypeOf, VariantType } from '@el
  * @remarks
  * - `pyproject`: object hash of the project's `pyproject.toml` blob.
  * - `lock`: object hash of the `uv.lock` blob — pins the full closure.
- * - `sdists`: object hashes of source distributions (`uv build --sdist`) of
- *   the project's own package(s) — the user's platform-function
- *   implementation code — installed in order after the sync.
+ * - `sdists`: the project's own source distributions (`uv build --sdist`) —
+ *   the user's platform-function implementation code — installed in order
+ *   after the sync. Each entry carries the original filename because
+ *   Python installers derive the package name from `name-version.tar.gz`
+ *   and reject a renamed file.
  */
 export const PythonEnvironmentType = StructType({
   /** Object hash of the pyproject.toml blob */
   pyproject: StringType,
   /** Object hash of the uv.lock blob */
   lock: StringType,
-  /** Object hashes of project sdist blobs, in install order */
-  sdists: ArrayType(StringType),
+  /** Project sdist blobs (original filename + object hash), in install order */
+  sdists: ArrayType(StructType({ filename: StringType, hash: StringType })),
 });
 export type PythonEnvironmentType = typeof PythonEnvironmentType;
 export type PythonEnvironment = ValueTypeOf<typeof PythonEnvironmentType>;
@@ -116,7 +118,7 @@ export type EnvironmentSpec = ValueTypeOf<typeof EnvironmentSpecType>;
 export function environmentSpecObjectHashes(spec: EnvironmentSpec): string[] {
   switch (spec.type) {
     case 'python':
-      return [spec.value.pyproject, spec.value.lock, ...spec.value.sdists];
+      return [spec.value.pyproject, spec.value.lock, ...spec.value.sdists.map((s) => s.hash)];
     case 'node':
       return [spec.value.packageJson, spec.value.lock, ...spec.value.tarballs];
     case 'image':

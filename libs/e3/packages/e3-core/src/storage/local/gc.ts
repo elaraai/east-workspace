@@ -332,9 +332,9 @@ function extractChildren(
   if (isEnvironmentSpecShape(t)) {
     const spec = value as { type: string; value: Record<string, unknown> };
     if (spec.type === 'python') {
-      const env = spec.value as { pyproject: string; lock: string; sdists: string[] };
+      const env = spec.value as { pyproject: string; lock: string; sdists: { filename: string; hash: string }[] };
       children.push({ hash: env.pyproject, isLeaf: true }, { hash: env.lock, isLeaf: true });
-      for (const sdist of env.sdists) children.push({ hash: sdist, isLeaf: true });
+      for (const sdist of env.sdists) children.push({ hash: sdist.hash, isLeaf: true });
     } else if (spec.type === 'node') {
       const env = spec.value as { packageJson: string; lock: string; tarballs: string[] };
       children.push({ hash: env.packageJson, isLeaf: true }, { hash: env.lock, isLeaf: true });

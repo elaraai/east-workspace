@@ -88,7 +88,7 @@ function buildArtifacts(
   outDir: string,
   extension: string,
   owner: string,
-): Buffer[] {
+): { filename: string; data: Buffer }[] {
   try {
     execFileSync(command, args, {
       cwd: project,
@@ -108,7 +108,7 @@ function buildArtifacts(
       `Environment for '${owner}': '${command}' produced no ${extension} artifacts in '${project}'`,
     );
   }
-  return files.map((f) => fs.readFileSync(path.join(outDir, f)));
+  return files.map((f) => ({ filename: f, data: fs.readFileSync(path.join(outDir, f)) }));
 }
 
 /**
@@ -142,9 +142,10 @@ export function captureEnvironment(
     const lock = addBlob(readProjectFile(project, 'uv.lock', owner));
     const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'e3-env-sdist-'));
     try {
+      // Installers derive the package name from the sdist filename — keep it.
       const sdists = buildArtifacts(
         'uv', ['build', '--sdist', '--out-dir', outDir], project, outDir, '.tar.gz', owner,
-      ).map(addBlob);
+      ).map((a) => ({ filename: a.filename, hash: addBlob(a.data) }));
       spec = variant('python', { pyproject, lock, sdists });
     } finally {
       fs.rmSync(outDir, { recursive: true, force: true });
@@ -166,7 +167,7 @@ export function captureEnvironment(
     try {
       const tarballs = buildArtifacts(
         'npm', ['pack', '--pack-destination', outDir], project, outDir, '.tgz', owner,
-      ).map(addBlob);
+      ).map((a) => addBlob(a.data));
       spec = variant('node', { packageJson, lock, tarballs });
     } finally {
       fs.rmSync(outDir, { recursive: true, force: true });

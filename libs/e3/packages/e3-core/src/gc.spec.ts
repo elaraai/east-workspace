@@ -550,7 +550,7 @@ describe('gc', () => {
       const specData = specEncoder(variant('python', {
         pyproject: pyprojectHash,
         lock: lockHash,
-        sdists: [sdistHash],
+        sdists: [{ filename: 'envtest-0.1.0.tar.gz', hash: sdistHash }],
       }));
       const envHash = 'b'.repeat(63) + '1';
 

@@ -75,15 +75,20 @@ async function buildPython(
 ): Promise<void> {
   await writeBlob(storage, repo, spec.value.pyproject, path.join(buildDir, 'pyproject.toml'));
   await writeBlob(storage, repo, spec.value.lock, path.join(buildDir, 'uv.lock'));
+  // Relocatable: the venv is built in a temp sibling and atomically renamed
+  // into the cache path — absolute shebangs would break on rename.
+  await run('uv', ['venv', '--relocatable', '.venv'], buildDir, 'virtualenv creation');
   await run('uv', ['sync', '--frozen', '--no-install-project'], buildDir,
     'locked dependency sync');
   if (spec.value.sdists.length > 0) {
     const sdistDir = path.join(buildDir, '.sdists');
     await fs.mkdir(sdistDir);
     const files: string[] = [];
-    for (let i = 0; i < spec.value.sdists.length; i++) {
-      const f = path.join(sdistDir, `sdist-${i}.tar.gz`);
-      await writeBlob(storage, repo, spec.value.sdists[i]!, f);
+    for (const sdist of spec.value.sdists) {
+      // Installers derive the package name from `name-version.tar.gz`;
+      // basename() guards against path segments in wire data.
+      const f = path.join(sdistDir, path.basename(sdist.filename));
+      await writeBlob(storage, repo, sdist.hash, f);
       files.push(f);
     }
     await run('uv', ['pip', 'install', '--python', path.join(buildDir, '.venv'), ...files],

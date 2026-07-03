@@ -2,56 +2,102 @@
   "features": {
     "tests": {
       "default": true,
-      "files": ["src/index.spec.ts", "tests/test_unit.py"],
-      "scripts": ["test:ts", "test:export", "test:py"]
+      "files": [
+        "src/index.spec.ts",
+        "tests/test_unit.py"
+      ],
+      "scripts": [
+        "test:ts",
+        "test:export",
+        "test:py"
+      ]
     },
     "ui": {
       "default": false,
-      "files": ["src/ui/index.tsx"],
-      "dependencies": ["@elaraai/east-ui", "@elaraai/e3-ui"],
-      "devDependencies": ["@elaraai/e3-ui-cli"],
-      "scripts": ["shot"]
+      "files": [
+        "src/ui/index.tsx"
+      ],
+      "dependencies": [
+        "@elaraai/east-ui",
+        "@elaraai/e3-ui"
+      ],
+      "devDependencies": [
+        "@elaraai/e3-ui-cli"
+      ],
+      "scripts": [
+        "shot"
+      ]
     },
     "platform": {
       "default": false,
-      "files": ["src/platform/index.ts", "src/platform/example.ts"],
+      "files": [
+        "src/platform/index.ts",
+        "src/platform/example.ts"
+      ],
       "packageJson": {
         "exports": {
           ".": "./dist/index.js",
           "./platform": "./dist/platform/index.js",
           "./package.json": "./package.json"
-        }
+        },
+        "files": [
+          "dist",
+          "platform_module"
+        ]
       }
     },
     "platform-py": {
-      "allOf": ["platform", "runner:east-py"],
+      "allOf": [
+        "platform",
+        "runner:east-py"
+      ],
       "files": [
         "platform_module/__init__.py",
         "platform_module/example.py",
         "src/platform_module.ts",
         "pyproject.platform.toml"
       ],
-      "disable": ["pyproject.toml"],
-      "rename": { "pyproject.platform.toml": "pyproject.toml" }
+      "disable": [
+        "pyproject.toml"
+      ],
+      "rename": {
+        "pyproject.platform.toml": "pyproject.toml"
+      }
     },
     "runner:east-node": {
       "default": true,
-      "devDependencies": ["@elaraai/east-node-cli"]
+      "devDependencies": [
+        "@elaraai/east-node-cli"
+      ]
     },
     "runner:east-c": {
       "default": true,
-      "devDependencies": ["@elaraai/east-c-cli"]
+      "devDependencies": [
+        "@elaraai/east-c-cli"
+      ]
     },
     "runner:east-py": {
       "default": true,
-      "files": ["pyproject.toml", ".python-version", "tests/test_unit.py"],
-      "scripts": ["test:py"],
-      "dependencies": ["@elaraai/east-py-datascience"]
+      "files": [
+        "pyproject.toml",
+        ".python-version",
+        "tests/test_unit.py"
+      ],
+      "scripts": [
+        "test:py"
+      ],
+      "dependencies": [
+        "@elaraai/east-py-datascience"
+      ]
     },
     "eslint": {
       "default": true,
-      "files": ["eslint.config.js"],
-      "scripts": ["lint"],
+      "files": [
+        "eslint.config.js"
+      ],
+      "scripts": [
+        "lint"
+      ],
       "devDependencies": [
         "eslint",
         "@typescript-eslint/eslint-plugin",
@@ -61,29 +107,90 @@
     },
     "editor-diagnostics": {
       "default": true,
-      "devDependencies": ["@elaraai/tsserver-plugin-east"]
+      "devDependencies": [
+        "@elaraai/tsserver-plugin-east"
+      ]
     }
   },
   "indexVariants": [
-    { "when": ["ui", "platform", "runner:east-py"], "source": "src/index.ui.platform.py.ts" },
-    { "when": ["ui", "platform"], "source": "src/index.ui.platform.ts" },
-    { "when": ["ui"], "source": "src/index.ui.ts" },
-    { "when": ["platform", "runner:east-py"], "source": "src/index.platform.py.ts" },
-    { "when": ["platform"], "source": "src/index.platform.ts" },
-    { "when": [], "source": "src/index.ts" }
+    {
+      "when": [
+        "ui",
+        "platform",
+        "runner:east-py"
+      ],
+      "source": "src/index.ui.platform.py.ts"
+    },
+    {
+      "when": [
+        "ui",
+        "platform"
+      ],
+      "source": "src/index.ui.platform.ts"
+    },
+    {
+      "when": [
+        "ui"
+      ],
+      "source": "src/index.ui.ts"
+    },
+    {
+      "when": [
+        "platform",
+        "runner:east-py"
+      ],
+      "source": "src/index.platform.py.ts"
+    },
+    {
+      "when": [
+        "platform"
+      ],
+      "source": "src/index.platform.ts"
+    },
+    {
+      "when": [],
+      "source": "src/index.ts"
+    }
   ],
   "scriptVariants": {
     "test": [
-      { "when": ["tests", "runner:east-py"], "value": "npm run build && npm run test:export && npm run test:py" },
-      { "when": ["tests"], "value": "npm run build && npm run test:export" }
+      {
+        "when": [
+          "tests",
+          "runner:east-py"
+        ],
+        "value": "npm run build && npm run test:export && npm run test:py"
+      },
+      {
+        "when": [
+          "tests"
+        ],
+        "value": "npm run build && npm run test:export"
+      }
     ],
     "setup": [
-      { "when": ["runner:east-py"], "value": "npm install && uv sync" },
-      { "when": [], "value": "npm install" }
+      {
+        "when": [
+          "runner:east-py"
+        ],
+        "value": "npm install && uv sync"
+      },
+      {
+        "when": [],
+        "value": "npm install"
+      }
     ],
     "start": [
-      { "when": ["platform"], "value": "npm run build && npm run deploy && e3 dataflow run .repos __WORKSPACE_NAME__" },
-      { "when": [], "value": "npm run deploy && e3 dataflow run .repos __WORKSPACE_NAME__" }
+      {
+        "when": [
+          "platform"
+        ],
+        "value": "npm run build && npm run deploy && e3 dataflow run .repos __WORKSPACE_NAME__"
+      },
+      {
+        "when": [],
+        "value": "npm run deploy && e3 dataflow run .repos __WORKSPACE_NAME__"
+      }
     ]
   }
 }

@@ -351,6 +351,9 @@ importers:
       '@elaraai/east-node-cli':
         specifier: workspace:*
         version: link:../../../east-node/packages/east-node-cli
+      '@elaraai/scaffold-core':
+        specifier: workspace:*
+        version: link:../../../create/packages/scaffold-core
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15

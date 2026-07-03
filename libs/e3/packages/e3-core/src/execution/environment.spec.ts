@@ -110,7 +110,7 @@ describe('task/function object dual decoders', () => {
 describe('environmentSpecObjectHashes', () => {
   it('lists python blobs', () => {
     assert.deepStrictEqual(
-      environmentSpecObjectHashes(variant('python', { pyproject: 'p', lock: 'l', sdists: ['s1', 's2'] })),
+      environmentSpecObjectHashes(variant('python', { pyproject: 'p', lock: 'l', sdists: [{ filename: 'a-1.0.tar.gz', hash: 's1' }, { filename: 'b-1.0.tar.gz', hash: 's2' }] })),
       ['p', 'l', 's1', 's2'],
     );
   });
