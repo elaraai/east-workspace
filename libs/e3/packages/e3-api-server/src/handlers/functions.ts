@@ -16,7 +16,7 @@
  * routes/functions.ts).
  */
 
-import { ArrayType, decodeBeast2For, variant, none } from '@elaraai/east';
+import { ArrayType, variant, none } from '@elaraai/east';
 import {
   packageRead,
   workspaceGetPackage,
@@ -24,7 +24,7 @@ import {
   TaskNotFoundError,
 } from '@elaraai/e3-core';
 import type { StorageBackend, TaskRunner, DetachedResult } from '@elaraai/e3-core';
-import { FunctionObjectType, type FunctionObject, type RunnerValue, type TreePath } from '@elaraai/e3-types';
+import { type FunctionObject, type RunnerValue, type TreePath, decodeFunctionObject } from '@elaraai/e3-types';
 import { sendSuccess, sendError } from '../beast2.js';
 import { errorToVariant } from '../errors.js';
 import {
@@ -91,7 +91,7 @@ function resolveLimits(
 // Shared helpers
 // =============================================================================
 
-const decodeFunctionObject = decodeBeast2For(FunctionObjectType);
+
 
 /**
  * Resolve a named function in a package to its FunctionObject.
@@ -182,8 +182,9 @@ async function executeFunction(
       args: req.args.map((a) => a as Uint8Array),
       runner: runnerValue,
       limits,
+      environment: fnObj.environment.type === 'some' ? fnObj.environment.value : undefined,
     },
-    { signal }
+    { signal, storage }
   );
   return detachedToExecuteResult(result);
 }

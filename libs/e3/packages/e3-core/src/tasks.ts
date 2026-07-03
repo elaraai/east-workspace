@@ -17,9 +17,9 @@
 import { decodeBeast2For } from '@elaraai/east';
 import {
   decodePackageObject,
-  TaskObjectType,
   WorkspaceStateType,
   type TaskObject,
+  decodeTaskObject,
 } from '@elaraai/e3-types';
 import { packageRead } from './packages.js';
 import {
@@ -80,7 +80,7 @@ export async function packageGetTask(
   }
 
   const taskData = await storage.objects.read(repo, taskHash);
-  const decoder = decodeBeast2For(TaskObjectType);
+  const decoder = decodeTaskObject;
   return decoder(Buffer.from(taskData));
 }
 
@@ -185,6 +185,6 @@ export async function workspaceGetTask(
 ): Promise<TaskObject> {
   const taskHash = await workspaceGetTaskHash(storage, repo, ws, taskName);
   const taskData = await storage.objects.read(repo, taskHash);
-  const decoder = decodeBeast2For(TaskObjectType);
+  const decoder = decodeTaskObject;
   return decoder(Buffer.from(taskData));
 }

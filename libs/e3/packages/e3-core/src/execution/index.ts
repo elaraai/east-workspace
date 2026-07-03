@@ -54,3 +54,5 @@ export {
   type SpawnAndCaptureOptions,
   type SpawnAndCaptureResult,
 } from './processExec.js';
+
+export { materializeEnvironment } from './environment.js';

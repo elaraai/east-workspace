@@ -13,6 +13,7 @@
  * is the transient scratch directory, removed on completion.
  */
 
+import type { StorageBackend } from '../storage/index.js';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { tmpdir } from 'os';
@@ -37,6 +38,9 @@ export interface DetachedSpec {
   runner: RunnerValue;
   /** execution limits (all required — the caller applies defaults/clamps) */
   limits: { timeoutMs: number; maxResultBytes: number; maxLogBytes: number };
+  /** environment spec object hash (FunctionObject.environment); the runner
+   *  materializes it and prepends its bin dir to the child PATH */
+  environment?: string;
 }
 
 /**
@@ -63,6 +67,12 @@ export interface DetachedRunOptions {
    *  path's "walk up from repo dir" — one-shot has no repo path). The
    *  process cwd is always searched as well. */
   runnerSearchDir?: string;
+  /** Executable dirs prepended to the child PATH (a materialized
+   *  environment's bin dir). */
+  extraBins?: string[];
+  /** Storage backend for materializing `spec.environment` (local runner);
+   *  required when the spec declares an environment. */
+  storage?: StorageBackend;
 }
 
 /**
@@ -102,6 +112,7 @@ export async function runDetached(
       signal: options.signal,
       maxLogBytes: spec.limits.maxLogBytes,
       searchDirs,
+      extraBins: options.extraBins,
     });
 
     const streams = {

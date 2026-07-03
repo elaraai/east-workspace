@@ -13,6 +13,7 @@
  * caller — nothing durable is written by a call.
  */
 
+import { validateEnvironmentDecl, type EnvironmentDecl } from './environment.js';
 import type {
   AsyncFunctionExpr,
   CallableAsyncFunctionExpr,
@@ -66,18 +67,19 @@ export function function_<Name extends string, Inputs extends EastType[], Output
     | CallableFunctionExpr<Inputs, Output>
     | AsyncFunctionExpr<Inputs, Output>
     | CallableAsyncFunctionExpr<Inputs, Output>,
-  config?: { runner?: FunctionRunner },
+  config?: { runner?: FunctionRunner, environment?: EnvironmentDecl },
 ): FunctionDef<Inputs, Output>;
 export function function_(
   name: string,
   fn: FunctionExpr<any, any> | AsyncFunctionExpr<any, any>,
-  config?: { runner?: FunctionRunner },
+  config?: { runner?: FunctionRunner, environment?: EnvironmentDecl },
 ): FunctionDef {
   if (!name) {
     throw new Error('e3.function requires a non-empty name');
   }
 
   const runner = config?.runner ?? DEFAULT_RUNNER;
+  if (config?.environment) validateEnvironmentDecl(config.environment, name);
   // Validate eagerly so a bad runner fails at definition time, not export time.
   runnerToVariant(runner);
 
@@ -93,5 +95,6 @@ export function function_(
     inputTypes: fnType.inputs,
     outputType: fnType.output,
     runner,
+    environment: config?.environment,
   };
 }

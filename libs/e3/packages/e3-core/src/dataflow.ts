@@ -18,11 +18,11 @@
 import { decodeBeast2For, variant } from '@elaraai/east';
 import {
   decodePackageObject,
-  TaskObjectType,
   WorkspaceStateType,
   pathToString,
   type TaskObject,
   type TreePath,
+  decodeTaskObject,
 } from '@elaraai/e3-types';
 import {
   executionGetOutput,
@@ -236,7 +236,7 @@ async function buildDependencyGraph(
   const taskNodes = new Map<string, TaskNode>();
   const outputToTask = new Map<string, string>();
 
-  const taskDecoder = decodeBeast2For(TaskObjectType);
+  const taskDecoder = decodeTaskObject;
   for (const [taskName, taskHash] of pkgObject.tasks) {
     const taskData = await storage.objects.read(repo, taskHash);
     const task = taskDecoder(Buffer.from(taskData));

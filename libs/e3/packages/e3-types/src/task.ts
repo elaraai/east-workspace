@@ -16,7 +16,7 @@
  * specified paths - the task just references locations, not types.
  */
 
-import { StructType, StringType, ArrayType, BlobType, OptionType, ValueTypeOf } from '@elaraai/east';
+import { StructType, StringType, ArrayType, BlobType, OptionType, ValueTypeOf, decodeBeast2For, none } from '@elaraai/east';
 import { TreePathType } from './structure.js';
 import { RunnerType } from './runner.js';
 
@@ -74,7 +74,52 @@ export const TaskObjectType = StructType({
    * older SDKs must be re-exported.
    */
   runner: RunnerType,
+  /**
+   * Hash of an {@link EnvironmentSpecType} object the task executes in;
+   * `none` ⇒ the stock runtime image. Appended LAST (BEAST2 encodes struct
+   * fields positionally) with a legacy dual decoder — see
+   * {@link decodeTaskObject}.
+   */
+  environment: OptionType(StringType),
 });
 export type TaskObjectType = typeof TaskObjectType;
 
 export type TaskObject = ValueTypeOf<typeof TaskObjectType>;
+
+/**
+ * The pre-`environment` task object wire shape, kept only so
+ * {@link decodeTaskObject} can read tasks exported before execution
+ * environments existed.
+ */
+const PreEnvironmentTaskObjectType = StructType({
+  commandIr: StringType,
+  inputs: ArrayType(TreePathType),
+  output: TreePathType,
+  kind: OptionType(StringType),
+  metadata: OptionType(BlobType),
+  runner: RunnerType,
+});
+
+const decodeCurrentTask = decodeBeast2For(TaskObjectType);
+const decodePreEnvironmentTask = decodeBeast2For(PreEnvironmentTaskObjectType);
+
+/**
+ * Decode a `TaskObject` from BEAST2 bytes, tolerating the pre-`environment`
+ * wire format (dual-decode migration, like {@link decodePackageObject}).
+ *
+ * Every task-read path — local AND cloud — must use this instead of
+ * `decodeBeast2For(TaskObjectType)` directly. Older bytes decode with
+ * `environment` defaulted to `none`.
+ */
+export function decodeTaskObject(data: Uint8Array): TaskObject {
+  try {
+    return decodeCurrentTask(data);
+  } catch (err) {
+    try {
+      const legacy = decodePreEnvironmentTask(data);
+      return { ...legacy, environment: none };
+    } catch {
+      throw err; // no known shape — surface the current-format error
+    }
+  }
+}

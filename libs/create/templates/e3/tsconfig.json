@@ -1,15 +1,22 @@
 {
-  "exclude": ["dist"],
+  "exclude": [
+    "dist"
+  ],
   "compilerOptions": {
     "outDir": "./dist",
     "rootDir": "./src",
     "module": "nodenext",
     "target": "esnext",
-    "lib": ["esnext", "es2024"],
-    "types": ["node"],
+    "lib": [
+      "esnext",
+      "es2024"
+    ],
+    "types": [
+      "node"
+    ],
     "sourceMap": true,
-    "declaration": true,
-    "declarationMap": true,
+    "declaration": false,
+    "declarationMap": false,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
     "strict": true,
@@ -22,6 +29,10 @@
     "skipLibCheck": true,
     "noErrorTruncation": true,
     "incremental": true,
-    "plugins": [{ "name": "@elaraai/tsserver-plugin-east" }]
+    "plugins": [
+      {
+        "name": "@elaraai/tsserver-plugin-east"
+      }
+    ]
   }
 }

@@ -17,12 +17,12 @@
 import { decodeBeast2For, variant } from '@elaraai/east';
 import {
   decodePackageObject,
-  TaskObjectType,
   WorkspaceStateType,
   pathToString,
   type TaskObject,
   type TreePath,
   type Structure,
+  decodeTaskObject,
 } from '@elaraai/e3-types';
 import {
   executionGetLatest,
@@ -204,7 +204,7 @@ export async function workspaceStatus(
   // Build task nodes
   const taskNodes = new Map<string, TaskNode>();
   const outputToTask = new Map<string, string>(); // output path -> task name
-  const taskDecoder = decodeBeast2For(TaskObjectType);
+  const taskDecoder = decodeTaskObject;
 
   for (const [taskName, taskHash] of pkgObject.tasks) {
     const taskData = await storage.objects.read(repo, taskHash);

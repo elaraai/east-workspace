@@ -16,14 +16,15 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { tmpdir } from 'os';
-import { decodeBeast2For, variant } from '@elaraai/east';
-import { type ExecutionStatus, TaskObjectType, type TaskObject } from '@elaraai/e3-types';
+import { variant } from '@elaraai/east';
+import { type ExecutionStatus, type TaskObject, decodeTaskObject } from '@elaraai/e3-types';
 import { inputsHash, evaluateCommandIr } from '../executions.js';
 import { uuidv7 } from '../uuid.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 import type { TaskRunner, TaskExecuteOptions, TaskResult } from './interfaces.js';
 import { getBootId, getPidStartTime } from './processHelpers.js';
 import { marshalInputsToDir, spawnAndCapture } from './processExec.js';
+import { materializeEnvironment } from './environment.js';
 import { runDetached, type DetachedSpec, type DetachedResult, type DetachedRunOptions } from './runDetached.js';
 
 // Re-exported from processExec.js (where the implementation moved) for
@@ -109,11 +110,19 @@ export class LocalTaskRunner implements TaskRunner {
   }
 
   async runDetached(spec: DetachedSpec, options?: DetachedRunOptions): Promise<DetachedResult> {
+    let extraBins: string[] | undefined = options?.extraBins;
+    if (spec.environment && !extraBins) {
+      if (!options?.storage) {
+        throw new Error('runDetached: spec declares an environment but options.storage was not provided');
+      }
+      extraBins = await materializeEnvironment(options.storage, this.repo, spec.environment);
+    }
     return runDetached(spec, {
       signal: options?.signal,
       // Anchor the runner-binary PATH walk at the repo's parent (the
       // project dir), matching the tracked path's walk-up in spawnAndCapture.
       runnerSearchDir: options?.runnerSearchDir ?? path.dirname(this.repo),
+      extraBins,
     });
   }
 }
@@ -173,7 +182,7 @@ export async function taskExecute(
   let task: TaskObject;
   try {
     const taskData = await storage.objects.read(repo, taskHash);
-    const decoder = decodeBeast2For(TaskObjectType);
+    const decoder = decodeTaskObject;
     task = decoder(Buffer.from(taskData));
   } catch (err) {
     // Record error with executionId for audit trail
@@ -272,6 +281,36 @@ export async function taskExecute(
       };
     }
 
+    // Step 6.5: Materialize the task's declared execution environment (warm
+    // cache hit after first use); its bin dir is prepended to the child PATH.
+    let envBins: string[] = [];
+    if (task.environment.type === 'some') {
+      try {
+        envBins = await materializeEnvironment(storage, repo, task.environment.value);
+      } catch (err) {
+        const message = `Failed to materialize environment: ${err instanceof Error ? err.message : err}`;
+        const status: ExecutionStatus = variant('error', {
+          executionId,
+          inputHashes,
+          startedAt: new Date(startTime),
+          completedAt: new Date(),
+          message,
+        });
+        await storage.refs.executionWrite(repo, taskHash, inHash, executionId, status);
+
+        return {
+          inputsHash: inHash,
+          executionId,
+          cached: false,
+          state: 'error',
+          outputHash: null,
+          exitCode: null,
+          duration: Date.now() - startTime,
+          error: message,
+        };
+      }
+    }
+
     // Step 7: Get boot ID for crash detection
     const bootId = await getBootId();
 
@@ -286,7 +325,8 @@ export async function taskExecute(
       inputHashes,
       bootId,
       scratchDir,
-      options
+      options,
+      envBins
     );
 
     // Step 9: Handle result
@@ -387,7 +427,8 @@ async function runCommand(
   inputHashes: string[],
   bootId: string,
   scratchDir: string,
-  options: ExecuteOptions
+  options: ExecuteOptions,
+  extraBins: string[] = []
 ): Promise<{ exitCode: number | null; error: string | null }> {
   // Use promise chains to ensure sequential log writes without overlapping
   let stdoutWriteChain = Promise.resolve();
@@ -400,6 +441,7 @@ async function runCommand(
     // devDeps and exposed on `node_modules/.bin`. Walk up from BOTH the
     // repo and process.cwd() — the nearest .bin often lacks the runner
     // (it's hoisted to the workspace root).
+    extraBins,
     searchDirs: [path.dirname(repo), process.cwd()],
     // Tee stdout - use storage.logs.append for log persistence
     onStdout: (str) => {

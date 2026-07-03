@@ -21,6 +21,7 @@ import type { Structure, PackageObject, DatasetRef, FunctionObject, MutationObje
 import { DatasetRefType, PackageObjectType, TaskObjectType, FunctionObjectType, MutationObjectType, RecordObjectType } from '@elaraai/e3-types';
 import type { PackageDef, PackageItem } from './types.js';
 import { runnerToVariant } from './runner.js';
+import { captureEnvironment, type EnvironmentDecl } from './environment.js';
 
 /**
  * Exports a package to a .zip bundle.
@@ -49,6 +50,22 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
   const tasks = new SortedMap<string, string>(); // name -> task object hash
   const structures = new Map<string, Structure>(); // path -> structure (parallel to tree hierarchy)
   const refs = new SortedMap<string, DatasetRef>(); // refPath -> DatasetRef
+
+  // Resolve environment declarations to content-addressed EnvironmentSpec
+  // objects, once per distinct declaration per export run (a project capture
+  // shells out to uv/npm — identical declarations must not re-build).
+  const environmentHashes = new Map<string, string>(); // canonical decl key -> spec object hash
+  const resolveEnvironment = (decl: EnvironmentDecl | undefined, owner: string): variant<'some', string> | variant<'none', null> => {
+    if (!decl) return variant('none', null);
+    const key = JSON.stringify(decl);
+    let hash = environmentHashes.get(key);
+    if (hash === undefined) {
+      const specData = captureEnvironment(decl, owner, (blob) => addObject(zipfile, blob));
+      hash = addObject(zipfile, Buffer.from(specData));
+      environmentHashes.set(key, hash);
+    }
+    return variant('some', hash);
+  };
 
   // Create root structure as first entry
   structures.set('', variant('struct', new SortedMap()));
@@ -167,6 +184,7 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
         // customTask leaves TaskDef.runner undefined -> opaque custom
         // (empty command: the wire field is informational for custom tasks).
         runner: item.runner ? runnerToVariant(item.runner) : variant('custom', { command: [] as string[] }),
+        environment: resolveEnvironment(item.environment, item.name),
       };
 
       // Serialize and add to zip
@@ -198,6 +216,7 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
       inputTypes: fdef.inputTypes.map((t) => toEastTypeValue(t)),
       outputType: toEastTypeValue(fdef.outputType),
       runner: runnerToVariant(fdef.runner),
+      environment: resolveEnvironment(fdef.environment, fname),
     };
     const fnHash = addObject(zipfile, Buffer.from(functionEncoder(fnObject)));
     functions.set(fname, fnHash);

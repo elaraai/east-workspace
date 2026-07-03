@@ -17,6 +17,7 @@
 import type { EastType, EastIR, AsyncEastIR, ValueTypeOf, variant } from '@elaraai/east';
 import type { TreePath } from '@elaraai/e3-types';
 import type { Runner } from './runner.js';
+import type { EnvironmentDecl } from './environment.js';
 
 /**
  * A tree definition.
@@ -90,6 +91,11 @@ export interface TaskDef<TOutput extends EastType = EastType, Path extends TreeP
    * orchestrators route it to a full environment.
    */
   readonly runner?: Runner;
+  /**
+   * Execution environment declaration; resolved to a content-addressed
+   * EnvironmentSpec at export time. Undefined ⇒ the stock runtime image.
+   */
+  readonly environment?: EnvironmentDecl;
 }
 
 /**
@@ -121,6 +127,11 @@ export interface FunctionDef<
   readonly outputType: Output;
   /** Runtime the body runs on; defaults to DEFAULT_RUNNER */
   readonly runner: Runner;
+  /**
+   * Execution environment declaration; resolved to a content-addressed
+   * EnvironmentSpec at export time. Undefined ⇒ the stock runtime image.
+   */
+  readonly environment?: EnvironmentDecl;
   // NO deps, NO datasets, NO trees — not in the dataflow graph
 }
 

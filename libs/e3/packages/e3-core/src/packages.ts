@@ -15,7 +15,7 @@ import { createWriteStream } from 'fs';
 import yauzl from 'yauzl';
 import yazl from 'yazl';
 import { decodeBeast2For, encodeBeast2For } from '@elaraai/east';
-import { TaskObjectType, FunctionObjectType, DataflowRunType, ExecutionStatusType, DatasetRefType, decodePackageObject } from '@elaraai/e3-types';
+import { DataflowRunType, ExecutionStatusType, DatasetRefType, EnvironmentSpecType, environmentSpecObjectHashes, decodePackageObject, decodeTaskObject, decodeFunctionObject } from '@elaraai/e3-types';
 import type { PackageObject, TaskObject, FunctionObject } from '@elaraai/e3-types';
 import {
   PackageNotFoundError,
@@ -416,6 +416,17 @@ export async function packageExport(
     }
   };
 
+  // Add an environment spec object and every blob it references
+  const decodeEnvironmentSpec = decodeBeast2For(EnvironmentSpecType);
+  const addEnvironment = async (envHash: string): Promise<void> => {
+    await addObject(envHash);
+    const specData = await storage.objects.read(repo, envHash);
+    const spec = decodeEnvironmentSpec(Buffer.from(specData));
+    for (const blobHash of environmentSpecObjectHashes(spec)) {
+      await addObject(blobHash);
+    }
+  };
+
   // Add the package object first
   await addObject(packageHash);
 
@@ -424,7 +435,7 @@ export async function packageExport(
   const packageObject: PackageObject = decodePackageObject(Buffer.from(packageData));
 
   // Collect all task objects and their commandIr references
-  const taskDecoder = decodeBeast2For(TaskObjectType);
+  const taskDecoder = decodeTaskObject;
   for (const taskHash of packageObject.tasks.values()) {
     await addObject(taskHash);
     // Task objects contain commandIr hashes that must also be exported
@@ -435,10 +446,14 @@ export async function packageExport(
     // Recursively collect any objects referenced by the IR
     const irData = await storage.objects.read(repo, taskObject.commandIr);
     await collectTreeChildren(irData);
+    // Environment spec + its blobs (manifest/lockfile/sdists) travel with the task
+    if (taskObject.environment.type === 'some') {
+      await addEnvironment(taskObject.environment.value);
+    }
   }
 
   // Collect all function objects and their bodyIr references
-  const fnDecoder = decodeBeast2For(FunctionObjectType);
+  const fnDecoder = decodeFunctionObject;
   for (const fnHash of packageObject.functions.values()) {
     await addObject(fnHash);
     const fnData = await storage.objects.read(repo, fnHash);
@@ -446,6 +461,9 @@ export async function packageExport(
     await addObject(fnObject.bodyIr);
     const fnIrData = await storage.objects.read(repo, fnObject.bodyIr);
     await collectTreeChildren(fnIrData);
+    if (fnObject.environment.type === 'some') {
+      await addEnvironment(fnObject.environment.value);
+    }
   }
 
   // Collect value objects from inline per-dataset refs and write data/ ref files
