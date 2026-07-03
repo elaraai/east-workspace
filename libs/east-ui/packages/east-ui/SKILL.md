@@ -104,6 +104,9 @@ Task → Which tag?
 │   ├─ <Table data={rows} columns={…} /> — sortable / pinnable / virtualized;
 │   │     columns is a keyed config (["a","b"] or { a: { header, width } }); variant: line | outline;
 │   │     selectionMode; striped, stickyHeader. Generic pass-through — column/cell inference preserved.
+│   │     └─ column render is an East fn ({rowIndex,columnKey,cellValue} → UIComponent) called per VISIBLE cell;
+│   │        full-row access = capture the data array + index it: ($, ctx) => { const row = $.let(rows.get(ctx.rowIndex)); … };
+│   │        render/on* fns may capture only data + bind-handles — never a UIComponentType value (beast2 can't serialize it)
 │   ├─ <DataList items={[DataList.Item(label, value)]} /> — label/value pairs; orientation
 │   ├─ <TreeView nodes={…} /> — expandable hierarchical tree with selection
 │   ├─ <Gantt /> — Gantt chart; builders Gantt.Task(…), Gantt.Milestone(…); showToday marker

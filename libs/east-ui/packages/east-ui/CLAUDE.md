@@ -210,6 +210,21 @@ Per `[East module signatures]` memory, factory callbacks return
 `SubtypeExprOrValue<T>` — never plain TS object arrays. The `.Item(...)`
 constructor pattern is the ergonomic JS-side companion.
 
+### Factory mappers: reify, never splice (MANDATORY)
+
+Per-row mapper/accessor callbacks (`value: (v, row) => …`,
+`assignment: x => ({ … })`, chart encodings) MUST be wrapped into a real
+East function via `src/shared/reify.ts` (`mapRows` / `mapRowsBlock` for
+fixed output types, `reifyAccessor` for inferred) and **called** inside
+the eager `.map` — never invoked mid-map with the result expression
+spliced into the map body. Behavior props (`on*`, `render`, predicates)
+are pass-through `FunctionType` values, lifted and never invoked at build
+time; their functions may capture only data + bind-handles (never a
+`UIComponentType` value — beast2 cannot serialize the recursive capture).
+Full rules + rationale:
+[`docs/conventions/EAST_UI_PROP_PATTERNS.md`](../../../../docs/conventions/EAST_UI_PROP_PATTERNS.md)
+(epic #203).
+
 ### Category index
 
 Category index files (`display/index.ts`) export namespace objects:

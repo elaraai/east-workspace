@@ -131,6 +131,11 @@ naming convention, they use `SCREAMING_SNAKE_CASE.md` to signal
   — canonical `make` targets.
 - [`docs/conventions/SKILLS_STANDARD.md`](docs/conventions/SKILLS_STANDARD.md)
   — mandatory structure for `SKILL.md` + reference/example files.
+- [`docs/conventions/EAST_UI_PROP_PATTERNS.md`](docs/conventions/EAST_UI_PROP_PATTERNS.md)
+  — east-ui data-vs-behavior prop rule: behavior props are pass-through
+  `FunctionType` (never invoked at build time; capture only data +
+  bind-handles); factories reify mapper callbacks via `shared/reify.ts`,
+  never splice.
 
 ## Dependency management
 
