@@ -15,6 +15,8 @@
     "start": "npm run deploy && e3 dataflow run .repos __WORKSPACE_NAME__",
     "watch": "e3 watch ./src/index.ts .repos __WORKSPACE_NAME__ --start",
     "shot": "e3-ui shot --from-source src/ui/index.tsx --export surface -o surface.png",
+    "shots:png": "e3-ui shots src --out .shots --json",
+    "shots:html": "e3-ui shots src --out .shots --json --html",
     "lint": "eslint .",
     "clean": "rimraf dist node_modules .venv uv.lock .repos *.tsbuildinfo"
   },

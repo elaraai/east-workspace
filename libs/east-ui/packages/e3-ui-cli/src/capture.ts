@@ -62,6 +62,11 @@ export interface CaptureOptions {
     deviceScaleFactor?: number;
     /** Framing. Default `{ kind: 'frame' }`. */
     mode?: CaptureMode;
+    /** Component-frame mount width: `'full'` (fill the viewport width — right
+     *  for width-flexible components like Schematic/Gantt/Table, which collapse
+     *  in the default shrink-to-fit frame) or a CSS width (`'900px'`). Default:
+     *  shrink-to-fit (the historical tight crop). */
+    frameWidth?: string | undefined;
     /** Grace period (ms) after skeletons clear before capture. Default 300. */
     settleMs?: number;
     /** Per-navigation timeout (ms). Default 30000. */
@@ -201,6 +206,50 @@ ${bodyHtml}
 `;
 }
 
+/** A single capture within an open {@link CaptureSession} — everything in
+ *  {@link CaptureOptions} except the session-owned `appDir`. */
+export type SessionCaptureOptions = Omit<CaptureOptions, 'appDir'>;
+
+/** A reusable capture session: ONE served app + ONE browser across many
+ *  captures (each in a fresh, isolated browser context). The per-shot browser
+ *  launch dominates a multi-shot run, so the `shots` sweep opens one session. */
+export interface CaptureSession {
+    /** Render one payload to a PNG (and optionally a standalone HTML). */
+    captureOne(opts: SessionCaptureOptions): Promise<void>;
+    /** Close the browser and the app server. */
+    close(): Promise<void>;
+}
+
+/**
+ * Serve the prebuilt app and launch the browser once, for many captures.
+ *
+ * @param appDir - Directory of the prebuilt app bundle (the built `dist/app`)
+ * @returns The open session
+ * @throws If the prebuilt app is missing or no browser can be launched
+ */
+export async function openCaptureSession(appDir: string): Promise<CaptureSession> {
+    // Pre-flight: fail clearly if the prebuilt app is missing, instead of
+    // letting a 404 page turn into an opaque navigation timeout.
+    if (!existsSync(path.join(appDir, 'index.html'))) {
+        throw new Error(`Prebuilt app not found at ${appDir} — run \`make build\` (or \`npm run build\`) first.`);
+    }
+    const { server, baseUrl } = await serveApp(appDir);
+    let browser: Browser;
+    try {
+        ({ browser } = await launchBrowser());
+    } catch (err) {
+        server.close();
+        throw err;
+    }
+    return {
+        captureOne: (opts) => captureInSession(browser, baseUrl, appDir, opts),
+        close: async () => {
+            await browser.close();
+            server.close();
+        },
+    };
+}
+
 /**
  * Render a component payload to a PNG (and optionally a standalone HTML).
  *
@@ -208,6 +257,21 @@ ${bodyHtml}
  * @throws If the app reports a compile/render error, or capture times out
  */
 export async function capture(opts: CaptureOptions): Promise<void> {
+    const session = await openCaptureSession(opts.appDir);
+    try {
+        await session.captureOne(opts);
+    } finally {
+        await session.close();
+    }
+}
+
+/** One capture on an already-open browser + app server. */
+async function captureInSession(
+    browser: Browser,
+    baseUrl: string,
+    appDir: string,
+    opts: SessionCaptureOptions,
+): Promise<void> {
     const viewport = opts.viewport ?? CAPTURE_DEFAULTS.viewport;
     const deviceScaleFactor = opts.deviceScaleFactor ?? CAPTURE_DEFAULTS.deviceScaleFactor;
     const mode = opts.mode ?? { kind: 'frame' };
@@ -215,17 +279,8 @@ export async function capture(opts: CaptureOptions): Promise<void> {
     const timeout = opts.timeoutMs ?? CAPTURE_DEFAULTS.timeoutMs;
     const storageKey = opts.storageKey ?? CAPTURE_DEFAULTS.storageKey;
 
-    // Pre-flight: fail clearly if the prebuilt app is missing, instead of
-    // letting a 404 page turn into an opaque navigation timeout.
-    if (!existsSync(path.join(opts.appDir, 'index.html'))) {
-        throw new Error(`Prebuilt app not found at ${opts.appDir} — run \`make build\` (or \`npm run build\`) first.`);
-    }
-
-    const { server, baseUrl } = await serveApp(opts.appDir);
-    let browser: Browser | undefined;
+    const context = await browser.newContext({ viewport, deviceScaleFactor });
     try {
-        ({ browser } = await launchBrowser());
-        const context = await browser.newContext({ viewport, deviceScaleFactor });
         const page = await context.newPage();
 
         const consoleErrors: string[] = [];
@@ -237,12 +292,13 @@ export async function capture(opts: CaptureOptions): Promise<void> {
         // always reports before the driver's navigation timeout fires.
         const taskDeadlineMs = Math.max(5_000, timeout - 5_000);
         await page.addInitScript(
-            ([p, key, deadline]) => {
+            ([p, key, deadline, frameWidth]) => {
                 (window as unknown as { __E3_UI_SHOT__: unknown }).__E3_UI_SHOT__ = p;
                 (window as unknown as { __E3_UI_SHOT_KEY__: unknown }).__E3_UI_SHOT_KEY__ = key;
                 (window as unknown as { __E3_UI_SHOT_DEADLINE__: unknown }).__E3_UI_SHOT_DEADLINE__ = deadline;
+                (window as unknown as { __E3_UI_SHOT_FRAME_WIDTH__: unknown }).__E3_UI_SHOT_FRAME_WIDTH__ = frameWidth;
             },
-            [opts.payload, storageKey, taskDeadlineMs] as const,
+            [opts.payload, storageKey, taskDeadlineMs, opts.frameWidth ?? null] as const,
         );
 
         // Component mode has no e3 polling, so wait for `networkidle` (catches
@@ -318,10 +374,9 @@ export async function capture(opts: CaptureOptions): Promise<void> {
         }
 
         if (opts.outHtml) {
-            await writeFile(opts.outHtml, await selfContainedHtml(page, opts.appDir), 'utf8');
+            await writeFile(opts.outHtml, await selfContainedHtml(page, appDir), 'utf8');
         }
     } finally {
-        await browser?.close();
-        server.close();
+        await context.close();
     }
 }

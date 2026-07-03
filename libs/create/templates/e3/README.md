@@ -44,6 +44,9 @@ If you scaffolded with UI, `src/ui/index.tsx` holds a decision surface — a `ui
 uses to observe and act on the recommendation, registered in the package next to the decision.
 Render it to a PNG with `npm run shot` (first time on a machine: `npx e3-ui install-browser`
 downloads the headless Chromium it renders with; `npx e3-ui doctor` diagnoses browser problems).
+`npm run shots:png` sweeps `src/` for EVERY renderable UI export (surfaces and `example()` defs
+alike) into git-ignored `.shots/<path>/<export>.png` + a `manifest.json` of what rendered and why
+anything was skipped; `npm run shots:html` adds a standalone HTML beside each PNG.
 
 If you scaffolded with `--platform`, `src/platform/` holds project-owned TS-East platform functions
 (exported via `./platform`) and `platform_module/` holds the Python ones — replace the generated

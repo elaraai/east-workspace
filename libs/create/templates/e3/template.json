@@ -25,7 +25,9 @@
         "@elaraai/e3-ui-cli"
       ],
       "scripts": [
-        "shot"
+        "shot",
+        "shots:png",
+        "shots:html"
       ]
     },
     "platform": {

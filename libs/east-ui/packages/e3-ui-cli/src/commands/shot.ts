@@ -33,6 +33,7 @@ export interface ShotCommandOptions {
     wait?: string;
     timeout?: string;
     storageKey?: string;
+    frameWidth?: string;
 }
 
 /** Max Chromium viewport dimension (px). */
@@ -96,6 +97,7 @@ function captureOptionsFrom(options: ShotCommandOptions): {
     deviceScaleFactor?: number;
     settleMs?: number;
     timeoutMs?: number;
+    frameWidth?: string;
 } {
     let mode: CaptureMode = { kind: 'frame' };
     if (options.element) mode = { kind: 'element', selector: options.element };
@@ -106,6 +108,7 @@ function captureOptionsFrom(options: ShotCommandOptions): {
         ...(options.dpr ? { deviceScaleFactor: parseDpr(options.dpr) } : {}),
         ...(options.wait ? { settleMs: parsePositive(options.wait, '--wait') } : {}),
         ...(options.timeout ? { timeoutMs: parsePositive(options.timeout, '--timeout') } : {}),
+        ...(options.frameWidth ? { frameWidth: options.frameWidth } : {}),
     };
 }
 
