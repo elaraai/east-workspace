@@ -24,9 +24,7 @@ import {
     toEastTypeValue,
     type EastType,
     type EastTypeValue,
-    LiteralValueType,
     FunctionType,
-    isTypeValueEqual,
 } from "@elaraai/east";
 import {
     TableCellClickEventType,
@@ -46,6 +44,7 @@ import {
     type LabelInput,
 } from "../../style.js";
 import { UIComponentType } from "../../component.js";
+import { mapRowsBlock, reifyAccessor } from "../../shared/reify.js";
 import { SliceChromeType } from "../../platform/slice/index.js";
 import { SliceAffordanceType } from "../../contracts/slice-affordances.js";
 import { DensityType } from "../../style/interaction.js";
@@ -167,7 +166,7 @@ export type GanttMilestoneType = typeof GanttMilestoneType;
  * been retired — splitting by subtype removes variant ceremony at the
  * call site and gives per-subtype TS narrowing for free.
  *
- * @property cells - Dict of column key to cell content (same as Table)
+ * @property cells - Dict of column key to cell value (a bare `LiteralValueType`, same as Table)
  * @property tasks - Array of task bars (start + end DateTime)
  * @property milestones - Array of milestone markers (single DateTime)
  */
@@ -605,66 +604,49 @@ function createGantt<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
         }];
     })) as Record<string, TableColumnConfig & { dataType: EastTypeValue; valueType: EastTypeValue }>;
 
+    const rowType = Expr.type(data_expr).value as StructType;
+
+    // Reify each column's value extractor ONCE into a real East function and
+    // derive the column's valueType from the function's output type — checked
+    // a single time here rather than during map expansion (#205).
+    for (const [col_key, col_config] of Object.entries(columns_obj)) {
+        const fieldType = field_types[col_key as keyof typeof field_types] as EastType;
+        const valueFn = (col_config as any).value !== undefined
+            ? reifyAccessor([fieldType, rowType], (col_config as any).value)
+            : undefined;
+        (col_config as any).valueFn = valueFn;
+        const valueOutType = valueFn !== undefined
+            ? (Expr.type(valueFn) as FunctionType).output as EastType
+            : fieldType;
+        const valueTypeTag = valueOutType.type as string;
+
+        // check that the type is a valid LiteralValueType (primitive) tag
+        if (valueTypeTag !== "Null" && valueTypeTag !== "Boolean" && valueTypeTag !== "Integer" &&
+            valueTypeTag !== "Float" && valueTypeTag !== "String" && valueTypeTag !== "DateTime" &&
+            valueTypeTag !== "Blob") {
+            throw new Error(`Column "${col_key}" has value type "${valueTypeTag}" which is not a valid column type. Complex types require a value function that returns a primitive type.`);
+        }
+        (col_config as any).valueType = variant(valueTypeTag, null) as EastTypeValue;
+    }
+
     // Map each data row to a GanttRow with cells and events
-    const rows_mapped = data_expr.map(($, datum) => {
-        // Build cells dict (same as Table)
-        const cells = $.let(new Map(), DictType(StringType, StructType({
-            value: LiteralValueType,
-            content: OptionType(UIComponentType)
-        })));
+    const rows_mapped = mapRowsBlock(data_expr, GanttRowType, ($, datum) => {
+        // Build cells dict (same as Table) — cells carry ONLY the sortable
+        // primitive; rendering goes through the column's render function
+        // (synthesized default below when the author omits it).
+        const cells = $.let(new Map(), DictType(StringType, TableCellType));
 
         for (const [col_key, col_config] of Object.entries(columns_obj)) {
             const field_value = (datum as any)[col_key];
-            const field_type = field_types[col_key];
+            const valueFn = (col_config as any).valueFn;
 
-            // Get cell value: use custom value function if provided, otherwise use field value directly
-            let cellValue;
-            if ((col_config as any).value) {
-                const customValue = East.value((col_config as any).value(field_value, datum as any));
-                const customValueType = Expr.type(customValue) as EastType;
-                cellValue = variant(customValueType.type as any, customValue);
-            } else {
-                cellValue = variant(field_type.type, field_value);
-            }
+            // Cell value: call the column's reified value function, or use the
+            // field value directly (primitive columns).
+            const cellValue = valueFn !== undefined
+                ? variant(col_config.valueType.type as any, valueFn(field_value, datum))
+                : variant(col_config.valueType.type as any, field_value);
 
-            // get the value type tag from cellValue
-            const valueTypeTag = cellValue.type as string;
-
-            // check that the type is a valid LiteralValueType (primitive) tag
-            if (valueTypeTag !== "Null" && valueTypeTag !== "Boolean" && valueTypeTag !== "Integer" &&
-                valueTypeTag !== "Float" && valueTypeTag !== "String" && valueTypeTag !== "DateTime" &&
-                valueTypeTag !== "Blob") {
-                throw new Error(`Column "${col_key}" has value type "${valueTypeTag}" which is not a valid column type. Complex types require a value function that returns a primitive type.`);
-            }
-
-            // get the valueType as EastTypeValue
-            const valueType = variant(valueTypeTag, null) as EastTypeValue;
-
-            // if valueType in columns_obj is already defined, check it matches
-            if (col_config.valueType !== undefined) {
-                if (!isTypeValueEqual(col_config.valueType, valueType)) {
-                    throw new Error(`Column "${col_key}" has inconsistent value types across rows: expected "${col_config.valueType.type}" but got "${valueTypeTag}"`);
-                }
-            } else {
-                // set the valueType for this column
-                (col_config as any).valueType = valueType;
-            }
-
-            const content = col_config.render
-                ? none
-                : some(East.value(
-                    Text.Root(East.str`${field_value}`, {
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                    }),
-                    UIComponentType
-                ));
-
-            $(cells.insert(col_key, {
-                value: cellValue,
-                content,
-            }));
+            $(cells.insert(col_key, cellValue));
         }
 
         // Get tasks + milestones from the row. The callback returns
@@ -694,8 +676,15 @@ function createGantt<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
             minWidth: config?.minWidth !== undefined ? some(config.minWidth) : none as any,
             maxWidth: config?.maxWidth !== undefined ? some(config.maxWidth) : none as any,
             render: config?.render
-                ? some(East.value(config.render, FunctionType([TableCellRenderContextType], UIComponentType)))
-                : none as any,
+                ? East.value(config.render, FunctionType([TableCellRenderContextType], UIComponentType))
+                // Synthesized capture-free default: stringify the cell value via
+                // the column's statically-known tag (same as Table).
+                : East.function([TableCellRenderContextType], UIComponentType, (_$, ctx) =>
+                    Text.Root(East.str`${ctx.cellValue.unwrap((config as any).valueType.type)}`, {
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                    })),
         });
     }
 

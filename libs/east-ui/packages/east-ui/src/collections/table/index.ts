@@ -28,7 +28,6 @@ import {
     FloatType,
     DateTimeType,
     BlobType,
-    isTypeValueEqual,
     EastTypeType,
 } from "@elaraai/east";
 
@@ -61,6 +60,7 @@ import { Text } from "../../typography/index.js";
 import { DensityType } from "../../style/interaction.js";
 import { StatusTokenType } from "../../style/interaction.js";
 import { PlotGutterType } from "../../shared/plot-gutter.js";
+import { mapRowsBlock, reifyAccessor } from "../../shared/reify.js";
 
 // ============================================================================
 // Table Footer Cell
@@ -206,7 +206,7 @@ export {
  * @property width - Optional fixed width (CSS value)
  * @property minWidth - Optional minimum width (CSS value)
  * @property maxWidth - Optional maximum width (CSS value)
- * @property render - Optional East render function
+ * @property render - East render function (required — the factory synthesizes a text default when the author omits it)
  */
 export const TableColumnType = StructType({
     key: StringType,
@@ -216,27 +216,24 @@ export const TableColumnType = StructType({
     width: OptionType(StringType),
     minWidth: OptionType(StringType),
     maxWidth: OptionType(StringType),
-    render: OptionType(FunctionType([TableCellRenderContextType], UIComponentType)),
+    render: FunctionType([TableCellRenderContextType], UIComponentType),
 });
 
 export type TableColumnType = typeof TableColumnType;
 
 /**
- * East type for a table cell.
+ * East type for a table body cell — the sortable / filterable primitive
+ * value itself.
  *
  * @remarks
- * Defines the type for a table cell.
- *
- * @property value - The cell value as a LiteralValueType (for sorting/filtering)
- * @property content - UI component content for the cell (for rendering)
+ * A cell is a bare {@link LiteralValueType} variant (`Null` / `Boolean` /
+ * `Integer` / `Float` / `String` / `DateTime` / `Blob`). Rendering always
+ * goes through the column's `render` function (`TableColumnType.render`,
+ * required — the factory synthesizes a capture-free text default when the
+ * author omits it), so the IR carries no per-cell UI content (#206).
  */
-export const TableCellType: StructType<{
-    value: LiteralValueType,
-    content: OptionType<UIComponentType>,
-}> = StructType({
-    value: LiteralValueType,
-    content: OptionType(UIComponentType),
-});
+export const TableCellType = LiteralValueType;
+export type TableCellType = typeof TableCellType;
 
 
 // ============================================================================
@@ -492,71 +489,51 @@ export function createTable<T extends SubtypeExprOrValue<ArrayType<StructType>>>
         }];
     })) as Record<string, TableColumnConfig & { dataType: EastTypeValue, valueType: EastTypeValue, }>;
 
-    const rows_mapped = data_expr.map(($, datum) => {
-        const cells = $.let(new Map(), DictType(StringType, StructType({
-            value: LiteralValueType,
-            content: OptionType(UIComponentType),
-        })));
+    const rowType = Expr.type(data_expr).value as StructType;
+
+    // Reify each column's value extractor ONCE into a real East function and
+    // derive the column's valueType from the function's output type — checked
+    // a single time here rather than during map expansion (#205).
+    for (const [col_key, col_config] of Object.entries(columns_obj)) {
+        const fieldType = field_types[col_key as keyof typeof field_types] as EastType;
+        const valueFn = (col_config as any).value !== undefined
+            ? reifyAccessor([fieldType, rowType], (col_config as any).value)
+            : undefined;
+        (col_config as any).valueFn = valueFn;
+        const valueOutType = valueFn !== undefined
+            ? (Expr.type(valueFn) as FunctionType).output as EastType
+            : fieldType;
+        const valueTypeTag = valueOutType.type as string;
+
+        // check that the type is a valid LiteralValueType (primitive) tag
+        if (
+            valueTypeTag !== "Null" &&
+            valueTypeTag !== "Boolean" &&
+            valueTypeTag !== "Integer" &&
+            valueTypeTag !== "Float" &&
+            valueTypeTag !== "String" &&
+            valueTypeTag !== "DateTime" &&
+            valueTypeTag !== "Blob") {
+            throw new Error(`Column "${col_key}" has value type "${valueTypeTag}" which is not a valid column type. Complex types require a value function that returns a primitive type.`);
+        }
+        (col_config as any).valueType = variant(valueTypeTag, null) as EastTypeValue;
+    }
+
+    const rows_mapped = mapRowsBlock(data_expr, DictType(StringType, TableCellType), ($, datum) => {
+        const cells = $.let(new Map(), DictType(StringType, TableCellType));
         for (const [col_key, col_config] of Object.entries(columns_obj)) {
             const field_value = (datum as any)[col_key];
-            const field_type = field_types[col_key];
+            const valueFn = (col_config as any).valueFn;
 
-            // Get cell value: use custom value function if provided, otherwise use field value directly
-            // (for primitive types, this works; complex types require a value function)
-            let cellValue;
-            if ((col_config as any).value) {
-                const customValue = East.value((col_config as any).value(field_value, datum as any));
-                const customValueType = Expr.type(customValue) as EastType;
-                cellValue = variant(customValueType.type as any, customValue);
-            } else {
-                cellValue = variant(field_type.type, field_value);
-            }
+            // Cell value: call the column's reified value function, or use the
+            // field value directly (primitive columns). Cells carry ONLY the
+            // sortable primitive — rendering goes through the column's render
+            // function (synthesized default below when the author omits it).
+            const cellValue = valueFn !== undefined
+                ? variant(col_config.valueType.type as any, valueFn(field_value, datum))
+                : variant(col_config.valueType.type as any, field_value);
 
-            // get the value type tag from cellValue
-            const valueTypeTag = cellValue.type as string;
-
-            // check that the type is a valid LiteralValueType (primitive) tag
-            if (
-                valueTypeTag !== "Null" &&
-                valueTypeTag !== "Boolean" &&
-                valueTypeTag !== "Integer" &&
-                valueTypeTag !== "Float" &&
-                valueTypeTag !== "String" &&
-                valueTypeTag !== "DateTime" &&
-                valueTypeTag !== "Blob") {
-                throw new Error(`Column "${col_key}" has value type "${valueTypeTag}" which is not a valid column type. Complex types require a value function that returns a primitive type.`);
-            }
-
-            // get the valueType as EastTypeValue
-            const valueType = variant(valueTypeTag, null) as EastTypeValue;
-
-            // if valueType in columns_obj is already defined, check it matches
-            if (col_config.valueType !== undefined) {
-                if (!isTypeValueEqual(col_config.valueType, valueType)) {
-                    throw new Error(`Column "${col_key}" has inconsistent value types across rows: expected "${col_config.valueType.type}" but got "${valueTypeTag}"`);
-                }
-            } else {
-                // set the valueType for this column
-                (col_config as any).valueType = valueType;
-            }
-
-            // When render is defined, cell content is none (renderer calls the render fn).
-            // When render is not defined, cell content is some(Text.Root(...)) as default.
-            const content = col_config.render
-                ? none
-                : some(East.value(
-                    Text.Root(East.str`${field_value}`, {
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                    }),
-                    UIComponentType
-                ));
-
-            $(cells.insert(col_key, {
-                value: cellValue,
-                content,
-            }));
+            $(cells.insert(col_key, cellValue));
         }
         return cells
     });
@@ -574,8 +551,15 @@ export function createTable<T extends SubtypeExprOrValue<ArrayType<StructType>>>
             minWidth: config?.minWidth !== undefined ? some(config.minWidth) : none as any,
             maxWidth: config?.maxWidth !== undefined ? some(config.maxWidth) : none as any,
             render: config?.render
-                ? some(East.value(config.render, FunctionType([TableCellRenderContextType], UIComponentType)))
-                : none as any,
+                ? East.value(config.render, FunctionType([TableCellRenderContextType], UIComponentType))
+                // Synthesized capture-free default: stringify the cell value via
+                // the column's statically-known tag (Slice.config accessor precedent).
+                : East.function([TableCellRenderContextType], UIComponentType, (_$, ctx) =>
+                    Text.Root(East.str`${ctx.cellValue.unwrap((config as any).valueType.type)}`, {
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                    })),
         });
     }
 
@@ -942,21 +926,19 @@ export const Table: TableNamespace = {
          * @property width - Optional fixed CSS width (e.g. "200px", "20%")
          * @property minWidth - Optional CSS minimum width
          * @property maxWidth - Optional CSS maximum width
-         * @property render - Optional `(context: TableCellRenderContextType) => UIComponent` — custom cell renderer; when absent the renderer auto-stringifies the value as `Text.Root`
+         * @property render - `(context: TableCellRenderContextType) => UIComponent` — the cell renderer, required; the factory synthesizes a capture-free `Text.Root` stringify default when the author omits `render`
          */
         Column: TableColumnType,
         /**
-         * East StructType for a table body cell.
+         * East type for a table body cell — a bare {@link LiteralValueType}
+         * variant.
          *
          * @remarks
-         * `value` is the sortable / filterable {@link LiteralValueType}
-         * representation; `content` is the optional pre-rendered
-         * UIComponent. When `content` is `none`, the renderer calls the
-         * column's `render` function with cell context to produce the
-         * UI; when `content` is `some`, the renderer uses it directly.
-         *
-         * @property value - Cell value as a {@link LiteralValueType} (drives sorting / filtering)
-         * @property content - Optional pre-rendered cell UI ({@link OptionType} of {@link UIComponentType})
+         * The cell IS the sortable / filterable primitive value. Rendering
+         * always goes through the column's `render` function
+         * ({@link TableColumnType}.render, required — the factory synthesizes
+         * a capture-free text default when the author omits it), so the IR
+         * carries no per-cell UI content.
          */
         Cell: TableCellType,
         /**

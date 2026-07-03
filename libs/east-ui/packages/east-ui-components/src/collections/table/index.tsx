@@ -293,7 +293,9 @@ const TableCore = function TableCore({
             const width = getSomeorUndefined(col.width);
             const minWidth = getSomeorUndefined(col.minWidth);
             const maxWidth = getSomeorUndefined(col.maxWidth);
-            const renderFn = getSomeorUndefined(col.render) as ColumnRenderFn | undefined;
+            // `render` is required on the IR column (the factory synthesizes a
+            // text default when the author omits it) — no Option to unwrap.
+            const renderFn = col.render as unknown as ColumnRenderFn;
 
             return columnHelper.accessor(
                 (row) => row.get(col.key),
@@ -304,8 +306,9 @@ const TableCore = function TableCore({
                     sortingFn: (rowA, rowB, columnId) => {
                         const cellA = rowA.original.get(columnId);
                         const cellB = rowB.original.get(columnId);
-                         const valA = cellA?.value?.value;
-                        const valB = cellB?.value?.value;
+                        // Cells are bare LiteralValueType variants — `.value` is the payload.
+                        const valA = cellA?.value;
+                        const valB = cellB?.value;
                         if (valA === undefined || valB === undefined) return 0;
                         return compare(valA as any, valB as any);
                     },
@@ -477,15 +480,16 @@ const TableCore = function TableCore({
 
     // Handle cell click
     const handleCellClick = useCallback((rowIndex: bigint, columnKey: string, cellValue: TableCellValue | undefined) => {
-        if (onCellClickFn && cellValue?.value !== undefined) {
-            queueMicrotask(() => onCellClickFn({ rowIndex, columnKey, cellValue: cellValue.value }));
+        if (onCellClickFn && cellValue !== undefined) {
+            // The event's cellValue is the LiteralValueType variant itself.
+            queueMicrotask(() => onCellClickFn({ rowIndex, columnKey, cellValue }));
         }
     }, [onCellClickFn]);
 
     // Handle cell double click
     const handleCellDoubleClick = useCallback((rowIndex: bigint, columnKey: string, cellValue: TableCellValue | undefined) => {
-        if (onCellDoubleClickFn && cellValue?.value !== undefined) {
-            queueMicrotask(() => onCellDoubleClickFn({ rowIndex, columnKey, cellValue: cellValue.value }));
+        if (onCellDoubleClickFn && cellValue !== undefined) {
+            queueMicrotask(() => onCellDoubleClickFn({ rowIndex, columnKey, cellValue }));
         }
     }, [onCellDoubleClickFn]);
 
@@ -1230,12 +1234,14 @@ const TableCore = function TableCore({
                                         );
                                     }
 
-                                    // 1. Column render function takes priority
+                                    // Column render function — always present (the factory
+                                    // synthesizes a text default when the author omits it).
+                                    // ctx.cellValue is the LiteralValueType variant itself.
                                     if (meta?.renderFn) {
                                         const rendered = meta.renderFn({
                                             rowIndex: rowIndex,
                                             columnKey,
-                                            cellValue: cellValue.value,
+                                            cellValue,
                                         });
                                         return (
                                             <ChakraTable.Cell
@@ -1249,22 +1255,7 @@ const TableCore = function TableCore({
                                         );
                                     }
 
-                                    // 2. Pre-built cell content (e.g. default Text.Root)
-                                    const cellContent = getSomeorUndefined(cellValue.content);
-                                    if (cellContent != null) {
-                                        return (
-                                            <ChakraTable.Cell
-                                                key={cell.id}
-                                                css={tableSlotStyles.cell} style={cellStyle}
-                                                onClick={cellClickHandler}
-                                                onDoubleClick={cellDoubleClickHandler}
-                                            >
-                                                <EastChakraComponent value={cellContent} storageKey={`${storageKey}.cell.${cell.column.id}`} />
-                                            </ChakraTable.Cell>
-                                        );
-                                    }
-
-                                    // 3. Fallback: print the raw value
+                                    // Defensive fallback (the IR requires render): print the payload.
                                     return (
                                         <ChakraTable.Cell
                                             key={cell.id}
@@ -1272,7 +1263,7 @@ const TableCore = function TableCore({
                                             onClick={cellClickHandler}
                                             onDoubleClick={cellDoubleClickHandler}
                                         >
-                                            <Text>{meta?.print?.(cellValue.value.value) ?? null}</Text>
+                                            <Text>{meta?.print?.(cellValue.value) ?? null}</Text>
                                         </ChakraTable.Cell>
                                     );
                                 })}

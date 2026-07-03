@@ -33,6 +33,7 @@ import {
 import { DensityType, type DensityLiteral } from "../../style/interaction.js";
 import { PlotGutterType, type PlotGutter } from "../../shared/plot-gutter.js";
 import { UIComponentType } from "../../component.js";
+import { mapRowsBlock } from "../../shared/reify.js";
 import {
     MatrixFillType,
     MatrixSegmentType,
@@ -513,7 +514,7 @@ function createMatrix<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
 
     const columns_expr = East.value(cfg.columns, ArrayType(MatrixColumnType));
 
-    const rows = data_expr.map(($, row) => {
+    const rows = mapRowsBlock(data_expr, MatrixRowType, ($, row) => {
         const cells = $.let(columns_expr.toDict(
             ($, col) => col.key,
             ($, col) => East.value(cfg.cell(row, col), MatrixCellType),

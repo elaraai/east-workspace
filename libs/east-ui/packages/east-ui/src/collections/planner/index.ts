@@ -36,6 +36,7 @@ import {
 } from "@elaraai/east";
 
 import { UIComponentType } from "../../component.js";
+import { mapRowsBlock } from "../../shared/reify.js";
 import { DensityType, type DensityLiteral } from "../../style/interaction.js";
 import { PlotGutterType, type PlotGutter } from "../../shared/plot-gutter.js";
 
@@ -720,7 +721,7 @@ function buildRoot(
     const data_expr = East.value(data) as ExprType<ArrayType<StructType>>;
     const columns = config.columns.map(columnMeta);
 
-    const rows = data_expr.map(($, row) => {
+    const rows = mapRowsBlock(data_expr, PlannerRowType, ($, row) => {
         const cells = $.let(new Map(), DictType(StringType, PlannerCellType));
         for (const col of config.columns) {
             $(cells.insert(col.key, cellValue(col, row)));

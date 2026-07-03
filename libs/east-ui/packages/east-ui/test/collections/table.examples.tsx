@@ -100,8 +100,8 @@ export const tableWithBadge = example({
 });
 
 export const tableComplexColumns = example({
-    keywords: ["Table", "Root", "value", "render", "complex", "array", "struct"],
-    description: "Array and struct fields with value functions for sorting",
+    keywords: ["Table", "Root", "value", "render", "complex", "array", "struct", "capture", "closure", "rowIndex", "full row", "CellRenderContext"],
+    description: "Array and struct fields with value functions for sorting; render reaches the FULL row by capturing the data array and indexing ctx.rowIndex",
     fn: East.function([], UIComponentType, ($) => {
         const complexData = $.let([
             { name: "Alice", skills: ["TypeScript", "React", "Node"], metadata: { level: "Senior", years: 5n } },
@@ -119,6 +119,9 @@ export const tableComplexColumns = example({
                         header: "Skills",
                         value: (skills) => skills.size(),
                         render: East.function([Table.Types.CellRenderContext], UIComponentType, ($, ctx) => {
+                            // The render context carries only {rowIndex, columnKey, cellValue} —
+                            // CAPTURE the data array and index ctx.rowIndex for full-row access.
+                            // Captures must be data or bind-handles, never a UIComponentType value.
                             const row = $.let(complexData.get(ctx.rowIndex));
                             return (
                                 <HStack gap="1" wrap="wrap">

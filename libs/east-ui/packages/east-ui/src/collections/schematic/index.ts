@@ -36,6 +36,7 @@ import {
 } from "@elaraai/east";
 
 import { UIComponentType } from "../../component.js";
+import { mapRows } from "../../shared/reify.js";
 import { StatusTokenType } from "../../style/interaction.js";
 import { type IconName } from "../../display/icon/types.js";
 import { SliceBindType, SliceChromeType } from "../../platform/slice/index.js";
@@ -755,7 +756,7 @@ function buildRoot(
     const itemMapper = config.item;
     const resolvedItems = itemMapper === undefined
         ? East.value(items as SubtypeExprOrValue<ArrayType<SchematicItemType>>, ArrayType(SchematicItemType))
-        : (East.value(items) as ExprType<ArrayType<StructType>>).map((_$, row) => {
+        : mapRows(East.value(items) as ExprType<ArrayType<StructType>>, SchematicItemType, (row) => {
             const r: SchematicItemFields | ExprType<SchematicItemType> = itemMapper(row);
             if (r instanceof Expr) return East.value(r, SchematicItemType);
             return East.value({
@@ -788,7 +789,7 @@ function buildRoot(
         ? East.value([], ArrayType(SchematicZoneType))
         : zoneMapper === undefined
             ? East.value(config.zones as SubtypeExprOrValue<ArrayType<SchematicZoneType>>, ArrayType(SchematicZoneType))
-            : (East.value(config.zones) as ExprType<ArrayType<StructType>>).map((_$, row) => {
+            : mapRows(East.value(config.zones) as ExprType<ArrayType<StructType>>, SchematicZoneType, (row) => {
                 const r: SchematicZoneFields | ExprType<SchematicZoneType> = zoneMapper(row);
                 if (r instanceof Expr) return East.value(r, SchematicZoneType);
                 return East.value({
@@ -816,7 +817,7 @@ function buildRoot(
         ? East.value([], ArrayType(SchematicLinkType))
         : linkMapper === undefined
             ? East.value(config.links as SubtypeExprOrValue<ArrayType<SchematicLinkType>>, ArrayType(SchematicLinkType))
-            : (East.value(config.links) as ExprType<ArrayType<StructType>>).map((_$, row) => {
+            : mapRows(East.value(config.links) as ExprType<ArrayType<StructType>>, SchematicLinkType, (row) => {
                 const r: SchematicLinkFields | ExprType<SchematicLinkType> = linkMapper(row);
                 if (r instanceof Expr) return East.value(r, SchematicLinkType);
                 return East.value({
@@ -843,7 +844,7 @@ function buildRoot(
         ? East.value([], ArrayType(SchematicNetType))
         : netMapper === undefined
             ? East.value(config.nets as SubtypeExprOrValue<ArrayType<SchematicNetType>>, ArrayType(SchematicNetType))
-            : (East.value(config.nets) as ExprType<ArrayType<StructType>>).map((_$, row) => {
+            : mapRows(East.value(config.nets) as ExprType<ArrayType<StructType>>, SchematicNetType, (row) => {
                 const r = netMapper(row);
                 return East.value({
                     key: r.key,

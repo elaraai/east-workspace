@@ -36,6 +36,7 @@ import {
 } from "@elaraai/east";
 
 import { UIComponentType } from "../../component.js";
+import { mapRows } from "../../shared/reify.js";
 import { DensityType, type DensityLiteral } from "../../style/interaction.js";
 import { type CellRefType, type DragEventType } from "../../contracts/drag.js";
 import { PlannerStateType } from "../planner/types.js";
@@ -174,7 +175,7 @@ function buildRoot(
     const personMapper = config.person;
     const resolvedPeople = personMapper === undefined
         ? East.value(people as SubtypeExprOrValue<ArrayType<RosterPersonType>>, ArrayType(RosterPersonType))
-        : (East.value(people) as ExprType<ArrayType<StructType>>).map((_$, row) => {
+        : mapRows(East.value(people) as ExprType<ArrayType<StructType>>, RosterPersonType, (row) => {
             const r: RosterPersonFields | ExprType<RosterPersonType> = personMapper(row);
             if (r instanceof Expr) return East.value(r, RosterPersonType);
             return East.value({
@@ -187,7 +188,7 @@ function buildRoot(
     const shiftMapper = config.shift;
     const resolvedShifts = shiftMapper === undefined
         ? East.value(shifts as SubtypeExprOrValue<ArrayType<RosterShiftType>>, ArrayType(RosterShiftType))
-        : (East.value(shifts) as ExprType<ArrayType<StructType>>).map((_$, row) => {
+        : mapRows(East.value(shifts) as ExprType<ArrayType<StructType>>, RosterShiftType, (row) => {
             const r: RosterShiftFields | ExprType<RosterShiftType> = shiftMapper(row);
             if (r instanceof Expr) return East.value(r, RosterShiftType);
             if (r.hours === undefined && r.label === undefined) {

@@ -376,7 +376,9 @@ const GanttCore = function GanttCore({
             const width = getSomeorUndefined(col.width);
             const minWidth = getSomeorUndefined(col.minWidth);
             const maxWidth = getSomeorUndefined(col.maxWidth);
-            const renderFn = getSomeorUndefined(col.render) as ColumnRenderFn | undefined;
+            // `render` is required on the IR column (the factory synthesizes a
+            // text default when the author omits it) — no Option to unwrap.
+            const renderFn = col.render as unknown as ColumnRenderFn;
 
             return columnHelper.accessor(
                 (row) => row.cells.get(col.key),
@@ -387,8 +389,9 @@ const GanttCore = function GanttCore({
                     sortingFn: (rowA, rowB, columnId) => {
                         const cellA = rowA.original.cells.get(columnId);
                         const cellB = rowB.original.cells.get(columnId);
-                        const valA = cellA?.value?.value;
-                        const valB = cellB?.value?.value;
+                        // Cells are bare LiteralValueType variants — `.value` is the payload.
+                        const valA = cellA?.value;
+                        const valB = cellB?.value;
                         if (valA === undefined || valB === undefined) return 0;
                         return compare(valA, valB);
                     },
@@ -464,15 +467,16 @@ const GanttCore = function GanttCore({
 
     // Handle cell click
     const handleCellClick = useCallback((rowIndex: bigint, columnKey: string, cellValue: GanttCellValue | undefined) => {
-        if (onCellClickFn && cellValue?.value !== undefined) {
-            queueMicrotask(() => onCellClickFn({ rowIndex, columnKey, cellValue: cellValue.value }));
+        if (onCellClickFn && cellValue !== undefined) {
+            // The event's cellValue is the LiteralValueType variant itself.
+            queueMicrotask(() => onCellClickFn({ rowIndex, columnKey, cellValue }));
         }
     }, [onCellClickFn]);
 
     // Handle cell double click
     const handleCellDoubleClick = useCallback((rowIndex: bigint, columnKey: string, cellValue: GanttCellValue | undefined) => {
-        if (onCellDoubleClickFn && cellValue?.value !== undefined) {
-            queueMicrotask(() => onCellDoubleClickFn({ rowIndex, columnKey, cellValue: cellValue.value }));
+        if (onCellDoubleClickFn && cellValue !== undefined) {
+            queueMicrotask(() => onCellDoubleClickFn({ rowIndex, columnKey, cellValue }));
         }
     }, [onCellDoubleClickFn]);
 
@@ -932,11 +936,14 @@ const GanttCore = function GanttCore({
                                                 );
                                             }
 
+                                            // Column render function — always present (the factory
+                                            // synthesizes a text default when the author omits it).
+                                            // ctx.cellValue is the LiteralValueType variant itself.
                                             if (meta?.renderFn) {
                                                 const rendered = meta.renderFn({
                                                     rowIndex: rowIndex,
                                                     columnKey,
-                                                    cellValue: cellValue.value,
+                                                    cellValue,
                                                 });
                                                 return (
                                                     <ChakraTable.Cell
@@ -950,20 +957,7 @@ const GanttCore = function GanttCore({
                                                 );
                                             }
 
-                                            const cellContent = getSomeorUndefined(cellValue.content);
-                                            if (cellContent != null) {
-                                                return (
-                                                    <ChakraTable.Cell
-                                                        key={cell.id}
-                                                        style={cellStyle}
-                                                        onClick={cellClickHandler}
-                                                        onDoubleClick={cellDoubleClickHandler}
-                                                    >
-                                                        <EastChakraComponent value={cellContent} storageKey={`${storageKey}.cell.${cell.column.id}`} />
-                                                    </ChakraTable.Cell>
-                                                );
-                                            }
-
+                                            // Defensive fallback (the IR requires render): print the payload.
                                             return (
                                                 <ChakraTable.Cell
                                                     key={cell.id}
@@ -972,7 +966,7 @@ const GanttCore = function GanttCore({
                                                     onDoubleClick={cellDoubleClickHandler}
                                                 >
                                                     <Text>
-                                                        {meta?.print?.(cellValue.value.value) ?? null}
+                                                        {meta?.print?.(cellValue.value) ?? null}
                                                     </Text>
                                                 </ChakraTable.Cell>
                                             );

@@ -766,7 +766,7 @@ const example = East.function([], UIComponentType, $ => {
 | `Table.Types.Root` | East StructType for Table component | `Table.Types.Root` |
 | `Table.Types.Style` | East StructType for Table style | `Table.Types.Style` |
 | `Table.Types.Column` | East StructType for table column | `Table.Types.Column` |
-| `Table.Types.Cell` | East StructType for table cell | `Table.Types.Cell` |
+| `Table.Types.Cell` | East type for a table body cell — a bare `LiteralValueType` variant (the sortable value; rendering goes through the column's required `render` function, synthesized by the factory when omitted) | `Table.Types.Cell` |
 
 **Parameters:**
 - `data` - Array of struct data (e.g., `[{ name: "Alice", age: 30n }]`)

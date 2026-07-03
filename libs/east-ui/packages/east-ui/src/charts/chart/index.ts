@@ -40,6 +40,7 @@ import {
 } from "@elaraai/east";
 
 import { UIComponentType } from "../../component.js";
+import { reifyAccessor } from "../../shared/reify.js";
 import { SliceBindType, SliceChromeType } from "../../platform/slice/index.js";
 import { SliceAffordanceType, type SliceAffordanceLiteral } from "../../contracts/slice-affordances.js";
 import {
@@ -346,13 +347,22 @@ function buildSeries<Row extends EastType>(rows: ChartRows<Row>, encoding: MarkE
     // East generics over an opaque element type fight TS here; the explicit
     // `ChartSeriesArrayType` coercion at the boundary keeps the result sound.
     const arr = East.value(rows) as any;
+    // Reify every accessor lambda into a real East function over the row
+    // element type, then CALL it inside the maps below — same eager pivot,
+    // function semantics for expansion/captures (#205).
+    const rowType = (Expr.type(arr) as ArrayType<EastType>).value as EastType;
+    const reify = (acc: AnyAccessor): AnyAccessor => reifyAccessor([rowType], acc as any) as unknown as AnyAccessor;
     let xScale: ScaleKind = "band";
     const setScale = (s: ScaleKind) => { xScale = s; };
     // Per-point size accessor only rides on the scatter encoding; none otherwise.
-    const sizeAcc = (encoding as { size?: AnyAccessor }).size;
+    const rawSizeAcc = (encoding as { size?: AnyAccessor }).size;
+    const sizeAcc = rawSizeAcc !== undefined ? reify(rawSizeAcc) : undefined;
 
     if ("by" in encoding) {
-        const { x, y, by, colors } = encoding;
+        const { colors } = encoding;
+        const x = reify(encoding.x as AnyAccessor);
+        const y = reify(encoding.y as AnyAccessor);
+        const by = reify(encoding.by as AnyAccessor);
         const byKey = (row: any) => typeTag(by(row)) === "String" ? by(row) : East.print(by(row) as Expr);
         const groups = arr.groupToArrays((_b: unknown, r: any) => byKey(r));
         const keysArr = groups.keys().toArray();
@@ -372,16 +382,21 @@ function buildSeries<Row extends EastType>(rows: ChartRows<Row>, encoding: MarkE
     }
 
     if ("columns" in encoding) {
-        const { x, columns } = encoding;
-        const seriesList = Object.entries(columns).map(([label, acc], i) => ({
-            key: label,
-            color: style.color ?? paletteColor(i),
-            points: arr.map((_b: unknown, r: any) => pointOf(x, acc, r, setScale, sizeAcc)),
-        }));
+        const { columns } = encoding;
+        const x = reify(encoding.x as AnyAccessor);
+        const seriesList = Object.entries(columns).map(([label, acc], i) => {
+            const accFn = reify(acc as AnyAccessor);
+            return {
+                key: label,
+                color: style.color ?? paletteColor(i),
+                points: arr.map((_b: unknown, r: any) => pointOf(x, accFn, r, setScale, sizeAcc)),
+            };
+        });
         return { data: East.value(seriesList as any, ChartSeriesArrayType), xScale };
     }
 
-    const { x, y } = encoding;
+    const x = reify(encoding.x as AnyAccessor);
+    const y = reify(encoding.y as AnyAccessor);
     // Optional per-x-category colour map → per-point fills (one bar per category).
     const ptColors = (encoding as PointEncoding<Row>).colors;
     const colorDict = ptColors !== undefined
@@ -398,11 +413,15 @@ function buildSeries<Row extends EastType>(rows: ChartRows<Row>, encoding: MarkE
 /** Pivot rows + a band encoding into a coloured `ChartBandSeriesArray`. */
 function buildBand<Row extends EastType>(rows: ChartRows<Row>, encoding: BandEncoding<Row>, style: MarkStyle): { data: ExprType<ChartBandSeriesArrayType>; xScale: ScaleKind } {
     const arr = East.value(rows) as any;
+    const rowType = (Expr.type(arr) as ArrayType<EastType>).value as EastType;
+    const xFn = reifyAccessor([rowType], encoding.x as any) as unknown as AnyAccessor;
+    const lowFn = reifyAccessor([rowType], encoding.low as any) as unknown as AnyAccessor;
+    const highFn = reifyAccessor([rowType], encoding.high as any) as unknown as AnyAccessor;
     let xScale: ScaleKind = "band";
     const points = arr.map((_b: unknown, r: any) => {
-        const xe = encoding.x(r);
+        const xe = xFn(r);
         xScale = scaleFor(typeTag(xe));
-        return { x: xCoord(xe), low: toFloatExpr(encoding.low(r)), high: toFloatExpr(encoding.high(r)) };
+        return { x: xCoord(xe), low: toFloatExpr(lowFn(r)), high: toFloatExpr(highFn(r)) };
     });
     const series = { key: style.key ?? "", color: style.color ?? paletteColor(0), points };
     return { data: East.value([series] as any, ChartBandSeriesArrayType), xScale };

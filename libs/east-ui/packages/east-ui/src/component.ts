@@ -700,10 +700,7 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
     }),
 
     Table: StructType({
-        rows: ArrayType(DictType(StringType, StructType({
-            value: LiteralValueType,
-            content: OptionType(node),
-        }))),
+        rows: ArrayType(DictType(StringType, LiteralValueType)),
         columns: ArrayType(StructType({
             key: StringType,
             dataType: EastTypeType,
@@ -712,7 +709,7 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
             width: OptionType(StringType),
             minWidth: OptionType(StringType),
             maxWidth: OptionType(StringType),
-            render: OptionType(FunctionType([TableCellRenderContextType], node)),
+            render: FunctionType([TableCellRenderContextType], node),
         })),
         frozen: ArrayType(StringType),
         columnGroups: OptionType(ArrayType(TableColumnGroupType)),
@@ -746,10 +743,7 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
 
     Gantt: StructType({
         rows: ArrayType(StructType({
-            cells: DictType(StringType, StructType({
-                value: LiteralValueType,
-                content: OptionType(node),
-            })),
+            cells: DictType(StringType, LiteralValueType),
             tasks: ArrayType(StructType({
                 start: DateTimeType,
                 end: DateTimeType,
@@ -773,7 +767,7 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
             width: OptionType(StringType),
             minWidth: OptionType(StringType),
             maxWidth: OptionType(StringType),
-            render: OptionType(FunctionType([TableCellRenderContextType], node)),
+            render: FunctionType([TableCellRenderContextType], node),
         })),
         frozen: ArrayType(StringType),
         axis: OptionType(GanttAxisType),

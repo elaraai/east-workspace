@@ -32,6 +32,7 @@ import {
 } from "@elaraai/east";
 
 import { UIComponentType } from "../../component.js";
+import { mapRows } from "../../shared/reify.js";
 import { DensityType } from "../../style.js";
 import type { DensityLiteral } from "../../style.js";
 import { PlotGutterType } from "../../shared/plot-gutter.js";
@@ -125,7 +126,7 @@ function buildRoot(
     const cellMapper = config.cell;
     const cells = cellMapper === undefined
         ? East.value(data as SubtypeExprOrValue<ArrayType<CalendarCellType>>, ArrayType(CalendarCellType))
-        : (East.value(data) as ExprType<ArrayType<StructType>>).map((_$, row) => {
+        : mapRows(East.value(data) as ExprType<ArrayType<StructType>>, CalendarCellType, (row) => {
             const r: CalendarCellFields | ExprType<CalendarCellType> = cellMapper(row);
             if (r instanceof Expr) return East.value(r, CalendarCellType);
             const value = East.value(r.value, FloatType);
