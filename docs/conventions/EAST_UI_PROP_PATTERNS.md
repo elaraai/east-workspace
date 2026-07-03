@@ -85,8 +85,14 @@ This is the general mechanism, not a workaround: IR-level generics were
 assessed and rejected in #203 — closures are the existential the language
 already ships, in all three runtimes.
 
-## Pending
+## Table/Gantt cell IR (#206)
 
-#206 (epic #203) will change Table/Gantt cell IR (bare `LiteralValueType`
-cells + a required per-column `render` with a factory-synthesized,
-capture-free default). Update this doc when it lands.
+Table/Gantt cells are bare `LiteralValueType` variants — the sortable value
+IS the cell. `TableColumnType.render` is **required**; the factory
+synthesizes a capture-free text default (`ctx.cellValue.unwrap(tag)` via the
+column's statically-known value tag) when the author omits it. The IR
+carries no per-cell UI content: payloads shrink, every Reactive tick skips
+per-cell component construction, and the renderer has a single render path
+(per visible cell). Note `equalFor` treats function values as always equal
+(`east/src/comparison.ts:361`), so synthesized defaults can never
+destabilize the renderer's memo guard.

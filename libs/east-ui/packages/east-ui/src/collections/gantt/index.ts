@@ -24,7 +24,6 @@ import {
     toEastTypeValue,
     type EastType,
     type EastTypeValue,
-    LiteralValueType,
     FunctionType,
 } from "@elaraai/east";
 import {
@@ -167,7 +166,7 @@ export type GanttMilestoneType = typeof GanttMilestoneType;
  * been retired — splitting by subtype removes variant ceremony at the
  * call site and gives per-subtype TS narrowing for free.
  *
- * @property cells - Dict of column key to cell content (same as Table)
+ * @property cells - Dict of column key to cell value (a bare `LiteralValueType`, same as Table)
  * @property tasks - Array of task bars (start + end DateTime)
  * @property milestones - Array of milestone markers (single DateTime)
  */
@@ -632,11 +631,10 @@ function createGantt<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
 
     // Map each data row to a GanttRow with cells and events
     const rows_mapped = mapRowsBlock(data_expr, GanttRowType, ($, datum) => {
-        // Build cells dict (same as Table)
-        const cells = $.let(new Map(), DictType(StringType, StructType({
-            value: LiteralValueType,
-            content: OptionType(UIComponentType)
-        })));
+        // Build cells dict (same as Table) — cells carry ONLY the sortable
+        // primitive; rendering goes through the column's render function
+        // (synthesized default below when the author omits it).
+        const cells = $.let(new Map(), DictType(StringType, TableCellType));
 
         for (const [col_key, col_config] of Object.entries(columns_obj)) {
             const field_value = (datum as any)[col_key];
@@ -648,21 +646,7 @@ function createGantt<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
                 ? variant(col_config.valueType.type as any, valueFn(field_value, datum))
                 : variant(col_config.valueType.type as any, field_value);
 
-            const content = col_config.render
-                ? none
-                : some(East.value(
-                    Text.Root(East.str`${field_value}`, {
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                    }),
-                    UIComponentType
-                ));
-
-            $(cells.insert(col_key, {
-                value: cellValue,
-                content,
-            }));
+            $(cells.insert(col_key, cellValue));
         }
 
         // Get tasks + milestones from the row. The callback returns
@@ -692,8 +676,15 @@ function createGantt<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
             minWidth: config?.minWidth !== undefined ? some(config.minWidth) : none as any,
             maxWidth: config?.maxWidth !== undefined ? some(config.maxWidth) : none as any,
             render: config?.render
-                ? some(East.value(config.render, FunctionType([TableCellRenderContextType], UIComponentType)))
-                : none as any,
+                ? East.value(config.render, FunctionType([TableCellRenderContextType], UIComponentType))
+                // Synthesized capture-free default: stringify the cell value via
+                // the column's statically-known tag (same as Table).
+                : East.function([TableCellRenderContextType], UIComponentType, (_$, ctx) =>
+                    Text.Root(East.str`${ctx.cellValue.unwrap((config as any).valueType.type)}`, {
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                    })),
         });
     }
 
