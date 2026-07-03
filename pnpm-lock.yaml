@@ -609,6 +609,12 @@ importers:
         specifier: workspace:*
         version: link:../east
     devDependencies:
+      '@elaraai/e3':
+        specifier: workspace:*
+        version: link:../e3/packages/e3
+      '@elaraai/east-node-std':
+        specifier: workspace:*
+        version: link:../east-node/packages/east-node-std
       playwright:
         specifier: ^1.49.0
         version: 1.59.1
