@@ -36,13 +36,29 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { pathToFileURL } from 'node:url';
 import { East, IntegerType, FloatType, ArrayType } from '@elaraai/east';
 import e3 from '@elaraai/e3';
-import { scaffold } from '@elaraai/scaffold-core';
 import { createTestDir, removeTestDir, runE3Command } from './helpers.js';
 
 const WORKSPACE_LIBS = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 const TEMPLATE_DIR = join(WORKSPACE_LIBS, 'create', 'templates', 'e3');
+// Loaded dynamically (not a workspace dep): libs/e3 must stay buildable
+// without libs/create — CI builds scaffold-core before running these suites,
+// and a local run without it skips with a pointer.
+const SCAFFOLD_CORE_DIST = join(WORKSPACE_LIBS, 'create', 'packages', 'scaffold-core', 'dist', 'index.js');
+const hasScaffoldCore = existsSync(SCAFFOLD_CORE_DIST);
+const SKIP_NO_SCAFFOLD = 'scaffold-core not built — run `pnpm -r build` in libs/create first';
+
+type ScaffoldFn = (options: {
+  kind: 'e3'; name: string; cwd: string; templateDir: string; version: string;
+  install: boolean; log: (msg: string) => void; features: Record<string, boolean>;
+}) => { projectDir: string };
+
+async function loadScaffold(): Promise<ScaffoldFn> {
+  const mod = await import(pathToFileURL(SCAFFOLD_CORE_DIST).href) as { scaffold: ScaffoldFn };
+  return mod.scaffold;
+}
 /** The released lockstep version the scaffold pins `@elaraai/*` deps to. */
 const RELEASED_VERSION = (JSON.parse(
   readFileSync(join(WORKSPACE_LIBS, 'east', 'package.json'), 'utf-8'),
@@ -68,11 +84,12 @@ function runTool(command: string, args: string[], cwd: string): void {
 }
 
 /** Scaffold a create-e3 project with the platform feature into `parentDir`. */
-function scaffoldPlatformProject(
+async function scaffoldPlatformProject(
   parentDir: string,
   name: string,
   runners: { py: boolean; node: boolean },
-): string {
+): Promise<string> {
+  const scaffold = await loadScaffold();
   mkdirSync(parentDir, { recursive: true });
   const result = scaffold({
     kind: 'e3',
@@ -123,11 +140,11 @@ describe('execution environments e2e — scaffolded python platform travels with
   let testDir: string;
   let projectDir: string;
 
-  before(() => {
-    if (!hasUv) return;
+  before(async () => {
+    if (!hasUv || !hasScaffoldCore) return;
     testDir = createTestDir();
     mkdirSync(testDir, { recursive: true });
-    projectDir = scaffoldPlatformProject(testDir, 'envpy', { py: true, node: false });
+    projectDir = await scaffoldPlatformProject(testDir, 'envpy', { py: true, node: false });
     // Lock the scaffolded project against the registry, as a user would.
     runTool('uv', ['lock'], projectDir);
   });
@@ -137,7 +154,7 @@ describe('execution environments e2e — scaffolded python platform travels with
   });
 
   it('runs the scaffolded @platform_function from the materialized env after the project is deleted',
-    { skip: !hasUv && 'uv not on PATH' }, async () => {
+    { skip: (!hasUv && 'uv not on PATH') || (!hasScaffoldCore && SKIP_NO_SCAFFOLD) }, async () => {
       // Mirror of the scaffolded platform_module example:
       //   @platform_function(name="envpy.example_python",
       //                      inputs=[ArrayType(FloatType)], output=FloatType)
@@ -168,11 +185,11 @@ describe('execution environments e2e — scaffolded node platform travels with t
   let testDir: string;
   let projectDir: string;
 
-  before(() => {
-    if (!hasNpm) return;
+  before(async () => {
+    if (!hasNpm || !hasScaffoldCore) return;
     testDir = createTestDir();
     mkdirSync(testDir, { recursive: true });
-    projectDir = scaffoldPlatformProject(testDir, 'envnode', { py: false, node: true });
+    projectDir = await scaffoldPlatformProject(testDir, 'envnode', { py: false, node: true });
     // Install + build the scaffolded project the way a user would, so the
     // `./platform` export (dist/platform/index.js) exists for `npm pack`.
     runTool('npm', ['install', '--no-audit', '--no-fund'], projectDir);
@@ -184,7 +201,7 @@ describe('execution environments e2e — scaffolded node platform travels with t
   });
 
   it('runs the scaffolded East.platform implementation from the materialized env after the project is deleted',
-    { skip: !hasNpm && 'npm not on PATH' }, async () => {
+    { skip: (!hasNpm && 'npm not on PATH') || (!hasScaffoldCore && SKIP_NO_SCAFFOLD) }, async () => {
       // Mirror of the scaffolded src/platform/example.ts:
       //   East.platform("envnode.example_node", [IntegerType, FloatType], IntegerType)
       //   impl: ceil(value * factor)
