@@ -61,6 +61,53 @@ export function importsEastPackage(sf: ts.SourceFile, t: TsModule): boolean {
   return found;
 }
 
+const declaresCache = new WeakMap<ts.SourceFile, boolean>();
+
+/** e3 members whose call DECLARES part of a deployable program. */
+const E3_DECLARATION_MEMBERS = new Set([
+  "input", "task", "customTask", "function", "record", "mutation", "package", "export",
+]);
+
+/** Does this file DECLARE an East/e3 program — an `East.<factory>(…)` call
+ * (function/asyncFunction/platform/…, with `East` symbol-resolved to an
+ * `@elaraai/*` import), an e3 definition call (`e3.input`/`e3.task`/… on the
+ * `@elaraai/e3` default import), or a `ui(…)` surface (the `@elaraai/e3-ui`
+ * import)? Host-side TOOLING (CLIs, build scripts, renderers) imports
+ * `@elaraai/*` for utilities but declares no program — build-time-data rules
+ * must not treat it as deployable source. Cached per source file. */
+export function declaresEastProgram(sf: ts.SourceFile, checker: ts.TypeChecker, t: TsModule): boolean {
+  const cached = declaresCache.get(sf);
+  if (cached !== undefined) return cached;
+  let found = false;
+  const visit = (n: ts.Node): void => {
+    if (found) return;
+    if (t.isCallExpression(n)) {
+      const callee = n.expression;
+      if (t.isPropertyAccessExpression(callee) && t.isIdentifier(callee.expression)) {
+        const root = callee.expression;
+        if (root.text === "East" && resolvesToEastImport(root, checker, t)) {
+          found = true;
+          return;
+        }
+        if (E3_DECLARATION_MEMBERS.has(callee.name.text)) {
+          const imp = importDeclarationOf(checker.getSymbolAtLocation(root), t);
+          if (imp !== undefined && t.isStringLiteral(imp.moduleSpecifier) && imp.moduleSpecifier.text === "@elaraai/e3") {
+            found = true;
+            return;
+          }
+        }
+      } else if (t.isIdentifier(callee) && callee.text === "ui" && resolvesToEastImport(callee, checker, t)) {
+        found = true;
+        return;
+      }
+    }
+    t.forEachChild(n, visit);
+  };
+  visit(sf);
+  declaresCache.set(sf, found);
+  return found;
+}
+
 const pkgDirCache = new Map<string, string | undefined>();
 
 /** The nearest ancestor directory of `p` containing a `package.json`, or undefined. */

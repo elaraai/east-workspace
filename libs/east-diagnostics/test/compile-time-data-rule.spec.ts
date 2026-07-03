@@ -7,9 +7,12 @@ import assert from "node:assert/strict";
 import { analyze } from "./harness.js";
 
 const RULE = "no-compile-time-data-injection";
-// The rule only applies to East/e3 SOURCE — a file importing `@elaraai/*`. Plain
-// Node scripts reading files at module scope are out of scope.
-const EAST = `import e3 from "@elaraai/e3";\n`;
+// The rule only applies to DEPLOYABLE East/e3 source — a file importing
+// `@elaraai/*` AND declaring a program (an e3 definition / East factory).
+// Plain Node scripts and host-side TOOLING are out of scope.
+const EAST =
+  `import e3 from "@elaraai/e3";\nimport { IntegerType } from "@elaraai/east";\n` +
+  `export const counter = e3.input("counter", IntegerType, 0n);\n`;
 
 function rule(source: string) {
   return analyze(source).filter((d) => d.ruleName === RULE);
@@ -53,6 +56,19 @@ test("silent on a prose `.csv` mention in a string literal", () => {
 
 test("silent on an unrelated local function named readFileSync (not the node:fs symbol)", () => {
   const src = `${EAST}function readFileSync(_x: string): string { return ""; }\nexport const v = readFileSync("x");\n`;
+  assert.equal(rule(src).length, 0);
+});
+
+test("silent in host-side TOOLING — imports @elaraai/* but declares no program", () => {
+  // The e3-ui-cli shape: East utilities imported for IR work, runtime file I/O
+  // is the tool's job. No `East.*` factory / e3 definition / ui() ⇒ not
+  // deployable source ⇒ not our business.
+  const src =
+    `import { readFileSync } from "node:fs";\n` +
+    `import { encodeEastIR, type EastIR } from "@elaraai/east";\n` +
+    `export const bytes = readFileSync("component.beast2");\n` +
+    `export const cfg = JSON.parse("{}");\n` +
+    `export const _u = encodeEastIR;\n`;
   assert.equal(rule(src).length, 0);
 });
 
