@@ -20,10 +20,67 @@
  * @packageDocumentation
  */
 
-import { chromium, type Browser } from 'playwright';
+import { chromium, type Browser, type LaunchOptions } from 'playwright';
 import { createServer, type ViteDevServer } from 'vite';
 import * as fs from 'node:fs/promises';
+import { existsSync, readdirSync } from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
+
+/** The newest chromium binary in the playwright browser cache (any build
+ *  number), or a system Chrome/Chromium — the e3-ui-cli acquisition cascade,
+ *  inlined. Playwright's own launch insists on its EXACT version-matched
+ *  build, so an offline box whose cache holds an older (perfectly capable)
+ *  chromium hard-fails the snapshot run; this fallback keeps the harness
+ *  working. Ubuntu snap shims are skipped (snap confinement breaks
+ *  automation). */
+function fallbackChromiumPath(): string | undefined {
+    const cacheRoot = process.env.PLAYWRIGHT_BROWSERS_PATH ?? path.join(os.homedir(), '.cache', 'ms-playwright');
+    try {
+        const entries = readdirSync(cacheRoot)
+            .map(name => /^(chromium|chromium_headless_shell)-(\d+)$/.exec(name))
+            .filter((m): m is RegExpExecArray => m !== null)
+            // Prefer full chromium over the headless shell, then newest build.
+            .sort((a, b) => (a[1] === b[1] ? Number(b[2]) - Number(a[2]) : a[1] === 'chromium' ? -1 : 1));
+        for (const m of entries) {
+            const dir = path.join(cacheRoot, m[0]!);
+            for (const rel of [
+                'chrome-linux64/chrome', 'chrome-linux/chrome',
+                'chrome-headless-shell-linux64/chrome-headless-shell',
+                'chrome-mac/Chromium.app/Contents/MacOS/Chromium',
+                'chrome-headless-shell-mac/chrome-headless-shell',
+            ]) {
+                const p = path.join(dir, rel);
+                if (existsSync(p)) return p;
+            }
+        }
+    } catch { /* no cache dir — fall through to system browsers */ }
+    for (const p of [
+        '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/opt/google/chrome/chrome',
+        '/usr/bin/chromium', '/usr/bin/chromium-browser',
+        '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    ]) {
+        // A snap shim exec-wraps the real binary and breaks automation.
+        if (existsSync(p) && !p.startsWith('/snap/')) return p;
+    }
+    return undefined;
+}
+
+/** Launch Chromium: an explicit `PW_EXECUTABLE_PATH` / `E3_UI_CHROMIUM_PATH`
+ *  override wins; otherwise playwright's version-matched cache; otherwise any
+ *  cached/system chromium via {@link fallbackChromiumPath}. */
+async function launchChromium(options: LaunchOptions): Promise<Browser> {
+    const explicit = process.env.PW_EXECUTABLE_PATH ?? process.env.E3_UI_CHROMIUM_PATH;
+    if (explicit) return chromium.launch({ ...options, executablePath: explicit });
+    try {
+        return await chromium.launch(options);
+    } catch (err) {
+        const fallback = fallbackChromiumPath();
+        if (fallback === undefined) throw err;
+        console.log(`[snapshot] playwright's bundled chromium unavailable — using ${fallback}`);
+        return chromium.launch({ ...options, executablePath: fallback });
+    }
+}
 
 /** One page to snapshot — `query` becomes the `?k=v&…` the entry reads,
  *  `outName` is the basename (no extension) of the written `.html` / `.png`
@@ -107,11 +164,8 @@ export async function captureFiles(cfg: CaptureConfig): Promise<{ captured: numb
     let captured = 0;
     let failed = 0;
     try {
-        browser = await chromium.launch({
+        browser = await launchChromium({
             headless: true,
-            // Allow pointing at a system / Chrome-for-Testing binary when
-            // Playwright's bundled Chromium isn't available for the host OS.
-            ...(process.env.PW_EXECUTABLE_PATH ? { executablePath: process.env.PW_EXECUTABLE_PATH } : {}),
             args: ['--no-sandbox', '--disable-gpu'],
         });
         const context = await browser.newContext({ viewport });

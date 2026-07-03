@@ -69,7 +69,7 @@ design-html-all:
 ## foot + value-control) to diff against `design/slice.html#slice-edit`.
 ## Reads from the built renderer, so run `make build` (or the package build) first.
 probe-slice:
-	pnpm --filter @elaraai/east-ui-components exec playwright install chromium
+	-pnpm --filter @elaraai/east-ui-components exec playwright install chromium
 	pnpm --filter @elaraai/east-ui-components exec tsx scripts/probe-slice.ts
 
 ## Pixel audit of the Collections.Table / Gantt / Planner examples — renders
@@ -78,7 +78,7 @@ probe-slice:
 ## header/cell/row + bar computed CSS to diff against the bsys "Rows & tables"
 ## spec + `configure__pattern__{gantt,planner}`. Run the package build first.
 probe-collections:
-	pnpm --filter @elaraai/east-ui-components exec playwright install chromium
+	-pnpm --filter @elaraai/east-ui-components exec playwright install chromium
 	pnpm --filter @elaraai/east-ui-components exec tsx scripts/probe-collections.ts
 
 ## Serve `design/` statically over HTTP for visual / spec review. Lists every
@@ -107,9 +107,11 @@ examples:
 ## Used for offline visual inspection / spec-alignment review.
 ##
 ## First run downloads the Chromium binary (~150 MB). Subsequent runs are
-## just the snapshot pass (~30-60 s).
+## just the snapshot pass (~30-60 s). The install step is NON-FATAL (`-`):
+## offline boxes fall back to any cached / system chromium via the capture
+## harness's acquisition cascade (scripts/snapshot-capture.mts).
 east-ui-examples-html-all:
-	pnpm --filter @elaraai/east-ui-components exec playwright install chromium
+	-pnpm --filter @elaraai/east-ui-components exec playwright install chromium
 	pnpm --filter @elaraai/east-ui-components run snapshot
 
 ## Snapshot a single east-ui example source file. Usage:
@@ -118,7 +120,7 @@ east-ui-examples-html-all:
 ## `packages/east-ui/test/<pathKey>.examples.ts` (e.g. buttons/button,
 ## container/card, charts/area). Tab-completes from the auto-derived list.
 $(EAST_UI_EXAMPLE_KEYS:%=east-ui-examples-html-%): east-ui-examples-html-%:
-	pnpm --filter @elaraai/east-ui-components exec playwright install chromium
+	-pnpm --filter @elaraai/east-ui-components exec playwright install chromium
 	pnpm --filter @elaraai/east-ui-components exec tsx scripts/snapshot.ts --file=$*
 
 ## Snapshot a SINGLE example (full-bleed) from an examples file. Usage:
@@ -127,7 +129,7 @@ $(EAST_UI_EXAMPLE_KEYS:%=east-ui-examples-html-%): east-ui-examples-html-%:
 ## the list is re-derived each invocation, so new `export const` examples
 ## tab-complete without Makefile edits.
 $(EAST_UI_EXAMPLE_ITEM_KEYS:%=east-ui-examples-html-%): east-ui-examples-html-%:
-	pnpm --filter @elaraai/east-ui-components exec playwright install chromium
+	-pnpm --filter @elaraai/east-ui-components exec playwright install chromium
 	pnpm --filter @elaraai/east-ui-components exec tsx scripts/snapshot.ts --file=$(subst --,:,$*)
 
 ## Snapshot every e3-task-bound east-ui example (ontology, diff, ...) to a
@@ -137,7 +139,7 @@ $(EAST_UI_EXAMPLE_ITEM_KEYS:%=east-ui-examples-html-%): east-ui-examples-html-%:
 ##
 ## First run downloads the Chromium binary (~150 MB).
 e3-ui-examples-html-all:
-	pnpm --filter @elaraai/e3-ui-components exec playwright install chromium
+	-pnpm --filter @elaraai/e3-ui-components exec playwright install chromium
 	pnpm --filter @elaraai/e3-ui-components run snapshot
 
 ## Snapshot a single e3-ui example file. Usage:
@@ -145,7 +147,7 @@ e3-ui-examples-html-all:
 ## The suffix matches a discovered key from
 ## `packages/e3-ui/test/<key>.examples.ts` (e.g. ontology, diff).
 $(E3_UI_EXAMPLE_KEYS:%=e3-ui-examples-html-%): e3-ui-examples-html-%:
-	pnpm --filter @elaraai/e3-ui-components exec playwright install chromium
+	-pnpm --filter @elaraai/e3-ui-components exec playwright install chromium
 	pnpm --filter @elaraai/e3-ui-components exec tsx scripts/snapshot.ts --file=$*
 
 ## Build and package the VSCode extension
