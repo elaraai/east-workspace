@@ -48,7 +48,7 @@ def run_one(ir_file: Path, out: io.StringIO | None = None, extra_platform: list 
     """Run a single IR file. Returns (passed, failed). Writes east-c style output to `out`."""
     from east.runtime.compiler import compile_from_json
     from east.runtime.platform import PlatformFunction
-    from east.types.types import FunctionType, NullType, StringType
+    from east.types.types import AsyncFunctionType, NullType, StringType
 
     data = ir_file.read_bytes()
     is_async = b'"AsyncFunction"' in data[:100]
@@ -107,9 +107,12 @@ def run_one(ir_file: Path, out: io.StringIO | None = None, extra_platform: list 
     def test_fail(msg):
         raise AssertionError(msg)
 
+    # Declared types mirror the TS declarations (libs/east/test/platforms.spec.ts):
+    # `test` / `describe` take an ASYNC function body. The compile-time
+    # signature check (east_compile_checked) rejects a drifted mirror.
     platform = [
-        PlatformFunction(name="describe", inputs=[StringType, FunctionType([], NullType)], output=NullType, type="sync", fn=describe_impl),
-        PlatformFunction(name="test", inputs=[StringType, FunctionType([], NullType)], output=NullType, type="sync", fn=test_impl),
+        PlatformFunction(name="describe", inputs=[StringType, AsyncFunctionType([], NullType)], output=NullType, type="sync", fn=describe_impl),
+        PlatformFunction(name="test", inputs=[StringType, AsyncFunctionType([], NullType)], output=NullType, type="sync", fn=test_impl),
         PlatformFunction(name="testPass", inputs=[], output=NullType, type="sync", fn=test_pass),
         PlatformFunction(name="testFail", inputs=[StringType], output=NullType, type="sync", fn=test_fail),
     ]

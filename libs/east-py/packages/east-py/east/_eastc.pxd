@@ -438,6 +438,7 @@ cdef extern from "east/platform.h":
 
     PlatformRegistry *platform_registry_new()
     void platform_registry_add(PlatformRegistry *reg, const char *name, PlatformFn fn, bint is_async)
+    void platform_registry_add_typed(PlatformRegistry *reg, const char *name, PlatformFn fn, bint is_async, EastType **input_types, size_t num_input_types, EastType *output_type)
     void platform_registry_add_generic(PlatformRegistry *reg, const char *name, GenericPlatformFactory factory, bint is_async)
     PlatformFn platform_registry_get(PlatformRegistry *reg, const char *name, EastType **type_params, size_t num_tp)
     void platform_registry_free(PlatformRegistry *reg)
@@ -451,6 +452,7 @@ cdef extern from "east/compiler.h":
     ctypedef EvalResult (*EastInvokeFn)(EastCompiledFn *self, EastValue **args, size_t n_args)
     EastValue *east_foreign_function(EastInvokeFn invoke, void *userdata, void (*invoke_release)(void *userdata), EastType *fn_type)
     EastCompiledFn *east_compile(IRNode *ir, PlatformRegistry *platform, BuiltinRegistry *builtins)
+    EastCompiledFn *east_compile_checked(IRNode *ir, PlatformRegistry *platform, BuiltinRegistry *builtins, char **error_out)
     EvalResult east_call(EastCompiledFn *fn, EastValue **args, size_t num_args)
     void east_compiled_fn_free(EastCompiledFn *fn)
     PlatformRegistry *east_current_platform()

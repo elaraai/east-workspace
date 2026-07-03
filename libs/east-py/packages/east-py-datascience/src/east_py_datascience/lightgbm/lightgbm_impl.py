@@ -18,7 +18,7 @@ from east.types.values import EastBlob, EastMatrix, EastStruct, EastVariant, Eas
 
 from east_py_datascience.types import (
     LightGBMConfigType,
-    ModelBlobType,
+    LightGBMModelBlobType,
     _get_option,
 )
 
@@ -71,7 +71,7 @@ def _check_lightgbm_support() -> None:
 @platform_function(
     name="lightgbm_train_regressor",
     inputs=[MatrixType(FloatType), VectorType(FloatType), LightGBMConfigType],
-    output=ModelBlobType,
+    output=LightGBMModelBlobType,
 )
 def lightgbm_train_regressor_impl(
     X: EastMatrix,
@@ -113,7 +113,7 @@ def lightgbm_train_regressor_impl(
               cores (default -1).
 
     Returns:
-        ``ModelBlobType`` (``EastVariant``) tagged ``lightgbm_regressor``:
+        ``LightGBMModelBlobType`` (``EastVariant``) tagged ``lightgbm_regressor``:
         ``{data: Blob (cloudpickle), n_features: Integer}``.
 
     Raises:
@@ -187,7 +187,7 @@ def lightgbm_train_regressor_impl(
 @platform_function(
     name="lightgbm_train_classifier",
     inputs=[MatrixType(FloatType), VectorType(IntegerType), LightGBMConfigType],
-    output=ModelBlobType,
+    output=LightGBMModelBlobType,
 )
 def lightgbm_train_classifier_impl(
     X: EastMatrix,
@@ -206,7 +206,7 @@ def lightgbm_train_classifier_impl(
             All fields apply identically.
 
     Returns:
-        ``ModelBlobType`` (``EastVariant``) tagged ``lightgbm_classifier``:
+        ``LightGBMModelBlobType`` (``EastVariant``) tagged ``lightgbm_classifier``:
         ``{data: Blob (cloudpickle), n_features: Integer, n_classes: Integer}``.
 
     Raises:
@@ -283,7 +283,7 @@ def lightgbm_train_classifier_impl(
 
 @platform_function(
     name="lightgbm_predict",
-    inputs=[ModelBlobType, MatrixType(FloatType)],
+    inputs=[LightGBMModelBlobType, MatrixType(FloatType)],
     output=VectorType(FloatType),
 )
 def lightgbm_predict_impl(
@@ -293,7 +293,7 @@ def lightgbm_predict_impl(
     """Predict continuous values with a trained LightGBM regressor.
 
     Args:
-        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+        model_blob: ``LightGBMModelBlobType`` (``EastVariant``) tagged
             ``lightgbm_regressor`` - as returned by
             :func:`lightgbm_train_regressor_impl`.
         X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix; must have the
@@ -335,7 +335,7 @@ def lightgbm_predict_impl(
 
 @platform_function(
     name="lightgbm_predict_class",
-    inputs=[ModelBlobType, MatrixType(FloatType)],
+    inputs=[LightGBMModelBlobType, MatrixType(FloatType)],
     output=VectorType(IntegerType),
 )
 def lightgbm_predict_class_impl(
@@ -345,7 +345,7 @@ def lightgbm_predict_class_impl(
     """Predict class labels with a trained LightGBM classifier.
 
     Args:
-        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+        model_blob: ``LightGBMModelBlobType`` (``EastVariant``) tagged
             ``lightgbm_classifier`` - as returned by
             :func:`lightgbm_train_classifier_impl`.
         X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix; must have the
@@ -388,7 +388,7 @@ def lightgbm_predict_class_impl(
 
 @platform_function(
     name="lightgbm_predict_proba",
-    inputs=[ModelBlobType, MatrixType(FloatType)],
+    inputs=[LightGBMModelBlobType, MatrixType(FloatType)],
     output=MatrixType(FloatType),
 )
 def lightgbm_predict_proba_impl(
@@ -398,7 +398,7 @@ def lightgbm_predict_proba_impl(
     """Get class probability estimates from a trained LightGBM classifier.
 
     Args:
-        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+        model_blob: ``LightGBMModelBlobType`` (``EastVariant``) tagged
             ``lightgbm_classifier`` - as returned by
             :func:`lightgbm_train_classifier_impl`.
         X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix; must have the

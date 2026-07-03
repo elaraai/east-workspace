@@ -37,26 +37,9 @@ from east.types.types import (
 from east.types.values import EastArray, EastBlob, EastMatrix, EastStruct, EastVariant, EastVector
 
 from east_py_datascience.types import (
-    LightGBMModelBlobType,
-    XGBoostModelBlobType,
+    MAPIEBaseModelDataType,
     _get_option,
 )
-
-# Tagged model data - variant tag indicates base model type, value is the structured blob
-MAPIEBaseModelDataType = VariantType(
-    [
-        ("xgboost", XGBoostModelBlobType),
-        ("lightgbm", LightGBMModelBlobType),
-        ("histogram", BlobType),
-    ]
-)
-"""Serialized base model data inside a MAPIE blob.
-
-Cases: ``xgboost`` (``XGBoostModelBlobType`` - regressor or classifier
-nested variant), ``lightgbm`` (``LightGBMModelBlobType`` - regressor or
-classifier nested variant), ``histogram`` (bare ``Blob`` for
-``HistGradientBoostingRegressor`` used by CQR).
-"""
 
 # MAPIE regressor model blob type (MAPIE 1.2.0)
 MAPIERegressorBlobType = VariantType(
@@ -199,6 +182,7 @@ XGBoostConfigType = StructType(
         ("categorical_n", OptionType(VectorType(IntegerType))),
         ("max_cat_to_onehot", OptionType(IntegerType)),
         ("max_cat_threshold", OptionType(IntegerType)),
+        ("scale_pos_weight", OptionType(FloatType)),
     ]
 )
 """XGBoost hyperparameter configuration for MAPIE base models.
@@ -270,6 +254,7 @@ MAPIEConfigType = StructType(
         ("confidence_level", OptionType(FloatType)),
         ("cv_folds", OptionType(IntegerType)),
         ("random_state", OptionType(IntegerType)),
+        ("conformity_eps", OptionType(FloatType)),
     ]
 )
 """Configuration for training a MAPIE conformal regressor.
@@ -277,7 +262,9 @@ MAPIEConfigType = StructType(
 Fields: ``base_model`` (``BaseModelType``, required - ``xgboost`` or
 ``lightgbm``), ``method`` (``ConformalMethodType``, default ``split``),
 ``confidence_level`` (target coverage probability, default 0.9),
-``cv_folds`` (folds for ``cross`` method, default 5), ``random_state``.
+``cv_folds`` (folds for ``cross`` method, default 5), ``random_state``,
+``conformity_eps`` (conformity-score consistency-check tolerance,
+default 1e-04).
 """
 
 MAPIECQRConfigType = StructType(

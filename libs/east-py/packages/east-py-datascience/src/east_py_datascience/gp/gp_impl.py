@@ -28,8 +28,8 @@ from east.types.values import (  # noqa: E402
 
 from east_py_datascience.types import (  # noqa: E402
     GPConfigType,
+    GPModelBlobType,
     GPPredictResultType,
-    ModelBlobType,
     _get_enum_tag,
     _get_option,
 )
@@ -108,7 +108,7 @@ def _check_gp_support() -> None:
 @platform_function(
     name="gp_train",
     inputs=[MatrixType(FloatType), VectorType(FloatType), GPConfigType],
-    output=ModelBlobType,
+    output=GPModelBlobType,
 )
 def gp_train_impl(
     X: EastMatrix,
@@ -223,7 +223,7 @@ def gp_train_impl(
 
 @platform_function(
     name="gp_predict",
-    inputs=[ModelBlobType, MatrixType(FloatType)],
+    inputs=[GPModelBlobType, MatrixType(FloatType)],
     output=VectorType(FloatType),
 )
 def gp_predict_impl(
@@ -276,7 +276,7 @@ def gp_predict_impl(
 
 @platform_function(
     name="gp_predict_std",
-    inputs=[ModelBlobType, MatrixType(FloatType)],
+    inputs=[GPModelBlobType, MatrixType(FloatType)],
     output=GPPredictResultType,
 )
 def gp_predict_std_impl(

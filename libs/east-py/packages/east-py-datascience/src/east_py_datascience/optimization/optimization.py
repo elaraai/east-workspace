@@ -56,8 +56,6 @@ there is no Python-callable wrapper.  Register them in your platform with the
     - ``mode`` (``Option<ModeType>``): ``coordinate`` (default) or ``swap``
       - swap mode evaluates all pairwise position swaps instead of per-dimension
       candidate sweeps; suited to permutation problems.
-    - ``workers`` (``Option<Integer>``): reserved for future parallel sample
-      dispatch; currently unused.
 
 ``IterativeResultType`` fields
     - ``best_parameters`` (``Vector<Integer>``): optimal parameter vector.
@@ -132,7 +130,6 @@ IterativeConfigType = StructType(
         ("order", OptionType(EvaluationOrderType)),
         ("random_state", OptionType(IntegerType)),
         ("mode", OptionType(ModeType)),
-        ("workers", OptionType(IntegerType)),
     ]
 )
 """Configuration for iterative coordinate-descent optimization.
@@ -142,8 +139,7 @@ Fields: ``iterations`` (coordinate-descent passes per restart, default 100),
 default 1), ``initial`` (``InitialStrategyType``, default ``first``),
 ``order`` (``EvaluationOrderType``, default ``sequential``),
 ``random_state`` (RNG seed, default 42), ``mode`` (``ModeType``, default
-``coordinate``), ``workers`` (reserved for future parallel dispatch;
-currently unused).
+``coordinate``).
 """
 
 IterativeResultType = StructType(

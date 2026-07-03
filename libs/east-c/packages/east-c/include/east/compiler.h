@@ -42,6 +42,16 @@ struct EastCompiledFn {
 
 // Top-level API
 EastCompiledFn *east_compile(IRNode *ir, PlatformRegistry *platform, BuiltinRegistry *builtins);
+
+/* east_compile with platform-signature validation reporting. Every Platform
+ * node in `ir` whose registry entry carries declared types
+ * (platform_registry_add_typed) is cross-checked against the IR's declared
+ * argument/output types. On mismatch returns NULL and, when `error_out` is
+ * non-NULL, sets *error_out to a malloc'd message identical to the TypeScript
+ * reference analyzer's error text (caller frees). east_compile performs the
+ * same validation but discards the message. */
+EastCompiledFn *east_compile_checked(IRNode *ir, PlatformRegistry *platform,
+                                     BuiltinRegistry *builtins, char **error_out);
 EvalResult east_call(EastCompiledFn *fn, EastValue **args, size_t num_args);
 void east_compiled_fn_free(EastCompiledFn *fn);
 

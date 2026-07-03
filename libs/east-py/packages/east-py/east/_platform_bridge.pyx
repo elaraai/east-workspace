@@ -288,6 +288,43 @@ from cpython.pycapsule cimport PyCapsule_GetPointer
 
 # ─── Public API ──────────────────────────────────────────────────────────
 
+cdef void _register_typed(_eastc.PlatformRegistry *reg, bytes name_bytes, _eastc.PlatformFn fn,
+                          bint is_async, object inputs, object output) except *:
+    """Register a concrete platform function, threading its declared East
+    signature into the C registry entry so east_compile_checked can
+    cross-check IR Platform nodes against it. Falls back to an untyped
+    (unchecked) registration when the declaration carries no types."""
+    cdef _eastc.EastType **c_inputs = NULL
+    cdef _eastc.EastType *c_output = NULL
+    cdef size_t n = 0
+    cdef size_t i
+    if inputs is None or output is None:
+        _eastc.platform_registry_add(reg, strdup(<const char*>name_bytes), fn, is_async)
+        return
+    try:
+        n = len(inputs)
+        if n > 0:
+            c_inputs = <_eastc.EastType **>malloc(n * sizeof(_eastc.EastType *))
+            if c_inputs == NULL:
+                raise MemoryError()
+            for i in range(n):
+                c_inputs[i] = NULL
+            for i in range(n):
+                c_inputs[i] = py_type_to_c(inputs[i])
+        c_output = py_type_to_c(output)
+        # The registry retains the types; the finally block drops our refs.
+        _eastc.platform_registry_add_typed(reg, strdup(<const char*>name_bytes), fn, is_async,
+                                           c_inputs, n, c_output)
+    finally:
+        if c_inputs != NULL:
+            for i in range(n):
+                if c_inputs[i] != NULL:
+                    _eastc.east_type_release(c_inputs[i])
+            free(c_inputs)
+        if c_output != NULL:
+            _eastc.east_type_release(c_output)
+
+
 cdef void register_platform_functions(_eastc.PlatformRegistry *reg,
                                        list platform_list) except *:
     """Register Python platform functions in a C PlatformRegistry.
@@ -334,19 +371,23 @@ cdef void register_platform_functions(_eastc.PlatformRegistry *reg,
             c_callback = pf.get("c_callback")
             if c_callback is not None:
                 # C-level callback via PyCapsule — bypass Python dispatch
-                _eastc.platform_registry_add(
+                _register_typed(
                     reg,
-                    strdup(<const char*>name_bytes),
+                    name_bytes,
                     <_eastc.PlatformFn>PyCapsule_GetPointer(c_callback, "east_platform_fn"),
                     <bint>is_async,
+                    pf.get("inputs"),
+                    pf.get("output"),
                 )
             else:
                 fns[name_bytes] = (pf["fn"], is_async)
-                _eastc.platform_registry_add(
+                _register_typed(
                     reg,
-                    strdup(<const char*>name_bytes),
+                    name_bytes,
                     _python_platform_fn,
                     <bint>is_async,
+                    pf.get("inputs"),
+                    pf.get("output"),
                 )
 
 

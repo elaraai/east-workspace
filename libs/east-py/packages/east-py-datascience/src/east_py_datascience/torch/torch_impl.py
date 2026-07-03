@@ -37,8 +37,8 @@ from east.types.values import (  # noqa: E402
 )
 
 from east_py_datascience.types import (  # noqa: E402
-    ModelBlobType,
     TorchMLPConfigType,
+    TorchModelBlobType,
     TorchTrainConfigType,
     TorchTrainResultType,
     _get_enum_tag,
@@ -528,7 +528,7 @@ def torch_mlp_train_multi_impl(
 
 @platform_function(
     name="torch_mlp_predict",
-    inputs=[ModelBlobType, MatrixType(FloatType)],
+    inputs=[TorchModelBlobType, MatrixType(FloatType)],
     output=VectorType(FloatType),
 )
 def torch_mlp_predict_impl(
@@ -542,7 +542,7 @@ def torch_mlp_predict_impl(
     flattened to (n,).
 
     Args:
-        model_blob: ``ModelBlobType`` (``EastVariant`` tagged ``torch_mlp``)
+        model_blob: ``TorchModelBlobType`` (``EastVariant`` tagged ``torch_mlp``)
             from :func:`torch_mlp_train_impl` or :func:`torch_mlp_train_multi_impl`.
         X: ``Matrix<Float>`` (``EastMatrix``) - input features
            (n_samples x n_features).
@@ -601,7 +601,7 @@ def torch_mlp_predict_impl(
 
 @platform_function(
     name="torch_mlp_predict_multi",
-    inputs=[ModelBlobType, MatrixType(FloatType)],
+    inputs=[TorchModelBlobType, MatrixType(FloatType)],
     output=MatrixType(FloatType),
 )
 def torch_mlp_predict_multi_impl(
@@ -614,7 +614,7 @@ def torch_mlp_predict_multi_impl(
     If the network output is 1-D it is reshaped to (n, 1).
 
     Args:
-        model_blob: ``ModelBlobType`` (``EastVariant`` tagged ``torch_mlp``)
+        model_blob: ``TorchModelBlobType`` (``EastVariant`` tagged ``torch_mlp``)
             from :func:`torch_mlp_train_multi_impl`.
         X: ``Matrix<Float>`` (``EastMatrix``) - input features
            (n_samples x n_features).
@@ -674,7 +674,7 @@ def torch_mlp_predict_multi_impl(
 
 @platform_function(
     name="torch_mlp_encode",
-    inputs=[ModelBlobType, MatrixType(FloatType), IntegerType],
+    inputs=[TorchModelBlobType, MatrixType(FloatType), IntegerType],
     output=MatrixType(FloatType),
 )
 def torch_mlp_encode_impl(
@@ -698,7 +698,7 @@ def torch_mlp_encode_impl(
     - ``layer_index=2``: output after the third block (8 features).
 
     Args:
-        model_blob: ``ModelBlobType`` (``EastVariant`` tagged ``torch_mlp``)
+        model_blob: ``TorchModelBlobType`` (``EastVariant`` tagged ``torch_mlp``)
             from :func:`torch_mlp_train_impl` or
             :func:`torch_mlp_train_multi_impl`.
         X: ``Matrix<Float>`` (``EastMatrix``) - input features
@@ -791,7 +791,7 @@ def torch_mlp_encode_impl(
 
 @platform_function(
     name="torch_mlp_decode",
-    inputs=[ModelBlobType, MatrixType(FloatType), IntegerType],
+    inputs=[TorchModelBlobType, MatrixType(FloatType), IntegerType],
     output=MatrixType(FloatType),
 )
 def torch_mlp_decode_impl(
@@ -816,7 +816,7 @@ def torch_mlp_decode_impl(
     - ``layer_index=0``: start from the 8-dim activations, run layers 1+ to output.
 
     Args:
-        model_blob: ``ModelBlobType`` (``EastVariant`` tagged ``torch_mlp``)
+        model_blob: ``TorchModelBlobType`` (``EastVariant`` tagged ``torch_mlp``)
             from :func:`torch_mlp_train_impl` or
             :func:`torch_mlp_train_multi_impl`.
         embeddings: ``Matrix<Float>`` (``EastMatrix``) - activations at

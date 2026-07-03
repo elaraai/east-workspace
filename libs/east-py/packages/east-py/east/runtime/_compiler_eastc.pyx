@@ -23,6 +23,8 @@ from east._platform_bridge cimport register_platform_functions
 
 import asyncio
 
+from east.runtime.errors import EastError
+
 # Attribute name used to attach source IR to compiled functions.
 EAST_IR_ATTR = "_east_ir"
 EAST_CAPTURES_ATTR = "_east_captures"
@@ -237,13 +239,20 @@ cdef object _compile_from_ir_node(_eastc.IRNode* ir_node, _eastc.EastValue* c_ir
             _eastc.east_value_release(c_ir_val)
             raise
 
-    cdef _eastc.EastCompiledFn* wrapper = _eastc.east_compile(ir_node, platform, _builtins)
+    cdef char* compile_err = NULL
+    cdef _eastc.EastCompiledFn* wrapper = _eastc.east_compile_checked(
+        ir_node, platform, _builtins, &compile_err)
     # east_compile retained its own reference (or failed); drop ours now so
     # the IR tree's lifetime is tied to the compiled function.
     _eastc.ir_node_release(ir_node)
     if wrapper == NULL:
         _eastc.platform_registry_release(platform)
         _eastc.east_value_release(c_ir_val)
+        if compile_err != NULL:
+            # Platform-signature mismatch: identical message to the TS analyzer.
+            msg = compile_err.decode("utf-8")
+            free(compile_err)
+            raise EastError(msg, [])
         raise RuntimeError("east_compile returned NULL")
 
     cdef _eastc.EvalResult unwrap_result = _eastc.east_call(wrapper, NULL, 0)

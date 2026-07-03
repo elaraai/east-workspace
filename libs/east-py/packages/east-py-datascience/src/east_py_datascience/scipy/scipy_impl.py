@@ -42,12 +42,12 @@ from east_py_datascience.types import (
     HistogramResultType,
     InterpolateConfigType,
     KdeConfigType,
-    ModelBlobType,
     OptimizeConfigType,
     OptimizeResultType,
     QuadraticConfigType,
     RobustStatsResultType,
     ScalarObjectiveType,
+    ScipyModelBlobType,
     StatsDescribeResultType,
     _get_enum_tag,
     _get_option,
@@ -567,7 +567,7 @@ def scipy_stats_robust_impl(data: EastVector) -> EastStruct:
 @platform_function(
     name="scipy_interpolate_1d_fit",
     inputs=[VectorType(FloatType), VectorType(FloatType), InterpolateConfigType],
-    output=ModelBlobType,
+    output=ScipyModelBlobType,
 )
 def scipy_interpolate_1d_fit_impl(
     x: EastVector,
@@ -577,7 +577,7 @@ def scipy_interpolate_1d_fit_impl(
     """Fit a 1-D piecewise interpolator to (x, y) data.
 
     The fitted model is serialized with cloudpickle and returned as a
-    ``ModelBlobType`` variant for use with
+    ``ScipyModelBlobType`` variant for use with
     :func:`scipy_interpolate_1d_predict_impl`.
 
     Args:
@@ -591,7 +591,7 @@ def scipy_interpolate_1d_fit_impl(
               (default), ``quadratic``, or ``cubic``.
 
     Returns:
-        ``ModelBlobType`` (``EastVariant`` tagged ``scipy_interp_1d``):
+        ``ScipyModelBlobType`` (``EastVariant`` tagged ``scipy_interp_1d``):
         ``{data: Blob, kind: InterpolationKindType}`` - the cloudpickle
         serialized ``scipy.interpolate.interp1d`` instance.
 
@@ -622,7 +622,7 @@ def scipy_interpolate_1d_fit_impl(
 
 @platform_function(
     name="scipy_interpolate_1d_predict",
-    inputs=[ModelBlobType, VectorType(FloatType)],
+    inputs=[ScipyModelBlobType, VectorType(FloatType)],
     output=VectorType(FloatType),
 )
 def scipy_interpolate_1d_predict_impl(
@@ -635,7 +635,7 @@ def scipy_interpolate_1d_predict_impl(
     ``fill_value="extrapolate"``.
 
     Args:
-        model_blob: ``ModelBlobType`` (``EastVariant`` tagged
+        model_blob: ``ScipyModelBlobType`` (``EastVariant`` tagged
             ``scipy_interp_1d``) from :func:`scipy_interpolate_1d_fit_impl`.
         x: ``Vector<Float>`` (``EastVector``) - query points.
 
@@ -1028,7 +1028,7 @@ def scipy_histogram_impl(
 @platform_function(
     name="scipy_kde_fit",
     inputs=[VectorType(FloatType), KdeConfigType],
-    output=ModelBlobType,
+    output=ScipyModelBlobType,
 )
 def scipy_kde_fit_impl(
     data: EastVector,
@@ -1037,7 +1037,7 @@ def scipy_kde_fit_impl(
     """Fit a Gaussian kernel density estimator to a 1-D sample.
 
     The fitted KDE is serialized with cloudpickle and returned as a
-    ``ModelBlobType`` variant for use with :func:`scipy_kde_evaluate_impl`.
+    ``ScipyModelBlobType`` variant for use with :func:`scipy_kde_evaluate_impl`.
 
     Args:
         data: ``Vector<Float>`` (``EastVector``) - the training sample.
@@ -1052,7 +1052,7 @@ def scipy_kde_fit_impl(
               same length as ``data`` (default uniform).
 
     Returns:
-        ``ModelBlobType`` (``EastVariant`` tagged ``scipy_kde``):
+        ``ScipyModelBlobType`` (``EastVariant`` tagged ``scipy_kde``):
         ``{data: Blob, metadata: {bandwidth: Float, data_min: Float,
         data_max: Float}}`` - the cloudpickle serialized
         ``scipy.stats.gaussian_kde`` instance.
@@ -1102,7 +1102,7 @@ def scipy_kde_fit_impl(
 
 @platform_function(
     name="scipy_kde_evaluate",
-    inputs=[ModelBlobType, VectorType(FloatType)],
+    inputs=[ScipyModelBlobType, VectorType(FloatType)],
     output=VectorType(FloatType),
 )
 def scipy_kde_evaluate_impl(
@@ -1112,7 +1112,7 @@ def scipy_kde_evaluate_impl(
     """Evaluate a fitted KDE at given query points to obtain density values.
 
     Args:
-        model_blob: ``ModelBlobType`` (``EastVariant`` tagged ``scipy_kde``)
+        model_blob: ``ScipyModelBlobType`` (``EastVariant`` tagged ``scipy_kde``)
             from :func:`scipy_kde_fit_impl`.
         points: ``Vector<Float>`` (``EastVector``) - points at which to
             evaluate the density.
