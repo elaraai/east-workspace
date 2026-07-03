@@ -73,7 +73,7 @@ export const editableChipReactive = example({
         <Reactive>{$ => {
             const scenarioIndex = $.let(State.bind([IntegerType], "scenarioIndex", 0n));
             const index = $.let(scenarioIndex.read());
-            const scenarios = $.let(East.value(["Baseline", "Optimistic", "Stress"]));
+            const scenarios = $.let(["Baseline", "Optimistic", "Stress"]);
             const currentLabel = $.let(scenarios.get(index.remainder(3n)));
             const cycle = $.const(East.function([], NullType, $ => {
                 const current = $.let(scenarioIndex.read());

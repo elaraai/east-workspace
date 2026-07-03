@@ -38,6 +38,7 @@ import {
     DictType,
     VariantType,
     NullType,
+    FunctionType,
     PatchType,
     diffFor,
     some,
@@ -272,18 +273,19 @@ export const rosterTableEditor = example({
                                         ($, ctx) => {
                                             const idx = $.let(ctx.rowIndex, IntegerType);
                                             const row = $.let(rosterArray.get(idx), RosterEntryType);
+                                            // Re-read fresh inside the handler so a sibling cell's
+                                            // edit on the same row isn't overwritten by a stale
+                                            // capture of `row`. Merge via the map iterator's `r`.
+                                            const onRateChange = $.const(East.function([FloatType], NullType, ($, v) => {
+                                                const fresh = $.let(roster.read(), RosterArrayType);
+                                                const next = $.let(fresh.map(($, r, i) =>
+                                                    i.equal(idx).ifElse(_$ => ({ ...r, rate: v }), () => r),
+                                                ), RosterArrayType);
+                                                $(roster.write(next));
+                                            }));
                                             return (
                                                 <Input.Float value={row.rate} min={15.0} max={80.0} step={0.25}
-                                                    // Re-read fresh inside the handler so a sibling cell's
-                                                    // edit on the same row isn't overwritten by a stale
-                                                    // capture of `row`. Merge via the map iterator's `r`.
-                                                    onChange={East.function([FloatType], NullType, ($, v) => {
-                                                        const fresh = $.let(roster.read(), RosterArrayType);
-                                                        const next = $.let(fresh.map(($, r, i) =>
-                                                            i.equal(idx).ifElse(_$ => ({ ...r, rate: v }), () => r),
-                                                        ), RosterArrayType);
-                                                        $(roster.write(next));
-                                                    })} />
+                                                    onChange={onRateChange} />
                                             );
                                         },
                                     ),
@@ -296,14 +298,15 @@ export const rosterTableEditor = example({
                                         ($, ctx) => {
                                             const idx = $.let(ctx.rowIndex, IntegerType);
                                             const row = $.let(rosterArray.get(idx), RosterEntryType);
+                                            const onShiftChange = $.const(East.function([IntegerType], NullType, ($, v) => {
+                                                const fresh = $.let(roster.read(), RosterArrayType);
+                                                $(roster.write(fresh.map(($, r, i) =>
+                                                    i.equal(idx).ifElse(_$ => ({ ...r, shiftLength: v }), () => r),
+                                                )));
+                                            }));
                                             return (
                                                 <Input.Integer value={row.shiftLength} min={4n} max={12n}
-                                                    onChange={East.function([IntegerType], NullType, ($, v) => {
-                                                        const fresh = $.let(roster.read(), RosterArrayType);
-                                                        $(roster.write(fresh.map(($, r, i) =>
-                                                            i.equal(idx).ifElse(_$ => ({ ...r, shiftLength: v }), () => r),
-                                                        )));
-                                                    })} />
+                                                    onChange={onShiftChange} />
                                             );
                                         },
                                     ),
@@ -383,6 +386,19 @@ export const featureFlagsEditor = example({
             <Reactive>{$ => {
                 const flags = $.let(Data.bind(featureFlagsInput, { mode: "staged" }));
                 const flagsRead = $.let(flags.read(), SetType(StringType));
+                // ONE East closure factory: `toggle(flag)` returns the per-switch
+                // handler as a real East function value (captures `flag` in East).
+                const toggle = $.const(East.function([StringType], FunctionType([BooleanType], NullType), (_$, flag) =>
+                    East.function([BooleanType], NullType, ($, isOn) => {
+                        const next = $.let(flags.read(), SetType(StringType));
+                        $.if(isOn, $ => { $(next.insert(flag)); }).else($ => { $(next.delete(flag)); });
+                        $(flags.write(next));
+                    })));
+                const onDarkMode = $.const(toggle("dark_mode"));
+                const onExperiments = $.const(toggle("experiments"));
+                const onNotifications = $.const(toggle("notifications"));
+                const onAnalytics = $.const(toggle("analytics"));
+                const onAiAssist = $.const(toggle("ai_assist"));
                 return (
                     <Card>
                         <VStack gap="4" align="stretch">
@@ -390,48 +406,23 @@ export const featureFlagsEditor = example({
                             <Text>Toggle flags to stage changes; Diff card below shows the set delta.</Text>
                             <VStack gap="3" justify="space-between">
                                 <Text textStyle="label-sm">dark_mode</Text>
-                                <Switch checked={flagsRead.has("dark_mode")}
-                                    onChange={East.function([BooleanType], NullType, ($, isOn) => {
-                                        const next = $.let(flags.read(), SetType(StringType));
-                                        $.if(isOn, $ => { $(next.insert("dark_mode")); }).else($ => { $(next.delete("dark_mode")); });
-                                        $(flags.write(next));
-                                    })} />
+                                <Switch checked={flagsRead.has("dark_mode")} onChange={onDarkMode} />
                             </VStack>
                             <VStack gap="3" justify="space-between">
                                 <Text textStyle="label-sm">experiments</Text>
-                                <Switch checked={flagsRead.has("experiments")}
-                                    onChange={East.function([BooleanType], NullType, ($, isOn) => {
-                                        const next = $.let(flags.read(), SetType(StringType));
-                                        $.if(isOn, $ => { $(next.insert("experiments")); }).else($ => { $(next.delete("experiments")); });
-                                        $(flags.write(next));
-                                    })} />
+                                <Switch checked={flagsRead.has("experiments")} onChange={onExperiments} />
                             </VStack>
                             <VStack gap="3" justify="space-between">
                                 <Text textStyle="label-sm">notifications</Text>
-                                <Switch checked={flagsRead.has("notifications")}
-                                    onChange={East.function([BooleanType], NullType, ($, isOn) => {
-                                        const next = $.let(flags.read(), SetType(StringType));
-                                        $.if(isOn, $ => { $(next.insert("notifications")); }).else($ => { $(next.delete("notifications")); });
-                                        $(flags.write(next));
-                                    })} />
+                                <Switch checked={flagsRead.has("notifications")} onChange={onNotifications} />
                             </VStack>
                             <VStack gap="3" justify="space-between">
                                 <Text textStyle="label-sm">analytics</Text>
-                                <Switch checked={flagsRead.has("analytics")}
-                                    onChange={East.function([BooleanType], NullType, ($, isOn) => {
-                                        const next = $.let(flags.read(), SetType(StringType));
-                                        $.if(isOn, $ => { $(next.insert("analytics")); }).else($ => { $(next.delete("analytics")); });
-                                        $(flags.write(next));
-                                    })} />
+                                <Switch checked={flagsRead.has("analytics")} onChange={onAnalytics} />
                             </VStack>
                             <VStack gap="3" justify="space-between">
                                 <Text textStyle="label-sm">ai_assist</Text>
-                                <Switch checked={flagsRead.has("ai_assist")}
-                                    onChange={East.function([BooleanType], NullType, ($, isOn) => {
-                                        const next = $.let(flags.read(), SetType(StringType));
-                                        $.if(isOn, $ => { $(next.insert("ai_assist")); }).else($ => { $(next.delete("ai_assist")); });
-                                        $(flags.write(next));
-                                    })} />
+                                <Switch checked={flagsRead.has("ai_assist")} onChange={onAiAssist} />
                             </VStack>
                             <Diff bindings={[flags.binding]} hideUnchanged={some(true)} />
                         </VStack>
@@ -456,6 +447,18 @@ export const regionalPricingEditor = example({
             <Reactive>{$ => {
                 const prices = $.let(Data.bind(regionalPricesInput, { mode: "staged" }));
                 const pricesRead = $.let(prices.read(), DictType(StringType, FloatType));
+                // ONE East closure factory: `setPrice(region)` returns the
+                // per-region handler as a real East function value.
+                const setPrice = $.const(East.function([StringType], FunctionType([FloatType], NullType), (_$, region) =>
+                    East.function([FloatType], NullType, ($, newPrice) => {
+                        const next = $.let(prices.read(), DictType(StringType, FloatType));
+                        $(next.insertOrUpdate(region, newPrice));
+                        $(prices.write(next));
+                    })));
+                const onAu = $.const(setPrice("AU"));
+                const onUs = $.const(setPrice("US"));
+                const onEu = $.const(setPrice("EU"));
+                const onJp = $.const(setPrice("JP"));
                 return (
                     <Card>
                         <VStack gap="4" align="stretch">
@@ -465,41 +468,25 @@ export const regionalPricingEditor = example({
                                 <Text textStyle="label-sm">AU</Text>
                                 <Input.Float value={pricesRead.get("AU", East.function([StringType], FloatType, _$ => 0.0))}
                                     min={0.0} max={99999.0} step={0.05}
-                                    onChange={East.function([FloatType], NullType, ($, newPrice) => {
-                                        const next = $.let(prices.read(), DictType(StringType, FloatType));
-                                        $(next.insertOrUpdate("AU", newPrice));
-                                        $(prices.write(next));
-                                    })} />
+                                    onChange={onAu} />
                             </VStack>
                             <VStack gap="3" justify="space-between">
                                 <Text textStyle="label-sm">US</Text>
                                 <Input.Float value={pricesRead.get("US", East.function([StringType], FloatType, _$ => 0.0))}
                                     min={0.0} max={99999.0} step={0.05}
-                                    onChange={East.function([FloatType], NullType, ($, newPrice) => {
-                                        const next = $.let(prices.read(), DictType(StringType, FloatType));
-                                        $(next.insertOrUpdate("US", newPrice));
-                                        $(prices.write(next));
-                                    })} />
+                                    onChange={onUs} />
                             </VStack>
                             <VStack gap="3" justify="space-between">
                                 <Text textStyle="label-sm">EU</Text>
                                 <Input.Float value={pricesRead.get("EU", East.function([StringType], FloatType, _$ => 0.0))}
                                     min={0.0} max={99999.0} step={0.05}
-                                    onChange={East.function([FloatType], NullType, ($, newPrice) => {
-                                        const next = $.let(prices.read(), DictType(StringType, FloatType));
-                                        $(next.insertOrUpdate("EU", newPrice));
-                                        $(prices.write(next));
-                                    })} />
+                                    onChange={onEu} />
                             </VStack>
                             <VStack gap="3" justify="space-between">
                                 <Text textStyle="label-sm">JP</Text>
                                 <Input.Float value={pricesRead.get("JP", East.function([StringType], FloatType, _$ => 0.0))}
                                     min={0.0} max={99999.0} step={0.05}
-                                    onChange={East.function([FloatType], NullType, ($, newPrice) => {
-                                        const next = $.let(prices.read(), DictType(StringType, FloatType));
-                                        $(next.insertOrUpdate("JP", newPrice));
-                                        $(prices.write(next));
-                                    })} />
+                                    onChange={onJp} />
                             </VStack>
                             <Diff bindings={[prices.binding]} hideUnchanged={some(true)} />
                         </VStack>
@@ -524,6 +511,10 @@ export const deploymentStatusEditor = example({
             <Reactive>{$ => {
                 const status = $.let(Data.bind(deploymentStatusInput, { mode: "staged" }));
                 const statusRead = $.let(status.read(), DeploymentStatusType);
+                const setPending = $.const(East.function([], NullType, $ => $(status.write(variant("pending", null)))));
+                const setInProgress = $.const(East.function([], NullType, $ => $(status.write(variant("in_progress", null)))));
+                const setComplete = $.const(East.function([], NullType, $ => $(status.write(variant("complete", null)))));
+                const setFailed = $.const(East.function([], NullType, $ => $(status.write(variant("failed", null)))));
                 return (
                     <Card>
                         <VStack gap="4" align="stretch">
@@ -531,10 +522,10 @@ export const deploymentStatusEditor = example({
                             <Text>Current:</Text>
                             <Text textStyle="label-md">{statusRead.getTag()}</Text>
                             <HStack gap="2">
-                                <Button onClick={East.function([], NullType, $ => $(status.write(variant("pending", null))))}>Pending</Button>
-                                <Button onClick={East.function([], NullType, $ => $(status.write(variant("in_progress", null))))}>In progress</Button>
-                                <Button onClick={East.function([], NullType, $ => $(status.write(variant("complete", null))))}>Complete</Button>
-                                <Button onClick={East.function([], NullType, $ => $(status.write(variant("failed", null))))}>Failed</Button>
+                                <Button onClick={setPending}>Pending</Button>
+                                <Button onClick={setInProgress}>In progress</Button>
+                                <Button onClick={setComplete}>Complete</Button>
+                                <Button onClick={setFailed}>Failed</Button>
                             </HStack>
                             <Diff bindings={[status.binding]} hideUnchanged={some(true)} />
                         </VStack>
@@ -915,15 +906,16 @@ export const rosterTableEditorOverlay = example({
                                         ($, ctx) => {
                                             const idx = $.let(ctx.rowIndex, IntegerType);
                                             const row = $.let(rosterArray.get(idx), RosterEntryType);
+                                            const onRateChange = $.const(East.function([FloatType], NullType, ($, v) => {
+                                                const fresh = $.let(view.read(), RosterArrayType);
+                                                const next = $.let(fresh.map(($, r, i) =>
+                                                    i.equal(idx).ifElse(_$ => ({ ...r, rate: v }), _$ => r),
+                                                ), RosterArrayType);
+                                                $(view.write(next));
+                                            }));
                                             return (
                                                 <Input.Float value={row.rate} min={15.0} max={80.0} step={0.25}
-                                                    onChange={East.function([FloatType], NullType, ($, v) => {
-                                                        const fresh = $.let(view.read(), RosterArrayType);
-                                                        const next = $.let(fresh.map(($, r, i) =>
-                                                            i.equal(idx).ifElse(_$ => ({ ...r, rate: v }), _$ => r),
-                                                        ), RosterArrayType);
-                                                        $(view.write(next));
-                                                    })} />
+                                                    onChange={onRateChange} />
                                             );
                                         },
                                     ),
@@ -936,15 +928,16 @@ export const rosterTableEditorOverlay = example({
                                         ($, ctx) => {
                                             const idx = $.let(ctx.rowIndex, IntegerType);
                                             const row = $.let(rosterArray.get(idx), RosterEntryType);
+                                            const onShiftChange = $.const(East.function([IntegerType], NullType, ($, v) => {
+                                                const fresh = $.let(view.read(), RosterArrayType);
+                                                const next = $.let(fresh.map(($, r, i) =>
+                                                    i.equal(idx).ifElse(_$ => ({ ...r, shiftLength: v }), _$ => r),
+                                                ), RosterArrayType);
+                                                $(view.write(next));
+                                            }));
                                             return (
                                                 <Input.Integer value={row.shiftLength} min={4n} max={12n}
-                                                    onChange={East.function([IntegerType], NullType, ($, v) => {
-                                                        const fresh = $.let(view.read(), RosterArrayType);
-                                                        const next = $.let(fresh.map(($, r, i) =>
-                                                            i.equal(idx).ifElse(_$ => ({ ...r, shiftLength: v }), _$ => r),
-                                                        ), RosterArrayType);
-                                                        $(view.write(next));
-                                                    })} />
+                                                    onChange={onShiftChange} />
                                             );
                                         },
                                     ),
@@ -1030,14 +1023,15 @@ export const rosterStagedPatchEditor = example({
                                         ($, ctx) => {
                                             const idx = $.let(ctx.rowIndex, IntegerType);
                                             const row = $.let(rosterArray.get(idx), RosterEntryType);
+                                            const onRateChange = $.const(East.function([FloatType], NullType, ($, v) => {
+                                                const fresh = $.let(view.read(), RosterArrayType);
+                                                $(view.write(fresh.map(($, r, i) =>
+                                                    i.equal(idx).ifElse(_$ => ({ ...r, rate: v }), () => r),
+                                                )));
+                                            }));
                                             return (
                                                 <Input.Float value={row.rate} min={15.0} max={80.0} step={0.25}
-                                                    onChange={East.function([FloatType], NullType, ($, v) => {
-                                                        const fresh = $.let(view.read(), RosterArrayType);
-                                                        $(view.write(fresh.map(($, r, i) =>
-                                                            i.equal(idx).ifElse(_$ => ({ ...r, rate: v }), () => r),
-                                                        )));
-                                                    })} />
+                                                    onChange={onRateChange} />
                                             );
                                         },
                                     ),
@@ -1050,14 +1044,15 @@ export const rosterStagedPatchEditor = example({
                                         ($, ctx) => {
                                             const idx = $.let(ctx.rowIndex, IntegerType);
                                             const row = $.let(rosterArray.get(idx), RosterEntryType);
+                                            const onShiftChange = $.const(East.function([IntegerType], NullType, ($, v) => {
+                                                const fresh = $.let(view.read(), RosterArrayType);
+                                                $(view.write(fresh.map(($, r, i) =>
+                                                    i.equal(idx).ifElse(_$ => ({ ...r, shiftLength: v }), () => r),
+                                                )));
+                                            }));
                                             return (
                                                 <Input.Integer value={row.shiftLength} min={4n} max={12n}
-                                                    onChange={East.function([IntegerType], NullType, ($, v) => {
-                                                        const fresh = $.let(view.read(), RosterArrayType);
-                                                        $(view.write(fresh.map(($, r, i) =>
-                                                            i.equal(idx).ifElse(_$ => ({ ...r, shiftLength: v }), () => r),
-                                                        )));
-                                                    })} />
+                                                    onChange={onShiftChange} />
                                             );
                                         },
                                     ),

@@ -3,6 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import type { EastRule } from "../types.js";
+import { resolvesToEastImport } from "../east-source.js";
 
 const NAME = "prefer-some-none";
 const CODE = 990003;
@@ -18,6 +19,9 @@ export const preferSomeNone: EastRule = {
     if (!t.isCallExpression(node)) return;
     const callee = node.expression;
     if (!t.isIdentifier(callee) || callee.text !== "variant") return;
+    // Only the East `variant` — an unrelated local function that happens to be
+    // called `variant` (in a file that never touches East) is not our business.
+    if (!resolvesToEastImport(callee, ctx.checker, t)) return;
 
     const first = node.arguments[0];
     if (first === undefined || !t.isStringLiteralLike(first)) return;

@@ -4,37 +4,15 @@
  */
 import type * as ts from "typescript";
 import type { EastRule, RuleContext, TsModule } from "../types.js";
-import { isEastExprType, isBlockBuilderType } from "../east-type.js";
+import { isEastExprType, isBlockBuilderType, isEastPlatformDefinitionType } from "../east-type.js";
 import { insideBlockScope } from "../block-scope.js";
 import { chainRootReceiver, bodyBuildsEastIr } from "../east-ir.js";
+import { resolvesToEastImport } from "../east-source.js";
 
 const NAME = "no-host-in-east-block";
 const CODE = 990020;
 
 // ── East-vs-host classification ─────────────────────────────────────────────
-
-/** Does `id` resolve to a binding imported from an `@elaraai/*` package? (The
- * whole East ecosystem API — `East`, `Expr`, `variant`/`some`, `ArrayType`/
- * `StructType`/`DictType`, `GoogleOr`, `Data`, … — is recognised by SYMBOL, not a
- * brittle name list.) */
-function resolvesToEastImport(id: ts.Identifier, ctx: RuleContext): boolean {
-  const t = ctx.ts;
-  // Use the LOCAL import symbol (its declaration is the ImportSpecifier/clause) —
-  // do NOT resolve the alias, which would jump to the declaration inside
-  // @elaraai/east and lose the import-specifier we key on.
-  const sym = ctx.checker.getSymbolAtLocation(id);
-  for (const d of sym?.declarations ?? []) {
-    let n: ts.Node = d;
-    if (t.isImportSpecifier(n)) n = n.parent.parent.parent;
-    else if (t.isNamespaceImport(n)) n = n.parent.parent;
-    else if (t.isImportClause(n)) n = n.parent;
-    else continue;
-    if (t.isImportDeclaration(n) && t.isStringLiteral(n.moduleSpecifier) && n.moduleSpecifier.text.startsWith("@elaraai/")) {
-      return true;
-    }
-  }
-  return false;
-}
 
 /**
  * Does `id` resolve to a binding LOCAL to an East block whose runtime value is an
@@ -91,12 +69,130 @@ function isEastCall(call: ts.CallExpression, ctx: RuleContext): boolean {
   if (t.isPropertyAccessExpression(f) && isEastExprType(ctx.checker.getTypeAtLocation(f.expression))) return true;
   // A5 — rooted on an `@elaraai/*` import (`East.*`, `Expr.*`, `variant`/`some`,
   // `ArrayType`/`StructType`/`DictType`, `GoogleOr.*`, …).
-  if (t.isIdentifier(root) && resolvesToEastImport(root, ctx)) return true;
+  if (t.isIdentifier(root) && resolvesToEastImport(root, ctx.checker, t)) return true;
   // A6 — a method chained off an in-block TS macro or its loosely-typed (`any`)
   // operand, whose type-info is lost as `any`. The macro is reported elsewhere
   // (clause E / its bare call); the East methods on its East-`Expr` result are
   // East, not additional host calls.
   if (t.isPropertyAccessExpression(f) && t.isIdentifier(root) && resolvesToInBlockEastBinding(root, ctx)) return true;
+  // A7 — the callee is an East platform-function DEFINITION (`East.platform(…)` /
+  // `East.asyncPlatform(…)` / the generic pair), project-local stubs included.
+  // Calling one emits a single `Platform` IR node — a real East call, exactly
+  // like calling a bound `East.function` (A0), not an authoring-time macro.
+  if (isEastPlatformDefinitionType(ctx.checker.getTypeAtLocation(f))) return true;
+  // A8 — UI composition: the callee is a JSX-returning helper (the call-site
+  // mirror of clause E's declaration exemption), or an argument is a callback
+  // returning JSX (`days.map((d) => <Chip …/>)` over TS-side config).
+  if (isJsxCompositionCall(call, ctx)) return true;
+  // A9 — a LIBRARY-declared East-producing member call: the method/property is
+  // declared in a `.d.ts` (a compiled package — e.g. east-ui's Navigation
+  // `routes.Page.overview()` constructors on a project-local `Navigation.config`
+  // object) AND the call's result is an East `Expr`. A TS macro authored in
+  // project SOURCE (.ts/.tsx) never matches — its declaration is not a
+  // declaration file — so the rule still flags it.
+  if (t.isPropertyAccessExpression(f) && isLibDeclaredEastCall(call, f, ctx)) return true;
+  // A10 — literal STRING assembly (`["…", "…"].join("\n")`): every leaf of the
+  // call is a literal and the result is a string — authoring a multi-line/joined
+  // string CONSTANT at declaration time, which the host is for. Non-string folds
+  // (`[1n, 2n].indexOf(2n)`) stay flagged: computing over collections is East's
+  // job even when the operands happen to be literals.
+  if (isConstantFoldCall(call, ctx)) return true;
+  return false;
+}
+
+/** A call whose whole subtree is literals — no identifier reference, no template
+ * substitution, no East `Expr` — producing a plain STRING constant. (The member
+ * name of a property-access callee, `.join`, is not a reference.) */
+function isConstantFoldCall(call: ts.CallExpression, ctx: RuleContext): boolean {
+  const t = ctx.ts;
+  if ((ctx.checker.getTypeAtLocation(call).flags & t.TypeFlags.StringLike) === 0) return false;
+  let constant = true;
+  const visit = (n: ts.Node): void => {
+    if (!constant) return;
+    if (t.isIdentifier(n)) {
+      const p = n.parent;
+      if (p !== undefined && t.isPropertyAccessExpression(p) && p.name === n) return;
+      constant = false;
+      return;
+    }
+    if (t.isTemplateExpression(n)) {
+      constant = false;
+      return;
+    }
+    t.forEachChild(n, visit);
+  };
+  visit(call);
+  return constant;
+}
+
+/** Is the accessed member LIBRARY API, with the call result an East `Expr`?
+ * (See clause A9.) Library API is established two ways: the member (or the
+ * receiver's named type — the property symbol of a mapped type is synthesized)
+ * is declared in a PACKAGE declaration file, or the receiver object's VALUE was
+ * built by an `@elaraai/*` factory call (`const routes = Navigation.config({…})`
+ * — the boundary test the .d.ts check can't make when the library's own source
+ * is in-program, e.g. the monorepo's self-dogfooding examples). TypeScript's
+ * own default libs never count — a JS `Map<string, Expr>` read with `.get(k)`
+ * is host-keyed East data (the abuse), not a library East API. */
+function isLibDeclaredEastCall(call: ts.CallExpression, f: ts.PropertyAccessExpression, ctx: RuleContext): boolean {
+  if (!isEastExprType(ctx.checker.getTypeAtLocation(call))) return false;
+  const inPackageDts = (sym: ts.Symbol | undefined): boolean =>
+    (sym?.declarations ?? []).some((d) => {
+      const sf = d.getSourceFile();
+      if (!sf.isDeclarationFile) return false;
+      if (ctx.program !== undefined) return !ctx.program.isSourceFileDefaultLibrary(sf);
+      return !/\/lib\.[^/]*\.d\.ts$/.test(sf.fileName);
+    });
+  if (inPackageDts(ctx.checker.getSymbolAtLocation(f))) return true;
+  const receiverType = ctx.checker.getTypeAtLocation(f.expression);
+  if (inPackageDts(receiverType.aliasSymbol ?? receiverType.symbol)) return true;
+  return rootBuiltByEastFactory(chainRootReceiver(f, ctx), ctx);
+}
+
+/** Does `root` resolve (through import aliases) to a `const` whose initializer
+ * is a call chain rooted in an `@elaraai/*` import — an object BUILT BY an East
+ * library factory, whose members are therefore library API? */
+function rootBuiltByEastFactory(root: ts.Node, ctx: RuleContext): boolean {
+  const t = ctx.ts;
+  if (!t.isIdentifier(root)) return false;
+  let sym = ctx.checker.getSymbolAtLocation(root);
+  if (sym !== undefined && (sym.flags & t.SymbolFlags.Alias) !== 0) {
+    sym = ctx.checker.getAliasedSymbol(sym);
+  }
+  const decl = sym?.valueDeclaration;
+  if (decl === undefined || !t.isVariableDeclaration(decl) || decl.initializer === undefined) return false;
+  let init: ts.Expression = decl.initializer;
+  while (t.isParenthesizedExpression(init)) init = init.expression;
+  if (!t.isCallExpression(init)) return false;
+  const initRoot = chainRootReceiver(init.expression, ctx);
+  return t.isIdentifier(initRoot) && resolvesToEastImport(initRoot, ctx.checker, t);
+}
+
+/** A call that composes JSX: it is passed JSX directly (`rows.push(<Chip/>)`),
+ * an argument is a function literal returning JSX (`days.map((d) => <Chip/>)`),
+ * or its callee resolves to a function/arrow whose returns include JSX. The
+ * declaration side of these helpers is exempted by clause E — the call side
+ * must be too, or binding composed JSX to a `const` before use would flag. */
+function isJsxCompositionCall(call: ts.CallExpression, ctx: RuleContext): boolean {
+  const t = ctx.ts;
+  if (call.arguments.some((a) => isJsx(a, t) || ((t.isArrowFunction(a) || t.isFunctionExpression(a)) && returnExpressions(a, t).some((r) => isJsx(r, t))))) {
+    return true;
+  }
+  const f = call.expression;
+  if (!t.isIdentifier(f)) return false;
+  const sym = ctx.checker.getSymbolAtLocation(f);
+  for (const d of sym?.declarations ?? []) {
+    let fn: ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclaration | undefined;
+    if (t.isFunctionDeclaration(d) && d.body !== undefined) fn = d;
+    else if (
+      t.isVariableDeclaration(d) &&
+      d.initializer !== undefined &&
+      (t.isArrowFunction(d.initializer) || t.isFunctionExpression(d.initializer))
+    ) {
+      fn = d.initializer;
+    }
+    if (fn !== undefined && returnExpressions(fn, t).some((r) => isJsx(r, t))) return true;
+  }
   return false;
 }
 
@@ -104,12 +200,25 @@ function isEast(expr: ts.Expression, ctx: RuleContext): boolean {
   return isEastExprType(ctx.checker.getTypeAtLocation(expr));
 }
 
-/** Is `node` inside JSX (UI composition is out of scope — `prefer-jsx-…` owns it)? */
-function insideJsx(node: ts.Node, t: TsModule): boolean {
+/** Is `node` inside JSX *within its own function scope* — a JSX construct met
+ * walking up BEFORE any function boundary? Direct JSX composition (element
+ * children, attribute value expressions) is markup, out of scope for
+ * host-vs-East checks. But EVERY callback nested inside JSX is code again —
+ * a `<Reactive>{$ => …}` block, a `data.map(($, x) => …)` projection, and
+ * equally a host callback computing data in an attribute
+ * (`items={Array.from(…, (_, i) => …)}`): inside an East function the data
+ * must be East all the way down, so the JSX ancestor beyond a callback
+ * boundary exempts nothing. Authoring-time constants belong at module scope
+ * (or as East generation — `East.Array.range(…).map(($, i) => …)`). */
+function insideJsx(node: ts.Node, ctx: RuleContext): boolean {
+  const t = ctx.ts;
   let cur: ts.Node | undefined = node.parent;
   while (cur !== undefined) {
     if (t.isJsxElement(cur) || t.isJsxSelfClosingElement(cur) || t.isJsxFragment(cur) || t.isJsxExpression(cur) || t.isJsxAttribute(cur)) {
       return true;
+    }
+    if (t.isArrowFunction(cur) || t.isFunctionExpression(cur) || t.isFunctionDeclaration(cur) || t.isMethodDeclaration(cur)) {
+      return false;
     }
     cur = cur.parent;
   }
@@ -164,7 +273,7 @@ export const noHostInEastBlock: EastRule = {
   check(node, ctx) {
     const t = ctx.ts;
     if (!insideBlockScope(node, ctx)) return;
-    if (insideJsx(node, t)) return;
+    if (insideJsx(node, ctx)) return;
 
     // Clause E — a TS closure/function DECLARED inside an East block (a `const`
     // arrow, a function-expression, or a `function` declaration). It is an

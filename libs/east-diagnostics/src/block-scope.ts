@@ -59,3 +59,21 @@ export function enclosingBlockScope(node: ts.Node, ctx: RuleContext): ts.Node | 
 export function insideBlockScope(node: ts.Node, ctx: RuleContext): boolean {
   return enclosingBlockScope(node, ctx) !== undefined;
 }
+
+/** Is `node` (transitively) inside a `<Reactive>` element or a `Reactive.Root(…)`
+ * factory call — i.e. inside a reactive re-render scope? */
+export function insideReactive(node: ts.Node, t: TsModule): boolean {
+  let cur: ts.Node | undefined = node.parent;
+  while (cur !== undefined) {
+    if (t.isJsxElement(cur) && cur.openingElement.tagName.getText().endsWith("Reactive")) return true;
+    if (t.isJsxSelfClosingElement(cur) && cur.tagName.getText().endsWith("Reactive")) return true;
+    if (t.isCallExpression(cur)) {
+      const callee = cur.expression;
+      if (t.isPropertyAccessExpression(callee) && t.isIdentifier(callee.expression) && callee.expression.text === "Reactive") {
+        return true;
+      }
+    }
+    cur = cur.parent;
+  }
+  return false;
+}

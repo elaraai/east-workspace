@@ -19,6 +19,16 @@ import { noCompileTimeDataInjection } from "./no-compile-time-data-injection.js"
 import { noCompileTimeSeedData } from "./no-compile-time-seed-data.js";
 import { noHostInEastBlock } from "./no-host-in-east-block.js";
 import { noModuleScopeEastMacro } from "./no-module-scope-east-macro.js";
+import { requireRunnerPlatforms } from "./require-runner-platforms.js";
+import { noCrossBlockBuilder } from "./no-cross-block-builder.js";
+import { noStateOutsideReactive } from "./no-state-outside-reactive.js";
+import { preferConstUiCallbacks } from "./prefer-const-ui-callbacks.js";
+import { noDynamicBindPath } from "./no-dynamic-bind-path.js";
+import { noBuildTimeClock } from "./no-build-time-clock.js";
+import { noHandrolledValueTypeMirror } from "./no-handrolled-value-type-mirror.js";
+import { noHostComparisonOnEastValues } from "./no-host-comparison-on-east-values.js";
+import { requireExampleReturns } from "./require-example-returns.js";
+import { noDuplicateDefinitionName } from "./no-duplicate-definition-name.js";
 
 export { noRedundantEastCast } from "./no-redundant-east-cast.js";
 export { preferExplicitEastType } from "./prefer-explicit-east-type.js";
@@ -36,6 +46,16 @@ export { noCompileTimeDataInjection } from "./no-compile-time-data-injection.js"
 export { noCompileTimeSeedData } from "./no-compile-time-seed-data.js";
 export { noHostInEastBlock } from "./no-host-in-east-block.js";
 export { noModuleScopeEastMacro } from "./no-module-scope-east-macro.js";
+export { requireRunnerPlatforms } from "./require-runner-platforms.js";
+export { noCrossBlockBuilder } from "./no-cross-block-builder.js";
+export { noStateOutsideReactive } from "./no-state-outside-reactive.js";
+export { preferConstUiCallbacks } from "./prefer-const-ui-callbacks.js";
+export { noDynamicBindPath } from "./no-dynamic-bind-path.js";
+export { noBuildTimeClock } from "./no-build-time-clock.js";
+export { noHandrolledValueTypeMirror } from "./no-handrolled-value-type-mirror.js";
+export { noHostComparisonOnEastValues } from "./no-host-comparison-on-east-values.js";
+export { requireExampleReturns } from "./require-example-returns.js";
+export { noDuplicateDefinitionName } from "./no-duplicate-definition-name.js";
 
 export const allRules: readonly EastRule[] = [
   // East-side idiom hygiene (original set)
@@ -58,4 +78,15 @@ export const allRules: readonly EastRule[] = [
   noModuleScopeEastMacro,
   noCompileTimeDataInjection,
   noCompileTimeSeedData,
+  // deploy/runtime-failure classes that type-check clean (epic #208)
+  requireRunnerPlatforms,
+  noCrossBlockBuilder,
+  noStateOutsideReactive,
+  preferConstUiCallbacks,
+  noDynamicBindPath,
+  noBuildTimeClock,
+  noHandrolledValueTypeMirror,
+  noHostComparisonOnEastValues,
+  requireExampleReturns,
+  noDuplicateDefinitionName,
 ];

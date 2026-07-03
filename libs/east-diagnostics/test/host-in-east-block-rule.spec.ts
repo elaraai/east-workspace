@@ -4,7 +4,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { analyze } from "./harness.js";
+import { analyze, analyzeProgram, analyzeTsx } from "./harness.js";
 
 const PRELUDE = `import { East, Expr, IntegerType, FloatType, StringType, BooleanType, ArrayType, DictType, StructType, variant, some, none } from "@elaraai/east";\n`;
 const RULE = "no-host-in-east-block";
@@ -120,4 +120,106 @@ test("silent on a JS-condition ternary over host values", () => {
 
 test("silent outside any East block", () => {
   assert.equal(rule(`${PRELUDE}const i = [1n, 2n].indexOf(1n);\nexport const _u = i;\n`).length, 0);
+});
+
+// ── A7: platform-function definitions are East calls, not host macros ───
+test("silent on calling a project-local East.platform definition (A7)", () => {
+  const src = `${PRELUDE}const fetchRows = East.platform("proj.fetch_rows", [IntegerType], ArrayType(IntegerType));\nexport const f = East.function([IntegerType], ArrayType(IntegerType), ($, n) => $.return(fetchRows(n)));\n`;
+  assert.equal(rule(src).length, 0);
+});
+
+test("silent on an East.asyncPlatform definition called inside an asyncFunction (A7)", () => {
+  const src = `${PRELUDE}const load = East.asyncPlatform("proj.load", [StringType], StringType);\nexport const f = East.asyncFunction([StringType], StringType, ($, s) => $.return(load(s)));\n`;
+  assert.equal(rule(src).length, 0);
+});
+
+test("silent on a genericPlatform definition call (A7)", () => {
+  const src = `${PRELUDE}const pick = East.genericPlatform("proj.pick", ["T"], ["T"], "T");\nexport const f = East.function([IntegerType], IntegerType, ($, n) => $.return(pick([IntegerType], n)));\n`;
+  assert.equal(rule(src).length, 0);
+});
+
+test("silent on a platform call nested as an argument to an East constructor (the east-twe shape)", () => {
+  // `$.let(some(run(frame, q)), …)` — `some(…)` is A5, the inner platform call A7.
+  const src = `${PRELUDE}const run = East.platform("proj.run", [IntegerType], IntegerType);\nexport const f = East.function([ArrayType(IntegerType)], ArrayType(IntegerType), ($, xs) =>\n  $.return(xs.map(($, q) => {\n    const r = $.let(some(run(q)));\n    return q;\n  })));\n`;
+  assert.equal(rule(src).length, 0);
+});
+
+// ── A9: library-declared East-producing members on project-local objects ─
+test("silent on East API reached through a project-local object (A9 — the Navigation.config routes shape)", () => {
+  // `lib` is a project const, so A5 (import-rooted) cannot apply; the member
+  // `value` is declared in @elaraai/east's .d.ts and the call yields an Expr.
+  const src = `${PRELUDE}const lib = { e: East };\nexport const f = East.function([], IntegerType, ($) => {\n  return $.const(lib.e.value(1n), IntegerType);\n});\n`;
+  assert.equal(rule(src).length, 0);
+});
+
+test("still flags reading a JS Map of Exprs with .get(...) (default-lib members are host)", () => {
+  const src = inFn(`  const m = new Map<string, Expr<typeof IntegerType>>();\n  const v = m.get("k");\n  return $.const(1n, IntegerType);`);
+  assert.equal(rule(src).length, 1);
+});
+
+test("silent on members of an object BUILT BY an @elaraai factory when the library is in-program SOURCE (A9 factory arm)", () => {
+  // The monorepo self-dogfooding shape: the library (here synthetic, .ts source
+  // so the .d.ts arm cannot apply) exports a `Navigation.config`-style factory;
+  // the object it builds has Expr-producing members called inside a block.
+  const files = {
+    "/proj/fake-ui.ts": `export interface RouteExpr { readonly __route: true }
+export interface BlockBuilder<T> { let(v: unknown): RouteExpr }
+export const Navigation = {
+  config(_routes: Record<string, unknown>) {
+    return { Page: { overview: (): RouteExpr => ({ __route: true }) } };
+  },
+};
+export function fn(cb: ($: BlockBuilder<null>) => RouteExpr): RouteExpr { return cb(null as never); }
+`,
+    "/proj/routes.ts": `import { Navigation } from "@elaraai/fake-ui";
+export const routes = Navigation.config({ overview: {} });
+`,
+    "/proj/main.ts": `import { fn } from "@elaraai/fake-ui";
+import { routes } from "@proj/routes";
+export const f = fn(($) => routes.Page.overview());
+`,
+  };
+  const hits = analyzeProgram(files, "/proj/main.ts", {
+    baseUrl: "/proj",
+    paths: { "@elaraai/fake-ui": ["./fake-ui.ts"], "@proj/routes": ["./routes.ts"] },
+  }).filter((d) => d.ruleName === RULE);
+  assert.equal(hits.length, 0);
+});
+
+// ── A10: literal constant folding ────────────────────────────────────────
+test("silent on literal constant folding (['…','…'].join over literals)", () => {
+  assert.equal(rule(inFn(`  const patch = ["--- a", "+++ b"].join("\\n");\n  return $.const(1n, IntegerType);`)).length, 0);
+});
+
+test("still flags a fold-shaped call referencing a variable", () => {
+  assert.equal(rule(inFn(`  const sep = ",";\n  const s = ["a", "b"].join(sep);\n  return $.const(1n, IntegerType);`)).length, 1);
+});
+
+// ── JSX scope: composition exempt, nested East callbacks covered ────────
+test("flags a host call inside a BlockBuilder callback nested in JSX (the Reactive shape)", () => {
+  const src = `${PRELUDE}export const f = East.function([ArrayType(IntegerType)], IntegerType, ($, xs) => {\n  const el = <panel rows={xs.map(($, x) => { const b = BigInt(1); return x; })} />;\n  return $.const(1n, IntegerType);\n});\n`;
+  const hits = analyzeTsx(src).filter((d) => d.ruleName === RULE);
+  assert.equal(hits.length, 1);
+  assert.match(hits[0]!.messageText, /Host call/);
+});
+
+test("still silent on host expressions embedded directly in JSX (composition)", () => {
+  const src = `${PRELUDE}const W = [1, 2];\nexport const f = East.function([ArrayType(IntegerType)], IntegerType, ($, xs) => {\n  const el = <panel title={\`p\${1}\`} width={W[0]} />;\n  return $.const(1n, IntegerType);\n});\n`;
+  assert.equal(analyzeTsx(src).filter((d) => d.ruleName === RULE).length, 0);
+});
+
+test("flags host data generation inside a JSX-attribute callback", () => {
+  // Inside an East function the DATA must be East all the way down — a host
+  // callback computing values in an attribute (`items={Array.from(…, (_, i) =>
+  // …)}`) is host-mixing, JSX position notwithstanding. Author the constant at
+  // module scope, or generate in East (`East.Array.range(…).map(($, i) => …)`).
+  // Expected hits: `String(i)` + `Math.floor(i / 2)` (clause A) and the
+  // `` `U-${…}` `` template (clause D).
+  const src = `${PRELUDE}export const f = East.function([], IntegerType, ($) => {\n  const el = <grid items={Array.from({ length: 4 }, (_, i) => ({ id: \`U-\${String(i)}\`, x: Math.floor(i / 2) }))} />;\n  return $.const(1n, IntegerType);\n});\n`;
+  assert.equal(analyzeTsx(src).filter((d) => d.ruleName === RULE).length, 3);
+});
+
+test("silent on JSX-composition helpers declared and called inside a block (clause E + A8)", () => {
+  const src = `${PRELUDE}export const f = East.function([ArrayType(IntegerType)], IntegerType, ($, xs) => {\n  const section = (label: string) => <chip title={label} />;\n  const a = section("a");\n  const chips = ["x", "y"].map((d) => <chip title={d} />);\n  const rows = [];\n  rows.push(<chip title="z" />);\n  return $.const(1n, IntegerType);\n});\n`;
+  assert.equal(analyzeTsx(src).filter((d) => d.ruleName === RULE).length, 0);
 });

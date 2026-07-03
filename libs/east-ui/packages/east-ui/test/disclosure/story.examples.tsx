@@ -239,7 +239,7 @@ export const storyConditionalStep = example({
     keywords: ["Story", "Step", "conditional", "ifElse", "runtime children"],
     description: "Steps are values — a conditional step via ifElse is legal",
     fn: East.function([], UIComponentType, ($) => {
-        const detailed = $.let(East.value(true));
+        const detailed = $.let(true);
         const detailStep = $.let(
             <Story.Step id="detail" title="Detail"><Text>The detailed beat.</Text></Story.Step>,
             UIComponentType,

@@ -29,6 +29,12 @@ test("prefer-some-none: silent on a normal variant tag", () => {
   assert.equal(rule(wrap(`  const v = $.const(variant("active", 1n));`), "prefer-some-none").length, 0);
 });
 
+test("prefer-some-none: silent on an unrelated local `variant` function (non-East)", () => {
+  // A file that never imports East defining its own `variant` — not our business.
+  const src = `const variant = (tag: string, v: unknown) => ({ tag, v });\nexport const _u = variant("some", 1);\n`;
+  assert.equal(rule(src, "prefer-some-none").length, 0);
+});
+
 // ── no-handrolled-variant ───────────────────────────────────────────
 test("no-handrolled-variant: flags an object literal where a variant is expected", () => {
   const src = `${PRELUDE}import type { variant } from "@elaraai/east";\ndeclare function take(v: variant<"a" | "b", bigint>): void;\ntake({ type: "a", value: 1n });\n`;

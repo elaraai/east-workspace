@@ -30,3 +30,53 @@ export function isBlockBuilderType(type: ts.Type): boolean {
   const name = type.aliasSymbol?.name ?? type.symbol?.name;
   return name === "BlockBuilder";
 }
+
+/** Walk `type` (union/intersection members included) asking `match` of each
+ * constituent's alias/symbol name. */
+function someTypeName(type: ts.Type, match: (name: string) => boolean): boolean {
+  const seen = new Set<ts.Type>();
+  const stack: ts.Type[] = [type];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (current === undefined || seen.has(current)) continue;
+    seen.add(current);
+    const name = current.aliasSymbol?.name ?? current.symbol?.name;
+    if (name !== undefined && match(name)) return true;
+    if (current.isUnionOrIntersection()) stack.push(...current.types);
+  }
+  return false;
+}
+
+// East platform-function definitions — `East.platform(…)` / `East.asyncPlatform(…)`
+// and the generic pair — are callable TS values typed by the named aliases
+// `PlatformDefinition` / `AsyncPlatformDefinition` / `GenericPlatformDefinition` /
+// `AsyncGenericPlatformDefinition` (declared in @elaraai/east). CALLING one emits a
+// single `Platform` IR node — an East-level call exactly like calling a bound
+// `East.function`, not a host macro — so the host-vs-East rules must treat such a
+// callee as East wherever it lives (a project's own platform stubs included).
+// Name-keyed, like `isEastExprType`.
+export function isEastPlatformDefinitionType(type: ts.Type): boolean {
+  return someTypeName(type, (name) => name.endsWith("PlatformDefinition"));
+}
+
+// e3 program declarations: `e3.task` → `TaskDef`, `e3.input` → `DatasetDef`,
+// `e3.function` → `FunctionDef`, … . A module-scope helper returning one of these
+// (or a platform definition) is a DECLARATION factory — host-side composition of
+// the program's structure, which the host language is allowed to do — not a value
+// macro that hand-builds East IR.
+const E3_DEFINITION_NAMES = new Set([
+  "TaskDef",
+  "DatasetDef",
+  "DataTreeDef",
+  "FunctionDef",
+  "MutationDef",
+  "RecordDef",
+  "PackageDef",
+]);
+
+export function isEastDefinitionType(type: ts.Type): boolean {
+  return someTypeName(
+    type,
+    (name) => E3_DEFINITION_NAMES.has(name) || name.endsWith("PlatformDefinition"),
+  );
+}

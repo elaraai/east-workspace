@@ -53,6 +53,19 @@ These share one principle: **inside an East block the code must be East all the 
 - **`no-compile-time-data-injection`** - Build-time data ingestion (a `node:fs` import/call, `JSON.parse`, `process.env`) at module scope — load data at runtime via `e3.input` / datasets / platform tasks. (A genuine seed-time bootstrap with no East-side reader is an accepted warning.)
 - **`no-compile-time-seed-data`** - Host-computed data passed as the seed (3rd arg) of `e3.input(name, type, seed)` — a `new Map()`/array filled in place by host `for`-loops, or an object literal of host calls (`num(cfg.x)`, `BigInt(...)`) — bakes a build-time snapshot into the deployed program. The default must be a small *authored constant* (a literal, an empty/literal `Map`/`Set`/array/struct, or an East value `variant`/`some`/`none`/`East.value`) or omitted; load real/bulk data at runtime (a `BlobType` input parsed with `blob.decodeCsv(…)` in an `e3.task`, a platform `FileSystem.readFile`, or `e3.record` + `e3.mutation`).
 
+### Deploy/runtime-failure classes that type-check clean
+
+- **`require-runner-platforms`** - An `e3.task` calling PROJECT-declared platform functions (`East.platform("proj.x", …)` stubs) whose options declare no `runner.platforms` `{ custom: … }` entry — fails only at dataflow runtime with "Platform function … is not available".
+- **`no-cross-block-builder`** - A nested East callback emitting bindings via an OUTER block's `$` (`xs.map((_$, x) => { $.let(…) })`) — the binding lands in the wrong block.
+- **`no-state-outside-reactive`** - east-ui `State.*` outside a `<Reactive>` builder — the UI function becomes async at analysis time and is rejected at deploy.
+- **`prefer-const-ui-callbacks`** - An `East.function` handler written inline in a JSX prop — rebuilt each render, and `equalFor` can't distinguish function values, so memoized renderers miss the swap. Bind once with `$.const`.
+- **`no-dynamic-bind-path`** - A `Data.bind` / `State.bind` / `Navigation.bind` key computed from an East value — bind keys must be IR-build constants or the binding is missing from the `ui()` manifest.
+- **`no-build-time-clock`** - `Date.now()` / argless `new Date()` at module scope of East/e3 source — the BUILD clock gets baked into the deployed program.
+- **`no-handrolled-value-type-mirror`** - A hand-authored `interface Foo {…}` mirroring an in-scope East type value `FooType` — derive it with `ValueTypeOf<typeof FooType>` so it can't drift.
+- **`no-host-comparison-on-east-values`** - `===`/`<` on decoded East values (variants/options, `SortedMap`/`SortedSet`) — use `equalFor(T)` / `compareFor(T)`.
+- **`require-example-returns`** - An `example()` without `returns` (for a non-`NullType`/`UIComponentType` output) — the harness runs the fn as a bare statement and the assertion false-passes.
+- **`no-duplicate-definition-name`** - Two same-kind e3 definitions sharing a name string in one file — they collide at deploy time.
+
 ## Usage
 
 ```typescript

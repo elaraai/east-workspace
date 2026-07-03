@@ -1,6 +1,6 @@
 ---
 name: e3-ui-cli
-description: "Render east-ui / e3-ui components to PNG (and standalone HTML) from the command line or programmatically, using a managed headless Chromium. Use when: (1) Screenshotting an east-ui component or e3-ui decision surface with `e3-ui shot` — from a .ts/.tsx source file, serialized .beast2/.json IR, or a live e3 task's computed output, (2) Rendering a create-e3 --ui scaffold's src/ui/index.tsx (a ui() task) to an image, (3) Setting up or troubleshooting the headless browser on a server or CI (`e3-ui install-browser`, `e3-ui doctor`, PLAYWRIGHT_BROWSERS_PATH, snap-chromium problems), (4) Rendering PNGs from Node with renderToPng / renderTaskToPng / capture."
+description: "Render east-ui / e3-ui components to PNG (and standalone HTML) from the command line or programmatically, using a managed headless Chromium. Use when: (1) Screenshotting an east-ui component or e3-ui decision surface with `e3-ui shot` — from a .ts/.tsx source file, serialized .beast2/.json IR, or a live e3 task's computed output, (2) Rendering ONE example from a `*.examples.ts(x)` file (`--from-source <file> -e <exampleName>` — example() defs are unwrapped to their fn), (3) Rendering a create-e3 --ui scaffold's src/ui/index.tsx (a ui() task) to an image, (4) Setting up or troubleshooting the headless browser on a server or CI (`e3-ui install-browser`, `e3-ui doctor`, PLAYWRIGHT_BROWSERS_PATH, snap-chromium problems), (5) Rendering PNGs from Node with renderToPng / renderTaskToPng / capture."
 ---
 
 # e3-ui CLI (@elaraai/e3-ui-cli)
@@ -20,6 +20,10 @@ e3-ui install-browser               # one-time per machine (add --with-deps on f
 # A .tsx exporting an East function returning UIComponentType (or a ui() task):
 e3-ui shot --from-source ./dashboard.tsx -o dashboard.png
 
+# ONE example from an examples file — example() defs are unwrapped to their fn.
+# -e is effectively required: examples files export many.
+e3-ui shot --from-source test/collections/schematic.examples.tsx -e schematicNets -o nets.png
+
 # A live e3 UI task's output with real workspace data (dataflow must have run):
 e3-ui shot --from-task main.dashboard --repo ./.repos -o dashboard.png
 ```
@@ -36,11 +40,23 @@ await renderToPng({ input: { path: "./dashboard.tsx" }, output: "dashboard.png" 
 Render a component to an image
 ├─ From TypeScript source (.ts/.tsx)          → e3-ui shot --from-source <file> [-e <export>]
 │   ├─ exports an East fn → UIComponentType   → rendered directly
+│   ├─ exports example() defs (*.examples.*)  → -e <exampleName> per shot (the def's fn is unwrapped;
+│   │                                            without -e the file must have a SOLE renderable export)
 │   ├─ exports an e3 ui() task (zero inputs)  → unwrapped and rendered (create-e3 --ui scaffold: npm run shot)
 │   └─ ui() task WITH compute-time inputs     → not standalone-renderable → use --from-task
 ├─ From serialized IR (.beast2/.json, stdin)  → e3-ui shot --from-ir <file|->
 ├─ From a deployed e3 workspace task          → e3-ui shot --from-task <ws.task> --repo <path>
 └─ From Node code                             → renderToPng / renderTaskToPng
+
+What KIND of component is it?
+├─ Self-sized (cards, stacks, forms, charts…) → shot renders true to layout
+├─ Width-flexible (Schematic, Gantt, Table…)  → shot mounts an intrinsic-width frame, so the canvas
+│                                                collapses — in the east monorepo use the showcase
+│                                                harness instead: make east-ui-examples-html-<key>--<name>
+├─ Reads e3 data (Data.bind / Decision.bind)  → a standalone shot has NO workspace: use --from-task
+│                                                against a deployed repo, or (monorepo) the seeded
+│                                                harness: make e3-ui-examples-html-<key>
+└─ Browser-local State.bind only              → renders standalone (initial state)
 
 Browser setup / problems
 ├─ Fresh machine or CI                        → e3-ui install-browser [--with-deps]
@@ -62,7 +78,7 @@ Exactly one `--from-*` source per run.
 | `--from-ir <file>` | Render serialized component IR (`.beast2`/`.json`); `-` reads stdin. |
 | `--from-task <ws.task>` | Render a live e3 task's computed output (requires `--repo`). |
 | `--repo <path>` | Local e3 repository path for `--from-task`. |
-| `-e, --export <name>` | Which export to render (default: the default / sole renderable export). |
+| `-e, --export <name>` | Which export to render (default: the `default` export, then the SOLE renderable export). Required in practice for `*.examples.*` files — they export many; an `example()` def is unwrapped to its `fn`. |
 | `-o, --output <path>` | Output PNG path (default: derived from the source / task name). |
 | `--html` | Also write a self-contained HTML (fonts inlined, no scripts) next to the PNG. |
 | `--viewport <WxH>` | Chromium viewport (default 1280x900). |
@@ -103,7 +119,7 @@ trusted local components; running as root on a server just works.
 | `renderTaskToPng(opts)` | Start a local e3 API server over `repo`, render the task's computed output. |
 | `capture(opts)` | Low-level: serve the prebuilt app, launch the browser, inject a `ShotPayload`, screenshot. |
 | `buildPayload(input)` | Turn a source/IR input into the base64 payload `capture` consumes. |
-| `loadComponentFromSource(file, exportName?)` | esbuild-load a `.ts`/`.tsx` in memory; returns the East function (unwraps zero-input `ui()` tasks). ❗ throws for parameterized ui() tasks |
+| `loadComponentFromSource(file, exportName?)` | esbuild-load a `.ts`/`.tsx` in memory; returns the East function (unwraps `example()` defs to their `fn`, and zero-input `ui()` tasks). ❗ throws for parameterized ui() tasks |
 | `launchBrowser(env?)` | The acquisition cascade; returns `{ browser, source }`. ❗ throws with remediation when no browser |
 | `installBrowser({ withDeps? })` | Programmatic `install-browser`. |
 | `doctor(env?)` | Programmatic `doctor`; returns a process exit code. |
@@ -114,6 +130,17 @@ trusted local components; running as root on a server just works.
 ```bash
 # create-e3 --ui scaffold: the generated shot script renders the surface
 npm run shot        # = e3-ui shot --from-source src/ui/index.tsx --export surface -o surface.png
+
+# One example() from an examples file (self-sized component) — name the export
+e3-ui shot --from-source test/display/combine.examples.tsx -e combineDensities -o combine.png
+
+# Width-flexible component (Schematic/Gantt/Table) — the shot frame collapses to
+# intrinsic width; inside the east monorepo use the full-width showcase harness:
+cd libs/east-ui && make east-ui-examples-html-collections/schematic--schematicStress
+
+# Data-bound e3-ui example (Data.bind / Decision.bind) — standalone shots have no
+# workspace; use the seeded harness (or --from-task against a deployed repo):
+cd libs/east-ui && make e3-ui-examples-html-decision/queue
 
 # CI / server bootstrap (one-time, cache shared across runs)
 export PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers

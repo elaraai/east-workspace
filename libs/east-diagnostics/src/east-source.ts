@@ -7,6 +7,33 @@ import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { TsModule } from "./types.js";
 
+/** The `ImportDeclaration` a symbol's (local, un-aliased) declaration belongs to,
+ * or undefined. Uses the LOCAL import symbol — the declaration IS the
+ * ImportSpecifier / NamespaceImport / ImportClause — and does NOT resolve the
+ * alias, which would jump into the imported package and lose the specifier. */
+export function importDeclarationOf(sym: ts.Symbol | undefined, t: TsModule): ts.ImportDeclaration | undefined {
+  for (const d of sym?.declarations ?? []) {
+    let n: ts.Node = d;
+    // ImportSpecifier -> NamedImports -> ImportClause -> ImportDeclaration; a
+    // NamespaceImport sits one level higher; a DEFAULT import binds the
+    // ImportClause itself (`import e3 from "@elaraai/e3"`).
+    if (t.isImportSpecifier(n)) n = n.parent.parent.parent;
+    else if (t.isNamespaceImport(n)) n = n.parent.parent;
+    else if (t.isImportClause(n)) n = n.parent;
+    else continue;
+    if (t.isImportDeclaration(n)) return n;
+  }
+  return undefined;
+}
+
+/** Does `id` resolve to a binding imported from an `@elaraai/*` package? The whole
+ * East ecosystem API — `East`, `Expr`, `variant`/`some`, `ArrayType`/`StructType`,
+ * `GoogleOr`, `Data`, … — is recognised by SYMBOL, never a brittle name list. */
+export function resolvesToEastImport(id: ts.Identifier, checker: ts.TypeChecker, t: TsModule): boolean {
+  const imp = importDeclarationOf(checker.getSymbolAtLocation(id), t);
+  return imp !== undefined && t.isStringLiteral(imp.moduleSpecifier) && imp.moduleSpecifier.text.startsWith("@elaraai/");
+}
+
 // File-level "is this East/e3 source?" detection. Several rules describe abuses
 // that only make sense inside an East/e3 program (baking build-time data, building
 // East IR in a module-scope macro); gating them on a real `@elaraai/*` import keeps
