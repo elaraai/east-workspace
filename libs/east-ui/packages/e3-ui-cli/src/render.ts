@@ -38,6 +38,8 @@ export interface RenderToPngOptions {
     timeoutMs?: number | undefined;
     /** Storage key prefix for persisted component state. */
     storageKey?: string | undefined;
+    /** Component-frame mount width ('full' or a CSS width) — see CaptureOptions. */
+    frameWidth?: string | undefined;
 }
 
 /** Resolve the shipped prebuilt app directory (`dist/app`, sibling of this module). */
@@ -63,6 +65,7 @@ export async function renderToPng(opts: RenderToPngOptions): Promise<void> {
         viewport: opts.viewport,
         deviceScaleFactor: opts.deviceScaleFactor,
         mode: opts.mode,
+        frameWidth: opts.frameWidth,
         settleMs: opts.settleMs,
         timeoutMs: opts.timeoutMs,
     });

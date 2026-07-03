@@ -35,12 +35,14 @@ interface ExampleDefLike {
     fn: EastFunctionLike;
 }
 
-function hasToIR(x: unknown): x is EastFunctionLike {
+/** Does `x` carry a `toIR()` (the minimal East-function contract)? */
+export function hasToIR(x: unknown): x is EastFunctionLike {
     return (typeof x === 'function' || (typeof x === 'object' && x !== null))
         && typeof (x as { toIR?: unknown }).toIR === 'function';
 }
 
-function isExampleDef(x: unknown): x is ExampleDefLike {
+/** Is `x` an `example({ fn })` definition wrapping an East function? */
+export function isExampleDef(x: unknown): x is ExampleDefLike {
     return typeof x === 'object' && x !== null && hasToIR((x as { fn?: unknown }).fn);
 }
 
@@ -56,7 +58,8 @@ interface UiTaskDefLike {
     inputs: Array<{ name?: unknown; default?: unknown }>;
 }
 
-function isUiTaskDef(x: unknown): x is UiTaskDefLike {
+/** Is `x` (structurally) an e3 `ui()` task definition? */
+export function isUiTaskDef(x: unknown): x is UiTaskDefLike {
     if (typeof x !== 'object' || x === null) return false;
     const t = x as { kind?: unknown; taskKind?: unknown; inputs?: unknown };
     return t.kind === 'task'
@@ -64,6 +67,25 @@ function isUiTaskDef(x: unknown): x is UiTaskDefLike {
         && Array.isArray(t.inputs)
         && (t.inputs[0] as { name?: unknown } | undefined)?.name === 'function_ir'
         && (t.inputs[0] as { default?: unknown }).default != null;
+}
+
+/** How an export carries its East function — the three renderable shapes. */
+export type ExportShape = 'function' | 'example' | 'ui-task';
+
+/** Identify an export's shape and pull out its East function, without judging
+ *  renderability (that is `classifyExports`' job — IR-level, in `detect.ts`).
+ *  A parameterized `ui()` task reports its shape with `fn: null`. */
+export function shapeOfExport(value: unknown): { shape: ExportShape; fn: EastFunctionLike | null } | null {
+    if (hasToIR(value)) return { shape: 'function', fn: value };
+    if (isExampleDef(value)) return { shape: 'example', fn: value.fn };
+    if (isUiTaskDef(value)) {
+        if (value.inputs.length === 1) {
+            const bundle = value.inputs[0]!.default;
+            return { shape: 'ui-task', fn: { toIR: () => bundle } };
+        }
+        return { shape: 'ui-task', fn: null };
+    }
+    return null;
 }
 
 const PARAMETERIZED_UI_TASK_MESSAGE =
@@ -113,19 +135,16 @@ const externalizeBareImports: esbuild.Plugin = {
 };
 
 /**
- * Transpile, execute, and extract an East UI function from a `.ts`/`.tsx` source.
+ * Transpile and execute a `.ts`/`.tsx` source in memory, returning its module
+ * exports. **Runs the file and its imports as Node code** — only point it at
+ * code you trust. The building block under {@link loadComponentFromSource}
+ * (single export) and the `shots` sweep (all exports).
  *
  * @param filePath - Path to the source file
- * @param exportName - Named export to render; when omitted, falls back to the
- *   `default` export, then to the sole renderable export
- * @returns The East function (carrying `toIR()`)
- * @throws If the file produces no renderable export, or `exportName` is absent
- *   or not renderable
+ * @returns The executed module's exports
+ * @throws If the file does not exist, esbuild fails, or executing the module throws
  */
-export async function loadComponentFromSource(
-    filePath: string,
-    exportName?: string,
-): Promise<EastFunctionLike> {
+export async function loadSourceExports(filePath: string): Promise<Record<string, unknown>> {
     const absolutePath = path.resolve(filePath);
     if (!fs.existsSync(absolutePath)) {
         throw new Error(`Source file not found: ${absolutePath}`);
@@ -148,15 +167,31 @@ export async function loadComponentFromSource(
         throw new Error(`esbuild produced no output for ${filePath}`);
     }
 
-    let moduleExports: Record<string, unknown>;
     try {
         const dataUrl = `data:text/javascript;base64,${Buffer.from(code).toString('base64')}`;
-        moduleExports = await import(dataUrl) as Record<string, unknown>;
+        return await import(dataUrl) as Record<string, unknown>;
     } catch (err) {
         throw new Error(
             `Failed to execute ${path.basename(filePath)}: ${err instanceof Error ? err.message : String(err)}`,
         );
     }
+}
+
+/**
+ * Transpile, execute, and extract an East UI function from a `.ts`/`.tsx` source.
+ *
+ * @param filePath - Path to the source file
+ * @param exportName - Named export to render; when omitted, falls back to the
+ *   `default` export, then to the sole renderable export
+ * @returns The East function (carrying `toIR()`)
+ * @throws If the file produces no renderable export, or `exportName` is absent
+ *   or not renderable
+ */
+export async function loadComponentFromSource(
+    filePath: string,
+    exportName?: string,
+): Promise<EastFunctionLike> {
+    const moduleExports = await loadSourceExports(filePath);
 
     if (exportName !== undefined) {
         const fn = asEastFunction(moduleExports[exportName]);

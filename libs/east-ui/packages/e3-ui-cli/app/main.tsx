@@ -188,10 +188,19 @@ function App(): ReactNode {
 }
 
 // Task previews are built to fill a fixed-height parent — give the frame a
-// definite height (full bleed). Components get a shrink-to-fit framed card.
+// definite height (full bleed). Components get a shrink-to-fit framed card by
+// default; `--frame-width` (injected as __E3_UI_SHOT_FRAME_WIDTH__) mounts the
+// frame at a DEFINITE width instead — 'full' fills the viewport — so
+// width-flexible components (Schematic / Gantt / Table, all `width: 100%` of
+// their container) render faithfully instead of collapsing to intrinsic width.
+const frameWidth =
+    (window as unknown as { __E3_UI_SHOT_FRAME_WIDTH__?: string | null }).__E3_UI_SHOT_FRAME_WIDTH__ ?? null;
+const componentFrameProps = frameWidth === null
+    ? { display: 'inline-block' as const, minW: '320px' }
+    : { display: 'block' as const, w: frameWidth === 'full' ? '100%' : frameWidth };
 const frameProps = isTask
     ? { w: '100%', h: '100vh', overflow: 'hidden' as const }
-    : { layerStyle: 'frame', bg: 'bg.surface', p: '6', display: 'inline-block' as const, minW: '320px' };
+    : { layerStyle: 'frame', bg: 'bg.surface', p: '6', ...componentFrameProps };
 
 const Ready = isTask ? TaskReady : ComponentReady;
 
