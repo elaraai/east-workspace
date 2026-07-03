@@ -348,9 +348,12 @@ static int run_suite(void *arg)
         body = ir->data.function.body;
     }
 
-    EastCompiledFn *fn = east_compile(body, platform, builtins);
+    char *compile_err = NULL;
+    EastCompiledFn *fn = east_compile_checked(body, platform, builtins, &compile_err);
     if (!fn) {
-        fprintf(stderr, "Failed to compile IR\n");
+        fprintf(stderr, "Failed to compile IR%s%s\n", compile_err ? ": " : "",
+                compile_err ? compile_err : "");
+        free(compile_err);
         ir_node_release(ir);
         east_source_map_free(&source_map);
         return 1;

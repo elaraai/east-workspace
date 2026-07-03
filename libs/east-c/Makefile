@@ -51,6 +51,7 @@ install-cli: build
 
 test-east-c: build
 	@./packages/east-c/scripts/run_compliance.sh
+	@./build/packages/east-c/test_platform_check /tmp/east-test-ir/platform_check || [ $$? -eq 77 ]
 
 test-east-c-std: build
 	@./packages/east-c/scripts/run_compliance.sh /tmp/east-node-std build/packages/east-c-std/test_std_compliance

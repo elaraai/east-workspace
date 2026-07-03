@@ -14,6 +14,12 @@ typedef struct {
     const char *name;
     PlatformFn fn;
     bool is_async;
+    /** Declared signature for the compile-time IR cross-check
+     *  (east_compile_checked). NULL output_type ⇒ untyped registration,
+     *  which is never checked. Types are retained by the registry. */
+    EastType **input_types;
+    size_t num_input_types;
+    EastType *output_type;
 } PlatformFunction;
 
 typedef struct {
@@ -43,10 +49,23 @@ typedef struct PlatformRegistry {
 
 PlatformRegistry *platform_registry_new(void);
 void platform_registry_add(PlatformRegistry *reg, const char *name, PlatformFn fn, bool is_async);
+
+/** Register a concrete platform function together with its declared East
+ *  signature. Every IR Platform node resolving to a typed entry is validated
+ *  against these types by east_compile_checked / east_compile before
+ *  execution. The registry retains the types. Passing NULL output_type is
+ *  equivalent to platform_registry_add (unchecked). */
+void platform_registry_add_typed(PlatformRegistry *reg, const char *name, PlatformFn fn,
+                                 bool is_async, EastType **input_types, size_t num_input_types,
+                                 EastType *output_type);
 void platform_registry_add_generic(PlatformRegistry *reg, const char *name,
                                    GenericPlatformFactory factory, bool is_async);
 PlatformFn platform_registry_get(PlatformRegistry *reg, const char *name, EastType **type_params,
                                  size_t num_tp);
+
+/** Look up a concrete (non-generic) registry entry by name. Returns NULL if
+ *  the name is unregistered or registered only as a generic factory. */
+PlatformFunction *platform_registry_lookup(PlatformRegistry *reg, const char *name);
 void platform_registry_free(PlatformRegistry *reg);
 
 void platform_registry_retain(PlatformRegistry *reg);

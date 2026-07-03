@@ -17,8 +17,8 @@ from east.types.types import FloatType, IntegerType, MatrixType, VectorType
 from east.types.values import EastBlob, EastMatrix, EastStruct, EastVariant, EastVector
 
 from east_py_datascience.types import (
-    ModelBlobType,
     XGBoostConfigType,
+    XGBoostModelBlobType,
     XGBoostQuantileConfigType,
     XGBoostQuantilePredictResultType,
     _get_option,
@@ -206,7 +206,7 @@ def _check_xgboost_support() -> None:
 @platform_function(
     name="xgboost_train_regressor",
     inputs=[MatrixType(FloatType), VectorType(FloatType), XGBoostConfigType],
-    output=ModelBlobType,
+    output=XGBoostModelBlobType,
 )
 def xgboost_train_regressor_impl(
     X: EastMatrix,
@@ -261,7 +261,7 @@ def xgboost_train_regressor_impl(
               using a partition-based split (default 64).
 
     Returns:
-        ``ModelBlobType`` (``EastVariant``) tagged ``xgboost_regressor``:
+        ``XGBoostModelBlobType`` (``EastVariant``) tagged ``xgboost_regressor``:
         ``{data: Blob (cloudpickle), n_features: Integer,
         categorical_features: Option<Vector<Integer>>,
         categorical_n: Option<Vector<Integer>>}``.
@@ -378,7 +378,7 @@ def xgboost_train_regressor_impl(
 @platform_function(
     name="xgboost_train_classifier",
     inputs=[MatrixType(FloatType), VectorType(IntegerType), XGBoostConfigType],
-    output=ModelBlobType,
+    output=XGBoostModelBlobType,
 )
 def xgboost_train_classifier_impl(
     X: EastMatrix,
@@ -401,7 +401,7 @@ def xgboost_train_classifier_impl(
             All fields apply identically.
 
     Returns:
-        ``ModelBlobType`` (``EastVariant``) tagged ``xgboost_classifier``:
+        ``XGBoostModelBlobType`` (``EastVariant``) tagged ``xgboost_classifier``:
         ``{data: Blob (cloudpickle of {model, classes}), n_features: Integer,
         n_classes: Integer, categorical_features: Option<Vector<Integer>>,
         categorical_n: Option<Vector<Integer>>}``.
@@ -531,7 +531,7 @@ def xgboost_train_classifier_impl(
 
 @platform_function(
     name="xgboost_predict",
-    inputs=[ModelBlobType, MatrixType(FloatType)],
+    inputs=[XGBoostModelBlobType, MatrixType(FloatType)],
     output=VectorType(FloatType),
 )
 def xgboost_predict_impl(
@@ -541,7 +541,7 @@ def xgboost_predict_impl(
     """Predict continuous values with a trained XGBoost regressor.
 
     Args:
-        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+        model_blob: ``XGBoostModelBlobType`` (``EastVariant``) tagged
             ``xgboost_regressor`` - as returned by
             :func:`xgboost_train_regressor_impl`.
         X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix; must have the
@@ -589,7 +589,7 @@ def xgboost_predict_impl(
 
 @platform_function(
     name="xgboost_predict_class",
-    inputs=[ModelBlobType, MatrixType(FloatType)],
+    inputs=[XGBoostModelBlobType, MatrixType(FloatType)],
     output=VectorType(IntegerType),
 )
 def xgboost_predict_class_impl(
@@ -602,7 +602,7 @@ def xgboost_predict_class_impl(
     original class labels seen during training.
 
     Args:
-        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+        model_blob: ``XGBoostModelBlobType`` (``EastVariant``) tagged
             ``xgboost_classifier`` - as returned by
             :func:`xgboost_train_classifier_impl`.
         X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix; must have the
@@ -658,7 +658,7 @@ def xgboost_predict_class_impl(
 
 @platform_function(
     name="xgboost_predict_proba",
-    inputs=[ModelBlobType, MatrixType(FloatType)],
+    inputs=[XGBoostModelBlobType, MatrixType(FloatType)],
     output=MatrixType(FloatType),
 )
 def xgboost_predict_proba_impl(
@@ -672,7 +672,7 @@ def xgboost_predict_proba_impl(
     training.
 
     Args:
-        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+        model_blob: ``XGBoostModelBlobType`` (``EastVariant``) tagged
             ``xgboost_classifier`` - as returned by
             :func:`xgboost_train_classifier_impl`.
         X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix; must have the
@@ -726,7 +726,7 @@ def xgboost_predict_proba_impl(
 @platform_function(
     name="xgboost_train_quantile",
     inputs=[MatrixType(FloatType), VectorType(FloatType), XGBoostQuantileConfigType],
-    output=ModelBlobType,
+    output=XGBoostModelBlobType,
 )
 def xgboost_train_quantile_impl(
     X: EastMatrix,
@@ -779,7 +779,7 @@ def xgboost_train_quantile_impl(
               threshold (default 64).
 
     Returns:
-        ``ModelBlobType`` (``EastVariant``) tagged ``xgboost_quantile``:
+        ``XGBoostModelBlobType`` (``EastVariant``) tagged ``xgboost_quantile``:
         ``{data: Blob (cloudpickle of {q: model} dict), quantiles:
         Vector<Float>, n_features: Integer, categorical_features:
         Option<Vector<Integer>>, categorical_n: Option<Vector<Integer>>}``.
@@ -918,7 +918,7 @@ def xgboost_train_quantile_impl(
 
 @platform_function(
     name="xgboost_predict_quantile",
-    inputs=[ModelBlobType, MatrixType(FloatType)],
+    inputs=[XGBoostModelBlobType, MatrixType(FloatType)],
     output=XGBoostQuantilePredictResultType,
 )
 def xgboost_predict_quantile_impl(
@@ -928,7 +928,7 @@ def xgboost_predict_quantile_impl(
     """Predict all quantile levels with a trained XGBoost quantile model.
 
     Args:
-        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+        model_blob: ``XGBoostModelBlobType`` (``EastVariant``) tagged
             ``xgboost_quantile`` - as returned by
             :func:`xgboost_train_quantile_impl`.
         X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix; must have the

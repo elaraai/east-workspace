@@ -166,6 +166,15 @@ add_executable(test_beast2_hardening tests/test_beast2_hardening.c)
 target_link_libraries(test_beast2_hardening east-c)
 add_test(NAME beast2_hardening COMMAND test_beast2_hardening)
 
+# Platform-signature check parity gate (#62): compiles TS-exported IR against
+# drifted typed platform registrations and asserts east_compile_checked's
+# error text is byte-identical to the TS analyzer's. Skips (exit 77) unless
+# `make test-export` has produced /tmp/east-test-ir/platform_check.
+add_executable(test_platform_check tests/test_platform_check.c)
+target_link_libraries(test_platform_check east-c)
+add_test(NAME platform_check COMMAND test_platform_check)
+set_tests_properties(platform_check PROPERTIES SKIP_RETURN_CODE 77)
+
 # Beast2 encode/decode timing harnesses (dev profiling — build Release for real
 # numbers). profile_collections builds large Dict/Set values in C and times
 # encode + decode per call; profile_beast2_decode times a given .beast2 file.

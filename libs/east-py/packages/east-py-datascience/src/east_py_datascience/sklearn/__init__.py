@@ -76,8 +76,6 @@ from east_py_datascience.types import (
     MetricAggregationType,
     MetricResultType,
     MetricsResultType,
-    # Shared model blob type
-    ModelBlobType,
     MultiClassificationConfigType,
     MultiClassificationMetricResultsType,
     MultiClassificationMetricResultType,
@@ -96,6 +94,8 @@ from east_py_datascience.types import (
     # ROC AUC types
     RocAucConfigType,
     RocAucMultiClassType,
+    # Sklearn model blob type
+    SklearnModelBlobType,
     # Split types
     SplitConfigType,
     SplitResultType,
@@ -166,5 +166,5 @@ __all__ = [
     "RegressorChainConfigType",
     "GMMCovarianceType",
     "GMMConfigType",
-    "ModelBlobType",
+    "SklearnModelBlobType",
 ]

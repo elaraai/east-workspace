@@ -19,15 +19,47 @@ PlatformRegistry *platform_registry_new(void)
     return reg;
 }
 
+static void platform_function_free(void *v)
+{
+    PlatformFunction *pf = v;
+    if (!pf) return;
+    for (size_t i = 0; i < pf->num_input_types; i++)
+        east_type_release(pf->input_types[i]);
+    free(pf->input_types);
+    east_type_release(pf->output_type);
+    free(pf);
+}
+
 void platform_registry_add(PlatformRegistry *reg, const char *name, PlatformFn fn, bool is_async)
 {
+    platform_registry_add_typed(reg, name, fn, is_async, NULL, 0, NULL);
+}
+
+void platform_registry_add_typed(PlatformRegistry *reg, const char *name, PlatformFn fn,
+                                 bool is_async, EastType **input_types, size_t num_input_types,
+                                 EastType *output_type)
+{
     if (!reg || !name) return;
-    free(hashmap_get(reg->functions, name));
+    platform_function_free(hashmap_get(reg->functions, name));
     PlatformFunction *pf = calloc(1, sizeof(PlatformFunction));
     if (!pf) return;
     pf->name = name;
     pf->fn = fn;
     pf->is_async = is_async;
+    if (input_types && num_input_types > 0) {
+        pf->input_types = calloc(num_input_types, sizeof(EastType *));
+        if (pf->input_types) {
+            for (size_t i = 0; i < num_input_types; i++) {
+                pf->input_types[i] = input_types[i];
+                east_type_retain(input_types[i]);
+            }
+            pf->num_input_types = num_input_types;
+        }
+    }
+    if (output_type) {
+        pf->output_type = output_type;
+        east_type_retain(output_type);
+    }
     hashmap_set(reg->functions, name, pf);
 }
 
@@ -60,6 +92,12 @@ PlatformFn platform_registry_get(PlatformRegistry *reg, const char *name, EastTy
     return NULL;
 }
 
+PlatformFunction *platform_registry_lookup(PlatformRegistry *reg, const char *name)
+{
+    if (!reg || !name) return NULL;
+    return hashmap_get(reg->functions, name);
+}
+
 static void free_pf(void *v)
 {
     free(v);
@@ -69,7 +107,7 @@ void platform_registry_free(PlatformRegistry *reg)
 {
     if (!reg) return;
     if (reg->on_free) reg->on_free(reg);
-    hashmap_free(reg->functions, free_pf);
+    hashmap_free(reg->functions, platform_function_free);
     hashmap_free(reg->generic_functions, free_pf);
     free(reg);
 }

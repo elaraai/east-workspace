@@ -24,8 +24,8 @@ from east.types.values import (
 )
 
 from east_py_datascience.types import (
-    ModelBlobType,
     NGBoostConfigType,
+    NGBoostModelBlobType,
     NGBoostPredictConfigType,
     NGBoostPredictResultType,
     _get_enum_tag,
@@ -86,7 +86,7 @@ def _check_ngboost_support() -> None:
 @platform_function(
     name="ngboost_train_regressor",
     inputs=[MatrixType(FloatType), VectorType(FloatType), NGBoostConfigType],
-    output=ModelBlobType,
+    output=NGBoostModelBlobType,
 )
 def ngboost_train_regressor_impl(
     X: EastMatrix,
@@ -121,7 +121,7 @@ def ngboost_train_regressor_impl(
               ``normal`` (default) or ``lognormal``.
 
     Returns:
-        ``ModelBlobType`` (``EastVariant``) tagged ``ngboost_regressor``:
+        ``NGBoostModelBlobType`` (``EastVariant``) tagged ``ngboost_regressor``:
         ``{data: Blob (cloudpickle), distribution: NGBoostDistributionType,
         n_features: Integer}``.
 
@@ -192,7 +192,7 @@ def ngboost_train_regressor_impl(
 
 @platform_function(
     name="ngboost_predict",
-    inputs=[ModelBlobType, MatrixType(FloatType)],
+    inputs=[NGBoostModelBlobType, MatrixType(FloatType)],
     output=VectorType(FloatType),
 )
 def ngboost_predict_impl(
@@ -202,7 +202,7 @@ def ngboost_predict_impl(
     """Predict the distributional mean with a trained NGBoost regressor.
 
     Args:
-        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+        model_blob: ``NGBoostModelBlobType`` (``EastVariant``) tagged
             ``ngboost_regressor`` - as returned by
             :func:`ngboost_train_regressor_impl`.
         X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix; must have the
@@ -242,7 +242,7 @@ def ngboost_predict_impl(
 
 @platform_function(
     name="ngboost_predict_dist",
-    inputs=[ModelBlobType, MatrixType(FloatType), NGBoostPredictConfigType],
+    inputs=[NGBoostModelBlobType, MatrixType(FloatType), NGBoostPredictConfigType],
     output=NGBoostPredictResultType,
 )
 def ngboost_predict_dist_impl(
@@ -256,7 +256,7 @@ def ngboost_predict_dist_impl(
     deviation using a normal approximation via scipy's percent-point function.
 
     Args:
-        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+        model_blob: ``NGBoostModelBlobType`` (``EastVariant``) tagged
             ``ngboost_regressor`` - as returned by
             :func:`ngboost_train_regressor_impl`.
         X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix; must have the

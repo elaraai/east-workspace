@@ -17,8 +17,9 @@ from east.types.types import FloatType, MatrixType
 from east.types.values import EastArray, EastBlob, EastMatrix, EastStruct, EastVariant, EastVector
 
 from east_py_datascience.types import (
+    AnyModelBlobType,
     FeatureImportanceType,
-    ModelBlobType,
+    ShapModelBlobType,
     ShapResultType,
     ShapValuesType,
     StringVectorType,
@@ -191,7 +192,7 @@ def _extract_tree_model(model_blob: EastVariant, function_name: str):
 @platform_function(
     name="shap_tree_explainer_create",
     inputs=[TreeExplainerConfigType],
-    output=ModelBlobType,
+    output=ShapModelBlobType,
 )
 def shap_tree_explainer_create_impl(
     config: EastVariant,
@@ -215,17 +216,17 @@ def shap_tree_explainer_create_impl(
     Args:
         config: ``TreeExplainerConfigType`` (``EastVariant``), one of:
 
-            - ``path_dependent`` ``{model: ModelBlobType}``: uses the tree
+            - ``path_dependent`` ``{model: TreeModelBlobType}``: uses the tree
               structure alone for attribution - fast, no background data
               required.
-            - ``interventional`` ``{model: ModelBlobType,
+            - ``interventional`` ``{model: TreeModelBlobType,
               background: Matrix<Float>}``: marginalises over the background
               distribution to break feature correlations (causal attribution).
               For XGBoost models with categorical features the SHAP C++
               extension is used directly (Python guard bypassed).
 
     Returns:
-        ``ModelBlobType`` (``EastVariant``) tagged ``shap_tree_explainer``
+        ``ShapModelBlobType`` (``EastVariant``) tagged ``shap_tree_explainer``
         with ``{data: Blob (cloudpickle), n_features: Integer}``.  Pass to
         :func:`shap_compute_values_impl`.
 
@@ -504,8 +505,8 @@ def _extract_model_from_blob(model_blob: EastVariant, function_name: str):
 
 @platform_function(
     name="shap_kernel_explainer_create",
-    inputs=[ModelBlobType, MatrixType(FloatType)],
-    output=ModelBlobType,
+    inputs=[AnyModelBlobType, MatrixType(FloatType)],
+    output=ShapModelBlobType,
 )
 def shap_kernel_explainer_create_impl(
     model_blob: EastVariant,
@@ -516,7 +517,7 @@ def shap_kernel_explainer_create_impl(
     Model-agnostic explainer that treats the model as a black box and
     approximates SHAP values via weighted linear regression over coalition
     samples.  Slower than :func:`shap_tree_explainer_create_impl` but
-    supports all model types in ``ModelBlobType``, including:
+    supports all model types in ``AnyModelBlobType``, including:
 
     - XGBoost / LightGBM regressors and classifiers.
     - Torch MLP, NGBoost, Gaussian Process.
@@ -527,7 +528,7 @@ def shap_kernel_explainer_create_impl(
     - ``regressor_chain``, ``gp_regressor``, ``ngboost_regressor``.
 
     Args:
-        model_blob: ``ModelBlobType`` (``EastVariant``) - any supported
+        model_blob: ``AnyModelBlobType`` (``EastVariant``) - any supported
             model blob; the appropriate predict function is selected
             automatically based on the variant tag.
         X_background: ``Matrix<Float>`` (``EastMatrix``) - background
@@ -535,7 +536,7 @@ def shap_kernel_explainer_create_impl(
             a sample or summary of the training set.
 
     Returns:
-        ``ModelBlobType`` (``EastVariant``) tagged ``shap_kernel_explainer``
+        ``ShapModelBlobType`` (``EastVariant``) tagged ``shap_kernel_explainer``
         with ``{data: Blob (cloudpickle), n_features: Integer}``.  Pass to
         :func:`shap_compute_values_impl`.
 
@@ -588,7 +589,7 @@ def shap_kernel_explainer_create_impl(
 
 @platform_function(
     name="shap_compute_values",
-    inputs=[ModelBlobType, MatrixType(FloatType), StringVectorType],
+    inputs=[ShapModelBlobType, MatrixType(FloatType), StringVectorType],
     output=ShapResultType,
 )
 def shap_compute_values_impl(
@@ -612,7 +613,7 @@ def shap_compute_values_impl(
     categorical splits correctly.
 
     Args:
-        explainer_blob: ``ModelBlobType`` (``EastVariant``) tagged
+        explainer_blob: ``ShapModelBlobType`` (``EastVariant``) tagged
             ``shap_tree_explainer`` or ``shap_kernel_explainer``, produced
             by :func:`shap_tree_explainer_create_impl` or
             :func:`shap_kernel_explainer_create_impl`.

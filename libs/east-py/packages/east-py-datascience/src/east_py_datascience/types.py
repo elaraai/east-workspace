@@ -694,19 +694,13 @@ TorchMLPConfigType = StructType(
         ("output_activation", OptionType(TorchOutputActivationType)),  # default none
         ("dropout", OptionType(FloatType)),  # default 0.0
         ("output_dim", OptionType(IntegerType)),  # default 1
-        (
-            "output_constraints",
-            OptionType(ConstrainedOutputConfigType),
-        ),  # per-row constraints
     ]
 )
 """Architecture configuration for the Torch MLP.
 
 Fields: ``hidden_layers`` (``Array<Integer>`` e.g. ``[64, 32]``),
 ``activation`` (default ``relu``), ``output_activation`` (default
-``none``), ``dropout`` (default 0.0), ``output_dim`` (default 1),
-``output_constraints`` (``Option<ConstrainedOutputConfigType>`` - per-row
-structural output constraints).
+``none``), ``dropout`` (default 0.0), ``output_dim`` (default 1).
 """
 
 # Torch training configuration
@@ -720,15 +714,6 @@ TorchTrainConfigType = StructType(
         ("early_stopping", OptionType(IntegerType)),  # patience, 0 = disabled
         ("validation_split", OptionType(FloatType)),  # default 0.2
         ("random_state", OptionType(IntegerType)),  # for reproducibility
-        (
-            "pos_weight",
-            OptionType(PosWeightType),
-        ),  # for BCE class imbalance (scalar or per-output)
-        ("prior", OptionType(PriorConfigType)),  # prior regularization config
-        (
-            "sample_constraints",
-            OptionType(SampleConstraintsConfigType),
-        ),  # per-sample constraints
     ]
 )
 """Training loop configuration for the Torch MLP.
@@ -736,10 +721,7 @@ TorchTrainConfigType = StructType(
 Fields: ``epochs`` (default 100), ``batch_size`` (default 32),
 ``learning_rate`` (default 0.001), ``loss`` (default ``mse``),
 ``optimizer`` (default ``adam``), ``early_stopping`` (patience in epochs;
-0 = disabled), ``validation_split`` (default 0.2),
-``random_state``, ``pos_weight`` (BCE class-imbalance weight - scalar or
-per-output), ``prior`` (prior regularization config),
-``sample_constraints`` (per-sample mask/weight/prior overrides).
+0 = disabled), ``validation_split`` (default 0.2), ``random_state``.
 """
 
 # GP configuration
@@ -1455,14 +1437,64 @@ LightningArchitectureType = VariantType(
                 ]
             ),
         ),
+        (
+            "conv1d",
+            StructType(
+                [
+                    ("n_channels", IntegerType),
+                    ("sequence_length", IntegerType),
+                    ("conv_channels", ArrayType(IntegerType)),
+                    ("kernel_size", IntegerType),
+                    ("latent_dim", IntegerType),
+                    ("condition_dim", OptionType(IntegerType)),
+                ]
+            ),
+        ),
+        (
+            "sequential",
+            StructType(
+                [
+                    ("n_channels", IntegerType),
+                    ("sequence_length", IntegerType),
+                    ("hidden_size", IntegerType),
+                    ("n_layers", IntegerType),
+                    ("cell_type", VariantType([("lstm", NullType), ("gru", NullType)])),
+                    ("latent_dim", IntegerType),
+                    ("bidirectional", BooleanType),
+                    ("condition_dim", OptionType(IntegerType)),
+                ]
+            ),
+        ),
+        (
+            "transformer",
+            StructType(
+                [
+                    ("n_channels", IntegerType),
+                    ("sequence_length", IntegerType),
+                    ("d_model", IntegerType),
+                    ("n_attention_heads", IntegerType),
+                    ("n_layers", IntegerType),
+                    ("d_ff", OptionType(IntegerType)),
+                    ("latent_dim", IntegerType),
+                    ("condition_dim", OptionType(IntegerType)),
+                ]
+            ),
+        ),
     ]
 )
 """Network architecture for a Lightning model.
 
 Cases: ``mlp`` ``{hidden_layers}`` (standard multi-layer perceptron),
 ``autoencoder`` ``{encoder_layers, latent_dim, decoder_layers}``
-(encoder-decoder with a bottleneck; ``encoder_layers`` and
-``decoder_layers`` are ``Array<Integer>`` of hidden widths).
+(encoder-decoder with a bottleneck), ``conv1d`` ``{n_channels,
+sequence_length, conv_channels, kernel_size, latent_dim, condition_dim}``
+(1D convolutional autoencoder), ``sequential`` ``{n_channels,
+sequence_length, hidden_size, n_layers, cell_type, latent_dim,
+bidirectional, condition_dim}`` (LSTM/GRU autoencoder), ``transformer``
+``{n_channels, sequence_length, d_model, n_attention_heads, n_layers, d_ff,
+latent_dim, condition_dim}`` (attention-based autoencoder). ``condition_dim``
+and ``d_ff`` are ``Option<Integer>``; ``cell_type`` is a ``lstm``/``gru``
+variant.
 """
 
 # Lightning epoch callback: (epoch, train_loss, val_loss) -> void
@@ -1926,6 +1958,490 @@ RegressorChain ``{data, n_features, n_targets, base_estimator_type}``),
 ``gaussian_mixture`` (cloudpickle GMM ``{data, n_features, n_components}``).
 """
 
+# Per-module narrow model blob types. Each train/create function returns (and
+# each predict function consumes) its own narrow union, matching the TS
+# per-module `<Module>ModelBlobType`; the broad `ModelBlobType` above is the
+# canonical union of all of them and is used only where TS declares it.
+GPModelBlobType = VariantType(
+    [
+        (
+            "gp_regressor",
+            StructType(
+                [
+                    ("data", BlobType),
+                    ("n_features", IntegerType),
+                    ("kernel_type", StringType),
+                ]
+            ),
+        ),
+    ]
+)
+"""Serialized Gaussian Process model blob returned by ``gp_train``.
+
+Single case ``gp_regressor``: ``data`` (cloudpickle), ``n_features``,
+``kernel_type`` (kernel name for reference).
+"""
+
+ScipyModelBlobType = VariantType(
+    [
+        (
+            "scipy_interp_1d",
+            StructType(
+                [
+                    ("data", BlobType),
+                    ("kind", InterpolationKindType),
+                ]
+            ),
+        ),
+        (
+            "scipy_kde",
+            StructType(
+                [
+                    ("data", BlobType),
+                    ("metadata", KdeResultType),
+                ]
+            ),
+        ),
+    ]
+)
+"""Serialized SciPy model blob returned by ``scipy_interp_1d`` / ``scipy_kde``.
+
+Cases: ``scipy_interp_1d`` ``{data, kind}``, ``scipy_kde``
+``{data, metadata}`` (both cloudpickle-serialized).
+"""
+
+TorchModelBlobType = VariantType(
+    [
+        (
+            "torch_mlp",
+            StructType(
+                [
+                    ("data", BlobType),
+                    ("n_features", IntegerType),
+                    ("hidden_layers", ArrayType(IntegerType)),
+                    ("output_dim", IntegerType),
+                ]
+            ),
+        ),
+    ]
+)
+"""Serialized PyTorch model blob returned by ``torch_mlp_train``.
+
+Single case ``torch_mlp``: ``data`` (cloudpickle), ``n_features``,
+``hidden_layers`` (``Array<Integer>``), ``output_dim``.
+"""
+
+ShapModelBlobType = VariantType(
+    [
+        (
+            "shap_tree_explainer",
+            StructType(
+                [
+                    ("data", BlobType),
+                    ("n_features", IntegerType),
+                ]
+            ),
+        ),
+        (
+            "shap_kernel_explainer",
+            StructType(
+                [
+                    ("data", BlobType),
+                    ("n_features", IntegerType),
+                ]
+            ),
+        ),
+    ]
+)
+"""Serialized SHAP explainer blob returned by the SHAP explainer-create functions.
+
+Cases: ``shap_tree_explainer`` ``{data, n_features}``,
+``shap_kernel_explainer`` ``{data, n_features}`` (both cloudpickle-serialized).
+"""
+
+NGBoostModelBlobType = VariantType(
+    [
+        (
+            "ngboost_regressor",
+            StructType(
+                [
+                    ("data", BlobType),
+                    ("distribution", NGBoostDistributionType),
+                    ("n_features", IntegerType),
+                ]
+            ),
+        ),
+    ]
+)
+"""Serialized NGBoost model blob returned by ``ngboost_train_regressor``.
+
+Single case ``ngboost_regressor``: ``data`` (cloudpickle), ``distribution``
+(``NGBoostDistributionType``), ``n_features``.
+"""
+
+SklearnModelBlobType = VariantType(
+    [
+        (
+            "standard_scaler",
+            StructType([("onnx", BlobType), ("n_features", IntegerType)]),
+        ),
+        (
+            "min_max_scaler",
+            StructType([("onnx", BlobType), ("n_features", IntegerType)]),
+        ),
+        (
+            "robust_scaler",
+            StructType([("onnx", BlobType), ("n_features", IntegerType)]),
+        ),
+        (
+            "label_encoder",
+            StructType([("data", BlobType), ("n_classes", IntegerType)]),
+        ),
+        (
+            "ordinal_encoder",
+            StructType([("data", BlobType), ("n_features", IntegerType)]),
+        ),
+        (
+            "regressor_chain",
+            StructType(
+                [
+                    ("data", BlobType),
+                    ("n_features", IntegerType),
+                    ("n_targets", IntegerType),
+                    ("base_estimator_type", StringType),
+                ]
+            ),
+        ),
+        (
+            "gaussian_mixture",
+            StructType(
+                [
+                    ("data", BlobType),
+                    ("n_features", IntegerType),
+                    ("n_components", IntegerType),
+                ]
+            ),
+        ),
+    ]
+)
+"""Serialized sklearn model blob returned by the sklearn preprocessing/encoder/
+chain fits.
+
+Cases: ``standard_scaler`` / ``min_max_scaler`` / ``robust_scaler``
+``{onnx, n_features}``, ``label_encoder`` ``{data, n_classes}``,
+``ordinal_encoder`` ``{data, n_features}``, ``regressor_chain``
+``{data, n_features, n_targets, base_estimator_type}``, ``gaussian_mixture``
+``{data, n_features, n_components}``.
+"""
+
+# Serialized base model data inside a MAPIE blob (mirrors mapie.ts
+# MAPIEBaseModelDataType; also defined in mapie_impl for its own blobs).
+MAPIEBaseModelDataType = VariantType(
+    [
+        ("xgboost", XGBoostModelBlobType),
+        ("lightgbm", LightGBMModelBlobType),
+        ("histogram", BlobType),
+    ]
+)
+"""Serialized base-model data inside a MAPIE conformal blob.
+
+Cases: ``xgboost`` (``XGBoostModelBlobType``), ``lightgbm``
+(``LightGBMModelBlobType``), ``histogram`` (bare ``Blob`` for the
+``HistGradientBoosting`` base used by CQR).
+"""
+
+# SHAP TreeExplainer input union - tree-based models plus MAPIE wrappers
+# (mirrors shap.ts TreeModelBlobType). LightGBM is intentionally excluded.
+TreeModelBlobType = VariantType(
+    [
+        (
+            "xgboost_regressor",
+            StructType(
+                [
+                    ("data", BlobType),
+                    ("n_features", IntegerType),
+                    ("categorical_features", OptionType(VectorType(IntegerType))),
+                    ("categorical_n", OptionType(VectorType(IntegerType))),
+                ]
+            ),
+        ),
+        (
+            "xgboost_classifier",
+            StructType(
+                [
+                    ("data", BlobType),
+                    ("n_features", IntegerType),
+                    ("n_classes", IntegerType),
+                    ("categorical_features", OptionType(VectorType(IntegerType))),
+                    ("categorical_n", OptionType(VectorType(IntegerType))),
+                ]
+            ),
+        ),
+        (
+            "xgboost_quantile",
+            StructType(
+                [
+                    ("data", BlobType),
+                    ("quantiles", VectorType(FloatType)),
+                    ("n_features", IntegerType),
+                    ("categorical_features", OptionType(VectorType(IntegerType))),
+                    ("categorical_n", OptionType(VectorType(IntegerType))),
+                ]
+            ),
+        ),
+        (
+            "mapie_split",
+            StructType(
+                [
+                    ("data", MAPIEBaseModelDataType),
+                    ("n_features", IntegerType),
+                    ("confidence_level", FloatType),
+                ]
+            ),
+        ),
+        (
+            "mapie_cross",
+            StructType(
+                [
+                    ("data", MAPIEBaseModelDataType),
+                    ("n_features", IntegerType),
+                    ("confidence_level", FloatType),
+                ]
+            ),
+        ),
+        (
+            "mapie_cqr",
+            StructType(
+                [
+                    ("data", MAPIEBaseModelDataType),
+                    ("n_features", IntegerType),
+                    ("confidence_level", FloatType),
+                ]
+            ),
+        ),
+        (
+            "mapie_classifier",
+            StructType(
+                [
+                    ("data", MAPIEBaseModelDataType),
+                    ("n_features", IntegerType),
+                    ("n_classes", IntegerType),
+                    ("classes", VectorType(IntegerType)),
+                    ("confidence_level", FloatType),
+                ]
+            ),
+        ),
+    ]
+)
+"""SHAP TreeExplainer input union - XGBoost models and MAPIE wrappers with an
+XGBoost base (mirrors shap.ts ``TreeModelBlobType``).
+
+Cases: ``xgboost_regressor`` / ``xgboost_classifier`` / ``xgboost_quantile``
+(cloudpickle XGBoost), ``mapie_split`` / ``mapie_cross`` / ``mapie_cqr`` /
+``mapie_classifier`` (MAPIE conformal wrappers carrying a
+``MAPIEBaseModelDataType``). LightGBM is excluded - use the kernel explainer.
+"""
+
+# SHAP KernelExplainer input union - any supported model (mirrors shap.ts
+# AnyModelBlobType).
+AnyModelBlobType = VariantType(
+    [
+        (
+            "xgboost_regressor",
+            StructType(
+                [
+                    ("data", BlobType),
+                    ("n_features", IntegerType),
+                    ("categorical_features", OptionType(VectorType(IntegerType))),
+                    ("categorical_n", OptionType(VectorType(IntegerType))),
+                ]
+            ),
+        ),
+        (
+            "xgboost_classifier",
+            StructType(
+                [
+                    ("data", BlobType),
+                    ("n_features", IntegerType),
+                    ("n_classes", IntegerType),
+                    ("categorical_features", OptionType(VectorType(IntegerType))),
+                    ("categorical_n", OptionType(VectorType(IntegerType))),
+                ]
+            ),
+        ),
+        (
+            "xgboost_quantile",
+            StructType(
+                [
+                    ("data", BlobType),
+                    ("quantiles", VectorType(FloatType)),
+                    ("n_features", IntegerType),
+                    ("categorical_features", OptionType(VectorType(IntegerType))),
+                    ("categorical_n", OptionType(VectorType(IntegerType))),
+                ]
+            ),
+        ),
+        (
+            "lightgbm_regressor",
+            StructType(
+                [
+                    ("data", BlobType),
+                    ("n_features", IntegerType),
+                ]
+            ),
+        ),
+        (
+            "lightgbm_classifier",
+            StructType(
+                [
+                    ("data", BlobType),
+                    ("n_features", IntegerType),
+                    ("n_classes", IntegerType),
+                ]
+            ),
+        ),
+        (
+            "ngboost_regressor",
+            StructType(
+                [
+                    ("data", BlobType),
+                    ("distribution", NGBoostDistributionType),
+                    ("n_features", IntegerType),
+                ]
+            ),
+        ),
+        (
+            "gp_regressor",
+            StructType(
+                [
+                    ("data", BlobType),
+                    ("n_features", IntegerType),
+                    ("kernel_type", StringType),
+                ]
+            ),
+        ),
+        (
+            "torch_mlp",
+            StructType(
+                [
+                    ("data", BlobType),
+                    ("n_features", IntegerType),
+                    ("hidden_layers", ArrayType(IntegerType)),
+                    ("output_dim", IntegerType),
+                ]
+            ),
+        ),
+        (
+            "standard_scaler",
+            StructType([("onnx", BlobType), ("n_features", IntegerType)]),
+        ),
+        (
+            "min_max_scaler",
+            StructType([("onnx", BlobType), ("n_features", IntegerType)]),
+        ),
+        (
+            "robust_scaler",
+            StructType([("onnx", BlobType), ("n_features", IntegerType)]),
+        ),
+        (
+            "label_encoder",
+            StructType([("data", BlobType), ("n_classes", IntegerType)]),
+        ),
+        (
+            "ordinal_encoder",
+            StructType([("data", BlobType), ("n_features", IntegerType)]),
+        ),
+        (
+            "gaussian_mixture",
+            StructType(
+                [
+                    ("data", BlobType),
+                    ("n_features", IntegerType),
+                    ("n_components", IntegerType),
+                ]
+            ),
+        ),
+        (
+            "regressor_chain",
+            StructType(
+                [
+                    ("data", BlobType),
+                    ("n_features", IntegerType),
+                    ("n_targets", IntegerType),
+                    ("base_estimator_type", StringType),
+                ]
+            ),
+        ),
+        (
+            "mapie_split",
+            StructType(
+                [
+                    ("data", MAPIEBaseModelDataType),
+                    ("n_features", IntegerType),
+                    ("confidence_level", FloatType),
+                ]
+            ),
+        ),
+        (
+            "mapie_cross",
+            StructType(
+                [
+                    ("data", MAPIEBaseModelDataType),
+                    ("n_features", IntegerType),
+                    ("confidence_level", FloatType),
+                ]
+            ),
+        ),
+        (
+            "mapie_cqr",
+            StructType(
+                [
+                    ("data", MAPIEBaseModelDataType),
+                    ("n_features", IntegerType),
+                    ("confidence_level", FloatType),
+                ]
+            ),
+        ),
+        (
+            "mapie_classifier",
+            StructType(
+                [
+                    ("data", MAPIEBaseModelDataType),
+                    ("n_features", IntegerType),
+                    ("n_classes", IntegerType),
+                    ("classes", VectorType(IntegerType)),
+                    ("confidence_level", FloatType),
+                ]
+            ),
+        ),
+        (
+            "mapie_interval_width",
+            StructType(
+                [
+                    ("data", BlobType),
+                    ("n_features", IntegerType),
+                ]
+            ),
+        ),
+        (
+            "mapie_set_size",
+            StructType(
+                [
+                    ("data", BlobType),
+                    ("n_features", IntegerType),
+                ]
+            ),
+        ),
+    ]
+)
+"""SHAP KernelExplainer input union - every supported model type (mirrors
+shap.ts ``AnyModelBlobType``).
+
+Adds NGBoost / GP / Torch / sklearn / MAPIE-uncertainty cases on top of the
+tree-based and MAPIE conformal cases, so any trained model can be explained
+model-agnostically via the kernel explainer.
+"""
+
 # TreeExplainer config type - path_dependent (tree structure) or interventional (background data)
 TreeExplainerConfigType = VariantType(
     [
@@ -1933,7 +2449,7 @@ TreeExplainerConfigType = VariantType(
             "path_dependent",
             StructType(
                 [
-                    ("model", ModelBlobType),
+                    ("model", TreeModelBlobType),
                 ]
             ),
         ),
@@ -1941,7 +2457,7 @@ TreeExplainerConfigType = VariantType(
             "interventional",
             StructType(
                 [
-                    ("model", ModelBlobType),
+                    ("model", TreeModelBlobType),
                     ("background", MatrixType(FloatType)),
                 ]
             ),
@@ -2086,6 +2602,15 @@ __all__ = [
     # Model Blob
     "XGBoostModelBlobType",
     "LightGBMModelBlobType",
+    "GPModelBlobType",
+    "ScipyModelBlobType",
+    "TorchModelBlobType",
+    "ShapModelBlobType",
+    "NGBoostModelBlobType",
+    "SklearnModelBlobType",
+    "MAPIEBaseModelDataType",
+    "TreeModelBlobType",
+    "AnyModelBlobType",
     "ModelBlobType",
     # Helpers
     "_get_option",

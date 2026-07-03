@@ -561,9 +561,11 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
     clock_gettime(CLOCK_MONOTONIC, &t1);
 
     IRNode *body = ir->data.function.body;
-    EastCompiledFn *fn = east_compile(body, platform, builtins);
+    char *compile_err = NULL;
+    EastCompiledFn *fn = east_compile_checked(body, platform, builtins, &compile_err);
     if (!fn) {
-        fprintf(stderr, "Error: Failed to compile IR\n");
+        fprintf(stderr, "Error: %s\n", compile_err ? compile_err : "Failed to compile IR");
+        free(compile_err);
         for (int i = 0; i < num_inputs; i++)
             east_value_release(args[i]);
         free(args);

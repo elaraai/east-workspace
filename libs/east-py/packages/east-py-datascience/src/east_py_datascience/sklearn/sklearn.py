@@ -37,7 +37,6 @@ from east_py_datascience.types import (  # noqa: E402
     GMMConfigType,
     MetricResultType,
     MetricsResultType,
-    ModelBlobType,
     MultiClassificationConfigType,
     MultiClassificationMetricResultsType,
     MultiClassificationMetricResultType,
@@ -50,6 +49,7 @@ from east_py_datascience.types import (  # noqa: E402
     RegressionMetricType,
     RegressorChainConfigType,
     RocAucConfigType,
+    SklearnModelBlobType,
     SplitConfigType,
     SplitResultType,
     _get_enum_tag,
@@ -706,7 +706,7 @@ def sklearn_overlap_impl(
 @platform_function(
     name="sklearn_standard_scaler_fit",
     inputs=[MatrixType(FloatType)],
-    output=ModelBlobType,
+    output=SklearnModelBlobType,
 )
 def sklearn_standard_scaler_fit_impl(X: EastMatrix) -> EastVariant:
     """Fit a StandardScaler on X and return an ONNX-serialised model blob.
@@ -720,7 +720,7 @@ def sklearn_standard_scaler_fit_impl(X: EastMatrix) -> EastVariant:
             (n_samples, n_features).
 
     Returns:
-        ``ModelBlobType`` (``EastVariant``) tagged ``standard_scaler``:
+        ``SklearnModelBlobType`` (``EastVariant``) tagged ``standard_scaler``:
         ``{onnx: Blob, n_features: Integer}``.
 
     Raises:
@@ -761,7 +761,7 @@ def sklearn_standard_scaler_fit_impl(X: EastMatrix) -> EastVariant:
 
 @platform_function(
     name="sklearn_standard_scaler_transform",
-    inputs=[ModelBlobType, MatrixType(FloatType)],
+    inputs=[SklearnModelBlobType, MatrixType(FloatType)],
     output=MatrixType(FloatType),
 )
 def sklearn_standard_scaler_transform_impl(
@@ -771,7 +771,7 @@ def sklearn_standard_scaler_transform_impl(
     """Apply a fitted StandardScaler to X via ONNX Runtime.
 
     Args:
-        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+        model_blob: ``SklearnModelBlobType`` (``EastVariant``) tagged
             ``standard_scaler``, as returned by
             :func:`sklearn_standard_scaler_fit_impl`.
         X: ``Matrix<Float>`` (``EastMatrix``) - data to transform, shape
@@ -804,7 +804,7 @@ def sklearn_standard_scaler_transform_impl(
 @platform_function(
     name="sklearn_min_max_scaler_fit",
     inputs=[MatrixType(FloatType)],
-    output=ModelBlobType,
+    output=SklearnModelBlobType,
 )
 def sklearn_min_max_scaler_fit_impl(X: EastMatrix) -> EastVariant:
     """Fit a MinMaxScaler on X and return an ONNX-serialised model blob.
@@ -818,7 +818,7 @@ def sklearn_min_max_scaler_fit_impl(X: EastMatrix) -> EastVariant:
             (n_samples, n_features).
 
     Returns:
-        ``ModelBlobType`` (``EastVariant``) tagged ``min_max_scaler``:
+        ``SklearnModelBlobType`` (``EastVariant``) tagged ``min_max_scaler``:
         ``{onnx: Blob, n_features: Integer}``.
 
     Raises:
@@ -859,7 +859,7 @@ def sklearn_min_max_scaler_fit_impl(X: EastMatrix) -> EastVariant:
 
 @platform_function(
     name="sklearn_min_max_scaler_transform",
-    inputs=[ModelBlobType, MatrixType(FloatType)],
+    inputs=[SklearnModelBlobType, MatrixType(FloatType)],
     output=MatrixType(FloatType),
 )
 def sklearn_min_max_scaler_transform_impl(
@@ -869,7 +869,7 @@ def sklearn_min_max_scaler_transform_impl(
     """Apply a fitted MinMaxScaler to X via ONNX Runtime.
 
     Args:
-        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+        model_blob: ``SklearnModelBlobType`` (``EastVariant``) tagged
             ``min_max_scaler``, as returned by
             :func:`sklearn_min_max_scaler_fit_impl`.
         X: ``Matrix<Float>`` (``EastMatrix``) - data to transform, shape
@@ -902,7 +902,7 @@ def sklearn_min_max_scaler_transform_impl(
 @platform_function(
     name="sklearn_robust_scaler_fit",
     inputs=[MatrixType(FloatType)],
-    output=ModelBlobType,
+    output=SklearnModelBlobType,
 )
 def sklearn_robust_scaler_fit_impl(X: EastMatrix) -> EastVariant:
     """Fit a RobustScaler on X and return an ONNX-serialised model blob.
@@ -916,7 +916,7 @@ def sklearn_robust_scaler_fit_impl(X: EastMatrix) -> EastVariant:
             (n_samples, n_features).
 
     Returns:
-        ``ModelBlobType`` (``EastVariant``) tagged ``robust_scaler``:
+        ``SklearnModelBlobType`` (``EastVariant``) tagged ``robust_scaler``:
         ``{onnx: Blob, n_features: Integer}``.
 
     Raises:
@@ -957,7 +957,7 @@ def sklearn_robust_scaler_fit_impl(X: EastMatrix) -> EastVariant:
 
 @platform_function(
     name="sklearn_robust_scaler_transform",
-    inputs=[ModelBlobType, MatrixType(FloatType)],
+    inputs=[SklearnModelBlobType, MatrixType(FloatType)],
     output=MatrixType(FloatType),
 )
 def sklearn_robust_scaler_transform_impl(
@@ -967,7 +967,7 @@ def sklearn_robust_scaler_transform_impl(
     """Apply a fitted RobustScaler to X via ONNX Runtime.
 
     Args:
-        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+        model_blob: ``SklearnModelBlobType`` (``EastVariant``) tagged
             ``robust_scaler``, as returned by
             :func:`sklearn_robust_scaler_fit_impl`.
         X: ``Matrix<Float>`` (``EastMatrix``) - data to transform, shape
@@ -1000,7 +1000,7 @@ def sklearn_robust_scaler_transform_impl(
 @platform_function(
     name="sklearn_label_encoder_fit",
     inputs=[VectorType(IntegerType)],
-    output=ModelBlobType,
+    output=SklearnModelBlobType,
 )
 def sklearn_label_encoder_fit_impl(y: EastVector) -> EastVariant:
     """Fit a LabelEncoder on integer labels and return a cloudpickle-serialised model blob.
@@ -1014,7 +1014,7 @@ def sklearn_label_encoder_fit_impl(y: EastVector) -> EastVariant:
             learn from.
 
     Returns:
-        ``ModelBlobType`` (``EastVariant``) tagged ``label_encoder``:
+        ``SklearnModelBlobType`` (``EastVariant``) tagged ``label_encoder``:
         ``{data: Blob, n_classes: Integer}``.
 
     Raises:
@@ -1054,7 +1054,7 @@ def sklearn_label_encoder_fit_impl(y: EastVector) -> EastVariant:
 
 @platform_function(
     name="sklearn_label_encoder_transform",
-    inputs=[ModelBlobType, VectorType(IntegerType)],
+    inputs=[SklearnModelBlobType, VectorType(IntegerType)],
     output=VectorType(IntegerType),
 )
 def sklearn_label_encoder_transform_impl(
@@ -1067,7 +1067,7 @@ def sklearn_label_encoder_transform_impl(
     set (0..N-1).
 
     Args:
-        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+        model_blob: ``SklearnModelBlobType`` (``EastVariant``) tagged
             ``label_encoder``, as returned by
             :func:`sklearn_label_encoder_fit_impl`.
         y: ``Vector<Integer>`` (``EastVector``) - labels to encode; all
@@ -1102,7 +1102,7 @@ def sklearn_label_encoder_transform_impl(
 
 @platform_function(
     name="sklearn_label_encoder_inverse_transform",
-    inputs=[ModelBlobType, VectorType(IntegerType)],
+    inputs=[SklearnModelBlobType, VectorType(IntegerType)],
     output=VectorType(IntegerType),
 )
 def sklearn_label_encoder_inverse_transform_impl(
@@ -1112,7 +1112,7 @@ def sklearn_label_encoder_inverse_transform_impl(
     """Decode contiguous indices back to the original integer class labels.
 
     Args:
-        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+        model_blob: ``SklearnModelBlobType`` (``EastVariant``) tagged
             ``label_encoder``, as returned by
             :func:`sklearn_label_encoder_fit_impl`.
         y: ``Vector<Integer>`` (``EastVector``) - encoded labels in
@@ -1150,7 +1150,7 @@ def sklearn_label_encoder_inverse_transform_impl(
 @platform_function(
     name="sklearn_ordinal_encoder_fit",
     inputs=[MatrixType(FloatType)],
-    output=ModelBlobType,
+    output=SklearnModelBlobType,
 )
 def sklearn_ordinal_encoder_fit_impl(X: EastMatrix) -> EastVariant:
     """Fit an OrdinalEncoder on feature matrix X and return a cloudpickle-serialised model blob.
@@ -1163,7 +1163,7 @@ def sklearn_ordinal_encoder_fit_impl(X: EastMatrix) -> EastVariant:
             categorical columns, shape (n_samples, n_features).
 
     Returns:
-        ``ModelBlobType`` (``EastVariant``) tagged ``ordinal_encoder``:
+        ``SklearnModelBlobType`` (``EastVariant``) tagged ``ordinal_encoder``:
         ``{data: Blob, n_features: Integer}``.
 
     Raises:
@@ -1204,7 +1204,7 @@ def sklearn_ordinal_encoder_fit_impl(X: EastMatrix) -> EastVariant:
 
 @platform_function(
     name="sklearn_ordinal_encoder_transform",
-    inputs=[ModelBlobType, MatrixType(FloatType)],
+    inputs=[SklearnModelBlobType, MatrixType(FloatType)],
     output=MatrixType(FloatType),
 )
 def sklearn_ordinal_encoder_transform_impl(
@@ -1214,7 +1214,7 @@ def sklearn_ordinal_encoder_transform_impl(
     """Apply a fitted OrdinalEncoder to X.
 
     Args:
-        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+        model_blob: ``SklearnModelBlobType`` (``EastVariant``) tagged
             ``ordinal_encoder``, as returned by
             :func:`sklearn_ordinal_encoder_fit_impl`.
         X: ``Matrix<Float>`` (``EastMatrix``) - data to encode, shape
@@ -2210,7 +2210,7 @@ def _create_base_estimator(estimator_variant: EastVariant):
 @platform_function(
     name="sklearn_regressor_chain_train",
     inputs=[MatrixType(FloatType), MatrixType(FloatType), RegressorChainConfigType],
-    output=ModelBlobType,
+    output=SklearnModelBlobType,
 )
 def sklearn_regressor_chain_train_impl(
     X: EastMatrix,
@@ -2248,7 +2248,7 @@ def sklearn_regressor_chain_train_impl(
               that support it.
 
     Returns:
-        ``ModelBlobType`` (``EastVariant``) tagged ``regressor_chain``:
+        ``SklearnModelBlobType`` (``EastVariant``) tagged ``regressor_chain``:
         ``{data: Blob, n_features: Integer, n_targets: Integer,
         base_estimator_type: String}``.
 
@@ -2328,7 +2328,7 @@ def sklearn_regressor_chain_train_impl(
 
 @platform_function(
     name="sklearn_regressor_chain_predict",
-    inputs=[ModelBlobType, MatrixType(FloatType)],
+    inputs=[SklearnModelBlobType, MatrixType(FloatType)],
     output=MatrixType(FloatType),
 )
 def sklearn_regressor_chain_predict_impl(
@@ -2338,7 +2338,7 @@ def sklearn_regressor_chain_predict_impl(
     """Predict multi-target outputs with a fitted RegressorChain.
 
     Args:
-        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+        model_blob: ``SklearnModelBlobType`` (``EastVariant``) tagged
             ``regressor_chain``, as returned by
             :func:`sklearn_regressor_chain_train_impl`.
         X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix, shape
@@ -2387,7 +2387,7 @@ def sklearn_regressor_chain_predict_impl(
 @platform_function(
     name="sklearn_gmm_fit",
     inputs=[MatrixType(FloatType), GMMConfigType],
-    output=ModelBlobType,
+    output=SklearnModelBlobType,
 )
 def sklearn_gmm_fit_impl(
     X: EastMatrix,
@@ -2422,7 +2422,7 @@ def sklearn_gmm_fit_impl(
             - ``random_state`` (``Option<Integer>``): seed; default None.
 
     Returns:
-        ``ModelBlobType`` (``EastVariant``) tagged ``gaussian_mixture``:
+        ``SklearnModelBlobType`` (``EastVariant``) tagged ``gaussian_mixture``:
         ``{data: Blob, n_features: Integer, n_components: Integer}``.
 
     Raises:
@@ -2483,7 +2483,7 @@ def sklearn_gmm_fit_impl(
 
 @platform_function(
     name="sklearn_gmm_predict",
-    inputs=[ModelBlobType, MatrixType(FloatType)],
+    inputs=[SklearnModelBlobType, MatrixType(FloatType)],
     output=VectorType(IntegerType),
 )
 def sklearn_gmm_predict_impl(
@@ -2493,7 +2493,7 @@ def sklearn_gmm_predict_impl(
     """Predict the most likely component label for each sample.
 
     Args:
-        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+        model_blob: ``SklearnModelBlobType`` (``EastVariant``) tagged
             ``gaussian_mixture``, as returned by
             :func:`sklearn_gmm_fit_impl`.
         X: ``Matrix<Float>`` (``EastMatrix``) - data, shape (n_samples,
@@ -2534,7 +2534,7 @@ def sklearn_gmm_predict_impl(
 
 @platform_function(
     name="sklearn_gmm_predict_proba",
-    inputs=[ModelBlobType, MatrixType(FloatType)],
+    inputs=[SklearnModelBlobType, MatrixType(FloatType)],
     output=MatrixType(FloatType),
 )
 def sklearn_gmm_predict_proba_impl(
@@ -2544,7 +2544,7 @@ def sklearn_gmm_predict_proba_impl(
     """Compute posterior membership probabilities for each GMM component.
 
     Args:
-        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+        model_blob: ``SklearnModelBlobType`` (``EastVariant``) tagged
             ``gaussian_mixture``, as returned by
             :func:`sklearn_gmm_fit_impl`.
         X: ``Matrix<Float>`` (``EastMatrix``) - data, shape (n_samples,
@@ -2585,7 +2585,7 @@ def sklearn_gmm_predict_proba_impl(
 
 @platform_function(
     name="sklearn_gmm_score_samples",
-    inputs=[ModelBlobType, MatrixType(FloatType)],
+    inputs=[SklearnModelBlobType, MatrixType(FloatType)],
     output=VectorType(FloatType),
 )
 def sklearn_gmm_score_samples_impl(
@@ -2595,7 +2595,7 @@ def sklearn_gmm_score_samples_impl(
     """Compute the per-sample log-likelihood under the fitted GMM.
 
     Args:
-        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+        model_blob: ``SklearnModelBlobType`` (``EastVariant``) tagged
             ``gaussian_mixture``, as returned by
             :func:`sklearn_gmm_fit_impl`.
         X: ``Matrix<Float>`` (``EastMatrix``) - data, shape (n_samples,
@@ -2636,7 +2636,7 @@ def sklearn_gmm_score_samples_impl(
 
 @platform_function(
     name="sklearn_gmm_sample",
-    inputs=[ModelBlobType, IntegerType],
+    inputs=[SklearnModelBlobType, IntegerType],
     output=MatrixType(FloatType),
 )
 def sklearn_gmm_sample_impl(
@@ -2646,7 +2646,7 @@ def sklearn_gmm_sample_impl(
     """Draw random samples from the fitted Gaussian Mixture Model.
 
     Args:
-        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+        model_blob: ``SklearnModelBlobType`` (``EastVariant``) tagged
             ``gaussian_mixture``, as returned by
             :func:`sklearn_gmm_fit_impl`.
         n_samples: ``Integer`` - number of samples to generate.
@@ -2678,7 +2678,7 @@ def sklearn_gmm_sample_impl(
 
 @platform_function(
     name="sklearn_gmm_bic",
-    inputs=[ModelBlobType, MatrixType(FloatType)],
+    inputs=[SklearnModelBlobType, MatrixType(FloatType)],
     output=FloatType,
 )
 def sklearn_gmm_bic_impl(
@@ -2691,7 +2691,7 @@ def sklearn_gmm_bic_impl(
     complexity; useful for selecting the number of components.
 
     Args:
-        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+        model_blob: ``SklearnModelBlobType`` (``EastVariant``) tagged
             ``gaussian_mixture``, as returned by
             :func:`sklearn_gmm_fit_impl`.
         X: ``Matrix<Float>`` (``EastMatrix``) - data to evaluate, shape
@@ -2729,7 +2729,7 @@ def sklearn_gmm_bic_impl(
 
 @platform_function(
     name="sklearn_gmm_aic",
-    inputs=[ModelBlobType, MatrixType(FloatType)],
+    inputs=[SklearnModelBlobType, MatrixType(FloatType)],
     output=FloatType,
 )
 def sklearn_gmm_aic_impl(
@@ -2742,7 +2742,7 @@ def sklearn_gmm_aic_impl(
     complexity; penalises complexity less heavily than BIC.
 
     Args:
-        model_blob: ``ModelBlobType`` (``EastVariant``) tagged
+        model_blob: ``SklearnModelBlobType`` (``EastVariant``) tagged
             ``gaussian_mixture``, as returned by
             :func:`sklearn_gmm_fit_impl`.
         X: ``Matrix<Float>`` (``EastMatrix``) - data to evaluate, shape
@@ -2789,5 +2789,5 @@ __all__ = [
     # Re-export types from types.py
     "SplitConfigType",
     "SplitResultType",
-    "ModelBlobType",
+    "SklearnModelBlobType",
 ]

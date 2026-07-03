@@ -24,6 +24,7 @@ from east.types.types import (
     BooleanType,
     FloatType,
     IntegerType,
+    NullType,
     OptionType,
     StructType,
     VariantType,
@@ -67,10 +68,10 @@ progressive barrier; violations accumulated in barrier parameter).
 # MADS direction type
 MADSDirectionType = VariantType(
     [
-        ("ortho_2n", StructType([])),
-        ("ortho_n_plus_1", StructType([])),
-        ("lt_2n", StructType([])),
-        ("single", StructType([])),
+        ("ortho_2n", NullType),
+        ("ortho_n_plus_1", NullType),
+        ("lt_2n", NullType),
+        ("single", NullType),
     ]
 )
 """Poll direction strategy for NOMAD's mesh exploration.

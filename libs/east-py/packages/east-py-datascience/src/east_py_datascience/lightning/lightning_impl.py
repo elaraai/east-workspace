@@ -22,7 +22,7 @@ from collections.abc import Callable
 
 import numpy as np
 from east.runtime.platform import platform_function, platform_functions
-from east.types.values import EastArray, EastBlob, EastStruct, EastVariant, is_east_variant
+from east.types.values import EastBlob, EastStruct, EastVariant, is_east_variant
 
 # Lazy import guard for optional dependency
 _HAS_LIGHTNING_SUPPORT = importlib.util.find_spec("pytorch_lightning") is not None
@@ -74,15 +74,15 @@ def _check_lightning_support() -> None:
         )
 
 
-from east.types.types import FloatType, MatrixType
+from east.types.types import ArrayType, BooleanType, FloatType, MatrixType, OptionType
 from east.types.values import EastMatrix
 
 from east_py_datascience.types import (
     GroupWeightsType,
     LightningConfigType,
     LightningGenerateConfigType,
+    LightningModelBlobType,
     LightningResultType,
-    ModelBlobType,
     _get_option,
 )
 
@@ -1135,13 +1135,13 @@ def _deserialize_model(blob: bytes) -> LightningMLP:
 # Platform Function Implementations
 # ============================================================================
 
-# 3D tensor type for masks
-Tensor3DType = EastArray  # ArrayType(ArrayType(ArrayType(BooleanType)))
+# 3D boolean tensor for masks: (n_samples, n_heads, n_classes) — mirrors TS Tensor3DBoolType
+Tensor3DBoolType = ArrayType(ArrayType(ArrayType(BooleanType)))
 
 
 @platform_function(
     name="lightning_train",
-    inputs=[MatrixType(FloatType), MatrixType(FloatType), LightningConfigType, Tensor3DType, GroupWeightsType, MatrixType(FloatType)],
+    inputs=[MatrixType(FloatType), MatrixType(FloatType), LightningConfigType, OptionType(Tensor3DBoolType), OptionType(GroupWeightsType), OptionType(MatrixType(FloatType))],
     output=LightningResultType,
 )
 def lightning_train_impl(
@@ -1623,7 +1623,7 @@ def lightning_train_impl(
 
 @platform_function(
     name="lightning_predict",
-    inputs=[ModelBlobType, MatrixType(FloatType), Tensor3DType, MatrixType(FloatType)],
+    inputs=[LightningModelBlobType, MatrixType(FloatType), OptionType(Tensor3DBoolType), OptionType(MatrixType(FloatType))],
     output=MatrixType(FloatType),
 )
 def lightning_predict_impl(
@@ -1639,7 +1639,7 @@ def lightning_predict_impl(
     optionally zeros masked positions.
 
     Args:
-        model_blob: ``ModelBlobType`` (``EastVariant`` tagged ``lightning``)
+        model_blob: ``LightningModelBlobType`` (``EastVariant``)
             from :func:`lightning_train_impl`.
         X: ``Matrix<Float>`` (``EastMatrix``) - input features
            (n_samples x n_features).
@@ -1713,7 +1713,7 @@ def lightning_predict_impl(
 
 @platform_function(
     name="lightning_encode",
-    inputs=[ModelBlobType, MatrixType(FloatType)],
+    inputs=[LightningModelBlobType, MatrixType(FloatType)],
     output=MatrixType(FloatType),
 )
 def lightning_encode_impl(
@@ -1726,7 +1726,7 @@ def lightning_encode_impl(
     ``transformer`` architectures.
 
     Args:
-        model_blob: ``ModelBlobType`` (``EastVariant`` tagged ``lightning``)
+        model_blob: ``LightningModelBlobType`` (``EastVariant``)
             from :func:`lightning_train_impl`.
         X: ``Matrix<Float>`` (``EastMatrix``) - input features
            (n_samples x n_features).
@@ -1761,7 +1761,7 @@ def lightning_encode_impl(
 
 @platform_function(
     name="lightning_decode",
-    inputs=[ModelBlobType, MatrixType(FloatType)],
+    inputs=[LightningModelBlobType, MatrixType(FloatType)],
     output=MatrixType(FloatType),
 )
 def lightning_decode_impl(
@@ -1779,7 +1779,7 @@ def lightning_decode_impl(
     sets ``condition_dim``.
 
     Args:
-        model_blob: ``ModelBlobType`` (``EastVariant`` tagged ``lightning``)
+        model_blob: ``LightningModelBlobType`` (``EastVariant``)
             from :func:`lightning_train_impl`.
         z: ``Matrix<Float>`` (``EastMatrix``) - latent vectors
            (n_samples x latent_dim).
@@ -1824,7 +1824,7 @@ def lightning_decode_impl(
 
 @platform_function(
     name="lightning_decode_conditional",
-    inputs=[ModelBlobType, MatrixType(FloatType), MatrixType(FloatType)],
+    inputs=[LightningModelBlobType, MatrixType(FloatType), MatrixType(FloatType)],
     output=MatrixType(FloatType),
 )
 def lightning_decode_conditional_impl(
@@ -1840,7 +1840,7 @@ def lightning_decode_conditional_impl(
     ``sequential``, ``transformer``) that set ``condition_dim``.
 
     Args:
-        model_blob: ``ModelBlobType`` (``EastVariant`` tagged ``lightning``)
+        model_blob: ``LightningModelBlobType`` (``EastVariant``)
             from :func:`lightning_train_impl`.
         z: ``Matrix<Float>`` (``EastMatrix``) - latent vectors
            (n_samples x latent_dim).
@@ -1895,7 +1895,7 @@ def lightning_decode_conditional_impl(
 
 @platform_function(
     name="lightning_generate_sequence",
-    inputs=[ModelBlobType, MatrixType(FloatType), MatrixType(FloatType), LightningGenerateConfigType],
+    inputs=[LightningModelBlobType, MatrixType(FloatType), OptionType(MatrixType(FloatType)), LightningGenerateConfigType],
     output=MatrixType(FloatType),
 )
 def lightning_generate_sequence_impl(
@@ -1914,7 +1914,7 @@ def lightning_generate_sequence_impl(
     and ``binary`` or ``regression`` output types.
 
     Args:
-        model_blob: ``ModelBlobType`` (``EastVariant`` tagged ``lightning``)
+        model_blob: ``LightningModelBlobType`` (``EastVariant``)
             from :func:`lightning_train_impl` with ``sequential``
             architecture.
         prefix: ``Matrix<Float>`` (``EastMatrix``) - optional prefix sequence

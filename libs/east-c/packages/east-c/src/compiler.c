@@ -2,7 +2,9 @@
 #include "east/type_of_type.h"
 #include "east/arena.h"
 #include "east/gc.h"
+#include "east/serialization.h"
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1121,11 +1123,236 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
 }
 
 /* ------------------------------------------------------------------ */
+/*  Platform signature validation (east_compile_checked)               */
+/* ------------------------------------------------------------------ */
+
+/* malloc'd printf. Returns NULL on allocation failure. */
+static char *format_error(const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    int len = vsnprintf(NULL, 0, fmt, ap);
+    va_end(ap);
+    if (len < 0) return NULL;
+    char *buf = malloc((size_t)len + 1);
+    if (!buf) return NULL;
+    va_start(ap, fmt);
+    vsnprintf(buf, (size_t)len + 1, fmt, ap);
+    va_end(ap);
+    return buf;
+}
+
+/* Validate every Platform node against its typed registry entry, in
+ * evaluation order. Untyped entries (NULL output_type), generic factories,
+ * and unregistered names are skipped — resolution failures stay a runtime
+ * concern (optional platforms are legal). Returns a malloc'd error message
+ * matching the TS analyzer's text (analyze.ts Platform checks), or NULL. */
+static char *check_platform_types(IRNode *node, PlatformRegistry *platform)
+{
+    if (!node) return NULL;
+    char *err = NULL;
+
+    switch (node->kind) {
+    case IR_PLATFORM: {
+        const char *name = node->data.platform.name;
+        PlatformFunction *pf = platform_registry_lookup(platform, name);
+        bool typed = pf && pf->output_type;
+        size_t nargs = node->data.platform.num_args;
+
+        if (typed && nargs != pf->num_input_types) {
+            return format_error(
+                "Platform function '%s' expects %zu arguments but got %zu at loc_id %lld", name,
+                pf->num_input_types, nargs, (long long)node->loc_id);
+        }
+        for (size_t i = 0; i < nargs; i++) {
+            IRNode *arg = node->data.platform.args[i];
+            err = check_platform_types(arg, platform);
+            if (err) return err;
+            if (typed && arg->type->kind != EAST_TYPE_NEVER &&
+                !east_type_equal(arg->type, pf->input_types[i])) {
+                char *expected = east_print_type(pf->input_types[i]);
+                char *got = east_print_type(arg->type);
+                err = format_error(
+                    "Platform function '%s' argument %zu requires exact type match. "
+                    "Expected type %s but got %s. Insert an As node if subtyping is intended. "
+                    "at loc_id %lld",
+                    name, i + 1, expected ? expected : "?", got ? got : "?",
+                    (long long)node->loc_id);
+                free(expected);
+                free(got);
+                return err;
+            }
+        }
+        if (typed && !east_type_equal(node->type, pf->output_type)) {
+            char *expected = east_print_type(pf->output_type);
+            char *got = east_print_type(node->type);
+            err = format_error(
+                "Platform function '%s' return type expected to be %s but IR has %s at loc_id "
+                "%lld",
+                name, expected ? expected : "?", got ? got : "?", (long long)node->loc_id);
+            free(expected);
+            free(got);
+            return err;
+        }
+        return NULL;
+    }
+
+    case IR_VALUE:
+    case IR_VARIABLE:
+    case IR_BREAK:
+    case IR_CONTINUE:
+        return NULL;
+
+    case IR_LET:
+        return check_platform_types(node->data.let.value, platform);
+    case IR_ASSIGN:
+        return check_platform_types(node->data.assign.value, platform);
+
+    case IR_BLOCK:
+        for (size_t i = 0; i < node->data.block.num_stmts; i++) {
+            err = check_platform_types(node->data.block.stmts[i], platform);
+            if (err) return err;
+        }
+        return NULL;
+
+    case IR_IF_ELSE:
+        err = check_platform_types(node->data.if_else.cond, platform);
+        if (!err) err = check_platform_types(node->data.if_else.then_branch, platform);
+        if (!err) err = check_platform_types(node->data.if_else.else_branch, platform);
+        return err;
+
+    case IR_MATCH:
+        err = check_platform_types(node->data.match.expr, platform);
+        if (err) return err;
+        for (size_t i = 0; i < node->data.match.num_cases; i++) {
+            err = check_platform_types(node->data.match.cases[i].body, platform);
+            if (err) return err;
+        }
+        return NULL;
+
+    case IR_WHILE:
+        err = check_platform_types(node->data.while_.cond, platform);
+        if (!err) err = check_platform_types(node->data.while_.body, platform);
+        return err;
+
+    case IR_FOR_ARRAY:
+        err = check_platform_types(node->data.for_array.array, platform);
+        if (!err) err = check_platform_types(node->data.for_array.body, platform);
+        return err;
+    case IR_FOR_SET:
+        err = check_platform_types(node->data.for_set.set, platform);
+        if (!err) err = check_platform_types(node->data.for_set.body, platform);
+        return err;
+    case IR_FOR_DICT:
+        err = check_platform_types(node->data.for_dict.dict, platform);
+        if (!err) err = check_platform_types(node->data.for_dict.body, platform);
+        return err;
+
+    case IR_FUNCTION:
+    case IR_ASYNC_FUNCTION:
+        return check_platform_types(node->data.function.body, platform);
+
+    case IR_CALL:
+    case IR_CALL_ASYNC:
+        err = check_platform_types(node->data.call.func, platform);
+        if (err) return err;
+        for (size_t i = 0; i < node->data.call.num_args; i++) {
+            err = check_platform_types(node->data.call.args[i], platform);
+            if (err) return err;
+        }
+        return NULL;
+
+    case IR_BUILTIN:
+        for (size_t i = 0; i < node->data.builtin.num_args; i++) {
+            err = check_platform_types(node->data.builtin.args[i], platform);
+            if (err) return err;
+        }
+        return NULL;
+
+    case IR_RETURN:
+        return check_platform_types(node->data.return_.value, platform);
+    case IR_ERROR:
+        return check_platform_types(node->data.error.message, platform);
+
+    case IR_TRY_CATCH:
+        err = check_platform_types(node->data.try_catch.try_body, platform);
+        if (!err) err = check_platform_types(node->data.try_catch.catch_body, platform);
+        if (!err) err = check_platform_types(node->data.try_catch.finally_body, platform);
+        return err;
+
+    case IR_NEW_ARRAY:
+    case IR_NEW_SET:
+        for (size_t i = 0; i < node->data.new_collection.num_items; i++) {
+            err = check_platform_types(node->data.new_collection.items[i], platform);
+            if (err) return err;
+        }
+        return NULL;
+
+    case IR_NEW_DICT:
+        for (size_t i = 0; i < node->data.new_dict.num_pairs; i++) {
+            err = check_platform_types(node->data.new_dict.keys[i], platform);
+            if (!err) err = check_platform_types(node->data.new_dict.values[i], platform);
+            if (err) return err;
+        }
+        return NULL;
+
+    case IR_NEW_REF:
+        return check_platform_types(node->data.new_ref.value, platform);
+
+    case IR_NEW_VECTOR:
+        for (size_t i = 0; i < node->data.new_vector.num_items; i++) {
+            err = check_platform_types(node->data.new_vector.items[i], platform);
+            if (err) return err;
+        }
+        return NULL;
+
+    case IR_NEW_MATRIX:
+        for (size_t i = 0; i < node->data.new_matrix.num_items; i++) {
+            err = check_platform_types(node->data.new_matrix.items[i], platform);
+            if (err) return err;
+        }
+        return NULL;
+
+    case IR_STRUCT:
+        for (size_t i = 0; i < node->data.struct_.num_fields; i++) {
+            err = check_platform_types(node->data.struct_.field_values[i], platform);
+            if (err) return err;
+        }
+        return NULL;
+
+    case IR_GET_FIELD:
+        return check_platform_types(node->data.get_field.expr, platform);
+    case IR_VARIANT:
+        return check_platform_types(node->data.variant.value, platform);
+
+    case IR_WRAP_RECURSIVE:
+    case IR_UNWRAP_RECURSIVE:
+        return check_platform_types(node->data.recursive.value, platform);
+    }
+
+    return NULL;
+}
+
+/* ------------------------------------------------------------------ */
 /*  Top-level API                                                      */
 /* ------------------------------------------------------------------ */
 
-EastCompiledFn *east_compile(IRNode *ir, PlatformRegistry *platform, BuiltinRegistry *builtins)
+EastCompiledFn *east_compile_checked(IRNode *ir, PlatformRegistry *platform,
+                                     BuiltinRegistry *builtins, char **error_out)
 {
+    if (error_out) *error_out = NULL;
+
+    if (ir && platform) {
+        char *err = check_platform_types(ir, platform);
+        if (err) {
+            if (error_out)
+                *error_out = err;
+            else
+                free(err);
+            return NULL;
+        }
+    }
+
     EastCompiledFn *fn = calloc(1, sizeof(EastCompiledFn));
     if (!fn) return NULL;
 
@@ -1140,6 +1367,11 @@ EastCompiledFn *east_compile(IRNode *ir, PlatformRegistry *platform, BuiltinRegi
     fn->fn_type = ir->type; /* function type for foreign-runtime type marshalling */
 
     return fn;
+}
+
+EastCompiledFn *east_compile(IRNode *ir, PlatformRegistry *platform, BuiltinRegistry *builtins)
+{
+    return east_compile_checked(ir, platform, builtins, NULL);
 }
 
 /* ------------------------------------------------------------------ */
