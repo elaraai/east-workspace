@@ -109,6 +109,17 @@
       "source": "# One-time per machine (add --with-deps on a fresh Linux server):\ne3-ui install-browser\n\n# A .tsx exporting an East function returning UIComponentType, or an e3 ui() task:\ne3-ui shot --from-source ./dashboard.tsx -o dashboard.png\n\n# Pick an export, set a viewport, also emit standalone HTML:\ne3-ui shot --from-source src/ui/index.tsx --export surface --viewport 800x600 --html"
     },
     {
+      "id": "e3-ui-cli:static:shots-sweep",
+      "skill": "e3-ui-cli",
+      "package": "e3-ui-cli",
+      "file": "static",
+      "suite": "e3-ui shots",
+      "test": "Sweep a project for every renderable UI export (fns, example() defs, ui() tasks) and render each to a structured .shots/ dir",
+      "keywords": ["e3-ui-cli", "shots", "sweep", "all", "examples", "example", "batch", "gallery", "png", "html", "manifest", "frame-width", "audit", "renderable"],
+      "imports": [],
+      "source": "# EVERYTHING renderable under src/ (default) \u2192 .shots/<relative-path>/<export>.png\n# One shared browser; every skip carries its typed reason; exit 1 on render failures.\ne3-ui shots src --out .shots --json\n\n# Also write a standalone HTML beside each PNG:\ne3-ui shots src --out .shots --html\n\n# Width-flexible components (Schematic/Gantt/Table) mount at viewport width by\n# default (--frame-width full); 'none' restores the shrink-to-fit crop:\ne3-ui shots test/collections --out .shots --frame-width full\n\n# Skips are an AUDIT of the renderable surface \u2014 e.g.:\n#   skipped  src/tasks.ts \u203a sumExample \u2014 output type is Integer, not UIComponentType\n#   skipped  src/ui/queue.tsx \u203a queuePage \u2014 reads e3 workspace data (data_read) \u2014 use --from-task"
+    },
+    {
       "id": "e3-ui-cli:static:shot-from-task",
       "skill": "e3-ui-cli",
       "package": "e3-ui-cli",

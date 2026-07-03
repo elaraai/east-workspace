@@ -219,6 +219,51 @@ function importsEastPackage(sf, t) {
   importsCache.set(sf, found);
   return found;
 }
+var declaresCache = /* @__PURE__ */ new WeakMap();
+var E3_DECLARATION_MEMBERS = /* @__PURE__ */ new Set([
+  "input",
+  "task",
+  "customTask",
+  "function",
+  "record",
+  "mutation",
+  "package",
+  "export"
+]);
+function declaresEastProgram(sf, checker, t) {
+  const cached = declaresCache.get(sf);
+  if (cached !== void 0)
+    return cached;
+  let found = false;
+  const visit = (n) => {
+    if (found)
+      return;
+    if (t.isCallExpression(n)) {
+      const callee = n.expression;
+      if (t.isPropertyAccessExpression(callee) && t.isIdentifier(callee.expression)) {
+        const root = callee.expression;
+        if (root.text === "East" && resolvesToEastImport(root, checker, t)) {
+          found = true;
+          return;
+        }
+        if (E3_DECLARATION_MEMBERS.has(callee.name.text)) {
+          const imp = importDeclarationOf(checker.getSymbolAtLocation(root), t);
+          if (imp !== void 0 && t.isStringLiteral(imp.moduleSpecifier) && imp.moduleSpecifier.text === "@elaraai/e3") {
+            found = true;
+            return;
+          }
+        }
+      } else if (t.isIdentifier(callee) && callee.text === "ui" && resolvesToEastImport(callee, checker, t)) {
+        found = true;
+        return;
+      }
+    }
+    t.forEachChild(n, visit);
+  };
+  visit(sf);
+  declaresCache.set(sf, found);
+  return found;
+}
 var pkgDirCache = /* @__PURE__ */ new Map();
 function packageDirOf(p) {
   const start = dirname(resolve(p));
@@ -857,6 +902,8 @@ var noCompileTimeDataInjection = {
   check(node, ctx) {
     const t = ctx.ts;
     if (!importsEastPackage(ctx.sourceFile, t))
+      return;
+    if (!declaresEastProgram(ctx.sourceFile, ctx.checker, t))
       return;
     if (t.isImportDeclaration(node)) {
       const spec = node.moduleSpecifier;
