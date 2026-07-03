@@ -119,7 +119,12 @@ export interface VMRefuteCheck {
     desc: string; value: string; passed: boolean; tip: option<string>; help: HelpId;
 }
 export interface VMRefute { checks: VMRefuteCheck[]; sens: VMSensitivity | null }
-export interface VMSensitivity { lo: number[]; mid: number[]; hi: number[]; xTicks: string[]; yTicks: string[] }
+export interface VMSensitivity {
+    lo: number[]; mid: number[]; hi: number[]; xTicks: string[]; yTicks: string[];
+    /** Observed-confounder benchmarks as chart marks (fractional index on the
+     *  strengths axis) — "a hidden cause as strong as Incoming grade sits here". */
+    marks: VMDoseMark[];
+}
 export interface VMDoseMark { at: number; label: string; tone: string; help: HelpId }
 export interface VMMarginal { label: string; value: number; frac: number }
 export interface VMDose {
@@ -339,15 +344,28 @@ function deriveNarrative(
                     { text: ` per ${subject.one}${range}.${trustClause}` },
                 ],
             };
-        case 'modest':
+        case 'modest': {
+            // Say WHICH gate made it modest — the engine's machine-readable
+            // reasons, phrased with the echoed thresholds.
+            const tags = new Set(result.verdict_reasons.map(v => v.type));
+            const why = tags.has('not_material')
+                ? ` — the change (${signed(a.effect)}${unit}) is smaller than what would matter here (±${fmt(result.materiality_threshold)}${unit}).`
+                : tags.has('ci_spans_zero')
+                    ? ` — the likely range (${signed(a.lo)} to ${signed(a.hi)}) includes zero.`
+                    : tags.has('thin_support')
+                        ? ' — too few treated and untreated look-alikes overlap to be confident.'
+                        : tags.has('low_robustness')
+                            ? ' — a fairly weak hidden factor could overturn it.'
+                            : (a.lo <= 0 && a.hi >= 0 ? ` — the likely range (${signed(a.lo)} to ${signed(a.hi)}) includes zero.` : '.');
             return {
                 tone: 'warn',
                 segments: [
                     { text: 'Maybe — ', strong: true },
                     { text: `there may be an effect of ${a.treatment} on ${a.outcome}, but it’s too small or unclear to act on` },
-                    { text: a.lo <= 0 && a.hi >= 0 ? ` — the likely range (${signed(a.lo)} to ${signed(a.hi)}) includes zero.` : '.' },
+                    { text: why },
                 ],
             };
+        }
         case 'adjustment_insufficient':
             return {
                 tone: 'warn',
@@ -436,7 +454,7 @@ function zeroCrossing(xs: number[], ys: number[]): number | null {
     return null;
 }
 
-function deriveRefute(r: RefutationValue, adj: AdjustedValue | undefined): VMRefute {
+function deriveRefute(r: RefutationValue, adj: AdjustedValue | undefined, meta: ColMeta | undefined): VMRefute {
     const checks: VMRefuteCheck[] = [];
     const est = adj?.effect ?? 0;
 
@@ -486,17 +504,30 @@ function deriveRefute(r: RefutationValue, adj: AdjustedValue | undefined): VMRef
     }
     const sens = getSomeorUndefined(r.sensitivity);
     const evalue = getSomeorUndefined(r.robustness_value);
+    // Benchmarks put the abstract strengths axis in the user's own vocabulary —
+    // "as strong as Incoming grade" — sorted strongest-first.
+    const benchmarks = sens ? [...sens.benchmarks].sort((a, b) => b.strength - a.strength) : [];
     if (sens !== undefined || evalue !== undefined) {
         const strengths = sens ? arr(sens.strengths) : [];
         const effects = sens ? arr(sens.effects) : [];
         const tip = sens ? zeroCrossing(strengths, effects) : null;
+        const strongest = benchmarks[0];
+        // Phrase the tipping point AGAINST the strongest known factor when we can:
+        // beyond it → reassuring; short of it → concrete and alarming.
         const value = tip !== null
-            ? `would flip at ${fmt(tip)}`
+            ? (strongest !== undefined
+                ? (tip > strongest.strength
+                    ? `flips only beyond ${labelOf(meta, strongest.column)}`
+                    : `a cause weaker than ${labelOf(meta, strongest.column)} could flip it`)
+                : `would flip at ${fmt(tip)}`)
             : evalue !== undefined ? `holds (E-value ${fmt(evalue)})` : 'holds throughout';
+        const scaleNote = strongest !== undefined
+            ? ` For scale, your strongest known factor (${labelOf(meta, strongest.column)}) sits at ${fmt(strongest.strength)} on this axis.`
+            : '';
         checks.push({
             name: 'Hidden cause',
             short: 'hidden cause',
-            desc: 'How strong an unrecorded common cause would need to be to overturn the result.',
+            desc: `How strong an unrecorded common cause would need to be to overturn the result.${scaleNote}`,
             value,
             passed: tip === null,
             tip: some('Something unrecorded could drive both the treatment choice and the outcome.'),
@@ -515,7 +546,25 @@ function deriveRefute(r: RefutationValue, adj: AdjustedValue | undefined): VMRef
             const lo = mid.map(m => m - half);
             const hi = mid.map(m => m + half);
             const yLo = Math.min(0, ...lo), yHi = Math.max(...hi, 0);
-            sensVM = { lo, mid, hi, xTicks: ['none', '', 'stronger'], yTicks: [fmt(yLo), fmt((yLo + yHi) / 2), fmt(yHi)] };
+            // Up to two strongest observed-confounder benchmarks as chart marks —
+            // strength → fractional index on the strengths axis.
+            const strengths = arr(sens.strengths);
+            const atOf = (s: number): number | null => {
+                if (strengths.length < 2) return null;
+                if (s <= strengths[0]!) return 0;
+                for (let i = 1; i < strengths.length; i++) {
+                    if (s <= strengths[i]!) {
+                        const span = strengths[i]! - strengths[i - 1]!;
+                        return span > 0 ? i - 1 + (s - strengths[i - 1]!) / span : i;
+                    }
+                }
+                return strengths.length - 1;
+            };
+            const marks: VMDoseMark[] = benchmarks.slice(0, 2).flatMap(b => {
+                const at = atOf(b.strength);
+                return at === null ? [] : [{ at, label: `as strong as ${labelOf(meta, b.column)}`, tone: 'muted', help: 'sensitivity' as HelpId }];
+            });
+            sensVM = { lo, mid, hi, xTicks: ['none', '', 'stronger'], yTicks: [fmt(yLo), fmt((yLo + yHi) / 2), fmt(yHi)], marks };
         }
     }
     return { checks, sens: sensVM };
@@ -660,7 +709,7 @@ export function deriveView(
     const refutation = result ? getSomeorUndefined(result.refutation) : undefined;
     const doseR = result ? getSomeorUndefined(result.dose_response) : undefined;
     const answer = result && adj ? deriveAnswer(ranConfig, result, adj, meta) : null;
-    const refute = refutation ? deriveRefute(refutation, adj) : null;
+    const refute = refutation ? deriveRefute(refutation, adj, meta) : null;
     const higherBetter = getSomeorUndefined(colMeta(meta, ranConfig.outcome)?.higherIsBetter);
     return {
         // The set-up rail reflects the LIVE config (the editor); the result deck

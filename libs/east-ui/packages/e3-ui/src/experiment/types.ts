@@ -163,9 +163,25 @@ export const BalanceRowType = StructType({
     treated_mean: FloatType,
     control_mean: FloatType,
     std_diff: FloatType,
+    /** Post-adjustment SMD (weighted means, same pooled-sd denominator) — proof the
+     *  adjustment closed the gap. `some` only for the propensity estimator with
+     *  computable scores.
+     *  twin: east-py-datascience BalanceRowType.std_diff_adjusted */
+    std_diff_adjusted: OptionType(FloatType),
 });
 /** Type alias for {@link BalanceRowType}. */
 export type BalanceRowType = typeof BalanceRowType;
+
+/** One observed confounder placed on the sensitivity strengths axis — the simulated
+ *  strength whose effect-shift equals the shift from omitting that confounder, so
+ *  "tips at 0.9" reads as "a hidden cause as strong as `column`".
+ *  twin: east-py-datascience `SensitivityBenchmarkType` */
+export const SensitivityBenchmarkType = StructType({
+    column: StringType,
+    strength: FloatType,
+});
+/** Type alias for {@link SensitivityBenchmarkType}. */
+export type SensitivityBenchmarkType = typeof SensitivityBenchmarkType;
 
 /**
  * Graded common-support tier — `refused` (below `min_overlap`), `thin` (clears the
@@ -200,6 +216,10 @@ export type OverlapDiagnosticType = typeof OverlapDiagnosticType;
 export const SensitivityCurveType = StructType({
     strengths: VectorType(FloatType),
     effects: VectorType(FloatType),
+    /** Observed-confounder benchmarks on the SAME strengths axis (empty when none is
+     *  computable) — lets the surface say "survives a hidden cause as strong as
+     *  `incoming_grade`". Clamped to the last simulated strength. */
+    benchmarks: ArrayType(SensitivityBenchmarkType),
 });
 /** Type alias for {@link SensitivityCurveType}. */
 export type SensitivityCurveType = typeof SensitivityCurveType;
@@ -257,6 +277,29 @@ export const ExperimentVerdictType = VariantType({
 /** Type alias for {@link ExperimentVerdictType}. */
 export type ExperimentVerdictType = typeof ExperimentVerdictType;
 
+/**
+ * Machine-readable reason a verdict fell short of `causal` — every FAILING gate
+ * (the verdict tag is chosen by severity precedence, but explaining "why modest?"
+ * needs all of them). Empty for `causal` and for the two refusal verdicts.
+ * twin: east-py-datascience `VerdictReasonType`
+ */
+export const VerdictReasonType = VariantType({
+    /** The placebo (shuffle) refuter didn't collapse to ~0. */
+    placebo_failed: NullType,
+    /** |effect| below the materiality band (0.10 × outcome_sd). */
+    not_material: NullType,
+    /** The adjusted CI straddles zero. */
+    ci_spans_zero: NullType,
+    /** Material + CI-clear but pointing against `config.expected_sign`. */
+    wrong_sign: NullType,
+    /** Common support cleared the refuse gate but is below `strong_overlap`. */
+    thin_support: NullType,
+    /** E-value below the (opt-in) `evalue_floor`. */
+    low_robustness: NullType,
+});
+/** Type alias for {@link VerdictReasonType}. */
+export type VerdictReasonType = typeof VerdictReasonType;
+
 /** The adjusted (like-for-like) effect + its CI — `none` on the result when the engine refuses. */
 export const AdjustedEffectType = StructType({ effect: FloatType, ci: OptionType(CiType) });
 /** Type alias for {@link AdjustedEffectType}. */
@@ -274,6 +317,8 @@ export const ExperimentResultType = StructType({
     n_total: IntegerType,
     n_treated: IntegerType,
     n_control: IntegerType,
+    /** Rows OUTSIDE the propensity common support — units with no like-for-like
+     *  counterpart on the other side. Display-only; nothing is dropped. */
     n_dropped: IntegerType,
     balance: ArrayType(BalanceRowType),
     overlap: OverlapDiagnosticType,
@@ -281,6 +326,18 @@ export const ExperimentResultType = StructType({
     /** ALE dose-response of `dose_feature` (present when `config.dose_feature` is set). */
     dose_response: OptionType(DoseResponseType),
     verdict: ExperimentVerdictType,
+    /** Why the verdict fell short of `causal` — every failing gate (empty for
+     *  `causal` and for the refusals, where the tag itself is the reason). */
+    verdict_reasons: ArrayType(VerdictReasonType),
+    /** The outcome's standard deviation — the scale the materiality band is on. */
+    outcome_sd: FloatType,
+    /** The materiality band the verdict applied (0.10 × outcome_sd), echoed so the
+     *  surface can say "smaller than what would matter here (±x)". */
+    materiality_threshold: FloatType,
+    /** Raw outcome mean of the treated arm (`none` when the arm is empty). */
+    treated_outcome_mean: OptionType(FloatType),
+    /** Raw outcome mean of the control arm (`none` when the arm is empty). */
+    control_outcome_mean: OptionType(FloatType),
 });
 /** Type alias for {@link ExperimentResultType}. */
 export type ExperimentResultType = typeof ExperimentResultType;

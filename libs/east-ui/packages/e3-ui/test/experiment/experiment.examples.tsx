@@ -81,11 +81,12 @@ export const experimentFn = e3.function('experiment',
         naive: -3.1,
         naive_ci: some({ lower: -6.0, upper: -0.2 }),
         adjusted: some({ effect: 5.2, ci: some({ lower: 3.1, upper: 7.4 }) }),
-        n_total: 480n, n_treated: 240n, n_control: 240n, n_dropped: 31n,
+        // n_dropped = rows outside the propensity common support (22% of 480).
+        n_total: 480n, n_treated: 240n, n_control: 240n, n_dropped: 106n,
         balance: [
-            { column: 'incoming_grade', base_column: 'incoming_grade', treated_mean: 6.1, control_mean: 8.0, std_diff: 0.90 },
-            { column: 'supplier', base_column: 'supplier', treated_mean: 0.61, control_mean: 0.33, std_diff: 0.55 },
-            { column: 'mix_viscosity', base_column: 'mix_viscosity', treated_mean: 24.6, control_mean: 24.1, std_diff: 0.24 },
+            { column: 'incoming_grade', base_column: 'incoming_grade', treated_mean: 6.1, control_mean: 8.0, std_diff: 0.90, std_diff_adjusted: some(0.07) },
+            { column: 'supplier', base_column: 'supplier', treated_mean: 0.61, control_mean: 0.33, std_diff: 0.55, std_diff_adjusted: some(0.09) },
+            { column: 'mix_viscosity', base_column: 'mix_viscosity', treated_mean: 24.6, control_mean: 24.1, std_diff: 0.24, std_diff_adjusted: some(0.05) },
         ],
         overlap: {
             treated_propensity: new Float64Array([0, 0, 1, 2, 4, 6, 9, 12, 15, 18, 20, 21, 19, 16, 12, 8, 5, 3, 1, 0]),
@@ -100,6 +101,11 @@ export const experimentFn = e3.function('experiment',
             sensitivity: some({
                 strengths: new Float64Array([0.0, 0.2, 0.4, 0.6, 0.8, 1.0]),
                 effects: new Float64Array([5.2, 4.4, 3.4, 2.2, 0.8, -0.8]),
+                benchmarks: [
+                    { column: 'incoming_grade', strength: 0.85 },
+                    { column: 'supplier', strength: 0.4 },
+                    { column: 'mix_viscosity', strength: 0.15 },
+                ],
             }),
             expected_sign_ok: none,
         }),
@@ -112,6 +118,9 @@ export const experimentFn = e3.function('experiment',
             size: new BigInt64Array([40n, 52n, 61n, 66n, 70n, 58n, 44n, 30n, 18n]),
         }),
         verdict: variant('causal', null),
+        verdict_reasons: [],
+        outcome_sd: 1.4, materiality_threshold: 0.14,
+        treated_outcome_mean: some(5.3), control_outcome_mean: some(8.4),
     })));
 
 // ============================================================================
@@ -220,11 +229,11 @@ export const experimentPrecomputedConfigsInput = e3.input('experiment_precompute
             naive: -3.1,
             naive_ci: some({ lower: -6.0, upper: -0.2 }),
             adjusted: some({ effect: 5.2, ci: some({ lower: 3.1, upper: 7.4 }) }),
-            n_total: 480n, n_treated: 240n, n_control: 240n, n_dropped: 31n,
+            n_total: 480n, n_treated: 240n, n_control: 240n, n_dropped: 106n,
             balance: [
-                { column: 'incoming_grade', base_column: 'incoming_grade', treated_mean: 6.1, control_mean: 8.0, std_diff: 0.90 },
-                { column: 'supplier', base_column: 'supplier', treated_mean: 0.61, control_mean: 0.33, std_diff: 0.55 },
-                { column: 'mix_viscosity', base_column: 'mix_viscosity', treated_mean: 24.6, control_mean: 24.1, std_diff: 0.24 },
+                { column: 'incoming_grade', base_column: 'incoming_grade', treated_mean: 6.1, control_mean: 8.0, std_diff: 0.90, std_diff_adjusted: some(0.07) },
+                { column: 'supplier', base_column: 'supplier', treated_mean: 0.61, control_mean: 0.33, std_diff: 0.55, std_diff_adjusted: some(0.09) },
+                { column: 'mix_viscosity', base_column: 'mix_viscosity', treated_mean: 24.6, control_mean: 24.1, std_diff: 0.24, std_diff_adjusted: some(0.05) },
             ],
             overlap: {
                 treated_propensity: new Float64Array([0, 0, 1, 2, 4, 6, 9, 12, 15, 18, 20, 21, 19, 16, 12, 8, 5, 3, 1, 0]),
@@ -234,7 +243,15 @@ export const experimentPrecomputedConfigsInput = e3.input('experiment_precompute
             refutation: some({
                 placebo_effect: some(0.0), placebo_passes: some(true), random_cc_within_ci: some(true),
                 data_subset_effect: some(5.0), data_subset_std: some(0.4), robustness_value: some(2.3),
-                sensitivity: some({ strengths: new Float64Array([0.0, 0.2, 0.4, 0.6, 0.8, 1.0]), effects: new Float64Array([5.2, 4.4, 3.4, 2.2, 0.8, -0.8]) }),
+                sensitivity: some({
+                    strengths: new Float64Array([0.0, 0.2, 0.4, 0.6, 0.8, 1.0]),
+                    effects: new Float64Array([5.2, 4.4, 3.4, 2.2, 0.8, -0.8]),
+                    benchmarks: [
+                        { column: 'incoming_grade', strength: 0.85 },
+                        { column: 'supplier', strength: 0.4 },
+                        { column: 'mix_viscosity', strength: 0.15 },
+                    ],
+                }),
                 expected_sign_ok: none,
             }),
             dose_response: some({
@@ -246,6 +263,9 @@ export const experimentPrecomputedConfigsInput = e3.input('experiment_precompute
                 size: new BigInt64Array([40n, 52n, 61n, 66n, 70n, 58n, 44n, 30n, 18n]),
             }),
             verdict: variant('causal', null),
+            verdict_reasons: [],
+            outcome_sd: 1.4, materiality_threshold: 0.14,
+            treated_outcome_mean: some(5.3), control_outcome_mean: some(8.4),
         }),
         // A precomputed "Validate" recipe too — so the Validate tab paints straight from
         // this entry with NO bound `design` function (the precomputed-design contract).
@@ -280,10 +300,10 @@ export const experimentPrecomputedConfigsInput = e3.input('experiment_precompute
             naive: -3.1,
             naive_ci: some({ lower: -5.4, upper: 0.1 }),
             adjusted: some({ effect: 3.1, ci: some({ lower: 0.4, upper: 5.8 }) }),
-            n_total: 480n, n_treated: 240n, n_control: 240n, n_dropped: 88n,
+            n_total: 480n, n_treated: 240n, n_control: 240n, n_dropped: 283n,
             balance: [
-                { column: 'incoming_grade', base_column: 'incoming_grade', treated_mean: 6.1, control_mean: 8.0, std_diff: 0.62 },
-                { column: 'line', base_column: 'line', treated_mean: 0.52, control_mean: 0.48, std_diff: 0.10 },
+                { column: 'incoming_grade', base_column: 'incoming_grade', treated_mean: 6.1, control_mean: 8.0, std_diff: 0.62, std_diff_adjusted: some(0.11) },
+                { column: 'line', base_column: 'line', treated_mean: 0.52, control_mean: 0.48, std_diff: 0.10, std_diff_adjusted: some(0.04) },
             ],
             overlap: {
                 treated_propensity: new Float64Array([1, 3, 6, 10, 14, 17, 18, 16, 12, 9, 6, 4, 2, 1, 1, 0, 0, 0, 0, 0]),
@@ -293,7 +313,14 @@ export const experimentPrecomputedConfigsInput = e3.input('experiment_precompute
             refutation: some({
                 placebo_effect: some(0.1), placebo_passes: some(true), random_cc_within_ci: some(true),
                 data_subset_effect: some(2.8), data_subset_std: some(0.7), robustness_value: some(1.4),
-                sensitivity: some({ strengths: new Float64Array([0.0, 0.2, 0.4, 0.6, 0.8, 1.0]), effects: new Float64Array([3.1, 2.4, 1.6, 0.7, -0.3, -1.4]) }),
+                sensitivity: some({
+                    strengths: new Float64Array([0.0, 0.2, 0.4, 0.6, 0.8, 1.0]),
+                    effects: new Float64Array([3.1, 2.4, 1.6, 0.7, -0.3, -1.4]),
+                    benchmarks: [
+                        { column: 'incoming_grade', strength: 0.75 },
+                        { column: 'line', strength: 0.2 },
+                    ],
+                }),
                 expected_sign_ok: none,
             }),
             dose_response: some({
@@ -305,6 +332,10 @@ export const experimentPrecomputedConfigsInput = e3.input('experiment_precompute
                 size: new BigInt64Array([40n, 52n, 61n, 66n, 70n, 58n, 44n, 30n, 18n]),
             }),
             verdict: variant('modest', null),
+            // Modest BECAUSE the common support is thin — machine-readable.
+            verdict_reasons: [variant('thin_support', null)],
+            outcome_sd: 1.4, materiality_threshold: 0.14,
+            treated_outcome_mean: some(5.3), control_outcome_mean: some(8.4),
         }),
         // Its own precomputed "Validate" recipe — a smaller +3.1 effect needs a larger
         // trial, and matching now includes `line`. Again no bound `design` function.
@@ -581,10 +612,10 @@ export const experimentPositivityConfigsInput = e3.input('experiment_positivity_
             naive: -3.1,
             naive_ci: some({ lower: -5.8, upper: -0.4 }),
             adjusted: none,
-            n_total: 480n, n_treated: 240n, n_control: 240n, n_dropped: 0n,
+            n_total: 480n, n_treated: 240n, n_control: 240n, n_dropped: 451n,
             balance: [
-                { column: 'incoming_grade', base_column: 'incoming_grade', treated_mean: 3.4, control_mean: 8.2, std_diff: 2.10 },
-                { column: 'mix_viscosity', base_column: 'mix_viscosity', treated_mean: 24.8, control_mean: 24.0, std_diff: 0.38 },
+                { column: 'incoming_grade', base_column: 'incoming_grade', treated_mean: 3.4, control_mean: 8.2, std_diff: 2.10, std_diff_adjusted: none },
+                { column: 'mix_viscosity', base_column: 'mix_viscosity', treated_mean: 24.8, control_mean: 24.0, std_diff: 0.38, std_diff_adjusted: none },
             ],
             overlap: {
                 treated_propensity: new Float64Array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 3, 7, 13, 18, 22, 19, 12, 5]),
@@ -594,6 +625,9 @@ export const experimentPositivityConfigsInput = e3.input('experiment_positivity_
             refutation: none,
             dose_response: none,
             verdict: variant('non_identifiable_positivity', null),
+            verdict_reasons: [],
+            outcome_sd: 1.5, materiality_threshold: 0.15,
+            treated_outcome_mean: some(5.1), control_outcome_mean: some(8.2),
         }),
         design: none,
     },
@@ -614,9 +648,9 @@ export const experimentNotEstimableConfigsInput = e3.input('experiment_not_estim
             naive: 0.8,
             naive_ci: none,
             adjusted: none,
-            n_total: 3688n, n_treated: 44n, n_control: 3644n, n_dropped: 0n,
+            n_total: 3688n, n_treated: 44n, n_control: 3644n, n_dropped: 2028n,
             balance: [
-                { column: 'incoming_grade', base_column: 'incoming_grade', treated_mean: 6.0, control_mean: 6.1, std_diff: 0.05 },
+                { column: 'incoming_grade', base_column: 'incoming_grade', treated_mean: 6.0, control_mean: 6.1, std_diff: 0.05, std_diff_adjusted: none },
             ],
             overlap: {
                 treated_propensity: new Float64Array([2, 5, 8, 9, 8, 6, 3, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
@@ -626,6 +660,9 @@ export const experimentNotEstimableConfigsInput = e3.input('experiment_not_estim
             refutation: none,
             dose_response: none,
             verdict: variant('not_estimable', 'treatment barely varies: the minority arm is 1.2% of rows'),
+            verdict_reasons: [],
+            outcome_sd: 1.2, materiality_threshold: 0.12,
+            treated_outcome_mean: some(6.9), control_outcome_mean: some(6.1),
         }),
         design: none,
     },

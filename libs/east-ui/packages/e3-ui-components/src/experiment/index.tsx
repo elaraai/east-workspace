@@ -777,7 +777,8 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
                             {vr.sens && (
                                 <Card>
                                     <Cap help="sensitivity">Effect as a hidden cause is made stronger</Cap>
-                                    <AreaRange lo={vr.sens.lo} mid={vr.sens.mid} hi={vr.sens.hi} zero={0} tone="brand" xTicks={vr.sens.xTicks} yTicks={vr.sens.yTicks} height={132} />
+                                    <AreaRange lo={vr.sens.lo} mid={vr.sens.mid} hi={vr.sens.hi} zero={0} tone="brand" xTicks={vr.sens.xTicks} yTicks={vr.sens.yTicks}
+                                        marks={vr.sens.marks} height={vr.sens.marks.length ? 148 : 132} />
                                 </Card>
                             )}
                         </Box>

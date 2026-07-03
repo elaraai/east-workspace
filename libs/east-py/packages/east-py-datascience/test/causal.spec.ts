@@ -45,6 +45,90 @@ describeEast("Causal.experiment", (test) => {
         $(Assert.equal(result.n_total, 10n));
     });
 
+    test("explainability contract: verdict_reasons, threshold echo, arm means, off-support count, adjusted balance, benchmarks", $ => {
+        const Row = StructType({ treated: FloatType, outcome: FloatType, z: FloatType });
+        // The headline confounded data (true effect +2.0), PSW estimator + full
+        // refute battery so every new field is exercised.
+        const data = $.let([
+            { treated: 0.0, outcome: 1.3, z: 0.0 }, { treated: 0.0, outcome: 1.6, z: 1.0 },
+            { treated: 0.0, outcome: 3.1, z: 2.0 }, { treated: 0.0, outcome: 3.8, z: 3.0 },
+            { treated: 0.0, outcome: 5.5, z: 4.0 }, { treated: 0.0, outcome: 0.7, z: 0.0 },
+            { treated: 0.0, outcome: 2.2, z: 1.0 }, { treated: 0.0, outcome: 2.9, z: 2.0 },
+            { treated: 0.0, outcome: 4.4, z: 3.0 }, { treated: 0.0, outcome: 4.5, z: 4.0 },
+            { treated: 1.0, outcome: 4.25, z: 1.0 }, { treated: 1.0, outcome: 4.65, z: 2.0 },
+            { treated: 1.0, outcome: 6.15, z: 3.0 }, { treated: 1.0, outcome: 6.75, z: 4.0 },
+            { treated: 1.0, outcome: 8.45, z: 5.0 }, { treated: 1.0, outcome: 3.85, z: 1.0 },
+            { treated: 1.0, outcome: 5.35, z: 2.0 }, { treated: 1.0, outcome: 5.95, z: 3.0 },
+            { treated: 1.0, outcome: 7.05, z: 4.0 }, { treated: 1.0, outcome: 7.55, z: 5.0 },
+        ], ArrayType(Row));
+        const config = $.let({
+            treatment: "treated", outcome: "outcome", common_causes: ["z"],
+            categorical: none,
+            method: some(variant("propensity_score_weighting", { weighting_scheme: none })),
+            estimand: none,
+            refute: some({ placebo: true, random_common_cause: true, data_subset: true, sensitivity: some([0.0, 0.2, 0.4, 0.6, 0.8, 1.0]) }),
+            dose_feature: none, min_overlap: some(0.1), min_treatment_variation: some(0.02),
+            bootstrap: none, random_state: some(42n),
+            strong_overlap: none, evalue_floor: none, expected_sign: none,
+        }, Causal.Types.CausalExperimentConfigType);
+        const result = $.let(Causal.experiment([Row], data, config));
+        // A causal verdict carries NO reasons (all gates passed)…
+        $(Assert.equal(result.verdict.hasTag("causal"), true));
+        $(Assert.equal(result.verdict_reasons.size(), 0n));
+        // …and the thresholds it applied are echoed for the consumer to speak.
+        $(Assert.greater(result.outcome_sd, 0.0));
+        $(Assert.equal(result.materiality_threshold, result.outcome_sd.multiply(0.1)));
+        // Per-arm raw means: treated − control = the naive difference.
+        const tm = $.let(result.treated_outcome_mean.unwrap("some"));
+        const cm = $.let(result.control_outcome_mean.unwrap("some"));
+        $(Assert.less(tm.subtract(cm).subtract(result.naive).abs(), 1e-9));
+        // n_dropped now counts off-support rows, consistent with the overlap frac.
+        $(Assert.lessEqual(result.n_dropped, result.n_total));
+        // PSW → the adjusted balance is reported and tighter than the raw gap.
+        const bal = $.let(result.balance.get(0n));
+        const adjSmd = $.let(bal.std_diff_adjusted.unwrap("some"));
+        $(Assert.less(adjSmd.abs(), bal.std_diff.abs()));
+        // Benchmarks place the observed confounder on the sensitivity axis.
+        const sens = $.let(result.refutation.unwrap("some").sensitivity.unwrap("some"));
+        $(Assert.equal(sens.benchmarks.size(), 1n));
+        $(Assert.equal(sens.benchmarks.get(0n).column, "z"));
+        $(Assert.greaterEqual(sens.benchmarks.get(0n).strength, 0.0));
+
+        // Refusal path: reasons stay empty (the verdict tag IS the reason) and
+        // the echoes are still present.
+        const oneSided = $.let([
+            { treated: 0.0, outcome: 1.0, z: 0.0 }, { treated: 0.0, outcome: 2.0, z: 1.0 },
+            { treated: 0.0, outcome: 3.0, z: 2.0 }, { treated: 0.0, outcome: 4.0, z: 3.0 },
+            { treated: 0.0, outcome: 5.0, z: 4.0 }, { treated: 0.0, outcome: 1.0, z: 0.0 },
+            { treated: 0.0, outcome: 2.0, z: 1.0 }, { treated: 0.0, outcome: 3.0, z: 2.0 },
+            { treated: 0.0, outcome: 4.0, z: 3.0 }, { treated: 1.0, outcome: 5.0, z: 2.0 },
+        ], ArrayType(Row));
+        const refuseCfg = $.let({
+            treatment: "treated", outcome: "outcome", common_causes: ["z"],
+            categorical: none, method: none, estimand: none, refute: none,
+            dose_feature: none, min_overlap: some(0.1), min_treatment_variation: some(0.15),
+            bootstrap: none, random_state: some(42n),
+            strong_overlap: none, evalue_floor: none, expected_sign: none,
+        }, Causal.Types.CausalExperimentConfigType);
+        const refused = $.let(Causal.experiment([Row], oneSided, refuseCfg));
+        $(Assert.equal(refused.verdict.hasTag("not_estimable"), true));
+        $(Assert.equal(refused.verdict_reasons.size(), 0n));
+        $(Assert.greater(refused.outcome_sd, 0.0));
+
+        // A floored causal verdict says WHY: low_robustness among the reasons.
+        const floored = $.let({
+            treatment: "treated", outcome: "outcome", common_causes: ["z"],
+            categorical: none, method: none, estimand: none,
+            refute: some({ placebo: true, random_common_cause: false, data_subset: false, sensitivity: none }),
+            dose_feature: none, min_overlap: some(0.1), min_treatment_variation: some(0.02),
+            bootstrap: none, random_state: some(42n),
+            strong_overlap: none, evalue_floor: some(99.0), expected_sign: none,
+        }, Causal.Types.CausalExperimentConfigType);
+        const modest = $.let(Causal.experiment([Row], data, floored));
+        $(Assert.equal(modest.verdict.hasTag("modest"), true));
+        $(Assert.equal(modest.verdict_reasons.get(0n).hasTag("low_robustness"), true));
+    });
+
     test("evalue_floor (G3): an opt-in robustness floor tempers a causal verdict to modest", $ => {
         const Row = StructType({ treated: FloatType, outcome: FloatType, z: FloatType });
         // The headline confounded data (true effect +2.0) → robustness_value ≈ 4.1.

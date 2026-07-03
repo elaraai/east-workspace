@@ -1294,6 +1294,11 @@ BalanceRowType = StructType(
         ("treated_mean", FloatType),
         ("control_mean", FloatType),
         ("std_diff", FloatType),
+        # Post-adjustment standardized mean difference (same pooled-sd denominator
+        # as std_diff, weighted means) — proof the adjustment closed the gap. Some
+        # only for propensity_score_weighting with computable scores; none for the
+        # regression estimator (which doesn't reweight) or a failed propensity fit.
+        ("std_diff_adjusted", OptionType(FloatType)),
     ]
 )
 
@@ -1310,6 +1315,16 @@ OverlapDiagnosticType = StructType(
     ]
 )
 
+SensitivityBenchmarkType = StructType(
+    [
+        ("column", StringType),
+        ("strength", FloatType),
+    ]
+)
+"""One observed confounder placed on the sensitivity strengths axis — the
+simulated strength whose effect-shift equals the shift from omitting it.
+twin: causal.ts / e3-ui ``SensitivityBenchmarkType``."""
+
 RefutationType = StructType(
     [
         ("placebo_effect", OptionType(FloatType)),
@@ -1325,6 +1340,12 @@ RefutationType = StructType(
             OptionType(StructType([
                 ("strengths", VectorType(FloatType)),
                 ("effects", VectorType(FloatType)),
+                # Observed-confounder benchmarks on the SAME strengths axis: for each
+                # confounder, the simulated strength whose effect-shift equals the
+                # shift from omitting that confounder — so "tips at 0.9" can be read
+                # as "a hidden cause as strong as <column>". Clamped to the last
+                # simulated strength; empty when no benchmark is computable.
+                ("benchmarks", ArrayType(SensitivityBenchmarkType)),
             ])),
         ),
         # Sign-prior check (G6): some(true/false) when expected_sign is set and the
@@ -1355,6 +1376,30 @@ ExperimentVerdictType = VariantType(
     ]
 )
 
+VerdictReasonType = VariantType(
+    [
+        # The placebo (shuffle) refuter didn't collapse to ~0.
+        ("placebo_failed", NullType),
+        # |effect| below the materiality band (0.10 × outcome_sd).
+        ("not_material", NullType),
+        # The adjusted CI straddles zero.
+        ("ci_spans_zero", NullType),
+        # Material + CI-clear but pointing against config.expected_sign.
+        ("wrong_sign", NullType),
+        # Common support cleared the refuse gate but is below strong_overlap.
+        ("thin_support", NullType),
+        # E-value below the (opt-in) evalue_floor.
+        ("low_robustness", NullType),
+    ]
+)
+"""Machine-readable reason a verdict fell short of ``causal``.
+
+Every FAILING gate is emitted (the verdict tag is chosen by precedence, but a
+consumer explaining "why modest?" needs all of them). Empty for ``causal`` (all
+gates passed) and for the two refusal verdicts (the tag itself is the reason).
+twin: causal.ts / e3-ui ``VerdictReasonType``.
+"""
+
 CausalExperimentResultType = StructType(
     [
         ("naive", FloatType),
@@ -1363,12 +1408,26 @@ CausalExperimentResultType = StructType(
         ("n_total", IntegerType),
         ("n_treated", IntegerType),
         ("n_control", IntegerType),
+        # Rows OUTSIDE the propensity common support — the units with no
+        # like-for-like counterpart on the other side (display-only; nothing is
+        # dropped from the estimate).
         ("n_dropped", IntegerType),
         ("balance", ArrayType(BalanceRowType)),
         ("overlap", OverlapDiagnosticType),
         ("refutation", OptionType(RefutationType)),
         ("dose_response", OptionType(DoseResponseType)),
         ("verdict", ExperimentVerdictType),
+        # Why the verdict fell short of `causal` — every failing gate (empty for
+        # `causal` and for the refusals, where the tag itself is the reason).
+        ("verdict_reasons", ArrayType(VerdictReasonType)),
+        # The thresholds the verdict applied, echoed so a consumer can SAY them:
+        # "the effect (+0.3) is smaller than what would matter here (±0.6)".
+        ("outcome_sd", FloatType),
+        ("materiality_threshold", FloatType),
+        # Per-arm raw outcome means — the numbers a domain expert recognises from
+        # their own reports; none when an arm is empty.
+        ("treated_outcome_mean", OptionType(FloatType)),
+        ("control_outcome_mean", OptionType(FloatType)),
     ]
 )
 
@@ -1472,6 +1531,79 @@ def _experiment_balance(df, treatment, common_causes, expansion):
             rows.append((col, c, mt, mc, float((mt - mc) / pooled) if pooled > 0 else 0.0))
     rows.sort(key=lambda r: -abs(r[4]))
     return rows
+
+
+def _experiment_balance_adjusted(df, treatment, causes, balance_rows, random_state):
+    """Post-weighting SMD per balance row → {column: wsmd}, or {} when not computable.
+
+    ATE inverse-propensity weights (1/ps treated, 1/(1-ps) control); the SMD keeps
+    the UNWEIGHTED pooled-sd denominator so before/after are directly comparable
+    (the Love-plot convention). Only meaningful for the propensity estimator —
+    the caller gates on method_tag.
+    """
+    try:
+        ps = _propensity_scores(df, treatment, causes, random_state)
+    except Exception:
+        return {}
+    t = df[treatment].to_numpy() > 0.5
+    eps = 1e-6
+    w = np.where(t, 1.0 / np.clip(ps, eps, 1.0), 1.0 / np.clip(1.0 - ps, eps, 1.0))
+    out = {}
+    for (col, _base, _mt, _mc, _sd) in balance_rows:
+        if col not in df.columns:
+            continue
+        x = df[col].to_numpy(dtype=np.float64)
+        xt, xc = x[t], x[~t]
+        wt, wc = w[t], w[~t]
+        if len(xt) == 0 or len(xc) == 0 or wt.sum() <= 0 or wc.sum() <= 0:
+            continue
+        mt = float(np.average(xt, weights=wt))
+        mc = float(np.average(xc, weights=wc))
+        pooled = float(np.sqrt((xt.var() + xc.var()) / 2.0))
+        out[col] = float((mt - mc) / pooled) if pooled > 0 else 0.0
+    return out
+
+
+def _experiment_benchmarks(df, treatment, outcome, config_causes, expansion, method_tag,
+                           target_units, random_state, adj_effect, strengths, effects):
+    """Observed-confounder benchmarks on the sensitivity strengths axis.
+
+    For each base confounder c: omitting c moves the adjusted estimate by
+    |Δ_c|; its benchmark is the (interpolated) simulated strength at which the
+    tipping curve moves by the same amount — so a curve reading like "tips at
+    0.9" becomes "a hidden cause as strong as <c>". Shifts beyond the simulated
+    range clamp to the last strength. Returns [(column, strength), …].
+    """
+    if len(strengths) < 2 or len(effects) < 2:
+        return []
+    base = effects[0]
+    curve_shift = [abs(e - base) for e in effects]
+    max_shift = max(curve_shift)
+
+    def strength_for(shift: float) -> float:
+        if shift <= 0.0:
+            return float(strengths[0])
+        if max_shift <= 0.0 or shift >= max_shift:
+            return float(strengths[-1])
+        for i in range(1, len(curve_shift)):
+            s0, s1 = curve_shift[i - 1], curve_shift[i]
+            if s0 <= shift <= s1 and s1 > s0:
+                f = (shift - s0) / (s1 - s0)
+                return float(strengths[i - 1] + f * (strengths[i] - strengths[i - 1]))
+        return float(strengths[-1])
+
+    out = []
+    for c in config_causes:
+        remaining = [col for other in config_causes if other != c for col in expansion.get(other, [other])]
+        # Same downgrade the main impl applies: the propensity estimator needs at
+        # least one confounder — omitting the only one falls back to regression.
+        m_tag = method_tag if remaining else "linear_regression"
+        try:
+            without = _manual_effect(df, treatment, outcome, remaining, m_tag, target_units, random_state)
+        except Exception:
+            continue
+        out.append((c, strength_for(abs(float(without) - float(adj_effect)))))
+    return out
 
 
 def _experiment_placebo(df, treatment, outcome, causes, method_tag, target_units,
@@ -1637,7 +1769,11 @@ def _effect_config_from(config: EastStruct, treatment: str, outcome: str) -> Eas
 
 
 def _experiment_sensitivity(data, config, treatment, outcome, strengths):
-    """Unobserved-confounder tipping curve via the internal DoWhy refuter."""
+    """Unobserved-confounder tipping curve via the internal DoWhy refuter.
+
+    Returns ``(strengths, effects)`` as plain float lists (the caller attaches
+    the observed-confounder benchmarks and builds the struct), or ``None``.
+    """
     refuter = EastVariant("unobserved_common_cause",
                           EastStruct({"effect_strengths": [float(s) for s in strengths]}))
     try:
@@ -1645,10 +1781,7 @@ def _experiment_sensitivity(data, config, treatment, outcome, strengths):
         effects = [float(x) for x in r.get("new_effects").to_numpy()]
     except Exception:
         return None
-    return EastStruct({
-        "strengths": EastVector(FloatType, [float(s) for s in strengths]),
-        "effects": EastVector(FloatType, effects),
-    })
+    return [float(s) for s in strengths], effects
 
 
 def _experiment_dose(data, config, outcome, dose_feature):
@@ -1749,6 +1882,11 @@ def causal_experiment_impl(data: EastArray, config: EastStruct) -> EastStruct:
     y = df[outcome].to_numpy(dtype=np.float64)
     n_total, n_t, n_c = len(df), int(t.sum()), int((~t).sum())
     outcome_sd = float(df[outcome].std()) or 1.0
+    # Echo the materiality band the verdict applies, so a consumer can SAY it
+    # ("smaller than what would matter here").
+    materiality = 0.10 * outcome_sd
+    treated_mean_opt = EastVariant("some", float(y[t].mean())) if n_t else EastVariant("none", None)
+    control_mean_opt = EastVariant("some", float(y[~t].mean())) if n_c else EastVariant("none", None)
 
     naive = float(y[t].mean() - y[~t].mean()) if n_t and n_c else 0.0
     nci = _meandiff_ci(y, t, bootstrap_opt, random_state, cluster_ids=cluster_ids)
@@ -1756,6 +1894,9 @@ def causal_experiment_impl(data: EastArray, config: EastStruct) -> EastStruct:
 
     balance_rows = _experiment_balance(df, treatment, common_causes, expansion)
     th, ch, support_frac, positivity_ok = _experiment_overlap(df, treatment, causes, random_state, min_overlap)
+    # Rows outside the common support — the units with no like-for-like
+    # counterpart. Display-only (nothing is dropped from the estimate).
+    n_off_support = int(round((1.0 - float(support_frac)) * n_total))
 
     # Graded common-support tier (G1/G2): refused (below the refuse gate) / thin
     # (clears it but below strong_overlap) / strong. Always reported on overlap.
@@ -1768,6 +1909,11 @@ def causal_experiment_impl(data: EastArray, config: EastStruct) -> EastStruct:
 
     adjusted = EastVariant("none", None)
     refutation = EastVariant("none", None)
+    # Every FAILING verdict gate, machine-readable — empty for `causal` (all
+    # gates passed) and for the refusals (the verdict tag itself is the reason).
+    reasons: list = []
+    # Post-adjustment SMD per balance column (PSW only) — {} when not computed.
+    adj_bal: dict = {}
 
     minfrac = (min(n_t, n_c) / n_total) if n_total else 0.0
     if minfrac < min_var:
@@ -1794,6 +1940,21 @@ def causal_experiment_impl(data: EastArray, config: EastStruct) -> EastStruct:
         if expected_sign is not None and material:
             sign_match = (adj_effect > 0.0) == (expected_sign == "positive")
 
+        # Record EVERY failing gate (machine-readable "why not causal?"); the tag
+        # itself is then chosen by the severity cascade below.
+        if placebo_fails:
+            reasons.append("placebo_failed")
+        if not material:
+            reasons.append("not_material")
+        if not ci_clear:
+            reasons.append("ci_spans_zero")
+        if sign_match is False:
+            reasons.append("wrong_sign")
+        if support_tag != "strong":
+            reasons.append("thin_support")
+        if evalue_floor is not None and robustness_value < evalue_floor:
+            reasons.append("low_robustness")
+
         if placebo_fails:
             tag = "adjustment_insufficient"
         elif (not material) or (not ci_clear):
@@ -1814,6 +1975,11 @@ def causal_experiment_impl(data: EastArray, config: EastStruct) -> EastStruct:
         else:
             tag = "causal"
         verdict = EastVariant(tag, None)
+
+        # Post-adjustment balance — only the propensity estimator reweights, so
+        # only it has an "after" picture to report.
+        if method_tag == "propensity_score_weighting" and causes:
+            adj_bal = _experiment_balance_adjusted(df, treatment, causes, balance_rows, random_state)
         expected_sign_ok = (EastVariant("some", bool(sign_match)) if sign_match is not None
                             else EastVariant("none", None))
         adjusted = EastVariant("some", EastStruct({
@@ -1828,6 +1994,19 @@ def causal_experiment_impl(data: EastArray, config: EastStruct) -> EastStruct:
                           if want_data_subset else (None, None))
         sens = (_experiment_sensitivity(data, config, treatment, outcome, sensitivity_strengths)
                 if sensitivity_strengths else None)
+        sens_struct = None
+        if sens is not None:
+            s_list, e_list = sens
+            benchmarks = _experiment_benchmarks(
+                df, treatment, outcome, common_causes, expansion, method_tag,
+                target_units, random_state, adj_effect, s_list, e_list)
+            sens_struct = EastStruct({
+                "strengths": EastVector(FloatType, s_list),
+                "effects": EastVector(FloatType, e_list),
+                "benchmarks": EastArray(SensitivityBenchmarkType, [
+                    EastStruct({"column": col, "strength": float(s)}) for (col, s) in benchmarks
+                ]),
+            })
         refutation = EastVariant("some", EastStruct({
             "placebo_effect": EastVariant("some", float(placebo)) if want_placebo else EastVariant("none", None),
             "placebo_passes": EastVariant("some", bool(not placebo_fails)) if want_placebo else EastVariant("none", None),
@@ -1835,7 +2014,7 @@ def causal_experiment_impl(data: EastArray, config: EastStruct) -> EastStruct:
             "data_subset_effect": EastVariant("some", ds_eff) if ds_eff is not None else EastVariant("none", None),
             "data_subset_std": EastVariant("some", ds_std) if ds_std is not None else EastVariant("none", None),
             "robustness_value": EastVariant("some", robustness_value),
-            "sensitivity": EastVariant("some", sens) if sens is not None else EastVariant("none", None),
+            "sensitivity": EastVariant("some", sens_struct) if sens_struct is not None else EastVariant("none", None),
             "expected_sign_ok": expected_sign_ok,
         }))
 
@@ -1847,7 +2026,11 @@ def causal_experiment_impl(data: EastArray, config: EastStruct) -> EastStruct:
         "support_strength": EastVariant(support_tag, None),
     })
     balance = EastArray(BalanceRowType, [
-        EastStruct({"column": col, "base_column": base, "treated_mean": mt, "control_mean": mc, "std_diff": sd})
+        EastStruct({
+            "column": col, "base_column": base, "treated_mean": mt, "control_mean": mc, "std_diff": sd,
+            "std_diff_adjusted": (EastVariant("some", adj_bal[col]) if col in adj_bal
+                                  else EastVariant("none", None)),
+        })
         for (col, base, mt, mc, sd) in balance_rows
     ])
 
@@ -1861,12 +2044,17 @@ def causal_experiment_impl(data: EastArray, config: EastStruct) -> EastStruct:
         "n_total": int(n_total),
         "n_treated": int(n_t),
         "n_control": int(n_c),
-        "n_dropped": 0,
+        "n_dropped": n_off_support,
         "balance": balance,
         "overlap": overlap,
         "refutation": refutation,
         "dose_response": dose_response,
         "verdict": verdict,
+        "verdict_reasons": EastArray(VerdictReasonType, [EastVariant(r, None) for r in reasons]),
+        "outcome_sd": float(outcome_sd),
+        "materiality_threshold": float(materiality),
+        "treated_outcome_mean": treated_mean_opt,
+        "control_outcome_mean": control_mean_opt,
     })
     assert_value_of(result, CausalExperimentResultType)
     return result

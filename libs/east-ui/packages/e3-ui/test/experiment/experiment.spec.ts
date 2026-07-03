@@ -4,10 +4,11 @@
  */
 
 import { describeEast, Assert, TestImpl } from '@elaraai/east-node-std';
-import { East } from '@elaraai/east';
+import { East, isTypeEqual } from '@elaraai/east';
 import { Reactive, UIComponentType } from '@elaraai/east-ui/internal';
 import { Data, Func } from '@elaraai/e3-ui';
 import { Experiment } from '@elaraai/e3-ui/internal';
+import { Causal } from '@elaraai/east-py-datascience';
 import * as ex from './experiment.examples.js';
 
 describeEast('Experiment', (test) => {
@@ -28,6 +29,31 @@ describeEast('Experiment', (test) => {
         $(Assert.equal(East.value(Experiment.Component.name), 'Experiment'));
         $(Assert.equal(East.value(Experiment.Component.optional), true));
     });
+
+    // DRIFT GUARD — the render contract is deliberately REPLICATED (no shared
+    // package) in e3-ui and east-py-datascience and unified by structural
+    // equality across the boundary. These tests are the tripwire: a field added
+    // on one side without its twin fails HERE (naming the drifted type), not in
+    // a production decode.
+    const contractPairs: [string, boolean][] = [
+        ['Config', isTypeEqual(Experiment.Types.Config, Causal.Types.CausalExperimentConfigType)],
+        ['Result', isTypeEqual(Experiment.Types.Result, Causal.Types.CausalExperimentResultType)],
+        ['Ci', isTypeEqual(Experiment.Types.Ci, Causal.Types.CiType)],
+        ['Balance', isTypeEqual(Experiment.Types.Balance, Causal.Types.BalanceRowType)],
+        ['SensitivityBenchmark', isTypeEqual(Experiment.Types.SensitivityBenchmark, Causal.Types.SensitivityBenchmarkType)],
+        ['Overlap', isTypeEqual(Experiment.Types.Overlap, Causal.Types.OverlapDiagnosticType)],
+        ['Refutation', isTypeEqual(Experiment.Types.Refutation, Causal.Types.RefutationType)],
+        ['DoseResponse', isTypeEqual(Experiment.Types.DoseResponse, Causal.Types.DoseResponseType)],
+        ['Verdict', isTypeEqual(Experiment.Types.Verdict, Causal.Types.ExperimentVerdictType)],
+        ['VerdictReason', isTypeEqual(Experiment.Types.VerdictReason, Causal.Types.VerdictReasonType)],
+        ['Design', isTypeEqual(Experiment.Types.Design, Causal.Types.ExperimentDesignType)],
+        ['DesignConfig', isTypeEqual(Experiment.Types.DesignConfig, Causal.Types.DesignConfigType)],
+    ];
+    for (const [name, equal] of contractPairs) {
+        test(`contract drift guard: ${name} is structurally identical to the east-py-datascience twin`, $ => {
+            $(Assert.equal(East.value(equal), true));
+        });
+    }
 
     test('Experiment.Root produces a ReactiveComponent-tagged UIComponentType', $ => {
         const tree = $.let(

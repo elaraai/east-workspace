@@ -71,6 +71,7 @@
   "devDependencies": {
     "@elaraai/e3": "workspace:*",
     "@elaraai/east-node-std": "workspace:*",
+    "@elaraai/east-py-datascience": "workspace:*",
     "@types/node": "^22",
     "@typescript-eslint/eslint-plugin": "^8",
     "@typescript-eslint/parser": "^8",

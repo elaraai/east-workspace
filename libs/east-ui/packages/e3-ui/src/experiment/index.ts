@@ -66,8 +66,10 @@ import {
     OverlapDiagnosticType,
     RefutationType,
     SensitivityCurveType,
+    SensitivityBenchmarkType,
     AdjustedEffectType,
     ExperimentVerdictType,
+    VerdictReasonType,
 } from './types.js';
 
 // Re-export the contract types so consumers can reach them from the component
@@ -81,10 +83,12 @@ export {
     RefuteSpecType,
     ExperimentConfigType,
     BalanceRowType,
+    SensitivityBenchmarkType,
     OverlapDiagnosticType,
     RefutationType,
     DoseResponseType,
     ExperimentVerdictType,
+    VerdictReasonType,
     ExperimentResultType,
     JournalRowType,
     JournalType,
@@ -330,8 +334,12 @@ export const Experiment = {
         Refutation: RefutationType,
         /** The unobserved-confounder sensitivity (tipping) curve. */
         Sensitivity: SensitivityCurveType,
+        /** One observed confounder benchmarked on the sensitivity strengths axis. */
+        SensitivityBenchmark: SensitivityBenchmarkType,
         /** The honesty verdict tag. */
         Verdict: ExperimentVerdictType,
+        /** Machine-readable reason a verdict fell short of `causal`. */
+        VerdictReason: VerdictReasonType,
         /** The ALE dose-response curve value type (the "How much?" tab). */
         DoseResponse: DoseResponseType,
         /** The committed-experiment journal value type. */
