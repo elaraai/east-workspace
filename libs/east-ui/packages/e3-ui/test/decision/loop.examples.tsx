@@ -50,7 +50,7 @@ export const loopRosterDecisions = e3.input(
             title: 'Move 3 SE shifts Patel → Cho',
             urgency: variant('overdue', null),
             value: 80000,
-            deadline: some(new Date(Date.now() - 2 * 3_600_000)),
+            deadline: some(new Date('2026-03-10T07:00:00Z')),   // pinned demo timestamp (reads as overdue)
             format: some(CURRENCY),
             valueAxis: none,
             summary: some('SE region · wk 09-16'),
@@ -101,7 +101,7 @@ export const loopOrderDecisions = e3.input(
             title: 'SKU-001 · 2k units',
             urgency: variant('due', null),
             value: 42000,
-            deadline: some(new Date(new Date().setHours(16, 0, 0, 0))),
+            deadline: some(new Date('2026-03-10T16:00:00Z')),   // pinned demo timestamp (due today, 4pm)
             format: some(CURRENCY),
             valueAxis: none,
             summary: some('supplier lead time 6 days'),

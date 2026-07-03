@@ -468,6 +468,19 @@ export const schematicItemMove = example({
     inputs: [],
 });
 
+// 320 generated demo units across 4 bays — authored at MODULE scope (an East
+// function's body must be East all the way down; authoring-time constants are
+// host-declared outside it).
+const STRESS_GRID_ITEMS = Array.from({ length: 320 }, (_, i) => {
+    const bay = Math.floor(i / 80), col = i % 16, row = Math.floor((i % 80) / 16);
+    return {
+        id: `U-${String(i).padStart(3, "0")}`,
+        x: (bay % 2) * 32 + col * 1.9 + 2.0,
+        y: Math.floor(bay / 2) * 17 + row * 2.9 + 2.5,
+        load: (i * 37 % 100) / 100,
+    };
+});
+
 export const schematicStress = example({
     keywords: ["Schematic", "stress", "performance", "LOD", "semantic zoom", "declutter", "minimap", "large", "many items"],
     description: "Semantic-zoom stress probe — 320 generated items across 4 bays exercise the LOD ladder (cards ⇢ labelled dots ⇢ dots as you zoom out, dense rows degrading as one block instead of checkerboarding), the minimap, and 60 fps pan; the manual perf budget probe for the renderer",
@@ -475,15 +488,7 @@ export const schematicStress = example({
         <Schematic
             extent={{ width: 64, height: 34 }}
             height="460px"
-            items={Array.from({ length: 320 }, (_, i) => {
-                const bay = Math.floor(i / 80), col = i % 16, row = Math.floor((i % 80) / 16);
-                return {
-                    id: `U-${String(i).padStart(3, "0")}`,
-                    x: (bay % 2) * 32 + col * 1.9 + 2.0,
-                    y: Math.floor(bay / 2) * 17 + row * 2.9 + 2.5,
-                    load: (i * 37 % 100) / 100,
-                };
-            })}
+            items={STRESS_GRID_ITEMS}
             item={r => ({ key: r.id, x: r.x, y: r.y, label: r.id, icon: "microchip", meter: { value: r.load, max: 1.0 } })}
             zones={[
                 { id: "bay-a", name: "Bay A", x: 0.5, y: 0.5, w: 31.0, h: 16.0 },

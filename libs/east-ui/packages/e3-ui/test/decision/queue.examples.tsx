@@ -67,7 +67,7 @@ export const queueDecisions = e3.input(
             title: 'Move 3 SE shifts Patel → Cho',
             urgency: variant('overdue', null),
             value: 80000,
-            deadline: some(new Date(Date.now() - 2 * 3_600_000)),
+            deadline: some(new Date('2026-03-10T07:00:00Z')),   // pinned demo timestamp (reads as overdue)
             format: some(CURRENCY),
             valueAxis: none,
             summary: some('SE region · wk 09-16'),
@@ -96,7 +96,7 @@ export const queueDecisions = e3.input(
             title: 'SKU-001 · 2k units',
             urgency: variant('due', null),
             value: 42000,
-            deadline: some(new Date(new Date().setHours(16, 0, 0, 0))),
+            deadline: some(new Date('2026-03-10T16:00:00Z')),   // pinned demo timestamp (due today, 4pm)
             format: some(CURRENCY),
             valueAxis: none,
             summary: some('supplier lead time 6 days'),
@@ -214,54 +214,59 @@ export const decisionQueueCase = example({
                     { week: 14n, demand: 99.0, capacity: 96.0 },
                     { week: 15n, demand: 104.0, capacity: 96.0 },
                 ], ArrayType(StructType({ week: IntegerType, demand: FloatType, capacity: FloatType })));
+                const evidence = $.const(East.function([DecisionType], UIComponentType, (_$, _decision) => (
+                    <Chart
+                        layers={[
+                            Chart.Area(forecast, { x: r => r.week, y: r => r.demand }, { color: 'teal.solid', fillOpacity: 0.25 }),
+                            Chart.Line(forecast, { x: r => r.week, y: r => r.capacity }, { color: 'red.solid' }),
+                        ]}
+                        grid
+                        height={160}
+                    />
+                )));
+                const modify = $.const(East.function([DecisionType, DecisionQueue.Types.Update], UIComponentType, ($, decision, update) => {
+                    const onChangeEnd = $.const(East.function([FloatType], NullType, ($, v) => {
+                        // East has no struct spread — rebuild the decision with the probed `value`.
+                        const edited = $.const({
+                            id: decision.id,
+                            kind: decision.kind,
+                            title: decision.title,
+                            urgency: decision.urgency,
+                            value: v,
+                            deadline: decision.deadline,
+                            format: decision.format,
+                            valueAxis: decision.valueAxis,
+                            summary: decision.summary,
+                            downside: decision.downside,
+                            confidence: decision.confidence,
+                            detail: decision.detail,
+                            stakes: decision.stakes,
+                            prompts: decision.prompts,
+                            levers: decision.levers,
+                            evidence: decision.evidence,
+                            alternatives: decision.alternatives,
+                        }, DecisionType);
+                        $(update(edited));
+                    }));
+                    return (
+                        <Field.Slider
+                            label="Uplift target"
+                            value={decision.value}
+                            min={0}
+                            max={120000}
+                            step={1000}
+                            helperText="Probe the recommendation — committing re-runs the optimizer against the revised target."
+                            onChangeEnd={onChangeEnd}
+                        />
+                    );
+                }));
                 return (
                     <DecisionQueue
                         handle={handle}
                         heading="Decisions waiting"
                         defaultExpanded={urgent}
-                        modify={East.function([DecisionType, DecisionQueue.Types.Update], UIComponentType, (_$, decision, update) => (
-                            <Field.Slider
-                                label="Uplift target"
-                                value={decision.value}
-                                min={0}
-                                max={120000}
-                                step={1000}
-                                helperText="Probe the recommendation — committing re-runs the optimizer against the revised target."
-                                onChangeEnd={East.function([FloatType], NullType, ($, v) => {
-                                    // East has no struct spread — rebuild the decision with the probed `value`.
-                                    const edited = $.const({
-                                        id: decision.id,
-                                        kind: decision.kind,
-                                        title: decision.title,
-                                        urgency: decision.urgency,
-                                        value: v,
-                                        deadline: decision.deadline,
-                                        format: decision.format,
-                                        valueAxis: decision.valueAxis,
-                                        summary: decision.summary,
-                                        downside: decision.downside,
-                                        confidence: decision.confidence,
-                                        detail: decision.detail,
-                                        stakes: decision.stakes,
-                                        prompts: decision.prompts,
-                                        levers: decision.levers,
-                                        evidence: decision.evidence,
-                                        alternatives: decision.alternatives,
-                                    }, DecisionType);
-                                    $(update(edited));
-                                })}
-                            />
-                        ))}
-                        evidence={East.function([DecisionType], UIComponentType, (_$, _decision) => (
-                            <Chart
-                                layers={[
-                                    Chart.Area(forecast, { x: r => r.week, y: r => r.demand }, { color: 'teal.solid', fillOpacity: 0.25 }),
-                                    Chart.Line(forecast, { x: r => r.week, y: r => r.capacity }, { color: 'red.solid' }),
-                                ]}
-                                grid
-                                height={160}
-                            />
-                        ))}
+                        modify={modify}
+                        evidence={evidence}
                     />
                 );
             }}</Reactive>

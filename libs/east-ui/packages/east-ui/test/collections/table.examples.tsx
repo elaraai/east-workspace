@@ -103,11 +103,11 @@ export const tableComplexColumns = example({
     keywords: ["Table", "Root", "value", "render", "complex", "array", "struct"],
     description: "Array and struct fields with value functions for sorting",
     fn: East.function([], UIComponentType, ($) => {
-        const complexData = $.let(East.value([
+        const complexData = $.let([
             { name: "Alice", skills: ["TypeScript", "React", "Node"], metadata: { level: "Senior", years: 5n } },
             { name: "Bob", skills: ["Python", "Django"], metadata: { level: "Mid", years: 3n } },
             { name: "Charlie", skills: ["Go", "Rust", "C++", "Java"], metadata: { level: "Senior", years: 8n } },
-        ]));
+        ]);
         return (
             <Table
                 variant="line"
@@ -146,7 +146,7 @@ export const tableWrappingTags = example({
     keywords: ["Table", "Root", "Dict", "Tag", "wrap"],
     description: "Dict column rendered as tags that wrap within a fixed width",
     fn: East.function([], UIComponentType, ($) => {
-        const metricsData = $.let(East.value([
+        const metricsData = $.let([
             {
                 name: "Server A",
                 metrics: new Map<string, number>([["cpu", 45.2], ["mem", 78.5], ["disk", 62.1], ["net", 23.4], ["io", 15.8], ["load", 2.3]]),
@@ -159,7 +159,7 @@ export const tableWrappingTags = example({
                 name: "Server C",
                 metrics: new Map<string, number>([["cpu", 12.5], ["mem", 34.2], ["disk", 88.9], ["net", 56.7], ["io", 78.3], ["load", 1.1], ["temp", 42.0], ["power", 320.5]]),
             },
-        ]));
+        ]);
         return (
             <Table
                 variant="line"

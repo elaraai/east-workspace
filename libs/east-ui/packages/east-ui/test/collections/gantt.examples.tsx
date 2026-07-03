@@ -253,11 +253,11 @@ export const ganttComplexColumns = example({
     keywords: ["Gantt", "value", "render", "CellRenderContext", "row access", "complex"],
     description: "Complex columns — `value` to sort an array field, plus a `render` that closes over row data to combine sibling fields",
     fn: East.function([], UIComponentType, ($) => {
-        const rows = $.let(East.value([
+        const rows = $.let([
             { task: "Platform v2", owner: "Alice", tags: ["backend", "api", "priority"], start: new Date("2024-01-01"), end: new Date("2024-03-31") },
             { task: "UI Refresh", owner: "Bob", tags: ["frontend", "design"], start: new Date("2024-01-15"), end: new Date("2024-02-28") },
             { task: "CI/CD", owner: "Charlie", tags: ["devops"], start: new Date("2024-02-01"), end: new Date("2024-02-28") },
-        ]));
+        ]);
         return (
             <Gantt
                 variant="line"

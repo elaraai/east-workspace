@@ -209,6 +209,9 @@ export const matrixReactiveAdjust = example({
             const committedBind = $.let(State.bind([FloatType], "matrix_adjust_committed", 0.5));
             const committed = $.let(committedBind.read());
             const data = $.const([{ team: "Squad", load: committed }], ArrayType(StructType({ team: StringType, load: FloatType })));
+            const onSegmentChange = $.const(East.function([Matrix.Types.SegmentChangeEvent], NullType, ($, e) => {
+                $(committedBind.write(e.weight));
+            }));
             return (
                 <Matrix
                     data={data}
@@ -221,9 +224,7 @@ export const matrixReactiveAdjust = example({
                         Matrix.segment({ fill: "success", weight: r.load, label: East.str`${r.load.multiply(100.0)}%`, min: 0.0, max: 1.0, step: 0.05 }),
                         Matrix.segment({ fill: "slack", weight: East.value(1.0, FloatType).subtract(r.load) }),
                     ] })}
-                    onSegmentChange={East.function([Matrix.Types.SegmentChangeEvent], NullType, ($, e) => {
-                        $(committedBind.write(e.weight));
-                    })}
+                    onSegmentChange={onSegmentChange}
                 />
             );
         }}</Reactive>
