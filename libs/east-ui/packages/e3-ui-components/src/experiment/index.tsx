@@ -48,7 +48,7 @@ import { useBindingValue } from './bind-runtime.js';
 import { useFuncCall, type FuncCallError } from './run-runtime.js';
 import { getBindingTypes, getReactiveDatasetCache } from '../platform/index.js';
 import { ForestPlot, AreaRange, OverlapHistogram } from './charts.js';
-import { GuidanceProvider, GuidanceToggle, Help } from './help-ui.js';
+import { GuidanceProvider, GuidanceToggle, GuidanceGist, Help } from './help-ui.js';
 import { type HelpId } from './help.js';
 import {
     deriveView, deriveDesign,
@@ -56,12 +56,13 @@ import {
     type Column, type ConfigValue, type ResultValue, type JournalRowValue, type DesignValue, type VMDesign, type ConfigurationValue,
 } from './derive.js';
 
-// The neutral noun for a row. `<Experiment>` is generic over any causal-analytics
-// dataset, so the renderer never assumes a domain (customer / batch / patient / …)
-// — `record(s)` reads correctly across all of them. Used in both the guidance
-// glossary (via `helpVars`) and the rail's static prose.
-const SUBJECT_ONE = 'record';
-const SUBJECT_MANY = 'records';
+// The neutral DEFAULT noun for a row. `<Experiment>` is generic over any
+// causal-analytics dataset, so the renderer never assumes a domain (customer /
+// batch / patient / …) — `record(s)` reads correctly across all of them. The
+// author overrides it with the payload's optional `subject` ("batch(es)"),
+// which flows into the guidance glossary, the rail prose, the header count and
+// the narrative headline.
+const SUBJECT_DEFAULT = { one: 'record', many: 'records' } as const;
 
 // Each Run encodes + ships the full filtered dataset to the bound function, so a
 // very large dataset shouldn't auto-run on mount (it would jank before the user
@@ -137,9 +138,16 @@ const num = (x: unknown): number | null => (typeof x === 'number' ? x : typeof x
 // Small presentational helpers (text-style / layer-style based).
 // ---------------------------------------------------------------------------
 
-/** Mono uppercase eyebrow caption for a card section (design `.xp-cap`). */
+/** Mono uppercase eyebrow caption for a card section (design `.xp-cap`). With
+ *  guidance on, the entry's one-sentence gist prints beneath it — the hover
+ *  card alone doesn't survive screenshots / PDFs / touch. */
 function Cap({ children, help }: { children: ReactNode; help?: HelpId }) {
-    return <Text textStyle="caption.eyebrow" fontSize="9px" mb="2.5">{help ? <Help id={help}>{children}</Help> : children}</Text>;
+    return (
+        <>
+            <Text textStyle="caption.eyebrow" fontSize="9px" mb="2.5">{help ? <Help id={help}>{children}</Help> : children}</Text>
+            {help && <GuidanceGist id={help} />}
+        </>
+    );
 }
 
 /** A section card (the `.frame`-inset cards in the result deck). */
@@ -277,6 +285,7 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
     const data = useBindingValue<Record<string, unknown>[]>(v.data as never);
     const journalBind = useBindingValue<JournalRowValue[]>(v.journal.type === 'some' ? (v.journal.value as never) : null);
     const meta = getSomeorUndefined(v.columnMeta);
+    const subject = getSomeorUndefined(v.subject) ?? SUBJECT_DEFAULT;
     const readonly = getSomeorUndefined(v.readonly) ?? false;
     // The questions — a read-only bound list. Each entry is self-contained (its
     // `spec` + optional precomputed `result`/`design`); selecting one seeds the
@@ -450,13 +459,13 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
     const helpVars = useMemo(() => {
         const rc = ranConfig ?? config;
         const labelOf = (col: string | undefined) => (col ? (getSomeorUndefined(meta?.get(col)?.label) ?? col) : '');
-        return { treatment: labelOf(rc?.treatment), outcome: labelOf(rc?.outcome), subject: SUBJECT_ONE, subjects: SUBJECT_MANY };
-    }, [ranConfig, config, meta]);
+        return { treatment: labelOf(rc?.treatment), outcome: labelOf(rc?.outcome), subject: subject.one, subjects: subject.many };
+    }, [ranConfig, config, meta, subject]);
 
     const view = useMemo(() => {
         if (!config) return null;
-        return deriveView(config, ranConfig ?? config, columns, shownResult, journalBind.value, meta, nRows, now);
-    }, [config, ranConfig, columns, shownResult, journalBind.value, meta, nRows, now]);
+        return deriveView(config, ranConfig ?? config, columns, shownResult, journalBind.value, meta, nRows, now, subject);
+    }, [config, ranConfig, columns, shownResult, journalBind.value, meta, nRows, now, subject]);
 
     // Default design knobs — library-defaulted alpha/power/materiality, and offer
     // both an even split and a cost-saving 30% split so the alternate row shows.
@@ -583,7 +592,7 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
                         <Menu.Trigger asChild>
                             <Box as="button" bg="transparent" border="0" p="0" cursor="pointer" display="inline-flex" alignItems="center" gap="2" textAlign="start">
                                 <Text textStyle="title.card" color="fg.muted">
-                                    Does&nbsp;<Text as="span" color="brand.solid" fontWeight="bold">{vs.treatment}</Text>&nbsp;change&nbsp;<Text as="span" color="brand.solid" fontWeight="bold">{vs.outcome}</Text>?
+                                    Does&nbsp;<Text as="span" color="brand.solid" fontWeight="bold">{vs.treatmentLabel}</Text>&nbsp;change&nbsp;<Text as="span" color="brand.solid" fontWeight="bold">{vs.outcomeLabel}</Text>?
                                 </Text>
                                 <Box as="span" color="fg.subtle" fontSize="11px" lineHeight="1"><FontAwesomeIcon icon={faChevronDown} /></Box>
                             </Box>
@@ -612,7 +621,7 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
                     </Menu.Root>
                 ) : (
                     <Text textStyle="title.card" color="fg.muted">
-                        <Help id="header">Does&nbsp;<Text as="span" color="brand.solid" fontWeight="bold">{vs.treatment}</Text>&nbsp;change&nbsp;<Text as="span" color="brand.solid" fontWeight="bold">{vs.outcome}</Text>?</Help>
+                        <Help id="header">Does&nbsp;<Text as="span" color="brand.solid" fontWeight="bold">{vs.treatmentLabel}</Text>&nbsp;change&nbsp;<Text as="span" color="brand.solid" fontWeight="bold">{vs.outcomeLabel}</Text>?</Help>
                     </Text>
                 )}
                 <Box flex="1" />
@@ -662,8 +671,8 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
                             )}
                         </Box>
                     </Step>
-                    <Step n={4} title={`Which ${SUBJECT_MANY}?`} help="step_population">
-                        <FilterRail fields={fields} population={population} onChange={editPopulation} chip={chip} button={button} readonly={readonly} />
+                    <Step n={4} title={`Which ${subject.many}?`} help="step_population">
+                        <FilterRail fields={fields} population={population} onChange={editPopulation} chip={chip} button={button} readonly={readonly} subjectMany={subject.many} />
                     </Step>
                     <Box as="details" borderTopWidth="1px" borderColor="border.subtle">
                         <Box as="summary" textStyle="caption.eyebrow" cursor="pointer" px="4.5" py="2.5" display="flex" alignItems="center" gap="1.5"
@@ -699,7 +708,9 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
                         {tabKeys.map(tk => {
                             const on = activeTab === tk;
                             const tabHelp: HelpId = tk === 'answer' ? 'tab_answer' : tk === 'trust' ? 'tab_trust' : tk === 'dose' ? 'tab_dose' : 'tab_validate';
-                            const tabLabel = tk === 'answer' ? 'Answer' : tk === 'trust' ? 'Trust' : tk === 'dose' ? 'Dose' : 'Validate';
+                            // Question-form labels, matching the glossary's own names —
+                            // "Dose" is medical vocabulary a domain expert never uses.
+                            const tabLabel = tk === 'answer' ? 'The answer' : tk === 'trust' ? 'Can we trust it?' : tk === 'dose' ? 'How much?' : 'Prove it';
                             return (
                                 <Box key={tk} as="button" role="tab" aria-selected={on} tabIndex={on ? 0 : -1}
                                     onClick={() => setTab(tk)} cursor="pointer"
@@ -734,10 +745,12 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
                     )}
 
                     {activeTab === 'answer' && a && (
-                        <AnswerNumeric a={a} verdict={verdict} higherBetter={higherBetter} badge={badge} barList={barList} />
+                        <AnswerNumeric a={a} verdict={verdict} narrative={view.narrative} checks={vr?.checks ?? null}
+                            onGoTrust={() => setTab('trust')} subjectMany={subject.many}
+                            higherBetter={higherBetter} badge={badge} barList={barList} />
                     )}
                     {activeTab === 'answer' && !a && ref && (
-                        <RefusalZone refusal={ref} overlap={ov} naiveValue={shownResult?.naive ?? 0} outcome={vs.outcome} />
+                        <RefusalZone refusal={ref} overlap={ov} naiveValue={shownResult?.naive ?? 0} outcome={vs.outcomeLabel} />
                     )}
 
                     {activeTab === 'trust' && vr && (
@@ -796,6 +809,10 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
 
                     {activeTab === 'dose' && vd && (
                         <Box p="4.5">
+                            {/* This tab answers a DIFFERENT question than the yes/no
+                                headline (the curve is over a numeric feature, not the
+                                treatment) — say so, or it reads as a non sequitur. */}
+                            <Text textStyle="body.sm" color="fg.muted" mb="3.5"><Help id="tab_dose">{vd.framing}</Help></Text>
                             <Card mt="0">
                                 <Cap help="dose_curve">{vd.outcome} gained vs. {vd.feature}</Cap>
                                 <AreaRange lo={vd.lo} mid={vd.mid} hi={vd.hi} tone="pos" xTicks={vd.xTicks} yTicks={vd.yTicks} marks={vd.marks.map(m => ({ at: m.at, label: m.label, tone: m.tone, help: m.help }))} height={256} />
@@ -901,9 +918,13 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
 // ---------------------------------------------------------------------------
 // Answer tab — numeric (the engine produced an adjusted estimate).
 // ---------------------------------------------------------------------------
-function AnswerNumeric({ a, verdict, higherBetter, badge, barList }: {
+function AnswerNumeric({ a, verdict, narrative, checks, onGoTrust, subjectMany, higherBetter, badge, barList }: {
     a: NonNullable<ReturnType<typeof deriveView>['answer']>;
     verdict: ReturnType<typeof deriveView>['verdict'];
+    narrative: ReturnType<typeof deriveView>['narrative'];
+    checks: NonNullable<ReturnType<typeof deriveView>['refute']>['checks'] | null;
+    onGoTrust: () => void;
+    subjectMany: string;
     higherBetter: boolean | undefined;
     badge: ReturnType<typeof useRecipe>;
     barList: (rows: { label: string; frac: number; tone: string; value: string }[]) => ReactNode;
@@ -911,20 +932,29 @@ function AnswerNumeric({ a, verdict, higherBetter, badge, barList }: {
     const dirUp = a.effect > 0;
     const statusWord = higherBetter === undefined ? (dirUp ? 'Higher' : 'Lower') : (dirUp === higherBetter ? 'Better' : 'Worse');
     const lowerWord = a.naive < 0 ? 'lower' : 'higher';
-    const top = a.balance[0] ?? { col: '', display: '' };
+    const top = a.balance[0] ?? { label: '', display: '' };
     const kpiColor = a.clear && !a.cautious ? 'fg.success' : 'fg.warning';
     const badgeOk = a.clear && !a.cautious;
     const badgeText = a.cautious ? (verdict?.label ?? 'Not trustworthy yet') : a.clear ? `${statusWord} with ${a.treatment}` : 'No clear effect';
     return (
         <Box p="4.5">
+            {/* The conclusion FIRST, as a spoken sentence — the number below is
+                its evidence. Derived per verdict in derive.ts, never authored. */}
+            {narrative && (
+                <Text textStyle="body.md" color="fg.default" lineHeight="1.6" mb="3.5">
+                    {narrative.segments.map((s, i) => s.strong
+                        ? <Text key={i} as="span" fontWeight="bold" color={toneToken(narrative.tone)}>{s.text}</Text>
+                        : <Text key={i} as="span">{s.text}</Text>)}
+                </Text>
+            )}
             <Box display="flex" alignItems="center" gap="4.5" flexWrap="wrap">
                 <Box display="flex" flexDirection="column" gap="0.5">
                     <Text textStyle="mono.sm" color="fg.muted">{a.outcome}</Text>
                     <Box display="flex" alignItems="baseline" gap="2.5">
                         <Text textStyle="mono-kpi" fontFamily="heading" fontSize="32px" color={kpiColor}>
-                            <Help id="answer_effect">{signed(a.effect)}</Help>
+                            <Help id="answer_effect">{signed(a.effect)}{a.unit ? <Text as="span" fontSize="16px" color="fg.muted">&nbsp;{a.unit}</Text> : null}</Help>
                         </Text>
-                        <Text textStyle="mono.sm" color="fg.muted"><Help id="answer_ci">95% CI&nbsp; {signed(a.lo)} … {signed(a.hi)}</Help></Text>
+                        <Text textStyle="mono.sm" color="fg.muted"><Help id="answer_ci">likely between {signed(a.lo)} and {signed(a.hi)}</Help></Text>
                     </Box>
                 </Box>
                 <Box as="span" css={badge({ variant: badgeOk ? 'ok' : 'warn', size: 'md' })} alignSelf="flex-end" mb="1" display="inline-flex" alignItems="center" gap="1">
@@ -932,6 +962,24 @@ function AnswerNumeric({ a, verdict, higherBetter, badge, barList }: {
                     <Help id={`verdict_${verdict?.tag ?? 'modest'}` as HelpId}>{badgeText}</Help>
                 </Box>
             </Box>
+
+            {/* The trust story, ON the answer — one pass/fail pill per stress
+                test, linking to the full checklist. Without this the verdict's
+                most persuasive evidence lives only behind a tab switch. */}
+            {checks && checks.length > 0 && (
+                <Box as="button" onClick={onGoTrust} display="inline-flex" alignItems="center" gap="2" flexWrap="wrap" mt="2.5"
+                    bg="transparent" border="0" p="0" cursor="pointer" title="See the full stress-test checklist">
+                    <Text textStyle="caption" color="fg.muted">Stress tests:</Text>
+                    {checks.map((c, i) => (
+                        <Box key={i} as="span" display="inline-flex" alignItems="center" gap="1.5"
+                            color={c.passed ? 'fg.success' : 'fg.warning'}>
+                            <FontAwesomeIcon icon={c.passed ? faCheck : faTriangleExclamation} style={{ fontSize: '10px' }} />
+                            <Text as="span" textStyle="caption" color="fg.default">{c.short}</Text>
+                            {i < checks.length - 1 && <Text as="span" textStyle="caption" color="fg.subtle">·</Text>}
+                        </Box>
+                    ))}
+                </Box>
+            )}
 
             {a.cautious && (
                 <Box layerStyle="banner.stale" display="flex" alignItems="flex-start" gap="2" mt="3">
@@ -943,7 +991,7 @@ function AnswerNumeric({ a, verdict, higherBetter, badge, barList }: {
             {a.flip && (
                 <Box layerStyle="banner.stale" display="flex" alignItems="flex-start" gap="2" mt="3">
                     <Box as="span" color="fg.warning" flexShrink="0" mt="0.5" fontSize="12px"><FontAwesomeIcon icon={faTriangleExclamation} /></Box>
-                    <Text textStyle="body.sm" color="fg.default"><Help id="answer_flip"><Text as="span" fontWeight="bold">Raw and like-for-like disagree.</Text></Help> In the plain average, the <Text as="span" fontFamily="mono">{a.treatment}</Text> group sits <Text as="span" fontStyle="italic">{lowerWord}</Text> on <Text as="span" fontFamily="mono">{a.outcome}</Text> ({signed(a.naive)}) — but they also differ most on <Text as="span" fontFamily="mono">{top.col}</Text> ({top.display}). Adjusting for it reverses the result.</Text>
+                    <Text textStyle="body.sm" color="fg.default"><Help id="answer_flip"><Text as="span" fontWeight="bold">Raw and like-for-like disagree.</Text></Help> In the plain average, the <Text as="span" fontWeight="semibold">{a.treatment}</Text> group sits <Text as="span" fontStyle="italic">{lowerWord}</Text> on <Text as="span" fontWeight="semibold">{a.outcome}</Text> ({signed(a.naive)}) — but they also differ most on <Text as="span" fontWeight="semibold">{top.label}</Text> ({top.display}). Adjusting for it reverses the result.</Text>
                 </Box>
             )}
 
@@ -962,14 +1010,22 @@ function AnswerNumeric({ a, verdict, higherBetter, badge, barList }: {
                 />
             </Card>
 
-            <Card>
-                <Cap help="balance">How unbalanced each one was — before adjusting</Cap>
-                <Box py="0.5" maxH="208px" overflowY="auto">{barList(a.balance.map(b => ({ label: b.col, frac: b.frac, tone: b.tone, value: b.display })))}</Box>
-            </Card>
+            {/* Analyst evidence, not a conclusion — collapsed by default so the
+                deck stays conclusion-first; the disclosure title says what the
+                adjustment DID rather than naming the statistic. */}
+            <Box as="details" layerStyle="card" borderRadius="lg" mt="3">
+                <Box as="summary" textStyle="caption.eyebrow" fontSize="9px" cursor="pointer" p="3.5" display="flex" alignItems="center" gap="1.5"
+                    css={{ listStyle: 'none', '&::-webkit-details-marker': { display: 'none' } }}>
+                    <Box as="span" display="inline-flex" color="fg.subtle" fontSize="10px" transition="transform 180ms ease" transform="rotate(-90deg)"
+                        css={{ 'details[open] > summary > &': { transform: 'rotate(0deg)' } }}><FontAwesomeIcon icon={faChevronDown} /></Box>
+                    <Help id="balance">How we levelled the playing field</Help>
+                </Box>
+                <Box px="3.5" pb="3.5" py="0.5" maxH="208px" overflowY="auto">{barList(a.balance.map(b => ({ label: b.label, frac: b.frac, tone: b.tone, value: b.display })))}</Box>
+            </Box>
 
             <Box mt="3.5">
                 <Help id="counts" display="inline-flex" gap="4">
-                    {([[a.nTotal, SUBJECT_MANY], [a.nCompared, 'compared like-for-like'], [a.nDropped, 'had no fair match']] as const).map(([n, label], i) => (
+                    {([[a.nTotal, subjectMany], [a.nCompared, 'compared like-for-like'], [a.nDropped, 'had no fair match']] as const).map(([n, label], i) => (
                         <Text key={i} textStyle="mono.sm" color="fg.muted"><Text as="span" color="fg.default" fontWeight="semibold">{Number(n)}</Text> {label}</Text>
                     ))}
                 </Help>
@@ -1094,9 +1150,10 @@ function ValidatePanel({ vm, barList }: {
 // ---------------------------------------------------------------------------
 // Population filter rail — reuses Slice's predicate editor.
 // ---------------------------------------------------------------------------
-function FilterRail({ fields, population, onChange, chip, button, readonly }: {
+function FilterRail({ fields, population, onChange, chip, button, readonly, subjectMany }: {
     fields: SliceFieldValue[]; population: PredicateValue[]; onChange: (p: PredicateValue[]) => void;
     chip: ReturnType<typeof useRecipe>; button: ReturnType<typeof useRecipe>; readonly?: boolean;
+    subjectMany: string;
 }) {
     const [open, setOpen] = useState<'add' | number | null>(null);
     const replaceAt = (i: number, p: PredicateValue) => onChange(population.map((f, j) => (j === i ? p : f)));
@@ -1104,11 +1161,11 @@ function FilterRail({ fields, population, onChange, chip, button, readonly }: {
     const done = <Box as="button" css={button({ variant: 'outline', size: 'xs' })} onClick={() => setOpen(null)}>Done</Box>;
     if (readonly) {
         // Static scope chips — same chip recipe + formatted predicate, no popover / remove
-        // / add-filter affordances. An empty population reads as "all {SUBJECT_MANY}".
+        // / add-filter affordances. An empty population reads as "all {subjectMany}".
         return (
             <Box display="flex" flexWrap="wrap" gap="1.5" alignItems="center">
                 {population.length === 0 ? (
-                    <Box css={chip({ tone: 'plain', numeric: true, shape: 'rounded' })}>all {SUBJECT_MANY}</Box>
+                    <Box css={chip({ tone: 'plain', numeric: true, shape: 'rounded' })}>all {subjectMany}</Box>
                 ) : population.map((pred, i) => (
                     <Box key={i} css={chip({ tone: 'brand', numeric: true, shape: 'rounded' })} flexShrink={0}>
                         <Box as="span" whiteSpace="nowrap">{formatPredicate(pred)}</Box>

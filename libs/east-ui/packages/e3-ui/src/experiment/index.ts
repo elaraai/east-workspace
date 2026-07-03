@@ -36,6 +36,7 @@ import {
     NullType,
     BooleanType,
     ArrayType,
+    StringType,
     StructType,
     VariantType,
     OptionType,
@@ -122,6 +123,16 @@ export const ExperimentTabType = VariantType({ answer: NullType, trust: NullType
 export type ExperimentTabType = typeof ExperimentTabType;
 
 /**
+ * The domain noun for one row of the bound dataset — singular + plural (e.g.
+ * `{ one: 'batch', many: 'batches' }`). The surface interpolates it everywhere
+ * it speaks about rows ("Which batches?", "480 batches", the guidance
+ * glossary), replacing the neutral default `record(s)`.
+ */
+export const ExperimentSubjectType = StructType({ one: StringType, many: StringType });
+/** Type alias for {@link ExperimentSubjectType}. */
+export type ExperimentSubjectType = typeof ExperimentSubjectType;
+
+/**
  * The `Experiment` component payload — binding descriptors + options. Renderers
  * decode this and resolve each binding to a live, reactive value / call handle.
  *
@@ -136,6 +147,7 @@ export type ExperimentTabType = typeof ExperimentTabType;
  * @property design - Optional {@link FuncBindingType} for the universal `design` function
  *   (the "Validate" tab); applies to any question.
  * @property columnMeta - Optional per-column display metadata.
+ * @property subject - Optional domain noun for a row ({@link ExperimentSubjectType}).
  * @property readonly - Render without the Apply / Commit / edit affordances.
  * @property defaultTab - Initial result tab ({@link ExperimentTabType}).
  */
@@ -146,6 +158,7 @@ export const ExperimentPayloadType = StructType({
     journal: OptionType(DiffBindingType),
     design: OptionType(FuncBindingType),
     columnMeta: OptionType(ColumnMetaType),
+    subject: OptionType(ExperimentSubjectType),
     readonly: OptionType(BooleanType),
     defaultTab: OptionType(ExperimentTabType),
 });
@@ -204,6 +217,7 @@ export type ExperimentColumns<Row extends StructType> = {
  *   or every shown question carries a precomputed `design`.
  * @property journal - Optional {@link Data.bind} handle for the committed-experiment journal.
  * @property columns - Optional per-column display config.
+ * @property subject - Optional domain noun for a row (`'batch'`, or `{ one, many }`).
  * @property readonly - Render without mutation affordances.
  * @property defaultTab - Initial result tab.
  */
@@ -219,8 +233,21 @@ export interface ExperimentOptions<Row extends StructType> {
     journal?: BoundValue<JournalType>;
     /** Per-column display config, keyed by the data row's fields (like `Table`). */
     columns?: ExperimentColumns<Row>;
+    /** The domain noun for one row — a singular string (`'batch'`, auto-pluralised)
+     *  or an explicit `{ one, many }` pair for irregular plurals. Replaces the
+     *  neutral `record(s)` everywhere the surface speaks about rows. */
+    subject?: string | { one: string; many: string };
     readonly?: SubtypeExprOrValue<BooleanType>;
     defaultTab?: ExperimentTabLiteral;
+}
+
+/** Naive English plural for a {@link ExperimentOptions.subject} noun given as a
+ *  bare string — `batch` → `batches`, `delivery` → `deliveries`, `customer` →
+ *  `customers`. Pass `{ one, many }` for anything irregular. */
+function pluralize(one: string): string {
+    if (/[^aeiou]y$/i.test(one)) return `${one.slice(0, -1)}ies`;
+    if (/(s|x|z|ch|sh)$/i.test(one)) return `${one}es`;
+    return `${one}s`;
 }
 
 /**
@@ -246,6 +273,14 @@ function createExperiment<Row extends StructType>(options: ExperimentOptions<Row
             }] as const)),
             ColumnMetaType,
         ));
+    const subject = options.subject === undefined
+        ? none
+        : some(East.value(
+            typeof options.subject === 'string'
+                ? { one: options.subject, many: pluralize(options.subject) }
+                : options.subject,
+            ExperimentSubjectType,
+        ));
     // `configs` is a binding to a full Array<Configuration> (each entry's `spec` is a
     // complete ExperimentConfigType + optional precomputed result/design) — no
     // friendly-partial completion here; the bound dataset carries full values.
@@ -256,6 +291,7 @@ function createExperiment<Row extends StructType>(options: ExperimentOptions<Row
         journal: options.journal !== undefined ? some(options.journal.binding) : none,
         design: options.design !== undefined ? some(options.design.binding) : none,
         columnMeta,
+        subject,
         readonly: options.readonly === undefined ? none : some(options.readonly),
         defaultTab,
     });
@@ -310,6 +346,8 @@ export const Experiment = {
         Configuration: ConfigurationType,
         /** Optional per-column display metadata. */
         ColumnMeta: ColumnMetaType,
+        /** Optional domain noun for a row (singular + plural). */
+        Subject: ExperimentSubjectType,
         /** Initial result tab variant. */
         Tab: ExperimentTabType,
     },

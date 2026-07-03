@@ -110,7 +110,7 @@ export const HELP = {
 
     // ── Tabs ────────────────────────────────────────────────────────────
     tab_answer: {
-        term: 'Answer',
+        term: 'The answer',
         gist: 'The headline: did {treatment} move {outcome}, and by how much?',
         detail: 'Shows the raw gap, the fair like-for-like estimate, and an honest verdict.',
     },
@@ -304,7 +304,7 @@ export const HELP = {
 
     // ── Validate tab ────────────────────────────────────────────────────
     tab_validate: {
-        term: 'Validate',
+        term: 'Prove it',
         gist: 'The real experiment you’d run to prove this — for sure.',
         detail: 'This analysis adjusted for what it could measure. A controlled trial — assigning {treatment} at random — removes any leftover doubt. This tab sizes that trial.',
     },
