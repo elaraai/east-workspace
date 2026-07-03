@@ -388,6 +388,23 @@ function enclosingBlockScope(node, ctx) {
 function insideBlockScope(node, ctx) {
   return enclosingBlockScope(node, ctx) !== void 0;
 }
+function insideReactive(node, t) {
+  let cur = node.parent;
+  while (cur !== void 0) {
+    if (t.isJsxElement(cur) && cur.openingElement.tagName.getText().endsWith("Reactive"))
+      return true;
+    if (t.isJsxSelfClosingElement(cur) && cur.tagName.getText().endsWith("Reactive"))
+      return true;
+    if (t.isCallExpression(cur)) {
+      const callee = cur.expression;
+      if (t.isPropertyAccessExpression(callee) && t.isIdentifier(callee.expression) && callee.expression.text === "Reactive") {
+        return true;
+      }
+    }
+    cur = cur.parent;
+  }
+  return false;
+}
 
 // ../east-diagnostics/dist/src/rules/prefer-let-const-over-east-value.js
 var NAME6 = "prefer-let-const-over-east-value";
@@ -1155,8 +1172,9 @@ function insideJsx(node, ctx) {
     if (t.isJsxElement(cur) || t.isJsxSelfClosingElement(cur) || t.isJsxFragment(cur) || t.isJsxExpression(cur) || t.isJsxAttribute(cur)) {
       return true;
     }
-    if (isBlockBuilderCallback(cur, ctx))
+    if (t.isArrowFunction(cur) || t.isFunctionExpression(cur) || t.isFunctionDeclaration(cur) || t.isMethodDeclaration(cur)) {
       return false;
+    }
     cur = cur.parent;
   }
   return false;
@@ -1415,6 +1433,582 @@ var noModuleScopeEastMacro = {
   }
 };
 
+// ../east-diagnostics/dist/src/rules/require-runner-platforms.js
+var NAME17 = "require-runner-platforms";
+var CODE17 = 990022;
+function isE3TaskCall(node, ctx) {
+  const t = ctx.ts;
+  const callee = node.expression;
+  if (!t.isPropertyAccessExpression(callee) || callee.name.text !== "task")
+    return false;
+  if (!t.isIdentifier(callee.expression))
+    return false;
+  const imp = importDeclarationOf(ctx.checker.getSymbolAtLocation(callee.expression), t);
+  return imp !== void 0 && t.isStringLiteral(imp.moduleSpecifier) && imp.moduleSpecifier.text === "@elaraai/e3";
+}
+function projectPlatformCalls(fnArg, ctx) {
+  const t = ctx.ts;
+  const names = [];
+  const visit = (n) => {
+    if (t.isCallExpression(n) && isEastPlatformDefinitionType(ctx.checker.getTypeAtLocation(n.expression))) {
+      const callee = n.expression;
+      const id = t.isIdentifier(callee) ? callee : t.isPropertyAccessExpression(callee) ? callee.name : void 0;
+      const sym = id !== void 0 ? ctx.checker.getSymbolAtLocation(id) : void 0;
+      const resolved = sym !== void 0 && (sym.flags & t.SymbolFlags.Alias) !== 0 ? ctx.checker.getAliasedSymbol(sym) : sym;
+      const declaredInProject = (resolved?.declarations ?? []).some((d) => !d.getSourceFile().isDeclarationFile);
+      if (declaredInProject && id !== void 0)
+        names.push(id.text);
+    }
+    t.forEachChild(n, visit);
+  };
+  visit(fnArg);
+  return names;
+}
+function hasCustomPlatformsEntry(options, t) {
+  if (options === void 0)
+    return false;
+  if (!t.isObjectLiteralExpression(options))
+    return void 0;
+  const runnerProp = options.properties.find((p) => t.isPropertyAssignment(p) && t.isIdentifier(p.name) && p.name.text === "runner");
+  if (runnerProp === void 0 || !t.isPropertyAssignment(runnerProp))
+    return false;
+  if (!t.isObjectLiteralExpression(runnerProp.initializer))
+    return void 0;
+  const platformsProp = runnerProp.initializer.properties.find((p) => t.isPropertyAssignment(p) && t.isIdentifier(p.name) && p.name.text === "platforms");
+  if (platformsProp === void 0 || !t.isPropertyAssignment(platformsProp))
+    return false;
+  if (!t.isArrayLiteralExpression(platformsProp.initializer))
+    return void 0;
+  return platformsProp.initializer.elements.some((el) => t.isObjectLiteralExpression(el) && el.properties.some((p) => t.isPropertyAssignment(p) && t.isIdentifier(p.name) && p.name.text === "custom"));
+}
+var requireRunnerPlatforms = {
+  name: NAME17,
+  code: CODE17,
+  description: "An e3.task calling project-declared platform functions must declare a runner.platforms custom module \u2014 otherwise it fails only at dataflow runtime.",
+  check(node, ctx) {
+    const t = ctx.ts;
+    if (!t.isCallExpression(node) || !isE3TaskCall(node, ctx))
+      return;
+    const fnArg = node.arguments[2];
+    if (fnArg === void 0)
+      return;
+    const calls = projectPlatformCalls(fnArg, ctx);
+    if (calls.length === 0)
+      return;
+    const ok = hasCustomPlatformsEntry(node.arguments[3], t);
+    if (ok === true || ok === void 0)
+      return;
+    const nameArg = node.arguments[0];
+    const taskName = nameArg !== void 0 && t.isStringLiteralLike(nameArg) ? nameArg.text : "\u2026";
+    const unique = [...new Set(calls)].join(", ");
+    const sf = ctx.sourceFile;
+    const target = node.arguments[3] ?? node.expression;
+    const start = target.getStart(sf);
+    ctx.report({
+      ruleName: NAME17,
+      code: CODE17,
+      start,
+      length: target.getEnd() - start,
+      messageText: `Task "${taskName}" calls project platform function(s) ${unique} but its runner declares no custom platform module \u2014 it will fail at dataflow runtime with "Platform function \u2026 is not available". Add the module to the runner, e.g. \`{ runner: { runtime: "east-py", platforms: [{ custom: "platform_module" }] } }\`.`,
+      category: "warning"
+    });
+  }
+};
+
+// ../east-diagnostics/dist/src/rules/no-cross-block-builder.js
+var NAME18 = "no-cross-block-builder";
+var CODE18 = 990023;
+function nearestBlockCallback(node, ctx) {
+  let cur = node.parent;
+  while (cur !== void 0) {
+    if (isBlockBuilderCallback(cur, ctx))
+      return cur;
+    cur = cur.parent;
+  }
+  return void 0;
+}
+function referencesCrossedScope(call, root, owner, ctx) {
+  const t = ctx.ts;
+  const isFnLike = (n) => t.isArrowFunction(n) || t.isFunctionExpression(n) || t.isFunctionDeclaration(n) || t.isMethodDeclaration(n);
+  const enclosingFn = (n) => {
+    let cur = n.parent;
+    while (cur !== void 0 && !isFnLike(cur))
+      cur = cur.parent;
+    return cur;
+  };
+  const contains = (outer, inner) => outer.pos <= inner.pos && inner.end <= outer.end;
+  let crossed = false;
+  const visit = (n) => {
+    if (crossed)
+      return;
+    if (t.isIdentifier(n) && n !== root) {
+      const p = n.parent;
+      const isLabel = p !== void 0 && (t.isPropertyAccessExpression(p) && p.name === n || t.isPropertyAssignment(p) && p.name === n || t.isJsxAttribute(p) && p.name === n);
+      if (!isLabel) {
+        const decl = ctx.checker.getSymbolAtLocation(n)?.valueDeclaration;
+        if (decl !== void 0) {
+          const declFn = enclosingFn(decl);
+          if (declFn !== void 0 && declFn !== owner && contains(owner, declFn) && contains(declFn, call)) {
+            crossed = true;
+            return;
+          }
+        }
+      }
+    }
+    t.forEachChild(n, visit);
+  };
+  visit(call);
+  return crossed;
+}
+var noCrossBlockBuilder = {
+  name: NAME18,
+  code: CODE18,
+  description: "Inside a nested East block callback, an outer-`$` emission referencing inner-scope values puts the binding where those values don't exist.",
+  check(node, ctx) {
+    const t = ctx.ts;
+    if (!t.isCallExpression(node))
+      return;
+    const root = chainRootReceiver(node.expression, ctx);
+    if (!t.isIdentifier(root))
+      return;
+    if (!isBlockBuilderType(ctx.checker.getTypeAtLocation(root)))
+      return;
+    const sym = ctx.checker.getSymbolAtLocation(root);
+    const decl = sym?.valueDeclaration;
+    if (decl === void 0 || !t.isParameter(decl))
+      return;
+    const owner = decl.parent;
+    if (!isBlockBuilderCallback(owner, ctx))
+      return;
+    const nearest = nearestBlockCallback(node, ctx);
+    if (nearest === void 0 || nearest === owner)
+      return;
+    if (!referencesCrossedScope(node, root, owner, ctx))
+      return;
+    const sf = ctx.sourceFile;
+    const start = root.getStart(sf);
+    ctx.report({
+      ruleName: NAME18,
+      code: CODE18,
+      start,
+      length: node.getEnd() - start,
+      messageText: "This call uses an OUTER block's `$` inside a nested East callback while referencing inner-callback values \u2014 the binding is emitted into the outer block, where those values don't exist. Use the callback's own builder (name it `$`, not `_$`).",
+      category: "error"
+    });
+  }
+};
+
+// ../east-diagnostics/dist/src/rules/no-state-outside-reactive.js
+var NAME19 = "no-state-outside-reactive";
+var CODE19 = 990024;
+function atUiSurfaceRoot(node, ctx) {
+  const t = ctx.ts;
+  const outermost = enclosingBlockScope(node, ctx);
+  if (outermost === void 0 || !t.isCallExpression(outermost))
+    return false;
+  const parent = outermost.parent;
+  if (parent === void 0 || !t.isCallExpression(parent))
+    return false;
+  if (!parent.arguments.some((a) => a === outermost))
+    return false;
+  const callee = parent.expression;
+  return t.isIdentifier(callee) && callee.text === "ui" && resolvesToEastImport(callee, ctx.checker, t);
+}
+var noStateOutsideReactive = {
+  name: NAME19,
+  code: CODE19,
+  description: "east-ui State.* must live inside a <Reactive> builder \u2014 outside one the UI function becomes async and is rejected at deploy time.",
+  check(node, ctx) {
+    const t = ctx.ts;
+    if (!t.isCallExpression(node))
+      return;
+    const callee = node.expression;
+    if (!t.isPropertyAccessExpression(callee))
+      return;
+    if (!t.isIdentifier(callee.expression) || callee.expression.text !== "State")
+      return;
+    if (!resolvesToEastImport(callee.expression, ctx.checker, t))
+      return;
+    if (!atUiSurfaceRoot(node, ctx))
+      return;
+    if (insideReactive(node, t))
+      return;
+    const sf = ctx.sourceFile;
+    const start = node.getStart(sf);
+    ctx.report({
+      ruleName: NAME19,
+      code: CODE19,
+      start,
+      length: node.getEnd() - start,
+      messageText: `\`State.${callee.name.text}\` outside a \`<Reactive>\` builder makes this UI function async at analysis time \u2014 the deploy analyzer rejects it (or the surface never re-renders). Move all \`State.*\` into the \`<Reactive>{$ => \u2026}\` inner builder.`,
+      category: "warning"
+    });
+  }
+};
+
+// ../east-diagnostics/dist/src/rules/prefer-const-ui-callbacks.js
+var NAME20 = "prefer-const-ui-callbacks";
+var CODE20 = 990025;
+var preferConstUiCallbacks = {
+  name: NAME20,
+  code: CODE20,
+  description: "Inside <Reactive>, bind JSX event handlers with $.const and pass the handle \u2014 an inline East.function prop is rebuilt each re-render and memoized renderers can't see the swap.",
+  check(node, ctx) {
+    const t = ctx.ts;
+    if (!t.isCallExpression(node))
+      return;
+    const callee = node.expression;
+    if (!t.isPropertyAccessExpression(callee))
+      return;
+    if (!t.isIdentifier(callee.expression) || callee.expression.text !== "East")
+      return;
+    if (callee.name.text !== "function" && callee.name.text !== "asyncFunction")
+      return;
+    const parent = node.parent;
+    if (parent === void 0 || !t.isJsxExpression(parent) || parent.expression !== node)
+      return;
+    const attr = parent.parent;
+    if (attr === void 0 || !t.isJsxAttribute(attr))
+      return;
+    if (!insideBlockScope(node, ctx))
+      return;
+    if (!insideReactive(node, t))
+      return;
+    const sf = ctx.sourceFile;
+    const start = callee.getStart(sf);
+    ctx.report({
+      ruleName: NAME20,
+      code: CODE20,
+      start,
+      length: callee.getEnd() - start,
+      messageText: `Inline \`East.${callee.name.text}\` in the \`${attr.name.getText(sf)}\` prop is rebuilt on every render, and \`equalFor\` treats all functions as equal so memoized renderers can't see the swap. Bind it once \u2014 \`const handler = $.const(East.${callee.name.text}(\u2026))\` \u2014 and pass the handle.`,
+      category: "suggestion"
+    });
+  }
+};
+
+// ../east-diagnostics/dist/src/rules/no-dynamic-bind-path.js
+var NAME21 = "no-dynamic-bind-path";
+var CODE21 = 990026;
+var KEY_ARG_INDEX = {
+  Data: 0,
+  State: 1,
+  Navigation: 1
+};
+var noDynamicBindPath = {
+  name: NAME21,
+  code: CODE21,
+  description: "Data.bind / State.bind / Navigation.bind keys must be IR-build constants \u2014 an East-computed key can't be captured in the ui() manifest.",
+  check(node, ctx) {
+    const t = ctx.ts;
+    if (!t.isCallExpression(node))
+      return;
+    const callee = node.expression;
+    if (!t.isPropertyAccessExpression(callee) || callee.name.text !== "bind")
+      return;
+    if (!t.isIdentifier(callee.expression))
+      return;
+    const ns = callee.expression.text;
+    const argIndex = KEY_ARG_INDEX[ns];
+    if (argIndex === void 0)
+      return;
+    if (!resolvesToEastImport(callee.expression, ctx.checker, t))
+      return;
+    const keyArg = node.arguments[argIndex];
+    if (keyArg === void 0)
+      return;
+    if (!isEastExprType(ctx.checker.getTypeAtLocation(keyArg)))
+      return;
+    const sf = ctx.sourceFile;
+    const start = keyArg.getStart(sf);
+    ctx.report({
+      ruleName: NAME21,
+      code: CODE21,
+      start,
+      length: keyArg.getEnd() - start,
+      messageText: `The \`${ns}.bind\` key is an East expression \u2014 bind keys must be JS-side constants captured at IR-build time, or the binding is missing from the ui() manifest (no subscription/permission). Bind each candidate as a constant and select the VALUE in East (\`cond.ifElse(() => a.read(), () => b.read())\`).`,
+      category: "error"
+    });
+  }
+};
+
+// ../east-diagnostics/dist/src/rules/no-build-time-clock.js
+var NAME22 = "no-build-time-clock";
+var CODE22 = 990027;
+function insideFunction(node, t) {
+  let cur = node.parent;
+  while (cur !== void 0) {
+    if (t.isArrowFunction(cur) || t.isFunctionExpression(cur) || t.isFunctionDeclaration(cur) || t.isMethodDeclaration(cur) || t.isConstructorDeclaration(cur) || t.isGetAccessorDeclaration(cur) || t.isSetAccessorDeclaration(cur)) {
+      return true;
+    }
+    cur = cur.parent;
+  }
+  return false;
+}
+var noBuildTimeClock = {
+  name: NAME22,
+  code: CODE22,
+  description: "Flag Date.now() / argless new Date() at module scope of East/e3 source \u2014 the build clock gets baked into the deployed program.",
+  check(node, ctx) {
+    const t = ctx.ts;
+    let target;
+    if (t.isCallExpression(node) && t.isPropertyAccessExpression(node.expression) && t.isIdentifier(node.expression.expression) && node.expression.expression.text === "Date" && node.expression.name.text === "now") {
+      target = node;
+    } else if (t.isNewExpression(node) && t.isIdentifier(node.expression) && node.expression.text === "Date" && (node.arguments === void 0 || node.arguments.length === 0)) {
+      target = node;
+    }
+    if (target === void 0)
+      return;
+    if (!importsEastPackage(ctx.sourceFile, t))
+      return;
+    if (insideFunction(target, t))
+      return;
+    const sf = ctx.sourceFile;
+    const start = target.getStart(sf);
+    ctx.report({
+      ruleName: NAME22,
+      code: CODE22,
+      start,
+      length: target.getEnd() - start,
+      messageText: 'Module-scope clock read in East/e3 source \u2014 this bakes the BUILD moment into the deployed program. Author a constant datetime (`new Date("2026-06-30T07:00:00Z")`), or read time at runtime inside a task (the `Time` platform).',
+      category: "warning"
+    });
+  }
+};
+
+// ../east-diagnostics/dist/src/rules/no-handrolled-value-type-mirror.js
+var NAME23 = "no-handrolled-value-type-mirror";
+var CODE23 = 990028;
+function eastTypeValueInFile(name, ctx) {
+  const t = ctx.ts;
+  for (const stmt of ctx.sourceFile.statements) {
+    let ident;
+    if (t.isImportDeclaration(stmt) && stmt.importClause?.namedBindings !== void 0 && t.isNamedImports(stmt.importClause.namedBindings)) {
+      for (const spec of stmt.importClause.namedBindings.elements) {
+        if (spec.name.text === name && !spec.isTypeOnly)
+          ident = spec.name;
+      }
+    } else if (t.isVariableStatement(stmt)) {
+      for (const d of stmt.declarationList.declarations) {
+        if (t.isIdentifier(d.name) && d.name.text === name)
+          ident = d.name;
+      }
+    }
+    if (ident !== void 0) {
+      const type = ctx.checker.getTypeAtLocation(ident);
+      const typeName = type.aliasSymbol?.name ?? type.symbol?.name;
+      if (typeName !== void 0 && typeName.endsWith("Type"))
+        return true;
+    }
+  }
+  return false;
+}
+var noHandrolledValueTypeMirror = {
+  name: NAME23,
+  code: CODE23,
+  description: "A hand-authored interface mirroring an in-scope East type \u2014 derive it with ValueTypeOf<typeof XType> instead.",
+  check(node, ctx) {
+    const t = ctx.ts;
+    let name;
+    if (t.isInterfaceDeclaration(node)) {
+      name = node.name;
+    } else if (t.isTypeAliasDeclaration(node) && t.isTypeLiteralNode(node.type)) {
+      name = node.name;
+    }
+    if (name === void 0)
+      return;
+    if (!importsEastPackage(ctx.sourceFile, t))
+      return;
+    const base = name.text.endsWith("Value") ? name.text.slice(0, -"Value".length) : name.text;
+    const counterpart = `${base}Type`;
+    if (counterpart === name.text)
+      return;
+    if (!eastTypeValueInFile(counterpart, ctx))
+      return;
+    const sf = ctx.sourceFile;
+    const start = name.getStart(sf);
+    ctx.report({
+      ruleName: NAME23,
+      code: CODE23,
+      start,
+      length: name.getEnd() - start,
+      messageText: `\`${name.text}\` hand-mirrors the East type \`${counterpart}\` \u2014 it drifts silently when the East type gains a field. Derive it: \`type ${name.text} = ValueTypeOf<typeof ${counterpart}>\`.`,
+      category: "suggestion"
+    });
+  }
+};
+
+// ../east-diagnostics/dist/src/rules/no-host-comparison-on-east-values.js
+var NAME24 = "no-host-comparison-on-east-values";
+var CODE24 = 990029;
+var VALUE_SHAPE_NAMES = /* @__PURE__ */ new Set(["variant", "option", "SortedMap", "SortedSet"]);
+function isEastValueShapeType(type) {
+  const seen = /* @__PURE__ */ new Set();
+  const stack = [type];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (current === void 0 || seen.has(current))
+      continue;
+    seen.add(current);
+    const name = current.aliasSymbol?.name ?? current.symbol?.name;
+    if (name !== void 0 && VALUE_SHAPE_NAMES.has(name))
+      return true;
+    if (current.isUnionOrIntersection())
+      stack.push(...current.types);
+  }
+  return false;
+}
+function isNullish(e, t) {
+  return e.kind === t.SyntaxKind.NullKeyword || t.isIdentifier(e) && e.text === "undefined";
+}
+var noHostComparisonOnEastValues = {
+  name: NAME24,
+  code: CODE24,
+  description: "Flag ===/!==/</> on decoded East values (variants, options, SortedMap/SortedSet) \u2014 use equalFor(T) / compareFor(T).",
+  check(node, ctx) {
+    const t = ctx.ts;
+    if (!t.isBinaryExpression(node))
+      return;
+    const k = t.SyntaxKind;
+    const op = node.operatorToken.kind;
+    const equality = op === k.EqualsEqualsEqualsToken || op === k.ExclamationEqualsEqualsToken || op === k.EqualsEqualsToken || op === k.ExclamationEqualsToken;
+    const relational = op === k.LessThanToken || op === k.LessThanEqualsToken || op === k.GreaterThanToken || op === k.GreaterThanEqualsToken;
+    if (!equality && !relational)
+      return;
+    if (!importsEastPackage(ctx.sourceFile, t))
+      return;
+    if (isNullish(node.left, t) || isNullish(node.right, t))
+      return;
+    const leftShaped = isEastValueShapeType(ctx.checker.getTypeAtLocation(node.left));
+    const rightShaped = isEastValueShapeType(ctx.checker.getTypeAtLocation(node.right));
+    if (!leftShaped && !rightShaped)
+      return;
+    const sf = ctx.sourceFile;
+    const start = node.getStart(sf);
+    ctx.report({
+      ruleName: NAME24,
+      code: CODE24,
+      start,
+      length: node.getEnd() - start,
+      messageText: equality ? "Host equality on a decoded East value compares object identity \u2014 two equal variants are never `===`. Use `equalFor(T)(a, b)`." : "Host ordering on a decoded East value compares the wrong representation. Use `compareFor(T)` / `lessFor(T)` (e.g. `arr.sort(compareFor(T))`).",
+      category: "warning"
+    });
+  }
+};
+
+// ../east-diagnostics/dist/src/rules/require-example-returns.js
+var NAME25 = "require-example-returns";
+var CODE25 = 990030;
+var RETURNS_EXEMPT = /* @__PURE__ */ new Set(["NullType", "UIComponentType"]);
+function propNamed(obj, name, t) {
+  for (const p of obj.properties) {
+    if (t.isPropertyAssignment(p) && (t.isIdentifier(p.name) || t.isStringLiteralLike(p.name)) && p.name.text === name) {
+      return p;
+    }
+  }
+  return void 0;
+}
+var requireExampleReturns = {
+  name: NAME25,
+  code: CODE25,
+  description: "example() must declare `returns` unless the fn output is NullType/UIComponentType \u2014 omitting it false-passes the example's assertion.",
+  check(node, ctx) {
+    const t = ctx.ts;
+    if (!t.isCallExpression(node))
+      return;
+    const callee = node.expression;
+    if (!t.isIdentifier(callee) || callee.text !== "example")
+      return;
+    if (!resolvesToEastImport(callee, ctx.checker, t))
+      return;
+    const arg = node.arguments[0];
+    if (arg === void 0 || !t.isObjectLiteralExpression(arg))
+      return;
+    if (propNamed(arg, "returns", t) !== void 0)
+      return;
+    const fnProp = propNamed(arg, "fn", t);
+    if (fnProp === void 0 || !t.isCallExpression(fnProp.initializer))
+      return;
+    const outputArg = fnProp.initializer.arguments[1];
+    if (outputArg !== void 0 && t.isIdentifier(outputArg) && RETURNS_EXEMPT.has(outputArg.text))
+      return;
+    const sf = ctx.sourceFile;
+    const start = callee.getStart(sf);
+    ctx.report({
+      ruleName: NAME25,
+      code: CODE25,
+      start,
+      length: callee.getEnd() - start,
+      messageText: "This `example()` has no `returns` \u2014 the harness runs `fn` as a bare statement and the assertion false-passes. Add the hand-verified `returns` value (omit it ONLY for NullType / UIComponentType outputs).",
+      category: "warning"
+    });
+  }
+};
+
+// ../east-diagnostics/dist/src/rules/no-duplicate-definition-name.js
+var NAME26 = "no-duplicate-definition-name";
+var CODE26 = 990031;
+var DEFINITION_KINDS = /* @__PURE__ */ new Map([
+  ["input", "input"],
+  ["task", "task"],
+  ["customTask", "task"],
+  ["function", "function"],
+  ["record", "record"],
+  ["mutation", "mutation"]
+]);
+function e3Definition(node, ctx) {
+  const t = ctx.ts;
+  if (!t.isCallExpression(node))
+    return void 0;
+  const callee = node.expression;
+  if (!t.isPropertyAccessExpression(callee) || !t.isIdentifier(callee.expression))
+    return void 0;
+  const kind = DEFINITION_KINDS.get(callee.name.text);
+  if (kind === void 0)
+    return void 0;
+  const imp = importDeclarationOf(ctx.checker.getSymbolAtLocation(callee.expression), t);
+  if (imp === void 0 || !t.isStringLiteral(imp.moduleSpecifier) || imp.moduleSpecifier.text !== "@elaraai/e3")
+    return void 0;
+  const nameArg = node.arguments[0];
+  if (nameArg === void 0 || !t.isStringLiteralLike(nameArg))
+    return void 0;
+  return { kind, nameArg };
+}
+var noDuplicateDefinitionName = {
+  name: NAME26,
+  code: CODE26,
+  description: "Two e3 definitions of the same kind with the same name string collide at deploy time \u2014 names must be unique per kind.",
+  check(node, ctx) {
+    const t = ctx.ts;
+    if (!t.isSourceFile(node))
+      return;
+    const seen = /* @__PURE__ */ new Map();
+    const visit = (n) => {
+      const def = e3Definition(n, ctx);
+      if (def !== void 0) {
+        const key = `${def.kind}:${def.nameArg.text}`;
+        const first = seen.get(key);
+        if (first === void 0) {
+          seen.set(key, def.nameArg);
+        } else {
+          const sf = ctx.sourceFile;
+          const start = def.nameArg.getStart(sf);
+          ctx.report({
+            ruleName: NAME26,
+            code: CODE26,
+            start,
+            length: def.nameArg.getEnd() - start,
+            messageText: `Duplicate e3 ${def.kind} name "${def.nameArg.text}" \u2014 it collides with the earlier definition at deploy time. Definition names must be unique per kind.`,
+            category: "error"
+          });
+        }
+      }
+      t.forEachChild(n, visit);
+    };
+    visit(node);
+  }
+};
+
 // ../east-diagnostics/dist/src/rules/index.js
 var allRules = [
   // East-side idiom hygiene (original set)
@@ -1436,7 +2030,18 @@ var allRules = [
   noHostInEastBlock,
   noModuleScopeEastMacro,
   noCompileTimeDataInjection,
-  noCompileTimeSeedData
+  noCompileTimeSeedData,
+  // deploy/runtime-failure classes that type-check clean (epic #208)
+  requireRunnerPlatforms,
+  noCrossBlockBuilder,
+  noStateOutsideReactive,
+  preferConstUiCallbacks,
+  noDynamicBindPath,
+  noBuildTimeClock,
+  noHandrolledValueTypeMirror,
+  noHostComparisonOnEastValues,
+  requireExampleReturns,
+  noDuplicateDefinitionName
 ];
 
 // ../east-diagnostics/dist/src/run.js
