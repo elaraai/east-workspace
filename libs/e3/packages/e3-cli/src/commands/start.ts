@@ -32,6 +32,7 @@ import {
 } from '@elaraai/e3-api-client';
 import { type EastTypeValue } from '@elaraai/east';
 import { parseRepoLocation, formatError, exitError, type RepoLocation } from '../utils.js';
+import { getValidToken } from '../credentials.js';
 import { formatSize } from '../format.js';
 
 /** Polling interval for remote execution (ms) */
@@ -91,7 +92,6 @@ export async function startCommand(
           force: options.force,
           filter: options.filter,
         },
-        location.token,
         () => aborted
       );
     }
@@ -208,17 +208,18 @@ async function executeRemote(
   repo: string,
   ws: string,
   options: RemoteExecuteOptions,
-  token: string,
   isAborted: () => boolean
 ): Promise<void> {
-  const requestOptions = { token };
+  // Re-resolve the token before every request rather than pinning one for the
+  // whole run: getValidToken refreshes it as it nears expiry, so a long dataflow
+  // run never sends an expired token and dies mid-flight with "Token expired".
 
   // Start the dataflow execution
   await dataflowStartRemote(baseUrl, repo, ws, {
     concurrency: options.concurrency,
     force: options.force,
     filter: options.filter,
-  }, requestOptions);
+  }, { token: await getValidToken(baseUrl) });
 
   // Poll for execution state
   let eventOffset = 0;
@@ -227,7 +228,7 @@ async function executeRemote(
   while (!isAborted()) {
     const state = await dataflowExecutionRemote(baseUrl, repo, ws, {
       offset: eventOffset,
-    }, requestOptions);
+    }, { token: await getValidToken(baseUrl) });
 
     // Print new events
     for (const event of state.events) {
@@ -252,7 +253,7 @@ async function executeRemote(
       }
 
       if (lastStatus === 'completed') {
-        await printOutputs({ type: 'remote', baseUrl, repo, token }, ws);
+        await printOutputs({ type: 'remote', baseUrl, repo, token: await getValidToken(baseUrl) }, ws);
       }
 
       break;
