@@ -26,6 +26,7 @@ import {
 import {
   dataflowStart as dataflowStartRemote,
   dataflowExecution as dataflowExecutionRemote,
+  dataflowCancel as dataflowCancelRemote,
   datasetListRecursive as datasetListRecursiveRemote,
   type DataflowEvent,
   type DataflowExecutionState,
@@ -266,6 +267,14 @@ async function executeRemote(
   // Handle abort
   if (isAborted()) {
     console.log('');
+    // Tell the server to stop the run and release the workspace lock. Ctrl-C
+    // only aborts the client's poll loop — without this the server keeps
+    // executing and the workspace stays locked, blocking the next deploy/run.
+    try {
+      await dataflowCancelRemote(baseUrl, repo, ws, { token: await getValidToken(baseUrl) });
+    } catch {
+      console.log('Warning: could not reach the server to cancel — the run may still be executing.');
+    }
     console.log('Aborted.');
     process.exit(130);
   }
