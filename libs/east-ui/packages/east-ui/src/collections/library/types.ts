@@ -269,7 +269,7 @@ export interface LibraryStyle {
  * return-to-palette sink for its connected targets.
  *
  * @property id - DnD source identity
- * @property hint - Optional header-right caption (defaults to the drag hint)
+ * @property hint - Optional header-right caption (absent ⇒ no header band)
  * @property items - The resolved cards
  * @property groupOptions - GROUP BY toolbar options (empty = no grouping toolbar)
  * @property groupSummaries - Right-aligned group-head summary text per group-by option key, per group value
@@ -284,7 +284,7 @@ export interface LibraryStyle {
 export const LibraryRootType = StructType({
     /** DnD source identity */
     id: StringType,
-    /** Optional header-right caption (defaults to the drag hint) */
+    /** Optional header-right caption (absent ⇒ no header band) */
     hint: OptionType(StringType),
     /** The resolved cards */
     items: ArrayType(LibraryItemType),

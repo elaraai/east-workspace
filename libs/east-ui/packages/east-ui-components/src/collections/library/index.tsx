@@ -13,7 +13,7 @@ import { equalFor, match, type ValueTypeOf } from "@elaraai/east";
 import { Library, Slice as SliceInternal } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { usePersistedState } from "../../hooks/usePersistedState";
-import { useDragSourceItem, useDropSink, useDragLayerOptional } from "../../dnd/drag-layer";
+import { useDragSourceItem, useDropSink } from "../../dnd/drag-layer";
 import { SliceRailCluster } from "../../slice/rail";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity";
 
@@ -211,7 +211,6 @@ interface LibraryCoreProps extends EastChakraLibraryProps {
 
 function LibraryCore({ value, storageKey, suppressSearch }: LibraryCoreProps) {
     const styles = useSlotRecipe({ key: "library" })() as SlotStyles;
-    const dragLayer = useDragLayerOptional();
 
     const groupOptions = value.groupOptions;
     const dimOptions = value.dimOptions;
@@ -267,8 +266,7 @@ function LibraryCore({ value, storageKey, suppressSearch }: LibraryCoreProps) {
     );
     const visibleCount = value.items.length - hiddenCount;
 
-    const hint = getSomeorUndefined(value.hint)
-        ?? (dragLayer !== null ? "drag to assign · ⌥-drag duplicate" : undefined);
+    const hint = getSomeorUndefined(value.hint);
     const addLabel = getSomeorUndefined(value.addLabel);
     const onAddFn = useMemo(() => getSomeorUndefined(value.onAdd), [value.onAdd]);
     const handleAdd = useCallback(() => {

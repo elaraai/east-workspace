@@ -287,7 +287,7 @@ function dimValue<R extends StructType>(
  * @typeParam R - The struct type of each data row
  * @property id - DnD source identity — targets list it in their `sources`
  * @property item - Item row mapper — returns card-face fields (or a resolved face expression)
- * @property hint - Optional header-right caption (defaults to the drag hint)
+ * @property hint - Optional header-right caption (absent ⇒ no header band)
  * @property dimensions - Secondary dimensions (toolbar-toggleable card facts)
  * @property defaultDimensions - Initially-visible dimension keys (default: the first two)
  * @property groupBy - GROUP BY options; omit for a flat list
@@ -303,7 +303,7 @@ export interface LibraryConfig<R extends StructType> {
     id: string;
     /** Item row mapper — returns card-face fields (or a resolved face expression). */
     item: (row: ExprType<R>) => LibraryCardFields;
-    /** Optional header-right caption (defaults to the drag hint) */
+    /** Optional header-right caption (absent ⇒ no header band) */
     hint?: SubtypeExprOrValue<StringType>;
     /** Secondary dimensions (toolbar-toggleable card facts) */
     dimensions?: LibraryDimensionDef<R>[];
