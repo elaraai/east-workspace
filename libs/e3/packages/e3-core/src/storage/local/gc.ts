@@ -171,12 +171,19 @@ function isPackageObjectShape(type: any): boolean {
 
 /**
  * Check if a decoded EastTypeValue represents an EnvironmentSpec.
- * EnvironmentSpec is a Variant with cases: python, node, image.
+ *
+ * EnvironmentSpec is a Variant whose cases are a subset of {python, node,
+ * image, tools, workspace_node} and always include the original three. The
+ * bounded predicate (⊇ the original 3, ⊆ all 5) accepts both pre-`tools`
+ * specs (exactly 3 cases) and current specs (5 cases) without matching an
+ * unrelated variant that merely happens to contain `python`/`node`/`image`.
  */
 function isEnvironmentSpecShape(type: any): boolean {
   if (type?.type !== 'Variant' || !Array.isArray(type.value)) return false;
-  const names = new Set(type.value.map((c: any) => c.name));
-  return names.size === 3 && names.has('python') && names.has('node') && names.has('image');
+  const names = new Set<string>(type.value.map((c: any) => c.name as string));
+  const known = new Set(['python', 'node', 'image', 'tools', 'workspace_node']);
+  return names.has('python') && names.has('node') && names.has('image')
+    && [...names].every((n) => known.has(n));
 }
 
 /**
@@ -339,6 +346,18 @@ function extractChildren(
       const env = spec.value as { packageJson: string; lock: string; tarballs: string[] };
       children.push({ hash: env.packageJson, isLeaf: true }, { hash: env.lock, isLeaf: true });
       for (const tarball of env.tarballs) children.push({ hash: tarball, isLeaf: true });
+    } else if (spec.type === 'tools') {
+      const env = spec.value as { files: { path: string; hash: string }[] };
+      for (const file of env.files) children.push({ hash: file.hash, isLeaf: true });
+    } else if (spec.type === 'workspace_node') {
+      const env = spec.value as {
+        packageJson: string; lock: string;
+        config: { type: string; value: string };
+        members: { path: string; name: string; tarball: string }[];
+      };
+      children.push({ hash: env.packageJson, isLeaf: true }, { hash: env.lock, isLeaf: true });
+      if (env.config?.type === 'some') children.push({ hash: env.config.value, isLeaf: true });
+      for (const member of env.members) children.push({ hash: member.tarball, isLeaf: true });
     }
     // image: no object-store references
     return children;

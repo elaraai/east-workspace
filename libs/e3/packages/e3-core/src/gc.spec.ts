@@ -11,7 +11,7 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import { existsSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
-import { East, IntegerType, StringType, StructType, decodeBeast2For, encodeBeast2For, variant, none, toEastTypeValue } from '@elaraai/east';
+import { East, IntegerType, StringType, StructType, decodeBeast2For, encodeBeast2For, variant, some, none, toEastTypeValue } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { WorkspaceStateType, PackageObjectType, TaskObjectType, FunctionObjectType, DataRefType, DatasetRefType, RecordCommitType, MutationObjectType, EnvironmentSpecType } from '@elaraai/e3-types';
 import type { WorkspaceState, PackageObject, TaskObject } from '@elaraai/e3-types';
@@ -577,6 +577,61 @@ describe('gc', () => {
       assert.ok(reachable.has(sdistHash), 'sdist blob should be reachable');
       assert.ok(reachable.has(irHash), 'IR leaf should be reachable');
       assert.strictEqual(reachable.size, 6);
+    });
+
+    it('follows TaskObject → tools EnvironmentSpec → file blobs', async () => {
+      const fileHashA = 'a'.repeat(63) + '1';
+      const fileHashB = 'a'.repeat(63) + '2';
+      const specData = encodeBeast2For(EnvironmentSpecType)(variant('tools', {
+        files: [{ path: 'bin/runner', hash: fileHashA }, { path: 'bin/helper', hash: fileHashB }],
+      }));
+      const envHash = 'b'.repeat(63) + '3';
+      const taskData = encodeBeast2For(TaskObjectType)({
+        commandIr: 'c'.repeat(64),
+        inputs: [[variant('field', 'x')]],
+        output: [variant('field', 'y')],
+        kind: none, metadata: none,
+        runner: variant('custom', { command: [] }), environment: some(envHash),
+      } as TaskObject);
+      const taskHash = 'd'.repeat(64);
+
+      const objects = new Map<string, Uint8Array>([[taskHash, taskData], [envHash, specData]]);
+      const reachable = await markReachable(async (h) => objects.get(h) ?? null, new Set([taskHash]));
+
+      assert.ok(reachable.has(envHash), 'tools spec reachable');
+      assert.ok(reachable.has(fileHashA), 'tools file A reachable');
+      assert.ok(reachable.has(fileHashB), 'tools file B reachable');
+    });
+
+    it('follows TaskObject → workspace_node EnvironmentSpec → member + config blobs', async () => {
+      const pkgJson = 'e'.repeat(63) + '1';
+      const lock = 'e'.repeat(63) + '2';
+      const config = 'e'.repeat(63) + '3';
+      const tarballA = 'e'.repeat(63) + '4';
+      const tarballB = 'e'.repeat(63) + '5';
+      const specData = encodeBeast2For(EnvironmentSpecType)(variant('workspace_node', {
+        packageJson: pkgJson, lock, config: some(config), subject: 'packages/pricing',
+        members: [
+          { path: 'packages/common', name: '@acme/common', tarball: tarballA },
+          { path: 'packages/pricing', name: '@acme/pricing', tarball: tarballB },
+        ],
+      }));
+      const envHash = 'f'.repeat(63) + '6';
+      const taskData = encodeBeast2For(TaskObjectType)({
+        commandIr: 'c'.repeat(64),
+        inputs: [[variant('field', 'x')]],
+        output: [variant('field', 'y')],
+        kind: none, metadata: none,
+        runner: variant('custom', { command: [] }), environment: some(envHash),
+      } as TaskObject);
+      const taskHash = 'a'.repeat(64);
+
+      const objects = new Map<string, Uint8Array>([[taskHash, taskData], [envHash, specData]]);
+      const reachable = await markReachable(async (h) => objects.get(h) ?? null, new Set([taskHash]));
+
+      for (const [label, h] of [['packageJson', pkgJson], ['lock', lock], ['config', config], ['member A tarball', tarballA], ['member B tarball', tarballB]] as const) {
+        assert.ok(reachable.has(h), `${label} reachable`);
+      }
     });
 
     it('follows TreeObject DataRef children', async () => {

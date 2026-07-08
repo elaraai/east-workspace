@@ -18,7 +18,7 @@
  * ride the existing content-addressed object store and transfer machinery.
  */
 
-import { ArrayType, StringType, StructType, ValueTypeOf, VariantType } from '@elaraai/east';
+import { ArrayType, OptionType, StringType, StructType, ValueTypeOf, VariantType } from '@elaraai/east';
 
 /**
  * A Python (uv) project environment.
@@ -89,11 +89,89 @@ export type ImageEnvironmentType = typeof ImageEnvironmentType;
 export type ImageEnvironment = ValueTypeOf<typeof ImageEnvironmentType>;
 
 /**
+ * A prebuilt-file ("tools") environment for C and custom runners.
+ *
+ * e3 never builds anything for this kind: the developer builds their binary
+ * (or any prebuilt artifact) however they like, and capture folds the named
+ * files' bytes into the environment hash and materializes them onto the
+ * runner's PATH. Rebuilding a captured file changes its blob hash → the
+ * environment hash → the tasks that use it re-run. This closes the
+ * pre-existing hole where a custom-runner binary resolved from PATH was
+ * never part of the cache key, so a rebuild silently served stale outputs.
+ *
+ * @remarks
+ * - `files`: the captured files, sorted by `path` so capture order never
+ *   affects the environment hash.
+ *   - `path`: environment-dir-relative POSIX path; v1 writers emit
+ *     `bin/<basename>` (materialization writes it there and adds `bin` to
+ *     PATH). Validated at materialization: no absolute paths, no `..`, no
+ *     empty segments.
+ *   - `hash`: object hash of the file's bytes. No mode is stored:
+ *     materialization always applies a fixed mode, so an exec-bit-only
+ *     change does not alter the environment yet also cannot go stale.
+ */
+export const ToolsEnvironmentType = StructType({
+  /** Captured files (env-relative path + object hash), sorted by path */
+  files: ArrayType(StructType({ path: StringType, hash: StringType })),
+});
+export type ToolsEnvironmentType = typeof ToolsEnvironmentType;
+export type ToolsEnvironment = ValueTypeOf<typeof ToolsEnvironmentType>;
+
+/**
+ * A Node **workspace-member** environment (npm or pnpm workspaces).
+ *
+ * Where {@link NodeEnvironmentType} captures one self-contained project,
+ * this captures one member of a workspace together with the transitive
+ * closure of the local workspace packages it depends on — so editing a
+ * member's code re-runs only the environments whose closure contains it.
+ * Materialized by reconstructing a minimal workspace of exactly the closure
+ * members and running the frozen install against the verbatim root lock.
+ *
+ * @remarks
+ * - `packageJson`: object hash of the workspace **root** `package.json` blob.
+ * - `lock`: object hash of the **root** lockfile blob (content-sniffed as
+ *   today; npm in v1, pnpm once the pnpm capture path ships).
+ * - `config`: pnpm only — object hash of the capture-synthesized
+ *   `pnpm-workspace.yaml` blob; `none` for npm.
+ * - `subject`: workspace-relative POSIX path of the environment's own
+ *   member. Must satisfy `members.some((m) => m.path === subject)` — this is
+ *   enforced at capture and re-validated at materialization (BEAST2 typed
+ *   decode is structural only and cannot check it).
+ * - `members`: the dependency closure sorted by `path`; each carries its
+ *   package `name` (read from the member's `package.json` at capture) and
+ *   the object `hash` of its `npm pack` tarball.
+ */
+export const WorkspaceNodeEnvironmentType = StructType({
+  /** Object hash of the workspace root package.json blob */
+  packageJson: StringType,
+  /** Object hash of the root lockfile blob */
+  lock: StringType,
+  /** pnpm only: object hash of the synthesized pnpm-workspace.yaml; none for npm */
+  config: OptionType(StringType),
+  /** Workspace-relative POSIX path of this environment's own member */
+  subject: StringType,
+  /** Dependency closure (path + package name + tarball hash), sorted by path */
+  members: ArrayType(StructType({ path: StringType, name: StringType, tarball: StringType })),
+});
+export type WorkspaceNodeEnvironmentType = typeof WorkspaceNodeEnvironmentType;
+export type WorkspaceNodeEnvironment = ValueTypeOf<typeof WorkspaceNodeEnvironmentType>;
+
+/**
  * An execution environment specification.
  *
  * Stored beast2-encoded in the object store; the **environment hash** is the
  * object hash of the encoded spec. A task/function with no environment
  * (`none`) runs on the stock runtime image as today.
+ *
+ * @remarks
+ * BEAST2 encodes a variant's tag as the index of its case in the
+ * **alphabetically sorted** case list, so the case order is load-bearing: a
+ * repo persists specs by that order, and reordering the cases in a later
+ * edit would re-tag every case after the insertion point and mis-decode
+ * already-stored specs. New cases must therefore be added so the sorted
+ * order only grows at the end (`tools` and `workspace_node` sort after the
+ * original three). The frozen-order guard test in `environment.spec.ts`
+ * turns an accidental reorder into a red test.
  */
 export const EnvironmentSpecType = VariantType({
   /** Python (uv) project environment */
@@ -102,6 +180,10 @@ export const EnvironmentSpecType = VariantType({
   node: NodeEnvironmentType,
   /** Custom container image environment */
   image: ImageEnvironmentType,
+  /** Prebuilt-file environment for C / custom runners */
+  tools: ToolsEnvironmentType,
+  /** Node workspace-member environment (npm/pnpm workspaces) */
+  workspace_node: WorkspaceNodeEnvironmentType,
 });
 export type EnvironmentSpecType = typeof EnvironmentSpecType;
 export type EnvironmentSpec = ValueTypeOf<typeof EnvironmentSpecType>;
@@ -123,5 +205,14 @@ export function environmentSpecObjectHashes(spec: EnvironmentSpec): string[] {
       return [spec.value.packageJson, spec.value.lock, ...spec.value.tarballs];
     case 'image':
       return [];
+    case 'tools':
+      return spec.value.files.map((f) => f.hash);
+    case 'workspace_node':
+      return [
+        spec.value.packageJson,
+        spec.value.lock,
+        ...(spec.value.config.type === 'some' ? [spec.value.config.value] : []),
+        ...spec.value.members.map((m) => m.tarball),
+      ];
   }
 }

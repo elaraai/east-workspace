@@ -56,6 +56,10 @@ export {
   type NodeEnvironment,
   ImageEnvironmentType,
   type ImageEnvironment,
+  ToolsEnvironmentType,
+  type ToolsEnvironment,
+  WorkspaceNodeEnvironmentType,
+  type WorkspaceNodeEnvironment,
   environmentSpecObjectHashes,
 } from './environment.js';
 

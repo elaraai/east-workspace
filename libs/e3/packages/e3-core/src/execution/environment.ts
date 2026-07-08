@@ -37,10 +37,19 @@ const decodeEnvironmentSpec = decodeBeast2For(EnvironmentSpecType);
 
 /** The executable dir a materialized environment contributes to PATH. */
 function environmentBinDir(envDir: string, spec: EnvironmentSpec): string {
-  if (spec.type === 'python') {
-    return path.join(envDir, '.venv', process.platform === 'win32' ? 'Scripts' : 'bin');
+  switch (spec.type) {
+    case 'python':
+      return path.join(envDir, '.venv', process.platform === 'win32' ? 'Scripts' : 'bin');
+    case 'node':
+    case 'workspace_node':
+      return path.join(envDir, 'node_modules', '.bin');
+    case 'tools':
+      return path.join(envDir, 'bin');
+    case 'image':
+      // Rejected before this is reached (materializeEnvironment throws on
+      // image); present only to keep the switch exhaustive.
+      throw new Error('image environments have no local bin dir');
   }
-  return path.join(envDir, 'node_modules', '.bin');
 }
 
 async function run(command: string, args: string[], cwd: string, what: string): Promise<void> {
@@ -179,10 +188,22 @@ export async function materializeEnvironment(
     await fs.rm(buildDir, { recursive: true, force: true });
     await fs.mkdir(buildDir, { recursive: true });
     try {
-      if (spec.type === 'python') {
-        await buildPython(storage, repo, spec, buildDir);
-      } else {
-        await buildNode(storage, repo, spec, buildDir);
+      switch (spec.type) {
+        case 'python':
+          await buildPython(storage, repo, spec, buildDir);
+          break;
+        case 'node':
+          await buildNode(storage, repo, spec, buildDir);
+          break;
+        case 'tools':
+        case 'workspace_node':
+          // Wire cases landed ahead of their materializers (tools: #274,
+          // workspace_node: #276). Until those ship, fail loud rather than
+          // silently mis-materialize.
+          throw new Error(
+            `environment ${envHash.slice(0, 12)} is a '${spec.type}' environment, ` +
+            `which is not yet supported by the local runner`,
+          );
       }
       try {
         await fs.rename(buildDir, envDir);
