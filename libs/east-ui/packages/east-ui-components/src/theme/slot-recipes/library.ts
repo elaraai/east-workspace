@@ -19,6 +19,7 @@ export const librarySlotRecipe = defineSlotRecipe({
         "root", "header", "title", "hint",
         "toolbar", "search", "segGroup", "segLabel", "segItem",
         "group", "groupHead", "groupLabel", "groupSummary", "grid",
+        "body", "canvas", "row", "rowGrid",
         "card", "grip", "iconTile", "cardBody", "cardHead", "cardLabel",
         "cardSublabel", "statusPill",
         "meter", "meterTrack", "meterFill", "meterText",
@@ -30,6 +31,41 @@ export const librarySlotRecipe = defineSlotRecipe({
          * is host composition via Card / Slice.Frame. */
         root: {
             background: "bg.surface",
+            /* Height-constrained: chrome fixed, the body scrolls (#258). */
+            "&[data-scrollable]": {
+                display: "flex",
+                flexDirection: "column",
+                minHeight: "0",
+            },
+        },
+        /* The groups + card-grid region; becomes the scroll container when
+         * the root is height-constrained. */
+        body: {
+            "&[data-scrollable]": {
+                overflowY: "auto",
+                flex: "1 1 0%",
+                minHeight: "0",
+            },
+        },
+        /* Virtualizer sizing canvas — height is bound per render. */
+        canvas: {
+            position: "relative",
+            width: "100%",
+        },
+        /* One absolutely-positioned virtual row (group head or card chunk). */
+        row: {
+            position: "absolute",
+            top: "0",
+            left: "0",
+            width: "100%",
+        },
+        /* A single chunked card row — the virtualized sibling of `grid`;
+         * gridTemplateColumns is bound to the measured column count. */
+        rowGrid: {
+            display: "grid",
+            gap: "{spacing.3}",
+            paddingX: "{spacing.4}",
+            paddingY: "{spacing.1.5}",
         },
         header: {
             display: "flex",
