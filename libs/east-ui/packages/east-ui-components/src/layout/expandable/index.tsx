@@ -33,6 +33,25 @@ export interface EastChakraExpandableProps {
 const expandStack: symbol[] = [];
 
 /**
+ * Find the nearest ancestor whose styles make it the CSS containing block
+ * for `position: fixed` descendants — which would trap the takeover inside
+ * that ancestor instead of filling the app container. Truthy-guards handle
+ * jsdom, where unset properties compute to `""` rather than `"none"`.
+ */
+function findFixedContainingBlockAncestor(el: HTMLElement): { node: HTMLElement; prop: string } | null {
+    for (let node = el.parentElement; node !== null; node = node.parentElement) {
+        const cs = getComputedStyle(node);
+        if (cs.transform && cs.transform !== "none") return { node, prop: `transform: ${cs.transform}` };
+        if (cs.filter && cs.filter !== "none") return { node, prop: `filter: ${cs.filter}` };
+        if (cs.backdropFilter && cs.backdropFilter !== "none") return { node, prop: `backdrop-filter: ${cs.backdropFilter}` };
+        if (cs.perspective && cs.perspective !== "none") return { node, prop: `perspective: ${cs.perspective}` };
+        if (cs.contain && /layout|paint|strict|content/.test(cs.contain)) return { node, prop: `contain: ${cs.contain}` };
+        if (cs.willChange && /transform|filter|perspective/.test(cs.willChange)) return { node, prop: `will-change: ${cs.willChange}` };
+    }
+    return null;
+}
+
+/**
  * Renders an East UI Expandable — a region that expands in place to fill the
  * app container.
  *
@@ -57,6 +76,7 @@ export const EastChakraExpandable = memo(function EastChakraExpandable({ value, 
     const [expanded, setExpanded] = useState<boolean>(expandedProp ?? false);
     useEffect(() => { setExpanded(expandedProp ?? false); }, [expandedProp]);
 
+    const rootRef = useRef<HTMLDivElement | null>(null);
     const controlRef = useRef<HTMLButtonElement | null>(null);
     const idRef = useRef<symbol | null>(null);
     if (idRef.current === null) idRef.current = Symbol("expandable");
@@ -74,6 +94,22 @@ export const EastChakraExpandable = memo(function EastChakraExpandable({ value, 
     // change remounting the active page).
     useEffect(() => {
         if (!expanded) return;
+        // Host-contract check: a transform/filter/contain ancestor silently
+        // re-scopes `position: fixed` to itself, so the takeover fills that
+        // ancestor instead of the window. Warn with the offending node so the
+        // host can fix its wrapper (e.g. virtualizers should offset rows with
+        // `top`, not `transform: translateY`).
+        if (rootRef.current !== null) {
+            const trap = findFixedContainingBlockAncestor(rootRef.current);
+            if (trap !== null) {
+                console.warn(
+                    `[east-ui] <Expandable>${label !== undefined ? ` ("${label}")` : ""} expanded inside an ancestor with ${trap.prop} — ` +
+                    "that ancestor is the containing block for position: fixed, so the region fills it instead of the app container. " +
+                    "Remove the property from the host wrapper (virtualized rows: offset with `top` instead of `transform`).",
+                    trap.node,
+                );
+            }
+        }
         const id = idRef.current as symbol;
         expandStack.push(id);
         const onKeyDown = (event: KeyboardEvent) => {
@@ -99,6 +135,7 @@ export const EastChakraExpandable = memo(function EastChakraExpandable({ value, 
 
     return (
         <ChakraBox
+            ref={rootRef}
             css={styles.root}
             {...(expanded && zIndexOverride !== undefined ? { zIndex: Number(zIndexOverride) } : {})}
             {...(expanded && background !== undefined ? { background } : {})}

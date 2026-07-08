@@ -68,8 +68,9 @@ function fallbackChromiumPath(): string | undefined {
 
 /** Launch Chromium: an explicit `PW_EXECUTABLE_PATH` / `E3_UI_CHROMIUM_PATH`
  *  override wins; otherwise playwright's version-matched cache; otherwise any
- *  cached/system chromium via {@link fallbackChromiumPath}. */
-async function launchChromium(options: LaunchOptions): Promise<Browser> {
+ *  cached/system chromium via {@link fallbackChromiumPath}. Exported so the
+ *  probe-* diagnostics share the same resolution as the snapshot pipeline. */
+export async function launchChromium(options: LaunchOptions): Promise<Browser> {
     const explicit = process.env.PW_EXECUTABLE_PATH ?? process.env.E3_UI_CHROMIUM_PATH;
     if (explicit) return chromium.launch({ ...options, executablePath: explicit });
     try {

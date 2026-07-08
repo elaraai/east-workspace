@@ -14,7 +14,7 @@
  *     store (the controlled path used by app-style ui() tasks).
  */
 
-import { describe, test, expect, afterEach } from "vitest";
+import { describe, test, expect, afterEach, vi } from "vitest";
 import { render, cleanup, act, fireEvent } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { East, BooleanType, NullType, type ValueTypeOf } from "@elaraai/east";
@@ -113,6 +113,41 @@ describe("Expandable — toggle, identity, Esc", () => {
             document.dispatchEvent(event);
         });
         expect(control.getAttribute("aria-expanded")).toBe("true");
+    });
+
+    test("expanding under a transformed ancestor warns about the containing-block trap", async () => {
+        initializeStore(new UIStore());
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        try {
+            const { getByRole } = render(
+                <ChakraProvider value={system}>
+                    {/* Simulates a virtualizer row offset with transform (the
+                      * showcase DocList bug) — fixed would fill this div. */}
+                    <div style={{ transform: "translateY(120px)" }}>
+                        <EastChakraComponent value={buildUncontrolled()} storageKey="expandable-trap" />
+                    </div>
+                </ChakraProvider>,
+            );
+            await act(async () => { fireEvent.click(getByRole("button", { name: "Expand Chart" })); });
+            const trapWarnings = warn.mock.calls.filter(c => String(c[0]).includes("<Expandable>"));
+            expect(trapWarnings.length).toBe(1);
+            expect(String(trapWarnings[0]?.[0] ?? "")).toContain("transform");
+        } finally {
+            warn.mockRestore();
+        }
+    });
+
+    test("expanding in a clean host does not warn", async () => {
+        initializeStore(new UIStore());
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        try {
+            const { getByRole } = mount(buildUncontrolled());
+            await act(async () => { fireEvent.click(getByRole("button", { name: "Expand Chart" })); });
+            const trapWarnings = warn.mock.calls.filter(c => String(c[0]).includes("<Expandable>"));
+            expect(trapWarnings.length).toBe(0);
+        } finally {
+            warn.mockRestore();
+        }
     });
 
     test("controlled path: toggle writes State and the store drives expansion", async () => {

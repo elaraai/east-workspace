@@ -183,10 +183,13 @@ export function DocList({
                                 data-index={virtualRow.index}
                                 ref={virtualizer.measureElement}
                                 position="absolute"
-                                top="0"
+                                /* Offset via `top`, NOT `transform: translateY(...)` — a
+                                 * transformed ancestor becomes the containing block for
+                                 * `position: fixed` descendants, trapping <Expandable>'s
+                                 * fill-the-window takeover inside the row. */
+                                top={`${virtualRow.start}px`}
                                 left={CONTENT_GUTTER}
                                 right={CONTENT_GUTTER}
-                                transform={`translateY(${virtualRow.start}px)`}
                             >
                                 {item.kind === "head"
                                     ? <GroupHead item={item} first={virtualRow.index === 0} />
