@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { East, NullType, FloatType, ArrayType } from "@elaraai/east";
+import { BooleanType, East, NullType, FloatType, ArrayType, none, some, variant } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Planner } from "@elaraai/east-ui/internal";
+import { DragEventType, Planner } from "@elaraai/east-ui/internal";
 import * as ex from "./planner.examples.js";
 
 describeEast("Planner", (test) => {
@@ -22,6 +22,7 @@ describeEast("Planner", (test) => {
         plannerSpan: ex.plannerSpan,
         plannerDensity: ex.plannerDensity,
         plannerReview: ex.plannerReview,
+        plannerLibraryAdd: ex.plannerLibraryAdd,
         plannerStretch: ex.plannerStretch,
         plannerEventTone: ex.plannerEventTone,
         plannerEventColor: ex.plannerEventColor,
@@ -297,5 +298,66 @@ describeEast("Planner", (test) => {
         ));
         $(Assert.equal(on.unwrap().unwrap("Planner").rowHover.unwrap("some"), true));
         $(Assert.equal(off.unwrap().unwrap("Planner").rowHover.hasTag("none"), true));
+    });
+
+    test("DnD target trio encodes; composite slot keys round-trip through canDrop (#269)", $ => {
+        const onDrag = $.const(East.function([DragEventType], NullType, _$ => null));
+        const canDrop = $.const(East.function([DragEventType], BooleanType, ($, event) =>
+            event.match({
+                // The composite encoding: "wed" bare, "wed:am" with the bucket.
+                add: (_$, add) => add.into.slot.notEqual("wed:am"),
+                move: (_$, mv) => mv.to.slot.notEqual("wed"),
+                remove: (_$) => East.value(true),
+                resize: (_$) => East.value(true),
+            })));
+        const planner = $.let(Planner.Point(
+            [{ name: "Press A" }],
+            {
+                id: "week-plan",
+                sources: ["people"],
+                axis: Planner.axis.ordinal({ range: ["mon", "wed", "fri"], buckets: [{ key: "am", label: "AM" }, { key: "pm", label: "PM" }] }),
+                columns: [{ key: "name", frozen: true, value: r => r.name }],
+                events: _r => [],
+                onDrag,
+                canDrop,
+            },
+        ));
+        const root = $.let(planner.unwrap().unwrap("Planner"));
+
+        $(Assert.equal(root.id, "week-plan"));
+        $(Assert.equal(root.sources.get(0n), "people"));
+        $(Assert.equal(root.onDrag.hasTag("some"), true));
+        const veto = $.let(root.canDrop.unwrap("some"));
+        $(Assert.equal(veto(variant("add", {
+            from: { library: "people", key: "kim" },
+            into: { surface: "week-plan", row: "0", slot: "wed:am", event: none },
+            duplicate: false,
+        })), false));
+        $(Assert.equal(veto(variant("add", {
+            from: { library: "people", key: "kim" },
+            into: { surface: "week-plan", row: "0", slot: "wed:pm", event: none },
+            duplicate: false,
+        })), true));
+        $(Assert.equal(veto(variant("move", {
+            from: { surface: "week-plan", row: "0", slot: "mon:am", event: some("p0") },
+            to: { surface: "week-plan", row: "0", slot: "wed", event: none },
+        })), false));
+    });
+
+    test("a Planner without onDrag carries the inert target defaults (#269)", $ => {
+        const planner = $.let(Planner.Point(
+            [{ name: "A" }],
+            {
+                axis: Planner.axis.number({ range: { min: 1, max: 3 } }),
+                columns: [{ key: "name", frozen: true, value: r => r.name }],
+                events: _r => [],
+            },
+        ));
+        const root = $.let(planner.unwrap().unwrap("Planner"));
+
+        $(Assert.equal(root.id, ""));
+        $(Assert.equal(root.sources.size(), 0n));
+        $(Assert.equal(root.onDrag.hasTag("none"), true));
+        $(Assert.equal(root.canDrop.hasTag("none"), true));
     });
 }, { platformFns: TestImpl });

@@ -40,6 +40,7 @@ import { mapRowsBlock } from "../../shared/reify.js";
 import { DensityType, type DensityLiteral } from "../../style/interaction.js";
 import { PlotGutterType, type PlotGutter } from "../../shared/plot-gutter.js";
 import { reviewType, buildReview, type ReviewConfig } from "../../contracts/review.js";
+import { CanDropFnType, DragEventType } from "../../contracts/drag.js";
 
 import {
     PlannerSlotType,
@@ -248,6 +249,10 @@ export const PlannerRootType: StructType<{
     onSelectRow: OptionType<FunctionType<[PlannerSelectEventType], NullType>>,
     review: OptionType<PlannerReviewType>,
     rowHover: OptionType<BooleanType>,
+    id: StringType,
+    sources: ArrayType<StringType>,
+    onDrag: OptionType<FunctionType<[DragEventType], NullType>>,
+    canDrop: OptionType<CanDropFnType>,
 }> = StructType({
     variant:      PlannerVariantType,
     axis:         PlannerAxisType,
@@ -265,6 +270,18 @@ export const PlannerRootType: StructType<{
     // Opt-in hover affordance — draws a light brand outline around the whole row
     // (over both panes) on hover. Absent/false ⇒ no hover highlight.
     rowHover:     OptionType(BooleanType),
+    // Opt-in DnD target role (#269) — the standard trio, matching Roster
+    // field-for-field. A Planner with no `onDrag` is exactly today's Planner:
+    // the renderer registers the target iff `onDrag` is present
+    // (presence-gating; Planner has no edit-mode enum). Drops land as
+    // `proposed(added)` tiles; committed history never drags. Cell encoding
+    // (contracts/drag.ts): `row` = the row index key, `slot` = the axis key
+    // with the bucket composed in (`"wed"` / `"wed:am"`; number axes print
+    // decimally, time axes the column instant's ISO form).
+    id:           StringType,
+    sources:      ArrayType(StringType),
+    onDrag:       OptionType(FunctionType([DragEventType], NullType)),
+    canDrop:      OptionType(CanDropFnType),
 });
 export type PlannerRootType = typeof PlannerRootType;
 
@@ -682,6 +699,24 @@ export interface PlannerConfig<R extends StructType> {
      *  the whole row over both panes). Absent/false ⇒ no hover affordance. Works on
      *  read-only planners, independent of `onSelectRow`. */
     rowHover?: SubtypeExprOrValue<BooleanType>;
+    /** DnD target identity (#269) — connects the Planner to sibling Libraries
+     *  and names it in drag-grammar cell refs. Only meaningful with `onDrag`. */
+    id?: string;
+    /** Library ids accepted for `add` drags (omit = no adds). */
+    sources?: string[];
+    /** Drag funnel (#269) — presence is the opt-in: with it the Planner
+     *  registers as a drag target (add / move / remove on PROPOSED tiles;
+     *  committed history never drags; Span edges resize once wired). Drops
+     *  land as `proposed(added)` tiles. Events carry `row` = the row index
+     *  key and `slot` = the axis key with the bucket composed in
+     *  (`"wed"` / `"wed:am"`). */
+    onDrag?: SubtypeExprOrValue<FunctionType<[DragEventType], NullType>>;
+    /** Optional IR-level drop veto — consulted per hovered destination with
+     *  the synthesized candidate event (`CanDropFnType` semantics); `false`
+     *  ⇒ the ⊘ invalid stage and the drop is a no-op. Absent ⇒ accept.
+     *  Policy like "no drops left of `now`" is host-owned here, never
+     *  hard-coded. */
+    canDrop?: SubtypeExprOrValue<FunctionType<[DragEventType], BooleanType>>;
 }
 
 /**
@@ -751,6 +786,10 @@ function buildRoot(
         onSelectRow:  config.onSelectRow !== undefined ? some(config.onSelectRow) : none,
         review:       config.review !== undefined ? some(buildReview(config.review, PlannerReviewType)) : none,
         rowHover:     config.rowHover !== undefined ? some(config.rowHover) : none,
+        id:           config.id ?? "",
+        sources:      East.value(config.sources ?? [], ArrayType(StringType)),
+        onDrag:       config.onDrag !== undefined ? some(config.onDrag) : none,
+        canDrop:      config.canDrop !== undefined ? some(config.canDrop) : none,
     }), UIComponentType);
 }
 

@@ -893,6 +893,11 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
             rerunLabel: StringType,
         })),
         rowHover: OptionType(BooleanType),
+        // Opt-in DnD target role (#269) — mirror `PlannerRootType`.
+        id: StringType,
+        sources: ArrayType(StringType),
+        onDrag: OptionType(FunctionType([DragEventType], NullType)),
+        canDrop: OptionType(FunctionType([DragEventType], BooleanType)),
     }),
 
     // Roster — people × days-of-week shift grid (drag & drop target role).

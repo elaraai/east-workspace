@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, NullType, FloatType, ArrayType, some, none, variant, example } from "@elaraai/east";
-import { UIComponentType } from "@elaraai/east-ui";
-import { Planner, Text, VStack } from "@elaraai/east-ui";
+import { BooleanType, East, IntegerType, NullType, FloatType, ArrayType, some, none, variant, example } from "@elaraai/east";
+import { DragEventType, State, UIComponentType } from "@elaraai/east-ui";
+import { Library, Planner, Reactive, Text, VStack } from "@elaraai/east-ui";
 
 /**
  * Point Planner — a numeric day axis with AM/PM buckets, an identity column,
@@ -399,6 +399,98 @@ export const plannerReview = example({
  * both axes, with its content positioned inside. Absent ⇒ a normal-size,
  * top-left tile (the new default).
  */
+/**
+ * Opt-in DnD target (#269) — drag a person from the Library onto the weekly
+ * plan: drops land as `proposed(added)` tiles at the (row, day[:bucket])
+ * the pointer resolves, arriving through the ONE shared `onDrag` grammar
+ * funnel. `canDrop` vetoes drops left of `now` (committed history, ⊘ while
+ * hovering) — policy is host-owned, never hard-coded. The example proves the
+ * review loop: a drop flips its row to `pending` via the `approval`
+ * accessor; the row's Approve resolves it back.
+ */
+export const plannerLibraryAdd = example({
+    keywords: ["Planner", "Library", "drag", "add", "onDrag", "canDrop", "target", "proposed", "review", "pending", "approve", "loop"],
+    description: "Library + Planner page — drag a person onto the weekly plan (proposed(added) tile, ⊘ veto left of now); the drop flips the row pending and Approve resolves the line",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const pendingRowBind = $.let(State.bind([IntegerType], "planner_pending_row", -1n));
+            const pendingRow = $.let(pendingRowBind.read());
+            // The host owns the dropped tile (drops funnel through the normal
+            // commit pipeline): the optimistic tile hands over to this bound
+            // state when the Reactive value reconciles.
+            const droppedSlotBind = $.let(State.bind([FloatType], "planner_dropped_slot", -1.0));
+            const droppedSlot = $.let(droppedSlotBind.read());
+            const droppedRowBind = $.let(State.bind([IntegerType], "planner_dropped_row", -1n));
+            const droppedRow = $.let(droppedRowBind.read());
+            const onDrag = $.const(East.function([DragEventType], NullType, ($, event) => {
+                $.matchTag(event, "add", ($, add) => {
+                    // The dropped row awaits an explicit call (#269 loop step 2);
+                    // the tile itself is host-owned and survives the approval.
+                    $(pendingRowBind.write(add.into.row.parse(IntegerType)));
+                    $(droppedRowBind.write(add.into.row.parse(IntegerType)));
+                    $(droppedSlotBind.write(add.into.slot.parse(FloatType)));
+                });
+            }));
+            // Committed history is closed: no drops on days 1–3 (left of now).
+            const canDrop = $.const(East.function([DragEventType], BooleanType, ($, event) =>
+                event.match({
+                    add: (_$, add) => add.into.slot.parse(FloatType).greater(3.0),
+                    move: (_$, mv) => mv.to.slot.parse(FloatType).greater(3.0),
+                    remove: (_$) => East.value(true),
+                    resize: (_$) => East.value(true),
+                })));
+            const onApprove = $.const(East.function([Planner.Types.ApproveEvent], NullType, ($, _ev) => {
+                // Approving the line resolves it (#269 loop step 3).
+                $(pendingRowBind.write(-1n));
+            }));
+            return (
+                <VStack gap="4" align="stretch">
+                    <Library
+                        id="people"
+                        data={[
+                            { id: "patel", name: "Patel, R.", role: "Senior SE" },
+                            { id: "kim", name: "Kim, A.", role: "Mid SE" },
+                        ]}
+                        item={p => ({ key: p.id, label: p.name, sublabel: p.role, icon: "user" })}
+                    />
+                    <Planner.Point
+                        id="week-plan"
+                        sources={["people"]}
+                        data={[
+                            { idx: 0n, name: "Press A" },
+                            { idx: 1n, name: "Press B" },
+                        ]}
+                        axis={Planner.axis.number({ range: { min: 1, max: 6 } })}
+                        columns={[{ key: "name", frozen: true, value: r => r.name }]}
+                        events={r => East.equal(r.idx, droppedRow).and(_$ => droppedSlot.greater(0.0)).ifElse(
+                            _$ => [
+                                Planner.event({ key: East.str`c${East.print(r.idx)}`, slot: Planner.at.number(1), label: "✓", state: "committed" }),
+                                Planner.event({ key: East.str`p${East.print(r.idx)}`, slot: Planner.at.number(5), label: "plan", state: "added" }),
+                                Planner.event({ key: "dropped", slot: Planner.at.number(droppedSlot), label: "Patel, R.", state: "added" }),
+                            ],
+                            _$ => [
+                                Planner.event({ key: East.str`c${East.print(r.idx)}`, slot: Planner.at.number(1), label: "✓", state: "committed" }),
+                                Planner.event({ key: East.str`p${East.print(r.idx)}`, slot: Planner.at.number(5), label: "plan", state: "added" }),
+                            ],
+                        )}
+                        now={Planner.at.number(4)}
+                        onDrag={onDrag}
+                        canDrop={canDrop}
+                        status={r => East.equal(r.idx, pendingRow).ifElse(() => some(variant("warning", null)), () => none)}
+                        approval={r => East.equal(r.idx, pendingRow).ifElse(() => some(variant("pending", null)), () => some(variant("approved", null)))}
+                        review={{
+                            summary: <Text color="fg.muted">drop → the line goes pending · Approve resolves it</Text>,
+                            onApprove,
+                            onApproveAll: East.function([], NullType, _$ => null),
+                        }}
+                    />
+                </VStack>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
 export const plannerStretch = example({
     keywords: ["Planner", "stretch", "fill", "content", "align", "orientation", "tile", "both", "horizontal"],
     description: "Per-event stretch + content alignment — a both-axis tile filling its cell with centred content, a width-filling tile, and a normal top-left tile",
