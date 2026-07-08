@@ -90,6 +90,29 @@ if [ "$INSTALL_EAST_C" = true ]; then
     ln -sf "$EAST_C_BIN" /usr/local/bin/east-c
 fi
 
+# Deduplicate @elaraai packages to a SINGLE instance each.
+#
+# `npm install -g` nests a private copy of every shared @elaraai dependency
+# (e.g. @elaraai/east, @elaraai/e3-types) under each package that depends on it,
+# rather than hoisting to one. beast2's value/type tables dedup by CONSTRUCTOR
+# IDENTITY, so two east/e3-types module instances make equal composite types
+# compare unequal — on deploy the encoder mis-resolves a nested struct type onto
+# an outer ref value and every `e3 workspace deploy` fails with
+# "value is not iterable". pnpm hoists to one instance (dev works); npm -g does
+# not. All @elaraai packages are the same lockstep version, so collapse every
+# nested copy to a symlink to its top-level copy → exactly one instance of each.
+NM="$(npm root -g)"
+echo "Deduplicating @elaraai packages under ${NM}..."
+for top in "$NM"/@elaraai/*; do
+    [ -d "$top" ] || continue
+    canon="$(readlink -f "$top")"
+    for nested in $(find "$NM" -type d -path "*/node_modules/@elaraai/$(basename "$top")" 2>/dev/null); do
+        [ "$(readlink -f "$nested")" = "$canon" ] && continue
+        rm -rf "$nested"
+        ln -sfn "$canon" "$nested"
+    done
+done
+
 # Install Python packages if requested
 if [ "$INSTALL_PYTHON" = true ]; then
     if command -v uv &> /dev/null; then

@@ -12,7 +12,7 @@ ifneq ($(words $(CURDIR)),1)
 $(error This checkout is at a path containing spaces: "$(CURDIR)". Clone/move it to a space-free path outside OneDrive, e.g. C:/src/east-workspace. See docs/WINDOWS_SETUP.md.)
 endif
 
-.PHONY: setup setup-browser install build link test lint clean services-up services-down services-status test-all test-export set-version check-version help check-deps
+.PHONY: setup setup-browser install build link test lint clean services-up services-down services-status server-e3 server-e3-update server-e3-down server-e3-logs test-all test-export set-version check-version help check-deps
 
 # ── Setup (one-time) ─────────────────────────────────────────────────
 
@@ -160,6 +160,94 @@ services-down:
 services-status:
 	docker compose -f docker/services/docker-compose.yml --profile services ps
 
+# ── e3 LAN server ─────────────────────────────────────────────────────
+# Serve e3 repos over HTTP so LAN peers can deploy + run against them. The
+# ghcr.io/elaraai/e3 image bundles every runtime (east-node/py/c) so tasks
+# execute server-side.
+#
+# The e3 CLI requires a token for ANY http:// repo — it refuses client-side
+# before it even contacts the server — so the server runs its built-in OIDC
+# provider with E3_AUTH_AUTO_APPROVE=1: `e3 auth login <url> --no-browser` then
+# mints a dev-user token with no prompt (a rubber stamp — fine for a trusted
+# LAN, effectively no auth). `--network host` (Linux) makes the OIDC issuer URL
+# (http://$(E3_HOST):<port>) match what clients type, which the login flow needs.
+#
+# Repos live in a real host dir ($(E3_REPOS_DIR), bind-mounted; root-owned on the
+# host — sudo chown -R $$USER $(E3_REPOS_DIR) to reclaim). First free port in
+# E3_PORTS (default 3000-3010) wins; pin with E3_PORT=<n>, address with E3_HOST=<ip>.
+#
+# Tasks run INSIDE the container, so any host files they read must be mounted in.
+# E3_DATA_DIRS = space-separated host dirs exposed read-only at the SAME path
+# (so a task's absolute path resolves identically locally and on the server):
+#   make server-e3 E3_DATA_DIRS="/abs/path/to/data /another/dir"
+# E3_MOUNTS = raw extra `docker -v` flags for anything else (rw, custom target path).
+# E3_GPUS = pass GPUs to tasks (e.g. E3_GPUS=all). Requires the NVIDIA Container
+# Toolkit on the host (sudo apt-get install nvidia-container-toolkit; sudo
+# nvidia-ctk runtime configure --runtime=docker; sudo systemctl restart docker).
+# The image's torch is a CUDA build, so cuda tasks use the GPU once this is set.
+E3_PORT      ?=
+E3_PORTS     ?= $(shell seq 3000 3010)
+E3_HOST      ?= $(shell hostname -I 2>/dev/null | awk '{print $$1}')
+E3_REPOS_DIR ?= $(HOME)/.e3/repos
+E3_DATA_DIRS ?=
+E3_MOUNTS    ?=
+E3_GPUS      ?=
+# The e3 CLI fetches ONE access token at command start and never refreshes it
+# mid-command, so a long `dataflow run` fails with "Token expired" once it
+# outlives the token. Make the access token outlast any pipeline (trusted-LAN
+# auto-approve auth is a rubber stamp anyway). Accepts 5s/15m/1h/7d/30d style.
+E3_TOKEN_EXPIRY ?= 720h
+
+## Build the e3 image + start the OIDC LAN server (auto-approve; logs in this machine)
+server-e3:
+	@mkdir -p $(E3_REPOS_DIR)
+	@test -n "$(E3_HOST)" || { echo "could not detect a LAN IP — set E3_HOST=<ip>" >&2; exit 1; }
+	@docker compose -f docker/images/docker-compose.yml build e3
+	@mounts=""; for d in $(E3_DATA_DIRS); do \
+	  test -e "$$d" || { echo "E3_DATA_DIRS: $$d does not exist on this host" >&2; exit 1; }; \
+	  mounts="$$mounts -v $$d:$$d:ro"; \
+	done; \
+	echo "starting e3-server (scanning for a free port)…" >&2; \
+	ok=; for port in $(if $(E3_PORT),$(E3_PORT),$(E3_PORTS)); do \
+	  docker rm -f e3-server >/dev/null 2>&1 || true; \
+	  docker run -d --name e3-server --restart unless-stopped --network host $(if $(E3_GPUS),--gpus $(E3_GPUS)) \
+	    -e E3_AUTH_AUTO_APPROVE=1 -v $(E3_REPOS_DIR):/data/repos $$mounts $(E3_MOUNTS) \
+	    ghcr.io/elaraai/e3:latest \
+	    e3-api-server --repos /data/repos --host $(E3_HOST) --port $$port --oidc --token-expiry $(E3_TOKEN_EXPIRY) >/dev/null 2>&1 || true; \
+	  for i in 1 2 3 4 5 6 7 8; do \
+	    curl -s --connect-timeout 1 --max-time 2 http://$(E3_HOST):$$port/.well-known/openid-configuration 2>/dev/null \
+	      | grep -q device_authorization_endpoint && { ok=$$port; break; }; \
+	    [ "$$(docker inspect -f '{{.State.Status}}' e3-server 2>/dev/null)" = restarting ] && break; \
+	    sleep 0.5; \
+	  done; \
+	  [ -n "$$ok" ] && break; \
+	done; \
+	if [ -z "$$ok" ]; then \
+	  docker rm -f e3-server >/dev/null 2>&1 || true; \
+	  echo "no free port in: $(if $(E3_PORT),$(E3_PORT),$(E3_PORTS)) — set E3_PORT=<n> or widen E3_PORTS" >&2; \
+	  exit 1; \
+	fi; \
+	url="http://$(E3_HOST):$$ok"; \
+	command -v e3 >/dev/null 2>&1 && timeout 30 e3 auth login "$$url" --no-browser >/dev/null 2>&1 \
+	  && logged="  (this machine: logged in as dev-user)" || logged=""; \
+	echo "e3-api-server → $$url   (repos dir: $(E3_REPOS_DIR))$$logged"; \
+	echo "login another client:  e3 auth login $$url --no-browser   then deploy against $$url"
+
+## Refresh the image to the latest PUBLISHED @elaraai packages, then restart.
+## The image bakes npm/PyPI @latest, NOT your local monorepo source — a plain
+## rebuild reuses the cached install layer, so --no-cache --pull is required.
+server-e3-update:
+	@docker compose -f docker/images/docker-compose.yml build --no-cache --pull e3
+	@$(MAKE) --no-print-directory server-e3
+
+## Stop and remove the e3 server container (repos dir is preserved)
+server-e3-down:
+	@docker rm -f e3-server >/dev/null 2>&1 && echo "e3-server stopped" || echo "e3-server not running"
+
+## Follow the e3 server logs
+server-e3-logs:
+	@docker logs -f e3-server
+
 # ── Test IR Export ────────────────────────────────────────────────────
 
 ## Export all test IR (required before east-py and east-c compliance tests)
@@ -240,6 +328,12 @@ help:
 	@echo "  services-up      - Start test services (Postgres, Redis, etc.)"
 	@echo "  services-down    - Stop test services"
 	@echo "  services-status  - Show test services status"
+	@echo ""
+	@echo "e3 LAN server (Docker, Linux):"
+	@echo "  server-e3        - Serve e3 repos over HTTP + OIDC auto-approve (auto-picks free port 3000-3010)"
+	@echo "  server-e3-update - Rebuild image at latest published packages (--no-cache) + restart"
+	@echo "  server-e3-down   - Stop the e3 server (repos dir preserved)"
+	@echo "  server-e3-logs   - Follow the e3 server logs"
 	@echo ""
 	@echo "Full test run:"
 	@echo "  test-export      - Export all test IR"

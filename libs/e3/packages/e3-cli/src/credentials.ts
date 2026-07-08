@@ -265,14 +265,22 @@ export async function refreshAccessToken(
  * If the current token is expired, attempts to refresh it.
  * Throws if not logged in or refresh fails.
  */
+/**
+ * Refresh a token this many ms before it actually expires. The margin covers
+ * clock skew and a request that is still in flight when the token would lapse,
+ * so callers that re-resolve per request (e.g. a long `dataflow run` poll loop)
+ * never send an already-expired token.
+ */
+const TOKEN_REFRESH_MARGIN_MS = 60_000;
+
 export async function getValidToken(serverUrl: string): Promise<string> {
   const creds = getCredential(serverUrl);
   if (!creds) {
     throw new Error(`Not logged in to ${serverUrl}. Run: e3 login ${serverUrl}`);
   }
 
-  // Return existing token if not expired
-  if (!isExpired(creds.expiresAt)) {
+  // Reuse the current token while it has more than the refresh margin left.
+  if (new Date(creds.expiresAt).getTime() - Date.now() > TOKEN_REFRESH_MARGIN_MS) {
     return creds.accessToken;
   }
 
