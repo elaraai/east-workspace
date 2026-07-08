@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { Box, Popover, Portal, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCheck, faGripVertical, faTrashCan } from "@fortawesome/free-solid-svg-icons";
@@ -11,6 +11,7 @@ import { equalFor, match, some, none, variant, type ValueTypeOf } from "@elaraai
 import { Board, type CellRefType } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { useDragTarget, useDropCell, useDragEventChip, type DragEventValue, type DragMeta, type DragPayload } from "../../dnd/drag-layer";
+import { useIRCanDrop, canDropAllows, type CanDropFn } from "../../dnd/ir-can-drop";
 
 const boardEqual = equalFor(Board.Types.Board);
 
@@ -167,7 +168,7 @@ interface BoardCellProps {
     /** Per-cell chip cap before the `+N` overflow. */
     maxVisible: number | undefined;
     edit: boolean;
-    /** Per-payload drop veto (duplicate person / host `canAssign`). */
+    /** Per-payload drop veto (duplicate person AND the host's IR `canDrop`). */
     canDrop: (payload: DragPayload) => boolean;
     styles: SlotStyles;
     onSelect?: ((ref: CellRefValue) => void) | undefined;
@@ -298,28 +299,12 @@ export const EastChakraBoard = memo(function EastChakraBoard({ value }: EastChak
     const [localFaces, setLocalFaces] = useState<Map<string, string>>(() => new Map());
 
     const onDragFn = useMemo(() => getSomeorUndefined(value.onDrag), [value.onDrag]);
-    // Host assignability predicate — verdict-cached per (person, area, shift);
-    // a THROWING predicate logs and ALLOWS (fail-open) so a broken validator
-    // cannot brick the board (the Schematic `canConnect` convention).
-    const canAssignFn = useMemo(() =>
-        getSomeorUndefined(value.canAssign) as ((person: string, area: string, shift: string) => boolean) | undefined,
-    [value.canAssign]);
-    const assignVerdictRef = useRef(new Map<string, boolean>());
-    useEffect(() => { assignVerdictRef.current = new Map(); }, [canAssignFn]);
-    const assignAllowed = useCallback((person: string, area: string, shift: string): boolean => {
-        if (canAssignFn === undefined) return true;
-        const cacheKey = `${person}\u0000${area}\u0000${shift}`;
-        const hit = assignVerdictRef.current.get(cacheKey);
-        if (hit !== undefined) return hit;
-        let ok = true;
-        try {
-            ok = canAssignFn(person, area, shift) === true;
-        } catch (err) {
-            console.error("[Board] canAssign validator failed (allowing):", err);
-        }
-        assignVerdictRef.current.set(cacheKey, ok);
-        return ok;
-    }, [canAssignFn]);
+    // IR-level drop veto (#261) — the shared `canDrop` contract (the factory
+    // compiles the deprecated `canAssign` sugar into it). Verdict-cached per
+    // (payload, cell); a THROWING predicate logs and ALLOWS (fail-open) so a
+    // broken validator cannot brick the board.
+    const canDropFn = useMemo(() => getSomeorUndefined(value.canDrop) as CanDropFn | undefined, [value.canDrop]);
+    const vetoFor = useIRCanDrop(canDropFn);
     const onSelectFn = useMemo(() => getSomeorUndefined(value.onSelect), [value.onSelect]);
     const onAcceptFn = useMemo(() => getSomeorUndefined(value.onAccept), [value.onAccept]);
     const onAddAtFn = useMemo(() => getSomeorUndefined(value.onAddAt), [value.onAddAt]);
@@ -343,21 +328,25 @@ export const EastChakraBoard = memo(function EastChakraBoard({ value }: EastChak
         const moving = assignments.find(a => a.key === payload.from.event);
         return moving !== undefined ? { person: moving.person, excludeKey: moving.key } : undefined;
     }, [assignments]);
-    /** Per-cell drop veto: duplicate person in the cell, or a host
-     * `canAssign` false verdict. Unresolvable payloads allow (fail-open). */
-    const cellCanDrop = useCallback((area: string, shift: string) => (payload: DragPayload): boolean => {
-        const who = payloadPerson(payload);
-        if (who === undefined) return true;
-        if (occupied(area, shift, who.person, who.excludeKey)) return false;
-        return assignAllowed(who.person, area, shift);
-    }, [payloadPerson, occupied, assignAllowed]);
+    /** Per-cell drop veto: the built-in duplicate-person guard AND the host's
+     * IR `canDrop` verdict. Unresolvable payloads allow (fail-open). */
+    const cellCanDrop = useCallback((area: string, shift: string) => {
+        const veto = vetoFor?.({ surface: value.id, row: area, slot: shift });
+        return (payload: DragPayload): boolean => {
+            const who = payloadPerson(payload);
+            if (who !== undefined && occupied(area, shift, who.person, who.excludeKey)) return false;
+            return veto?.(payload) ?? true;
+        };
+    }, [payloadPerson, occupied, vetoFor, value.id]);
 
     const handleDrag = useCallback((event: DragEventValue, meta?: DragMeta) => {
+        // Re-check the IR veto with the real event before mutating (the hover
+        // veto already gated the ⊘ stage; sink removes are always valid).
+        if ((event.type === "add" || event.type === "move") && !canDropAllows(canDropFn, event)) return;
         if (event.type === "add") {
             const { from, into } = event.value;
             // Duplicate-person guard: the dragged card's key IS the person key.
             if (occupied(into.row, into.slot, from.key)) return;
-            if (!assignAllowed(from.key, into.row, into.slot)) return;
             setAssignments([...assignments, {
                 key: `local:${from.library}:${from.key}:${into.row}:${into.slot}:${assignments.length}`,
                 person: from.key,
@@ -373,7 +362,6 @@ export const EastChakraBoard = memo(function EastChakraBoard({ value }: EastChak
             const key = from.event.type === "some" ? from.event.value : undefined;
             const moving = assignments.find(a => a.key === key);
             if (moving === undefined || occupied(to.row, to.slot, moving.person, moving.key)) return;
-            if (!assignAllowed(moving.person, to.row, to.slot)) return;
             setAssignments(assignments.map(a => a.key === key
                 ? { ...a, area: to.row, shift: to.slot }
                 : a));
@@ -382,7 +370,7 @@ export const EastChakraBoard = memo(function EastChakraBoard({ value }: EastChak
             setAssignments(assignments.filter(a => a.key !== key));
         }
         if (onDragFn) queueMicrotask(() => onDragFn(event));
-    }, [assignments, faces, occupied, assignAllowed, onDragFn]);
+    }, [assignments, faces, occupied, canDropFn, onDragFn]);
     const handleSelect = useMemo(() => onSelectFn
         ? (ref: CellRefValue) => queueMicrotask(() => onSelectFn(ref))
         : undefined, [onSelectFn]);

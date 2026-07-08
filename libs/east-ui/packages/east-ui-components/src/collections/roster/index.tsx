@@ -10,7 +10,8 @@ import { faCheck, faGripVertical, faTrashCan } from "@fortawesome/free-solid-svg
 import { equalFor, match, some, none, variant, type ValueTypeOf } from "@elaraai/east";
 import { Roster, type CellRefType } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
-import { useDragTarget, useDropCell, useDragEventChip, type DragEventValue, type DragMeta } from "../../dnd/drag-layer";
+import { useDragTarget, useDropCell, useDragEventChip, type DragEventValue, type DragMeta, type DragPayload } from "../../dnd/drag-layer";
+import { useIRCanDrop, canDropAllows, type CanDropFn } from "../../dnd/ir-can-drop";
 
 const rosterEqual = equalFor(Roster.Types.Roster);
 
@@ -150,15 +151,18 @@ interface RosterCellProps {
     shifts: RosterShiftValue[];
     edit: boolean;
     styles: SlotStyles;
+    /** Per-cell veto builder from the root's IR `canDrop` (#261). */
+    vetoFor?: ((coord: { surface: string; row: string; slot: string }) => (payload: DragPayload) => boolean) | undefined;
     onSelect?: ((ref: CellRefValue) => void) | undefined;
     onAccept?: ((ref: CellRefValue) => void) | undefined;
     onRemove?: ((ref: CellRefValue) => void) | undefined;
     onAddAt?: ((ref: CellRefValue) => void) | undefined;
 }
 
-function RosterCell({ surface, person, day, shifts, edit, styles, onSelect, onAccept, onRemove, onAddAt }: RosterCellProps) {
+function RosterCell({ surface, person, day, shifts, edit, styles, vetoFor, onSelect, onAccept, onRemove, onAddAt }: RosterCellProps) {
     const coord = useMemo(() => ({ surface, row: person, slot: day }), [surface, person, day]);
-    const dropRef = useDropCell(edit ? coord : null);
+    const veto = useMemo(() => vetoFor?.(coord), [vetoFor, coord]);
+    const dropRef = useDropCell(edit ? coord : null, false, veto);
 
     const handleClick = useCallback(() => {
         if (edit && shifts.length === 0 && onAddAt) onAddAt(cellRef(surface, person, day));
@@ -210,11 +214,16 @@ export const EastChakraRoster = memo(function EastChakraRoster({ value }: EastCh
     useEffect(() => { setShifts([...value.shifts]); }, [value.shifts]);
 
     const onDragFn = useMemo(() => getSomeorUndefined(value.onDrag), [value.onDrag]);
+    const canDropFn = useMemo(() => getSomeorUndefined(value.canDrop) as CanDropFn | undefined, [value.canDrop]);
+    const vetoFor = useIRCanDrop(canDropFn);
     const onSelectFn = useMemo(() => getSomeorUndefined(value.onSelect), [value.onSelect]);
     const onAcceptFn = useMemo(() => getSomeorUndefined(value.onAccept), [value.onAccept]);
     const onAddAtFn = useMemo(() => getSomeorUndefined(value.onAddAt), [value.onAddAt]);
 
     const handleDrag = useCallback((event: DragEventValue, meta?: DragMeta) => {
+        // Re-check the IR veto with the real event before mutating (the hover
+        // veto already gated the ⊘ stage; sink removes are always valid).
+        if ((event.type === "add" || event.type === "move") && !canDropAllows(canDropFn, event)) return;
         let next = shifts;
         if (event.type === "add") {
             const { from, into } = event.value;
@@ -237,7 +246,7 @@ export const EastChakraRoster = memo(function EastChakraRoster({ value }: EastCh
         }
         setShifts(next);
         if (onDragFn) queueMicrotask(() => onDragFn(event));
-    }, [shifts, onDragFn]);
+    }, [shifts, onDragFn, canDropFn]);
     const handleSelect = useMemo(() => onSelectFn
         ? (ref: CellRefValue) => queueMicrotask(() => onSelectFn(ref))
         : undefined, [onSelectFn]);
@@ -309,6 +318,7 @@ export const EastChakraRoster = memo(function EastChakraRoster({ value }: EastCh
                                 shifts={cells.get(`${person.key} ${day}`) ?? []}
                                 edit={edit}
                                 styles={styles}
+                                vetoFor={vetoFor}
                                 onSelect={handleSelect}
                                 onAccept={edit ? handleAccept : undefined}
                                 onRemove={edit ? handleRemove : undefined}

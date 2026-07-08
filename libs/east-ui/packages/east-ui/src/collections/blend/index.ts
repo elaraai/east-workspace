@@ -206,6 +206,7 @@ export interface BlendTargetFields {
  * @property diff - Compare mode: metric keys for the foot table (default all)
  * @property verdict - Optional compare verdict line
  * @property onDrag - Drag funnel — add / remove events
+ * @property canDrop - Optional IR-level drop veto over synthesized candidate events
  * @property onAmountChange - Allocation amount edits
  * @property onAction - Panel actions (reset / apply / discard)
  */
@@ -222,6 +223,11 @@ export interface BlendConfig<R extends StructType> {
     verdict?: SubtypeExprOrValue<StringType>;
     /** Drag funnel — add / remove events. */
     onDrag?: SubtypeExprOrValue<FunctionType<[DragEventType], NullType>>;
+    /** Optional IR-level drop veto — consulted per hovered target panel with
+     *  the synthesized candidate event (`CanDropFnType` semantics, see
+     *  `contracts/drag.ts`); `false` ⇒ the ⊘ invalid stage and the drop is a
+     *  no-op. Absent ⇒ accept (the pre-#261 behaviour). */
+    canDrop?: SubtypeExprOrValue<FunctionType<[DragEventType], BooleanType>>;
     /** Allocation amount edits. */
     onAmountChange?: SubtypeExprOrValue<FunctionType<[BlendAmountEventType], NullType>>;
     /** Panel actions (reset / apply / discard). */
@@ -258,6 +264,7 @@ function buildRoot(
         diff: East.value(config.diff ?? [], ArrayType(StringType)),
         verdict: config.verdict !== undefined ? some(config.verdict) : none,
         onDrag: config.onDrag !== undefined ? some(config.onDrag) : none,
+        canDrop: config.canDrop !== undefined ? some(config.canDrop) : none,
         onAmountChange: config.onAmountChange !== undefined ? some(config.onAmountChange) : none,
         onAction: config.onAction !== undefined ? some(config.onAction) : none,
     }), UIComponentType);

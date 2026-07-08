@@ -33,8 +33,8 @@ import {
     some,
     none,
     ArrayType,
-    type BooleanType,
-    type FunctionType,
+    BooleanType,
+    FunctionType,
     type IntegerType,
     StringType,
     StructType,
@@ -44,7 +44,7 @@ import {
 import { UIComponentType } from "../../component.js";
 import { mapRows } from "../../shared/reify.js";
 import { DensityType, type DensityLiteral } from "../../style/interaction.js";
-import { type CellRefType, type DragEventType } from "../../contracts/drag.js";
+import { CanDropFnType, type CellRefType, DragEventType } from "../../contracts/drag.js";
 import { PlannerStateType } from "../planner/types.js";
 import {
     BoardModeType, type BoardModeLiteral,
@@ -156,7 +156,8 @@ export interface BoardRequirementFields {
  * @property density - Optional density
  * @property maxVisible - Optional per-cell chip cap before the `+N` overflow
  * @property summary - Optional status-strip text (open / proposed counts)
- * @property canAssign - Optional assignability predicate `(person, area, shift) => Boolean`
+ * @property canDrop - Optional IR-level drop veto over synthesized candidate events
+ * @property canAssign - Deprecated assignability sugar — compiled into `canDrop`
  * @property onDrag - Drag funnel — add / move / remove events
  * @property onSelect - Assignment / cell click callback (a drag-grammar cell ref)
  * @property onAccept - Ghost-assignment acceptance callback
@@ -195,10 +196,22 @@ export interface BoardConfig<
     maxVisible?: SubtypeExprOrValue<IntegerType> | number;
     /** Optional status-strip text (open / proposed counts). */
     summary?: SubtypeExprOrValue<StringType>;
+    /** Optional IR-level drop veto — consulted per hovered cell with the
+     *  synthesized candidate event (`CanDropFnType` semantics, see
+     *  `contracts/drag.ts`); `false` ⇒ the ⊘ invalid stage and the drop is a
+     *  no-op. Absent ⇒ accept. When `canAssign` is also given, both must
+     *  allow. */
+    canDrop?: SubtypeExprOrValue<FunctionType<[DragEventType], BooleanType>>;
     /** Optional assignability predicate `(person, area, shift) => Boolean` — a
      * `false` verdict renders the invalid-drop treatment (red outline + ⊘)
      * while dragging and vetoes the drop. Fail-open: a throwing predicate
-     * logs and allows. */
+     * logs and allows.
+     *
+     * @deprecated Use {@link BoardConfig.canDrop} — `canAssign` is compiled
+     * into a `canDrop` predicate by the factory (an `add`'s person is the
+     * dragged card's key; a `move`'s person is resolved from the authored
+     * assignments by event key, allowing when unresolvable). It will be
+     * removed once hosts migrate. */
     canAssign?: SubtypeExprOrValue<FunctionType<[StringType, StringType, StringType], BooleanType>>;
     /** Drag funnel — add / move / remove events. */
     onDrag?: SubtypeExprOrValue<FunctionType<[DragEventType], NullType>>;
@@ -276,6 +289,39 @@ function buildRoot(
         ? some(typeof config.maxVisible === "number" ? BigInt(config.maxVisible) : config.maxVisible)
         : none;
 
+    // Compile the deprecated `canAssign` sugar into the shared `canDrop`
+    // contract: an `add`'s person is the dragged card's key; a `move`'s person
+    // is resolved from the authored assignments by the moving event's key
+    // (allowing when unresolvable — e.g. a chip added optimistically this
+    // session); sink kinds are always structurally valid. When the host also
+    // supplies an explicit `canDrop`, both predicates must allow.
+    const canAssignFn = config.canAssign;
+    const compiledCanAssign = canAssignFn === undefined ? undefined
+        : East.function([DragEventType], BooleanType, ($, ev) => {
+            const fn = $.const(canAssignFn, FunctionType([StringType, StringType, StringType], BooleanType));
+            const rows = $.const(resolvedAssignments);
+            return ev.match({
+                add: (_$, add) => fn(add.from.key, add.into.row, add.into.slot),
+                move: ($, mv) => {
+                    const key = $.const(mv.from.event.match({ some: (_$, k) => k, none: (_$) => East.value("") }));
+                    return rows.firstMap((_$, a) => East.equal(a.key, key).ifElse(() => some(a.person), () => none)).match({
+                        some: (_$, person) => fn(person, mv.to.row, mv.to.slot),
+                        none: (_$) => East.value(true),
+                    });
+                },
+                remove: (_$) => East.value(true),
+                resize: (_$) => East.value(true),
+            });
+        });
+    const userCanDrop = config.canDrop;
+    const canDrop = compiledCanAssign !== undefined && userCanDrop !== undefined
+        ? East.function([DragEventType], BooleanType, ($, ev) => {
+            const compiled = $.const(compiledCanAssign);
+            const user = $.const(userCanDrop, CanDropFnType);
+            return compiled(ev).and(_$ => user(ev));
+        })
+        : compiledCanAssign ?? userCanDrop;
+
     return East.value(variant("Board", {
         id: config.id,
         sources: East.value(config.sources ?? [], ArrayType(StringType)),
@@ -290,7 +336,7 @@ function buildRoot(
         density,
         maxVisible,
         summary: config.summary !== undefined ? some(config.summary) : none,
-        canAssign: config.canAssign !== undefined ? some(config.canAssign) : none,
+        canDrop: canDrop !== undefined ? some(canDrop) : none,
         onDrag: config.onDrag !== undefined ? some(config.onDrag) : none,
         onSelect: config.onSelect !== undefined ? some(config.onSelect) : none,
         onAccept: config.onAccept !== undefined ? some(config.onAccept) : none,

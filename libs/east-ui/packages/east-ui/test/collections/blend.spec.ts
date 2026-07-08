@@ -4,16 +4,50 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { variant } from "@elaraai/east";
-import { Blend } from "@elaraai/east-ui/internal";
+import { BooleanType, East, none, variant } from "@elaraai/east";
+import { Blend, DragEventType } from "@elaraai/east-ui/internal";
 import * as ex from "./blend.examples.js";
 
 describeEast("Blend", (test) => {
     Assert.examples(test, {
         blendSingle: ex.blendSingle,
+        blendCanDrop: ex.blendCanDrop,
         blendCompare: ex.blendCompare,
         blendPortfolio: ex.blendPortfolio,
         blendInteractive: ex.blendInteractive,
+    });
+
+    test("canDrop encodes and vetoes candidate events (#261)", $ => {
+        const canDrop = $.const(East.function([DragEventType], BooleanType, ($, event) =>
+            event.match({
+                add: (_$, add) => add.from.key.startsWith("c2-").and(_$ => East.equal(add.into.row, "premium")).not(),
+                move: (_$) => East.value(true),
+                remove: (_$) => East.value(true),
+                resize: (_$) => East.value(true),
+            })));
+        const blend = $.let(Blend.Root(
+            [{ key: "premium", name: "Premium", cap: 100.0 }],
+            {
+                id: "bench-veto",
+                sources: ["materials"],
+                target: t => ({ key: t.key, label: t.name, capacity: t.cap, allocations: [] }),
+                canDrop,
+            },
+        ));
+        const root = $.let(blend.unwrap().unwrap("Blend"));
+
+        $(Assert.equal(root.canDrop.hasTag("some"), true));
+        const veto = $.let(root.canDrop.unwrap("some"));
+        $(Assert.equal(veto(variant("add", {
+            from: { library: "materials", key: "c1-204" },
+            into: { surface: "bench-veto", row: "premium", slot: "alloc", event: none },
+            duplicate: false,
+        })), true));
+        $(Assert.equal(veto(variant("add", {
+            from: { library: "materials", key: "c2-167" },
+            into: { surface: "bench-veto", row: "premium", slot: "alloc", event: none },
+            duplicate: false,
+        })), false));
     });
 
     test("resolves targets with defaults", $ => {

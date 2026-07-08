@@ -28,6 +28,7 @@ import {
     some,
     none,
     ArrayType,
+    type BooleanType,
     type FunctionType,
     IntegerType,
     type NullType,
@@ -132,6 +133,7 @@ export interface RosterShiftFields {
  * @property density - Optional density
  * @property summary - Optional status-strip text (dirty / ghost counts)
  * @property onDrag - Drag funnel — add / move / remove events
+ * @property canDrop - Optional IR-level drop veto over synthesized candidate events
  * @property onSelect - Shift / cell click callback (a drag-grammar cell ref)
  * @property onAccept - Ghost-shift acceptance callback
  * @property onAddAt - Empty-cell click callback (edit mode)
@@ -159,6 +161,11 @@ export interface RosterConfig<P extends StructType, S extends StructType> {
     summary?: SubtypeExprOrValue<StringType>;
     /** Drag funnel — add / move / remove events. */
     onDrag?: SubtypeExprOrValue<FunctionType<[DragEventType], NullType>>;
+    /** Optional IR-level drop veto — consulted per hovered cell with the
+     *  synthesized candidate event (`CanDropFnType` semantics, see
+     *  `contracts/drag.ts`); `false` ⇒ the ⊘ invalid stage and the drop is a
+     *  no-op. Absent ⇒ accept (the pre-#261 behaviour). */
+    canDrop?: SubtypeExprOrValue<FunctionType<[DragEventType], BooleanType>>;
     /** Shift / cell click callback (a drag-grammar cell ref). */
     onSelect?: SubtypeExprOrValue<FunctionType<[CellRefType], NullType>>;
     /** Ghost-shift acceptance callback. */
@@ -224,6 +231,7 @@ function buildRoot(
         density,
         summary: config.summary !== undefined ? some(config.summary) : none,
         onDrag: config.onDrag !== undefined ? some(config.onDrag) : none,
+        canDrop: config.canDrop !== undefined ? some(config.canDrop) : none,
         onSelect: config.onSelect !== undefined ? some(config.onSelect) : none,
         onAccept: config.onAccept !== undefined ? some(config.onAccept) : none,
         onAddAt: config.onAddAt !== undefined ? some(config.onAddAt) : none,

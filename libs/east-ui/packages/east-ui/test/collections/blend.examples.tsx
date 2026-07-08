@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, StringType, NullType, example, variant } from "@elaraai/east";
+import { BooleanType, East, StringType, NullType, example, variant } from "@elaraai/east";
 import { DragEventType, State, UIComponentType } from "@elaraai/east-ui";
 import { Blend, Library, Reactive, Text, VStack } from "@elaraai/east-ui";
 
@@ -36,6 +36,54 @@ export const blendSingle = example({
             />
         );
     }),
+    inputs: [],
+});
+
+/**
+ * IR-level drop validation (#261) — `canDrop` receives the synthesized
+ * candidate event for every hovered target panel; returning `false` shows
+ * the ⊘ invalid stage and the drop is a no-op. Here class-2 lots can't be
+ * pulled into the premium batch.
+ */
+export const blendCanDrop = example({
+    keywords: ["Blend", "canDrop", "veto", "invalid", "drag", "validation", "candidate", "drop"],
+    description: "IR-level canDrop veto — class-2 material cards can't land on the premium batch (⊘ while dragging)",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const canDrop = $.const(East.function([DragEventType], BooleanType, ($, event) =>
+                event.match({
+                    add: (_$, add) => add.from.key.startsWith("c2-").and(_$ => East.equal(add.into.row, "premium")).not(),
+                    move: (_$) => East.value(true),
+                    remove: (_$) => East.value(true),
+                    resize: (_$) => East.value(true),
+                })));
+            return (
+                <VStack gap="4" align="stretch">
+                    <Library
+                        id="materials"
+                        data={[
+                            { id: "c1-204", name: "LOT-204", grade: "class 1" },
+                            { id: "c2-167", name: "LOT-167", grade: "class 2" },
+                        ]}
+                        item={m => ({ key: m.id, label: m.name, sublabel: m.grade, icon: "box" })}
+                    />
+                    <Blend
+                        id="bench-veto"
+                        sources={["materials"]}
+                        targets={[{ key: "premium", name: "Premium batch", cap: 40000.0 }]}
+                        target={t => ({
+                            key: t.key, label: t.name, capacity: t.cap,
+                            allocations: [
+                                Blend.allocation({ source: "c1-204", amount: 16000.0 }),
+                            ],
+                            metrics: [],
+                        })}
+                        canDrop={canDrop}
+                    />
+                </VStack>
+            );
+        }}</Reactive>
+    )),
     inputs: [],
 });
 

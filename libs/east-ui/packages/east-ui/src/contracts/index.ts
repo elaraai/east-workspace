@@ -48,6 +48,7 @@ export {
     DragSinkType, type DragSinkLiteral,
     DragEdgeType, type DragEdgeLiteral,
     DragEventType,
+    CanDropFnType,
 } from "./drag.js";
 
 export {

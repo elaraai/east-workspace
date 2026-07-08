@@ -16,7 +16,7 @@ import {
 } from "@elaraai/east";
 
 import { PlannerStateType } from "../planner/types.js";
-import { DragEventType } from "../../contracts/drag.js";
+import { CanDropFnType, DragEventType } from "../../contracts/drag.js";
 
 /**
  * A predicted metric row on a target panel.
@@ -193,6 +193,7 @@ export type BlendActionEventType = typeof BlendActionEventType;
  * @property diff - Compare mode: metric keys for the foot table (empty = all)
  * @property verdict - Optional compare verdict line
  * @property onDrag - Drag funnel — add / remove events
+ * @property canDrop - Optional IR-level drop veto over synthesized candidate events
  * @property onAmountChange - Allocation amount edits
  * @property onAction - Panel actions (reset / optimise / apply / discard)
  */
@@ -209,6 +210,10 @@ export const BlendRootType = StructType({
     verdict: OptionType(StringType),
     /** Drag funnel — add / remove events */
     onDrag: OptionType(FunctionType([DragEventType], NullType)),
+    /** Optional IR-level drop veto — consulted per hovered target panel with
+     *  the synthesized candidate event ({@link CanDropFnType} semantics);
+     *  `false` ⇒ the ⊘ invalid stage and the drop is a no-op. Absent ⇒ accept. */
+    canDrop: OptionType(CanDropFnType),
     /** Allocation amount edits */
     onAmountChange: OptionType(FunctionType([BlendAmountEventType], NullType)),
     /** Panel actions (reset / optimise / apply / discard) */

@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, IntegerType, NullType, StringType, example, variant } from "@elaraai/east";
+import { BooleanType, East, IntegerType, NullType, StringType, example, variant } from "@elaraai/east";
 import { CellRefType, DragEventType, State, UIComponentType } from "@elaraai/east-ui";
 import { Library, Reactive, Roster, Text, VStack } from "@elaraai/east-ui";
 
@@ -125,6 +125,58 @@ export const rosterInteractive = example({
                         onAccept={onAccept}
                     />
                     <Text.MonoLabel>{East.str`DRAGS · ${East.print(drags)} · ACCEPTS · ${East.print(accepts)}`}</Text.MonoLabel>
+                </VStack>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+/**
+ * IR-level drop validation (#261) — `canDrop` receives the synthesized
+ * candidate event for every hovered cell; returning `false` shows the ⊘
+ * invalid stage and the drop is a no-op. Here Kim is day-shift only: any
+ * `add` of the `kim` card onto a weekend column is vetoed, and `move`s onto
+ * weekends are vetoed for everyone (weekend line-up is committed).
+ */
+export const rosterCanDrop = example({
+    keywords: ["Roster", "canDrop", "veto", "invalid", "drag", "validation", "candidate", "drop"],
+    description: "IR-level canDrop veto — Kim's card can't land on weekend columns (⊘ while dragging), moves onto weekends are vetoed for all",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const canDrop = $.const(East.function([DragEventType], BooleanType, ($, event) => {
+                const weekend = $.const(East.function([StringType], BooleanType, (_$, day) =>
+                    East.equal(day, "Sat").or(_$ => East.equal(day, "Sun"))));
+                return event.match({
+                    add: (_$, add) => East.equal(add.from.key, "kim").and(_$ => weekend(add.into.slot)).not(),
+                    move: (_$, mv) => weekend(mv.to.slot).not(),
+                    remove: (_$) => East.value(true),
+                    resize: (_$) => East.value(true),
+                });
+            }));
+            return (
+                <VStack gap="4" align="stretch">
+                    <Library
+                        id="people"
+                        data={[
+                            { id: "patel", name: "Patel, R.", role: "Senior SE" },
+                            { id: "kim", name: "Kim, A.", role: "Mid SE · day-shift only" },
+                        ]}
+                        item={p => ({ key: p.id, label: p.name, sublabel: p.role, icon: "user" })}
+                    />
+                    <Roster
+                        id="roster-wk"
+                        sources={["people"]}
+                        mode="edit"
+                        people={[{ id: "patel", name: "Patel" }, { id: "kim", name: "Kim" }]}
+                        person={p => ({ key: p.id, label: p.name })}
+                        shifts={[
+                            { id: "p1", person: "patel", day: "Fri", hours: 8n, state: variant("proposed", variant("added", null)) },
+                        ]}
+                        shift={s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state })}
+                        days={["Fri", "Sat", "Sun"]}
+                        canDrop={canDrop}
+                    />
                 </VStack>
             );
         }}</Reactive>

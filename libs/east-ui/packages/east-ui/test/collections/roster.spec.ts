@@ -4,8 +4,8 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { variant } from "@elaraai/east";
-import { Roster } from "@elaraai/east-ui/internal";
+import { BooleanType, East, none, some, variant } from "@elaraai/east";
+import { DragEventType, Roster } from "@elaraai/east-ui/internal";
 import * as ex from "./roster.examples.js";
 
 describeEast("Roster", (test) => {
@@ -13,6 +13,7 @@ describeEast("Roster", (test) => {
         rosterEdit: ex.rosterEdit,
         rosterPublished: ex.rosterPublished,
         rosterInteractive: ex.rosterInteractive,
+        rosterCanDrop: ex.rosterCanDrop,
         rosterWithLibrary: ex.rosterWithLibrary,
     });
 
@@ -38,6 +39,46 @@ describeEast("Roster", (test) => {
         $(Assert.equal(root.personWidth.hasTag("none"), true));
         $(Assert.equal(root.people.get(0n).key, "patel"));
         $(Assert.equal(root.people.get(0n).sublabel.hasTag("none"), true));
+        $(Assert.equal(root.canDrop.hasTag("none"), true));
+    });
+
+    test("canDrop encodes and vetoes candidate events (#261)", $ => {
+        const canDrop = $.const(East.function([DragEventType], BooleanType, ($, event) =>
+            event.match({
+                add: (_$, add) => add.into.slot.notEqual("Sun"),
+                move: (_$, mv) => mv.to.slot.notEqual("Sun"),
+                remove: (_$) => East.value(true),
+                resize: (_$) => East.value(true),
+            })));
+        const roster = $.let(Roster.Root(
+            [{ id: "patel", name: "Patel" }],
+            [{ id: "p1", person: "patel", day: "Mon", hours: 8n, state: variant("committed", null) }],
+            {
+                id: "r",
+                mode: "edit",
+                person: p => ({ key: p.id, label: p.name }),
+                shift: s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state }),
+                canDrop,
+            },
+        ));
+        const root = $.let(roster.unwrap().unwrap("Roster"));
+
+        $(Assert.equal(root.canDrop.hasTag("some"), true));
+        const veto = $.let(root.canDrop.unwrap("some"));
+        $(Assert.equal(veto(variant("add", {
+            from: { library: "people", key: "kim" },
+            into: { surface: "r", row: "patel", slot: "Mon", event: none },
+            duplicate: false,
+        })), true));
+        $(Assert.equal(veto(variant("add", {
+            from: { library: "people", key: "kim" },
+            into: { surface: "r", row: "patel", slot: "Sun", event: none },
+            duplicate: false,
+        })), false));
+        $(Assert.equal(veto(variant("move", {
+            from: { surface: "r", row: "patel", slot: "Mon", event: some("p1") },
+            to: { surface: "r", row: "patel", slot: "Sun", event: none },
+        })), false));
     });
 
     test("shifts resolve hours to the chip label and keep typed state", $ => {

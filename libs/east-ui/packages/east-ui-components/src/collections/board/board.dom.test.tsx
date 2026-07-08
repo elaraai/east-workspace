@@ -51,7 +51,7 @@ function boardValue(overrides: Partial<BoardValue>): BoardValue {
         density: none,
         maxVisible: none,
         summary: none,
-        canAssign: none,
+        canDrop: none,
         onDrag: none,
         onSelect: none,
         onAccept: none,
@@ -142,12 +142,13 @@ describe("EastChakraBoard", () => {
         expect(cell.hasAttribute("data-drop-invalid")).toBe(false);
     });
 
-    test("canAssign veto: a forbidden (person, area, shift) shows the invalid treatment and drops nothing", async () => {
+    test("canDrop veto: a vetoed candidate event shows the invalid treatment and drops nothing", async () => {
         const events: DragEventValue[] = [];
         const value = boardValue({
-            // Hasan may not take ICU PM; everything else is allowed.
-            canAssign: some(((person: string, _area: string, shift: string) =>
-                !(person === "hasan" && shift === "pm")) as never),
+            // Hasan may not take ICU PM; everything else is allowed. The
+            // predicate sees the synthesized candidate event (#261).
+            canDrop: some(((event: DragEventValue) =>
+                !(event.type === "add" && event.value.from.key === "hasan" && event.value.into.slot === "pm")) as never),
             onDrag: some(((event: DragEventValue) => { events.push(event); }) as never),
         });
         const { container, getByTestId, getByText, queryByText } = renderBoard(value,

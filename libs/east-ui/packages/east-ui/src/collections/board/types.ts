@@ -5,7 +5,6 @@
 
 import {
     ArrayType,
-    BooleanType,
     FunctionType,
     IntegerType,
     NullType,
@@ -16,7 +15,7 @@ import {
 } from "@elaraai/east";
 
 import { DensityType } from "../../style/interaction.js";
-import { CellRefType, DragEventType } from "../../contracts/drag.js";
+import { CanDropFnType, CellRefType, DragEventType } from "../../contracts/drag.js";
 import { PlannerStateType } from "../planner/types.js";
 
 /**
@@ -150,7 +149,7 @@ export type BoardRequirementType = typeof BoardRequirementType;
  * @property density - Optional density
  * @property maxVisible - Optional per-cell chip cap before the `+N` overflow
  * @property summary - Optional status-strip text (open / proposed counts)
- * @property canAssign - Optional assignability predicate `(person, area, shift) => Boolean`
+ * @property canDrop - Optional IR-level drop veto over synthesized candidate events
  * @property onDrag - Drag funnel — add / move / remove events
  * @property onSelect - Assignment / cell click callback
  * @property onAccept - Ghost-assignment acceptance callback
@@ -183,9 +182,11 @@ export const BoardRootType = StructType({
     maxVisible: OptionType(IntegerType),
     /** Optional status-strip text (open / proposed counts) */
     summary: OptionType(StringType),
-    /** Optional assignability predicate `(person, area, shift) => Boolean` — a
-     * `false` verdict renders the invalid-drop treatment and vetoes the drop */
-    canAssign: OptionType(FunctionType([StringType, StringType, StringType], BooleanType)),
+    /** Optional IR-level drop veto — consulted per hovered cell with the
+     *  synthesized candidate event ({@link CanDropFnType} semantics); `false`
+     *  ⇒ the ⊘ invalid stage and the drop is a no-op. Absent ⇒ accept. The
+     *  factory's deprecated `canAssign` sugar compiles into this predicate. */
+    canDrop: OptionType(CanDropFnType),
     /** Drag funnel — add / move / remove events */
     onDrag: OptionType(FunctionType([DragEventType], NullType)),
     /** Assignment / cell click callback */

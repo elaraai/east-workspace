@@ -32,6 +32,7 @@ export {
     DragSinkType, type DragSinkLiteral,
     DragEdgeType, type DragEdgeLiteral,
     DragEventType,
+    CanDropFnType,
 } from "./contracts/drag.js";
 
 // Review / approval grammar contract

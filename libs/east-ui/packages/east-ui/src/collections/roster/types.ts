@@ -14,7 +14,7 @@ import {
 } from "@elaraai/east";
 
 import { DensityType } from "../../style/interaction.js";
-import { CellRefType, DragEventType } from "../../contracts/drag.js";
+import { CanDropFnType, CellRefType, DragEventType } from "../../contracts/drag.js";
 import { PlannerStateType } from "../planner/types.js";
 
 /**
@@ -113,6 +113,7 @@ export type RosterShiftType = typeof RosterShiftType;
  * @property density - Optional density
  * @property summary - Optional status-strip text (dirty / ghost counts)
  * @property onDrag - Drag funnel — add / move / remove events
+ * @property canDrop - Optional IR-level drop veto over synthesized candidate events
  * @property onSelect - Shift / cell click callback
  * @property onAccept - Ghost-shift acceptance callback
  * @property onAddAt - Empty-cell click callback (edit mode)
@@ -140,6 +141,10 @@ export const RosterRootType = StructType({
     summary: OptionType(StringType),
     /** Drag funnel — add / move / remove events */
     onDrag: OptionType(FunctionType([DragEventType], NullType)),
+    /** Optional IR-level drop veto — consulted per hovered cell with the
+     *  synthesized candidate event ({@link CanDropFnType} semantics); `false`
+     *  ⇒ the ⊘ invalid stage and the drop is a no-op. Absent ⇒ accept. */
+    canDrop: OptionType(CanDropFnType),
     /** Shift / cell click callback */
     onSelect: OptionType(FunctionType([CellRefType], NullType)),
     /** Ghost-shift acceptance callback */
