@@ -52,7 +52,7 @@ export interface GanttTaskProps {
 }
 
 /** Convert a time step to milliseconds */
-const timeStepToMs = (step: TimeStep): number => {
+export const timeStepToMs = (step: TimeStep): number => {
     switch (step.type) {
         case "minutes": return step.value * 60 * 1000;
         case "hours": return step.value * 60 * 60 * 1000;
@@ -63,7 +63,7 @@ const timeStepToMs = (step: TimeStep): number => {
 };
 
 /** Snap a date to the nearest step */
-const snapToStep = (date: Date, step: TimeStep | undefined): Date => {
+export const snapToStep = (date: Date, step: TimeStep | undefined): Date => {
     if (!step) return date;
     const ms = timeStepToMs(step);
     const snapped = Math.round(date.getTime() / ms) * ms;

@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { East, NullType, none, some, variant } from "@elaraai/east";
+import { BooleanType, East, NullType, none, some, variant } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Gantt, Text, Badge, Table, UIComponentType } from "@elaraai/east-ui/internal";
+import { DragEventType, Gantt, Text, Badge, Table, UIComponentType } from "@elaraai/east-ui/internal";
 import * as ex from "./gantt.examples.js";
 
 describeEast("Gantt", (test) => {
@@ -21,6 +21,7 @@ describeEast("Gantt", (test) => {
         ganttStateAndStatus: ex.ganttStateAndStatus,
         ganttLifecycleArms: ex.ganttLifecycleArms,
         ganttReview: ex.ganttReview,
+        ganttLibraryAdd: ex.ganttLibraryAdd,
         ganttStyled: ex.ganttStyled,
         ganttComplexColumns: ex.ganttComplexColumns,
         ganttInteractiveCallbacks: ex.ganttInteractiveCallbacks,
@@ -181,6 +182,48 @@ describeEast("Gantt", (test) => {
         $(Assert.equal(root.rows.get(0n).approval.unwrap("some").hasTag("approved"), true));
         $(Assert.equal(root.rows.get(1n).status.unwrap("some").hasTag("warning"), true));
         $(Assert.equal(root.rows.get(1n).approval.unwrap("some").hasTag("pending"), true));
+    });
+
+    test("DnD target trio encodes; drops validate through canDrop (#268)", $ => {
+        const onDrag = $.const(East.function([DragEventType], NullType, _$ => null));
+        const canDrop = $.const(East.function([DragEventType], BooleanType, ($, event) =>
+            event.match({
+                add: (_$, add) => add.into.row.notEqual("0"),
+                move: (_$) => East.value(true),
+                remove: (_$) => East.value(true),
+                resize: (_$, rz) => rz.edge.hasTag("end"),
+            })));
+        const gantt = $.let(Gantt.Root(
+            [{ name: "A", start: new Date("2024-01-01"), end: new Date("2024-01-10") }],
+            ["name"],
+            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end, state: "added" })] }),
+            { id: "schedule", sources: ["crews"], onDrag, canDrop },
+        ));
+        const root = $.let(gantt.unwrap().unwrap("Gantt"));
+
+        $(Assert.equal(root.id, "schedule"));
+        $(Assert.equal(root.sources.get(0n), "crews"));
+        $(Assert.equal(root.onDrag.hasTag("some"), true));
+        const veto = $.let(root.canDrop.unwrap("some"));
+        $(Assert.equal(veto(variant("add", {
+            from: { library: "crews", key: "crew-a" },
+            into: { surface: "schedule", row: "0", slot: "2024-01-05T00:00:00.000Z", event: none },
+            duplicate: false,
+        })), false));
+        $(Assert.equal(veto(variant("add", {
+            from: { library: "crews", key: "crew-a" },
+            into: { surface: "schedule", row: "1", slot: "2024-01-05T00:00:00.000Z", event: none },
+            duplicate: false,
+        })), true));
+        // The grammar resize round-trips (edge + destination slot in the ref).
+        $(Assert.equal(veto(variant("resize", {
+            event: { surface: "schedule", row: "1", slot: "2024-01-14T00:00:00.000Z", event: some("t0") },
+            edge: variant("end", null),
+        })), true));
+        $(Assert.equal(veto(variant("resize", {
+            event: { surface: "schedule", row: "1", slot: "2024-01-14T00:00:00.000Z", event: some("t0") },
+            edge: variant("start", null),
+        })), false));
     });
 
     // =========================================================================

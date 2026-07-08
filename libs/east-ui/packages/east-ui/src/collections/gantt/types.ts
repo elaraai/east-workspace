@@ -24,6 +24,7 @@ import { PlotGutterType, type PlotGutter } from "../../shared/plot-gutter.js";
 import { SliceBindType } from "../../platform/slice/index.js";
 // Type-only (erased at runtime — safe against the component.ts import cycle).
 import type { ReviewConfig, RowRefType } from "../../contracts/review.js";
+import type { DragEventType } from "../../contracts/drag.js";
 import { type SliceAffordanceLiteral } from "../../contracts/slice-affordances.js";
 
 // Re-export shared content primitives for ergonomic discovery via Gantt.Types.*.
@@ -221,26 +222,16 @@ export const GanttTaskClickEventType = StructType({
 
 export type GanttTaskClickEventType = typeof GanttTaskClickEventType;
 
-/**
- * Event data for task drag/resize events.
- *
- * @property rowIndex - Row index (0-based)
- * @property taskIndex - Task index within the row (0-based)
- * @property previousStart - Previous start date/time
- * @property previousEnd - Previous end date/time
- * @property newStart - New start date/time
- * @property newEnd - New end date/time
- */
-export const GanttTaskDragEventType = StructType({
-    rowIndex: IntegerType,
-    taskIndex: IntegerType,
-    previousStart: DateTimeType,
-    previousEnd: DateTimeType,
-    newStart: DateTimeType,
-    newEnd: DateTimeType,
-});
-
-export type GanttTaskDragEventType = typeof GanttTaskDragEventType;
+// NOTE (#268, breaking): the bespoke `GanttTaskDragEventType`,
+// `GanttTaskDurationChangeEventType`, and `GanttMilestoneDragEventType`
+// (rowIndex/taskIndex integers + DateTimes) are retired — task-body drags
+// now arrive as the shared drag grammar's `move` and edge drags as `resize`
+// through one `onDrag: Fn([DragEventType], Null)` callback (see
+// `contracts/drag.ts`; row = the row index key, slot = the snapped ISO
+// instant, event = the task/milestone index key `t<i>` / `m<i>`).
+// `GanttTaskProgressChangeEventType` stays bespoke on purpose: a progress
+// handle drag adjusts a percentage INSIDE one bar — it is not a spatial drag
+// between cells, so it is out of the grammar.
 
 /**
  * Event data for task progress change events.
@@ -259,22 +250,6 @@ export const GanttTaskProgressChangeEventType = StructType({
 
 export type GanttTaskProgressChangeEventType = typeof GanttTaskProgressChangeEventType;
 
-/**
- * Event data for task duration change events (dragging task end).
- *
- * @property rowIndex - Row index (0-based)
- * @property taskIndex - Task index within the row (0-based)
- * @property previousEnd - Previous end date/time
- * @property newEnd - New end date/time
- */
-export const GanttTaskDurationChangeEventType = StructType({
-    rowIndex: IntegerType,
-    taskIndex: IntegerType,
-    previousEnd: DateTimeType,
-    newEnd: DateTimeType,
-});
-
-export type GanttTaskDurationChangeEventType = typeof GanttTaskDurationChangeEventType;
 
 /**
  * Event data for milestone click events.
@@ -291,22 +266,6 @@ export const GanttMilestoneClickEventType = StructType({
 
 export type GanttMilestoneClickEventType = typeof GanttMilestoneClickEventType;
 
-/**
- * Event data for milestone drag events.
- *
- * @property rowIndex - Row index (0-based)
- * @property milestoneIndex - Milestone index within the row (0-based)
- * @property previousDate - Previous date/time of the milestone
- * @property newDate - New date/time of the milestone
- */
-export const GanttMilestoneDragEventType = StructType({
-    rowIndex: IntegerType,
-    milestoneIndex: IntegerType,
-    previousDate: DateTimeType,
-    newDate: DateTimeType,
-});
-
-export type GanttMilestoneDragEventType = typeof GanttMilestoneDragEventType;
 
 /**
  * Style type for the Gantt component — visual-only.
@@ -368,12 +327,13 @@ export type GanttStyleType = typeof GanttStyleType;
  * @property onSortChange - Sort change callback — main
  * @property onTaskClick - Task click callback — main
  * @property onTaskDoubleClick - Task double-click callback — main
- * @property onTaskDrag - Task drag callback — main
- * @property onTaskDurationChange - Task duration change callback — main
- * @property onTaskProgressChange - Task progress change callback — main
+ * @property id - DnD target identity — main (#268)
+ * @property sources - Library ids accepted for `add` drags — main (#268)
+ * @property onDrag - Drag funnel (add / move / resize / remove grammar) — main (#268)
+ * @property canDrop - Optional IR-level drop veto — main (#268)
+ * @property onTaskProgressChange - Task progress change callback (bespoke, out-of-grammar) — main
  * @property onMilestoneClick - Milestone click callback — main
  * @property onMilestoneDoubleClick - Milestone double-click callback — main
- * @property onMilestoneDrag - Milestone drag callback — main
  */
 export interface GanttStyle<ColumnKeys extends string = string> {
     /** Column keys to freeze (pin left). Frozen columns appear first and stay visible during horizontal scroll. */
@@ -435,16 +395,28 @@ export interface GanttStyle<ColumnKeys extends string = string> {
     onTaskClick?: SubtypeExprOrValue<FunctionType<[GanttTaskClickEventType], NullType>>;
     /** Callback triggered when a task is double-clicked. */
     onTaskDoubleClick?: SubtypeExprOrValue<FunctionType<[GanttTaskClickEventType], NullType>>;
-    /** Callback triggered when a task is dragged/resized. */
-    onTaskDrag?: SubtypeExprOrValue<FunctionType<[GanttTaskDragEventType], NullType>>;
-    /** Callback triggered when task duration changes (dragging task end). */
-    onTaskDurationChange?: SubtypeExprOrValue<FunctionType<[GanttTaskDurationChangeEventType], NullType>>;
-    /** Callback triggered when task progress changes. */
+    /** DnD target identity (#268) — connects the Gantt to sibling Libraries
+     *  and names it in drag-grammar cell refs. Only meaningful with `onDrag`. */
+    id?: string;
+    /** Library ids accepted for `add` drags (omit = no adds). */
+    sources?: string[];
+    /** Drag funnel (#268) — every completed drag arrives as ONE shared
+     *  `DragEventType` value: Library drops as `add` (landing as
+     *  `proposed(added)` bars), task-body drags as `move`, edge drags as
+     *  `resize` (`row` = row index key, `slot` = snapped ISO instant,
+     *  `event` = `t<taskIndex>` / `m<milestoneIndex>`). The target registers
+     *  iff this is present; without it the Gantt is exactly as before. */
+    onDrag?: SubtypeExprOrValue<FunctionType<[DragEventType], NullType>>;
+    /** Optional IR-level drop veto — consulted per hovered destination with
+     *  the synthesized candidate event (`CanDropFnType` semantics); `false`
+     *  ⇒ the ⊘ invalid stage and the drop is a no-op. Absent ⇒ accept. */
+    canDrop?: SubtypeExprOrValue<FunctionType<[DragEventType], BooleanType>>;
+    /** Callback triggered when task progress changes. Stays bespoke (out of
+     *  the drag grammar) on purpose: the progress handle adjusts a percentage
+     *  INSIDE one bar, not a spatial drag between cells. */
     onTaskProgressChange?: SubtypeExprOrValue<FunctionType<[GanttTaskProgressChangeEventType], NullType>>;
     /** Callback triggered when a milestone is clicked. */
     onMilestoneClick?: SubtypeExprOrValue<FunctionType<[GanttMilestoneClickEventType], NullType>>;
     /** Callback triggered when a milestone is double-clicked. */
     onMilestoneDoubleClick?: SubtypeExprOrValue<FunctionType<[GanttMilestoneClickEventType], NullType>>;
-    /** Callback triggered when a milestone is dragged. */
-    onMilestoneDrag?: SubtypeExprOrValue<FunctionType<[GanttMilestoneDragEventType], NullType>>;
 }

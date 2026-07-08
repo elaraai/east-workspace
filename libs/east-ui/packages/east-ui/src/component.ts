@@ -184,11 +184,8 @@ import {
     GanttAxisType,
     GanttMilestoneKindType,
     GanttTaskClickEventType,
-    GanttTaskDragEventType,
-    GanttTaskDurationChangeEventType,
     GanttTaskProgressChangeEventType,
     GanttMilestoneClickEventType,
-    GanttMilestoneDragEventType,
     TimeStepType,
 } from "./collections/gantt/types.js";
 import {
@@ -820,12 +817,15 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         onSortChange: OptionType(FunctionType([TableSortEventType], NullType)),
         onTaskClick: OptionType(FunctionType([GanttTaskClickEventType], NullType)),
         onTaskDoubleClick: OptionType(FunctionType([GanttTaskClickEventType], NullType)),
-        onTaskDrag: OptionType(FunctionType([GanttTaskDragEventType], NullType)),
-        onTaskDurationChange: OptionType(FunctionType([GanttTaskDurationChangeEventType], NullType)),
+        // DnD target role (#268) — mirror `GanttRootType`; the drag funnel is
+        // the shared grammar (`contracts/drag.ts`).
+        id: StringType,
+        sources: ArrayType(StringType),
+        onDrag: OptionType(FunctionType([DragEventType], NullType)),
+        canDrop: OptionType(FunctionType([DragEventType], BooleanType)),
         onTaskProgressChange: OptionType(FunctionType([GanttTaskProgressChangeEventType], NullType)),
         onMilestoneClick: OptionType(FunctionType([GanttMilestoneClickEventType], NullType)),
         onMilestoneDoubleClick: OptionType(FunctionType([GanttMilestoneClickEventType], NullType)),
-        onMilestoneDrag: OptionType(FunctionType([GanttMilestoneDragEventType], NullType)),
         // Optional review chrome (#263) — mirror the shared row-granularity
         // `RowReviewType` (`contracts/review.ts`), spelled with the recursion
         // `node` for `summary` (the Planner precedent).

@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, DateTimeType, IntegerType, NullType, StringType, none, some, variant, example } from "@elaraai/east";
-import { State, Style, UIComponentType } from "@elaraai/east-ui";
-import { Badge, Gantt, Reactive, Table, Text, VStack } from "@elaraai/east-ui";
+import { BooleanType, East, DateTimeType, IntegerType, NullType, StringType, none, some, variant, example } from "@elaraai/east";
+import { DragEventType, State, Style, UIComponentType } from "@elaraai/east-ui";
+import { Badge, Gantt, Library, Reactive, Table, Text, VStack } from "@elaraai/east-ui";
 
 export const ganttBasic = example({
     keywords: ["Gantt", "Root", "Task", "basic", "timeline"],
@@ -422,11 +422,16 @@ export const ganttInteractiveCallbacks = example({
             const onTaskDoubleClick = $.const(East.function([Gantt.Types.TaskClickEvent], NullType, ($, event) => {
                 $(lastEventBind.write(East.str`onTaskDoubleClick: row ${event.rowIndex}, task ${event.taskIndex}`));
             }));
-            const onTaskDrag = $.const(East.function([Gantt.Types.TaskDragEvent], NullType, ($, event) => {
-                $(lastEventBind.write(East.str`onTaskDrag: row ${event.rowIndex}, task ${event.taskIndex} moved`));
-            }));
-            const onTaskDurationChange = $.const(East.function([Gantt.Types.TaskDurationChangeEvent], NullType, ($, event) => {
-                $(lastEventBind.write(East.str`onTaskDurationChange: row ${event.rowIndex}, task ${event.taskIndex}, new end date`));
+            // ONE grammar funnel (#268): task-body drags arrive as `move`,
+            // edge drags as `resize`, Library drops as `add` — the bespoke
+            // per-gesture callbacks are gone.
+            const onDrag = $.const(East.function([DragEventType], NullType, ($, event) => {
+                $.match(event, {
+                    move: ($, mv) => { $(lastEventBind.write(East.str`onDrag move: ${mv.from.row}/${mv.from.event.getTag()} → ${mv.to.slot}`)); },
+                    resize: ($, rz) => { $(lastEventBind.write(East.str`onDrag resize: ${rz.event.row} ${rz.edge.getTag()} edge → ${rz.event.slot}`)); },
+                    add: ($, add) => { $(lastEventBind.write(East.str`onDrag add: ${add.from.key} → row ${add.into.row}`)); },
+                    remove: ($, rm) => { $(lastEventBind.write(East.str`onDrag remove: ${rm.from.row}`)); },
+                });
             }));
             const onTaskProgressChange = $.const(East.function([Gantt.Types.TaskProgressChangeEvent], NullType, ($, event) => {
                 $(lastEventBind.write(East.str`onTaskProgressChange: row ${event.rowIndex}, task ${event.taskIndex}, progress ${event.newProgress}`));
@@ -436,9 +441,6 @@ export const ganttInteractiveCallbacks = example({
             }));
             const onMilestoneDoubleClick = $.const(East.function([Gantt.Types.MilestoneClickEvent], NullType, ($, event) => {
                 $(lastEventBind.write(East.str`onMilestoneDoubleClick: row ${event.rowIndex}, milestone ${event.milestoneIndex}`));
-            }));
-            const onMilestoneDrag = $.const(East.function([Gantt.Types.MilestoneDragEvent], NullType, ($, event) => {
-                $(lastEventBind.write(East.str`onMilestoneDrag: row ${event.rowIndex}, milestone ${event.milestoneIndex} moved`));
             }));
 
             return (
@@ -453,12 +455,11 @@ export const ganttInteractiveCallbacks = example({
                         onSortChange={onSortChange}
                         onTaskClick={onTaskClick}
                         onTaskDoubleClick={onTaskDoubleClick}
-                        onTaskDrag={onTaskDrag}
-                        onTaskDurationChange={onTaskDurationChange}
+                        id="gantt-live"
+                        onDrag={onDrag}
                         onTaskProgressChange={onTaskProgressChange}
                         onMilestoneClick={onMilestoneClick}
                         onMilestoneDoubleClick={onMilestoneDoubleClick}
-                        onMilestoneDrag={onMilestoneDrag}
                         data={[
                             { name: "Sprint 1", start: new Date("2024-01-01"), end: new Date("2024-01-14"), release: new Date("2024-01-14") },
                             { name: "Sprint 2", start: new Date("2024-01-15"), end: new Date("2024-01-28"), release: new Date("2024-01-28") },
@@ -483,20 +484,25 @@ export const ganttInteractiveCallbacks = example({
 });
 
 export const ganttReactiveDrag = example({
-    keywords: ["Gantt", "Reactive", "State", "onTaskDrag", "drag", "dragStep"],
-    description: "Drag task to update state - position persists after re-render",
+    keywords: ["Gantt", "Reactive", "State", "onDrag", "move", "drag", "dragStep", "grammar"],
+    description: "Drag task to update state via the shared grammar — the move event's to.slot is the snapped ISO instant; position persists after re-render",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const taskStartBind = $.let(State.bind([DateTimeType], "gantt_task_start", new Date("2024-01-15")));
             const taskStart = $.let(taskStartBind.read());
             const taskEnd = $.let(taskStart.addDays(14));
-            const onTaskDrag = $.const(East.function([Gantt.Types.TaskDragEvent], NullType, ($, event) => {
-                $(taskStartBind.write(event.newStart));
+            const onDrag = $.const(East.function([DragEventType], NullType, ($, event) => {
+                $.match(event, {
+                    // The grammar move: `to.slot` carries the snapped ISO
+                    // instant the bar landed on (component-owned snapping).
+                    move: ($, mv) => { $(taskStartBind.write(mv.to.slot.parse(DateTimeType))); },
+                });
             }));
             return (
                 <VStack gap="3" align="stretch">
                     <Gantt
-                        onTaskDrag={onTaskDrag}
+                        id="gantt-drag"
+                        onDrag={onDrag}
                         dragStep={variant("days", 1)}
                         durationStep={variant("days", 1)}
                         data={[{ name: "Draggable Task" }]}
@@ -513,6 +519,76 @@ export const ganttReactiveDrag = example({
                         })}
                     />
                     <Text textStyle="body-sm" color="fg.muted">{East.str`Start: ${taskStart}`}</Text>
+                </VStack>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+/**
+ * Library → Gantt add (#268) — the Gantt registers as an ordinary drag
+ * target via the shared grammar: drag a crew card anywhere onto the
+ * timeline; the drop resolves to (row index key, snapped ISO instant),
+ * lands as an optimistic `proposed(added)` bar, and arrives through the ONE
+ * `onDrag` funnel. A `canDrop` veto (⊘ while hovering) keeps crews off the
+ * committed first row.
+ */
+export const ganttLibraryAdd = example({
+    keywords: ["Gantt", "Library", "drag", "add", "onDrag", "canDrop", "target", "proposed", "grammar"],
+    description: "Library + Gantt page — drag a crew card onto the timeline to land a proposed(added) bar at the snapped instant; canDrop vetoes the committed row (⊘)",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const lastBind = $.let(State.bind([StringType], "gantt_last_drop", "none yet"));
+            const onDrag = $.const(East.function([DragEventType], NullType, ($, event) => {
+                $.matchTag(event, "add", ($, add) => {
+                    $(lastBind.write(East.str`${add.from.key} → row ${add.into.row} @ ${add.into.slot}`));
+                });
+            }));
+            // Row 0 is committed history — no drops land there.
+            const canDrop = $.const(East.function([DragEventType], BooleanType, ($, event) =>
+                event.match({
+                    add: (_$, add) => add.into.row.notEqual("0"),
+                    move: (_$) => East.value(true),
+                    remove: (_$) => East.value(true),
+                    resize: (_$) => East.value(true),
+                })));
+            const last = $.let(lastBind.read());
+            return (
+                <VStack gap="4" align="stretch">
+                    <Library
+                        id="crews"
+                        data={[
+                            { id: "crew-a", name: "Crew A", trade: "rigging" },
+                            { id: "crew-b", name: "Crew B", trade: "fit-out" },
+                        ]}
+                        item={c => ({ key: c.id, label: c.name, sublabel: c.trade, icon: "user" })}
+                    />
+                    <Gantt
+                        id="schedule"
+                        sources={["crews"]}
+                        onDrag={onDrag}
+                        canDrop={canDrop}
+                        dragStep={variant("days", 1)}
+                        data={[
+                            { name: "Baseline", start: new Date("2024-01-01"), end: new Date("2024-01-20") },
+                            { name: "Fit-out", start: new Date("2024-01-10"), end: new Date("2024-02-05") },
+                            { name: "Commissioning", start: new Date("2024-01-25"), end: new Date("2024-02-15") },
+                        ]}
+                        columns={{ name: { header: "Phase" } }}
+                        rowSpec={row => ({
+                            tasks: [Gantt.Task({
+                                start: row.start,
+                                end: row.end,
+                                label: row.name,
+                                state: East.value(row.name.equal("Baseline").ifElse(
+                                    _$ => variant("committed", null),
+                                    _$ => variant("proposed", variant("added", null)),
+                                ), Gantt.Types.State),
+                            })],
+                        })}
+                    />
+                    <Text.MonoLabel>{East.str`LAST DROP · ${last}`}</Text.MonoLabel>
                 </VStack>
             );
         }}</Reactive>

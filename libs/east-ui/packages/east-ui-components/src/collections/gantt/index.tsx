@@ -34,6 +34,8 @@ import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 import { useRowStatusBg, useDensityHeights } from "../shared/helpers";
 import { useReviewController, DecisionButtons, ReviewFoot, DECISION_WIDTH } from "../shared/review";
+import { useDragTarget, useDropCell, type DragEventValue, type DragMeta, type DragPayload, type CellCoord } from "../../dnd/drag-layer";
+import { canDropAllows, candidateEvent, type CanDropFn } from "../../dnd/ir-can-drop";
 import { DensityProvider } from "../../contracts/density";
 import { usePlotGutter, gutterPx } from "../../contracts/plot-gutter.js";
 import { RowStateManager, type RowKey, type RowState } from "../../utils/RowStateManager";
@@ -41,6 +43,7 @@ import { useColumnPinning, HeaderControls, getHeaderCellStyle, getCellStyle, cre
 import { EventAxis, tierInterval, type GanttTier } from "./EventAxis";
 import { scaleTime } from "@visx/scale";
 import { GanttEventRow, type GanttTaskValue, type GanttMilestoneValue } from "./GanttEventRow";
+import { snapToStep as snapDateToStep, timeStepToMs as timeStepMs } from "./GanttTask";
 
 // Pre-define equality function at module level
 const ganttRootEqual = equalFor(Gantt.Types.Root);
@@ -216,12 +219,14 @@ const GanttCore = function GanttCore({
     const onSortChangeFn = getSomeorUndefined(value.onSortChange);
     const onTaskClickFn = getSomeorUndefined(value.onTaskClick);
     const onTaskDoubleClickFn = getSomeorUndefined(value.onTaskDoubleClick);
-    const onTaskDragFn = getSomeorUndefined(value.onTaskDrag);
+    // The shared drag grammar (#268): ONE funnel for Library adds, task-body
+    // moves, and edge resizes. The bespoke per-gesture callbacks are retired.
+    const onDragFn = getSomeorUndefined(value.onDrag);
+    const canDropFn = useMemo(() => getSomeorUndefined(value.canDrop) as CanDropFn | undefined, [value.canDrop]);
+    const targetId = value.id;
     const onTaskProgressChangeFn = getSomeorUndefined(value.onTaskProgressChange);
     const onMilestoneClickFn = getSomeorUndefined(value.onMilestoneClick);
     const onMilestoneDoubleClickFn = getSomeorUndefined(value.onMilestoneDoubleClick);
-    const onMilestoneDragFn = getSomeorUndefined(value.onMilestoneDrag);
-    const onTaskDurationChangeFn = getSomeorUndefined(value.onTaskDurationChange);
     const dragStepValue = getSomeorUndefined(value.dragStep);
     const durationStepValue = getSomeorUndefined(value.durationStep);
 
@@ -343,6 +348,7 @@ const GanttCore = function GanttCore({
         () => scaleTime({ domain: [dateRange.start, dateRange.end], range: [0, timelineRange] }),
         [dateRange.start, dateRange.end, timelineRange],
     );
+
 
     const gridLinePositions = useMemo(
         () => xScale.ticks(Math.max(2, Math.floor(timelineWidth / 100)))
@@ -542,19 +548,30 @@ const GanttCore = function GanttCore({
         }
     }, [onMilestoneDoubleClickFn]);
 
-    // Handle task drag (East-side callback)
+    // Emit a grammar event (#268) — gesture-driven moves/resizes stay
+    // component-snapped (@use-gesture previews the bar live; the grammar
+    // event is the COMMIT), re-checked against the IR canDrop veto.
+    const emitGrammar = useCallback((event: DragEventValue) => {
+        if ((event.type === "move" || event.type === "resize") && !canDropAllows(canDropFn, event)) return;
+        if (onDragFn) queueMicrotask(() => onDragFn(event));
+    }, [onDragFn, canDropFn]);
+
+    // Handle task drag — a grammar `move` (row = row index key, slots = the
+    // snapped ISO instants, event = `t<taskIndex>`; duration is preserved so
+    // the host derives newEnd from its own task).
     const handleTaskDrag = useCallback((
         rowIndex: bigint,
         taskIndex: bigint,
         previousStart: Date,
-        previousEnd: Date,
+        _previousEnd: Date,
         newStart: Date,
-        newEnd: Date
+        _newEnd: Date
     ) => {
-        if (onTaskDragFn) {
-            queueMicrotask(() => onTaskDragFn({ rowIndex, taskIndex, previousStart, previousEnd, newStart, newEnd }));
-        }
-    }, [onTaskDragFn]);
+        emitGrammar(variant("move", {
+            from: { surface: targetId, row: String(rowIndex), slot: previousStart.toISOString(), event: some(`t${taskIndex}`) },
+            to: { surface: targetId, row: String(rowIndex), slot: newStart.toISOString(), event: none },
+        }));
+    }, [emitGrammar, targetId]);
 
     // Handle task progress change (East-side callback)
     const handleTaskProgressChange = useCallback((
@@ -568,29 +585,33 @@ const GanttCore = function GanttCore({
         }
     }, [onTaskProgressChangeFn]);
 
-    // Handle milestone drag (East-side callback)
+    // Handle milestone drag — milestones ride the grammar `move` too
+    // (event = `m<milestoneIndex>`).
     const handleMilestoneDrag = useCallback((
         rowIndex: bigint,
         milestoneIndex: bigint,
         previousDate: Date,
         newDate: Date
     ) => {
-        if (onMilestoneDragFn) {
-            queueMicrotask(() => onMilestoneDragFn({ rowIndex, milestoneIndex, previousDate, newDate }));
-        }
-    }, [onMilestoneDragFn]);
+        emitGrammar(variant("move", {
+            from: { surface: targetId, row: String(rowIndex), slot: previousDate.toISOString(), event: some(`m${milestoneIndex}`) },
+            to: { surface: targetId, row: String(rowIndex), slot: newDate.toISOString(), event: none },
+        }));
+    }, [emitGrammar, targetId]);
 
-    // Handle task duration change (East-side callback)
+    // Handle task end-edge resize — the grammar `resize` (the event ref's
+    // `slot` is the moved edge's NEW snapped instant, edge = end).
     const handleTaskDurationChange = useCallback((
         rowIndex: bigint,
         taskIndex: bigint,
-        previousEnd: Date,
+        _previousEnd: Date,
         newEnd: Date
     ) => {
-        if (onTaskDurationChangeFn) {
-            queueMicrotask(() => onTaskDurationChangeFn({ rowIndex, taskIndex, previousEnd, newEnd }));
-        }
-    }, [onTaskDurationChangeFn]);
+        emitGrammar(variant("resize", {
+            event: { surface: targetId, row: String(rowIndex), slot: newEnd.toISOString(), event: some(`t${taskIndex}`) },
+            edge: variant("end", null),
+        }));
+    }, [emitGrammar, targetId]);
 
     // Wrap task click to fire East callback.
     const handleEventTaskClick = useCallback((task: GanttTaskValue, rowIndex: number, taskIndex: number) => {
@@ -620,37 +641,8 @@ const GanttCore = function GanttCore({
         }
     }, [onMilestoneDoubleClickFn, handleMilestoneDoubleClick]);
 
-    // Handle task drag from GanttEventRow
-    const handleEventTaskDrag = useCallback((
-        rowIndex: number,
-        eventIndex: number,
-        previousStart: Date,
-        previousEnd: Date,
-        newStart: Date,
-        newEnd: Date
-    ) => {
-        handleTaskDrag(BigInt(rowIndex), BigInt(eventIndex), previousStart, previousEnd, newStart, newEnd);
-    }, [handleTaskDrag]);
 
-    // Handle milestone drag from GanttEventRow
-    const handleEventMilestoneDrag = useCallback((
-        rowIndex: number,
-        eventIndex: number,
-        previousDate: Date,
-        newDate: Date
-    ) => {
-        handleMilestoneDrag(BigInt(rowIndex), BigInt(eventIndex), previousDate, newDate);
-    }, [handleMilestoneDrag]);
 
-    // Handle task duration change from GanttEventRow
-    const handleEventTaskDurationChange = useCallback((
-        rowIndex: number,
-        eventIndex: number,
-        previousEnd: Date,
-        newEnd: Date
-    ) => {
-        handleTaskDurationChange(BigInt(rowIndex), BigInt(eventIndex), previousEnd, newEnd);
-    }, [handleTaskDurationChange]);
 
     // Handle task progress change from GanttEventRow
     const handleEventTaskProgressChange = useCallback((
@@ -717,6 +709,43 @@ const GanttCore = function GanttCore({
 
     // Get sorted rows from table
     const { rows } = table.getRowModel();
+
+    // Handle task drag from GanttEventRow — display index → ORIGINAL row
+    // index (sort-stable, the drag-grammar convention).
+    const handleEventTaskDrag = useCallback((
+        rowIndex: number,
+        eventIndex: number,
+        previousStart: Date,
+        previousEnd: Date,
+        newStart: Date,
+        newEnd: Date
+    ) => {
+        const original = rows[rowIndex]?.index ?? rowIndex;
+        handleTaskDrag(BigInt(original), BigInt(eventIndex), previousStart, previousEnd, newStart, newEnd);
+    }, [handleTaskDrag, rows]);
+
+    // Handle milestone drag from GanttEventRow (display → original index).
+    const handleEventMilestoneDrag = useCallback((
+        rowIndex: number,
+        eventIndex: number,
+        previousDate: Date,
+        newDate: Date
+    ) => {
+        const original = rows[rowIndex]?.index ?? rowIndex;
+        handleMilestoneDrag(BigInt(original), BigInt(eventIndex), previousDate, newDate);
+    }, [handleMilestoneDrag, rows]);
+
+    // Handle task end-edge resize from GanttEventRow (display → original index).
+    const handleEventTaskDurationChange = useCallback((
+        rowIndex: number,
+        eventIndex: number,
+        previousEnd: Date,
+        newEnd: Date
+    ) => {
+        const original = rows[rowIndex]?.index ?? rowIndex;
+        handleTaskDurationChange(BigInt(original), BigInt(eventIndex), previousEnd, newEnd);
+    }, [handleTaskDurationChange, rows]);
+
 
     // Column-sizing CSS variables (shared derivation, also used by Planner).
     const columnSizeVars = useColumnSizeVars(table);
@@ -824,6 +853,78 @@ const GanttCore = function GanttCore({
         { id: "table", minSize: 20 },
         { id: "timeline", minSize: 20 },
     ], []);
+
+    // ── DnD target role (#268) ────────────────────────────────────────────
+    // With `onDrag` wired the Gantt registers as a drag target: Library cards
+    // drop anywhere on the timeline body (ONE continuous drop cell whose
+    // coordinate resolves from the pointer at drop time — row from the
+    // virtualizer band, slot from the x-scale inverted + snapped to
+    // `dragStep`), landing as optimistic `proposed(added)` bars.
+    const timelineDropEligible = onDragFn !== undefined;
+    const [localAdds, setLocalAdds] = useState<Map<number, GanttTaskValue[]>>(() => new Map());
+    useEffect(() => { setLocalAdds(new Map()); }, [value]);
+
+    const resolveTimelineCoord = useCallback((clientX: number, clientY: number): CellCoord => {
+        const el = timelineContainerRef.current;
+        const rect = el?.getBoundingClientRect();
+        const xPane = rect ? Math.max(0, Math.min(timelineRange, clientX - rect.left)) : 0;
+        const date = xScale.invert(xPane);
+        const snapped = dragStep ? snapDateToStep(date, dragStep) : date;
+        // Row from the virtual band under the pointer (body scroll applies);
+        // map the display row back to the ORIGINAL index (sort-stable).
+        const yPane = rect ? clientY - rect.top + (el?.scrollTop ?? 0) - headerHeight : 0;
+        const vRow = virtualItems.find(v => yPane >= v.start && yPane < v.end);
+        const original = vRow !== undefined ? (rows[vRow.index]?.index ?? vRow.index) : 0;
+        return { surface: targetId, row: String(original), slot: snapped.toISOString() };
+    }, [timelineRange, xScale, dragStep, virtualItems, rows, targetId, headerHeight]);
+
+    const timelineVeto = useCallback((payload: DragPayload, x?: number, y?: number): boolean => {
+        if (canDropFn === undefined) return true;
+        if (x === undefined || y === undefined) return true; // structural sweep — veto on hover
+        return canDropAllows(canDropFn, candidateEvent(payload, resolveTimelineCoord(x, y)));
+    }, [canDropFn, resolveTimelineCoord]);
+
+    const timelineDropCoord = useMemo<CellCoord | null>(
+        () => (timelineDropEligible ? { surface: targetId, row: "", slot: "" } : null),
+        [timelineDropEligible, targetId],
+    );
+    const timelineDropRef = useDropCell(timelineDropCoord, false, timelineVeto, resolveTimelineCoord);
+
+    const handleGrammarDrop = useCallback((event: DragEventValue, meta?: DragMeta) => {
+        if (event.type === "add") {
+            const rowIndex = Number(event.value.into.row);
+            const start = new Date(event.value.into.slot);
+            if (Number.isFinite(rowIndex) && !Number.isNaN(start.getTime())) {
+                // Optimistic proposed(added) bar — one dragStep long (or a day).
+                const stepMs = dragStep ? timeStepMs(dragStep) : 24 * 60 * 60 * 1000;
+                const task: GanttTaskValue = {
+                    start,
+                    end: new Date(start.getTime() + stepMs),
+                    label: meta?.label !== undefined
+                        ? some({ value: meta.label, align: none, verticalAlign: none, color: none, fontWeight: none, fontStyle: none, fontSize: none })
+                        : none,
+                    progress: none,
+                    state: variant("proposed", variant("added", null)),
+                    status: none,
+                    popover: none,
+                };
+                setLocalAdds(prev => {
+                    const nextMap = new Map(prev);
+                    nextMap.set(rowIndex, [...(nextMap.get(rowIndex) ?? []), task]);
+                    return nextMap;
+                });
+            }
+        }
+        if (onDragFn) queueMicrotask(() => onDragFn(event));
+    }, [onDragFn, dragStep]);
+
+    const targetConfig = useMemo(() => (onDragFn !== undefined ? {
+        id: targetId,
+        sources: [...value.sources],
+        kinds: { add: true, move: true, resize: true },
+        onDrag: handleGrammarDrop,
+    } : null), [onDragFn, targetId, value.sources, handleGrammarDrop]);
+    useDragTarget(targetConfig);
 
     // The review decision pane — a third, fixed-width column beside the
     // timeline wearing the shared `reviewChrome` slots, scroll-synced with
@@ -1166,7 +1267,7 @@ const GanttCore = function GanttCore({
                     </Box>
 
                     {/* Timeline Body - uses same table structure for matching row styles */}
-                    <Box position="relative">
+                    <Box position="relative" ref={timelineDropRef}>
                         <ChakraTable.Root
                             {...props}
                             style={{
@@ -1212,7 +1313,7 @@ const GanttCore = function GanttCore({
                                         >
                                             <svg width="100%" height={virtualRow.size}>
                                                 <GanttEventRow
-                                                    tasks={row.original.tasks as GanttTaskValue[]}
+                                                    tasks={[...(row.original.tasks as GanttTaskValue[]), ...(localAdds.get(row.index) ?? [])]}
                                                     milestones={row.original.milestones as GanttMilestoneValue[]}
                                                     rowIndex={virtualRow.index}
                                                     y={0}
@@ -1225,10 +1326,10 @@ const GanttCore = function GanttCore({
                                                     onTaskDoubleClick={handleEventTaskDoubleClick}
                                                     onMilestoneClick={handleEventMilestoneClick}
                                                     onMilestoneDoubleClick={handleEventMilestoneDoubleClick}
-                                                    onTaskDrag={onTaskDragFn ? handleEventTaskDrag : undefined}
-                                                    onTaskDurationChange={onTaskDurationChangeFn ? handleEventTaskDurationChange : undefined}
+                                                    onTaskDrag={onDragFn ? handleEventTaskDrag : undefined}
+                                                    onTaskDurationChange={onDragFn ? handleEventTaskDurationChange : undefined}
                                                     onTaskProgressChange={onTaskProgressChangeFn ? handleEventTaskProgressChange : undefined}
-                                                    onMilestoneDrag={onMilestoneDragFn ? handleEventMilestoneDrag : undefined}
+                                                    onMilestoneDrag={onDragFn ? handleEventMilestoneDrag : undefined}
                                                     dragStep={dragStep}
                                                     durationStep={durationStep}
                                                 />

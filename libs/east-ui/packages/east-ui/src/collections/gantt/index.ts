@@ -36,6 +36,7 @@ import { PlannerStateType } from "../planner/types.js";
 import { resolveEventState } from "../planner/index.js";
 import { StatusValueType, type StatusValueLiteral } from "../../feedback/status/types.js";
 import { ApprovalStateType, RowRefType, RowReviewType, buildReview } from "../../contracts/review.js";
+import { CanDropFnType, DragEventType } from "../../contracts/drag.js";
 import type { GanttMilestoneKindLiteral, GanttAxisInput, GanttTierLiteral } from "./types.js";
 
 import {
@@ -67,11 +68,8 @@ import {
     TableSizeType,
     type GanttStyle,
     GanttTaskClickEventType,
-    GanttTaskDragEventType,
-    GanttTaskDurationChangeEventType,
     GanttTaskProgressChangeEventType,
     GanttMilestoneClickEventType,
-    GanttMilestoneDragEventType,
 } from "./types.js";
 import { StatusTokenType } from "../../style/interaction.js";
 
@@ -228,12 +226,13 @@ export type GanttRowType = typeof GanttRowType;
  * @property onSortChange - Sort change callback
  * @property onTaskClick - Task click callback
  * @property onTaskDoubleClick - Task double-click callback
- * @property onTaskDrag - Task drag callback
- * @property onTaskDurationChange - Task duration change callback
+ * @property id - DnD target identity (#268)
+ * @property sources - Library ids accepted for `add` drags
+ * @property onDrag - Shared drag-grammar funnel (add / move / resize)
+ * @property canDrop - Optional IR-level drop veto
  * @property onTaskProgressChange - Task progress change callback
  * @property onMilestoneClick - Milestone click callback
  * @property onMilestoneDoubleClick - Milestone double-click callback
- * @property onMilestoneDrag - Milestone drag callback
  * @property review - Optional review chrome (shared contract, #263)
  * @property style - Optional visual style sub-struct
  */
@@ -252,12 +251,13 @@ export const GanttRootType: StructType<{
     onSortChange: OptionType<FunctionType<[TableSortEventType], NullType>>,
     onTaskClick: OptionType<FunctionType<[GanttTaskClickEventType], NullType>>,
     onTaskDoubleClick: OptionType<FunctionType<[GanttTaskClickEventType], NullType>>,
-    onTaskDrag: OptionType<FunctionType<[GanttTaskDragEventType], NullType>>,
-    onTaskDurationChange: OptionType<FunctionType<[GanttTaskDurationChangeEventType], NullType>>,
+    id: StringType,
+    sources: ArrayType<StringType>,
+    onDrag: OptionType<FunctionType<[DragEventType], NullType>>,
+    canDrop: OptionType<CanDropFnType>,
     onTaskProgressChange: OptionType<FunctionType<[GanttTaskProgressChangeEventType], NullType>>,
     onMilestoneClick: OptionType<FunctionType<[GanttMilestoneClickEventType], NullType>>,
     onMilestoneDoubleClick: OptionType<FunctionType<[GanttMilestoneClickEventType], NullType>>,
-    onMilestoneDrag: OptionType<FunctionType<[GanttMilestoneDragEventType], NullType>>,
     review: OptionType<RowReviewType>,
     slice: OptionType<typeof SliceChromeType>,
     style: OptionType<GanttStyleType>,
@@ -276,12 +276,20 @@ export const GanttRootType: StructType<{
     onSortChange: OptionType(FunctionType([TableSortEventType], NullType)),
     onTaskClick: OptionType(FunctionType([GanttTaskClickEventType], NullType)),
     onTaskDoubleClick: OptionType(FunctionType([GanttTaskClickEventType], NullType)),
-    onTaskDrag: OptionType(FunctionType([GanttTaskDragEventType], NullType)),
-    onTaskDurationChange: OptionType(FunctionType([GanttTaskDurationChangeEventType], NullType)),
+    // DnD target role (#268) — `id` + `sources` connect the Gantt to sibling
+    // Libraries; ALL completed drags (Library `add` landing as proposed(added)
+    // bars, task-body `move`, edge `resize`) arrive through the ONE shared
+    // `onDrag` grammar callback. The renderer registers the target iff
+    // `onDrag` is present. Cell encoding (contracts/drag.ts): `row` = the row
+    // index key, `slot` = the snapped ISO instant, `event` = `t<taskIndex>` /
+    // `m<milestoneIndex>`.
+    id: StringType,
+    sources: ArrayType(StringType),
+    onDrag: OptionType(FunctionType([DragEventType], NullType)),
+    canDrop: OptionType(CanDropFnType),
     onTaskProgressChange: OptionType(FunctionType([GanttTaskProgressChangeEventType], NullType)),
     onMilestoneClick: OptionType(FunctionType([GanttMilestoneClickEventType], NullType)),
     onMilestoneDoubleClick: OptionType(FunctionType([GanttMilestoneClickEventType], NullType)),
-    onMilestoneDrag: OptionType(FunctionType([GanttMilestoneDragEventType], NullType)),
     // Optional review chrome (#263) — the shared contract's row-granularity
     // config: per-row Approve/Reject decision column + the commitBar foot.
     // Absent ⇒ a plain Gantt (row `status`/`approval` are inert).
@@ -830,12 +838,13 @@ function createGantt<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
         onSortChange: style?.onSortChange ? some(style.onSortChange) : none,
         onTaskClick: style?.onTaskClick ? some(style.onTaskClick) : none,
         onTaskDoubleClick: style?.onTaskDoubleClick ? some(style.onTaskDoubleClick) : none,
-        onTaskDrag: style?.onTaskDrag ? some(style.onTaskDrag) : none,
-        onTaskDurationChange: style?.onTaskDurationChange ? some(style.onTaskDurationChange) : none,
+        id: style?.id ?? "",
+        sources: East.value(style?.sources ?? [], ArrayType(StringType)),
+        onDrag: style?.onDrag ? some(style.onDrag) : none,
+        canDrop: style?.canDrop ? some(style.canDrop) : none,
         onTaskProgressChange: style?.onTaskProgressChange ? some(style.onTaskProgressChange) : none,
         onMilestoneClick: style?.onMilestoneClick ? some(style.onMilestoneClick) : none,
         onMilestoneDoubleClick: style?.onMilestoneDoubleClick ? some(style.onMilestoneDoubleClick) : none,
-        onMilestoneDrag: style?.onMilestoneDrag ? some(style.onMilestoneDrag) : none,
         review: style?.review !== undefined ? some(buildReview(style.review, RowReviewType)) : none,
         slice: sliceChromeValue ? some(sliceChromeValue) : none,
         style: styleValue ? some(styleValue) : none,
@@ -863,11 +872,8 @@ interface GanttTypesShape {
     Column: TableColumnType;
     Cell: typeof TableCellType;
     TaskClickEvent: GanttTaskClickEventType;
-    TaskDragEvent: GanttTaskDragEventType;
     TaskProgressChangeEvent: GanttTaskProgressChangeEventType;
-    TaskDurationChangeEvent: GanttTaskDurationChangeEventType;
     MilestoneClickEvent: GanttMilestoneClickEventType;
-    MilestoneDragEvent: GanttMilestoneDragEventType;
 }
 
 const GanttTypes: GanttTypesShape = {
@@ -898,8 +904,7 @@ const GanttTypes: GanttTypesShape = {
      * @property onTaskProgressChange - Task progress-change callback
      * @property onMilestoneClick - Milestone click callback
      * @property onMilestoneDoubleClick - Milestone double-click callback
-     * @property onMilestoneDrag - Milestone drag callback
-     * @property style - Optional visual style sub-struct
+         * @property style - Optional visual style sub-struct
      */
     Root: GanttRootType,
     /**
@@ -1068,22 +1073,6 @@ const GanttTypes: GanttTypesShape = {
      */
     TaskClickEvent: GanttTaskClickEventType,
     /**
-     * East StructType for the event payload of `onTaskDrag`.
-     *
-     * @remarks
-     * Renderer fires this when a user finishes dragging a task to a
-     * new position. Both previous and new dates are provided so the
-     * consumer can validate / undo / persist as needed.
-     *
-     * @property rowIndex - Row index (0-based)
-     * @property taskIndex - Task index within the row (0-based)
-     * @property previousStart - Previous start date/time
-     * @property previousEnd - Previous end date/time
-     * @property newStart - New start date/time
-     * @property newEnd - New end date/time
-     */
-    TaskDragEvent: GanttTaskDragEventType,
-    /**
      * East StructType for the event payload of `onTaskProgressChange`.
      *
      * @property rowIndex - Row index (0-based)
@@ -1093,16 +1082,6 @@ const GanttTypes: GanttTypesShape = {
      */
     TaskProgressChangeEvent: GanttTaskProgressChangeEventType,
     /**
-     * East StructType for the event payload of `onTaskDurationChange`
-     * (right-edge resize).
-     *
-     * @property rowIndex - Row index (0-based)
-     * @property taskIndex - Task index within the row (0-based)
-     * @property previousEnd - Previous end date/time
-     * @property newEnd - New end date/time
-     */
-    TaskDurationChangeEvent: GanttTaskDurationChangeEventType,
-    /**
      * East StructType for the event payload of `onMilestoneClick` /
      * `onMilestoneDoubleClick` callbacks.
      *
@@ -1111,15 +1090,6 @@ const GanttTypes: GanttTypesShape = {
      * @property milestoneDate - Date/time of the milestone
      */
     MilestoneClickEvent: GanttMilestoneClickEventType,
-    /**
-     * East StructType for the event payload of `onMilestoneDrag`.
-     *
-     * @property rowIndex - Row index (0-based)
-     * @property milestoneIndex - Milestone index within the row (0-based)
-     * @property previousDate - Previous date/time of the milestone
-     * @property newDate - New date/time of the milestone
-     */
-    MilestoneDragEvent: GanttMilestoneDragEventType,
 };
 
 interface GanttNamespace {
