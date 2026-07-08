@@ -76,7 +76,7 @@ export * from "./types.js";
  * @property linePath      - A polyline (`visx` `LinePath`)
  * @property area          - A filled area (`visx` `AreaClosed`)
  * @property bandArea      - A filled band between low/high bounds per x (area-range)
- * @property bars          - Vertical bars (`visx` `Bar`) at band positions
+ * @property bars          - Bars (`visx` `Bar`) at band positions (vertical, or growing along x when the frame's `yScale` is `band`)
  * @property points        - Point markers (`visx` `Circle`)
  * @property rule          - A reference line spanning the plot at a data coordinate
  * @property referenceDot  - A highlighted marker at a data coordinate
@@ -160,7 +160,9 @@ export interface ChartFrameOptions {
     margin?: { top: number; right: number; bottom: number; left: number };
     /** X-scale kind (default `band`). */
     xScale?: "band" | "linear" | "time";
-    /** Y-scale kind (default `linear`). */
+    /** Y-scale kind (default `linear`). A `band` y flips the frame horizontal
+     *  (#249): the points' coordinate keys band the y axis and their values
+     *  measure along a linear x. */
     yScale?: "band" | "linear" | "time";
     /** Secondary (right) y-scale kind; omit for a single y-axis. */
     yScale2?: "band" | "linear" | "time";
@@ -812,7 +814,7 @@ export const ChartSpec = {
          * Mirror of {@link ChartMarkType}.
          *
          * @property line    - Polyline
-         * @property bar     - Vertical bars
+         * @property bar     - Bars (rectangular mark; follows the frame orientation)
          * @property area    - Filled area
          * @property scatter - Point markers
          */

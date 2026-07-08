@@ -51,7 +51,7 @@ export {
 } from "./typography/index.js";
 export {
     Box, Flex, Stack, AlignedStack, Separator, Grid, Splitter,
-    Sticky, ScrollArea,
+    Sticky, ScrollArea, Expandable,
 } from "./layout/index.js";
 export { Button, IconButton, CopyButton, CloseButton, Toggle, ButtonGroup } from "./buttons/index.js";
 export type { ButtonLabelInput, ButtonOptions } from "./buttons/index.js";

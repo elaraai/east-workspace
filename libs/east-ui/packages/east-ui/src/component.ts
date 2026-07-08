@@ -45,6 +45,7 @@ import { SeparatorStyleType } from "./layout/separator/types.js";
 import { GridStyleType } from "./layout/grid/types.js";
 import { SplitterStyleType } from "./layout/splitter/types.js";
 import { StickyBoundaryType, StickyStyleType } from "./layout/sticky/types.js";
+import { ExpandableStyleType } from "./layout/expandable/types.js";
 import {
     ScrollbarStyleType,
     ScrollAreaStyleType,
@@ -433,6 +434,20 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         content: node,
         scrollbarStyle: OptionType(ScrollbarStyleType),
         style: OptionType(ScrollAreaStyleType),
+    }),
+
+    /**
+     * Expandable — region that expands in place (CSS takeover, no portal)
+     * to fill the app container and collapses back into the layout.
+     * Distinct from Collapsible (in-flow show/hide) and Dialog/Drawer
+     * (portalled overlays). See `layout/expandable/`.
+     */
+    Expandable: StructType({
+        content: node,
+        expanded: OptionType(BooleanType),
+        onExpandedChange: OptionType(FunctionType([BooleanType], NullType)),
+        label: OptionType(StringType),
+        style: OptionType(ExpandableStyleType),
     }),
 
     /**

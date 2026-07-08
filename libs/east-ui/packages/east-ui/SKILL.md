@@ -1,6 +1,6 @@
 ---
 name: east-ui
-description: "Type-safe UI component library for the East language, authored as JSX tags. Use when writing East programs that define user interfaces. Triggers for: (1) Authoring `.tsx` component trees with `@elaraai/east-ui` tags, (2) Layout with <Box>, <Flex>, <Stack>/<VStack>/<HStack>, <Grid>, <Splitter>, <ScrollArea>, <Sticky>, (3) Forms with <Input>, <Textarea>, <Select>, <Combobox>, <Checkbox>, <Switch>, <Slider>, <RadioGroup>, <RadioCardGroup>, <TagsInput>, <FileUpload>, <Field>, <DateRangeInput>, <TimeRangeInput>, (4) Data display with <Table>, <TreeView>, <DataList>, <Gantt>, <Planner>, <Matrix>, <Calendar>, <Schematic>, <Map>, <Library>, <Roster>, <Blend>, <Slice.Rail>, <Pagination>, <ChipRail>, <Trace>, (5) Charts with <Chart layers={Chart.Line/Bar/Area/Scatter/Band(...)}/> plus Chart.refLine/refBand/refDot, <Sparkline>, (6) Overlays with <Dialog>, <Drawer>, <Popover>, <Menu>, <Tooltip>, <HoverCard>, <ToggleTip>, <ActionBar>, <CommandPalette>, <Hotkey>, (7) Feedback with <Banner>, <Status>, <Progress>, <Skeleton>, <EmptyState>, (8) Disclosure with <Tabs>, <Accordion>, <Carousel>, <Collapsible>, <SegmentGroup>, <OptionList>, <Story>, (9) Navigation with <Breadcrumb>, <NavList>, and route-stack page switching (Navigation.config / Navigation.bind / <Pages>), (10) Reactive UI via <Reactive>{$ => …}</Reactive> + State.bind."
+description: "Type-safe UI component library for the East language, authored as JSX tags. Use when writing East programs that define user interfaces. Triggers for: (1) Authoring `.tsx` component trees with `@elaraai/east-ui` tags, (2) Layout with <Box>, <Flex>, <Stack>/<VStack>/<HStack>, <Grid>, <Splitter>, <ScrollArea>, <Sticky>, <Expandable>, (3) Forms with <Input>, <Textarea>, <Select>, <Combobox>, <Checkbox>, <Switch>, <Slider>, <RadioGroup>, <RadioCardGroup>, <TagsInput>, <FileUpload>, <Field>, <DateRangeInput>, <TimeRangeInput>, (4) Data display with <Table>, <TreeView>, <DataList>, <Gantt>, <Planner>, <Matrix>, <Calendar>, <Schematic>, <Map>, <Library>, <Roster>, <Blend>, <Slice.Rail>, <Pagination>, <ChipRail>, <Trace>, (5) Charts with <Chart layers={Chart.Line/Column/Bar/Area/Scatter/Band(...)}/> (Column = vertical, Bar = horizontal) plus Chart.refLine/refBand/refDot, <Sparkline>, (6) Overlays with <Dialog>, <Drawer>, <Popover>, <Menu>, <Tooltip>, <HoverCard>, <ToggleTip>, <ActionBar>, <CommandPalette>, <Hotkey>, (7) Feedback with <Banner>, <Status>, <Progress>, <Skeleton>, <EmptyState>, (8) Disclosure with <Tabs>, <Accordion>, <Carousel>, <Collapsible>, <SegmentGroup>, <OptionList>, <Story>, (9) Navigation with <Breadcrumb>, <NavList>, and route-stack page switching (Navigation.config / Navigation.bind / <Pages>), (10) Reactive UI via <Reactive>{$ => …}</Reactive> + State.bind."
 ---
 
 # East UI
@@ -60,7 +60,8 @@ Task → Which tag?
 │   ├─ <Splitter> — resizable panels; panels carry { id, minSize, maxSize, collapsible }
 │   ├─ <Separator> — 1px rule; orientation; variant: subtle | brand | dashed | strong
 │   ├─ <ScrollArea> — styled-scrollbar scroll container; overflow x/y
-│   └─ <Sticky> — position-sticky wrapper; top / bottom offset
+│   ├─ <Sticky> — position-sticky wrapper; top / bottom offset
+│   └─ <Expandable> — region expands in place to fill the app container (CSS takeover, no remount); expanded / onExpandedChange / label; Esc collapses
 │
 ├─ Typography (display text)
 │   ├─ <Text> — inline/block text; textStyle preset, fontWeight / fontStyle / textAlign / lineClamp
@@ -143,13 +144,15 @@ Task → Which tag?
 ├─ Charts (visualize data) — layers are a config array of factory values, never child tags
 │   ├─ <Chart layers={…} x={…} y={…} grid legend tooltip /> — assemble mark + annotation layers;
 │   │     x-scale inferred from the x accessor type (String → band, number → linear, DateTime → time)
-│   ├─ Marks: Chart.Line / Chart.Bar / Chart.Area / Chart.Scatter (rows, encoding, style?)
+│   ├─ Marks: Chart.Line / Chart.Column / Chart.Area / Chart.Scatter (rows, encoding, style?)
 │   │     encoding: { x, y } · { x, y, by } (split) · { x, columns: { Name: r => r.field } } (wide)
+│   │     Chart.Bar(rows, { x: numeric, y: category }, style?) — HORIZONTAL bars (band y-axis, linear x;
+│   │         flips the whole frame; same { x, y, by } / { y, columns } splits; can't mix with vertical marks)
 │   │     Chart.Band(rows, { x, low, high }, style?) — filled range (e.g. confidence band)
 │   ├─ Annotations: Chart.refLine({ y }|{ x }) · Chart.refBand({ y:[lo,hi] }) · Chart.refDot({ x, y, label })
 │   ├─ Chart.format.{ number, currency, percent, compact, date, time, datetime } — axis tick formats
 │   ├─ <Sparkline> — inline trend (line | area), fits beside a <Stat>
-│   └─ <Slice.Chart.Line/Bar/Area/Scatter> — slice-bound chart; a brush sets the slice's range
+│   └─ Slice-bound chart: a Chart.Series(slice, { x, value, mark? }) layer + <Chart slice={slice}> chrome (brush sets the slice's range)
 │
 ├─ Display (show information)
 │   ├─ <Badge> — pill/tag label; colorPalette + variant: solid | subtle | outline
@@ -286,8 +289,8 @@ Non-UI sub-structures are never child sub-tags.
 <Box height="220px" width="100%">
     <Chart
         layers={[
-            Chart.Bar(rows, { x: r => r.month, y: r => r.revenue }, { name: "Revenue", color: "teal.solid" }),
-            Chart.Line(rows, { x: r => r.month, y: r => r.profit }, { name: "Profit", color: "purple.solid", dots: true }),
+            Chart.Column(rows, { x: r => r.month, y: r => r.revenue }, { key: "Revenue", color: "teal.solid" }),
+            Chart.Line(rows, { x: r => r.month, y: r => r.profit }, { key: "Profit", color: "purple.solid", dots: true }),
         ]}
         y={{ format: Chart.format.currency({ compact: true }) }}
         legend grid tooltip
@@ -348,8 +351,11 @@ tier so they stay subordinate to tags at every density.
   font, optionally closable); `<Badge>` is a mono uppercase micro-label for
   status / taxonomy (ok / warn / danger / count) that stays a tier smaller
   than tags at the same density.
-- **BarStrip vs Chart.Bar** — `<BarStrip>` is a small ranked bar list (no axes);
-  `Chart.Bar` is a layer inside `<Chart>` with axes and legend.
+- **BarStrip vs Chart.Bar vs Chart.Column** — `<BarStrip>` is a small ranked
+  horizontal-bar list (no axes) for a KPI card; `Chart.Bar` draws horizontal
+  bars inside an axis-bearing `<Chart>` (numeric x, categorical y — grid,
+  legend, tooltip, stacking); `Chart.Column` is the vertical twin (formerly
+  named `Chart.Bar`).
 - **Card vs Box** — `<Box>` is structural-only; `<Card>` carries chrome.
 
 ## Related skills

@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Box, Chart, Reactive } from "@elaraai/east-ui";
+import { AlignedStack, Box, Chart, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
 // Line — marks, encodings, curves, scales
@@ -284,28 +284,28 @@ export const lineSampleFan = example({
 });
 
 // ============================================================================
-// Bar — grouped, stacked, percent-stacked, breakdown
+// Column — vertical bars: grouped, stacked, percent-stacked, breakdown
 // ============================================================================
 
-export const barBasic = example({
-    keywords: ["Chart", "Bar", "single-series", "currency"],
-    description: "Single bar series with a compact-currency y-axis",
+export const columnBasic = example({
+    keywords: ["Chart", "Column", "bar", "vertical", "single-series", "currency"],
+    description: "Single column series (vertical bars) with a compact-currency y-axis",
     fn: East.function([], UIComponentType, ($) => {
         const rows = $.const([
             { q: "Q1", revenue: 186n }, { q: "Q2", revenue: 305n }, { q: "Q3", revenue: 237n }, { q: "Q4", revenue: 273n },
         ], ArrayType(StructType({ q: StringType, revenue: IntegerType })));
         return (
             <Box height="220px" width="100%">
-                <Chart layers={Chart.Bar(rows, { x: r => r.q, y: r => r.revenue }, { color: "teal.solid" })} y={{ format: Chart.format.currency({ compact: true }) }} grid />
+                <Chart layers={Chart.Column(rows, { x: r => r.q, y: r => r.revenue }, { color: "teal.solid" })} y={{ format: Chart.format.currency({ compact: true }) }} grid />
             </Box>
         );
     }),
     inputs: [],
 });
 
-export const barPerCategory = example({
-    keywords: ["Chart", "Bar", "per-category", "colors", "composition", "single-series"],
-    description: "A single bar series coloured per x-category (composition mix) — full-width bars, in data order, no grouped split",
+export const columnPerCategory = example({
+    keywords: ["Chart", "Column", "bar", "per-category", "colors", "composition", "single-series"],
+    description: "A single column series coloured per x-category (composition mix) — full-width columns, in data order, no grouped split",
     fn: East.function([], UIComponentType, ($) => {
         const rows = $.const([
             { discipline: "RN", share: 42n }, { discipline: "EN", share: 28n }, { discipline: "Physio", share: 16n },
@@ -314,7 +314,7 @@ export const barPerCategory = example({
         return (
             <Box height="220px" width="100%">
                 <Chart
-                    layers={Chart.Bar(rows, {
+                    layers={Chart.Column(rows, {
                         x: r => r.discipline, y: r => r.share,
                         colors: { RN: "teal.solid", EN: "cyan.solid", Physio: "blue.solid", OT: "purple.solid", Admin: "gray.solid" },
                     })}
@@ -326,25 +326,25 @@ export const barPerCategory = example({
     inputs: [],
 });
 
-export const barGrouped = example({
-    keywords: ["Chart", "Bar", "grouped", "columns", "multi-series"],
-    description: "Grouped bars from value columns",
+export const columnGrouped = example({
+    keywords: ["Chart", "Column", "bar", "grouped", "columns", "multi-series"],
+    description: "Grouped columns from value columns",
     fn: East.function([], UIComponentType, ($) => {
         const rows = $.const([
             { region: "NA", a: 40n, b: 30n }, { region: "EU", a: 55n, b: 45n }, { region: "APAC", a: 30n, b: 60n },
         ], ArrayType(StructType({ region: StringType, a: IntegerType, b: IntegerType })));
         return (
             <Box height="220px" width="100%">
-                <Chart layers={Chart.Bar(rows, { x: r => r.region, columns: { Product: r => r.a, Service: r => r.b } })} legend />
+                <Chart layers={Chart.Column(rows, { x: r => r.region, columns: { Product: r => r.a, Service: r => r.b } })} legend />
             </Box>
         );
     }),
     inputs: [],
 });
 
-export const barStacked = example({
-    keywords: ["Chart", "Bar", "stacked", "stack", "columns"],
-    description: "Stacked bars sharing a stack id",
+export const columnStacked = example({
+    keywords: ["Chart", "Column", "bar", "stacked", "stack", "columns"],
+    description: "Stacked columns sharing a stack id",
     fn: East.function([], UIComponentType, ($) => {
         const rows = $.const([
             { week: "W1", mobile: 50n, desktop: 100n }, { week: "W2", mobile: 70n, desktop: 120n },
@@ -352,16 +352,16 @@ export const barStacked = example({
         ], ArrayType(StructType({ week: StringType, mobile: IntegerType, desktop: IntegerType })));
         return (
             <Box height="220px" width="100%">
-                <Chart layers={Chart.Bar(rows, { x: r => r.week, columns: { Mobile: r => r.mobile, Desktop: r => r.desktop } }, { stack: "traffic" })} legend />
+                <Chart layers={Chart.Column(rows, { x: r => r.week, columns: { Mobile: r => r.mobile, Desktop: r => r.desktop } }, { stack: "traffic" })} legend />
             </Box>
         );
     }),
     inputs: [],
 });
 
-export const barPercentStacked = example({
-    keywords: ["Chart", "Bar", "stackOffset", "expand", "percent", "breakdown"],
-    description: "100% stacked bars by breakdown, percent axis",
+export const columnPercentStacked = example({
+    keywords: ["Chart", "Column", "bar", "stackOffset", "expand", "percent", "breakdown"],
+    description: "100% stacked columns by breakdown, percent axis",
     fn: East.function([], UIComponentType, ($) => {
         const rows = $.const([
             { week: "W1", channel: "Search", spend: 40n }, { week: "W1", channel: "Social", spend: 60n },
@@ -369,16 +369,16 @@ export const barPercentStacked = example({
         ], ArrayType(StructType({ week: StringType, channel: StringType, spend: IntegerType })));
         return (
             <Box height="240px" width="100%">
-                <Chart layers={Chart.Bar(rows, { x: r => r.week, y: r => r.spend, by: r => r.channel })} stackOffset="expand" y={{ format: Chart.format.percent() }} legend />
+                <Chart layers={Chart.Column(rows, { x: r => r.week, y: r => r.spend, by: r => r.channel }, { stack: "mix" })} stackOffset="expand" y={{ format: Chart.format.percent() }} legend />
             </Box>
         );
     }),
     inputs: [],
 });
 
-export const barCustomColors = example({
-    keywords: ["Chart", "Bar", "by", "colors", "custom", "palette"],
-    description: "Breakdown bars with an explicit per-value colour map overriding the palette",
+export const columnCustomColors = example({
+    keywords: ["Chart", "Column", "bar", "by", "colors", "custom", "palette"],
+    description: "Breakdown columns with an explicit per-value colour map overriding the palette",
     fn: East.function([], UIComponentType, ($) => {
         const rows = $.const([
             { week: "W1", channel: "Search", spend: 40n }, { week: "W1", channel: "Social", spend: 60n },
@@ -386,7 +386,94 @@ export const barCustomColors = example({
         ], ArrayType(StructType({ week: StringType, channel: StringType, spend: IntegerType })));
         return (
             <Box height="220px" width="100%">
-                <Chart layers={Chart.Bar(rows, { x: r => r.week, y: r => r.spend, by: r => r.channel, colors: { Search: "blue.solid", Social: "orange.solid" } })} legend />
+                <Chart layers={Chart.Column(rows, { x: r => r.week, y: r => r.spend, by: r => r.channel, colors: { Search: "blue.solid", Social: "orange.solid" } })} legend />
+            </Box>
+        );
+    }),
+    inputs: [],
+});
+
+// ============================================================================
+// Bar — horizontal bars (#249): numeric x measure, categorical y band
+// ============================================================================
+
+export const barRanked = example({
+    keywords: ["Chart", "Bar", "horizontal", "ranked", "categorical-y", "long-labels", "AlignedStack", "plotGutter", "currency"],
+    description: "Ranked horizontal bars — numeric x, categorical y; long category labels sit in an AlignedStack left gutter",
+    fn: East.function([], UIComponentType, ($) => {
+        const rows = $.const([
+            { product: "Industrial Conveyor Belts", revenue: 482n },
+            { product: "Hydraulic Press Fittings", revenue: 305n },
+            { product: "Pneumatic Valve Assemblies", revenue: 237n },
+            { product: "Stainless Fastener Kits", revenue: 186n },
+            { product: "Bearing Housings", revenue: 121n },
+        ], ArrayType(StructType({ product: StringType, revenue: IntegerType })));
+        return (
+            <AlignedStack gutter={{ left: "170px", right: "12px" }}>
+                <Box height="240px" width="100%">
+                    <Chart
+                        layers={Chart.Bar(rows, { x: r => r.revenue, y: r => r.product }, { color: "teal.solid" })}
+                        x={{ format: Chart.format.currency({ compact: true }) }}
+                        grid tooltip
+                    />
+                </Box>
+            </AlignedStack>
+        );
+    }),
+    inputs: [],
+});
+
+export const barGrouped = example({
+    keywords: ["Chart", "Bar", "horizontal", "grouped", "columns", "multi-series"],
+    description: "Grouped horizontal bars from value columns — one sub-bar per column within each category band",
+    fn: East.function([], UIComponentType, ($) => {
+        const rows = $.const([
+            { site: "North", loaded: 42n, empty: 18n }, { site: "South", loaded: 35n, empty: 25n },
+            { site: "West", loaded: 28n, empty: 12n },
+        ], ArrayType(StructType({ site: StringType, loaded: IntegerType, empty: IntegerType })));
+        return (
+            <Box height="240px" width="100%">
+                <Chart layers={Chart.Bar(rows, { y: r => r.site, columns: { Loaded: r => r.loaded, Empty: r => r.empty } })} legend grid />
+            </Box>
+        );
+    }),
+    inputs: [],
+});
+
+export const barStacked = example({
+    keywords: ["Chart", "Bar", "horizontal", "stacked", "stack", "by", "breakdown", "tooltip"],
+    description: "Stacked horizontal bars by breakdown — the hover tooltip matches on the y band",
+    fn: East.function([], UIComponentType, ($) => {
+        const rows = $.const([
+            { site: "North", shift: "Day", tonnes: 120n }, { site: "North", shift: "Night", tonnes: 80n },
+            { site: "South", shift: "Day", tonnes: 95n }, { site: "South", shift: "Night", tonnes: 110n },
+            { site: "West", shift: "Day", tonnes: 60n }, { site: "West", shift: "Night", tonnes: 45n },
+        ], ArrayType(StructType({ site: StringType, shift: StringType, tonnes: IntegerType })));
+        return (
+            <Box height="240px" width="100%">
+                <Chart layers={Chart.Bar(rows, { x: r => r.tonnes, y: r => r.site, by: r => r.shift }, { stack: "tonnage" })} legend tooltip grid />
+            </Box>
+        );
+    }),
+    inputs: [],
+});
+
+export const barPercentStacked = example({
+    keywords: ["Chart", "Bar", "horizontal", "stackOffset", "expand", "percent", "breakdown"],
+    description: "100% stacked horizontal bars by breakdown — percent x-axis via stackOffset expand",
+    fn: East.function([], UIComponentType, ($) => {
+        const rows = $.const([
+            { week: "W1", channel: "Search", spend: 40n }, { week: "W1", channel: "Social", spend: 60n },
+            { week: "W2", channel: "Search", spend: 55n }, { week: "W2", channel: "Social", spend: 45n },
+        ], ArrayType(StructType({ week: StringType, channel: StringType, spend: IntegerType })));
+        return (
+            <Box height="240px" width="100%">
+                <Chart
+                    layers={Chart.Bar(rows, { x: r => r.spend, y: r => r.week, by: r => r.channel }, { stack: "mix" })}
+                    stackOffset="expand"
+                    x={{ format: Chart.format.percent() }}
+                    legend
+                />
             </Box>
         );
     }),
@@ -485,9 +572,9 @@ export const scatterBubble = example({
 // Composed — mixed marks, dual-axis, band, references
 // ============================================================================
 
-export const composedBarLine = example({
-    keywords: ["Chart", "Composed", "bar", "line", "mixed-marks"],
-    description: "Revenue bars with a profit line overlay",
+export const composedColumnLine = example({
+    keywords: ["Chart", "Composed", "column", "bar", "line", "mixed-marks"],
+    description: "Revenue columns with a profit line overlay",
     fn: East.function([], UIComponentType, ($) => {
         const rows = $.const([
             { month: "Jan", revenue: 186n, profit: 80n }, { month: "Feb", revenue: 305n, profit: 120n },
@@ -496,7 +583,7 @@ export const composedBarLine = example({
         return (
             <Box height="260px" width="100%">
                 <Chart layers={[
-                    Chart.Bar(rows, { x: r => r.month, y: r => r.revenue }, { key: "Revenue", color: "teal.solid" }),
+                    Chart.Column(rows, { x: r => r.month, y: r => r.revenue }, { key: "Revenue", color: "teal.solid" }),
                     Chart.Line(rows, { x: r => r.month, y: r => r.profit }, { key: "Profit", color: "purple.solid", dots: true }),
                 ]} legend tooltip grid />
             </Box>
@@ -578,7 +665,7 @@ export const axisFormatting = example({
         ], ArrayType(StructType({ at: DateTimeType, revenue: IntegerType })));
         return (
             <Box height="240px" width="100%">
-                <Chart layers={Chart.Bar(rows, { x: r => r.at, y: r => r.revenue }, { color: "teal.solid" })} x={{ format: Chart.format.date("MMM") }} y={{ format: Chart.format.currency({ compact: true }) }} grid />
+                <Chart layers={Chart.Column(rows, { x: r => r.at, y: r => r.revenue }, { color: "teal.solid" })} x={{ format: Chart.format.date("MMM") }} y={{ format: Chart.format.currency({ compact: true }) }} grid />
             </Box>
         );
     }),
@@ -590,8 +677,8 @@ export const axisFormatting = example({
 // ============================================================================
 
 export const interactiveValue = example({
-    keywords: ["Chart", "Reactive", "State", "interactive", "expression"],
-    description: "A bar chart whose last value is driven by reactive State",
+    keywords: ["Chart", "Column", "Reactive", "State", "interactive", "expression"],
+    description: "A column chart whose last value is driven by reactive State",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const peak = $.let(State.bind([IntegerType], "chart_peak", 90n));
@@ -599,7 +686,7 @@ export const interactiveValue = example({
             const rows = $.const([
                 { q: "Q1", v: 40n }, { q: "Q2", v: 65n }, { q: "Q3", v: 55n }, { q: "Q4", v: peakVal },
             ], ArrayType(StructType({ q: StringType, v: IntegerType })));
-            return <Chart layers={Chart.Bar(rows, { x: r => r.q, y: r => r.v }, { color: "teal.solid" })} grid />;
+            return <Chart layers={Chart.Column(rows, { x: r => r.q, y: r => r.v }, { color: "teal.solid" })} grid />;
         }}</Reactive>
     )),
     inputs: [],

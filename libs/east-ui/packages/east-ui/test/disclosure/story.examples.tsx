@@ -53,7 +53,7 @@ export const storyBasic = example({
                 </Story.Step>
                 <Story.Step id="regions" eyebrow="Where" title="The gap wasn't uniform"
                             stage={<Box height="100%" width="100%">
-                                <Chart height="fill" layers={Chart.Bar(uplift, { x: r => r.region, y: r => r.orders, by: r => r.half })} grid legend />
+                                <Chart height="fill" layers={Chart.Column(uplift, { x: r => r.region, y: r => r.orders, by: r => r.half })} grid legend />
                             </Box>}>
                     <Text>NA absorbed nearly all of the uplift; EU moved modestly; APAC ran flat. Re-forecast NA only — touching the others adds noise, not signal.</Text>
                     <HStack gap="2">
@@ -112,7 +112,7 @@ export const storyStacked = example({
             <Story layout="stacked" title="Q4 demand review" stageHeight={200} height={440}>
                 <Story.Step id="regions" eyebrow="Where" title="The gap wasn't uniform"
                             stage={<Box height="100%" width="100%">
-                                <Chart height="fill" layers={Chart.Bar(uplift, { x: r => r.region, y: r => r.orders, by: r => r.half })} grid legend />
+                                <Chart height="fill" layers={Chart.Column(uplift, { x: r => r.region, y: r => r.orders, by: r => r.half })} grid legend />
                             </Box>}>
                     <Text>NA absorbed nearly all of the uplift; EU moved modestly; APAC ran flat.</Text>
                 </Story.Step>
@@ -188,7 +188,7 @@ export const storyCardKeyframe = example({
                 <Story.Step id="finding" eyebrow="Finding" title="NA absorbed the uplift"
                             stage={<Card header={{ title: "Uplift by region", description: "wk 1–4 vs wk 5–8" }}>
                                 <Box height="260px" width="100%">
-                                    <Chart height="fill" layers={Chart.Bar(uplift, { x: r => r.region, y: r => r.orders, by: r => r.half })} grid legend />
+                                    <Chart height="fill" layers={Chart.Column(uplift, { x: r => r.region, y: r => r.orders, by: r => r.half })} grid legend />
                                 </Box>
                             </Card>}>
                     <Text>A keyframe that wants the Card treatment composes Card like anywhere else — the stage itself owns no chrome.</Text>

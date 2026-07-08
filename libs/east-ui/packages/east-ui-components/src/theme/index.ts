@@ -91,6 +91,7 @@ import { treeViewSlotRecipe } from "./slot-recipes/treeView.js";
 import { tableSlotRecipe } from "./slot-recipes/table.js";
 import { carouselSlotRecipe } from "./slot-recipes/carousel.js";
 import { collapsibleSlotRecipe } from "./slot-recipes/collapsible.js";
+import { expandableSlotRecipe } from "./slot-recipes/expandable.js";
 import { optionListSlotRecipe } from "./slot-recipes/optionList.js";
 import { codeBlockSlotRecipe } from "./slot-recipes/codeBlock.js";
 import { commandPaletteSlotRecipe } from "./slot-recipes/commandPalette.js";
@@ -181,6 +182,7 @@ const config = defineConfig({
             table:           tableSlotRecipe,
             carousel:        carouselSlotRecipe,
             collapsible:     collapsibleSlotRecipe,
+            expandable:      expandableSlotRecipe,
             optionList:      optionListSlotRecipe,
             codeBlock:       codeBlockSlotRecipe,
             commandPalette:  commandPaletteSlotRecipe,
