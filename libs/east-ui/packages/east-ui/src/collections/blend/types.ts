@@ -161,6 +161,15 @@ export type BlendAmountEventType = typeof BlendAmountEventType;
 /**
  * The `onAction` payload.
  *
+ * @remarks
+ * Vocabulary note (#266): `apply` / `discard` are the **panel-scope**
+ * synonyms of approve / reject in the shared review vocabulary
+ * (`contracts/review.ts`) — the foot renders on the shared `commitBar`
+ * recipe (Apply = primary, Discard = danger, Reset = plain), the same
+ * chrome family as the Planner review foot and the DecisionQueue staged
+ * footer. Full `ReviewConfig` unification is an epic #259 candidate,
+ * only if per-row review ever lands in Blend.
+ *
  * @property target - The target key, or `none` for surface-wide actions
  * @property action - Which action fired
  */

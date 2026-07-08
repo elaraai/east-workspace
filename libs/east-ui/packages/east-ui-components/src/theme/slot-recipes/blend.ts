@@ -21,7 +21,7 @@ export const blendSlotRecipe = defineSlotRecipe({
         "allocList", "allocRow", "allocGrip", "allocBody", "allocLabel", "allocSublabel",
         "amountInput", "amountText", "share", "pinBadge", "allocAction", "dropArea", "dragGhost",
         "metricList", "metricRow", "metricLabel", "metricValue", "trustChip", "bandText",
-        "panelFoot", "objective", "actions", "actionButton", "actionPrimary",
+        "panelFoot", "objective",
         "diff", "diffRow", "verdict",
     ],
     base: {
@@ -285,15 +285,10 @@ export const blendSlotRecipe = defineSlotRecipe({
             color: "fg.subtle",
             fontVariantNumeric: "tabular-nums",
         },
+        // The foot anchors to the panel bottom; the shared `commitBar` slots
+        // supply the rule, grid, and button chrome (#266).
         panelFoot: {
             marginTop: "auto",
-            display: "flex",
-            alignItems: "center",
-            gap: "{spacing.3}",
-            borderTopWidth: "1px",
-            borderTopColor: "border.subtle",
-            paddingTop: "{spacing.2}",
-            flexWrap: "wrap",
         },
         objective: {
             fontFamily: "mono",
@@ -302,43 +297,10 @@ export const blendSlotRecipe = defineSlotRecipe({
             textTransform: "uppercase",
             color: "fg.muted",
         },
-        actions: {
-            marginLeft: "auto",
-            display: "flex",
-            gap: "{spacing.2}",
-        },
-        actionButton: {
-            fontFamily: "mono",
-            fontSize: "11px",
-            fontWeight: "600",
-            letterSpacing: "0.06em",
-            textTransform: "uppercase",
-            color: "fg.muted",
-            background: "bg.surface",
-            borderWidth: "1px",
-            borderColor: "border.subtle",
-            borderRadius: "{radii.sm}",
-            paddingX: "{spacing.2}",
-            paddingY: "{spacing.1}",
-            cursor: "pointer",
-            "&:hover": { color: "fg", borderColor: "border.strong" },
-            "&[data-danger]:hover": { color: "fg.danger", borderColor: "fg.danger" },
-        },
-        actionPrimary: {
-            fontFamily: "mono",
-            fontSize: "11px",
-            fontWeight: "600",
-            letterSpacing: "0.06em",
-            textTransform: "uppercase",
-            color: "{colors.white}",
-            background: "{colors.brand.600}",
-            border: "none",
-            borderRadius: "{radii.sm}",
-            paddingX: "{spacing.2.5}",
-            paddingY: "{spacing.1}",
-            cursor: "pointer",
-            "&:hover": { background: "{colors.brand.700}" },
-        },
+        /* (The action buttons moved to the shared `commitBar` slots (#266) —
+           Apply = btnPrimary, Discard = btnDanger, Reset = btn — so the
+           apply/discard surface reads as the same chrome family as the
+           Planner review foot and the DecisionQueue staged footer.) */
         /* Compare foot — derived diff table + verdict. */
         diff: {
             marginTop: "{spacing.3}",

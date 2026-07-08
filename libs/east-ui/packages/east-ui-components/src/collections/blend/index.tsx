@@ -153,6 +153,12 @@ interface TargetPanelProps {
 }
 
 function TargetPanel({ surface, target, mode, badge, styles, vetoFor, onAmount, onRemove, onAction }: TargetPanelProps) {
+    // The action foot rides the shared `commitBar` slots (#266) so
+    // apply/discard reads as the same chrome family as the Planner review
+    // foot + DecisionQueue staged footer (Apply = primary, Discard = danger,
+    // Reset = plain — the Approve-all / Reject-all / Rerun mapping).
+    const commitRecipe = useSlotRecipe({ key: "commitBar" });
+    const cs = useMemo(() => commitRecipe({}) as SlotStyles, [commitRecipe]);
     const coord = useMemo(() => ({ surface, row: target.key, slot: "alloc" }), [surface, target.key]);
     const veto = useMemo(() => vetoFor?.(coord), [vetoFor, coord]);
     const dropRef = useDropCell(coord, false, veto);
@@ -221,16 +227,20 @@ function TargetPanel({ surface, target, mode, badge, styles, vetoFor, onAmount, 
                 </Box>
             )}
             <Box css={styles.panelFoot}>
-                {objective !== undefined && <Box as="span" css={styles.objective}>objective {objective}</Box>}
-                {onAction && (
-                    <Box css={styles.actions}>
-                        <Box as="button" css={styles.actionButton} onClick={() => onAction("reset")}>Reset</Box>
-                        {mode === "compare" && (
-                            <Box as="button" css={styles.actionButton} data-danger="" onClick={() => onAction("discard")}>Discard</Box>
-                        )}
-                        <Box as="button" css={styles.actionPrimary} onClick={() => onAction("apply")}>Apply blend</Box>
+                <Box css={cs.root} data-slot="panelFoot">
+                    <Box css={cs.draft}>
+                        {objective !== undefined && <Box as="span" css={styles.objective}>objective {objective}</Box>}
                     </Box>
-                )}
+                    {onAction && (
+                        <Box css={cs.btnRow}>
+                            <Box as="button" css={cs.btn} onClick={() => onAction("reset")}>Reset</Box>
+                            {mode === "compare" && (
+                                <Box as="button" css={cs.btnDanger} onClick={() => onAction("discard")}>Discard</Box>
+                            )}
+                            <Box as="button" css={cs.btnPrimary} onClick={() => onAction("apply")}>Apply blend</Box>
+                        </Box>
+                    )}
+                </Box>
             </Box>
         </Box>
     );
