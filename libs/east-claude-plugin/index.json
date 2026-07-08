@@ -1,14 +1,14 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1419,
-    "totalFiles": 182,
+    "totalEntries": 1421,
+    "totalFiles": 183,
     "packages": {
       "east": 489,
       "east-node-std": 42,
       "east-node-io": 63,
       "east-py-datascience": 89,
-      "east-ui": 670,
+      "east-ui": 672,
       "e3-ui": 55,
       "e3": 7,
       "e3-ui-cli": 4
@@ -23486,6 +23486,55 @@
         "import { Box, Button, Text, VStack, HStack, Reactive } from \"@elaraai/east-ui\";"
       ],
       "source": "// Box with fontFamily=\\\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Box fontFamily=\"mono\" fontVariantNumeric=\"tabular-nums\" padding=\"3\" background=\"gray.50\" borderRadius=\"md\">\n                <VStack gap=\"1\" align=\"flex-end\">\n                    <Text>{\"  1,234.56\"}</Text>\n                    <Text>{\"    56.07\"}</Text>\n                    <Text>{\"789,012.30\"}</Text>\n                </VStack>\n            </Box>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:expandable.examples.tsx:expandableRegion",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/layout/expandable.examples.tsx",
+      "suite": "",
+      "test": "Expandable region — a floating control expands the region in place to fill the app container; Esc or the control collapses it",
+      "keywords": [
+        "Expandable",
+        "expand",
+        "fill",
+        "window",
+        "app container",
+        "maximize",
+        "takeover",
+        "region",
+        "layout"
+      ],
+      "imports": [
+        "import { East, BooleanType, NullType, example } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Expandable, Reactive, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Expandable region — a floating control expands the region in place to fill the app container; Esc or the control collapses it\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Expandable label=\"Schedule\">\n                <Box padding=\"3\" background=\"bg.surface\">\n                    <Text>Dense chart region — expand me</Text>\n                </Box>\n            </Expandable>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:expandable.examples.tsx:expandableControlled",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/layout/expandable.examples.tsx",
+      "suite": "",
+      "test": "State-driven Expandable — expanded is bound to State and onExpandedChange writes the toggle back, so the region restores its expansion on re-render",
+      "keywords": [
+        "Expandable",
+        "expanded",
+        "onExpandedChange",
+        "State",
+        "Reactive",
+        "controlled",
+        "maximize",
+        "fill window"
+      ],
+      "imports": [
+        "import { East, BooleanType, NullType, example } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Expandable, Reactive, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// State-driven Expandable — expanded is bound to State and onExpandedChange writes the toggle back, so the region restores its expansion on re-render\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const expandedBind = $.let(State.bind([BooleanType], \"region_expanded\", false));\n            const expanded = $.let(expandedBind.read(), BooleanType);\n            const onExpandedChange = $.const(East.function([BooleanType], NullType, ($, next) => {\n                $(expandedBind.write(next));\n            }));\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <Text>Throughput report</Text>\n                    <Expandable expanded={expanded} onExpandedChange={onExpandedChange} label=\"Throughput chart\">\n                        <Box padding=\"3\" background=\"bg.surface\">\n                            <Text>Dense chart region — expands to fill the window</Text>\n                        </Box>\n                    </Expandable>\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "east-ui:flex.examples.tsx:flexBasic",

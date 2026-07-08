@@ -1,6 +1,6 @@
 ---
 name: east-ui
-description: "Type-safe UI component library for the East language, authored as JSX tags. Use when writing East programs that define user interfaces. Triggers for: (1) Authoring `.tsx` component trees with `@elaraai/east-ui` tags, (2) Layout with <Box>, <Flex>, <Stack>/<VStack>/<HStack>, <Grid>, <Splitter>, <ScrollArea>, <Sticky>, (3) Forms with <Input>, <Textarea>, <Select>, <Combobox>, <Checkbox>, <Switch>, <Slider>, <RadioGroup>, <RadioCardGroup>, <TagsInput>, <FileUpload>, <Field>, <DateRangeInput>, <TimeRangeInput>, (4) Data display with <Table>, <TreeView>, <DataList>, <Gantt>, <Planner>, <Matrix>, <Calendar>, <Schematic>, <Map>, <Library>, <Roster>, <Blend>, <Slice.Rail>, <Pagination>, <ChipRail>, <Trace>, (5) Charts with <Chart layers={Chart.Line/Bar/Area/Scatter/Band(...)}/> plus Chart.refLine/refBand/refDot, <Sparkline>, (6) Overlays with <Dialog>, <Drawer>, <Popover>, <Menu>, <Tooltip>, <HoverCard>, <ToggleTip>, <ActionBar>, <CommandPalette>, <Hotkey>, (7) Feedback with <Banner>, <Status>, <Progress>, <Skeleton>, <EmptyState>, (8) Disclosure with <Tabs>, <Accordion>, <Carousel>, <Collapsible>, <SegmentGroup>, <OptionList>, <Story>, (9) Navigation with <Breadcrumb>, <NavList>, and route-stack page switching (Navigation.config / Navigation.bind / <Pages>), (10) Reactive UI via <Reactive>{$ => …}</Reactive> + State.bind."
+description: "Type-safe UI component library for the East language, authored as JSX tags. Use when writing East programs that define user interfaces. Triggers for: (1) Authoring `.tsx` component trees with `@elaraai/east-ui` tags, (2) Layout with <Box>, <Flex>, <Stack>/<VStack>/<HStack>, <Grid>, <Splitter>, <ScrollArea>, <Sticky>, <Expandable>, (3) Forms with <Input>, <Textarea>, <Select>, <Combobox>, <Checkbox>, <Switch>, <Slider>, <RadioGroup>, <RadioCardGroup>, <TagsInput>, <FileUpload>, <Field>, <DateRangeInput>, <TimeRangeInput>, (4) Data display with <Table>, <TreeView>, <DataList>, <Gantt>, <Planner>, <Matrix>, <Calendar>, <Schematic>, <Map>, <Library>, <Roster>, <Blend>, <Slice.Rail>, <Pagination>, <ChipRail>, <Trace>, (5) Charts with <Chart layers={Chart.Line/Bar/Area/Scatter/Band(...)}/> plus Chart.refLine/refBand/refDot, <Sparkline>, (6) Overlays with <Dialog>, <Drawer>, <Popover>, <Menu>, <Tooltip>, <HoverCard>, <ToggleTip>, <ActionBar>, <CommandPalette>, <Hotkey>, (7) Feedback with <Banner>, <Status>, <Progress>, <Skeleton>, <EmptyState>, (8) Disclosure with <Tabs>, <Accordion>, <Carousel>, <Collapsible>, <SegmentGroup>, <OptionList>, <Story>, (9) Navigation with <Breadcrumb>, <NavList>, and route-stack page switching (Navigation.config / Navigation.bind / <Pages>), (10) Reactive UI via <Reactive>{$ => …}</Reactive> + State.bind."
 ---
 
 # East UI
@@ -60,7 +60,8 @@ Task → Which tag?
 │   ├─ <Splitter> — resizable panels; panels carry { id, minSize, maxSize, collapsible }
 │   ├─ <Separator> — 1px rule; orientation; variant: subtle | brand | dashed | strong
 │   ├─ <ScrollArea> — styled-scrollbar scroll container; overflow x/y
-│   └─ <Sticky> — position-sticky wrapper; top / bottom offset
+│   ├─ <Sticky> — position-sticky wrapper; top / bottom offset
+│   └─ <Expandable> — region expands in place to fill the app container (CSS takeover, no remount); expanded / onExpandedChange / label; Esc collapses
 │
 ├─ Typography (display text)
 │   ├─ <Text> — inline/block text; textStyle preset, fontWeight / fontStyle / textAlign / lineClamp
