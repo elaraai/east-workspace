@@ -18,7 +18,8 @@ describeEast("Gantt", (test) => {
         ganttAxisWindow: ex.ganttAxisWindow,
         ganttAxisQuarterTier: ex.ganttAxisQuarterTier,
         ganttAxisWeekTier: ex.ganttAxisWeekTier,
-        ganttStatusByType: ex.ganttStatusByType,
+        ganttStateAndStatus: ex.ganttStateAndStatus,
+        ganttLifecycleArms: ex.ganttLifecycleArms,
         ganttStyled: ex.ganttStyled,
         ganttComplexColumns: ex.ganttComplexColumns,
         ganttInteractiveCallbacks: ex.ganttInteractiveCallbacks,
@@ -126,15 +127,30 @@ describeEast("Gantt", (test) => {
         $(Assert.equal(task.progress.unwrap("some"), 0.75));
     });
 
-    test("creates task with status", $ => {
+    test("creates task with the shared lifecycle state + risk status (#262)", $ => {
         const gantt = $.let(Gantt.Root(
             [{ name: "Testing", start: new Date("2024-02-01"), end: new Date("2024-02-15") }],
             ["name"],
-            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end, status: "atRisk" })] })
+            // The old status:"atRisk" migrates to the two-axis grammar:
+            // lifecycle state (here a model proposal) + risk tint danger.
+            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end, state: "model", status: "danger" })] })
         ));
 
         const task = gantt.unwrap().unwrap("Gantt").rows.get(0n).tasks.get(0n);
-        $(Assert.equal(task.status.unwrap("some").hasTag("atRisk"), true));
+        $(Assert.equal(task.state.unwrap("proposed").hasTag("model"), true));
+        $(Assert.equal(task.status.unwrap("some").hasTag("danger"), true));
+    });
+
+    test("task state defaults to committed with no risk status", $ => {
+        const gantt = $.let(Gantt.Root(
+            [{ name: "Testing", start: new Date("2024-02-01"), end: new Date("2024-02-15") }],
+            ["name"],
+            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })
+        ));
+
+        const task = gantt.unwrap().unwrap("Gantt").rows.get(0n).tasks.get(0n);
+        $(Assert.equal(task.state.hasTag("committed"), true));
+        $(Assert.equal(task.status.hasTag("none"), true));
     });
 
     // =========================================================================

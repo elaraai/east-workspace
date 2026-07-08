@@ -31,8 +31,11 @@ import {
     TableRowClickEventType,
     TableSortEventType,
 } from "../table/types.js";
-import { TimeStepType, GanttTaskStatusType, GanttMilestoneKindType, GanttAxisType, GanttAxisRangeType, GanttTierType } from "./types.js";
-import type { GanttTaskStatusLiteral, GanttMilestoneKindLiteral, GanttAxisInput, GanttTierLiteral } from "./types.js";
+import { TimeStepType, GanttMilestoneKindType, GanttAxisType, GanttAxisRangeType, GanttTierType } from "./types.js";
+import { PlannerStateType } from "../planner/types.js";
+import { resolveEventState } from "../planner/index.js";
+import { StatusValueType, type StatusValueLiteral } from "../../feedback/status/types.js";
+import type { GanttMilestoneKindLiteral, GanttAxisInput, GanttTierLiteral } from "./types.js";
 
 import {
     AlignType,
@@ -75,17 +78,17 @@ import { StatusTokenType } from "../../style/interaction.js";
 export {
     GanttStyleType,
     TimeStepType,
-    GanttTaskStatusType,
     GanttMilestoneKindType,
     GanttAxisType,
     GanttAxisRangeType,
     GanttTierType,
-    type GanttTaskStatusLiteral,
     type GanttMilestoneKindLiteral,
     type GanttTierLiteral,
     type GanttAxisInput,
     type GanttStyle,
 } from "./types.js";
+// The shared event lifecycle a task's `state` carries (#262).
+export { PlannerStateType } from "../planner/types.js";
 
 // ============================================================================
 // Gantt Task / Milestone (UIComp-coupled — defined here, not in types.ts)
@@ -95,16 +98,20 @@ export {
  * East StructType for a Gantt task bar.
  *
  * @remarks
- * Spans from `start` to `end`. `status` (committed / proposed /
- * at-risk) drives the bar's colour, border, and progress-fill from the
- * canonical status palette. `popover` (click-triggered) accepts any
- * UIComponent for rich detail content.
+ * Spans from `start` to `end`. `state` is the shared event lifecycle
+ * (`PlannerStateType`: committed / proposed(added|model|removed) /
+ * rejected — the same audit grammar as Planner / Roster / Board, #262);
+ * it drives the bar's treatment (colour, dash, ghost, strike). `status`
+ * is the orthogonal **risk/status axis** (the old `"atRisk"` becomes
+ * `status: "danger"`): a semantic tint over the state treatment.
+ * `popover` (click-triggered) accepts any UIComponent for rich detail.
  *
  * @property start - Start date/time of the task
  * @property end - End date/time of the task
  * @property label - Optional rich label (text + alignment + typography)
  * @property progress - Optional progress percentage (0-100)
- * @property status - Optional schedule status driving the bar colour (default committed)
+ * @property state - The audit state (shared `PlannerStateType` lifecycle)
+ * @property status - Optional risk/status tint (success / warning / danger / info / neutral)
  * @property popover - Optional rich popover (click-triggered, UIComponent)
  */
 export const GanttTaskType: StructType<{
@@ -112,14 +119,16 @@ export const GanttTaskType: StructType<{
     end: DateTimeType,
     label: OptionType<LabelInputType>,
     progress: OptionType<FloatType>,
-    status: OptionType<GanttTaskStatusType>,
+    state: PlannerStateType,
+    status: OptionType<StatusValueType>,
     popover: OptionType<UIComponentType>,
 }> = StructType({
     start: DateTimeType,
     end: DateTimeType,
     label: OptionType(LabelInputType),
     progress: OptionType(FloatType),
-    status: OptionType(GanttTaskStatusType),
+    state: PlannerStateType,
+    status: OptionType(StatusValueType),
     popover: OptionType(UIComponentType),
 });
 
@@ -294,7 +303,8 @@ export type GanttRootType = typeof GanttRootType;
  * @property end - End date/time of the task
  * @property label - Plain string shorthand expands to `{ value: <string> }`; or a full {@link LabelInput} for alignment / typography overrides
  * @property progress - Progress percentage (0-100)
- * @property status - Schedule status driving the bar colour (committed / proposed / atRisk). Default committed.
+ * @property state - The audit state — a `PlannerStateType` value or a string shorthand. Default `"committed"`.
+ * @property status - Optional risk/status tint (a `StatusValueType` value or status string)
  * @property popover - Click-triggered rich popover content (UIComponent), coexists with `onTaskClick`
  */
 export interface TaskInput {
@@ -306,8 +316,21 @@ export interface TaskInput {
     label?: SubtypeExprOrValue<StringType> | LabelInput;
     /** Progress percentage (0-100) */
     progress?: SubtypeExprOrValue<FloatType>;
-    /** Schedule status — drives the bar colour, border, and progress fill from the status palette. Default `"committed"`. */
-    status?: SubtypeExprOrValue<GanttTaskStatusType> | GanttTaskStatusLiteral;
+    /** The audit state — the shared event lifecycle (`PlannerStateType`), or one
+     *  of the string shorthands `"committed"` / `"rejected"` / `"added"` /
+     *  `"model"` / `"removed"`. Default `"committed"`.
+     *
+     *  Migration (#262): the old 3-arm `status` is gone — `status: "committed"`
+     *  ⇒ `state: "committed"` (the default), `status: "proposed"` ⇒
+     *  `state: "added"` (operator) or `"model"` (machine suggestion), and
+     *  `status: "atRisk"` ⇒ keep the lifecycle state and set the risk tint
+     *  `status: "danger"`. */
+    state?: SubtypeExprOrValue<PlannerStateType> | "committed" | "rejected" | "added" | "model" | "removed";
+    /** Optional risk/status tint — a `StatusValueType` value or a status string
+     *  (`"success"` / `"warning"` / `"danger"` / `"info"` / `"neutral"`).
+     *  Tints the bar colour over the state treatment (the status axis the old
+     *  `"atRisk"` moved to). */
+    status?: SubtypeExprOrValue<StatusValueType> | StatusValueLiteral;
     /** Rich popover content (click-triggered UIComponent). Coexists with `onTaskClick`. */
     popover?: SubtypeExprOrValue<UIComponentType>;
 }
@@ -423,7 +446,7 @@ function buildLabel(input: SubtypeExprOrValue<StringType> | LabelInput): ExprTyp
  *             end: row.end,
  *             label: "Design Phase",
  *             progress: 75,
- *             status: "committed",
+ *             state: "committed",
  *         })] }),
  *     );
  * });
@@ -432,7 +455,7 @@ function buildLabel(input: SubtypeExprOrValue<StringType> | LabelInput): ExprTyp
 function createTask(input: TaskInput): ExprType<GanttTaskType> {
     const statusValue = input.status
         ? (typeof input.status === "string"
-            ? East.value(variant(input.status, null), GanttTaskStatusType)
+            ? East.value(variant(input.status, null), StatusValueType)
             : input.status)
         : undefined;
 
@@ -441,6 +464,7 @@ function createTask(input: TaskInput): ExprType<GanttTaskType> {
         end: input.end,
         label: input.label !== undefined ? some(buildLabel(input.label)) : none,
         progress: input.progress !== undefined ? some(input.progress) : none,
+        state: resolveEventState(input.state ?? "committed"),
         status: statusValue ? some(statusValue) : none,
         popover: input.popover !== undefined ? some(input.popover) : none,
     }, GanttTaskType);
@@ -798,7 +822,8 @@ interface GanttTypesShape {
     Row: GanttRowType;
     Task: GanttTaskType;
     Milestone: GanttMilestoneType;
-    TaskStatus: GanttTaskStatusType;
+    State: PlannerStateType;
+    Status: StatusValueType;
     MilestoneKind: GanttMilestoneKindType;
     Axis: GanttAxisType;
     Tier: GanttTierType;
@@ -890,14 +915,28 @@ const GanttTypes: GanttTypesShape = {
      */
     Milestone: GanttMilestoneType,
     /**
-     * East VariantType for a task's schedule status — drives the bar
-     * colour from the canonical status palette.
+     * East VariantType for a task's audit state — the shared event
+     * lifecycle (`PlannerStateType`, #262). Drives the bar treatment:
+     * committed solid, proposed(added) dashed, proposed(model) dashed
+     * ghost, proposed(removed) struck ghost, rejected greyed strike.
      *
-     * @property committed - Agreed/baseline work (green)
-     * @property proposed - In-progress / not-yet-locked work (brand teal)
-     * @property atRisk - Slipping / blocked work (red)
+     * @property committed - Audit-locked, immutable
+     * @property proposed - Drafted; the flavour (added / model / removed) is nested
+     * @property rejected - Reviewed and declined; kept for diff
      */
-    TaskStatus: GanttTaskStatusType,
+    State: PlannerStateType,
+    /**
+     * East VariantType for a task's optional risk/status tint — the
+     * status axis the old `atRisk` moved to (#262); tints the bar
+     * colour over the state treatment.
+     *
+     * @property success - On-track (green tint)
+     * @property warning - Caution (amber tint)
+     * @property danger - Slipping / blocked (red tint — the old `atRisk`)
+     * @property info - Informational (teal tint)
+     * @property neutral - Muted
+     */
+    Status: StatusValueType,
     /**
      * East VariantType for a milestone's kind — drives the diamond fill.
      *

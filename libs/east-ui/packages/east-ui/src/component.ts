@@ -181,7 +181,6 @@ import {
 import {
     GanttStyleType,
     GanttAxisType,
-    GanttTaskStatusType,
     GanttMilestoneKindType,
     GanttTaskClickEventType,
     GanttTaskDragEventType,
@@ -764,7 +763,10 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
                 end: DateTimeType,
                 label: OptionType(LabelInputType),
                 progress: OptionType(FloatType),
-                status: OptionType(GanttTaskStatusType),
+                // The shared event lifecycle + the risk/status tint (#262) —
+                // mirror `GanttTaskType` in `collections/gantt/index.ts`.
+                state: PlannerStateType,
+                status: OptionType(StatusValueType),
                 popover: OptionType(node),
             })),
             milestones: ArrayType(StructType({

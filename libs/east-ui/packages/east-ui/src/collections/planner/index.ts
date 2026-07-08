@@ -461,7 +461,16 @@ export interface EventInput {
     hovercard?: SubtypeExprOrValue<UIComponentType>;
 }
 
-function resolveState(state: EventInput["state"]): SubtypeExprOrValue<PlannerStateType> {
+/**
+ * Resolves the shared event-lifecycle string shorthands (`"committed"` /
+ * `"rejected"` / `"added"` / `"model"` / `"removed"`) into a
+ * {@link PlannerStateType} value. Exported for the other lifecycle adopters
+ * (Gantt) so the authoring shorthand is defined once.
+ *
+ * @param state - A `PlannerStateType` value/expression or a string shorthand
+ * @returns The resolved `PlannerStateType` value
+ */
+export function resolveEventState(state: EventInput["state"]): SubtypeExprOrValue<PlannerStateType> {
     if (typeof state !== "string") return state;
     switch (state) {
         case "committed": return East.value(variant("committed", null), PlannerStateType);
@@ -521,7 +530,7 @@ function createEvent(input: EventInput): ExprType<PlannerEventType> {
         endSlot:   input.endSlot !== undefined ? some(input.endSlot) : none,
         bucket:    input.bucket !== undefined ? some(input.bucket) : none,
         label:     input.label,
-        state:     resolveState(input.state),
+        state:     resolveEventState(input.state),
         popover:   input.popover !== undefined ? some(input.popover) : none,
         stretch:   input.stretch !== undefined ? some(resolveStretch(input.stretch)) : none,
         content:   input.content !== undefined ? some(resolveContent(input.content)) : none,

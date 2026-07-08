@@ -70,27 +70,16 @@ export const TimeStepType = VariantType({
 export type TimeStepType = typeof TimeStepType;
 
 // ============================================================================
-// Task Status / Milestone Kind
+// Milestone Kind
 // ============================================================================
 
-/**
- * Schedule status of a task bar — drives the bar's colour, border, and
- * progress-fill from the canonical status palette.
- *
- * @property committed - Agreed/baseline work (green).
- * @property proposed - In-progress or not-yet-locked work (brand teal).
- * @property atRisk - Slipping / blocked work (red).
- */
-export const GanttTaskStatusType = VariantType({
-    committed: NullType,
-    proposed: NullType,
-    atRisk: NullType,
-});
-
-export type GanttTaskStatusType = typeof GanttTaskStatusType;
-
-/** String shorthand for {@link GanttTaskStatusType}. */
-export type GanttTaskStatusLiteral = "committed" | "proposed" | "atRisk";
+// NOTE (#262, breaking): the private `GanttTaskStatusType`
+// (committed / proposed / atRisk) has been removed. A task's audit state is
+// now the shared event lifecycle `PlannerStateType`
+// (committed / proposed(added|model|removed) / rejected) on `GanttTaskType.state`,
+// and risk moved to the status axis: per-task `status: Option<StatusValueType>`
+// (e.g. the old `"atRisk"` becomes `status: "danger"`) alongside the existing
+// per-row `rowStatus`.
 
 /**
  * Kind of a milestone diamond — drives its fill colour.

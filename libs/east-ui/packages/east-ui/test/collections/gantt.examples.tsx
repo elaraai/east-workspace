@@ -179,9 +179,9 @@ export const ganttAxisWeekTier = example({
     inputs: [],
 });
 
-export const ganttStatusByType = example({
-    keywords: ["Gantt", "Task", "status", "committed", "proposed", "atRisk", "ifElse", "per-row"],
-    description: "Status-driven bar colour — per-row `status` derived from a field via East ifElse (committed / proposed / at-risk palette)",
+export const ganttStateAndStatus = example({
+    keywords: ["Gantt", "Task", "state", "status", "committed", "added", "danger", "risk", "lifecycle", "ifElse", "per-row"],
+    description: "Two-axis task grammar (#262) — the shared lifecycle `state` (committed vs proposed) derived per row, with the orthogonal risk `status` tint (the old at-risk) on the blocked row",
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Gantt
@@ -200,17 +200,72 @@ export const ganttStatusByType = example({
                         start: row.start,
                         end: row.end,
                         label: row.name,
-                        // Progress fills the bar in the status colour so each status
-                        // reads at a glance (an empty track only shows a thin border).
+                        // Progress fills the bar in the state/status colour so each
+                        // treatment reads at a glance.
                         progress: row.progress,
-                        // Map stage → status: Locked → committed, Blocked → at-risk, else → proposed.
-                        status: row.stage.equal("Locked").ifElse(
+                        // Audit axis — the shared event lifecycle: locked stages are
+                        // committed history; everything else is a proposed(added) draft.
+                        state: East.value(row.stage.equal("Locked").ifElse(
                             _$ => variant("committed", null),
-                            _$ => row.stage.equal("Blocked").ifElse(
-                                _$ => variant("atRisk", null),
-                                _$ => variant("proposed", null),
+                            _$ => variant("proposed", variant("added", null)),
+                        ), Gantt.Types.State),
+                        // Risk axis (the old `atRisk`) — an orthogonal tint over the
+                        // state treatment: blocked ⇒ danger, locked ⇒ success, else info.
+                        status: East.value(row.stage.equal("Blocked").ifElse(
+                            _$ => variant("danger", null),
+                            _$ => row.stage.equal("Locked").ifElse(
+                                _$ => variant("success", null),
+                                _$ => variant("info", null),
                             ),
-                        ),
+                        ), Gantt.Types.Status),
+                    })],
+                })}
+            />
+        );
+    }),
+    inputs: [],
+});
+
+/**
+ * All five lifecycle treatments (#262) — the shared `PlannerStateType`
+ * grammar on Gantt bars: committed (solid), proposed-added (dashed),
+ * proposed-model (dashed ghost, italic label), proposed-removed (struck
+ * ghost), rejected (greyed strike). One row per arm, mapped from a data
+ * field with nested East ifElse.
+ */
+export const ganttLifecycleArms = example({
+    keywords: ["Gantt", "state", "lifecycle", "committed", "added", "model", "removed", "rejected", "ghost", "dashed", "treatment"],
+    description: "The five shared-lifecycle treatments on task bars — committed, proposed(added), proposed(model), proposed(removed), rejected",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <Gantt
+                data={[
+                    { kind: "committed", name: "Baseline build", start: new Date("2024-01-01"), end: new Date("2024-01-24"), progress: 100 },
+                    { kind: "added", name: "Operator draft", start: new Date("2024-01-08"), end: new Date("2024-02-02"), progress: 40 },
+                    { kind: "model", name: "Model suggestion", start: new Date("2024-01-15"), end: new Date("2024-02-10"), progress: 0 },
+                    { kind: "removed", name: "Proposed cut", start: new Date("2024-01-05"), end: new Date("2024-01-30"), progress: 60 },
+                    { kind: "rejected", name: "Declined plan", start: new Date("2024-01-20"), end: new Date("2024-02-14"), progress: 20 },
+                ]}
+                columns={{ kind: { header: "State" }, name: { header: "Task" } }}
+                rowSpec={row => ({
+                    tasks: [Gantt.Task({
+                        start: row.start,
+                        end: row.end,
+                        label: row.name,
+                        progress: row.progress,
+                        state: East.value(row.kind.equal("committed").ifElse(
+                            _$ => variant("committed", null),
+                            _$ => row.kind.equal("rejected").ifElse(
+                                _$ => variant("rejected", null),
+                                _$ => row.kind.equal("model").ifElse(
+                                    _$ => variant("proposed", variant("model", null)),
+                                    _$ => row.kind.equal("removed").ifElse(
+                                        _$ => variant("proposed", variant("removed", null)),
+                                        _$ => variant("proposed", variant("added", null)),
+                                    ),
+                                ),
+                            ),
+                        ), Gantt.Types.State),
                     })],
                 })}
             />
@@ -362,7 +417,7 @@ export const ganttInteractiveCallbacks = example({
                         rowSpec={row => ({
                             // `proposed` (not committed) so the bars are editable —
                             // committed bars are read-only / resize-locked per spec.
-                            tasks: [Gantt.Task({ start: row.start, end: row.end, progress: 50, status: "proposed" })],
+                            tasks: [Gantt.Task({ start: row.start, end: row.end, progress: 50, state: "added" })],
                             milestones: [Gantt.Milestone({ date: row.release, label: "Release", kind: "release" })],
                         })}
                     />
@@ -400,9 +455,9 @@ export const ganttReactiveDrag = example({
                                 start: taskStart,
                                 end: taskEnd,
                                 label: "Drag me!",
-                                // `proposed` so the bar is editable (the ⠿ grip shows);
+                                // proposed so the bar is editable (the ⠿ grip shows);
                                 // committed bars are locked per spec.
-                                status: "proposed",
+                                state: "added",
                             })],
                         })}
                     />
