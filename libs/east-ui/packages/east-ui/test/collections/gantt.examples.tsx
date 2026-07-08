@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, DateTimeType, IntegerType, NullType, StringType, variant, example } from "@elaraai/east";
+import { East, DateTimeType, IntegerType, NullType, StringType, none, some, variant, example } from "@elaraai/east";
 import { State, Style, UIComponentType } from "@elaraai/east-ui";
 import { Badge, Gantt, Reactive, Table, Text, VStack } from "@elaraai/east-ui";
 
@@ -268,6 +268,57 @@ export const ganttLifecycleArms = example({
                         ), Gantt.Types.State),
                     })],
                 })}
+            />
+        );
+    }),
+    inputs: [],
+});
+
+/**
+ * Review chrome (#263) — the shared per-row Approve / Reject decision column
+ * (sticky beside the timeline) plus the commitBar batch foot, identical to
+ * the Planner's. A machine-written schedule under review: model-ghost bars
+ * on flagged rows resting `pending` (quiet warning dot), clean rows resting
+ * `approved`. Callbacks receive the acted-on `{ rowIndex }`.
+ */
+export const ganttReview = example({
+    keywords: ["Gantt", "review", "approve", "reject", "approval", "decision", "batch", "rerun", "status", "row", "model"],
+    description: "Optional per-row approval on a machine-written schedule — Decision column + batch foot, model-ghost bars on flagged pending rows",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <Gantt
+                data={[
+                    { name: "Press retool", crew: "Crew A", flagged: false, start: new Date("2024-01-02"), end: new Date("2024-01-12") },
+                    { name: "Line balance", crew: "Crew B", flagged: true, start: new Date("2024-01-08"), end: new Date("2024-01-22") },
+                    { name: "Paint refit", crew: "Crew C", flagged: false, start: new Date("2024-01-15"), end: new Date("2024-01-29") },
+                    { name: "QA sweep", crew: "Crew A", flagged: true, start: new Date("2024-01-24"), end: new Date("2024-02-06") },
+                ]}
+                columns={{ name: { header: "Job" }, crew: { header: "Crew" } }}
+                rowSpec={row => ({
+                    tasks: [Gantt.Task({
+                        start: row.start,
+                        end: row.end,
+                        label: row.name,
+                        // The machine's suggestion on flagged rows renders as the
+                        // dashed model ghost; clean rows are operator drafts.
+                        state: East.value(row.flagged.ifElse(
+                            _$ => variant("proposed", variant("model", null)),
+                            _$ => variant("proposed", variant("added", null)),
+                        ), Gantt.Types.State),
+                    })],
+                    status: row.flagged.ifElse(() => some(variant("warning", null)), () => none),
+                    approval: row.flagged.ifElse(() => some(variant("pending", null)), () => some(variant("approved", null))),
+                })}
+                review={{
+                    columnLabel: "Decision",
+                    rerunLabel: "Rerun",
+                    summary: <Text color="fg.muted">4 jobs · 2 flagged need a call · +6h float</Text>,
+                    onApprove: East.function([Gantt.Types.ApproveEvent], NullType, _$ => null),
+                    onReject: East.function([Gantt.Types.ApproveEvent], NullType, _$ => null),
+                    onApproveAll: East.function([], NullType, _$ => null),
+                    onRejectAll: East.function([], NullType, _$ => null),
+                    onRerun: East.function([], NullType, _$ => null),
+                }}
             />
         );
     }),

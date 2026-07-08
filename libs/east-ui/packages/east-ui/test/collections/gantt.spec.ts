@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { East } from "@elaraai/east";
+import { East, NullType, none, some, variant } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Gantt, Text, Badge, Table, UIComponentType } from "@elaraai/east-ui/internal";
 import * as ex from "./gantt.examples.js";
@@ -20,6 +20,7 @@ describeEast("Gantt", (test) => {
         ganttAxisWeekTier: ex.ganttAxisWeekTier,
         ganttStateAndStatus: ex.ganttStateAndStatus,
         ganttLifecycleArms: ex.ganttLifecycleArms,
+        ganttReview: ex.ganttReview,
         ganttStyled: ex.ganttStyled,
         ganttComplexColumns: ex.ganttComplexColumns,
         ganttInteractiveCallbacks: ex.ganttInteractiveCallbacks,
@@ -151,6 +152,35 @@ describeEast("Gantt", (test) => {
         const task = gantt.unwrap().unwrap("Gantt").rows.get(0n).tasks.get(0n);
         $(Assert.equal(task.state.hasTag("committed"), true));
         $(Assert.equal(task.status.hasTag("none"), true));
+    });
+
+    test("review chrome + row accessors encode via the shared contract (#263)", $ => {
+        const onApprove = $.const(East.function([Gantt.Types.ApproveEvent], NullType, _$ => null));
+        const gantt = $.let(Gantt.Root(
+            [
+                { name: "A", flagged: false, start: new Date("2024-01-01"), end: new Date("2024-01-10") },
+                { name: "B", flagged: true, start: new Date("2024-01-05"), end: new Date("2024-01-15") },
+            ],
+            ["name"],
+            row => ({
+                tasks: [Gantt.Task({ start: row.start, end: row.end, state: "model" })],
+                status: row.flagged.ifElse(() => some(variant("warning", null)), () => none),
+                approval: row.flagged.ifElse(() => some(variant("pending", null)), () => some(variant("approved", null))),
+            }),
+            { review: { onApprove, onApproveAll: East.function([], NullType, _$ => null) } },
+        ));
+        const root = $.let(gantt.unwrap().unwrap("Gantt"));
+
+        const review = $.let(root.review.unwrap("some"));
+        $(Assert.equal(review.columnLabel, "Decision"));
+        $(Assert.equal(review.rerunLabel, "Rerun"));
+        $(Assert.equal(review.onApprove.hasTag("some"), true));
+        $(Assert.equal(review.onReject.hasTag("none"), true));
+        $(Assert.equal(review.onApproveAll.hasTag("some"), true));
+        $(Assert.equal(root.rows.get(0n).status.hasTag("none"), true));
+        $(Assert.equal(root.rows.get(0n).approval.unwrap("some").hasTag("approved"), true));
+        $(Assert.equal(root.rows.get(1n).status.unwrap("some").hasTag("warning"), true));
+        $(Assert.equal(root.rows.get(1n).approval.unwrap("some").hasTag("pending"), true));
     });
 
     // =========================================================================

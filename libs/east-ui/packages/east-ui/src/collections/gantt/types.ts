@@ -22,6 +22,8 @@ import { TableCellClickEventType, TableRowClickEventType, TableSortEventType } f
 import { StatusTokenType, DensityType, type DensityLiteral } from "../../style/interaction.js";
 import { PlotGutterType, type PlotGutter } from "../../shared/plot-gutter.js";
 import { SliceBindType } from "../../platform/slice/index.js";
+// Type-only (erased at runtime — safe against the component.ts import cycle).
+import type { ReviewConfig, RowRefType } from "../../contracts/review.js";
 import { type SliceAffordanceLiteral } from "../../contracts/slice-affordances.js";
 
 // Re-export shared content primitives for ergonomic discovery via Gantt.Types.*.
@@ -414,6 +416,11 @@ export interface GanttStyle<ColumnKeys extends string = string> {
     durationStep?: SubtypeExprOrValue<TimeStepType>;
     /** Row-status callback: `(rowIndex) => StatusToken`; renderer tints the row. */
     rowStatus?: SubtypeExprOrValue<FunctionType<[IntegerType], StatusTokenType>>;
+    /** Optional review chrome (#263) — the shared contract's per-row
+     *  Approve/Reject decision column + the commitBar batch foot, identical to
+     *  Planner's. Presence is the opt-in; pair with the `rowSpec` `status` /
+     *  `approval` accessors. Callbacks receive `{ rowIndex }`. */
+    review?: ReviewConfig<RowRefType>;
     /** Callback triggered when a cell is clicked. */
     onCellClick?: SubtypeExprOrValue<FunctionType<[TableCellClickEventType], NullType>>;
     /** Callback triggered when a cell is double-clicked. */

@@ -33,6 +33,7 @@ import { useSliceReactivity } from "../../slice/use-slice-reactivity";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 import { useRowStatusBg, useDensityHeights } from "../shared/helpers";
+import { useReviewController, DecisionButtons, ReviewFoot, DECISION_WIDTH } from "../shared/review";
 import { DensityProvider } from "../../contracts/density";
 import { usePlotGutter, gutterPx } from "../../contracts/plot-gutter.js";
 import { RowStateManager, type RowKey, type RowState } from "../../utils/RowStateManager";
@@ -250,6 +251,25 @@ const GanttCore = function GanttCore({
     // Row-status callback — paints each row's background with a semantic
     // token. Shared helper used by Planner / Table too.
     const rowStatusBgFor = useRowStatusBg(getSomeorUndefined(value.rowStatus));
+
+    // ── Review chrome (optional, #263) ────────────────────────────────────
+    // The shared per-row Approve/Reject decision column (a third pane beside
+    // the timeline, scroll-synced) + the commitBar batch foot, on the shared
+    // review pieces (`../shared/review`) and `reviewChrome` recipe — identical
+    // chrome to the Planner's. Decisions are keyed by the ORIGINAL row index
+    // (rows sort in the table pane; `row.index` preserves data order).
+    const review = useMemo(() => getSomeorUndefined(value.review), [value.review]);
+    const approvals = useMemo(() => value.rows.map((row) => row.approval), [value]);
+    const reviewController = useReviewController(review, approvals);
+    const chromeRecipe = useSlotRecipe({ key: "reviewChrome" });
+    const reviewChrome = useMemo(() => chromeRecipe({ size: ganttSize }) as Record<string, Record<string, unknown>>, [chromeRecipe, ganttSize]);
+    const reviewDotStyles = useMemo(() => {
+        const out: Record<string, Record<string, unknown>> = {};
+        for (const t of ["success", "warning", "danger", "info", "neutral"]) out[t] = (chromeRecipe({ size: ganttSize, status: t } as Record<string, unknown>) as Record<string, Record<string, unknown>>).statusDot ?? {};
+        return out;
+    }, [chromeRecipe, ganttSize]);
+    const reviewContainerRef = useRef<HTMLDivElement>(null);
+
     const [gridLineColor, nowLineColor] = useToken("colors", ["gray.300", "fg.info"]);
     const showNowLine = style ? getSomeorUndefined(style.showToday) ?? false : false;
     const tableContainerRef = useRef<HTMLDivElement>(null);
@@ -772,16 +792,31 @@ const GanttCore = function GanttCore({
     }, [virtualItems, rowStateManager, loadingDelay]);
 
 
-    // Sync scroll between table and timeline
+    // Sync scroll between the table, timeline, and (review-mode) decision panes
     const handleTableScroll = useCallback(() => {
         if (tableContainerRef.current && timelineContainerRef.current) {
             timelineContainerRef.current.scrollTop = tableContainerRef.current.scrollTop;
+        }
+        if (tableContainerRef.current && reviewContainerRef.current) {
+            reviewContainerRef.current.scrollTop = tableContainerRef.current.scrollTop;
         }
     }, []);
 
     const handleTimelineScroll = useCallback(() => {
         if (tableContainerRef.current && timelineContainerRef.current) {
             tableContainerRef.current.scrollTop = timelineContainerRef.current.scrollTop;
+        }
+        if (timelineContainerRef.current && reviewContainerRef.current) {
+            reviewContainerRef.current.scrollTop = timelineContainerRef.current.scrollTop;
+        }
+    }, []);
+
+    const handleReviewScroll = useCallback(() => {
+        if (reviewContainerRef.current && tableContainerRef.current) {
+            tableContainerRef.current.scrollTop = reviewContainerRef.current.scrollTop;
+        }
+        if (reviewContainerRef.current && timelineContainerRef.current) {
+            timelineContainerRef.current.scrollTop = reviewContainerRef.current.scrollTop;
         }
     }, []);
 
@@ -790,13 +825,56 @@ const GanttCore = function GanttCore({
         { id: "timeline", minSize: 20 },
     ], []);
 
+    // The review decision pane — a third, fixed-width column beside the
+    // timeline wearing the shared `reviewChrome` slots, scroll-synced with
+    // both panes. Cells act on the ORIGINAL row index (sort-stable).
+    const heightCss = (style ? getSomeorUndefined(style.height) : undefined) ?? height;
+    const showFoot = reviewController !== undefined && reviewController.showFoot;
+    const decisionPane = reviewController !== undefined && review !== undefined ? (
+        <Box width={DECISION_WIDTH} flexShrink={0} display="flex" flexDirection="column" height="100%" background="bg.surface">
+            <Box css={reviewChrome.decisionHeader} data-slot="decisionHeader" height={`${headerHeight}px`} flexShrink={0}>
+                {review.columnLabel}
+            </Box>
+            <Box ref={reviewContainerRef} flex="1" overflowY="auto" onScroll={handleReviewScroll} css={{ scrollbarWidth: "none" }}>
+                <Box position="relative" height={`${virtualizer.getTotalSize()}px`}>
+                    {virtualItems.map((virtualRow) => {
+                        const row = rows[virtualRow.index];
+                        if (!row) return null;
+                        const statusTag = getSomeorUndefined(row.original.status)?.type;
+                        return (
+                            <Box
+                                key={row.id}
+                                css={reviewChrome.decisionCol}
+                                data-slot="decisionCol"
+                                data-status={statusTag}
+                                position="absolute"
+                                top={0}
+                                left={0}
+                                right={0}
+                                transform={`translateY(${virtualRow.start}px)`}
+                                height={`${virtualRow.size}px`}
+                            >
+                                {statusTag !== undefined && (
+                                    <Box as="span" css={reviewDotStyles[statusTag]} data-slot="statusDot" position="absolute" left="12px" />
+                                )}
+                                <DecisionButtons rowIndex={row.index} controller={reviewController} />
+                            </Box>
+                        );
+                    })}
+                </Box>
+            </Box>
+        </Box>
+    ) : null;
+
     const ganttContent = (
         <Box
             ref={rootRef}
             width="100%"
-            height={(style ? getSomeorUndefined(style.height) : undefined) ?? height}
+            {...(showFoot ? { flex: "1", minHeight: 0 } : { height: heightCss })}
             overflow="hidden"
+            display="flex"
         >
+        <Box flex="1" minWidth={0} height="100%">
         <Splitter.Root
             size={[effectiveTablePanelSize, 100 - effectiveTablePanelSize]}
             panels={panels}
@@ -1208,13 +1286,26 @@ const GanttCore = function GanttCore({
             </Splitter.Panel>
         </Splitter.Root>
         </Box>
+        {decisionPane}
+        </Box>
     );
+
+    // The batch review foot (shared `ReviewFoot` on the commitBar recipe)
+    // mounts below the fixed-height chassis, full-width (#263).
+    const surface = showFoot && reviewController !== undefined
+        ? (
+            <Box display="flex" flexDirection="column" width="100%" height={heightCss}>
+                {ganttContent}
+                <ReviewFoot controller={reviewController} storageKey={storageKey ?? "gantt"} />
+            </Box>
+        )
+        : ganttContent;
 
     // A density set on the gantt cascades to display components rendered in
     // its table cells, matching the Table behaviour.
     return densityTag !== undefined
-        ? <DensityProvider value={densityTag}>{ganttContent}</DensityProvider>
-        : ganttContent;
+        ? <DensityProvider value={densityTag}>{surface}</DensityProvider>
+        : surface;
 };
 
 /**

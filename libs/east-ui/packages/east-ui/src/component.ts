@@ -775,6 +775,11 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
                 kind: OptionType(GanttMilestoneKindType),
                 popover: OptionType(node),
             })),
+            // Review chrome (#263) — mirror `GanttRowType` in
+            // `collections/gantt/index.ts` (approval = the shared
+            // `ApprovalStateType`, structurally `PlannerApprovalType`).
+            status: OptionType(StatusValueType),
+            approval: OptionType(PlannerApprovalType),
         })),
         columns: ArrayType(StructType({
             key: StringType,
@@ -804,6 +809,19 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         onMilestoneClick: OptionType(FunctionType([GanttMilestoneClickEventType], NullType)),
         onMilestoneDoubleClick: OptionType(FunctionType([GanttMilestoneClickEventType], NullType)),
         onMilestoneDrag: OptionType(FunctionType([GanttMilestoneDragEventType], NullType)),
+        // Optional review chrome (#263) — mirror the shared row-granularity
+        // `RowReviewType` (`contracts/review.ts`), spelled with the recursion
+        // `node` for `summary` (the Planner precedent).
+        review: OptionType(StructType({
+            columnLabel: StringType,
+            summary: OptionType(node),
+            onApprove: OptionType(FunctionType([PlannerApproveEventType], NullType)),
+            onReject: OptionType(FunctionType([PlannerApproveEventType], NullType)),
+            onApproveAll: OptionType(FunctionType([], NullType)),
+            onRejectAll: OptionType(FunctionType([], NullType)),
+            onRerun: OptionType(FunctionType([], NullType)),
+            rerunLabel: StringType,
+        })),
         slice: OptionType(SliceChromeType),
         style: OptionType(GanttStyleType),
     }),

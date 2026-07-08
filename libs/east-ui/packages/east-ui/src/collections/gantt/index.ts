@@ -35,6 +35,7 @@ import { TimeStepType, GanttMilestoneKindType, GanttAxisType, GanttAxisRangeType
 import { PlannerStateType } from "../planner/types.js";
 import { resolveEventState } from "../planner/index.js";
 import { StatusValueType, type StatusValueLiteral } from "../../feedback/status/types.js";
+import { ApprovalStateType, RowRefType, RowReviewType, buildReview } from "../../contracts/review.js";
 import type { GanttMilestoneKindLiteral, GanttAxisInput, GanttTierLiteral } from "./types.js";
 
 import {
@@ -183,10 +184,15 @@ export const GanttRowType: StructType<{
     cells: DictType<StringType, typeof TableCellType>,
     tasks: ArrayType<GanttTaskType>,
     milestones: ArrayType<GanttMilestoneType>,
+    status: OptionType<StatusValueType>,
+    approval: OptionType<ApprovalStateType>,
 }> = StructType({
     cells: DictType(StringType, TableCellType),
     tasks: ArrayType(GanttTaskType),
     milestones: ArrayType(GanttMilestoneType),
+    // Review chrome (only meaningful when the root carries `review`, #263):
+    status: OptionType(StatusValueType),       // the quiet row dot (absent ⇒ clean)
+    approval: OptionType(ApprovalStateType),   // the row's review decision (absent ⇒ no decision)
 });
 
 /**
@@ -228,6 +234,7 @@ export type GanttRowType = typeof GanttRowType;
  * @property onMilestoneClick - Milestone click callback
  * @property onMilestoneDoubleClick - Milestone double-click callback
  * @property onMilestoneDrag - Milestone drag callback
+ * @property review - Optional review chrome (shared contract, #263)
  * @property style - Optional visual style sub-struct
  */
 export const GanttRootType: StructType<{
@@ -251,6 +258,7 @@ export const GanttRootType: StructType<{
     onMilestoneClick: OptionType<FunctionType<[GanttMilestoneClickEventType], NullType>>,
     onMilestoneDoubleClick: OptionType<FunctionType<[GanttMilestoneClickEventType], NullType>>,
     onMilestoneDrag: OptionType<FunctionType<[GanttMilestoneDragEventType], NullType>>,
+    review: OptionType<RowReviewType>,
     slice: OptionType<typeof SliceChromeType>,
     style: OptionType<GanttStyleType>,
 }> = StructType({
@@ -274,6 +282,10 @@ export const GanttRootType: StructType<{
     onMilestoneClick: OptionType(FunctionType([GanttMilestoneClickEventType], NullType)),
     onMilestoneDoubleClick: OptionType(FunctionType([GanttMilestoneClickEventType], NullType)),
     onMilestoneDrag: OptionType(FunctionType([GanttMilestoneDragEventType], NullType)),
+    // Optional review chrome (#263) — the shared contract's row-granularity
+    // config: per-row Approve/Reject decision column + the commitBar foot.
+    // Absent ⇒ a plain Gantt (row `status`/`approval` are inert).
+    review: OptionType(RowReviewType),
     slice: OptionType(SliceChromeType),
     style: OptionType(GanttStyleType),
 });
@@ -607,6 +619,14 @@ function createGantt<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
     rowSpec: (row: ExprType<TypeOf<T> extends ArrayType<infer E> ? E : never>) => {
         tasks?: SubtypeExprOrValue<ArrayType<GanttTaskType>>;
         milestones?: SubtypeExprOrValue<ArrayType<GanttMilestoneType>>;
+        /** Optional per-row status — the quiet dot beside the row (some ⇒
+         *  flagged, none ⇒ clean). Only rendered when `review` is set (#263). */
+        status?: SubtypeExprOrValue<OptionType<StatusValueType>>;
+        /** Optional per-row review decision (`some(approved)` rests
+         *  pre-approved, `some(pending)` awaits a call, `some(rejected)` is
+         *  declined; none ⇒ no decision). Compute in East — see
+         *  `deriveApproval`. Only rendered when `review` is set (#263). */
+        approval?: SubtypeExprOrValue<OptionType<ApprovalStateType>>;
     },
     style?: GanttStyle<DataFieldKeys<T>>
 ): ExprType<UIComponentType> {
@@ -685,6 +705,14 @@ function createGantt<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
             cells: cells,
             tasks: East.value(spec.tasks ?? [], ArrayType(GanttTaskType)),
             milestones: East.value(spec.milestones ?? [], ArrayType(GanttMilestoneType)),
+            // Review chrome (#263) — pass-through accessors (clean ⇒ approved,
+            // flagged ⇒ pending; see the shared `deriveApproval` helper).
+            status: spec.status !== undefined
+                ? East.value(spec.status, OptionType(StatusValueType))
+                : none,
+            approval: spec.approval !== undefined
+                ? East.value(spec.approval, OptionType(ApprovalStateType))
+                : none,
         }, GanttRowType);
     });
 
@@ -808,6 +836,7 @@ function createGantt<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
         onMilestoneClick: style?.onMilestoneClick ? some(style.onMilestoneClick) : none,
         onMilestoneDoubleClick: style?.onMilestoneDoubleClick ? some(style.onMilestoneDoubleClick) : none,
         onMilestoneDrag: style?.onMilestoneDrag ? some(style.onMilestoneDrag) : none,
+        review: style?.review !== undefined ? some(buildReview(style.review, RowReviewType)) : none,
         slice: sliceChromeValue ? some(sliceChromeValue) : none,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
@@ -824,6 +853,9 @@ interface GanttTypesShape {
     Milestone: GanttMilestoneType;
     State: PlannerStateType;
     Status: StatusValueType;
+    Approval: ApprovalStateType;
+    Review: RowReviewType;
+    ApproveEvent: RowRefType;
     MilestoneKind: GanttMilestoneKindType;
     Axis: GanttAxisType;
     Tier: GanttTierType;
@@ -937,6 +969,22 @@ const GanttTypes: GanttTypesShape = {
      * @property neutral - Muted
      */
     Status: StatusValueType,
+    /**
+     * A row's review decision — the shared `ApprovalStateType`
+     * (approved / pending / rejected) from `contracts/review.ts` (#263).
+     */
+    Approval: ApprovalStateType,
+    /**
+     * The review configuration — the shared row-granularity
+     * `RowReviewType` (decision column + commitBar foot) from
+     * `contracts/review.ts` (#263).
+     */
+    Review: RowReviewType,
+    /**
+     * The per-row approve / reject callback payload — the shared
+     * `RowRefType` (`{ rowIndex }`).
+     */
+    ApproveEvent: RowRefType,
     /**
      * East VariantType for a milestone's kind — drives the diamond fill.
      *
