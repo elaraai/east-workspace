@@ -14,9 +14,11 @@ import {
     StructType,
     VariantType,
     FunctionType,
+    type SubtypeExprOrValue,
 } from "@elaraai/east";
 
 import { StatusTokenType } from "../../style/interaction.js";
+import { SliceChromeType } from "../../platform/slice/index.js";
 
 // ============================================================================
 // Card status
@@ -88,25 +90,6 @@ export type LibraryDimValueType = typeof LibraryDimValueType;
 // ============================================================================
 
 /**
- * One card's group placement under a group-by option: the group value it
- * belongs to plus the (shared) group summary text.
- *
- * @property value - The group this card belongs to under the option
- * @property summary - Right-aligned group-head summary text
- */
-export const LibraryGroupPlacementType = StructType({
-    /** The group this card belongs to under the option */
-    value: StringType,
-    /** Right-aligned group-head summary text */
-    summary: OptionType(StringType),
-});
-
-/**
- * Type representing a card's group placement.
- */
-export type LibraryGroupPlacementType = typeof LibraryGroupPlacementType;
-
-/**
  * A resolved Library card.
  *
  * @remarks
@@ -119,8 +102,9 @@ export type LibraryGroupPlacementType = typeof LibraryGroupPlacementType;
  * @property icon - Optional Font Awesome solid icon name
  * @property status - Optional status pill
  * @property draggable - Whether the card can start a drag
- * @property search - Optional filter text (card dims when unmatched)
- * @property groups - Group placement per group-by option key
+ * @property filtered - Whether the card renders de-emphasised (dimmed, drag disabled) — the `Slice.partition` "keep the excluded" feed
+ * @property search - Optional filter text (card hides when unmatched)
+ * @property groups - Group value per group-by option key
  * @property dims - Secondary dimension value per dimension key
  */
 export const LibraryItemType = StructType({
@@ -136,10 +120,12 @@ export const LibraryItemType = StructType({
     status: OptionType(LibraryStatusType),
     /** Whether the card can start a drag */
     draggable: BooleanType,
-    /** Optional filter text (card dims when unmatched) */
+    /** Whether the card renders de-emphasised (dimmed, drag disabled) */
+    filtered: BooleanType,
+    /** Optional filter text (card hides when unmatched) */
     search: OptionType(StringType),
-    /** Group placement per group-by option key */
-    groups: DictType(StringType, LibraryGroupPlacementType),
+    /** Group value per group-by option key */
+    groups: DictType(StringType, StringType),
     /** Secondary dimension value per dimension key */
     dims: DictType(StringType, LibraryDimValueType),
 });
@@ -160,6 +146,7 @@ export type LibraryItemType = typeof LibraryItemType;
  * @property icon - Optional Font Awesome solid icon name
  * @property status - Optional status pill
  * @property draggable - Whether the card can start a drag
+ * @property filtered - Whether the card renders de-emphasised (dimmed, drag disabled)
  */
 export const LibraryCardFaceType = StructType({
     /** Item identity; carried by `LibraryRef` when dragged */
@@ -174,6 +161,8 @@ export const LibraryCardFaceType = StructType({
     status: OptionType(LibraryStatusType),
     /** Whether the card can start a drag */
     draggable: BooleanType,
+    /** Whether the card renders de-emphasised (dimmed, drag disabled) */
+    filtered: BooleanType,
 });
 
 /**
@@ -218,6 +207,54 @@ export const LibraryDimMetaType = StructType({
 export type LibraryDimMetaType = typeof LibraryDimMetaType;
 
 // ============================================================================
+// Style
+// ============================================================================
+
+/**
+ * East StructType for Library layout style.
+ *
+ * @remarks
+ * When `height` or `maxHeight` constrains the component, the card grid
+ * becomes the Library's own scroll region (header / toolbar / footer chrome
+ * stay fixed) and rows virtualize. Unconstrained, the Library grows to its
+ * content height and defers scrolling to an ancestor — the pre-#258
+ * behaviour.
+ *
+ * @property height - Optional CSS height (e.g. `"480px"`, `"100%"`)
+ * @property maxHeight - Optional CSS max-height
+ * @property virtualization - Whether rows virtualize inside the scroll region (default `true`)
+ */
+export const LibraryStyleType = StructType({
+    /** Optional CSS height (e.g. `"480px"`, `"100%"`) */
+    height: OptionType(StringType),
+    /** Optional CSS max-height */
+    maxHeight: OptionType(StringType),
+    /** Whether rows virtualize inside the scroll region (default `true`) */
+    virtualization: OptionType(BooleanType),
+});
+
+/**
+ * Type representing Library layout style values.
+ */
+export type LibraryStyleType = typeof LibraryStyleType;
+
+/**
+ * Style options for the Library component.
+ *
+ * @property height - Optional CSS height (e.g. `"480px"`, `"100%"`); constraining it makes the card grid the Library's own scroll region
+ * @property maxHeight - Optional CSS max-height
+ * @property virtualization - Whether rows virtualize inside the scroll region (default `true`; set `false` to always mount every card)
+ */
+export interface LibraryStyle {
+    /** Optional CSS height (e.g. `"480px"`, `"100%"`); constraining it makes the card grid the Library's own scroll region */
+    height?: SubtypeExprOrValue<StringType>;
+    /** Optional CSS max-height */
+    maxHeight?: SubtypeExprOrValue<StringType>;
+    /** Whether rows virtualize inside the scroll region (default `true`; set `false` to always mount every card) */
+    virtualization?: SubtypeExprOrValue<BooleanType>;
+}
+
+// ============================================================================
 // Root
 // ============================================================================
 
@@ -232,24 +269,29 @@ export type LibraryDimMetaType = typeof LibraryDimMetaType;
  * return-to-palette sink for its connected targets.
  *
  * @property id - DnD source identity
- * @property hint - Optional header-right caption (defaults to the drag hint)
+ * @property hint - Optional header-right caption (absent ⇒ no header band)
  * @property items - The resolved cards
  * @property groupOptions - GROUP BY toolbar options (empty = no grouping toolbar)
+ * @property groupSummaries - Right-aligned group-head summary text per group-by option key, per group value
  * @property dimOptions - SECONDARY dimension toggles (empty = no toggle toolbar)
  * @property defaultDimensions - Initially-visible dimension keys
  * @property searchable - Whether the search input renders
  * @property addLabel - Optional footer action label
  * @property onAdd - Optional footer action callback
+ * @property slice - Optional slice chrome (bound handle + rail affordances)
+ * @property style - Optional layout style (height / maxHeight / virtualization)
  */
 export const LibraryRootType = StructType({
     /** DnD source identity */
     id: StringType,
-    /** Optional header-right caption (defaults to the drag hint) */
+    /** Optional header-right caption (absent ⇒ no header band) */
     hint: OptionType(StringType),
     /** The resolved cards */
     items: ArrayType(LibraryItemType),
     /** GROUP BY toolbar options (empty = no grouping toolbar) */
     groupOptions: ArrayType(LibraryGroupMetaType),
+    /** Right-aligned group-head summary text per group-by option key, per group value */
+    groupSummaries: DictType(StringType, DictType(StringType, StringType)),
     /** SECONDARY dimension toggles (empty = no toggle toolbar) */
     dimOptions: ArrayType(LibraryDimMetaType),
     /** Initially-visible dimension keys */
@@ -260,6 +302,10 @@ export const LibraryRootType = StructType({
     addLabel: OptionType(StringType),
     /** Optional footer action callback */
     onAdd: OptionType(FunctionType([], NullType)),
+    /** Optional slice chrome (bound handle + rail affordances) */
+    slice: OptionType(SliceChromeType),
+    /** Optional layout style (height / maxHeight / virtualization) */
+    style: OptionType(LibraryStyleType),
 });
 
 /**

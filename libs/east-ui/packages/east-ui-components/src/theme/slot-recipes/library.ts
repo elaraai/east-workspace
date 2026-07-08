@@ -16,9 +16,10 @@ import { defineSlotRecipe } from "@chakra-ui/react";
 export const librarySlotRecipe = defineSlotRecipe({
     className: "elara-library",
     slots: [
-        "root", "header", "title", "hint",
-        "toolbar", "search", "segGroup", "segLabel", "segItem",
+        "root", "header", "hint",
+        "toolbar", "search", "segGroup", "segLabel",
         "group", "groupHead", "groupLabel", "groupSummary", "grid",
+        "body", "canvas", "row", "rowGrid",
         "card", "grip", "iconTile", "cardBody", "cardHead", "cardLabel",
         "cardSublabel", "statusPill",
         "meter", "meterTrack", "meterFill", "meterText",
@@ -30,6 +31,41 @@ export const librarySlotRecipe = defineSlotRecipe({
          * is host composition via Card / Slice.Frame. */
         root: {
             background: "bg.surface",
+            /* Height-constrained: chrome fixed, the body scrolls (#258). */
+            "&[data-scrollable]": {
+                display: "flex",
+                flexDirection: "column",
+                minHeight: "0",
+            },
+        },
+        /* The groups + card-grid region; becomes the scroll container when
+         * the root is height-constrained. */
+        body: {
+            "&[data-scrollable]": {
+                overflowY: "auto",
+                flex: "1 1 0%",
+                minHeight: "0",
+            },
+        },
+        /* Virtualizer sizing canvas — height is bound per render. */
+        canvas: {
+            position: "relative",
+            width: "100%",
+        },
+        /* One absolutely-positioned virtual row (group head or card chunk). */
+        row: {
+            position: "absolute",
+            top: "0",
+            left: "0",
+            width: "100%",
+        },
+        /* A single chunked card row — the virtualized sibling of `grid`;
+         * gridTemplateColumns is bound to the measured column count. */
+        rowGrid: {
+            display: "grid",
+            gap: "{spacing.3}",
+            paddingX: "{spacing.4}",
+            paddingY: "{spacing.1.5}",
         },
         header: {
             display: "flex",
@@ -39,15 +75,6 @@ export const librarySlotRecipe = defineSlotRecipe({
             paddingY: "{spacing.3}",
             borderBottomWidth: "1px",
             borderBottomColor: "border.subtle",
-        },
-        title: {
-            fontFamily: "mono",
-            fontSize: "11px",
-            fontWeight: "600",
-            letterSpacing: "0.14em",
-            lineHeight: "normal",
-            textTransform: "uppercase",
-            color: "fg",
         },
         hint: {
             marginLeft: "auto",
@@ -69,19 +96,10 @@ export const librarySlotRecipe = defineSlotRecipe({
             borderBottomColor: "border.subtle",
             flexWrap: "wrap",
         },
+        /* Layout only — visual chrome comes from the sliceFrame `searchPill`. */
         search: {
-            fontSize: "{fontSizes.control}",
-            color: "fg",
-            background: "bg.surface",
-            borderWidth: "1px",
-            borderColor: "border.strong",
-            borderRadius: "{radii.sm}",
-            paddingX: "{spacing.2}",
-            paddingY: "{spacing.1}",
+            width: "auto",
             minWidth: "200px",
-            outline: "none",
-            _placeholder: { color: "fg.subtle" },
-            _focusVisible: { borderColor: "border.focus" },
         },
         segGroup: {
             display: "flex",
@@ -97,23 +115,6 @@ export const librarySlotRecipe = defineSlotRecipe({
             textTransform: "uppercase",
             color: "fg.subtle",
             marginRight: "{spacing.1}",
-        },
-        segItem: {
-            fontSize: "{fontSizes.control}",
-            color: "fg.muted",
-            background: "bg.surface",
-            borderWidth: "1px",
-            borderColor: "border.subtle",
-            borderRadius: "{radii.sm}",
-            paddingX: "{spacing.2}",
-            paddingY: "2px",
-            cursor: "pointer",
-            "&[data-active]": {
-                color: "fg",
-                fontWeight: "600",
-                borderColor: "border.strong",
-                background: "bg.subtle",
-            },
         },
         group: {},
         groupHead: {

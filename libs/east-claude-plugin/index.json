@@ -1,14 +1,14 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1425,
+    "totalEntries": 1428,
     "totalFiles": 183,
     "packages": {
       "east": 489,
       "east-node-std": 42,
       "east-node-io": 63,
       "east-py-datascience": 89,
-      "east-ui": 676,
+      "east-ui": 679,
       "e3-ui": 55,
       "e3": 7,
       "e3-ui-cli": 4
@@ -15904,9 +15904,9 @@
         "palette"
       ],
       "imports": [
-        "import { East, example, some, none } from \"@elaraai/east\";",
+        "import { East, example, some, none, ArrayType, FloatType, IntegerType, StringType, StructType } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Library } from \"@elaraai/east-ui\";"
+        "import { Library, Reactive, Slice } from \"@elaraai/east-ui\";"
       ],
       "source": "// People palette — grouped by role with hours meter, skill chips, statuses, and search\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const people = $.const([\n            { id: \"patel\", name: \"Patel, R.\", seniority: \"Senior\", hours: 38.0, skills: [\"React\", \"Node\", \"Py\"], onRoster: false, atCap: false, site: \"SE-1\" },\n            { id: \"cho\", name: \"Cho, J.\", seniority: \"Senior\", hours: 26.0, skills: [\"Go\", \"SQL\"], onRoster: false, atCap: false, site: \"SE-1\" },\n            { id: \"rivera\", name: \"Rivera, M.\", seniority: \"Senior\", hours: 32.0, skills: [\"React\", \"Py\"], onRoster: true, atCap: false, site: \"SE-2\" },\n            { id: \"okafor\", name: \"Okafor, S.\", seniority: \"Senior\", hours: 40.0, skills: [\"Go\"], onRoster: false, atCap: true, site: \"SE-2\" },\n            { id: \"nguyen\", name: \"Nguyen, T.\", seniority: \"Mid\", hours: 20.0, skills: [\"React\", \"CSS\"], onRoster: false, atCap: false, site: \"SE-1\" },\n            { id: \"kim\", name: \"Kim, A.\", seniority: \"Mid\", hours: 22.0, skills: [\"Go\", \"k8s\"], onRoster: false, atCap: false, site: \"SE-3\" },\n        ]);\n        return (\n            <Library\n                id=\"people\"\n                data={people}\n                item={p => ({\n                    key: p.id,\n                    label: p.name,\n                    sublabel: East.str`${p.seniority} SE`,\n                    icon: \"user\",\n                    status: p.onRoster.ifElse(\n                        () => some(Library.status(\"On roster\", \"info\")),\n                        () => p.atCap.ifElse(() => some(Library.status(\"At cap\", \"neutral\")), () => none)),\n                    draggable: p.atCap.not(),\n                })}\n                dimensions={[\n                    { kind: \"meter\", key: \"hours\", label: \"Hours\", value: p => p.hours, max: 40.0, format: h => East.str`${h}h` },\n                    { kind: \"chips\", key: \"skills\", label: \"Skills\", values: p => p.skills },\n                    { kind: \"text\", key: \"location\", label: \"Location\", value: p => p.site },\n                ]}\n                groupBy={[\n                    { key: \"role\", label: \"Role\", value: p => p.seniority, summary: members => East.str`${members.size()} people` },\n                    { key: \"site\", label: \"Site\", value: p => p.site },\n                ]}\n                search={p => East.str`${p.name} ${p.seniority}`}\n                addLabel=\"Add person\"\n            />\n        );\n    })"
     },
@@ -15926,9 +15926,9 @@
         "vehicles"
       ],
       "imports": [
-        "import { East, example, some, none } from \"@elaraai/east\";",
+        "import { East, example, some, none, ArrayType, FloatType, IntegerType, StringType, StructType } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Library } from \"@elaraai/east-ui\";"
+        "import { Library, Reactive, Slice } from \"@elaraai/east-ui\";"
       ],
       "source": "// Asset palette — same chassis, different secondary dimensions\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const trucks = $.const([\n            { id: \"BT-014\", cls: \"26ft box\", depot: \"North\", cap: \"cap 10t\", range: \"range 300mi\", cert: \"CDL-B\", inService: false },\n            { id: \"BT-018\", cls: \"26ft box\", depot: \"North\", cap: \"cap 10t\", range: \"range 300mi\", cert: \"CDL-B\", inService: false },\n            { id: \"BT-022\", cls: \"26ft box\", depot: \"South\", cap: \"cap 10t\", range: \"range 300mi\", cert: \"CDL-B\", inService: true },\n        ]);\n        return (\n            <Library\n                id=\"vehicles\"\n                data={trucks}\n                item={t => ({\n                    key: t.id,\n                    label: t.id,\n                    sublabel: t.cls,\n                    icon: \"truck\",\n                    status: t.inService.ifElse(() => some(Library.status(\"In service\", \"success\")), () => none),\n                    draggable: t.inService.not(),\n                })}\n                dimensions={[\n                    { kind: \"chips\", key: \"capacity\", label: \"Capacity\", values: t => [t.cap, t.range] },\n                    { kind: \"chips\", key: \"cert\", label: \"Cert\", values: t => [t.cert] },\n                ]}\n                groupBy={[\n                    { key: \"class\", label: \"Class\", value: t => t.cls, summary: members => East.print(members.size()) },\n                    { key: \"depot\", label: \"Depot\", value: t => t.depot },\n                ]}\n            />\n        );\n    })"
     },
@@ -15946,11 +15946,84 @@
         "minimal"
       ],
       "imports": [
-        "import { East, example, some, none } from \"@elaraai/east\";",
+        "import { East, example, some, none, ArrayType, FloatType, IntegerType, StringType, StructType } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Library } from \"@elaraai/east-ui\";"
+        "import { Library, Reactive, Slice } from \"@elaraai/east-ui\";"
       ],
       "source": "// Minimal flat palette — identity cards only, no toolbar\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rooms = $.const([\n            { id: \"hall-b\", name: \"Hall B\" },\n            { id: \"qa-cell\", name: \"QA Cell\" },\n            { id: \"dispatch\", name: \"Dispatch\" },\n        ]);\n        return (\n            <Library\n                id=\"rooms\"\n                data={rooms}\n                item={r => ({ key: r.id, label: r.name, icon: \"warehouse\" })}\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:library.examples.tsx:libraryLarge",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/library.examples.tsx",
+      "suite": "",
+      "test": "Large grouped palette — 400 generated crew cards behind a 480px scroll region; rows virtualize under the grouped layout (depot / role group-by, meter + chips dims, search)",
+      "keywords": [
+        "Library",
+        "large",
+        "virtualization",
+        "scroll",
+        "height",
+        "group",
+        "hundreds",
+        "performance"
+      ],
+      "imports": [
+        "import { East, example, some, none, ArrayType, FloatType, IntegerType, StringType, StructType } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Library, Reactive, Slice } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Large grouped palette — 400 generated crew cards behind a 480px scroll region; rows virtualize under the grouped layout (depot / role group-by, meter + chips dims, search)\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const surnames = $.const([\"Patel\", \"Cho\", \"Rivera\", \"Okafor\", \"Nguyen\", \"Kim\", \"Ali\", \"Silva\", \"Weber\", \"Rossi\", \"Tanaka\", \"Novak\"], ArrayType(StringType));\n        const roles = $.const([\"Senior\", \"Mid\", \"Junior\", \"Contract\", \"Casual\"], ArrayType(StringType));\n        const depots = $.const([\"North\", \"South\", \"East\", \"West\", \"Central\", \"Airport\", \"Harbor\", \"Rail\"], ArrayType(StringType));\n        const skillPool = $.const([\"Forklift\", \"HazMat\", \"CDL-B\", \"Crane\", \"Rigging\", \"First aid\", \"Welding\", \"Night\"], ArrayType(StringType));\n        const crew = $.const(East.Array.generate(400n, CrewType, East.function([IntegerType], CrewType, ($, i) => {\n            const row = $.let({\n                id: East.str`crew-${i}`,\n                name: East.str`${surnames.get(i.remainder(12n))}, ${i}`,\n                role: roles.get(i.remainder(5n)),\n                depot: depots.get(i.remainder(8n)),\n                hours: i.remainder(41n).toFloat(),\n                skills: [skillPool.get(i.remainder(8n)), skillPool.get(i.add(3n).remainder(8n))],\n            }, CrewType);\n            return row;\n        })));\n        return (\n            <Library\n                id=\"crew\"\n                data={crew}\n                item={c => ({ key: c.id, label: c.name, sublabel: c.role, icon: \"user\" })}\n                dimensions={[\n                    { kind: \"meter\", key: \"hours\", label: \"Hours\", value: c => c.hours, max: 40.0, format: h => East.str`${h}h` },\n                    { kind: \"chips\", key: \"skills\", label: \"Skills\", values: c => c.skills },\n                    { kind: \"text\", key: \"depot\", label: \"Depot\", value: c => c.depot },\n                ]}\n                groupBy={[\n                    { key: \"depot\", label: \"Depot\", value: c => c.depot, summary: members => East.str`${members.size()} crew` },\n                    { key: \"role\", label: \"Role\", value: c => c.role },\n                ]}\n                search={c => East.str`${c.name} ${c.role} ${c.depot}`}\n                style={{ height: \"480px\" }}\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:library.examples.tsx:libraryLargeFlat",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/library.examples.tsx",
+      "suite": "",
+      "test": "Large flat palette — the same 400 generated cards with no group-by: the flat layout virtualizes through the identical entry model (zero group heads)",
+      "keywords": [
+        "Library",
+        "large",
+        "virtualization",
+        "flat",
+        "scroll",
+        "height",
+        "hundreds"
+      ],
+      "imports": [
+        "import { East, example, some, none, ArrayType, FloatType, IntegerType, StringType, StructType } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Library, Reactive, Slice } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Large flat palette — the same 400 generated cards with no group-by: the flat layout virtualizes through the identical entry model (zero group heads)\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const surnames = $.const([\"Patel\", \"Cho\", \"Rivera\", \"Okafor\", \"Nguyen\", \"Kim\", \"Ali\", \"Silva\", \"Weber\", \"Rossi\", \"Tanaka\", \"Novak\"], ArrayType(StringType));\n        const roles = $.const([\"Senior\", \"Mid\", \"Junior\", \"Contract\", \"Casual\"], ArrayType(StringType));\n        const depots = $.const([\"North\", \"South\", \"East\", \"West\", \"Central\", \"Airport\", \"Harbor\", \"Rail\"], ArrayType(StringType));\n        const skillPool = $.const([\"Forklift\", \"HazMat\", \"CDL-B\", \"Crane\", \"Rigging\", \"First aid\", \"Welding\", \"Night\"], ArrayType(StringType));\n        const crew = $.const(East.Array.generate(400n, CrewType, East.function([IntegerType], CrewType, ($, i) => {\n            const row = $.let({\n                id: East.str`crew-${i}`,\n                name: East.str`${surnames.get(i.remainder(12n))}, ${i}`,\n                role: roles.get(i.remainder(5n)),\n                depot: depots.get(i.remainder(8n)),\n                hours: i.remainder(41n).toFloat(),\n                skills: [skillPool.get(i.remainder(8n)), skillPool.get(i.add(3n).remainder(8n))],\n            }, CrewType);\n            return row;\n        })));\n        return (\n            <Library\n                id=\"crew-flat\"\n                data={crew}\n                item={c => ({ key: c.id, label: c.name, sublabel: c.role, icon: \"user\" })}\n                dimensions={[\n                    { kind: \"meter\", key: \"hours\", label: \"Hours\", value: c => c.hours, max: 40.0, format: h => East.str`${h}h` },\n                    { kind: \"chips\", key: \"skills\", label: \"Skills\", values: c => c.skills },\n                ]}\n                search={c => East.str`${c.name} ${c.role}`}\n                style={{ height: \"480px\" }}\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:library.examples.tsx:libraryLargeSlice",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/library.examples.tsx",
+      "suite": "",
+      "test": "Large sliced palette — the 400 cards behind Slice chrome: a rail mounting [\\",
+      "keywords": [
+        "Library",
+        "slice",
+        "chrome",
+        "filter",
+        "search",
+        "rail",
+        "count",
+        "footer",
+        "large",
+        "Slice.rows"
+      ],
+      "imports": [
+        "import { East, example, some, none, ArrayType, FloatType, IntegerType, StringType, StructType } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Library, Reactive, Slice } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Large sliced palette — the 400 cards behind Slice chrome: a rail mounting [\\\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const cfg = Slice.config(CrewType, {\n            fields: { name: { label: \"Name\" }, role: { label: \"Role\" }, depot: { label: \"Depot\" } },\n            searchFieldIds: [\"name\", \"role\", \"depot\"],\n        });\n        return (\n            <Reactive>{$ => {\n                const surnames = $.const([\"Patel\", \"Cho\", \"Rivera\", \"Okafor\", \"Nguyen\", \"Kim\", \"Ali\", \"Silva\", \"Weber\", \"Rossi\", \"Tanaka\", \"Novak\"], ArrayType(StringType));\n                const roles = $.const([\"Senior\", \"Mid\", \"Junior\", \"Contract\", \"Casual\"], ArrayType(StringType));\n                const depots = $.const([\"North\", \"South\", \"East\", \"West\", \"Central\", \"Airport\", \"Harbor\", \"Rail\"], ArrayType(StringType));\n                const skillPool = $.const([\"Forklift\", \"HazMat\", \"CDL-B\", \"Crane\", \"Rigging\", \"First aid\", \"Welding\", \"Night\"], ArrayType(StringType));\n                const crew = $.const(East.Array.generate(400n, CrewType, East.function([IntegerType], CrewType, ($, i) => {\n                    const row = $.let({\n                        id: East.str`crew-${i}`,\n                        name: East.str`${surnames.get(i.remainder(12n))}, ${i}`,\n                        role: roles.get(i.remainder(5n)),\n                        depot: depots.get(i.remainder(8n)),\n                        hours: i.remainder(41n).toFloat(),\n                        skills: [skillPool.get(i.remainder(8n)), skillPool.get(i.add(3n).remainder(8n))],\n                    }, CrewType);\n                    return row;\n                })));\n                const slice = $.let(Slice.bind([CrewType], \"ex.library.large.slice\", cfg, Slice.state({}), crew, none));\n                const narrowed = $.let(Slice.rows([CrewType], slice));\n                return (\n                    <Library\n                        id=\"crew-sliced\"\n                        data={narrowed}\n                        item={c => ({ key: c.id, label: c.name, sublabel: c.role, icon: \"user\" })}\n                        dimensions={[\n                            { kind: \"meter\", key: \"hours\", label: \"Hours\", value: c => c.hours, max: 40.0, format: h => East.str`${h}h` },\n                            { kind: \"chips\", key: \"skills\", label: \"Skills\", values: c => c.skills },\n                        ]}\n                        groupBy={[\n                            { key: \"depot\", label: \"Depot\", value: c => c.depot, summary: members => East.str`${members.size()} crew` },\n                        ]}\n                        slice={slice}\n                        affordances={[\"filter\", \"search\"]}\n                        style={{ height: \"480px\" }}\n                    />\n                );\n            }}</Reactive>\n        );\n    })"
     },
     {
       "id": "east-ui:map.examples.tsx:mapBasic",

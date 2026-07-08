@@ -38,15 +38,18 @@ import { UIComponentType } from "../../component.js";
 import { mapRowsBlock } from "../../shared/reify.js";
 import { type IconName } from "../../display/icon/types.js";
 import { StatusTokenType, type StatusTokenLiteral } from "../../style/interaction.js";
+import { SliceBindType, SliceChromeType } from "../../platform/slice/index.js";
+import { SliceAffordanceType, type SliceAffordanceLiteral } from "../../contracts/slice-affordances.js";
 import {
     LibraryRootType,
     LibraryItemType,
     LibraryCardFaceType,
     LibraryStatusType,
     LibraryDimValueType,
-    LibraryGroupPlacementType,
     LibraryGroupMetaType,
     LibraryDimMetaType,
+    LibraryStyleType,
+    type LibraryStyle,
 } from "./types.js";
 
 // Re-export types
@@ -56,9 +59,10 @@ export {
     LibraryCardFaceType,
     LibraryStatusType,
     LibraryDimValueType,
-    LibraryGroupPlacementType,
     LibraryGroupMetaType,
     LibraryDimMetaType,
+    LibraryStyleType,
+    type LibraryStyle,
 } from "./types.js";
 
 /**
@@ -80,6 +84,7 @@ export type RowElement<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
  * @property icon - Optional Font Awesome solid icon name
  * @property status - Optional status pill (`some(Library.status(...))` or a conditional option expression)
  * @property draggable - Whether the card can start a drag (default `true`)
+ * @property filtered - Whether the card renders de-emphasised (default `false`) — map `Slice.partition`'s `matched.not()` here to keep filtered-out cards as dimmed context
  */
 export interface LibraryCardFields {
     /** Item identity; carried by `LibraryRef` when dragged */
@@ -94,6 +99,8 @@ export interface LibraryCardFields {
     status?: SubtypeExprOrValue<OptionType<LibraryStatusType>>;
     /** Whether the card can start a drag (default `true`) */
     draggable?: SubtypeExprOrValue<BooleanType>;
+    /** Whether the card renders de-emphasised — dimmed, drag disabled (default `false`) */
+    filtered?: SubtypeExprOrValue<BooleanType>;
 }
 
 /**
@@ -126,6 +133,7 @@ function createCard(input: LibraryCardFields): ExprType<LibraryCardFaceType> {
         icon: input.icon !== undefined ? some(input.icon) : none,
         status: input.status !== undefined ? input.status : none,
         draggable: input.draggable !== undefined ? input.draggable : true,
+        filtered: input.filtered !== undefined ? input.filtered : false,
     }, LibraryCardFaceType);
 }
 
@@ -279,20 +287,23 @@ function dimValue<R extends StructType>(
  * @typeParam R - The struct type of each data row
  * @property id - DnD source identity — targets list it in their `sources`
  * @property item - Item row mapper — returns card-face fields (or a resolved face expression)
- * @property hint - Optional header-right caption (defaults to the drag hint)
+ * @property hint - Optional header-right caption (absent ⇒ no header band)
  * @property dimensions - Secondary dimensions (toolbar-toggleable card facts)
  * @property defaultDimensions - Initially-visible dimension keys (default: the first two)
  * @property groupBy - GROUP BY options; omit for a flat list
- * @property search - Filter-text accessor; unmatched cards dim rather than disappear
+ * @property search - Filter-text accessor; unmatched cards hide (the footer shows the hidden count + Show all)
  * @property addLabel - Optional footer action label
  * @property onAdd - Optional footer action callback
+ * @property slice - Optional slice chrome: the bound handle; the Library renders the rail + count footer, never narrows data itself
+ * @property affordances - Rail affordances when `slice` is set (default `["filter", "search"]`)
+ * @property style - Optional layout style (height / maxHeight / virtualization)
  */
 export interface LibraryConfig<R extends StructType> {
     /** DnD source identity — targets list it in their `sources` */
     id: string;
     /** Item row mapper — returns card-face fields (or a resolved face expression). */
     item: (row: ExprType<R>) => LibraryCardFields;
-    /** Optional header-right caption (defaults to the drag hint) */
+    /** Optional header-right caption (absent ⇒ no header band) */
     hint?: SubtypeExprOrValue<StringType>;
     /** Secondary dimensions (toolbar-toggleable card facts) */
     dimensions?: LibraryDimensionDef<R>[];
@@ -300,13 +311,37 @@ export interface LibraryConfig<R extends StructType> {
     defaultDimensions?: string[];
     /** GROUP BY options; omit for a flat list */
     groupBy?: LibraryGroupDef<R>[];
-    /** Filter-text accessor; unmatched cards dim rather than disappear */
+    /** Filter-text accessor; unmatched cards hide (the footer shows the hidden count + Show all) */
     search?: (row: ExprType<R>) => SubtypeExprOrValue<StringType>;
     /** Optional footer action label */
     addLabel?: SubtypeExprOrValue<StringType>;
     /** Optional footer action callback */
     onAdd?: SubtypeExprOrValue<FunctionType<[], NullType>>;
+    /**
+     * Slice chrome — pass the bound handle and the Library renders the frame
+     * chassis itself: a rail mounting the `affordances` (default
+     * `["filter", "search"]`) and a derived-count footer. Chrome only: feed
+     * the narrowed data explicitly via `data={Slice.rows([RowType], slice)}`,
+     * or keep filtered-out cards as dimmed context by feeding
+     * `Slice.partition([RowType], slice)` and mapping `matched.not()` into the
+     * card face's `filtered`. `brush` / `legend` / `breakdown` are rejected —
+     * the Library has no continuous axis or series, and slice breakdown would
+     * fight the built-in GROUP BY toolbar. When the `search` affordance is
+     * active the built-in search input is suppressed (the rail's search
+     * narrows the fed rows; two search boxes with different semantics is a
+     * trap).
+     */
+    slice?: SubtypeExprOrValue<SliceBindType>;
+    /** Rail affordances when `slice` is set (default `["filter", "search"]`) */
+    affordances?: SliceAffordanceLiteral[];
+    /** Optional layout style (height / maxHeight / virtualization) */
+    style?: LibraryStyle;
 }
+
+/** Affordances a Library rail cannot mount: no continuous axis (`brush`), no
+ *  series (`legend`), and slice breakdown would fight the built-in GROUP BY
+ *  toolbar (`breakdown`). */
+const REJECTED_AFFORDANCES: readonly SliceAffordanceLiteral[] = ["brush", "legend", "breakdown"];
 
 function buildRoot(
     data: SubtypeExprOrValue<ArrayType<StructType>>,
@@ -321,18 +356,9 @@ function buildRoot(
         for (const dim of dimensions) {
             $(dims.insert(dim.key, dimValue(dim, row)));
         }
-        const groups = $.let(new Map(), DictType(StringType, LibraryGroupPlacementType));
+        const groups = $.let(new Map(), DictType(StringType, StringType));
         for (const group of groupDefs) {
-            $(groups.insert(group.key, East.value({
-                value: group.value(row),
-                summary: group.summary !== undefined
-                    ? some(group.summary(
-                        data_expr.filter((_$, peer) => East.equal(
-                            East.value(group.value(peer), StringType),
-                            East.value(group.value(row), StringType),
-                        ))))
-                    : none,
-            }, LibraryGroupPlacementType)));
+            $(groups.insert(group.key, East.value(group.value(row), StringType)));
         }
         const raw: LibraryCardFields | ExprType<LibraryCardFaceType> = config.item(row);
         const face = $.let(raw instanceof Expr ? raw : createCard(raw), LibraryCardFaceType);
@@ -343,11 +369,53 @@ function buildRoot(
             icon: face.icon,
             status: face.status,
             draggable: face.draggable,
+            filtered: face.filtered,
             search: config.search !== undefined ? some(config.search(row)) : none,
             groups,
             dims,
         }, LibraryItemType);
     });
+
+    // Group-head summaries, hoisted off the items: one O(n) bucketing pass per
+    // group option (previously a per-row peer filter — O(n²) — with the same
+    // summary string duplicated onto every item).
+    const summariesType = DictType(StringType, DictType(StringType, StringType));
+    const summariesFn = East.function([Expr.type(data_expr)], summariesType, ($, rows) => {
+        const out = $.let(new Map(), summariesType);
+        for (const group of groupDefs) {
+            if (group.summary !== undefined) {
+                const summary = group.summary;
+                $(out.insert(group.key,
+                    rows.groupToArrays((_$, r) => East.value(group.value(r), StringType))
+                        .map((_$, members) => East.value(summary(members), StringType))));
+            }
+        }
+        return out;
+    });
+
+    const affordances = config.affordances ?? ["filter", "search"];
+    for (const affordance of affordances) {
+        if (REJECTED_AFFORDANCES.includes(affordance)) {
+            throw new Error(`Library does not support the '${affordance}' affordance — it has no continuous axis or series, and slice breakdown would fight the built-in GROUP BY toolbar.`);
+        }
+    }
+    const sliceChromeValue = config.slice !== undefined
+        ? East.value({
+            slice: config.slice,
+            affordances: East.value(
+                affordances.map(a => variant(a, null)),
+                ArrayType(SliceAffordanceType),
+            ),
+        }, SliceChromeType)
+        : undefined;
+
+    const styleValue = config.style !== undefined
+        ? East.value({
+            height: config.style.height !== undefined ? some(config.style.height) : none,
+            maxHeight: config.style.maxHeight !== undefined ? some(config.style.maxHeight) : none,
+            virtualization: config.style.virtualization !== undefined ? some(config.style.virtualization) : none,
+        }, LibraryStyleType)
+        : undefined;
 
     return East.value(variant("Library", {
         id: config.id,
@@ -356,6 +424,7 @@ function buildRoot(
         groupOptions: East.value(
             groupDefs.map(g => ({ key: g.key, label: g.label })),
             ArrayType(LibraryGroupMetaType)),
+        groupSummaries: summariesFn(data_expr),
         dimOptions: East.value(
             dimensions.map(d => ({ key: d.key, label: d.label })),
             ArrayType(LibraryDimMetaType)),
@@ -365,6 +434,8 @@ function buildRoot(
         searchable: config.search !== undefined,
         addLabel: config.addLabel !== undefined ? some(config.addLabel) : none,
         onAdd: config.onAdd !== undefined ? some(config.onAdd) : none,
+        slice: sliceChromeValue !== undefined ? some(sliceChromeValue) : none,
+        style: styleValue !== undefined ? some(styleValue) : none,
     }), UIComponentType);
 }
 
@@ -427,8 +498,9 @@ export const Library = {
      *
      * @remarks
      * Declares the DnD **source** role under `config.id`. Cards with
-     * `draggable: false` show no grip and never start a drag. Search text
-     * dims unmatched cards instead of removing them.
+     * `draggable: false` show no grip and never start a drag. The quick
+     * search hides unmatched cards (the footer shows the hidden count);
+     * the `filtered` face field dims a card instead.
      *
      * @example
      * ```ts
@@ -474,11 +546,14 @@ export const Library = {
          * @property hint - Optional header-right caption
          * @property items - The resolved cards
          * @property groupOptions - GROUP BY toolbar options
+         * @property groupSummaries - Group-head summary text per option key, per group value
          * @property dimOptions - SECONDARY dimension toggles
          * @property defaultDimensions - Initially-visible dimension keys
          * @property searchable - Whether the search input renders
          * @property addLabel - Optional footer action label
          * @property onAdd - Optional footer action callback
+         * @property slice - Optional slice chrome (bound handle + rail affordances)
+         * @property style - Optional layout style (height / maxHeight / virtualization)
          */
         Library: LibraryRootType,
         /**
@@ -490,8 +565,9 @@ export const Library = {
          * @property icon - Optional Font Awesome solid icon name
          * @property status - Optional status pill
          * @property draggable - Whether the card can start a drag
+         * @property filtered - Whether the card renders de-emphasised
          * @property search - Optional filter text
-         * @property groups - Group placement per group-by option key
+         * @property groups - Group value per group-by option key
          * @property dims - Secondary dimension value per dimension key
          */
         Item: LibraryItemType,
@@ -504,6 +580,7 @@ export const Library = {
          * @property icon - Optional Font Awesome solid icon name
          * @property status - Optional status pill
          * @property draggable - Whether the card can start a drag
+         * @property filtered - Whether the card renders de-emphasised
          */
         CardFace: LibraryCardFaceType,
         /**
@@ -521,5 +598,13 @@ export const Library = {
          * @property text - A muted caption line
          */
         DimValue: LibraryDimValueType,
+        /**
+         * East StructType for Library layout style.
+         *
+         * @property height - Optional CSS height; constraining it makes the card grid the Library's own scroll region
+         * @property maxHeight - Optional CSS max-height
+         * @property virtualization - Whether rows virtualize inside the scroll region (default `true`)
+         */
+        Style: LibraryStyleType,
     },
 } as const;

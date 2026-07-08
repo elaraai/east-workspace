@@ -19,8 +19,10 @@ import { UIComponentType } from "../../component.js";
  * carries a primary identity (`item` accessor via `Library.card`) plus
  * configurable secondary dimensions that are filterable, groupable, and
  * visible on the card. Declares the drag & drop **source** role under `id`;
- * targets connect by listing that id in their `sources`. Cards dim when
- * filtered out instead of disappearing, keeping a stable mental map.
+ * targets connect by listing that id in their `sources`. The quick search
+ * hides unmatched cards (the footer shows the hidden count + Show all);
+ * the `filtered` card-face field dims a card instead — the host's
+ * deliberate de-emphasis (e.g. `Slice.partition`'s unmatched rows).
  *
  * @example
  * ```tsx

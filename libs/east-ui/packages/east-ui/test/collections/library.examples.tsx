@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, example, some, none } from "@elaraai/east";
+import { East, example, some, none, ArrayType, FloatType, IntegerType, StringType, StructType } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { Library } from "@elaraai/east-ui";
+import { Library, Reactive, Slice } from "@elaraai/east-ui";
 
 export const libraryPeople = example({
     keywords: ["Library", "card", "meter", "chips", "group", "status", "search", "drag", "palette"],
@@ -100,6 +100,148 @@ export const libraryFlat = example({
                 data={rooms}
                 item={r => ({ key: r.id, label: r.name, icon: "warehouse" })}
             />
+        );
+    }),
+    inputs: [],
+});
+
+// ============================================================================
+// Large libraries (#258) — hundreds of cards behind a height-constrained,
+// virtualized scroll region. Data is generated East-side and deterministically
+// (remainder indexing into literal pools — no host randomness).
+// ============================================================================
+
+const CrewType = StructType({
+    id: StringType,
+    name: StringType,
+    role: StringType,
+    depot: StringType,
+    hours: FloatType,
+    skills: ArrayType(StringType),
+});
+
+export const libraryLarge = example({
+    keywords: ["Library", "large", "virtualization", "scroll", "height", "group", "hundreds", "performance"],
+    description: "Large grouped palette — 400 generated crew cards behind a 480px scroll region; rows virtualize under the grouped layout (depot / role group-by, meter + chips dims, search)",
+    fn: East.function([], UIComponentType, ($) => {
+        const surnames = $.const(["Patel", "Cho", "Rivera", "Okafor", "Nguyen", "Kim", "Ali", "Silva", "Weber", "Rossi", "Tanaka", "Novak"], ArrayType(StringType));
+        const roles = $.const(["Senior", "Mid", "Junior", "Contract", "Casual"], ArrayType(StringType));
+        const depots = $.const(["North", "South", "East", "West", "Central", "Airport", "Harbor", "Rail"], ArrayType(StringType));
+        const skillPool = $.const(["Forklift", "HazMat", "CDL-B", "Crane", "Rigging", "First aid", "Welding", "Night"], ArrayType(StringType));
+        const crew = $.const(East.Array.generate(400n, CrewType, East.function([IntegerType], CrewType, ($, i) => {
+            const row = $.let({
+                id: East.str`crew-${i}`,
+                name: East.str`${surnames.get(i.remainder(12n))}, ${i}`,
+                role: roles.get(i.remainder(5n)),
+                depot: depots.get(i.remainder(8n)),
+                hours: i.remainder(41n).toFloat(),
+                skills: [skillPool.get(i.remainder(8n)), skillPool.get(i.add(3n).remainder(8n))],
+            }, CrewType);
+            return row;
+        })));
+        return (
+            <Library
+                id="crew"
+                data={crew}
+                item={c => ({ key: c.id, label: c.name, sublabel: c.role, icon: "user" })}
+                dimensions={[
+                    { kind: "meter", key: "hours", label: "Hours", value: c => c.hours, max: 40.0, format: h => East.str`${h}h` },
+                    { kind: "chips", key: "skills", label: "Skills", values: c => c.skills },
+                    { kind: "text", key: "depot", label: "Depot", value: c => c.depot },
+                ]}
+                groupBy={[
+                    { key: "depot", label: "Depot", value: c => c.depot, summary: members => East.str`${members.size()} crew` },
+                    { key: "role", label: "Role", value: c => c.role },
+                ]}
+                search={c => East.str`${c.name} ${c.role} ${c.depot}`}
+                style={{ height: "480px" }}
+            />
+        );
+    }),
+    inputs: [],
+});
+
+export const libraryLargeFlat = example({
+    keywords: ["Library", "large", "virtualization", "flat", "scroll", "height", "hundreds"],
+    description: "Large flat palette — the same 400 generated cards with no group-by: the flat layout virtualizes through the identical entry model (zero group heads)",
+    fn: East.function([], UIComponentType, ($) => {
+        const surnames = $.const(["Patel", "Cho", "Rivera", "Okafor", "Nguyen", "Kim", "Ali", "Silva", "Weber", "Rossi", "Tanaka", "Novak"], ArrayType(StringType));
+        const roles = $.const(["Senior", "Mid", "Junior", "Contract", "Casual"], ArrayType(StringType));
+        const depots = $.const(["North", "South", "East", "West", "Central", "Airport", "Harbor", "Rail"], ArrayType(StringType));
+        const skillPool = $.const(["Forklift", "HazMat", "CDL-B", "Crane", "Rigging", "First aid", "Welding", "Night"], ArrayType(StringType));
+        const crew = $.const(East.Array.generate(400n, CrewType, East.function([IntegerType], CrewType, ($, i) => {
+            const row = $.let({
+                id: East.str`crew-${i}`,
+                name: East.str`${surnames.get(i.remainder(12n))}, ${i}`,
+                role: roles.get(i.remainder(5n)),
+                depot: depots.get(i.remainder(8n)),
+                hours: i.remainder(41n).toFloat(),
+                skills: [skillPool.get(i.remainder(8n)), skillPool.get(i.add(3n).remainder(8n))],
+            }, CrewType);
+            return row;
+        })));
+        return (
+            <Library
+                id="crew-flat"
+                data={crew}
+                item={c => ({ key: c.id, label: c.name, sublabel: c.role, icon: "user" })}
+                dimensions={[
+                    { kind: "meter", key: "hours", label: "Hours", value: c => c.hours, max: 40.0, format: h => East.str`${h}h` },
+                    { kind: "chips", key: "skills", label: "Skills", values: c => c.skills },
+                ]}
+                search={c => East.str`${c.name} ${c.role}`}
+                style={{ height: "480px" }}
+            />
+        );
+    }),
+    inputs: [],
+});
+
+export const libraryLargeSlice = example({
+    keywords: ["Library", "slice", "chrome", "filter", "search", "rail", "count", "footer", "large", "Slice.rows"],
+    description: "Large sliced palette — the 400 cards behind Slice chrome: a rail mounting [\"filter\", \"search\"] and a derived-count footer; rows fed explicitly via Slice.rows so filtered-out cards leave the palette",
+    fn: East.function([], UIComponentType, (_$) => {
+        const cfg = Slice.config(CrewType, {
+            fields: { name: { label: "Name" }, role: { label: "Role" }, depot: { label: "Depot" } },
+            searchFieldIds: ["name", "role", "depot"],
+        });
+        return (
+            <Reactive>{$ => {
+                const surnames = $.const(["Patel", "Cho", "Rivera", "Okafor", "Nguyen", "Kim", "Ali", "Silva", "Weber", "Rossi", "Tanaka", "Novak"], ArrayType(StringType));
+                const roles = $.const(["Senior", "Mid", "Junior", "Contract", "Casual"], ArrayType(StringType));
+                const depots = $.const(["North", "South", "East", "West", "Central", "Airport", "Harbor", "Rail"], ArrayType(StringType));
+                const skillPool = $.const(["Forklift", "HazMat", "CDL-B", "Crane", "Rigging", "First aid", "Welding", "Night"], ArrayType(StringType));
+                const crew = $.const(East.Array.generate(400n, CrewType, East.function([IntegerType], CrewType, ($, i) => {
+                    const row = $.let({
+                        id: East.str`crew-${i}`,
+                        name: East.str`${surnames.get(i.remainder(12n))}, ${i}`,
+                        role: roles.get(i.remainder(5n)),
+                        depot: depots.get(i.remainder(8n)),
+                        hours: i.remainder(41n).toFloat(),
+                        skills: [skillPool.get(i.remainder(8n)), skillPool.get(i.add(3n).remainder(8n))],
+                    }, CrewType);
+                    return row;
+                })));
+                const slice = $.let(Slice.bind([CrewType], "ex.library.large.slice", cfg, Slice.state({}), crew, none));
+                const narrowed = $.let(Slice.rows([CrewType], slice));
+                return (
+                    <Library
+                        id="crew-sliced"
+                        data={narrowed}
+                        item={c => ({ key: c.id, label: c.name, sublabel: c.role, icon: "user" })}
+                        dimensions={[
+                            { kind: "meter", key: "hours", label: "Hours", value: c => c.hours, max: 40.0, format: h => East.str`${h}h` },
+                            { kind: "chips", key: "skills", label: "Skills", values: c => c.skills },
+                        ]}
+                        groupBy={[
+                            { key: "depot", label: "Depot", value: c => c.depot, summary: members => East.str`${members.size()} crew` },
+                        ]}
+                        slice={slice}
+                        affordances={["filter", "search"]}
+                        style={{ height: "480px" }}
+                    />
+                );
+            }}</Reactive>
         );
     }),
     inputs: [],
