@@ -4,7 +4,7 @@
  */
 
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
-import { Box, HoverCard, Popover, Portal, Tooltip, useRecipe, useSlotRecipe } from "@chakra-ui/react";
+import { Box, HoverCard, Popover, Portal, Tooltip, useSlotRecipe } from "@chakra-ui/react";
 import {
     useReactTable, getCoreRowModel, createColumnHelper,
     type ColumnDef, type ColumnSizingState, type Updater,
@@ -24,6 +24,7 @@ import {
     ColumnDividerBar, ColumnResizeHandle,
 } from "../shared/column-pinning";
 import { useDensityHeights } from "../shared/helpers";
+import { useReviewController, DecisionButtons, ReviewFoot, DECISION_WIDTH } from "../shared/review";
 import { DensityProvider } from "../../contracts/density";
 import { usePlotGutter, gutterPx } from "../../contracts/plot-gutter.js";
 
@@ -41,23 +42,6 @@ export type PlannerColumnValue = ValueTypeOf<typeof Planner.Types.Column>;
 export type PlannerSlotValue = ValueTypeOf<typeof Planner.Types.Slot>;
 /** East Planner review-config value (the optional decision column + foot). */
 export type PlannerReviewValue = ValueTypeOf<typeof Planner.Types.Review>;
-
-/** A row's resolved review verdict — drives the Approve/Reject button states. */
-type ApprovalTag = "approved" | "pending" | "rejected";
-
-/** The fixed width of the trailing review decision column. Shared by the
- *  header cell and every per-row cell so the right edge stays aligned. */
-const DECISION_WIDTH = "168px";
-
-/** Seed the local decision map from each row's `approval` (some ⇒ its tag). */
-function initialDecisions(value: PlannerRootValue): Record<number, ApprovalTag> {
-    const out: Record<number, ApprovalTag> = {};
-    value.rows.forEach((row, index) => {
-        const a = getSomeorUndefined(row.approval);
-        if (a !== undefined) out[index] = a.type as ApprovalTag;
-    });
-    return out;
-}
 
 export interface EastChakraPlannerProps {
     /** The Planner root value. */
@@ -390,49 +374,22 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
     }, [onSelectRow]);
 
     // ── Review chrome (optional) ──────────────────────────────────────────
-    // The per-row Approve/Reject decision column + the batch foot. Buttons reuse
-    // the shared `button` recipe (so they match the DecisionQueue) and the foot
-    // reuses the shared `commitBar` slot recipe; the planner recipe only adds the
-    // column geometry + the quiet status dot.
+    // The per-row Approve/Reject decision column + the batch foot, on the shared
+    // review pieces (`../shared/review`): the optimistic decisions controller,
+    // the `button`-recipe Approve/Reject pair, and the `commitBar` foot. The
+    // shared `reviewChrome` recipe carries the column geometry + the quiet
+    // status dot; the renderer only adds sticky pinning.
     const review = useMemo(() => getSomeorUndefined(value.review), [value.review]);
-    const hasReview = review !== undefined;
-    const buttonRecipe = useRecipe({ key: "button" });
-    const commitRecipe = useSlotRecipe({ key: "commitBar" });
-    const cs = useMemo(() => commitRecipe({}) as unknown as RecipeStyles, [commitRecipe]);
-
-    const reviewSummary = useMemo(() => review && getSomeorUndefined(review.summary), [review]);
-    const onApprove = useMemo(() => review && getSomeorUndefined(review.onApprove), [review]);
-    const onReject = useMemo(() => review && getSomeorUndefined(review.onReject), [review]);
-    const onApproveAll = useMemo(() => review && getSomeorUndefined(review.onApproveAll), [review]);
-    const onRejectAll = useMemo(() => review && getSomeorUndefined(review.onRejectAll), [review]);
-    const onRerun = useMemo(() => review && getSomeorUndefined(review.onRerun), [review]);
-
-    // Local decision state — optimistic per-row verdict, seeded from the data and
-    // re-synced when the value changes (the mandatory interactive-state pattern).
-    const [decisions, setDecisions] = useState<Record<number, ApprovalTag>>(() => initialDecisions(value));
-    useEffect(() => { setDecisions(initialDecisions(value)); }, [value]);
-
-    const approveRow = useCallback((rowIndex: number) => {
-        setDecisions((prev) => ({ ...prev, [rowIndex]: "approved" }));
-        if (onApprove) queueMicrotask(() => onApprove({ rowIndex: BigInt(rowIndex) }));
-    }, [onApprove]);
-    const rejectRow = useCallback((rowIndex: number) => {
-        setDecisions((prev) => ({ ...prev, [rowIndex]: "rejected" }));
-        if (onReject) queueMicrotask(() => onReject({ rowIndex: BigInt(rowIndex) }));
-    }, [onReject]);
-    // Batch verdicts sweep every reviewable row to one tag for instant feedback,
-    // then fire the host hook once.
-    const approveAll = useCallback(() => {
-        setDecisions(() => { const out: Record<number, ApprovalTag> = {}; value.rows.forEach((_r, i) => { out[i] = "approved"; }); return out; });
-        if (onApproveAll) queueMicrotask(() => onApproveAll());
-    }, [onApproveAll, value.rows]);
-    const rejectAll = useCallback(() => {
-        setDecisions(() => { const out: Record<number, ApprovalTag> = {}; value.rows.forEach((_r, i) => { out[i] = "rejected"; }); return out; });
-        if (onRejectAll) queueMicrotask(() => onRejectAll());
-    }, [onRejectAll, value.rows]);
-    const rerun = useCallback(() => {
-        if (onRerun) queueMicrotask(() => onRerun());
-    }, [onRerun]);
+    const approvals = useMemo(() => value.rows.map((row) => row.approval), [value]);
+    const reviewController = useReviewController(review, approvals);
+    const hasReview = reviewController !== undefined;
+    const chromeRecipe = useSlotRecipe({ key: "reviewChrome" });
+    const chrome = useMemo(() => chromeRecipe({ size }) as unknown as RecipeStyles, [chromeRecipe, size]);
+    const dotStyles = useMemo(() => {
+        const out: Record<string, Record<string, unknown>> = {};
+        for (const s of ["success", "warning", "danger", "info", "neutral"]) out[s] = (chromeRecipe({ size, status: s } as Record<string, unknown>) as unknown as RecipeStyles).statusDot ?? {};
+        return out;
+    }, [chromeRecipe, size]);
 
     // ── Left pane IS a Table ──────────────────────────────────────────────
     // Reuse the shared column machinery (Table / Gantt) so the left columns
@@ -583,30 +540,6 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
         return undefined;
     };
 
-    // The per-row Approve/Reject pair (styled by the shared `button` recipe so it
-    // matches the DecisionQueue). The active side tracks the verdict: approved ⇒
-    // Approve fills (solid brand); rejected ⇒ Reject becomes the danger call;
-    // pending ⇒ neither is pre-selected (Approve is a plain outline).
-    const decisionButtons = (rowIndex: number) => {
-        const tag: ApprovalTag = decisions[rowIndex] ?? "pending";
-        const approveVariant = tag === "approved" ? "solid" : tag === "rejected" ? "ghost" : "outline";
-        const rejectVariant = tag === "rejected" ? "danger" : "ghost";
-        return (
-            <>
-                <Box as="button" css={buttonRecipe({ variant: approveVariant, size: "xs" })}
-                    aria-pressed={tag === "approved"}
-                    onClick={(e) => { e.stopPropagation(); approveRow(rowIndex); }}>
-                    Approve
-                </Box>
-                <Box as="button" css={buttonRecipe({ variant: rejectVariant, size: "xs" })}
-                    aria-pressed={tag === "rejected"}
-                    onClick={(e) => { e.stopPropagation(); rejectRow(rowIndex); }}>
-                    Reject
-                </Box>
-            </>
-        );
-    };
-
     const groups = useMemo(() => {
         const out: { label: string | undefined; rows: { row: PlannerRowValue; index: number }[] }[] = [];
         value.rows.forEach((row, index) => {
@@ -734,7 +667,7 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
                     )}
                 </Box>
                 {hasReview && review && (
-                    <Box css={{ ...base.decisionHeader, ...stickyRightHeader }} data-slot="decisionHeader">
+                    <Box css={{ ...chrome.decisionHeader, ...stickyRightHeader }} data-slot="decisionHeader">
                         {review.columnLabel}
                     </Box>
                 )}
@@ -810,7 +743,7 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
                                                 significant) part of "6.0 / 8.0 h" survives, never the tail. */}
                                             <Box css={base.rowHeaderName} data-slot="rowHeaderName"
                                                 display="flex" justifyContent={alignEnd ? "flex-end" : "flex-start"}>
-                                                {showDot && rowStatusTag !== undefined && <Box as="span" css={statusStyles[rowStatusTag]?.statusDot} data-slot="statusDot" />}
+                                                {showDot && rowStatusTag !== undefined && <Box as="span" css={dotStyles[rowStatusTag]} data-slot="statusDot" />}
                                                 <Box as="span" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" minW={0}>{cellData?.value ?? ""}</Box>
                                             </Box>
                                             {sub !== undefined && <Box css={base.rowHeaderSub} data-slot="rowHeaderSub" textAlign={alignEnd ? "right" : "left"}>{sub}</Box>}
@@ -899,14 +832,14 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
                                     </>
                                 )}
                             </Box>
-                            {hasReview && (
+                            {reviewController !== undefined && (
                                 <Box
-                                    css={{ ...base.decisionCol, ...stickyRight }}
+                                    css={{ ...chrome.decisionCol, ...stickyRight }}
                                     data-slot="decisionCol"
                                     data-status={rowStatusTag}
                                     onClick={(e) => e.stopPropagation()}
                                 >
-                                    {decisionButtons(index)}
+                                    <DecisionButtons rowIndex={index} controller={reviewController} />
                                 </Box>
                             )}
                         </Box>
@@ -917,32 +850,12 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
         </Box>
     );
 
-    // The batch foot reuses the shared `commitBar` recipe (the same block the
-    // Diff + DecisionQueue commit bars use), pinned outside the horizontally
-    // scrolling grid so it stays full-width under the plan. The summary is the
-    // host-composed `review.summary` component; the buttons are Reject all /
-    // Rerun / Approve all (left→right, matching the mock).
-    const showFoot = hasReview && (reviewSummary !== undefined || onApproveAll !== undefined || onRejectAll !== undefined || onRerun !== undefined);
-    const foot = showFoot ? (
-        <Box css={cs.root} data-slot="reviewFoot">
-            <Box css={cs.draft}>
-                {reviewSummary !== undefined && (
-                    <EastChakraComponent value={reviewSummary} storageKey={`${storageKey}.review.summary`} />
-                )}
-            </Box>
-            <Box css={cs.btnRow}>
-                {onRejectAll !== undefined && (
-                    <Box as="button" css={cs.btnDanger} onClick={rejectAll}>Reject all</Box>
-                )}
-                {onRerun !== undefined && (
-                    <Box as="button" css={cs.btn} onClick={rerun}>{review?.rerunLabel}</Box>
-                )}
-                {onApproveAll !== undefined && (
-                    <Box as="button" css={cs.btnPrimary} onClick={approveAll}>Approve all</Box>
-                )}
-            </Box>
-        </Box>
-    ) : null;
+    // The batch foot is the shared `ReviewFoot` on the `commitBar` recipe (the
+    // same block the Diff + DecisionQueue commit bars use), pinned outside the
+    // horizontally scrolling grid so it stays full-width under the plan.
+    const foot = reviewController !== undefined && reviewController.showFoot
+        ? <ReviewFoot controller={reviewController} storageKey={storageKey} />
+        : null;
 
     const surface = foot !== null
         ? <Box display="flex" flexDirection="column" width="100%">{plannerContent}{foot}</Box>

@@ -47,6 +47,16 @@ export {
     DragEventType,
 } from "./contracts/drag.js";
 
+// Review / approval grammar contract — hosts type `review` configs against these
+export {
+    ApprovalStateType, type ApprovalStateLiteral,
+    RowRefType,
+    reviewType, type ReviewStructType,
+    RowReviewType,
+    type ReviewConfig,
+    deriveApproval,
+} from "./contracts/review.js";
+
 // Format helpers
 export { Format } from "./format/index.js";
 export type {

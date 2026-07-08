@@ -39,6 +39,7 @@ import { UIComponentType } from "../../component.js";
 import { mapRowsBlock } from "../../shared/reify.js";
 import { DensityType, type DensityLiteral } from "../../style/interaction.js";
 import { PlotGutterType, type PlotGutter } from "../../shared/plot-gutter.js";
+import { reviewType, buildReview, type ReviewConfig } from "../../contracts/review.js";
 
 import {
     PlannerSlotType,
@@ -193,6 +194,12 @@ export type PlannerRowType = typeof PlannerRowType;
  * The Planner review config — the per-row Approve / Reject calls plus the batch
  * foot. Present on the root only when the optional review chrome is enabled.
  *
+ * @remarks
+ * The shared review contract instantiated at the Planner's row subject —
+ * `reviewType(PlannerApproveEventType, UIComponentType)` (`contracts/review.ts`).
+ * Structurally identical to the pre-contract Planner-local definition, so
+ * existing IR round-trips unchanged.
+ *
  * @property columnLabel - The decision-column header (default `"Decision"`)
  * @property summary - Optional foot eyebrow (host-composed, e.g. `Planner.reviewSummary(...)`)
  * @property onApprove - Optional per-row Approve callback (receives `{ rowIndex }`)
@@ -211,16 +218,7 @@ export const PlannerReviewType: StructType<{
     onRejectAll: OptionType<FunctionType<[], NullType>>,
     onRerun: OptionType<FunctionType<[], NullType>>,
     rerunLabel: StringType,
-}> = StructType({
-    columnLabel:  StringType,
-    summary:      OptionType(UIComponentType),
-    onApprove:    OptionType(FunctionType([PlannerApproveEventType], NullType)),
-    onReject:     OptionType(FunctionType([PlannerApproveEventType], NullType)),
-    onApproveAll: OptionType(FunctionType([], NullType)),
-    onRejectAll:  OptionType(FunctionType([], NullType)),
-    onRerun:      OptionType(FunctionType([], NullType)),
-    rerunLabel:   StringType,
-});
+}> = reviewType(PlannerApproveEventType, UIComponentType);
 export type PlannerReviewType = typeof PlannerReviewType;
 
 /**
@@ -680,33 +678,12 @@ export interface PlannerConfig<R extends StructType> {
 /**
  * The Planner `review` config — opt-in per-row approval + a batch foot.
  *
- * @property columnLabel - The decision-column header (default `"Decision"`)
- * @property summary - Optional foot eyebrow (host-composed; `Planner.reviewSummary(...)`)
- * @property onApprove - Optional per-row Approve callback (receives `{ rowIndex }`)
- * @property onReject - Optional per-row Reject callback (receives `{ rowIndex }`)
- * @property onApproveAll - Optional batch Approve-all callback
- * @property onRejectAll - Optional batch Reject-all callback
- * @property onRerun - Optional Rerun callback (absent ⇒ no Rerun button)
- * @property rerunLabel - The Rerun button label (default `"Rerun"`)
+ * @remarks
+ * The shared review contract's {@link ReviewConfig} at the Planner's row
+ * subject (`{ rowIndex }`); see `contracts/review.ts` for the field
+ * semantics and defaults.
  */
-export interface PlannerReviewConfig {
-    /** The decision-column header (default `"Decision"`). */
-    columnLabel?: SubtypeExprOrValue<StringType> | string;
-    /** Optional foot eyebrow (host-composed; `Planner.reviewSummary(...)`). */
-    summary?: SubtypeExprOrValue<UIComponentType>;
-    /** Optional per-row Approve callback (receives `{ rowIndex }`). */
-    onApprove?: SubtypeExprOrValue<FunctionType<[PlannerApproveEventType], NullType>>;
-    /** Optional per-row Reject callback (receives `{ rowIndex }`). */
-    onReject?: SubtypeExprOrValue<FunctionType<[PlannerApproveEventType], NullType>>;
-    /** Optional batch Approve-all callback. */
-    onApproveAll?: SubtypeExprOrValue<FunctionType<[], NullType>>;
-    /** Optional batch Reject-all callback. */
-    onRejectAll?: SubtypeExprOrValue<FunctionType<[], NullType>>;
-    /** Optional Rerun callback (absent ⇒ no Rerun button). */
-    onRerun?: SubtypeExprOrValue<FunctionType<[], NullType>>;
-    /** The Rerun button label (default `"Rerun"`). */
-    rerunLabel?: SubtypeExprOrValue<StringType> | string;
-}
+export type PlannerReviewConfig = ReviewConfig<PlannerApproveEventType>;
 
 // Infer the row struct type R from the data argument (a plain JS array of
 // objects or an East array expression), mirroring the Table / Gantt factories.
@@ -763,24 +740,9 @@ function buildRoot(
             }, PlotGutterType))
             : none,
         onSelectRow:  config.onSelectRow !== undefined ? some(config.onSelectRow) : none,
-        review:       config.review !== undefined ? some(buildReview(config.review)) : none,
+        review:       config.review !== undefined ? some(buildReview(config.review, PlannerReviewType)) : none,
         rowHover:     config.rowHover !== undefined ? some(config.rowHover) : none,
     }), UIComponentType);
-}
-
-/** Resolves a {@link PlannerReviewConfig} into a {@link PlannerReviewType} value,
- *  defaulting the column / rerun labels. */
-function buildReview(r: PlannerReviewConfig): ExprType<PlannerReviewType> {
-    return East.value({
-        columnLabel:  r.columnLabel ?? "Decision",
-        summary:      r.summary !== undefined ? some(r.summary) : none,
-        onApprove:    r.onApprove !== undefined ? some(r.onApprove) : none,
-        onReject:     r.onReject !== undefined ? some(r.onReject) : none,
-        onApproveAll: r.onApproveAll !== undefined ? some(r.onApproveAll) : none,
-        onRejectAll:  r.onRejectAll !== undefined ? some(r.onRejectAll) : none,
-        onRerun:      r.onRerun !== undefined ? some(r.onRerun) : none,
-        rerunLabel:   r.rerunLabel ?? "Rerun",
-    }, PlannerReviewType);
 }
 
 /**

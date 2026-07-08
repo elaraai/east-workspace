@@ -115,6 +115,7 @@ import { showMoreSlotRecipe } from "./slot-recipes/showMore.js";
 import { statusSlotRecipe } from "./slot-recipes/status.js";
 import { eyebrowRowSlotRecipe } from "./slot-recipes/eyebrowRow.js";
 import { commitBarSlotRecipe } from "./slot-recipes/commitBar.js";
+import { reviewChromeSlotRecipe } from "./slot-recipes/reviewChrome.js";
 import { decisionQueueSlotRecipe } from "./slot-recipes/decisionQueue.js";
 
 const config = defineConfig({
@@ -206,6 +207,7 @@ const config = defineConfig({
             status:          statusSlotRecipe,
             eyebrowRow:      eyebrowRowSlotRecipe,
             commitBar:       commitBarSlotRecipe,
+            reviewChrome:    reviewChromeSlotRecipe,
             decisionQueue:   decisionQueueSlotRecipe,
         },
     },
