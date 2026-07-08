@@ -19,7 +19,7 @@ export const blendSlotRecipe = defineSlotRecipe({
         "root", "targets", "panel", "panelHead", "panelBadge", "panelTitle", "panelCap",
         "compositionBar", "segment", "headroom", "axis", "axisTick",
         "allocList", "allocRow", "allocGrip", "allocBody", "allocLabel", "allocSublabel",
-        "amountInput", "amountText", "share", "pinBadge", "allocAction", "dropArea", "dragGhost",
+        "amountInput", "amountText", "share", "pinBadge", "allocAction", "dragGhost",
         "metricList", "metricRow", "metricLabel", "metricValue", "trustChip", "bandText",
         "panelFoot", "objective",
         "diff", "diffRow", "verdict",
@@ -215,19 +215,8 @@ export const blendSlotRecipe = defineSlotRecipe({
             "[data-state]:hover > &": { opacity: "1" },
             "&:hover": { color: "fg.danger" },
         },
-        dropArea: {
-            borderWidth: "1px",
-            borderStyle: "dashed",
-            borderColor: "border.strong",
-            borderRadius: "{radii.sm}",
-            paddingY: "{spacing.2}",
-            textAlign: "center",
-            fontFamily: "mono",
-            fontSize: "10px",
-            letterSpacing: "0.1em",
-            textTransform: "uppercase",
-            color: "fg.subtle",
-        },
+        /* (The empty-destination affordance moved to the shared `dropHint`
+           recipe (#267) — the renderer mounts the shared `DropHint`.) */
         dragGhost: {
             fontFamily: "mono",
             fontSize: "{fontSizes.control}",

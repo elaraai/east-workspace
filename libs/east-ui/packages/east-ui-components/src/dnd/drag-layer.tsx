@@ -345,9 +345,40 @@ export function DragLayerProvider({ children }: DragLayerProviderProps) {
         active: drag !== null,
     }), [registerTarget, registerCell, registerSink, beginDrag, drag]);
 
+    // ── Shared trash sink (#267) ──────────────────────────────────────────
+    // While a drag whose owning target declares `kinds.remove` is in flight,
+    // the provider renders a fixed trash zone (bottom-centre portal) wired
+    // through the ordinary `trash` sink path — dropping delivers
+    // `remove: { from, to: trash }` with zero per-component work. Structural
+    // validity only: a trash drop is never `data-drop-invalid` (the `canDrop`
+    // veto is a cell concern). Per-chip trash buttons remain the click path.
+    const trashEligible = drag !== null
+        && drag.payload.kind === "event"
+        && (targets.current.get(drag.payload.from.surface)?.kinds.remove ?? false);
+    const trashCleanup = useRef<(() => void) | null>(null);
+    const trashRef = useCallback((el: HTMLElement | null) => {
+        trashCleanup.current?.();
+        trashCleanup.current = null;
+        if (el) {
+            trashCleanup.current = registerSink(el, { kind: "trash" });
+            // The zone mounts AFTER beginDrag's valid-destination sweep, so
+            // mark it valid for the in-flight payload here.
+            const active = dragRef.current;
+            if (active && sinkValid({ kind: "trash" }, active.payload)) {
+                el.setAttribute("data-drop-valid", "");
+            }
+        }
+    }, [registerSink, sinkValid]);
+
     return (
         <DragLayerContext.Provider value={context}>
             {children}
+            {trashEligible && createPortal(
+                <div ref={trashRef as (el: HTMLDivElement | null) => void} data-drag-trash="" aria-label="Remove (drop to trash)">
+                    ⌫
+                </div>,
+                document.body,
+            )}
             {drag !== null && createPortal(
                 <div
                     data-drag-ghost=""

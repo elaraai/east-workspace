@@ -37,6 +37,7 @@ import { layerStyles } from "./layer-styles.js";
 import { globalCss } from "./global-css.js";
 import { keyframes } from "./keyframes.js";
 import { buttonRecipe } from "./recipes/button.js";
+import { dropHintRecipe } from "./recipes/dropHint.js";
 import { inputRecipe } from "./recipes/input.js";
 import { badgeRecipe } from "./recipes/badge.js";
 import { kbdRecipe } from "./recipes/kbd.js";
@@ -128,6 +129,7 @@ const config = defineConfig({
         keyframes,
         recipes: {
             button:     buttonRecipe,
+            dropHint:   dropHintRecipe,
             input:      inputRecipe,
             badge:      badgeRecipe,
             kbd:        kbdRecipe,

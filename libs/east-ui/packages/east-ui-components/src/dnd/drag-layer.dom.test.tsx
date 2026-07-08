@@ -202,6 +202,59 @@ describe("DragLayerProvider", () => {
         if (events[0].type === "remove") expect(events[0].value.to.type).toBe("source");
     });
 
+    test("shared trash zone (#267): appears during a remove-capable event drag, delivers remove/trash, and unmounts", () => {
+        const events: DragEventValue[] = [];
+        const { getByTestId } = render(
+            <DragLayerProvider>
+                <Target config={{ id: "roster", sources: ["people"], kinds: KINDS_ALL, onDrag: e => events.push(e) }} />
+                <Chip surface="roster" row="patel" slot="mon" event="p1" />
+            </DragLayerProvider>,
+        );
+
+        // No zone at rest.
+        expect(document.querySelector("[data-drag-trash]")).toBeNull();
+
+        // Begin the drag — the provider portals the zone in, already marked a
+        // valid destination (never invalid: structurally valid for removables).
+        fireEvent.pointerDown(getByTestId("chip-p1"), { clientX: 0, clientY: 0 });
+        const zone = document.querySelector<HTMLElement>("[data-drag-trash]");
+        expect(zone).not.toBeNull();
+        expect(zone!.hasAttribute("data-drop-valid")).toBe(true);
+        expect(zone!.hasAttribute("data-drop-invalid")).toBe(false);
+
+        // Drop on it — the ordinary trash sink path delivers remove/trash.
+        pointAt(zone);
+        fireEvent.pointerMove(document, { clientX: 10, clientY: 10 });
+        expect(zone!.hasAttribute("data-drop-active")).toBe(true);
+        fireEvent.pointerUp(document, { clientX: 10, clientY: 10 });
+
+        expect(events).toHaveLength(1);
+        expect(events[0].type).toBe("remove");
+        if (events[0].type === "remove") expect(events[0].value.to.type).toBe("trash");
+        expect(document.querySelector("[data-drag-trash]")).toBeNull();
+    });
+
+    test("shared trash zone (#267): absent for item drags and for targets without kinds.remove", () => {
+        const { getByTestId } = render(
+            <DragLayerProvider>
+                <Target config={{ id: "roster", sources: ["people"], kinds: { add: true, move: true } }} />
+                <Card library="people" itemKey="patel" />
+                <Chip surface="roster" row="patel" slot="mon" event="p1" />
+            </DragLayerProvider>,
+        );
+
+        // An item (Library card) drag never shows the zone — items return to
+        // the palette, they are not removable events.
+        fireEvent.pointerDown(getByTestId("card-patel"), { clientX: 0, clientY: 0 });
+        expect(document.querySelector("[data-drag-trash]")).toBeNull();
+        fireEvent.pointerUp(document, { clientX: 5, clientY: 5 });
+
+        // An event drag on a target that does NOT declare kinds.remove.
+        fireEvent.pointerDown(getByTestId("chip-p1"), { clientX: 0, clientY: 0 });
+        expect(document.querySelector("[data-drag-trash]")).toBeNull();
+        fireEvent.pointerUp(document, { clientX: 5, clientY: 5 });
+    });
+
     test("escape cancels: no event fires, indicators clear", () => {
         const events: DragEventValue[] = [];
         const { getByTestId } = render(

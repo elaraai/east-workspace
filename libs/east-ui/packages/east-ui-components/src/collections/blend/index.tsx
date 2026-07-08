@@ -12,6 +12,7 @@ import { Blend } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { useDragTarget, useDropCell, useDragEventChip, type DragEventValue, type DragMeta, type DragPayload } from "../../dnd/drag-layer";
 import { useIRCanDrop, canDropAllows, type CanDropFn } from "../../dnd/ir-can-drop";
+import { DropHint } from "../../dnd/drop-hint";
 
 const blendEqual = equalFor(Blend.Types.Blend);
 
@@ -206,7 +207,7 @@ function TargetPanel({ surface, target, mode, badge, styles, vetoFor, onAmount, 
                         onRemove={onRemove}
                     />
                 ))}
-                <Box css={styles.dropArea}>drop a source here</Box>
+                <DropHint>drop a source here</DropHint>
             </Box>
             {target.metrics.length > 0 && (
                 <Box css={styles.metricList}>

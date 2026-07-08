@@ -90,8 +90,8 @@ export const rosterPublished = example({
 });
 
 export const rosterInteractive = example({
-    keywords: ["Roster", "Reactive", "State", "onDrag", "onAccept", "interactive"],
-    description: "Edit roster whose onDrag / onAccept callbacks count interactions",
+    keywords: ["Roster", "Reactive", "State", "onDrag", "onAccept", "interactive", "trash", "remove", "drag-to-trash"],
+    description: "Edit roster whose onDrag / onAccept callbacks count interactions — dragging a proposed chip also raises the shared trash sink (#267): drop on it to deliver remove/trash through the same onDrag",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const dragBind = $.let(State.bind([IntegerType], "roster_drags", 0n));

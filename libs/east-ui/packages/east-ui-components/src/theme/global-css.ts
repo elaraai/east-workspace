@@ -133,6 +133,41 @@ export const globalCss = defineGlobalStyles({
     "[data-drag-ghost]": {
         opacity: "0.8",
     },
+    /* The shared trash sink (#267) — a fixed bottom-centre zone the drag
+     * layer portals in during any `remove`-capable drag. Dashed = ephemeral
+     * (the stage vocabulary); danger tones because the drop is a removal.
+     * Animates in via the shared fade keyframe; the active stage brightens
+     * it like any sink. Never `data-drop-invalid` — a trash drop is always
+     * structurally valid for a removable payload. */
+    "[data-drag-trash]": {
+        position: "fixed",
+        bottom: "24px",
+        left: "50%",
+        transform: "translateX(-50%)",
+        zIndex: 1690,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        minWidth: "120px",
+        height: "44px",
+        paddingInline: "18px",
+        borderRadius: "{radii.md}",
+        borderWidth: "1.5px",
+        borderStyle: "dashed",
+        borderColor: "fg.danger",
+        background: "bg.danger.subtle",
+        color: "fg.danger",
+        fontSize: "18px",
+        lineHeight: "1",
+        userSelect: "none",
+        animation: "elara-fade-in 0.15s ease-out",
+    },
+    "[data-drag-trash][data-drop-active]": {
+        background: "bg.danger.subtle",
+        outline: "2px solid",
+        outlineColor: "fg.danger",
+        outlineOffset: "-3px",
+    },
     /* Valid destinations are marked before the drop (indicators precede).
      * A dashed inset outline per the spec's "dashed = ephemeral" stroke —
      * the earlier flat brand wash read washed-out when a whole grid of
