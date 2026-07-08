@@ -13,6 +13,7 @@ import { leaf, type ValueProps, type JsxTag } from "../combinators.js";
 /** Layer / reference / format builders surfaced on the `<Chart>` tag (mirrors the `Chart` factory namespace). */
 type ChartBuilders = {
     Line: typeof ChartFactory.Line;
+    Column: typeof ChartFactory.Column;
     Bar: typeof ChartFactory.Bar;
     Area: typeof ChartFactory.Area;
     Scatter: typeof ChartFactory.Scatter;
@@ -26,12 +27,12 @@ type ChartBuilders = {
 };
 
 /**
- * Composed Cartesian chart — assembles one or more marks (line / bar / area /
- * scatter / area-range band) over a shared coordinate system into a single
- * plot. Build each mark with the layer builders attached to the tag and pass
- * them as `layers`; configure the axes, legend, grid, tooltip, and stacking
- * via the remaining props. Mixed-mark and dual-axis figures (bars + trend
- * line, stacked areas + confidence band) all come from listing several
+ * Composed Cartesian chart — assembles one or more marks (line / column / bar
+ * / area / scatter / area-range band) over a shared coordinate system into a
+ * single plot. Build each mark with the layer builders attached to the tag and
+ * pass them as `layers`; configure the axes, legend, grid, tooltip, and
+ * stacking via the remaining props. Mixed-mark and dual-axis figures (columns
+ * + trend line, stacked areas + confidence band) all come from listing several
  * builder calls in `layers`. Reach for this whenever you need a real,
  * axis-bearing chart rather than the inline {@link Sparkline}.
  *
@@ -50,7 +51,7 @@ type ChartBuilders = {
  *     return (
  *         <Box height="260px" width="100%">
  *             <Chart layers={[
- *                 Chart.Bar(rows, { x: r => r.month, y: r => r.revenue }, { key: "Revenue", color: "teal.solid" }),
+ *                 Chart.Column(rows, { x: r => r.month, y: r => r.revenue }, { key: "Revenue", color: "teal.solid" }),
  *                 Chart.Line(rows, { x: r => r.month, y: r => r.profit }, { key: "Profit", color: "purple.solid" }),
  *             ]} legend tooltip grid />
  *         </Box>
@@ -61,16 +62,19 @@ type ChartBuilders = {
  * @remarks
  * Carries the layer and annotation builders that produce the entries for
  * `layers` (these build chart layers, not nested child tags): mark builders
- * `Chart.Line` / `Chart.Bar` / `Chart.Area` / `Chart.Scatter` / `Chart.Band`
- * (each takes `(rows, encoding, style?)` with typed-accessor encodings, e.g.
- * `x: r => r.month`); reference annotations `Chart.refLine` / `Chart.refBand`
- * / `Chart.refDot`; the axis tick formatters under `Chart.format` (`date` /
- * `currency` / `percent` / `compact`); and the low-level `Chart.Spec` escape
- * hatch. Desugars to `Chart.Root(layers, options)`.
+ * `Chart.Line` / `Chart.Column` (vertical columns) / `Chart.Bar` (horizontal
+ * bars — numeric `x`, categorical `y`; flips the frame, #249) / `Chart.Area`
+ * / `Chart.Scatter` / `Chart.Band` (each takes `(rows, encoding, style?)`
+ * with typed-accessor encodings, e.g. `x: r => r.month`); reference
+ * annotations `Chart.refLine` / `Chart.refBand` / `Chart.refDot`; the axis
+ * tick formatters under `Chart.format` (`date` / `currency` / `percent` /
+ * `compact`); and the low-level `Chart.Spec` escape hatch. Desugars to
+ * `Chart.Root(layers, options)`.
  */
 export const Chart: JsxTag<ValueProps<typeof ChartFactory.Root, "layers">> & ChartBuilders =
     Object.assign(leaf(ChartFactory.Root, "layers"), {
         Line: ChartFactory.Line,
+        Column: ChartFactory.Column,
         Bar: ChartFactory.Bar,
         Area: ChartFactory.Area,
         Scatter: ChartFactory.Scatter,

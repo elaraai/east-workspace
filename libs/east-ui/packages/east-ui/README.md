@@ -59,7 +59,7 @@ const ir = MyComponent.toIR();
 | **Buttons** | `Button`, `IconButton` | Interactive button components |
 | **Forms** | `Input`, `Select`, `Checkbox`, `Switch`, `Slider`, `Textarea`, `TagsInput`, `FileUpload`, `Field` | Form input components |
 | **Collections** | `Table`, `Gantt`, `DataList`, `TreeView` | Data display components |
-| **Charts** | `Chart.Area`, `Chart.Bar`, `Chart.Line`, `Chart.Pie`, `Chart.Radar`, `Chart.Scatter`, `Chart.BarList`, `Chart.BarSegment`, `Sparkline` | Data visualization |
+| **Charts** | `Chart.Line`, `Chart.Column` (vertical), `Chart.Bar` (horizontal), `Chart.Area`, `Chart.Scatter`, `Chart.Band`, `Sparkline` | Data visualization |
 | **Display** | `Badge`, `Tag`, `Avatar`, `Stat`, `Icon` | Visual display components |
 | **Feedback** | `Alert`, `Progress` | User feedback components |
 | **Disclosure** | `Accordion`, `Tabs`, `Carousel` | Content organization |

@@ -6,16 +6,21 @@
 /**
  * `Chart` — the high-level, declarative chart authoring API. A chart is a
  * container of layers (`Chart.Root([...])`); each layer is a mark
- * (`Chart.Line` / `Bar` / `Area` / `Scatter` / `Band`) over a typed-accessor
- * encoding, plus annotation layers (`Chart.refLine` / `refBand` / `refDot`).
+ * (`Chart.Line` / `Column` / `Bar` / `Area` / `Scatter` / `Band`) over a
+ * typed-accessor encoding, plus annotation layers (`Chart.refLine` /
+ * `refBand` / `refDot`).
  *
  * @remarks
  * The builders compile down to the visx-primitive `Chart.Spec` tree (the
- * `VisxChart` arm of `UIComponentType`) — the same core `Slice.Chart.*` uses.
- * Encodings bind data by typed accessor closures (`r => r.field`); the
- * coordinate kind (and therefore the x scale) is inferred from the accessor's
- * East type. The renderer derives domains and range-appropriate ticks, so dates
- * are never pre-formatted.
+ * `VisxChart` arm of `UIComponentType`) — the same core the slice-bound
+ * `Chart.Series` layer uses. Encodings bind data by typed accessor closures
+ * (`r => r.field`); the coordinate kind (and therefore the x scale) is
+ * inferred from the accessor's East type. The renderer derives domains and
+ * range-appropriate ticks, so dates are never pre-formatted. Orientation is
+ * per-builder (#249): `Chart.Column` draws vertical columns (categorical /
+ * continuous x, numeric y) and `Chart.Bar` horizontal bars (numeric x,
+ * categorical y banded top-to-bottom) — a `Bar` layer flips the whole frame
+ * horizontal (band y-axis, linear x-axis).
  *
  * @packageDocumentation
  */
@@ -101,6 +106,14 @@ type ValueAccessor<Row extends EastType> = (row: ExprType<Row>) => SubtypeExprOr
 
 /** Reads a category field off a typed row, used to split into series (e.g. `r => r.platform`). */
 type CategoryAccessor<Row extends EastType> = (row: ExprType<Row>) => SubtypeExprOrValue<StringType | IntegerType | BooleanType | DateTimeType>;
+
+/**
+ * Reads the categorical field a horizontal bar layer bands on y (e.g.
+ * `r => r.site`). Strings band as-is; `Boolean` / `DateTime` categories are
+ * stringified. Numeric fields are deliberately excluded — a numeric `y` always
+ * reads as the vertical measure, so `Integer` categories cannot flip a layer.
+ */
+type BandAccessor<Row extends EastType> = (row: ExprType<Row>) => SubtypeExprOrValue<StringType | BooleanType | DateTimeType>;
 
 /** The scalar East types a chart coordinate can take. */
 type CoordScalar = StringType | IntegerType | FloatType | DateTimeType;
@@ -246,6 +259,89 @@ export interface BandEncoding<Row extends EastType> {
 export type MarkEncoding<Row extends EastType> = PointEncoding<Row> | SplitEncoding<Row> | ColumnsEncoding<Row>;
 
 /**
+ * Single-series horizontal bar encoding — numeric x, categorical y (#249).
+ *
+ * @remarks
+ * The horizontal mirror of {@link PointEncoding}, with screen-truthful
+ * channels: the categorical `y` carries the band domain (drawn top-to-bottom
+ * in data order) and the numeric `x` the measure, so
+ * `Chart.Bar(rows, { x: r => r.throughput, y: r => r.site })` renders one bar
+ * per site growing rightward. `Boolean` / `DateTime` categories are
+ * stringified. For vertical columns use `Chart.Column` instead.
+ *
+ * @typeParam Row - The row struct; accessors are checked against its fields
+ * @property x      - Numeric field measured along the x-axis (linear scale)
+ * @property y      - Categorical field banded on the y-axis
+ * @property colors - Optional per-y-category colours (theme tokens or CSS),
+ *                    keyed by the category; fills one bar per category in data
+ *                    order without splitting into grouped `by` series
+ */
+export interface BarPointEncoding<Row extends EastType> {
+    /** Numeric field measured along the x-axis (linear scale). */
+    x: ValueAccessor<Row>;
+    /** Categorical field banded on the y-axis. */
+    y: BandAccessor<Row>;
+    /** Optional per-y-category colours (theme tokens or CSS), keyed by the category;
+     *  fills one bar per category in data order without a grouped `by` split. */
+    colors?: Record<string, string>;
+}
+
+/**
+ * Split horizontal bar encoding — one series per distinct `by` value (#249).
+ *
+ * @remarks
+ * The horizontal mirror of {@link SplitEncoding}: the categorical `y` bands
+ * the axis, the numeric `x` is aggregated per point, and `by` splits the rows
+ * into coloured series (grouped side-by-side within each band, or stacked
+ * along x when the layer sets a `stack` id).
+ *
+ * @typeParam Row - The row struct; accessors are checked against its fields
+ * @property x      - Numeric field aggregated per point (linear x scale)
+ * @property y      - Categorical field banded on the y-axis
+ * @property by     - Category field; one coloured series per distinct value
+ * @property colors - Explicit per-value colours (theme tokens); palette by order otherwise
+ */
+export interface BarSplitEncoding<Row extends EastType> {
+    /** Numeric field aggregated per point (linear x scale). */
+    x: ValueAccessor<Row>;
+    /** Categorical field banded on the y-axis. */
+    y: BandAccessor<Row>;
+    /** Category field; one coloured series per distinct value. */
+    by: CategoryAccessor<Row>;
+    /** Explicit per-value colours (theme tokens); palette by order otherwise. */
+    colors?: Record<string, string>;
+}
+
+/**
+ * Wide-row horizontal bar encoding — one series per named value column (#249).
+ *
+ * @remarks
+ * The horizontal mirror of {@link ColumnsEncoding}: there is no `x` channel —
+ * the categorical `y` bands the axis and each named column becomes a coloured
+ * series measured along x.
+ *
+ * @typeParam Row - The row struct; accessors are checked against its fields
+ * @property y       - Categorical field banded on the y-axis
+ * @property columns - Named numeric columns; each becomes a coloured series keyed by its name
+ */
+export interface BarColumnsEncoding<Row extends EastType> {
+    /** Categorical field banded on the y-axis. */
+    y: BandAccessor<Row>;
+    /** Named numeric columns; each becomes a coloured series keyed by its name. */
+    columns: Record<string, ValueAccessor<Row>>;
+}
+
+/**
+ * Any `Chart.Bar` (horizontal) encoding over a row struct (#249) — the
+ * screen-truthful mirror of {@link MarkEncoding}: numeric `x` measure,
+ * categorical `y` band, with the same `by` / `columns` splits.
+ */
+export type BarEncoding<Row extends EastType> =
+    | BarPointEncoding<Row>
+    | BarSplitEncoding<Row>
+    | BarColumnsEncoding<Row>;
+
+/**
  * A scatter encoding — any cartesian-mark encoding plus an optional per-point
  * `size` accessor that drives bubble sizing (area-proportional). Only
  * `Chart.Scatter` accepts this; other marks never expose `size`.
@@ -262,12 +358,19 @@ export type ChartRows<Row extends EastType> = SubtypeExprOrValue<ArrayType<Row>>
 
 type MarkKind = "line" | "bar" | "area" | "scatter";
 
+/** Layer orientation, inferred from the encoding (#249): a categorical `y`
+ *  (with numeric `x`) makes a bar layer `horizontal`; everything else is
+ *  `vertical`. */
+type Orientation = "vertical" | "horizontal";
+
 /** A deferred chart layer; `Chart.Root` finalizes it into `Chart.Spec` nodes. */
 interface SeriesLayer {
     kind: "series";
     mark: MarkKind;
     data: ExprType<ChartSeriesArrayType>;
     xScale: ScaleKind;
+    /** Inferred orientation; a horizontal bar layer flips the whole frame. */
+    orientation: Orientation;
     style: MarkStyle;
     /** Uniform scatter marker radius (scatter layers only). */
     radius?: SubtypeExprOrValue<FloatType>;
@@ -325,25 +428,50 @@ function toFloatExpr(e: SubtypeExprOrValue<CoordScalar>): SubtypeExprOrValue<Flo
 // ============================================================================
 
 /** Build a single point `{ x, value, size }` and record the x scale via `onScale`.
- * `size` carries a per-point magnitude (scatter bubbles) when a size accessor is
- * given; otherwise it is `none`. */
-function pointOf(x: AnyAccessor, y: AnyAccessor, row: ExprType<EastType>, onScale: (s: ScaleKind) => void, size?: AnyAccessor, colorDict?: any) {
-    const xe = x(row);
-    onScale(scaleFor(typeTag(xe)));
+ * `dom` is the coordinate channel and `val` the numeric measure channel — the
+ * encoding's `x`/`y` for a vertical layer, `y`/`x` for a horizontal bar layer
+ * (#249; the coordinate rides the point's `x` field either way — the frame's
+ * band `yScale` tells the renderer to place it on the y axis). `size` carries a
+ * per-point magnitude (scatter bubbles) when a size accessor is given;
+ * otherwise it is `none`. */
+function pointOf(dom: AnyAccessor, val: AnyAccessor, row: ExprType<EastType>, onScale: (s: ScaleKind) => void, horizontal: boolean, size?: AnyAccessor, colorDict?: any) {
+    const de = dom(row);
+    const dTag = typeTag(de);
+    const ve = val(row);
+    const vTag = typeTag(ve);
+    // Teaching guards for JS callers that dodge the encoding types: each error
+    // names the builder that DOES support the shape. The categorical-y check
+    // runs first so a vertical encoding fed to Chart.Bar (the migration
+    // mistake) points at Chart.Column.
+    if (horizontal && (dTag === "Integer" || dTag === "Float")) {
+        throw new Error("Chart.Bar bands categories on the y axis — its `y` accessor must be categorical (String/Boolean/DateTime); for a numeric y use Chart.Column (vertical)");
+    }
+    if (vTag !== "Integer" && vTag !== "Float") {
+        throw new Error(horizontal
+            ? `Chart.Bar measures along the x axis — its \`x\` accessor must be numeric (Integer/Float), got ${vTag}`
+            : `a mark layer's \`y\` accessor must be numeric (Integer/Float), got ${vTag} — for categorical-y horizontal bars use Chart.Bar`);
+    }
+    onScale(horizontal ? "linear" : scaleFor(dTag));
     // `size` / `color` must carry the full `Option(...)` type — a bare `some(...)` /
     // `none` infers a partial variant and the mapped points array fails to coerce.
-    const xKey = typeTag(xe) === "String" ? (xe as SubtypeExprOrValue<StringType>) : East.print(xe as Expr);
+    const domKey = dTag === "String" ? (de as SubtypeExprOrValue<StringType>) : East.print(de as Expr);
     return {
-        x: xCoord(xe),
-        value: toFloatExpr(y(row)),
+        // Horizontal: the category is stringified into the `category` arm (like a
+        // `by` key), so the y band domain is the categories in data order.
+        x: horizontal ? East.value(variant("category", domKey), ChartXType) : xCoord(de),
+        value: toFloatExpr(ve),
         size: East.value(size !== undefined ? some(toFloatExpr(size(row))) : none, OptionType(FloatType)),
-        // Per-point colour from the encoding's `colors` map (band x → category fill); `none` otherwise.
-        color: East.value(colorDict !== undefined ? colorDict.tryGet(xKey) : none, OptionType(StringType)),
+        // Per-point colour from the encoding's `colors` map (band coordinate →
+        // category fill); `none` otherwise.
+        color: East.value(colorDict !== undefined ? colorDict.tryGet(domKey) : none, OptionType(StringType)),
     };
 }
 
-/** Pivot rows + a cartesian-mark encoding into a coloured `ChartSeriesArray`. */
-function buildSeries<Row extends EastType>(rows: ChartRows<Row>, encoding: MarkEncoding<Row>, style: MarkStyle): { data: ExprType<ChartSeriesArrayType>; xScale: ScaleKind } {
+/** Pivot rows + a cartesian-mark encoding into a coloured `ChartSeriesArray`.
+ * `horizontal` selects the channel roles (#249): a vertical layer's coordinate
+ * is `encoding.x` and its measure `encoding.y`; a horizontal bar layer swaps
+ * them (`encoding.y` bands, `encoding.x` measures). */
+function buildSeries<Row extends EastType>(rows: ChartRows<Row>, encoding: MarkEncoding<Row> | BarEncoding<Row>, style: MarkStyle, horizontal: boolean): { data: ExprType<ChartSeriesArrayType>; xScale: ScaleKind } {
     // East generics over an opaque element type fight TS here; the explicit
     // `ChartSeriesArrayType` coercion at the boundary keeps the result sound.
     const arr = East.value(rows) as any;
@@ -360,8 +488,8 @@ function buildSeries<Row extends EastType>(rows: ChartRows<Row>, encoding: MarkE
 
     if ("by" in encoding) {
         const { colors } = encoding;
-        const x = reify(encoding.x as AnyAccessor);
-        const y = reify(encoding.y as AnyAccessor);
+        const dom = reify((horizontal ? encoding.y : encoding.x) as AnyAccessor);
+        const val = reify((horizontal ? encoding.x : encoding.y) as AnyAccessor);
         const by = reify(encoding.by as AnyAccessor);
         const byKey = (row: any) => typeTag(by(row)) === "String" ? by(row) : East.print(by(row) as Expr);
         const groups = arr.groupToArrays((_b: unknown, r: any) => byKey(r));
@@ -375,7 +503,7 @@ function buildSeries<Row extends EastType>(rows: ChartRows<Row>, encoding: MarkE
             const key = keysArr.get(i);
             const pc = paletteArr.get(i.remainder(BigInt(PALETTE.length)));
             const color = colorDict !== undefined ? colorDict.get(key, () => pc) : pc;
-            const points = catRows.map((_b2: unknown, r: any) => pointOf(x, y, r, setScale, sizeAcc));
+            const points = catRows.map((_b2: unknown, r: any) => pointOf(dom, val, r, setScale, horizontal, sizeAcc));
             return { key, color, points };
         });
         return { data: data as ExprType<ChartSeriesArrayType>, xScale };
@@ -383,29 +511,31 @@ function buildSeries<Row extends EastType>(rows: ChartRows<Row>, encoding: MarkE
 
     if ("columns" in encoding) {
         const { columns } = encoding;
-        const x = reify(encoding.x as AnyAccessor);
+        // A horizontal columns encoding has no `x` channel — the categorical `y`
+        // is the coordinate and each named column a measure series.
+        const dom = reify((horizontal ? (encoding as BarColumnsEncoding<Row>).y : (encoding as ColumnsEncoding<Row>).x) as AnyAccessor);
         const seriesList = Object.entries(columns).map(([label, acc], i) => {
             const accFn = reify(acc as AnyAccessor);
             return {
                 key: label,
                 color: style.color ?? paletteColor(i),
-                points: arr.map((_b: unknown, r: any) => pointOf(x, accFn, r, setScale, sizeAcc)),
+                points: arr.map((_b: unknown, r: any) => pointOf(dom, accFn, r, setScale, horizontal, sizeAcc)),
             };
         });
         return { data: East.value(seriesList as any, ChartSeriesArrayType), xScale };
     }
 
-    const x = reify(encoding.x as AnyAccessor);
-    const y = reify(encoding.y as AnyAccessor);
-    // Optional per-x-category colour map → per-point fills (one bar per category).
-    const ptColors = (encoding as PointEncoding<Row>).colors;
+    const dom = reify((horizontal ? encoding.y : encoding.x) as AnyAccessor);
+    const val = reify((horizontal ? encoding.x : encoding.y) as AnyAccessor);
+    // Optional per-category colour map → per-point fills (one bar per category).
+    const ptColors = (encoding as PointEncoding<Row> | BarPointEncoding<Row>).colors;
     const colorDict = ptColors !== undefined
         ? East.value(new Map<string, string>(Object.entries(ptColors)), DictType(StringType, StringType)) as any
         : undefined;
     const series = {
         key: style.key ?? "",
         color: style.color ?? paletteColor(0),
-        points: arr.map((_b: unknown, r: any) => pointOf(x, y, r, setScale, sizeAcc, colorDict)),
+        points: arr.map((_b: unknown, r: any) => pointOf(dom, val, r, setScale, horizontal, sizeAcc, colorDict)),
     };
     return { data: East.value([series] as any, ChartSeriesArrayType), xScale };
 }
@@ -459,8 +589,18 @@ function bandOptions(style: MarkStyle): { curve?: SubtypeExprOrValue<ChartCurveT
 
 function createMark<Row extends EastType>(mark: MarkKind, rows: ChartRows<Row>, encoding: MarkEncoding<Row>, style?: MarkStyle): SeriesLayer {
     const s = style ?? {};
-    const { data, xScale } = buildSeries(rows, encoding, s);
-    return { kind: "series", mark, data, xScale, style: s };
+    const { data, xScale } = buildSeries(rows, encoding, s, false);
+    return { kind: "series", mark, data, xScale, orientation: "vertical", style: s };
+}
+
+/** Build the horizontal bar layer (#249): the encoding's categorical `y` bands
+ * the y axis, its numeric `x` measures along a linear x axis, and the layer
+ * flips the whole frame horizontal. The mark stays the `bar` arm — orientation
+ * is carried by the frame's scale kinds, not the mark. */
+function createBar<Row extends EastType>(rows: ChartRows<Row>, encoding: BarEncoding<Row>, style?: MarkStyle): SeriesLayer {
+    const s = style ?? {};
+    const { data, xScale } = buildSeries(rows, encoding, s, true);
+    return { kind: "series", mark: "bar", data, xScale, orientation: "horizontal", style: s };
 }
 
 function createBand<Row extends EastType>(rows: ChartRows<Row>, encoding: BandEncoding<Row>, style?: MarkStyle): BandLayer {
@@ -471,8 +611,8 @@ function createBand<Row extends EastType>(rows: ChartRows<Row>, encoding: BandEn
 
 function createScatter<Row extends EastType>(rows: ChartRows<Row>, encoding: ScatterEncoding<Row>, style?: ScatterStyle): SeriesLayer {
     const s = style ?? {};
-    const { data, xScale } = buildSeries(rows, encoding, s);
-    return { kind: "series", mark: "scatter", data, xScale, style: s, ...(s.size !== undefined ? { radius: s.size } : {}) };
+    const { data, xScale } = buildSeries(rows, encoding, s, false);
+    return { kind: "series", mark: "scatter", data, xScale, orientation: "vertical", style: s, ...(s.size !== undefined ? { radius: s.size } : {}) };
 }
 
 // ============================================================================
@@ -622,11 +762,15 @@ export interface ChartOptions {
     height?: SubtypeExprOrValue<FloatType> | "fill";
     /** Plot width in px; omit for responsive. */
     width?: SubtypeExprOrValue<FloatType>;
-    /** X-axis configuration. */
+    /** X-axis configuration. Axis options follow their axis's data kind, so on
+     *  a horizontal `Chart.Bar` chart this is the numeric measure axis — put
+     *  numeric formats (e.g. `Chart.format.currency`) and `domain` here. */
     x?: AxisOptions;
-    /** Primary (left) y-axis configuration. */
+    /** Primary (left) y-axis configuration. On a horizontal `Chart.Bar` chart
+     *  this is the categorical band axis (`format` / `domain` don't apply). */
     y?: AxisOptions;
-    /** Secondary (right) y-axis configuration; presence enables a dual axis. */
+    /** Secondary (right) y-axis configuration; presence enables a dual axis.
+     *  Not supported with horizontal `Chart.Bar` layers. */
     y2?: AxisOptions;
     /** Show background gridlines. Default `true`. */
     grid?: boolean;
@@ -670,9 +814,25 @@ function createChartRoot(layers: ChartLayer | ChartLayer[], options?: ChartOptio
     const list = Array.isArray(layers) ? layers : [layers];
     const opts = options ?? {};
 
-    // x scale: explicit override, else the first data layer's inferred scale.
     const dataLayers = list.filter((l): l is SeriesLayer | BandLayer => l.kind !== "ref");
-    const xScale: ScaleKind = opts.x?.scale ?? dataLayers[0]?.xScale ?? "band";
+
+    // #249 — a horizontal bar layer (categorical y) flips the whole frame: the
+    // measure runs along a linear x and the band domain along y. One
+    // categorical axis per chart, so mixing orientations is a build-time
+    // error, and the right axis has no horizontal counterpart in v1.
+    const horizontal = dataLayers.some(l => l.kind === "series" && l.orientation === "horizontal");
+    if (horizontal) {
+        if (dataLayers.some(l => l.kind === "band" || l.orientation === "vertical")) {
+            throw new Error("<Chart>: cannot compose Chart.Bar (horizontal) with vertical mark layers (Column/Line/Area/Scatter/Band) in one chart — one categorical axis per chart");
+        }
+        if (opts.y2 !== undefined || dataLayers.some(l => l.style.axis === "right")) {
+            throw new Error("<Chart>: y2 (the right axis) is not supported with Chart.Bar (horizontal) — use Chart.Column for a dual-axis chart");
+        }
+    }
+
+    // x scale: horizontal bars fix it to the linear measure; otherwise the
+    // explicit override, else the first data layer's inferred scale.
+    const xScale: ScaleKind = horizontal ? "linear" : (opts.x?.scale ?? dataLayers[0]?.xScale ?? "band");
     const dualAxis = opts.y2 !== undefined || dataLayers.some(l => l.style.axis === "right");
 
     // Mark/band nodes in draw order (stable sort by `style.order`, refs last-ish
@@ -711,7 +871,8 @@ function createChartRoot(layers: ChartLayer | ChartLayer[], options?: ChartOptio
         height: opts.height === "fill" ? 0 : (opts.height ?? 240),
         ...(opts.width !== undefined ? { width: opts.width } : {}),
         xScale,
-        yScale: "linear",
+        // A band yScale is the renderer's horizontal-frame signal (#249).
+        yScale: horizontal ? "band" : "linear",
         ...(dualAxis ? { yScale2: "linear" as const } : {}),
         tooltip: opts.tooltip === true,
         legend: opts.legend === true,
@@ -750,6 +911,7 @@ function createSliceSeries(
         mark: options.mark ?? "line",
         data: handle.series(options.x, options.value),
         xScale: "band",
+        orientation: "vertical",
         style: {},
     };
 }
@@ -786,8 +948,14 @@ export const Chart = {
     Root: createChartRoot,
     /** Line-mark layer over a cartesian-mark encoding. */
     Line: <Row extends EastType>(rows: ChartRows<Row>, encoding: MarkEncoding<Row>, style?: MarkStyle): SeriesLayer => createMark("line", rows, encoding, style),
-    /** Bar-mark layer over a cartesian-mark encoding. */
-    Bar: <Row extends EastType>(rows: ChartRows<Row>, encoding: MarkEncoding<Row>, style?: MarkStyle): SeriesLayer => createMark("bar", rows, encoding, style),
+    /** Vertical column layer over a cartesian-mark encoding (categorical /
+     *  continuous x, numeric y) — the vertical counterpart of {@link Chart.Bar}.
+     *  Formerly named `Chart.Bar` (#249). */
+    Column: <Row extends EastType>(rows: ChartRows<Row>, encoding: MarkEncoding<Row>, style?: MarkStyle): SeriesLayer => createMark("bar", rows, encoding, style),
+    /** Horizontal bar layer (#249) — numeric `x` measure, categorical `y`
+     *  banded top-to-bottom (see {@link BarEncoding}); flips the whole frame
+     *  horizontal. For vertical columns use {@link Chart.Column}. */
+    Bar: <Row extends EastType>(rows: ChartRows<Row>, encoding: BarEncoding<Row>, style?: MarkStyle): SeriesLayer => createBar(rows, encoding, style),
     /** Area-mark layer over a cartesian-mark encoding. */
     Area: <Row extends EastType>(rows: ChartRows<Row>, encoding: MarkEncoding<Row>, style?: MarkStyle): SeriesLayer => createMark("area", rows, encoding, style),
     /** Scatter-mark layer; the encoding may add a per-point `size` for bubbles. */

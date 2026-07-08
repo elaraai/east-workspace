@@ -8,7 +8,8 @@
  *
  * @remarks
  * The high-level declarative chart API — `Chart.Root` / `Chart.Line` /
- * `Chart.Bar` / `Chart.Area` / `Chart.Scatter` / `Chart.Band` plus
+ * `Chart.Column` (vertical) / `Chart.Bar` (horizontal) / `Chart.Area` /
+ * `Chart.Scatter` / `Chart.Band` plus
  * `Chart.refLine` / `Chart.refBand` / `Chart.refDot` and `Chart.format.*` —
  * lives in `./chart/index.js` and is re-exported from the package barrel. The
  * low-level visx-primitive layer is `Chart.Spec` (`./spec`). `Sparkline` is a

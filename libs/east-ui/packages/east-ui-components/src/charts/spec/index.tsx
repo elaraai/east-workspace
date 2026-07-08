@@ -182,16 +182,25 @@ function sideOf(sm: SeriesMark): "left" | "right" {
 // Shared scales + inner dims + resolved chrome, provided by the `frame` to its
 // descendants. The x-scale is band / time / linear (per the frame's `xScale`);
 // marks stay scale-agnostic via `cx` (centre-x for a point); `y2` is the optional
-// right scale for dual-axis layers.
+// right scale for dual-axis layers. A horizontal frame (#249) swaps the roles:
+// the band domain runs along y and the numeric measure along x.
 interface ScaleCtx {
     cx: (p: Point) => number;
-    /** Position from a raw string key (used by rules / bands / hover). */
+    /** Position of a domain key along its axis — screen x normally, screen **y**
+     *  in a horizontal frame (used by bars / rules / bands / hover). */
     cxKey: (key: string) => number;
     bandWidth: number;
     xAxisScale: AxisScale;
+    /** The left-axis scale — the measure `y` scale normally; the band domain
+     *  scale in a horizontal frame (#249). */
+    yAxisScale: AxisScale;
     /** Tick values to pin a continuous x axis to the data points (band: undefined). */
     xTickValues: Array<number | Date> | undefined;
     xKind: ScaleKind;
+    /** Horizontal frame (#249): the frame's `yScale` is `band` — bars grow
+     *  along x, `cxKey` gives a domain key's centre y, and `y` is the measure
+     *  scale mapping values to screen **x**. */
+    horizontal: boolean;
     y: ReturnType<typeof scaleLinear<number>>;
     y2: ReturnType<typeof scaleLinear<number>> | undefined;
     /** Map a per-point scatter `size` value to a marker radius (area-proportional). */
@@ -325,9 +334,14 @@ function AreaMark({ value }: { value: ValueTypeOf<typeof T.Area> }): ReactNode {
     );
 }
 function BarsMark({ value }: { value: ValueTypeOf<typeof T.Bars> }): ReactNode {
-    const { cx, bandWidth, y, innerH, style } = useScales();
+    const { cx, cxKey, bandWidth, y, innerH, horizontal, style } = useScales();
     const baseFill = style.color(value.fill);
     const op = getSomeorUndefined(value.fillOpacity) ?? 1;
+    if (horizontal) {
+        // #249 — bars grow along x from the plot's left edge; the y band
+        // carries the coordinate (see BarSeries for the mirrored geometry).
+        return <>{value.points.map((p, i) => { const pc = getSomeorUndefined(p.color); const fill = pc !== undefined ? style.color(pc) : baseFill; return <Bar key={i} x={0} y={cxKey(xKeyOf(p.x)) - bandWidth / 2} width={Math.max(0, y(p.value))} height={bandWidth} fill={fill} fillOpacity={op} rx={style.barRadius} />; })}</>;
+    }
     return <>{value.points.map((p, i) => { const top = y(p.value); const pc = getSomeorUndefined(p.color); const fill = pc !== undefined ? style.color(pc) : baseFill; return <Bar key={i} x={cx(p) - bandWidth / 2} y={top} width={bandWidth} height={Math.max(0, innerH - top)} fill={fill} fillOpacity={op} rx={style.barRadius} />; })}</>;
 }
 function PointsMark({ value }: { value: ValueTypeOf<typeof T.Points> }): ReactNode {
@@ -393,10 +407,23 @@ function LineSeries({ series, yScale, layer }: { series: Series; yScale: YScale;
     );
 }
 function BarSeries({ series, index, count, stacked, bounds, yScale, layer }: { series: Series; index: number; count: number; stacked: boolean; bounds: (p: Point) => [number, number]; yScale: YScale; layer: LayerStyle }): ReactNode {
-    const { cx, bandWidth, innerH, style } = useScales(); const seriesFill = style.color(series.color);
+    const { cx, cxKey, bandWidth, innerH, horizontal, style } = useScales(); const seriesFill = style.color(series.color);
     const op = layer.fillOpacity ?? 1;
     // A per-point colour (a per-category fill) wins over the series colour.
     const fillFor = (p: Point): string => { const pc = getSomeorUndefined(p.color); return pc !== undefined ? style.color(pc) : seriesFill; };
+    if (horizontal) {
+        // #249 — the mirror of the vertical geometry: bars grow along x from
+        // the plot's left edge (the measure scale's zero-anchored min) and the
+        // y band carries the category; `yScale` here is the measure → screen-x
+        // scale, and stacked segments span [lo, hi] along it.
+        const bandTop = (p: Point) => cxKey(xKeyOf(p.x)) - bandWidth / 2;
+        if (stacked) {
+            return <>{series.points.map((p, i) => { const [lo, hi] = bounds(p); const x0 = yScale(lo); const x1 = yScale(hi); return <Bar key={i} x={Math.min(x0, x1)} y={bandTop(p)} width={Math.abs(x1 - x0)} height={bandWidth} fill={fillFor(p)} fillOpacity={op} rx={style.barRadius} />; })}</>;
+        }
+        const hSlot = bandWidth / count;                       // one sub-slot per series
+        const h = Math.max(1, hSlot - (count > 1 ? 1.5 : 0));  // hairline gap between grouped bars
+        return <>{series.points.map((p, i) => <Bar key={i} x={0} y={bandTop(p) + index * hSlot} width={Math.max(0, yScale(p.value))} height={h} fill={fillFor(p)} fillOpacity={op} rx={style.barRadius} />)}</>;
+    }
     if (stacked) {
         return <>{series.points.map((p, i) => { const [lo, hi] = bounds(p); const top = yScale(hi); const bot = yScale(lo); return <Bar key={i} x={cx(p) - bandWidth / 2} y={top} width={bandWidth} height={Math.max(0, bot - top)} fill={fillFor(p)} fillOpacity={op} rx={style.barRadius} />; })}</>;
     }
@@ -439,8 +466,11 @@ function BandAreaMark({ value }: { value: ValueTypeOf<typeof T.BandArea> }): Rea
 
 /** A highlighted marker at a data coordinate, with an optional caption. */
 function RefDotMark({ value }: { value: ValueTypeOf<typeof T.ReferenceDot> }): ReactNode {
-    const { cxKey, y, style } = useScales();
-    const x = cxKey(xKeyOf(value.x)); const yy = y(value.y);
+    const { cxKey, y, horizontal, style } = useScales();
+    // `value.x` is the domain coordinate and `value.y` the measure — screen
+    // (x, y) normally, swapped in a horizontal frame (#249).
+    const dPos = cxKey(xKeyOf(value.x)); const vPos = y(value.y);
+    const x = horizontal ? vPos : dPos; const yy = horizontal ? dPos : vPos;
     const fill = getSomeorUndefined(value.fill);
     const stroke = getSomeorUndefined(value.stroke);
     const r = getSomeorUndefined(value.radius) ?? 4;
@@ -455,13 +485,24 @@ function RefDotMark({ value }: { value: ValueTypeOf<typeof T.ReferenceDot> }): R
 
 /** A shaded rectangle spanning a range on one or both axes; unset bounds reach the edge. */
 function RefAreaMark({ value }: { value: ValueTypeOf<typeof T.ReferenceArea> }): ReactNode {
-    const { cxKey, y, innerW, innerH, style } = useScales();
+    const { cxKey, y, innerW, innerH, horizontal, style } = useScales();
     const x1 = getSomeorUndefined(value.x1); const x2 = getSomeorUndefined(value.x2);
     const y1 = getSomeorUndefined(value.y1); const y2 = getSomeorUndefined(value.y2);
-    const left = x1 !== undefined ? cxKey(xKeyOf(x1)) : 0;
-    const right = x2 !== undefined ? cxKey(xKeyOf(x2)) : innerW;
-    const top = y2 !== undefined ? y(y2) : 0;
-    const bot = y1 !== undefined ? y(y1) : innerH;
+    // `x1`/`x2` are domain coordinates, `y1`/`y2` measure values; in a
+    // horizontal frame (#249) the domain spans screen-y and the measure
+    // screen-x. min/abs below normalises either direction.
+    const left = horizontal
+        ? (y1 !== undefined ? y(y1) : 0)
+        : (x1 !== undefined ? cxKey(xKeyOf(x1)) : 0);
+    const right = horizontal
+        ? (y2 !== undefined ? y(y2) : innerW)
+        : (x2 !== undefined ? cxKey(xKeyOf(x2)) : innerW);
+    const top = horizontal
+        ? (x1 !== undefined ? cxKey(xKeyOf(x1)) : 0)
+        : (y2 !== undefined ? y(y2) : 0);
+    const bot = horizontal
+        ? (x2 !== undefined ? cxKey(xKeyOf(x2)) : innerH)
+        : (y1 !== undefined ? y(y1) : innerH);
     const fill = getSomeorUndefined(value.fill);
     const op = getSomeorUndefined(value.fillOpacity) ?? 0.12;
     const label = getSomeorUndefined(value.label);
@@ -476,12 +517,25 @@ function RefAreaMark({ value }: { value: ValueTypeOf<typeof T.ReferenceArea> }):
 }
 
 function RuleMark({ value }: { value: ValueTypeOf<typeof T.Rule> }): ReactNode {
-    const { cxKey, y, innerW, innerH, style } = useScales();
+    const { cxKey, y, innerW, innerH, horizontal, style } = useScales();
     const dash = getSomeorUndefined(value.dashArray);
     const stroke = style.color(value.stroke);
+    // The `axis` arm names the DATA channel (`y` = a measure value, `x` = a
+    // domain coordinate); in a horizontal frame (#249) the screen roles swap —
+    // a measure rule is vertical, a domain rule horizontal.
     return match(value.axis, {
-        y: () => { const yy = y(Number(value.at)); return <Line from={{ x: 0, y: yy }} to={{ x: innerW, y: yy }} stroke={stroke} strokeWidth={1} {...(dash ? { strokeDasharray: dash } : {})} />; },
-        x: () => { const xx = cxKey(value.at); return <Line from={{ x: xx, y: 0 }} to={{ x: xx, y: innerH }} stroke={stroke} strokeWidth={1} {...(dash ? { strokeDasharray: dash } : {})} />; },
+        y: () => {
+            const pos = y(Number(value.at));
+            return horizontal
+                ? <Line from={{ x: pos, y: 0 }} to={{ x: pos, y: innerH }} stroke={stroke} strokeWidth={1} {...(dash ? { strokeDasharray: dash } : {})} />
+                : <Line from={{ x: 0, y: pos }} to={{ x: innerW, y: pos }} stroke={stroke} strokeWidth={1} {...(dash ? { strokeDasharray: dash } : {})} />;
+        },
+        x: () => {
+            const pos = cxKey(value.at);
+            return horizontal
+                ? <Line from={{ x: 0, y: pos }} to={{ x: innerW, y: pos }} stroke={stroke} strokeWidth={1} {...(dash ? { strokeDasharray: dash } : {})} />
+                : <Line from={{ x: pos, y: 0 }} to={{ x: pos, y: innerH }} stroke={stroke} strokeWidth={1} {...(dash ? { strokeDasharray: dash } : {})} />;
+        },
     });
 }
 function TextMark({ value }: { value: ValueTypeOf<typeof T.Text> }): ReactNode {
@@ -493,19 +547,22 @@ function TextMark({ value }: { value: ValueTypeOf<typeof T.Text> }): ReactNode {
 // Axis labels carry their font via inline `style` (visx forwards it) so the mono
 // size wins over the CSS cascade; tick text is formatted per the axis node.
 function AxisBMark({ value }: { value: Axis }): ReactNode {
-    const { xAxisScale, xTickValues, xKind, innerW, innerH, margin, style } = useScales();
+    const { xAxisScale, xTickValues, xKind, horizontal, innerW, innerH, margin, style } = useScales();
     const fmt = tickFormatter(getSomeorUndefined(value.tickFormat), xKind);
     const label = getSomeorUndefined(value.label);
     // #149 — explicit tick control (numTicks / tickValues / hideTicks / hideLine).
     // Explicit `tickValues` win over the band scale's category positions; defaults
     // preserve today's look (ticks hidden, baseline shown on the x-axis).
-    const numTicks = getSomeorUndefined(value.numTicks);
+    // Horizontal frames (#249): the bottom axis is the numeric measure, so it
+    // takes the measure-axis defaults instead — ~4 nice ticks, no baseline
+    // rule (the baseline follows the band axis, on the left).
+    const numTicks = getSomeorUndefined(value.numTicks) ?? (horizontal ? 4 : undefined);
     // Pin to the data-point positions by default — UNLESS the caller asked for an
     // explicit `numTicks` (#149); otherwise the default would shadow numTicks on x
     // (visx prefers tickValues over numTicks), unlike the y / y2 axes.
     const tickValues = getSomeorUndefined(value.tickValues) ?? (numTicks !== undefined ? undefined : xTickValues);
     const hideTicks = getSomeorUndefined(value.hideTicks) ?? true;
-    const hideLine = getSomeorUndefined(value.hideLine) ?? false;
+    const hideLine = getSomeorUndefined(value.hideLine) ?? horizontal;
     return (
         <>
             <AxisBottom
@@ -524,17 +581,25 @@ function AxisBMark({ value }: { value: Axis }): ReactNode {
     );
 }
 function AxisLMark({ value }: { value: Axis }): ReactNode {
-    const { y, innerH, yTitleX, style } = useScales();
-    const fmt = tickFormatter(getSomeorUndefined(value.tickFormat), "linear");
+    const { y, yAxisScale, horizontal, innerH, yTitleX, style } = useScales();
+    // Horizontal frames (#249): the left axis is the category band — format
+    // as band labels, show every category (visx subsamples only past its
+    // default tick budget, mirroring the vertical band x-axis), and keep the
+    // baseline rule (the categorical baseline the bars sit on).
+    const fmt = tickFormatter(getSomeorUndefined(value.tickFormat), horizontal ? "band" : "linear");
     const label = getSomeorUndefined(value.label);
     const tickValues = getSomeorUndefined(value.tickValues);
+    const numTicks = getSomeorUndefined(value.numTicks);
     return (
         <>
             <AxisLeft
-                scale={y}
-                numTicks={Number(getSomeorUndefined(value.numTicks) ?? 4)}
-                hideAxisLine={getSomeorUndefined(value.hideLine) ?? true}
+                scale={horizontal ? yAxisScale : y}
+                {...(horizontal
+                    ? (numTicks !== undefined ? { numTicks: Number(numTicks) } : {})
+                    : { numTicks: Number(numTicks ?? 4) })}
+                hideAxisLine={getSomeorUndefined(value.hideLine) ?? !horizontal}
                 hideTicks={getSomeorUndefined(value.hideTicks) ?? true}
+                {...(horizontal ? { stroke: style.axisStroke } : {})}
                 {...(tickValues ? { tickValues } : {})}
                 tickFormat={v => fmt(v)}
                 tickLabelProps={() => ({ textAnchor: "end", dx: "-0.25em", dy: "0.25em", style: { fontFamily: style.font, fontSize: style.labelSize, fill: style.labelColor } })}
@@ -566,14 +631,23 @@ function AxisRMark({ value }: { value: Axis }): ReactNode {
     );
 }
 function GridRowsMark({ value }: { value: ValueTypeOf<typeof T.Grid> }): ReactNode {
-    const { y, innerW, style } = useScales();
+    const { y, yAxisScale, horizontal, innerW, style } = useScales();
     const dash = getSomeorUndefined(value.dashArray);
-    return <GridRows scale={y} width={innerW} numTicks={getSomeorUndefined(value.numTicks) ?? 4} stroke={style.gridStroke} {...(dash ? { strokeDasharray: dash } : {})} />;
+    const numTicks = getSomeorUndefined(value.numTicks);
+    // Horizontal frames (#249): rows follow the band y — one centred line per
+    // category (mirroring the vertical band x-columns), so no tick-count
+    // default; the measure gridlines are the columns.
+    if (horizontal) {
+        return <GridRows scale={yAxisScale} width={innerW} {...(numTicks !== undefined ? { numTicks } : {})} stroke={style.gridStroke} {...(dash ? { strokeDasharray: dash } : {})} />;
+    }
+    return <GridRows scale={y} width={innerW} numTicks={numTicks ?? 4} stroke={style.gridStroke} {...(dash ? { strokeDasharray: dash } : {})} />;
 }
 function GridColsMark({ value }: { value: ValueTypeOf<typeof T.Grid> }): ReactNode {
-    const { xAxisScale, innerH, style } = useScales();
+    const { xAxisScale, horizontal, innerH, style } = useScales();
     const dash = getSomeorUndefined(value.dashArray);
-    return <GridColumns scale={xAxisScale} height={innerH} stroke={style.gridStroke} {...(dash ? { strokeDasharray: dash } : {})} />;
+    // Horizontal frames (#249): the columns follow the measure x — default to
+    // the measure-axis tick count so gridlines land on the axis ticks.
+    return <GridColumns scale={xAxisScale} height={innerH} {...(horizontal ? { numTicks: getSomeorUndefined(value.numTicks) ?? 4 } : {})} stroke={style.gridStroke} {...(dash ? { strokeDasharray: dash } : {})} />;
 }
 
 /** Render one ChartSpec node (recursive); marks read scales from context. */
@@ -656,7 +730,11 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
     const gutterRight = gutterPx(ctxGutter?.right);
     return match(node, {
         frame: f => {
-            const xKind: ScaleKind = match(f.xScale, { band: () => "band" as const, linear: () => "linear" as const, time: () => "time" as const });
+            // #249 — a band yScale flips the frame horizontal: the band domain
+            // (the points' coordinate keys) runs along y and the numeric measure
+            // along a linear x, so the bottom axis formats as `linear`.
+            const horizontal = match(f.yScale, { band: () => true, linear: () => false, time: () => false });
+            const xKind: ScaleKind = horizontal ? "linear" : match(f.xScale, { band: () => "band" as const, linear: () => "linear" as const, time: () => "time" as const });
             const xNum = (s: string) => xKind === "time" ? new Date(s).getTime() : Number(s);
 
             const series: Series[] = [];
@@ -725,20 +803,37 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
                 const yTitleX = -((base.left + (yLabel ? 14 : 0)) - 11);
                 const y2TitleX = innerW + ((Math.max(base.right, hasY2 ? 44 : 8) + (y2Label ? 14 : 0)) - 11);
 
-                const mkY = (dom: [number, number] | undefined, dMin: number, dMax: number): YScale =>
-                    dom ? scaleLinear<number>({ domain: dom, range: [innerH, 0] }) : scaleLinear<number>({ domain: [Math.min(0, dMin), dMax || 1], range: [innerH, 0], nice: true });
-                const y = mkY(leftDomain, yMin, yMax);
-                const y2 = hasY2 ? mkY(rightDomain, y2Min, y2Max) : undefined;
+                // The measure scale: values → screen y normally; values →
+                // screen x in a horizontal frame (#249). The measure domain
+                // override comes from the matching axis node (left normally,
+                // bottom when horizontal).
+                const mkMeasure = (dom: [number, number] | undefined, dMin: number, dMax: number, range: [number, number]): YScale =>
+                    dom ? scaleLinear<number>({ domain: dom, range }) : scaleLinear<number>({ domain: [Math.min(0, dMin), dMax || 1], range, nice: true });
+                const y = horizontal
+                    ? mkMeasure(bottomDomain, yMin, yMax, [0, innerW])
+                    : mkMeasure(leftDomain, yMin, yMax, [innerH, 0]);
+                const y2 = !horizontal && hasY2 ? mkMeasure(rightDomain, y2Min, y2Max, [innerH, 0]) : undefined;
 
                 let cxKey: (key: string) => number;
                 let bandWidth: number;
                 let xAxisScale: AxisScale;
+                let yAxisScale: AxisScale;
                 let xTickValues: Array<number | Date> | undefined;
-                if (xKind === "band") {
+                if (horizontal) {
+                    // Band domain on y — categories top-to-bottom in data
+                    // order; the bottom axis renders the measure scale.
+                    const yb = scaleBand<string>({ domain: xDomain, range: [0, innerH], padding: 0.2 });
+                    cxKey = key => (yb(key) ?? 0) + yb.bandwidth() / 2;
+                    bandWidth = yb.bandwidth();
+                    yAxisScale = yb as AxisScale;
+                    xAxisScale = y as AxisScale;
+                    xTickValues = undefined;
+                } else if (xKind === "band") {
                     const xb = scaleBand<string>({ domain: xDomain, range: [0, innerW], padding: 0.2 });
                     cxKey = key => (xb(key) ?? 0) + xb.bandwidth() / 2;
                     bandWidth = xb.bandwidth();
                     xAxisScale = xb as AxisScale;
+                    yAxisScale = y as AxisScale;
                     xTickValues = undefined;
                 } else {
                     const n = Math.max(1, xDomain.length);
@@ -761,18 +856,27 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
                         cxKey = key => xl(Number(key));
                         xAxisScale = xl as AxisScale;
                     }
+                    yAxisScale = y as AxisScale;
                 }
                 const cx = (p: Point) => cxKey(xKeyOf(p.x));
 
                 const onMove = (e: MouseEvent<SVGRectElement>) => {
                     const r = e.currentTarget.getBoundingClientRect();
                     const px = e.clientX - r.left;
+                    const py = e.clientY - r.top;
+                    // Focus the nearest domain key along the domain axis — x
+                    // normally, the y band in a horizontal frame (#249).
+                    const pos = horizontal ? py : px;
                     let focus: string | undefined; let best = Infinity;
-                    for (const xv of xDomain) { const d = Math.abs(cxKey(xv) - px); if (d < best) { best = d; focus = xv; } }
+                    for (const xv of xDomain) { const d = Math.abs(cxKey(xv) - pos); if (d < best) { best = d; focus = xv; } }
                     if (focus === undefined) return;
                     const rows = series.flatMap(s => { const p = s.points.find(pt => xKeyOf(pt.x) === focus); return p ? [{ key: s.key, color: style.color(s.color), value: p.value }] : []; });
                     if (rows.length === 0) return;
-                    showTooltip({ tooltipData: { x: focus, rows }, tooltipLeft: margin.left + cxKey(focus), tooltipTop: margin.top + (e.clientY - r.top) });
+                    showTooltip({
+                        tooltipData: { x: focus, rows },
+                        tooltipLeft: margin.left + (horizontal ? px : cxKey(focus)),
+                        tooltipTop: margin.top + (horizontal ? cxKey(focus) : py),
+                    });
                 };
                 const focusX = tooltipData?.x;
 
@@ -791,11 +895,12 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
                                         <rect x={0} y={0} width={innerW} height={innerH} />
                                     </clipPath>
                                 </defs>
-                                <ScaleContext.Provider value={{ cx, cxKey, bandWidth, xAxisScale, xTickValues, xKind, y, y2, sizeR, innerW, innerH, margin, yTitleX, y2TitleX, style }}>
+                                <ScaleContext.Provider value={{ cx, cxKey, bandWidth, xAxisScale, yAxisScale, xTickValues, xKind, horizontal, y, y2, sizeR, innerW, innerH, margin, yTitleX, y2TitleX, style }}>
                                     {f.children.map((c, i) => renderNode(c, i, clipId))}
                                 </ScaleContext.Provider>
-                                {!brush && tooltipOn && focusX !== undefined && (
-                                    <Line from={{ x: cxKey(focusX), y: 0 }} to={{ x: cxKey(focusX), y: innerH }} stroke={style.axisStroke} strokeWidth={1} strokeDasharray="2 3" />
+                                {!brush && tooltipOn && focusX !== undefined && (horizontal
+                                    ? <Line from={{ x: 0, y: cxKey(focusX) }} to={{ x: innerW, y: cxKey(focusX) }} stroke={style.axisStroke} strokeWidth={1} strokeDasharray="2 3" />
+                                    : <Line from={{ x: cxKey(focusX), y: 0 }} to={{ x: cxKey(focusX), y: innerH }} stroke={style.axisStroke} strokeWidth={1} strokeDasharray="2 3" />
                                 )}
                                 {!brush && tooltipOn && series.length > 0 && (
                                     <rect x={0} y={0} width={innerW} height={innerH} fill="transparent" onMouseMove={onMove} onMouseLeave={hideTooltip} />

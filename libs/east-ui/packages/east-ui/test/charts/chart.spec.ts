@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { IntegerType, StringType, StructType, ArrayType, FloatType } from "@elaraai/east";
+import { East, IntegerType, StringType, StructType, ArrayType, FloatType, BooleanType } from "@elaraai/east";
 import { Chart } from "@elaraai/east-ui/internal";
 import * as ex from "./chart.examples.js";
 
@@ -23,17 +23,21 @@ describeEast("Chart", (test) => {
         lineRuntimeDomain: ex.lineRuntimeDomain,
         lineRuntimeTimeDomain: ex.lineRuntimeTimeDomain,
         lineSampleFan: ex.lineSampleFan,
-        barBasic: ex.barBasic,
-        barPerCategory: ex.barPerCategory,
+        columnBasic: ex.columnBasic,
+        columnPerCategory: ex.columnPerCategory,
+        columnGrouped: ex.columnGrouped,
+        columnStacked: ex.columnStacked,
+        columnPercentStacked: ex.columnPercentStacked,
+        columnCustomColors: ex.columnCustomColors,
+        barRanked: ex.barRanked,
         barGrouped: ex.barGrouped,
         barStacked: ex.barStacked,
         barPercentStacked: ex.barPercentStacked,
-        barCustomColors: ex.barCustomColors,
         areaStacked: ex.areaStacked,
         areaConfidenceBand: ex.areaConfidenceBand,
         scatterQuadrants: ex.scatterQuadrants,
         scatterBubble: ex.scatterBubble,
-        composedBarLine: ex.composedBarLine,
+        composedColumnLine: ex.composedColumnLine,
         composedDualAxisForecast: ex.composedDualAxisForecast,
         referenceAnnotations: ex.referenceAnnotations,
         axisFormatting: ex.axisFormatting,
@@ -59,7 +63,7 @@ describeEast("Chart", (test) => {
             { month: "Jan", a: 10n, b: 100n }, { month: "Feb", a: 20n, b: 120n },
         ], ArrayType(StructType({ month: StringType, a: IntegerType, b: IntegerType })));
         const chart = $.let(Chart.Root([
-            Chart.Bar(rows, { x: r => r.month, y: r => r.a }),
+            Chart.Column(rows, { x: r => r.month, y: r => r.a }),
             Chart.Line(rows, { x: r => r.month, y: r => r.b }, { axis: "right" }),
         ], { y2: { label: "Secondary" } }));
         const frame = chart.unwrap().unwrap("VisxChart").unwrap().unwrap("frame");
@@ -138,5 +142,107 @@ describeEast("Chart", (test) => {
         $(Assert.equal(series.opacity.hasTag("none"), true));
         $(Assert.equal(series.legend.hasTag("none"), true));
         $(Assert.equal(series.tooltip.hasTag("none"), true));
+    });
+
+    // =========================================================================
+    // Horizontal bars — Chart.Bar (numeric x, categorical y) + Chart.Column (#249)
+    // =========================================================================
+
+    test("Chart.Bar flips the frame horizontal: linear xScale + band yScale", $ => {
+        const rows = $.const([
+            { site: "North", throughput: 120n }, { site: "South", throughput: 90n },
+        ], ArrayType(StructType({ site: StringType, throughput: IntegerType })));
+        const chart = $.let(Chart.Root(Chart.Bar(rows, { x: r => r.throughput, y: r => r.site })));
+        const frame = $.const(chart.unwrap().unwrap("VisxChart").unwrap().unwrap("frame"));
+        $(Assert.equal(frame.xScale.hasTag("linear"), true));
+        $(Assert.equal(frame.yScale.hasTag("band"), true));
+    });
+
+    test("Chart.Column keeps the vertical frame: band xScale + linear yScale", $ => {
+        const rows = $.const([
+            { q: "Q1", revenue: 186n }, { q: "Q2", revenue: 305n },
+        ], ArrayType(StructType({ q: StringType, revenue: IntegerType })));
+        const chart = $.let(Chart.Root(Chart.Column(rows, { x: r => r.q, y: r => r.revenue })));
+        const frame = $.const(chart.unwrap().unwrap("VisxChart").unwrap().unwrap("frame"));
+        $(Assert.equal(frame.xScale.hasTag("band"), true));
+        $(Assert.equal(frame.yScale.hasTag("linear"), true));
+    });
+
+    test("Chart.Bar pivots the category into the point's coordinate and the numeric x into its value", $ => {
+        const rows = $.const([
+            { site: "North", throughput: 120n },
+        ], ArrayType(StructType({ site: StringType, throughput: IntegerType })));
+        const chart = $.let(Chart.Root(Chart.Bar(rows, { x: r => r.throughput, y: r => r.site }), { grid: false }));
+        const series = $.const(chart.unwrap().unwrap("VisxChart").unwrap().unwrap("frame").children.get(0n).unwrap().unwrap("series"));
+        const point = $.const(series.data.get(0n).points.get(0n));
+        $(Assert.equal(point.x.unwrap("category"), "North"));
+        $(Assert.equal(point.value, 120.0));
+        $(Assert.equal(series.mark.hasTag("bar"), true));
+    });
+
+    test("a horizontal columns encoding fans one series per named column over the y categories", $ => {
+        const rows = $.const([
+            { site: "North", loaded: 42n, empty: 18n }, { site: "South", loaded: 35n, empty: 25n },
+        ], ArrayType(StructType({ site: StringType, loaded: IntegerType, empty: IntegerType })));
+        const chart = $.let(Chart.Root(Chart.Bar(rows, { y: r => r.site, columns: { Loaded: r => r.loaded, Empty: r => r.empty } }), { grid: false }));
+        const series = $.const(chart.unwrap().unwrap("VisxChart").unwrap().unwrap("frame").children.get(0n).unwrap().unwrap("series"));
+        $(Assert.equal(series.data.length(), 2n));
+        $(Assert.equal(series.data.get(0n).key, "Loaded"));
+        $(Assert.equal(series.data.get(0n).points.get(1n).x.unwrap("category"), "South"));
+        $(Assert.equal(series.data.get(1n).points.get(0n).value, 18.0));
+    });
+
+    // The orientation guards throw while the chart VALUE is being built (plain
+    // JS), so the assertions capture the JS error and check it as East data.
+    // The would-be chart is bound with `$.const` so a regression (no throw)
+    // still leaves a tracked, well-formed test body.
+
+    test("composing Chart.Bar with a vertical mark layer is a build-time error", $ => {
+        const rows = $.const([
+            { site: "North", v: 120n }, { site: "South", v: 90n },
+        ], ArrayType(StructType({ site: StringType, v: IntegerType })));
+        let msg = "";
+        try {
+            $.const(Chart.Root([
+                Chart.Bar(rows, { x: r => r.v, y: r => r.site }),
+                Chart.Line(rows, { x: r => r.site, y: r => r.v }),
+            ]));
+        } catch (e) { msg = (e as Error).message; }
+        $(Assert.equal(East.value(msg.includes("one categorical axis"), BooleanType), true));
+    });
+
+    test("y2 with Chart.Bar is a build-time error", $ => {
+        const rows = $.const([
+            { site: "North", v: 120n },
+        ], ArrayType(StructType({ site: StringType, v: IntegerType })));
+        let msg = "";
+        try {
+            $.const(Chart.Root(Chart.Bar(rows, { x: r => r.v, y: r => r.site }), { y2: { label: "Trend" } }));
+        } catch (e) { msg = (e as Error).message; }
+        $(Assert.equal(East.value(msg.includes("y2"), BooleanType), true));
+    });
+
+    test("Chart.Bar with a numeric y is a build-time error pointing at Chart.Column", $ => {
+        const rows = $.const([
+            { site: "North", v: 120n },
+        ], ArrayType(StructType({ site: StringType, v: IntegerType })));
+        let msg = "";
+        // Dodge the encoding types the way a plain-JS caller would (a vertical
+        // encoding fed to Chart.Bar); the runtime guard still catches it.
+        try {
+            (Chart.Bar as typeof Chart.Column)(rows, { x: r => r.site, y: r => r.v });
+        } catch (e) { msg = (e as Error).message; }
+        $(Assert.equal(East.value(msg.includes("Chart.Column"), BooleanType), true));
+    });
+
+    test("a categorical y on a vertical mark is a build-time error pointing at Chart.Bar", $ => {
+        const rows = $.const([
+            { site: "North", v: 120n },
+        ], ArrayType(StructType({ site: StringType, v: IntegerType })));
+        let msg = "";
+        try {
+            (Chart.Line as typeof Chart.Bar)(rows, { x: r => r.v, y: r => r.site });
+        } catch (e) { msg = (e as Error).message; }
+        $(Assert.equal(East.value(msg.includes("Chart.Bar"), BooleanType), true));
     });
 }, { platformFns: TestImpl });

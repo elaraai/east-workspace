@@ -1,14 +1,14 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1421,
+    "totalEntries": 1425,
     "totalFiles": 183,
     "packages": {
       "east": 489,
       "east-node-std": 42,
       "east-node-io": 63,
       "east-py-datascience": 89,
-      "east-ui": 672,
+      "east-ui": 676,
       "e3-ui": 55,
       "e3": 7,
       "e3-ui-cli": 4
@@ -14143,7 +14143,7 @@
       "imports": [
         "import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Box, Chart, Reactive } from \"@elaraai/east-ui\";"
+        "import { AlignedStack, Box, Chart, Reactive } from \"@elaraai/east-ui\";"
       ],
       "source": "// Single line over a categorical (band) x-axis\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { month: \"Jan\", sales: 100n }, { month: \"Feb\", sales: 150n },\n            { month: \"Mar\", sales: 120n }, { month: \"Apr\", sales: 180n },\n        ], ArrayType(StructType({ month: StringType, sales: IntegerType })));\n        return (\n            <Box height=\"220px\" width=\"100%\">\n                <Chart layers={Chart.Line(rows, { x: r => r.month, y: r => r.sales }, { color: \"teal.solid\" })} grid tooltip />\n            </Box>\n        );\n    })"
     },
@@ -14165,7 +14165,7 @@
       "imports": [
         "import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Box, Chart, Reactive } from \"@elaraai/east-ui\";"
+        "import { AlignedStack, Box, Chart, Reactive } from \"@elaraai/east-ui\";"
       ],
       "source": "// Multiple lines from wide value columns\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { month: \"Jan\", mac: 10n, linux: 120n }, { month: \"Feb\", mac: 95n, linux: 110n },\n            { month: \"Mar\", mac: 87n, linux: 125n }, { month: \"Apr\", mac: 110n, linux: 100n },\n        ], ArrayType(StructType({ month: StringType, mac: IntegerType, linux: IntegerType })));\n        return (\n            <Box height=\"240px\" width=\"100%\">\n                <Chart layers={Chart.Line(rows, { x: r => r.month, columns: { Mac: r => r.mac, Linux: r => r.linux } })} legend grid tooltip />\n            </Box>\n        );\n    })"
     },
@@ -14187,7 +14187,7 @@
       "imports": [
         "import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Box, Chart, Reactive } from \"@elaraai/east-ui\";"
+        "import { AlignedStack, Box, Chart, Reactive } from \"@elaraai/east-ui\";"
       ],
       "source": "// One line per breakdown value (long-format split)\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { month: \"Jan\", os: \"Mac\", n: 10n }, { month: \"Jan\", os: \"Linux\", n: 120n },\n            { month: \"Feb\", os: \"Mac\", n: 95n }, { month: \"Feb\", os: \"Linux\", n: 110n },\n            { month: \"Mar\", os: \"Mac\", n: 87n }, { month: \"Mar\", os: \"Linux\", n: 125n },\n        ], ArrayType(StructType({ month: StringType, os: StringType, n: IntegerType })));\n        return (\n            <Box height=\"240px\" width=\"100%\">\n                <Chart layers={Chart.Line(rows, { x: r => r.month, y: r => r.n, by: r => r.os })} legend grid />\n            </Box>\n        );\n    })"
     },
@@ -14208,7 +14208,7 @@
       "imports": [
         "import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Box, Chart, Reactive } from \"@elaraai/east-ui\";"
+        "import { AlignedStack, Box, Chart, Reactive } from \"@elaraai/east-ui\";"
       ],
       "source": "// Smooth natural-curve interpolation\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { month: \"Jan\", sales: 100n }, { month: \"Feb\", sales: 150n },\n            { month: \"Mar\", sales: 120n }, { month: \"Apr\", sales: 180n },\n        ], ArrayType(StructType({ month: StringType, sales: IntegerType })));\n        return (\n            <Box height=\"220px\" width=\"100%\">\n                <Chart layers={Chart.Line(rows, { x: r => r.month, y: r => r.sales }, { curve: \"natural\", color: \"green.solid\" })} grid />\n            </Box>\n        );\n    })"
     },
@@ -14230,7 +14230,7 @@
       "imports": [
         "import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Box, Chart, Reactive } from \"@elaraai/east-ui\";"
+        "import { AlignedStack, Box, Chart, Reactive } from \"@elaraai/east-ui\";"
       ],
       "source": "// Stepped line, thick stroke, no point markers\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { month: \"Jan\", price: 100n }, { month: \"Feb\", price: 120n },\n            { month: \"Mar\", price: 115n }, { month: \"Apr\", price: 140n },\n        ], ArrayType(StructType({ month: StringType, price: IntegerType })));\n        return (\n            <Box height=\"220px\" width=\"100%\">\n                <Chart layers={Chart.Line(rows, { x: r => r.month, y: r => r.price }, { curve: \"step\", width: 2, dots: false, color: \"orange.solid\" })} grid />\n            </Box>\n        );\n    })"
     },
@@ -14254,7 +14254,7 @@
       "imports": [
         "import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Box, Chart, Reactive } from \"@elaraai/east-ui\";"
+        "import { AlignedStack, Box, Chart, Reactive } from \"@elaraai/east-ui\";"
       ],
       "source": "// stepAfter curve — a held setpoint extends forward from each point until the next change (riser after the point); stepBefore holds up to the point\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { day: 0n, setpoint: 18.0 }, { day: 2n, setpoint: 22.0 },\n            { day: 5n, setpoint: 20.0 }, { day: 8n, setpoint: 16.0 },\n        ], ArrayType(StructType({ day: IntegerType, setpoint: FloatType })));\n        return (\n            <Box height=\"220px\" width=\"100%\">\n                <Chart layers={Chart.Line(rows, { x: r => r.day, y: r => r.setpoint }, { curve: \"stepAfter\", width: 2, color: \"black\" })} grid />\n            </Box>\n        );\n    })"
     },
@@ -14275,7 +14275,7 @@
       "imports": [
         "import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Box, Chart, Reactive } from \"@elaraai/east-ui\";"
+        "import { AlignedStack, Box, Chart, Reactive } from \"@elaraai/east-ui\";"
       ],
       "source": "// Actual vs dashed target as two styled line layers\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { month: \"Jan\", actual: 100n, target: 110n }, { month: \"Feb\", actual: 150n, target: 130n },\n            { month: \"Mar\", actual: 120n, target: 140n }, { month: \"Apr\", actual: 180n, target: 150n },\n        ], ArrayType(StructType({ month: StringType, actual: IntegerType, target: IntegerType })));\n        return (\n            <Box height=\"240px\" width=\"100%\">\n                <Chart layers={[\n                    Chart.Line(rows, { x: r => r.month, y: r => r.actual }, { key: \"Actual\", color: \"teal.solid\", width: 2 }),\n                    Chart.Line(rows, { x: r => r.month, y: r => r.target }, { key: \"Target\", color: \"gray.solid\", dash: \"5 5\", dots: false }),\n                ]} legend grid />\n            </Box>\n        );\n    })"
     },
@@ -14297,7 +14297,7 @@
       "imports": [
         "import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Box, Chart, Reactive } from \"@elaraai/east-ui\";"
+        "import { AlignedStack, Box, Chart, Reactive } from \"@elaraai/east-ui\";"
       ],
       "source": "// Temporal line — DateTime x (time scale inferred), date tick format\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { at: new Date(\"2025-01-01\"), users: 1200n }, { at: new Date(\"2025-02-01\"), users: 1500n },\n            { at: new Date(\"2025-03-01\"), users: 1700n }, { at: new Date(\"2025-04-01\"), users: 1650n },\n        ], ArrayType(StructType({ at: DateTimeType, users: IntegerType })));\n        return (\n            <Box height=\"240px\" width=\"100%\">\n                <Chart\n                    layers={Chart.Line(rows, { x: r => r.at, y: r => r.users })}\n                    x={{ format: Chart.format.date(\"MMM YYYY\") }}\n                    y={{ format: Chart.format.compact() }}\n                    grid\n                />\n            </Box>\n        );\n    })"
     },
@@ -14318,7 +14318,7 @@
       "imports": [
         "import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Box, Chart, Reactive } from \"@elaraai/east-ui\";"
+        "import { AlignedStack, Box, Chart, Reactive } from \"@elaraai/east-ui\";"
       ],
       "source": "// Continuous numeric x-axis with an explicit domain\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { dose: 0.5, response: 12.0 }, { dose: 1.0, response: 30.0 },\n            { dose: 2.5, response: 55.0 }, { dose: 5.0, response: 70.0 },\n        ], ArrayType(StructType({ dose: FloatType, response: FloatType })));\n        return (\n            <Box height=\"240px\" width=\"100%\">\n                <Chart\n                    layers={Chart.Line(rows, { x: r => r.dose, y: r => r.response }, { color: \"purple.solid\" })}\n                    x={{ label: \"Dose\", scale: \"linear\", domain: [0, 6] }}\n                    y={{ label: \"Response\" }}\n                    grid\n                />\n            </Box>\n        );\n    })"
     },
@@ -14343,7 +14343,7 @@
       "imports": [
         "import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Box, Chart, Reactive } from \"@elaraai/east-ui\";"
+        "import { AlignedStack, Box, Chart, Reactive } from \"@elaraai/east-ui\";"
       ],
       "source": "// Explicit integer day ticks (tickValues) on the x-axis — pins the ticks to [0,1,…,6] so a stacked Planner\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { day: 0.0, temp: 22.0 }, { day: 2.0, temp: 20.5 },\n            { day: 4.0, temp: 18.0 }, { day: 6.0, temp: 16.5 },\n        ], ArrayType(StructType({ day: FloatType, temp: FloatType })));\n        return (\n            <Box height=\"240px\" width=\"100%\">\n                <Chart\n                    layers={Chart.Line(rows, { x: r => r.day, y: r => r.temp }, { color: \"teal.solid\" })}\n                    x={{ label: \"Day\", scale: \"linear\", domain: [0, 6], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0] }}\n                    y={{ label: \"°C\", numTicks: 3 }}\n                    grid\n                />\n            </Box>\n        );\n    })"
     },
@@ -14368,7 +14368,7 @@
       "imports": [
         "import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Box, Chart, Reactive } from \"@elaraai/east-ui\";"
+        "import { AlignedStack, Box, Chart, Reactive } from \"@elaraai/east-ui\";"
       ],
       "source": "// Numeric x-axis whose upper extent is runtime-driven — the domain max is an East expression (decision day + p95 + buffer)\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { day: 0.0, value: 10.0 }, { day: 1.5, value: 22.0 },\n            { day: 3.0, value: 41.0 }, { day: 4.0, value: 52.0 },\n        ], ArrayType(StructType({ day: FloatType, value: FloatType })));\n        // A data-derived press-ETA: the axis ends exactly where the forecast does,\n        // rather than at a compile-time constant.\n        const decisionDay = $.const(2.0, FloatType);\n        const p95 = $.const(3.5, FloatType);\n        const buffer = $.const(1.0, FloatType);\n        return (\n            <Box height=\"240px\" width=\"100%\">\n                <Chart\n                    layers={Chart.Line(rows, { x: r => r.day, y: r => r.value }, { color: \"teal.solid\" })}\n                    x={{ label: \"Day\", scale: \"linear\", domain: [0, decisionDay.add(p95).add(buffer)] }}\n                    y={{ label: \"Forecast\" }}\n                    grid\n                />\n            </Box>\n        );\n    })"
     },
@@ -14393,7 +14393,7 @@
       "imports": [
         "import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Box, Chart, Reactive } from \"@elaraai/east-ui\";"
+        "import { AlignedStack, Box, Chart, Reactive } from \"@elaraai/east-ui\";"
       ],
       "source": "// Time x-axis whose extent is given by DateTime expressions (runtime-driven temporal domain)\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { at: new Date(\"2025-01-01\"), v: 10.0 },\n            { at: new Date(\"2025-02-01\"), v: 18.0 },\n            { at: new Date(\"2025-03-01\"), v: 26.0 },\n        ], ArrayType(StructType({ at: DateTimeType, v: FloatType })));\n        const start = $.const(new Date(\"2024-12-15\"), DateTimeType);\n        const end = $.const(new Date(\"2025-03-20\"), DateTimeType);\n        return (\n            <Box height=\"240px\" width=\"100%\">\n                <Chart\n                    layers={Chart.Line(rows, { x: r => r.at, y: r => r.v })}\n                    x={{ label: \"Month\", scale: \"time\", domain: [start, end], format: Chart.format.date(\"MMM YYYY\") }}\n                    y={{ label: \"Value\" }}\n                    grid\n                />\n            </Box>\n        );\n    })"
     },
@@ -14419,40 +14419,43 @@
       "imports": [
         "import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Box, Chart, Reactive } from \"@elaraai/east-ui\";"
+        "import { AlignedStack, Box, Chart, Reactive } from \"@elaraai/east-ui\";"
       ],
       "source": "// A faint fan of generative sample paths (low stroke opacity, kept out of both the legend and the tooltip) behind a bold median line\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const fan = $.const([\n            { t: 0n, sid: \"s0\", y: 10.0 }, { t: 1n, sid: \"s0\", y: 14.0 }, { t: 2n, sid: \"s0\", y: 13.0 },\n            { t: 0n, sid: \"s1\", y: 11.0 }, { t: 1n, sid: \"s1\", y: 9.0 }, { t: 2n, sid: \"s1\", y: 15.0 },\n            { t: 0n, sid: \"s2\", y: 9.0 }, { t: 1n, sid: \"s2\", y: 12.0 }, { t: 2n, sid: \"s2\", y: 11.0 },\n        ], ArrayType(StructType({ t: IntegerType, sid: StringType, y: FloatType })));\n        const median = $.const([\n            { t: 0n, y: 10.0 }, { t: 1n, y: 12.0 }, { t: 2n, y: 13.0 },\n        ], ArrayType(StructType({ t: IntegerType, y: FloatType })));\n        return (\n            <Box height=\"260px\" width=\"100%\">\n                <Chart\n                    layers={[\n                        // Decoration layer: out of the legend AND the tooltip, so hovering\n                        // surfaces only the median rather than one row per sample id.\n                        Chart.Line(fan, { x: r => r.t, y: r => r.y, by: r => r.sid }, { opacity: 0.2, legend: false, tooltip: false, dots: false }),\n                        Chart.Line(median, { x: r => r.t, y: r => r.y }, { key: \"Median\", color: \"blue.solid\", width: 2, dots: false }),\n                    ]}\n                    x={{ label: \"Step\", scale: \"linear\" }}\n                    y={{ label: \"Value\" }}\n                    legend grid tooltip\n                />\n            </Box>\n        );\n    })"
     },
     {
-      "id": "east-ui:chart.examples.tsx:barBasic",
+      "id": "east-ui:chart.examples.tsx:columnBasic",
       "skill": "east-ui",
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/charts/chart.examples.tsx",
       "suite": "",
-      "test": "Single bar series with a compact-currency y-axis",
+      "test": "Single column series (vertical bars) with a compact-currency y-axis",
       "keywords": [
         "Chart",
-        "Bar",
+        "Column",
+        "bar",
+        "vertical",
         "single-series",
         "currency"
       ],
       "imports": [
         "import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Box, Chart, Reactive } from \"@elaraai/east-ui\";"
+        "import { AlignedStack, Box, Chart, Reactive } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Single bar series with a compact-currency y-axis\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { q: \"Q1\", revenue: 186n }, { q: \"Q2\", revenue: 305n }, { q: \"Q3\", revenue: 237n }, { q: \"Q4\", revenue: 273n },\n        ], ArrayType(StructType({ q: StringType, revenue: IntegerType })));\n        return (\n            <Box height=\"220px\" width=\"100%\">\n                <Chart layers={Chart.Bar(rows, { x: r => r.q, y: r => r.revenue }, { color: \"teal.solid\" })} y={{ format: Chart.format.currency({ compact: true }) }} grid />\n            </Box>\n        );\n    })"
+      "source": "// Single column series (vertical bars) with a compact-currency y-axis\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { q: \"Q1\", revenue: 186n }, { q: \"Q2\", revenue: 305n }, { q: \"Q3\", revenue: 237n }, { q: \"Q4\", revenue: 273n },\n        ], ArrayType(StructType({ q: StringType, revenue: IntegerType })));\n        return (\n            <Box height=\"220px\" width=\"100%\">\n                <Chart layers={Chart.Column(rows, { x: r => r.q, y: r => r.revenue }, { color: \"teal.solid\" })} y={{ format: Chart.format.currency({ compact: true }) }} grid />\n            </Box>\n        );\n    })"
     },
     {
-      "id": "east-ui:chart.examples.tsx:barPerCategory",
+      "id": "east-ui:chart.examples.tsx:columnPerCategory",
       "skill": "east-ui",
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/charts/chart.examples.tsx",
       "suite": "",
-      "test": "A single bar series coloured per x-category (composition mix) — full-width bars, in data order, no grouped split",
+      "test": "A single column series coloured per x-category (composition mix) — full-width columns, in data order, no grouped split",
       "keywords": [
         "Chart",
-        "Bar",
+        "Column",
+        "bar",
         "per-category",
         "colors",
         "composition",
@@ -14461,20 +14464,21 @@
       "imports": [
         "import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Box, Chart, Reactive } from \"@elaraai/east-ui\";"
+        "import { AlignedStack, Box, Chart, Reactive } from \"@elaraai/east-ui\";"
       ],
-      "source": "// A single bar series coloured per x-category (composition mix) — full-width bars, in data order, no grouped split\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { discipline: \"RN\", share: 42n }, { discipline: \"EN\", share: 28n }, { discipline: \"Physio\", share: 16n },\n            { discipline: \"OT\", share: 9n }, { discipline: \"Admin\", share: 5n },\n        ], ArrayType(StructType({ discipline: StringType, share: IntegerType })));\n        return (\n            <Box height=\"220px\" width=\"100%\">\n                <Chart\n                    layers={Chart.Bar(rows, {\n                        x: r => r.discipline, y: r => r.share,\n                        colors: { RN: \"teal.solid\", EN: \"cyan.solid\", Physio: \"blue.solid\", OT: \"purple.solid\", Admin: \"gray.solid\" },\n                    })}\n                    grid\n                />\n            </Box>\n        );\n    })"
+      "source": "// A single column series coloured per x-category (composition mix) — full-width columns, in data order, no grouped split\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { discipline: \"RN\", share: 42n }, { discipline: \"EN\", share: 28n }, { discipline: \"Physio\", share: 16n },\n            { discipline: \"OT\", share: 9n }, { discipline: \"Admin\", share: 5n },\n        ], ArrayType(StructType({ discipline: StringType, share: IntegerType })));\n        return (\n            <Box height=\"220px\" width=\"100%\">\n                <Chart\n                    layers={Chart.Column(rows, {\n                        x: r => r.discipline, y: r => r.share,\n                        colors: { RN: \"teal.solid\", EN: \"cyan.solid\", Physio: \"blue.solid\", OT: \"purple.solid\", Admin: \"gray.solid\" },\n                    })}\n                    grid\n                />\n            </Box>\n        );\n    })"
     },
     {
-      "id": "east-ui:chart.examples.tsx:barGrouped",
+      "id": "east-ui:chart.examples.tsx:columnGrouped",
       "skill": "east-ui",
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/charts/chart.examples.tsx",
       "suite": "",
-      "test": "Grouped bars from value columns",
+      "test": "Grouped columns from value columns",
       "keywords": [
         "Chart",
-        "Bar",
+        "Column",
+        "bar",
         "grouped",
         "columns",
         "multi-series"
@@ -14482,20 +14486,21 @@
       "imports": [
         "import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Box, Chart, Reactive } from \"@elaraai/east-ui\";"
+        "import { AlignedStack, Box, Chart, Reactive } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Grouped bars from value columns\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { region: \"NA\", a: 40n, b: 30n }, { region: \"EU\", a: 55n, b: 45n }, { region: \"APAC\", a: 30n, b: 60n },\n        ], ArrayType(StructType({ region: StringType, a: IntegerType, b: IntegerType })));\n        return (\n            <Box height=\"220px\" width=\"100%\">\n                <Chart layers={Chart.Bar(rows, { x: r => r.region, columns: { Product: r => r.a, Service: r => r.b } })} legend />\n            </Box>\n        );\n    })"
+      "source": "// Grouped columns from value columns\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { region: \"NA\", a: 40n, b: 30n }, { region: \"EU\", a: 55n, b: 45n }, { region: \"APAC\", a: 30n, b: 60n },\n        ], ArrayType(StructType({ region: StringType, a: IntegerType, b: IntegerType })));\n        return (\n            <Box height=\"220px\" width=\"100%\">\n                <Chart layers={Chart.Column(rows, { x: r => r.region, columns: { Product: r => r.a, Service: r => r.b } })} legend />\n            </Box>\n        );\n    })"
     },
     {
-      "id": "east-ui:chart.examples.tsx:barStacked",
+      "id": "east-ui:chart.examples.tsx:columnStacked",
       "skill": "east-ui",
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/charts/chart.examples.tsx",
       "suite": "",
-      "test": "Stacked bars sharing a stack id",
+      "test": "Stacked columns sharing a stack id",
       "keywords": [
         "Chart",
-        "Bar",
+        "Column",
+        "bar",
         "stacked",
         "stack",
         "columns"
@@ -14503,20 +14508,21 @@
       "imports": [
         "import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Box, Chart, Reactive } from \"@elaraai/east-ui\";"
+        "import { AlignedStack, Box, Chart, Reactive } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Stacked bars sharing a stack id\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { week: \"W1\", mobile: 50n, desktop: 100n }, { week: \"W2\", mobile: 70n, desktop: 120n },\n            { week: \"W3\", mobile: 60n, desktop: 110n },\n        ], ArrayType(StructType({ week: StringType, mobile: IntegerType, desktop: IntegerType })));\n        return (\n            <Box height=\"220px\" width=\"100%\">\n                <Chart layers={Chart.Bar(rows, { x: r => r.week, columns: { Mobile: r => r.mobile, Desktop: r => r.desktop } }, { stack: \"traffic\" })} legend />\n            </Box>\n        );\n    })"
+      "source": "// Stacked columns sharing a stack id\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { week: \"W1\", mobile: 50n, desktop: 100n }, { week: \"W2\", mobile: 70n, desktop: 120n },\n            { week: \"W3\", mobile: 60n, desktop: 110n },\n        ], ArrayType(StructType({ week: StringType, mobile: IntegerType, desktop: IntegerType })));\n        return (\n            <Box height=\"220px\" width=\"100%\">\n                <Chart layers={Chart.Column(rows, { x: r => r.week, columns: { Mobile: r => r.mobile, Desktop: r => r.desktop } }, { stack: \"traffic\" })} legend />\n            </Box>\n        );\n    })"
     },
     {
-      "id": "east-ui:chart.examples.tsx:barPercentStacked",
+      "id": "east-ui:chart.examples.tsx:columnPercentStacked",
       "skill": "east-ui",
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/charts/chart.examples.tsx",
       "suite": "",
-      "test": "100% stacked bars by breakdown, percent axis",
+      "test": "100% stacked columns by breakdown, percent axis",
       "keywords": [
         "Chart",
-        "Bar",
+        "Column",
+        "bar",
         "stackOffset",
         "expand",
         "percent",
@@ -14525,20 +14531,21 @@
       "imports": [
         "import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Box, Chart, Reactive } from \"@elaraai/east-ui\";"
+        "import { AlignedStack, Box, Chart, Reactive } from \"@elaraai/east-ui\";"
       ],
-      "source": "// 100% stacked bars by breakdown, percent axis\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { week: \"W1\", channel: \"Search\", spend: 40n }, { week: \"W1\", channel: \"Social\", spend: 60n },\n            { week: \"W2\", channel: \"Search\", spend: 55n }, { week: \"W2\", channel: \"Social\", spend: 45n },\n        ], ArrayType(StructType({ week: StringType, channel: StringType, spend: IntegerType })));\n        return (\n            <Box height=\"240px\" width=\"100%\">\n                <Chart layers={Chart.Bar(rows, { x: r => r.week, y: r => r.spend, by: r => r.channel })} stackOffset=\"expand\" y={{ format: Chart.format.percent() }} legend />\n            </Box>\n        );\n    })"
+      "source": "// 100% stacked columns by breakdown, percent axis\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { week: \"W1\", channel: \"Search\", spend: 40n }, { week: \"W1\", channel: \"Social\", spend: 60n },\n            { week: \"W2\", channel: \"Search\", spend: 55n }, { week: \"W2\", channel: \"Social\", spend: 45n },\n        ], ArrayType(StructType({ week: StringType, channel: StringType, spend: IntegerType })));\n        return (\n            <Box height=\"240px\" width=\"100%\">\n                <Chart layers={Chart.Column(rows, { x: r => r.week, y: r => r.spend, by: r => r.channel }, { stack: \"mix\" })} stackOffset=\"expand\" y={{ format: Chart.format.percent() }} legend />\n            </Box>\n        );\n    })"
     },
     {
-      "id": "east-ui:chart.examples.tsx:barCustomColors",
+      "id": "east-ui:chart.examples.tsx:columnCustomColors",
       "skill": "east-ui",
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/charts/chart.examples.tsx",
       "suite": "",
-      "test": "Breakdown bars with an explicit per-value colour map overriding the palette",
+      "test": "Breakdown columns with an explicit per-value colour map overriding the palette",
       "keywords": [
         "Chart",
-        "Bar",
+        "Column",
+        "bar",
         "by",
         "colors",
         "custom",
@@ -14547,9 +14554,103 @@
       "imports": [
         "import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Box, Chart, Reactive } from \"@elaraai/east-ui\";"
+        "import { AlignedStack, Box, Chart, Reactive } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Breakdown bars with an explicit per-value colour map overriding the palette\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { week: \"W1\", channel: \"Search\", spend: 40n }, { week: \"W1\", channel: \"Social\", spend: 60n },\n            { week: \"W2\", channel: \"Search\", spend: 55n }, { week: \"W2\", channel: \"Social\", spend: 45n },\n        ], ArrayType(StructType({ week: StringType, channel: StringType, spend: IntegerType })));\n        return (\n            <Box height=\"220px\" width=\"100%\">\n                <Chart layers={Chart.Bar(rows, { x: r => r.week, y: r => r.spend, by: r => r.channel, colors: { Search: \"blue.solid\", Social: \"orange.solid\" } })} legend />\n            </Box>\n        );\n    })"
+      "source": "// Breakdown columns with an explicit per-value colour map overriding the palette\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { week: \"W1\", channel: \"Search\", spend: 40n }, { week: \"W1\", channel: \"Social\", spend: 60n },\n            { week: \"W2\", channel: \"Search\", spend: 55n }, { week: \"W2\", channel: \"Social\", spend: 45n },\n        ], ArrayType(StructType({ week: StringType, channel: StringType, spend: IntegerType })));\n        return (\n            <Box height=\"220px\" width=\"100%\">\n                <Chart layers={Chart.Column(rows, { x: r => r.week, y: r => r.spend, by: r => r.channel, colors: { Search: \"blue.solid\", Social: \"orange.solid\" } })} legend />\n            </Box>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:chart.examples.tsx:barRanked",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/charts/chart.examples.tsx",
+      "suite": "",
+      "test": "Ranked horizontal bars — numeric x, categorical y; long category labels sit in an AlignedStack left gutter",
+      "keywords": [
+        "Chart",
+        "Bar",
+        "horizontal",
+        "ranked",
+        "categorical-y",
+        "long-labels",
+        "AlignedStack",
+        "plotGutter",
+        "currency"
+      ],
+      "imports": [
+        "import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { AlignedStack, Box, Chart, Reactive } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Ranked horizontal bars — numeric x, categorical y; long category labels sit in an AlignedStack left gutter\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { product: \"Industrial Conveyor Belts\", revenue: 482n },\n            { product: \"Hydraulic Press Fittings\", revenue: 305n },\n            { product: \"Pneumatic Valve Assemblies\", revenue: 237n },\n            { product: \"Stainless Fastener Kits\", revenue: 186n },\n            { product: \"Bearing Housings\", revenue: 121n },\n        ], ArrayType(StructType({ product: StringType, revenue: IntegerType })));\n        return (\n            <AlignedStack gutter={{ left: \"170px\", right: \"12px\" }}>\n                <Box height=\"240px\" width=\"100%\">\n                    <Chart\n                        layers={Chart.Bar(rows, { x: r => r.revenue, y: r => r.product }, { color: \"teal.solid\" })}\n                        x={{ format: Chart.format.currency({ compact: true }) }}\n                        grid tooltip\n                    />\n                </Box>\n            </AlignedStack>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:chart.examples.tsx:barGrouped",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/charts/chart.examples.tsx",
+      "suite": "",
+      "test": "Grouped horizontal bars from value columns — one sub-bar per column within each category band",
+      "keywords": [
+        "Chart",
+        "Bar",
+        "horizontal",
+        "grouped",
+        "columns",
+        "multi-series"
+      ],
+      "imports": [
+        "import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { AlignedStack, Box, Chart, Reactive } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Grouped horizontal bars from value columns — one sub-bar per column within each category band\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { site: \"North\", loaded: 42n, empty: 18n }, { site: \"South\", loaded: 35n, empty: 25n },\n            { site: \"West\", loaded: 28n, empty: 12n },\n        ], ArrayType(StructType({ site: StringType, loaded: IntegerType, empty: IntegerType })));\n        return (\n            <Box height=\"240px\" width=\"100%\">\n                <Chart layers={Chart.Bar(rows, { y: r => r.site, columns: { Loaded: r => r.loaded, Empty: r => r.empty } })} legend grid />\n            </Box>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:chart.examples.tsx:barStacked",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/charts/chart.examples.tsx",
+      "suite": "",
+      "test": "Stacked horizontal bars by breakdown — the hover tooltip matches on the y band",
+      "keywords": [
+        "Chart",
+        "Bar",
+        "horizontal",
+        "stacked",
+        "stack",
+        "by",
+        "breakdown",
+        "tooltip"
+      ],
+      "imports": [
+        "import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { AlignedStack, Box, Chart, Reactive } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Stacked horizontal bars by breakdown — the hover tooltip matches on the y band\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { site: \"North\", shift: \"Day\", tonnes: 120n }, { site: \"North\", shift: \"Night\", tonnes: 80n },\n            { site: \"South\", shift: \"Day\", tonnes: 95n }, { site: \"South\", shift: \"Night\", tonnes: 110n },\n            { site: \"West\", shift: \"Day\", tonnes: 60n }, { site: \"West\", shift: \"Night\", tonnes: 45n },\n        ], ArrayType(StructType({ site: StringType, shift: StringType, tonnes: IntegerType })));\n        return (\n            <Box height=\"240px\" width=\"100%\">\n                <Chart layers={Chart.Bar(rows, { x: r => r.tonnes, y: r => r.site, by: r => r.shift }, { stack: \"tonnage\" })} legend tooltip grid />\n            </Box>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:chart.examples.tsx:barPercentStacked",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/charts/chart.examples.tsx",
+      "suite": "",
+      "test": "100% stacked horizontal bars by breakdown — percent x-axis via stackOffset expand",
+      "keywords": [
+        "Chart",
+        "Bar",
+        "horizontal",
+        "stackOffset",
+        "expand",
+        "percent",
+        "breakdown"
+      ],
+      "imports": [
+        "import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { AlignedStack, Box, Chart, Reactive } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// 100% stacked horizontal bars by breakdown — percent x-axis via stackOffset expand\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { week: \"W1\", channel: \"Search\", spend: 40n }, { week: \"W1\", channel: \"Social\", spend: 60n },\n            { week: \"W2\", channel: \"Search\", spend: 55n }, { week: \"W2\", channel: \"Social\", spend: 45n },\n        ], ArrayType(StructType({ week: StringType, channel: StringType, spend: IntegerType })));\n        return (\n            <Box height=\"240px\" width=\"100%\">\n                <Chart\n                    layers={Chart.Bar(rows, { x: r => r.spend, y: r => r.week, by: r => r.channel }, { stack: \"mix\" })}\n                    stackOffset=\"expand\"\n                    x={{ format: Chart.format.percent() }}\n                    legend\n                />\n            </Box>\n        );\n    })"
     },
     {
       "id": "east-ui:chart.examples.tsx:areaStacked",
@@ -14569,7 +14670,7 @@
       "imports": [
         "import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Box, Chart, Reactive } from \"@elaraai/east-ui\";"
+        "import { AlignedStack, Box, Chart, Reactive } from \"@elaraai/east-ui\";"
       ],
       "source": "// Stacked filled areas\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { month: \"Jan\", mobile: 50n, desktop: 100n }, { month: \"Feb\", mobile: 70n, desktop: 120n },\n            { month: \"Mar\", mobile: 60n, desktop: 110n }, { month: \"Apr\", mobile: 90n, desktop: 140n },\n        ], ArrayType(StructType({ month: StringType, mobile: IntegerType, desktop: IntegerType })));\n        return (\n            <Box height=\"240px\" width=\"100%\">\n                <Chart layers={Chart.Area(rows, { x: r => r.month, columns: { Mobile: r => r.mobile, Desktop: r => r.desktop } }, { stack: \"traffic\", fillOpacity: 0.5 })} legend grid />\n            </Box>\n        );\n    })"
     },
@@ -14591,7 +14692,7 @@
       "imports": [
         "import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Box, Chart, Reactive } from \"@elaraai/east-ui\";"
+        "import { AlignedStack, Box, Chart, Reactive } from \"@elaraai/east-ui\";"
       ],
       "source": "// Confidence band (low/high) behind a line\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { day: \"Mon\", value: 100n, lo: 80n, hi: 120n }, { day: \"Tue\", value: 150n, lo: 130n, hi: 170n },\n            { day: \"Wed\", value: 130n, lo: 110n, hi: 150n }, { day: \"Thu\", value: 180n, lo: 160n, hi: 200n },\n        ], ArrayType(StructType({ day: StringType, value: IntegerType, lo: IntegerType, hi: IntegerType })));\n        return (\n            <Box height=\"240px\" width=\"100%\">\n                <Chart layers={[\n                    Chart.Band(rows, { x: r => r.day, low: r => r.lo, high: r => r.hi }, { key: \"Range\", color: \"blue.200\", fillOpacity: 0.3 }),\n                    Chart.Line(rows, { x: r => r.day, y: r => r.value }, { key: \"Value\", color: \"blue.solid\", width: 2 }),\n                ]} legend tooltip grid />\n            </Box>\n        );\n    })"
     },
@@ -14614,7 +14715,7 @@
       "imports": [
         "import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Box, Chart, Reactive } from \"@elaraai/east-ui\";"
+        "import { AlignedStack, Box, Chart, Reactive } from \"@elaraai/east-ui\";"
       ],
       "source": "// Two cohorts with a fixed domain, larger markers, and quadrant reference lines\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { effort: 10.0, value: 80.0, baseline: 20.0 }, { effort: 35.0, value: 55.0, baseline: 60.0 },\n            { effort: 70.0, value: 30.0, baseline: 90.0 },\n        ], ArrayType(StructType({ effort: FloatType, value: FloatType, baseline: FloatType })));\n        return (\n            <Box height=\"280px\" width=\"100%\">\n                <Chart\n                    layers={[\n                        Chart.Scatter(rows, { x: r => r.effort, columns: { Value: r => r.value, Baseline: r => r.baseline } }, { size: 6 }),\n                        Chart.refLine({ x: 50, dash: \"3 3\" }),\n                        Chart.refLine({ y: 50, dash: \"3 3\" }),\n                    ]}\n                    x={{ label: \"Effort\", scale: \"linear\", domain: [0, 100] }}\n                    y={{ label: \"Value\", domain: [0, 100] }}\n                    legend\n                />\n            </Box>\n        );\n    })"
     },
@@ -14636,20 +14737,21 @@
       "imports": [
         "import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Box, Chart, Reactive } from \"@elaraai/east-ui\";"
+        "import { AlignedStack, Box, Chart, Reactive } from \"@elaraai/east-ui\";"
       ],
       "source": "// Bubble chart — per-point marker size from a data field (area-proportional)\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { gdp: 1.2, life: 62.0, pop: 1400.0 }, { gdp: 4.5, life: 78.0, pop: 330.0 },\n            { gdp: 2.1, life: 70.0, pop: 210.0 }, { gdp: 5.8, life: 82.0, pop: 125.0 },\n        ], ArrayType(StructType({ gdp: FloatType, life: FloatType, pop: FloatType })));\n        return (\n            <Box height=\"260px\" width=\"100%\">\n                <Chart layers={Chart.Scatter(rows, { x: r => r.gdp, y: r => r.life, size: r => r.pop })} x={{ label: \"GDP per capita\" }} y={{ label: \"Life expectancy\" }} grid />\n            </Box>\n        );\n    })"
     },
     {
-      "id": "east-ui:chart.examples.tsx:composedBarLine",
+      "id": "east-ui:chart.examples.tsx:composedColumnLine",
       "skill": "east-ui",
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/charts/chart.examples.tsx",
       "suite": "",
-      "test": "Revenue bars with a profit line overlay",
+      "test": "Revenue columns with a profit line overlay",
       "keywords": [
         "Chart",
         "Composed",
+        "column",
         "bar",
         "line",
         "mixed-marks"
@@ -14657,9 +14759,9 @@
       "imports": [
         "import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Box, Chart, Reactive } from \"@elaraai/east-ui\";"
+        "import { AlignedStack, Box, Chart, Reactive } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Revenue bars with a profit line overlay\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { month: \"Jan\", revenue: 186n, profit: 80n }, { month: \"Feb\", revenue: 305n, profit: 120n },\n            { month: \"Mar\", revenue: 237n, profit: 95n }, { month: \"Apr\", revenue: 273n, profit: 150n },\n        ], ArrayType(StructType({ month: StringType, revenue: IntegerType, profit: IntegerType })));\n        return (\n            <Box height=\"260px\" width=\"100%\">\n                <Chart layers={[\n                    Chart.Bar(rows, { x: r => r.month, y: r => r.revenue }, { key: \"Revenue\", color: \"teal.solid\" }),\n                    Chart.Line(rows, { x: r => r.month, y: r => r.profit }, { key: \"Profit\", color: \"purple.solid\", dots: true }),\n                ]} legend tooltip grid />\n            </Box>\n        );\n    })"
+      "source": "// Revenue columns with a profit line overlay\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { month: \"Jan\", revenue: 186n, profit: 80n }, { month: \"Feb\", revenue: 305n, profit: 120n },\n            { month: \"Mar\", revenue: 237n, profit: 95n }, { month: \"Apr\", revenue: 273n, profit: 150n },\n        ], ArrayType(StructType({ month: StringType, revenue: IntegerType, profit: IntegerType })));\n        return (\n            <Box height=\"260px\" width=\"100%\">\n                <Chart layers={[\n                    Chart.Column(rows, { x: r => r.month, y: r => r.revenue }, { key: \"Revenue\", color: \"teal.solid\" }),\n                    Chart.Line(rows, { x: r => r.month, y: r => r.profit }, { key: \"Profit\", color: \"purple.solid\", dots: true }),\n                ]} legend tooltip grid />\n            </Box>\n        );\n    })"
     },
     {
       "id": "east-ui:chart.examples.tsx:composedDualAxisForecast",
@@ -14681,7 +14783,7 @@
       "imports": [
         "import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Box, Chart, Reactive } from \"@elaraai/east-ui\";"
+        "import { AlignedStack, Box, Chart, Reactive } from \"@elaraai/east-ui\";"
       ],
       "source": "// Stacked traffic + confidence band + right-axis trend line + reference line\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { month: \"Jan\", mobile: 50n, desktop: 100n, lo: 130n, hi: 170n, trend: 150n },\n            { month: \"Feb\", mobile: 70n, desktop: 120n, lo: 165n, hi: 215n, trend: 190n },\n            { month: \"Mar\", mobile: 60n, desktop: 110n, lo: 150n, hi: 200n, trend: 175n },\n            { month: \"Apr\", mobile: 90n, desktop: 140n, lo: 205n, hi: 265n, trend: 235n },\n        ], ArrayType(StructType({\n            month: StringType, mobile: IntegerType, desktop: IntegerType, lo: IntegerType, hi: IntegerType, trend: IntegerType,\n        })));\n        return (\n            <Box height=\"300px\" width=\"100%\">\n                <Chart\n                    layers={[\n                        Chart.Area(rows, { x: r => r.month, columns: { Mobile: r => r.mobile, Desktop: r => r.desktop } }, { stack: \"traffic\", fillOpacity: 0.5 }),\n                        Chart.Band(rows, { x: r => r.month, low: r => r.lo, high: r => r.hi }, { key: \"Confidence\", color: \"blue.200\", fillOpacity: 0.3 }),\n                        Chart.Line(rows, { x: r => r.month, y: r => r.trend }, { key: \"Trend\", color: \"red.solid\", dash: \"5 5\", dots: false, axis: \"right\", order: 10 }),\n                        Chart.refLine({ y: 200, label: \"Capacity\", dash: \"4 4\" }),\n                    ]}\n                    y={{ label: \"Sessions\" }}\n                    y2={{ label: \"Trend\", format: Chart.format.compact() }}\n                    legend\n                    tooltip\n                    grid\n                />\n            </Box>\n        );\n    })"
     },
@@ -14703,7 +14805,7 @@
       "imports": [
         "import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Box, Chart, Reactive } from \"@elaraai/east-ui\";"
+        "import { AlignedStack, Box, Chart, Reactive } from \"@elaraai/east-ui\";"
       ],
       "source": "// A target line, a normal-range band, and a highlighted peak dot\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { month: \"Jan\", value: 100n }, { month: \"Feb\", value: 150n },\n            { month: \"Mar\", value: 237n }, { month: \"Apr\", value: 180n },\n        ], ArrayType(StructType({ month: StringType, value: IntegerType })));\n        return (\n            <Box height=\"240px\" width=\"100%\">\n                <Chart layers={[\n                    Chart.refBand({ y: [120, 200], label: \"Normal\" }),\n                    Chart.Line(rows, { x: r => r.month, y: r => r.value }, { color: \"teal.solid\" }),\n                    Chart.refLine({ y: 220, label: \"Target\", dash: \"4 4\" }),\n                    Chart.refDot({ x: \"Mar\", y: 237, label: \"Peak\" }),\n                ]} grid />\n            </Box>\n        );\n    })"
     },
@@ -14725,9 +14827,9 @@
       "imports": [
         "import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Box, Chart, Reactive } from \"@elaraai/east-ui\";"
+        "import { AlignedStack, Box, Chart, Reactive } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Date x-axis with a compact-currency y-axis\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { at: new Date(\"2025-01-01\"), revenue: 12000n }, { at: new Date(\"2025-02-01\"), revenue: 18500n },\n            { at: new Date(\"2025-03-01\"), revenue: 21000n },\n        ], ArrayType(StructType({ at: DateTimeType, revenue: IntegerType })));\n        return (\n            <Box height=\"240px\" width=\"100%\">\n                <Chart layers={Chart.Bar(rows, { x: r => r.at, y: r => r.revenue }, { color: \"teal.solid\" })} x={{ format: Chart.format.date(\"MMM\") }} y={{ format: Chart.format.currency({ compact: true }) }} grid />\n            </Box>\n        );\n    })"
+      "source": "// Date x-axis with a compact-currency y-axis\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { at: new Date(\"2025-01-01\"), revenue: 12000n }, { at: new Date(\"2025-02-01\"), revenue: 18500n },\n            { at: new Date(\"2025-03-01\"), revenue: 21000n },\n        ], ArrayType(StructType({ at: DateTimeType, revenue: IntegerType })));\n        return (\n            <Box height=\"240px\" width=\"100%\">\n                <Chart layers={Chart.Column(rows, { x: r => r.at, y: r => r.revenue }, { color: \"teal.solid\" })} x={{ format: Chart.format.date(\"MMM\") }} y={{ format: Chart.format.currency({ compact: true }) }} grid />\n            </Box>\n        );\n    })"
     },
     {
       "id": "east-ui:chart.examples.tsx:interactiveValue",
@@ -14735,9 +14837,10 @@
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/charts/chart.examples.tsx",
       "suite": "",
-      "test": "A bar chart whose last value is driven by reactive State",
+      "test": "A column chart whose last value is driven by reactive State",
       "keywords": [
         "Chart",
+        "Column",
         "Reactive",
         "State",
         "interactive",
@@ -14746,9 +14849,9 @@
       "imports": [
         "import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Box, Chart, Reactive } from \"@elaraai/east-ui\";"
+        "import { AlignedStack, Box, Chart, Reactive } from \"@elaraai/east-ui\";"
       ],
-      "source": "// A bar chart whose last value is driven by reactive State\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const peak = $.let(State.bind([IntegerType], \"chart_peak\", 90n));\n            const peakVal = $.let(peak.read());\n            const rows = $.const([\n                { q: \"Q1\", v: 40n }, { q: \"Q2\", v: 65n }, { q: \"Q3\", v: 55n }, { q: \"Q4\", v: peakVal },\n            ], ArrayType(StructType({ q: StringType, v: IntegerType })));\n            return <Chart layers={Chart.Bar(rows, { x: r => r.q, y: r => r.v }, { color: \"teal.solid\" })} grid />;\n        }}</Reactive>\n    ))"
+      "source": "// A column chart whose last value is driven by reactive State\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const peak = $.let(State.bind([IntegerType], \"chart_peak\", 90n));\n            const peakVal = $.let(peak.read());\n            const rows = $.const([\n                { q: \"Q1\", v: 40n }, { q: \"Q2\", v: 65n }, { q: \"Q3\", v: 55n }, { q: \"Q4\", v: peakVal },\n            ], ArrayType(StructType({ q: StringType, v: IntegerType })));\n            return <Chart layers={Chart.Column(rows, { x: r => r.q, y: r => r.v }, { color: \"teal.solid\" })} grid />;\n        }}</Reactive>\n    ))"
     },
     {
       "id": "east-ui:sparkline.examples.tsx:sparklineLine",
@@ -18772,7 +18875,7 @@
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Badge, Box, Button, Card, Chart, HStack, MetricChip, Reactive, Story, Text, VStack } from \"@elaraai/east-ui\";"
       ],
-      "source": "// The spec\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const orders = $.const([\n            { week: \"wk 1\", actual: 820n, forecast: 825n }, { week: \"wk 2\", actual: 860n, forecast: 862n },\n            { week: \"wk 3\", actual: 880n, forecast: 886n }, { week: \"wk 4\", actual: 930n, forecast: 898n },\n            { week: \"wk 5\", actual: 1060n, forecast: 922n }, { week: \"wk 6\", actual: 1115n, forecast: 946n },\n            { week: \"wk 7\", actual: 1150n, forecast: 970n }, { week: \"wk 8\", actual: 1185n, forecast: 994n },\n        ], ArrayType(StructType({ week: StringType, actual: IntegerType, forecast: IntegerType })));\n        const uplift = $.const([\n            { region: \"NA\", half: \"wk 1–4\", orders: 846n }, { region: \"NA\", half: \"wk 5–8\", orders: 1110n },\n            { region: \"EU\", half: \"wk 1–4\", orders: 612n }, { region: \"EU\", half: \"wk 5–8\", orders: 668n },\n            { region: \"APAC\", half: \"wk 1–4\", orders: 418n }, { region: \"APAC\", half: \"wk 5–8\", orders: 426n },\n        ], ArrayType(StructType({ region: StringType, half: StringType, orders: IntegerType })));\n        return (\n            <Story title=\"Q4 demand review\" stageHeight={340} height={440}>\n                <Story.Step id=\"demand\" eyebrow=\"Demand\" title=\"Demand ran hot\"\n                            stage={<Box height=\"100%\" width=\"100%\">\n                                <Chart height=\"fill\" layers={Chart.Line(orders, { x: r => r.week, y: r => r.actual }, { key: \"actual\", color: \"teal.solid\" })} grid />\n                            </Box>}>\n                    <Text>Orders climbed steadily from week 4 and never gave the gain back — the exit rate is 34% above the start of the quarter.</Text>\n                    <MetricChip tone=\"positive\"><Text>▲ +34% vs start of Q4</Text></MetricChip>\n                </Story.Step>\n                <Story.Step id=\"forecast\" eyebrow=\"Forecast\" title=\"The plan missed the turn\"\n                            stage={<Box height=\"100%\" width=\"100%\">\n                                <Chart height=\"fill\" layers={[\n                                    Chart.Line(orders, { x: r => r.week, y: r => r.actual }, { key: \"actual\", color: \"teal.solid\" }),\n                                    Chart.Line(orders, { x: r => r.week, y: r => r.forecast }, { key: \"forecast\", color: \"gray.solid\", dash: \"4 3\" }),\n                                ]} grid legend />\n                            </Box>}>\n                    <Text>The committed forecast (dashed) tracked well until week 4, then kept its old slope. By week 8 the gap is 18% — that gap is the whole story.</Text>\n                    <MetricChip tone=\"negative\"><Text>▼ forecast −18% at wk 8</Text></MetricChip>\n                </Story.Step>\n                <Story.Step id=\"promo\" eyebrow=\"Cause\" title=\"One event explains the spike\"\n                            stage={<Box height=\"100%\" width=\"100%\">\n                                <Chart height=\"fill\" layers={[\n                                    Chart.Line(orders, { x: r => r.week, y: r => r.actual }, { key: \"actual\", color: \"teal.solid\" }),\n                                    Chart.refDot({ x: \"wk 4\", y: 930, label: \"promo live\" }),\n                                ]} grid />\n                            </Box>}>\n                    <Text>The week-4 inflection lands on the retail promo going live. Demand stepped up and stayed up — a level shift, not a transient.</Text>\n                    <Badge colorPalette=\"teal\">promo live · Nov 14</Badge>\n                </Story.Step>\n                <Story.Step id=\"regions\" eyebrow=\"Where\" title=\"The gap wasn't uniform\"\n                            stage={<Box height=\"100%\" width=\"100%\">\n                                <Chart height=\"fill\" layers={Chart.Bar(uplift, { x: r => r.region, y: r => r.orders, by: r => r.half })} grid legend />\n                            </Box>}>\n                    <Text>NA absorbed nearly all of the uplift; EU moved modestly; APAC ran flat. Re-forecast NA only — touching the others adds noise, not signal.</Text>\n                    <HStack gap=\"2\">\n                        <MetricChip tone=\"positive\"><Text>▲ NA +29%</Text></MetricChip>\n                        <MetricChip tone=\"neutral\"><Text>≈ APAC +2%</Text></MetricChip>\n                    </HStack>\n                </Story.Step>\n            </Story>\n        );\n    })"
+      "source": "// The spec\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const orders = $.const([\n            { week: \"wk 1\", actual: 820n, forecast: 825n }, { week: \"wk 2\", actual: 860n, forecast: 862n },\n            { week: \"wk 3\", actual: 880n, forecast: 886n }, { week: \"wk 4\", actual: 930n, forecast: 898n },\n            { week: \"wk 5\", actual: 1060n, forecast: 922n }, { week: \"wk 6\", actual: 1115n, forecast: 946n },\n            { week: \"wk 7\", actual: 1150n, forecast: 970n }, { week: \"wk 8\", actual: 1185n, forecast: 994n },\n        ], ArrayType(StructType({ week: StringType, actual: IntegerType, forecast: IntegerType })));\n        const uplift = $.const([\n            { region: \"NA\", half: \"wk 1–4\", orders: 846n }, { region: \"NA\", half: \"wk 5–8\", orders: 1110n },\n            { region: \"EU\", half: \"wk 1–4\", orders: 612n }, { region: \"EU\", half: \"wk 5–8\", orders: 668n },\n            { region: \"APAC\", half: \"wk 1–4\", orders: 418n }, { region: \"APAC\", half: \"wk 5–8\", orders: 426n },\n        ], ArrayType(StructType({ region: StringType, half: StringType, orders: IntegerType })));\n        return (\n            <Story title=\"Q4 demand review\" stageHeight={340} height={440}>\n                <Story.Step id=\"demand\" eyebrow=\"Demand\" title=\"Demand ran hot\"\n                            stage={<Box height=\"100%\" width=\"100%\">\n                                <Chart height=\"fill\" layers={Chart.Line(orders, { x: r => r.week, y: r => r.actual }, { key: \"actual\", color: \"teal.solid\" })} grid />\n                            </Box>}>\n                    <Text>Orders climbed steadily from week 4 and never gave the gain back — the exit rate is 34% above the start of the quarter.</Text>\n                    <MetricChip tone=\"positive\"><Text>▲ +34% vs start of Q4</Text></MetricChip>\n                </Story.Step>\n                <Story.Step id=\"forecast\" eyebrow=\"Forecast\" title=\"The plan missed the turn\"\n                            stage={<Box height=\"100%\" width=\"100%\">\n                                <Chart height=\"fill\" layers={[\n                                    Chart.Line(orders, { x: r => r.week, y: r => r.actual }, { key: \"actual\", color: \"teal.solid\" }),\n                                    Chart.Line(orders, { x: r => r.week, y: r => r.forecast }, { key: \"forecast\", color: \"gray.solid\", dash: \"4 3\" }),\n                                ]} grid legend />\n                            </Box>}>\n                    <Text>The committed forecast (dashed) tracked well until week 4, then kept its old slope. By week 8 the gap is 18% — that gap is the whole story.</Text>\n                    <MetricChip tone=\"negative\"><Text>▼ forecast −18% at wk 8</Text></MetricChip>\n                </Story.Step>\n                <Story.Step id=\"promo\" eyebrow=\"Cause\" title=\"One event explains the spike\"\n                            stage={<Box height=\"100%\" width=\"100%\">\n                                <Chart height=\"fill\" layers={[\n                                    Chart.Line(orders, { x: r => r.week, y: r => r.actual }, { key: \"actual\", color: \"teal.solid\" }),\n                                    Chart.refDot({ x: \"wk 4\", y: 930, label: \"promo live\" }),\n                                ]} grid />\n                            </Box>}>\n                    <Text>The week-4 inflection lands on the retail promo going live. Demand stepped up and stayed up — a level shift, not a transient.</Text>\n                    <Badge colorPalette=\"teal\">promo live · Nov 14</Badge>\n                </Story.Step>\n                <Story.Step id=\"regions\" eyebrow=\"Where\" title=\"The gap wasn't uniform\"\n                            stage={<Box height=\"100%\" width=\"100%\">\n                                <Chart height=\"fill\" layers={Chart.Column(uplift, { x: r => r.region, y: r => r.orders, by: r => r.half })} grid legend />\n                            </Box>}>\n                    <Text>NA absorbed nearly all of the uplift; EU moved modestly; APAC ran flat. Re-forecast NA only — touching the others adds noise, not signal.</Text>\n                    <HStack gap=\"2\">\n                        <MetricChip tone=\"positive\"><Text>▲ NA +29%</Text></MetricChip>\n                        <MetricChip tone=\"neutral\"><Text>≈ APAC +2%</Text></MetricChip>\n                    </HStack>\n                </Story.Step>\n            </Story>\n        );\n    })"
     },
     {
       "id": "east-ui:story.examples.tsx:storyRailRight",
@@ -18814,7 +18917,7 @@
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Badge, Box, Button, Card, Chart, HStack, MetricChip, Reactive, Story, Text, VStack } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Stacked layout: stage on top, prose beneath (the forced sub-720px shape)\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const uplift = $.const([\n            { region: \"NA\", half: \"wk 1–4\", orders: 846n }, { region: \"NA\", half: \"wk 5–8\", orders: 1110n },\n            { region: \"EU\", half: \"wk 1–4\", orders: 612n }, { region: \"EU\", half: \"wk 5–8\", orders: 668n },\n            { region: \"APAC\", half: \"wk 1–4\", orders: 418n }, { region: \"APAC\", half: \"wk 5–8\", orders: 426n },\n        ], ArrayType(StructType({ region: StringType, half: StringType, orders: IntegerType })));\n        return (\n            <Story layout=\"stacked\" title=\"Q4 demand review\" stageHeight={200} height={440}>\n                <Story.Step id=\"regions\" eyebrow=\"Where\" title=\"The gap wasn't uniform\"\n                            stage={<Box height=\"100%\" width=\"100%\">\n                                <Chart height=\"fill\" layers={Chart.Bar(uplift, { x: r => r.region, y: r => r.orders, by: r => r.half })} grid legend />\n                            </Box>}>\n                    <Text>NA absorbed nearly all of the uplift; EU moved modestly; APAC ran flat.</Text>\n                </Story.Step>\n                <Story.Step id=\"action\" eyebrow=\"Action\" title=\"Re-forecast NA only\">\n                    <Text>Touching the other regions adds noise, not signal.</Text>\n                    <MetricChip tone=\"positive\"><Text>▲ NA +29%</Text></MetricChip>\n                </Story.Step>\n            </Story>\n        );\n    })"
+      "source": "// Stacked layout: stage on top, prose beneath (the forced sub-720px shape)\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const uplift = $.const([\n            { region: \"NA\", half: \"wk 1–4\", orders: 846n }, { region: \"NA\", half: \"wk 5–8\", orders: 1110n },\n            { region: \"EU\", half: \"wk 1–4\", orders: 612n }, { region: \"EU\", half: \"wk 5–8\", orders: 668n },\n            { region: \"APAC\", half: \"wk 1–4\", orders: 418n }, { region: \"APAC\", half: \"wk 5–8\", orders: 426n },\n        ], ArrayType(StructType({ region: StringType, half: StringType, orders: IntegerType })));\n        return (\n            <Story layout=\"stacked\" title=\"Q4 demand review\" stageHeight={200} height={440}>\n                <Story.Step id=\"regions\" eyebrow=\"Where\" title=\"The gap wasn't uniform\"\n                            stage={<Box height=\"100%\" width=\"100%\">\n                                <Chart height=\"fill\" layers={Chart.Column(uplift, { x: r => r.region, y: r => r.orders, by: r => r.half })} grid legend />\n                            </Box>}>\n                    <Text>NA absorbed nearly all of the uplift; EU moved modestly; APAC ran flat.</Text>\n                </Story.Step>\n                <Story.Step id=\"action\" eyebrow=\"Action\" title=\"Re-forecast NA only\">\n                    <Text>Touching the other regions adds noise, not signal.</Text>\n                    <MetricChip tone=\"positive\"><Text>▲ NA +29%</Text></MetricChip>\n                </Story.Step>\n            </Story>\n        );\n    })"
     },
     {
       "id": "east-ui:story.examples.tsx:storyStepBasic",
@@ -18901,7 +19004,7 @@
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Badge, Box, Button, Card, Chart, HStack, MetricChip, Reactive, Story, Text, VStack } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Keyframes own their framing (compose Card); a final step carries the call to action\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const uplift = $.const([\n            { region: \"NA\", half: \"wk 1–4\", orders: 846n }, { region: \"NA\", half: \"wk 5–8\", orders: 1110n },\n            { region: \"EU\", half: \"wk 1–4\", orders: 612n }, { region: \"EU\", half: \"wk 5–8\", orders: 668n },\n        ], ArrayType(StructType({ region: StringType, half: StringType, orders: IntegerType })));\n        const openRun = $.const(East.function([], NullType, _$ => {\n            // Route to the Observe surface with the slice pre-bound.\n        }));\n        return (\n            <Story stageHeight={380} height={440}>\n                <Story.Step id=\"finding\" eyebrow=\"Finding\" title=\"NA absorbed the uplift\"\n                            stage={<Card header={{ title: \"Uplift by region\", description: \"wk 1–4 vs wk 5–8\" }}>\n                                <Box height=\"260px\" width=\"100%\">\n                                    <Chart height=\"fill\" layers={Chart.Bar(uplift, { x: r => r.region, y: r => r.orders, by: r => r.half })} grid legend />\n                                </Box>\n                            </Card>}>\n                    <Text>A keyframe that wants the Card treatment composes Card like anywhere else — the stage itself owns no chrome.</Text>\n                </Story.Step>\n                <Story.Step id=\"cta\" eyebrow=\"Next\" title=\"Re-forecast NA only\">\n                    <Text>Interactive bodies are allowed — the last step routinely carries the call to action.</Text>\n                    <Button onClick={openRun}>Open the run →</Button>\n                </Story.Step>\n            </Story>\n        );\n    })"
+      "source": "// Keyframes own their framing (compose Card); a final step carries the call to action\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const uplift = $.const([\n            { region: \"NA\", half: \"wk 1–4\", orders: 846n }, { region: \"NA\", half: \"wk 5–8\", orders: 1110n },\n            { region: \"EU\", half: \"wk 1–4\", orders: 612n }, { region: \"EU\", half: \"wk 5–8\", orders: 668n },\n        ], ArrayType(StructType({ region: StringType, half: StringType, orders: IntegerType })));\n        const openRun = $.const(East.function([], NullType, _$ => {\n            // Route to the Observe surface with the slice pre-bound.\n        }));\n        return (\n            <Story stageHeight={380} height={440}>\n                <Story.Step id=\"finding\" eyebrow=\"Finding\" title=\"NA absorbed the uplift\"\n                            stage={<Card header={{ title: \"Uplift by region\", description: \"wk 1–4 vs wk 5–8\" }}>\n                                <Box height=\"260px\" width=\"100%\">\n                                    <Chart height=\"fill\" layers={Chart.Column(uplift, { x: r => r.region, y: r => r.orders, by: r => r.half })} grid legend />\n                                </Box>\n                            </Card>}>\n                    <Text>A keyframe that wants the Card treatment composes Card like anywhere else — the stage itself owns no chrome.</Text>\n                </Story.Step>\n                <Story.Step id=\"cta\" eyebrow=\"Next\" title=\"Re-forecast NA only\">\n                    <Text>Interactive bodies are allowed — the last step routinely carries the call to action.</Text>\n                    <Button onClick={openRun}>Open the run →</Button>\n                </Story.Step>\n            </Story>\n        );\n    })"
     },
     {
       "id": "east-ui:story.examples.tsx:storyActiveStepStatic",

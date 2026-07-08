@@ -37,7 +37,10 @@ import { ValueFormatType } from "../../contracts/format.js";
  * Mark builders wrap an encoding's `x` accessor into the arm matching its East
  * type (a `DateTime` field → `time`, numeric → `number`, string → `category`).
  * The renderer derives the domain and range-appropriate ticks from these typed
- * values, so dates must NOT be pre-formatted into display strings.
+ * values, so dates must NOT be pre-formatted into display strings. In a
+ * horizontal frame (`yScale: band`, #249) this coordinate is the *y*-band
+ * category — the field is the domain coordinate, whichever screen axis the
+ * frame places it on.
  *
  * @property category - An ordinal category label (band scale)
  * @property number   - A continuous numeric position (linear scale)
@@ -356,7 +359,9 @@ export const ChartAreaType = StructType({
 export type ChartAreaType = typeof ChartAreaType;
 
 /**
- * Vertical bars (visx `Bar`) at each point's band position, scaled by the frame.
+ * Bars (visx `Bar`) at each point's band position, scaled by the frame —
+ * vertical in a vertical frame, growing along x when the frame's `yScale` is
+ * `band` (horizontal, #249).
  *
  * @property points      - The bars' points (data coords)
  * @property fill        - Bar fill colour (theme token or CSS)

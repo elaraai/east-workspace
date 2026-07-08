@@ -315,6 +315,169 @@ describe("Chart renderer — tooltip portal + stacking tier", () => {
     });
 });
 
+// ── horizontal bars (#249): band y + linear x ────────────────────────────────
+
+/** A horizontal `frame` (#249): linear x (measure) + band y (categories). */
+const hframe = (children: unknown[], opts: { legend?: boolean; tooltip?: boolean } = {}) =>
+    variant("frame", {
+        height: 240,
+        width: some(400),
+        margin: some({ top: 8, right: 8, bottom: 24, left: 40 }),
+        xScale: variant("linear", null),
+        yScale: variant("band", null),
+        yScale2: none,
+        tooltip: opts.tooltip ? some({ cursor: none }) : none,
+        legend: opts.legend ? some({ orientation: none, position: none }) : none,
+        slice: none,
+        children,
+    });
+
+/** A `bar` series node; `stackId` opts into stacking. */
+const barNode = (data: ReturnType<typeof series>[], opts: { stackId?: string } = {}) =>
+    variant("series", {
+        data,
+        mark: variant("bar", null),
+        curve: none,
+        stackId: opts.stackId !== undefined ? some(opts.stackId) : none,
+        stackOffset: none,
+        axis: none,
+        strokeWidth: none,
+        dashArray: none,
+        dots: none,
+        fillOpacity: none,
+        radius: none,
+        opacity: none,
+        legend: none,
+        tooltip: none,
+    });
+
+const ruleNode = (axis: "x" | "y", at: string) =>
+    variant("rule", { axis: variant(axis, null), at, stroke: "gray.500", dashArray: none });
+
+const gridNode = (tag: "gridRows" | "gridColumns") =>
+    variant(tag, { numTicks: none, dashArray: none });
+
+describe("Chart renderer — horizontal bars (#249)", () => {
+    // Frame geometry: innerW = 400−40−8 = 352, innerH = 240−8−24 = 208.
+    // Measure domain [0, 20] (niced) → x(10) = 176, x(20) = 352.
+
+    test("bars grow along x from the plot's left edge; the y band carries the category", () => {
+        const node = hframe([
+            barNode([series("Tonnes", "teal.solid", [pt("Alpha", 10), pt("Beta", 20)])]),
+            axisNode("axisBottom"),
+            axisNode("axisLeft"),
+        ]);
+        const { container } = ui(<EastVisxChart value={node as never} />);
+
+        const bars = [...container.querySelectorAll("rect.visx-bar")];
+        expect(bars.length).toBe(2);
+        // Anchored at the measure origin (plot left)…
+        for (const b of bars) expect(Number(b.getAttribute("x"))).toBe(0);
+        // …lengths track the values along x (20 is twice 10, out to the domain edge)…
+        const widths = bars.map(b => Number(b.getAttribute("width"))).sort((a, b) => a - b);
+        expect(widths[1]).toBeCloseTo(2 * widths[0]!, 3);
+        expect(widths[1]).toBeCloseTo(352, 3);
+        // …and the thickness is the shared y bandwidth at distinct band rows.
+        const heights = bars.map(b => Number(b.getAttribute("height")));
+        expect(heights[0]).toBeCloseTo(heights[1]!, 3);
+        const ys = bars.map(b => Number(b.getAttribute("y")));
+        expect(Math.abs(ys[0]! - ys[1]!)).toBeGreaterThan(1);
+        // The categories label the LEFT axis. (getAllByText: visx keeps a
+        // hidden text-measurement singleton that duplicates the last label.)
+        expect(screen.getAllByText("Alpha").length).toBeGreaterThanOrEqual(1);
+        expect(screen.getAllByText("Beta").length).toBeGreaterThanOrEqual(1);
+    });
+
+    test("stacked segments accumulate along x within one y band", () => {
+        const node = hframe([
+            barNode([
+                series("Day", "teal.solid", [pt("Alpha", 10)]),
+                series("Night", "purple.solid", [pt("Alpha", 30)]),
+            ], { stackId: "s" }),
+            axisNode("axisBottom"),
+            axisNode("axisLeft"),
+        ], { legend: true });
+        const { container } = ui(<EastVisxChart value={node as never} />);
+
+        const bars = [...container.querySelectorAll("rect.visx-bar")];
+        expect(bars.length).toBe(2);
+        const byX = bars.map(b => ({ x: Number(b.getAttribute("x")), w: Number(b.getAttribute("width")), y: Number(b.getAttribute("y")) }))
+            .sort((a, b) => a.x - b.x);
+        // Second segment starts where the first ends; together they span the total.
+        expect(byX[0]!.x).toBeCloseTo(0, 3);
+        expect(byX[1]!.x).toBeCloseTo(byX[0]!.w, 3);
+        expect(byX[0]!.w + byX[1]!.w).toBeCloseTo(352, 3);
+        // Same band row for both segments.
+        expect(byX[0]!.y).toBeCloseTo(byX[1]!.y, 3);
+        // The colour-matched legend rows render as normal.
+        expect(screen.getByText("Day")).toBeTruthy();
+        expect(screen.getByText("Night")).toBeTruthy();
+    });
+
+    test("the hover tooltip matches on the y band (mouse y picks the category)", () => {
+        const node = hframe([
+            barNode([series("Tonnes", "teal.solid", [pt("Alpha", 10), pt("Beta", 20)])]),
+            axisNode("axisBottom"),
+            axisNode("axisLeft"),
+        ], { tooltip: true });
+        const { container } = ui(<EastVisxChart value={node as never} />);
+
+        // Hover low in the plot — inside Beta's band row (centre ≈ 151 of 208).
+        const overlay = container.querySelector('rect[fill="transparent"]');
+        expect(overlay).not.toBeNull();
+        fireEvent.mouseMove(overlay!, { clientX: 100, clientY: 151 });
+
+        // The tooltip (a body-level portal) surfaces the series row keyed by
+        // the mouse's Y band: header "Beta" with its value, and no "Alpha".
+        const keyEl = screen.getByText("Tonnes");
+        let portalRoot: HTMLElement | null = keyEl;
+        while (portalRoot && portalRoot.parentElement !== document.body) portalRoot = portalRoot.parentElement;
+        expect(portalRoot).not.toBeNull();
+        expect(portalRoot!.textContent).toContain("Beta");
+        expect(portalRoot!.textContent).toContain("20");
+        expect(portalRoot!.textContent).not.toContain("Alpha");
+    });
+
+    test("grid draws vertical lines at the measure (x) ticks and one row per category band", () => {
+        const node = hframe([
+            gridNode("gridRows"),
+            gridNode("gridColumns"),
+            barNode([series("Tonnes", "teal.solid", [pt("Alpha", 10), pt("Beta", 20)])]),
+            axisNode("axisBottom"),
+            axisNode("axisLeft"),
+        ]);
+        const { container } = ui(<EastVisxChart value={node as never} />);
+
+        // Columns follow the linear measure — several full-height vertical lines.
+        const cols = [...container.querySelectorAll(".visx-columns line")];
+        expect(cols.length).toBeGreaterThanOrEqual(4);
+        for (const l of cols) expect(Number(l.getAttribute("x1"))).toBeCloseTo(Number(l.getAttribute("x2")), 3);
+        // Rows follow the band — exactly one centred line per category.
+        const rows = [...container.querySelectorAll(".visx-rows line")];
+        expect(rows.length).toBe(2);
+        for (const l of rows) expect(Number(l.getAttribute("y1"))).toBeCloseTo(Number(l.getAttribute("y2")), 3);
+    });
+
+    test("a measure refLine (axis y) renders as a vertical rule against the swapped frame", () => {
+        const node = hframe([
+            barNode([series("Tonnes", "teal.solid", [pt("Alpha", 10), pt("Beta", 20)])]),
+            ruleNode("y", "15"),
+            axisNode("axisBottom"),
+            axisNode("axisLeft"),
+        ]);
+        const { container } = ui(<EastVisxChart value={node as never} />);
+
+        // The only free-standing line (grid off; axis baselines carry
+        // .visx-axis-line) is the rule — vertical at x(15) = 264, full height.
+        const rules = [...container.querySelectorAll("line.visx-line:not(.visx-axis-line)")];
+        expect(rules.length).toBe(1);
+        const rule = rules[0]!;
+        expect(Number(rule.getAttribute("x1"))).toBeCloseTo(264, 3);
+        expect(Number(rule.getAttribute("x1"))).toBeCloseTo(Number(rule.getAttribute("x2")), 3);
+        expect(Math.abs(Number(rule.getAttribute("y2")) - Number(rule.getAttribute("y1")))).toBeCloseTo(208, 3);
+    });
+});
+
 describe("Chart renderer — series clipped to the plot rect (#152)", () => {
     test("only the series is wrapped in a clipPath-bound group; the axes are not clipped", () => {
         const node = frame([
