@@ -35,27 +35,118 @@ import {
     ArrayType,
     BooleanType,
     FunctionType,
-    type IntegerType,
+    IntegerType,
+    OptionType,
     StringType,
     StructType,
-    type NullType,
+    NullType,
 } from "@elaraai/east";
 
 import { UIComponentType } from "../../component.js";
 import { mapRows } from "../../shared/reify.js";
 import { DensityType, type DensityLiteral } from "../../style/interaction.js";
-import { CanDropFnType, type CellRefType, DragEventType } from "../../contracts/drag.js";
+import { CanDropFnType, CellRefType, DragEventType } from "../../contracts/drag.js";
 import { PlannerStateType } from "../planner/types.js";
 import {
     BoardModeType, type BoardModeLiteral,
-    BoardEntityType, BoardAssignmentType, BoardRequirementType, BoardRootType,
+    BoardEntityType, BoardAssignmentType, BoardRequirementType,
 } from "./types.js";
+import { RowRefType, RowReviewType, buildReview, type ReviewConfig } from "../../contracts/review.js";
 
 // Re-export types
 export {
     BoardModeType, type BoardModeLiteral,
-    BoardEntityType, BoardAssignmentType, BoardRequirementType, BoardRootType,
+    BoardEntityType, BoardAssignmentType, BoardRequirementType,
 } from "./types.js";
+
+/**
+ * East StructType for the Board component.
+ *
+ * @remarks
+ * Flat resolved tables — the renderer groups assignments into cells by
+ * `area × shift` and joins each to `people` by person key for the chip face.
+ * Assignment states reuse the Planner event-state grammar
+ * ({@link PlannerStateType}); the `model` flavour renders as the dashed
+ * ghost with the acceptance affordance. The component renders no built-in
+ * user-facing copy. Defined here (not `types.ts`) since #265: the root
+ * carries the shared review config, whose `summary` is a `UIComponentType` —
+ * `component.ts` mirrors this arm inline with the recursion `node`.
+ *
+ * @property id - DnD target identity
+ * @property sources - Library ids accepted for `add` drags
+ * @property mode - `published` (committed-only, immutable) or `edit`
+ * @property areaHeader - Optional frozen area column header (none = blank)
+ * @property areaWidth - Optional CSS width for the frozen area column
+ * @property areas - The grid rows
+ * @property shifts - The grid columns (this day's shift types, in order)
+ * @property people - The chip directory (faces), joined by person key
+ * @property assignments - The person chips (grouped into cells by area × shift)
+ * @property requirements - Optional per-cell coverage (none = no coverage chrome)
+ * @property density - Optional density
+ * @property maxVisible - Optional per-cell chip cap before the `+N` overflow
+ * @property summary - Optional status-strip text (open / proposed counts)
+ * @property canDrop - Optional IR-level drop veto over synthesized candidate events
+ * @property onDrag - Drag funnel — add / move / remove events
+ * @property onSelect - Assignment / cell click callback
+ * @property onAccept - Ghost-assignment acceptance callback (ONE proposed assignment)
+ * @property onAddAt - Open-slot / empty-cell click callback (edit mode)
+ * @property review - Optional batch review foot (shared contract, #265)
+ */
+export const BoardRootType = StructType({
+    /** DnD target identity */
+    id: StringType,
+    /** Library ids accepted for `add` drags */
+    sources: ArrayType(StringType),
+    /** `published` (committed-only, immutable) or `edit` */
+    mode: BoardModeType,
+    /** Optional frozen area column header (none = blank) */
+    areaHeader: OptionType(StringType),
+    /** Optional CSS width for the frozen area column (none = the Planner-consistent 150px) */
+    areaWidth: OptionType(StringType),
+    /** The grid rows */
+    areas: ArrayType(BoardEntityType),
+    /** The grid columns (this day's shift types, in order) */
+    shifts: ArrayType(BoardEntityType),
+    /** The chip directory (faces), joined by person key */
+    people: ArrayType(BoardEntityType),
+    /** The person chips (grouped into cells by area × shift) */
+    assignments: ArrayType(BoardAssignmentType),
+    /** Optional per-cell coverage (none = no coverage chrome) */
+    requirements: OptionType(ArrayType(BoardRequirementType)),
+    /** Optional density */
+    density: OptionType(DensityType),
+    /** Optional per-cell chip cap before the `+N` overflow */
+    maxVisible: OptionType(IntegerType),
+    /** Optional status-strip text (open / proposed counts) */
+    summary: OptionType(StringType),
+    /** Optional IR-level drop veto — consulted per hovered cell with the
+     *  synthesized candidate event ({@link CanDropFnType} semantics); `false`
+     *  ⇒ the ⊘ invalid stage and the drop is a no-op. Absent ⇒ accept. The
+     *  factory's deprecated `canAssign` sugar compiles into this predicate. */
+    canDrop: OptionType(CanDropFnType),
+    /** Drag funnel — add / move / remove events */
+    onDrag: OptionType(FunctionType([DragEventType], NullType)),
+    /** Assignment / cell click callback */
+    onSelect: OptionType(FunctionType([CellRefType], NullType)),
+    /** Ghost-assignment acceptance callback — resolves ONE proposed
+     *  assignment; `review`'s batch verbs sign off the whole board. The
+     *  interplay is host-owned (no implicit cascading in the component). */
+    onAccept: OptionType(FunctionType([CellRefType], NullType)),
+    /** Open-slot / empty-cell click callback (edit mode) */
+    onAddAt: OptionType(FunctionType([CellRefType], NullType)),
+    /** Optional batch review foot (#265) — the shared contract's commitBar
+     *  verbs (`onApproveAll` / `onRejectAll` / `onRerun` + `summary`). Board
+     *  is single-day areas × shifts, so v1 renders the FOOT only: the
+     *  per-row fields (`columnLabel`, `onApprove`, `onReject`) are unused
+     *  (a per-area decision column is an epic candidate); the factory warns
+     *  when they are set. */
+    review: OptionType(RowReviewType),
+});
+
+/**
+ * Type representing the Board component.
+ */
+export type BoardRootType = typeof BoardRootType;
 
 /**
  * The struct element type of a `SubtypeExprOrValue<ArrayType<StructType>>`.
@@ -221,6 +312,12 @@ export interface BoardConfig<
     onAccept?: SubtypeExprOrValue<FunctionType<[CellRefType], NullType>>;
     /** Open-slot / empty-cell click callback (edit mode). */
     onAddAt?: SubtypeExprOrValue<FunctionType<[CellRefType], NullType>>;
+    /** Optional batch review foot (#265) — the shared contract's commitBar
+     *  verbs (`onApproveAll` / `onRejectAll` / `onRerun` + `summary`). Board
+     *  v1 renders the foot only: `columnLabel` / `onApprove` / `onReject`
+     *  are unused (per-area decisions are an epic candidate) and the factory
+     *  warns when set. Ghost `onAccept` is unchanged and complementary. */
+    review?: ReviewConfig<RowRefType>;
 }
 
 function resolveEntities(
@@ -239,6 +336,16 @@ function resolveEntities(
             sublabel: r.sublabel !== undefined ? some(r.sublabel) : none,
         }, BoardEntityType);
     });
+}
+
+/** Board v1 renders the review FOOT only — warn (and drop) per-row fields
+ *  so a host wiring `onApprove` learns it is inert here (#265). */
+function reviewFootOnly(review: ReviewConfig<RowRefType>): ReviewConfig<RowRefType> {
+    if (review.onApprove !== undefined || review.onReject !== undefined || review.columnLabel !== undefined) {
+        console.warn("[Board] review.columnLabel / onApprove / onReject are unused — Board renders the batch foot only (per-area decisions are tracked as an epic #259 candidate).");
+    }
+    const { onApprove: _onApprove, onReject: _onReject, columnLabel: _columnLabel, ...foot } = review;
+    return foot;
 }
 
 function buildRoot(
@@ -337,6 +444,7 @@ function buildRoot(
         maxVisible,
         summary: config.summary !== undefined ? some(config.summary) : none,
         canDrop: canDrop !== undefined ? some(canDrop) : none,
+        review: config.review !== undefined ? some(buildReview(reviewFootOnly(config.review), RowReviewType)) : none,
         onDrag: config.onDrag !== undefined ? some(config.onDrag) : none,
         onSelect: config.onSelect !== undefined ? some(config.onSelect) : none,
         onAccept: config.onAccept !== undefined ? some(config.onAccept) : none,
@@ -490,6 +598,8 @@ export const Board = {
          * @property onAddAt - Open-slot / empty-cell click callback
          */
         Board: BoardRootType,
+        /** The review configuration — the shared `RowReviewType`; Board v1 renders the batch foot only (#265). */
+        Review: RowReviewType,
         /**
          * Board render mode (`published` / `edit`).
          *

@@ -244,6 +244,47 @@ export const boardInteractive = example({
     inputs: [],
 });
 
+/**
+ * Batch review foot (#265) — Board v1 wears the shared commitBar foot only
+ * (Approve all / Reject all / Rerun + host summary); per-area decision
+ * columns are an epic candidate. Per-tile ghost accept is unchanged and
+ * complementary.
+ */
+export const boardReviewFoot = example({
+    keywords: ["Board", "review", "approve", "reject", "batch", "foot", "commitBar", "rerun"],
+    description: "Batch review foot on a day board — Approve all / Reject all / Rerun on the shared commitBar, beside per-tile ghost accept",
+    fn: East.function([], UIComponentType, ($) => {
+        const onAccept = $.const(East.function([CellRefType], NullType, _$ => null));
+        return (
+            <Board
+                id="board-review"
+                mode="edit"
+                areas={[{ id: "icu", name: "ICU" }, { id: "ed", name: "ED" }]}
+                area={a => ({ key: a.id, label: a.name })}
+                shifts={[{ id: "am", name: "AM" }, { id: "pm", name: "PM" }]}
+                shift={sh => ({ key: sh.id, label: sh.name })}
+                people={[{ id: "patel", name: "Patel, R." }, { id: "cho", name: "Cho, J." }]}
+                person={p => ({ key: p.id, label: p.name })}
+                assignments={[
+                    { id: "x1", personId: "patel", areaId: "icu", shiftId: "am", state: variant("committed", null) },
+                    { id: "x2", personId: "cho", areaId: "icu", shiftId: "pm", state: variant("proposed", variant("model", null)) },
+                    { id: "x3", personId: "cho", areaId: "ed", shiftId: "am", state: variant("proposed", variant("added", null)) },
+                ]}
+                assignment={x => ({ key: x.id, person: x.personId, area: x.areaId, shift: x.shiftId, state: x.state })}
+                summary="1 model ghost · 1 operator draft"
+                onAccept={onAccept}
+                review={{
+                    summary: <Text color="fg.muted">2 areas · 2 proposals staged</Text>,
+                    onApproveAll: East.function([], NullType, _$ => null),
+                    onRejectAll: East.function([], NullType, _$ => null),
+                    onRerun: East.function([], NullType, _$ => null),
+                }}
+            />
+        );
+    }),
+    inputs: [],
+});
+
 export const boardWithLibrary = example({
     keywords: ["Board", "Library", "drag", "add", "onDrag", "canAssign", "page", "composition"],
     description: "Library + Board page — drag a person onto an (area, shift) cell to fire the add event; canAssign vetoes Kim on nights",

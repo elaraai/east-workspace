@@ -4,8 +4,6 @@
  */
 
 import {
-    ArrayType,
-    FunctionType,
     NullType,
     OptionType,
     StringType,
@@ -13,9 +11,8 @@ import {
     VariantType,
 } from "@elaraai/east";
 
-import { DensityType } from "../../style/interaction.js";
-import { CanDropFnType, CellRefType, DragEventType } from "../../contracts/drag.js";
-import { PlannerStateType } from "../planner/types.js";
+import { PlannerApprovalType, PlannerStateType } from "../planner/types.js";
+import { StatusValueType } from "../../feedback/status/types.js";
 
 /**
  * Roster render mode.
@@ -59,6 +56,11 @@ export const RosterPersonType = StructType({
     label: StringType,
     /** Optional muted second line (e.g. `38h → 30h`) */
     sublabel: OptionType(StringType),
+    // Review chrome (only meaningful when the root carries `review`, #265):
+    /** The quiet per-row status dot (some ⇒ flagged, none ⇒ clean) */
+    status: OptionType(StatusValueType),
+    /** The row's review decision (structurally the shared `ApprovalStateType`) */
+    approval: OptionType(PlannerApprovalType),
 });
 
 /**
@@ -93,67 +95,8 @@ export const RosterShiftType = StructType({
  */
 export type RosterShiftType = typeof RosterShiftType;
 
-/**
- * East StructType for the Roster component.
- *
- * @remarks
- * Flat resolved tables — the renderer groups shifts into cells by
- * `person × day`. Shift states reuse the Planner event-state grammar
- * ({@link PlannerStateType}); the `model` flavour renders as the dashed
- * ghost with the acceptance affordance.
- *
- * @property id - DnD target identity
- * @property sources - Library ids accepted for `add` drags
- * @property mode - `published` (committed-only, immutable) or `edit`
- * @property days - The day columns, in order
- * @property personHeader - The frozen person column's header
- * @property personWidth - Optional CSS width for the frozen person column
- * @property people - The grid rows
- * @property shifts - The shift chips (joined to people by person key)
- * @property density - Optional density
- * @property summary - Optional status-strip text (dirty / ghost counts)
- * @property onDrag - Drag funnel — add / move / remove events
- * @property canDrop - Optional IR-level drop veto over synthesized candidate events
- * @property onSelect - Shift / cell click callback
- * @property onAccept - Ghost-shift acceptance callback
- * @property onAddAt - Empty-cell click callback (edit mode)
- */
-export const RosterRootType = StructType({
-    /** DnD target identity */
-    id: StringType,
-    /** Library ids accepted for `add` drags */
-    sources: ArrayType(StringType),
-    /** `published` (committed-only, immutable) or `edit` */
-    mode: RosterModeType,
-    /** The day columns, in order */
-    days: ArrayType(StringType),
-    /** The frozen person column's header */
-    personHeader: StringType,
-    /** Optional CSS width for the frozen person column (none = the Planner-consistent 150px) */
-    personWidth: OptionType(StringType),
-    /** The grid rows */
-    people: ArrayType(RosterPersonType),
-    /** The shift chips (joined to people by person key) */
-    shifts: ArrayType(RosterShiftType),
-    /** Optional density */
-    density: OptionType(DensityType),
-    /** Optional status-strip text (dirty / ghost counts) */
-    summary: OptionType(StringType),
-    /** Drag funnel — add / move / remove events */
-    onDrag: OptionType(FunctionType([DragEventType], NullType)),
-    /** Optional IR-level drop veto — consulted per hovered cell with the
-     *  synthesized candidate event ({@link CanDropFnType} semantics); `false`
-     *  ⇒ the ⊘ invalid stage and the drop is a no-op. Absent ⇒ accept. */
-    canDrop: OptionType(CanDropFnType),
-    /** Shift / cell click callback */
-    onSelect: OptionType(FunctionType([CellRefType], NullType)),
-    /** Ghost-shift acceptance callback */
-    onAccept: OptionType(FunctionType([CellRefType], NullType)),
-    /** Empty-cell click callback (edit mode) */
-    onAddAt: OptionType(FunctionType([CellRefType], NullType)),
-});
-
-/**
- * Type representing the Roster component.
- */
-export type RosterRootType = typeof RosterRootType;
+// NOTE (#265): `RosterRootType` moved to `./index.ts` — the root now carries
+// the shared review config (`review.summary` is a `UIComponentType`), so it is
+// UIComp-coupled and can no longer live in this `component.ts`-importable
+// module. `component.ts` spells the Roster arm inline with the recursion
+// `node` (the Planner precedent).

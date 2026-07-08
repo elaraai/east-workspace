@@ -4,8 +4,8 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { BooleanType, East, none, some, variant } from "@elaraai/east";
-import { DragEventType, Roster } from "@elaraai/east-ui/internal";
+import { BooleanType, East, NullType, OptionType, none, some, variant } from "@elaraai/east";
+import { DragEventType, Roster, Status } from "@elaraai/east-ui/internal";
 import * as ex from "./roster.examples.js";
 
 describeEast("Roster", (test) => {
@@ -14,6 +14,7 @@ describeEast("Roster", (test) => {
         rosterPublished: ex.rosterPublished,
         rosterInteractive: ex.rosterInteractive,
         rosterCanDrop: ex.rosterCanDrop,
+        rosterReview: ex.rosterReview,
         rosterWithLibrary: ex.rosterWithLibrary,
     });
 
@@ -136,5 +137,45 @@ describeEast("Roster", (test) => {
         ));
 
         $(Assert.equal(roster.unwrap().unwrap("Roster").days.size(), 5n));
+    });
+
+    test("review chrome + person accessors encode via the shared contract (#265)", $ => {
+        const roster = $.let(Roster.Root(
+            [
+                { id: "patel", name: "Patel", flagged: false },
+                { id: "cho", name: "Cho", flagged: true },
+            ],
+            [{ id: "p1", person: "patel", day: "Mon", hours: 8n, state: variant("committed", null) }],
+            {
+                id: "r",
+                mode: "edit",
+                person: p => ({
+                    key: p.id,
+                    label: p.name,
+                    status: p.flagged.ifElse(
+                        _$ => East.value(some(variant("warning", null)), OptionType(Status.Types.Value)),
+                        _$ => East.value(none, OptionType(Status.Types.Value)),
+                    ),
+                    approval: p.flagged.ifElse(
+                        _$ => East.value(some(variant("pending", null)), OptionType(Roster.Types.Approval)),
+                        _$ => East.value(some(variant("approved", null)), OptionType(Roster.Types.Approval)),
+                    ),
+                }),
+                shift: s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state }),
+                review: {
+                    onApprove: East.function([Roster.Types.ApproveEvent], NullType, _$ => null),
+                    onApproveAll: East.function([], NullType, _$ => null),
+                },
+            },
+        ));
+        const root = $.let(roster.unwrap().unwrap("Roster"));
+
+        const review = $.let(root.review.unwrap("some"));
+        $(Assert.equal(review.columnLabel, "Decision"));
+        $(Assert.equal(review.onApprove.hasTag("some"), true));
+        $(Assert.equal(root.people.get(0n).status.hasTag("none"), true));
+        $(Assert.equal(root.people.get(0n).approval.unwrap("some").hasTag("approved"), true));
+        $(Assert.equal(root.people.get(1n).status.unwrap("some").hasTag("warning"), true));
+        $(Assert.equal(root.people.get(1n).approval.unwrap("some").hasTag("pending"), true));
     });
 }, { platformFns: TestImpl });

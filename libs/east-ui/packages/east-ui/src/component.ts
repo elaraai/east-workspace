@@ -112,8 +112,9 @@ import { BarStripStyleType, BarStripSortType } from "./display/bar-strip/types.j
 import { AvatarGroupType } from "./display/avatar-group/types.js";
 import { TraceType } from "./display/trace/types.js";
 import { LibraryRootType } from "./collections/library/types.js";
-import { RosterRootType } from "./collections/roster/types.js";
-import { BoardRootType } from "./collections/board/types.js";
+import { RosterModeType, RosterPersonType, RosterShiftType } from "./collections/roster/types.js";
+import { BoardModeType, BoardEntityType, BoardAssignmentType, BoardRequirementType } from "./collections/board/types.js";
+import { CellRefType, DragEventType } from "./contracts/drag.js";
 import { CalendarRootType } from "./collections/calendar/types.js";
 import {
     SchematicItemType,
@@ -894,11 +895,71 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         rowHover: OptionType(BooleanType),
     }),
 
-    // Roster — people × days-of-week shift grid (drag & drop target role)
-    Roster: RosterRootType,
+    // Roster — people × days-of-week shift grid (drag & drop target role).
+    // Spelled inline since #265 (the review config's `summary` rides the
+    // recursion `node`) — mirror `RosterRootType` in `collections/roster/index.ts`.
+    Roster: StructType({
+        id: StringType,
+        sources: ArrayType(StringType),
+        mode: RosterModeType,
+        days: ArrayType(StringType),
+        personHeader: StringType,
+        personWidth: OptionType(StringType),
+        people: ArrayType(RosterPersonType),
+        shifts: ArrayType(RosterShiftType),
+        density: OptionType(DensityType),
+        summary: OptionType(StringType),
+        onDrag: OptionType(FunctionType([DragEventType], NullType)),
+        canDrop: OptionType(FunctionType([DragEventType], BooleanType)),
+        onSelect: OptionType(FunctionType([CellRefType], NullType)),
+        onAccept: OptionType(FunctionType([CellRefType], NullType)),
+        onAddAt: OptionType(FunctionType([CellRefType], NullType)),
+        review: OptionType(StructType({
+            columnLabel: StringType,
+            summary: OptionType(node),
+            onApprove: OptionType(FunctionType([PlannerApproveEventType], NullType)),
+            onReject: OptionType(FunctionType([PlannerApproveEventType], NullType)),
+            onApproveAll: OptionType(FunctionType([], NullType)),
+            onRejectAll: OptionType(FunctionType([], NullType)),
+            onRerun: OptionType(FunctionType([], NullType)),
+            rerunLabel: StringType,
+        })),
+    }),
 
-    // Board — single-day areas × shifts assignment board (drag & drop target role)
-    Board: BoardRootType,
+    // Board — single-day areas × shifts assignment board (drag & drop target
+    // role). Spelled inline since #265 (the review config's `summary` rides
+    // the recursion `node`) — mirror `BoardRootType` in
+    // `collections/board/index.ts`.
+    Board: StructType({
+        id: StringType,
+        sources: ArrayType(StringType),
+        mode: BoardModeType,
+        areaHeader: OptionType(StringType),
+        areaWidth: OptionType(StringType),
+        areas: ArrayType(BoardEntityType),
+        shifts: ArrayType(BoardEntityType),
+        people: ArrayType(BoardEntityType),
+        assignments: ArrayType(BoardAssignmentType),
+        requirements: OptionType(ArrayType(BoardRequirementType)),
+        density: OptionType(DensityType),
+        maxVisible: OptionType(IntegerType),
+        summary: OptionType(StringType),
+        canDrop: OptionType(FunctionType([DragEventType], BooleanType)),
+        onDrag: OptionType(FunctionType([DragEventType], NullType)),
+        onSelect: OptionType(FunctionType([CellRefType], NullType)),
+        onAccept: OptionType(FunctionType([CellRefType], NullType)),
+        onAddAt: OptionType(FunctionType([CellRefType], NullType)),
+        review: OptionType(StructType({
+            columnLabel: StringType,
+            summary: OptionType(node),
+            onApprove: OptionType(FunctionType([PlannerApproveEventType], NullType)),
+            onReject: OptionType(FunctionType([PlannerApproveEventType], NullType)),
+            onApproveAll: OptionType(FunctionType([], NullType)),
+            onRejectAll: OptionType(FunctionType([], NullType)),
+            onRerun: OptionType(FunctionType([], NullType)),
+            rerunLabel: StringType,
+        })),
+    }),
 
     // Calendar — day-of-week × week intensity grid (visualisation only)
     Calendar: CalendarRootType,

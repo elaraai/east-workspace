@@ -12,6 +12,7 @@ import { Roster, type CellRefType } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { useDragTarget, useDropCell, useDragEventChip, type DragEventValue, type DragMeta, type DragPayload } from "../../dnd/drag-layer";
 import { useIRCanDrop, canDropAllows, type CanDropFn } from "../../dnd/ir-can-drop";
+import { useReviewController, DecisionButtons, ReviewFoot, DECISION_WIDTH } from "../shared/review";
 
 const rosterEqual = equalFor(Roster.Types.Roster);
 
@@ -203,7 +204,7 @@ function RosterCell({ surface, person, day, shifts, edit, styles, vetoFor, onSel
  * drops from the declared Libraries, proposed chips drag (`move` /
  * `remove`), and every completed drag funnels through `onDrag`.
  */
-export const EastChakraRoster = memo(function EastChakraRoster({ value }: EastChakraRosterProps) {
+export const EastChakraRoster = memo(function EastChakraRoster({ value, storageKey }: EastChakraRosterProps) {
     const styles = useSlotRecipe({ key: "roster" })() as SlotStyles;
     const edit = value.mode.type === "edit";
 
@@ -216,6 +217,22 @@ export const EastChakraRoster = memo(function EastChakraRoster({ value }: EastCh
     const onDragFn = useMemo(() => getSomeorUndefined(value.onDrag), [value.onDrag]);
     const canDropFn = useMemo(() => getSomeorUndefined(value.canDrop) as CanDropFn | undefined, [value.canDrop]);
     const vetoFor = useIRCanDrop(canDropFn);
+
+    // ── Review chrome (optional, #265) ────────────────────────────────────
+    // Row-level review (rows = people): the shared Decision column at the
+    // grid's right edge + the commitBar foot. Composes with — does not
+    // replace — per-tile ghost accept: ✓ resolves ONE ghost,
+    // review.onApprove({ rowIndex }) signs off a LINE (interplay host-owned).
+    const review = useMemo(() => getSomeorUndefined(value.review), [value.review]);
+    const approvals = useMemo(() => value.people.map((person) => person.approval), [value]);
+    const reviewController = useReviewController(review, approvals);
+    const chromeRecipe = useSlotRecipe({ key: "reviewChrome" });
+    const reviewChrome = useMemo(() => chromeRecipe({}) as SlotStyles, [chromeRecipe]);
+    const reviewDotStyles = useMemo(() => {
+        const out: Record<string, SystemStyleObject> = {};
+        for (const t of ["success", "warning", "danger", "info", "neutral"]) out[t] = (chromeRecipe({ status: t } as Record<string, unknown>) as SlotStyles).statusDot ?? {};
+        return out;
+    }, [chromeRecipe]);
     const onSelectFn = useMemo(() => getSomeorUndefined(value.onSelect), [value.onSelect]);
     const onAcceptFn = useMemo(() => getSomeorUndefined(value.onAccept), [value.onAccept]);
     const onAddAtFn = useMemo(() => getSomeorUndefined(value.onAddAt), [value.onAddAt]);
@@ -297,16 +314,23 @@ export const EastChakraRoster = memo(function EastChakraRoster({ value }: EastCh
 
     return (
         <Box css={styles.root}>
-            <Box css={styles.grid} style={{ gridTemplateColumns: `${getSomeorUndefined(value.personWidth) ?? "150px"} repeat(${value.days.length}, 1fr)` }}>
+            <Box css={styles.grid} style={{ gridTemplateColumns: `${getSomeorUndefined(value.personWidth) ?? "150px"} repeat(${value.days.length}, 1fr)${reviewController !== undefined ? ` ${DECISION_WIDTH}` : ""}` }}>
                 <Box css={styles.headerCell}>{value.personHeader}</Box>
                 {value.days.map(day => (
                     <Box key={day} css={styles.headerCell}>{day}</Box>
                 ))}
-                {value.people.map(person => {
+                {reviewController !== undefined && review !== undefined && (
+                    <Box css={reviewChrome.decisionHeader} data-slot="decisionHeader">{review.columnLabel}</Box>
+                )}
+                {value.people.map((person, personIndex) => {
                     const sublabel = getSomeorUndefined(person.sublabel);
+                    const rowStatusTag = reviewController !== undefined ? getSomeorUndefined(person.status)?.type : undefined;
                     return [
                         <Box key={`${person.key}-label`} css={styles.personCell}>
-                            <Box as="span" css={styles.personLabel}>{person.label}</Box>
+                            <Box as="span" css={styles.personLabel}>
+                                {rowStatusTag !== undefined && <Box as="span" css={reviewDotStyles[rowStatusTag]} data-slot="statusDot" />}
+                                {person.label}
+                            </Box>
                             {sublabel && <Box as="span" css={styles.personSublabel}>{sublabel}</Box>}
                         </Box>,
                         ...value.days.map(day => (
@@ -325,6 +349,17 @@ export const EastChakraRoster = memo(function EastChakraRoster({ value }: EastCh
                                 onAddAt={handleAddAt}
                             />
                         )),
+                        ...(reviewController !== undefined ? [(
+                            <Box
+                                key={`${person.key}-decision`}
+                                css={reviewChrome.decisionCol}
+                                data-slot="decisionCol"
+                                data-status={rowStatusTag}
+                                onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                            >
+                                <DecisionButtons rowIndex={personIndex} controller={reviewController} />
+                            </Box>
+                        )] : []),
                     ];
                 })}
             </Box>
@@ -337,6 +372,9 @@ export const EastChakraRoster = memo(function EastChakraRoster({ value }: EastCh
                         </Box>
                     )}
                 </Box>
+            )}
+            {reviewController !== undefined && reviewController.showFoot && (
+                <ReviewFoot controller={reviewController} storageKey={storageKey} />
             )}
         </Box>
     );

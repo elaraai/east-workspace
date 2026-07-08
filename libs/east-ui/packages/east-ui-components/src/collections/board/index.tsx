@@ -12,6 +12,7 @@ import { Board, type CellRefType } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { useDragTarget, useDropCell, useDragEventChip, type DragEventValue, type DragMeta, type DragPayload } from "../../dnd/drag-layer";
 import { useIRCanDrop, canDropAllows, type CanDropFn } from "../../dnd/ir-can-drop";
+import { useReviewController, ReviewFoot } from "../shared/review";
 
 const boardEqual = equalFor(Board.Types.Board);
 
@@ -285,7 +286,7 @@ function BoardCell({ surface, area, shift, chips, required, maxVisible, edit, ca
  * duplicate-person guard). Renders no built-in user-facing copy — numerals,
  * glyphs and tones only.
  */
-export const EastChakraBoard = memo(function EastChakraBoard({ value }: EastChakraBoardProps) {
+export const EastChakraBoard = memo(function EastChakraBoard({ value, storageKey }: EastChakraBoardProps) {
     const styles = useSlotRecipe({ key: "board" })() as SlotStyles;
     const edit = value.mode.type === "edit";
 
@@ -305,6 +306,15 @@ export const EastChakraBoard = memo(function EastChakraBoard({ value }: EastChak
     // broken validator cannot brick the board.
     const canDropFn = useMemo(() => getSomeorUndefined(value.canDrop) as CanDropFn | undefined, [value.canDrop]);
     const vetoFor = useIRCanDrop(canDropFn);
+
+    // ── Review foot (optional, #265) ──────────────────────────────────────
+    // Board v1 renders the shared commitBar BATCH foot only (Approve all /
+    // Reject all / Rerun + summary) — per-area decisions are an epic
+    // candidate. Ghost onAccept stays the per-tile path. No per-row
+    // decisions ⇒ no approvals to seed the controller with.
+    const review = useMemo(() => getSomeorUndefined(value.review), [value.review]);
+    const reviewApprovals = useMemo(() => [] as never[], []);
+    const reviewController = useReviewController(review, reviewApprovals);
     const onSelectFn = useMemo(() => getSomeorUndefined(value.onSelect), [value.onSelect]);
     const onAcceptFn = useMemo(() => getSomeorUndefined(value.onAccept), [value.onAccept]);
     const onAddAtFn = useMemo(() => getSomeorUndefined(value.onAddAt), [value.onAddAt]);
@@ -476,6 +486,9 @@ export const EastChakraBoard = memo(function EastChakraBoard({ value }: EastChak
                 <Box css={styles.strip}>
                     <Box as="span" css={styles.stripSummary}>{summary}</Box>
                 </Box>
+            )}
+            {reviewController !== undefined && reviewController.showFoot && (
+                <ReviewFoot controller={reviewController} storageKey={storageKey} />
             )}
         </Box>
     );

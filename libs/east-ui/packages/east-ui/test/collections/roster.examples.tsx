@@ -3,8 +3,8 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { BooleanType, East, IntegerType, NullType, StringType, example, variant } from "@elaraai/east";
-import { CellRefType, DragEventType, State, UIComponentType } from "@elaraai/east-ui";
+import { BooleanType, East, IntegerType, NullType, OptionType, StringType, example, none, some, variant } from "@elaraai/east";
+import { CellRefType, DragEventType, State, Status, UIComponentType } from "@elaraai/east-ui";
 import { Library, Reactive, Roster, Text, VStack } from "@elaraai/east-ui";
 
 export const rosterEdit = example({
@@ -181,6 +181,61 @@ export const rosterCanDrop = example({
             );
         }}</Reactive>
     )),
+    inputs: [],
+});
+
+/**
+ * Row-level review (#265) — the shared Decision column + commitBar foot on a
+ * roster, composing with per-tile ghost accept. The flagged line carries a
+ * model ghost: clicking the ghost's ✓ accepts ONE shift (`onAccept`), while
+ * the row's Approve signs off the LINE (`review.onApprove({ rowIndex })`) —
+ * two complementary granularities; the interplay is host-owned.
+ */
+export const rosterReview = example({
+    keywords: ["Roster", "review", "approve", "reject", "approval", "decision", "batch", "ghost", "accept", "granularity"],
+    description: "Row-level review on a roster — Decision column + batch foot beside per-tile ghost accept (accept ONE ghost vs approve the LINE)",
+    fn: East.function([], UIComponentType, ($) => {
+        const onAccept = $.const(East.function([CellRefType], NullType, _$ => null));
+        return (
+            <Roster
+                id="roster-review"
+                mode="edit"
+                people={[
+                    { id: "patel", name: "Patel", flagged: false },
+                    { id: "cho", name: "Cho", flagged: true },
+                    { id: "kim", name: "Kim", flagged: false },
+                ]}
+                person={p => ({
+                    key: p.id,
+                    label: p.name,
+                    status: p.flagged.ifElse(
+                        _$ => East.value(some(variant("warning", null)), OptionType(Status.Types.Value)),
+                        _$ => East.value(none, OptionType(Status.Types.Value)),
+                    ),
+                    approval: p.flagged.ifElse(
+                        _$ => East.value(some(variant("pending", null)), OptionType(Roster.Types.Approval)),
+                        _$ => East.value(some(variant("approved", null)), OptionType(Roster.Types.Approval)),
+                    ),
+                })}
+                shifts={[
+                    { id: "p1", person: "patel", day: "Mon", hours: 8n, state: variant("committed", null) },
+                    { id: "c1", person: "cho", day: "Tue", hours: 6n, state: variant("proposed", variant("model", null)) },
+                    { id: "c2", person: "cho", day: "Thu", hours: 6n, state: variant("proposed", variant("added", null)) },
+                    { id: "k1", person: "kim", day: "Wed", hours: 8n, state: variant("committed", null) },
+                ]}
+                shift={s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state })}
+                days={["Mon", "Tue", "Wed", "Thu", "Fri"]}
+                onAccept={onAccept}
+                review={{
+                    summary: <Text color="fg.muted">3 lines · 1 flagged needs a call</Text>,
+                    onApprove: East.function([Roster.Types.ApproveEvent], NullType, _$ => null),
+                    onReject: East.function([Roster.Types.ApproveEvent], NullType, _$ => null),
+                    onApproveAll: East.function([], NullType, _$ => null),
+                    onRejectAll: East.function([], NullType, _$ => null),
+                }}
+            />
+        );
+    }),
     inputs: [],
 });
 

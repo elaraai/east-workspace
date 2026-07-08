@@ -4,8 +4,6 @@
  */
 
 import {
-    ArrayType,
-    FunctionType,
     IntegerType,
     NullType,
     OptionType,
@@ -14,8 +12,6 @@ import {
     VariantType,
 } from "@elaraai/east";
 
-import { DensityType } from "../../style/interaction.js";
-import { CanDropFnType, CellRefType, DragEventType } from "../../contracts/drag.js";
 import { PlannerStateType } from "../planner/types.js";
 
 /**
@@ -124,80 +120,8 @@ export const BoardRequirementType = StructType({
  */
 export type BoardRequirementType = typeof BoardRequirementType;
 
-/**
- * East StructType for the Board component.
- *
- * @remarks
- * Flat resolved tables — the renderer groups assignments into cells by
- * `area × shift` and joins each to `people` by person key for the chip face.
- * Assignment states reuse the Planner event-state grammar
- * ({@link PlannerStateType}); the `model` flavour renders as the dashed
- * ghost with the acceptance affordance. The component renders no built-in
- * user-facing copy: every string it shows arrives as data or a prop, and its
- * own chrome is numerals, glyphs and tones.
- *
- * @property id - DnD target identity
- * @property sources - Library ids accepted for `add` drags
- * @property mode - `published` (committed-only, immutable) or `edit`
- * @property areaHeader - Optional frozen area column header (none = blank)
- * @property areaWidth - Optional CSS width for the frozen area column
- * @property areas - The grid rows
- * @property shifts - The grid columns (this day's shift types, in order)
- * @property people - The chip directory (faces), joined by person key
- * @property assignments - The person chips (grouped into cells by area × shift)
- * @property requirements - Optional per-cell coverage (none = no coverage chrome)
- * @property density - Optional density
- * @property maxVisible - Optional per-cell chip cap before the `+N` overflow
- * @property summary - Optional status-strip text (open / proposed counts)
- * @property canDrop - Optional IR-level drop veto over synthesized candidate events
- * @property onDrag - Drag funnel — add / move / remove events
- * @property onSelect - Assignment / cell click callback
- * @property onAccept - Ghost-assignment acceptance callback
- * @property onAddAt - Open-slot / empty-cell click callback (edit mode)
- */
-export const BoardRootType = StructType({
-    /** DnD target identity */
-    id: StringType,
-    /** Library ids accepted for `add` drags */
-    sources: ArrayType(StringType),
-    /** `published` (committed-only, immutable) or `edit` */
-    mode: BoardModeType,
-    /** Optional frozen area column header (none = blank) */
-    areaHeader: OptionType(StringType),
-    /** Optional CSS width for the frozen area column (none = the Planner-consistent 150px) */
-    areaWidth: OptionType(StringType),
-    /** The grid rows */
-    areas: ArrayType(BoardEntityType),
-    /** The grid columns (this day's shift types, in order) */
-    shifts: ArrayType(BoardEntityType),
-    /** The chip directory (faces), joined by person key */
-    people: ArrayType(BoardEntityType),
-    /** The person chips (grouped into cells by area × shift) */
-    assignments: ArrayType(BoardAssignmentType),
-    /** Optional per-cell coverage (none = no coverage chrome) */
-    requirements: OptionType(ArrayType(BoardRequirementType)),
-    /** Optional density */
-    density: OptionType(DensityType),
-    /** Optional per-cell chip cap before the `+N` overflow */
-    maxVisible: OptionType(IntegerType),
-    /** Optional status-strip text (open / proposed counts) */
-    summary: OptionType(StringType),
-    /** Optional IR-level drop veto — consulted per hovered cell with the
-     *  synthesized candidate event ({@link CanDropFnType} semantics); `false`
-     *  ⇒ the ⊘ invalid stage and the drop is a no-op. Absent ⇒ accept. The
-     *  factory's deprecated `canAssign` sugar compiles into this predicate. */
-    canDrop: OptionType(CanDropFnType),
-    /** Drag funnel — add / move / remove events */
-    onDrag: OptionType(FunctionType([DragEventType], NullType)),
-    /** Assignment / cell click callback */
-    onSelect: OptionType(FunctionType([CellRefType], NullType)),
-    /** Ghost-assignment acceptance callback */
-    onAccept: OptionType(FunctionType([CellRefType], NullType)),
-    /** Open-slot / empty-cell click callback (edit mode) */
-    onAddAt: OptionType(FunctionType([CellRefType], NullType)),
-});
-
-/**
- * Type representing the Board component.
- */
-export type BoardRootType = typeof BoardRootType;
+// NOTE (#265): `BoardRootType` moved to `./index.ts` — the root now carries
+// the shared review config (`review.summary` is a `UIComponentType`), so it is
+// UIComp-coupled and can no longer live in this `component.ts`-importable
+// module. `component.ts` spells the Board arm inline with the recursion
+// `node` (the Planner precedent).

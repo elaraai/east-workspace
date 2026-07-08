@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { BooleanType, East, NullType, StringType, none, some, variant } from "@elaraai/east";
+import { BooleanType, East, IntegerType, NullType, StringType, StructType, none, some, variant } from "@elaraai/east";
 import { Board, CellRefType, DragEventType } from "@elaraai/east-ui/internal";
 import * as ex from "./board.examples.js";
 
@@ -15,6 +15,7 @@ describeEast("Board", (test) => {
         boardCoverage: ex.boardCoverage,
         boardOverflow: ex.boardOverflow,
         boardInteractive: ex.boardInteractive,
+        boardReviewFoot: ex.boardReviewFoot,
         boardWithLibrary: ex.boardWithLibrary,
     });
 
@@ -170,5 +171,35 @@ describeEast("Board", (test) => {
         $(Assert.equal(root.onSelect.hasTag("some"), true));
         $(Assert.equal(root.onAccept.hasTag("none"), true));
         $(Assert.equal(root.onAddAt.hasTag("none"), true));
+    });
+
+    test("review foot encodes; per-row fields are dropped with a warning (#265)", $ => {
+        const board = $.let(Board.Root(
+            [{ id: "icu", name: "ICU" }],
+            [{ id: "am", name: "AM" }],
+            [{ id: "patel", name: "Patel, R." }],
+            [{ id: "x1", personId: "patel", areaId: "icu", shiftId: "am", state: variant("committed", null) }],
+            {
+                id: "b",
+                mode: "edit",
+                area: a => ({ key: a.id, label: a.name }),
+                shift: sh => ({ key: sh.id, label: sh.name }),
+                person: p => ({ key: p.id, label: p.name }),
+                assignment: x => ({ key: x.id, person: x.personId, area: x.areaId, shift: x.shiftId, state: x.state }),
+                review: {
+                    // Per-row fields are unused on Board v1 — the factory warns
+                    // and drops them so the foot-only contract is explicit.
+                    onApprove: East.function([StructType({ rowIndex: IntegerType })], NullType, _$ => null),
+                    onApproveAll: East.function([], NullType, _$ => null),
+                    onRejectAll: East.function([], NullType, _$ => null),
+                },
+            },
+        ));
+        const review = $.let(board.unwrap().unwrap("Board").review.unwrap("some"));
+
+        $(Assert.equal(review.onApprove.hasTag("none"), true));
+        $(Assert.equal(review.onApproveAll.hasTag("some"), true));
+        $(Assert.equal(review.onRejectAll.hasTag("some"), true));
+        $(Assert.equal(review.onRerun.hasTag("none"), true));
     });
 }, { platformFns: TestImpl });
