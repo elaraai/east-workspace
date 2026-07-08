@@ -751,6 +751,22 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         onRowDoubleClick: OptionType(FunctionType([TableRowClickEventType], NullType)),
         onRowSelectionChange: OptionType(FunctionType([TableRowSelectionEventType], NullType)),
         onSortChange: OptionType(FunctionType([TableSortEventType], NullType)),
+        // Optional review chrome (#264) — mirror the shared row-granularity
+        // `RowReviewType` (`contracts/review.ts`), spelled with the recursion
+        // `node` for `summary` (the Planner precedent); the accessors ride
+        // `(rowIndex) => Option<…>` over the unsliced row index.
+        review: OptionType(StructType({
+            columnLabel: StringType,
+            summary: OptionType(node),
+            onApprove: OptionType(FunctionType([PlannerApproveEventType], NullType)),
+            onReject: OptionType(FunctionType([PlannerApproveEventType], NullType)),
+            onApproveAll: OptionType(FunctionType([], NullType)),
+            onRejectAll: OptionType(FunctionType([], NullType)),
+            onRerun: OptionType(FunctionType([], NullType)),
+            rerunLabel: StringType,
+        })),
+        reviewStatus: OptionType(FunctionType([IntegerType], OptionType(StatusValueType))),
+        reviewApproval: OptionType(FunctionType([IntegerType], OptionType(PlannerApprovalType))),
         slice: OptionType(SliceChromeType),
         style: OptionType(TableStyleType),
     }),

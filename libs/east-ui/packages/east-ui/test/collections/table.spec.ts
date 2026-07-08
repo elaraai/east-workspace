@@ -5,7 +5,7 @@
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Table, Badge, Text, Stack, Style, UIComponentType } from "@elaraai/east-ui/internal";
-import { East, IntegerType, NullType, ArrayType } from "@elaraai/east";
+import { East, BooleanType, IntegerType, NullType, OptionType, ArrayType, none, some, variant } from "@elaraai/east";
 import * as ex from "./table.examples.js";
 
 describeEast("Table", (test) => {
@@ -19,6 +19,8 @@ describeEast("Table", (test) => {
         tableInteractiveCallbacks: ex.tableInteractiveCallbacks,
         tableFrozenColumns: ex.tableFrozenColumns,
         tableRowStatus: ex.tableRowStatus,
+        tableReview: ex.tableReview,
+        tableReviewPaginated: ex.tableReviewPaginated,
         tableReactivePagination: ex.tableReactivePagination,
         tableDensityCompact: ex.tableDensityCompact,
         tableRowHeight: ex.tableRowHeight,
@@ -599,5 +601,36 @@ describeEast("Table", (test) => {
         $(Assert.equal(style.selectedBackground.unwrap("some"), "blue.200"));
         $(Assert.equal(style.selectedBorderColor.unwrap("some"), "blue.400"));
         $(Assert.equal(style.footerBackground.unwrap("some"), "gray.100"));
+    });
+
+    test("review chrome + accessors encode via the shared contract over the UNSLICED index (#264)", $ => {
+        const onApprove = $.const(East.function([Table.Types.ApproveEvent], NullType, _$ => null));
+        const reviewApproval = $.const(East.function([IntegerType], OptionType(Table.Types.Approval), ($, rowIndex) =>
+            rowIndex.modulo(3n).equals(1n).ifElse(
+                _$ => East.value(some(variant("pending", null)), OptionType(Table.Types.Approval)),
+                _$ => East.value(some(variant("approved", null)), OptionType(Table.Types.Approval)),
+            )));
+        const table = $.let(Table.Root(
+            East.Array.range(0n, 60n).map((_$, i) => ({ id: East.print(i) })),
+            { id: { header: "ID" } },
+            {
+                pagination: { pageSize: 20n, page: 1n, onPageChange: East.function([IntegerType], NullType, _$ => null) },
+                review: { onApprove, onApproveAll: East.function([], NullType, _$ => null) },
+                reviewApproval,
+            },
+        ));
+        const root = $.let(table.unwrap().unwrap("Table"));
+
+        const review = $.let(root.review.unwrap("some"));
+        $(Assert.equal(review.columnLabel, "Decision"));
+        $(Assert.equal(review.onApprove.hasTag("some"), true));
+        $(Assert.equal(review.onApproveAll.hasTag("some"), true));
+        // The accessor's domain is the UNSLICED row index — page 2's first row
+        // is rowIndex 20 (the expandedContent convention), and the accessor
+        // answers for it directly.
+        const approvalFor = $.let(root.reviewApproval.unwrap("some"));
+        $(Assert.equal(approvalFor(20n).unwrap("some").hasTag("approved"), true));
+        $(Assert.equal(approvalFor(22n).unwrap("some").hasTag("pending"), true));
+        $(Assert.equal(root.reviewStatus.hasTag("none"), true));
     });
 }, {   platformFns: TestImpl,});
