@@ -184,4 +184,64 @@ describe('materializeEnvironment', () => {
     assert.deepStrictEqual(binsAgain, bins);
     assert.ok(fs.existsSync(path.join(envDir, '.warm-marker')), 'warm hit must not rebuild the dir');
   });
+
+  it('materializes a tools environment: files on PATH under bin/, executable, then warm', async () => {
+    const runnerBytes = Buffer.from('#!/bin/sh\necho hi\n');
+    const helperBytes = Buffer.from('DATA');
+    const runnerHash = await storage.objects.write(repo, runnerBytes);
+    const helperHash = await storage.objects.write(repo, helperBytes);
+    const spec = encodeBeast2For(EnvironmentSpecType)(variant('tools', {
+      files: [
+        { path: 'bin/my-runner', hash: runnerHash },
+        { path: 'bin/helper.dat', hash: helperHash },
+      ],
+    }));
+    const envHash = await storage.objects.write(repo, spec);
+
+    const bins = await materializeEnvironment(storage, repo, envHash);
+    assert.strictEqual(bins.length, 1);
+    const envDir = path.join(repo, 'envs', envHash);
+    assert.strictEqual(bins[0], path.join(envDir, 'bin'));
+
+    const runnerPath = path.join(envDir, 'bin', 'my-runner');
+    assert.deepStrictEqual(fs.readFileSync(runnerPath), runnerBytes, 'file bytes preserved');
+    assert.deepStrictEqual(fs.readFileSync(path.join(envDir, 'bin', 'helper.dat')), helperBytes);
+    if (process.platform !== 'win32') {
+      assert.strictEqual(fs.statSync(runnerPath).mode & 0o111, 0o111, 'captured file is executable');
+    }
+
+    // Warm path: a marker survives a second call (no rebuild).
+    fs.writeFileSync(path.join(envDir, '.warm-marker'), 'x');
+    const binsAgain = await materializeEnvironment(storage, repo, envHash);
+    assert.deepStrictEqual(binsAgain, bins);
+    assert.ok(fs.existsSync(path.join(envDir, '.warm-marker')), 'warm hit must not rebuild');
+  });
+
+  it('rejects a tools spec whose file path escapes the environment dir', async () => {
+    for (const badPath of ['../evil', '/etc/passwd', 'a/../../b', '']) {
+      const blobHash = await storage.objects.write(repo, Buffer.from('x'));
+      const spec = encodeBeast2For(EnvironmentSpecType)(variant('tools', {
+        files: [{ path: badPath, hash: blobHash }],
+      }));
+      const envHash = await storage.objects.write(repo, spec);
+      await assert.rejects(
+        materializeEnvironment(storage, repo, envHash),
+        /tools file path|empty path/,
+        `path '${badPath}' must be rejected`,
+      );
+    }
+  });
+
+  it('rejects a workspace_node environment until its materializer ships', async () => {
+    const blobHash = await storage.objects.write(repo, Buffer.from('{}'));
+    const spec = encodeBeast2For(EnvironmentSpecType)(variant('workspace_node', {
+      packageJson: blobHash, lock: blobHash, config: none, subject: 'packages/x',
+      members: [{ path: 'packages/x', name: '@acme/x', tarball: blobHash }],
+    }));
+    const envHash = await storage.objects.write(repo, spec);
+    await assert.rejects(
+      materializeEnvironment(storage, repo, envHash),
+      /workspace_node.*not yet supported by the local runner/,
+    );
+  });
 });

@@ -135,6 +135,56 @@ async function buildNode(
 }
 
 /**
+ * Resolve a `tools` spec's env-relative file path to an absolute path inside
+ * `buildDir`, rejecting anything that could escape it.
+ *
+ * The `path` field is wire data (it rides in an imported bundle), so it is
+ * validated defensively: it must be relative, use no `.`/`..`/empty
+ * segments, and — after resolution — still live under `buildDir`. Backslash
+ * separators are treated as separators too, so a Windows-style path in a
+ * spec can't smuggle a segment past the POSIX split.
+ *
+ * @throws {Error} if the path is absolute, empty, or escapes the build dir
+ */
+function resolveToolsPath(buildDir: string, relPath: string): string {
+  if (relPath.length === 0) {
+    throw new Error('tools file has an empty path');
+  }
+  if (path.isAbsolute(relPath) || /^[a-zA-Z]:/.test(relPath)) {
+    throw new Error(`tools file path must be relative, got '${relPath}'`);
+  }
+  const segments = relPath.split(/[/\\]/);
+  for (const seg of segments) {
+    if (seg === '' || seg === '.' || seg === '..') {
+      throw new Error(`tools file path '${relPath}' has an invalid segment '${seg}'`);
+    }
+  }
+  const dest = path.resolve(buildDir, ...segments);
+  const root = path.resolve(buildDir);
+  if (dest !== root && !dest.startsWith(root + path.sep)) {
+    throw new Error(`tools file path '${relPath}' escapes the environment directory`);
+  }
+  return dest;
+}
+
+async function buildTools(
+  storage: StorageBackend, repo: string,
+  spec: Extract<EnvironmentSpec, { type: 'tools' }>, buildDir: string,
+): Promise<void> {
+  for (const file of spec.value.files) {
+    const dest = resolveToolsPath(buildDir, file.path);
+    await fs.mkdir(path.dirname(dest), { recursive: true });
+    await writeBlob(storage, repo, file.hash, dest);
+    // Uniform executable mode: the spec stores no mode (an exec-bit-only
+    // change must not alter the env hash), so every captured file is made
+    // runnable. No-op on Windows, which has no POSIX exec bit.
+    if (process.platform !== 'win32') {
+      await fs.chmod(dest, 0o755);
+    }
+  }
+}
+
+/**
  * Materializes an environment into the repo-local cache and returns the
  * executable dirs to prepend to the runner's PATH.
  *
@@ -196,12 +246,13 @@ export async function materializeEnvironment(
           await buildNode(storage, repo, spec, buildDir);
           break;
         case 'tools':
+          await buildTools(storage, repo, spec, buildDir);
+          break;
         case 'workspace_node':
-          // Wire cases landed ahead of their materializers (tools: #274,
-          // workspace_node: #276). Until those ship, fail loud rather than
-          // silently mis-materialize.
+          // Wire case landed ahead of its materializer (#276). Until it
+          // ships, fail loud rather than silently mis-materialize.
           throw new Error(
-            `environment ${envHash.slice(0, 12)} is a '${spec.type}' environment, ` +
+            `environment ${envHash.slice(0, 12)} is a 'workspace_node' environment, ` +
             `which is not yet supported by the local runner`,
           );
       }
