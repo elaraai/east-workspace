@@ -4,10 +4,10 @@
  */
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Box, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
+import { Box, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faGripVertical } from "@fortawesome/free-solid-svg-icons";
+import { faGripVertical, faMagnifyingGlass, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { type IconName } from "@fortawesome/fontawesome-svg-core";
 import { equalFor, match, type ValueTypeOf } from "@elaraai/east";
 import { Library, Slice as SliceInternal } from "@elaraai/east-ui/internal";
@@ -211,6 +211,11 @@ interface LibraryCoreProps extends EastChakraLibraryProps {
 
 function LibraryCore({ value, storageKey, suppressSearch }: LibraryCoreProps) {
     const styles = useSlotRecipe({ key: "library" })() as SlotStyles;
+    // Toolbar controls share the slice vocabulary: toggle pills are the
+    // `chip` recipe (brand tone when active — the cohort-pill precedent),
+    // the quick search wears the sliceFrame `searchPill` chrome.
+    const chip = useRecipe({ key: "chip" });
+    const frameStyles = useSlotRecipe({ key: "sliceFrame" })() as SlotStyles;
 
     const groupOptions = value.groupOptions;
     const dimOptions = value.dimOptions;
@@ -237,18 +242,22 @@ function LibraryCore({ value, storageKey, suppressSearch }: LibraryCoreProps) {
     }, [setToolbar]);
 
     const lowerQuery = query.trim().toLowerCase();
-    const isFiltered = useCallback(
-        (item: LibraryItemValue) => item.filtered || (lowerQuery !== "" && !itemSearchText(item).includes(lowerQuery)),
+    const queryHides = useCallback(
+        (item: LibraryItemValue) => lowerQuery !== "" && !itemSearchText(item).includes(lowerQuery),
         [lowerQuery],
     );
 
     // Group items preserving first-appearance order; null group key = flat.
-    // Group-head summaries come from the root-level `groupSummaries` dict.
+    // The quick search HIDES unmatched cards (the footer carries the hidden
+    // count + Show all); only the explicit `filtered` face field dims — the
+    // host's deliberate Slice.partition de-emphasis. Group-head summaries
+    // come from the root-level `groupSummaries` dict.
     const groups = useMemo<LibraryGroup[]>(() => {
         const groupKey = toolbar.groupKey;
         const summaries = groupKey !== null ? value.groupSummaries.get(groupKey) : undefined;
         const out = new Map<string, LibraryGroup>();
         for (const item of value.items) {
+            if (queryHides(item)) continue;
             const label = (groupKey !== null ? item.groups.get(groupKey) : undefined) ?? "";
             let entry = out.get(label);
             if (entry === undefined) {
@@ -258,13 +267,12 @@ function LibraryCore({ value, storageKey, suppressSearch }: LibraryCoreProps) {
             entry.items.push(item);
         }
         return [...out.values()];
-    }, [value.items, value.groupSummaries, toolbar.groupKey]);
+    }, [value.items, value.groupSummaries, toolbar.groupKey, queryHides]);
 
     const hiddenCount = useMemo(
-        () => value.items.filter(isFiltered).length,
-        [value.items, isFiltered],
+        () => value.items.filter(queryHides).length,
+        [value.items, queryHides],
     );
-    const visibleCount = value.items.length - hiddenCount;
 
     const hint = getSomeorUndefined(value.hint);
     const addLabel = getSomeorUndefined(value.addLabel);
@@ -361,7 +369,7 @@ function LibraryCore({ value, storageKey, suppressSearch }: LibraryCoreProps) {
                                         item={item}
                                         dimOrder={dimOrder}
                                         activeDims={toolbar.activeDims}
-                                        filtered={isFiltered(item)}
+                                        filtered={item.filtered}
                                         styles={styles}
                                     />
                                 ))}
@@ -385,7 +393,7 @@ function LibraryCore({ value, storageKey, suppressSearch }: LibraryCoreProps) {
                             item={item}
                             dimOrder={dimOrder}
                             activeDims={toolbar.activeDims}
-                            filtered={isFiltered(item)}
+                            filtered={item.filtered}
                             styles={styles}
                         />
                     ))}
@@ -402,27 +410,32 @@ function LibraryCore({ value, storageKey, suppressSearch }: LibraryCoreProps) {
             {...(scrollable ? { "data-scrollable": "" } : {})}
             style={scrollable ? { height, maxHeight } : undefined}
         >
-            {(lowerQuery !== "" || hint !== undefined) && (
+            {hint !== undefined && (
                 <Box css={styles.header}>
-                    {lowerQuery !== "" && (
-                        <Box as="span" css={styles.title}>
-                            {visibleCount} of {value.items.length} visible
-                        </Box>
-                    )}
-                    {hint && <Box as="span" css={styles.hint}>{hint}</Box>}
+                    <Box as="span" css={styles.hint}>{hint}</Box>
                 </Box>
             )}
             {(searchable || groupOptions.length > 0 || dimOptions.length > 0) && (
                 <Box css={styles.toolbar}>
+                    {/* css ARRAY — both objects are `@layer recipes`-wrapped; an
+                      * object spread would collide on that key and drop the pill. */}
                     {searchable && (
-                        <Box
-                            as="input"
-                            css={styles.search}
-                            // @ts-expect-error chakra polymorphic input props
-                            placeholder="Search…"
-                            value={query}
-                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setQuery(e.target.value)}
-                        />
+                        <Box css={[frameStyles.searchPill, styles.search]}>
+                            <FontAwesomeIcon icon={faMagnifyingGlass} style={{ width: 10, height: 10 }} />
+                            <Box
+                                as="input"
+                                // @ts-expect-error chakra polymorphic input props
+                                placeholder="Search…"
+                                aria-label="Search library"
+                                value={query}
+                                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setQuery(e.target.value)}
+                            />
+                            {query !== "" && (
+                                <Box as="button" css={frameStyles.searchClear} aria-label="Clear search" onClick={() => setQuery("")}>
+                                    <FontAwesomeIcon icon={faXmark} style={{ width: 9, height: 9 }} />
+                                </Box>
+                            )}
+                        </Box>
                     )}
                     {groupOptions.length > 0 && (
                         <Box css={styles.segGroup}>
@@ -431,8 +444,8 @@ function LibraryCore({ value, storageKey, suppressSearch }: LibraryCoreProps) {
                                 <Box
                                     as="button"
                                     key={g.key}
-                                    css={styles.segItem}
-                                    {...(toolbar.groupKey === g.key ? { "data-active": "" } : {})}
+                                    css={{ ...chip({ tone: toolbar.groupKey === g.key ? "brand" : "neutral", size: "sm" }), cursor: "pointer" }}
+                                    aria-pressed={toolbar.groupKey === g.key}
                                     onClick={() => setGroup(g.key)}
                                 >
                                     {g.label}
@@ -440,8 +453,8 @@ function LibraryCore({ value, storageKey, suppressSearch }: LibraryCoreProps) {
                             ))}
                             <Box
                                 as="button"
-                                css={styles.segItem}
-                                {...(toolbar.groupKey === null ? { "data-active": "" } : {})}
+                                css={{ ...chip({ tone: toolbar.groupKey === null ? "brand" : "neutral", size: "sm" }), cursor: "pointer" }}
+                                aria-pressed={toolbar.groupKey === null}
                                 onClick={() => setGroup(null)}
                             >
                                 None
@@ -455,8 +468,8 @@ function LibraryCore({ value, storageKey, suppressSearch }: LibraryCoreProps) {
                                 <Box
                                     as="button"
                                     key={d.key}
-                                    css={styles.segItem}
-                                    {...(toolbar.activeDims.includes(d.key) ? { "data-active": "" } : {})}
+                                    css={{ ...chip({ tone: toolbar.activeDims.includes(d.key) ? "brand" : "neutral", size: "sm" }), cursor: "pointer" }}
+                                    aria-pressed={toolbar.activeDims.includes(d.key)}
                                     onClick={() => toggleDim(d.key)}
                                 >
                                     {d.label}
@@ -500,8 +513,9 @@ function LibraryCore({ value, storageKey, suppressSearch }: LibraryCoreProps) {
 /**
  * Renders an East UI Library value — a draggable palette of assignable
  * items. Registers as the DnD **source** under `value.id` (cards start
- * `add` drags; the frame is the return-to-palette sink). Filtering dims
- * cards instead of removing them.
+ * `add` drags; the frame is the return-to-palette sink). The quick search
+ * hides unmatched cards (footer: hidden count + Show all); the `filtered`
+ * face field dims a card instead — the host's deliberate de-emphasis.
  *
  * Without `slice` it renders the bare palette. With the `slice` chrome
  * option it renders the frame chassis itself — a rail mounting the listed

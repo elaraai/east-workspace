@@ -103,7 +103,7 @@ export type LibraryDimValueType = typeof LibraryDimValueType;
  * @property status - Optional status pill
  * @property draggable - Whether the card can start a drag
  * @property filtered - Whether the card renders de-emphasised (dimmed, drag disabled) — the `Slice.partition` "keep the excluded" feed
- * @property search - Optional filter text (card dims when unmatched)
+ * @property search - Optional filter text (card hides when unmatched)
  * @property groups - Group value per group-by option key
  * @property dims - Secondary dimension value per dimension key
  */
@@ -122,7 +122,7 @@ export const LibraryItemType = StructType({
     draggable: BooleanType,
     /** Whether the card renders de-emphasised (dimmed, drag disabled) */
     filtered: BooleanType,
-    /** Optional filter text (card dims when unmatched) */
+    /** Optional filter text (card hides when unmatched) */
     search: OptionType(StringType),
     /** Group value per group-by option key */
     groups: DictType(StringType, StringType),

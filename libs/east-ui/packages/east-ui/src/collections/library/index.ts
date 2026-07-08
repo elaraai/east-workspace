@@ -291,7 +291,7 @@ function dimValue<R extends StructType>(
  * @property dimensions - Secondary dimensions (toolbar-toggleable card facts)
  * @property defaultDimensions - Initially-visible dimension keys (default: the first two)
  * @property groupBy - GROUP BY options; omit for a flat list
- * @property search - Filter-text accessor; unmatched cards dim rather than disappear
+ * @property search - Filter-text accessor; unmatched cards hide (the footer shows the hidden count + Show all)
  * @property addLabel - Optional footer action label
  * @property onAdd - Optional footer action callback
  * @property slice - Optional slice chrome: the bound handle; the Library renders the rail + count footer, never narrows data itself
@@ -311,7 +311,7 @@ export interface LibraryConfig<R extends StructType> {
     defaultDimensions?: string[];
     /** GROUP BY options; omit for a flat list */
     groupBy?: LibraryGroupDef<R>[];
-    /** Filter-text accessor; unmatched cards dim rather than disappear */
+    /** Filter-text accessor; unmatched cards hide (the footer shows the hidden count + Show all) */
     search?: (row: ExprType<R>) => SubtypeExprOrValue<StringType>;
     /** Optional footer action label */
     addLabel?: SubtypeExprOrValue<StringType>;
@@ -498,8 +498,9 @@ export const Library = {
      *
      * @remarks
      * Declares the DnD **source** role under `config.id`. Cards with
-     * `draggable: false` show no grip and never start a drag. Search text
-     * dims unmatched cards instead of removing them.
+     * `draggable: false` show no grip and never start a drag. The quick
+     * search hides unmatched cards (the footer shows the hidden count);
+     * the `filtered` face field dims a card instead.
      *
      * @example
      * ```ts
