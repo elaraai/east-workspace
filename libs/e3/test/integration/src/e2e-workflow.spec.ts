@@ -612,3 +612,65 @@ function findRefFiles(dir: string): string[] {
   }
   return results;
 }
+
+describe('reactive caching — change one input, only its tasks recompute', () => {
+  let testDir: string;
+  let repoDir: string;
+
+  beforeEach(() => {
+    testDir = createTestDir();
+    mkdirSync(testDir, { recursive: true });
+    repoDir = join(testDir, 'repo');
+  });
+
+  afterEach(() => {
+    removeTestDir(testDir);
+  });
+
+  // Deploy a package of INDEPENDENT tasks once, then mutate one input and
+  // re-run — the reactive dataflow must recompute only the task fed by the
+  // changed input and serve the rest from the execution cache. (One deploy →
+  // one compile → stored IR; no re-export, so this is pure runtime caching.)
+  it('changing one input re-runs only its task; the independent tasks stay CACHED', async () => {
+    // customTasks (bash) need no runtime runner, so this is self-contained.
+    // Each task copies its own input to its output — an independent branch.
+    const a = e3.input('a', StringType, 'a1');
+    const b = e3.input('b', StringType, 'b1');
+    const c = e3.input('c', StringType, 'c1');
+    const taskA = e3.customTask('task_a', [a], StringType, (_$, inputs, output) => East.str`cp ${inputs.get(0n)} ${output}`);
+    const taskB = e3.customTask('task_b', [b], StringType, (_$, inputs, output) => East.str`cp ${inputs.get(0n)} ${output}`);
+    const taskC = e3.customTask('task_c', [c], StringType, (_$, inputs, output) => East.str`cp ${inputs.get(0n)} ${output}`);
+    await e3.export(e3.package('reactive', '1.0.0', taskA, taskB, taskC), join(testDir, 'reactive.zip'));
+
+    await runE3Command(['repo', 'create', repoDir], testDir);
+    await runE3Command(['package', 'import', repoDir, join(testDir, 'reactive.zip')], testDir);
+    await runE3Command(['workspace', 'create', repoDir, 'ws'], testDir);
+    await runE3Command(['workspace', 'deploy', repoDir, 'ws', 'reactive@1.0.0'], testDir);
+
+    // First run: all three execute.
+    const run1 = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
+    assert.strictEqual(run1.exitCode, 0, `run1 failed: ${run1.stderr}\n${run1.stdout}`);
+    for (const t of ['task_a', 'task_b', 'task_c']) {
+      assert.match(run1.stdout, new RegExp(`\\[DONE\\][^\\n]*${t}`), `${t} runs first time`);
+    }
+
+    // Change ONLY input a.
+    const valuePath = join(testDir, 'a.east');
+    writeFileSync(valuePath, '"a2"');
+    const set = await runE3Command(['dataset', 'set', repoDir, 'ws.a', valuePath], testDir);
+    assert.strictEqual(set.exitCode, 0, `set failed: ${set.stderr}`);
+
+    // Second run: only task_a re-executes; task_b and task_c are CACHED.
+    const run2 = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
+    assert.strictEqual(run2.exitCode, 0, `run2 failed: ${run2.stderr}\n${run2.stdout}`);
+    assert.match(run2.stdout, /\[DONE\][^\n]*task_a/, 'task_a re-runs (its input changed)');
+    assert.match(run2.stdout, /\[CACHED\][^\n]*task_b/, 'task_b CACHED (input unchanged)');
+    assert.match(run2.stdout, /\[CACHED\][^\n]*task_c/, 'task_c CACHED (input unchanged)');
+    assert.doesNotMatch(run2.stdout, /\[DONE\][^\n]*task_b/, 'task_b must NOT re-execute');
+    assert.doesNotMatch(run2.stdout, /\[DONE\][^\n]*task_c/, 'task_c must NOT re-execute');
+
+    // task_a now carries the new value (copied through).
+    const get = await runE3Command(['dataset', 'get', repoDir, 'ws.task_a'], testDir);
+    assert.ok(get.stdout.includes('a2'), `task_a should carry 'a2', got: ${get.stdout}`);
+  });
+});
