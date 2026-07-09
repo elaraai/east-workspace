@@ -301,8 +301,11 @@ export function AreaRange({ lo, mid, hi, xTicks = [], yTicks = [], zero, tone: t
                             const atEnd = m.at >= mid.length - 2;
                             const atStart = m.at <= 1;
                             const align = atEnd ? 'right' : atStart ? 'left' : 'center';
-                            const labW = m.label.length * 6 + 6;
-                            const labX = atEnd ? -labW : atStart ? 0 : -labW / 2;
+                            // 6.5px/char keeps long labels ("you're here · 42% (off-scale)")
+                            // inside their box; the 5px inset stops an edge-aligned label
+                            // butting into its own dashed marker line.
+                            const labW = m.label.length * 6.5 + 8;
+                            const labX = atEnd ? -labW - 5 : atStart ? 5 : -labW / 2;
                             return (
                                 <Group key={`mk${i}`} left={xScale(m.at)}>
                                     <Line from={{ x: 0, y: -2 }} to={{ x: 0, y: innerH }} stroke={mc} strokeWidth={1} strokeDasharray="2 3" />

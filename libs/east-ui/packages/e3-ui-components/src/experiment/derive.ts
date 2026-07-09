@@ -227,7 +227,11 @@ function deriveSpec(config: ConfigValue, cols: Column[], result: ResultValue | n
         outcomeKind: outUnit ? `number · ${outUnit}` : 'number',
         comparison: tKind === 'boolean' ? 'yes · vs no' : 'high · vs low',
         confounders, suggestion, method, target,
-        dataLabel: `${result ? Number(result.n_total) : dataLen} rows`,
+        // Always the CURRENT (filtered) dataset's row count — the result's own
+        // n_total belongs to the Answer-tab counts strip; labelling the header
+        // with it desyncs from the data after a population edit (and reads
+        // wrong whenever the two legitimately differ).
+        dataLabel: `${dataLen} rows`,
     };
 }
 
@@ -413,7 +417,7 @@ function deriveRefute(r: RefutationValue, adj: AdjustedValue | undefined): VMRef
             const lo = mid.map(m => m - half);
             const hi = mid.map(m => m + half);
             const yLo = Math.min(0, ...lo), yHi = Math.max(...hi, 0);
-            sensVM = { lo, mid, hi, xTicks: ['none', 'weaker', 'stronger'], yTicks: [fmt(yLo), fmt((yLo + yHi) / 2), fmt(yHi)] };
+            sensVM = { lo, mid, hi, xTicks: ['none', '', 'stronger'], yTicks: [fmt(yLo), fmt((yLo + yHi) / 2), fmt(yHi)] };
         }
     }
     return { checks, sens: sensVM };

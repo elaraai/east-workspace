@@ -557,7 +557,16 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
     // unreachable via the tablist.
     const anyPrecomputedDesign = configs.some(c => c.design.type === 'some');
     const showValidate = hasDesign || anyPrecomputedDesign;
-    const tabKeys: Tab[] = [...(['answer', 'trust', 'dose'] as Tab[]), ...(showValidate ? ['validate' as Tab] : [])];
+    // Dose only exists when something can put a curve on it: the working config
+    // names a dose feature, or the shown result carries one. The UI has no
+    // dose-feature picker, so a question authored without one would otherwise
+    // carry a permanently dead tab.
+    const showDose = getSomeorUndefined(config.dose_feature) !== undefined || shownResult?.dose_response.type === 'some';
+    const tabKeys: Tab[] = [...(['answer', 'trust'] as Tab[]), ...(showDose ? ['dose' as Tab] : []), ...(showValidate ? ['validate' as Tab] : [])];
+    // The selected tab can point at a hidden pane (defaultTab="dose" with no dose
+    // feature; a question switch that drops Dose/Validate) — fall back to Answer
+    // rather than rendering an empty deck.
+    const activeTab: Tab = tabKeys.includes(tab) ? tab : 'answer';
 
     return (
         <GuidanceProvider on={guidance} vars={helpVars}>
@@ -675,7 +684,7 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
                     <Box display="flex" alignItems="center" px="4" borderBottomWidth="1px" borderColor="border.subtle"
                         role="tablist" aria-label="Result views"
                         onKeyDown={(e) => {
-                            const i = tabKeys.indexOf(tab);
+                            const i = tabKeys.indexOf(activeTab);
                             let j = i;
                             if (e.key === 'ArrowRight') j = (i + 1) % tabKeys.length;
                             else if (e.key === 'ArrowLeft') j = (i - 1 + tabKeys.length) % tabKeys.length;
@@ -688,7 +697,7 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
                             (btns[j] as HTMLElement | undefined)?.focus();
                         }}>
                         {tabKeys.map(tk => {
-                            const on = tab === tk;
+                            const on = activeTab === tk;
                             const tabHelp: HelpId = tk === 'answer' ? 'tab_answer' : tk === 'trust' ? 'tab_trust' : tk === 'dose' ? 'tab_dose' : 'tab_validate';
                             const tabLabel = tk === 'answer' ? 'Answer' : tk === 'trust' ? 'Trust' : tk === 'dose' ? 'Dose' : 'Validate';
                             return (
@@ -714,7 +723,7 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
                     {failed ? (
                         <Box px="4.5" pt="4.5"><RunError error={experiment.error!} /></Box>
                     ) : !showResult ? (
-                        <DeckSkeleton tab={tab} />
+                        <DeckSkeleton tab={activeTab} />
                     ) : (
                     <>
                     {stale && (
@@ -724,14 +733,14 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
                         </Box>
                     )}
 
-                    {tab === 'answer' && a && (
+                    {activeTab === 'answer' && a && (
                         <AnswerNumeric a={a} verdict={verdict} higherBetter={higherBetter} badge={badge} barList={barList} />
                     )}
-                    {tab === 'answer' && !a && ref && (
+                    {activeTab === 'answer' && !a && ref && (
                         <RefusalZone refusal={ref} overlap={ov} naiveValue={shownResult?.naive ?? 0} outcome={vs.outcome} />
                     )}
 
-                    {tab === 'trust' && vr && (
+                    {activeTab === 'trust' && vr && (
                         <Box p="4.5">
                             <Text textStyle="body.sm" color="fg.muted" mb="3.5"><Help id="trust_intro">Before trusting the answer we tried to break it — colour shows pass / caution.</Help></Text>
                             <Box layerStyle="frame.flat">
@@ -760,17 +769,32 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
                             )}
                         </Box>
                     )}
-                    {tab === 'trust' && !vr && (
-                        <Box p="4.5">
-                            <Box display="inline-flex" alignItems="center" gap="2" mb="2" color="fg.muted">
-                                <FontAwesomeIcon icon={faTriangleExclamation} style={{ fontSize: '13px' }} />
-                                <Text textStyle="body.sm" fontWeight="semibold" color="fg.default">Nothing to stress-test</Text>
+                    {activeTab === 'trust' && !vr && (
+                        // Two distinct reasons the checklist is absent: the engine REFUSED
+                        // (no adjusted estimate to break) vs. the answer landed WITHOUT a
+                        // robustness summary (e.g. a precomputed result whose stress tests
+                        // were never run). Conflating them asserted a refusal that didn't
+                        // happen.
+                        shownResult?.adjusted.type === 'some' ? (
+                            <Box p="4.5">
+                                <Box display="inline-flex" alignItems="center" gap="2" mb="2" color="fg.muted">
+                                    <FontAwesomeIcon icon={faTriangleExclamation} style={{ fontSize: '13px' }} />
+                                    <Text textStyle="body.sm" fontWeight="semibold" color="fg.default">Stress tests not run</Text>
+                                </Box>
+                                <Text textStyle="body.sm" color="fg.muted" lineHeight="1.5">This answer came without a robustness summary — the stress tests weren’t run for this question, so there’s nothing to report here.</Text>
                             </Box>
-                            <Text textStyle="body.sm" color="fg.muted" lineHeight="1.5">There’s no adjusted estimate to try to break — the experiment couldn’t produce one (see the <Text as="span" fontWeight="semibold" color="fg.default">Answer</Text> tab for why).</Text>
-                        </Box>
+                        ) : (
+                            <Box p="4.5">
+                                <Box display="inline-flex" alignItems="center" gap="2" mb="2" color="fg.muted">
+                                    <FontAwesomeIcon icon={faTriangleExclamation} style={{ fontSize: '13px' }} />
+                                    <Text textStyle="body.sm" fontWeight="semibold" color="fg.default">Nothing to stress-test</Text>
+                                </Box>
+                                <Text textStyle="body.sm" color="fg.muted" lineHeight="1.5">There’s no adjusted estimate to try to break — the experiment couldn’t produce one (see the <Text as="span" fontWeight="semibold" color="fg.default">Answer</Text> tab for why).</Text>
+                            </Box>
+                        )
                     )}
 
-                    {tab === 'dose' && vd && (
+                    {activeTab === 'dose' && vd && (
                         <Box p="4.5">
                             <Card mt="0">
                                 <Cap help="dose_curve">{vd.outcome} gained vs. {vd.feature}</Cap>
@@ -796,17 +820,48 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
                         </Box>
                     )}
 
-                    {tab === 'validate' && (
+                    {activeTab === 'dose' && !vd && (
+                        // The tab is reachable (a dose feature is configured) but the shown
+                        // result has no curve — e.g. a refusal verdict, or the engine
+                        // returned no dose-response for this setup. Say so; never a blank pane.
+                        <Box p="4.5">
+                            <Box display="inline-flex" alignItems="center" gap="2" mb="2" color="fg.muted">
+                                <FontAwesomeIcon icon={faTriangleExclamation} style={{ fontSize: '13px' }} />
+                                <Text textStyle="body.sm" fontWeight="semibold" color="fg.default">No dose-response to show</Text>
+                            </Box>
+                            {shownResult?.adjusted.type === 'some' ? (
+                                <Text textStyle="body.sm" color="fg.muted" lineHeight="1.5">The experiment didn’t return a how-much curve for this setup.</Text>
+                            ) : (
+                                <Text textStyle="body.sm" color="fg.muted" lineHeight="1.5">A how-much curve needs a like-for-like estimate, and the experiment couldn’t produce one (see the <Text as="span" fontWeight="semibold" color="fg.default">Answer</Text> tab for why).</Text>
+                            )}
+                        </Box>
+                    )}
+
+                    {activeTab === 'validate' && (
                         design.status === 'failed' && design.error
                             ? <Box px="4.5" pt="4.5"><RunError error={design.error} /></Box>
                             : designFresh && vmDesign
                                 ? <ValidatePanel vm={vmDesign} barList={barList} />
-                                : (
-                                    <Box p="4.5" display="inline-flex" alignItems="center" gap="2" color="fg.muted">
-                                        <Spinner size="xs" borderWidth="1.5px" color="brand.solid" />
-                                        <Text textStyle="body.sm">Sizing the trial that would confirm this…</Text>
-                                    </Box>
-                                )
+                                : !hasDesign && precomputedDesign === null
+                                    // The tab is visible because ANOTHER question carries a
+                                    // precomputed trial recipe — this one has none and no
+                                    // `design` function is bound, so nothing will ever land.
+                                    // A terminal message, never a perpetual spinner.
+                                    ? (
+                                        <Box p="4.5">
+                                            <Box display="inline-flex" alignItems="center" gap="2" mb="2" color="fg.muted">
+                                                <FontAwesomeIcon icon={faTriangleExclamation} style={{ fontSize: '13px' }} />
+                                                <Text textStyle="body.sm" fontWeight="semibold" color="fg.default">No trial recipe for this question</Text>
+                                            </Box>
+                                            <Text textStyle="body.sm" color="fg.muted" lineHeight="1.5">This question doesn’t include a validation-trial recipe, and no design function is bound to size one.</Text>
+                                        </Box>
+                                    )
+                                    : (
+                                        <Box p="4.5" display="inline-flex" alignItems="center" gap="2" color="fg.muted">
+                                            <Spinner size="xs" borderWidth="1.5px" color="brand.solid" />
+                                            <Text textStyle="body.sm">Sizing the trial that would confirm this…</Text>
+                                        </Box>
+                                    )
                     )}
                     </>
                     )}
@@ -818,7 +873,10 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
                 <>
                     <Box css={es.root} bg="bg.canvas" borderTopWidth="1px" borderColor="border.subtle">
                         <Box css={es.lbl}><Help id="journal">Committed experiments</Help></Box>
-                        <Box css={es.meta}><Text as="span" color="fg.default" fontWeight="semibold">{journal.length}</Text> on record{journal.length > 50 ? ' · showing newest 50' : ''}</Box>
+                        {/* One flowing span: the eyebrowRow `meta` slot is inline-flex, which
+                            treats each child as a flex item and DROPS the whitespace text
+                            node between them (rendered "2ON RECORD"). */}
+                        <Box css={es.meta}><Text as="span"><Text as="span" color="fg.default" fontWeight="semibold">{journal.length}</Text>{' on record'}{journal.length > 50 ? ' · showing newest 50' : ''}</Text></Box>
                     </Box>
                     {journal.slice(0, 50).map((r, i) => (
                         <Box key={i} display="grid" gridTemplateColumns="2fr 1fr 1fr 1fr" gap="3" alignItems="center" px="4.5" py="2.5" borderTopWidth="1px" borderColor="border.subtle">
