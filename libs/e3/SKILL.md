@@ -207,33 +207,50 @@ implementation and wire it (the `./platform` export, the Python package, the
 `--platform` scaffold), see the **east-project** skill (and **east** for
 `East.platform(...).implement(...)`, **east-py** for `@platform_function`).
 
-#### Execution environments (bundle your implementation with the package)
+#### Execution environments — auto-derived from the platform reference
 
-A `{ custom: ... }` platform only runs where its implementation is installed.
-Declaring an `environment` on the task (or function) captures the project's
-dependency closure into the exported package — `pyproject.toml` + `uv.lock` +
-an sdist of the project itself (`package.json` + lockfile + `npm pack` for
-node) — as content-addressed objects. The runner materializes it into a
-per-repo cache before spawning (warm after first use), so the package runs on
-repos/machines that never saw your working tree. Because the environment hash
-covers your implementation code, editing it re-executes affected tasks
-(no stale cache reuse).
+A `{ custom: <name> }` platform only runs where its implementation is installed.
+e3 handles this for you: at `e3.export` it **derives the task's environment from
+the platform reference** — it resolves `<name>` to the workspace package that
+provides it and captures that package's dependency closure (`pyproject.toml` +
+`uv.lock` + sdists for python; `package.json` + lockfile + `npm pack` for node)
+into the exported package as content-addressed objects. **No `environment` field
+is needed.** The runner materializes the closure into a per-repo cache before
+spawning (warm after first use), so the package runs on repos/machines that never
+saw your working tree.
 
 ```typescript
+// e3 derives the environment from { custom: 'pricing' } — captures the
+// packages/python/pricing closure. No `environment` field.
 const forecast = e3.task('forecast', [history],
   East.function([ArrayType(FloatType)], FloatType, ($, h) => forecastDemand(h)),
-  {
-    runner: { runtime: 'east-py', platforms: [{ custom: 'platform_module' }, 'east-py-std'] },
-    environment: { python: { project: '.' } },  // dir with pyproject.toml + uv.lock
-  });
+  { runner: { runtime: 'east-py', platforms: [{ custom: 'pricing' }, 'east-py-std'] } });
+```
 
-// node projects: { node: { project: '.' } } (package.json + lockfile);
-// pinned container image (cloud only): { image: { digest: 'repo@sha256:<64 hex>' } }
+**Per-package change detection.** Split platform code into separate workspace
+packages — scaffold with `create-e3 --python-packages=pricing,forecasting`
+(`--node-packages=…` → npm members, `--c-packages=…` → native binaries via a
+`tools` env; see the **east-project** skill). Each package is its own captured
+environment, so editing one package changes only its tasks' hashes: e3 re-runs
+only those tasks and serves the rest from the cache — even across a redeploy, and
+alongside the reactive re-run when an input or record changes. A task calling
+several packages captures the union of their closures.
+
+**Explicit `environment` (override).** Pass an `environment` to override the
+derivation — it is the only way to reach `tools` (attach prebuilt binaries, e.g.
+a compiled C runner) or a pinned container `image`, or to point at a specific
+project directory:
+
+```typescript
+{ environment: { tools: { files: ['./native/solver/build/solver'] } } } // prebuilt C binary
+{ environment: { image: { digest: 'repo@sha256:<64 hex>' } } }          // cloud only
+{ environment: { python: { project: 'packages/python/pricing' } } }      // explicit dir
 ```
 
 Environments resolve at `e3.export` time (missing lockfile or failed build ⇒
-export error; a mutable `image` tag is rejected at definition time). Without
-an `environment`, tasks run on the stock runtime image as before.
+export error; a mutable `image` tag is rejected at definition time). A task whose
+platforms are all stock (no local `{ custom }` package) runs on the stock runtime
+image, as before.
 
 ### e3.customTask(name, inputs, outputType, command)
 
