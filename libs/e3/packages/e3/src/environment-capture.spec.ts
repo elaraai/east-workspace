@@ -25,7 +25,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { decodeBeast2For } from '@elaraai/east';
 import { EnvironmentSpecType } from '@elaraai/e3-types';
-import { captureEnvironment } from './environment-capture.js';
+import { captureEnvironment, captureAutoEnvironment } from './environment-capture.js';
 
 function toolAvailable(cmd: string): boolean {
   try { execFileSync(cmd, ['--version'], { stdio: 'ignore', shell: process.platform === 'win32' }); return true; } catch { return false; }
@@ -114,6 +114,21 @@ describe('python closure capture (#278)', () => {
         assert.throws(() => capture(orphan), /no uv\.lock/);
       } finally { fs.rmSync(orphan, { recursive: true, force: true }); }
     });
+
+  it('auto-derives from platform refs: resolves { custom } → member, unions closures, skips registry names',
+    { skip: hasUv ? false : 'uv not on PATH' }, () => {
+      const auto = (customs: string[]): string[] | null => {
+        const bytes = captureAutoEnvironment('east-py', customs, ws, 'test', (b) => createHash('sha256').update(b).digest('hex'));
+        if (bytes === null) return null;
+        const spec = decodeBeast2For(EnvironmentSpecType)(bytes);
+        assert.ok(spec.type === 'python');
+        return spec.value.sdists.map((s) => s.filename.replace(/-0\.1\.0\.tar\.gz$/, '')).sort();
+      };
+      assert.deepStrictEqual(auto(['pricing']), ['common', 'pricing'], 'a member ref pulls its transitive closure');
+      assert.deepStrictEqual(auto(['other']), ['other'], 'an independent member is captured alone');
+      assert.deepStrictEqual(auto(['pricing', 'other']), ['common', 'other', 'pricing'], 'multiple refs union their closures');
+      assert.strictEqual(auto(['east-py-std']), null, 'a non-member (registry/first-party) name derives nothing');
+    });
 });
 
 describe('node npm-workspace closure capture (#280)', () => {
@@ -173,6 +188,20 @@ describe('node npm-workspace closure capture (#280)', () => {
       () => captureEnvironment({ node: { project: ws } }, 'test', (b) => createHash('sha256').update(b).digest('hex')),
       /workspace member, not the workspace root/,
     );
+  });
+
+  it('auto-derives from a { custom } member ref; multiple local members need an explicit env', () => {
+    const auto = (customs: string[]): string[] | null => {
+      const bytes = captureAutoEnvironment('east-node', customs, ws, 'test', (b) => createHash('sha256').update(b).digest('hex'));
+      if (bytes === null) return null;
+      const spec = decodeBeast2For(EnvironmentSpecType)(bytes);
+      assert.ok(spec.type === 'workspace_node');
+      return spec.value.members.map((m) => m.name).sort();
+    };
+    assert.deepStrictEqual(auto(['@acme/pricing']), ['@acme/common', '@acme/pricing'], 'a member ref pulls its transitive closure');
+    assert.deepStrictEqual(auto(['@acme/other']), ['@acme/other'], 'an independent member is captured alone');
+    assert.strictEqual(auto(['@elaraai/east-node-std']), null, 'a non-member name derives nothing');
+    assert.throws(() => auto(['@acme/pricing', '@acme/other']), /explicit `environment`/, 'multiple members need an explicit env for now');
   });
 });
 

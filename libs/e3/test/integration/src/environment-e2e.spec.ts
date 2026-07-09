@@ -311,3 +311,53 @@ describe('execution environments e2e — python multi-package scaffold, AUTO-der
       assert.match(output, /4(\.0*)?/, `expected mean of [2,4,6] = 4, got: ${output}`);
     });
 });
+
+describe('execution environments e2e — node multi-package scaffold, AUTO-derived environments', () => {
+  const hasNpm = toolAvailable('npm', ['--version']);
+  let testDir: string;
+  let projectDir: string;
+
+  before(async () => {
+    if (!hasNpm || !hasScaffoldCore) return;
+    testDir = createTestDir();
+    mkdirSync(testDir, { recursive: true });
+    projectDir = await scaffoldMultiPackageProject(testDir, 'shop', { node: ['api'] });
+    // Install + build the workspace so the member's dist/platform.js exists for
+    // `npm pack` (the root build runs `npm run build --workspaces` first).
+    runTool('npm', ['install', '--no-audit', '--no-fund'], projectDir);
+    runTool('npm', ['run', 'build'], projectDir);
+  });
+
+  after(() => {
+    if (testDir) removeTestDir(testDir);
+  });
+
+  it('derives a node task env from its { custom } platform reference (NO environment field) and runs after the project is deleted',
+    { skip: (!hasNpm && 'npm not on PATH') || (!hasScaffoldCore && SKIP_NO_SCAFFOLD) }, async () => {
+      // Mirror of packages/node/api/src/platform.ts: api.example = ceil(value * factor)
+      const api = East.platform('api.example', [IntegerType, FloatType], IntegerType);
+      const value = e3.input('api_value', IntegerType, 21n);
+      const factor = e3.input('api_factor', FloatType, 2.0);
+      // NO `environment` — e3 derives it from `{ custom: '@shop/api' }`,
+      // resolving the npm workspace member and capturing its closure.
+      const apiScaled = e3.task('api_scaled', [value, factor],
+        East.function([IntegerType, FloatType], IntegerType, (_$, v, f) => api(v, f)),
+        { runner: { runtime: 'east-node', platforms: [{ custom: '@shop/api' }] } });
+      const pkg = e3.package('shop', '1.0.0', apiScaled);
+
+      const zipPath = join(testDir, 'shop-node.zip');
+      const prevCwd = process.cwd();
+      process.chdir(projectDir);
+      try {
+        await e3.export(pkg, zipPath);
+      } finally {
+        process.chdir(prevCwd);
+      }
+
+      rmSync(projectDir, { recursive: true, force: true });
+      assert.ok(!existsSync(projectDir));
+
+      const output = await importDeployRun(testDir, zipPath, 'shop@1.0.0', 'api_scaled');
+      assert.match(output, /42/, `expected ceil(21 * 2.0) = 42, got: ${output}`);
+    });
+});

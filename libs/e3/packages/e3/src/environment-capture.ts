@@ -270,6 +270,59 @@ function capturePythonPlatforms(
   return encodeEnvironmentSpec(variant('python', { pyproject, lock: lockBlob, sdists }));
 }
 
+/** Walk up from `start` to the nearest npm lockfile (not pnpm/yarn); null if none. */
+function findNpmRoot(start: string): { root: string; lock: NpmLock } | null {
+  const names = ['package-lock.json', 'npm-shrinkwrap.json'];
+  let dir = start;
+  for (;;) {
+    const found = names.find((f) => fs.existsSync(path.join(dir, f)));
+    if (found) return { root: dir, lock: JSON.parse(fs.readFileSync(path.join(dir, found), 'utf-8')) as NpmLock };
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
+/**
+ * Derive a node environment from the platform packages a task's runner
+ * references. Each `custom` name that resolves to a LOCAL npm workspace member
+ * (matched by package.json name in the governing lockfile) is captured through
+ * the same `workspace_node` path as an explicit `{ node }`. Registry /
+ * first-party names are skipped. Returns null when `anchorDir` has no npm
+ * workspace or no referenced name is a local member.
+ *
+ * Multiple local node members in ONE task are not unioned yet (that needs a
+ * multi-subject `workspace_node` spec) — declare an explicit `environment`.
+ */
+function captureNodePlatforms(
+  customNames: string[],
+  anchorDir: string,
+  owner: string,
+  addBlob: (data: Buffer) => string,
+): Uint8Array | null {
+  const found = findNpmRoot(anchorDir);
+  if (!found) return null;
+  const { root, lock } = found;
+  const memberDirs = customNames
+    .map((name) => {
+      const entry = Object.entries(lock.packages ?? {}).find(
+        ([p, v]) => p !== '' && !p.startsWith('node_modules/') && v.name === name && v.link !== true,
+      );
+      return entry ? path.join(root, entry[0]) : null;
+    })
+    .filter((d): d is string => d !== null);
+  if (memberDirs.length === 0) return null;
+  if (memberDirs.length > 1) {
+    throw new Error(
+      `Environment for '${owner}': a task referencing multiple local node packages ` +
+      `(${customNames.join(', ')}) needs an explicit \`environment\` — auto-union of npm ` +
+      `workspace members is not supported yet`,
+    );
+  }
+  // A single member reuses the explicit workspace_node capture verbatim.
+  return captureEnvironment({ node: { project: memberDirs[0]! } }, owner, addBlob);
+}
+
 /**
  * Derive an EnvironmentSpec from a task/function's RUNNER platform references,
  * for tasks that declare no explicit `environment`. Resolves each `{ custom }`
@@ -295,10 +348,11 @@ export function captureAutoEnvironment(
   addBlob: (data: Buffer) => string,
 ): Uint8Array | null {
   if (customNames.length === 0) return null;
-  // east-py resolves against a uv workspace. east-node (npm) auto-derivation
-  // and east-c (tools) are not derived here yet — they use explicit
-  // `environment`. Unknown runtimes never auto-derive.
+  // east-py resolves against a uv workspace, east-node against an npm
+  // workspace. east-c (tools) is never derived — it uses explicit
+  // `environment: { tools }`. Unknown runtimes never auto-derive.
   if (runtime === 'east-py') return capturePythonPlatforms(customNames, anchorDir, owner, addBlob);
+  if (runtime === 'east-node') return captureNodePlatforms(customNames, anchorDir, owner, addBlob);
   return null;
 }
 
