@@ -297,7 +297,7 @@ export function scaffold(options: ScaffoldOptions): ScaffoldResult {
   // The value-list half: split platform code into per-runtime workspace
   // packages, each with its own captured execution environment.
   if (options.packages) {
-    generatePackages({ projectDir, templateDir, names, spec: options.packages, log });
+    generatePackages({ projectDir, templateDir, names, version, spec: options.packages, log });
   }
 
   if (options.install) {

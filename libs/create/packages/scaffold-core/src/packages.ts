@@ -92,12 +92,13 @@ function toIdent(name: string): string {
   return name.replace(/[^a-zA-Z0-9]/g, "_");
 }
 
-/** Substitute the project + package tokens in a path or file body. */
-function substitute(text: string, names: ProjectNames, pkg?: GeneratedPackage): string {
+/** Substitute the project + package + version tokens in a path or file body. */
+function substitute(text: string, names: ProjectNames, version: string, pkg?: GeneratedPackage): string {
   let out = text
     .replaceAll("__PROJECT_NAME__", names.projectName)
     .replaceAll("__DISPLAY_NAME__", names.displayName)
-    .replaceAll("__WORKSPACE_NAME__", names.workspaceName);
+    .replaceAll("__WORKSPACE_NAME__", names.workspaceName)
+    .replaceAll("__VERSION__", version);
   if (pkg) out = out.replaceAll("__PACKAGE_NAME__", pkg.name).replaceAll("__PACKAGE_IDENT__", pkg.ident);
   return out;
 }
@@ -121,7 +122,7 @@ function walkFiles(dir: string): string[] {
  */
 function stampMember(
   projectDir: string, templateRoot: string, cfg: RuntimeConfig,
-  names: ProjectNames, pkg: GeneratedPackage,
+  names: ProjectNames, version: string, pkg: GeneratedPackage,
 ): void {
   const memberTemplate = join(templateRoot, cfg.templateName);
   if (!existsSync(memberTemplate)) {
@@ -138,13 +139,13 @@ function stampMember(
       if (rel === "_app.ts") {
         const dest = join(projectDir, "src", "packages", `${pkg.name}.ts`);
         mkdirSync(join(dest, ".."), { recursive: true });
-        writeFileSync(dest, substitute(readFileSync(srcPath, "utf8"), names, pkg));
+        writeFileSync(dest, substitute(readFileSync(srcPath, "utf8"), names, version, pkg));
       }
       continue;
     }
-    const dest = join(memberDir, substitute(rel, names, pkg));
+    const dest = join(memberDir, substitute(rel, names, version, pkg));
     mkdirSync(join(dest, ".."), { recursive: true });
-    writeFileSync(dest, substitute(readFileSync(srcPath, "utf8"), names, pkg));
+    writeFileSync(dest, substitute(readFileSync(srcPath, "utf8"), names, version, pkg));
   }
 }
 
@@ -170,7 +171,7 @@ function writePythonWorkspaceRoot(projectDir: string, names: ProjectNames, membe
   writeFileSync(join(projectDir, "pyproject.toml"), body);
 }
 
-/** Merge `workspaces` (and `private`) into the root package.json for npm members. */
+/** Merge `workspaces`, `private`, and a member build step into the root package.json. */
 function patchNodeWorkspaceRoot(projectDir: string): void {
   const path = join(projectDir, "package.json");
   const pkg = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
@@ -179,7 +180,27 @@ function patchNodeWorkspaceRoot(projectDir: string): void {
   pkg.workspaces = [...globs];
   // npm requires a workspace root to be private (it is never published).
   pkg.private = true;
+  // Build the node members (each emits dist/ for `npm pack` + its ./platform
+  // export) before the app — otherwise the captured package would be empty.
+  const scripts = (pkg.scripts ?? {}) as Record<string, string>;
+  if (typeof scripts.build === "string" && !scripts.build.includes("--workspaces")) {
+    scripts.build = `npm run build --workspaces --if-present && ${scripts.build}`;
+    pkg.scripts = scripts;
+  }
   writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`);
+}
+
+/** Exclude the generated `packages/` tree from the app's own tsc program. */
+function excludePackagesFromRootTsconfig(projectDir: string): void {
+  const path = join(projectDir, "tsconfig.json");
+  if (!existsSync(path)) return;
+  const tsconfig = JSON.parse(readFileSync(path, "utf8")) as { exclude?: string[] };
+  const exclude = new Set<string>(tsconfig.exclude ?? []);
+  // Member packages compile themselves; the app's tsc (rootDir: ./src) must not
+  // pull their sources in (they live under ./packages, not ./src).
+  exclude.add("packages");
+  tsconfig.exclude = [...exclude];
+  writeFileSync(path, `${JSON.stringify(tsconfig, null, 2)}\n`);
 }
 
 /** Generate `src/packages/index.ts` (barrel) and rewrite `src/index.ts` (app). */
@@ -223,10 +244,11 @@ export function generatePackages(options: {
   projectDir: string;
   templateDir: string;
   names: ProjectNames;
+  version: string;
   spec: PackageSpec;
   log: (msg: string) => void;
 }): void {
-  const { projectDir, templateDir, names, spec, log } = options;
+  const { projectDir, templateDir, names, version, spec, log } = options;
   const templateRoot = join(templateDir, "_packages");
 
   // Collect + validate. Names are unique across ALL runtimes because each
@@ -263,13 +285,14 @@ export function generatePackages(options: {
   }
 
   for (const pkg of members) {
-    stampMember(projectDir, templateRoot, RUNTIMES[pkg.runtime], names, pkg);
+    stampMember(projectDir, templateRoot, RUNTIMES[pkg.runtime], names, version, pkg);
   }
 
   const py = members.filter((m) => m.runtime === "python").map((m) => m.name);
   const node = members.filter((m) => m.runtime === "node").map((m) => m.name);
   if (py.length > 0) writePythonWorkspaceRoot(projectDir, names, py);
   if (node.length > 0) patchNodeWorkspaceRoot(projectDir);
+  excludePackagesFromRootTsconfig(projectDir);
 
   writeAppWiring(projectDir, names, members);
 

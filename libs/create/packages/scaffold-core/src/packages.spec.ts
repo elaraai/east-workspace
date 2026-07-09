@@ -75,10 +75,36 @@ test("package names: reject invalid python names, and duplicates across runtimes
   assert.throws(() => scaffoldPackages("shop", { python: ["dup"], node: ["dup"] }), /twice|unique/, "cross-runtime duplicate");
 });
 
-test("node / C packages are guarded with a clear message until their templates ship", () => {
-  // These runtimes have no member template yet; the guard must be a friendly
-  // error, not an internal 'missing template' crash. (Self-resolves when the
-  // node/C templates land.)
-  assert.throws(() => scaffoldPackages("shop", { node: ["api"] }), /not available|remove --node-packages/);
+test("node packages: npm workspace members with a ./platform export; root workspaces patched", () => {
+  const dir = scaffoldPackages("shop", { node: ["api"] });
+  const base = join("packages", "node", "api");
+  assert.ok(existsSync(join(dir, base, "src", "platform.ts")), "member platform.ts");
+  const pkg = JSON.parse(read(dir, join(base, "package.json")));
+  assert.equal(pkg.name, "@shop/api", "member is named @<project>/<name>");
+  assert.equal(pkg.exports["./platform"], "./dist/platform.js", "exposes the ./platform subpath the runner loads");
+  assert.equal(pkg.dependencies["@elaraai/east"], "^9.9.9", "deps pinned to the scaffold version (__VERSION__)");
+  const root = JSON.parse(read(dir, "package.json"));
+  assert.ok((root.workspaces as string[]).includes("packages/node/*"), "root is an npm workspace over node members");
+  assert.equal(root.private, true, "npm workspace root must be private");
+  const wiring = read(dir, join("src", "packages", "api.ts"));
+  assert.ok(wiring.includes('custom: "@shop/api"'), "app references the member by its npm name");
+  assert.ok(!/\n\s*environment:\s*\{/.test(wiring), "no explicit environment — e3 derives it from the platform reference");
+  rmSync(dirname(dir), { recursive: true, force: true });
+});
+
+test("mixed python + node packages coexist (uv + npm workspaces, one barrel)", () => {
+  const dir = scaffoldPackages("shop", { python: ["pricing"], node: ["api"] });
+  assert.ok(existsSync(join(dir, "packages", "python", "pricing", "pyproject.toml")), "python member");
+  assert.ok(existsSync(join(dir, "packages", "node", "api", "package.json")), "node member");
+  assert.ok(read(dir, "pyproject.toml").includes('members = ["packages/python/*"]'), "uv workspace over python members");
+  assert.ok((JSON.parse(read(dir, "package.json")).workspaces as string[]).includes("packages/node/*"), "npm workspace over node members");
+  const barrel = read(dir, join("src", "packages", "index.ts"));
+  assert.ok(barrel.includes("pricing_task") && barrel.includes("api_task"), "barrel collects tasks from both runtimes");
+  rmSync(dirname(dir), { recursive: true, force: true });
+});
+
+test("C packages are guarded with a clear message until the template ships", () => {
+  // C has no member template yet; the guard must be a friendly error, not an
+  // internal 'missing template' crash. (Self-resolves when the C template lands.)
   assert.throws(() => scaffoldPackages("shop", { c: ["solver"] }), /not available|remove --c-packages/);
 });
