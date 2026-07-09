@@ -517,11 +517,13 @@ describe('execution environments e2e — per-package granularity CACHES across a
   // env auto-derivation on the scaffolded workspace.
   const exportFresh = (zipPath: string): void => {
     const integrationRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
+    // No `shell` — `node` is a real executable (node.exe on Windows), and a
+    // shell would re-parse the multiline `-e` program through cmd.exe and
+    // corrupt it. execFileSync passes the code to node verbatim on all platforms.
     execFileSync('node', ['--input-type=module', '-e', EXPORTER], {
       cwd: integrationRoot,
       env: { ...process.env, GEXP_PROJECT: projectDir, GEXP_ZIP: zipPath },
       stdio: 'pipe',
-      shell: process.platform === 'win32',
       maxBuffer: 32 * 1024 * 1024,
     });
   };
