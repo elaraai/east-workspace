@@ -1,0 +1,16 @@
+[project]
+name = "__PACKAGE_NAME__"
+version = "0.1.0"
+description = "The __PACKAGE_NAME__ platform package for __DISPLAY_NAME__"
+requires-python = ">=3.11"
+dependencies = [
+  "elaraai-east-py",
+]
+
+# Hatchling gives byte-reproducible sdists, so this package's captured
+# environment hash is stable across exports. (Legacy setuptools embeds file
+# mtimes into the sdist, which would re-invalidate the environment — and re-run
+# every task wired to it — on every export.) Keep hatchling here.
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

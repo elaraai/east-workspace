@@ -9,6 +9,7 @@ import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 
 import { scaffold, type Features, type ProjectKind } from "./scaffold.js";
+import type { PackageSpec } from "./packages.js";
 
 interface FeatureManifest {
   features: Record<string, { default?: boolean; allOf?: string[] }>;
@@ -40,8 +41,9 @@ export async function runCreateCli(kind: ProjectKind, moduleUrl: string): Promis
       : Boolean(process.stdout.isTTY);
 
   try {
-    const features = await resolveFeatures(templateDir, args);
-    const result = scaffold({ kind, name, templateDir, version, install, features });
+    const packages = kind === "e3" ? parsePackages(args) : undefined;
+    const features = await resolveFeatures(templateDir, args, packages);
+    const result = scaffold({ kind, name, templateDir, version, install, features, packages });
     printNextSteps(kind, result.projectName, result.inPlace, install, features);
   } catch (err) {
     console.error(`error: ${err instanceof Error ? err.message : String(err)}`);
@@ -55,7 +57,7 @@ export async function runCreateCli(kind: ProjectKind, moduleUrl: string): Promis
  * (`--tests/--no-tests`, `--ui/--no-ui`, `--runners=east-node,east-c`) mark a
  * non-interactive run, so CI and piped invocations never block on a prompt.
  */
-async function resolveFeatures(templateDir: string, args: string[]): Promise<Features> {
+async function resolveFeatures(templateDir: string, args: string[], packages?: PackageSpec): Promise<Features> {
   const manifestPath = join(templateDir, "template.json");
   if (!existsSync(manifestPath)) return {};
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as FeatureManifest;
@@ -72,7 +74,10 @@ async function resolveFeatures(templateDir: string, args: string[]): Promise<Fea
   const runnersFlag = args.find((a) => a.startsWith("--runners="));
   const selectionFlags =
     ["--tests", "--no-tests", "--ui", "--no-ui", "--platform", "--no-platform", "--eslint", "--no-eslint"].some((f) => args.includes(f)) ||
-    Boolean(runnersFlag);
+    Boolean(runnersFlag) ||
+    // `--python-packages=…` / `--node-packages=…` / `--c-packages=…` are an
+    // explicit non-interactive selection: skip the prompt.
+    Boolean(packages);
 
   if (args.includes("--tests")) features["tests"] = true;
   if (args.includes("--no-tests")) features["tests"] = false;
@@ -87,6 +92,17 @@ async function resolveFeatures(templateDir: string, args: string[]): Promise<Fea
   if (runnersFlag) {
     const chosen = new Set(runnersFlag.slice("--runners=".length).split(",").map((s) => s.trim()).filter(Boolean));
     for (const key of runnerKeys) features[key] = chosen.has(runnerName(key));
+  }
+
+  // Each `--<runtime>-packages` flag implies its runner (a package can't run
+  // without it), and the generated packages REPLACE the single-file `--platform`
+  // demo (they are the multi-package platform path). Applied after `--runners=`
+  // so a contradictory `--runners=` can't disable a runner a package needs.
+  if (packages) {
+    if (packages.python?.length && "runner:east-py" in manifest.features) features["runner:east-py"] = true;
+    if (packages.node?.length && "runner:east-node" in manifest.features) features["runner:east-node"] = true;
+    if (packages.c?.length && "runner:east-c" in manifest.features) features["runner:east-c"] = true;
+    features["platform"] = false;
   }
 
   const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY) && !selectionFlags;
@@ -132,6 +148,30 @@ async function resolveFeatures(templateDir: string, args: string[]): Promise<Fea
   return features;
 }
 
+/**
+ * Parse the per-runtime package flags into a {@link PackageSpec}. Each flag is
+ * a comma-separated value list: `--python-packages=pricing,common`,
+ * `--node-packages=api`, `--c-packages=solver`. Returns `undefined` when none
+ * are present (so the scaffold stays single-package).
+ */
+function parsePackages(args: string[]): PackageSpec | undefined {
+  const grab = (flag: string): string[] | undefined => {
+    const arg = args.find((a) => a === flag || a.startsWith(`${flag}=`));
+    if (arg === undefined) return undefined;
+    const value = arg.startsWith(`${flag}=`) ? arg.slice(flag.length + 1) : "";
+    return value.split(",").map((s) => s.trim()).filter(Boolean);
+  };
+  const python = grab("--python-packages");
+  const node = grab("--node-packages");
+  const c = grab("--c-packages");
+  if (!python && !node && !c) return undefined;
+  const spec: PackageSpec = {};
+  if (python) spec.python = python;
+  if (node) spec.node = node;
+  if (c) spec.c = c;
+  return spec;
+}
+
 async function askYesNo(rl: ReturnType<typeof createInterface>, question: string, def: boolean): Promise<boolean> {
   const answer = (await rl.question(`${question} [${def ? "Y/n" : "y/N"}] `)).trim().toLowerCase();
   if (answer === "") return def;
@@ -151,6 +191,12 @@ function printHelp(kind: ProjectKind): void {
     console.log("  --ui | --no-ui               include east-ui + e3-ui UI components (default: no)");
     console.log("  --platform | --no-platform   include a project-owned platform module (TS-East; +Python when east-py is on) (default: no)");
     console.log("  --runners=east-node,east-c,east-py   East runtimes to include (default: all)");
+    console.log("");
+    console.log("  Split platform code into separate workspace packages, each with its own");
+    console.log("  execution environment (editing one re-runs only its tasks):");
+    console.log("  --python-packages=pricing,common   uv workspace members (packages/python/*)");
+    console.log("  --node-packages=api                npm workspace members (packages/node/*)");
+    console.log("  --c-packages=solver                native binaries wired via a tools env (packages/native/*)");
   }
   console.log("");
   console.log("Run interactively (a TTY with no feature flags) to be prompted for these.");
