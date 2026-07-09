@@ -673,4 +673,45 @@ describe('reactive caching — change one input, only its tasks recompute', () =
     const get = await runE3Command(['dataset', 'get', repoDir, 'ws.task_a'], testDir);
     assert.ok(get.stdout.includes('a2'), `task_a should carry 'a2', got: ${get.stdout}`);
   });
+
+  // A record is a root dataset written only through mutations; it participates
+  // in reactive dataflow exactly like an input. Mutating it must re-run only the
+  // tasks that read it. (The mutation reducer runs on the east-node runner, so
+  // this is exercised in CI where `make link` puts east-node on PATH.)
+  it('mutating a record re-runs the task that reads it; an independent task stays CACHED', async () => {
+    const counter = e3.record('counter', IntegerType, 0n);
+    const inc = e3.mutation('inc', counter, East.function([IntegerType], IntegerType, ($, s) => s.add(1n)));
+    const otherIn = e3.input('other_in', StringType, 'x1');
+    // customTasks read their inputs directly; reads_counter depends on the record.
+    const readsCounter = e3.customTask('reads_counter', [counter], IntegerType, (_$, inputs, output) => East.str`cp ${inputs.get(0n)} ${output}`);
+    const independent = e3.customTask('independent', [otherIn], StringType, (_$, inputs, output) => East.str`cp ${inputs.get(0n)} ${output}`);
+    await e3.export(e3.package('recreactive', '1.0.0', counter, inc, readsCounter, independent), join(testDir, 'rec.zip'));
+
+    await runE3Command(['repo', 'create', repoDir], testDir);
+    await runE3Command(['package', 'import', repoDir, join(testDir, 'rec.zip')], testDir);
+    await runE3Command(['workspace', 'create', repoDir, 'ws'], testDir);
+    await runE3Command(['workspace', 'deploy', repoDir, 'ws', 'recreactive@1.0.0'], testDir);
+
+    // First run: both tasks execute (record at genesis = 0).
+    const run1 = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
+    assert.strictEqual(run1.exitCode, 0, `run1 failed: ${run1.stderr}\n${run1.stdout}`);
+    assert.match(run1.stdout, /\[DONE\][^\n]*reads_counter/, 'reads_counter runs first time');
+    assert.match(run1.stdout, /\[DONE\][^\n]*independent/, 'independent runs first time');
+
+    // Mutate the record (counter 0 -> 1) — the only write door for a record.
+    const mut = await runE3Command(['mutate', repoDir, 'counter.inc', '-w', 'ws'], testDir);
+    assert.strictEqual(mut.exitCode, 0, `mutate failed: ${mut.stderr}\n${mut.stdout}`);
+
+    // Second run: reads_counter re-executes (its record changed); the
+    // independent task is served from the execution cache.
+    const run2 = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
+    assert.strictEqual(run2.exitCode, 0, `run2 failed: ${run2.stderr}\n${run2.stdout}`);
+    assert.match(run2.stdout, /\[DONE\][^\n]*reads_counter/, 'reads_counter re-runs (record mutated)');
+    assert.match(run2.stdout, /\[CACHED\][^\n]*independent/, 'independent CACHED (input unchanged)');
+    assert.doesNotMatch(run2.stdout, /\[DONE\][^\n]*independent/, 'independent must NOT re-execute');
+
+    // reads_counter now carries the mutated record state (1).
+    const get = await runE3Command(['dataset', 'get', repoDir, 'ws.reads_counter'], testDir);
+    assert.ok(get.stdout.includes('1'), `reads_counter should carry 1 after inc, got: ${get.stdout}`);
+  });
 });
