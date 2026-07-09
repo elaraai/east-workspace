@@ -19,6 +19,8 @@ describeEast('Experiment', (test) => {
         experimentValidate: ex.experimentValidate,
         experimentMenu: ex.experimentMenu,
         experimentPrecomputed: ex.experimentPrecomputed,
+        experimentRefusalOverlap: ex.experimentRefusalOverlap,
+        experimentRefusalNotEstimable: ex.experimentRefusalNotEstimable,
         experimentReadonlyPrecomputed: ex.experimentReadonlyPrecomputed,
     });
 

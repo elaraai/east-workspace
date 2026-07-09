@@ -95,6 +95,20 @@ export function Help({ id, extraVars, children, display = 'inline', gap }: {
     );
 }
 
+/**
+ * The one-sentence `gist` of a glossary entry, rendered INLINE as a caption
+ * when guidance is on (nothing when off). Hover cards don't survive
+ * screenshots, PDFs, projectors or touch — the surfaces domain experts
+ * actually consume — so guidance mode also prints the plain-language meaning
+ * under section headings.
+ */
+export function GuidanceGist({ id, extraVars }: { id: HelpId; extraVars?: Record<string, string> | undefined }) {
+    const { on, vars } = useContext(GuidanceContext);
+    if (!on) return null;
+    const e = fillHelp(HELP[id], { ...vars, ...extraVars });
+    return <Text textStyle="caption" color="fg.muted" lineHeight="1.45" mt="-1.5" mb="2.5">{e.gist}</Text>;
+}
+
 /** The header guidance toggle — an icon-only on/off button (no label). The filled
  *  (`subtle`) state + brand tint show guidance is active; ghost + muted is off.
  *  Hovering it always explains the feature (even when off), so it's discoverable. */

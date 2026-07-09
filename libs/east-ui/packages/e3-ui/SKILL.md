@@ -80,7 +80,7 @@ Task → What do you need?
     │   └─ <Ontology binding={view.binding} />   (OntologyType: NodeType / LinkType)
     │
     └─ Let a user ask "did X change Y?" against a dataset and trust the answer
-        └─ <Experiment data spec estimate … />   (generic over the row; runs e3.functions)
+        └─ <Experiment data configs … />   (generic over the row; runs e3.functions)
 ```
 
 ## Core Concepts
@@ -170,44 +170,51 @@ A graph editor (`NodeType` / `LinkType` / `OntologyType`) bound to a dataset, fo
 editing typed node/link graphs. Stack a `<Diff>` beside it to surface the pending
 node/link patch.
 
-### `<Experiment data spec estimate … />`
+### `<Experiment data configs … />`
 
 An interactive **causal-experiment** surface: an end user asks *"did X change
-Y?"* against a bound dataset and reads a derived, trustworthy answer across three
-tabs (Answer / Can we trust it? / How much?). Generic over the dataset's row
-(like `<Table>`), it stages an `ExperimentSpec` and runs developer-supplied
-`e3.function`s on **Run**, deriving every word / colour / bar from the returned
-numbers — nothing is authored. **Commit** appends the result to the journal.
+Y?"* against a bound dataset and reads a derived, plain-language answer across
+up to four tabs (The answer / Can we trust it? / How much? / Prove it). Generic
+over the dataset's row (like `<Table>`). The bound `configs` list holds the
+**questions** — each a full `ExperimentConfig` plus an optional precomputed
+`result`/`design`; selecting one seeds the working config. **Run** calls the
+single bound `experiment` function; the verdict-first headline, every word,
+colour and bar are derived from the returned numbers — nothing is authored.
+**Commit** appends to the journal.
 
 | Prop | Binding | Meaning |
 |---|---|---|
 | `data` | `Data.bind(dataset)` | the rows to experiment on (`Array<Struct<Row>>`) |
-| `spec` | `Data.bind(spec, { mode: 'staged' })` | the staged `ExperimentSpec` the surface reads / writes |
-| `estimate` | `Func.bind(fn)` | **required** — `(rows, spec) → ExperimentResult` (Answer tab) |
-| `refute` | `Func.bind(fn)` | optional — `(rows, spec) → RefuteResult` (trust tab) |
-| `dose` | `Func.bind(fn)` | optional — `(rows, spec, feature) → DoseResult` (dose tab) |
+| `configs` | `Data.bind(dataset)` | **required** — the questions (`Array<Experiment.Types.Configuration>`); each may carry a precomputed `result` and/or `design` |
+| `experiment` | `Func.bind(fn)` | optional universal estimator — `(rows, config) → ExperimentResult`; omit when every question is precomputed |
+| `design` | `Func.bind(fn)` | optional — `(rows, config, result, designConfig) → ExperimentDesign` (the "Prove it" trial recipe) |
 | `journal` | `Data.bind(dataset)` | optional committed-experiment log; **Commit** appends |
-| `columns` | — | per-column display config keyed by the row's fields (like `<Table>`), e.g. `{ bond_strength: { unit: 'MPa' } }` |
+| `columns` | — | per-column display config keyed by the row's fields (like `<Table>`), e.g. `{ bond_strength: { label: 'Bond strength', unit: 'MPa', higherIsBetter: true } }` — labels drive every sentence the surface speaks |
+| `subject` | — | the domain noun for a row: `'batch'` (auto-pluralised) or `{ one, many }`; replaces the neutral `record(s)` |
 | `readonly` | — | render without Run / Commit / edit affordances |
-| `defaultTab` | — | initial tab: `'answer'` (default) \| `'trust'` \| `'dose'` |
+| `defaultTab` | — | initial tab: `'answer'` (default) \| `'trust'` \| `'dose'` \| `'validate'` |
 
 ```tsx
 <Reactive>{$ => {
-    const data     = $.let(Data.bind(batchesInput));
-    const spec     = $.let(Data.bind(experimentSpecInput, { mode: 'staged' }));
-    const journal  = $.let(Data.bind(experimentJournalInput));
-    const estimate = $.let(Func.bind(estimateFn));   // (rows, spec) → ExperimentResult
-    const refute   = $.let(Func.bind(refuteFn));     // (rows, spec) → RefuteResult
-    const dose     = $.let(Func.bind(doseFn));       // (rows, spec, feature) → DoseResult
+    const data       = $.let(Data.bind(batchesInput));
+    const configs    = $.let(Data.bind(experimentConfigsInput));   // the questions
+    const journal    = $.let(Data.bind(experimentJournalInput));
+    const experiment = $.let(Func.bind(experimentFn));  // (rows, config) → ExperimentResult
     return (
-        <Experiment data={data} spec={spec} estimate={estimate} refute={refute} dose={dose}
-            journal={journal} columns={{ bond_strength: { unit: 'MPa' } }} />
+        <Experiment data={data} configs={configs} experiment={experiment} journal={journal}
+            columns={{ bond_strength: { label: 'Bond strength', unit: 'MPa', higherIsBetter: true } }}
+            subject="batch" />
     );
 }}</Reactive>
 ```
 
 The render-contract value types are reached via `Experiment.Types.*`
-(`Experiment.Types.Spec` / `.Result` / …, like `Table.Types.*`).
+(`Experiment.Types.Config` / `.Configuration` / `.Result` / `.Design` /
+`.Verdict` / …, like `Table.Types.*`); the result's honesty `verdict`
+(`causal` / `modest` / `adjustment_insufficient` /
+`non_identifiable_positivity` / `not_estimable`) drives the headline, and the
+two refusal verdicts (`adjusted = none`) render explanatory zones instead of a
+number.
 
 ## Key Patterns
 

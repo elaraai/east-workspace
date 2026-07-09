@@ -377,7 +377,16 @@ export const experimentSurface = example({
                     configs={configs}
                     experiment={experiment}
                     journal={journal}
-                    columns={{ bond_strength: { unit: 'MPa' } }}
+                    columns={{
+                        slow_cure: { label: 'Slow cure' },
+                        bond_strength: { label: 'Bond strength', unit: 'MPa', higherIsBetter: true },
+                        incoming_grade: { label: 'Incoming grade' },
+                        mix_viscosity: { label: 'Mix viscosity' },
+                        supplier: { label: 'Supplier' },
+                        line: { label: 'Line' },
+                        product: { label: 'Product' },
+                    }}
+                    subject="batch"
                 />
             );
         }}</Reactive>
@@ -400,7 +409,16 @@ export const experimentTrust = example({
                     configs={configs}
                     experiment={experiment}
                     journal={journal}
-                    columns={{ bond_strength: { unit: 'MPa' } }}
+                    columns={{
+                        slow_cure: { label: 'Slow cure' },
+                        bond_strength: { label: 'Bond strength', unit: 'MPa', higherIsBetter: true },
+                        incoming_grade: { label: 'Incoming grade' },
+                        mix_viscosity: { label: 'Mix viscosity' },
+                        supplier: { label: 'Supplier' },
+                        line: { label: 'Line' },
+                        product: { label: 'Product' },
+                    }}
+                    subject="batch"
                     defaultTab="trust"
                 />
             );
@@ -424,7 +442,16 @@ export const experimentDose = example({
                     configs={configs}
                     experiment={experiment}
                     journal={journal}
-                    columns={{ bond_strength: { unit: 'MPa' } }}
+                    columns={{
+                        slow_cure: { label: 'Slow cure' },
+                        bond_strength: { label: 'Bond strength', unit: 'MPa', higherIsBetter: true },
+                        incoming_grade: { label: 'Incoming grade' },
+                        mix_viscosity: { label: 'Mix viscosity' },
+                        supplier: { label: 'Supplier' },
+                        line: { label: 'Line' },
+                        product: { label: 'Product' },
+                    }}
+                    subject="batch"
                     defaultTab="dose"
                 />
             );
@@ -450,7 +477,16 @@ export const experimentValidate = example({
                     experiment={experiment}
                     design={design}
                     journal={journal}
-                    columns={{ bond_strength: { unit: 'MPa' } }}
+                    columns={{
+                        slow_cure: { label: 'Slow cure' },
+                        bond_strength: { label: 'Bond strength', unit: 'MPa', higherIsBetter: true },
+                        incoming_grade: { label: 'Incoming grade' },
+                        mix_viscosity: { label: 'Mix viscosity' },
+                        supplier: { label: 'Supplier' },
+                        line: { label: 'Line' },
+                        product: { label: 'Product' },
+                    }}
+                    subject="batch"
                     defaultTab="validate"
                 />
             );
@@ -475,7 +511,16 @@ export const experimentMenu = example({
                     configs={configs}
                     experiment={experiment}
                     journal={journal}
-                    columns={{ bond_strength: { unit: 'MPa' } }}
+                    columns={{
+                        slow_cure: { label: 'Slow cure' },
+                        bond_strength: { label: 'Bond strength', unit: 'MPa', higherIsBetter: true },
+                        incoming_grade: { label: 'Incoming grade' },
+                        mix_viscosity: { label: 'Mix viscosity' },
+                        supplier: { label: 'Supplier' },
+                        line: { label: 'Line' },
+                        product: { label: 'Product' },
+                    }}
+                    subject="batch"
                 />
             );
         }}</Reactive>
@@ -495,7 +540,144 @@ export const experimentPrecomputed = example({
                 <Experiment
                     data={data}
                     configs={configs}
-                    columns={{ bond_strength: { unit: 'MPa' } }}
+                    columns={{
+                        slow_cure: { label: 'Slow cure' },
+                        bond_strength: { label: 'Bond strength', unit: 'MPa', higherIsBetter: true },
+                        incoming_grade: { label: 'Incoming grade' },
+                        mix_viscosity: { label: 'Mix viscosity' },
+                        supplier: { label: 'Supplier' },
+                        line: { label: 'Line' },
+                        product: { label: 'Product' },
+                    }}
+                    subject="batch"
+                />
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+// ============================================================================
+// Refusal scenes — the two verdicts where the engine returns `adjusted = none`
+// rather than a number. Precomputed (no estimator), so the surface paints the
+// refusal zones directly: the positivity case renders the overlap histogram as
+// its centrepiece; the not-estimable case renders the engine's reason. Neither
+// names a `dose_feature`, so the "How much?" tab is hidden (nothing could ever
+// put a curve on it).
+// ============================================================================
+
+export const experimentPositivityConfigsInput = e3.input('experiment_positivity_configs', ArrayType(Experiment.Types.Configuration), [
+    {
+        id: 'cure_strength_overlap', label: 'Slow cure → bond strength (no overlap)',
+        spec: {
+            treatment: 'slow_cure', outcome: 'bond_strength', common_causes: ['incoming_grade', 'mix_viscosity'],
+            categorical: none, method: none, estimand: none, refute: none, dose_feature: none,
+            min_overlap: none, min_treatment_variation: none, bootstrap: none, random_state: none, strong_overlap: none, evalue_floor: none, expected_sign: none,
+        },
+        population: none, group: none,
+        // The two arms' propensity histograms barely meet — only 6% common
+        // support — so the engine refuses: `non_identifiable_positivity`.
+        result: some({
+            naive: -3.1,
+            naive_ci: some({ lower: -5.8, upper: -0.4 }),
+            adjusted: none,
+            n_total: 480n, n_treated: 240n, n_control: 240n, n_dropped: 0n,
+            balance: [
+                { column: 'incoming_grade', base_column: 'incoming_grade', treated_mean: 3.4, control_mean: 8.2, std_diff: 2.10 },
+                { column: 'mix_viscosity', base_column: 'mix_viscosity', treated_mean: 24.8, control_mean: 24.0, std_diff: 0.38 },
+            ],
+            overlap: {
+                treated_propensity: new Float64Array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 3, 7, 13, 18, 22, 19, 12, 5]),
+                control_propensity: new Float64Array([5, 12, 19, 22, 18, 13, 7, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+                common_support_frac: 0.06, positivity_ok: false, support_strength: variant('refused', null),
+            },
+            refutation: none,
+            dose_response: none,
+            verdict: variant('non_identifiable_positivity', null),
+        }),
+        design: none,
+    },
+]);
+
+export const experimentNotEstimableConfigsInput = e3.input('experiment_not_estimable_configs', ArrayType(Experiment.Types.Configuration), [
+    {
+        id: 'deal_strength', label: 'Special batch flag → bond strength (44-unit arm)',
+        spec: {
+            treatment: 'slow_cure', outcome: 'bond_strength', common_causes: ['incoming_grade'],
+            categorical: none, method: none, estimand: none, refute: none, dose_feature: none,
+            min_overlap: none, min_treatment_variation: none, bootstrap: none, random_state: none, strong_overlap: none, evalue_floor: none, expected_sign: none,
+        },
+        population: none, group: none,
+        // Almost every batch is on one side of the treatment — the engine
+        // refuses with `not_estimable` and says why in the verdict's payload.
+        result: some({
+            naive: 0.8,
+            naive_ci: none,
+            adjusted: none,
+            n_total: 3688n, n_treated: 44n, n_control: 3644n, n_dropped: 0n,
+            balance: [
+                { column: 'incoming_grade', base_column: 'incoming_grade', treated_mean: 6.0, control_mean: 6.1, std_diff: 0.05 },
+            ],
+            overlap: {
+                treated_propensity: new Float64Array([2, 5, 8, 9, 8, 6, 3, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+                control_propensity: new Float64Array([180, 320, 450, 520, 510, 430, 340, 260, 190, 140, 100, 70, 50, 30, 20, 12, 8, 5, 2, 1]),
+                common_support_frac: 0.45, positivity_ok: true, support_strength: variant('thin', null),
+            },
+            refutation: none,
+            dose_response: none,
+            verdict: variant('not_estimable', 'treatment barely varies: the minority arm is 1.2% of rows'),
+        }),
+        design: none,
+    },
+]);
+
+/** The positivity REFUSAL — no like-for-like comparison exists; the Answer tab
+ *  renders the back-to-back propensity histogram instead of a number, and the
+ *  hidden "How much?" tab demonstrates the dose-tab gating. */
+export const experimentRefusalOverlap = example({
+    keywords: ['Experiment', 'causal', 'refusal', 'positivity', 'overlap', 'histogram', 'no comparison', 'verdict'],
+    description: 'The Experiment positivity refusal — the treated and untreated batches barely overlap on the confounders, so the engine refuses to estimate (adjusted = none, verdict non_identifiable_positivity) and the Answer tab explains why over the propensity-overlap histogram. No dose feature → the "How much?" tab is hidden.',
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const data = $.let(Data.bind(batchesInput));
+            const configs = $.let(Data.bind(experimentPositivityConfigsInput));
+            return (
+                <Experiment
+                    data={data}
+                    configs={configs}
+                    columns={{
+                        slow_cure: { label: 'Slow cure' },
+                        bond_strength: { label: 'Bond strength', unit: 'MPa', higherIsBetter: true },
+                        incoming_grade: { label: 'Incoming grade' },
+                        mix_viscosity: { label: 'Mix viscosity' },
+                    }}
+                    subject="batch"
+                />
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+/** The not-estimable REFUSAL — a 44-unit treated arm; the engine refuses with
+ *  its reason string and the evidence counts. */
+export const experimentRefusalNotEstimable = example({
+    keywords: ['Experiment', 'causal', 'refusal', 'not_estimable', 'variation', 'tiny arm', 'verdict'],
+    description: 'The Experiment not-estimable refusal — almost every batch is on one side of the treatment (a 44-unit arm), so the engine refuses to guess (adjusted = none, verdict not_estimable) and the Answer tab shows the engine\'s reason plus the arm counts.',
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const data = $.let(Data.bind(batchesInput));
+            const configs = $.let(Data.bind(experimentNotEstimableConfigsInput));
+            return (
+                <Experiment
+                    data={data}
+                    configs={configs}
+                    columns={{
+                        slow_cure: { label: 'Slow cure' },
+                        bond_strength: { label: 'Bond strength', unit: 'MPa', higherIsBetter: true },
+                        incoming_grade: { label: 'Incoming grade' },
+                    }}
+                    subject="batch"
                 />
             );
         }}</Reactive>
@@ -515,7 +697,16 @@ export const experimentReadonlyPrecomputed = example({
                     data={data}
                     configs={configs}
                     readonly
-                    columns={{ bond_strength: { unit: 'MPa' } }}
+                    columns={{
+                        slow_cure: { label: 'Slow cure' },
+                        bond_strength: { label: 'Bond strength', unit: 'MPa', higherIsBetter: true },
+                        incoming_grade: { label: 'Incoming grade' },
+                        mix_viscosity: { label: 'Mix viscosity' },
+                        supplier: { label: 'Supplier' },
+                        line: { label: 'Line' },
+                        product: { label: 'Product' },
+                    }}
+                    subject="batch"
                 />
             );
         }}</Reactive>

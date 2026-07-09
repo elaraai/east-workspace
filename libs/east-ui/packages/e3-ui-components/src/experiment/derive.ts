@@ -82,12 +82,18 @@ export interface Column { name: string; kind: 'boolean' | 'integer' | 'float' | 
 export interface VMVerdict { tag: VerdictTag; tone: string; label: string }
 export interface VMConfounder { col: string; reason: string; imbalance: number; level: string; tone: string }
 export interface VMSpec {
-    treatment: string; treatmentKind: string; outcome: string; outcomeKind: string;
+    treatment: string; treatmentLabel: string; treatmentKind: string;
+    outcome: string; outcomeLabel: string; outcomeKind: string;
     comparison: string; confounders: VMConfounder[]; suggestion: string;
     method: string; target: string; dataLabel: string;
 }
-export interface VMBalance { col: string; treated: number; control: number; display: string; frac: number; tone: string }
+export interface VMBalance { col: string; label: string; treated: number; control: number; display: string; frac: number; tone: string }
+/** One piece of the narrative headline — `strong` renders bold. */
+export interface VMNarrativeSegment { text: string; strong?: boolean }
+/** The verdict-first plain-language conclusion painted atop the Answer tab. */
+export interface VMNarrative { tone: string; segments: VMNarrativeSegment[] }
 export interface VMAnswer {
+    /** Display labels (the friendly `columns` names) — raw column names stay in the pickers. */
     treatment: string; outcome: string; unit: string;
     naive: number; naiveLo: number; naiveHi: number; effect: number; lo: number; hi: number;
     clear: boolean; flip: boolean; cautious: boolean;
@@ -106,16 +112,25 @@ export interface VMOverlap {
     treated: number[]; control: number[];
     commonSupportFrac: number; positivityOk: boolean; supportLabel: string;
 }
-export interface VMRefuteCheck { name: string; desc: string; value: string; passed: boolean; tip: option<string>; help: HelpId }
+export interface VMRefuteCheck {
+    name: string;
+    /** Two-or-three-word pill name for the Answer-tab trust strip. */
+    short: string;
+    desc: string; value: string; passed: boolean; tip: option<string>; help: HelpId;
+}
 export interface VMRefute { checks: VMRefuteCheck[]; sens: VMSensitivity | null }
 export interface VMSensitivity { lo: number[]; mid: number[]; hi: number[]; xTicks: string[]; yTicks: string[] }
 export interface VMDoseMark { at: number; label: string; tone: string; help: HelpId }
 export interface VMMarginal { label: string; value: number; frac: number }
 export interface VMDose {
+    /** Display labels — the friendly `columns` names, falling back to the raw columns. */
     feature: string; outcome: string; lo: number[]; mid: number[]; hi: number[];
     xTicks: string[]; yTicks: string[]; marks: VMDoseMark[];
     recoLabel: string; recoEffect: number; recoLo: number; recoHi: number;
     tradeoff: string; marginal: VMMarginal[];
+    /** One sentence placing this tab: the dose curve answers a DIFFERENT question
+     *  than the yes/no headline (it is over a numeric feature, not the treatment). */
+    framing: string;
 }
 export interface VMJournalRow {
     treatment: string; outcome: string; confounders: string; effect: string;
@@ -150,7 +165,14 @@ function band(absStd: number): { level: string; tone: string } {
 
 const colMeta = (meta: ColMeta | undefined, col: string) => meta?.get(col);
 const unitOf = (meta: ColMeta | undefined, col: string): string => getSomeorUndefined(colMeta(meta, col)?.unit) ?? '';
+/** The friendly display label for a column — the raw name when none is configured.
+ *  Every word the surface SPEAKS uses this; raw column names stay only in the
+ *  mono picker chips (where identity matters). */
+const labelOf = (meta: ColMeta | undefined, col: string): string => getSomeorUndefined(colMeta(meta, col)?.label) ?? col;
 const kindOf = (cols: Column[], name: string): Column['kind'] | undefined => cols.find(c => c.name === name)?.kind;
+
+/** The domain noun for one row (singular + plural) — `record(s)` by default. */
+export interface SubjectNouns { one: string; many: string }
 
 // ---------------------------------------------------------------------------
 // Verdict → tone + headline label.
@@ -187,8 +209,7 @@ function treatmentKind(cols: Column[], treatment: string): string {
     }
 }
 
-function deriveSpec(config: ConfigValue, cols: Column[], result: ResultValue | null, meta: ColMeta | undefined, dataLen: number): VMSpec {
-    const tKind = kindOf(cols, config.treatment);
+function deriveSpec(config: ConfigValue, cols: Column[], result: ResultValue | null, meta: ColMeta | undefined, dataLen: number, subject: SubjectNouns): VMSpec {
     const outUnit = unitOf(meta, config.outcome);
 
     // Join the chosen confounders with their measured imbalance (if a result is
@@ -206,7 +227,7 @@ function deriveSpec(config: ConfigValue, cols: Column[], result: ResultValue | n
         const absStd = b ? Math.abs(b.std_diff) : 0;
         const { level, tone } = band(absStd);
         const dir = b ? (b.treated_mean < b.control_mean ? 'lower' : 'higher') : '';
-        const reason = b ? `the treated group ran ${dir} on ${col}` : 'measured once you Run';
+        const reason = b ? `the treated group ran ${dir} on ${labelOf(meta, col)}` : 'measured once you Run';
         return { col, reason, imbalance: clamp01(absStd), level, tone };
     });
 
@@ -222,16 +243,18 @@ function deriveSpec(config: ConfigValue, cols: Column[], result: ResultValue | n
 
     return {
         treatment: config.treatment,
+        treatmentLabel: labelOf(meta, config.treatment),
         treatmentKind: treatmentKind(cols, config.treatment),
         outcome: config.outcome,
+        outcomeLabel: labelOf(meta, config.outcome),
         outcomeKind: outUnit ? `number · ${outUnit}` : 'number',
-        comparison: tKind === 'boolean' ? 'yes · vs no' : 'high · vs low',
+        comparison: kindOf(cols, config.treatment) === 'boolean' ? 'yes · vs no' : 'high · vs low',
         confounders, suggestion, method, target,
         // Always the CURRENT (filtered) dataset's row count — the result's own
         // n_total belongs to the Answer-tab counts strip; labelling the header
         // with it desyncs from the data after a population edit (and reads
         // wrong whenever the two legitimately differ).
-        dataLabel: `${dataLen} rows`,
+        dataLabel: `${dataLen} ${subject.many}`,
     };
 }
 
@@ -254,7 +277,10 @@ function deriveAnswer(config: ConfigValue, result: ResultValue, adj: AdjustedVal
     const balance: VMBalance[] = [...result.balance]
         .sort((a, b) => Math.abs(b.std_diff) - Math.abs(a.std_diff))
         .map(b => ({
-            col: b.column, treated: b.treated_mean, control: b.control_mean,
+            // One-hot rows are `col=level` — label the BASE confounder, keep the level.
+            col: b.column,
+            label: b.column === b.base_column ? labelOf(meta, b.base_column) : `${labelOf(meta, b.base_column)}${b.column.startsWith(b.base_column) ? b.column.slice(b.base_column.length) : ` (${b.column})`}`,
+            treated: b.treated_mean, control: b.control_mean,
             display: balanceDisplay(b, categorical), frac: clamp01(Math.abs(b.std_diff)), tone: band(Math.abs(b.std_diff)).tone,
         }));
     const lo = ci?.lower ?? adj.effect;
@@ -264,7 +290,7 @@ function deriveAnswer(config: ConfigValue, result: ResultValue, adj: AdjustedVal
     const nDropped = Number(result.n_dropped);
     const nTotal = Number(result.n_total);
     return {
-        treatment: config.treatment, outcome: config.outcome, unit: unitOf(meta, config.outcome),
+        treatment: labelOf(meta, config.treatment), outcome: labelOf(meta, config.outcome), unit: unitOf(meta, config.outcome),
         naive: result.naive, naiveLo: nci?.lower ?? result.naive, naiveHi: nci?.upper ?? result.naive,
         effect: adj.effect, lo, hi, clear, flip,
         cautious: result.verdict.type === 'adjustment_insufficient',
@@ -275,20 +301,82 @@ function deriveAnswer(config: ConfigValue, result: ResultValue, adj: AdjustedVal
 }
 
 // ---------------------------------------------------------------------------
+// Narrative — the verdict-first conclusion sentence atop the Answer tab. Every
+// word is templated from the verdict tag, the returned numbers, the friendly
+// column labels and the subject noun — the same derived-never-authored rule,
+// aimed at a spoken sentence instead of a badge.
+// ---------------------------------------------------------------------------
+function deriveNarrative(
+    result: ResultValue, a: VMAnswer | null, refute: VMRefute | null,
+    higherBetter: boolean | undefined, subject: SubjectNouns,
+): VMNarrative | null {
+    // Refusals lead with their own explanatory zone — no second headline.
+    if (a === null) return null;
+    const unit = a.unit ? ` ${a.unit}` : '';
+    const dirUp = a.effect > 0;
+    // With a good direction configured, speak in it ("improves"/"worsens");
+    // otherwise stay neutral ("raises"/"lowers").
+    const verb = higherBetter === undefined
+        ? (dirUp ? 'raises' : 'lowers')
+        : (dirUp === higherBetter ? 'improves' : 'worsens');
+    const range = ` (likely between ${signed(a.lo)} and ${signed(a.hi)})`;
+    // The stress-test clause — only when checks actually ran.
+    const passed = refute?.checks.filter(c => c.passed).length ?? 0;
+    const total = refute?.checks.length ?? 0;
+    const trustClause = total === 0 ? ''
+        : passed === total
+            ? ` It held up against all ${total} ways we tried to break it.`
+            : ` It passed ${passed} of ${total} stress tests — see “Can we trust it?”.`;
+
+    switch (result.verdict.type) {
+        case 'causal':
+            return {
+                tone: 'pos',
+                segments: [
+                    { text: 'Yes — ', strong: true },
+                    { text: `${a.treatment} genuinely ${verb} ${a.outcome}: about ` },
+                    { text: `${signed(a.effect)}${unit}`, strong: true },
+                    { text: ` per ${subject.one}${range}.${trustClause}` },
+                ],
+            };
+        case 'modest':
+            return {
+                tone: 'warn',
+                segments: [
+                    { text: 'Maybe — ', strong: true },
+                    { text: `there may be an effect of ${a.treatment} on ${a.outcome}, but it’s too small or unclear to act on` },
+                    { text: a.lo <= 0 && a.hi >= 0 ? ` — the likely range (${signed(a.lo)} to ${signed(a.hi)}) includes zero.` : '.' },
+                ],
+            };
+        case 'adjustment_insufficient':
+            return {
+                tone: 'warn',
+                segments: [
+                    { text: 'Don’t act on this yet — ', strong: true },
+                    { text: `we got a number (${signed(a.effect)}${unit}), but a stress test failed: something we didn’t adjust for may still be driving it.` },
+                ],
+            };
+        default:
+            return null;
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Result → refusal zone (adjusted = none).
 // ---------------------------------------------------------------------------
-function deriveRefusal(config: ConfigValue, result: ResultValue): VMRefusal {
+function deriveRefusal(config: ConfigValue, result: ResultValue, meta: ColMeta | undefined, subject: SubjectNouns): VMRefusal {
     const nT = Number(result.n_treated), nC = Number(result.n_control), nTot = Number(result.n_total);
+    const treatment = labelOf(meta, config.treatment);
     if (result.verdict.type === 'not_estimable') {
         const reason = result.verdict.value || 'The treatment barely varies, so no comparison can be formed.';
         return {
             kind: 'not_estimable',
-            title: `Can’t estimate the effect of ${config.treatment}`,
+            title: `Can’t estimate the effect of ${treatment}`,
             body: reason,
             evidence: [
                 { label: 'treated', value: String(nT) },
                 { label: 'untreated', value: String(nC) },
-                { label: 'rows', value: String(nTot) },
+                { label: subject.many, value: String(nTot) },
             ],
         };
     }
@@ -309,12 +397,12 @@ function deriveRefusal(config: ConfigValue, result: ResultValue): VMRefusal {
     // plainly rather than fabricate a positivity explanation.
     return {
         kind: 'not_estimable',
-        title: `Can’t estimate the effect of ${config.treatment}`,
+        title: `Can’t estimate the effect of ${treatment}`,
         body: 'The engine could not produce a like-for-like estimate for this configuration.',
         evidence: [
             { label: 'treated', value: String(nT) },
             { label: 'untreated', value: String(nC) },
-            { label: 'rows', value: String(nTot) },
+            { label: subject.many, value: String(nTot) },
         ],
     };
 }
@@ -355,11 +443,17 @@ function deriveRefute(r: RefutationValue, adj: AdjustedValue | undefined): VMRef
     const placeboEffect = getSomeorUndefined(r.placebo_effect);
     const placeboPasses = getSomeorUndefined(r.placebo_passes);
     if (placeboEffect !== undefined || placeboPasses !== undefined) {
+        const passed = placeboPasses ?? (placeboEffect !== undefined && Math.abs(placeboEffect) < Math.max(0.5, Math.abs(est) * 0.15));
         checks.push({
             name: 'Shuffle test',
+            short: 'shuffle',
             desc: 'Shuffle which rows were treated; a real effect should collapse to zero.',
-            value: placeboEffect !== undefined ? `→ ${signed(placeboEffect)}` : (placeboPasses ? 'passed' : 'failed'),
-            passed: placeboPasses ?? (placeboEffect !== undefined && Math.abs(placeboEffect) < Math.max(0.5, Math.abs(est) * 0.15)),
+            // Speak the outcome, not the statistic: on fake labels the effect
+            // should VANISH — say whether it did.
+            value: placeboEffect !== undefined
+                ? (passed ? `vanished (${signed(placeboEffect)})` : `didn’t vanish (${signed(placeboEffect)})`)
+                : (passed ? 'vanished' : 'didn’t vanish'),
+            passed,
             tip: some('Randomly re-label which rows were treated. A genuine effect should vanish.'),
             help: 'check_shuffle',
         });
@@ -367,11 +461,13 @@ function deriveRefute(r: RefutationValue, adj: AdjustedValue | undefined): VMRef
     const ds = getSomeorUndefined(r.data_subset_effect);
     if (ds !== undefined) {
         const dstd = getSomeorUndefined(r.data_subset_std) ?? 0;
+        const passed = Math.abs(ds - est) < Math.max(0.5, Math.abs(est) * 0.2);
         checks.push({
             name: 'Drop-some test',
+            short: 'drop-some',
             desc: 'Re-estimate on random subsamples; a trustworthy effect stays put.',
-            value: `${fmt(ds)} ± ${fmt(dstd)}`,
-            passed: Math.abs(ds - est) < Math.max(0.5, Math.abs(est) * 0.2),
+            value: passed ? `stayed at ${signed(ds)} ± ${fmt(dstd)}` : `moved to ${signed(ds)} ± ${fmt(dstd)}`,
+            passed,
             tip: none,
             help: 'check_dropsome',
         });
@@ -380,8 +476,9 @@ function deriveRefute(r: RefutationValue, adj: AdjustedValue | undefined): VMRef
     if (rcc !== undefined) {
         checks.push({
             name: 'Decoy cause',
+            short: 'decoy',
             desc: 'Add an irrelevant random factor; the answer should not move.',
-            value: rcc ? 'within range' : 'moved',
+            value: rcc ? 'didn’t move' : 'moved',
             passed: rcc,
             tip: none,
             help: 'check_decoy',
@@ -394,10 +491,11 @@ function deriveRefute(r: RefutationValue, adj: AdjustedValue | undefined): VMRef
         const effects = sens ? arr(sens.effects) : [];
         const tip = sens ? zeroCrossing(strengths, effects) : null;
         const value = tip !== null
-            ? `tips at ${fmt(tip)}`
-            : evalue !== undefined ? `E-value ${fmt(evalue)}` : 'holds throughout';
+            ? `would flip at ${fmt(tip)}`
+            : evalue !== undefined ? `holds (E-value ${fmt(evalue)})` : 'holds throughout';
         checks.push({
             name: 'Hidden cause',
+            short: 'hidden cause',
             desc: 'How strong an unrecorded common cause would need to be to overturn the result.',
             value,
             passed: tip === null,
@@ -467,11 +565,16 @@ function deriveDose(dose: DoseValue, config: ConfigValue, meta: ColMeta | undefi
     if (sizes.length) marks.push({ at: here, label: 'you are here', tone: 'muted', help: 'dose_here' });
     marks.push({ at: sweet, label: 'sweet spot', tone: 'pos', help: 'dose_sweet' });
 
+    const featureLabel = labelOf(meta, dose.feature);
+    const outcomeLabel = labelOf(meta, config.outcome);
     return {
-        feature: dose.feature, outcome: config.outcome, lo, mid, hi, xTicks, yTicks, marks,
-        recoLabel: `≈ ${fmt(grid[sweet] ?? 0)}${featureUnit ? ' ' + featureUnit : ''}`,
+        feature: featureLabel, outcome: outcomeLabel, lo, mid, hi, xTicks, yTicks, marks,
+        // Name the feature in the recommendation — a bare "≈ 5.5" doesn't say
+        // 5.5 of WHAT.
+        recoLabel: `aim for ${featureLabel} ≈ ${fmt(grid[sweet] ?? 0)}${featureUnit ? ' ' + featureUnit : ''}`,
         recoEffect: mid[sweet] ?? 0, recoLo: lo[sweet] ?? 0, recoHi: hi[sweet] ?? 0,
         tradeoff, marginal,
+        framing: `A different question from the headline: how ${outcomeLabel} responds as ${featureLabel} itself moves.`,
     };
 }
 
@@ -495,11 +598,11 @@ const VERDICT_WORD: Record<VerdictTag, string> = {
     not_estimable: 'n/a',
 };
 
-function deriveJournalRow(row: JournalRowValue, now: Date): VMJournalRow {
+function deriveJournalRow(row: JournalRowValue, now: Date, meta: ColMeta | undefined): VMJournalRow {
     const adj = getSomeorUndefined(row.adjusted);
     return {
-        treatment: row.config.treatment, outcome: row.config.outcome,
-        confounders: row.config.common_causes.join(', '),
+        treatment: labelOf(meta, row.config.treatment), outcome: labelOf(meta, row.config.outcome),
+        confounders: row.config.common_causes.map(c => labelOf(meta, c)).join(', '),
         effect: adj !== undefined ? signed(adj) : signed(row.naive),
         verdict: VERDICT_WORD[row.verdict.type],
         verdictTone: VERDICT_TONE[row.verdict.type],
@@ -516,6 +619,9 @@ function deriveJournalRow(row: JournalRowValue, now: Date): VMJournalRow {
 export interface ExperimentView {
     spec: VMSpec;
     verdict: VMVerdict | null;
+    /** The verdict-first conclusion sentence (numeric verdicts only — refusals
+     *  lead with their own explanatory zone). */
+    narrative: VMNarrative | null;
     answer: VMAnswer | null;
     refusal: VMRefusal | null;
     overlap: VMOverlap | null;
@@ -537,6 +643,7 @@ export interface ExperimentView {
  * @param meta - Optional per-column display metadata.
  * @param dataLen - Row count of the bound dataset (for the header label).
  * @param now - "Now" for relative journal timestamps (injected for determinism).
+ * @param subject - The domain noun for one row (defaults to `record(s)`).
  */
 export function deriveView(
     config: ConfigValue,
@@ -547,22 +654,27 @@ export function deriveView(
     meta: ColMeta | undefined,
     dataLen: number,
     now: Date,
+    subject: SubjectNouns = { one: 'record', many: 'records' },
 ): ExperimentView {
     const adj = result ? getSomeorUndefined(result.adjusted) : undefined;
     const refutation = result ? getSomeorUndefined(result.refutation) : undefined;
     const doseR = result ? getSomeorUndefined(result.dose_response) : undefined;
+    const answer = result && adj ? deriveAnswer(ranConfig, result, adj, meta) : null;
+    const refute = refutation ? deriveRefute(refutation, adj) : null;
+    const higherBetter = getSomeorUndefined(colMeta(meta, ranConfig.outcome)?.higherIsBetter);
     return {
         // The set-up rail reflects the LIVE config (the editor); the result deck
         // reflects RANCONFIG — the config that produced `result` — so the result
         // strings never drift ahead of the numbers on a live picker edit.
-        spec: deriveSpec(config, cols, result, meta, dataLen),
+        spec: deriveSpec(config, cols, result, meta, dataLen, subject),
         verdict: result ? deriveVerdict(result.verdict) : null,
-        answer: result && adj ? deriveAnswer(ranConfig, result, adj, meta) : null,
-        refusal: result && !adj ? deriveRefusal(ranConfig, result) : null,
+        narrative: result ? deriveNarrative(result, answer, refute, higherBetter, subject) : null,
+        answer,
+        refusal: result && !adj ? deriveRefusal(ranConfig, result, meta, subject) : null,
         overlap: result ? deriveOverlap(result.overlap) : null,
-        refute: refutation ? deriveRefute(refutation, adj) : null,
+        refute,
         dose: doseR && doseR.effect.length ? deriveDose(doseR, ranConfig, meta) : null,
-        journal: journal ? journal.map(r => deriveJournalRow(r, now)) : null,
+        journal: journal ? journal.map(r => deriveJournalRow(r, now, meta)) : null,
     };
 }
 
