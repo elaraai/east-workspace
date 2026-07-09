@@ -400,6 +400,26 @@ export function captureEnvironment(
   if ('image' in decl) {
     validateEnvironmentDecl(decl, owner);
     spec = variant('image', { digest: decl.image.digest });
+  } else if ('tools' in decl) {
+    validateEnvironmentDecl(decl, owner);
+    // Capture each named prebuilt file as a blob under bin/<basename>,
+    // sorted by path so declaration order never affects the env hash. e3
+    // builds nothing here — the developer built these.
+    const files = decl.tools.files.map((f) => {
+      const p = path.resolve(f);
+      let stat: fs.Stats;
+      try {
+        stat = fs.statSync(p); // follows symlinks — captures the target's bytes
+      } catch {
+        throw new Error(`Environment for '${owner}': tools file '${f}' not found at '${p}' — build it before export (e3 does not build your binaries)`);
+      }
+      if (!stat.isFile()) {
+        throw new Error(`Environment for '${owner}': tools file '${f}' at '${p}' is not a regular file`);
+      }
+      return { path: `bin/${path.basename(p)}`, hash: addBlob(fs.readFileSync(p)) };
+    });
+    files.sort((a, b) => (a.path < b.path ? -1 : 1));
+    spec = variant('tools', { files });
   } else if ('python' in decl) {
     const project = path.resolve(decl.python.project);
     // Identity + closure come from the governing (root) lock; the ROOT

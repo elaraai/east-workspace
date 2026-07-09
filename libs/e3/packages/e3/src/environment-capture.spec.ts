@@ -175,3 +175,49 @@ describe('node npm-workspace closure capture (#280)', () => {
     );
   });
 });
+
+describe('tools capture (#279)', () => {
+  let dir: string;
+  const cap = (files: string[]) => {
+    const blobs = new Map<string, Buffer>();
+    const bytes = captureEnvironment({ tools: { files: files as [string, ...string[]] } }, 'test',
+      (b) => { const h = createHash('sha256').update(b).digest('hex'); blobs.set(h, b); return h; });
+    const spec = decodeBeast2For(EnvironmentSpecType)(bytes);
+    assert.ok(spec.type === 'tools');
+    return { paths: spec.value.files.map((f) => f.path), specHash: createHash('sha256').update(bytes).digest('hex'), blobs };
+  };
+
+  before(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'e3-tools-cap-'));
+    fs.writeFileSync(path.join(dir, 'runner'), 'BINARY-BYTES');
+    fs.writeFileSync(path.join(dir, 'helper.dat'), 'DATA');
+  });
+
+  it('captures named files under bin/, sorted, decl-order-independent', () => {
+    const a = cap([path.join(dir, 'runner'), path.join(dir, 'helper.dat')]);
+    const b = cap([path.join(dir, 'helper.dat'), path.join(dir, 'runner')]);
+    assert.deepStrictEqual(a.paths, ['bin/helper.dat', 'bin/runner']);
+    assert.strictEqual(a.specHash, b.specHash, 'declaration order must not affect the env hash');
+  });
+
+  it('changes the env hash when a captured file changes (GAP-6)', () => {
+    const before = cap([path.join(dir, 'runner')]).specHash;
+    const orig = fs.readFileSync(path.join(dir, 'runner'));
+    try {
+      fs.writeFileSync(path.join(dir, 'runner'), 'REBUILT-BYTES');
+      assert.notStrictEqual(cap([path.join(dir, 'runner')]).specHash, before);
+    } finally { fs.writeFileSync(path.join(dir, 'runner'), orig); }
+  });
+
+  it('rejects an empty file list (T1), a directory (T2), and colliding basenames (T3)', () => {
+    assert.throws(() => cap([]), /at least one file/);
+    assert.throws(() => cap([dir + '/']), /looks like a directory/);
+    fs.mkdirSync(path.join(dir, 'sub'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'sub', 'runner'), 'x');
+    assert.throws(() => cap([path.join(dir, 'runner'), path.join(dir, 'sub', 'runner')]), /collide on basename/);
+  });
+
+  it('errors when a named file does not exist (T4)', () => {
+    assert.throws(() => cap([path.join(dir, 'nonexistent')]), /not found/);
+  });
+});
