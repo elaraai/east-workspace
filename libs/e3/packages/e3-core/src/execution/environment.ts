@@ -87,8 +87,14 @@ async function buildPython(
   // Relocatable: the venv is built in a temp sibling and atomically renamed
   // into the cache path — absolute shebangs would break on rename.
   await run('uv', ['venv', '--relocatable', '.venv'], buildDir, 'virtualenv creation');
-  await run('uv', ['sync', '--frozen', '--no-install-project'], buildDir,
-    'locked dependency sync');
+  // Install the whole locked third-party closure but no first-party code:
+  // `--no-install-workspace` skips every workspace member and the root,
+  // `--no-install-local` skips any local/path source (a sibling member's
+  // dir need not even exist on this machine). The project's own code comes
+  // from the captured sdists below. Superset of the old
+  // `--no-install-project` for a single-project env (verified equivalent).
+  await run('uv', ['sync', '--frozen', '--all-packages', '--no-install-workspace', '--no-install-local'],
+    buildDir, 'locked dependency sync');
   if (spec.value.sdists.length > 0) {
     const sdistDir = path.join(buildDir, '.sdists');
     await fs.mkdir(sdistDir);
@@ -100,9 +106,19 @@ async function buildPython(
       await writeBlob(storage, repo, sdist.hash, f);
       files.push(f);
     }
-    await run('uv', ['pip', 'install', '--python', path.join(buildDir, '.venv'), ...files],
+    // `--no-deps`: the sdist install must NOT resolve anything from a
+    // registry — every dependency is already pinned and installed by the
+    // sync above (or is another captured sdist). Without it, a missing
+    // first-party dep would be silently satisfied by a same-named PyPI
+    // package (a stale-code hazard). `uv pip check` then verifies the
+    // environment is internally consistent and fails loudly otherwise, so
+    // an incomplete capture is a materialization error, never a silent
+    // wrong-code env.
+    await run('uv', ['pip', 'install', '--python', path.join(buildDir, '.venv'), '--no-deps', ...files],
       buildDir, 'project sdist install');
   }
+  await run('uv', ['pip', 'check', '--python', path.join(buildDir, '.venv')], buildDir,
+    'environment consistency check');
 }
 
 async function buildNode(

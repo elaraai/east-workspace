@@ -8,6 +8,7 @@ import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { encodeBeast2For, variant, some, none } from '@elaraai/east';
 import {
   TaskObjectType, decodeTaskObject,
@@ -244,4 +245,51 @@ describe('materializeEnvironment', () => {
       /workspace_node.*not yet supported by the local runner/,
     );
   });
+
+  // Python materialization shells out to uv (unlike the node path's npm);
+  // self-skip where uv is unavailable, matching the integration e2e.
+  const hasUv = (() => {
+    try { execFileSync('uv', ['--version'], { stdio: 'ignore' }); return true; } catch { return false; }
+  })();
+
+  it('materializes a single-project python env: sdist installs, uv pip check passes, imports work',
+    { skip: hasUv ? false : 'uv not on PATH' }, async () => {
+      // Build a minimal locked uv project (no third-party deps → no registry
+      // fetch beyond the build backend) and capture its files exactly as
+      // e3.export would, then materialize through the new unified buildPython
+      // (uv sync --all-packages --no-install-workspace --no-install-local +
+      //  uv pip install --no-deps + uv pip check).
+      const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'e3-py-proj-'));
+      try {
+        fs.mkdirSync(path.join(projectDir, 'src', 'e3_pyenv_fixture'), { recursive: true });
+        fs.writeFileSync(path.join(projectDir, 'pyproject.toml'),
+          '[project]\nname = "e3-pyenv-fixture"\nversion = "0.1.0"\nrequires-python = ">=3.11"\n\n' +
+          '[build-system]\nrequires = ["hatchling"]\nbuild-backend = "hatchling.build"\n');
+        fs.writeFileSync(path.join(projectDir, 'src', 'e3_pyenv_fixture', '__init__.py'),
+          'MARKER = "e3-pyenv-ok"\n');
+        execFileSync('uv', ['lock'], { cwd: projectDir, stdio: 'ignore' });
+        const distDir = path.join(projectDir, 'dist');
+        execFileSync('uv', ['build', '--sdist', '--out-dir', distDir], { cwd: projectDir, stdio: 'ignore' });
+        const sdistFile = fs.readdirSync(distDir).find((f) => f.endsWith('.tar.gz'))!;
+
+        const pyprojectHash = await storage.objects.write(repo, fs.readFileSync(path.join(projectDir, 'pyproject.toml')));
+        const lockHash = await storage.objects.write(repo, fs.readFileSync(path.join(projectDir, 'uv.lock')));
+        const sdistHash = await storage.objects.write(repo, fs.readFileSync(path.join(distDir, sdistFile)));
+        const spec = encodeBeast2For(EnvironmentSpecType)(variant('python', {
+          pyproject: pyprojectHash, lock: lockHash,
+          sdists: [{ filename: sdistFile, hash: sdistHash }],
+        }));
+        const envHash = await storage.objects.write(repo, spec);
+
+        const bins = await materializeEnvironment(storage, repo, envHash);
+        assert.strictEqual(bins.length, 1);
+        const envDir = path.join(repo, 'envs', envHash);
+        const py = path.join(envDir, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
+        // The captured project code imports from the materialized venv alone.
+        const out = execFileSync(py, ['-c', 'import e3_pyenv_fixture as m; print(m.MARKER)'], { encoding: 'utf-8' });
+        assert.match(out, /e3-pyenv-ok/);
+      } finally {
+        fs.rmSync(projectDir, { recursive: true, force: true });
+      }
+    });
 });
