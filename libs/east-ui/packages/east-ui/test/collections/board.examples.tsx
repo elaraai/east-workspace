@@ -285,9 +285,9 @@ export const boardReviewFoot = example({
     inputs: [],
 });
 
-export const boardWithLibrary = example({
-    keywords: ["Board", "Library", "drag", "add", "onDrag", "canAssign", "page", "composition"],
-    description: "Library + Board page — drag a person onto an (area, shift) cell to fire the add event; canAssign vetoes Kim on nights",
+export const boardLibraryDnd = example({
+    keywords: ["Board", "Library", "DnD", "drag", "add", "move", "remove", "onDrag", "canAssign", "page", "composition"],
+    description: "Library + Board DnD — drag a person onto an (area, shift) cell (add), move/remove proposed chips; canAssign (deprecated sugar for canDrop) vetoes Kim on nights (⊘)",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const lastBind = $.let(State.bind([StringType], "board_last_drop", "none yet"));
@@ -296,8 +296,11 @@ export const boardWithLibrary = example({
             const canAssign = $.const(East.function([StringType, StringType, StringType], BooleanType,
                 (_$, person, _area, shift) => person.equal("kim").and(() => shift.equal("night")).not()));
             const onDrag = $.const(East.function([DragEventType], NullType, ($, event) => {
-                $.matchTag(event, "add", ($, add) => {
-                    $(lastBind.write(East.str`${add.from.key} → ${add.into.row} · ${add.into.slot}`));
+                $.match(event, {
+                    add: ($, add) => { $(lastBind.write(East.str`add ${add.from.key} → ${add.into.row} · ${add.into.slot}`)); },
+                    move: ($, mv) => { $(lastBind.write(East.str`move → ${mv.to.row} · ${mv.to.slot}`)); },
+                    remove: ($, rm) => { $(lastBind.write(East.str`remove from ${rm.from.row} · ${rm.from.slot}`)); },
+                    resize: (_$) => {},
                 });
             }));
             const last = $.let(lastBind.read());

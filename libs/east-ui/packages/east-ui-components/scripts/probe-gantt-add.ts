@@ -1,7 +1,7 @@
 /* eslint-disable */
 /**
  * End-to-end probe of Library → Gantt `add` (#268): render the
- * ganttLibraryAdd example, drag a crew card onto a proposed row's timeline,
+ * ganttLibraryDnd example, drag a crew card onto a proposed row's timeline,
  * and assert (1) the drop delivers the grammar `add` (the example's LAST
  * DROP line updates with row + snapped ISO instant), (2) an optimistic
  * proposed(added) bar appears, and (3) the committed row (row 0) shows the
@@ -31,7 +31,7 @@ async function main() {
     page.on("pageerror", err => console.log("[pageerror]", err.message));
     await page.addInitScript(() => { (globalThis as any).__name = (globalThis as any).__name || ((f: any) => f); });
 
-    await page.goto(`${baseUrl}/?file=${encodeURIComponent("collections/gantt")}&example=ganttLibraryAdd`, { waitUntil: "networkidle", timeout: 30_000 });
+    await page.goto(`${baseUrl}/?file=${encodeURIComponent("collections/gantt")}&example=ganttLibraryDnd`, { waitUntil: "networkidle", timeout: 30_000 });
     await page.evaluate(() => (document as any).fonts.ready);
     await page.waitForSelector("[data-library-card], [data-drag-cell]", { timeout: 15_000 }).catch(() => undefined);
 

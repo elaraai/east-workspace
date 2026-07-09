@@ -80,12 +80,15 @@ export const commitBarSlotRecipe = defineSlotRecipe({
             _hover: { background: "bg.canvas", color: "fg" },
             ...btnDisabled,
         },
+        // Spec `.commit-bar .btn.primary`: `--brand-d` (#3a7780 = brand.600) at
+        // rest, `--brand-dd` (#2b4b55 = brand.700) on hover — the committing
+        // call reads as the brand teal, not near-black slate.
         btnPrimary: {
             ...btnBase,
-            background: "{colors.brand.700}",
+            background: "{colors.brand.600}",
             color: "white",
-            borderLeftColor: "{colors.brand.700}",
-            _hover: { background: "{colors.brand.800}", color: "white" },
+            borderLeftColor: "{colors.brand.600}",
+            _hover: { background: "{colors.brand.700}", color: "white" },
             ...btnDisabled,
         },
         btnDanger: {

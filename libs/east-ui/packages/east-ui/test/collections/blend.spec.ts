@@ -14,7 +14,7 @@ describeEast("Blend", (test) => {
         blendCanDrop: ex.blendCanDrop,
         blendCompare: ex.blendCompare,
         blendPortfolio: ex.blendPortfolio,
-        blendInteractive: ex.blendInteractive,
+        blendLibraryDnd: ex.blendLibraryDnd,
     });
 
     test("canDrop encodes and vetoes candidate events (#261)", $ => {

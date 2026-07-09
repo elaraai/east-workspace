@@ -239,15 +239,18 @@ export const rosterReview = example({
     inputs: [],
 });
 
-export const rosterWithLibrary = example({
-    keywords: ["Roster", "Library", "drag", "add", "onDrag", "page", "composition"],
-    description: "Library + Roster page — drag a person onto a cell to fire the add event",
+export const rosterLibraryDnd = example({
+    keywords: ["Roster", "Library", "DnD", "drag", "add", "move", "remove", "trash", "onDrag", "page", "composition"],
+    description: "Library + Roster DnD — drag a person onto a cell (add), drag proposed chips between cells (move) or to the trash sink (remove); every gesture logs through the one onDrag grammar funnel",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const lastBind = $.let(State.bind([StringType], "roster_last_drop", "none yet"));
             const onDrag = $.const(East.function([DragEventType], NullType, ($, event) => {
-                $.matchTag(event, "add", ($, add) => {
-                    $(lastBind.write(East.str`${add.from.key} → ${add.into.row} · ${add.into.slot}`));
+                $.match(event, {
+                    add: ($, add) => { $(lastBind.write(East.str`add ${add.from.key} → ${add.into.row} · ${add.into.slot}`)); },
+                    move: ($, mv) => { $(lastBind.write(East.str`move → ${mv.to.row} · ${mv.to.slot}`)); },
+                    remove: ($, rm) => { $(lastBind.write(East.str`remove from ${rm.from.row} · ${rm.from.slot}`)); },
+                    resize: (_$) => {},
                 });
             }));
             const last = $.let(lastBind.read());

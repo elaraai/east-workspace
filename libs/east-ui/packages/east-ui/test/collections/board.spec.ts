@@ -16,7 +16,7 @@ describeEast("Board", (test) => {
         boardOverflow: ex.boardOverflow,
         boardInteractive: ex.boardInteractive,
         boardReviewFoot: ex.boardReviewFoot,
-        boardWithLibrary: ex.boardWithLibrary,
+        boardLibraryDnd: ex.boardLibraryDnd,
     });
 
     test("creates a board with target declaration and bare defaults", $ => {

@@ -534,15 +534,18 @@ export const ganttReactiveDrag = example({
  * `onDrag` funnel. A `canDrop` veto (⊘ while hovering) keeps crews off the
  * committed first row.
  */
-export const ganttLibraryAdd = example({
-    keywords: ["Gantt", "Library", "drag", "add", "onDrag", "canDrop", "target", "proposed", "grammar"],
-    description: "Library + Gantt page — drag a crew card onto the timeline to land a proposed(added) bar at the snapped instant; canDrop vetoes the committed row (⊘)",
+export const ganttLibraryDnd = example({
+    keywords: ["Gantt", "Library", "DnD", "drag", "add", "move", "resize", "onDrag", "canDrop", "target", "proposed", "grammar"],
+    description: "Library + Gantt DnD — drag a crew card onto the timeline (proposed(added) bar at the snapped instant, canDrop ⊘ on the committed row); dragging/resizing the proposed bars reports grammar move/resize through the same onDrag",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const lastBind = $.let(State.bind([StringType], "gantt_last_drop", "none yet"));
             const onDrag = $.const(East.function([DragEventType], NullType, ($, event) => {
-                $.matchTag(event, "add", ($, add) => {
-                    $(lastBind.write(East.str`${add.from.key} → row ${add.into.row} @ ${add.into.slot}`));
+                $.match(event, {
+                    add: ($, add) => { $(lastBind.write(East.str`add ${add.from.key} → row ${add.into.row} @ ${add.into.slot}`)); },
+                    move: ($, mv) => { $(lastBind.write(East.str`move row ${mv.from.row} → ${mv.to.slot}`)); },
+                    resize: ($, rz) => { $(lastBind.write(East.str`resize ${rz.edge.getTag()} → ${rz.event.slot}`)); },
+                    remove: (_$) => {},
                 });
             }));
             // Row 0 is committed history — no drops land there.

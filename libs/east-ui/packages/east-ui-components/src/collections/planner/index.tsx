@@ -26,7 +26,7 @@ import {
 import { useDensityHeights } from "../shared/helpers";
 import { useReviewController, DecisionButtons, ReviewFoot, DECISION_WIDTH } from "../shared/review";
 import { useDragTarget, useDropCell, useDragEventChip, useDragEventEdge, type DragEventValue, type DragMeta, type DragPayload, type CellCoord } from "../../dnd/drag-layer";
-import { canDropAllows, candidateEvent, type CanDropFn } from "../../dnd/ir-can-drop";
+import { useIRCanDrop, canDropAllows, type CanDropFn } from "../../dnd/ir-can-drop";
 import { DensityProvider } from "../../contracts/density";
 import { usePlotGutter, gutterPx } from "../../contracts/plot-gutter.js";
 
@@ -258,6 +258,26 @@ function eventGeom(event: PlannerEventValue, shape: "point" | "span", inLane: bo
     return geom;
 }
 
+/** A droppable Planner region (#269) — one flat cell, bucket lane, or span
+ *  cell, registered as its OWN drag destination so the valid / active / ⊘
+ *  stages mark exactly the cell under the pointer (the Roster behaviour).
+ *  Pass `slot: undefined` to render without registering (DnD off, or a
+ *  bucketed parent cell whose lanes register instead). */
+function PlannerDropCell({ surface, row, slot, vetoFor, children, ...rest }: {
+    surface?: string | undefined;
+    row?: string | undefined;
+    slot?: string | undefined;
+    vetoFor?: ((coord: CellCoord) => (payload: DragPayload) => boolean) | undefined;
+} & React.ComponentProps<typeof Box>) {
+    const coord = useMemo<CellCoord | null>(
+        () => (surface !== undefined && row !== undefined && slot !== undefined ? { surface, row, slot } : null),
+        [surface, row, slot],
+    );
+    const veto = useMemo(() => (coord !== null && vetoFor !== undefined ? vetoFor(coord) : undefined), [coord, vetoFor]);
+    const dropRef = useDropCell(coord, false, veto);
+    return <Box ref={dropRef} {...rest}>{children}</Box>;
+}
+
 /** The chip's drag-grammar context (#269) — present only when the Planner is
  *  a registered target AND the tile is draggable (proposed + keyed). */
 export interface PlannerChipDnd {
@@ -474,30 +494,16 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
         return Number.isNaN(d.getTime()) ? undefined : { slot: variant("time", d) as PlannerSlotValue, bucket };
     }, [scaleTag, buckets]);
 
-    const resolvePlannerCoord = useCallback((clientX: number, clientY: number): CellCoord => {
-        for (const el of document.elementsFromPoint(clientX, clientY)) {
-            const ds = (el as HTMLElement).dataset;
-            if (ds !== undefined && ds.dropSlot !== undefined && ds.dropRow !== undefined) {
-                return { surface: surfaceId, row: ds.dropRow, slot: ds.dropSlot };
-            }
-        }
-        return { surface: surfaceId, row: "", slot: "" };
-    }, [surfaceId]);
-
-    const plannerVeto = useCallback((payload: DragPayload, x?: number, y?: number): boolean => {
-        if (x === undefined || y === undefined) return true; // structural sweep
-        const coord = resolvePlannerCoord(x, y);
-        if (coord.slot === "") return false; // not over a slot — ⊘
-        return canDropAllows(canDropFn, candidateEvent(payload, coord));
-    }, [canDropFn, resolvePlannerCoord]);
-
-    const gridDropCoord = useMemo<CellCoord | null>(
-        () => (dndActive ? { surface: surfaceId, row: "", slot: "" } : null),
-        [dndActive, surfaceId],
-    );
-    const gridDropRef = useDropCell(gridDropCoord, false, plannerVeto, resolvePlannerCoord);
+    // Per-cell drop registration (each flat cell / bucket lane / span cell is
+    // its own destination, like Roster) — the valid / active / ⊘ stages mark
+    // the EXACT cell, not the surface. The standard IR-canDrop bridge builds
+    // the per-cell veto from the cell's own coordinate.
+    const vetoFor = useIRCanDrop(canDropFn);
 
     const handleGrammarDrop = useCallback((event: DragEventValue, meta?: DragMeta) => {
+        // Re-check the IR veto with the real event before mutating (the hover
+        // veto already gated the ⊘ stage; sink removes are always valid).
+        if ((event.type === "add" || event.type === "move" || event.type === "resize") && !canDropAllows(canDropFn, event)) return;
         if (event.type === "add") {
             const rowIndex = Number(event.value.into.row);
             const resolved = slotFromKey(event.value.into.slot);
@@ -526,7 +532,7 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
             }
         }
         if (onDragFn) queueMicrotask(() => onDragFn(event));
-    }, [onDragFn, slotFromKey]);
+    }, [onDragFn, canDropFn, slotFromKey]);
 
     const targetConfig = useMemo(() => (dndActive ? {
         id: surfaceId,
@@ -798,23 +804,27 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
             // The N/A orphan lane renders exactly like a declared bucket lane —
             // same padding / positioning / label gutter — the "N/A" label is the
             // only marker (the dev-time warning surfaces the accident in code).
+            const laneSlot = !isNA && cols[colIndex] !== undefined
+                ? compositeSlotKey(axisSlotKey(cols[colIndex]!, scaleTag), bk.key)
+                : undefined;
             return (
-                <Box key={bk.key} css={base.bucket} data-slot="bucket" data-na={isNA ? "" : undefined} height={`${unitH}px`}
-                    {...(dndActive && !isNA && cols[colIndex] !== undefined
-                        ? { "data-drop-row": String(rowIndex), "data-drop-slot": compositeSlotKey(axisSlotKey(cols[colIndex]!, scaleTag), bk.key) }
+                <PlannerDropCell key={bk.key} css={base.bucket} data-slot="bucket" data-na={isNA ? "" : undefined} height={`${unitH}px`}
+                    surface={surfaceId} row={String(rowIndex)} slot={dndActive ? laneSlot : undefined} vetoFor={vetoFor}
+                    {...(dndActive && laneSlot !== undefined
+                        ? { "data-drop-row": String(rowIndex), "data-drop-slot": laneSlot }
                         : {})}>
                     <Box css={base.bucketLabel} data-slot="bucketLabel">{bk.label}</Box>
                     {laneEvents.map((ev, i) => (
                         <EventChip key={i} event={ev} eventStyle={eventStyleFor(ev)} gripStyle={base.grip} shape="point" inLane
                             dnd={chipDnd(ev, rowIndex, colIndex, isNA ? undefined : bk.key)} />
                     ))}
-                </Box>
+                </PlannerDropCell>
             );
         });
     };
 
     const plannerContent = (
-        <Box css={base.root} ref={gridDropRef} {...(gutterActive ? { width: "100%" } : {})}>
+        <Box css={base.root} {...(gutterActive ? { width: "100%" } : {})}>
             {/* Header: left data-column headers (Table chrome) + right slot axis. */}
             <Box css={base.header} data-slot="header" display="grid" gridTemplateColumns={outerCols} minWidth={outerMinWidth} height={`${headerH}px`}>
                 <Box css={stickyLeftHeader} display="flex" width="100%" style={effectiveSizeVars}>
@@ -971,9 +981,12 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
                                     if (ci === cols.length - 1) cellCss = { ...cellCss, borderRightWidth: "0" };
                                     // Anchor the marker ring/icon to THIS cell (not the timeline pane).
                                     cellCss = { ...cellCss, position: "relative" };
+                                    const cellSlot = axisSlotKey(c, scaleTag);
+                                    const cellRegisters = dndActive && !cellBucketed(row, ci);
                                     return (
-                                        <Box key={c.key} data-slot="cell" data-past={past ? "" : undefined} css={cellCss}
-                                            {...(dndActive ? { "data-drop-row": String(index), "data-drop-slot": axisSlotKey(c, scaleTag) } : {})}>
+                                        <PlannerDropCell key={c.key} data-slot="cell" data-past={past ? "" : undefined} css={cellCss}
+                                            surface={surfaceId} row={String(index)} slot={cellRegisters ? cellSlot : undefined} vetoFor={vetoFor}
+                                            {...(cellRegisters ? { "data-drop-row": String(index), "data-drop-slot": cellSlot } : {})}>
                                             {renderCellBody(row, index, ci, needsNA)}
                                             {marker && mStyle && <Box css={mStyle.markerRing} data-slot="markerRing" />}
                                             {marker && mStyle && (
@@ -990,7 +1003,7 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
                                                     </Portal>
                                                 </Tooltip.Root>
                                             )}
-                                        </Box>
+                                        </PlannerDropCell>
                                     );
                                 })}
                                 {shape === "span" && (
@@ -998,7 +1011,8 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
                                         {/* Span timeline cells carry the density `unitH` so the row
                                             has a real height (the bar fills it) rather than collapsing
                                             to the old fixed 22px (#120 item 2). */}
-                                        {cols.map((c) => (<Box key={c.key} css={base.cell} height={`${unitH}px`}
+                                        {cols.map((c) => (<PlannerDropCell key={c.key} css={base.cell} height={`${unitH}px`}
+                                            surface={surfaceId} row={String(index)} slot={dndActive ? axisSlotKey(c, scaleTag) : undefined} vetoFor={vetoFor}
                                             {...(dndActive ? { "data-drop-row": String(index), "data-drop-slot": axisSlotKey(c, scaleTag) } : {})} />))}
                                         {row.events.map((ev, i) => {
                                             const start = slotToCol(ev.slot, cols);

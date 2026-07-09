@@ -408,9 +408,9 @@ export const plannerReview = example({
  * review loop: a drop flips its row to `pending` via the `approval`
  * accessor; the row's Approve resolves it back.
  */
-export const plannerLibraryAdd = example({
-    keywords: ["Planner", "Library", "drag", "add", "onDrag", "canDrop", "target", "proposed", "review", "pending", "approve", "loop"],
-    description: "Library + Planner page — drag a person onto the weekly plan (proposed(added) tile, ⊘ veto left of now); the drop flips the row pending and Approve resolves the line",
+export const plannerLibraryDnd = example({
+    keywords: ["Planner", "Library", "DnD", "drag", "add", "move", "remove", "onDrag", "canDrop", "target", "proposed", "review", "pending", "approve", "loop"],
+    description: "Library + Planner DnD — drag a person onto the weekly plan (proposed(added) tile, per-cell ⊘ veto left of now); the drop flips the row pending and Approve resolves the line; proposed tiles move/remove through the same onDrag",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const pendingRowBind = $.let(State.bind([IntegerType], "planner_pending_row", -1n));
@@ -479,7 +479,6 @@ export const plannerLibraryAdd = example({
                         status={r => East.equal(r.idx, pendingRow).ifElse(() => some(variant("warning", null)), () => none)}
                         approval={r => East.equal(r.idx, pendingRow).ifElse(() => some(variant("pending", null)), () => some(variant("approved", null)))}
                         review={{
-                            summary: <Text color="fg.muted">drop → the line goes pending · Approve resolves it</Text>,
                             onApprove,
                             onApproveAll: East.function([], NullType, _$ => null),
                         }}

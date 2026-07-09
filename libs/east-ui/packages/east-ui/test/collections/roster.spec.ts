@@ -15,7 +15,7 @@ describeEast("Roster", (test) => {
         rosterInteractive: ex.rosterInteractive,
         rosterCanDrop: ex.rosterCanDrop,
         rosterReview: ex.rosterReview,
-        rosterWithLibrary: ex.rosterWithLibrary,
+        rosterLibraryDnd: ex.rosterLibraryDnd,
     });
 
     test("creates a roster with target declaration and default week", $ => {

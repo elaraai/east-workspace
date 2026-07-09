@@ -1,7 +1,7 @@
 /* eslint-disable */
 /**
  * End-to-end probe of the Planner DnD target (#269) and the review loop:
- * render plannerLibraryAdd, then
+ * render plannerLibraryDnd, then
  *   1. drag a person over a committed-zone day (slot ≤ 3) — expect the ⊘
  *      invalid stage and a no-op drop;
  *   2. drop on day 5 of row 0 — expect the grammar `add` to land an
@@ -33,7 +33,7 @@ async function main() {
     page.on("pageerror", err => console.log("[pageerror]", err.message));
     await page.addInitScript(() => { (globalThis as any).__name = (globalThis as any).__name || ((f: any) => f); });
 
-    await page.goto(`${baseUrl}/?file=${encodeURIComponent("collections/planner")}&example=plannerLibraryAdd`, { waitUntil: "networkidle", timeout: 30_000 });
+    await page.goto(`${baseUrl}/?file=${encodeURIComponent("collections/planner")}&example=plannerLibraryDnd`, { waitUntil: "networkidle", timeout: 30_000 });
     await page.evaluate(() => (document as any).fonts.ready);
     await page.waitForSelector("[data-slot='cell']", { timeout: 15_000 });
 
@@ -54,8 +54,17 @@ async function main() {
     await page.mouse.down();
     await page.mouse.move(vetoCell.x + vetoCell.width / 2, vetoCell.y + vetoCell.height / 2, { steps: 6 });
     await page.waitForTimeout(120);
+    // Per-cell stages: exactly the hovered cell wears ⊘; the committed-zone
+    // cells are never marked valid, the open days are.
     const vetoStage = await page.evaluate(() =>
-        document.querySelector("[data-drag-cell]")?.hasAttribute("data-drop-invalid") ?? false);
+        document.querySelector("[data-drop-row='0'][data-drop-slot='2']")?.hasAttribute("data-drop-invalid") ?? false);
+    const stageCounts = await page.evaluate(() => ({
+        valid: document.querySelectorAll("[data-drag-cell][data-drop-valid]").length,
+        invalidElsewhere: document.querySelectorAll("[data-drop-invalid]").length,
+    }));
+    console.log(`mid-drag stages: valid cells=${stageCounts.valid} · invalid=${stageCounts.invalidElsewhere}`);
+    if (stageCounts.valid !== 6) throw new Error(`expected exactly the 6 open-day cells valid, got ${stageCounts.valid}`);
+    if (stageCounts.invalidElsewhere !== 1) throw new Error("expected exactly one ⊘ cell (the hovered one)");
     await page.screenshot({ path: path.resolve(__dirname, "../dist-examples/probe-planner-add-veto.png") });
     await page.mouse.up();
     await page.waitForTimeout(150);

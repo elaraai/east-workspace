@@ -147,9 +147,9 @@ export const blendPortfolio = example({
     inputs: [],
 });
 
-export const blendInteractive = example({
-    keywords: ["Blend", "Library", "Reactive", "onDrag", "onAmountChange", "onAction", "interactive"],
-    description: "Library + Blend page — drops, amount edits, and actions report through typed events",
+export const blendLibraryDnd = example({
+    keywords: ["Blend", "Library", "DnD", "drag", "add", "remove", "Reactive", "onDrag", "onAmountChange", "onAction", "interactive"],
+    description: "Library + Blend DnD — drag material cards into the batch (add), amounts edit inline, actions report through typed events",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const bind = $.let(State.bind([StringType], "blend_last", "none"));

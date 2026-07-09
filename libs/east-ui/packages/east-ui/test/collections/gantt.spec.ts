@@ -21,7 +21,7 @@ describeEast("Gantt", (test) => {
         ganttStateAndStatus: ex.ganttStateAndStatus,
         ganttLifecycleArms: ex.ganttLifecycleArms,
         ganttReview: ex.ganttReview,
-        ganttLibraryAdd: ex.ganttLibraryAdd,
+        ganttLibraryDnd: ex.ganttLibraryDnd,
         ganttStyled: ex.ganttStyled,
         ganttComplexColumns: ex.ganttComplexColumns,
         ganttInteractiveCallbacks: ex.ganttInteractiveCallbacks,

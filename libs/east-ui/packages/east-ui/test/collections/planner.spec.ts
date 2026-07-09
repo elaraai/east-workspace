@@ -22,7 +22,7 @@ describeEast("Planner", (test) => {
         plannerSpan: ex.plannerSpan,
         plannerDensity: ex.plannerDensity,
         plannerReview: ex.plannerReview,
-        plannerLibraryAdd: ex.plannerLibraryAdd,
+        plannerLibraryDnd: ex.plannerLibraryDnd,
         plannerStretch: ex.plannerStretch,
         plannerEventTone: ex.plannerEventTone,
         plannerEventColor: ex.plannerEventColor,
