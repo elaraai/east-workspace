@@ -361,3 +361,48 @@ describe('execution environments e2e — node multi-package scaffold, AUTO-deriv
       assert.match(output, /42/, `expected ceil(21 * 2.0) = 42, got: ${output}`);
     });
 });
+
+describe('execution environments e2e — C tool scaffold, explicit tools environment', () => {
+  // POSIX-only: the scaffold Makefile builds with `cc`. (Windows CI builds C
+  // via MSVC, which this template does not target.)
+  const hasCc = process.platform !== 'win32'
+    && toolAvailable('make', ['--version']) && toolAvailable('cc', ['--version']);
+  let testDir: string;
+  let projectDir: string;
+  let binaryPath: string;
+
+  before(async () => {
+    if (!hasCc || !hasScaffoldCore) return;
+    testDir = createTestDir();
+    mkdirSync(testDir, { recursive: true });
+    projectDir = await scaffoldMultiPackageProject(testDir, 'shop', { c: ['solver'] });
+    runTool('make', ['-C', join(projectDir, 'packages', 'native', 'solver')], projectDir);
+    binaryPath = join(projectDir, 'packages', 'native', 'solver', 'build', 'solver');
+  });
+
+  after(() => {
+    if (testDir) removeTestDir(testDir);
+  });
+
+  it('captures the built C binary via an explicit tools env and runs it after the project is deleted',
+    { skip: (!hasCc && 'no C toolchain (or windows)') || (!hasScaffoldCore && SKIP_NO_SCAFFOLD) }, async () => {
+      const values = e3.input('c_values', ArrayType(FloatType), [1.0, 2.0, 3.0]);
+      // C is NOT auto-derived — the binary is attached explicitly via `tools`.
+      // An absolute path lets export run from any cwd (no workspace to resolve).
+      const toolTask = e3.customTask('c_tool', [values], ArrayType(FloatType),
+        (_$, inputs, output) => East.str`solver ${inputs.get(0n)} ${output}`,
+        { environment: { tools: { files: [binaryPath] } } });
+      const pkg = e3.package('shop', '1.0.0', toolTask);
+
+      const zipPath = join(testDir, 'shop-c.zip');
+      await e3.export(pkg, zipPath);
+
+      // The bundle carries the captured binary; remove the source project.
+      rmSync(projectDir, { recursive: true, force: true });
+      assert.ok(!existsSync(projectDir));
+
+      // The scaffold binary is a passthrough, so the output equals the input.
+      const output = await importDeployRun(testDir, zipPath, 'shop@1.0.0', 'c_tool');
+      assert.match(output, /1[\s\S]*2[\s\S]*3/, `expected passthrough of [1,2,3], got: ${output}`);
+    });
+});
