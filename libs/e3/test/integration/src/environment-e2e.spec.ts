@@ -485,6 +485,23 @@ describe('execution environments e2e — mixed python + node + C in one package'
       assert.match(await get('m_priced'), /4(\.0*)?/, 'python mean of [2,4,6] = 4');
       assert.match(await get('m_scaled'), /42/, 'node ceil(21 * 2.0) = 42');
       assert.match(await get('m_tool'), /7[\s\S]*8/, 'C passthrough of [7,8]');
+
+      // Reactive across runtimes: change ONLY the node task's input and re-run.
+      // The node task recomputes; the python and C tasks are served from the
+      // execution cache — no re-materialize, no re-run — even though all three
+      // live in one workspace. This is per-package granularity + reactive
+      // caching working together across python + node + C.
+      const valPath = join(testDir, 'm_val.east');
+      writeFileSync(valPath, '30');
+      const set = await runE3Command(['dataset', 'set', repoDir, 'ws.m_val', valPath], testDir);
+      assert.strictEqual(set.exitCode, 0, `set failed: ${set.stderr}`);
+      const rerun = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
+      assert.strictEqual(rerun.exitCode, 0, `rerun failed: ${rerun.stderr}\n${rerun.stdout}`);
+      assert.match(rerun.stdout, /\[DONE\][^\n]*m_scaled/, 'node task re-runs (its input changed)');
+      assert.match(rerun.stdout, /\[CACHED\][^\n]*m_priced/, 'python task CACHED (input unchanged)');
+      assert.match(rerun.stdout, /\[CACHED\][^\n]*m_tool/, 'C task CACHED (input unchanged)');
+      assert.doesNotMatch(rerun.stdout, /\[DONE\][^\n]*m_priced/, 'python task must NOT re-run');
+      assert.match(await get('m_scaled'), /60/, 'node ceil(30 * 2.0) = 60 after the input change');
     });
 });
 
