@@ -406,3 +406,84 @@ describe('execution environments e2e — C tool scaffold, explicit tools environ
       assert.match(output, /1[\s\S]*2[\s\S]*3/, `expected passthrough of [1,2,3], got: ${output}`);
     });
 });
+
+describe('execution environments e2e — mixed python + node + C in one package', () => {
+  const hasAll = process.platform !== 'win32'
+    && toolAvailable('uv', ['--version']) && toolAvailable('npm', ['--version'])
+    && toolAvailable('make', ['--version']) && toolAvailable('cc', ['--version']);
+  let testDir: string;
+  let projectDir: string;
+  let solverBin: string;
+
+  before(async () => {
+    if (!hasAll || !hasScaffoldCore) return;
+    testDir = createTestDir();
+    mkdirSync(testDir, { recursive: true });
+    projectDir = await scaffoldMultiPackageProject(testDir, 'shop', { python: ['pricing'], node: ['api'], c: ['solver'] });
+    runTool('uv', ['lock'], projectDir);
+    runTool('npm', ['install', '--no-audit', '--no-fund'], projectDir);
+    // Build only the node MEMBER (its dist/platform.js), not the whole app: the
+    // scaffolded app's C wiring uses the `tools` env decl, which the pinned
+    // RELEASED e3 doesn't have yet (it's on this very PR). The test defines its
+    // own tasks and drives export with the local e3, so the app tsc is moot.
+    runTool('npm', ['run', 'build', '--workspaces', '--if-present'], projectDir);
+    runTool('make', ['-C', join(projectDir, 'packages', 'native', 'solver')], projectDir);
+    solverBin = join(projectDir, 'packages', 'native', 'solver', 'build', 'solver');
+  });
+
+  after(() => {
+    if (testDir) removeTestDir(testDir);
+  });
+
+  it('one bundle carries auto-derived python + node envs AND an explicit C tool env; all run after the project is deleted',
+    { skip: (!hasAll && 'need uv + npm + cc/make (non-windows)') || (!hasScaffoldCore && SKIP_NO_SCAFFOLD) }, async () => {
+      // python (auto-derived from { custom: 'pricing' })
+      const pricing = East.platform('pricing.example', [ArrayType(FloatType)], FloatType);
+      const pv = e3.input('m_pv', ArrayType(FloatType), [2.0, 4.0, 6.0]);
+      const priced = e3.task('m_priced', [pv],
+        East.function([ArrayType(FloatType)], FloatType, (_$, v) => pricing(v)),
+        { runner: { runtime: 'east-py', platforms: [{ custom: 'pricing' }, 'east-py-std'] } });
+      // node (auto-derived from { custom: '@shop/api' })
+      const api = East.platform('api.example', [IntegerType, FloatType], IntegerType);
+      const mVal = e3.input('m_val', IntegerType, 21n);
+      const mFac = e3.input('m_fac', FloatType, 2.0);
+      const scaled = e3.task('m_scaled', [mVal, mFac],
+        East.function([IntegerType, FloatType], IntegerType, (_$, v, f) => api(v, f)),
+        { runner: { runtime: 'east-node', platforms: [{ custom: '@shop/api' }] } });
+      // C (explicit tools env — not auto-derived)
+      const cv = e3.input('m_cv', ArrayType(FloatType), [7.0, 8.0]);
+      const toolT = e3.customTask('m_tool', [cv], ArrayType(FloatType),
+        (_$, i, o) => East.str`solver ${i.get(0n)} ${o}`,
+        { environment: { tools: { files: [solverBin] } } });
+      const pkg = e3.package('shop', '1.0.0', priced, scaled, toolT);
+
+      const zipPath = join(testDir, 'shop-mixed.zip');
+      // python + node auto-derive from cwd; C uses an absolute path.
+      const prev = process.cwd();
+      process.chdir(projectDir);
+      try {
+        await e3.export(pkg, zipPath);
+      } finally {
+        process.chdir(prev);
+      }
+      rmSync(projectDir, { recursive: true, force: true });
+      assert.ok(!existsSync(projectDir));
+
+      const repoDir = join(testDir, 'repo');
+      for (const args of [
+        ['repo', 'create', repoDir],
+        ['package', 'import', repoDir, zipPath],
+        ['workspace', 'create', repoDir, 'ws'],
+        ['workspace', 'deploy', repoDir, 'ws', 'shop@1.0.0'],
+        ['dataflow', 'run', repoDir, 'ws'],
+      ]) {
+        const r = await runE3Command(args, testDir);
+        assert.strictEqual(r.exitCode, 0, `e3 ${args.join(' ')} failed:\n${r.stderr}\n${r.stdout}`);
+      }
+      const get = async (p: string): Promise<string> =>
+        (await runE3Command(['dataset', 'get', repoDir, `ws.${p}`], testDir)).stdout;
+      assert.match(await get('m_priced'), /4(\.0*)?/, 'python mean of [2,4,6] = 4');
+      assert.match(await get('m_scaled'), /42/, 'node ceil(21 * 2.0) = 42');
+      assert.match(await get('m_tool'), /7[\s\S]*8/, 'C passthrough of [7,8]');
+    });
+});
