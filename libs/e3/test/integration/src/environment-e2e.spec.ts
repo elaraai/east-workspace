@@ -53,6 +53,7 @@ const SKIP_NO_SCAFFOLD = 'scaffold-core not built — run `pnpm -r build` in lib
 type ScaffoldFn = (options: {
   kind: 'e3'; name: string; cwd: string; templateDir: string; version: string;
   install: boolean; log: (msg: string) => void; features: Record<string, boolean>;
+  packages?: { python?: string[]; node?: string[]; c?: string[] };
 }) => { projectDir: string };
 
 async function loadScaffold(): Promise<ScaffoldFn> {
@@ -109,6 +110,38 @@ async function scaffoldPlatformProject(
       'eslint': false,
       'editor-diagnostics': false,
     },
+  });
+  return result.projectDir;
+}
+
+/** Scaffold a create-e3 project split into per-runtime workspace packages. */
+async function scaffoldMultiPackageProject(
+  parentDir: string,
+  name: string,
+  packages: { python?: string[]; node?: string[]; c?: string[] },
+): Promise<string> {
+  const scaffold = await loadScaffold();
+  mkdirSync(parentDir, { recursive: true });
+  const result = scaffold({
+    kind: 'e3',
+    name,
+    cwd: parentDir,
+    templateDir: TEMPLATE_DIR,
+    version: RELEASED_VERSION,
+    install: false,
+    log: () => { /* quiet */ },
+    features: {
+      // The package flags carry the runtimes; the single-file platform demo is off.
+      'platform': false,
+      'runner:east-py': Boolean(packages.python?.length),
+      'runner:east-node': Boolean(packages.node?.length),
+      'runner:east-c': Boolean(packages.c?.length),
+      'tests': false,
+      'ui': false,
+      'eslint': false,
+      'editor-diagnostics': false,
+    },
+    packages,
   });
   return result.projectDir;
 }
@@ -224,5 +257,57 @@ describe('execution environments e2e — scaffolded node platform travels with t
 
       const output = await importDeployRun(testDir, zipPath, 'envnode@1.0.0', 'scaled');
       assert.match(output, /42/, `expected ceil(21 * 2.0) = 42, got: ${output}`);
+    });
+});
+
+describe('execution environments e2e — python multi-package scaffold, AUTO-derived environments', () => {
+  const hasUv = toolAvailable('uv', ['--version']);
+  let testDir: string;
+  let projectDir: string;
+
+  before(async () => {
+    if (!hasUv || !hasScaffoldCore) return;
+    testDir = createTestDir();
+    mkdirSync(testDir, { recursive: true });
+    // Two INDEPENDENT python packages; only `pricing` is referenced below, so
+    // `forecasting` is an unrelated sibling that must NOT ride the derived env.
+    projectDir = await scaffoldMultiPackageProject(testDir, 'shop', { python: ['pricing', 'forecasting'] });
+    runTool('uv', ['lock'], projectDir);
+  });
+
+  after(() => {
+    if (testDir) removeTestDir(testDir);
+  });
+
+  it('derives a task env from its { custom } platform reference (NO environment field) and runs after the project is deleted',
+    { skip: (!hasUv && 'uv not on PATH') || (!hasScaffoldCore && SKIP_NO_SCAFFOLD) }, async () => {
+      // Mirror of the scaffolded packages/python/pricing/src/pricing/example.py:
+      //   @platform_function(name="pricing.example", inputs=[ArrayType(FloatType)], output=FloatType)
+      const pricing = East.platform('pricing.example', [ArrayType(FloatType)], FloatType);
+      const priceValues = e3.input('price_values', ArrayType(FloatType), [2.0, 4.0, 6.0]);
+      // NO `environment` — e3 auto-derives it from `{ custom: 'pricing' }`,
+      // capturing packages/python/pricing's closure (not forecasting's).
+      const priced = e3.task('priced', [priceValues],
+        East.function([ArrayType(FloatType)], FloatType, (_$, v) => pricing(v)),
+        { runner: { runtime: 'east-py', platforms: [{ custom: 'pricing' }, 'east-py-std'] } });
+      const pkg = e3.package('shop', '1.0.0', priced);
+
+      const zipPath = join(testDir, 'shop.zip');
+      // Auto-derivation resolves the workspace from the process cwd (the e3 CLI
+      // runs export in the project dir); drive e3.export from the project root.
+      const prevCwd = process.cwd();
+      process.chdir(projectDir);
+      try {
+        await e3.export(pkg, zipPath);
+      } finally {
+        process.chdir(prevCwd);
+      }
+
+      // Self-contained now: remove the source workspace entirely.
+      rmSync(projectDir, { recursive: true, force: true });
+      assert.ok(!existsSync(projectDir));
+
+      const output = await importDeployRun(testDir, zipPath, 'shop@1.0.0', 'priced');
+      assert.match(output, /4(\.0*)?/, `expected mean of [2,4,6] = 4, got: ${output}`);
     });
 });

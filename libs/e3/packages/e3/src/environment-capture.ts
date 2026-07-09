@@ -182,6 +182,126 @@ function readProjectFile(project: string, name: string, owner: string): Buffer {
   return fs.readFileSync(p);
 }
 
+/**
+ * Walk up from `start` to the nearest `uv.lock`, parse and version-check it.
+ * Returns the governing workspace/standalone root + parsed lock, or null when
+ * no lock exists in `start` or any ancestor (no uv workspace to derive from).
+ *
+ * @throws {Error} if a lock is found but its version is unsupported
+ */
+function findUvLock(start: string, owner: string): { root: string; lock: UvLock } | null {
+  let dir = start;
+  for (;;) {
+    const candidate = path.join(dir, 'uv.lock');
+    if (fs.existsSync(candidate)) {
+      const lock = parseToml(fs.readFileSync(candidate, 'utf-8')) as unknown as UvLock;
+      if (lock.version !== 1) {
+        throw new Error(`Environment for '${owner}': unsupported uv.lock version ${lock.version} at '${dir}' — update @elaraai/e3 or re-lock with a compatible uv`);
+      }
+      return { root: dir, lock };
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
+/**
+ * Build one sdist per closure member and store it, returning the sorted
+ * artifact set. Shared by the explicit `{ python }` capture and the derived
+ * platform capture so both produce byte-identical specs for the same closure.
+ */
+function buildMemberSdists(
+  closure: Array<{ name: string; dir: string }>,
+  owner: string,
+  addBlob: (data: Buffer) => string,
+): Array<{ filename: string; hash: string }> {
+  const sdists: Array<{ filename: string; hash: string }> = [];
+  for (const member of closure) {
+    // Build each closure member's sdist in its own out-dir so the artifact set
+    // is unambiguous. Installers derive the package name from the filename.
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'e3-env-sdist-'));
+    try {
+      for (const a of buildArtifacts('uv', ['build', '--sdist', '--out-dir', outDir], member.dir, outDir, '.tar.gz', owner)) {
+        sdists.push({ filename: a.filename, hash: addBlob(a.data) });
+      }
+    } finally {
+      fs.rmSync(outDir, { recursive: true, force: true });
+    }
+  }
+  sdists.sort((a, b) => (a.filename < b.filename ? -1 : 1));
+  return sdists;
+}
+
+/**
+ * Derive a python environment from the platform packages a task's runner
+ * references. Each `custom` name that resolves to a LOCAL workspace member
+ * (a directory/workspace/editable source in the governing `uv.lock`)
+ * contributes its transitive closure; the union rides ONE `python` spec —
+ * shared root manifest + lock, union of member sdists (byte-identical to the
+ * explicit capture of a project depending on all of them). Registry /
+ * first-party names (e.g. `east-py-std`) are skipped — `uv sync` installs
+ * them. Returns null when `anchorDir` has no uv workspace or no referenced
+ * name is a local member (nothing to capture beyond the ambient runtime).
+ */
+function capturePythonPlatforms(
+  customNames: string[],
+  anchorDir: string,
+  owner: string,
+  addBlob: (data: Buffer) => string,
+): Uint8Array | null {
+  const found = findUvLock(anchorDir, owner);
+  if (!found) return null;
+  const { root, lock } = found;
+  const subjects = customNames.filter((name) => {
+    const pkg = (lock.package ?? []).find((p) => p.name === name);
+    return pkg !== undefined && localSource(root, pkg.source) !== null;
+  });
+  if (subjects.length === 0) return null;
+  // Union the referenced members' closures, deduped by package name.
+  const union = new Map<string, string>();
+  for (const subject of subjects) {
+    for (const member of pythonClosure(lock, root, subject, owner)) union.set(member.name, member.dir);
+  }
+  const pyproject = addBlob(readProjectFile(root, 'pyproject.toml', owner));
+  const lockBlob = addBlob(readProjectFile(root, 'uv.lock', owner));
+  const members = [...union.entries()].map(([name, dir]) => ({ name, dir })).sort((a, b) => (a.name < b.name ? -1 : 1));
+  const sdists = buildMemberSdists(members, owner, addBlob);
+  return encodeEnvironmentSpec(variant('python', { pyproject, lock: lockBlob, sdists }));
+}
+
+/**
+ * Derive an EnvironmentSpec from a task/function's RUNNER platform references,
+ * for tasks that declare no explicit `environment`. Resolves each `{ custom }`
+ * platform name to its local workspace member and captures the union of their
+ * closures — so a project split into packages gets per-package change-detection
+ * granularity with zero `environment` boilerplate. The `environment` field
+ * remains the explicit override (and the only way to reach `tools` / `image`,
+ * which are never auto-derived).
+ *
+ * @param runtime - The runner runtime tag (e.g. `east-py`, `east-node`)
+ * @param customNames - The `{ custom: X }` platform names declared on the runner
+ * @param anchorDir - Directory the workspace is resolved from (the export cwd)
+ * @param owner - The declaring task/function name, for error messages
+ * @param addBlob - Stores a blob in the bundle's object store, returning its hash
+ * @returns The beast2-encoded EnvironmentSpec, or null when nothing local is
+ *   referenced (no workspace, or every platform is a registry/first-party package)
+ */
+export function captureAutoEnvironment(
+  runtime: string,
+  customNames: string[],
+  anchorDir: string,
+  owner: string,
+  addBlob: (data: Buffer) => string,
+): Uint8Array | null {
+  if (customNames.length === 0) return null;
+  // east-py resolves against a uv workspace. east-node (npm) auto-derivation
+  // and east-c (tools) are not derived here yet — they use explicit
+  // `environment`. Unknown runtimes never auto-derive.
+  if (runtime === 'east-py') return capturePythonPlatforms(customNames, anchorDir, owner, addBlob);
+  return null;
+}
+
 function buildArtifacts(
   command: string,
   args: string[],
@@ -430,22 +550,7 @@ export function captureEnvironment(
     const { root, lock, subject } = discoverPythonRoot(project, owner);
     const pyproject = addBlob(readProjectFile(root, 'pyproject.toml', owner));
     const lockBlob = addBlob(readProjectFile(root, 'uv.lock', owner));
-    const closure = pythonClosure(lock, root, subject, owner);
-    const sdists: Array<{ filename: string; hash: string }> = [];
-    for (const member of closure) {
-      // Build each closure member's sdist in its own out-dir so the artifact
-      // set is unambiguous. Installers derive the package name from the
-      // filename — keep it.
-      const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'e3-env-sdist-'));
-      try {
-        for (const a of buildArtifacts('uv', ['build', '--sdist', '--out-dir', outDir], member.dir, outDir, '.tar.gz', owner)) {
-          sdists.push({ filename: a.filename, hash: addBlob(a.data) });
-        }
-      } finally {
-        fs.rmSync(outDir, { recursive: true, force: true });
-      }
-    }
-    sdists.sort((a, b) => (a.filename < b.filename ? -1 : 1));
+    const sdists = buildMemberSdists(pythonClosure(lock, root, subject, owner), owner, addBlob);
     spec = variant('python', { pyproject, lock: lockBlob, sdists });
   } else {
     const project = path.resolve(decl.node.project);
