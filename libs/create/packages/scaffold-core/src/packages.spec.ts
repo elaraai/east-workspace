@@ -103,8 +103,13 @@ test("mixed python + node packages coexist (uv + npm workspaces, one barrel)", (
   rmSync(dirname(dir), { recursive: true, force: true });
 });
 
-test("C packages are guarded with a clear message until the template ships", () => {
-  // C has no member template yet; the guard must be a friendly error, not an
-  // internal 'missing template' crash. (Self-resolves when the C template lands.)
-  assert.throws(() => scaffoldPackages("shop", { c: ["solver"] }), /not available|remove --c-packages/);
+test("C packages: native dir with a Makefile + a tools-wired customTask (explicit env)", () => {
+  const dir = scaffoldPackages("shop", { c: ["solver"] });
+  const base = join("packages", "native", "solver");
+  assert.ok(existsSync(join(dir, base, "Makefile")), "Makefile");
+  assert.ok(existsSync(join(dir, base, "src", "solver.c")), "src/solver.c (token-substituted filename)");
+  const wiring = read(dir, join("src", "packages", "solver.ts"));
+  assert.ok(wiring.includes("e3.customTask"), "C is wired as a customTask, not an auto-derived platform");
+  assert.ok(wiring.includes('files: ["packages/native/solver/build/solver"]'), "explicit tools env points at the built binary");
+  rmSync(dirname(dir), { recursive: true, force: true });
 });
