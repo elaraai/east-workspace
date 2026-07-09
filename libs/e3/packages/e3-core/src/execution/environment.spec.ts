@@ -299,11 +299,14 @@ describe('materializeEnvironment', () => {
         'module.exports.price = () => require("@acme/common").base() + 1;\n');
       mk('packages/forecasting', { name: '@acme/forecasting', version: '1.0.0', main: 'index.js', dependencies: { '@acme/common': '1.0.0' } },
         'module.exports.f = () => 0;\n');
-      execFileSync('npm', ['install', '--no-audit', '--no-fund'], { cwd: ws, stdio: 'ignore' });
+      // npm is npm.cmd on Windows; a shell resolves it (execFileSync alone
+      // ENOENTs). buildWorkspaceNode's own npm calls already use shell:win32.
+      const npmShell = process.platform === 'win32';
+      execFileSync('npm', ['install', '--no-audit', '--no-fund'], { cwd: ws, stdio: 'ignore', shell: npmShell });
 
       const packDir = fs.mkdtempSync(path.join(os.tmpdir(), 'e3-nws-pack-'));
       const pack = (rel: string): string => {
-        execFileSync('npm', ['pack', '--pack-destination', packDir], { cwd: path.join(ws, rel), stdio: 'ignore' });
+        execFileSync('npm', ['pack', '--pack-destination', packDir], { cwd: path.join(ws, rel), stdio: 'ignore', shell: npmShell });
         return fs.readdirSync(packDir).map((f) => path.join(packDir, f)).sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)[0]!;
       };
       // Closure of pricing = {common, pricing} (sorted by path); forecasting excluded.
