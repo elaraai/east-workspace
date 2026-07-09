@@ -233,19 +233,6 @@ describe('materializeEnvironment', () => {
     }
   });
 
-  it('rejects a workspace_node environment until its materializer ships', async () => {
-    const blobHash = await storage.objects.write(repo, Buffer.from('{}'));
-    const spec = encodeBeast2For(EnvironmentSpecType)(variant('workspace_node', {
-      packageJson: blobHash, lock: blobHash, config: none, subject: 'packages/x',
-      members: [{ path: 'packages/x', name: '@acme/x', tarball: blobHash }],
-    }));
-    const envHash = await storage.objects.write(repo, spec);
-    await assert.rejects(
-      materializeEnvironment(storage, repo, envHash),
-      /workspace_node.*not yet supported by the local runner/,
-    );
-  });
-
   // Python materialization shells out to uv (unlike the node path's npm);
   // self-skip where uv is unavailable, matching the integration e2e.
   const hasUv = (() => {
@@ -292,4 +279,86 @@ describe('materializeEnvironment', () => {
         fs.rmSync(projectDir, { recursive: true, force: true });
       }
     });
+
+  it('materializes an npm workspace_node env: closure members linked, non-closure member pruned', async () => {
+    // Build a real npm workspace (common + pricing→common + forecasting),
+    // capture only the pricing CLOSURE (pricing, common), and materialize.
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'e3-nws-'));
+    try {
+      const mk = (rel: string, obj: unknown, code?: string) => {
+        fs.mkdirSync(path.join(ws, rel), { recursive: true });
+        fs.writeFileSync(path.join(ws, rel, 'package.json'), JSON.stringify(obj));
+        if (code) fs.writeFileSync(path.join(ws, rel, 'index.js'), code);
+      };
+      fs.writeFileSync(path.join(ws, 'package.json'), JSON.stringify({
+        name: 'sol-root', version: '1.0.0', private: true, workspaces: ['packages/*'],
+      }));
+      mk('packages/common', { name: '@acme/common', version: '1.0.0', main: 'index.js' },
+        'module.exports.base = () => 41;\n');
+      mk('packages/pricing', { name: '@acme/pricing', version: '1.0.0', main: 'index.js', dependencies: { '@acme/common': '1.0.0' } },
+        'module.exports.price = () => require("@acme/common").base() + 1;\n');
+      mk('packages/forecasting', { name: '@acme/forecasting', version: '1.0.0', main: 'index.js', dependencies: { '@acme/common': '1.0.0' } },
+        'module.exports.f = () => 0;\n');
+      execFileSync('npm', ['install', '--no-audit', '--no-fund'], { cwd: ws, stdio: 'ignore' });
+
+      const packDir = fs.mkdtempSync(path.join(os.tmpdir(), 'e3-nws-pack-'));
+      const pack = (rel: string): string => {
+        execFileSync('npm', ['pack', '--pack-destination', packDir], { cwd: path.join(ws, rel), stdio: 'ignore' });
+        return fs.readdirSync(packDir).map((f) => path.join(packDir, f)).sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)[0]!;
+      };
+      // Closure of pricing = {common, pricing} (sorted by path); forecasting excluded.
+      const commonTar = fs.readFileSync(pack('packages/common'));
+      const pricingTar = fs.readFileSync(pack('packages/pricing'));
+
+      const pkgJsonHash = await storage.objects.write(repo, fs.readFileSync(path.join(ws, 'package.json')));
+      const lockHash = await storage.objects.write(repo, fs.readFileSync(path.join(ws, 'package-lock.json')));
+      const commonHash = await storage.objects.write(repo, commonTar);
+      const pricingHash = await storage.objects.write(repo, pricingTar);
+      const spec = encodeBeast2For(EnvironmentSpecType)(variant('workspace_node', {
+        packageJson: pkgJsonHash, lock: lockHash, config: none, subject: 'packages/pricing',
+        members: [
+          { path: 'packages/common', name: '@acme/common', tarball: commonHash },
+          { path: 'packages/pricing', name: '@acme/pricing', tarball: pricingHash },
+        ],
+      }));
+      const envHash = await storage.objects.write(repo, spec);
+
+      const bins = await materializeEnvironment(storage, repo, envHash);
+      const envDir = path.join(repo, 'envs', envHash);
+      assert.strictEqual(bins[0], path.join(envDir, 'node_modules', '.bin'));
+
+      // Cross-member require resolves from the materialized workspace alone.
+      const out = execFileSync(process.execPath,
+        ['-e', 'process.chdir(process.argv[1]); console.log(require("@acme/pricing").price())', envDir],
+        { encoding: 'utf-8', cwd: envDir });
+      assert.match(out, /42/);
+      // The non-closure member must not have been materialized.
+      assert.ok(!fs.existsSync(path.join(envDir, 'node_modules', '@acme', 'forecasting')),
+        'forecasting (not in closure) must be absent');
+    } finally {
+      fs.rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a workspace_node member tarball with a path-traversal entry', async () => {
+    // Hand-craft a gzipped tar whose entry escapes via '..' — must be refused.
+    const zlib = await import('node:zlib');
+    const { pack: tarPack } = await import('tar-stream');
+    const p = tarPack();
+    p.entry({ name: 'package/../../evil.js' }, 'pwned');
+    p.finalize();
+    const chunks: Buffer[] = [];
+    for await (const c of p) chunks.push(c as Buffer);
+    const evilTarball = zlib.gzipSync(Buffer.concat(chunks));
+
+    const rootPkg = await storage.objects.write(repo, Buffer.from(JSON.stringify({ name: 'r', workspaces: ['packages/x'] })));
+    const npmLock = await storage.objects.write(repo, Buffer.from(JSON.stringify({ name: 'r', lockfileVersion: 3 })));
+    const evilHash = await storage.objects.write(repo, evilTarball);
+    const spec = encodeBeast2For(EnvironmentSpecType)(variant('workspace_node', {
+      packageJson: rootPkg, lock: npmLock, config: none, subject: 'packages/x',
+      members: [{ path: 'packages/x', name: '@acme/x', tarball: evilHash }],
+    }));
+    const envHash = await storage.objects.write(repo, spec);
+    await assert.rejects(materializeEnvironment(storage, repo, envHash), /illegal path|escapes/);
+  });
 });

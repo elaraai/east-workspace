@@ -264,6 +264,9 @@ importers:
       cross-spawn:
         specifier: ^7.0.6
         version: 7.0.6
+      tar-stream:
+        specifier: ^3.1.7
+        version: 3.1.8
       yauzl:
         specifier: ^3.2.0
         version: 3.3.0
@@ -277,6 +280,9 @@ importers:
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
+      '@types/tar-stream':
+        specifier: ^3.1.4
+        version: 3.1.4
       '@types/yauzl':
         specifier: ^2.10.3
         version: 2.10.3

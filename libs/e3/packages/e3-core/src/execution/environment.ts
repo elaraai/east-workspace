@@ -26,6 +26,9 @@ import * as path from 'node:path';
 import { promises as fs } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { gunzipSync } from 'node:zlib';
+import { Readable } from 'node:stream';
+import { extract as tarExtract } from 'tar-stream';
 import { decodeBeast2For } from '@elaraai/east';
 import { EnvironmentSpecType, type EnvironmentSpec } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/index.js';
@@ -200,6 +203,167 @@ async function buildTools(
   }
 }
 
+/** Rejects a member path from a workspace_node spec that could escape the
+ *  build dir (wire data). Returns the absolute member dir under buildDir. */
+function resolveMemberDir(buildDir: string, memberPath: string): string {
+  const segments = memberPath.split(/[/\\]/);
+  if (segments.length === 0 || path.isAbsolute(memberPath) || /^[a-zA-Z]:/.test(memberPath)) {
+    throw new Error(`workspace member path must be relative, got '${memberPath}'`);
+  }
+  for (const seg of segments) {
+    if (seg === '' || seg === '.' || seg === '..') {
+      throw new Error(`workspace member path '${memberPath}' has an invalid segment '${seg}'`);
+    }
+  }
+  const dest = path.resolve(buildDir, ...segments);
+  const root = path.resolve(buildDir);
+  if (!dest.startsWith(root + path.sep)) {
+    throw new Error(`workspace member path '${memberPath}' escapes the environment directory`);
+  }
+  return dest;
+}
+
+/**
+ * Extracts an `npm pack` tarball (gzipped tar) into `destDir`, stripping the
+ * leading `package/` directory every npm tarball carries.
+ *
+ * Entries are validated defensively (they ride in an imported bundle):
+ * path traversal is rejected, and symlink/hardlink/other special entries are
+ * refused (a workspace member must be plain files). File modes are floored
+ * so an extracted file is at least readable/executable as npm would leave it.
+ *
+ * @throws {Error} on a traversal path, a link entry, or a malformed archive
+ */
+async function extractMemberTarball(tarball: Buffer, destDir: string): Promise<void> {
+  const tarBytes = gunzipSync(tarball);
+  await new Promise<void>((resolve, reject) => {
+    const ex = tarExtract();
+    ex.on('entry', (header, stream, next) => {
+      void (async () => {
+        try {
+          if (header.type !== 'file' && header.type !== 'directory') {
+            throw new Error(`unsupported tar entry type '${header.type ?? 'unknown'}' in workspace member tarball`);
+          }
+          // Strip the leading `package/` segment npm pack adds.
+          const rel = header.name.replace(/^[^/]+\//, '');
+          if (rel === '') { stream.resume(); return next(); }
+          const segments = rel.split('/');
+          if (segments.some((s) => s === '..' || s === '')) {
+            throw new Error(`illegal path '${header.name}' in workspace member tarball`);
+          }
+          const dest = path.resolve(destDir, ...segments);
+          if (!dest.startsWith(path.resolve(destDir) + path.sep)) {
+            throw new Error(`path '${header.name}' escapes the member directory`);
+          }
+          if (header.type === 'directory') {
+            await fs.mkdir(dest, { recursive: true });
+            stream.resume();
+            return next();
+          }
+          await fs.mkdir(path.dirname(dest), { recursive: true });
+          const chunks: Buffer[] = [];
+          stream.on('data', (c: Buffer) => chunks.push(c));
+          stream.on('end', () => {
+            const mode = ((header.mode ?? 0) & 0o777) | 0o644;
+            fs.writeFile(dest, Buffer.concat(chunks), { mode }).then(() => next(), reject);
+          });
+          stream.on('error', reject);
+        } catch (err) {
+          reject(err instanceof Error ? err : new Error(String(err)));
+        }
+      })();
+    });
+    ex.on('error', reject);
+    ex.on('finish', resolve);
+    Readable.from(tarBytes).pipe(ex);
+  });
+}
+
+/**
+ * On Windows, `npm ci` materializes workspace members as directory
+ * *junctions* holding an **absolute** target under `buildDir`. After the
+ * atomic rename of `buildDir` → `envDir` those junctions dangle. This
+ * re-points every symlink/junction under `buildDir` whose target lies inside
+ * `buildDir` to the equivalent path under the final `envDir`. No-op on POSIX
+ * (npm uses relative symlinks there, which survive the rename).
+ */
+async function retargetWindowsJunctions(buildDir: string, envDir: string): Promise<void> {
+  if (process.platform !== 'win32') return;
+  const buildRoot = path.resolve(buildDir);
+  const walk = async (dir: string): Promise<void> => {
+    let entries: import('node:fs').Dirent[];
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch { return; }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isSymbolicLink()) {
+        let target: string;
+        try { target = await fs.readlink(full); } catch { continue; }
+        if (path.isAbsolute(target) && target.startsWith(buildRoot + path.sep)) {
+          const rebased = path.join(envDir, path.relative(buildRoot, target));
+          await fs.rm(full, { recursive: true, force: true });
+          await fs.symlink(rebased, full, 'junction');
+        }
+      } else if (entry.isDirectory()) {
+        await walk(full);
+      }
+    }
+  };
+  await walk(buildDir);
+}
+
+async function buildWorkspaceNode(
+  storage: StorageBackend, repo: string,
+  spec: Extract<EnvironmentSpec, { type: 'workspace_node' }>, buildDir: string, envDir: string,
+): Promise<void> {
+  // v1 supports npm workspaces only; pnpm capture ships later.
+  const lockData = Buffer.from(await storage.objects.read(repo, spec.value.lock));
+  if (nodeLockFilename(lockData) !== 'package-lock.json') {
+    throw new Error('workspace_node: only npm workspaces are supported by the local runner yet');
+  }
+
+  // Root package.json with `workspaces` pinned to exactly the closure members
+  // (explicit paths, no globs) so npm ci links only them — non-closure
+  // members and their third-party deps are pruned.
+  const rootPkg = JSON.parse(Buffer.from(await storage.objects.read(repo, spec.value.packageJson)).toString('utf-8'));
+  rootPkg.workspaces = spec.value.members.map((m) => m.path);
+  await fs.writeFile(path.join(buildDir, 'package.json'), JSON.stringify(rootPkg, null, 2));
+  await fs.writeFile(path.join(buildDir, 'package-lock.json'), lockData);
+
+  // Materialize each member's packed code at its workspace path.
+  for (const member of spec.value.members) {
+    const memberDir = resolveMemberDir(buildDir, member.path);
+    await fs.mkdir(memberDir, { recursive: true });
+    await extractMemberTarball(Buffer.from(await storage.objects.read(repo, member.tarball)), memberDir);
+    const memberPkg = JSON.parse(await fs.readFile(path.join(memberDir, 'package.json'), 'utf-8'));
+    if (memberPkg.name !== member.name) {
+      throw new Error(`workspace member at '${member.path}' is '${memberPkg.name}', expected '${member.name}'`);
+    }
+  }
+
+  // Frozen install against the verbatim root lock. --ignore-scripts: member
+  // code arrives by extraction, already built (prepack ran at capture).
+  await run('npm', ['ci', '--no-audit', '--no-fund', '--ignore-scripts'], buildDir,
+    'workspace install');
+
+  await retargetWindowsJunctions(buildDir, envDir);
+
+  // Sanity: every member is present and resolvable — guards the silent
+  // "npm ci said up-to-date but installed nothing" class of failure.
+  for (const member of spec.value.members) {
+    const pkgJson = path.join(buildDir, ...member.path.split('/'), 'package.json');
+    const linked = path.join(buildDir, 'node_modules', ...member.name.split('/'));
+    if (!await pathExists(pkgJson) || !await pathExists(linked)) {
+      throw new Error(`materialized workspace is incomplete: member '${member.name}' missing after install`);
+    }
+  }
+}
+
+async function pathExists(p: string): Promise<boolean> {
+  try { await fs.access(p); return true; } catch { return false; }
+}
+
 /**
  * Materializes an environment into the repo-local cache and returns the
  * executable dirs to prepend to the runner's PATH.
@@ -265,12 +429,8 @@ export async function materializeEnvironment(
           await buildTools(storage, repo, spec, buildDir);
           break;
         case 'workspace_node':
-          // Wire case landed ahead of its materializer (#276). Until it
-          // ships, fail loud rather than silently mis-materialize.
-          throw new Error(
-            `environment ${envHash.slice(0, 12)} is a 'workspace_node' environment, ` +
-            `which is not yet supported by the local runner`,
-          );
+          await buildWorkspaceNode(storage, repo, spec, buildDir, envDir);
+          break;
       }
       try {
         await fs.rename(buildDir, envDir);
