@@ -33,7 +33,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, rmSync, existsSync, readFileSync } from 'node:fs';
+import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pathToFileURL } from 'node:url';
@@ -485,5 +485,94 @@ describe('execution environments e2e — mixed python + node + C in one package'
       assert.match(await get('m_priced'), /4(\.0*)?/, 'python mean of [2,4,6] = 4');
       assert.match(await get('m_scaled'), /42/, 'node ceil(21 * 2.0) = 42');
       assert.match(await get('m_tool'), /7[\s\S]*8/, 'C passthrough of [7,8]');
+    });
+});
+
+describe('execution environments e2e — per-package granularity CACHES across a redeploy', () => {
+  const hasUv = toolAvailable('uv', ['--version']);
+  let testDir: string;
+  let projectDir: string;
+  let repoDir: string;
+
+  // The 2-task package (priced<-pricing, forecast<-forecasting; envs
+  // auto-derived), exported in a FRESH node process — mirroring how each
+  // `e3 deploy --from-source` runs in its own process. East IR carries a
+  // per-process id counter, so exporting twice in ONE process yields different
+  // IR (defeating the very cache this test asserts); a separate process per
+  // deploy is both faithful to the real workflow and deterministic.
+  const EXPORTER = [
+    "import e3 from '@elaraai/e3';",
+    "import { East, ArrayType, FloatType } from '@elaraai/east';",
+    "const pricing = East.platform('pricing.example', [ArrayType(FloatType)], FloatType);",
+    "const forecasting = East.platform('forecasting.example', [ArrayType(FloatType)], FloatType);",
+    "const v = e3.input('values', ArrayType(FloatType), [1.0, 2.0, 3.0]);",
+    "const priced = e3.task('priced', [v], East.function([ArrayType(FloatType)], FloatType, (_$, x) => pricing(x)), { runner: { runtime: 'east-py', platforms: [{ custom: 'pricing' }, 'east-py-std'] } });",
+    "const forecast = e3.task('forecast', [v], East.function([ArrayType(FloatType)], FloatType, (_$, x) => forecasting(x)), { runner: { runtime: 'east-py', platforms: [{ custom: 'forecasting' }, 'east-py-std'] } });",
+    "process.chdir(process.env.GEXP_PROJECT);",
+    "await e3.export(e3.package('gshop', '1.0.0', priced, forecast), process.env.GEXP_ZIP);",
+  ].join('\n');
+
+  // Run the exporter in its own process; @elaraai/e3 resolves from the
+  // integration package's node_modules (its cwd), and GEXP_PROJECT anchors the
+  // env auto-derivation on the scaffolded workspace.
+  const exportFresh = (zipPath: string): void => {
+    const integrationRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
+    execFileSync('node', ['--input-type=module', '-e', EXPORTER], {
+      cwd: integrationRoot,
+      env: { ...process.env, GEXP_PROJECT: projectDir, GEXP_ZIP: zipPath },
+      stdio: 'pipe',
+      shell: process.platform === 'win32',
+      maxBuffer: 32 * 1024 * 1024,
+    });
+  };
+
+  const deployRun = async (zipPath: string): Promise<string> => {
+    const imp = await runE3Command(['package', 'import', repoDir, zipPath], testDir);
+    assert.strictEqual(imp.exitCode, 0, `import failed:\n${imp.stderr}`);
+    const dep = await runE3Command(['workspace', 'deploy', repoDir, 'ws', 'gshop@1.0.0'], testDir);
+    assert.strictEqual(dep.exitCode, 0, `deploy failed:\n${dep.stderr}`);
+    const run = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
+    assert.strictEqual(run.exitCode, 0, `run failed:\n${run.stderr}\n${run.stdout}`);
+    return run.stdout;
+  };
+
+  before(async () => {
+    if (!hasUv || !hasScaffoldCore) return;
+    testDir = createTestDir();
+    mkdirSync(testDir, { recursive: true });
+    projectDir = await scaffoldMultiPackageProject(testDir, 'shop', { python: ['pricing', 'forecasting'] });
+    runTool('uv', ['lock'], projectDir);
+    repoDir = join(testDir, 'repo');
+  });
+
+  after(() => {
+    if (testDir) removeTestDir(testDir);
+  });
+
+  it('editing one package re-runs only its task; the sibling is CACHED across the redeploy',
+    { skip: (!hasUv && 'uv not on PATH') || (!hasScaffoldCore && SKIP_NO_SCAFFOLD) }, async () => {
+      await runE3Command(['repo', 'create', repoDir], testDir);
+      await runE3Command(['workspace', 'create', repoDir, 'ws'], testDir);
+
+      // First deploy: both tasks run.
+      const z1 = join(testDir, 'g1.zip');
+      exportFresh(z1);
+      const out1 = await deployRun(z1);
+      assert.match(out1, /\[DONE\][^\n]*priced/, 'priced runs the first time');
+      assert.match(out1, /\[DONE\][^\n]*forecast/, 'forecast runs the first time');
+
+      // Edit ONLY forecasting's source — changes its captured sdist, hence its
+      // env hash + forecast's task hash. pricing (and priced) are untouched.
+      const fsrc = join(projectDir, 'packages', 'python', 'forecasting', 'src', 'forecasting', 'example.py');
+      writeFileSync(fsrc, `${readFileSync(fsrc, 'utf-8')}\n# granularity edit\nEDIT = 1\n`);
+
+      // Re-export (fresh process → deterministic IR) + redeploy into the SAME
+      // repo: forecast re-runs; priced is served from the execution cache.
+      const z2 = join(testDir, 'g2.zip');
+      exportFresh(z2);
+      const out2 = await deployRun(z2);
+      assert.match(out2, /\[CACHED\][^\n]*priced/, 'pricing unchanged -> priced CACHED across the redeploy');
+      assert.match(out2, /\[DONE\][^\n]*forecast/, 'forecasting edited -> forecast re-runs');
+      assert.doesNotMatch(out2, /\[DONE\][^\n]*priced/, 'priced must NOT re-execute');
     });
 });
