@@ -545,7 +545,7 @@ export const ganttLibraryDnd = example({
                     add: ($, add) => { $(lastBind.write(East.str`add ${add.from.key} → row ${add.into.row} @ ${add.into.slot}`)); },
                     move: ($, mv) => { $(lastBind.write(East.str`move row ${mv.from.row} → ${mv.to.slot}`)); },
                     resize: ($, rz) => { $(lastBind.write(East.str`resize ${rz.edge.getTag()} → ${rz.event.slot}`)); },
-                    remove: (_$) => {},
+                    remove: ($, rm) => { $(lastBind.write(East.str`remove row ${rm.from.row} → ${rm.to.getTag()}`)); },
                 });
             }));
             // Row 0 is committed history — no drops land there.

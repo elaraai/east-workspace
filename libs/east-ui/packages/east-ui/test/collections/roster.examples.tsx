@@ -141,7 +141,7 @@ export const rosterInteractive = example({
  */
 export const rosterCanDrop = example({
     keywords: ["Roster", "canDrop", "veto", "invalid", "drag", "validation", "candidate", "drop"],
-    description: "IR-level canDrop veto — Kim's card can't land on weekend columns (⊘ while dragging), moves onto weekends are vetoed for all",
+    description: "IR-level canDrop veto — Kim's card can't land on weekend columns (⊘ while dragging, no LAST log), moves onto weekends are vetoed for all; allowed gestures log through onDrag",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const canDrop = $.const(East.function([DragEventType], BooleanType, ($, event) => {
@@ -154,6 +154,18 @@ export const rosterCanDrop = example({
                     resize: (_$) => East.value(true),
                 });
             }));
+            // Delivered gestures log under the roster — a vetoed drop stays
+            // visibly silent.
+            const lastBind = $.let(State.bind([StringType], "roster_veto_last", "none yet"));
+            const onDrag = $.const(East.function([DragEventType], NullType, ($, event) => {
+                $.match(event, {
+                    add: ($, add) => { $(lastBind.write(East.str`add · ${add.from.key} → ${add.into.row} · ${add.into.slot}`)); },
+                    move: ($, mv) => { $(lastBind.write(East.str`move · ${mv.to.row} · ${mv.to.slot}`)); },
+                    remove: ($, rm) => { $(lastBind.write(East.str`remove · ${rm.from.row} · ${rm.from.slot} → ${rm.to.getTag()}`)); },
+                    resize: (_$) => {},
+                });
+            }));
+            const last = $.let(lastBind.read());
             return (
                 <VStack gap="4" align="stretch">
                     <Library
@@ -176,7 +188,9 @@ export const rosterCanDrop = example({
                         shift={s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: s.state })}
                         days={["Fri", "Sat", "Sun"]}
                         canDrop={canDrop}
+                        onDrag={onDrag}
                     />
+                    <Text.MonoLabel>{East.str`LAST · ${last}`}</Text.MonoLabel>
                 </VStack>
             );
         }}</Reactive>

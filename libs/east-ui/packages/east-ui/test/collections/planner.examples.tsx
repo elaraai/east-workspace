@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { BooleanType, East, IntegerType, NullType, FloatType, ArrayType, some, none, variant, example } from "@elaraai/east";
+import { BooleanType, East, IntegerType, NullType, FloatType, ArrayType, OptionType, StringType, some, none, variant, example } from "@elaraai/east";
 import { DragEventType, State, UIComponentType } from "@elaraai/east-ui";
 import { Library, Planner, Reactive, Text, VStack } from "@elaraai/east-ui";
 
@@ -403,14 +403,18 @@ export const plannerReview = example({
  * Opt-in DnD target (#269) — drag a person from the Library onto the weekly
  * plan: drops land as `proposed(added)` tiles at the (row, day[:bucket])
  * the pointer resolves, arriving through the ONE shared `onDrag` grammar
- * funnel. `canDrop` vetoes drops left of `now` (committed history, ⊘ while
- * hovering) — policy is host-owned, never hard-coded. The example proves the
+ * funnel. Press B carries AM/PM buckets, so its cells render lanes and drops
+ * there deliver composite `"5:pm"` slot keys (Press A stays flat — plain
+ * `"5"`). `canDrop` vetoes drops left of `now` (committed history, ⊘ while
+ * hovering) — policy is host-owned, never hard-coded. Every callback (all
+ * four grammar arms + the review's Approve) writes the `LAST ·` line under
+ * the planner so gestures are visible while testing. The example proves the
  * review loop: a drop flips its row to `pending` via the `approval`
  * accessor; the row's Approve resolves it back.
  */
 export const plannerLibraryDnd = example({
-    keywords: ["Planner", "Library", "DnD", "drag", "add", "move", "remove", "onDrag", "canDrop", "target", "proposed", "review", "pending", "approve", "loop"],
-    description: "Library + Planner DnD — drag a person onto the weekly plan (proposed(added) tile, per-cell ⊘ veto left of now); the drop flips the row pending and Approve resolves the line; proposed tiles move/remove through the same onDrag",
+    keywords: ["Planner", "Library", "DnD", "drag", "add", "move", "remove", "onDrag", "canDrop", "target", "bucket", "lane", "composite", "proposed", "review", "pending", "approve", "loop"],
+    description: "Library + Planner DnD — drag a person onto the weekly plan (proposed(added) tile, per-cell ⊘ veto left of now; Press B's AM/PM bucket lanes take drops as composite day:bucket slots); every grammar arm and Approve logs to the LAST line; the drop flips the row pending and Approve resolves it",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const pendingRowBind = $.let(State.bind([IntegerType], "planner_pending_row", -1n));
@@ -418,30 +422,77 @@ export const plannerLibraryDnd = example({
             // The host owns the dropped tile (drops funnel through the normal
             // commit pipeline): the optimistic tile hands over to this bound
             // state when the Reactive value reconciles.
-            const droppedSlotBind = $.let(State.bind([FloatType], "planner_dropped_slot", -1.0));
-            const droppedSlot = $.let(droppedSlotBind.read());
             const droppedRowBind = $.let(State.bind([IntegerType], "planner_dropped_row", -1n));
             const droppedRow = $.let(droppedRowBind.read());
+            const droppedDayBind = $.let(State.bind([FloatType], "planner_dropped_day", -1.0));
+            const droppedDay = $.let(droppedDayBind.read());
+            const droppedBucketBind = $.let(State.bind([StringType], "planner_dropped_bucket", ""));
+            const droppedBucket = $.let(droppedBucketBind.read());
+            const droppedKeyBind = $.let(State.bind([StringType], "planner_dropped_key", ""));
+            const droppedKey = $.let(droppedKeyBind.read());
+            const lastBind = $.let(State.bind([StringType], "planner_last", "none yet"));
+            const last = $.let(lastBind.read());
             const onDrag = $.const(East.function([DragEventType], NullType, ($, event) => {
-                $.matchTag(event, "add", ($, add) => {
-                    // The dropped row awaits an explicit call (#269 loop step 2);
-                    // the tile itself is host-owned and survives the approval.
-                    $(pendingRowBind.write(add.into.row.parse(IntegerType)));
-                    $(droppedRowBind.write(add.into.row.parse(IntegerType)));
-                    $(droppedSlotBind.write(add.into.slot.parse(FloatType)));
+                // Slot keys on this number axis arrive as "5" (flat cell) or
+                // "5:pm" (bucket lane) — split off the day and the lane.
+                const slotDay = $.const(East.function([StringType], FloatType, (_$, slot) =>
+                    slot.split(":").get(0n).parse(FloatType)));
+                const slotBucket = $.const(East.function([StringType], StringType, (_$, slot) =>
+                    slot.split(":").get(1n, _ => "")));
+                const isDroppedTile = $.const(East.function([OptionType(StringType)], BooleanType, (_$, ev) =>
+                    ev.match({ some: (_$, k) => East.equal(k, "dropped"), none: (_$) => East.value(false) })));
+                $.match(event, {
+                    add: ($, add) => {
+                        // The dropped row awaits an explicit call (#269 loop step 2);
+                        // the tile itself is host-owned and survives the approval.
+                        $(pendingRowBind.write(add.into.row.parse(IntegerType)));
+                        $(droppedRowBind.write(add.into.row.parse(IntegerType)));
+                        $(droppedDayBind.write(slotDay(add.into.slot)));
+                        $(droppedBucketBind.write(slotBucket(add.into.slot)));
+                        $(droppedKeyBind.write(add.from.key));
+                        $(lastBind.write(East.str`add · ${add.from.key} → r${add.into.row} @ ${add.into.slot}`));
+                    },
+                    move: ($, mv) => {
+                        // The host-owned tile follows its own moves.
+                        $.if(isDroppedTile(mv.from.event), $ => {
+                            $(droppedRowBind.write(mv.to.row.parse(IntegerType)));
+                            $(pendingRowBind.write(mv.to.row.parse(IntegerType)));
+                            $(droppedDayBind.write(slotDay(mv.to.slot)));
+                            $(droppedBucketBind.write(slotBucket(mv.to.slot)));
+                        });
+                        $(lastBind.write(East.str`move · r${mv.from.row} @ ${mv.from.slot} → r${mv.to.row} @ ${mv.to.slot}`));
+                    },
+                    remove: ($, rm) => {
+                        $.if(isDroppedTile(rm.from.event), $ => {
+                            $(droppedRowBind.write(-1n));
+                            $(pendingRowBind.write(-1n));
+                        });
+                        $(lastBind.write(East.str`remove · r${rm.from.row} @ ${rm.from.slot} → ${rm.to.getTag()}`));
+                    },
+                    resize: ($, rz) => {
+                        $(lastBind.write(East.str`resize · ${rz.edge.getTag()} → ${rz.event.slot}`));
+                    },
                 });
             }));
             // Committed history is closed: no drops on days 1–3 (left of now).
-            const canDrop = $.const(East.function([DragEventType], BooleanType, ($, event) =>
-                event.match({
-                    add: (_$, add) => add.into.slot.parse(FloatType).greater(3.0),
-                    move: (_$, mv) => mv.to.slot.parse(FloatType).greater(3.0),
+            const canDrop = $.const(East.function([DragEventType], BooleanType, ($, event) => {
+                const slotDay = $.const(East.function([StringType], FloatType, (_$, slot) =>
+                    slot.split(":").get(0n).parse(FloatType)));
+                return event.match({
+                    add: (_$, add) => slotDay(add.into.slot).greater(3.0),
+                    move: (_$, mv) => slotDay(mv.to.slot).greater(3.0),
                     remove: (_$) => East.value(true),
                     resize: (_$) => East.value(true),
-                })));
-            const onApprove = $.const(East.function([Planner.Types.ApproveEvent], NullType, ($, _ev) => {
+                });
+            }));
+            const onApprove = $.const(East.function([Planner.Types.ApproveEvent], NullType, ($, ev) => {
                 // Approving the line resolves it (#269 loop step 3).
                 $(pendingRowBind.write(-1n));
+                $(lastBind.write(East.str`approve · r${East.print(ev.rowIndex)}`));
+            }));
+            const onApproveAll = $.const(East.function([], NullType, ($) => {
+                $(pendingRowBind.write(-1n));
+                $(lastBind.write("approve all"));
             }));
             return (
                 <VStack gap="4" align="stretch">
@@ -460,18 +511,34 @@ export const plannerLibraryDnd = example({
                             { idx: 0n, name: "Press A" },
                             { idx: 1n, name: "Press B" },
                         ]}
-                        axis={Planner.axis.number({ range: { min: 1, max: 6 } })}
+                        axis={Planner.axis.number({ buckets: [{ key: "am", label: "AM" }, { key: "pm", label: "PM" }], range: { min: 1, max: 6 } })}
                         columns={[{ key: "name", frozen: true, value: r => r.name }]}
-                        events={r => East.equal(r.idx, droppedRow).and(_$ => droppedSlot.greater(0.0)).ifElse(
-                            _$ => [
-                                Planner.event({ key: East.str`c${East.print(r.idx)}`, slot: Planner.at.number(1), label: "✓", state: "committed" }),
-                                Planner.event({ key: East.str`p${East.print(r.idx)}`, slot: Planner.at.number(5), label: "plan", state: "added" }),
-                                Planner.event({ key: "dropped", slot: Planner.at.number(droppedSlot), label: "Patel, R.", state: "added" }),
-                            ],
-                            _$ => [
-                                Planner.event({ key: East.str`c${East.print(r.idx)}`, slot: Planner.at.number(1), label: "✓", state: "committed" }),
-                                Planner.event({ key: East.str`p${East.print(r.idx)}`, slot: Planner.at.number(5), label: "plan", state: "added" }),
-                            ],
+                        events={r => East.equal(r.idx, 0n).ifElse(
+                            // Press A — flat cells (plain "5" slot keys).
+                            _$ => East.equal(droppedRow, 0n).and(_$ => droppedDay.greater(0.0)).ifElse(
+                                _$ => [
+                                    Planner.event({ key: "c0", slot: Planner.at.number(1), label: "✓", state: "committed" }),
+                                    Planner.event({ key: "p0", slot: Planner.at.number(5), label: "plan", state: "added" }),
+                                    Planner.event({ key: "dropped", slot: Planner.at.number(droppedDay), label: droppedKey, state: "added" }),
+                                ],
+                                _$ => [
+                                    Planner.event({ key: "c0", slot: Planner.at.number(1), label: "✓", state: "committed" }),
+                                    Planner.event({ key: "p0", slot: Planner.at.number(5), label: "plan", state: "added" }),
+                                ]),
+                            // Press B — AM/PM lanes (composite "5:pm" slot keys);
+                            // the dropped tile lands in the lane the drop named.
+                            _$ => East.equal(droppedRow, 1n).and(_$ => droppedDay.greater(0.0)).ifElse(
+                                _$ => [
+                                    Planner.event({ key: "c1", slot: Planner.at.number(1), bucket: "am", label: "✓", state: "committed" }),
+                                    Planner.event({ key: "c1b", slot: Planner.at.number(2), bucket: "pm", label: "✓", state: "committed" }),
+                                    Planner.event({ key: "p1", slot: Planner.at.number(5), bucket: "am", label: "plan", state: "added" }),
+                                    Planner.event({ key: "dropped", slot: Planner.at.number(droppedDay), bucket: droppedBucket, label: droppedKey, state: "added" }),
+                                ],
+                                _$ => [
+                                    Planner.event({ key: "c1", slot: Planner.at.number(1), bucket: "am", label: "✓", state: "committed" }),
+                                    Planner.event({ key: "c1b", slot: Planner.at.number(2), bucket: "pm", label: "✓", state: "committed" }),
+                                    Planner.event({ key: "p1", slot: Planner.at.number(5), bucket: "am", label: "plan", state: "added" }),
+                                ]),
                         )}
                         now={Planner.at.number(4)}
                         onDrag={onDrag}
@@ -480,9 +547,10 @@ export const plannerLibraryDnd = example({
                         approval={r => East.equal(r.idx, pendingRow).ifElse(() => some(variant("pending", null)), () => some(variant("approved", null)))}
                         review={{
                             onApprove,
-                            onApproveAll: East.function([], NullType, _$ => null),
+                            onApproveAll,
                         }}
                     />
+                    <Text.MonoLabel>{East.str`LAST · ${last}`}</Text.MonoLabel>
                 </VStack>
             );
         }}</Reactive>

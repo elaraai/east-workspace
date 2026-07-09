@@ -43,11 +43,13 @@ export const blendSingle = example({
  * IR-level drop validation (#261) — `canDrop` receives the synthesized
  * candidate event for every hovered target panel; returning `false` shows
  * the ⊘ invalid stage and the drop is a no-op. Here class-2 lots can't be
- * pulled into the premium batch.
+ * pulled into the premium batch. The `LAST ·` line under the bench logs
+ * every delivered drop, so a vetoed gesture is visibly silent while an
+ * allowed one prints its `add`.
  */
 export const blendCanDrop = example({
     keywords: ["Blend", "canDrop", "veto", "invalid", "drag", "validation", "candidate", "drop"],
-    description: "IR-level canDrop veto — class-2 material cards can't land on the premium batch (⊘ while dragging)",
+    description: "IR-level canDrop veto — class-2 material cards can't land on the premium batch (⊘ while dragging, no LAST log); class-1 drops land and log through onDrag",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const canDrop = $.const(East.function([DragEventType], BooleanType, ($, event) =>
@@ -57,6 +59,16 @@ export const blendCanDrop = example({
                     remove: (_$) => East.value(true),
                     resize: (_$) => East.value(true),
                 })));
+            const lastBind = $.let(State.bind([StringType], "blend_veto_last", "none yet"));
+            const onDrag = $.const(East.function([DragEventType], NullType, ($, event) => {
+                $.match(event, {
+                    add: ($, add) => { $(lastBind.write(East.str`add · ${add.from.key} → ${add.into.row}`)); },
+                    move: ($, mv) => { $(lastBind.write(East.str`move · ${mv.from.row} → ${mv.to.row}`)); },
+                    remove: ($, rm) => { $(lastBind.write(East.str`remove · ${rm.from.row} → ${rm.to.getTag()}`)); },
+                    resize: ($, rz) => { $(lastBind.write(East.str`resize · ${rz.edge.getTag()}`)); },
+                });
+            }));
+            const last = $.let(lastBind.read());
             return (
                 <VStack gap="4" align="stretch">
                     <Library
@@ -79,7 +91,9 @@ export const blendCanDrop = example({
                             metrics: [],
                         })}
                         canDrop={canDrop}
+                        onDrag={onDrag}
                     />
+                    <Text.MonoLabel>{East.str`LAST · ${last}`}</Text.MonoLabel>
                 </VStack>
             );
         }}</Reactive>
@@ -153,8 +167,13 @@ export const blendLibraryDnd = example({
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const bind = $.let(State.bind([StringType], "blend_last", "none"));
-            const onDrag = $.const(East.function([DragEventType], NullType, ($, _event) => {
-                $(bind.write("drop"));
+            const onDrag = $.const(East.function([DragEventType], NullType, ($, event) => {
+                $.match(event, {
+                    add: ($, add) => { $(bind.write(East.str`add · ${add.from.key} → ${add.into.row}`)); },
+                    move: ($, mv) => { $(bind.write(East.str`move · ${mv.from.row} → ${mv.to.row}`)); },
+                    remove: ($, rm) => { $(bind.write(East.str`remove · ${rm.from.row} → ${rm.to.getTag()}`)); },
+                    resize: ($, rz) => { $(bind.write(East.str`resize · ${rz.edge.getTag()}`)); },
+                });
             }));
             const onAmountChange = $.const(East.function([Blend.Types.AmountEvent], NullType, ($, e) => {
                 $(bind.write(East.str`${e.source} → ${East.print(e.amount)}`));
