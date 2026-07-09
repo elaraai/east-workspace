@@ -115,3 +115,63 @@ describe('python closure capture (#278)', () => {
       } finally { fs.rmSync(orphan, { recursive: true, force: true }); }
     });
 });
+
+describe('node npm-workspace closure capture (#280)', () => {
+  let ws: string;
+  const npmShell = process.platform === 'win32';
+
+  const captureNode = (project: string) => {
+    const bytes = captureEnvironment({ node: { project } }, 'test', (b) => createHash('sha256').update(b).digest('hex'));
+    const spec = decodeBeast2For(EnvironmentSpecType)(bytes);
+    assert.ok(spec.type === 'workspace_node');
+    return { members: spec.value.members.map((m) => m.name).sort(), specHash: createHash('sha256').update(bytes).digest('hex') };
+  };
+
+  before(() => {
+    ws = fs.mkdtempSync(path.join(os.tmpdir(), 'e3-cap-nws-'));
+    fs.writeFileSync(path.join(ws, 'package.json'), JSON.stringify({ name: 'root', version: '1.0.0', private: true, workspaces: ['packages/*'] }));
+    const mk = (name: string, deps?: Record<string, string>, code = 'module.exports.v=1;') => {
+      const dir = path.join(ws, 'packages', name);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: `@acme/${name}`, version: '1.0.0', main: 'index.js', ...(deps ? { dependencies: deps } : {}) }));
+      fs.writeFileSync(path.join(dir, 'index.js'), code);
+    };
+    mk('common');
+    mk('pricing', { '@acme/common': '1.0.0' });
+    mk('other');
+    execFileSync('npm', ['install', '--no-audit', '--no-fund'], { cwd: ws, stdio: 'ignore', shell: npmShell });
+  });
+
+  it('captures exactly the transitive local closure of a member', () => {
+    assert.deepStrictEqual(captureNode(path.join(ws, 'packages', 'pricing')).members, ['@acme/common', '@acme/pricing']);
+    assert.deepStrictEqual(captureNode(path.join(ws, 'packages', 'other')).members, ['@acme/other']);
+  });
+
+  it('does NOT cross-invalidate: editing an unrelated sibling leaves the spec byte-identical', () => {
+    const before = captureNode(path.join(ws, 'packages', 'pricing')).specHash;
+    const otherSrc = path.join(ws, 'packages', 'other', 'index.js');
+    const orig = fs.readFileSync(otherSrc, 'utf-8');
+    try {
+      fs.writeFileSync(otherSrc, orig + '\n// edit\n');
+      assert.strictEqual(captureNode(path.join(ws, 'packages', 'pricing')).specHash, before);
+    } finally { fs.writeFileSync(otherSrc, orig); }
+  });
+
+  it('rejects a stale lock (N4): a member manifest dep not in the lock (npm ci would install it unpinned)', () => {
+    const pj = path.join(ws, 'packages', 'pricing', 'package.json');
+    const orig = fs.readFileSync(pj, 'utf-8');
+    try {
+      const obj = JSON.parse(orig);
+      obj.dependencies = { ...obj.dependencies, 'left-pad': '1.3.0' }; // added WITHOUT re-locking
+      fs.writeFileSync(pj, JSON.stringify(obj));
+      assert.throws(() => captureNode(path.join(ws, 'packages', 'pricing')), /differ from the lockfile/);
+    } finally { fs.writeFileSync(pj, orig); }
+  });
+
+  it('errors when the environment is declared on the workspace root (N3)', () => {
+    assert.throws(
+      () => captureEnvironment({ node: { project: ws } }, 'test', (b) => createHash('sha256').update(b).digest('hex')),
+      /workspace member, not the workspace root/,
+    );
+  });
+});

@@ -24,7 +24,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { parse as parseToml } from 'smol-toml';
-import { variant, encodeBeast2For } from '@elaraai/east';
+import { variant, none, encodeBeast2For } from '@elaraai/east';
 import type { EnvironmentSpec } from '@elaraai/e3-types';
 import { EnvironmentSpecType } from '@elaraai/e3-types';
 import { validateEnvironmentDecl, type EnvironmentDecl } from './environment.js';
@@ -212,6 +212,169 @@ function buildArtifacts(
   return files.map((f) => ({ filename: f, data: fs.readFileSync(path.join(outDir, f)) }));
 }
 
+// ---------------------------------------------------------------------------
+// Node (npm workspace) dependency-closure capture (#280)
+//
+// A `{ node: { project } }` declaration is either a self-contained project
+// (its own lockfile — captured byte-identically to before) or an npm
+// workspace member. For a member we capture the ROOT package.json + lockfile
+// plus an `npm pack` tarball per LOCAL closure member; the materializer
+// (#276) reconstructs a closure-only workspace and `npm ci`s it.
+//
+// Unlike python's `uv pip check`, `npm ci` is NOT a loud oracle — it will
+// silently install a member's unlocked deps from the registry — so the
+// closure walk validates the lock at export (N4/N5) rather than relying on
+// a run-time gate. pnpm workspaces are refused here (N8) until #284.
+// ---------------------------------------------------------------------------
+
+const NODE_LOCKFILES = ['package-lock.json', 'npm-shrinkwrap.json', 'pnpm-lock.yaml'] as const;
+
+interface NpmLockEntry {
+  name?: string;
+  link?: boolean;
+  resolved?: string;
+  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+  optionalDependencies?: Record<string, string>;
+  peerDependencies?: Record<string, string>;
+  workspaces?: string[];
+}
+interface NpmLock { lockfileVersion?: number; packages?: Record<string, NpmLockEntry> }
+
+/** Workspace-relative POSIX path from the root to a dir. */
+function posixRel(root: string, dir: string): string {
+  return path.relative(root, dir).split(path.sep).join('/');
+}
+
+/** The union of every dependency section's package names. */
+function allDepNames(e: NpmLockEntry | undefined): string[] {
+  if (!e) return [];
+  return [
+    ...Object.keys(e.dependencies ?? {}),
+    ...Object.keys(e.devDependencies ?? {}),
+    ...Object.keys(e.optionalDependencies ?? {}),
+    ...Object.keys(e.peerDependencies ?? {}),
+  ];
+}
+
+/**
+ * Detect whether `project` is a self-contained node project or an npm
+ * workspace member, and locate the governing root.
+ *
+ * @throws {Error} N1 (no lockfile anywhere), N8 (pnpm workspace — unsupported
+ *   yet), N3 (project is the workspace root), N2 (not a member of the workspace)
+ */
+function discoverNodeRoot(project: string, owner: string):
+  { mode: 'single'; lockName: string } |
+  { mode: 'workspace'; root: string; lock: NpmLock; subject: string } {
+  const ownLock = NODE_LOCKFILES.find((f) => fs.existsSync(path.join(project, f)));
+  if (ownLock) {
+    // A workspace ROOT also has its own lockfile — but capturing it packs the
+    // (usually code-less) root, not a member. Reject: the environment belongs
+    // on a member.
+    const pkg = JSON.parse(fs.readFileSync(path.join(project, 'package.json'), 'utf-8')) as NpmLockEntry;
+    if (Array.isArray(pkg.workspaces) && pkg.workspaces.length > 0) {
+      throw new Error(`Environment for '${owner}': declare the environment on a workspace member, not the workspace root '${project}'`);
+    }
+    return { mode: 'single', lockName: ownLock };
+  }
+
+  let dir = path.dirname(project);
+  for (;;) {
+    const found = NODE_LOCKFILES.find((f) => fs.existsSync(path.join(dir, f)));
+    if (found) {
+      if (found === 'pnpm-lock.yaml') {
+        throw new Error(`Environment for '${owner}': pnpm workspaces are not yet supported as environments — use npm workspaces or a single-project env`);
+      }
+      const root = dir;
+      if (path.resolve(root) === path.resolve(project)) {
+        throw new Error(`Environment for '${owner}': declare the environment on a workspace member, not the workspace root '${root}'`);
+      }
+      const lock = JSON.parse(fs.readFileSync(path.join(root, found), 'utf-8')) as NpmLock;
+      const subject = posixRel(root, project);
+      if (!lock.packages || !(subject in lock.packages)) {
+        throw new Error(`Environment for '${owner}': '${project}' is not a member of the workspace at '${root}' — add it to "workspaces" and refresh the lockfile, or run 'npm install' in '${project}' for a standalone env`);
+      }
+      return { mode: 'workspace', root, lock, subject };
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  throw new Error(`Environment for '${owner}': no lockfile in '${project}' or any parent — run 'npm install' there, or add it to a workspace and lock at the root`);
+}
+
+/**
+ * The transitive closure of LOCAL workspace members reachable from `subject`,
+ * with export-time lock validation.
+ *
+ * @returns Closure members (workspace-relative path + package name), sorted by path
+ * @throws {Error} N4 (a member's on-disk manifest drifted from the lock — npm
+ *   ci would silently install unlocked deps), N5 (a dep shadows a workspace
+ *   member name from the registry), N6 (root depends on a member), N7 (a local
+ *   dep resolves outside the workspace)
+ */
+function npmClosure(lock: NpmLock, root: string, subject: string, owner: string): Array<{ path: string; name: string }> {
+  const pkgs = lock.packages ?? {};
+  const memberNames = new Set(
+    Object.entries(pkgs)
+      .filter(([p, e]) => p !== '' && !p.includes('node_modules/') && typeof e.name === 'string')
+      .map(([, e]) => e.name!),
+  );
+
+  // N6: the root manifest must not depend on a workspace member.
+  for (const dep of allDepNames(pkgs[''])) {
+    if (memberNames.has(dep)) {
+      throw new Error(`Environment for '${owner}': the workspace root depends on member '${dep}' — move member deps into the members that need them`);
+    }
+  }
+
+  const resolveDep = (fromPath: string, dep: string): NpmLockEntry | null => {
+    let dir = fromPath;
+    for (;;) {
+      const key = `${dir ? dir + '/' : ''}node_modules/${dep}`;
+      if (pkgs[key]) return pkgs[key]!;
+      if (!dir) return null;
+      dir = dir.split('/').slice(0, -1).join('/');
+    }
+  };
+
+  const included = new Map<string, string>(); // memberPath -> name
+  const seen = new Set<string>();
+  const queue = [subject];
+  while (queue.length > 0) {
+    const memberPath = queue.shift()!;
+    if (seen.has(memberPath)) continue;
+    seen.add(memberPath);
+    const entry = pkgs[memberPath];
+    if (!entry) continue;
+    included.set(memberPath, entry.name ?? path.basename(memberPath));
+
+    // N4: the locked dep sections must match the on-disk manifest.
+    const onDisk = JSON.parse(fs.readFileSync(path.join(root, ...memberPath.split('/'), 'package.json'), 'utf-8')) as NpmLockEntry;
+    for (const section of ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'] as const) {
+      if (JSON.stringify(onDisk[section] ?? {}) !== JSON.stringify(entry[section] ?? {})) {
+        throw new Error(`Environment for '${owner}': '${memberPath}/package.json' ${section} differ from the lockfile — run 'npm install' to refresh the lock before exporting`);
+      }
+    }
+
+    for (const dep of allDepNames(entry)) {
+      const resolved = resolveDep(memberPath, dep);
+      if (resolved?.link) {
+        const target = resolved.resolved ?? '';
+        if (target === '' || target.startsWith('..') || path.isAbsolute(target)) {
+          throw new Error(`Environment for '${owner}': local dependency '${dep}' of '${memberPath}' resolves outside the workspace ('${target}')`);
+        }
+        queue.push(target);
+      } else if (memberNames.has(dep)) {
+        // N5: name collides with a workspace member but came from the registry.
+        throw new Error(`Environment for '${owner}': '${dep}' in '${memberPath}' is satisfied from the registry, not the workspace — align its version to the workspace member (or rename)`);
+      }
+    }
+  }
+  return [...included.entries()].map(([p, name]) => ({ path: p, name })).sort((a, b) => (a.path < b.path ? -1 : 1));
+}
+
 /**
  * Resolves an environment declaration to an encoded {@link EnvironmentSpec}
  * at package export time.
@@ -266,25 +429,38 @@ export function captureEnvironment(
     spec = variant('python', { pyproject, lock: lockBlob, sdists });
   } else {
     const project = path.resolve(decl.node.project);
-    const packageJson = addBlob(readProjectFile(project, 'package.json', owner));
-    const lockName = ['package-lock.json', 'npm-shrinkwrap.json', 'pnpm-lock.yaml']
-      .find((f) => fs.existsSync(path.join(project, f)));
-    if (!lockName) {
-      throw new Error(
-        `Environment for '${owner}': no lockfile (package-lock.json, npm-shrinkwrap.json ` +
-        `or pnpm-lock.yaml) in project '${project}' — an environment project must be locked ` +
-        `so the capture is reproducible`,
-      );
-    }
-    const lock = addBlob(readProjectFile(project, lockName, owner));
-    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'e3-env-pack-'));
-    try {
-      const tarballs = buildArtifacts(
-        'npm', ['pack', '--pack-destination', outDir], project, outDir, '.tgz', owner,
-      ).map((a) => addBlob(a.data));
-      spec = variant('node', { packageJson, lock, tarballs });
-    } finally {
-      fs.rmSync(outDir, { recursive: true, force: true });
+    const disco = discoverNodeRoot(project, owner);
+    if (disco.mode === 'single') {
+      // Self-contained project — today's byte-identical capture.
+      const packageJson = addBlob(readProjectFile(project, 'package.json', owner));
+      const lock = addBlob(readProjectFile(project, disco.lockName, owner));
+      const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'e3-env-pack-'));
+      try {
+        const tarballs = buildArtifacts(
+          'npm', ['pack', '--pack-destination', outDir], project, outDir, '.tgz', owner,
+        ).map((a) => addBlob(a.data));
+        spec = variant('node', { packageJson, lock, tarballs });
+      } finally {
+        fs.rmSync(outDir, { recursive: true, force: true });
+      }
+    } else {
+      // npm workspace member — capture the ROOT manifest/lock + a pack
+      // tarball per LOCAL closure member (validated against the lock).
+      const { root, lock, subject } = disco;
+      const packageJson = addBlob(readProjectFile(root, 'package.json', owner));
+      const lockBlob = addBlob(readProjectFile(root, 'package-lock.json', owner));
+      const closure = npmClosure(lock, root, subject, owner);
+      const members = closure.map((member) => {
+        const memberDir = path.join(root, ...member.path.split('/'));
+        const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'e3-env-pack-'));
+        try {
+          const built = buildArtifacts('npm', ['pack', '--pack-destination', outDir], memberDir, outDir, '.tgz', owner);
+          return { path: member.path, name: member.name, tarball: addBlob(built[0]!.data) };
+        } finally {
+          fs.rmSync(outDir, { recursive: true, force: true });
+        }
+      });
+      spec = variant('workspace_node', { packageJson, lock: lockBlob, config: none, subject, members });
     }
   }
 
