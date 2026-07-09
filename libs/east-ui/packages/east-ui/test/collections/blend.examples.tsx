@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, StringType, NullType, example, variant } from "@elaraai/east";
+import { BooleanType, East, StringType, NullType, example, variant } from "@elaraai/east";
 import { DragEventType, State, UIComponentType } from "@elaraai/east-ui";
 import { Blend, Library, Reactive, Text, VStack } from "@elaraai/east-ui";
 
@@ -36,6 +36,68 @@ export const blendSingle = example({
             />
         );
     }),
+    inputs: [],
+});
+
+/**
+ * IR-level drop validation (#261) — `canDrop` receives the synthesized
+ * candidate event for every hovered target panel; returning `false` shows
+ * the ⊘ invalid stage and the drop is a no-op. Here class-2 lots can't be
+ * pulled into the premium batch. The `LAST ·` line under the bench logs
+ * every delivered drop, so a vetoed gesture is visibly silent while an
+ * allowed one prints its `add`.
+ */
+export const blendCanDrop = example({
+    keywords: ["Blend", "canDrop", "veto", "invalid", "drag", "validation", "candidate", "drop"],
+    description: "IR-level canDrop veto — class-2 material cards can't land on the premium batch (⊘ while dragging, no LAST log); class-1 drops land and log through onDrag",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const canDrop = $.const(East.function([DragEventType], BooleanType, ($, event) =>
+                event.match({
+                    add: (_$, add) => add.from.key.startsWith("c2-").and(_$ => East.equal(add.into.row, "premium")).not(),
+                    move: (_$) => East.value(true),
+                    remove: (_$) => East.value(true),
+                    resize: (_$) => East.value(true),
+                })));
+            const lastBind = $.let(State.bind([StringType], "blend_veto_last", "none yet"));
+            const onDrag = $.const(East.function([DragEventType], NullType, ($, event) => {
+                $.match(event, {
+                    add: ($, add) => { $(lastBind.write(East.str`add · ${add.from.key} → ${add.into.row}`)); },
+                    move: ($, mv) => { $(lastBind.write(East.str`move · ${mv.from.row} → ${mv.to.row}`)); },
+                    remove: ($, rm) => { $(lastBind.write(East.str`remove · ${rm.from.row} → ${rm.to.getTag()}`)); },
+                    resize: ($, rz) => { $(lastBind.write(East.str`resize · ${rz.edge.getTag()}`)); },
+                });
+            }));
+            const last = $.let(lastBind.read());
+            return (
+                <VStack gap="4" align="stretch">
+                    <Library
+                        id="materials"
+                        data={[
+                            { id: "c1-204", name: "LOT-204", grade: "class 1" },
+                            { id: "c2-167", name: "LOT-167", grade: "class 2" },
+                        ]}
+                        item={m => ({ key: m.id, label: m.name, sublabel: m.grade, icon: "box" })}
+                    />
+                    <Blend
+                        id="bench-veto"
+                        sources={["materials"]}
+                        targets={[{ key: "premium", name: "Premium batch", cap: 40000.0 }]}
+                        target={t => ({
+                            key: t.key, label: t.name, capacity: t.cap,
+                            allocations: [
+                                Blend.allocation({ source: "c1-204", amount: 16000.0 }),
+                            ],
+                            metrics: [],
+                        })}
+                        canDrop={canDrop}
+                        onDrag={onDrag}
+                    />
+                    <Text.MonoLabel>{East.str`LAST · ${last}`}</Text.MonoLabel>
+                </VStack>
+            );
+        }}</Reactive>
+    )),
     inputs: [],
 });
 
@@ -99,14 +161,19 @@ export const blendPortfolio = example({
     inputs: [],
 });
 
-export const blendInteractive = example({
-    keywords: ["Blend", "Library", "Reactive", "onDrag", "onAmountChange", "onAction", "interactive"],
-    description: "Library + Blend page — drops, amount edits, and actions report through typed events",
+export const blendLibraryDnd = example({
+    keywords: ["Blend", "Library", "DnD", "drag", "add", "remove", "Reactive", "onDrag", "onAmountChange", "onAction", "interactive"],
+    description: "Library + Blend DnD — drag material cards into the batch (add), amounts edit inline, actions report through typed events",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const bind = $.let(State.bind([StringType], "blend_last", "none"));
-            const onDrag = $.const(East.function([DragEventType], NullType, ($, _event) => {
-                $(bind.write("drop"));
+            const onDrag = $.const(East.function([DragEventType], NullType, ($, event) => {
+                $.match(event, {
+                    add: ($, add) => { $(bind.write(East.str`add · ${add.from.key} → ${add.into.row}`)); },
+                    move: ($, mv) => { $(bind.write(East.str`move · ${mv.from.row} → ${mv.to.row}`)); },
+                    remove: ($, rm) => { $(bind.write(East.str`remove · ${rm.from.row} → ${rm.to.getTag()}`)); },
+                    resize: ($, rz) => { $(bind.write(East.str`resize · ${rz.edge.getTag()}`)); },
+                });
             }));
             const onAmountChange = $.const(East.function([Blend.Types.AmountEvent], NullType, ($, e) => {
                 $(bind.write(East.str`${e.source} → ${East.print(e.amount)}`));

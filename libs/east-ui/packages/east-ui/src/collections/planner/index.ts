@@ -39,6 +39,8 @@ import { UIComponentType } from "../../component.js";
 import { mapRowsBlock } from "../../shared/reify.js";
 import { DensityType, type DensityLiteral } from "../../style/interaction.js";
 import { PlotGutterType, type PlotGutter } from "../../shared/plot-gutter.js";
+import { reviewType, buildReview, type ReviewConfig } from "../../contracts/review.js";
+import { CanDropFnType, DragEventType } from "../../contracts/drag.js";
 
 import {
     PlannerSlotType,
@@ -193,6 +195,12 @@ export type PlannerRowType = typeof PlannerRowType;
  * The Planner review config — the per-row Approve / Reject calls plus the batch
  * foot. Present on the root only when the optional review chrome is enabled.
  *
+ * @remarks
+ * The shared review contract instantiated at the Planner's row subject —
+ * `reviewType(PlannerApproveEventType, UIComponentType)` (`contracts/review.ts`).
+ * Structurally identical to the pre-contract Planner-local definition, so
+ * existing IR round-trips unchanged.
+ *
  * @property columnLabel - The decision-column header (default `"Decision"`)
  * @property summary - Optional foot eyebrow (host-composed, e.g. `Planner.reviewSummary(...)`)
  * @property onApprove - Optional per-row Approve callback (receives `{ rowIndex }`)
@@ -211,16 +219,7 @@ export const PlannerReviewType: StructType<{
     onRejectAll: OptionType<FunctionType<[], NullType>>,
     onRerun: OptionType<FunctionType<[], NullType>>,
     rerunLabel: StringType,
-}> = StructType({
-    columnLabel:  StringType,
-    summary:      OptionType(UIComponentType),
-    onApprove:    OptionType(FunctionType([PlannerApproveEventType], NullType)),
-    onReject:     OptionType(FunctionType([PlannerApproveEventType], NullType)),
-    onApproveAll: OptionType(FunctionType([], NullType)),
-    onRejectAll:  OptionType(FunctionType([], NullType)),
-    onRerun:      OptionType(FunctionType([], NullType)),
-    rerunLabel:   StringType,
-});
+}> = reviewType(PlannerApproveEventType, UIComponentType);
 export type PlannerReviewType = typeof PlannerReviewType;
 
 /**
@@ -250,6 +249,10 @@ export const PlannerRootType: StructType<{
     onSelectRow: OptionType<FunctionType<[PlannerSelectEventType], NullType>>,
     review: OptionType<PlannerReviewType>,
     rowHover: OptionType<BooleanType>,
+    id: StringType,
+    sources: ArrayType<StringType>,
+    onDrag: OptionType<FunctionType<[DragEventType], NullType>>,
+    canDrop: OptionType<CanDropFnType>,
 }> = StructType({
     variant:      PlannerVariantType,
     axis:         PlannerAxisType,
@@ -267,6 +270,18 @@ export const PlannerRootType: StructType<{
     // Opt-in hover affordance — draws a light brand outline around the whole row
     // (over both panes) on hover. Absent/false ⇒ no hover highlight.
     rowHover:     OptionType(BooleanType),
+    // Opt-in DnD target role (#269) — the standard trio, matching Roster
+    // field-for-field. A Planner with no `onDrag` is exactly today's Planner:
+    // the renderer registers the target iff `onDrag` is present
+    // (presence-gating; Planner has no edit-mode enum). Drops land as
+    // `proposed(added)` tiles; committed history never drags. Cell encoding
+    // (contracts/drag.ts): `row` = the row index key, `slot` = the axis key
+    // with the bucket composed in (`"wed"` / `"wed:am"`; number axes print
+    // decimally, time axes the column instant's ISO form).
+    id:           StringType,
+    sources:      ArrayType(StringType),
+    onDrag:       OptionType(FunctionType([DragEventType], NullType)),
+    canDrop:      OptionType(CanDropFnType),
 });
 export type PlannerRootType = typeof PlannerRootType;
 
@@ -463,7 +478,16 @@ export interface EventInput {
     hovercard?: SubtypeExprOrValue<UIComponentType>;
 }
 
-function resolveState(state: EventInput["state"]): SubtypeExprOrValue<PlannerStateType> {
+/**
+ * Resolves the shared event-lifecycle string shorthands (`"committed"` /
+ * `"rejected"` / `"added"` / `"model"` / `"removed"`) into a
+ * {@link PlannerStateType} value. Exported for the other lifecycle adopters
+ * (Gantt) so the authoring shorthand is defined once.
+ *
+ * @param state - A `PlannerStateType` value/expression or a string shorthand
+ * @returns The resolved `PlannerStateType` value
+ */
+export function resolveEventState(state: EventInput["state"]): SubtypeExprOrValue<PlannerStateType> {
     if (typeof state !== "string") return state;
     switch (state) {
         case "committed": return East.value(variant("committed", null), PlannerStateType);
@@ -523,7 +547,7 @@ function createEvent(input: EventInput): ExprType<PlannerEventType> {
         endSlot:   input.endSlot !== undefined ? some(input.endSlot) : none,
         bucket:    input.bucket !== undefined ? some(input.bucket) : none,
         label:     input.label,
-        state:     resolveState(input.state),
+        state:     resolveEventState(input.state),
         popover:   input.popover !== undefined ? some(input.popover) : none,
         stretch:   input.stretch !== undefined ? some(resolveStretch(input.stretch)) : none,
         content:   input.content !== undefined ? some(resolveContent(input.content)) : none,
@@ -675,38 +699,35 @@ export interface PlannerConfig<R extends StructType> {
      *  the whole row over both panes). Absent/false ⇒ no hover affordance. Works on
      *  read-only planners, independent of `onSelectRow`. */
     rowHover?: SubtypeExprOrValue<BooleanType>;
+    /** DnD target identity (#269) — connects the Planner to sibling Libraries
+     *  and names it in drag-grammar cell refs. Only meaningful with `onDrag`. */
+    id?: string;
+    /** Library ids accepted for `add` drags (omit = no adds). */
+    sources?: string[];
+    /** Drag funnel (#269) — presence is the opt-in: with it the Planner
+     *  registers as a drag target (add / move / remove on PROPOSED tiles;
+     *  committed history never drags; Span edges resize once wired). Drops
+     *  land as `proposed(added)` tiles. Events carry `row` = the row index
+     *  key and `slot` = the axis key with the bucket composed in
+     *  (`"wed"` / `"wed:am"`). */
+    onDrag?: SubtypeExprOrValue<FunctionType<[DragEventType], NullType>>;
+    /** Optional IR-level drop veto — consulted per hovered destination with
+     *  the synthesized candidate event (`CanDropFnType` semantics); `false`
+     *  ⇒ the ⊘ invalid stage and the drop is a no-op. Absent ⇒ accept.
+     *  Policy like "no drops left of `now`" is host-owned here, never
+     *  hard-coded. */
+    canDrop?: SubtypeExprOrValue<FunctionType<[DragEventType], BooleanType>>;
 }
 
 /**
  * The Planner `review` config — opt-in per-row approval + a batch foot.
  *
- * @property columnLabel - The decision-column header (default `"Decision"`)
- * @property summary - Optional foot eyebrow (host-composed; `Planner.reviewSummary(...)`)
- * @property onApprove - Optional per-row Approve callback (receives `{ rowIndex }`)
- * @property onReject - Optional per-row Reject callback (receives `{ rowIndex }`)
- * @property onApproveAll - Optional batch Approve-all callback
- * @property onRejectAll - Optional batch Reject-all callback
- * @property onRerun - Optional Rerun callback (absent ⇒ no Rerun button)
- * @property rerunLabel - The Rerun button label (default `"Rerun"`)
+ * @remarks
+ * The shared review contract's {@link ReviewConfig} at the Planner's row
+ * subject (`{ rowIndex }`); see `contracts/review.ts` for the field
+ * semantics and defaults.
  */
-export interface PlannerReviewConfig {
-    /** The decision-column header (default `"Decision"`). */
-    columnLabel?: SubtypeExprOrValue<StringType> | string;
-    /** Optional foot eyebrow (host-composed; `Planner.reviewSummary(...)`). */
-    summary?: SubtypeExprOrValue<UIComponentType>;
-    /** Optional per-row Approve callback (receives `{ rowIndex }`). */
-    onApprove?: SubtypeExprOrValue<FunctionType<[PlannerApproveEventType], NullType>>;
-    /** Optional per-row Reject callback (receives `{ rowIndex }`). */
-    onReject?: SubtypeExprOrValue<FunctionType<[PlannerApproveEventType], NullType>>;
-    /** Optional batch Approve-all callback. */
-    onApproveAll?: SubtypeExprOrValue<FunctionType<[], NullType>>;
-    /** Optional batch Reject-all callback. */
-    onRejectAll?: SubtypeExprOrValue<FunctionType<[], NullType>>;
-    /** Optional Rerun callback (absent ⇒ no Rerun button). */
-    onRerun?: SubtypeExprOrValue<FunctionType<[], NullType>>;
-    /** The Rerun button label (default `"Rerun"`). */
-    rerunLabel?: SubtypeExprOrValue<StringType> | string;
-}
+export type PlannerReviewConfig = ReviewConfig<PlannerApproveEventType>;
 
 // Infer the row struct type R from the data argument (a plain JS array of
 // objects or an East array expression), mirroring the Table / Gantt factories.
@@ -763,24 +784,13 @@ function buildRoot(
             }, PlotGutterType))
             : none,
         onSelectRow:  config.onSelectRow !== undefined ? some(config.onSelectRow) : none,
-        review:       config.review !== undefined ? some(buildReview(config.review)) : none,
+        review:       config.review !== undefined ? some(buildReview(config.review, PlannerReviewType)) : none,
         rowHover:     config.rowHover !== undefined ? some(config.rowHover) : none,
+        id:           config.id ?? "",
+        sources:      East.value(config.sources ?? [], ArrayType(StringType)),
+        onDrag:       config.onDrag !== undefined ? some(config.onDrag) : none,
+        canDrop:      config.canDrop !== undefined ? some(config.canDrop) : none,
     }), UIComponentType);
-}
-
-/** Resolves a {@link PlannerReviewConfig} into a {@link PlannerReviewType} value,
- *  defaulting the column / rerun labels. */
-function buildReview(r: PlannerReviewConfig): ExprType<PlannerReviewType> {
-    return East.value({
-        columnLabel:  r.columnLabel ?? "Decision",
-        summary:      r.summary !== undefined ? some(r.summary) : none,
-        onApprove:    r.onApprove !== undefined ? some(r.onApprove) : none,
-        onReject:     r.onReject !== undefined ? some(r.onReject) : none,
-        onApproveAll: r.onApproveAll !== undefined ? some(r.onApproveAll) : none,
-        onRejectAll:  r.onRejectAll !== undefined ? some(r.onRejectAll) : none,
-        onRerun:      r.onRerun !== undefined ? some(r.onRerun) : none,
-        rerunLabel:   r.rerunLabel ?? "Rerun",
-    }, PlannerReviewType);
 }
 
 /**

@@ -23,6 +23,12 @@
 import { defineKeyframes } from "@chakra-ui/react";
 
 export const keyframes = defineKeyframes({
+    // Entrance for transient drag-layer chrome (the trash sink, #267) —
+    // a short rise + fade so the zone reads as appearing for THIS drag.
+    "elara-fade-in": {
+        "0%":   { opacity: 0, transform: "translateX(-50%) translateY(6px)" },
+        "100%": { opacity: 1, transform: "translateX(-50%) translateY(0)" },
+    },
     "elara-pulse": {
         "0%, 100%": { opacity: 1 },
         "50%":      { opacity: 0.4 },

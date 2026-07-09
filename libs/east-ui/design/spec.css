@@ -690,35 +690,19 @@ table.dt tr.total td {
   align-self: center;
 }
 .commit-bar > .draft .pending { color: var(--ink); }
+/* Commit-cluster buttons ARE the generic `.btn` family (see the Commit.Bar
+   recipe mock: `.btn` / `.btn.primary` in a gap row) — ordinary rounded
+   buttons, NOT full-height mono segments. The band contributes only the top
+   rule, the mono draft line, and the right-aligned cluster. */
 .commit-bar .btn-row {
   display: flex;
-}
-.commit-bar .btn {
-  border-radius: 0;
-  border: none;
-  border-left: 1px solid var(--rule);
-  padding: 14px 22px;
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  font-weight: 600;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  background: var(--paper);
-  color: var(--ink-3);
-  cursor: pointer;
-}
-.commit-bar .btn:hover { background: var(--paper-2); color: var(--ink); }
-.commit-bar .btn.primary {
-  background: var(--brand-d);
-  color: #fff;
-  font-weight: 600;
-  border-color: var(--brand-d);
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
 }
 .btn.primary:hover { background: var(--brand-dd); border-color: var(--brand-dd); }
-._dummy_btn_primary_anchor_ {
-  border-left: 1px solid var(--brand-d);
-}
-.commit-bar .btn.primary:hover { background: var(--brand-dd); }
+.btn.danger { color: var(--neg); }
+.btn.danger:hover { border-color: var(--neg); }
 
 /* dashed banner */
 .banner {

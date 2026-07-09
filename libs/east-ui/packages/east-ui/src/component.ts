@@ -112,8 +112,9 @@ import { BarStripStyleType, BarStripSortType } from "./display/bar-strip/types.j
 import { AvatarGroupType } from "./display/avatar-group/types.js";
 import { TraceType } from "./display/trace/types.js";
 import { LibraryRootType } from "./collections/library/types.js";
-import { RosterRootType } from "./collections/roster/types.js";
-import { BoardRootType } from "./collections/board/types.js";
+import { RosterModeType, RosterPersonType, RosterShiftType } from "./collections/roster/types.js";
+import { BoardModeType, BoardEntityType, BoardAssignmentType, BoardRequirementType } from "./collections/board/types.js";
+import { CellRefType, DragEventType } from "./contracts/drag.js";
 import { CalendarRootType } from "./collections/calendar/types.js";
 import {
     SchematicItemType,
@@ -181,14 +182,10 @@ import {
 import {
     GanttStyleType,
     GanttAxisType,
-    GanttTaskStatusType,
     GanttMilestoneKindType,
     GanttTaskClickEventType,
-    GanttTaskDragEventType,
-    GanttTaskDurationChangeEventType,
     GanttTaskProgressChangeEventType,
     GanttMilestoneClickEventType,
-    GanttMilestoneDragEventType,
     TimeStepType,
 } from "./collections/gantt/types.js";
 import {
@@ -752,6 +749,22 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         onRowDoubleClick: OptionType(FunctionType([TableRowClickEventType], NullType)),
         onRowSelectionChange: OptionType(FunctionType([TableRowSelectionEventType], NullType)),
         onSortChange: OptionType(FunctionType([TableSortEventType], NullType)),
+        // Optional review chrome (#264) — mirror the shared row-granularity
+        // `RowReviewType` (`contracts/review.ts`), spelled with the recursion
+        // `node` for `summary` (the Planner precedent); the accessors ride
+        // `(rowIndex) => Option<…>` over the unsliced row index.
+        review: OptionType(StructType({
+            columnLabel: StringType,
+            summary: OptionType(node),
+            onApprove: OptionType(FunctionType([PlannerApproveEventType], NullType)),
+            onReject: OptionType(FunctionType([PlannerApproveEventType], NullType)),
+            onApproveAll: OptionType(FunctionType([], NullType)),
+            onRejectAll: OptionType(FunctionType([], NullType)),
+            onRerun: OptionType(FunctionType([], NullType)),
+            rerunLabel: StringType,
+        })),
+        reviewStatus: OptionType(FunctionType([IntegerType], OptionType(StatusValueType))),
+        reviewApproval: OptionType(FunctionType([IntegerType], OptionType(PlannerApprovalType))),
         slice: OptionType(SliceChromeType),
         style: OptionType(TableStyleType),
     }),
@@ -764,7 +777,10 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
                 end: DateTimeType,
                 label: OptionType(LabelInputType),
                 progress: OptionType(FloatType),
-                status: OptionType(GanttTaskStatusType),
+                // The shared event lifecycle + the risk/status tint (#262) —
+                // mirror `GanttTaskType` in `collections/gantt/index.ts`.
+                state: PlannerStateType,
+                status: OptionType(StatusValueType),
                 popover: OptionType(node),
             })),
             milestones: ArrayType(StructType({
@@ -773,6 +789,11 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
                 kind: OptionType(GanttMilestoneKindType),
                 popover: OptionType(node),
             })),
+            // Review chrome (#263) — mirror `GanttRowType` in
+            // `collections/gantt/index.ts` (approval = the shared
+            // `ApprovalStateType`, structurally `PlannerApprovalType`).
+            status: OptionType(StatusValueType),
+            approval: OptionType(PlannerApprovalType),
         })),
         columns: ArrayType(StructType({
             key: StringType,
@@ -796,12 +817,28 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         onSortChange: OptionType(FunctionType([TableSortEventType], NullType)),
         onTaskClick: OptionType(FunctionType([GanttTaskClickEventType], NullType)),
         onTaskDoubleClick: OptionType(FunctionType([GanttTaskClickEventType], NullType)),
-        onTaskDrag: OptionType(FunctionType([GanttTaskDragEventType], NullType)),
-        onTaskDurationChange: OptionType(FunctionType([GanttTaskDurationChangeEventType], NullType)),
+        // DnD target role (#268) — mirror `GanttRootType`; the drag funnel is
+        // the shared grammar (`contracts/drag.ts`).
+        id: StringType,
+        sources: ArrayType(StringType),
+        onDrag: OptionType(FunctionType([DragEventType], NullType)),
+        canDrop: OptionType(FunctionType([DragEventType], BooleanType)),
         onTaskProgressChange: OptionType(FunctionType([GanttTaskProgressChangeEventType], NullType)),
         onMilestoneClick: OptionType(FunctionType([GanttMilestoneClickEventType], NullType)),
         onMilestoneDoubleClick: OptionType(FunctionType([GanttMilestoneClickEventType], NullType)),
-        onMilestoneDrag: OptionType(FunctionType([GanttMilestoneDragEventType], NullType)),
+        // Optional review chrome (#263) — mirror the shared row-granularity
+        // `RowReviewType` (`contracts/review.ts`), spelled with the recursion
+        // `node` for `summary` (the Planner precedent).
+        review: OptionType(StructType({
+            columnLabel: StringType,
+            summary: OptionType(node),
+            onApprove: OptionType(FunctionType([PlannerApproveEventType], NullType)),
+            onReject: OptionType(FunctionType([PlannerApproveEventType], NullType)),
+            onApproveAll: OptionType(FunctionType([], NullType)),
+            onRejectAll: OptionType(FunctionType([], NullType)),
+            onRerun: OptionType(FunctionType([], NullType)),
+            rerunLabel: StringType,
+        })),
         slice: OptionType(SliceChromeType),
         style: OptionType(GanttStyleType),
     }),
@@ -856,13 +893,78 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
             rerunLabel: StringType,
         })),
         rowHover: OptionType(BooleanType),
+        // Opt-in DnD target role (#269) — mirror `PlannerRootType`.
+        id: StringType,
+        sources: ArrayType(StringType),
+        onDrag: OptionType(FunctionType([DragEventType], NullType)),
+        canDrop: OptionType(FunctionType([DragEventType], BooleanType)),
     }),
 
-    // Roster — people × days-of-week shift grid (drag & drop target role)
-    Roster: RosterRootType,
+    // Roster — people × days-of-week shift grid (drag & drop target role).
+    // Spelled inline since #265 (the review config's `summary` rides the
+    // recursion `node`) — mirror `RosterRootType` in `collections/roster/index.ts`.
+    Roster: StructType({
+        id: StringType,
+        sources: ArrayType(StringType),
+        mode: RosterModeType,
+        days: ArrayType(StringType),
+        personHeader: StringType,
+        personWidth: OptionType(StringType),
+        people: ArrayType(RosterPersonType),
+        shifts: ArrayType(RosterShiftType),
+        density: OptionType(DensityType),
+        summary: OptionType(StringType),
+        onDrag: OptionType(FunctionType([DragEventType], NullType)),
+        canDrop: OptionType(FunctionType([DragEventType], BooleanType)),
+        onSelect: OptionType(FunctionType([CellRefType], NullType)),
+        onAccept: OptionType(FunctionType([CellRefType], NullType)),
+        onAddAt: OptionType(FunctionType([CellRefType], NullType)),
+        review: OptionType(StructType({
+            columnLabel: StringType,
+            summary: OptionType(node),
+            onApprove: OptionType(FunctionType([PlannerApproveEventType], NullType)),
+            onReject: OptionType(FunctionType([PlannerApproveEventType], NullType)),
+            onApproveAll: OptionType(FunctionType([], NullType)),
+            onRejectAll: OptionType(FunctionType([], NullType)),
+            onRerun: OptionType(FunctionType([], NullType)),
+            rerunLabel: StringType,
+        })),
+    }),
 
-    // Board — single-day areas × shifts assignment board (drag & drop target role)
-    Board: BoardRootType,
+    // Board — single-day areas × shifts assignment board (drag & drop target
+    // role). Spelled inline since #265 (the review config's `summary` rides
+    // the recursion `node`) — mirror `BoardRootType` in
+    // `collections/board/index.ts`.
+    Board: StructType({
+        id: StringType,
+        sources: ArrayType(StringType),
+        mode: BoardModeType,
+        areaHeader: OptionType(StringType),
+        areaWidth: OptionType(StringType),
+        areas: ArrayType(BoardEntityType),
+        shifts: ArrayType(BoardEntityType),
+        people: ArrayType(BoardEntityType),
+        assignments: ArrayType(BoardAssignmentType),
+        requirements: OptionType(ArrayType(BoardRequirementType)),
+        density: OptionType(DensityType),
+        maxVisible: OptionType(IntegerType),
+        summary: OptionType(StringType),
+        canDrop: OptionType(FunctionType([DragEventType], BooleanType)),
+        onDrag: OptionType(FunctionType([DragEventType], NullType)),
+        onSelect: OptionType(FunctionType([CellRefType], NullType)),
+        onAccept: OptionType(FunctionType([CellRefType], NullType)),
+        onAddAt: OptionType(FunctionType([CellRefType], NullType)),
+        review: OptionType(StructType({
+            columnLabel: StringType,
+            summary: OptionType(node),
+            onApprove: OptionType(FunctionType([PlannerApproveEventType], NullType)),
+            onReject: OptionType(FunctionType([PlannerApproveEventType], NullType)),
+            onApproveAll: OptionType(FunctionType([], NullType)),
+            onRejectAll: OptionType(FunctionType([], NullType)),
+            onRerun: OptionType(FunctionType([], NullType)),
+            rerunLabel: StringType,
+        })),
+    }),
 
     // Calendar — day-of-week × week intensity grid (visualisation only)
     Calendar: CalendarRootType,

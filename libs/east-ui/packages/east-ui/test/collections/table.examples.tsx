@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, ArrayType, IntegerType, NullType, StringType, example } from "@elaraai/east";
+import { East, ArrayType, BooleanType, IntegerType, NullType, OptionType, StringType, example, none, some, variant } from "@elaraai/east";
 import { State, Style, UIComponentType } from "@elaraai/east-ui";
-import { Badge, Box, HStack, Reactive, Table, Tag, Text, VStack } from "@elaraai/east-ui";
+import { Badge, Box, HStack, Reactive, Status, Table, Tag, Text, VStack } from "@elaraai/east-ui";
 
 export const tableBasic = example({
     keywords: ["Table", "Root", "basic", "header"],
@@ -342,6 +342,101 @@ export const tableReactivePagination = example({
                     }))}
                     columns={{ id: { header: "ID" }, name: { header: "Name" }, value: { header: "Value" } }}
                 />
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+/**
+ * Review chrome (#264) — the shared per-row Approve / Reject Decision column
+ * (a pinned-right column) plus the commitBar batch foot, identical to the
+ * Planner's. An order-exceptions table: flagged rows rest `pending` with a
+ * quiet warning dot; clean rows rest `approved`. Accessors receive the
+ * UNSLICED `rowIndex`.
+ */
+export const tableReview = example({
+    keywords: ["Table", "review", "approve", "reject", "approval", "decision", "batch", "rerun", "status", "row", "exception"],
+    description: "Optional per-row approval on an order-exceptions table — pinned-right Decision column + commitBar batch foot, quiet dots on flagged pending rows",
+    fn: East.function([], UIComponentType, ($) => {
+        const flagged = $.const(East.function([IntegerType], BooleanType, (_$, rowIndex) =>
+            rowIndex.modulo(3n).equals(1n)));
+        const reviewStatus = $.const(East.function([IntegerType], OptionType(Status.Types.Value), ($, rowIndex) =>
+            flagged(rowIndex).ifElse(
+                _$ => East.value(some(variant("warning", null)), OptionType(Status.Types.Value)),
+                _$ => East.value(none, OptionType(Status.Types.Value)),
+            )));
+        const reviewApproval = $.const(East.function([IntegerType], OptionType(Table.Types.Approval), ($, rowIndex) =>
+            flagged(rowIndex).ifElse(
+                _$ => East.value(some(variant("pending", null)), OptionType(Table.Types.Approval)),
+                _$ => East.value(some(variant("approved", null)), OptionType(Table.Types.Approval)),
+            )));
+        return (
+            <Table
+                variant="line"
+                data={East.Array.range(0n, 6n).map((_$, i) => ({
+                    order: East.str`SO-10${i}`,
+                    exception: i.modulo(3n).equals(1n).ifElse(_$ => "margin below floor", _$ => "—"),
+                    value: i.multiply(1250n),
+                }))}
+                columns={{ order: { header: "Order" }, exception: { header: "Exception" }, value: { header: "Value" } }}
+                review={{
+                    columnLabel: "Decision",
+                    rerunLabel: "Rerun",
+                    summary: <Text color="fg.muted">6 orders · 2 exceptions need a call</Text>,
+                    onApprove: East.function([Table.Types.ApproveEvent], NullType, _$ => null),
+                    onReject: East.function([Table.Types.ApproveEvent], NullType, _$ => null),
+                    onApproveAll: East.function([], NullType, _$ => null),
+                    onRejectAll: East.function([], NullType, _$ => null),
+                    onRerun: East.function([], NullType, _$ => null),
+                }}
+                reviewStatus={reviewStatus}
+                reviewApproval={reviewApproval}
+            />
+        );
+    }),
+    inputs: [],
+});
+
+/**
+ * Review + pagination (#264) — the Decision column composes with the pager:
+ * the review foot stacks BELOW the pagination band, and every review
+ * callback / accessor receives the UNSLICED row index (page 2's first row is
+ * rowIndex 20, not 0 — the `expandedContent` convention), so approvals map
+ * straight back to the source data under paging AND sorting.
+ */
+export const tableReviewPaginated = example({
+    keywords: ["Table", "review", "pagination", "rowIndex", "unsliced", "page", "decision", "foot"],
+    description: "Review chrome under pagination — unsliced rowIndex semantics (page 2 row 0 is rowIndex 20), review foot stacked below the pager band",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const pageBind = $.let(State.bind([IntegerType], "table_review_page", 1n));
+            const page = $.let(pageBind.read());
+            const onPageChange = $.const(East.function([IntegerType], NullType, ($, next) => {
+                $(pageBind.write(next));
+            }));
+            const lastBind = $.let(State.bind([StringType], "table_review_last", "none yet"));
+            const onApprove = $.const(East.function([Table.Types.ApproveEvent], NullType, ($, ev) => {
+                $(lastBind.write(East.str`approved rowIndex ${East.print(ev.rowIndex)}`));
+            }));
+            const reviewApproval = $.const(East.function([IntegerType], OptionType(Table.Types.Approval), (_$, _rowIndex) =>
+                some(variant("pending", null))));
+            const last = $.let(lastBind.read());
+            return (
+                <VStack gap="3" align="stretch">
+                    <Table
+                        variant="line"
+                        pagination={{ pageSize: 20n, page, onPageChange }}
+                        data={East.Array.range(0n, 60n).map((_$, i) => ({
+                            id: East.str`#${i}`,
+                            name: East.str`Order ${i}`,
+                        }))}
+                        columns={{ id: { header: "ID" }, name: { header: "Name" } }}
+                        review={{ onApprove, onApproveAll: East.function([], NullType, _$ => null) }}
+                        reviewApproval={reviewApproval}
+                    />
+                    <Text.MonoLabel>{East.str`LAST · ${last}`}</Text.MonoLabel>
+                </VStack>
             );
         }}</Reactive>
     )),

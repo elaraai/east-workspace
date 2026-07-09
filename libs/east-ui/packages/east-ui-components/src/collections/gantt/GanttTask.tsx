@@ -13,7 +13,7 @@ import type { Gantt } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 import { alignToCss } from "../shared/helpers";
-import { GANTT_STATUS } from "./palette";
+import { ganttStateKey, GANTT_STATE_COLOR, GANTT_STATUS_TINT, GANTT_STATE_DASH, GANTT_STATE_OPACITY, GANTT_STATE_STRIKE } from "./palette";
 
 export type GanttTaskValue = ValueTypeOf<typeof Gantt.Types.Task>;
 
@@ -52,7 +52,7 @@ export interface GanttTaskProps {
 }
 
 /** Convert a time step to milliseconds */
-const timeStepToMs = (step: TimeStep): number => {
+export const timeStepToMs = (step: TimeStep): number => {
     switch (step.type) {
         case "minutes": return step.value * 60 * 1000;
         case "hours": return step.value * 60 * 60 * 1000;
@@ -63,7 +63,7 @@ const timeStepToMs = (step: TimeStep): number => {
 };
 
 /** Snap a date to the nearest step */
-const snapToStep = (date: Date, step: TimeStep | undefined): Date => {
+export const snapToStep = (date: Date, step: TimeStep | undefined): Date => {
     if (!step) return date;
     const ms = timeStepToMs(step);
     const snapped = Math.round(date.getTime() / ms) * ms;
@@ -110,8 +110,11 @@ export const GanttTask = ({
         fontSize: getSomeorUndefined(li.fontSize)?.type,
     } : null;
 
-    // Schedule status → spec status palette (committed / proposed / at-risk).
-    const statusTag = getSomeorUndefined(value.status)?.type ?? "committed";
+    // Two-axis grammar (#262): the shared lifecycle `state` picks the bar
+    // TREATMENT (solid / dashed / ghost / strike) + base colour; the optional
+    // risk `status` tints the colour only (the old at-risk red).
+    const stateTag = ganttStateKey(value.state);
+    const riskTag = getSomeorUndefined(value.status)?.type;
     const propsProgress = getSomeorUndefined(value.progress);
 
     // Per-task popover slot (click-triggered).
@@ -138,8 +141,12 @@ export const GanttTask = ({
     // the spec's white would vanish). The drag grip is a FontAwesome icon whose
     // colour comes from the wrapper's `color` token (fg.subtle = ink-4).
     const [statusColor, trackBg, resizeLineColor] = useToken("colors", [
-        GANTT_STATUS[statusTag] ?? "fg.success", "bg.canvas", "border.strong",
+        (riskTag !== undefined ? GANTT_STATUS_TINT[riskTag] : undefined) ?? GANTT_STATE_COLOR[stateTag] ?? "fg.success",
+        "bg.canvas", "border.strong",
     ]);
+    const stateDash = GANTT_STATE_DASH[stateTag];
+    const stateOpacity = GANTT_STATE_OPACITY[stateTag];
+    const stateStrike = GANTT_STATE_STRIKE[stateTag];
 
     // Calculate current position from local state + drag offset
     const currentX = position.x + (dragOffset ?? 0);
@@ -172,9 +179,10 @@ export const GanttTask = ({
         return (durationMs / totalDuration) * timelineWidth;
     }, [timelineStartDate, timelineEndDate, timelineWidth]);
 
-    // Committed bars are read-only / resize-locked per spec — only
-    // proposed / at-risk bars are editable, regardless of wired callbacks.
-    const isEditable = statusTag !== "committed";
+    // Committed history and rejected records are read-only / resize-locked
+    // per spec — only proposed bars (added / model / removed drafts) are
+    // editable, regardless of wired callbacks.
+    const isEditable = stateTag === "proposedAdded" || stateTag === "proposedModel" || stateTag === "proposedRemoved";
     const isDraggable = isEditable && onDrag && timelineStartDate && timelineEndDate && timelineWidth;
     const isDurationDraggable = isEditable && onDurationChange && timelineStartDate && timelineEndDate && timelineWidth;
     const isProgressDraggable = isEditable && onProgressChange && propsProgress !== undefined;
@@ -282,10 +290,11 @@ export const GanttTask = ({
                 y={y}
                 width={taskWidth}
                 height={height}
-                fill={trackBg}
+                fill={stateTag === "proposedModel" ? "transparent" : trackBg}
                 stroke={statusColor}
                 strokeWidth={1}
-                opacity={isActive ? 1 : 0.9}
+                strokeDasharray={stateDash}
+                opacity={(isActive ? 1 : 0.9) * stateOpacity}
                 rx={radius}
                 ry={radius}
                 onDoubleClick={handleDoubleClick}
@@ -303,8 +312,24 @@ export const GanttTask = ({
                     width={progressWidth}
                     height={height}
                     fill={statusColor}
+                    opacity={stateOpacity}
                     rx={radius}
                     ry={radius}
+                    style={{ pointerEvents: "none" }}
+                />
+            )}
+
+            {/* Strike line — proposed deletions + rejected records read as
+                struck-through (the shared removed/rejected treatment). */}
+            {stateStrike && (
+                <line
+                    x1={currentX + 2}
+                    x2={currentX + taskWidth - 2}
+                    y1={y + height / 2}
+                    y2={y + height / 2}
+                    stroke={statusColor}
+                    strokeWidth={1.5}
+                    opacity={0.9}
                     style={{ pointerEvents: "none" }}
                 />
             )}
@@ -363,7 +388,7 @@ export const GanttTask = ({
                             // legible on the paper-2 track.
                             color={labelProps.color ?? (currentProgress >= 50 ? "white" : "fg.default")}
                             fontWeight={labelProps.fontWeight ?? 600}
-                            fontStyle={labelProps.fontStyle}
+                            fontStyle={labelProps.fontStyle ?? (stateTag === "proposedModel" ? "italic" : undefined)}
                             whiteSpace="nowrap"
                             cursor={cursor}
                             userSelect="none"

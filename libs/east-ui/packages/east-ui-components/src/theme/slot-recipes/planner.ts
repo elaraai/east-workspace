@@ -13,11 +13,10 @@
  * `severity` variant; row/header rhythm by `size`. The renderer carries no
  * inline design values — it only consumes these slots.
  *
- * The optional review chrome adds a trailing per-row decision column
- * (`decisionHeader` / `decisionCol` — the Approve/Reject pair hangs off it) and
- * a quiet `statusDot` beside the resource. The dot rides the existing `status`
- * variant so one axis drives the marker ring, icon, and dot together; the batch
- * foot reuses the shared `commitBar` recipe rather than a planner slot.
+ * The optional review chrome (trailing decision column + quiet status dot)
+ * lives on the shared `reviewChrome` slot recipe — one definition for every
+ * review adopter (Planner, Gantt, Table, Roster) — and the batch foot reuses
+ * the shared `commitBar` recipe rather than a planner slot.
  *
  * @packageDocumentation
  */
@@ -32,7 +31,6 @@ export const plannerSlotRecipe = defineSlotRecipe({
         "cell",
         "bucketedCell", "bucket", "bucketLabel",
         "event", "grip", "nowLine", "nowPip", "nowHint", "markerRing", "markerIcon", "axis",
-        "decisionHeader", "decisionCol", "statusDot",
     ],
     base: {
         root: { display: "flex", flexDirection: "column", overflowX: "auto", overflowY: "hidden", background: "bg.surface", width: "100%" },
@@ -264,55 +262,9 @@ export const plannerSlotRecipe = defineSlotRecipe({
             zIndex: 3,
         },
         axis: { fontFamily: "mono", fontSize: "11px", letterSpacing: "0.18em", textTransform: "uppercase", color: "{colors.gray.500}" },
-        // Review decision-column header — mirrors the column-header type rhythm
-        // but right-anchored, with a left rule fencing the column off from the
-        // timeline (the way `rowHeader` fences the left pane). Width comes from
-        // the grid template the renderer builds, not from this slot.
-        decisionHeader: {
-            fontFamily: "mono",
-            fontSize: "11px",
-            fontWeight: "semibold",
-            letterSpacing: "0.18em",
-            textTransform: "uppercase",
-            color: "{colors.gray.500}",
-            padding: "10px 12px",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "flex-end",
-            borderBottomWidth: "1px",
-            borderBottomColor: "border.strong",
-            borderLeftWidth: "1px",
-            borderLeftColor: "border.subtle",
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            minWidth: 0,
-        },
-        // Per-row decision cell — the Approve/Reject pair, right-aligned and
-        // fenced by the same left rule. Vertical rhythm comes from the row's
-        // own min-height; sticky-right pinning + wash are applied by the renderer.
-        decisionCol: {
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "flex-end",
-            gap: "6px",
-            padding: "0 12px",
-            borderLeftWidth: "1px",
-            borderLeftColor: "border.subtle",
-            boxSizing: "border-box",
-        },
-        // The quiet status dot beside the resource name (some ⇒ flagged). Colour
-        // rides the `status` variant; this is just the 8px disc geometry. Reads
-        // as one flag per row, not a per-cell ring (which is too busy weekly).
-        statusDot: {
-            display: "inline-block",
-            width: "8px",
-            height: "8px",
-            borderRadius: "{radii.full}",
-            marginRight: "6px",
-            flexShrink: 0,
-            verticalAlign: "middle",
-            background: "fg.subtle",
-        },
+        // (Review decision-column chrome — `decisionHeader` / `decisionCol` /
+        // `statusDot` — moved to the shared `reviewChrome` slot recipe so every
+        // review adopter wears identical chrome. The foot stays on `commitBar`.)
     },
     variants: {
         size: {
@@ -321,9 +273,9 @@ export const plannerSlotRecipe = defineSlotRecipe({
             // token). A separate `row.minHeight` floor (formerly 36/56) exceeded
             // that cell height at compact/comfortable and left an uncovered strip
             // at the bottom of every row that no cell wash filled (#120 item 2).
-            sm: { rowHeader: { paddingY: "{spacing.1}" }, colHeader: { paddingY: "{spacing.1.5}" }, headerCell: { paddingY: "{spacing.1.5}" }, decisionHeader: { paddingY: "{spacing.1.5}" } },
+            sm: { rowHeader: { paddingY: "{spacing.1}" }, colHeader: { paddingY: "{spacing.1.5}" }, headerCell: { paddingY: "{spacing.1.5}" } },
             md: {},
-            lg: { rowHeader: { paddingY: "{spacing.3}" }, colHeader: { paddingY: "{spacing.3}" }, headerCell: { paddingY: "{spacing.3}" }, decisionHeader: { paddingY: "{spacing.3}" } },
+            lg: { rowHeader: { paddingY: "{spacing.3}" }, colHeader: { paddingY: "{spacing.3}" }, headerCell: { paddingY: "{spacing.3}" } },
         },
         // Event geometry — slot-bound chip vs multi-slot bar.
         shape: {
@@ -368,14 +320,15 @@ export const plannerSlotRecipe = defineSlotRecipe({
                 event: { background: "transparent", color: "{colors.gray.500}", borderColor: "{colors.gray.400}", textDecoration: "line-through" },
             },
         },
-        // Conflict severity — colours the ring border + badge fill, and (review
-        // chrome) the quiet row `statusDot`, so one axis drives all three.
+        // Conflict severity — colours the ring border + badge fill. (The review
+        // chrome's quiet row dot rides the same axis on the shared `reviewChrome`
+        // recipe's `status` variant.)
         status: {
-            success: { markerRing: { borderColor: "{colors.status.pos}",  background: "bg.success.subtle" }, markerIcon: { color: "{colors.status.pos}"  }, statusDot: { background: "{colors.status.pos}"  } },
-            warning: { markerRing: { borderColor: "{colors.status.warn}", background: "bg.warning.subtle" }, markerIcon: { color: "{colors.status.warn}" }, statusDot: { background: "{colors.status.warn}" } },
-            danger:  { markerRing: { borderColor: "{colors.status.neg}",  background: "bg.danger.subtle"  }, markerIcon: { color: "{colors.status.neg}"  }, statusDot: { background: "{colors.status.neg}"  } },
-            info:    { markerRing: { borderColor: "{colors.status.info}", background: "bg.info.subtle"    }, markerIcon: { color: "{colors.status.info}" }, statusDot: { background: "{colors.status.info}" } },
-            neutral: { markerRing: { borderColor: "border.strong",        background: "transparent"       }, markerIcon: { color: "fg.subtle"            }, statusDot: { background: "fg.subtle"            } },
+            success: { markerRing: { borderColor: "{colors.status.pos}",  background: "bg.success.subtle" }, markerIcon: { color: "{colors.status.pos}"  } },
+            warning: { markerRing: { borderColor: "{colors.status.warn}", background: "bg.warning.subtle" }, markerIcon: { color: "{colors.status.warn}" } },
+            danger:  { markerRing: { borderColor: "{colors.status.neg}",  background: "bg.danger.subtle"  }, markerIcon: { color: "{colors.status.neg}"  } },
+            info:    { markerRing: { borderColor: "{colors.status.info}", background: "bg.info.subtle"    }, markerIcon: { color: "{colors.status.info}" } },
+            neutral: { markerRing: { borderColor: "border.strong",        background: "transparent"       }, markerIcon: { color: "fg.subtle"            } },
         },
         // Per-event attention animation (`event.animation`). `pulse` is the shared
         // `elara-pulse` opacity keyframe; gated behind `prefers-reduced-motion`.

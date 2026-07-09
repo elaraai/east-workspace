@@ -212,6 +212,12 @@ export type PlannerStateType = typeof PlannerStateType;
  * pre-approved (its Approve renders as the active state); `pending` awaits an
  * explicit call (a flagged line); `rejected` is an explicit decline.
  *
+ * The canonical definition is the shared review contract's
+ * `ApprovalStateType` (`contracts/review.ts`) — this structural twin is kept
+ * so existing Planner IR and imports round-trip unchanged, and because
+ * `component.ts` must reach the variant through a `UIComponentType`-free
+ * module. Prefer `ApprovalStateType` in new code.
+ *
  * @property approved - Pre-approved / accepted (the resting state for a clean line)
  * @property pending - Undecided — awaits an explicit Approve / Reject
  * @property rejected - Explicitly declined
@@ -442,6 +448,11 @@ export type PlannerSelectEventType = typeof PlannerSelectEventType;
 /**
  * The payload of the per-row `review.onApprove` / `review.onReject` callbacks
  * (a row's Approve / Reject was clicked). Mirrors {@link PlannerSelectEventType}.
+ *
+ * @remarks
+ * A structural twin of the shared review contract's `RowRefType`
+ * (`contracts/review.ts`), kept for the same round-trip / import-graph
+ * reasons as {@link PlannerApprovalType}. Prefer `RowRefType` in new code.
  *
  * @property rowIndex - The row's index (0-based)
  */

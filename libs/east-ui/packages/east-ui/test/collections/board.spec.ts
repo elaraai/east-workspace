@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { BooleanType, East, NullType, StringType, variant } from "@elaraai/east";
+import { BooleanType, East, IntegerType, NullType, StringType, StructType, none, some, variant } from "@elaraai/east";
 import { Board, CellRefType, DragEventType } from "@elaraai/east-ui/internal";
 import * as ex from "./board.examples.js";
 
@@ -15,7 +15,8 @@ describeEast("Board", (test) => {
         boardCoverage: ex.boardCoverage,
         boardOverflow: ex.boardOverflow,
         boardInteractive: ex.boardInteractive,
-        boardWithLibrary: ex.boardWithLibrary,
+        boardReviewFoot: ex.boardReviewFoot,
+        boardLibraryDnd: ex.boardLibraryDnd,
     });
 
     test("creates a board with target declaration and bare defaults", $ => {
@@ -44,7 +45,7 @@ describeEast("Board", (test) => {
         $(Assert.equal(root.requirements.hasTag("none"), true));
         $(Assert.equal(root.maxVisible.hasTag("none"), true));
         $(Assert.equal(root.summary.hasTag("none"), true));
-        $(Assert.equal(root.canAssign.hasTag("none"), true));
+        $(Assert.equal(root.canDrop.hasTag("none"), true));
         $(Assert.equal(root.areas.get(0n).key, "icu"));
         $(Assert.equal(root.areas.get(0n).sublabel.hasTag("none"), true));
         $(Assert.equal(root.shifts.get(0n).label, "AM"));
@@ -136,12 +137,69 @@ describeEast("Board", (test) => {
         ));
         const root = $.let(board.unwrap().unwrap("Board"));
 
-        $(Assert.equal(root.canAssign.hasTag("some"), true));
-        $(Assert.equal(root.canAssign.unwrap("some")("patel", "icu", "am"), true));
-        $(Assert.equal(root.canAssign.unwrap("some")("patel", "icu", "night"), false));
+        // The deprecated `canAssign` sugar compiles into the shared `canDrop`
+        // predicate over synthesized candidate events (#261).
+        $(Assert.equal(root.canDrop.hasTag("some"), true));
+        const veto = $.let(root.canDrop.unwrap("some"));
+        // add: the dragged card's key IS the person; (icu, am) allowed, nights vetoed.
+        $(Assert.equal(veto(variant("add", {
+            from: { library: "people", key: "patel" },
+            into: { surface: "b", row: "icu", slot: "am", event: none },
+            duplicate: false,
+        })), true));
+        $(Assert.equal(veto(variant("add", {
+            from: { library: "people", key: "patel" },
+            into: { surface: "b", row: "icu", slot: "night", event: none },
+            duplicate: false,
+        })), false));
+        // move: the person resolves from the authored assignments by event key.
+        $(Assert.equal(veto(variant("move", {
+            from: { surface: "b", row: "icu", slot: "am", event: some("x1") },
+            to: { surface: "b", row: "icu", slot: "night", event: none },
+        })), false));
+        // move of an unknown key fails open (e.g. a chip added optimistically).
+        $(Assert.equal(veto(variant("move", {
+            from: { surface: "b", row: "icu", slot: "am", event: some("nope") },
+            to: { surface: "b", row: "icu", slot: "night", event: none },
+        })), true));
+        // sink kinds are always structurally valid.
+        $(Assert.equal(veto(variant("remove", {
+            from: { surface: "b", row: "icu", slot: "am", event: some("x1") },
+            to: variant("trash", null),
+        })), true));
         $(Assert.equal(root.onDrag.hasTag("some"), true));
         $(Assert.equal(root.onSelect.hasTag("some"), true));
         $(Assert.equal(root.onAccept.hasTag("none"), true));
         $(Assert.equal(root.onAddAt.hasTag("none"), true));
+    });
+
+    test("review foot encodes; per-row fields are dropped with a warning (#265)", $ => {
+        const board = $.let(Board.Root(
+            [{ id: "icu", name: "ICU" }],
+            [{ id: "am", name: "AM" }],
+            [{ id: "patel", name: "Patel, R." }],
+            [{ id: "x1", personId: "patel", areaId: "icu", shiftId: "am", state: variant("committed", null) }],
+            {
+                id: "b",
+                mode: "edit",
+                area: a => ({ key: a.id, label: a.name }),
+                shift: sh => ({ key: sh.id, label: sh.name }),
+                person: p => ({ key: p.id, label: p.name }),
+                assignment: x => ({ key: x.id, person: x.personId, area: x.areaId, shift: x.shiftId, state: x.state }),
+                review: {
+                    // Per-row fields are unused on Board v1 — the factory warns
+                    // and drops them so the foot-only contract is explicit.
+                    onApprove: East.function([StructType({ rowIndex: IntegerType })], NullType, _$ => null),
+                    onApproveAll: East.function([], NullType, _$ => null),
+                    onRejectAll: East.function([], NullType, _$ => null),
+                },
+            },
+        ));
+        const review = $.let(board.unwrap().unwrap("Board").review.unwrap("some"));
+
+        $(Assert.equal(review.onApprove.hasTag("none"), true));
+        $(Assert.equal(review.onApproveAll.hasTag("some"), true));
+        $(Assert.equal(review.onRejectAll.hasTag("some"), true));
+        $(Assert.equal(review.onRerun.hasTag("none"), true));
     });
 }, { platformFns: TestImpl });

@@ -48,4 +48,15 @@ export {
     DragSinkType, type DragSinkLiteral,
     DragEdgeType, type DragEdgeLiteral,
     DragEventType,
+    CanDropFnType,
 } from "./drag.js";
+
+export {
+    ApprovalStateType, type ApprovalStateLiteral,
+    RowRefType,
+    reviewType, type ReviewStructType,
+    RowReviewType,
+    type ReviewConfig,
+    buildReview,
+    deriveApproval,
+} from "./review.js";

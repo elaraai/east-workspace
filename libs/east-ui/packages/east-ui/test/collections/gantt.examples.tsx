@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, DateTimeType, IntegerType, NullType, StringType, variant, example } from "@elaraai/east";
-import { State, Style, UIComponentType } from "@elaraai/east-ui";
-import { Badge, Gantt, Reactive, Table, Text, VStack } from "@elaraai/east-ui";
+import { BooleanType, East, DateTimeType, IntegerType, NullType, StringType, none, some, variant, example } from "@elaraai/east";
+import { DragEventType, State, Style, UIComponentType } from "@elaraai/east-ui";
+import { Badge, Gantt, Library, Reactive, Table, Text, VStack } from "@elaraai/east-ui";
 
 export const ganttBasic = example({
     keywords: ["Gantt", "Root", "Task", "basic", "timeline"],
@@ -179,9 +179,9 @@ export const ganttAxisWeekTier = example({
     inputs: [],
 });
 
-export const ganttStatusByType = example({
-    keywords: ["Gantt", "Task", "status", "committed", "proposed", "atRisk", "ifElse", "per-row"],
-    description: "Status-driven bar colour — per-row `status` derived from a field via East ifElse (committed / proposed / at-risk palette)",
+export const ganttStateAndStatus = example({
+    keywords: ["Gantt", "Task", "state", "status", "committed", "added", "danger", "risk", "lifecycle", "ifElse", "per-row"],
+    description: "Two-axis task grammar (#262) — the shared lifecycle `state` (committed vs proposed) derived per row, with the orthogonal risk `status` tint (the old at-risk) on the blocked row",
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Gantt
@@ -200,19 +200,125 @@ export const ganttStatusByType = example({
                         start: row.start,
                         end: row.end,
                         label: row.name,
-                        // Progress fills the bar in the status colour so each status
-                        // reads at a glance (an empty track only shows a thin border).
+                        // Progress fills the bar in the state/status colour so each
+                        // treatment reads at a glance.
                         progress: row.progress,
-                        // Map stage → status: Locked → committed, Blocked → at-risk, else → proposed.
-                        status: row.stage.equal("Locked").ifElse(
+                        // Audit axis — the shared event lifecycle: locked stages are
+                        // committed history; everything else is a proposed(added) draft.
+                        state: East.value(row.stage.equal("Locked").ifElse(
                             _$ => variant("committed", null),
-                            _$ => row.stage.equal("Blocked").ifElse(
-                                _$ => variant("atRisk", null),
-                                _$ => variant("proposed", null),
+                            _$ => variant("proposed", variant("added", null)),
+                        ), Gantt.Types.State),
+                        // Risk axis (the old `atRisk`) — an orthogonal tint over the
+                        // state treatment: blocked ⇒ danger, locked ⇒ success, else info.
+                        status: East.value(row.stage.equal("Blocked").ifElse(
+                            _$ => variant("danger", null),
+                            _$ => row.stage.equal("Locked").ifElse(
+                                _$ => variant("success", null),
+                                _$ => variant("info", null),
                             ),
-                        ),
+                        ), Gantt.Types.Status),
                     })],
                 })}
+            />
+        );
+    }),
+    inputs: [],
+});
+
+/**
+ * All five lifecycle treatments (#262) — the shared `PlannerStateType`
+ * grammar on Gantt bars: committed (solid), proposed-added (dashed),
+ * proposed-model (dashed ghost, italic label), proposed-removed (struck
+ * ghost), rejected (greyed strike). One row per arm, mapped from a data
+ * field with nested East ifElse.
+ */
+export const ganttLifecycleArms = example({
+    keywords: ["Gantt", "state", "lifecycle", "committed", "added", "model", "removed", "rejected", "ghost", "dashed", "treatment"],
+    description: "The five shared-lifecycle treatments on task bars — committed, proposed(added), proposed(model), proposed(removed), rejected",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <Gantt
+                data={[
+                    { kind: "committed", name: "Baseline build", start: new Date("2024-01-01"), end: new Date("2024-01-24"), progress: 100 },
+                    { kind: "added", name: "Operator draft", start: new Date("2024-01-08"), end: new Date("2024-02-02"), progress: 40 },
+                    { kind: "model", name: "Model suggestion", start: new Date("2024-01-15"), end: new Date("2024-02-10"), progress: 0 },
+                    { kind: "removed", name: "Proposed cut", start: new Date("2024-01-05"), end: new Date("2024-01-30"), progress: 60 },
+                    { kind: "rejected", name: "Declined plan", start: new Date("2024-01-20"), end: new Date("2024-02-14"), progress: 20 },
+                ]}
+                columns={{ kind: { header: "State" }, name: { header: "Task" } }}
+                rowSpec={row => ({
+                    tasks: [Gantt.Task({
+                        start: row.start,
+                        end: row.end,
+                        label: row.name,
+                        progress: row.progress,
+                        state: East.value(row.kind.equal("committed").ifElse(
+                            _$ => variant("committed", null),
+                            _$ => row.kind.equal("rejected").ifElse(
+                                _$ => variant("rejected", null),
+                                _$ => row.kind.equal("model").ifElse(
+                                    _$ => variant("proposed", variant("model", null)),
+                                    _$ => row.kind.equal("removed").ifElse(
+                                        _$ => variant("proposed", variant("removed", null)),
+                                        _$ => variant("proposed", variant("added", null)),
+                                    ),
+                                ),
+                            ),
+                        ), Gantt.Types.State),
+                    })],
+                })}
+            />
+        );
+    }),
+    inputs: [],
+});
+
+/**
+ * Review chrome (#263) — the shared per-row Approve / Reject decision column
+ * (sticky beside the timeline) plus the commitBar batch foot, identical to
+ * the Planner's. A machine-written schedule under review: model-ghost bars
+ * on flagged rows resting `pending` (quiet warning dot), clean rows resting
+ * `approved`. Callbacks receive the acted-on `{ rowIndex }`.
+ */
+export const ganttReview = example({
+    keywords: ["Gantt", "review", "approve", "reject", "approval", "decision", "batch", "rerun", "status", "row", "model"],
+    description: "Optional per-row approval on a machine-written schedule — Decision column + batch foot, model-ghost bars on flagged pending rows",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <Gantt
+                data={[
+                    { name: "Press retool", crew: "Crew A", flagged: false, start: new Date("2024-01-02"), end: new Date("2024-01-12") },
+                    { name: "Line balance", crew: "Crew B", flagged: true, start: new Date("2024-01-08"), end: new Date("2024-01-22") },
+                    { name: "Paint refit", crew: "Crew C", flagged: false, start: new Date("2024-01-15"), end: new Date("2024-01-29") },
+                    { name: "QA sweep", crew: "Crew A", flagged: true, start: new Date("2024-01-24"), end: new Date("2024-02-06") },
+                ]}
+                columns={{ name: { header: "Job" }, crew: { header: "Crew" } }}
+                rowSpec={row => ({
+                    tasks: [Gantt.Task({
+                        start: row.start,
+                        end: row.end,
+                        label: row.name,
+                        // The machine's suggestion on flagged rows renders as the
+                        // dashed model ghost; clean rows are operator drafts.
+                        state: East.value(row.flagged.ifElse(
+                            _$ => variant("proposed", variant("model", null)),
+                            _$ => variant("proposed", variant("added", null)),
+                        ), Gantt.Types.State),
+                    })],
+                    status: row.flagged.ifElse(() => some(variant("warning", null)), () => none),
+                    approval: row.flagged.ifElse(() => some(variant("pending", null)), () => some(variant("approved", null))),
+                })}
+                review={{
+                    columnLabel: "Decision",
+                    rerunLabel: "Rerun",
+                    summary: <Text color="fg.muted">4 jobs · 2 flagged need a call · +6h float</Text>,
+                    onApprove: East.function([Gantt.Types.ApproveEvent], NullType, _$ => null),
+                    onReject: East.function([Gantt.Types.ApproveEvent], NullType, _$ => null),
+                    onApproveAll: East.function([], NullType, _$ => null),
+                    onRejectAll: East.function([], NullType, _$ => null),
+                    onRerun: East.function([], NullType, _$ => null),
+                }}
             />
         );
     }),
@@ -316,11 +422,16 @@ export const ganttInteractiveCallbacks = example({
             const onTaskDoubleClick = $.const(East.function([Gantt.Types.TaskClickEvent], NullType, ($, event) => {
                 $(lastEventBind.write(East.str`onTaskDoubleClick: row ${event.rowIndex}, task ${event.taskIndex}`));
             }));
-            const onTaskDrag = $.const(East.function([Gantt.Types.TaskDragEvent], NullType, ($, event) => {
-                $(lastEventBind.write(East.str`onTaskDrag: row ${event.rowIndex}, task ${event.taskIndex} moved`));
-            }));
-            const onTaskDurationChange = $.const(East.function([Gantt.Types.TaskDurationChangeEvent], NullType, ($, event) => {
-                $(lastEventBind.write(East.str`onTaskDurationChange: row ${event.rowIndex}, task ${event.taskIndex}, new end date`));
+            // ONE grammar funnel (#268): task-body drags arrive as `move`,
+            // edge drags as `resize`, Library drops as `add` — the bespoke
+            // per-gesture callbacks are gone.
+            const onDrag = $.const(East.function([DragEventType], NullType, ($, event) => {
+                $.match(event, {
+                    move: ($, mv) => { $(lastEventBind.write(East.str`onDrag move: ${mv.from.row}/${mv.from.event.getTag()} → ${mv.to.slot}`)); },
+                    resize: ($, rz) => { $(lastEventBind.write(East.str`onDrag resize: ${rz.event.row} ${rz.edge.getTag()} edge → ${rz.event.slot}`)); },
+                    add: ($, add) => { $(lastEventBind.write(East.str`onDrag add: ${add.from.key} → row ${add.into.row}`)); },
+                    remove: ($, rm) => { $(lastEventBind.write(East.str`onDrag remove: ${rm.from.row}`)); },
+                });
             }));
             const onTaskProgressChange = $.const(East.function([Gantt.Types.TaskProgressChangeEvent], NullType, ($, event) => {
                 $(lastEventBind.write(East.str`onTaskProgressChange: row ${event.rowIndex}, task ${event.taskIndex}, progress ${event.newProgress}`));
@@ -330,9 +441,6 @@ export const ganttInteractiveCallbacks = example({
             }));
             const onMilestoneDoubleClick = $.const(East.function([Gantt.Types.MilestoneClickEvent], NullType, ($, event) => {
                 $(lastEventBind.write(East.str`onMilestoneDoubleClick: row ${event.rowIndex}, milestone ${event.milestoneIndex}`));
-            }));
-            const onMilestoneDrag = $.const(East.function([Gantt.Types.MilestoneDragEvent], NullType, ($, event) => {
-                $(lastEventBind.write(East.str`onMilestoneDrag: row ${event.rowIndex}, milestone ${event.milestoneIndex} moved`));
             }));
 
             return (
@@ -347,12 +455,11 @@ export const ganttInteractiveCallbacks = example({
                         onSortChange={onSortChange}
                         onTaskClick={onTaskClick}
                         onTaskDoubleClick={onTaskDoubleClick}
-                        onTaskDrag={onTaskDrag}
-                        onTaskDurationChange={onTaskDurationChange}
+                        id="gantt-live"
+                        onDrag={onDrag}
                         onTaskProgressChange={onTaskProgressChange}
                         onMilestoneClick={onMilestoneClick}
                         onMilestoneDoubleClick={onMilestoneDoubleClick}
-                        onMilestoneDrag={onMilestoneDrag}
                         data={[
                             { name: "Sprint 1", start: new Date("2024-01-01"), end: new Date("2024-01-14"), release: new Date("2024-01-14") },
                             { name: "Sprint 2", start: new Date("2024-01-15"), end: new Date("2024-01-28"), release: new Date("2024-01-28") },
@@ -362,7 +469,7 @@ export const ganttInteractiveCallbacks = example({
                         rowSpec={row => ({
                             // `proposed` (not committed) so the bars are editable —
                             // committed bars are read-only / resize-locked per spec.
-                            tasks: [Gantt.Task({ start: row.start, end: row.end, progress: 50, status: "proposed" })],
+                            tasks: [Gantt.Task({ start: row.start, end: row.end, progress: 50, state: "added" })],
                             milestones: [Gantt.Milestone({ date: row.release, label: "Release", kind: "release" })],
                         })}
                     />
@@ -377,20 +484,25 @@ export const ganttInteractiveCallbacks = example({
 });
 
 export const ganttReactiveDrag = example({
-    keywords: ["Gantt", "Reactive", "State", "onTaskDrag", "drag", "dragStep"],
-    description: "Drag task to update state - position persists after re-render",
+    keywords: ["Gantt", "Reactive", "State", "onDrag", "move", "drag", "dragStep", "grammar"],
+    description: "Drag task to update state via the shared grammar — the move event's to.slot is the snapped ISO instant; position persists after re-render",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const taskStartBind = $.let(State.bind([DateTimeType], "gantt_task_start", new Date("2024-01-15")));
             const taskStart = $.let(taskStartBind.read());
             const taskEnd = $.let(taskStart.addDays(14));
-            const onTaskDrag = $.const(East.function([Gantt.Types.TaskDragEvent], NullType, ($, event) => {
-                $(taskStartBind.write(event.newStart));
+            const onDrag = $.const(East.function([DragEventType], NullType, ($, event) => {
+                $.match(event, {
+                    // The grammar move: `to.slot` carries the snapped ISO
+                    // instant the bar landed on (component-owned snapping).
+                    move: ($, mv) => { $(taskStartBind.write(mv.to.slot.parse(DateTimeType))); },
+                });
             }));
             return (
                 <VStack gap="3" align="stretch">
                     <Gantt
-                        onTaskDrag={onTaskDrag}
+                        id="gantt-drag"
+                        onDrag={onDrag}
                         dragStep={variant("days", 1)}
                         durationStep={variant("days", 1)}
                         data={[{ name: "Draggable Task" }]}
@@ -400,13 +512,86 @@ export const ganttReactiveDrag = example({
                                 start: taskStart,
                                 end: taskEnd,
                                 label: "Drag me!",
-                                // `proposed` so the bar is editable (the ⠿ grip shows);
+                                // proposed so the bar is editable (the ⠿ grip shows);
                                 // committed bars are locked per spec.
-                                status: "proposed",
+                                state: "added",
                             })],
                         })}
                     />
                     <Text textStyle="body-sm" color="fg.muted">{East.str`Start: ${taskStart}`}</Text>
+                </VStack>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+/**
+ * Library → Gantt add (#268) — the Gantt registers as an ordinary drag
+ * target via the shared grammar: drag a crew card anywhere onto the
+ * timeline; the drop resolves to (row index key, snapped ISO instant),
+ * lands as an optimistic `proposed(added)` bar, and arrives through the ONE
+ * `onDrag` funnel. A `canDrop` veto (⊘ while hovering) keeps crews off the
+ * committed first row.
+ */
+export const ganttLibraryDnd = example({
+    keywords: ["Gantt", "Library", "DnD", "drag", "add", "move", "resize", "onDrag", "canDrop", "target", "proposed", "grammar"],
+    description: "Library + Gantt DnD — drag a crew card onto the timeline (proposed(added) bar at the snapped instant, canDrop ⊘ on the committed row); dragging/resizing the proposed bars reports grammar move/resize through the same onDrag",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const lastBind = $.let(State.bind([StringType], "gantt_last_drop", "none yet"));
+            const onDrag = $.const(East.function([DragEventType], NullType, ($, event) => {
+                $.match(event, {
+                    add: ($, add) => { $(lastBind.write(East.str`add ${add.from.key} → row ${add.into.row} @ ${add.into.slot}`)); },
+                    move: ($, mv) => { $(lastBind.write(East.str`move row ${mv.from.row} → ${mv.to.slot}`)); },
+                    resize: ($, rz) => { $(lastBind.write(East.str`resize ${rz.edge.getTag()} → ${rz.event.slot}`)); },
+                    remove: ($, rm) => { $(lastBind.write(East.str`remove row ${rm.from.row} → ${rm.to.getTag()}`)); },
+                });
+            }));
+            // Row 0 is committed history — no drops land there.
+            const canDrop = $.const(East.function([DragEventType], BooleanType, ($, event) =>
+                event.match({
+                    add: (_$, add) => add.into.row.notEqual("0"),
+                    move: (_$) => East.value(true),
+                    remove: (_$) => East.value(true),
+                    resize: (_$) => East.value(true),
+                })));
+            const last = $.let(lastBind.read());
+            return (
+                <VStack gap="4" align="stretch">
+                    <Library
+                        id="crews"
+                        data={[
+                            { id: "crew-a", name: "Crew A", trade: "rigging" },
+                            { id: "crew-b", name: "Crew B", trade: "fit-out" },
+                        ]}
+                        item={c => ({ key: c.id, label: c.name, sublabel: c.trade, icon: "user" })}
+                    />
+                    <Gantt
+                        id="schedule"
+                        sources={["crews"]}
+                        onDrag={onDrag}
+                        canDrop={canDrop}
+                        dragStep={variant("days", 1)}
+                        data={[
+                            { name: "Baseline", start: new Date("2024-01-01"), end: new Date("2024-01-20") },
+                            { name: "Fit-out", start: new Date("2024-01-10"), end: new Date("2024-02-05") },
+                            { name: "Commissioning", start: new Date("2024-01-25"), end: new Date("2024-02-15") },
+                        ]}
+                        columns={{ name: { header: "Phase" } }}
+                        rowSpec={row => ({
+                            tasks: [Gantt.Task({
+                                start: row.start,
+                                end: row.end,
+                                label: row.name,
+                                state: East.value(row.name.equal("Baseline").ifElse(
+                                    _$ => variant("committed", null),
+                                    _$ => variant("proposed", variant("added", null)),
+                                ), Gantt.Types.State),
+                            })],
+                        })}
+                    />
+                    <Text.MonoLabel>{East.str`LAST DROP · ${last}`}</Text.MonoLabel>
                 </VStack>
             );
         }}</Reactive>

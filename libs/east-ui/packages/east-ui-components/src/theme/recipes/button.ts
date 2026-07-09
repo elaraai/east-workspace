@@ -12,8 +12,8 @@
  *  - `outline` — secondary actions (1 px subtle border, body weight 500).
  *  - `ghost`   — tertiary, low-stakes (Cancel, Dismiss).
  *  - `danger`  — destructive intent (subtle outline + danger ink color).
- *  - `commit`  — bottom-bar action (mono uppercase, no border, hairline divider).
- *  - `commit-primary` — primary commit (filled brand, mono uppercase).
+ *  - `commit`  — bottom-bar secondary action (the outline look in a commit cluster).
+ *  - `commit-primary` — the one committing action (solid brand fill).
  *
  * Sizes match pattern_spec hit-targets:
  *  - `xs` — 26 px (compact `.x-btn` / `.btn.compact`)
@@ -120,33 +120,20 @@ export const buttonRecipe = defineRecipe({
                 borderColor: "border.strong",
                 _hover:  { borderColor: "fg.danger" },
             },
+            /* Commit-cluster buttons are the ORDINARY button family (spec
+             * Commit.Bar recipe mock: `.btn` / `.btn.primary` in a gap row) —
+             * the old full-height mono-segment treatment is retired. */
             commit: {
-                fontFamily: "mono",
-                fontSize: "11.5px",
-                fontWeight: "semibold",
-                letterSpacing: "0.14em",
-                textTransform: "uppercase",
                 background: "bg.surface",
-                color: "fg.muted",
-                borderWidth: "0",
-                borderLeftWidth: "1px",
-                borderLeftColor: "border.subtle",
-                borderRadius: "0",
-                paddingX: "22px",
-                paddingY: "14px",
-                _hover: { background: "bg.canvas", color: "fg" },
+                color: "fg",
+                borderWidth: "1px",
+                borderColor: "border.strong",
+                _hover: { background: "bg.subtle" },
             },
             "commit-primary": {
-                fontFamily: "mono",
-                fontSize: "11.5px",
-                fontWeight: "semibold",
-                letterSpacing: "0.14em",
-                textTransform: "uppercase",
                 background: "{colors.brand.600}",
                 color: "white",
-                borderRadius: "0",
-                paddingX: "22px",
-                paddingY: "14px",
+                fontWeight: "semibold",
                 _hover: { background: "{colors.brand.700}" },
             },
         },

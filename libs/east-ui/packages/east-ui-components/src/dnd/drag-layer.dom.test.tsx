@@ -22,6 +22,7 @@ import {
     useDropSink,
     useDragSourceItem,
     useDragEventChip,
+    useDragEventEdge,
     type DragEventValue,
     type DragTargetConfig,
 } from "./drag-layer.js";
@@ -49,6 +50,11 @@ function Card({ library, itemKey, disabled }: { library: string; itemKey: string
 function Chip({ surface, row, slot, event, disabled }: { surface: string; row: string; slot: string; event: string; disabled?: boolean }) {
     const onPointerDown = useDragEventChip({ surface, row, slot, event }, <span>{event}</span>, disabled ?? false);
     return <div data-testid={`chip-${event}`} onPointerDown={onPointerDown} />;
+}
+
+function EdgeHandle({ surface, row, slot, event, edge }: { surface: string; row: string; slot: string; event: string; edge: "start" | "end" }) {
+    const onPointerDown = useDragEventEdge({ surface, row, slot, event }, edge, <span>{event}</span>, false);
+    return <div data-testid={`edge-${event}-${edge}`} onPointerDown={onPointerDown} />;
 }
 
 function Trash() {
@@ -200,6 +206,101 @@ describe("DragLayerProvider", () => {
 
         expect(events).toHaveLength(1);
         if (events[0].type === "remove") expect(events[0].value.to.type).toBe("source");
+    });
+
+    test("shared trash zone (#267): appears during a remove-capable event drag, delivers remove/trash, and unmounts", () => {
+        const events: DragEventValue[] = [];
+        const { getByTestId } = render(
+            <DragLayerProvider>
+                <Target config={{ id: "roster", sources: ["people"], kinds: KINDS_ALL, onDrag: e => events.push(e) }} />
+                <Chip surface="roster" row="patel" slot="mon" event="p1" />
+            </DragLayerProvider>,
+        );
+
+        // No zone at rest.
+        expect(document.querySelector("[data-drag-trash]")).toBeNull();
+
+        // Begin the drag — the provider portals the zone in, already marked a
+        // valid destination (never invalid: structurally valid for removables).
+        fireEvent.pointerDown(getByTestId("chip-p1"), { clientX: 0, clientY: 0 });
+        const zone = document.querySelector<HTMLElement>("[data-drag-trash]");
+        expect(zone).not.toBeNull();
+        expect(zone!.hasAttribute("data-drop-valid")).toBe(true);
+        expect(zone!.hasAttribute("data-drop-invalid")).toBe(false);
+
+        // Drop on it — the ordinary trash sink path delivers remove/trash.
+        pointAt(zone);
+        fireEvent.pointerMove(document, { clientX: 10, clientY: 10 });
+        expect(zone!.hasAttribute("data-drop-active")).toBe(true);
+        fireEvent.pointerUp(document, { clientX: 10, clientY: 10 });
+
+        expect(events).toHaveLength(1);
+        expect(events[0].type).toBe("remove");
+        if (events[0].type === "remove") expect(events[0].value.to.type).toBe("trash");
+        expect(document.querySelector("[data-drag-trash]")).toBeNull();
+    });
+
+    test("shared trash zone (#267): absent for item drags and for targets without kinds.remove", () => {
+        const { getByTestId } = render(
+            <DragLayerProvider>
+                <Target config={{ id: "roster", sources: ["people"], kinds: { add: true, move: true } }} />
+                <Card library="people" itemKey="patel" />
+                <Chip surface="roster" row="patel" slot="mon" event="p1" />
+            </DragLayerProvider>,
+        );
+
+        // An item (Library card) drag never shows the zone — items return to
+        // the palette, they are not removable events.
+        fireEvent.pointerDown(getByTestId("card-patel"), { clientX: 0, clientY: 0 });
+        expect(document.querySelector("[data-drag-trash]")).toBeNull();
+        fireEvent.pointerUp(document, { clientX: 5, clientY: 5 });
+
+        // An event drag on a target that does NOT declare kinds.remove.
+        fireEvent.pointerDown(getByTestId("chip-p1"), { clientX: 0, clientY: 0 });
+        expect(document.querySelector("[data-drag-trash]")).toBeNull();
+        fireEvent.pointerUp(document, { clientX: 5, clientY: 5 });
+    });
+
+    test("resize (#268): an edge drag over a same-row slot reduces to resize with the destination slot", () => {
+        const events: DragEventValue[] = [];
+        const { getByTestId } = render(
+            <DragLayerProvider>
+                <Target config={{ id: "gantt", sources: [], kinds: { resize: true }, onDrag: e => events.push(e) }} />
+                <EdgeHandle surface="gantt" row="2" slot="2024-01-10T00:00:00.000Z" event="t0" edge="end" />
+                <Cell surface="gantt" row="2" slot="2024-01-14T00:00:00.000Z" />
+            </DragLayerProvider>,
+        );
+        drag(getByTestId("edge-t0-end"), getByTestId("cell-2-2024-01-14T00:00:00.000Z"));
+
+        expect(events).toHaveLength(1);
+        expect(events[0].type).toBe("resize");
+        if (events[0].type === "resize") {
+            expect(events[0].value.edge.type).toBe("end");
+            expect(events[0].value.event.slot).toBe("2024-01-14T00:00:00.000Z");
+            expect(events[0].value.event.row).toBe("2");
+            expect(events[0].value.event.event.type).toBe("some");
+            expect(events[0].value.event.event.value).toBe("t0");
+        }
+    });
+
+    test("resize (#268): edges never connect across rows or without kinds.resize", () => {
+        const events: DragEventValue[] = [];
+        const { getByTestId } = render(
+            <DragLayerProvider>
+                <Target config={{ id: "gantt", sources: [], kinds: { resize: true }, onDrag: e => events.push(e) }} />
+                <Target config={{ id: "flat", sources: [], kinds: { move: true }, onDrag: e => events.push(e) }} />
+                <EdgeHandle surface="gantt" row="2" slot="s0" event="t0" edge="start" />
+                <EdgeHandle surface="flat" row="1" slot="s0" event="t9" edge="start" />
+                <Cell surface="gantt" row="3" slot="s1" />
+                <Cell surface="flat" row="1" slot="s1" />
+            </DragLayerProvider>,
+        );
+        // Cross-row edge drag: no valid destination, drop is a no-op.
+        drag(getByTestId("edge-t0-start"), getByTestId("cell-3-s1"));
+        // Same row but the target lacks kinds.resize: also a no-op.
+        drag(getByTestId("edge-t9-start"), getByTestId("cell-1-s1"));
+
+        expect(events).toHaveLength(0);
     });
 
     test("escape cancels: no event fires, indicators clear", () => {

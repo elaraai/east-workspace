@@ -38,6 +38,7 @@ import { SliceRailCluster } from "../../slice/rail";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity";
 import { RowStateManager, type RowKey, type RowState } from "../../utils/RowStateManager";
 import { useRowStatusBg, useDensityHeights } from "../shared/helpers";
+import { useReviewController, DecisionButtons, ReviewFoot, DECISION_WIDTH, type ApprovalOptionValue } from "../shared/review";
 import { DensityProvider } from "../../contracts/density";
 import { usePlotGutter, gutterPx } from "../../contracts/plot-gutter.js";
 
@@ -131,6 +132,9 @@ export interface EastChakraTableProps {
     /** Storage key for persisting sort/column state in localStorage. Omit for ephemeral state. */
     storageKey: string;
 }
+
+/** The synthetic Decision column's TanStack id (#264). */
+const REVIEW_COLUMN_ID = "__review__";
 
 interface TablePersistedState {
     sorting: SortingState;
@@ -280,6 +284,31 @@ const TableCore = function TableCore({
         };
     }, [rowStateManager]);
 
+    // ── Review chrome (optional, #264) ────────────────────────────────────
+    // The shared per-row Approve/Reject Decision column (a synthetic
+    // pinned-right TanStack column riding the existing sticky rails) + the
+    // commitBar batch foot below the pager. Decisions are keyed by the
+    // UNSLICED row index — stable under sorting AND pagination (the
+    // `expandedContent` convention).
+    const review = useMemo(() => getSomeorUndefined(value.review), [value.review]);
+    const hasReview = review !== undefined;
+    const reviewStatusFn = useMemo(() => getSomeorUndefined(value.reviewStatus) as
+        ((rowIndex: bigint) => { type: "some" | "none"; value: unknown }) | undefined, [value.reviewStatus]);
+    const reviewApprovalFn = useMemo(() => getSomeorUndefined(value.reviewApproval) as
+        ((rowIndex: bigint) => ApprovalOptionValue) | undefined, [value.reviewApproval]);
+    const reviewApprovals = useMemo(
+        () => value.rows.map((_row, i) => reviewApprovalFn?.(BigInt(i))),
+        [value, reviewApprovalFn],
+    );
+    const reviewController = useReviewController(review, reviewApprovals);
+    const reviewChromeRecipe = useSlotRecipe({ key: "reviewChrome" });
+    const reviewChrome = useMemo(() => reviewChromeRecipe({}) as Record<string, Record<string, unknown>>, [reviewChromeRecipe]);
+    const reviewDotStyles = useMemo(() => {
+        const out: Record<string, Record<string, unknown>> = {};
+        for (const t of ["success", "warning", "danger", "info", "neutral"]) out[t] = (reviewChromeRecipe({ status: t } as Record<string, unknown>) as Record<string, Record<string, unknown>>).statusDot ?? {};
+        return out;
+    }, [reviewChromeRecipe]);
+
     // Column helper for type-safe column definitions
     const columnHelper = createColumnHelper<TableRowValue>();
 
@@ -327,6 +356,21 @@ const TableCore = function TableCore({
             );
         });
     }, [value.columns, columnHelper]);
+
+    // The synthetic Decision column — a display column pinned right, sized to
+    // the shared DECISION_WIDTH; header + cells wear the reviewChrome slots.
+    const allColumns = useMemo<ColumnDef<TableRowValue, TableCellValue | undefined>[]>(() => {
+        if (!hasReview || review === undefined) return columns;
+        return [...columns, columnHelper.display({
+            id: REVIEW_COLUMN_ID,
+            header: review.columnLabel,
+            enableSorting: false,
+            enableResizing: false,
+            enablePinning: true,
+            size: parseInt(DECISION_WIDTH, 10),
+            meta: { columnKey: REVIEW_COLUMN_ID, width: DECISION_WIDTH },
+        })];
+    }, [columns, columnHelper, hasReview, review]);
 
     // Consolidated persisted state (sorting + column sizing)
     const { state: persistedState, setState: setPersistedState } = usePersistedState<TablePersistedState>(
@@ -520,8 +564,10 @@ const TableCore = function TableCore({
     const pinnedColumns = useMemo(() => persistedState.pinnedColumns ?? [...value.frozen], [persistedState.pinnedColumns, value.frozen]);
     const columnPinning = useMemo(() => ({
         left: pinnedColumns,
-        right: [] as string[],
-    }), [pinnedColumns]);
+        // The synthetic Decision column pins right so it stays visible while
+        // the columns scroll (#264).
+        right: hasReview ? [REVIEW_COLUMN_ID] : [] as string[],
+    }), [pinnedColumns, hasReview]);
     const hasFrozen = pinnedColumns.length > 0;
 
     const toggleColumnPin = useCallback((columnId: string) => {
@@ -565,7 +611,7 @@ const TableCore = function TableCore({
     // Create table instance
     const table = useReactTable({
         data: pagedRows,
-        columns,
+        columns: allColumns,
         state: {
             sorting,
             columnSizing,
@@ -890,6 +936,28 @@ const TableCore = function TableCore({
                                 <ChakraTable.ColumnHeader aria-hidden="true" bg={headerBackground} style={{ flex: "none", width: leftSpacerPx, padding: 0, borderColor, height: `${effectiveRowHeight}px` }} />
                             )}
                             {headerGroup.headers.map((header) => {
+                                // The synthetic Decision column header — the shared
+                                // reviewChrome slot, pinned sticky-right, no pin/sort/resize.
+                                if (header.column.id === REVIEW_COLUMN_ID) {
+                                    return (
+                                        <ChakraTable.ColumnHeader
+                                            key={header.id}
+                                            css={reviewChrome.decisionHeader}
+                                            data-slot="decisionHeader"
+                                            style={{
+                                                width: `var(--header-${header.id}-size)`,
+                                                flex: 'none',
+                                                height: `${effectiveRowHeight}px`,
+                                                ...getCommonPinningStyles(header.column),
+                                                zIndex: 3,
+                                                borderColor,
+                                            }}
+                                            position="sticky"
+                                        >
+                                            {flexRender(header.column.columnDef.header, header.getContext())}
+                                        </ChakraTable.ColumnHeader>
+                                    );
+                                }
                                 const sortIndex = getSortIndex(header.id);
                                 const isSorted = header.column.getIsSorted();
                                 const sortDirection = isSorted || null;
@@ -1178,6 +1246,38 @@ const TableCore = function TableCore({
                                     <ChakraTable.Cell aria-hidden="true" style={{ flex: "none", width: leftSpacerPx, padding: 0, borderColor }} />
                                 )}
                                 {row.getVisibleCells().map((cell) => {
+                                    // The synthetic Decision cell — the shared reviewChrome
+                                    // decisionCol (quiet status dot + Approve/Reject pair),
+                                    // acting on the UNSLICED row index.
+                                    if (cell.column.id === REVIEW_COLUMN_ID && reviewController !== undefined) {
+                                        const unslicedIndex = (pageSize ? currentPage * pageSize : 0) + row.index;
+                                        const dotTag = (reviewStatusFn?.(BigInt(unslicedIndex)) as { type: string; value: { type?: string } | null } | undefined);
+                                        const statusTag = dotTag?.type === "some" ? (dotTag.value as { type: string }).type : undefined;
+                                        return (
+                                            <ChakraTable.Cell
+                                                key={cell.id}
+                                                css={reviewChrome.decisionCol}
+                                                data-slot="decisionCol"
+                                                data-status={statusTag}
+                                                onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                                                style={{
+                                                    width: `var(--col-${cell.column.id}-size)`,
+                                                    flex: 'none',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    borderColor,
+                                                    ...getCommonPinningStyles(cell.column),
+                                                    position: 'sticky',
+                                                    zIndex: 2,
+                                                }}
+                                            >
+                                                {statusTag !== undefined && (
+                                                    <Box as="span" css={reviewDotStyles[statusTag]} data-slot="statusDot" position="absolute" left="12px" />
+                                                )}
+                                                <DecisionButtons rowIndex={unslicedIndex} controller={reviewController} />
+                                            </ChakraTable.Cell>
+                                        );
+                                    }
                                     const cellValue = cell.getValue() as TableCellValue | undefined;
                                     const meta = cell.column.columnDef.meta;
                                     const columnKey = meta?.columnKey ?? cell.column.id;
@@ -1423,6 +1523,12 @@ const TableCore = function TableCore({
                         <FontAwesomeIcon icon={faChevronRight} style={{ width: 10, height: 10 }} />
                     </button>
                 </HStack>
+            )}
+            {/* Review batch foot (#264) — the shared commitBar foot, stacked
+                BELOW the pager band so the page controls stay beside the rows
+                they page. */}
+            {reviewController !== undefined && reviewController.showFoot && (
+                <ReviewFoot controller={reviewController} storageKey={storageKey ?? "table"} />
             )}
         </Box>
     );

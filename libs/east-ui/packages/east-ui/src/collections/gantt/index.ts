@@ -31,8 +31,13 @@ import {
     TableRowClickEventType,
     TableSortEventType,
 } from "../table/types.js";
-import { TimeStepType, GanttTaskStatusType, GanttMilestoneKindType, GanttAxisType, GanttAxisRangeType, GanttTierType } from "./types.js";
-import type { GanttTaskStatusLiteral, GanttMilestoneKindLiteral, GanttAxisInput, GanttTierLiteral } from "./types.js";
+import { TimeStepType, GanttMilestoneKindType, GanttAxisType, GanttAxisRangeType, GanttTierType } from "./types.js";
+import { PlannerStateType } from "../planner/types.js";
+import { resolveEventState } from "../planner/index.js";
+import { StatusValueType, type StatusValueLiteral } from "../../feedback/status/types.js";
+import { ApprovalStateType, RowRefType, RowReviewType, buildReview } from "../../contracts/review.js";
+import { CanDropFnType, DragEventType } from "../../contracts/drag.js";
+import type { GanttMilestoneKindLiteral, GanttAxisInput, GanttTierLiteral } from "./types.js";
 
 import {
     AlignType,
@@ -63,11 +68,8 @@ import {
     TableSizeType,
     type GanttStyle,
     GanttTaskClickEventType,
-    GanttTaskDragEventType,
-    GanttTaskDurationChangeEventType,
     GanttTaskProgressChangeEventType,
     GanttMilestoneClickEventType,
-    GanttMilestoneDragEventType,
 } from "./types.js";
 import { StatusTokenType } from "../../style/interaction.js";
 
@@ -75,17 +77,17 @@ import { StatusTokenType } from "../../style/interaction.js";
 export {
     GanttStyleType,
     TimeStepType,
-    GanttTaskStatusType,
     GanttMilestoneKindType,
     GanttAxisType,
     GanttAxisRangeType,
     GanttTierType,
-    type GanttTaskStatusLiteral,
     type GanttMilestoneKindLiteral,
     type GanttTierLiteral,
     type GanttAxisInput,
     type GanttStyle,
 } from "./types.js";
+// The shared event lifecycle a task's `state` carries (#262).
+export { PlannerStateType } from "../planner/types.js";
 
 // ============================================================================
 // Gantt Task / Milestone (UIComp-coupled — defined here, not in types.ts)
@@ -95,16 +97,20 @@ export {
  * East StructType for a Gantt task bar.
  *
  * @remarks
- * Spans from `start` to `end`. `status` (committed / proposed /
- * at-risk) drives the bar's colour, border, and progress-fill from the
- * canonical status palette. `popover` (click-triggered) accepts any
- * UIComponent for rich detail content.
+ * Spans from `start` to `end`. `state` is the shared event lifecycle
+ * (`PlannerStateType`: committed / proposed(added|model|removed) /
+ * rejected — the same audit grammar as Planner / Roster / Board, #262);
+ * it drives the bar's treatment (colour, dash, ghost, strike). `status`
+ * is the orthogonal **risk/status axis** (the old `"atRisk"` becomes
+ * `status: "danger"`): a semantic tint over the state treatment.
+ * `popover` (click-triggered) accepts any UIComponent for rich detail.
  *
  * @property start - Start date/time of the task
  * @property end - End date/time of the task
  * @property label - Optional rich label (text + alignment + typography)
  * @property progress - Optional progress percentage (0-100)
- * @property status - Optional schedule status driving the bar colour (default committed)
+ * @property state - The audit state (shared `PlannerStateType` lifecycle)
+ * @property status - Optional risk/status tint (success / warning / danger / info / neutral)
  * @property popover - Optional rich popover (click-triggered, UIComponent)
  */
 export const GanttTaskType: StructType<{
@@ -112,14 +118,16 @@ export const GanttTaskType: StructType<{
     end: DateTimeType,
     label: OptionType<LabelInputType>,
     progress: OptionType<FloatType>,
-    status: OptionType<GanttTaskStatusType>,
+    state: PlannerStateType,
+    status: OptionType<StatusValueType>,
     popover: OptionType<UIComponentType>,
 }> = StructType({
     start: DateTimeType,
     end: DateTimeType,
     label: OptionType(LabelInputType),
     progress: OptionType(FloatType),
-    status: OptionType(GanttTaskStatusType),
+    state: PlannerStateType,
+    status: OptionType(StatusValueType),
     popover: OptionType(UIComponentType),
 });
 
@@ -174,10 +182,15 @@ export const GanttRowType: StructType<{
     cells: DictType<StringType, typeof TableCellType>,
     tasks: ArrayType<GanttTaskType>,
     milestones: ArrayType<GanttMilestoneType>,
+    status: OptionType<StatusValueType>,
+    approval: OptionType<ApprovalStateType>,
 }> = StructType({
     cells: DictType(StringType, TableCellType),
     tasks: ArrayType(GanttTaskType),
     milestones: ArrayType(GanttMilestoneType),
+    // Review chrome (only meaningful when the root carries `review`, #263):
+    status: OptionType(StatusValueType),       // the quiet row dot (absent ⇒ clean)
+    approval: OptionType(ApprovalStateType),   // the row's review decision (absent ⇒ no decision)
 });
 
 /**
@@ -213,12 +226,14 @@ export type GanttRowType = typeof GanttRowType;
  * @property onSortChange - Sort change callback
  * @property onTaskClick - Task click callback
  * @property onTaskDoubleClick - Task double-click callback
- * @property onTaskDrag - Task drag callback
- * @property onTaskDurationChange - Task duration change callback
+ * @property id - DnD target identity (#268)
+ * @property sources - Library ids accepted for `add` drags
+ * @property onDrag - Shared drag-grammar funnel (add / move / resize)
+ * @property canDrop - Optional IR-level drop veto
  * @property onTaskProgressChange - Task progress change callback
  * @property onMilestoneClick - Milestone click callback
  * @property onMilestoneDoubleClick - Milestone double-click callback
- * @property onMilestoneDrag - Milestone drag callback
+ * @property review - Optional review chrome (shared contract, #263)
  * @property style - Optional visual style sub-struct
  */
 export const GanttRootType: StructType<{
@@ -236,12 +251,14 @@ export const GanttRootType: StructType<{
     onSortChange: OptionType<FunctionType<[TableSortEventType], NullType>>,
     onTaskClick: OptionType<FunctionType<[GanttTaskClickEventType], NullType>>,
     onTaskDoubleClick: OptionType<FunctionType<[GanttTaskClickEventType], NullType>>,
-    onTaskDrag: OptionType<FunctionType<[GanttTaskDragEventType], NullType>>,
-    onTaskDurationChange: OptionType<FunctionType<[GanttTaskDurationChangeEventType], NullType>>,
+    id: StringType,
+    sources: ArrayType<StringType>,
+    onDrag: OptionType<FunctionType<[DragEventType], NullType>>,
+    canDrop: OptionType<CanDropFnType>,
     onTaskProgressChange: OptionType<FunctionType<[GanttTaskProgressChangeEventType], NullType>>,
     onMilestoneClick: OptionType<FunctionType<[GanttMilestoneClickEventType], NullType>>,
     onMilestoneDoubleClick: OptionType<FunctionType<[GanttMilestoneClickEventType], NullType>>,
-    onMilestoneDrag: OptionType<FunctionType<[GanttMilestoneDragEventType], NullType>>,
+    review: OptionType<RowReviewType>,
     slice: OptionType<typeof SliceChromeType>,
     style: OptionType<GanttStyleType>,
 }> = StructType({
@@ -259,12 +276,24 @@ export const GanttRootType: StructType<{
     onSortChange: OptionType(FunctionType([TableSortEventType], NullType)),
     onTaskClick: OptionType(FunctionType([GanttTaskClickEventType], NullType)),
     onTaskDoubleClick: OptionType(FunctionType([GanttTaskClickEventType], NullType)),
-    onTaskDrag: OptionType(FunctionType([GanttTaskDragEventType], NullType)),
-    onTaskDurationChange: OptionType(FunctionType([GanttTaskDurationChangeEventType], NullType)),
+    // DnD target role (#268) — `id` + `sources` connect the Gantt to sibling
+    // Libraries; ALL completed drags (Library `add` landing as proposed(added)
+    // bars, task-body `move`, edge `resize`) arrive through the ONE shared
+    // `onDrag` grammar callback. The renderer registers the target iff
+    // `onDrag` is present. Cell encoding (contracts/drag.ts): `row` = the row
+    // index key, `slot` = the snapped ISO instant, `event` = `t<taskIndex>` /
+    // `m<milestoneIndex>`.
+    id: StringType,
+    sources: ArrayType(StringType),
+    onDrag: OptionType(FunctionType([DragEventType], NullType)),
+    canDrop: OptionType(CanDropFnType),
     onTaskProgressChange: OptionType(FunctionType([GanttTaskProgressChangeEventType], NullType)),
     onMilestoneClick: OptionType(FunctionType([GanttMilestoneClickEventType], NullType)),
     onMilestoneDoubleClick: OptionType(FunctionType([GanttMilestoneClickEventType], NullType)),
-    onMilestoneDrag: OptionType(FunctionType([GanttMilestoneDragEventType], NullType)),
+    // Optional review chrome (#263) — the shared contract's row-granularity
+    // config: per-row Approve/Reject decision column + the commitBar foot.
+    // Absent ⇒ a plain Gantt (row `status`/`approval` are inert).
+    review: OptionType(RowReviewType),
     slice: OptionType(SliceChromeType),
     style: OptionType(GanttStyleType),
 });
@@ -294,7 +323,8 @@ export type GanttRootType = typeof GanttRootType;
  * @property end - End date/time of the task
  * @property label - Plain string shorthand expands to `{ value: <string> }`; or a full {@link LabelInput} for alignment / typography overrides
  * @property progress - Progress percentage (0-100)
- * @property status - Schedule status driving the bar colour (committed / proposed / atRisk). Default committed.
+ * @property state - The audit state — a `PlannerStateType` value or a string shorthand. Default `"committed"`.
+ * @property status - Optional risk/status tint (a `StatusValueType` value or status string)
  * @property popover - Click-triggered rich popover content (UIComponent), coexists with `onTaskClick`
  */
 export interface TaskInput {
@@ -306,8 +336,21 @@ export interface TaskInput {
     label?: SubtypeExprOrValue<StringType> | LabelInput;
     /** Progress percentage (0-100) */
     progress?: SubtypeExprOrValue<FloatType>;
-    /** Schedule status — drives the bar colour, border, and progress fill from the status palette. Default `"committed"`. */
-    status?: SubtypeExprOrValue<GanttTaskStatusType> | GanttTaskStatusLiteral;
+    /** The audit state — the shared event lifecycle (`PlannerStateType`), or one
+     *  of the string shorthands `"committed"` / `"rejected"` / `"added"` /
+     *  `"model"` / `"removed"`. Default `"committed"`.
+     *
+     *  Migration (#262): the old 3-arm `status` is gone — `status: "committed"`
+     *  ⇒ `state: "committed"` (the default), `status: "proposed"` ⇒
+     *  `state: "added"` (operator) or `"model"` (machine suggestion), and
+     *  `status: "atRisk"` ⇒ keep the lifecycle state and set the risk tint
+     *  `status: "danger"`. */
+    state?: SubtypeExprOrValue<PlannerStateType> | "committed" | "rejected" | "added" | "model" | "removed";
+    /** Optional risk/status tint — a `StatusValueType` value or a status string
+     *  (`"success"` / `"warning"` / `"danger"` / `"info"` / `"neutral"`).
+     *  Tints the bar colour over the state treatment (the status axis the old
+     *  `"atRisk"` moved to). */
+    status?: SubtypeExprOrValue<StatusValueType> | StatusValueLiteral;
     /** Rich popover content (click-triggered UIComponent). Coexists with `onTaskClick`. */
     popover?: SubtypeExprOrValue<UIComponentType>;
 }
@@ -423,7 +466,7 @@ function buildLabel(input: SubtypeExprOrValue<StringType> | LabelInput): ExprTyp
  *             end: row.end,
  *             label: "Design Phase",
  *             progress: 75,
- *             status: "committed",
+ *             state: "committed",
  *         })] }),
  *     );
  * });
@@ -432,7 +475,7 @@ function buildLabel(input: SubtypeExprOrValue<StringType> | LabelInput): ExprTyp
 function createTask(input: TaskInput): ExprType<GanttTaskType> {
     const statusValue = input.status
         ? (typeof input.status === "string"
-            ? East.value(variant(input.status, null), GanttTaskStatusType)
+            ? East.value(variant(input.status, null), StatusValueType)
             : input.status)
         : undefined;
 
@@ -441,6 +484,7 @@ function createTask(input: TaskInput): ExprType<GanttTaskType> {
         end: input.end,
         label: input.label !== undefined ? some(buildLabel(input.label)) : none,
         progress: input.progress !== undefined ? some(input.progress) : none,
+        state: resolveEventState(input.state ?? "committed"),
         status: statusValue ? some(statusValue) : none,
         popover: input.popover !== undefined ? some(input.popover) : none,
     }, GanttTaskType);
@@ -583,6 +627,14 @@ function createGantt<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
     rowSpec: (row: ExprType<TypeOf<T> extends ArrayType<infer E> ? E : never>) => {
         tasks?: SubtypeExprOrValue<ArrayType<GanttTaskType>>;
         milestones?: SubtypeExprOrValue<ArrayType<GanttMilestoneType>>;
+        /** Optional per-row status — the quiet dot beside the row (some ⇒
+         *  flagged, none ⇒ clean). Only rendered when `review` is set (#263). */
+        status?: SubtypeExprOrValue<OptionType<StatusValueType>>;
+        /** Optional per-row review decision (`some(approved)` rests
+         *  pre-approved, `some(pending)` awaits a call, `some(rejected)` is
+         *  declined; none ⇒ no decision). Compute in East — see
+         *  `deriveApproval`. Only rendered when `review` is set (#263). */
+        approval?: SubtypeExprOrValue<OptionType<ApprovalStateType>>;
     },
     style?: GanttStyle<DataFieldKeys<T>>
 ): ExprType<UIComponentType> {
@@ -661,6 +713,14 @@ function createGantt<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
             cells: cells,
             tasks: East.value(spec.tasks ?? [], ArrayType(GanttTaskType)),
             milestones: East.value(spec.milestones ?? [], ArrayType(GanttMilestoneType)),
+            // Review chrome (#263) — pass-through accessors (clean ⇒ approved,
+            // flagged ⇒ pending; see the shared `deriveApproval` helper).
+            status: spec.status !== undefined
+                ? East.value(spec.status, OptionType(StatusValueType))
+                : none,
+            approval: spec.approval !== undefined
+                ? East.value(spec.approval, OptionType(ApprovalStateType))
+                : none,
         }, GanttRowType);
     });
 
@@ -778,12 +838,14 @@ function createGantt<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
         onSortChange: style?.onSortChange ? some(style.onSortChange) : none,
         onTaskClick: style?.onTaskClick ? some(style.onTaskClick) : none,
         onTaskDoubleClick: style?.onTaskDoubleClick ? some(style.onTaskDoubleClick) : none,
-        onTaskDrag: style?.onTaskDrag ? some(style.onTaskDrag) : none,
-        onTaskDurationChange: style?.onTaskDurationChange ? some(style.onTaskDurationChange) : none,
+        id: style?.id ?? "",
+        sources: East.value(style?.sources ?? [], ArrayType(StringType)),
+        onDrag: style?.onDrag ? some(style.onDrag) : none,
+        canDrop: style?.canDrop ? some(style.canDrop) : none,
         onTaskProgressChange: style?.onTaskProgressChange ? some(style.onTaskProgressChange) : none,
         onMilestoneClick: style?.onMilestoneClick ? some(style.onMilestoneClick) : none,
         onMilestoneDoubleClick: style?.onMilestoneDoubleClick ? some(style.onMilestoneDoubleClick) : none,
-        onMilestoneDrag: style?.onMilestoneDrag ? some(style.onMilestoneDrag) : none,
+        review: style?.review !== undefined ? some(buildReview(style.review, RowReviewType)) : none,
         slice: sliceChromeValue ? some(sliceChromeValue) : none,
         style: styleValue ? some(styleValue) : none,
     }), UIComponentType);
@@ -798,7 +860,11 @@ interface GanttTypesShape {
     Row: GanttRowType;
     Task: GanttTaskType;
     Milestone: GanttMilestoneType;
-    TaskStatus: GanttTaskStatusType;
+    State: PlannerStateType;
+    Status: StatusValueType;
+    Approval: ApprovalStateType;
+    Review: RowReviewType;
+    ApproveEvent: RowRefType;
     MilestoneKind: GanttMilestoneKindType;
     Axis: GanttAxisType;
     Tier: GanttTierType;
@@ -806,11 +872,8 @@ interface GanttTypesShape {
     Column: TableColumnType;
     Cell: typeof TableCellType;
     TaskClickEvent: GanttTaskClickEventType;
-    TaskDragEvent: GanttTaskDragEventType;
     TaskProgressChangeEvent: GanttTaskProgressChangeEventType;
-    TaskDurationChangeEvent: GanttTaskDurationChangeEventType;
     MilestoneClickEvent: GanttMilestoneClickEventType;
-    MilestoneDragEvent: GanttMilestoneDragEventType;
 }
 
 const GanttTypes: GanttTypesShape = {
@@ -841,8 +904,7 @@ const GanttTypes: GanttTypesShape = {
      * @property onTaskProgressChange - Task progress-change callback
      * @property onMilestoneClick - Milestone click callback
      * @property onMilestoneDoubleClick - Milestone double-click callback
-     * @property onMilestoneDrag - Milestone drag callback
-     * @property style - Optional visual style sub-struct
+         * @property style - Optional visual style sub-struct
      */
     Root: GanttRootType,
     /**
@@ -890,14 +952,44 @@ const GanttTypes: GanttTypesShape = {
      */
     Milestone: GanttMilestoneType,
     /**
-     * East VariantType for a task's schedule status — drives the bar
-     * colour from the canonical status palette.
+     * East VariantType for a task's audit state — the shared event
+     * lifecycle (`PlannerStateType`, #262). Drives the bar treatment:
+     * committed solid, proposed(added) dashed, proposed(model) dashed
+     * ghost, proposed(removed) struck ghost, rejected greyed strike.
      *
-     * @property committed - Agreed/baseline work (green)
-     * @property proposed - In-progress / not-yet-locked work (brand teal)
-     * @property atRisk - Slipping / blocked work (red)
+     * @property committed - Audit-locked, immutable
+     * @property proposed - Drafted; the flavour (added / model / removed) is nested
+     * @property rejected - Reviewed and declined; kept for diff
      */
-    TaskStatus: GanttTaskStatusType,
+    State: PlannerStateType,
+    /**
+     * East VariantType for a task's optional risk/status tint — the
+     * status axis the old `atRisk` moved to (#262); tints the bar
+     * colour over the state treatment.
+     *
+     * @property success - On-track (green tint)
+     * @property warning - Caution (amber tint)
+     * @property danger - Slipping / blocked (red tint — the old `atRisk`)
+     * @property info - Informational (teal tint)
+     * @property neutral - Muted
+     */
+    Status: StatusValueType,
+    /**
+     * A row's review decision — the shared `ApprovalStateType`
+     * (approved / pending / rejected) from `contracts/review.ts` (#263).
+     */
+    Approval: ApprovalStateType,
+    /**
+     * The review configuration — the shared row-granularity
+     * `RowReviewType` (decision column + commitBar foot) from
+     * `contracts/review.ts` (#263).
+     */
+    Review: RowReviewType,
+    /**
+     * The per-row approve / reject callback payload — the shared
+     * `RowRefType` (`{ rowIndex }`).
+     */
+    ApproveEvent: RowRefType,
     /**
      * East VariantType for a milestone's kind — drives the diamond fill.
      *
@@ -981,22 +1073,6 @@ const GanttTypes: GanttTypesShape = {
      */
     TaskClickEvent: GanttTaskClickEventType,
     /**
-     * East StructType for the event payload of `onTaskDrag`.
-     *
-     * @remarks
-     * Renderer fires this when a user finishes dragging a task to a
-     * new position. Both previous and new dates are provided so the
-     * consumer can validate / undo / persist as needed.
-     *
-     * @property rowIndex - Row index (0-based)
-     * @property taskIndex - Task index within the row (0-based)
-     * @property previousStart - Previous start date/time
-     * @property previousEnd - Previous end date/time
-     * @property newStart - New start date/time
-     * @property newEnd - New end date/time
-     */
-    TaskDragEvent: GanttTaskDragEventType,
-    /**
      * East StructType for the event payload of `onTaskProgressChange`.
      *
      * @property rowIndex - Row index (0-based)
@@ -1006,16 +1082,6 @@ const GanttTypes: GanttTypesShape = {
      */
     TaskProgressChangeEvent: GanttTaskProgressChangeEventType,
     /**
-     * East StructType for the event payload of `onTaskDurationChange`
-     * (right-edge resize).
-     *
-     * @property rowIndex - Row index (0-based)
-     * @property taskIndex - Task index within the row (0-based)
-     * @property previousEnd - Previous end date/time
-     * @property newEnd - New end date/time
-     */
-    TaskDurationChangeEvent: GanttTaskDurationChangeEventType,
-    /**
      * East StructType for the event payload of `onMilestoneClick` /
      * `onMilestoneDoubleClick` callbacks.
      *
@@ -1024,15 +1090,6 @@ const GanttTypes: GanttTypesShape = {
      * @property milestoneDate - Date/time of the milestone
      */
     MilestoneClickEvent: GanttMilestoneClickEventType,
-    /**
-     * East StructType for the event payload of `onMilestoneDrag`.
-     *
-     * @property rowIndex - Row index (0-based)
-     * @property milestoneIndex - Milestone index within the row (0-based)
-     * @property previousDate - Previous date/time of the milestone
-     * @property newDate - New date/time of the milestone
-     */
-    MilestoneDragEvent: GanttMilestoneDragEventType,
 };
 
 interface GanttNamespace {

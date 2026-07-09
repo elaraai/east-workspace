@@ -32,7 +32,19 @@ export {
     DragSinkType, type DragSinkLiteral,
     DragEdgeType, type DragEdgeLiteral,
     DragEventType,
+    CanDropFnType,
 } from "./contracts/drag.js";
+
+// Review / approval grammar contract
+export {
+    ApprovalStateType, type ApprovalStateLiteral,
+    RowRefType,
+    reviewType, type ReviewStructType,
+    RowReviewType,
+    type ReviewConfig,
+    buildReview,
+    deriveApproval,
+} from "./contracts/review.js";
 
 // Format helpers
 export { Format } from "./format/index.js";

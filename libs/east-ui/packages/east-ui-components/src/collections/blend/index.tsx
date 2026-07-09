@@ -10,7 +10,9 @@ import { faGripVertical, faThumbtack, faTrashCan } from "@fortawesome/free-solid
 import { equalFor, variant, some, none, type ValueTypeOf } from "@elaraai/east";
 import { Blend } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
-import { useDragTarget, useDropCell, useDragEventChip, type DragEventValue, type DragMeta } from "../../dnd/drag-layer";
+import { useDragTarget, useDropCell, useDragEventChip, type DragEventValue, type DragMeta, type DragPayload } from "../../dnd/drag-layer";
+import { useIRCanDrop, canDropAllows, type CanDropFn } from "../../dnd/ir-can-drop";
+import { DropHint } from "../../dnd/drop-hint";
 
 const blendEqual = equalFor(Blend.Types.Blend);
 
@@ -144,14 +146,23 @@ interface TargetPanelProps {
     mode: "single" | "compare" | "portfolio";
     badge?: string | undefined;
     styles: SlotStyles;
+    /** Per-cell veto builder from the root's IR `canDrop` (#261). */
+    vetoFor?: ((coord: { surface: string; row: string; slot: string }) => (payload: DragPayload) => boolean) | undefined;
     onAmount?: ((source: string, amount: number) => void) | undefined;
     onRemove?: ((source: string) => void) | undefined;
     onAction?: ((action: ActionKind) => void) | undefined;
 }
 
-function TargetPanel({ surface, target, mode, badge, styles, onAmount, onRemove, onAction }: TargetPanelProps) {
+function TargetPanel({ surface, target, mode, badge, styles, vetoFor, onAmount, onRemove, onAction }: TargetPanelProps) {
+    // The action foot rides the shared `commitBar` slots (#266) so
+    // apply/discard reads as the same chrome family as the Planner review
+    // foot + DecisionQueue staged footer (Apply = primary, Discard = danger,
+    // Reset = plain — the Approve-all / Reject-all / Rerun mapping).
+    const commitRecipe = useSlotRecipe({ key: "commitBar" });
+    const cs = useMemo(() => commitRecipe({}) as SlotStyles, [commitRecipe]);
     const coord = useMemo(() => ({ surface, row: target.key, slot: "alloc" }), [surface, target.key]);
-    const dropRef = useDropCell(coord);
+    const veto = useMemo(() => vetoFor?.(coord), [vetoFor, coord]);
+    const dropRef = useDropCell(coord, false, veto);
 
     const allocated = target.allocations.reduce((sum, a) => sum + a.amount, 0);
     const headroom = Math.max(0, target.capacity - allocated);
@@ -196,7 +207,7 @@ function TargetPanel({ surface, target, mode, badge, styles, onAmount, onRemove,
                         onRemove={onRemove}
                     />
                 ))}
-                <Box css={styles.dropArea}>drop a source here</Box>
+                <DropHint>drop a source here</DropHint>
             </Box>
             {target.metrics.length > 0 && (
                 <Box css={styles.metricList}>
@@ -217,16 +228,20 @@ function TargetPanel({ surface, target, mode, badge, styles, onAmount, onRemove,
                 </Box>
             )}
             <Box css={styles.panelFoot}>
-                {objective !== undefined && <Box as="span" css={styles.objective}>objective {objective}</Box>}
-                {onAction && (
-                    <Box css={styles.actions}>
-                        <Box as="button" css={styles.actionButton} onClick={() => onAction("reset")}>Reset</Box>
-                        {mode === "compare" && (
-                            <Box as="button" css={styles.actionButton} data-danger="" onClick={() => onAction("discard")}>Discard</Box>
-                        )}
-                        <Box as="button" css={styles.actionPrimary} onClick={() => onAction("apply")}>Apply blend</Box>
+                <Box css={cs.root} data-slot="panelFoot">
+                    <Box css={cs.draft}>
+                        {objective !== undefined && <Box as="span" css={styles.objective}>objective {objective}</Box>}
                     </Box>
-                )}
+                    {onAction && (
+                        <Box css={cs.btnRow}>
+                            <Box as="button" css={cs.btn} onClick={() => onAction("reset")}>Reset</Box>
+                            {mode === "compare" && (
+                                <Box as="button" css={cs.btnDanger} onClick={() => onAction("discard")}>Discard</Box>
+                            )}
+                            <Box as="button" css={cs.btnPrimary} onClick={() => onAction("apply")}>Apply blend</Box>
+                        </Box>
+                    )}
+                </Box>
             </Box>
         </Box>
     );
@@ -249,6 +264,8 @@ export const EastChakraBlend = memo(function EastChakraBlend({ value }: EastChak
         value.targets.length <= 1 ? "single" : value.targets.length === 2 ? "compare" : "portfolio";
 
     const onDragFn = useMemo(() => getSomeorUndefined(value.onDrag), [value.onDrag]);
+    const canDropFn = useMemo(() => getSomeorUndefined(value.canDrop) as CanDropFn | undefined, [value.canDrop]);
+    const vetoFor = useIRCanDrop(canDropFn);
     const onAmountFn = useMemo(() => getSomeorUndefined(value.onAmountChange), [value.onAmountChange]);
     const onActionFn = useMemo(() => getSomeorUndefined(value.onAction), [value.onAction]);
     const verdict = getSomeorUndefined(value.verdict);
@@ -259,6 +276,9 @@ export const EastChakraBlend = memo(function EastChakraBlend({ value }: EastChak
     useEffect(() => { setTargets([...value.targets]); }, [value.targets]);
 
     const handleDrag = useCallback((event: DragEventValue, meta?: DragMeta) => {
+        // Re-check the IR veto with the real event before mutating (the hover
+        // veto already gated the ⊘ stage; sink removes are always valid).
+        if (event.type === "add" && !canDropAllows(canDropFn, event)) return;
         let next = targets;
         if (event.type === "add") {
             const { from, into } = event.value;
@@ -283,7 +303,7 @@ export const EastChakraBlend = memo(function EastChakraBlend({ value }: EastChak
         }
         setTargets(next);
         if (onDragFn) queueMicrotask(() => onDragFn(event));
-    }, [targets, onDragFn]);
+    }, [targets, onDragFn, canDropFn]);
 
     const targetConfig = useMemo(() => ({
         id: value.id,
@@ -351,6 +371,7 @@ export const EastChakraBlend = memo(function EastChakraBlend({ value }: EastChak
                         mode={mode}
                         badge={mode === "compare" ? (i === 0 ? "A" : "B") : undefined}
                         styles={styles}
+                        vetoFor={vetoFor}
                         onAmount={handleAmount(target.key)}
                         onRemove={handleRemove(target.key)}
                         onAction={onActionFn ? handleAction(target.key) : undefined}

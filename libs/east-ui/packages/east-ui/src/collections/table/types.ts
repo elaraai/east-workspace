@@ -29,6 +29,9 @@ import {
     StatusTokenType,
 } from "../../style/interaction.js";
 import { PlotGutterType, type PlotGutter } from "../../shared/plot-gutter.js";
+// Type-only (erased at runtime — safe against the component.ts import cycle).
+import type { ApprovalStateType, ReviewConfig, RowRefType } from "../../contracts/review.js";
+import type { StatusValueType } from "../../feedback/status/types.js";
 
 // ============================================================================
 // Table Variant Types
@@ -394,6 +397,21 @@ export interface TableStyle<ColumnKeys extends string = string> {
     onSortChange?: SubtypeExprOrValue<FunctionType<[TableSortEventType], NullType>>;
     /** `(rowIndex) => StatusToken` — row-status tint callback. */
     rowStatus?: SubtypeExprOrValue<FunctionType<[IntegerType], StatusTokenType>>;
+    /** Optional review chrome (#264) — the shared contract's per-row
+     *  Approve/Reject Decision column (pinned right) + commitBar batch foot,
+     *  identical to the Planner's. Presence is the opt-in. Callbacks receive
+     *  `{ rowIndex }` where `rowIndex` is the **unsliced** row index — stable
+     *  under sorting AND pagination (the `expandedContent` convention). */
+    review?: ReviewConfig<RowRefType>;
+    /** `(rowIndex) => Option<StatusValue>` — the review chrome's quiet per-row
+     *  dot (some ⇒ flagged, none ⇒ clean), over the unsliced row index. Only
+     *  rendered when `review` is set. */
+    reviewStatus?: SubtypeExprOrValue<FunctionType<[IntegerType], OptionType<StatusValueType>>>;
+    /** `(rowIndex) => Option<ApprovalState>` — the row's review decision
+     *  (see the shared `deriveApproval` helper: clean ⇒ approved, flagged ⇒
+     *  pending), over the unsliced row index. Only rendered when `review` is
+     *  set. */
+    reviewApproval?: SubtypeExprOrValue<FunctionType<[IntegerType], OptionType<ApprovalStateType>>>;
     /** Density preset. */
     density?: SubtypeExprOrValue<DensityType> | DensityLiteral;
     /** Explicit pixel row height. Overrides the `density` preset when set, and is fed to the virtualizer so scroll offsets stay correct. */

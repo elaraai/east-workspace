@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { East } from "@elaraai/east";
+import { BooleanType, East, NullType, none, some, variant } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Gantt, Text, Badge, Table, UIComponentType } from "@elaraai/east-ui/internal";
+import { DragEventType, Gantt, Text, Badge, Table, UIComponentType } from "@elaraai/east-ui/internal";
 import * as ex from "./gantt.examples.js";
 
 describeEast("Gantt", (test) => {
@@ -18,7 +18,10 @@ describeEast("Gantt", (test) => {
         ganttAxisWindow: ex.ganttAxisWindow,
         ganttAxisQuarterTier: ex.ganttAxisQuarterTier,
         ganttAxisWeekTier: ex.ganttAxisWeekTier,
-        ganttStatusByType: ex.ganttStatusByType,
+        ganttStateAndStatus: ex.ganttStateAndStatus,
+        ganttLifecycleArms: ex.ganttLifecycleArms,
+        ganttReview: ex.ganttReview,
+        ganttLibraryDnd: ex.ganttLibraryDnd,
         ganttStyled: ex.ganttStyled,
         ganttComplexColumns: ex.ganttComplexColumns,
         ganttInteractiveCallbacks: ex.ganttInteractiveCallbacks,
@@ -126,15 +129,101 @@ describeEast("Gantt", (test) => {
         $(Assert.equal(task.progress.unwrap("some"), 0.75));
     });
 
-    test("creates task with status", $ => {
+    test("creates task with the shared lifecycle state + risk status (#262)", $ => {
         const gantt = $.let(Gantt.Root(
             [{ name: "Testing", start: new Date("2024-02-01"), end: new Date("2024-02-15") }],
             ["name"],
-            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end, status: "atRisk" })] })
+            // The old status:"atRisk" migrates to the two-axis grammar:
+            // lifecycle state (here a model proposal) + risk tint danger.
+            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end, state: "model", status: "danger" })] })
         ));
 
         const task = gantt.unwrap().unwrap("Gantt").rows.get(0n).tasks.get(0n);
-        $(Assert.equal(task.status.unwrap("some").hasTag("atRisk"), true));
+        $(Assert.equal(task.state.unwrap("proposed").hasTag("model"), true));
+        $(Assert.equal(task.status.unwrap("some").hasTag("danger"), true));
+    });
+
+    test("task state defaults to committed with no risk status", $ => {
+        const gantt = $.let(Gantt.Root(
+            [{ name: "Testing", start: new Date("2024-02-01"), end: new Date("2024-02-15") }],
+            ["name"],
+            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })
+        ));
+
+        const task = gantt.unwrap().unwrap("Gantt").rows.get(0n).tasks.get(0n);
+        $(Assert.equal(task.state.hasTag("committed"), true));
+        $(Assert.equal(task.status.hasTag("none"), true));
+    });
+
+    test("review chrome + row accessors encode via the shared contract (#263)", $ => {
+        const onApprove = $.const(East.function([Gantt.Types.ApproveEvent], NullType, _$ => null));
+        const gantt = $.let(Gantt.Root(
+            [
+                { name: "A", flagged: false, start: new Date("2024-01-01"), end: new Date("2024-01-10") },
+                { name: "B", flagged: true, start: new Date("2024-01-05"), end: new Date("2024-01-15") },
+            ],
+            ["name"],
+            row => ({
+                tasks: [Gantt.Task({ start: row.start, end: row.end, state: "model" })],
+                status: row.flagged.ifElse(() => some(variant("warning", null)), () => none),
+                approval: row.flagged.ifElse(() => some(variant("pending", null)), () => some(variant("approved", null))),
+            }),
+            { review: { onApprove, onApproveAll: East.function([], NullType, _$ => null) } },
+        ));
+        const root = $.let(gantt.unwrap().unwrap("Gantt"));
+
+        const review = $.let(root.review.unwrap("some"));
+        $(Assert.equal(review.columnLabel, "Decision"));
+        $(Assert.equal(review.rerunLabel, "Rerun"));
+        $(Assert.equal(review.onApprove.hasTag("some"), true));
+        $(Assert.equal(review.onReject.hasTag("none"), true));
+        $(Assert.equal(review.onApproveAll.hasTag("some"), true));
+        $(Assert.equal(root.rows.get(0n).status.hasTag("none"), true));
+        $(Assert.equal(root.rows.get(0n).approval.unwrap("some").hasTag("approved"), true));
+        $(Assert.equal(root.rows.get(1n).status.unwrap("some").hasTag("warning"), true));
+        $(Assert.equal(root.rows.get(1n).approval.unwrap("some").hasTag("pending"), true));
+    });
+
+    test("DnD target trio encodes; drops validate through canDrop (#268)", $ => {
+        const onDrag = $.const(East.function([DragEventType], NullType, _$ => null));
+        const canDrop = $.const(East.function([DragEventType], BooleanType, ($, event) =>
+            event.match({
+                add: (_$, add) => add.into.row.notEqual("0"),
+                move: (_$) => East.value(true),
+                remove: (_$) => East.value(true),
+                resize: (_$, rz) => rz.edge.hasTag("end"),
+            })));
+        const gantt = $.let(Gantt.Root(
+            [{ name: "A", start: new Date("2024-01-01"), end: new Date("2024-01-10") }],
+            ["name"],
+            row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end, state: "added" })] }),
+            { id: "schedule", sources: ["crews"], onDrag, canDrop },
+        ));
+        const root = $.let(gantt.unwrap().unwrap("Gantt"));
+
+        $(Assert.equal(root.id, "schedule"));
+        $(Assert.equal(root.sources.get(0n), "crews"));
+        $(Assert.equal(root.onDrag.hasTag("some"), true));
+        const veto = $.let(root.canDrop.unwrap("some"));
+        $(Assert.equal(veto(variant("add", {
+            from: { library: "crews", key: "crew-a" },
+            into: { surface: "schedule", row: "0", slot: "2024-01-05T00:00:00.000Z", event: none },
+            duplicate: false,
+        })), false));
+        $(Assert.equal(veto(variant("add", {
+            from: { library: "crews", key: "crew-a" },
+            into: { surface: "schedule", row: "1", slot: "2024-01-05T00:00:00.000Z", event: none },
+            duplicate: false,
+        })), true));
+        // The grammar resize round-trips (edge + destination slot in the ref).
+        $(Assert.equal(veto(variant("resize", {
+            event: { surface: "schedule", row: "1", slot: "2024-01-14T00:00:00.000Z", event: some("t0") },
+            edge: variant("end", null),
+        })), true));
+        $(Assert.equal(veto(variant("resize", {
+            event: { surface: "schedule", row: "1", slot: "2024-01-14T00:00:00.000Z", event: some("t0") },
+            edge: variant("start", null),
+        })), false));
     });
 
     // =========================================================================

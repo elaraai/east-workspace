@@ -37,6 +37,7 @@ import { layerStyles } from "./layer-styles.js";
 import { globalCss } from "./global-css.js";
 import { keyframes } from "./keyframes.js";
 import { buttonRecipe } from "./recipes/button.js";
+import { dropHintRecipe } from "./recipes/dropHint.js";
 import { inputRecipe } from "./recipes/input.js";
 import { badgeRecipe } from "./recipes/badge.js";
 import { kbdRecipe } from "./recipes/kbd.js";
@@ -115,6 +116,7 @@ import { showMoreSlotRecipe } from "./slot-recipes/showMore.js";
 import { statusSlotRecipe } from "./slot-recipes/status.js";
 import { eyebrowRowSlotRecipe } from "./slot-recipes/eyebrowRow.js";
 import { commitBarSlotRecipe } from "./slot-recipes/commitBar.js";
+import { reviewChromeSlotRecipe } from "./slot-recipes/reviewChrome.js";
 import { decisionQueueSlotRecipe } from "./slot-recipes/decisionQueue.js";
 
 const config = defineConfig({
@@ -127,6 +129,7 @@ const config = defineConfig({
         keyframes,
         recipes: {
             button:     buttonRecipe,
+            dropHint:   dropHintRecipe,
             input:      inputRecipe,
             badge:      badgeRecipe,
             kbd:        kbdRecipe,
@@ -206,6 +209,7 @@ const config = defineConfig({
             status:          statusSlotRecipe,
             eyebrowRow:      eyebrowRowSlotRecipe,
             commitBar:       commitBarSlotRecipe,
+            reviewChrome:    reviewChromeSlotRecipe,
             decisionQueue:   decisionQueueSlotRecipe,
         },
     },

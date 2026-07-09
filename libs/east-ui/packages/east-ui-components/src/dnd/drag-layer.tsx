@@ -53,6 +53,8 @@ export interface DragKinds {
     add?: boolean;
     move?: boolean;
     remove?: boolean;
+    /** Span-edge resize (#268) — Gantt bars, `Planner.Span` events. */
+    resize?: boolean;
 }
 
 /** Display-only metadata accompanying a completed drag (not part of the
@@ -81,7 +83,12 @@ interface CellRegistration {
      * whose surface connects but whose veto returns `false` renders the
      * invalid treatment (`data-drop-invalid`) while hovered, and the drop is
      * a no-op. */
-    canDrop?: ((payload: DragPayload) => boolean) | undefined;
+    canDrop?: ((payload: DragPayload, clientX?: number, clientY?: number) => boolean) | undefined;
+    /** Continuous surfaces (#268): resolve the drop coordinate from the
+     * pointer position at drop time — the component maps pointer x → its
+     * snapped slot key (e.g. a Gantt row strip mapping x → a snapped ISO
+     * instant), as the grammar intends. Absent ⇒ the registered `coord`. */
+    resolveCoord?: ((clientX: number, clientY: number) => CellCoord) | undefined;
 }
 
 interface SinkRegistration {
@@ -93,7 +100,9 @@ interface SinkRegistration {
 /** What is being dragged. */
 export type DragPayload =
     | { kind: "item"; from: { library: string; key: string }; label?: string; ghost: ReactNode }
-    | { kind: "event"; from: Required<CellCoord>; ghost: ReactNode };
+    | { kind: "event"; from: Required<CellCoord>; ghost: ReactNode }
+    /** A span event's edge (#268) — reduces to the grammar `resize`. */
+    | { kind: "edge"; from: Required<CellCoord>; edge: "start" | "end"; ghost: ReactNode };
 
 interface ActiveDrag {
     payload: DragPayload;
@@ -205,16 +214,26 @@ export function DragLayerProvider({ children }: DragLayerProviderProps) {
         if (payload.kind === "item") {
             return (target.kinds.add ?? false) && target.sources.includes(payload.from.library);
         }
+        if (payload.kind === "edge") {
+            // Edge resize: intra-surface AND intra-row — an edge moves along
+            // its own row's axis, never onto another row.
+            return (target.kinds.resize ?? false)
+                && payload.from.surface === reg.coord.surface
+                && payload.from.row === reg.coord.row;
+        }
         // Event move: intra-surface only.
         return (target.kinds.move ?? false) && payload.from.surface === reg.coord.surface;
     }, []);
-    /** Whether `reg` is a valid destination for the in-flight payload. */
-    const cellValid = useCallback((reg: CellRegistration, payload: DragPayload): boolean =>
-        cellConnected(reg, payload) && (reg.canDrop?.(payload) ?? true), [cellConnected]);
+    /** Whether `reg` is a valid destination for the in-flight payload. The
+     * pointer position is forwarded when known (hover / drop) so continuous
+     * surfaces can resolve their candidate; the drag-start sweep omits it
+     * (such cells answer structurally and veto on hover instead). */
+    const cellValid = useCallback((reg: CellRegistration, payload: DragPayload, x?: number, y?: number): boolean =>
+        cellConnected(reg, payload) && (reg.canDrop?.(payload, x, y) ?? true), [cellConnected]);
     /** Whether `reg` connects but its per-cell veto forbids this payload —
      * the hovered-invalid (⃠) treatment. */
-    const cellVetoed = useCallback((reg: CellRegistration, payload: DragPayload): boolean =>
-        cellConnected(reg, payload) && reg.canDrop?.(payload) === false, [cellConnected]);
+    const cellVetoed = useCallback((reg: CellRegistration, payload: DragPayload, x?: number, y?: number): boolean =>
+        cellConnected(reg, payload) && reg.canDrop?.(payload, x, y) === false, [cellConnected]);
 
     const sinkValid = useCallback((reg: SinkRegistration, payload: DragPayload): boolean => {
         if (payload.kind !== "event") return false;
@@ -250,22 +269,32 @@ export function DragLayerProvider({ children }: DragLayerProviderProps) {
         setDrag(null);
         if (!commit || !active || !over) return;
 
-        const { payload, altKey } = active;
+        const { payload, altKey, x, y } = active;
         const cell = cells.current.get(over);
         const sink = sinks.current.get(over);
-        if (cell && cellValid(cell, payload)) {
+        if (cell && cellValid(cell, payload, x, y)) {
             const target = targets.current.get(cell.coord.surface);
             if (!target?.onDrag) return;
+            // Continuous surfaces resolve the drop coordinate from the pointer
+            // (component-owned snapping, #268); discrete cells use their coord.
+            const dropCoord = cell.resolveCoord?.(x, y) ?? cell.coord;
             if (payload.kind === "item") {
                 target.onDrag(variant("add", {
                     from: libraryRefValue(payload.from),
-                    into: cellRefValue(cell.coord),
+                    into: cellRefValue(dropCoord),
                     duplicate: altKey,
                 }), payload.label !== undefined ? { label: payload.label } : undefined);
+            } else if (payload.kind === "edge") {
+                // The grammar `resize`: the event ref's `slot` is the moved
+                // edge's NEW slot (the destination), `event` the span's key.
+                target.onDrag(variant("resize", {
+                    event: cellRefValue({ ...payload.from, slot: dropCoord.slot }),
+                    edge: variant(payload.edge, null),
+                }));
             } else {
                 target.onDrag(variant("move", {
                     from: cellRefValue(payload.from),
-                    to: cellRefValue(cell.coord),
+                    to: cellRefValue(dropCoord),
                 }));
             }
         } else if (sink && sinkValid(sink, payload) && payload.kind === "event") {
@@ -312,12 +341,22 @@ export function DragLayerProvider({ children }: DragLayerProviderProps) {
                 hovered.current = null;
             }
             if (dest && valid) {
-                dest.setAttribute("data-drop-active", "");
-                hovered.current = dest;
+                // A structurally-valid CONTINUOUS cell may still veto at this
+                // exact pointer position (its candidate resolves per-pointer).
+                const reg = cells.current.get(dest);
+                if (reg && cellVetoed(reg, current.payload, ev.clientX, ev.clientY)) {
+                    dest.removeAttribute("data-drop-active");
+                    dest.setAttribute("data-drop-invalid", "");
+                    hovered.current = dest;
+                } else {
+                    dest.removeAttribute("data-drop-invalid");
+                    dest.setAttribute("data-drop-active", "");
+                    hovered.current = dest;
+                }
             } else if (dest) {
                 // A connected-but-vetoed cell shows the invalid treatment.
                 const reg = cells.current.get(dest);
-                if (reg && cellVetoed(reg, current.payload)) {
+                if (reg && cellVetoed(reg, current.payload, ev.clientX, ev.clientY)) {
                     dest.setAttribute("data-drop-invalid", "");
                     hovered.current = dest;
                 }
@@ -345,9 +384,40 @@ export function DragLayerProvider({ children }: DragLayerProviderProps) {
         active: drag !== null,
     }), [registerTarget, registerCell, registerSink, beginDrag, drag]);
 
+    // ── Shared trash sink (#267) ──────────────────────────────────────────
+    // While a drag whose owning target declares `kinds.remove` is in flight,
+    // the provider renders a fixed trash zone (bottom-centre portal) wired
+    // through the ordinary `trash` sink path — dropping delivers
+    // `remove: { from, to: trash }` with zero per-component work. Structural
+    // validity only: a trash drop is never `data-drop-invalid` (the `canDrop`
+    // veto is a cell concern). Per-chip trash buttons remain the click path.
+    const trashEligible = drag !== null
+        && drag.payload.kind === "event"
+        && (targets.current.get(drag.payload.from.surface)?.kinds.remove ?? false);
+    const trashCleanup = useRef<(() => void) | null>(null);
+    const trashRef = useCallback((el: HTMLElement | null) => {
+        trashCleanup.current?.();
+        trashCleanup.current = null;
+        if (el) {
+            trashCleanup.current = registerSink(el, { kind: "trash" });
+            // The zone mounts AFTER beginDrag's valid-destination sweep, so
+            // mark it valid for the in-flight payload here.
+            const active = dragRef.current;
+            if (active && sinkValid({ kind: "trash" }, active.payload)) {
+                el.setAttribute("data-drop-valid", "");
+            }
+        }
+    }, [registerSink, sinkValid]);
+
     return (
         <DragLayerContext.Provider value={context}>
             {children}
+            {trashEligible && createPortal(
+                <div ref={trashRef as (el: HTMLDivElement | null) => void} data-drag-trash="" aria-label="Remove (drop to trash)">
+                    ⌫
+                </div>,
+                document.body,
+            )}
             {drag !== null && createPortal(
                 <div
                     data-drag-ghost=""
@@ -392,6 +462,7 @@ export function useDropCell(
     coord: CellCoord | null,
     disabled = false,
     canDrop?: (payload: DragPayload) => boolean,
+    resolveCoord?: (clientX: number, clientY: number) => CellCoord,
 ): (el: HTMLElement | null) => void {
     const layer = useDragLayerOptional();
     const cleanup = useRef<(() => void) | null>(null);
@@ -399,9 +470,9 @@ export function useDropCell(
         cleanup.current?.();
         cleanup.current = null;
         if (layer && el && coord) {
-            cleanup.current = layer.registerCell(el, { coord, disabled, canDrop });
+            cleanup.current = layer.registerCell(el, { coord, disabled, canDrop, resolveCoord });
         }
-    }, [layer, coord, disabled, canDrop]);
+    }, [layer, coord, disabled, canDrop, resolveCoord]);
 }
 
 /**
@@ -459,4 +530,24 @@ export function useDragEventChip(
         if (!layer || !from || disabled) return undefined;
         return (e: ReactPointerEvent) => layer.beginDrag(e, { kind: "event", from, ghost });
     }, [layer, from, ghost, disabled]);
+}
+
+/**
+ * Pointer-down handler starting a `resize` drag from a span event's edge
+ * (#268). The destination is intra-row: valid cells are the same row's slots
+ * (continuous surfaces resolve the snapped slot at drop time), and the drop
+ * reduces to `resize: { event, edge }` where the event ref's `slot` is the
+ * moved edge's new slot. Returns `undefined` when not draggable.
+ */
+export function useDragEventEdge(
+    from: Required<CellCoord> | null,
+    edge: "start" | "end",
+    ghost: ReactNode,
+    disabled = false,
+): ((e: ReactPointerEvent) => void) | undefined {
+    const layer = useDragLayerOptional();
+    return useMemo(() => {
+        if (!layer || !from || disabled) return undefined;
+        return (e: ReactPointerEvent) => layer.beginDrag(e, { kind: "edge", from, edge, ghost });
+    }, [layer, from, edge, ghost, disabled]);
 }

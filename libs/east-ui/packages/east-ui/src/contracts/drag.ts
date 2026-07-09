@@ -5,6 +5,7 @@
 
 import {
     BooleanType,
+    FunctionType,
     NullType,
     OptionType,
     StringType,
@@ -15,6 +16,25 @@ import {
 // ============================================================================
 // Drag & drop grammar — shared contract for DnD-aware surfaces
 // ============================================================================
+//
+// ## Slot-key encoding (the `CellRefType.row` / `slot` conventions)
+//
+// `row` and `slot` are strings; each target documents how its grid coordinates
+// encode into them, and every target follows the same composite-key rule:
+//
+// | Target  | `row`            | `slot`                                        |
+// |---------|------------------|-----------------------------------------------|
+// | Roster  | person key       | day key (e.g. `"wed"`)                        |
+// | Board   | area key         | shift key                                     |
+// | Blend   | target key       | `"alloc"` (synthetic single slot)             |
+// | Planner | row key          | axis key, with the bucket composed in — `"wed"` unbucketed, `"wed:am"` for the AM bucket |
+// | Gantt   | row index key    | snapped datetime key (ISO instant after the component's grid snap) |
+//
+// The composite rule: when a slot subdivides (Planner buckets), the sub-slot
+// key is appended with `":"` — the same composite key the renderer uses to
+// index its cells. Axis coordinates that are not strings (numbers, datetimes)
+// are printed canonically: numbers via their decimal form, datetimes as the
+// snapped ISO-8601 instant. Hosts map keys straight back to their source data.
 
 /**
  * Reference to an item in a Library (a drag **source**).
@@ -184,3 +204,35 @@ export const DragEventType = VariantType({
  * Type representing drag event values.
  */
 export type DragEventType = typeof DragEventType;
+
+/**
+ * The `canDrop` validation predicate every DnD target root carries as
+ * `canDrop: OptionType(CanDropFnType)` — IR-level drop validation, uniform
+ * across targets.
+ *
+ * @remarks
+ * **Candidate-event semantics.** During a drag, the renderer consults the
+ * predicate once per hovered destination with a **synthesized candidate
+ * event** — the {@link DragEventType} value that *would* be delivered if the
+ * payload dropped there: an `add` for a Library card over a cell (with
+ * `duplicate: false` — the alt-key state is unknowable before the drop), a
+ * `move` for an event chip over a cell, a `resize` for an edge drag over a
+ * slot. Returning `false` puts the cell in the invalid stage
+ * (`data-drop-invalid`: ⊘ badge, red outline, `cursor: not-allowed`) and the
+ * drop is a no-op; the verdict is also re-checked with the real event before
+ * delivery. Absent ⇒ every structurally-connected cell accepts (the default).
+ *
+ * Sink drops are not consulted: a `remove` into the trash / return-to-palette
+ * sink is always structurally valid for a removable payload — removal policy
+ * belongs to the host's `onDrag` handling, not the hover veto.
+ *
+ * A **throwing** predicate logs and allows (fail-open, the Board / Schematic
+ * validator convention) so a broken validator cannot brick the surface.
+ * Verdicts are cached per (payload, destination) for the duration of a drag.
+ */
+export const CanDropFnType = FunctionType([DragEventType], BooleanType);
+
+/**
+ * Type representing drop-validation predicate values.
+ */
+export type CanDropFnType = typeof CanDropFnType;

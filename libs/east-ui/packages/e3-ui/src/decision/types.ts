@@ -159,6 +159,16 @@ export type AnswerLiteral = "yes" | "no" | "unknown";
 /**
  * The operator's final word on a case — how it left the queue.
  *
+ * @remarks
+ * Vocabulary note: `Verdict` is **case-level** resolution — how a queue case
+ * exits. east-ui's shared review contract (`ApprovalStateType` in
+ * `contracts/review.ts`: approved / pending / rejected) is **in-surface**
+ * resolution — a row's sign-off inside a grid surface (Planner, Gantt, Table,
+ * Roster). The two stay distinct on purpose; the bridge is host wiring — e.g.
+ * a review-enabled surface's `onApprove({ rowIndex })` mapping the row to a
+ * case and calling the Decision handle's `resolve(caseId, verdict)`. The two
+ * chromes already share the `commitBar` foot recipe.
+ *
  * @property accepted - The chosen option's label (empty string accepts the
  *   recommendation itself)
  * @property rejected - The recommendation was rejected; the operator takes

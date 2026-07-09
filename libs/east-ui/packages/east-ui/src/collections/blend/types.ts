@@ -16,7 +16,7 @@ import {
 } from "@elaraai/east";
 
 import { PlannerStateType } from "../planner/types.js";
-import { DragEventType } from "../../contracts/drag.js";
+import { CanDropFnType, DragEventType } from "../../contracts/drag.js";
 
 /**
  * A predicted metric row on a target panel.
@@ -161,6 +161,15 @@ export type BlendAmountEventType = typeof BlendAmountEventType;
 /**
  * The `onAction` payload.
  *
+ * @remarks
+ * Vocabulary note (#266): `apply` / `discard` are the **panel-scope**
+ * synonyms of approve / reject in the shared review vocabulary
+ * (`contracts/review.ts`) — the foot renders on the shared `commitBar`
+ * recipe (Apply = primary, Discard = danger, Reset = plain), the same
+ * chrome family as the Planner review foot and the DecisionQueue staged
+ * footer. Full `ReviewConfig` unification is an epic #259 candidate,
+ * only if per-row review ever lands in Blend.
+ *
  * @property target - The target key, or `none` for surface-wide actions
  * @property action - Which action fired
  */
@@ -193,6 +202,7 @@ export type BlendActionEventType = typeof BlendActionEventType;
  * @property diff - Compare mode: metric keys for the foot table (empty = all)
  * @property verdict - Optional compare verdict line
  * @property onDrag - Drag funnel — add / remove events
+ * @property canDrop - Optional IR-level drop veto over synthesized candidate events
  * @property onAmountChange - Allocation amount edits
  * @property onAction - Panel actions (reset / optimise / apply / discard)
  */
@@ -209,6 +219,10 @@ export const BlendRootType = StructType({
     verdict: OptionType(StringType),
     /** Drag funnel — add / remove events */
     onDrag: OptionType(FunctionType([DragEventType], NullType)),
+    /** Optional IR-level drop veto — consulted per hovered target panel with
+     *  the synthesized candidate event ({@link CanDropFnType} semantics);
+     *  `false` ⇒ the ⊘ invalid stage and the drop is a no-op. Absent ⇒ accept. */
+    canDrop: OptionType(CanDropFnType),
     /** Allocation amount edits */
     onAmountChange: OptionType(FunctionType([BlendAmountEventType], NullType)),
     /** Panel actions (reset / optimise / apply / discard) */

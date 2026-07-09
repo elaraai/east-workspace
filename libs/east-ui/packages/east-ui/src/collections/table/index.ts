@@ -55,6 +55,8 @@ import {
 } from "./types.js";
 import { UIComponentType } from "../../component.js";
 import { SliceBindType, SliceChromeType } from "../../platform/slice/index.js";
+import { StatusValueType } from "../../feedback/status/types.js";
+import { ApprovalStateType, RowRefType, RowReviewType, buildReview } from "../../contracts/review.js";
 import { SliceAffordanceType, type SliceAffordanceLiteral } from "../../contracts/slice-affordances.js";
 import { Text } from "../../typography/index.js";
 import { DensityType } from "../../style/interaction.js";
@@ -295,6 +297,9 @@ export const TableRootType: StructType<{
     onRowDoubleClick: OptionType<FunctionType<[TableRowClickEventType], NullType>>,
     onRowSelectionChange: OptionType<FunctionType<[TableRowSelectionEventType], NullType>>,
     onSortChange: OptionType<FunctionType<[TableSortEventType], NullType>>,
+    review: OptionType<RowReviewType>,
+    reviewStatus: OptionType<FunctionType<[IntegerType], OptionType<StatusValueType>>>,
+    reviewApproval: OptionType<FunctionType<[IntegerType], OptionType<ApprovalStateType>>>,
     slice: OptionType<typeof SliceChromeType>,
     style: OptionType<TableStyleType>,
 }> = StructType({
@@ -318,6 +323,13 @@ export const TableRootType: StructType<{
     onRowDoubleClick: OptionType(FunctionType([TableRowClickEventType], NullType)),
     onRowSelectionChange: OptionType(FunctionType([TableRowSelectionEventType], NullType)),
     onSortChange: OptionType(FunctionType([TableSortEventType], NullType)),
+    // Optional review chrome (#264) — the shared contract's row-granularity
+    // config (pinned-right Decision column + commitBar foot). `reviewStatus` /
+    // `reviewApproval` are `(rowIndex) => Option<…>` accessors over the
+    // UNSLICED row index (the Table's rowStatus idiom), inert without `review`.
+    review: OptionType(RowReviewType),
+    reviewStatus: OptionType(FunctionType([IntegerType], OptionType(StatusValueType))),
+    reviewApproval: OptionType(FunctionType([IntegerType], OptionType(ApprovalStateType))),
     slice: OptionType(SliceChromeType),
     style: OptionType(TableStyleType),
 });
@@ -715,6 +727,13 @@ export function createTable<T extends SubtypeExprOrValue<ArrayType<StructType>>>
         virtualization: style?.virtualization !== undefined ? some(style.virtualization) : none,
         density: densityValue ? some(densityValue) : none,
         rowStatus: rowStatusValue ? some(rowStatusValue) : none,
+        review: style?.review !== undefined ? some(buildReview(style.review, RowReviewType)) : none,
+        reviewStatus: style?.reviewStatus !== undefined
+            ? some(East.value(style.reviewStatus, FunctionType([IntegerType], OptionType(StatusValueType))))
+            : none,
+        reviewApproval: style?.reviewApproval !== undefined
+            ? some(East.value(style.reviewApproval, FunctionType([IntegerType], OptionType(ApprovalStateType))))
+            : none,
         pagination: paginationValue ? some(paginationValue) : none,
         selection: selectionValue ? some(selectionValue) : none,
         slice: sliceChromeValue ? some(sliceChromeValue) : none,
@@ -751,6 +770,9 @@ interface TableNamespace {
     Root: typeof createTable;
     Types: {
         Root: typeof TableRootType;
+        Approval: ApprovalStateType;
+        Review: RowReviewType;
+        ApproveEvent: RowRefType;
         Style: typeof TableStyleType;
         Column: typeof TableColumnType;
         Cell: typeof TableCellType;
@@ -881,6 +903,12 @@ export const Table: TableNamespace = {
          * @property style - Optional visual-only style sub-struct ({@link TableStyleType})
          */
         Root: TableRootType,
+        /** A row's review decision — the shared `ApprovalStateType` (#264). */
+        Approval: ApprovalStateType,
+        /** The review configuration — the shared row-granularity `RowReviewType` (#264). */
+        Review: RowReviewType,
+        /** The per-row approve / reject payload — the shared `RowRefType` (`{ rowIndex }`, unsliced). */
+        ApproveEvent: RowRefType,
         /**
          * East StructType holding every visual field for a Table —
          * visual-only.

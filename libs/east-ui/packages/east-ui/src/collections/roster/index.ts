@@ -28,9 +28,11 @@ import {
     some,
     none,
     ArrayType,
-    type FunctionType,
+    type BooleanType,
+    FunctionType,
     IntegerType,
-    type NullType,
+    NullType,
+    OptionType,
     StringType,
     StructType,
 } from "@elaraai/east";
@@ -38,18 +40,100 @@ import {
 import { UIComponentType } from "../../component.js";
 import { mapRows } from "../../shared/reify.js";
 import { DensityType, type DensityLiteral } from "../../style/interaction.js";
-import { type CellRefType, type DragEventType } from "../../contracts/drag.js";
+import { CellRefType, DragEventType } from "../../contracts/drag.js";
 import { PlannerStateType } from "../planner/types.js";
 import {
     RosterModeType, type RosterModeLiteral,
-    RosterPersonType, RosterShiftType, RosterRootType,
+    RosterPersonType, RosterShiftType,
 } from "./types.js";
+import { CanDropFnType } from "../../contracts/drag.js";
+import { ApprovalStateType, RowRefType, RowReviewType, buildReview, type ReviewConfig } from "../../contracts/review.js";
+import { StatusValueType } from "../../feedback/status/types.js";
 
 // Re-export types
 export {
     RosterModeType, type RosterModeLiteral,
-    RosterPersonType, RosterShiftType, RosterRootType,
+    RosterPersonType, RosterShiftType,
 } from "./types.js";
+
+/**
+ * East StructType for the Roster component.
+ *
+ * @remarks
+ * Flat resolved tables — the renderer groups shifts into cells by
+ * `person × day`. Shift states reuse the Planner event-state grammar
+ * ({@link PlannerStateType}); the `model` flavour renders as the dashed
+ * ghost with the acceptance affordance. Defined here (not `types.ts`)
+ * since #265: the root carries the shared review config, whose `summary`
+ * is a `UIComponentType` — `component.ts` mirrors this arm inline with the
+ * recursion `node`.
+ *
+ * @property id - DnD target identity
+ * @property sources - Library ids accepted for `add` drags
+ * @property mode - `published` (committed-only, immutable) or `edit`
+ * @property days - The day columns, in order
+ * @property personHeader - The frozen person column's header
+ * @property personWidth - Optional CSS width for the frozen person column
+ * @property people - The grid rows
+ * @property shifts - The shift chips (joined to people by person key)
+ * @property density - Optional density
+ * @property summary - Optional status-strip text (dirty / ghost counts)
+ * @property onDrag - Drag funnel — add / move / remove events
+ * @property canDrop - Optional IR-level drop veto over synthesized candidate events
+ * @property onSelect - Shift / cell click callback
+ * @property onAccept - Ghost-shift acceptance callback (ONE proposed shift)
+ * @property onAddAt - Empty-cell click callback (edit mode)
+ * @property review - Optional row-level review chrome (shared contract, #265)
+ */
+export const RosterRootType = StructType({
+    /** DnD target identity */
+    id: StringType,
+    /** Library ids accepted for `add` drags */
+    sources: ArrayType(StringType),
+    /** `published` (committed-only, immutable) or `edit` */
+    mode: RosterModeType,
+    /** The day columns, in order */
+    days: ArrayType(StringType),
+    /** The frozen person column's header */
+    personHeader: StringType,
+    /** Optional CSS width for the frozen person column (none = the Planner-consistent 150px) */
+    personWidth: OptionType(StringType),
+    /** The grid rows */
+    people: ArrayType(RosterPersonType),
+    /** The shift chips (joined to people by person key) */
+    shifts: ArrayType(RosterShiftType),
+    /** Optional density */
+    density: OptionType(DensityType),
+    /** Optional status-strip text (dirty / ghost counts) */
+    summary: OptionType(StringType),
+    /** Drag funnel — add / move / remove events */
+    onDrag: OptionType(FunctionType([DragEventType], NullType)),
+    /** Optional IR-level drop veto — consulted per hovered cell with the
+     *  synthesized candidate event (`CanDropFnType` semantics); `false`
+     *  ⇒ the ⊘ invalid stage and the drop is a no-op. Absent ⇒ accept. */
+    canDrop: OptionType(CanDropFnType),
+    /** Shift / cell click callback */
+    onSelect: OptionType(FunctionType([CellRefType], NullType)),
+    /** Ghost-shift acceptance callback — resolves ONE proposed shift. The
+     *  granularity contract (#265): `onAccept(CellRef)` is the *item*-level
+     *  call; `review.onApprove({ rowIndex })` signs off a LINE. The interplay
+     *  is host-owned — the component reports, the host decides whether
+     *  row-approval implies accepting the row's ghosts (no implicit
+     *  cascading in the component). */
+    onAccept: OptionType(FunctionType([CellRefType], NullType)),
+    /** Empty-cell click callback (edit mode) */
+    onAddAt: OptionType(FunctionType([CellRefType], NullType)),
+    /** Optional row-level review chrome (#265) — the shared contract's
+     *  Decision column + commitBar foot; rows are people. Absent ⇒ a plain
+     *  Roster (people `status`/`approval` are inert). Composes with — does
+     *  not replace — per-tile ghost `onAccept`. */
+    review: OptionType(RowReviewType),
+});
+
+/**
+ * Type representing the Roster component.
+ */
+export type RosterRootType = typeof RosterRootType;
 
 /**
  * The struct element type of a `SubtypeExprOrValue<ArrayType<StructType>>`.
@@ -82,6 +166,13 @@ export interface RosterPersonFields {
     label: SubtypeExprOrValue<StringType>;
     /** Optional muted second line (e.g. target hours). */
     sublabel?: SubtypeExprOrValue<StringType>;
+    /** Optional per-row status — the quiet dot beside the person (some ⇒
+     *  flagged, none ⇒ clean). Only rendered when `review` is set (#265). */
+    status?: SubtypeExprOrValue<OptionType<StatusValueType>>;
+    /** Optional per-row review decision (see the shared `deriveApproval`
+     *  helper: clean ⇒ approved, flagged ⇒ pending). Only rendered when
+     *  `review` is set (#265). */
+    approval?: SubtypeExprOrValue<OptionType<ApprovalStateType>>;
 }
 
 /**
@@ -132,6 +223,7 @@ export interface RosterShiftFields {
  * @property density - Optional density
  * @property summary - Optional status-strip text (dirty / ghost counts)
  * @property onDrag - Drag funnel — add / move / remove events
+ * @property canDrop - Optional IR-level drop veto over synthesized candidate events
  * @property onSelect - Shift / cell click callback (a drag-grammar cell ref)
  * @property onAccept - Ghost-shift acceptance callback
  * @property onAddAt - Empty-cell click callback (edit mode)
@@ -159,12 +251,23 @@ export interface RosterConfig<P extends StructType, S extends StructType> {
     summary?: SubtypeExprOrValue<StringType>;
     /** Drag funnel — add / move / remove events. */
     onDrag?: SubtypeExprOrValue<FunctionType<[DragEventType], NullType>>;
+    /** Optional IR-level drop veto — consulted per hovered cell with the
+     *  synthesized candidate event (`CanDropFnType` semantics, see
+     *  `contracts/drag.ts`); `false` ⇒ the ⊘ invalid stage and the drop is a
+     *  no-op. Absent ⇒ accept (the pre-#261 behaviour). */
+    canDrop?: SubtypeExprOrValue<FunctionType<[DragEventType], BooleanType>>;
     /** Shift / cell click callback (a drag-grammar cell ref). */
     onSelect?: SubtypeExprOrValue<FunctionType<[CellRefType], NullType>>;
     /** Ghost-shift acceptance callback. */
     onAccept?: SubtypeExprOrValue<FunctionType<[CellRefType], NullType>>;
     /** Empty-cell click callback (edit mode). */
     onAddAt?: SubtypeExprOrValue<FunctionType<[CellRefType], NullType>>;
+    /** Optional row-level review chrome (#265) — the shared contract's
+     *  Decision column + commitBar foot; rows are people, callbacks receive
+     *  `{ rowIndex }`. Presence is the opt-in. Composes with — does not
+     *  replace — per-tile ghost `onAccept`: accept resolves ONE ghost,
+     *  approve signs off a LINE; the interplay is host-owned. */
+    review?: ReviewConfig<RowRefType>;
 }
 
 function buildRoot(
@@ -182,6 +285,12 @@ function buildRoot(
                 key: r.key,
                 label: r.label,
                 sublabel: r.sublabel !== undefined ? some(r.sublabel) : none,
+                status: r.status !== undefined
+                    ? East.value(r.status, OptionType(StatusValueType))
+                    : none,
+                approval: r.approval !== undefined
+                    ? East.value(r.approval, OptionType(ApprovalStateType))
+                    : none,
             }, RosterPersonType);
         });
 
@@ -224,9 +333,11 @@ function buildRoot(
         density,
         summary: config.summary !== undefined ? some(config.summary) : none,
         onDrag: config.onDrag !== undefined ? some(config.onDrag) : none,
+        canDrop: config.canDrop !== undefined ? some(config.canDrop) : none,
         onSelect: config.onSelect !== undefined ? some(config.onSelect) : none,
         onAccept: config.onAccept !== undefined ? some(config.onAccept) : none,
         onAddAt: config.onAddAt !== undefined ? some(config.onAddAt) : none,
+        review: config.review !== undefined ? some(buildReview(config.review, RowReviewType)) : none,
     }), UIComponentType);
 }
 
@@ -346,6 +457,12 @@ export const Roster = {
          * @property onAddAt - Empty-cell click callback
          */
         Roster: RosterRootType,
+        /** A row's review decision — the shared `ApprovalStateType` (#265). */
+        Approval: ApprovalStateType,
+        /** The review configuration — the shared row-granularity `RowReviewType` (#265). */
+        Review: RowReviewType,
+        /** The per-row approve / reject payload — the shared `RowRefType` (`{ rowIndex }`). */
+        ApproveEvent: RowRefType,
         /**
          * Roster render mode (`published` / `edit`).
          *

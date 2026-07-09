@@ -4,7 +4,7 @@
  */
 
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
-import { Box, HoverCard, Popover, Portal, Tooltip, useRecipe, useSlotRecipe } from "@chakra-ui/react";
+import { Box, HoverCard, Popover, Portal, Tooltip, useSlotRecipe } from "@chakra-ui/react";
 import {
     useReactTable, getCoreRowModel, createColumnHelper,
     type ColumnDef, type ColumnSizingState, type Updater,
@@ -14,7 +14,7 @@ import {
     faGripVertical, faCircleCheck, faTriangleExclamation, faCircleXmark, faCircleInfo, faCircle,
     type IconDefinition,
 } from "@fortawesome/free-solid-svg-icons";
-import { equalFor, match, type ValueTypeOf } from "@elaraai/east";
+import { equalFor, match, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Planner } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { usePersistedState } from "../../hooks/usePersistedState";
@@ -24,6 +24,9 @@ import {
     ColumnDividerBar, ColumnResizeHandle,
 } from "../shared/column-pinning";
 import { useDensityHeights } from "../shared/helpers";
+import { useReviewController, DecisionButtons, ReviewFoot, DECISION_WIDTH } from "../shared/review";
+import { useDragTarget, useDropCell, useDragEventChip, useDragEventEdge, type DragEventValue, type DragMeta, type DragPayload, type CellCoord } from "../../dnd/drag-layer";
+import { useIRCanDrop, canDropAllows, type CanDropFn } from "../../dnd/ir-can-drop";
 import { DensityProvider } from "../../contracts/density";
 import { usePlotGutter, gutterPx } from "../../contracts/plot-gutter.js";
 
@@ -41,23 +44,6 @@ export type PlannerColumnValue = ValueTypeOf<typeof Planner.Types.Column>;
 export type PlannerSlotValue = ValueTypeOf<typeof Planner.Types.Slot>;
 /** East Planner review-config value (the optional decision column + foot). */
 export type PlannerReviewValue = ValueTypeOf<typeof Planner.Types.Review>;
-
-/** A row's resolved review verdict — drives the Approve/Reject button states. */
-type ApprovalTag = "approved" | "pending" | "rejected";
-
-/** The fixed width of the trailing review decision column. Shared by the
- *  header cell and every per-row cell so the right edge stays aligned. */
-const DECISION_WIDTH = "168px";
-
-/** Seed the local decision map from each row's `approval` (some ⇒ its tag). */
-function initialDecisions(value: PlannerRootValue): Record<number, ApprovalTag> {
-    const out: Record<number, ApprovalTag> = {};
-    value.rows.forEach((row, index) => {
-        const a = getSomeorUndefined(row.approval);
-        if (a !== undefined) out[index] = a.type as ApprovalTag;
-    });
-    return out;
-}
 
 export interface EastChakraPlannerProps {
     /** The Planner root value. */
@@ -173,6 +159,27 @@ function slotToCol(slot: PlannerSlotValue, cols: AxisColumn[]): number {
     return cols.findIndex((c) => c.key === key);
 }
 
+/** The drag-grammar slot key for an axis column (#269) — the axis
+ *  coordinate printed canonically: ordinal → the label, number → its decimal
+ *  form, time → the column instant's ISO form. A bucket composes in with
+ *  `":"` (`"wed"` / `"wed:am"`), per `contracts/drag.ts`. */
+function axisSlotKey(col: AxisColumn, scale: string): string {
+    if (scale === "number" || scale === "ordinal") return col.key.slice(2);
+    // time — month columns keyed `${y}-${m}`; print the month start instant.
+    const parts = col.key.split("-").map(Number);
+    const y = parts[0];
+    const m = parts[1];
+    if (y !== undefined && m !== undefined && Number.isFinite(y) && Number.isFinite(m)) {
+        return new Date(Date.UTC(y, m, 1)).toISOString();
+    }
+    return col.key;
+}
+
+/** Compose the bucket into the slot key (`"wed:am"`). */
+function compositeSlotKey(axisKey: string, bucket: string | undefined): string {
+    return bucket !== undefined ? `${axisKey}:${bucket}` : axisKey;
+}
+
 /** Map an event's audit state to its recipe `state` variant key. */
 function stateKey(state: ValueTypeOf<typeof Planner.Types.State>): StateKey {
     return match(state, {
@@ -251,27 +258,86 @@ function eventGeom(event: PlannerEventValue, shape: "point" | "span", inLane: bo
     return geom;
 }
 
-function EventChip({ event, eventStyle, gripStyle, shape, inLane = false }: {
+/** A droppable Planner region (#269) — one flat cell, bucket lane, or span
+ *  cell, registered as its OWN drag destination so the valid / active / ⊘
+ *  stages mark exactly the cell under the pointer (the Roster behaviour).
+ *  Pass `slot: undefined` to render without registering (DnD off, or a
+ *  bucketed parent cell whose lanes register instead). */
+function PlannerDropCell({ surface, row, slot, vetoFor, children, ...rest }: {
+    surface?: string | undefined;
+    row?: string | undefined;
+    slot?: string | undefined;
+    vetoFor?: ((coord: CellCoord) => (payload: DragPayload) => boolean) | undefined;
+} & React.ComponentProps<typeof Box>) {
+    const coord = useMemo<CellCoord | null>(
+        () => (surface !== undefined && row !== undefined && slot !== undefined ? { surface, row, slot } : null),
+        [surface, row, slot],
+    );
+    const veto = useMemo(() => (coord !== null && vetoFor !== undefined ? vetoFor(coord) : undefined), [coord, vetoFor]);
+    const dropRef = useDropCell(coord, false, veto);
+    return <Box ref={dropRef} {...rest}>{children}</Box>;
+}
+
+/** The chip's drag-grammar context (#269) — present only when the Planner is
+ *  a registered target AND the tile is draggable (proposed + keyed). */
+export interface PlannerChipDnd {
+    surface: string;
+    row: string;
+    /** The tile's slot key (bucket composed in). */
+    slot: string;
+    /** The tile's stable identity (the authored `event.key`). */
+    event: string;
+    /** The span end's slot key (Span tiles — enables edge resize). */
+    endSlot?: string | undefined;
+}
+
+function EventChip({ event, eventStyle, gripStyle, shape, inLane = false, dnd }: {
     event: PlannerEventValue;
     eventStyle: Record<string, unknown>;
     gripStyle: Record<string, unknown> | undefined;
     shape: "point" | "span";
     /** True when the chip sits in a bucket lane (centre it) vs a flat cell (top-left). */
     inLane?: boolean;
+    /** Drag-grammar wiring — undefined ⇒ the tile is inert (#269). */
+    dnd?: PlannerChipDnd | undefined;
 }) {
     const popover = getSomeorUndefined(event.popover);
     const hovercard = getSomeorUndefined(event.hovercard);
     const sk = stateKey(event.state);
     const showGrip = sk === "proposedAdded" || sk === "proposedModel" || sk === "proposedRemoved";
 
+    // Only PROPOSED tiles drag (committed history never drags — the Roster
+    // rule), and only with a stable authored `key` to name in cell refs.
+    const from = useMemo(() => (dnd && showGrip
+        ? { surface: dnd.surface, row: dnd.row, slot: dnd.slot, event: dnd.event }
+        : null), [dnd, showGrip]);
+    const dragGhost = useMemo(() => <span>{event.label}</span>, [event.label]);
+    const onChipPointerDown = useDragEventChip(from, dragGhost, from === null);
+    // Span edges resize through the shared runtime (#268): 6px hot zones on
+    // each edge of a proposed span bar.
+    const startEdgeDown = useDragEventEdge(from, "start", dragGhost, from === null || shape !== "span");
+    const endEdgeFrom = useMemo(() => (from && dnd?.endSlot !== undefined
+        ? { ...from, slot: dnd.endSlot } : from), [from, dnd]);
+    const endEdgeDown = useDragEventEdge(endEdgeFrom, "end", dragGhost, endEdgeFrom === null || shape !== "span");
+
     // With a grip, tighten the left inset so the handle sits as close to the
     // edge as the 3px top/bottom padding (the default 8px reads lop-sided).
     // `geom` carries the data-driven stretch/content overrides (item 1).
-    const chipCss = { ...eventStyle, ...eventGeom(event, shape, inLane), ...(showGrip ? { paddingInlineStart: "3px" } : {}) };
+    const chipCss = { ...eventStyle, ...eventGeom(event, shape, inLane), ...(showGrip ? { paddingInlineStart: "3px" } : {}), ...(from ? { position: "relative" as const } : {}) };
     const chip = (
-        <Box css={chipCss} data-slot="event" data-state={sk}>
+        <Box css={chipCss} data-slot="event" data-state={sk}
+            onPointerDown={onChipPointerDown}
+            {...(from && onChipPointerDown ? { "data-draggable": "" } : {})}>
             {showGrip && <Box as="span" css={gripStyle} data-slot="grip"><FontAwesomeIcon icon={faGripVertical} /></Box>}
             <Box as="span" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" minW={0}>{event.label}</Box>
+            {shape === "span" && startEdgeDown && (
+                <Box as="span" position="absolute" left="-3px" top="0" bottom="0" width="6px" cursor="ew-resize"
+                    onPointerDown={(e: React.PointerEvent) => { e.stopPropagation(); startEdgeDown(e); }} data-resize-edge="start" />
+            )}
+            {shape === "span" && endEdgeDown && (
+                <Box as="span" position="absolute" right="-3px" top="0" bottom="0" width="6px" cursor="ew-resize"
+                    onPointerDown={(e: React.PointerEvent) => { e.stopPropagation(); endEdgeDown(e); }} data-resize-edge="end" />
+            )}
         </Box>
     );
 
@@ -389,50 +455,110 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
         if (onSelectRow) queueMicrotask(() => onSelectRow({ rowIndex: BigInt(rowIndex) }));
     }, [onSelectRow]);
 
+    // ── Opt-in DnD target role (#269) ─────────────────────────────────────
+    // Presence-gated on `onDrag` (a Planner without it is exactly as before):
+    // ONE continuous drop registration over the grid; the destination
+    // resolves at pointer position from the cells' / bucket lanes' data
+    // attributes (`data-drop-row` / `data-drop-slot`, the composite slot-key
+    // encoding from contracts/drag.ts). Drops land as optimistic
+    // `proposed(added)` tiles; committed history never drags.
+    const onDragFn = useMemo(() => getSomeorUndefined(value.onDrag), [value.onDrag]);
+    const canDropFn = useMemo(() => getSomeorUndefined(value.canDrop) as CanDropFn | undefined, [value.canDrop]);
+    const surfaceId = value.id;
+    const scaleTag = value.axis.scale.type;
+    const dndActive = onDragFn !== undefined;
+
+    const [localAdds, setLocalAdds] = useState<Map<number, PlannerEventValue[]>>(() => new Map());
+    useEffect(() => { setLocalAdds(new Map()); }, [value]);
+
+    // slot string → the slot coordinate value for optimistic tiles.
+    const slotFromKey = useCallback((slotKey: string): { slot: PlannerSlotValue; bucket: string | undefined } | undefined => {
+        // The bucket (if declared) composes in after the last ":" — except time
+        // axes, whose ISO form itself carries ":" and ends with "Z".
+        let axisKey = slotKey;
+        let bucket: string | undefined;
+        const lastColon = slotKey.lastIndexOf(":");
+        if (lastColon > 0 && !slotKey.endsWith("Z")) {
+            const candidateBucket = slotKey.slice(lastColon + 1);
+            if (buckets.some(b => b.key === candidateBucket)) {
+                axisKey = slotKey.slice(0, lastColon);
+                bucket = candidateBucket;
+            }
+        }
+        if (scaleTag === "number") {
+            const n = Number(axisKey);
+            return Number.isFinite(n) ? { slot: variant("number", n) as PlannerSlotValue, bucket } : undefined;
+        }
+        if (scaleTag === "ordinal") return { slot: variant("ordinal", axisKey) as PlannerSlotValue, bucket };
+        const d = new Date(axisKey);
+        return Number.isNaN(d.getTime()) ? undefined : { slot: variant("time", d) as PlannerSlotValue, bucket };
+    }, [scaleTag, buckets]);
+
+    // Per-cell drop registration (each flat cell / bucket lane / span cell is
+    // its own destination, like Roster) — the valid / active / ⊘ stages mark
+    // the EXACT cell, not the surface. The standard IR-canDrop bridge builds
+    // the per-cell veto from the cell's own coordinate.
+    const vetoFor = useIRCanDrop(canDropFn);
+
+    const handleGrammarDrop = useCallback((event: DragEventValue, meta?: DragMeta) => {
+        // Re-check the IR veto with the real event before mutating (the hover
+        // veto already gated the ⊘ stage; sink removes are always valid).
+        if ((event.type === "add" || event.type === "move" || event.type === "resize") && !canDropAllows(canDropFn, event)) return;
+        if (event.type === "add") {
+            const rowIndex = Number(event.value.into.row);
+            const resolved = slotFromKey(event.value.into.slot);
+            if (Number.isFinite(rowIndex) && resolved !== undefined) {
+                const tile: PlannerEventValue = {
+                    key: some(`local:${event.value.from.library}:${event.value.from.key}:${event.value.into.slot}`),
+                    slot: resolved.slot,
+                    endSlot: none,
+                    bucket: resolved.bucket !== undefined ? some(resolved.bucket) : none,
+                    label: meta?.label ?? event.value.from.key,
+                    state: variant("proposed", variant("added", null)),
+                    popover: none,
+                    stretch: none,
+                    content: none,
+                    tone: none,
+                    color: none,
+                    colorPalette: none,
+                    animation: none,
+                    hovercard: none,
+                } as PlannerEventValue;
+                setLocalAdds(prev => {
+                    const nextMap = new Map(prev);
+                    nextMap.set(rowIndex, [...(nextMap.get(rowIndex) ?? []), tile]);
+                    return nextMap;
+                });
+            }
+        }
+        if (onDragFn) queueMicrotask(() => onDragFn(event));
+    }, [onDragFn, canDropFn, slotFromKey]);
+
+    const targetConfig = useMemo(() => (dndActive ? {
+        id: surfaceId,
+        sources: [...value.sources],
+        kinds: { add: true, move: true, remove: true, resize: shape === "span" },
+        onDrag: handleGrammarDrop,
+    } : null), [dndActive, surfaceId, value.sources, handleGrammarDrop, shape]);
+    useDragTarget(targetConfig);
+
     // ── Review chrome (optional) ──────────────────────────────────────────
-    // The per-row Approve/Reject decision column + the batch foot. Buttons reuse
-    // the shared `button` recipe (so they match the DecisionQueue) and the foot
-    // reuses the shared `commitBar` slot recipe; the planner recipe only adds the
-    // column geometry + the quiet status dot.
+    // The per-row Approve/Reject decision column + the batch foot, on the shared
+    // review pieces (`../shared/review`): the optimistic decisions controller,
+    // the `button`-recipe Approve/Reject pair, and the `commitBar` foot. The
+    // shared `reviewChrome` recipe carries the column geometry + the quiet
+    // status dot; the renderer only adds sticky pinning.
     const review = useMemo(() => getSomeorUndefined(value.review), [value.review]);
-    const hasReview = review !== undefined;
-    const buttonRecipe = useRecipe({ key: "button" });
-    const commitRecipe = useSlotRecipe({ key: "commitBar" });
-    const cs = useMemo(() => commitRecipe({}) as unknown as RecipeStyles, [commitRecipe]);
-
-    const reviewSummary = useMemo(() => review && getSomeorUndefined(review.summary), [review]);
-    const onApprove = useMemo(() => review && getSomeorUndefined(review.onApprove), [review]);
-    const onReject = useMemo(() => review && getSomeorUndefined(review.onReject), [review]);
-    const onApproveAll = useMemo(() => review && getSomeorUndefined(review.onApproveAll), [review]);
-    const onRejectAll = useMemo(() => review && getSomeorUndefined(review.onRejectAll), [review]);
-    const onRerun = useMemo(() => review && getSomeorUndefined(review.onRerun), [review]);
-
-    // Local decision state — optimistic per-row verdict, seeded from the data and
-    // re-synced when the value changes (the mandatory interactive-state pattern).
-    const [decisions, setDecisions] = useState<Record<number, ApprovalTag>>(() => initialDecisions(value));
-    useEffect(() => { setDecisions(initialDecisions(value)); }, [value]);
-
-    const approveRow = useCallback((rowIndex: number) => {
-        setDecisions((prev) => ({ ...prev, [rowIndex]: "approved" }));
-        if (onApprove) queueMicrotask(() => onApprove({ rowIndex: BigInt(rowIndex) }));
-    }, [onApprove]);
-    const rejectRow = useCallback((rowIndex: number) => {
-        setDecisions((prev) => ({ ...prev, [rowIndex]: "rejected" }));
-        if (onReject) queueMicrotask(() => onReject({ rowIndex: BigInt(rowIndex) }));
-    }, [onReject]);
-    // Batch verdicts sweep every reviewable row to one tag for instant feedback,
-    // then fire the host hook once.
-    const approveAll = useCallback(() => {
-        setDecisions(() => { const out: Record<number, ApprovalTag> = {}; value.rows.forEach((_r, i) => { out[i] = "approved"; }); return out; });
-        if (onApproveAll) queueMicrotask(() => onApproveAll());
-    }, [onApproveAll, value.rows]);
-    const rejectAll = useCallback(() => {
-        setDecisions(() => { const out: Record<number, ApprovalTag> = {}; value.rows.forEach((_r, i) => { out[i] = "rejected"; }); return out; });
-        if (onRejectAll) queueMicrotask(() => onRejectAll());
-    }, [onRejectAll, value.rows]);
-    const rerun = useCallback(() => {
-        if (onRerun) queueMicrotask(() => onRerun());
-    }, [onRerun]);
+    const approvals = useMemo(() => value.rows.map((row) => row.approval), [value]);
+    const reviewController = useReviewController(review, approvals);
+    const hasReview = reviewController !== undefined;
+    const chromeRecipe = useSlotRecipe({ key: "reviewChrome" });
+    const chrome = useMemo(() => chromeRecipe({ size }) as unknown as RecipeStyles, [chromeRecipe, size]);
+    const dotStyles = useMemo(() => {
+        const out: Record<string, Record<string, unknown>> = {};
+        for (const s of ["success", "warning", "danger", "info", "neutral"]) out[s] = (chromeRecipe({ size, status: s } as Record<string, unknown>) as unknown as RecipeStyles).statusDot ?? {};
+        return out;
+    }, [chromeRecipe, size]);
 
     // ── Left pane IS a Table ──────────────────────────────────────────────
     // Reuse the shared column machinery (Table / Gantt) so the left columns
@@ -583,30 +709,6 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
         return undefined;
     };
 
-    // The per-row Approve/Reject pair (styled by the shared `button` recipe so it
-    // matches the DecisionQueue). The active side tracks the verdict: approved ⇒
-    // Approve fills (solid brand); rejected ⇒ Reject becomes the danger call;
-    // pending ⇒ neither is pre-selected (Approve is a plain outline).
-    const decisionButtons = (rowIndex: number) => {
-        const tag: ApprovalTag = decisions[rowIndex] ?? "pending";
-        const approveVariant = tag === "approved" ? "solid" : tag === "rejected" ? "ghost" : "outline";
-        const rejectVariant = tag === "rejected" ? "danger" : "ghost";
-        return (
-            <>
-                <Box as="button" css={buttonRecipe({ variant: approveVariant, size: "xs" })}
-                    aria-pressed={tag === "approved"}
-                    onClick={(e) => { e.stopPropagation(); approveRow(rowIndex); }}>
-                    Approve
-                </Box>
-                <Box as="button" css={buttonRecipe({ variant: rejectVariant, size: "xs" })}
-                    aria-pressed={tag === "rejected"}
-                    onClick={(e) => { e.stopPropagation(); rejectRow(rowIndex); }}>
-                    Reject
-                </Box>
-            </>
-        );
-    };
-
     const groups = useMemo(() => {
         const out: { label: string | undefined; rows: { row: PlannerRowValue; index: number }[] }[] = [];
         value.rows.forEach((row, index) => {
@@ -668,10 +770,29 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
     // gains a trailing "N/A" lane (holding that cell's orphan bucketless events, if
     // any) so the bucket sub-grid stays aligned across the row and nothing is
     // silently dropped.
-    const renderCellBody = (row: PlannerRowValue, colIndex: number, needsNA: boolean) => {
+    // The chip's drag-grammar context (#269) — proposed + keyed tiles only.
+    const chipDnd = (ev: PlannerEventValue, rowIndex: number, colIndex: number, bucketKey?: string): PlannerChipDnd | undefined => {
+        if (!dndActive) return undefined;
+        const key = getSomeorUndefined(ev.key);
+        if (key === undefined) return undefined;
+        const col = cols[colIndex];
+        if (col === undefined) return undefined;
+        const endSlotVal = getSomeorUndefined(ev.endSlot);
+        const endCol = endSlotVal !== undefined ? cols[slotToCol(endSlotVal, cols)] : undefined;
+        return {
+            surface: surfaceId,
+            row: String(rowIndex),
+            slot: compositeSlotKey(axisSlotKey(col, scaleTag), bucketKey),
+            event: key,
+            endSlot: endCol !== undefined ? axisSlotKey(endCol, scaleTag) : undefined,
+        };
+    };
+
+    const renderCellBody = (row: PlannerRowValue, rowIndex: number, colIndex: number, needsNA: boolean) => {
         if (!cellBucketed(row, colIndex)) {
             return cellEvents(row, colIndex).map((ev, i) => (
-                <EventChip key={i} event={ev} eventStyle={eventStyleFor(ev)} gripStyle={base.grip} shape="point" />
+                <EventChip key={i} event={ev} eventStyle={eventStyleFor(ev)} gripStyle={base.grip} shape="point"
+                    dnd={chipDnd(ev, rowIndex, colIndex)} />
             ));
         }
         // Bucketed cells are a vertical sub-grid; the cell box itself carries
@@ -683,13 +804,21 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
             // The N/A orphan lane renders exactly like a declared bucket lane —
             // same padding / positioning / label gutter — the "N/A" label is the
             // only marker (the dev-time warning surfaces the accident in code).
+            const laneSlot = !isNA && cols[colIndex] !== undefined
+                ? compositeSlotKey(axisSlotKey(cols[colIndex]!, scaleTag), bk.key)
+                : undefined;
             return (
-                <Box key={bk.key} css={base.bucket} data-slot="bucket" data-na={isNA ? "" : undefined} height={`${unitH}px`}>
+                <PlannerDropCell key={bk.key} css={base.bucket} data-slot="bucket" data-na={isNA ? "" : undefined} height={`${unitH}px`}
+                    surface={surfaceId} row={String(rowIndex)} slot={dndActive ? laneSlot : undefined} vetoFor={vetoFor}
+                    {...(dndActive && laneSlot !== undefined
+                        ? { "data-drop-row": String(rowIndex), "data-drop-slot": laneSlot }
+                        : {})}>
                     <Box css={base.bucketLabel} data-slot="bucketLabel">{bk.label}</Box>
                     {laneEvents.map((ev, i) => (
-                        <EventChip key={i} event={ev} eventStyle={eventStyleFor(ev)} gripStyle={base.grip} shape="point" inLane />
+                        <EventChip key={i} event={ev} eventStyle={eventStyleFor(ev)} gripStyle={base.grip} shape="point" inLane
+                            dnd={chipDnd(ev, rowIndex, colIndex, isNA ? undefined : bk.key)} />
                     ))}
-                </Box>
+                </PlannerDropCell>
             );
         });
     };
@@ -734,7 +863,7 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
                     )}
                 </Box>
                 {hasReview && review && (
-                    <Box css={{ ...base.decisionHeader, ...stickyRightHeader }} data-slot="decisionHeader">
+                    <Box css={{ ...chrome.decisionHeader, ...stickyRightHeader }} data-slot="decisionHeader">
                         {review.columnLabel}
                     </Box>
                 )}
@@ -754,7 +883,13 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
                             <Box css={{ ...stickyLeft, ...base.groupHeadCell, background: "bg.panel" }} data-slot="groupHeadCell">{group.label}</Box>
                         </Box>
                     )}
-                    {group.rows.map(({ row, index }) => {
+                    {group.rows.map(({ row: rowBase, index }) => {
+                        // Optimistic drops (#269) — locally-added proposed tiles
+                        // merge into the row until the value prop reconciles.
+                        const rowAdds = localAdds.get(index);
+                        const row = rowAdds !== undefined && rowAdds.length > 0
+                            ? { ...rowBase, events: [...rowBase.events, ...rowAdds] }
+                            : rowBase;
                         const rowStatusTag = hasReview ? getSomeorUndefined(row.status)?.type : undefined;
                         // Per-cell bucketing (#120 item 6) — each cell decides flat
                         // vs sub-grid independently; `needsNA` adds the orphan lane
@@ -810,7 +945,7 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
                                                 significant) part of "6.0 / 8.0 h" survives, never the tail. */}
                                             <Box css={base.rowHeaderName} data-slot="rowHeaderName"
                                                 display="flex" justifyContent={alignEnd ? "flex-end" : "flex-start"}>
-                                                {showDot && rowStatusTag !== undefined && <Box as="span" css={statusStyles[rowStatusTag]?.statusDot} data-slot="statusDot" />}
+                                                {showDot && rowStatusTag !== undefined && <Box as="span" css={dotStyles[rowStatusTag]} data-slot="statusDot" />}
                                                 <Box as="span" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" minW={0}>{cellData?.value ?? ""}</Box>
                                             </Box>
                                             {sub !== undefined && <Box css={base.rowHeaderSub} data-slot="rowHeaderSub" textAlign={alignEnd ? "right" : "left"}>{sub}</Box>}
@@ -846,9 +981,13 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
                                     if (ci === cols.length - 1) cellCss = { ...cellCss, borderRightWidth: "0" };
                                     // Anchor the marker ring/icon to THIS cell (not the timeline pane).
                                     cellCss = { ...cellCss, position: "relative" };
+                                    const cellSlot = axisSlotKey(c, scaleTag);
+                                    const cellRegisters = dndActive && !cellBucketed(row, ci);
                                     return (
-                                        <Box key={c.key} data-slot="cell" data-past={past ? "" : undefined} css={cellCss}>
-                                            {renderCellBody(row, ci, needsNA)}
+                                        <PlannerDropCell key={c.key} data-slot="cell" data-past={past ? "" : undefined} css={cellCss}
+                                            surface={surfaceId} row={String(index)} slot={cellRegisters ? cellSlot : undefined} vetoFor={vetoFor}
+                                            {...(cellRegisters ? { "data-drop-row": String(index), "data-drop-slot": cellSlot } : {})}>
+                                            {renderCellBody(row, index, ci, needsNA)}
                                             {marker && mStyle && <Box css={mStyle.markerRing} data-slot="markerRing" />}
                                             {marker && mStyle && (
                                                 <Tooltip.Root openDelay={150}>
@@ -864,7 +1003,7 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
                                                     </Portal>
                                                 </Tooltip.Root>
                                             )}
-                                        </Box>
+                                        </PlannerDropCell>
                                     );
                                 })}
                                 {shape === "span" && (
@@ -872,7 +1011,9 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
                                         {/* Span timeline cells carry the density `unitH` so the row
                                             has a real height (the bar fills it) rather than collapsing
                                             to the old fixed 22px (#120 item 2). */}
-                                        {cols.map((c) => (<Box key={c.key} css={base.cell} height={`${unitH}px`} />))}
+                                        {cols.map((c) => (<PlannerDropCell key={c.key} css={base.cell} height={`${unitH}px`}
+                                            surface={surfaceId} row={String(index)} slot={dndActive ? axisSlotKey(c, scaleTag) : undefined} vetoFor={vetoFor}
+                                            {...(dndActive ? { "data-drop-row": String(index), "data-drop-slot": axisSlotKey(c, scaleTag) } : {})} />))}
                                         {row.events.map((ev, i) => {
                                             const start = slotToCol(ev.slot, cols);
                                             if (start < 0) return null;
@@ -885,8 +1026,10 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
                                             // interior 0 8px from the recipe) (#120 item 2).
                                             return (
                                                 <Box key={i} position="absolute" top="0" bottom="0" display="flex" alignItems="center"
-                                                    left={`calc(${start} * (100% / ${nCols}))`} width={`calc(${span} * (100% / ${nCols}))`}>
-                                                    <EventChip event={ev} eventStyle={eventStyleFor(ev)} gripStyle={base.grip} shape="span" />
+                                                    left={`calc(${start} * (100% / ${nCols}))`} width={`calc(${span} * (100% / ${nCols}))`}
+                                                    pointerEvents={dndActive ? undefined : "none"}>
+                                                    <EventChip event={ev} eventStyle={eventStyleFor(ev)} gripStyle={base.grip} shape="span"
+                                                        dnd={chipDnd(ev, index, start)} />
                                                 </Box>
                                             );
                                         })}
@@ -899,14 +1042,14 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
                                     </>
                                 )}
                             </Box>
-                            {hasReview && (
+                            {reviewController !== undefined && (
                                 <Box
-                                    css={{ ...base.decisionCol, ...stickyRight }}
+                                    css={{ ...chrome.decisionCol, ...stickyRight }}
                                     data-slot="decisionCol"
                                     data-status={rowStatusTag}
                                     onClick={(e) => e.stopPropagation()}
                                 >
-                                    {decisionButtons(index)}
+                                    <DecisionButtons rowIndex={index} controller={reviewController} />
                                 </Box>
                             )}
                         </Box>
@@ -917,32 +1060,12 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
         </Box>
     );
 
-    // The batch foot reuses the shared `commitBar` recipe (the same block the
-    // Diff + DecisionQueue commit bars use), pinned outside the horizontally
-    // scrolling grid so it stays full-width under the plan. The summary is the
-    // host-composed `review.summary` component; the buttons are Reject all /
-    // Rerun / Approve all (left→right, matching the mock).
-    const showFoot = hasReview && (reviewSummary !== undefined || onApproveAll !== undefined || onRejectAll !== undefined || onRerun !== undefined);
-    const foot = showFoot ? (
-        <Box css={cs.root} data-slot="reviewFoot">
-            <Box css={cs.draft}>
-                {reviewSummary !== undefined && (
-                    <EastChakraComponent value={reviewSummary} storageKey={`${storageKey}.review.summary`} />
-                )}
-            </Box>
-            <Box css={cs.btnRow}>
-                {onRejectAll !== undefined && (
-                    <Box as="button" css={cs.btnDanger} onClick={rejectAll}>Reject all</Box>
-                )}
-                {onRerun !== undefined && (
-                    <Box as="button" css={cs.btn} onClick={rerun}>{review?.rerunLabel}</Box>
-                )}
-                {onApproveAll !== undefined && (
-                    <Box as="button" css={cs.btnPrimary} onClick={approveAll}>Approve all</Box>
-                )}
-            </Box>
-        </Box>
-    ) : null;
+    // The batch foot is the shared `ReviewFoot` on the `commitBar` recipe (the
+    // same block the Diff + DecisionQueue commit bars use), pinned outside the
+    // horizontally scrolling grid so it stays full-width under the plan.
+    const foot = reviewController !== undefined && reviewController.showFoot
+        ? <ReviewFoot controller={reviewController} storageKey={storageKey} />
+        : null;
 
     const surface = foot !== null
         ? <Box display="flex" flexDirection="column" width="100%">{plannerContent}{foot}</Box>
