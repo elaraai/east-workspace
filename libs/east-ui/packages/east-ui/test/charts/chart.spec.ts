@@ -24,6 +24,7 @@ describeEast("Chart", (test) => {
         lineIntegerDayTicks: ex.lineIntegerDayTicks,
         lineRuntimeDomain: ex.lineRuntimeDomain,
         lineRuntimeTimeDomain: ex.lineRuntimeTimeDomain,
+        axisTextStyled: ex.axisTextStyled,
         lineSampleFan: ex.lineSampleFan,
         columnBasic: ex.columnBasic,
         columnPerCategory: ex.columnPerCategory,
@@ -70,6 +71,30 @@ describeEast("Chart", (test) => {
         ], { y2: { label: "Secondary" } }));
         const frame = chart.unwrap().unwrap("VisxChart").unwrap().unwrap("frame");
         $(Assert.equal(frame.yScale2.hasTag("some"), true));
+    });
+
+    test("axis tickStyle / titleStyle lower onto the axis nodes (#315)", $ => {
+        const rows = $.const([
+            { month: "Jan", sales: 100n }, { month: "Feb", sales: 150n },
+        ], ArrayType(StructType({ month: StringType, sales: IntegerType })));
+        const chart = $.let(Chart.Root(Chart.Line(rows, { x: r => r.month, y: r => r.sales }), {
+            grid: false,
+            x: { tickStyle: { fontSize: "12px", fontFamily: "sans", color: "fg.default" } },
+            y: { label: "kL", titleStyle: { fontWeight: "semibold", letterSpacing: "0.02em" } },
+        }));
+        // grid: false + one layer ⇒ children = [series, axisBottom, axisLeft].
+        const frame = $.const(chart.unwrap().unwrap("VisxChart").unwrap().unwrap("frame"));
+        const xAxis = $.const(frame.children.get(1n).unwrap().unwrap("axisBottom"));
+        const tick = $.const(xAxis.tickStyle.unwrap("some"));
+        $(Assert.equal(tick.fontSize.unwrap("some"), "12px"));
+        $(Assert.equal(tick.fontFamily.unwrap("some").hasTag("sans"), true));
+        $(Assert.equal(tick.color.unwrap("some"), "fg.default"));
+        $(Assert.equal(xAxis.titleStyle.hasTag("none"), true));
+        const yAxis = $.const(frame.children.get(2n).unwrap().unwrap("axisLeft"));
+        const title = $.const(yAxis.titleStyle.unwrap("some"));
+        $(Assert.equal(title.fontWeight.unwrap("some").hasTag("semibold"), true));
+        $(Assert.equal(title.letterSpacing.unwrap("some"), "0.02em"));
+        $(Assert.equal(yAxis.tickStyle.hasTag("none"), true));
     });
 
     // =========================================================================

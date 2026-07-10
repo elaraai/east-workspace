@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useId, useMemo, useCallback, createContext, useContext, type ReactNode, type MouseEvent } from "react";
+import { memo, useId, useMemo, useCallback, createContext, useContext, type CSSProperties, type ReactNode, type MouseEvent } from "react";
 import { Box, Skeleton, useChakraContext, useSlotRecipe } from "@chakra-ui/react";
 import { useTooltip, useTooltipInPortal } from "@visx/tooltip";
 import { match, equalFor, some, none, variant, type ValueTypeOf } from "@elaraai/east";
@@ -98,6 +98,36 @@ interface ChartStyle {
     tooltipZIndex: number;
     /** Resolve a data-driven token (e.g. a series colour) to a CSS value. */
     color: (token: string) => string;
+    /** Resolve a theme font-family tag (`sans` / `serif` / `mono`) to its stack (#315). */
+    fontFor: (tag: string) => string;
+}
+
+/** Shared font-weight tags → CSS weights (the `FontWeightType` arms). */
+const FONT_WEIGHTS: Record<string, number> = { light: 300, normal: 400, medium: 500, semibold: 600, bold: 700 };
+
+/** Axis text typography override value (#315) — the `tickStyle` / `titleStyle` of an axis. */
+type AxisTextStyleValue = ValueTypeOf<typeof T.AxisTextStyle>;
+
+/**
+ * Resolve an axis-text override (#315) over the spec chrome — font size /
+ * family / weight / colour / letter spacing onto SVG text style props. Absent
+ * fields keep the chrome (mono `labelSize` `fg.muted`); `defaultWeight` is the
+ * chrome weight for the run (600 for axis captions, inherit for ticks).
+ */
+function axisTextCss(style: ChartStyle, s: AxisTextStyleValue | undefined, defaultWeight?: number): CSSProperties {
+    const family = s ? getSomeorUndefined(s.fontFamily)?.type : undefined;
+    const color = s ? getSomeorUndefined(s.color) : undefined;
+    const weightTag = s ? getSomeorUndefined(s.fontWeight)?.type : undefined;
+    const css: CSSProperties = {
+        fontFamily: family !== undefined ? style.fontFor(family) : style.font,
+        fontSize: (s ? getSomeorUndefined(s.fontSize) : undefined) ?? style.labelSize,
+        fill: color !== undefined ? style.color(color) : style.labelColor,
+    };
+    const weight = weightTag !== undefined ? FONT_WEIGHTS[weightTag] : defaultWeight;
+    if (weight !== undefined) css.fontWeight = weight;
+    const spacing = s ? getSomeorUndefined(s.letterSpacing) : undefined;
+    if (spacing !== undefined) css.letterSpacing = spacing;
+    return css;
 }
 
 /** Resolve an optional curve variant to its visx curve fn (default monotoneX). */
@@ -123,8 +153,11 @@ function anchorFor(a: Anchor | undefined): "start" | "middle" | "end" {
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MONTHS_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const WEEKDAYS_LONG = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
-/** Format a Date against a token pattern (`YYYY`/`MMM`/`DD`/`HH`/`mm`/…), single-pass. */
+/** Format a Date against a token pattern (`YYYY`/`MMM`/`DD`/`ddd`/`HH`/`mm`/…),
+ *  single-pass. Weekday tokens follow East's `DateTime.parseFormatted` set:
+ *  `dd` (Su), `ddd` (Sun), `dddd` (Sunday). */
 export function formatDatePattern(pattern: string, d: Date): string {
     if (isNaN(d.getTime())) return "";
     const pad = (n: number) => String(n).padStart(2, "0");
@@ -132,8 +165,9 @@ export function formatDatePattern(pattern: string, d: Date): string {
         YYYY: String(d.getFullYear()), YY: pad(d.getFullYear() % 100),
         MMMM: MONTHS_LONG[d.getMonth()]!, MMM: MONTHS[d.getMonth()]!, MM: pad(d.getMonth() + 1),
         DD: pad(d.getDate()), HH: pad(d.getHours()), mm: pad(d.getMinutes()), ss: pad(d.getSeconds()),
+        dddd: WEEKDAYS_LONG[d.getDay()]!, ddd: WEEKDAYS_LONG[d.getDay()]!.slice(0, 3), dd: WEEKDAYS_LONG[d.getDay()]!.slice(0, 2),
     };
-    return pattern.replace(/YYYY|YY|MMMM|MMM|MM|DD|HH|mm|ss/g, t => map[t] ?? t);
+    return pattern.replace(/YYYY|YY|MMMM|MMM|MM|DD|dddd|ddd|dd|HH|mm|ss/g, t => map[t] ?? t);
 }
 
 /** Build a tick formatter for an axis from its optional {@link TickFormat} + scale kind. Shared with the `Slice.Rail` brush axis (#190). */
@@ -566,6 +600,8 @@ function AxisBMark({ value }: { value: Axis }): ReactNode {
     const tickValues = getSomeorUndefined(value.tickValues) ?? (numTicks !== undefined ? undefined : xTickValues);
     const hideTicks = getSomeorUndefined(value.hideTicks) ?? true;
     const hideLine = getSomeorUndefined(value.hideLine) ?? horizontal;
+    const tickCss = axisTextCss(style, getSomeorUndefined(value.tickStyle));
+    const titleCss = axisTextCss(style, getSomeorUndefined(value.titleStyle), 600);
     return (
         <>
             <AxisBottom
@@ -577,9 +613,9 @@ function AxisBMark({ value }: { value: Axis }): ReactNode {
                 {...(numTicks !== undefined ? { numTicks: Number(numTicks) } : {})}
                 {...(tickValues ? { tickValues } : {})}
                 tickFormat={v => fmt(v)}
-                tickLabelProps={() => ({ textAnchor: "middle", dy: "0.25em", style: { fontFamily: style.font, fontSize: style.labelSize, fill: style.labelColor } })}
+                tickLabelProps={() => ({ textAnchor: "middle", dy: "0.25em", style: tickCss })}
             />
-            {label && <text x={innerW / 2} y={innerH + margin.bottom - 2} textAnchor="middle" style={{ fontFamily: style.font, fontSize: "11px", fill: style.labelColor, fontWeight: 600 }}>{label}</text>}
+            {label && <text x={innerW / 2} y={innerH + margin.bottom - 2} textAnchor="middle" style={titleCss}>{label}</text>}
         </>
     );
 }
@@ -593,6 +629,8 @@ function AxisLMark({ value }: { value: Axis }): ReactNode {
     const label = getSomeorUndefined(value.label);
     const tickValues = getSomeorUndefined(value.tickValues);
     const numTicks = getSomeorUndefined(value.numTicks);
+    const tickCss = axisTextCss(style, getSomeorUndefined(value.tickStyle));
+    const titleCss = axisTextCss(style, getSomeorUndefined(value.titleStyle), 600);
     return (
         <>
             <AxisLeft
@@ -605,9 +643,9 @@ function AxisLMark({ value }: { value: Axis }): ReactNode {
                 {...(horizontal ? { stroke: style.axisStroke } : {})}
                 {...(tickValues ? { tickValues } : {})}
                 tickFormat={v => fmt(v)}
-                tickLabelProps={() => ({ textAnchor: "end", dx: "-0.25em", dy: "0.25em", style: { fontFamily: style.font, fontSize: style.labelSize, fill: style.labelColor } })}
+                tickLabelProps={() => ({ textAnchor: "end", dx: "-0.25em", dy: "0.25em", style: tickCss })}
             />
-            {label && <text transform={`translate(${yTitleX}, ${innerH / 2}) rotate(-90)`} textAnchor="middle" style={{ fontFamily: style.font, fontSize: "11px", fill: style.labelColor, fontWeight: 600 }}>{label}</text>}
+            {label && <text transform={`translate(${yTitleX}, ${innerH / 2}) rotate(-90)`} textAnchor="middle" style={titleCss}>{label}</text>}
         </>
     );
 }
@@ -617,6 +655,8 @@ function AxisRMark({ value }: { value: Axis }): ReactNode {
     const fmt = tickFormatter(getSomeorUndefined(value.tickFormat), "linear");
     const label = getSomeorUndefined(value.label);
     const tickValues = getSomeorUndefined(value.tickValues);
+    const tickCss = axisTextCss(style, getSomeorUndefined(value.tickStyle));
+    const titleCss = axisTextCss(style, getSomeorUndefined(value.titleStyle), 600);
     return (
         <>
             <AxisRight
@@ -627,9 +667,9 @@ function AxisRMark({ value }: { value: Axis }): ReactNode {
                 hideTicks={getSomeorUndefined(value.hideTicks) ?? true}
                 {...(tickValues ? { tickValues } : {})}
                 tickFormat={v => fmt(v)}
-                tickLabelProps={() => ({ textAnchor: "start", dx: "0.25em", dy: "0.25em", style: { fontFamily: style.font, fontSize: style.labelSize, fill: style.labelColor } })}
+                tickLabelProps={() => ({ textAnchor: "start", dx: "0.25em", dy: "0.25em", style: tickCss })}
             />
-            {label && <text transform={`translate(${y2TitleX}, ${innerH / 2}) rotate(90)`} textAnchor="middle" style={{ fontFamily: style.font, fontSize: "11px", fill: style.labelColor, fontWeight: 600 }}>{label}</text>}
+            {label && <text transform={`translate(${y2TitleX}, ${innerH / 2}) rotate(90)`} textAnchor="middle" style={titleCss}>{label}</text>}
         </>
     );
 }
@@ -688,7 +728,8 @@ function Frame({ node, brush, onBrushEnd, brushKey }: { node: Spec; brush?: bool
     // its CSS var), so the chart re-themes off the design tokens.
     const style = useMemo<ChartStyle>(() => ({
         font: system.token("fonts.mono", "monospace"),
-        labelSize: "10px",
+        // 11px (was 10px) — the #315 legibility floor for axis/label text.
+        labelSize: "11px",
         labelColor: system.token("colors.fg.muted", "#64748b"),
         axisStroke: system.token("colors.border.strong", "#cbd5d5"),
         gridStroke: system.token("colors.border.strong", "#cbd5d5"),
@@ -704,6 +745,14 @@ function Frame({ node, brush, onBrushEnd, brushKey }: { node: Spec; brush?: bool
         color: (t: string) => {
             const k = t.replace(/[{}]/g, "");
             return system.token(k.startsWith("colors.") ? k : `colors.${k}`, t);
+        },
+        // `sans` prefers an explicit `fonts.sans` token, else the theme body
+        // stack (this theme names its sans `body`); `serif` likewise, else the
+        // CSS generic — so a host theme owns the concrete stacks (#315).
+        fontFor: (tag: string) => {
+            if (tag === "mono") return system.token("fonts.mono", "monospace");
+            if (tag === "serif") return system.token("fonts.serif", "serif");
+            return system.token("fonts.sans", system.token("fonts.body", "sans-serif"));
         },
     }), [system]);
     return <Plot node={node} style={style} brush={brush} onBrushEnd={onBrushEnd} brushKey={brushKey} />;
@@ -926,7 +975,7 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
                             </Group>
                         </svg>
                         {showLegend && (
-                            <Box display="flex" flexWrap="wrap" gap="{spacing.3}" justifyContent="center" paddingTop="{spacing.1}" height={`${legendH}px`} fontFamily="mono" fontSize="10px" color="fg.muted">
+                            <Box display="flex" flexWrap="wrap" gap="{spacing.3}" justifyContent="center" paddingTop="{spacing.1}" height={`${legendH}px`} fontFamily="mono" fontSize="11px" color="fg.muted">
                                 {legend.map((e, i) => (
                                     <Box key={i} display="flex" alignItems="center" gap="{spacing.1.5}">
                                         <Box as="span" width="9px" height="9px" borderRadius="2px" background={style.color(e.color)} flexShrink="0" />

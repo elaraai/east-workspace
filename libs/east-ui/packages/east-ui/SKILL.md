@@ -116,7 +116,8 @@ Task → Which tag?
 │   │     └─ review={{ columnLabel?, summary?, onApprove, onReject, onApproveAll, onRejectAll, onRerun? }} + rowSpec status/approval accessors — the shared Decision column + commitBar foot ({rowIndex} events, identical to Planner's)
 │   │     └─ DnD target: id + sources={[libraryId]} + onDrag (ONE grammar funnel: Library `add` lands proposed(added) bars at the dragStep-snapped instant; task-body drags = `move`, edge drags = `resize`; row = row index key, slot = snapped ISO instant, event = t<i>/m<i>) + canDrop veto (⊘, pointer-resolved); progress-handle drag stays bespoke (onTaskProgressChange — not a spatial drag)
 │   ├─ <Planner.Point …> / <Planner.Span …> — discrete rows × ordered-slot scheduler
-│   │     └─ Planner.axis.time()/.number({buckets})/.ordinal({range}), Planner.event(…), Planner.marker(…)
+│   │     └─ Planner.axis.time({resolution?, format?, range?})/.number({buckets})/.ordinal({range}), Planner.event(…), Planner.marker(…)
+│   │     └─ time axis resolution (#309): "hour"|"day"|"week"|"month"|"quarter"|"year" sets the column unit; omitted, a PINNED range ≤ 14 days infers day columns (else month). A pinned range is half-open [min, max) — {Mar 30 … Apr 6} at day resolution = Mon 30 … Sun 05, so a sibling Chart pinning the same [min, max] time domain centres its points over the columns under an AlignedStack gutter. format uses the Chart date tokens ("ddd DD" → Mon 30); day default is "ddd DD". Drag slot keys stay period-start ISO instants
 │   │     └─ maxHeight (CSS) caps the plan area — body scrolls vertically with the header pinned (sticky-top), like Table's stickyHeader; absent ⇒ content-sized. slotMinWidth drives horizontal slot scroll
 │   │     └─ review={{ … }} + status/approval row accessors — per-row Approve/Reject Decision column + commitBar batch foot (clean ⇒ approved, flagged ⇒ pending via deriveApproval; {rowIndex} events)
 │   │     └─ opt-in DnD target (#269): id + sources + onDrag (+ canDrop) — a Planner without onDrag is exactly click-only; PROPOSED tiles drag (committed history inert; tiles need an authored event key), drops land proposed(added); slot keys compose the bucket in ("wed" / "wed:am"); Span edges resize via the shared runtime
@@ -161,6 +162,8 @@ Task → Which tag?
 │   │     Chart.Band(rows, { x, low, high }, style?) — filled range (e.g. confidence band)
 │   ├─ Annotations: Chart.refLine({ y }|{ x }) · Chart.refBand({ y:[lo,hi] }) · Chart.refDot({ x, y, label })
 │   ├─ Chart.format.{ number, currency, percent, compact, date, time, datetime } — axis tick formats
+│   │     date patterns share East's tokens incl. weekdays: "ddd DD" → Mon 30 (dd/ddd/dddd)
+│   ├─ Axis typography (#315): x/y/y2 accept tickStyle/titleStyle { fontSize?, fontFamily?: "sans"|"serif"|"mono", fontWeight?, color?, letterSpacing? } — restyle ticks/captions over the spec chrome (mono 11px fg.muted)
 │   ├─ <Sparkline> — inline trend (line | area), fits beside a <Stat>
 │   └─ Slice-bound chart: a Chart.Series(slice, { x, value, mark? }) layer + <Chart slice={slice}> chrome (brush sets the slice's range)
 │

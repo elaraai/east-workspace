@@ -27,6 +27,7 @@ import {
 } from "@elaraai/east";
 
 import { ValueFormatType } from "../../contracts/format.js";
+import { FontFamilyType, FontWeightType } from "../../style/typography.js";
 
 /**
  * A typed x-axis coordinate. The arm chooses the scale the renderer builds —
@@ -283,8 +284,35 @@ export const ChartMarginType = StructType({
 export type ChartMarginType = typeof ChartMarginType;
 
 /**
+ * Typography override for one run of axis text — tick labels or the axis
+ * caption (#315). Reuses the shared typography vocabulary ({@link FontFamilyType},
+ * {@link FontWeightType}); every field is optional and falls back to the spec
+ * chrome (mono 11px, `fg.muted`).
+ *
+ * @remarks
+ * Built via the `tickStyle` / `titleStyle` options on the axis builders (or
+ * the `<Chart>` `x` / `y` / `y2` props). `fontFamily` resolves through the
+ * theme font tokens (`sans` / `serif` / `mono`) and `color` accepts a theme
+ * colour token (e.g. `"fg.default"`) or a raw CSS colour.
+ *
+ * @property fontSize      - CSS font size (e.g. `"12px"`)
+ * @property fontFamily    - Theme font family (sans / serif / mono)
+ * @property fontWeight    - Font weight (normal / medium / semibold / bold / light)
+ * @property color         - Theme colour token or CSS colour for the text fill
+ * @property letterSpacing - CSS letter spacing (e.g. `"0.04em"`)
+ */
+export const ChartAxisTextStyleType = StructType({
+    fontSize:      OptionType(StringType),
+    fontFamily:    OptionType(FontFamilyType),
+    fontWeight:    OptionType(FontWeightType),
+    color:         OptionType(StringType),
+    letterSpacing: OptionType(StringType),
+});
+export type ChartAxisTextStyleType = typeof ChartAxisTextStyleType;
+
+/**
  * An axis (visx `AxisBottom` / `AxisLeft`) — derived from the frame's matching
- * scale. Spec styling (mono 10px labels, hairline rule) is the renderer default;
+ * scale. Spec styling (mono 11px labels, hairline rule) is the renderer default;
  * these props tune it.
  *
  * @property label     - Optional axis caption
@@ -294,6 +322,8 @@ export type ChartMarginType = typeof ChartMarginType;
  * @property hideLine  - Hide the axis baseline rule
  * @property domain     - Explicit extent for a linear/time axis (see {@link ChartDomainType}); omit to derive from the data, and not meaningful for a `band` scale
  * @property tickFormat - How tick labels are formatted (see {@link ChartTickFormatType}); omit for the renderer default
+ * @property tickStyle  - Typography override for the tick labels (see {@link ChartAxisTextStyleType}); omit for the spec default
+ * @property titleStyle - Typography override for the axis caption (see {@link ChartAxisTextStyleType}); omit for the spec default
  */
 export const ChartAxisType = StructType({
     label:      OptionType(StringType),
@@ -303,6 +333,8 @@ export const ChartAxisType = StructType({
     hideLine:   OptionType(BooleanType),
     domain:     OptionType(ChartDomainType),
     tickFormat: OptionType(ChartTickFormatType),
+    tickStyle:  OptionType(ChartAxisTextStyleType),
+    titleStyle: OptionType(ChartAxisTextStyleType),
 });
 export type ChartAxisType = typeof ChartAxisType;
 

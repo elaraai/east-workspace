@@ -307,6 +307,39 @@ export const lineRuntimeTimeDomain = example({
     inputs: [],
 });
 
+/**
+ * Axis typography overrides (#315) — `tickStyle` / `titleStyle` on any axis
+ * restyle its tick labels and caption over the spec chrome (mono 11px,
+ * `fg.muted`): CSS font size, theme font family (`sans` / `serif` / `mono`),
+ * weight, colour token, and letter spacing. Here the weekday date ticks read
+ * in 12px sans `fg.default` and the y caption is a semibold sans eyebrow —
+ * the legibility treatment for a dense dashboard lane.
+ */
+export const axisTextStyled = example({
+    keywords: ["Chart", "axis", "tickStyle", "titleStyle", "font", "typography", "fontSize", "fontFamily", "fontWeight", "color", "letterSpacing", "legibility", "ticks", "label"],
+    description: "Axis typography overrides — tickStyle/titleStyle set font size / family / weight / colour per axis (weekday date ticks in 12px sans fg.default)",
+    fn: East.function([], UIComponentType, ($) => {
+        const rows = $.const([
+            { at: new Date("2026-03-30T12:00:00Z"), v: 8.0 },
+            { at: new Date("2026-03-31T12:00:00Z"), v: 10.0 },
+            { at: new Date("2026-04-01T12:00:00Z"), v: 14.0 },
+            { at: new Date("2026-04-02T12:00:00Z"), v: 12.0 },
+            { at: new Date("2026-04-03T12:00:00Z"), v: 9.0 },
+        ], ArrayType(StructType({ at: DateTimeType, v: FloatType })));
+        return (
+            <Box height="240px" width="100%">
+                <Chart
+                    layers={Chart.Line(rows, { x: r => r.at, y: r => r.v })}
+                    x={{ scale: "time", format: Chart.format.date("ddd DD"), tickStyle: { fontSize: "12px", fontFamily: "sans", color: "fg.default" } }}
+                    y={{ label: "Clarified kL", tickStyle: { fontSize: "12px" }, titleStyle: { fontFamily: "sans", fontWeight: "semibold", color: "fg.default", letterSpacing: "0.02em" } }}
+                    grid
+                />
+            </Box>
+        );
+    }),
+    inputs: [],
+});
+
 export const lineSampleFan = example({
     keywords: ["Chart", "Line", "opacity", "legend", "tooltip", "fan", "sample-path", "by", "overlay", "decoration"],
     description: "A faint fan of generative sample paths (low stroke opacity, kept out of both the legend and the tooltip) behind a bold median line",

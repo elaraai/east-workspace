@@ -58,8 +58,22 @@ const lineNode = (data: ReturnType<typeof series>[], opts: { opacity?: number; l
         tooltip: opts.tooltip !== undefined ? some(opts.tooltip) : none,
     });
 
-const axisNode = (tag: "axisBottom" | "axisLeft") =>
-    variant(tag, { label: none, numTicks: none, hideTicks: none, hideLine: none, domain: none, tickFormat: none });
+const axisNode = (tag: "axisBottom" | "axisLeft", opts: { label?: string; tickStyle?: unknown; titleStyle?: unknown } = {}) =>
+    variant(tag, {
+        label: opts.label !== undefined ? some(opts.label) : none,
+        numTicks: none, hideTicks: none, hideLine: none, domain: none, tickFormat: none,
+        tickStyle: opts.tickStyle !== undefined ? some(opts.tickStyle) : none,
+        titleStyle: opts.titleStyle !== undefined ? some(opts.titleStyle) : none,
+    });
+
+/** An axis-text style value (#315) — absent fields keep the spec chrome. */
+const textStyle = (s: { fontSize?: string; fontFamily?: string; fontWeight?: string; color?: string; letterSpacing?: string }) => ({
+    fontSize: s.fontSize !== undefined ? some(s.fontSize) : none,
+    fontFamily: s.fontFamily !== undefined ? some(variant(s.fontFamily, null)) : none,
+    fontWeight: s.fontWeight !== undefined ? some(variant(s.fontWeight, null)) : none,
+    color: s.color !== undefined ? some(s.color) : none,
+    letterSpacing: s.letterSpacing !== undefined ? some(s.letterSpacing) : none,
+});
 
 /** A `band`-x `frame` wrapping the given children, sized so jsdom needs no measurement. */
 const frame = (children: unknown[], opts: { legend?: boolean; tooltip?: boolean } = {}) =>
@@ -542,5 +556,33 @@ describe("Chart renderer — series clipped to the plot rect (#152)", () => {
         expect(Number(rect.getAttribute("x"))).toBe(0);
         expect(Number(rect.getAttribute("y"))).toBe(0);
         expect(Number(rect.getAttribute("width"))).toBe(352);
+    });
+});
+
+describe("Chart renderer — axis tickStyle / titleStyle (#315)", () => {
+    test("tickStyle overrides land on the tick labels; titleStyle on the caption; unstyled axes keep the 11px chrome", () => {
+        const node = frame([
+            lineNode([series("A", "teal.solid", [pt("Jan", 10), pt("Feb", 20)])]),
+            axisNode("axisBottom", { tickStyle: textStyle({ fontSize: "13px", fontWeight: "semibold", letterSpacing: "0.08em" }) }),
+            axisNode("axisLeft", { label: "kL", titleStyle: textStyle({ fontSize: "14px" }) }),
+        ]);
+        const { container } = ui(<EastVisxChart value={node as never} />);
+
+        const texts = Array.from(container.querySelectorAll("text"));
+        // Bottom tick labels ("Jan" / "Feb") carry the override.
+        const jan = texts.find((t) => t.textContent === "Jan")!;
+        expect(jan).toBeTruthy();
+        expect(jan.style.fontSize).toBe("13px");
+        expect(jan.style.fontWeight).toBe("600");
+        expect(jan.style.letterSpacing).toBe("0.08em");
+        // The y caption carries its own override (weight keeps the 600 chrome).
+        const caption = texts.find((t) => t.textContent === "kL")!;
+        expect(caption).toBeTruthy();
+        expect(caption.style.fontSize).toBe("14px");
+        expect(caption.style.fontWeight).toBe("600");
+        // The unstyled left tick labels keep the legibility-floor chrome (11px).
+        const leftTick = texts.find((t) => t.textContent !== "Jan" && t.textContent !== "Feb" && t.textContent !== "kL")!;
+        expect(leftTick).toBeTruthy();
+        expect(leftTick.style.fontSize).toBe("11px");
     });
 });

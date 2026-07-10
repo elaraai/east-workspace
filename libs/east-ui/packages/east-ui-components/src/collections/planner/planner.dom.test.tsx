@@ -17,6 +17,7 @@ import { describe, test, expect, afterEach, vi } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { variant, some, none } from "@elaraai/east";
+import { timeDay } from "d3-time";
 import { system } from "../../theme/index.js";
 import { EastChakraPlanner, type PlannerRootValue, type PlannerRowValue, type PlannerEventValue } from "./index.js";
 
@@ -60,6 +61,7 @@ function plannerRoot(rows: PlannerRowValue[]): PlannerRootValue {
             buckets: [{ key: "am", label: "AM" }, { key: "pm", label: "PM" }],
             range: some(variant("number", { min: 1, max: 3 })),
             format: none,
+            resolution: none,
         },
         columns: [{ key: "name", header: "Name", width: none, frozen: some(true), align: none }],
         rows,
@@ -130,6 +132,167 @@ describe("Planner per-cell bucketing (#120)", () => {
         expect(screen.getByText("Flat")).toBeTruthy();
         expect(screen.queryByText("N/A")).toBeNull();
         expect(warn).not.toHaveBeenCalled();
+        warn.mockRestore();
+    });
+});
+
+// ============================================================================
+// Time-axis resolution (#309). Dates are built with the LOCAL Date constructor
+// so day boundaries (d3-time floors in local time, like Gantt) are
+// timezone-independent; ISO drop-key expectations are computed with the same
+// d3-time floor the renderer uses.
+// ============================================================================
+
+/** A minimal time-slot point event value. */
+function tev(slot: Date, label: string): PlannerEventValue {
+    return {
+        key: none,
+        slot: variant("time", slot),
+        endSlot: none,
+        bucket: none,
+        label,
+        state: variant("committed", null),
+        popover: none,
+        stretch: none,
+        content: none,
+        tone: none,
+        animation: none,
+        hovercard: none,
+    } as unknown as PlannerEventValue;
+}
+
+/** A point planner over a time axis; range / format / resolution per test. */
+function timeRoot(rows: PlannerRowValue[], axis: {
+    range?: { min: Date; max: Date };
+    format?: string;
+    resolution?: string;
+}, root?: { onDrag?: boolean }): PlannerRootValue {
+    return {
+        variant: variant("point", null),
+        axis: {
+            scale: variant("time", null),
+            buckets: [],
+            range: axis.range !== undefined ? some(variant("time", axis.range)) : none,
+            format: axis.format !== undefined ? some(axis.format) : none,
+            resolution: axis.resolution !== undefined ? some(variant(axis.resolution, null)) : none,
+        },
+        columns: [{ key: "name", header: "Name", width: none, frozen: some(true), align: none }],
+        rows,
+        now: none,
+        density: none,
+        slotMinWidth: none,
+        onSelectRow: none,
+        review: none,
+        rowHover: none,
+        id: root?.onDrag ? "plan" : "",
+        sources: [],
+        onDrag: root?.onDrag ? some(() => {}) : none,
+        canDrop: none,
+    } as unknown as PlannerRootValue;
+}
+
+/** The rendered slot-axis header labels (`data-slot="headerCell"`). */
+function headerLabels(container: HTMLElement): string[] {
+    return Array.from(container.querySelectorAll('[data-slot="headerCell"]')).map((n) => n.textContent ?? "");
+}
+
+function renderPlanner(value: PlannerRootValue, key: string) {
+    return render(
+        <ChakraProvider value={system}>
+            <EastChakraPlanner value={value} storageKey={key} />
+        </ChakraProvider>,
+    );
+}
+
+describe("Planner time-axis resolution (#309)", () => {
+    test("a pinned ≤14-day range infers day columns — half-open [min, max), ddd DD default labels", () => {
+        const { container } = renderPlanner(timeRoot(
+            [row("Press A", [tev(new Date(2026, 3, 1, 10), "Run")])],
+            { range: { min: new Date(2026, 2, 30), max: new Date(2026, 3, 6) } },
+        ), "t1");
+        // Mon Mar 30 … Sun Apr 5 — exactly seven day columns, none for Apr 6.
+        expect(headerLabels(container)).toEqual(["Mon 30", "Tue 31", "Wed 01", "Thu 02", "Fri 03", "Sat 04", "Sun 05"]);
+        // The event's instant floors into its day column.
+        expect(screen.getByText("Run")).toBeTruthy();
+    });
+
+    test("axis format overrides the day-column label pattern", () => {
+        const { container } = renderPlanner(timeRoot(
+            [row("Press A", [])],
+            { range: { min: new Date(2026, 2, 30), max: new Date(2026, 3, 2) }, format: "DD/MM" },
+        ), "t2");
+        expect(headerLabels(container)).toEqual(["30/03", "31/03", "01/04"]);
+    });
+
+    test("a pinned >14-day range keeps month columns", () => {
+        const { container } = renderPlanner(timeRoot(
+            [row("Press A", [])],
+            { range: { min: new Date(2026, 0, 15), max: new Date(2026, 3, 20) } },
+        ), "t3");
+        expect(headerLabels(container)).toEqual(["Jan", "Feb", "Mar", "Apr"]);
+    });
+
+    test("a data-derived extent never infers day columns (pinned ranges only), and stays closed", () => {
+        const { container } = renderPlanner(timeRoot(
+            // 5-day event spread, no pinned range — month columns, and the max
+            // slot's month keeps its column (closed extent).
+            [row("Press A", [tev(new Date(2026, 2, 30, 9), "a"), tev(new Date(2026, 3, 3, 9), "b")])],
+            {},
+        ), "t4");
+        expect(headerLabels(container)).toEqual(["Mar", "Apr"]);
+    });
+
+    test("explicit hour resolution derives one column per hour", () => {
+        const { container } = renderPlanner(timeRoot(
+            [row("Press A", [tev(new Date(2026, 2, 30, 10, 30), "Crush")])],
+            { range: { min: new Date(2026, 2, 30), max: new Date(2026, 2, 31) }, resolution: "hour" },
+        ), "t5");
+        const labels = headerLabels(container);
+        expect(labels.length).toBe(24);
+        expect(labels[0]).toBe("00:00");
+        expect(labels[23]).toBe("23:00");
+        expect(screen.getByText("Crush")).toBeTruthy();
+    });
+
+    test("explicit week resolution floors columns to week starts", () => {
+        const { container } = renderPlanner(timeRoot(
+            [row("Press A", [])],
+            { range: { min: new Date(2026, 0, 5), max: new Date(2026, 2, 2) }, resolution: "week" },
+        ), "t6");
+        // Jan 5 2026 is a Monday — weeks floor to Sundays: Jan 04 … Mar 01.
+        const labels = headerLabels(container);
+        expect(labels[0]).toBe("Jan 04");
+        expect(labels[labels.length - 1]).toBe("Mar 01");
+        expect(labels.length).toBe(9);
+    });
+
+    test("explicit month resolution honours format across years", () => {
+        const { container } = renderPlanner(timeRoot(
+            [row("Press A", [])],
+            { range: { min: new Date(2025, 10, 10), max: new Date(2026, 1, 10) }, format: "MMM YY" },
+        ), "t7");
+        expect(headerLabels(container)).toEqual(["Nov 25", "Dec 25", "Jan 26", "Feb 26"]);
+    });
+
+    test("day-resolution drop slots carry the day-start ISO instant (#269 keys stay instants)", () => {
+        const { container } = renderPlanner(timeRoot(
+            [row("Press A", [])],
+            { range: { min: new Date(2026, 2, 30), max: new Date(2026, 3, 2) } },
+            { onDrag: true },
+        ), "t8");
+        const slots = Array.from(container.querySelectorAll("[data-drop-slot]")).map((n) => n.getAttribute("data-drop-slot"));
+        expect(slots).toContain(timeDay.floor(new Date(2026, 2, 30)).toISOString());
+        expect(slots).toContain(timeDay.floor(new Date(2026, 3, 1)).toISOString());
+    });
+
+    test("an absurd extent × fine resolution truncates at the column cap with a warning", () => {
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        const { container } = renderPlanner(timeRoot(
+            [row("Press A", [])],
+            { range: { min: new Date(2026, 0, 1), max: new Date(2027, 0, 1) }, resolution: "hour" },
+        ), "t9");
+        expect(headerLabels(container).length).toBe(500);
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining("truncated"));
         warn.mockRestore();
     });
 });

@@ -88,6 +88,42 @@ export type PlannerScaleType = typeof PlannerScaleType;
 export type PlannerScaleLiteral = "time" | "number" | "ordinal";
 
 /**
+ * The time-axis resolution — the calendar unit of each `time`-axis slot
+ * column. The Planner sibling of the Gantt axis `tier`, except that a Planner
+ * resolution sets slot *identity* (the column set, event placement, and drag
+ * slot keys), not just header labels.
+ *
+ * @remarks
+ * Declared via `Planner.axis.time({ resolution })`; meaningless on `number` /
+ * `ordinal` axes. `auto` (or an absent resolution) infers the unit from the
+ * axis extent: a pinned `range` spanning ≤ 14 days derives one column per
+ * day, anything else keeps one column per month (the pre-resolution
+ * behaviour — data-derived extents never infer day columns). The fixed arms
+ * force the unit regardless of extent; `hour` is never chosen automatically.
+ *
+ * @property auto - Infer from the pinned range span (≤ 14 days ⇒ day, else month)
+ * @property hour - One column per hour
+ * @property day - One column per day
+ * @property week - One column per week
+ * @property month - One column per calendar month
+ * @property quarter - One column per calendar quarter
+ * @property year - One column per calendar year
+ */
+export const PlannerResolutionType = VariantType({
+    auto:    NullType,
+    hour:    NullType,
+    day:     NullType,
+    week:    NullType,
+    month:   NullType,
+    quarter: NullType,
+    year:    NullType,
+});
+export type PlannerResolutionType = typeof PlannerResolutionType;
+
+/** String-literal shorthand for {@link PlannerResolutionType}. */
+export type PlannerResolutionLiteral = "auto" | "hour" | "day" | "week" | "month" | "quarter" | "year";
+
+/**
  * One labelled sub-slot bucket inside a column — the explicit name an operator
  * reads (AM/PM, the parts of a day, …). Buckets are an arbitrary labelled
  * array; an empty array means one slot per column.
@@ -132,7 +168,8 @@ export type PlannerRangeType = typeof PlannerRangeType;
 
 /**
  * The axis declaration — the scale kind, the labelled sub-slot buckets, an
- * optional explicit range, and an optional tick-label format.
+ * optional explicit range, an optional tick-label format, and (time axes
+ * only) an optional column grain.
  *
  * @remarks
  * This is the serialised form written into the Planner IR. Consumer code
@@ -144,12 +181,14 @@ export type PlannerRangeType = typeof PlannerRangeType;
  * @property buckets - The labelled sub-slot buckets ([] = one slot per column)
  * @property range - Optional explicit domain; else derived from the data
  * @property format - Optional tick-label format pattern
+ * @property resolution - Optional time-axis column unit (see {@link PlannerResolutionType}); absent ≡ auto
  */
 export const PlannerAxisType = StructType({
-    scale:   PlannerScaleType,
-    buckets: ArrayType(PlannerBucketType),
-    range:   OptionType(PlannerRangeType),
-    format:  OptionType(StringType),
+    scale:      PlannerScaleType,
+    buckets:    ArrayType(PlannerBucketType),
+    range:      OptionType(PlannerRangeType),
+    format:     OptionType(StringType),
+    resolution: OptionType(PlannerResolutionType),
 });
 export type PlannerAxisType = typeof PlannerAxisType;
 
@@ -477,7 +516,8 @@ export interface AxisOptions {
 }
 
 /**
- * Options for `Planner.axis.time` — extends {@link AxisOptions} with a datetime extent.
+ * Options for `Planner.axis.time` — extends {@link AxisOptions} with a datetime
+ * extent and a column resolution.
  *
  * @remarks
  * Supply `range` to pin the visible calendar window regardless of event
@@ -486,14 +526,34 @@ export interface AxisOptions {
  * `DateTimeType` expression (a data-driven calendar window) — the builder
  * coerces either to the `PlannerRangeType` `time` arm automatically.
  *
+ * `resolution` sets the calendar unit of each slot column. Omitted (or
+ * `"auto"`) it is inferred: a pinned `range` spanning ≤ 14 days derives one
+ * column per day; anything else keeps one column per month. A pinned range is
+ * a half-open calendar window `[min, max)` — `{ Mar 30 … Apr 6 }` at day
+ * resolution is exactly the seven columns `Mar 30 … Apr 5`, so a sibling
+ * Chart with the same `[min, max]` time domain lines its points up with the
+ * column centres under a shared `AlignedStack` gutter. A data-derived extent
+ * is closed instead: every observed slot's period gets a column, including
+ * the last. `format` labels each column with the same date-pattern tokens as
+ * Chart tick formats (`"ddd DD"` → `Mon 30`); omitted, a
+ * resolution-appropriate default applies (hour `"HH:mm"`, day `"ddd DD"`,
+ * week `"MMM DD"`, month `"MMM"` — `"MMM YYYY"` across years — and year
+ * `"YYYY"`).
+ *
  * @property buckets - The labelled sub-slot buckets ([] = one slot per column)
- * @property format - Optional tick-label format pattern (e.g. `"MMM"` for month abbreviations)
+ * @property format - Optional tick-label format pattern (e.g. `"ddd DD"` for `Mon 30` day columns)
  * @property range - Optional explicit datetime extent (plain `Date` or expression); omit to derive from event slots
+ * @property resolution - Optional column unit (see {@link PlannerResolutionType}); omit / `"auto"` to infer from the pinned range span
  */
 export interface AxisTimeOptions extends AxisOptions {
-    /** Optional explicit datetime extent; omit to derive from event slots.
+    /** Optional explicit datetime extent — a half-open calendar window
+     *  `[min, max)`; omit to derive a closed extent from the event slots.
      *  `min`/`max` accept a plain JS `Date` or a `DateTimeType` expression. */
     range?: { min: SubtypeExprOrValue<DateTimeType>; max: SubtypeExprOrValue<DateTimeType> };
+    /** Optional column unit — one column per `"hour"` / `"day"` / `"week"` /
+     *  `"month"` / `"quarter"` / `"year"`. Omit (or `"auto"`) to infer from the
+     *  pinned range span (≤ 14 days ⇒ day, else month). */
+    resolution?: SubtypeExprOrValue<PlannerResolutionType> | PlannerResolutionLiteral;
 }
 
 /**

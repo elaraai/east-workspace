@@ -15,7 +15,9 @@ import {
     type IconDefinition,
 } from "@fortawesome/free-solid-svg-icons";
 import { equalFor, match, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { timeDay, timeHour, timeMonth, timeWeek, timeYear, type TimeInterval } from "d3-time";
 import { Planner } from "@elaraai/east-ui/internal";
+import { formatDatePattern } from "../../charts/spec";
 import { getSomeorUndefined } from "../../utils";
 import { usePersistedState } from "../../hooks/usePersistedState";
 import { EastChakraComponent } from "../../component";
@@ -95,8 +97,69 @@ function eventSlots(value: PlannerRootValue): PlannerSlotValue[] {
     return out;
 }
 
-/** The ordered axis columns, derived from the range (or the data). */
-function deriveColumns(value: PlannerRootValue): AxisColumn[] {
+/** The concrete time-axis column unit — the IR `resolution` with `auto` resolved away. */
+type FixedResolution = "hour" | "day" | "week" | "month" | "quarter" | "year";
+
+const DAY_MS = 86_400_000;
+
+/** Hard ceiling on derived time columns — every column is a real DOM cell per
+ *  row (and a drop target when DnD is on), so an absurd extent × fine
+ *  resolution must truncate (with a warning) rather than lock the tab. */
+const MAX_TIME_COLS = 500;
+
+/** The d3-time interval for a concrete resolution (quarter = 3-month steps),
+ *  mirroring the Gantt `EventAxis` tier intervals. */
+function resolutionInterval(res: FixedResolution): TimeInterval {
+    switch (res) {
+        case "hour": return timeHour;
+        case "day": return timeDay;
+        case "week": return timeWeek;
+        case "month": return timeMonth;
+        case "quarter": return timeMonth.every(3) ?? timeMonth;
+        case "year": return timeYear;
+    }
+}
+
+/** The pinned time range, when the axis declares one. */
+function pinnedTimeRange(value: PlannerRootValue): { min: Date; max: Date } | undefined {
+    const range = getSomeorUndefined(value.axis.range);
+    if (range === undefined) return undefined;
+    return match(range, { time: (v) => v, number: () => undefined, ordinal: () => undefined }, undefined) as { min: Date; max: Date } | undefined;
+}
+
+/** Resolve the declared time-axis resolution (#309): an explicit fixed arm
+ *  wins; `auto` (or absent) infers day columns from a pinned range spanning
+ *  ≤ 14 days and keeps month columns everywhere else — data-derived extents
+ *  never infer day columns, and `hour` is never chosen automatically. */
+function effectiveResolution(value: PlannerRootValue): FixedResolution {
+    const declared = getSomeorUndefined(value.axis.resolution)?.type;
+    if (declared !== undefined && declared !== "auto") return declared;
+    const rt = pinnedTimeRange(value);
+    if (rt !== undefined && rt.max.getTime() - rt.min.getTime() <= 14 * DAY_MS) return "day";
+    return "month";
+}
+
+/** Default column-label date pattern for a resolution, when the IR gives no
+ *  `format` — day columns read weekday-first (`Mon 09`, the design-spec
+ *  planner header), the rest mirror the Gantt tier defaults. */
+function defaultPattern(res: FixedResolution, multiYear: boolean): string {
+    switch (res) {
+        case "hour": return "HH:mm";
+        case "day": return "ddd DD";
+        case "week": return "MMM DD";
+        case "year": return "YYYY";
+        default: return multiYear ? "MMM YYYY" : "MMM";   // month / quarter
+    }
+}
+
+/** A time slot's column key at a resolution — the period-start instant, ISO-printed. */
+function timeColKey(d: Date, res: FixedResolution): string {
+    return `t:${resolutionInterval(res).floor(d).toISOString()}`;
+}
+
+/** The ordered axis columns, derived from the range (or the data). Time axes
+ *  derive one column per `res` period (#309). */
+function deriveColumns(value: PlannerRootValue, res: FixedResolution): AxisColumn[] {
     const scale = value.axis.scale.type;
     const range = getSomeorUndefined(value.axis.range);
     const slots = eventSlots(value);
@@ -130,49 +193,58 @@ function deriveColumns(value: PlannerRootValue): AxisColumn[] {
         return labels.map((l) => ({ key: `o:${l}`, label: l }));
     }
 
-    // time → month columns
+    // time → one column per `res` period (#309): floor the extent to period
+    // starts and step with the d3-time interval. A PINNED range is a half-open
+    // calendar window [min, max) — { Mar 30 … Apr 6 } at day resolution is
+    // exactly the seven columns Mar 30 … Apr 5, so a sibling Chart with the
+    // same [min, max] time domain centres its points over the column centres
+    // under a shared AlignedStack gutter. A DATA-DERIVED extent is closed
+    // instead: the max observed slot's period keeps its column.
     let minD: Date, maxD: Date;
     const rt = range !== undefined
         ? (match(range, { time: (v) => v, number: () => undefined, ordinal: () => undefined }, undefined) as { min: Date; max: Date } | undefined)
         : undefined;
+    const pinned = rt !== undefined;
     if (rt) { minD = rt.min; maxD = rt.max; } else {
         const ts = slots.map((s) => match(s, { time: (d) => d.getTime(), number: () => 0, ordinal: () => 0 }, 0)).filter((t) => t > 0);
         minD = ts.length ? new Date(Math.min(...ts)) : new Date(0);
         maxD = ts.length ? new Date(Math.max(...ts)) : new Date(0);
     }
+    const interval = resolutionInterval(res);
+    const pattern = getSomeorUndefined(value.axis.format)
+        ?? defaultPattern(res, minD.getFullYear() !== maxD.getFullYear());
     const cols: AxisColumn[] = [];
-    const d = new Date(minD.getFullYear(), minD.getMonth(), 1);
-    while (d <= maxD) {
-        cols.push({ key: `${d.getFullYear()}-${d.getMonth()}`, label: d.toLocaleString("en-US", { month: "short" }) });
-        d.setMonth(d.getMonth() + 1);
+    for (let d = interval.floor(minD);
+        pinned ? d.getTime() < maxD.getTime() : d.getTime() <= maxD.getTime();
+        d = interval.offset(d, 1)) {
+        if (cols.length >= MAX_TIME_COLS) {
+            console.warn(`[Planner] time axis truncated at ${MAX_TIME_COLS} ${res} columns — narrow the range or use a coarser resolution.`);
+            break;
+        }
+        cols.push({ key: `t:${d.toISOString()}`, label: formatDatePattern(pattern, d) });
     }
     return cols.length ? cols : [{ key: "t:0", label: "" }];
 }
 
-/** Map a slot to its axis-column index (−1 if off-grid). */
-function slotToCol(slot: PlannerSlotValue, cols: AxisColumn[]): number {
+/** Map a slot to its axis-column index (−1 if off-grid). Time slots floor to
+ *  the column resolution's period start (#309). */
+function slotToCol(slot: PlannerSlotValue, cols: AxisColumn[], res: FixedResolution): number {
     const key = match(slot, {
         number: (n) => `n:${Math.round(n)}`,
         ordinal: (s) => `o:${s}`,
-        time: (d) => `${d.getFullYear()}-${d.getMonth()}`,
+        time: (d) => timeColKey(d, res),
     }, "");
     return cols.findIndex((c) => c.key === key);
 }
 
 /** The drag-grammar slot key for an axis column (#269) — the axis
  *  coordinate printed canonically: ordinal → the label, number → its decimal
- *  form, time → the column instant's ISO form. A bucket composes in with
- *  `":"` (`"wed"` / `"wed:am"`), per `contracts/drag.ts`. */
-function axisSlotKey(col: AxisColumn, scale: string): string {
-    if (scale === "number" || scale === "ordinal") return col.key.slice(2);
-    // time — month columns keyed `${y}-${m}`; print the month start instant.
-    const parts = col.key.split("-").map(Number);
-    const y = parts[0];
-    const m = parts[1];
-    if (y !== undefined && m !== undefined && Number.isFinite(y) && Number.isFinite(m)) {
-        return new Date(Date.UTC(y, m, 1)).toISOString();
-    }
-    return col.key;
+ *  form, time → the column period-start instant's ISO form. A bucket composes
+ *  in with `":"` (`"wed"` / `"wed:am"`), per `contracts/drag.ts`. Every
+ *  column key is `<kind>:`-prefixed (`n:` / `o:` / `t:`), so the slot key is
+ *  the prefix stripped. */
+function axisSlotKey(col: AxisColumn): string {
+    return col.key.slice(2);
 }
 
 /** Compose the bucket into the slot key (`"wed:am"`). */
@@ -193,12 +265,12 @@ function stateKey(state: ValueTypeOf<typeof Planner.Types.State>): StateKey {
     }, "committed" as StateKey);
 }
 
-/** Format a slot for the now-line hint. */
-function formatSlot(slot: PlannerSlotValue): string {
+/** Format a slot for the now-line hint (hour resolution keeps the time of day). */
+function formatSlot(slot: PlannerSlotValue, res: FixedResolution): string {
     return match(slot, {
         number: (n) => String(n),
         ordinal: (s) => s,
-        time: (d) => d.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+        time: (d) => formatDatePattern(res === "hour" ? "MMM DD HH:mm" : "MMM DD", d),
     }, "");
 }
 
@@ -424,7 +496,11 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
     const { header: headerH, row: unitH } = useDensityHeights(size);
 
     const shape: "point" | "span" = value.variant.type === "span" ? "span" : "point";
-    const cols = useMemo(() => deriveColumns(value), [value]);
+    // The concrete time-axis resolution (#309) — feeds column derivation AND
+    // slot→column flooring, so both always agree on the period unit. Inert
+    // (month) for number / ordinal scales.
+    const timeResolution = useMemo(() => effectiveResolution(value), [value]);
+    const cols = useMemo(() => deriveColumns(value, timeResolution), [value, timeResolution]);
     const buckets = value.axis.buckets;
     const nCols = Math.max(cols.length, 1);
 
@@ -670,7 +746,7 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
     const outerMinWidth = gutterActive ? undefined : gridMinWidth;
 
     const now = getSomeorUndefined(value.now);
-    const nowCol = now !== undefined ? slotToCol(now, cols) : -1;
+    const nowCol = now !== undefined ? slotToCol(now, cols, timeResolution) : -1;
 
     // The resolved chip style: the state grammar, then the optional `tone` tint
     // (colours only), then the optional `pulse` animation (#120 item 3).
@@ -694,7 +770,7 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
 
     const cellEvents = (row: PlannerRowValue, colIndex: number, bucketKey?: string) =>
         row.events.filter((ev) => {
-            if (slotToCol(ev.slot, cols) !== colIndex) return false;
+            if (slotToCol(ev.slot, cols, timeResolution) !== colIndex) return false;
             const b = getSomeorUndefined(ev.bucket);
             return bucketKey === undefined ? b === undefined : b === bucketKey;
         });
@@ -702,13 +778,13 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
     // All events in a column, regardless of bucket — used to decide per-cell
     // bucketing (cellEvents with no bucketKey returns only the *bucketless* ones).
     const columnEvents = (row: PlannerRowValue, colIndex: number) =>
-        row.events.filter((ev) => slotToCol(ev.slot, cols) === colIndex);
+        row.events.filter((ev) => slotToCol(ev.slot, cols, timeResolution) === colIndex);
 
     // The conflict marker wraps the whole cell (spec). Conflicts are declared
     // parallel to events (row.markers), each locating its own cell by slot.
     const cellMarker = (row: PlannerRowValue, colIndex: number) => {
         for (const m of row.markers) {
-            if (slotToCol(m.slot, cols) === colIndex) return m;
+            if (slotToCol(m.slot, cols, timeResolution) === colIndex) return m;
         }
         return undefined;
     };
@@ -732,13 +808,13 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
         if (buckets.length > 0) {
             value.rows.forEach((row, ri) => {
                 const mixed = cols.some((_c, ci) =>
-                    row.events.some((ev) => slotToCol(ev.slot, cols) === ci && getSomeorUndefined(ev.bucket) !== undefined) &&
-                    row.events.some((ev) => slotToCol(ev.slot, cols) === ci && getSomeorUndefined(ev.bucket) === undefined));
+                    row.events.some((ev) => slotToCol(ev.slot, cols, timeResolution) === ci && getSomeorUndefined(ev.bucket) !== undefined) &&
+                    row.events.some((ev) => slotToCol(ev.slot, cols, timeResolution) === ci && getSomeorUndefined(ev.bucket) === undefined));
                 if (mixed) set.add(ri);
             });
         }
         return set;
-    }, [value.rows, cols, buckets]);
+    }, [value.rows, cols, buckets, timeResolution]);
 
     useEffect(() => {
         if (rowNeedsNA.size > 0) {
@@ -782,13 +858,13 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
         const col = cols[colIndex];
         if (col === undefined) return undefined;
         const endSlotVal = getSomeorUndefined(ev.endSlot);
-        const endCol = endSlotVal !== undefined ? cols[slotToCol(endSlotVal, cols)] : undefined;
+        const endCol = endSlotVal !== undefined ? cols[slotToCol(endSlotVal, cols, timeResolution)] : undefined;
         return {
             surface: surfaceId,
             row: String(rowIndex),
-            slot: compositeSlotKey(axisSlotKey(col, scaleTag), bucketKey),
+            slot: compositeSlotKey(axisSlotKey(col), bucketKey),
             event: key,
-            endSlot: endCol !== undefined ? axisSlotKey(endCol, scaleTag) : undefined,
+            endSlot: endCol !== undefined ? axisSlotKey(endCol) : undefined,
         };
     };
 
@@ -809,7 +885,7 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
             // same padding / positioning / label gutter — the "N/A" label is the
             // only marker (the dev-time warning surfaces the accident in code).
             const laneSlot = !isNA && cols[colIndex] !== undefined
-                ? compositeSlotKey(axisSlotKey(cols[colIndex]!, scaleTag), bk.key)
+                ? compositeSlotKey(axisSlotKey(cols[colIndex]!), bk.key)
                 : undefined;
             return (
                 <PlannerDropCell key={bk.key} css={base.bucket} data-slot="bucket" data-na={isNA ? "" : undefined} height={`${unitH}px`}
@@ -985,7 +1061,7 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
                                     if (ci === cols.length - 1) cellCss = { ...cellCss, borderRightWidth: "0" };
                                     // Anchor the marker ring/icon to THIS cell (not the timeline pane).
                                     cellCss = { ...cellCss, position: "relative" };
-                                    const cellSlot = axisSlotKey(c, scaleTag);
+                                    const cellSlot = axisSlotKey(c);
                                     const cellRegisters = dndActive && !cellBucketed(row, ci);
                                     return (
                                         <PlannerDropCell key={c.key} data-slot="cell" data-past={past ? "" : undefined} css={cellCss}
@@ -1016,13 +1092,13 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
                                             has a real height (the bar fills it) rather than collapsing
                                             to the old fixed 22px (#120 item 2). */}
                                         {cols.map((c) => (<PlannerDropCell key={c.key} css={base.cell} height={`${unitH}px`}
-                                            surface={surfaceId} row={String(index)} slot={dndActive ? axisSlotKey(c, scaleTag) : undefined} vetoFor={vetoFor}
-                                            {...(dndActive ? { "data-drop-row": String(index), "data-drop-slot": axisSlotKey(c, scaleTag) } : {})} />))}
+                                            surface={surfaceId} row={String(index)} slot={dndActive ? axisSlotKey(c) : undefined} vetoFor={vetoFor}
+                                            {...(dndActive ? { "data-drop-row": String(index), "data-drop-slot": axisSlotKey(c) } : {})} />))}
                                         {row.events.map((ev, i) => {
-                                            const start = slotToCol(ev.slot, cols);
+                                            const start = slotToCol(ev.slot, cols, timeResolution);
                                             if (start < 0) return null;
                                             const endSlot = getSomeorUndefined(ev.endSlot);
-                                            const end = endSlot !== undefined ? slotToCol(endSlot, cols) : start;
+                                            const end = endSlot !== undefined ? slotToCol(endSlot, cols, timeResolution) : start;
                                             const span = Math.max(end, start) - start + 1;
                                             // The wrapper now spans the full cell height (top:0/bottom:0)
                                             // and centres the bar; no horizontal padding, so the coloured
@@ -1042,7 +1118,7 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
                                 {nowCol >= 0 && (
                                     <>
                                         <Box css={base.nowLine} data-slot="nowLine" left={`calc(${nowCol} * (100% / ${nCols}))`} />
-                                        <Box css={base.nowHint} left={`calc(${nowCol} * (100% / ${nCols}))`} title={`now · ${now ? formatSlot(now) : ""}`} />
+                                        <Box css={base.nowHint} left={`calc(${nowCol} * (100% / ${nCols}))`} title={`now · ${now ? formatSlot(now, timeResolution) : ""}`} />
                                     </>
                                 )}
                             </Box>
