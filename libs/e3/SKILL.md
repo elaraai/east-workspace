@@ -86,7 +86,7 @@ Task → What do you need?
 │   └─ Remove                        → e3 workspace remove <repo> <ws>
 │
 ├─ Running the dataflow
-│   └─ Execute all tasks    → e3 dataflow run <repo> <ws> [--force] [--concurrency <n>]
+│   └─ Execute all tasks    → e3 dataflow run <repo> <ws> [--force] [--concurrency <n>] [-v]
 │
 ├─ Datasets (read / write values)
 │   ├─ Read a value         → e3 dataset get <repo> <ws.name> [-f east|json|beast2]
@@ -403,7 +403,7 @@ workspace-scoped live state. Read the current value with `dataset get` like any
 dataset.
 
 ```bash
-e3 mutate <repo> <record.mutation> [args...] -w <ws>  # apply a mutation; args = .east literals or .beast2/.json/.east files
+e3 mutate <repo> <record.mutation> [args...] -w <ws> [-v]  # apply a mutation; args = .east literals or .beast2/.json/.east files; -v = runner timing/perf (local)
 e3 history <repo> <record> -w <ws> [--limit <n>] [--from <hash>]  # commit chain, newest first (--from pages)
 e3 compact <repo> <record> -w <ws>                    # collapse history to a $compact root (state preserved)
 ```
@@ -423,21 +423,29 @@ e3 task logs <repo> <ws.task> [--follow]    # View / follow a task's logs
 ### Dataflow
 
 ```bash
-e3 dataflow run <repo> <ws> [--filter <p>] [--concurrency <n>] [--force]
+e3 dataflow run <repo> <ws> [--filter <p>] [--concurrency <n>] [--force] [-v]
 ```
 
 After a successful run the output paths are printed in flat form, ready to read with `e3 dataset get`.
 
+**`-v` / `--verbose`** forwards `-v` to each task's runner so it prints a
+timing/perf block (Load / Compile / Execute / Output / Total + Peak RSS) — identical
+across east-node, east-py and east-c — to the task's logs (`e3 task logs <repo>
+<ws.task>`). Pure runtime toggle: it never changes task hashes or caching, so a
+cached task stays cached with or without it (add `--force` to see the block for
+an already-cached task). Same flag on `e3 run`, and on `e3 call` / `e3 mutate` for
+**local** repos (not yet wired over a remote HTTP repo).
+
 ### Ad-hoc Run
 
 ```bash
-e3 run <repo> <pkg.task> [inputs...] -o <output>     # task spec uses dots: pkg.task or pkg@1.0.0.task
+e3 run <repo> <pkg.task> [inputs...] -o <output> [-v]  # task spec uses dots: pkg.task or pkg@1.0.0.task
 ```
 
 ### Call (named functions)
 
 ```bash
-e3 call <repo> <pkg.fn> [args...] [-o out.beast2]     # function spec uses dots: pkg.fn or pkg@1.0.0.fn
+e3 call <repo> <pkg.fn> [args...] [-o out.beast2] [-v]  # function spec uses dots: pkg.fn or pkg@1.0.0.fn
 e3 call <repo> -w <ws> <fn> [args...]                 # against a workspace's deployed package
 ```
 
