@@ -314,7 +314,7 @@ Task → What do you need?
     │   ├─ Vector/Matrix → get/set(→new)/slice/concat/map/fold · transpose/get_row/get_col · to_array/to_matrix/to_rows ·
     │   │                   to_numpy(copy=False)/to_torch() · from_numpy/from_torch/zeros/ones/fill
     │   ├─ Struct        → s["field"] or s.field (methods shadow same-named fields) · items()/keys()/values()
-    │   ├─ Variant       → .type/.get_tag() · .has_tag(tag) · .unwrap(tag) ❗ · match(v, {case: handler}, default=)
+    │   ├─ Variant       → .type/.get_tag() · .has_tag(tag) · .unwrap(tag) ❗ · .match({case: handler}, default=)
     │   └─ Blob          → size/get_uint8 · decode_utf8/utf16 · encode_beast2/decode_beast2 ·
     │                      decode_csv(row_type, csv_parse_config(null_strings=…, defaults=…, …))
     │
@@ -548,9 +548,11 @@ key. Construct via the `EastMatrix.*` classmethods (see [Container generators](#
   attribute, `s.price` (methods shadow same-named fields — item access always
   works). Build/transform with `struct({...}, StructType)`.
 - **`EastVariant`** — frozen tagged value; `.type` is the case name, `.value` the payload.
-  Build with `variant(case, value, T)` / `some` / `none`; dispatch with `match`. Also
-  `get_tag()`, `has_tag(tag)`, and `unwrap(tag)` ❗ValueError on a different case
-  (mirroring the TS variant expr surface).
+  Build with `variant(case, value, T)` / `some` / `none`. Dispatch with the
+  `.match({case: handler}, default=None)` method (handlers are `handler(payload)`;
+  the module-level `match(v, cases, default)` is equivalent). Also `get_tag()`,
+  `has_tag(tag)`, and `unwrap(tag)` ❗ValueError on a different case — mirroring
+  the TS variant expr surface, and the same shapes trace inside kernels.
 - **`EastRef`** — mutable cell: `get()` · `set(value)` · `update(fn(current))` ·
   `merge(patch, combine(current, patch))` (delegates to east-c `RefMerge`). Use `set`/`update`
   for a bare local `EastRef`; `merge` is for refs East passes a platform function.

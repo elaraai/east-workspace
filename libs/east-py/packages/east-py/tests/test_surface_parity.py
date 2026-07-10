@@ -124,6 +124,8 @@ def test_runtime_variant_methods():
     assert v.unwrap("a") == 1.0
     with pytest.raises(ValueError, match="unwrap: expected variant case"):
         v.unwrap("b")
+    assert v.match({"a": lambda x: x * 2, "b": lambda _v: 0.0}) == 2.0
+    assert v.match({"b": lambda _v: 0.0}, default="fallback") == "fallback"
 
 
 def test_greatest_least_dual_mode():

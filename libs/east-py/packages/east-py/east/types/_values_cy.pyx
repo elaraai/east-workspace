@@ -255,6 +255,14 @@ cdef class CyEastVariant:
             raise ValueError(f"unwrap: expected variant case '{tag}', got '{self.type}'")
         return self.value
 
+    def match(self, dict cases, default=None):
+        """Dispatch on the case: ``handler(payload)`` of the matching arm,
+        else ``default`` (mirrors the TS variant ``match`` as a method)."""
+        handler = cases.get(self.type)
+        if handler is None:
+            return default
+        return handler(self.value)
+
     def keys(self):
         """Return keys."""
         return ("type", "value")

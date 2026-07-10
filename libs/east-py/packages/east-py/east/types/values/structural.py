@@ -238,6 +238,19 @@ class EastVariant(Generic[V]):
             raise ValueError(f"unwrap: expected variant case '{tag}', got '{self.type}'")
         return self.value
 
+    def match(self, cases: dict, default: Any = None) -> Any:
+        """Dispatch on the case, calling the matching handler with the payload.
+
+        Mirrors the TS variant ``match`` as a method (the module-level
+        ``east.match(v, cases, default)`` is equivalent): handlers are always
+        called ``handler(payload)`` — a ``none`` arm is ``lambda v: ...``.
+        Returns ``default`` when no case matches.
+        """
+        handler = cases.get(self.type)
+        if handler is None:
+            return default
+        return handler(self.value)
+
     def keys(self) -> tuple[str, str]:
         """Return keys."""
         return ("type", "value")
