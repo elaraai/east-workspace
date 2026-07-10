@@ -1,6 +1,6 @@
 {
   "name": "@elaraai/e3-ui",
-  "version": "1.0.32",
+  "version": "1.0.33",
   "description": "e3 + UI bridge — Data bindings, ui() task, manifest",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
