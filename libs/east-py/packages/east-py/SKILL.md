@@ -1,6 +1,6 @@
 ---
 name: east-py
-description: "Use East runtime values as plain Python data and call Python from East. Use when writing Python (not the TypeScript DSL) against the east-py runtime. Triggers for: (1) Constructing/validating East values in Python (EastArray/Set/Dict/Vector/Matrix/Struct/Variant, variant()/some/none/struct/array, coerce_to/assert_value_of), (2) Transforming values with eager methods that delegate to the east-c builtins (sort/map/filter/fold/concat/set-algebra/dict-merge/etc.), (3) Scalar builtins via the East.<Type> namespaces (East.Float.sqrt, East.String.split, East.DateTime.print_format, East.less), (4) Exposing a Python function to East with @platform_function (output validation, sync/async), (5) NumPy/torch interop through EastVector/EastMatrix to_numpy()/to_torch(), (6) Porting a plain-Python data-science POC into an East platform function."
+description: "Use East runtime values as the working data in Python — prefer their chained eager methods (native east-c, faster + standardised) over converting to pure-Python list/dict/set — and call Python from East. Use when writing Python (not the TypeScript DSL) against the east-py runtime. Triggers for: (1) Constructing/validating East values in Python (EastArray/Set/Dict/Vector/Matrix/Struct/Variant, variant()/some/none/struct/array, coerce_to/assert_value_of), (2) Transforming values with eager methods that delegate to the east-c builtins (sort/map/filter/fold/concat/set-algebra/dict-merge/etc.), (3) Scalar builtins via the East.<Type> namespaces (East.Float.sqrt, East.String.split, East.DateTime.print_format, East.less), (4) Exposing a Python function to East with @platform_function (output validation, sync/async), (5) NumPy/torch interop through EastVector/EastMatrix to_numpy()/to_torch(), (6) Porting a plain-Python data-science POC into an East platform function."
 ---
 
 # East.py — values as data, and the platform on-ramp
@@ -13,6 +13,119 @@ and execute immediately), and expose Python functions to East with a decorator.
 This skill is for writing **Python** against the runtime. (For the TypeScript
 `East.function` DSL, use the `east` skill; for ML/optimization platform functions,
 `east-py-datascience`.)
+
+## Work in East values — don't round-trip through Python
+
+Inside a `@platform_function` (or any east-py code over runtime data), **do the
+work with the East values you were handed and their chained eager methods. Do
+not down-convert to a Python `list`/`dict`/`set`, loop in the interpreter, and
+rebuild an East value** — that is the single most common way east-py gets used
+badly. This is not a style preference; it changes the cost and the correctness.
+
+- **Speed.** `EastArray`/`EastSet`/`EastDict` are handles into the shared east-c
+  value slab. An eager method hands that pointer to the native builtin with no
+  copy and returns a new handle, so `a.filter(...).group_by(...).map(...)` runs
+  the container machinery — traversal, allocation, ordering, set/dict algebra —
+  in C, and the data never leaves it. Down-converting is the opposite: an O(n)
+  decode to Python, an interpreter loop, then an O(n) re-encode — every round
+  trip copies the whole collection. (Tensors are the same: `to_numpy()` is a
+  zero-copy view; a Python element loop is not.)
+- **Correctness + standardisation.** East methods use East's *total order* and
+  equality (right for floats/NaN, mixed types, variants-by-name) and keep Sets/
+  Dicts deterministically ordered. `sorted()`, a bare `dict`, or `set()` get
+  these subtly wrong and diverge from the C / TS / other runtimes.
+- **Scalars + dates.** The same rule covers primitives. East scalars *are* Python
+  scalars, but use the `East.<Type>` utilities (and `East.less`/`compare`/`equal`)
+  for anything whose semantics diverge — integer division/overflow (`Integer` is
+  i64, Python `int` is unbounded), `to_integer`/rounding, **all** ordering and
+  equality, string case/trim/split/`replace`/regex — and **always**
+  `East.DateTime.*` for date/time (UTC; `print_format`/`parse_format` Day.js
+  tokens), never Python `datetime` arithmetic / `strftime` / `timedelta` / `<`.
+
+**Chain, don't stage.** Each collection method returns a live east-c value —
+keep piping (`arr.filter(...).to_dict(...).map(...)`) instead of binding
+intermediates to Python names and re-wrapping them. Cross back to Python only at
+the edges: a scalar for `East.Float.*`/`East.String.*` math, or a numpy/torch
+buffer via `to_numpy()`/`to_torch()`.
+
+**This applies to *intermediates*, not just the input/output boundary.** The
+failure mode is the *sandwich* — East input → convert to Python → run the logic
+over `list`/`dict`/`set` → convert back to an East output. If the logic is
+East-expressible (mapping, filtering, grouping, joining, reducing, set/dict
+algebra), do the whole thing in East so every intermediate stays an east-c value
+produced by an east-c method — never materialised, never manually looped. In
+particular, prefer the declarative reducers (`fold`/`map_reduce`/`group_fold`/
+`to_dict(..., combine=…)`) over *any* hand-rolled accumulation loop: the reducer
+makes **one** native call that iterates and accumulates in C, whereas a manual
+loop — Python **or** repeated `EastRef`/`EastDict` updates — pays a separate FFI
+crossing per element (no faster than pure Python, usually slower). Reach for a
+Python/numpy intermediate only when the work genuinely isn't East-expressible (a
+real numpy/scipy/torch/solver op) — cross via `to_numpy()`/`to_torch()`
+(zero-copy for tensors) and wrap the result back. Bare scalars stay plain Python
+— an East `Float` *is* a `float`; don't wrap a running sum in an `EastRef`.
+
+The largest wins are the **callback-free** ops (`sort`/`sorted`, `unique`,
+`union`/`intersect`/`diff`, `concat`, `group_by`, `merge`, `to_dict`/`to_set`,
+`find_sorted_*`) — east-c does the whole loop. `map`/`filter`/`fold` still run
+your lambda per element in Python, but the container work around it is C and you
+skip the conversion round trips, so they still beat a hand-rolled Python loop.
+
+### Anti-patterns → do this instead
+
+| Instead of (pure Python) | Write (East values) |
+|---|---|
+| `[dict(r) for r in items]` then Python loops | keep `items` as the `EastArray`; `.map`/`.filter`/`.group_by`/`.fold` |
+| `sorted(items, key=…)` / `sorted(list(arr))` | `items.sorted(key=…)` (East order, in C) |
+| `{r["k"]: r for r in items}` | `items.to_dict(lambda r: r["k"])` |
+| `set(a) & set(b)` / `set(a) - set(b)` | `a.intersect(b)` / `a.diff(b)` |
+| `EastArray(T, [f(x) for x in arr])` | `arr.map(f)` (pin `out=` for a widening map) |
+| a `for` loop that sums/accumulates | `arr.fold(init, lambda acc, x: …)` / `arr.map_reduce(…)` |
+| a helper that takes/returns `list`/`dict`/`set` | a helper over East values, or inline the eager chain |
+
+```python
+# WRONG — decodes the whole array to Python, loops in the interpreter,
+# re-encodes, and uses Python's ordering (wrong for floats/NaN, non-deterministic)
+def totals_by_region(items):
+    acc = {}
+    for r in [dict(x) for x in items]:
+        acc[r["region"]] = acc.get(r["region"], 0.0) + r["amount"]
+    return array(Row, [{"region": k, "total": v} for k, v in sorted(acc.items())])
+
+# CORRECT — stays C-side, East-ordered, no round trip
+def totals_by_region(items):
+    return (items
+        .group_by(lambda r: r["region"])                                    # Dict<region, Array<row>>
+        .map(lambda rows: rows.fold(0.0, lambda acc, r: acc + r["amount"])) # Dict<region, total>
+        .to_array(lambda region, total: struct({"region": region, "total": total}, Row)))
+```
+
+### Put the logic in the platform function, not a pure-Python shim
+
+Don't write pure-Python helpers over `list`/`dict` and give a `@platform_function`
+that only converts-and-delegates to them. A `@platform_function` is *just* a
+typed, validated Python function — its one added cost is validating the declared
+output, which is a **feature** — so a separate untyped helper layer buys nothing
+and costs you:
+
+- **Testability** — the typed `inputs`/`output` is the contract you test against;
+  a pile of untyped `list`/`dict` helpers has none, so bugs surface as silent
+  corruption instead of a named `EastTypeError`.
+- **Migratability** — a platform function over East values is the portable unit;
+  it moves to an e3 task, another runtime, or a TS `East` mirror unchanged.
+  Pure-Python-collection helpers are Python-only and must be rewritten.
+- **A forced sandwich** — a helper that speaks `list`/`dict` makes the function
+  convert East→Python on the way in and back on the way out — the exact round
+  trip above.
+- **Blurred purity** — East platform functions should be *pure in their East
+  inputs* (that is what makes them memoisable / cacheable); a web of mixed pure
+  and side-effecting helpers makes that impossible to reason about. Keep the
+  transformation on East values inside the function and isolate any real effects.
+
+Factoring out small functions for reuse is fine — just have them **take and
+return East values** so the East types flow through. They needn't each be
+`@platform_function`s (pay the output-validation cost only at the real
+East↔Python edge — and never call a platform function per element inside a loop;
+that is the loop anti-pattern again).
 
 ## Quick Start
 
@@ -461,15 +574,37 @@ arr.sort()                        # in place
 arr.sorted(key=lambda r: r["x"])  # by a projection, still East-ordered
 ```
 
-### Scalars: namespaces, not methods
+### Scalars: use the `East.<Type>` utilities for consistency — above all String & DateTime
+
+East scalars *are* Python scalars, so Python operators run on them — but the
+`East.<Type>` namespaces (and `East.less`/`compare`/`equal`) are the standardised
+ops that give the **same** answer in Python, C, TS, and cached e3 tasks. Python's
+`str` methods, `re`, `datetime`, `strftime`, `//`, and `<` drift by
+engine / locale / timezone; the East functions do not. Use them for anything with
+divergent semantics — and **always** for strings and dates.
 
 ```python
-# WRONG — you cannot add methods to Python's float/str
-(2.0).sqrt()
-# CORRECT — the East.<Type> namespace (delegates to east-c)
-East.Float.sqrt(2.0)
-East.String.split("a,b,c", ",")
+# String — East.String.*, not Python str/re: split edge cases, the regex engine,
+# trim's whitespace set, and JSON encoding all differ from Python
+East.String.split("a,b,c", ",")               # East semantics, not str.split
+East.String.regex_replace(s, r"\d+", "#")     # East regex engine, not Python re
+East.String.trim(s)                           # East's whitespace set
+East.String.print_json(IntegerType, 5)        # '"5"' — Integer is a JSON *string* in East
+
+# DateTime — East.DateTime.* only. East DateTime is UTC; tokens are Day.js, not strftime
+East.DateTime.add_milliseconds(dt, 86_400_000)          # +1 day, not dt + timedelta(days=1)
+East.DateTime.duration_milliseconds(a, b)               # a − b (ms), standardised
+East.DateTime.get_day_of_week(dt)                        # Monday == 1, not dt.weekday() (== 0)
+East.DateTime.print_format(dt, "YYYY-MM-DD HH:mm:ss")   # Day.js tokens, not dt.strftime("%Y-…")
+
+# Ordering / equality — East total order (NaN-correct, mixed types, variants-by-name)
+East.less(FloatType, a, b)                     # not  a < b   /  sorted(...)
+# Integer is i64 — divide truncates; Python's unbounded int can overflow i64
+East.Integer.divide(7, 2)                      # 3
+# (you also can't method-call a Python float/str — the ops live on the namespace)
+East.Float.sqrt(2.0)                           # not (2.0).sqrt()
 ```
+
 
 ### torch interop (in a torch-having package, inline — no helpers)
 
