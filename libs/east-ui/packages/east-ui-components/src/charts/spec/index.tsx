@@ -425,7 +425,10 @@ function BarSeries({ series, index, count, stacked, bounds, yScale, layer }: { s
         return <>{series.points.map((p, i) => <Bar key={i} x={0} y={bandTop(p) + index * hSlot} width={Math.max(0, yScale(p.value))} height={h} fill={fillFor(p)} fillOpacity={op} rx={style.barRadius} />)}</>;
     }
     if (stacked) {
-        return <>{series.points.map((p, i) => { const [lo, hi] = bounds(p); const top = yScale(hi); const bot = yScale(lo); return <Bar key={i} x={cx(p) - bandWidth / 2} y={top} width={bandWidth} height={Math.max(0, bot - top)} fill={fillFor(p)} fillOpacity={op} rx={style.barRadius} />; })}</>;
+        // `Math.min` + `Math.abs` so a NEGATIVE stack (hi < lo ⇒ yScale(hi) below
+        // yScale(lo)) still draws — a bare `bot - top` goes negative and the bar
+        // collapses to zero height (mirrors the horizontal path above).
+        return <>{series.points.map((p, i) => { const [lo, hi] = bounds(p); const top = yScale(hi); const bot = yScale(lo); return <Bar key={i} x={cx(p) - bandWidth / 2} y={Math.min(top, bot)} width={bandWidth} height={Math.abs(bot - top)} fill={fillFor(p)} fillOpacity={op} rx={style.barRadius} />; })}</>;
     }
     const slot = bandWidth / count;                       // one sub-slot per series
     const w = Math.max(1, slot - (count > 1 ? 1.5 : 0));  // hairline gap between grouped bars
@@ -933,7 +936,12 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
                             </Box>
                         )}
                         {tooltipOn && tooltipData !== undefined && tooltipLeft != null && tooltipTop != null && (
-                            <TooltipInPortal left={tooltipLeft} top={tooltipTop} style={{ position: "absolute", pointerEvents: "none" }}>
+                            // `zIndex` must sit on the tooltip's OWN (position:absolute) content —
+                            // visx puts the `useTooltipInPortal` zIndex on the portal's wrapper div,
+                            // which is `position:static` so its z-index is ignored. Without it the
+                            // tooltip is z-auto (0) and a sibling's `position:sticky` header (e.g. a
+                            // Table column header at z-index 2) paints over it.
+                            <TooltipInPortal left={tooltipLeft} top={tooltipTop} style={{ position: "absolute", pointerEvents: "none", zIndex: style.tooltipZIndex }}>
                                 <Box background="bg.surface" borderWidth="1px" borderColor="border.strong" borderRadius="4px" boxShadow="md" paddingX="10px" paddingY="8px" fontFamily="mono" fontSize="10.5px" color="fg" display="flex" flexDirection="column" gap="{spacing.1.5}" minWidth="120px">
                                     <Box as="span" fontWeight="semibold" letterSpacing="0.04em" color="fg.muted">{xKind === "time" ? new Date(tooltipData.x).toLocaleDateString() : tooltipData.x}</Box>
                                     {tooltipData.rows.map((rw, i) => (
