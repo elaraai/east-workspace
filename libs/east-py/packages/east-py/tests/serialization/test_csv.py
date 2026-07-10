@@ -134,6 +134,47 @@ def test_csv_parse_config_passes_options_through():
     assert rows[0]["b"] == "y"
 
 
+# ─── per-column defaults (issue #254) ───────────────────────────────────────
+
+
+def test_defaults_recover_unparseable_fields():
+    """Garbage and empty numeric fields fall back to the parsed default,
+    keeping whole-table ingestion inside east-c (the issue #254 use-case)."""
+    row = StructType([("qty", FloatType)])
+    cfg = csv_parse_config(skip_empty_lines=False, defaults={"qty": "0.0"})
+    rows = EastBlob(b"qty\n1.5\ngarbage\n\n2.5").decode_csv(row, cfg)
+    assert [r["qty"] for r in rows] == [1.5, 0.0, 0.0, 2.5]
+
+
+def test_defaults_constant_fill_absent_column():
+    cfg = csv_parse_config(defaults={"b": "filled"})
+    rows = EastBlob(b"a\nx\ny\n").decode_csv(ROW, cfg)
+    assert [(r["a"], r["b"]) for r in rows] == [("x", "filled"), ("y", "filled")]
+
+
+def test_defaults_apply_on_null_string_match_for_required():
+    cfg = csv_parse_config(
+        skip_empty_lines=False, null_strings=[""], defaults={"b": "unknown"}
+    )
+    rows = EastBlob(b"a,b\n1,\n").decode_csv(ROW, cfg)
+    assert rows[0]["b"] == "unknown"
+
+
+def test_invalid_default_errors_up_front():
+    row = StructType([("qty", FloatType)])
+    cfg = csv_parse_config(defaults={"qty": "abc"})
+    with pytest.raises(ValueError, match="invalid default for column 'qty'"):
+        EastBlob(b"qty\n1.5\n").decode_csv(row, cfg)
+
+
+def test_defaults_do_not_mask_short_rows():
+    """Ragged rows stay an error — defaults cover decode failures and absent
+    columns only (ragged-row handling is tracked separately)."""
+    cfg = csv_parse_config(defaults={"b": "z"})
+    with pytest.raises(ValueError, match="row has 1 fields"):
+        EastBlob(b"a,b\nonly\n").decode_csv(ROW, cfg)
+
+
 # ─── encode/decode round trip ──────────────────────────────────────────────
 
 

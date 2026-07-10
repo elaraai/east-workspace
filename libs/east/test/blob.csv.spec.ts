@@ -19,7 +19,10 @@ import { describeEast as describe, assertEast as assert } from "./platforms.spec
 import * as ex from "./blob.examples.js";
 
 await describe("Blob (CSV)", (test) => {
-  assert.examples(test, { blobDecodeCsv: ex.blobDecodeCsv });
+  assert.examples(test, {
+    blobDecodeCsv: ex.blobDecodeCsv,
+    blobDecodeCsvDefaults: ex.blobDecodeCsvDefaults,
+  });
 
   test("decodeCsv - simple struct with header", $ => {
     const PersonType = StructType({ name: StringType, age: IntegerType });
@@ -295,6 +298,49 @@ await describe("Blob (CSV)", (test) => {
 
     $(assert.equal(result.size(), 1n));
     $(assert.equal(result.get(0n).value, "hello"));
+  });
+
+  test("decodeCsv - defaults recover unparseable numeric fields", $ => {
+    const T = StructType({ qty: FloatType });
+    const csv = $.let(East.value(
+      new TextEncoder().encode("qty\n1.5\nn/a\n\n2.5"),
+      BlobType
+    ));
+
+    const result = $.let(csv.decodeCsv(T, {
+      skipEmptyLines: false,
+      defaults: new Map([["qty", "0.0"]]),
+    }));
+
+    $(assert.equal(result.size(), 4n));
+    $(assert.equal(result.get(0n).qty, 1.5));
+    $(assert.equal(result.get(1n).qty, 0.0));
+    $(assert.equal(result.get(2n).qty, 0.0));
+    $(assert.equal(result.get(3n).qty, 2.5));
+  });
+
+  test("decodeCsv - defaults constant-fill an absent column", $ => {
+    const T = StructType({ name: StringType, qty: FloatType });
+    const csv = $.let(East.value(
+      new TextEncoder().encode("name\nAlice\nBob"),
+      BlobType
+    ));
+
+    const result = $.let(csv.decodeCsv(T, { defaults: new Map([["qty", "7.5"]]) }));
+
+    $(assert.equal(result.size(), 2n));
+    $(assert.equal(result.get(0n).name, "Alice"));
+    $(assert.equal(result.get(0n).qty, 7.5));
+    $(assert.equal(result.get(1n).qty, 7.5));
+  });
+
+  test("decodeCsv - invalid default errors", $ => {
+    const T = StructType({ qty: FloatType });
+    const csv = $.let(East.value(
+      new TextEncoder().encode("qty\n1.5"),
+      BlobType
+    ));
+    $(assert.throws(csv.decodeCsv(T, { defaults: new Map([["qty", "abc"]]) }), /invalid default/));
   });
 
   // T1: error message for invalid integer

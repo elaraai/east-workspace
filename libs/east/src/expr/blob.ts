@@ -226,7 +226,10 @@ export class BlobExpr extends Expr<BlobType> {
    * common CSV-tool semantics. To decode empty (or sentinel) fields as `none`
    * for `Option` columns, opt in with `nullStrings: [""]` (or e.g.
    * `["", "NULL", "N/A"]`); a null-string match on a required (non-Option)
-   * column is an error.
+   * column is an error. For defensive ingestion, `defaults` maps column
+   * names to CSV-text fallback values applied when a present field fails to
+   * decode or a column is absent from the header (constant-fill), e.g.
+   * `defaults: new Map([["price", "0.0"]])`.
    *
    * @example
    * ```ts

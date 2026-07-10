@@ -48,6 +48,7 @@ CsvParseConfigType: EastType = StructType(
         ("trimFields", OptionType(BooleanType)),
         ("columnMapping", OptionType(DictType(StringType, StringType))),
         ("strict", OptionType(BooleanType)),
+        ("defaults", OptionType(DictType(StringType, StringType))),
     ]
 )
 
@@ -115,6 +116,7 @@ class ResolvedParseConfig(NamedTuple):
     trim_fields: bool = False
     column_mapping: dict[str, str] | None = None
     strict: bool = False
+    defaults: dict[str, str] | None = None
 
 
 class ResolvedSerializeConfig(NamedTuple):
@@ -149,6 +151,7 @@ def resolve_parse_config(config: Any) -> ResolvedParseConfig:
 
     null_strings_val = _get_option_value(data.get("nullStrings"), None)
     column_mapping_val = _get_option_value(data.get("columnMapping"), None)
+    defaults_val = _get_option_value(data.get("defaults"), None)
 
     return ResolvedParseConfig(
         delimiter=_get_option_value(data.get("delimiter"), ","),
@@ -161,6 +164,7 @@ def resolve_parse_config(config: Any) -> ResolvedParseConfig:
         trim_fields=_get_option_value(data.get("trimFields"), False),
         column_mapping=dict(column_mapping_val) if column_mapping_val else None,
         strict=_get_option_value(data.get("strict"), False),
+        defaults=dict(defaults_val) if defaults_val else None,
     )
 
 
@@ -204,6 +208,7 @@ def csv_parse_config(
     trim_fields: bool | None = None,
     column_mapping: dict[str, str] | None = None,
     strict: bool | None = None,
+    defaults: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Build a ``CsvParseConfigType`` value from keyword options.
 
@@ -223,6 +228,11 @@ def csv_parse_config(
         trim_fields: Trim surrounding whitespace from each field (default ``False``).
         column_mapping: Map of CSV header name to struct field name.
         strict: Error on columns not present in the struct (default ``False``).
+        defaults: Per-column default values keyed by struct field name,
+            written as CSV field text (e.g. ``{"price": "0.0"}``) and parsed
+            once with that column's parser. A default applies when a present
+            field fails to decode and when the column is absent from the
+            header entirely (constant-fill).
 
     Returns:
         A plain value of ``CsvParseConfigType`` accepted as the ``config``
@@ -239,6 +249,7 @@ def csv_parse_config(
         "trimFields": _opt(trim_fields),
         "columnMapping": _opt(column_mapping),
         "strict": _opt(strict),
+        "defaults": _opt(defaults),
     }
 
 

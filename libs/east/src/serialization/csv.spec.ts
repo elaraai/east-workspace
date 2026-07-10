@@ -364,6 +364,92 @@ describe('decodeCsvFor', () => {
     });
   });
 
+  describe('per-column defaults', () => {
+    test('should apply default when a field fails to parse', () => {
+      const T = StructType({ qty: FloatType });
+      const config = csvParseOptionsToValue({
+        skipEmptyLines: false,
+        defaults: new Map([["qty", "0.0"]]),
+      });
+      const decode = decodeCsvFor(T, config);
+
+      // Real exports carry garbage and empty numeric fields — both fall
+      // back to the parsed default
+      const csv = encoder.encode("qty\n1.5\ngarbage\n\n2.5");
+      const result = decode(csv);
+
+      assert.deepEqual(result, [
+        { qty: 1.5 },
+        { qty: 0.0 },
+        { qty: 0.0 },
+        { qty: 2.5 },
+      ]);
+    });
+
+    test('should apply default on null-string match for required column', () => {
+      const T = StructType({ name: StringType });
+      const config = csvParseOptionsToValue({
+        skipEmptyLines: false,
+        nullStrings: [""],
+        defaults: new Map([["name", "unknown"]]),
+      });
+      const decode = decodeCsvFor(T, config);
+
+      const csv = encoder.encode("name\nAlice\n\n");
+      const result = decode(csv);
+
+      assert.deepEqual(result, [{ name: "Alice" }, { name: "unknown" }]);
+    });
+
+    test('should constant-fill an absent required column', () => {
+      const T = StructType({ name: StringType, qty: FloatType });
+      const config = csvParseOptionsToValue({ defaults: new Map([["qty", "42.0"]]) });
+      const decode = decodeCsvFor(T, config);
+
+      // qty column entirely absent: no missing-required-column error,
+      // every row takes the default
+      const csv = encoder.encode("name\nAlice\nBob");
+      const result = decode(csv);
+
+      assert.deepEqual(result, [
+        { name: "Alice", qty: 42.0 },
+        { name: "Bob", qty: 42.0 },
+      ]);
+    });
+
+    test('should constant-fill an absent Option column with its default', () => {
+      const T = StructType({ name: StringType, score: OptionType(FloatType) });
+      const config = csvParseOptionsToValue({ defaults: new Map([["score", "1.5"]]) });
+      const decode = decodeCsvFor(T, config);
+
+      const csv = encoder.encode("name\nAlice");
+      const result = decode(csv);
+
+      assert.deepEqual(result, [{ name: "Alice", score: some(1.5) }]);
+    });
+
+    test('should error on an unparseable default at decoder construction', () => {
+      const T = StructType({ qty: FloatType });
+      const config = csvParseOptionsToValue({ defaults: new Map([["qty", "abc"]]) });
+
+      assert.throws(() => decodeCsvFor(T, config), /invalid default/);
+    });
+
+    test('should not mask short-row errors', () => {
+      const T = StructType({ name: StringType, qty: FloatType });
+      const config = csvParseOptionsToValue({ defaults: new Map([["qty", "0.0"]]) });
+      const decode = decodeCsvFor(T, config);
+
+      // Ragged rows remain an error — defaults only cover decode failures
+      // and absent columns
+      const csv = encoder.encode("name,qty\nAlice");
+
+      assert.throws(() => decode(csv), (e: Error) => {
+        return e instanceof CsvError && e.message.includes("row has 1 fields");
+      });
+    });
+  });
+
   describe('error handling', () => {
     test('should error on missing required column', () => {
       const T = StructType({ name: StringType, age: IntegerType });
