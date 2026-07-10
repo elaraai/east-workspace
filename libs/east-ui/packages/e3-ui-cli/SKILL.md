@@ -186,3 +186,4 @@ some-tool --emit-ir | e3-ui shot --from-ir - -o out.png
 - **e3-ui** — `ui()` tasks, `Data.bind`, decision surfaces; `--from-task` renders their computed output.
 - **e3** — repositories, workspaces, dataflow; produce the task outputs `--from-task` consumes.
 - **east-project** — scaffolding a project whose `--ui` option wires `npm run shot`.
+- **e3-create** — the `npm create @elaraai/e3 -- --ui` flag (and every other scaffold option) that generates the `src/ui/index.tsx` surface this screenshots.

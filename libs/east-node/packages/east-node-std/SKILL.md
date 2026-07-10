@@ -107,3 +107,4 @@ const response = Fetch.Types.Response;
 - **east-node-io** — the heavier I/O layer (SQL / NoSQL, S3, FTP / SFTP, XLSX / XML, compression) when `FileSystem` / `Fetch` aren't enough.
 - **e3** — run these effects as durable, cached tasks instead of one-off scripts.
 - **east-project** — to author your OWN custom platform function (not just use these stock ones): `East.platform(...).implement(...)` default-exported from your package's `./platform`, called from an e3 task via `{ runtime: 'east-node', platforms: [{ custom: '@elaraai/<project>' }] }`.
+- **e3-create** — scaffold that custom platform: `--platform` for one project-owned module, or `--node-packages=<name>` for a dedicated npm workspace member with its own auto-derived e3 environment.

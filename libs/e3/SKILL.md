@@ -547,7 +547,8 @@ Use `--force` to bypass: `e3 dataflow run . dev --force`
 ## Related skills
 
 - **east** — the language for task bodies (`e3.task` runs an `East.function`).
-- **east-project** — scaffold an e3 project (incl. `--platform` for project-owned platform functions) and drive its build / deploy / run / watch lifecycle.
+- **e3-create** — scaffold an e3 project: the `npm create @elaraai/e3` flags (`--runners`, `--platform`, `--python/node/c-packages`, `--ui`) and what each generates.
+- **east-project** — drive the scaffolded project's build / deploy / run / watch / test lifecycle.
 - **east-ui** + **e3-ui** — author dashboards and decision surfaces as `ui()` tasks bound to workspace datasets.
 - **east-py-datascience** — ML / optimization tasks; set a Python runner (`{ runner: { runtime: 'east-py', platforms: ['east-py-datascience'] } }`).
 - **east-py** — author Python `@platform_function`s that a `{ custom: '<pkg>' }` east-py task calls (the per-package Python environment e3 auto-derives).

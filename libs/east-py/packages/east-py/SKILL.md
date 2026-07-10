@@ -498,4 +498,6 @@ on-ramp. Load the skill that matches what you are adding:
   project-owned Python platform module via a `{ custom: 'platform_module' }` task runner.
 - **east-project** — scaffold (`--platform`) and package a project-owned platform module (the
   `*_impl` → `platform` aggregation, `east-py run -p`, dotted names, the TS declaration mirror).
+- **e3-create** — scaffold a *dedicated* Python platform package with `--python-packages=<name>`
+  (a uv workspace member, its own auto-derived e3 environment) instead of the single `--platform` module.
 - **east-design** — start here when you have a goal but no architecture yet.

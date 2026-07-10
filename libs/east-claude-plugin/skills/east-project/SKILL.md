@@ -111,82 +111,16 @@ package.json `name` exactly; and ensure the project is **built** before
 Python half, add the setuptools `[build-system]` + `[tool.setuptools] packages`
 to `pyproject.toml` and `uv sync`.
 
-## Multi-package projects (`--python-packages` / `--node-packages` / `--c-packages`)
+## Multi-package projects (per-runner change granularity)
 
-Split platform code into **separate workspace packages** — each its own captured
-execution environment, so **editing one package re-runs only its tasks** and the
-rest stay cached (even across a redeploy). The package boundary *is* the
-change-detection granularity. Mix runtimes freely in one project:
+Split platform code into separate workspace packages — each its own captured
+execution environment, so editing one re-runs only its tasks (the rest stay
+cached, even across a redeploy). Scaffold with `--python-packages` /
+`--node-packages` / `--c-packages`; the **e3-create** skill is the full
+reference — every flag, the generated layout, and the per-runtime task wiring
+(python & node auto-derive the environment from `{ custom }`; C attaches a
+prebuilt binary via `environment: { tools }`).
 
-```bash
-npm create @elaraai/e3 my-app -- \
-  --python-packages=pricing --node-packages=api --c-packages=solver
-```
-
-Layout (comma-separated lists add more members per runtime):
-
-```
-my-app/
-├── package.json                       # npm workspace root: workspaces ["packages/node/*"], private
-├── pyproject.toml                     # uv workspace root: members ["packages/python/*"]
-├── tsconfig.json                      # excludes "packages" (members compile themselves)
-├── src/
-│   ├── index.ts                       # e3.package("my-app", "1.0.0", ...packageTasks)
-│   └── packages/
-│       ├── index.ts                   # barrel: export const packageTasks = [pricing_task, api_task, solver_task]
-│       ├── pricing.ts  · api.ts  · solver.ts     # one example task per package (below)
-├── packages/
-│   ├── python/pricing/                # uv member — pyproject.toml (hatchling) + src/pricing/{__init__,example}.py
-│   ├── node/api/                      # npm member — package.json (@my-app/api, ./platform export) + src/platform.ts
-│   └── native/solver/                 # native — Makefile + src/solver.c → build/solver
-```
-
-**The wiring differs by runtime — python & node auto-derive the environment from
-the `{ custom }` platform reference; C attaches a prebuilt binary explicitly:**
-
-```typescript
-// Three separate files under src/packages/. Each begins with:
-//   import e3 from "@elaraai/e3";
-//   import { East, ArrayType, FloatType, IntegerType } from "@elaraai/east";
-
-// ── src/packages/pricing.ts — PYTHON (env AUTO-DERIVED from { custom: "pricing" }) ──
-const example = East.platform("pricing.example", [ArrayType(FloatType)], FloatType);
-const values = e3.input("pricing_values", ArrayType(FloatType), [1.0, 2.0, 3.0]);
-export const pricing_task = e3.task("pricing_example", [values],
-  East.function([ArrayType(FloatType)], FloatType, ($, v) => { $.return(example(v)); }),
-  { runner: { runtime: "east-py", platforms: [{ custom: "pricing" }, "east-py-std"] } });
-  // no `environment:` — export captures packages/python/pricing's uv closure
-
-// ── src/packages/api.ts — NODE (env AUTO-DERIVED from { custom: "@my-app/api" }, SCOPED name) ──
-const example = East.platform("api.example", [IntegerType, FloatType], IntegerType);
-const value = e3.input("api_value", IntegerType, 21n);
-const factor = e3.input("api_factor", FloatType, 2.0);
-export const api_task = e3.task("api_example", [value, factor],
-  East.function([IntegerType, FloatType], IntegerType, ($, v, f) => { $.return(example(v, f)); }),
-  { runner: { runtime: "east-node", platforms: [{ custom: "@my-app/api" }] } });
-  // no `environment:` — export captures packages/node/api's npm closure
-
-// ── src/packages/solver.ts — C (NOT auto-derived; attach the built binary via tools) ──
-const solverValues = e3.input("solver_values", ArrayType(FloatType), [1.0, 2.0, 3.0]);
-export const solver_task = e3.customTask("solver_tool", [solverValues], ArrayType(FloatType),
-  (_$, inputs, output) => East.str`solver ${inputs.get(0n)} ${output}`,
-  { environment: { tools: { files: ["packages/native/solver/build/solver"] } } });
-  // build the C binary first: `make -C packages/native/solver` — a rebuild re-runs only this task
-```
-
-The member side holds the impl, keyed to the same dotted `"<pkg>.example"` name:
-`packages/python/pricing/src/pricing/example.py` is an `@platform_function`;
-`packages/node/api/src/platform.ts` is `East.platform(...).implement(...)`
-default-exported as a `PlatformFunction[]`. Keep the member impl and the app-side
-`East.platform(...)` declaration in lockstep (same name + signature).
-
-**Semantics.** Python members install the workspace's full locked third-party set
-(union-scoped); node members must be `tsc`-built before export (the root `build`
-runs `--workspaces` first); C tools must be `make`-built before `npm run start`.
-A member **name collides with an intended registry package? Rename** — names must
-be unique across all runtimes (they each become a distinct `src/packages/<name>.ts`
-task). Add more later with the same flags; each new package is independently
-captured.
 
 ## Lifecycle (generated npm scripts)
 
@@ -219,6 +153,7 @@ e3 dataset get .repos <ws>.<name>                              # read a result (
 
 ## Related skills
 
+- **e3-create** — the full `npm create @elaraai/{e3,east}` flag reference (every option + its effect, single vs multi-package layouts). This skill picks up *after* scaffolding.
 - **e3** — the SDK + CLI this builds on.
 - **east** — the language for task bodies.
 - **east-ui** / **e3-ui** — decision surfaces.
