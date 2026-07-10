@@ -305,7 +305,7 @@ For the East-value API itself (eager methods, `coerce_to`, `to_numpy`/`to_torch`
 
 ## Related skills
 
-- **e3** — **required to run these**: they need the Python runtime, so wrap each in an `e3.task` with a Python runner (`{ runner: ['uv','run','east-py','run','-p','east-py-datascience'] }`). They do not run on the default Node / C runtime.
+- **e3** — **required to run these**: they need the Python runtime, so wrap each in an `e3.task` with a Python runner (`{ runner: { runtime: 'east-py', platforms: ['east-py-datascience'] } }` — the typed runner resolves east-py from the project's `.venv`; no `uv run` wrapper needed). They do not run on the default Node / C runtime.
 - **east** — the language for objective functions, configs, and result handling.
 - **east-py** — the Python runtime: East values as plain Python data, eager methods, and the `@platform_function` on-ramp — pairs with the direct `*_impl` calls above.
 - **east-ontology** — the decisions these models improve are the `decision` nodes of the business's economic ontology.

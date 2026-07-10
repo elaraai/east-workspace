@@ -550,5 +550,6 @@ Use `--force` to bypass: `e3 dataflow run . dev --force`
 - **east-project** — scaffold an e3 project (incl. `--platform` for project-owned platform functions) and drive its build / deploy / run / watch lifecycle.
 - **east-ui** + **e3-ui** — author dashboards and decision surfaces as `ui()` tasks bound to workspace datasets.
 - **east-py-datascience** — ML / optimization tasks; set a Python runner (`{ runner: { runtime: 'east-py', platforms: ['east-py-datascience'] } }`).
-- **east-node-io** / **east-node-std** — pull databases, storage, files, and HTTP into tasks.
+- **east-py** — author Python `@platform_function`s that a `{ custom: '<pkg>' }` east-py task calls (the per-package Python environment e3 auto-derives).
+- **east-node-io** / **east-node-std** — pull databases, storage, files, and HTTP into tasks; author your own east-node platform fns for `{ custom }` node-package tasks.
 - **east-design** / **east-ontology** — plan the dataflow and model the business before building.
