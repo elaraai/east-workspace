@@ -1,7 +1,7 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1440,
+    "totalEntries": 1445,
     "totalFiles": 183,
     "packages": {
       "east": 489,
@@ -11,7 +11,8 @@
       "east-ui": 689,
       "e3-ui": 57,
       "e3": 7,
-      "e3-ui-cli": 4
+      "e3-ui-cli": 4,
+      "e3-create": 5
     }
   },
   "entries": [
@@ -30142,6 +30143,108 @@
         "import { renderToPng, renderTaskToPng } from '@elaraai/e3-ui-cli';"
       ],
       "source": "// Source/IR input -> PNG (and optional standalone HTML):\nawait renderToPng({\n  input: { path: './dashboard.tsx' },\n  output: 'dashboard.png',\n  html: 'dashboard.html',\n});\n\n// A deployed e3 task's computed output:\nawait renderTaskToPng({ repo: './.repos', workspace: 'main', task: 'dashboard', output: 'dashboard.png' });"
+    },
+    {
+      "id": "e3-create:static:new-e3-project",
+      "skill": "e3-create",
+      "package": "e3-create",
+      "file": "static",
+      "suite": "npm create @elaraai/e3",
+      "test": "Scaffold a new e3 project (durable dataflow; Node + Python + C runners)",
+      "keywords": [
+        "e3-create",
+        "scaffold",
+        "create",
+        "new project",
+        "npm create",
+        "e3",
+        "init",
+        "initializer"
+      ],
+      "imports": [],
+      "source": "# Interactive when a TTY; pass flags after `--` for a non-interactive run:\nnpm create @elaraai/e3 my-app\nnpm create @elaraai/e3 .                       # scaffold into the current directory\nnpm create @elaraai/e3 my-app -- --no-ui --install"
+    },
+    {
+      "id": "e3-create:static:choose-runners",
+      "skill": "e3-create",
+      "package": "e3-create",
+      "file": "static",
+      "suite": "create-e3 --runners",
+      "test": "Choose which East runtimes a project includes (default: all three)",
+      "keywords": [
+        "e3-create",
+        "runners",
+        "east-node",
+        "east-py",
+        "east-c",
+        "runtime",
+        "scaffold",
+        "prune"
+      ],
+      "imports": [],
+      "source": "# Default is east-node,east-py,east-c; prune to what you need (drops unused setup):\nnpm create @elaraai/e3 planner -- --runners=east-node,east-py"
+    },
+    {
+      "id": "e3-create:static:multi-package",
+      "skill": "e3-create",
+      "package": "e3-create",
+      "file": "static",
+      "suite": "create-e3 --python-packages / --node-packages / --c-packages",
+      "test": "Split platform code into per-runtime workspace packages for per-package change detection",
+      "keywords": [
+        "e3-create",
+        "python-packages",
+        "node-packages",
+        "c-packages",
+        "workspace",
+        "multi-package",
+        "environment",
+        "granularity",
+        "uv",
+        "npm",
+        "native",
+        "per-package"
+      ],
+      "imports": [],
+      "source": "# Each package is its own captured environment — editing one re-runs only its tasks:\nnpm create @elaraai/e3 my-app -- --python-packages=pricing --node-packages=api --c-packages=solver\n# generates packages/python/pricing (uv member), packages/node/api (npm member),\n# packages/native/solver (tools env) + src/packages/{pricing,api,solver}.ts wiring each\n# task to its runner. python/node auto-derive the env from { custom }; C attaches the binary."
+    },
+    {
+      "id": "e3-create:static:platform-module",
+      "skill": "e3-create",
+      "package": "e3-create",
+      "file": "static",
+      "suite": "create-e3 --platform",
+      "test": "Scaffold one project-owned platform module (TS-East, plus Python when east-py is on)",
+      "keywords": [
+        "e3-create",
+        "platform",
+        "custom platform function",
+        "East.platform",
+        "implement",
+        "scaffold",
+        "module"
+      ],
+      "imports": [],
+      "source": "npm create @elaraai/e3 my-app -- --platform                     # TS-East only\nnpm create @elaraai/e3 my-app -- --platform --runners=east-node,east-py   # + Python half"
+    },
+    {
+      "id": "e3-create:static:new-east-project",
+      "skill": "e3-create",
+      "package": "e3-create",
+      "file": "static",
+      "suite": "npm create @elaraai/east",
+      "test": "Scaffold a plain East (Node-only) project",
+      "keywords": [
+        "e3-create",
+        "east",
+        "create-east",
+        "node-only",
+        "scaffold",
+        "AGPL",
+        "library"
+      ],
+      "imports": [],
+      "source": "npm create @elaraai/east mylib\nnpm create @elaraai/east mylib -- --no-tests"
     }
   ]
 }
