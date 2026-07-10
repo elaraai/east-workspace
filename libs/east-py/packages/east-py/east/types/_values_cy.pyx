@@ -241,6 +241,20 @@ cdef class CyEastVariant:
         """Iterate over keys."""
         return iter(("type", "value"))
 
+    def get_tag(self):
+        """The case name (same as ``.type`` — mirrors the TS ``getTag``)."""
+        return self.type
+
+    def has_tag(self, str tag):
+        """Whether the variant's case is ``tag`` (mirrors the TS ``hasTag``)."""
+        return self.type == tag
+
+    def unwrap(self, str tag):
+        """The payload of case ``tag``; raises ValueError if the case differs."""
+        if self.type != tag:
+            raise ValueError(f"unwrap: expected variant case '{tag}', got '{self.type}'")
+        return self.value
+
     def keys(self):
         """Return keys."""
         return ("type", "value")

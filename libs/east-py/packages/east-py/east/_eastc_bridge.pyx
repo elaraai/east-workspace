@@ -678,10 +678,26 @@ cdef object _c_variant_to_py(_eastc.EastValue *val, _eastc.EastType *c_type, dic
     # Use the value's own type — case_idx is relative to the type the value
     # was created with, which is stored on val.data.variant.type.
     cdef _eastc.EastType *vt = val.data.variant.type
+    cdef size_t ci
     if vt != NULL and vt.kind == _eastc.EAST_TYPE_RECURSIVE:
         vt = vt.data.recursive.node
-    if vt == NULL or vt.kind != _eastc.EAST_TYPE_VARIANT or case_idx >= vt.data.variant.num_cases:
+    if (vt == NULL or vt.kind != _eastc.EAST_TYPE_VARIANT) and c_type != NULL:
+        # Some east-c builtins construct variants without a value-side type
+        # (e.g. SetFirstMap's none); fall back to the declared decode type.
+        vt = c_type
+        if vt.kind == _eastc.EAST_TYPE_RECURSIVE:
+            vt = vt.data.recursive.node
+    if vt == NULL or vt.kind != _eastc.EAST_TYPE_VARIANT:
         raise ValueError(f"Invalid variant: case={case_name} idx={case_idx}")
+    if case_idx >= vt.data.variant.num_cases:
+        # case_idx unset/stale — resolve the case by NAME against the type
+        case_idx = <size_t>-1
+        for ci in range(vt.data.variant.num_cases):
+            if case_tag != NULL and strcmp(vt.data.variant.cases[ci].name, case_tag) == 0:
+                case_idx = ci
+                break
+        if case_idx == <size_t>-1:
+            raise ValueError(f"Invalid variant: case={case_name} idx={val.data.variant.case_idx}")
     case_type = vt.data.variant.cases[case_idx].type
 
     py_value = _c_value_to_py_impl(val.data.variant.value, case_type, alias_map)

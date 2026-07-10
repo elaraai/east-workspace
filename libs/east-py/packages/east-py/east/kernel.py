@@ -45,7 +45,7 @@ from east.types.types import (
     StringType,
 )
 
-__all__ = ["kernel", "where", "KernelTraceError", "KernelExpr"]
+__all__ = ["kernel", "where", "greatest", "least", "KernelTraceError", "KernelExpr"]
 
 
 class KernelTraceError(TypeError):
@@ -62,17 +62,19 @@ def _type_json(t: EastType) -> Any:
     return json.loads(encode_json_for(EastTypeType)(t))
 
 
-def _node(case: str, **fields: Any) -> dict[str, Any]:
-    """An IR node: a variant of ``case`` with a struct payload.
+def _node(kind: str, **fields: Any) -> dict[str, Any]:
+    """An IR node: a variant of ``kind`` with a struct payload.
 
     Field order matters to the C JSON decoder: the payload's ``type`` comes
     first, then ``loc_id``, then the node-specific fields in declared order
-    (callers pass them in that order).
+    (callers pass them in that order). The parameter is named ``kind`` so
+    node fields literally called ``case`` (Variant/Match) can pass through
+    ``**fields``.
     """
     payload: dict[str, Any] = {"type": fields.pop("type")}
     payload["loc_id"] = "0"
     payload.update(fields)
-    return {"type": case, "value": payload}
+    return {"type": kind, "value": payload}
 
 
 def _var(name: str, t: EastType) -> dict[str, Any]:
@@ -157,9 +159,98 @@ def _lift(value: Any, hint: EastType | None = None) -> KernelExpr:
         return KernelExpr(_literal(value, FloatType), FloatType)
     if isinstance(value, str):
         return KernelExpr(_literal(value, StringType), StringType)
+    lifted = _lift_variant(value, hint)
+    if lifted is not None:
+        return lifted
+    if isinstance(value, dict):
+        return _lift_struct(value)
     raise KernelTraceError(
         f"cannot lift python value of type {type(value).__name__} into an East kernel expression"
     )
+
+
+def _lift_struct(value: dict) -> KernelExpr:
+    """Lift a dict of traced expressions/literals into Struct IR.
+
+    Lets kernels build rows naturally: ``lambda el, i: {"i": i, "v": el.x}``.
+    """
+    from east.types.types import StructType as _StructType
+
+    fields = []
+    field_types = []
+    for name, item in value.items():
+        if not isinstance(name, str):
+            raise KernelTraceError("struct construction needs string field names")
+        e = _lift(item)
+        fields.append({"name": name, "value": e.ir})
+        field_types.append((name, e.east_type))
+    struct_t = _StructType(field_types)
+    node = _node("Struct", type=_type_json(struct_t), fields=fields)
+    return KernelExpr(node, struct_t)
+
+
+def _option_type(inner: EastType) -> EastType:
+    from east.types.types import OptionType
+
+    return OptionType(inner)
+
+
+def _lift_variant(value: Any, hint: EastType | None) -> KernelExpr | None:
+    """Lift `some(<traced expr>)` / the `none` constant into Variant IR.
+
+    `east.some()` wraps without validating, so a traced lambda can build
+    options with the ordinary constructors; `none` needs a type hint (from
+    a `where` branch or the declared callback output).
+    """
+    from east.types.values import EastVariant, is_east_variant
+
+    if not is_east_variant(value) or not isinstance(value, EastVariant):
+        return None
+    if value.type == "some":
+        payload = value.value
+        inner = _lift(payload) if not isinstance(payload, KernelExpr) else payload
+        opt_t = _option_type(inner.east_type)
+        node = _node("Variant", type=_type_json(opt_t), case="some", value=inner.ir)
+        return KernelExpr(node, opt_t)
+    if value.type == "none" and value.value is None:
+        if hint is None or not _is_option(hint):
+            raise KernelTraceError(
+                "`none` in a traced kernel needs a type from context — pair it with a "
+                "some(...) branch in where(), or let the method fall back"
+            )
+        node = _node("Variant", type=_type_json(hint), case="none", value=_literal(None, NullType))
+        return KernelExpr(node, hint)
+    if hint is not None and hint.type == "Variant":
+        # General variant construction: variant("case", payload) with the
+        # type from context (e.g. a where() branch or a declared output);
+        # the payload may be a traced expression or a liftable literal.
+        case_t = next((c["type"] for c in hint.value if c["name"] == value.type), None)
+        if case_t is None:
+            names = ", ".join(c["name"] for c in hint.value)
+            raise KernelTraceError(f"variant case {value.type!r} not in {{{names}}}")
+        payload = _lift(value.value, hint=case_t)
+        if payload.east_type != case_t:
+            raise KernelTraceError(
+                f"variant case {value.type!r} payload has type {payload.east_type.type}, "
+                f"expected {case_t.type}"
+            )
+        node = _node("Variant", type=_type_json(hint), case=value.type, value=payload.ir)
+        return KernelExpr(node, hint)
+    if isinstance(value.value, KernelExpr):
+        raise KernelTraceError(
+            f"variant({value.type!r}, …) in a traced kernel needs a VariantType from context"
+        )
+    return None
+
+
+def _is_option(t: EastType) -> bool:
+    if t.type != "Variant" or len(t.value) != 2:
+        return False
+    return t.value[0]["name"] == "none" and t.value[1]["name"] == "some"
+
+
+def _option_inner(t: EastType) -> EastType:
+    return t.value[1]["type"]
 
 
 def _trace_bail(op: str) -> KernelTraceError:
@@ -424,6 +515,507 @@ class KernelExpr:
             raise KernelTraceError(".length() needs a String")
         return KernelExpr(_builtin("StringLength", IntegerType, [], [self.ir]), IntegerType)
 
+    # ── float / integer math tail ───────────────────────────────────────
+
+    def _float_fn(self, name: str) -> KernelExpr:
+        if self.east_type.type != "Float":
+            raise KernelTraceError(f".{name.lower()}() needs a Float")
+        return KernelExpr(_builtin(name, FloatType, [], [self.ir]), FloatType)
+
+    def exp(self) -> KernelExpr:
+        return self._float_fn("FloatExp")
+
+    def log(self) -> KernelExpr:
+        tag = self.east_type.type
+        if tag == "Integer":
+            return KernelExpr(_builtin("IntegerLog", IntegerType, [], [self.ir]), IntegerType)
+        return self._float_fn("FloatLog")
+
+    def sin(self) -> KernelExpr:
+        return self._float_fn("FloatSin")
+
+    def cos(self) -> KernelExpr:
+        return self._float_fn("FloatCos")
+
+    def tan(self) -> KernelExpr:
+        return self._float_fn("FloatTan")
+
+    def sign(self) -> KernelExpr:
+        tag = self.east_type.type
+        if tag == "Integer":
+            return KernelExpr(_builtin("IntegerSign", IntegerType, [], [self.ir]), IntegerType)
+        return self._float_fn("FloatSign")
+
+    # ── string tail ────────────────────────────────────────────────────
+
+    def _string_arg(self, name: str, other: Any) -> KernelExpr:
+        arg = _lift(other)
+        if self.east_type.type != "String" or arg.east_type.type != "String":
+            raise KernelTraceError(f"{name} needs String operands")
+        return arg
+
+    def split(self, sep: Any) -> KernelExpr:
+        from east.types.types import ArrayType as _ArrayType
+
+        arg = self._string_arg("split", sep)
+        out = _ArrayType(StringType)
+        return KernelExpr(_builtin("StringSplit", out, [], [self.ir, arg.ir]), out)
+
+    def replace(self, old: Any, new: Any) -> KernelExpr:
+        a = self._string_arg("replace", old)
+        b = self._string_arg("replace", new)
+        return KernelExpr(_builtin("StringReplace", StringType, [], [self.ir, a.ir, b.ir]), StringType)
+
+    def substring(self, start: Any, end: Any) -> KernelExpr:
+        if self.east_type.type != "String":
+            raise KernelTraceError(".substring() needs a String")
+        s = _lift(start)
+        e = _lift(end)
+        if s.east_type.type != "Integer" or e.east_type.type != "Integer":
+            raise KernelTraceError(".substring() bounds must be Integers")
+        return KernelExpr(
+            _builtin("StringSubstring", StringType, [], [self.ir, s.ir, e.ir]), StringType
+        )
+
+    def index_of(self, other: Any) -> KernelExpr:
+        arg = self._string_arg("index_of", other)
+        return KernelExpr(_builtin("StringIndexOf", IntegerType, [], [self.ir, arg.ir]), IntegerType)
+
+    def repeat(self, count: Any) -> KernelExpr:
+        if self.east_type.type != "String":
+            raise KernelTraceError(".repeat() needs a String")
+        n = _lift(count)
+        if n.east_type.type != "Integer":
+            raise KernelTraceError(".repeat() count must be an Integer")
+        return KernelExpr(_builtin("StringRepeat", StringType, [], [self.ir, n.ir]), StringType)
+
+    def lstrip(self) -> KernelExpr:
+        if self.east_type.type != "String":
+            raise KernelTraceError(".lstrip() needs a String")
+        return KernelExpr(_builtin("StringTrimStart", StringType, [], [self.ir]), StringType)
+
+    def rstrip(self) -> KernelExpr:
+        if self.east_type.type != "String":
+            raise KernelTraceError(".rstrip() needs a String")
+        return KernelExpr(_builtin("StringTrimEnd", StringType, [], [self.ir]), StringType)
+
+    def regex_contains(self, pattern: Any, flags: Any = "") -> KernelExpr:
+        a = self._string_arg("regex_contains", pattern)
+        f = self._string_arg("regex_contains", flags)
+        return KernelExpr(
+            _builtin("RegexContains", BooleanType, [], [self.ir, a.ir, f.ir]), BooleanType
+        )
+
+    def regex_index_of(self, pattern: Any, flags: Any = "") -> KernelExpr:
+        a = self._string_arg("regex_index_of", pattern)
+        f = self._string_arg("regex_index_of", flags)
+        return KernelExpr(
+            _builtin("RegexIndexOf", IntegerType, [], [self.ir, a.ir, f.ir]), IntegerType
+        )
+
+    def regex_replace(self, pattern: Any, replacement: Any, flags: Any = "") -> KernelExpr:
+        a = self._string_arg("regex_replace", pattern)
+        f = self._string_arg("regex_replace", flags)
+        b = self._string_arg("regex_replace", replacement)
+        return KernelExpr(
+            _builtin("RegexReplace", StringType, [], [self.ir, a.ir, f.ir, b.ir]), StringType
+        )
+
+    # ── datetime ───────────────────────────────────────────────────────
+
+    def _dt_get(self, name: str) -> KernelExpr:
+        if self.east_type.type != "DateTime":
+            raise KernelTraceError(f".{name}() needs a DateTime")
+        builtin = {
+            "get_year": "DateTimeGetYear",
+            "get_month": "DateTimeGetMonth",
+            "get_day_of_month": "DateTimeGetDayOfMonth",
+            "get_day_of_week": "DateTimeGetDayOfWeek",
+            "get_hour": "DateTimeGetHour",
+            "get_minute": "DateTimeGetMinute",
+            "get_second": "DateTimeGetSecond",
+            "get_millisecond": "DateTimeGetMillisecond",
+            "to_epoch_milliseconds": "DateTimeToEpochMilliseconds",
+        }[name]
+        return KernelExpr(_builtin(builtin, IntegerType, [], [self.ir]), IntegerType)
+
+    def get_year(self) -> KernelExpr:
+        return self._dt_get("get_year")
+
+    def get_month(self) -> KernelExpr:
+        return self._dt_get("get_month")
+
+    def get_day_of_month(self) -> KernelExpr:
+        return self._dt_get("get_day_of_month")
+
+    def get_day_of_week(self) -> KernelExpr:
+        return self._dt_get("get_day_of_week")
+
+    def get_hour(self) -> KernelExpr:
+        return self._dt_get("get_hour")
+
+    def get_minute(self) -> KernelExpr:
+        return self._dt_get("get_minute")
+
+    def get_second(self) -> KernelExpr:
+        return self._dt_get("get_second")
+
+    def get_millisecond(self) -> KernelExpr:
+        return self._dt_get("get_millisecond")
+
+    def to_epoch_milliseconds(self) -> KernelExpr:
+        return self._dt_get("to_epoch_milliseconds")
+
+    def _dt_shift(self, amount: Any, scale: int, negate: bool) -> KernelExpr:
+        if self.east_type.type != "DateTime":
+            raise KernelTraceError("datetime arithmetic needs a DateTime")
+        n = _lift(amount)
+        if n.east_type.type == "Float":
+            ms = (n * float(scale)).to_integer()
+        elif n.east_type.type == "Integer":
+            ms = n * scale
+        else:
+            raise KernelTraceError("datetime shift amount must be Integer or Float")
+        if negate:
+            ms = -ms
+        from east.types.types import DateTimeType
+
+        return KernelExpr(
+            _builtin("DateTimeAddMilliseconds", DateTimeType, [], [self.ir, ms.ir]), DateTimeType
+        )
+
+    def add_milliseconds(self, n: Any) -> KernelExpr:
+        return self._dt_shift(n, 1, False)
+
+    def add_seconds(self, n: Any) -> KernelExpr:
+        return self._dt_shift(n, 1000, False)
+
+    def add_minutes(self, n: Any) -> KernelExpr:
+        return self._dt_shift(n, 60_000, False)
+
+    def add_hours(self, n: Any) -> KernelExpr:
+        return self._dt_shift(n, 3_600_000, False)
+
+    def add_days(self, n: Any) -> KernelExpr:
+        return self._dt_shift(n, 86_400_000, False)
+
+    def add_weeks(self, n: Any) -> KernelExpr:
+        return self._dt_shift(n, 604_800_000, False)
+
+    def subtract_milliseconds(self, n: Any) -> KernelExpr:
+        return self._dt_shift(n, 1, True)
+
+    def subtract_seconds(self, n: Any) -> KernelExpr:
+        return self._dt_shift(n, 1000, True)
+
+    def subtract_minutes(self, n: Any) -> KernelExpr:
+        return self._dt_shift(n, 60_000, True)
+
+    def subtract_hours(self, n: Any) -> KernelExpr:
+        return self._dt_shift(n, 3_600_000, True)
+
+    def subtract_days(self, n: Any) -> KernelExpr:
+        return self._dt_shift(n, 86_400_000, True)
+
+    def subtract_weeks(self, n: Any) -> KernelExpr:
+        return self._dt_shift(n, 604_800_000, True)
+
+    def duration_milliseconds(self, other: Any) -> KernelExpr:
+        if self.east_type.type != "DateTime":
+            raise KernelTraceError(".duration_*() needs a DateTime")
+        o = _lift(other)
+        if o.east_type.type != "DateTime":
+            raise KernelTraceError(".duration_*() other must be a DateTime")
+        return KernelExpr(
+            _builtin("DateTimeDurationMilliseconds", IntegerType, [], [self.ir, o.ir]), IntegerType
+        )
+
+    def _dt_duration(self, other: Any, scale: float) -> KernelExpr:
+        return self.duration_milliseconds(other).to_float() / scale
+
+    def duration_seconds(self, other: Any) -> KernelExpr:
+        return self._dt_duration(other, 1000.0)
+
+    def duration_minutes(self, other: Any) -> KernelExpr:
+        return self._dt_duration(other, 60_000.0)
+
+    def duration_hours(self, other: Any) -> KernelExpr:
+        return self._dt_duration(other, 3_600_000.0)
+
+    def duration_days(self, other: Any) -> KernelExpr:
+        return self._dt_duration(other, 86_400_000.0)
+
+    def duration_weeks(self, other: Any) -> KernelExpr:
+        return self._dt_duration(other, 604_800_000.0)
+
+    def print_format(self, fmt: Any) -> KernelExpr:
+        """Format a DateTime with a Day.js-style format string.
+
+        Like the TS `printFormatted`, the format must be a python string
+        literal — it is tokenized at trace time (the builtin takes the token
+        array, not the raw string).
+        """
+        if self.east_type.type != "DateTime":
+            raise KernelTraceError(".print_format() needs a DateTime")
+        if not isinstance(fmt, str):
+            raise KernelTraceError(
+                ".print_format() takes a literal format string (tokenized at trace time)"
+            )
+        from east.datetime_format import DateTimeFormatTokenType, tokenize_datetime_format
+        from east.types.types import ArrayType as _ArrayType
+
+        token_t = DateTimeFormatTokenType
+        token_t_json = _type_json(token_t)
+        token_nodes = []
+        for tok in tokenize_datetime_format(fmt):
+            if tok.value is None or str(tok.value) == "null":
+                payload = _literal(None, NullType)
+            else:
+                payload = _literal(str(tok.value), StringType)
+            token_nodes.append(
+                {"type": "Variant", "value": {"type": token_t_json, "loc_id": "0",
+                                              "case": tok.type, "value": payload}}
+            )
+        arr_t = _ArrayType(token_t)
+        tokens_ir = _node("NewArray", type=_type_json(arr_t), values=token_nodes)
+        return KernelExpr(
+            _builtin("DateTimePrintFormat", StringType, [], [self.ir, tokens_ir]), StringType
+        )
+
+    # ── option access (Match IR) ───────────────────────────────────────
+
+    def _match_option(self, some_body_fn: Any, none_value: KernelExpr, out_t: EastType) -> KernelExpr:
+        if not _is_option(self.east_type):
+            raise KernelTraceError(
+                f"option access on a non-Option expression ({self.east_type.type})"
+            )
+        inner_t = _option_inner(self.east_type)
+        some_var = _var("__m0", inner_t)
+        some_body = some_body_fn(KernelExpr(some_var, inner_t))
+        none_var = _var("__m1", NullType)
+        node = _node(
+            "Match",
+            type=_type_json(out_t),
+            variant=self.ir,
+            cases=[
+                {"case": "none", "variable": none_var, "body": none_value.ir},
+                {"case": "some", "variable": some_var, "body": some_body.ir},
+            ],
+        )
+        return KernelExpr(node, out_t)
+
+    def is_some(self) -> KernelExpr:
+        return self._match_option(
+            lambda _x: KernelExpr(_literal(True, BooleanType), BooleanType),
+            KernelExpr(_literal(False, BooleanType), BooleanType),
+            BooleanType,
+        )
+
+    def is_none(self) -> KernelExpr:
+        return self._match_option(
+            lambda _x: KernelExpr(_literal(False, BooleanType), BooleanType),
+            KernelExpr(_literal(True, BooleanType), BooleanType),
+            BooleanType,
+        )
+
+    def unwrap_or(self, default: Any) -> KernelExpr:
+        if not _is_option(self.east_type):
+            raise KernelTraceError(
+                f".unwrap_or() on a non-Option expression ({self.east_type.type})"
+            )
+        inner_t = _option_inner(self.east_type)
+        d = _lift(default, hint=inner_t)
+        if d.east_type != inner_t:
+            raise KernelTraceError(
+                f".unwrap_or() default has type {d.east_type.type}, option holds {inner_t.type}"
+            )
+        return self._match_option(lambda x: x, d, inner_t)
+
+    # ── general variant access (Match IR, like the TS variant expr) ─────
+
+    def _variant_cases(self) -> list:
+        if self.east_type.type != "Variant":
+            raise KernelTraceError(
+                f"variant access on a non-variant expression ({self.east_type.type})"
+            )
+        return list(self.east_type.value)
+
+    def get_tag(self) -> KernelExpr:
+        """The case name as a String (Match over every case)."""
+        cases = []
+        for i, c in enumerate(self._variant_cases()):
+            var = _var(f"__t{i}", c["type"])
+            cases.append({"case": c["name"], "variable": var,
+                          "body": _literal(c["name"], StringType)})
+        node = _node("Match", type=_type_json(StringType), variant=self.ir, cases=cases)
+        return KernelExpr(node, StringType)
+
+    def has_tag(self, tag: str) -> KernelExpr:
+        if not isinstance(tag, str):
+            raise KernelTraceError(".has_tag() takes a literal case name")
+        names = [c["name"] for c in self._variant_cases()]
+        if tag not in names:
+            raise KernelTraceError(f"variant has no case {tag!r} (cases: {', '.join(names)})")
+        cases = []
+        for i, c in enumerate(self._variant_cases()):
+            var = _var(f"__t{i}", c["type"])
+            cases.append({"case": c["name"], "variable": var,
+                          "body": _literal(c["name"] == tag, BooleanType)})
+        node = _node("Match", type=_type_json(BooleanType), variant=self.ir, cases=cases)
+        return KernelExpr(node, BooleanType)
+
+    def match(self, cases: dict) -> KernelExpr:
+        """Exhaustive traced match: {case: handler(payload_expr) -> expr}.
+
+        Every case must be handled and all handler results must share one
+        East type (a scalar handler value is lifted, with the other
+        branches' type as the hint).
+        """
+        declared = self._variant_cases()
+        names = [c["name"] for c in declared]
+        missing = [n for n in names if n not in cases]
+        extra = [n for n in cases if n not in names]
+        if missing or extra:
+            raise KernelTraceError(
+                f".match() must handle exactly the variant's cases {names}; "
+                f"missing {missing}, unknown {extra}"
+            )
+        results = []
+        for i, c in enumerate(declared):
+            var = _var(f"__t{i}", c["type"])
+            handler = cases[c["name"]]
+            raw = handler(KernelExpr(var, c["type"])) if callable(handler) else handler
+            results.append((c["name"], var, raw))
+        # settle the shared output type from the first traced result
+        out_t = None
+        for _, _, raw in results:
+            if isinstance(raw, KernelExpr):
+                out_t = raw.east_type
+                break
+        case_nodes = []
+        for name, var, raw in results:
+            body = _lift(raw, hint=out_t)
+            if out_t is None:
+                out_t = body.east_type
+            elif body.east_type != out_t:
+                raise KernelTraceError(
+                    f".match() case {name!r} returns {body.east_type.type}, "
+                    f"other cases return {out_t.type}"
+                )
+            case_nodes.append({"case": name, "variable": var, "body": body.ir})
+        node = _node("Match", type=_type_json(out_t), variant=self.ir, cases=case_nodes)
+        return KernelExpr(node, out_t)
+
+    def unwrap(self, tag: str) -> KernelExpr:
+        """The payload of `tag`; an East runtime error for any other case."""
+        if not isinstance(tag, str):
+            raise KernelTraceError(".unwrap() takes a literal case name")
+        declared = self._variant_cases()
+        target = next((c for c in declared if c["name"] == tag), None)
+        if target is None:
+            names = ", ".join(c["name"] for c in declared)
+            raise KernelTraceError(f"variant has no case {tag!r} (cases: {names})")
+        out_t = target["type"]
+        case_nodes = []
+        for i, c in enumerate(declared):
+            var = _var(f"__t{i}", c["type"])
+            if c["name"] == tag:
+                body = var
+            else:
+                msg = _literal(f"unwrap: expected variant case '{tag}', got '{c['name']}'", StringType)
+                body = _node("Error", type=_type_json(out_t), message=msg)
+            case_nodes.append({"case": c["name"], "variable": var, "body": body})
+        node = _node("Match", type=_type_json(out_t), variant=self.ir, cases=case_nodes)
+        return KernelExpr(node, out_t)
+
+    # ── scalar reads on collection-typed fields ─────────────────────────
+
+    def size(self) -> KernelExpr:
+        tag = self.east_type.type
+        if tag == "Array":
+            return KernelExpr(
+                _builtin("ArraySize", IntegerType, [self.east_type.value], [self.ir]), IntegerType
+            )
+        if tag == "Set":
+            return KernelExpr(
+                _builtin("SetSize", IntegerType, [self.east_type.value], [self.ir]), IntegerType
+            )
+        if tag == "Dict":
+            kv = self.east_type.value
+            return KernelExpr(
+                _builtin("DictSize", IntegerType, [kv["key"], kv["value"]], [self.ir]), IntegerType
+            )
+        if tag == "String":
+            return self.length()
+        raise KernelTraceError(f".size() on {tag}")
+
+    def has(self, item: Any) -> KernelExpr:
+        tag = self.east_type.type
+        if tag == "Array":
+            i = _lift(item)
+            if i.east_type.type != "Integer":
+                raise KernelTraceError("Array.has() takes an Integer index")
+            return KernelExpr(
+                _builtin("ArrayHas", BooleanType, [self.east_type.value], [self.ir, i.ir]),
+                BooleanType,
+            )
+        if tag == "Set":
+            k = _lift(item, hint=self.east_type.value)
+            return KernelExpr(
+                _builtin("SetHas", BooleanType, [self.east_type.value], [self.ir, k.ir]),
+                BooleanType,
+            )
+        if tag == "Dict":
+            kv = self.east_type.value
+            k = _lift(item, hint=kv["key"])
+            return KernelExpr(
+                _builtin("DictHas", BooleanType, [kv["key"], kv["value"]], [self.ir, k.ir]),
+                BooleanType,
+            )
+        raise KernelTraceError(f".has() on {tag}")
+
+    def get(self, key: Any) -> KernelExpr:
+        tag = self.east_type.type
+        if tag == "Array":
+            i = _lift(key)
+            if i.east_type.type != "Integer":
+                raise KernelTraceError("Array.get() takes an Integer index")
+            elem_t = self.east_type.value
+            return KernelExpr(
+                _builtin("ArrayGet", elem_t, [elem_t], [self.ir, i.ir]), elem_t
+            )
+        if tag == "Dict":
+            kv = self.east_type.value
+            k = _lift(key, hint=kv["key"])
+            return KernelExpr(
+                _builtin("DictGet", kv["value"], [kv["key"], kv["value"]], [self.ir, k.ir]),
+                kv["value"],
+            )
+        raise KernelTraceError(f".get() on {tag}")
+
+    def get_or_default(self, key: Any, default: Any) -> KernelExpr:
+        tag = self.east_type.type
+        if tag == "Array":
+            elem_t = self.east_type.value
+            i = _lift(key)
+            d = _lift(default, hint=elem_t)
+            fn = _const_fn_node([IntegerType], d, elem_t)
+            return KernelExpr(
+                _builtin("ArrayGetOrDefault", elem_t, [elem_t], [self.ir, i.ir, fn]), elem_t
+            )
+        if tag == "Dict":
+            kv = self.east_type.value
+            k = _lift(key, hint=kv["key"])
+            d = _lift(default, hint=kv["value"])
+            fn = _const_fn_node([kv["key"]], d, kv["value"])
+            return KernelExpr(
+                _builtin(
+                    "DictGetOrDefault", kv["value"], [kv["key"], kv["value"]], [self.ir, k.ir, fn]
+                ),
+                kv["value"],
+            )
+        raise KernelTraceError(f".get_or_default() on {tag}")
+
     # ── operations that cannot be traced (fail loud, fall back) ─────────
 
     def __bool__(self) -> bool:
@@ -446,6 +1038,17 @@ class KernelExpr:
 
     def __contains__(self, item: Any) -> bool:
         raise _trace_bail("in")
+
+
+def _const_fn_node(param_types: list, body: KernelExpr, out_t: EastType) -> dict:
+    """A Function IR node ignoring its parameters and returning `body`."""
+    from east.types.types import FunctionType as _FnType
+
+    params = [_var(f"__d{i}", t) for i, t in enumerate(param_types)]
+    fn_t = _FnType(list(param_types), out_t)
+    return _node(
+        "Function", type=_type_json(fn_t), captures=[], parameters=params, body=body.ir
+    )
 
 
 def where(cond: Any, then: Any, otherwise: Any) -> Any:
@@ -481,6 +1084,32 @@ def where(cond: Any, then: Any, otherwise: Any) -> Any:
         else_body=else_e.ir,
     )
     return KernelExpr(node, then_e.east_type)
+
+
+def greatest(a: Any, b: Any) -> Any:
+    """max(a, b) by East total order: traced IfElse on expressions, eager on
+    plain values (dual-mode like ``where`` — the same lambda works on both
+    the traced and python paths)."""
+    if isinstance(a, KernelExpr) or isinstance(b, KernelExpr):
+        ae = _lift(a, hint=b.east_type if isinstance(b, KernelExpr) else None)
+        be = _lift(b, hint=ae.east_type)
+        return where(ae >= be, ae, be)
+    from east.types.values import type_of
+    from east.utils.ordering import greater_equal_for
+
+    return a if greater_equal_for(type_of(a))(a, b) else b
+
+
+def least(a: Any, b: Any) -> Any:
+    """min(a, b) by East total order (dual-mode — see ``greatest``)."""
+    if isinstance(a, KernelExpr) or isinstance(b, KernelExpr):
+        ae = _lift(a, hint=b.east_type if isinstance(b, KernelExpr) else None)
+        be = _lift(b, hint=ae.east_type)
+        return where(ae <= be, ae, be)
+    from east.types.values import type_of
+    from east.utils.ordering import less_equal_for
+
+    return a if less_equal_for(type_of(a))(a, b) else b
 
 
 # ─── Tracing + compilation ──────────────────────────────────────────────────
@@ -571,6 +1200,8 @@ def _allowed_global(value: Any, depth: int) -> bool:
     if isinstance(value, EastType):  # East variants/types are immutable constants
         return True
     if value is where or value is bool or value is isinstance or value is abs:
+        return True
+    if value is greatest or value is least:
         return True
     if value is KernelExpr:
         return True
@@ -707,6 +1338,125 @@ def _empty_array_kernel(key_t: EastType, element_t: EastType) -> Any:
     bucket_t = ArrayType(element_t)
     body = KernelExpr(_node("NewArray", type=_type_json(bucket_t), values=[]), bucket_t)
     k = compile_from_json(_function_ir([key_t], [_var("__k0", key_t)], body))
+    _helper_memo[key] = k
+    return k
+
+
+def _none_init_kernel(key_t: EastType, inner_t: EastType) -> Any:
+    """Compiled (k: key_t) -> none : Option<inner_t> (group max/min init)."""
+    from east.runtime.compiler import compile_from_json
+
+    key = "noneinit:" + json.dumps([_type_json(key_t), _type_json(inner_t)])
+    cached = _helper_memo.get(key)
+    if cached is not None:
+        return cached
+    opt_t = _option_type(inner_t)
+    body = KernelExpr(
+        _node("Variant", type=_type_json(opt_t), case="none", value=_literal(None, NullType)),
+        opt_t,
+    )
+    k = compile_from_json(_function_ir([key_t], [_var("__k0", key_t)], body))
+    _helper_memo[key] = k
+    return k
+
+
+def _pair_field(pair_t: EastType, var: dict, name: str) -> tuple:
+    f_t = next(f["type"] for f in pair_t.value if f["name"] == name)
+    return _node("GetField", type=_type_json(f_t), field=name, struct=var), f_t
+
+
+def _append_field_kernel(pair_t: EastType, value_field: str) -> Any:
+    """Compiled (acc: [V], p: pair_t, i) -> acc with p.<value_field> pushed."""
+    from east.runtime.compiler import compile_from_json
+
+    key = "appendfield:" + json.dumps([_type_json(pair_t), value_field])
+    cached = _helper_memo.get(key)
+    if cached is not None:
+        return cached
+    el = _var("__k1", pair_t)
+    field_ir, v_t = _pair_field(pair_t, el, value_field)
+    bucket_t = ArrayType(v_t)
+    acc = _var("__k0", bucket_t)
+    push = _builtin("ArrayPushLast", NullType, [v_t], [acc, field_ir])
+    block = _node("Block", type=_type_json(bucket_t), statements=[push, acc])
+    k = compile_from_json(_function_ir([bucket_t, pair_t], [acc, el], KernelExpr(block, bucket_t)))
+    _helper_memo[key] = k
+    return k
+
+
+def _empty_set_kernel(key_t: EastType, element_t: EastType) -> Any:
+    """Compiled (k: key_t) -> {} : Set<element_t> (group init)."""
+    from east.runtime.compiler import compile_from_json
+    from east.types.types import SetType as _SetType
+
+    key = "setinit:" + json.dumps([_type_json(key_t), _type_json(element_t)])
+    cached = _helper_memo.get(key)
+    if cached is not None:
+        return cached
+    set_t = _SetType(element_t)
+    body = KernelExpr(_node("NewSet", type=_type_json(set_t), values=[]), set_t)
+    k = compile_from_json(_function_ir([key_t], [_var("__k0", key_t)], body))
+    _helper_memo[key] = k
+    return k
+
+
+def _set_insert_field_kernel(pair_t: EastType, value_field: str) -> Any:
+    """Compiled (acc: Set<V>, p: pair_t, i) -> acc with p.<value_field> inserted."""
+    from east.runtime.compiler import compile_from_json
+    from east.types.types import SetType as _SetType
+
+    key = "setinsfield:" + json.dumps([_type_json(pair_t), value_field])
+    cached = _helper_memo.get(key)
+    if cached is not None:
+        return cached
+    el = _var("__k1", pair_t)
+    field_ir, v_t = _pair_field(pair_t, el, value_field)
+    set_t = _SetType(v_t)
+    acc = _var("__k0", set_t)
+    ins = _builtin("SetInsert", NullType, [v_t], [acc, field_ir])
+    block = _node("Block", type=_type_json(set_t), statements=[ins, acc])
+    k = compile_from_json(_function_ir([set_t, pair_t], [acc, el], KernelExpr(block, set_t)))
+    _helper_memo[key] = k
+    return k
+
+
+def _empty_dict_kernel(key_t: EastType, k2_t: EastType, v_t: EastType) -> Any:
+    """Compiled (k: key_t) -> {} : Dict<k2_t, v_t> (group init)."""
+    from east.runtime.compiler import compile_from_json
+    from east.types.types import DictType as _DictType
+
+    key = "dictinit:" + json.dumps([_type_json(key_t), _type_json(k2_t), _type_json(v_t)])
+    cached = _helper_memo.get(key)
+    if cached is not None:
+        return cached
+    dict_t = _DictType(k2_t, v_t)
+    body = KernelExpr(_node("NewDict", type=_type_json(dict_t), values=[]), dict_t)
+    k = compile_from_json(_function_ir([key_t], [_var("__k0", key_t)], body))
+    _helper_memo[key] = k
+    return k
+
+
+def _dict_insert_fields_kernel(pair_t: EastType, key_field: str, value_field: str) -> Any:
+    """Compiled (acc: Dict<K2,V>, p, i) -> acc with (p.<key>, p.<value>) inserted.
+
+    Uses DictInsert, so a duplicate inner key errors — mirroring the TS
+    groupToDicts default (resolve collisions with a combine instead).
+    """
+    from east.runtime.compiler import compile_from_json
+    from east.types.types import DictType as _DictType
+
+    key = "dictinsfields:" + json.dumps([_type_json(pair_t), key_field, value_field])
+    cached = _helper_memo.get(key)
+    if cached is not None:
+        return cached
+    el = _var("__k1", pair_t)
+    k_ir, k2_t = _pair_field(pair_t, el, key_field)
+    v_ir, v_t = _pair_field(pair_t, el, value_field)
+    dict_t = _DictType(k2_t, v_t)
+    acc = _var("__k0", dict_t)
+    ins = _builtin("DictInsert", NullType, [k2_t, v_t], [acc, k_ir, v_ir])
+    block = _node("Block", type=_type_json(dict_t), statements=[ins, acc])
+    k = compile_from_json(_function_ir([dict_t, pair_t], [acc, el], KernelExpr(block, dict_t)))
     _helper_memo[key] = k
     return k
 

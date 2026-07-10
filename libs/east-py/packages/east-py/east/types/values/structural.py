@@ -216,6 +216,28 @@ class EastVariant(Generic[V]):
         """Iterate over keys."""
         return iter(("type", "value"))
 
+    def get_tag(self) -> str:
+        """The case name (same as ``.type`` — mirrors the TS ``getTag``)."""
+        return self.type
+
+    def has_tag(self, tag: str) -> bool:
+        """Whether the variant's case is ``tag`` (mirrors the TS ``hasTag``)."""
+        return self.type == tag
+
+    def unwrap(self, tag: str) -> Any:
+        """The payload of case ``tag``; raises if the case differs.
+
+        Mirrors the TS ``unwrap``: use when a different case is a logic
+        error. For a fallback value use ``match`` (or ``unwrap_or`` in
+        traced kernels).
+
+        Raises:
+            ValueError: If the variant holds a different case.
+        """
+        if self.type != tag:
+            raise ValueError(f"unwrap: expected variant case '{tag}', got '{self.type}'")
+        return self.value
+
     def keys(self) -> tuple[str, str]:
         """Return keys."""
         return ("type", "value")

@@ -275,17 +275,46 @@ Task → What do you need?
     │   └─ Infer a value's type → type_of(value)
     │
     ├─ Transform a value (eager — runs NOW in east-c; results stay C-side and chain;
-    │   pure lambdas trace into NATIVE kernels — see “Kernels” — and east.kernel()/where() author them explicitly)
-    │   ├─ Array<T>      → access · sort/sorted/reverse · slice/concat · map/filter/filter_map/for_each ·
-    │   │                  fold/map_reduce · group_by/to_dict/to_set/unique · find_*/first_map/is_sorted ·
-    │   │                  flatten_to_* · string_join/copy · (mutate) append/extend(bulk)/insert/pop/remove/clear ·
-    │   │                  (columnar) to_columns/from_columns/map_batches
-    │   ├─ Set<T>        → union/intersect/diff/sym_diff/is_subset/is_disjoint · map(→Dict)/filter/reduce ·
-    │   │                  to_array/to_dict/group_fold · (mutate) add/remove/discard/clear
-    │   ├─ Dict<K,V>     → d[k]/get/has · merge · map(value)/filter(key,value)/reduce(acc,key,value) ·
-    │   │                  keys_set/to_array/to_set/group_fold · (mutate) d[k]=v/update/insert_or_update/pop ·
-    │   │                  (bulk) update_many(keys, values, combine)
-    │   ├─ Vector/Matrix → get/set(→new)/slice/concat/map/fold · transpose/get_row/get_col · to_array/to_matrix
+    │   pure lambdas trace into NATIVE kernels — see “Kernels” — and east.kernel()/where()/greatest()/least() author them explicitly)
+    │   ├─ Array<T>
+    │   │   ├─ Access → get(i) · get_or_default(i, d) · try_get(i) · has(i) · get_keys(idxs) · arr[i] · len() · iterate
+    │   │   ├─ Reorder → sort(key=, reverse=) (in place) · sorted(key=, reverse=) · reverse() · reversed()
+    │   │   ├─ Slice & combine → slice(start, end) · concat(other) · copy()
+    │   │   ├─ Per-element → map(fn, out=) · filter(pred) · filter_map(fn, out=) · for_each(fn)
+    │   │   ├─ Reduce → fold(init, fn) · map_reduce(map_fn, reduce_fn, out=) · sum(fn=) · mean(fn=) ·
+    │   │   │            maximum(by=) ❗empty · minimum(by=) ❗empty · every(pred=) · some(pred=)
+    │   │   ├─ Search → find_first(target, key=) · find_all(value, by=) · find_maximum(by=)/find_minimum(by=) → some(i)/none ·
+    │   │   │            find_sorted_first/last/range(target, key=) · first_map(fn, out=) · is_sorted(key=)
+    │   │   ├─ Group → group_by(key) · group_reduce(key, init, fold) · group_size(key=) · group_sum(key, fn=) ·
+    │   │   │            group_mean(key, fn=) · group_maximum/minimum(key, by=) · group_every/some(key, pred) ·
+    │   │   │            group_to_arrays(key, value=) · group_to_sets(key, value=) · group_to_dicts(key, key2, value=, combine=)
+    │   │   ├─ Convert → to_dict(key, value=, combine=) · to_set(key=) · unique() · string_join(sep) · flatten_to_array/set/dict
+    │   │   ├─ Columnar → to_columns(fields=) · EastArray.from_columns(T, cols) · map_batches(fn, out=, batch_size=)
+    │   │   ├─ Mutate (in place) → append · extend (bulk, one crossing) · insert · pop · remove · clear · arr[i]=v
+    │   │   └─ Generate → EastArray.range(n) · .linspace(a, b, n) · .generate(n, fn)
+    │   ├─ Set<K>
+    │   │   ├─ Algebra → union · intersect · diff · sym_diff · is_subset · is_disjoint · union_in_place
+    │   │   ├─ Per-element → map(fn)→Dict · filter(pred) · filter_map(fn)→Dict · first_map(fn) · for_each(fn)
+    │   │   ├─ Reduce → reduce(init, fn) · map_reduce(fn, reduce) ❗empty · sum(fn=) · mean(fn=) · every(pred=) · some(pred=)
+    │   │   ├─ Group → group_fold(key, init, fold) · group_size(key) · group_sum(key, fn=) · group_mean(key, fn=) ·
+    │   │   │            group_every/some(key, pred) · group_to_arrays/sets(key, value=) · group_to_dicts(key, key2, value=, combine=)
+    │   │   ├─ Convert → to_array(key=) · to_set(fn) · to_dict(key, value, combine=)
+    │   │   └─ Mutate (in place) → add · insert · remove · delete · discard · clear · copy()
+    │   ├─ Dict<K,V>  (callbacks: map=fn(v) · filter/first_map/to_*/flatten_*/group_fold=fn(k,v) · reduce=fn(acc,k,v))
+    │   │   ├─ Access → d[k] · get(k, default=) · get_or_default · try_get · has · keys()/values()/items() · len()
+    │   │   ├─ Combine → merge(other, combine(existing, incoming)=) · get_keys(keys, fill)
+    │   │   ├─ Per-entry → map(fn, out=) · filter(pred) · filter_map(fn, out=) · first_map(fn, out=) · for_each(fn)
+    │   │   ├─ Reduce → reduce(init, fn) · map_reduce(map_fn, reduce_fn, out=) ❗empty · sum? (use reduce) · mean(fn=)
+    │   │   ├─ Group → group_fold(key_fn, init_fn, fold_fn) · group_size(key_fn) · group_sum(key_fn, fn=) ·
+    │   │   │            group_mean(key_fn, fn=) · group_every/some(key_fn, pred) ·
+    │   │   │            group_to_arrays/sets(key_fn, value_fn) · group_to_dicts(key_fn, key2_fn, value_fn, combine=)
+    │   │   ├─ Convert → keys_set() · to_array(fn, out=) · to_set(fn, out=) · to_dict(key_fn, value_fn, combine)
+    │   │   └─ Mutate (in place) → d[k]=v · insert · get_or_insert(k, fn) · insert_or_update(k, v, combine) · update(k, fn) ·
+    │   │                          swap · delete/try_delete · pop · clear · (bulk) update_many(keys, values, combine=)
+    │   ├─ Vector/Matrix → get/set(→new)/slice/concat/map/fold · transpose/get_row/get_col · to_array/to_matrix/to_rows ·
+    │   │                   to_numpy(copy=False)/to_torch() · from_numpy/from_torch/zeros/ones/fill
+    │   ├─ Struct        → s["field"] or s.field (methods shadow same-named fields) · items()/keys()/values()
+    │   ├─ Variant       → .type/.get_tag() · .has_tag(tag) · .unwrap(tag) ❗ · match(v, {case: handler}, default=)
     │   └─ Blob          → size/get_uint8 · decode_utf8/utf16 · encode_beast2/decode_beast2 ·
     │                      decode_csv(row_type, csv_parse_config(null_strings=…, defaults=…, …))
     │
@@ -300,7 +329,23 @@ Task → What do you need?
     │   ├─ Pure lambda in ANY eager callback → traced automatically (nothing to import; falls back if impure)
     │   ├─ Author a reusable/must-be-native kernel → east.kernel(param_types, fn)   ❗KernelTraceError if untraceable
     │   │   (multi-param: kernel([acc_t, elem_t], lambda acc, r: …) for fold-shaped callbacks)
-    │   ├─ Conditional inside a kernel → where(cond, then, otherwise) · boolean logic via & | ~ (never and/or/if)
+    │   ├─ What traces (the expression surface inside kernels)
+    │   │   ├─ Struct fields → r.price / r["price"] · build rows with dict literals {"k": expr, …}
+    │   │   ├─ Arithmetic → + - * / // % ** · unary - · .abs() · .to_float()/.to_integer() · .sign() ·
+    │   │   │                .sqrt()/.exp()/.log()/.sin()/.cos()/.tan() (Float) · .log()/.sign() (Integer)
+    │   │   ├─ Compare → == != < <= > >= (East total order, any comparable type) · greatest(a, b) · least(a, b)
+    │   │   ├─ Boolean → & | ^ ~ (never and/or/not/if) · where(cond, then, otherwise)
+    │   │   ├─ String → + (concat) · .contains/.starts_with/.ends_with · .upper()/.lower() · .strip()/.lstrip()/.rstrip() ·
+    │   │   │            .length() · .split(sep) · .replace(old, new) · .substring(a, b) · .index_of(s) · .repeat(n) ·
+    │   │   │            .regex_contains/.regex_index_of(pat, flags=) · .regex_replace(pat, repl, flags=) · .encode_utf8/16
+    │   │   ├─ DateTime → .get_year/month/day_of_month/day_of_week/hour/minute/second/millisecond() ·
+    │   │   │              .to_epoch_milliseconds() · .add_/subtract_{milliseconds,seconds,minutes,hours,days,weeks}(n) ·
+    │   │   │              .duration_{milliseconds,seconds,minutes,hours,days,weeks}(other) · .print_format("YYYY-MM-DD")
+    │   │   ├─ Option → .is_some()/.is_none() · .unwrap_or(default) · construct with some(expr) / none (in where branches)
+    │   │   ├─ Variant → .get_tag() · .has_tag(tag) · .match({case: handler}) · .unwrap(tag) ❗ ·
+    │   │   │             construct with variant(case, payload) under a typed context
+    │   │   └─ Collections (scalar reads on fields) → .size() · .has(i|k) · .get(i|k) ❗ · .get_or_default(i|k, d)
+    │   ├─ Conditionals → where(cond, then, otherwise) — dual-mode (East IfElse traced, eager on plain values)
     │   ├─ Load a kernel compiled elsewhere (e.g. TS, serialized) → compile_from_beast2/json/east — pass to any eager method
     │   └─ Logic genuinely needs python (numpy/models) → to_columns/from_columns · map_batches ·
     │       EastDict.update_many(keys, values, combine) · extend — O(columns)/O(batches) crossings, not O(rows × fields)
@@ -405,9 +450,9 @@ input, or a widening map). `.element_type` is the logical element type.
 | Reorder | `sort(*, key=None, reverse=False) -> None` (in place) · `sorted(key=None, *, reverse=False)` · `reverse() -> None` · `reversed()` |
 | Slice & combine | `slice(start, end)` · `concat(other)` · `copy()` |
 | Per-element | `map(fn(el), out=None)` · `filter(pred(el))` · `filter_map(fn(el)->some/none, out=None)` · `for_each(fn(el)) -> None` |
-| Reduce | `fold(initial, fn(acc, el))` · `map_reduce(map_fn(el), reduce_fn(acc, m), out=None)` |
-| Group & index | `group_by(key(el)) -> Dict` · `to_dict(key(el), value=None, combine=None) -> Dict` · `to_set(key=None) -> Set` · `unique() -> Set` |
-| Search | `find_first(target, key=None) -> some/none` · `find_sorted_first/last(target, key=None) -> int` · `find_sorted_range(target, key=None) -> {start,end}` · `first_map(fn(el)->some/none, out=None)` · `is_sorted(key=None) -> bool` |
+| Reduce | `fold(initial, fn(acc, el))` · `map_reduce(map_fn(el), reduce_fn(acc, m), out=None)` · `sum(fn=None)` · `mean(fn=None) -> float` (NaN when empty) · `maximum(by=None)` ❗empty · `minimum(by=None)` ❗empty · `every(pred=None) -> bool` · `some(pred=None) -> bool` (native short-circuit) |
+| Group & index | `group_by(key(el)) -> Dict` · `group_reduce(key, init(gk), fold(acc, el)) -> Dict` · `group_size(key=None)` · `group_sum(key, fn=None)` · `group_mean(key, fn=None)` · `group_maximum/group_minimum(key, by=None)` · `group_every/group_some(key, pred)` · `group_to_arrays(key, value=None)` · `group_to_sets(key, value=None)` · `group_to_dicts(key, key2, value=None, combine=None)` · `to_dict(key(el), value=None, combine=None) -> Dict` · `to_set(key=None) -> Set` · `unique() -> Set` |
+| Search | `find_first(target, key=None) -> some/none` · `find_all(value, by=None) -> Array<Integer>` · `find_maximum/find_minimum(by=None) -> some(index)/none` · `find_sorted_first/last(target, key=None) -> int` · `find_sorted_range(target, key=None) -> {start,end}` · `first_map(fn(el)->some/none, out=None)` · `is_sorted(key=None) -> bool` |
 | Flatten | `flatten_to_array(fn(el)->arr, out=None)` · `flatten_to_set(fn(el)->arr, out=None)` · `flatten_to_dict(fn(el)->dict, combine=None)` |
 | Columnar | `to_columns(fields=None) -> dict` (numpy per numeric/bool column, `Option<Float>`→NaN, interned strings) · `EastArray.from_columns(element_type, columns)` *(static)* · `map_batches(fn(cols)->cols, out=None, batch_size=100_000)` |
 | Convert | `string_join(sep) -> str` (String arrays) |
@@ -424,8 +469,8 @@ Mutable, unique, **East-sorted**. `.element_type` is the element type; iteration
 | Access | `len(s)` · `value in s` · `has(value)` · `for el in s` |
 | Algebra (vs another set) | `union(other)` · `intersect(other)` · `diff(other)` · `sym_diff(other)` · `is_subset(other) -> bool` · `is_disjoint(other) -> bool` |
 | Per-element | `map(fn(el)) -> Dict` · `filter(pred(el))` · `filter_map(fn(el)->some/none, out=None) -> Dict` · `first_map(fn(el)->some/none, out=None)` · `to_set(fn(el), out=None)` · `to_array(key=None)` · `to_dict(key(el), value(el), combine=None)` · `for_each(fn(el)) -> None` |
-| Reduce | `reduce(initial, fn(acc, el))` · `map_reduce(fn(el), reduce(a,b))` (raises on empty) |
-| Group | `group_fold(key(el), initial(gk), fold(acc, el)) -> Dict` |
+| Reduce | `reduce(initial, fn(acc, el))` · `map_reduce(fn(el), reduce(a,b))` (raises on empty) · `sum(fn=None)` · `mean(fn=None) -> float` · `every(pred=None)` · `some(pred=None)` (native short-circuit) |
+| Group | `group_fold(key(el), initial(gk), fold(acc, el)) -> Dict` · `group_size(key)` · `group_sum(key, fn=None)` · `group_mean(key, fn=None)` · `group_every/group_some(key, pred)` · `group_to_arrays/group_to_sets(key, value=None)` · `group_to_dicts(key, key2, value=None, combine=None)` |
 | Flatten | `flatten_to_array(fn(el)->arr, out=…)` · `flatten_to_set(fn(el)->set, out=…)` · `flatten_to_dict(fn(el)->dict, combine)` — **pin `out`; the no-`out` inference path is broken** |
 | Mutate (in place) | `add(item)` · `insert(value)` (alias) · `remove(item)` · `delete(value)` · `discard(item)` · `union_in_place(other)` (adds all of `other`) · `clear()` · `copy()` |
 
@@ -441,8 +486,8 @@ take `fn(key, value)`; `reduce` takes `fn(acc, key, value)`; collision `combine`
 | Access | `d[k]` · `k in d` · `has(k)` · `len(d)`/`size()` · `get(k, default=None)` · `get_or_default(k, default)` · `try_get(k) -> some/none` · `keys()`/`values()`/`items()` |
 | Combine | `merge(other, combine(existing, incoming)=None)` · `get_keys(keys: Set, fill(k)) -> Dict` |
 | Per-entry | `map(fn(value), out=None)` · `filter(pred(key, value))` · `filter_map(fn(key, value)->some/none, out=None)` · `first_map(fn(key, value)->some/none, out=None)` · `for_each(fn(key, value)) -> None` |
-| Reduce | `reduce(initial, fn(acc, key, value))` · `map_reduce(map_fn(key, value), reduce_fn(a, b), out=None)` (raises on empty) |
-| Group | `group_fold(key_fn(key, value), init_fn(gk), fold_fn(acc, key, value), key_out=None, acc_out=None) -> Dict` |
+| Reduce | `reduce(initial, fn(acc, key, value))` · `map_reduce(map_fn(key, value), reduce_fn(a, b), out=None)` (raises on empty) · `mean(fn(key, value)=None) -> float` |
+| Group | `group_fold(key_fn(key, value), init_fn(gk), fold_fn(acc, key, value), key_out=None, acc_out=None) -> Dict` · `group_size(key_fn)` · `group_sum(key_fn, fn=None)` · `group_mean(key_fn, fn=None)` · `group_every/group_some(key_fn, pred(key, value))` · `group_to_arrays/group_to_sets(key_fn, value_fn)` · `group_to_dicts(key_fn, key2_fn, value_fn, combine=None)` |
 | Flatten | `flatten_to_array(fn(key, value)->arr)` · `flatten_to_set(fn(key, value)->set)` · `flatten_to_dict(fn(key, value)->dict, combine(existing, incoming, key))` |
 | Convert | `keys_set() -> Set` · `to_array(fn(key, value), out=None)` · `to_set(fn(key, value), out=None)` · `to_dict(key_fn, value_fn, combine(existing, incoming, new_key), key_out=None, value_out=None)` · `copy()` |
 | Mutate (in place) | `d[k]=v` · `del d[k]` · `insert(k, v)` · `get_or_insert(k, fn(k))` · `insert_or_update(k, v, combine(existing, incoming, k))` · `update(k, fn(current))` · `swap(k, v) -> prev` · `delete(k)` · `try_delete(k) -> bool` · `pop(k, *default)` · `clear()` |
@@ -503,7 +548,9 @@ key. Construct via the `EastMatrix.*` classmethods (see [Container generators](#
   attribute, `s.price` (methods shadow same-named fields — item access always
   works). Build/transform with `struct({...}, StructType)`.
 - **`EastVariant`** — frozen tagged value; `.type` is the case name, `.value` the payload.
-  Build with `variant(case, value, T)` / `some` / `none`; dispatch with `match`.
+  Build with `variant(case, value, T)` / `some` / `none`; dispatch with `match`. Also
+  `get_tag()`, `has_tag(tag)`, and `unwrap(tag)` ❗ValueError on a different case
+  (mirroring the TS variant expr surface).
 - **`EastRef`** — mutable cell: `get()` · `set(value)` · `update(fn(current))` ·
   `merge(patch, combine(current, patch))` (delegates to east-c `RefMerge`). Use `set`/`update`
   for a bare local `EastRef`; `merge` is for refs East passes a platform function.
@@ -567,6 +614,8 @@ Every one delegates to east-c.
 | `get_year/get_month/get_day_of_month/get_day_of_week(dt) -> int` | `get_day_of_week`: Monday == 1 |
 | `get_hour/get_minute/get_second/get_millisecond(dt) -> int` | components |
 | `add_milliseconds(dt, millis)` · `duration_milliseconds(a, b) -> int` | `duration` returns **a − b** |
+| `add_/subtract_{seconds,minutes,hours,days,weeks}(dt, n)` | unit sugar over `add_milliseconds` (int or float `n`) |
+| `duration_{seconds,minutes,hours,days,weeks}(a, b) -> float` | unit sugar over `duration_milliseconds` |
 | `print_format(dt, fmt) -> str` · `parse_format(s, fmt) -> datetime` | Day.js-style tokens |
 
 **`East.Boolean`**

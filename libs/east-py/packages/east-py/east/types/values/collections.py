@@ -36,6 +36,16 @@ def _proxy_cls(name: str) -> Any:
     return cls
 
 
+def _opt_unwrap_or(opt: Any, default: Any) -> Any:
+    """Dual-mode Option unwrap: traced .unwrap_or on expressions, eager on
+    runtime variants (shared by the group max/min folds)."""
+    from east.kernel import KernelExpr
+
+    if isinstance(opt, KernelExpr):
+        return opt.unwrap_or(default)
+    return opt.value if opt.type == "some" else default
+
+
 class EastArray(MutableSequence, Generic[T]):
     """East array with element type tracking.
 
@@ -640,6 +650,400 @@ class EastArray(MutableSequence, Generic[T]):
             [self.element_type, k2, bucket_type],
             [self, key_cb, init_cb, fold_cb],
             DictType(k2, bucket_type),
+        )
+
+    # ----- Reduction & group sugar (TS-expr parity; composes east-c builtins
+    # with traced/hand-built native kernels — no python loops) ---------------
+
+    def _numeric_zero(self, t: EastType) -> Any:
+        if t.type == "Integer":
+            return 0
+        if t.type == "Float":
+            return 0.0
+        raise TypeError(f"expected a numeric (Integer/Float) type, got {t.type}")
+
+    def sum(self, fn: Any = None) -> Any:
+        """Sum of elements, or of ``fn(element)`` (native ArrayFold).
+
+        Args:
+            fn: Optional numeric projection; without it the elements must be
+                Integer or Float.
+
+        Returns:
+            The total; the type's zero for an empty array.
+        """
+        from east.types.types import IntegerType
+
+        if fn is None:
+            t = self.element_type
+            zero = self._numeric_zero(t)
+            step = EastFunction(lambda acc, el, _i: acc + el, [t, t, IntegerType], t)
+            return _call_builtin("ArrayFold", [t, t], [self, zero, step], t)
+        t2 = _ev.type_of(fn(self[0])) if len(self) else self.element_type
+        zero = self._numeric_zero(t2)
+        step = EastFunction(
+            lambda acc, el, _i: acc + fn(el), [t2, self.element_type, IntegerType], t2
+        )
+        return _call_builtin("ArrayFold", [self.element_type, t2], [self, zero, step], t2)
+
+    def mean(self, fn: Any = None) -> float:
+        """Arithmetic mean as a Float (NaN for an empty array, like TS).
+
+        Args:
+            fn: Optional numeric projection applied before averaging.
+        """
+        from east.kernel import KernelExpr
+        from east.types.types import FloatType, IntegerType
+
+        def _to_float(x: Any) -> Any:
+            if isinstance(x, KernelExpr):
+                return x.to_float() if x.east_type.type == "Integer" else x
+            return float(x)
+
+        proj = (lambda el: _to_float(fn(el))) if fn is not None else _to_float
+        step = EastFunction(
+            lambda acc, el, _i: acc + proj(el), [FloatType, self.element_type, IntegerType], FloatType
+        )
+        total = _call_builtin("ArrayFold", [self.element_type, FloatType], [self, 0.0, step], FloatType)
+        n = len(self)
+        return total / float(n) if n else float("nan")
+
+    def maximum(self, by: Any = None) -> Any:
+        """Largest element (or ``by``-projection) by East total order (native
+        ArrayMapReduce). Raises on an empty array, like the TS ``maximum``.
+        """
+        from east.kernel import greatest
+        from east.types.types import IntegerType
+
+        t2 = (_ev.type_of(by(self[0])) if by is not None else self.element_type) if len(self) else self.element_type
+        map_cb = EastFunction(
+            (lambda el, _i: by(el)) if by is not None else (lambda el, _i: el),
+            [self.element_type, IntegerType],
+            t2,
+        )
+        reduce_cb = EastFunction(lambda a, b: greatest(a, b), [t2, t2], t2)
+        return _call_builtin("ArrayMapReduce", [self.element_type, t2], [self, map_cb, reduce_cb], t2)
+
+    def minimum(self, by: Any = None) -> Any:
+        """Smallest element (or projection) by East total order; raises on empty."""
+        from east.kernel import least
+        from east.types.types import IntegerType
+
+        t2 = (_ev.type_of(by(self[0])) if by is not None else self.element_type) if len(self) else self.element_type
+        map_cb = EastFunction(
+            (lambda el, _i: by(el)) if by is not None else (lambda el, _i: el),
+            [self.element_type, IntegerType],
+            t2,
+        )
+        reduce_cb = EastFunction(lambda a, b: least(a, b), [t2, t2], t2)
+        return _call_builtin("ArrayMapReduce", [self.element_type, t2], [self, map_cb, reduce_cb], t2)
+
+    def find_maximum(self, by: Any = None) -> Any:
+        """Index of the first maximum as ``some(index)``, ``none`` when empty."""
+        from east.types.construct import none as _none
+        from east.types.construct import some as _some
+
+        if len(self) == 0:
+            return _none
+        target = self.maximum(by)
+        return _some(self.find_first(target, key=by).unwrap("some")) if by is not None else _some(
+            self.find_first(target).unwrap("some")
+        )
+
+    def find_minimum(self, by: Any = None) -> Any:
+        """Index of the first minimum as ``some(index)``, ``none`` when empty."""
+        from east.types.construct import none as _none
+        from east.types.construct import some as _some
+
+        if len(self) == 0:
+            return _none
+        target = self.minimum(by)
+        return _some(self.find_first(target, key=by).unwrap("some")) if by is not None else _some(
+            self.find_first(target).unwrap("some")
+        )
+
+    def _first_map_bool(self, want: bool, pred: Any) -> bool:
+        """Shared native short-circuit scan: some(True) on the deciding element."""
+        from east.kernel import KernelExpr, where
+        from east.types.construct import none as _none
+        from east.types.construct import some as _some
+        from east.types.types import BooleanType, IntegerType, NullType, VariantType
+
+        def _probe(el, _i):  # noqa: ANN001, ANN202
+            r = pred(el)
+            decided = (r if isinstance(r, KernelExpr) else bool(r)) if want else (
+                ~r if isinstance(r, KernelExpr) else not bool(r)
+            )
+            if isinstance(decided, KernelExpr):
+                return where(decided, _some(True), _none)
+            return _some(True) if decided else _none
+
+        out_variant = VariantType([("none", NullType), ("some", BooleanType)])
+        callback = EastFunction(_probe, [self.element_type, IntegerType], out_variant)
+        result = _call_builtin(
+            "ArrayFirstMap", [self.element_type, BooleanType], [self, callback], out_variant
+        )
+        return result.type == "some"
+
+    def every(self, pred: Any = None) -> bool:
+        """True when ``pred`` holds for all elements (native short-circuiting
+        ArrayFirstMap scan, like TS). Without ``pred`` the elements must be
+        Booleans. True for an empty array.
+        """
+        if pred is None:
+            if self.element_type.type != "Boolean":
+                raise TypeError("every() without a predicate needs Boolean elements")
+            pred = lambda el: el  # noqa: E731
+        return not self._first_map_bool(False, pred)
+
+    def some(self, pred: Any = None) -> bool:
+        """True when ``pred`` holds for any element (native short-circuit).
+
+        Without ``pred`` the elements must be Booleans. False when empty.
+        """
+        if pred is None:
+            if self.element_type.type != "Boolean":
+                raise TypeError("some() without a predicate needs Boolean elements")
+            pred = lambda el: el  # noqa: E731
+        return self._first_map_bool(True, pred)
+
+    def find_all(self, value: Any, by: Any = None) -> EastArray:
+        """Indices whose element (or projection) equals ``value`` (native
+        ArrayFilterMap), in order.
+        """
+        from east.kernel import KernelExpr, where
+        from east.types.construct import none as _none
+        from east.types.construct import some as _some
+        from east.types.types import ArrayType, IntegerType, NullType, VariantType
+
+        proj = by if by is not None else (lambda el: el)
+
+        def _probe(el, i):  # noqa: ANN001, ANN202
+            r = proj(el) == value
+            if isinstance(r, KernelExpr):
+                return where(r, _some(i), _none)
+            return _some(i) if r else _none
+
+        out_variant = VariantType([("none", NullType), ("some", IntegerType)])
+        callback = EastFunction(_probe, [self.element_type, IntegerType], out_variant)
+        return _call_builtin(
+            "ArrayFilterMap", [self.element_type, IntegerType], [self, callback], ArrayType(IntegerType)
+        )
+
+    def group_reduce(self, key: Any, init: Any, fold: Any) -> EastDict:
+        """General grouped reduction (native ArrayGroupFold): a dict from
+        ``key(element)`` to ``fold``-accumulated values starting at
+        ``init(group_key)``.
+
+        Args:
+            key: ``key(element) -> group key``.
+            init: ``init(group_key) -> initial accumulator``.
+            fold: ``fold(acc, element) -> new accumulator``.
+        """
+        from east.types.types import DictType, IntegerType
+
+        if len(self) == 0:
+            return EastDict(self.element_type, self.element_type)
+        k2 = _ev.type_of(key(self[0]))
+        a_t = _ev.type_of(init(key(self[0])))
+        key_cb = EastFunction(lambda el, _i: key(el), [self.element_type, IntegerType], k2)
+        init_cb = EastFunction(init, [k2], a_t)
+        fold_cb = EastFunction(
+            lambda acc, el, _i: fold(acc, el), [a_t, self.element_type, IntegerType], a_t
+        )
+        return _call_builtin(
+            "ArrayGroupFold",
+            [self.element_type, k2, a_t],
+            [self, key_cb, init_cb, fold_cb],
+            DictType(k2, a_t),
+        )
+
+    def group_size(self, key: Any = None) -> EastDict:
+        """Count per group key (native; identity key when omitted)."""
+        return self.to_dict(
+            key if key is not None else (lambda el: el),
+            value=lambda _el: 1,
+            combine=lambda a, b: a + b,
+        )
+
+    def group_sum(self, key: Any, fn: Any = None) -> EastDict:
+        """Sum per group (of elements, or of ``fn(element)``)."""
+        if fn is None:
+            t2 = self.element_type
+        else:
+            t2 = _ev.type_of(fn(self[0])) if len(self) else self.element_type
+        zero = self._numeric_zero(t2)
+        proj = fn if fn is not None else (lambda el: el)
+        return self.group_reduce(key, lambda _k: zero, lambda acc, el: acc + proj(el))
+
+    def group_mean(self, key: Any, fn: Any = None) -> EastDict:
+        """Float mean per group (sum and count both computed natively)."""
+        from east.kernel import KernelExpr
+
+        def _to_float(x: Any) -> Any:
+            if isinstance(x, KernelExpr):
+                return x.to_float() if x.east_type.type == "Integer" else x
+            return float(x)
+
+        proj = (lambda el: _to_float(fn(el))) if fn is not None else _to_float
+        sums = self.group_reduce(key, lambda _k: 0.0, lambda acc, el: acc + proj(el))
+        counts = self.group_size(key)
+        return sums.to_dict(
+            lambda k, _v: k, lambda k, v: v / float(counts[k]), lambda _a, b, _k: b
+        )
+
+    def _group_extreme(self, key: Any, by: Any, pick: Any) -> EastDict:
+        from east.kernel import _none_init_kernel
+        from east.types.construct import some as _some
+        from east.types.types import DictType, IntegerType, OptionType
+
+        if len(self) == 0:
+            return EastDict(self.element_type, self.element_type)
+        proj = by if by is not None else (lambda el: el)
+        k2 = _ev.type_of(key(self[0]))
+        p_t = _ev.type_of(proj(self[0]))
+        opt_t = OptionType(p_t)
+        key_cb = EastFunction(lambda el, _i: key(el), [self.element_type, IntegerType], k2)
+        fold_cb = EastFunction(
+            lambda acc, el, _i: _some(pick(_opt_unwrap_or(acc, proj(el)), proj(el))),
+            [opt_t, self.element_type, IntegerType],
+            opt_t,
+        )
+        grouped = _call_builtin(
+            "ArrayGroupFold",
+            [self.element_type, k2, opt_t],
+            [self, key_cb, _none_init_kernel(k2, p_t), fold_cb],
+            DictType(k2, opt_t),
+        )
+        return grouped.map(lambda v: v.unwrap("some"), out=p_t)
+
+    def group_maximum(self, key: Any, by: Any = None) -> EastDict:
+        """Largest element/projection per group (East total order, native)."""
+        from east.kernel import greatest
+
+        return self._group_extreme(key, by, greatest)
+
+    def group_minimum(self, key: Any, by: Any = None) -> EastDict:
+        """Smallest element/projection per group (East total order, native)."""
+        from east.kernel import least
+
+        return self._group_extreme(key, by, least)
+
+    def group_every(self, key: Any, pred: Any) -> EastDict:
+        """Per group: True when ``pred`` holds for all members (native)."""
+        return self.group_reduce(key, lambda _k: True, lambda acc, el: acc & pred(el))
+
+    def group_some(self, key: Any, pred: Any) -> EastDict:
+        """Per group: True when ``pred`` holds for any member (native)."""
+        return self.group_reduce(key, lambda _k: False, lambda acc, el: acc | pred(el))
+
+    def _group_pairs(self, key: Any, value: Any, extra: Any = None) -> tuple:
+        from east.types.types import IntegerType, StructType
+
+        k_s = key(self[0])
+        v_s = value(self[0])
+        if extra is None:
+            pair_t = StructType([("k", _ev.type_of(k_s)), ("v", _ev.type_of(v_s))])
+            pair_cb = EastFunction(
+                lambda el, _i: {"k": key(el), "v": value(el)},
+                [self.element_type, IntegerType],
+                pair_t,
+            )
+        else:
+            pair_t = StructType(
+                [("k", _ev.type_of(k_s)), ("k2", _ev.type_of(extra(self[0]))), ("v", _ev.type_of(v_s))]
+            )
+            pair_cb = EastFunction(
+                lambda el, _i: {"k": key(el), "k2": extra(el), "v": value(el)},
+                [self.element_type, IntegerType],
+                pair_t,
+            )
+        from east.types.types import ArrayType
+
+        pairs = _call_builtin(
+            "ArrayMap", [self.element_type, pair_t], [self, pair_cb], ArrayType(pair_t)
+        )
+        return pairs, pair_t
+
+    def group_to_arrays(self, key: Any, value: Any = None) -> EastDict:
+        """Arrays of ``value(element)`` per group key (native throughout).
+
+        Without ``value`` this is ``group_by``.
+        """
+        from east.kernel import _append_field_kernel, _empty_array_kernel
+        from east.types.types import ArrayType, DictType, IntegerType
+
+        if value is None:
+            return self.group_by(key)
+        if len(self) == 0:
+            return EastDict(self.element_type, ArrayType(self.element_type))
+        pairs, pair_t = self._group_pairs(key, value)
+        k2 = next(f["type"] for f in pair_t.value if f["name"] == "k")
+        v_t = next(f["type"] for f in pair_t.value if f["name"] == "v")
+        key_cb = EastFunction(lambda p, _i: p["k"], [pair_t, IntegerType], k2)
+        return _call_builtin(
+            "ArrayGroupFold",
+            [pair_t, k2, ArrayType(v_t)],
+            [pairs, key_cb, _empty_array_kernel(k2, v_t), _append_field_kernel(pair_t, "v")],
+            DictType(k2, ArrayType(v_t)),
+        )
+
+    def group_to_sets(self, key: Any, value: Any = None) -> EastDict:
+        """Sets of ``value(element)`` per group key (native throughout)."""
+        from east.kernel import _empty_set_kernel, _set_insert_field_kernel
+        from east.types.types import DictType, IntegerType, SetType
+
+        if len(self) == 0:
+            return EastDict(self.element_type, SetType(self.element_type))
+        pairs, pair_t = self._group_pairs(key, value if value is not None else (lambda el: el))
+        k2 = next(f["type"] for f in pair_t.value if f["name"] == "k")
+        v_t = next(f["type"] for f in pair_t.value if f["name"] == "v")
+        key_cb = EastFunction(lambda p, _i: p["k"], [pair_t, IntegerType], k2)
+        return _call_builtin(
+            "ArrayGroupFold",
+            [pair_t, k2, SetType(v_t)],
+            [pairs, key_cb, _empty_set_kernel(k2, v_t), _set_insert_field_kernel(pair_t, "v")],
+            DictType(k2, SetType(v_t)),
+        )
+
+    def group_to_dicts(self, key: Any, key2: Any, value: Any = None, combine: Any = None) -> EastDict:
+        """Dicts of ``key2 -> value`` per group key.
+
+        Without ``combine`` a duplicate inner key errors (TS parity); with it,
+        collisions resolve as ``combine(existing, incoming)`` (the collision
+        handling runs per inner insert on the python path).
+        """
+        from east.kernel import _dict_insert_fields_kernel, _empty_dict_kernel
+        from east.types.types import DictType, IntegerType
+
+        if len(self) == 0:
+            return EastDict(self.element_type, DictType(self.element_type, self.element_type))
+        val = value if value is not None else (lambda el: el)
+        pairs, pair_t = self._group_pairs(key, val, extra=key2)
+        k1 = next(f["type"] for f in pair_t.value if f["name"] == "k")
+        k2t = next(f["type"] for f in pair_t.value if f["name"] == "k2")
+        v_t = next(f["type"] for f in pair_t.value if f["name"] == "v")
+        key_cb = EastFunction(lambda p, _i: p["k"], [pair_t, IntegerType], k1)
+        if combine is None:
+            return _call_builtin(
+                "ArrayGroupFold",
+                [pair_t, k1, DictType(k2t, v_t)],
+                [pairs, key_cb, _empty_dict_kernel(k1, k2t, v_t),
+                 _dict_insert_fields_kernel(pair_t, "k2", "v")],
+                DictType(k1, DictType(k2t, v_t)),
+            )
+
+        def _fold(acc: EastDict, p: Any, _i: Any) -> EastDict:
+            acc.insert_or_update(p["k2"], p["v"], lambda ex, inc, _key: combine(ex, inc))
+            return acc
+
+        init_cb = _empty_dict_kernel(k1, k2t, v_t)
+        fold_cb = EastFunction(_fold, [DictType(k2t, v_t), pair_t, IntegerType], DictType(k2t, v_t))
+        return _call_builtin(
+            "ArrayGroupFold",
+            [pair_t, k1, DictType(k2t, v_t)],
+            [pairs, key_cb, init_cb, fold_cb],
+            DictType(k1, DictType(k2t, v_t)),
         )
 
     def string_join(self, separator: str) -> str:
@@ -1281,6 +1685,124 @@ class EastSet(Generic[T]):
             "SetFlattenToDict", [self.element_type, k2, t2], [self, callback, combine_cb], DictType(k2, t2)
         )
 
+    def sum(self, fn: Any = None) -> Any:
+        """Sum of elements or of ``fn(element)`` (native SetReduce)."""
+        if fn is None:
+            t2 = self.element_type
+        else:
+            t2 = _ev.type_of(fn(next(iter(self)))) if len(self) else self.element_type
+        if t2.type == "Integer":
+            zero: Any = 0
+        elif t2.type == "Float":
+            zero = 0.0
+        else:
+            raise TypeError(f"expected a numeric (Integer/Float) type, got {t2.type}")
+        proj = fn if fn is not None else (lambda el: el)
+        step = EastFunction(lambda acc, el: acc + proj(el), [t2, self.element_type], t2)
+        return _call_builtin("SetReduce", [self.element_type, t2], [self, step, zero], t2)
+
+    def mean(self, fn: Any = None) -> float:
+        """Float mean of elements/projections (NaN when empty, like TS)."""
+        from east.kernel import KernelExpr
+        from east.types.types import FloatType
+
+        def _to_float(x: Any) -> Any:
+            if isinstance(x, KernelExpr):
+                return x.to_float() if x.east_type.type == "Integer" else x
+            return float(x)
+
+        proj = (lambda el: _to_float(fn(el))) if fn is not None else _to_float
+        step = EastFunction(lambda acc, el: acc + proj(el), [FloatType, self.element_type], FloatType)
+        total = _call_builtin("SetReduce", [self.element_type, FloatType], [self, step, 0.0], FloatType)
+        n = len(self)
+        return total / float(n) if n else float("nan")
+
+    def _first_map_bool(self, want: bool, pred: Any) -> bool:
+        from east.kernel import KernelExpr, where
+        from east.types.construct import none as _none
+        from east.types.construct import some as _some
+        from east.types.types import BooleanType, NullType, VariantType
+
+        def _probe(el):  # noqa: ANN001, ANN202
+            r = pred(el)
+            decided = (r if isinstance(r, KernelExpr) else bool(r)) if want else (
+                ~r if isinstance(r, KernelExpr) else not bool(r)
+            )
+            if isinstance(decided, KernelExpr):
+                return where(decided, _some(True), _none)
+            return _some(True) if decided else _none
+
+        out_variant = VariantType([("none", NullType), ("some", BooleanType)])
+        callback = EastFunction(_probe, [self.element_type], out_variant)
+        result = _call_builtin(
+            "SetFirstMap", [self.element_type, BooleanType], [self, callback], out_variant
+        )
+        return result.type == "some"
+
+    def every(self, pred: Any = None) -> bool:
+        """True when ``pred`` holds for all members (native short-circuit);
+        Boolean elements when omitted; True when empty."""
+        if pred is None:
+            if self.element_type.type != "Boolean":
+                raise TypeError("every() without a predicate needs Boolean elements")
+            pred = lambda el: el  # noqa: E731
+        return not self._first_map_bool(False, pred)
+
+    def some(self, pred: Any = None) -> bool:
+        """True when ``pred`` holds for any member (native short-circuit)."""
+        if pred is None:
+            if self.element_type.type != "Boolean":
+                raise TypeError("some() without a predicate needs Boolean elements")
+            pred = lambda el: el  # noqa: E731
+        return self._first_map_bool(True, pred)
+
+    def group_size(self, key: Any) -> EastDict:
+        """Count per group key (native)."""
+        return self.to_dict(key, lambda _el: 1, combine=lambda a, b, _k: a + b)
+
+    def group_sum(self, key: Any, fn: Any = None) -> EastDict:
+        """Sum per group (native SetGroupFold)."""
+        proj = fn if fn is not None else (lambda el: el)
+        t2 = _ev.type_of(proj(next(iter(self)))) if len(self) else self.element_type
+        zero: Any = 0 if t2.type == "Integer" else 0.0
+        return self.group_fold(key, lambda _k: zero, lambda acc, el: acc + proj(el))
+
+    def group_mean(self, key: Any, fn: Any = None) -> EastDict:
+        """Float mean per group."""
+        from east.kernel import KernelExpr
+
+        def _to_float(x: Any) -> Any:
+            if isinstance(x, KernelExpr):
+                return x.to_float() if x.east_type.type == "Integer" else x
+            return float(x)
+
+        proj = (lambda el: _to_float(fn(el))) if fn is not None else _to_float
+        sums = self.group_fold(key, lambda _k: 0.0, lambda acc, el: acc + proj(el))
+        counts = self.group_size(key)
+        return sums.to_dict(
+            lambda k, _v: k, lambda k, v: v / float(counts[k]), lambda _a, b, _k: b
+        )
+
+    def group_every(self, key: Any, pred: Any) -> EastDict:
+        """Per group: True when ``pred`` holds for all members (native)."""
+        return self.group_fold(key, lambda _k: True, lambda acc, el: acc & pred(el))
+
+    def group_some(self, key: Any, pred: Any) -> EastDict:
+        """Per group: True when ``pred`` holds for any member (native)."""
+        return self.group_fold(key, lambda _k: False, lambda acc, el: acc | pred(el))
+
+    def group_to_arrays(self, key: Any, value: Any = None) -> EastDict:
+        """Arrays of members/values per group key (native via to_array)."""
+        return self.to_array().group_to_arrays(key, value if value is not None else (lambda el: el))
+
+    def group_to_sets(self, key: Any, value: Any = None) -> EastDict:
+        """Sets of members/values per group key (native via to_array)."""
+        return self.to_array().group_to_sets(key, value)
+
+    def group_to_dicts(self, key: Any, key2: Any, value: Any = None, combine: Any = None) -> EastDict:
+        """Dicts of ``key2 -> value`` per group key (native via to_array)."""
+        return self.to_array().group_to_dicts(key, key2, value, combine)
+
     def group_fold(self, key: Any, initial: Any, fold: Any) -> EastDict:
         """Group elements by ``key(element)`` and fold within each group (east-c SetGroupFold).
 
@@ -1521,6 +2043,85 @@ class EastDict(Generic[K, V]):
             del self[key]
             return True
         return False
+
+    def mean(self, fn: Any = None) -> float:
+        """Float mean over entries: of values, or of ``fn(key, value)``
+        (native DictReduce; NaN when empty, like TS)."""
+        from east.kernel import KernelExpr
+        from east.types.types import FloatType
+
+        def _to_float(x: Any) -> Any:
+            if isinstance(x, KernelExpr):
+                return x.to_float() if x.east_type.type == "Integer" else x
+            return float(x)
+
+        proj = (lambda k, v: _to_float(fn(k, v))) if fn is not None else (lambda _k, v: _to_float(v))
+        step = EastFunction(
+            lambda acc, v, k: acc + proj(k, v), [FloatType, self.value_type, self.key_type], FloatType
+        )
+        total = _call_builtin(
+            "DictReduce", [self.key_type, self.value_type, FloatType], [self, step, 0.0], FloatType
+        )
+        n = len(self)
+        return total / float(n) if n else float("nan")
+
+    def group_size(self, key_fn: Any) -> EastDict:
+        """Count per ``key_fn(key, value)`` group (native)."""
+        return self.to_dict(key_fn, lambda _k, _v: 1, combine=lambda a, b, _key: a + b)
+
+    def group_sum(self, key_fn: Any, fn: Any = None) -> EastDict:
+        """Sum per group of ``fn(key, value)`` (values when omitted; native)."""
+        proj = fn if fn is not None else (lambda _k, v: v)
+        if len(self):
+            k0, v0 = next(iter(self.items()))
+            t2 = _ev.type_of(proj(k0, v0))
+        else:
+            t2 = self.value_type
+        zero: Any = 0 if t2.type == "Integer" else 0.0
+        return self.group_fold(key_fn, lambda _k: zero, lambda acc, k, v: acc + proj(k, v))
+
+    def group_mean(self, key_fn: Any, fn: Any = None) -> EastDict:
+        """Float mean per group."""
+        from east.kernel import KernelExpr
+
+        def _to_float(x: Any) -> Any:
+            if isinstance(x, KernelExpr):
+                return x.to_float() if x.east_type.type == "Integer" else x
+            return float(x)
+
+        proj = (lambda k, v: _to_float(fn(k, v))) if fn is not None else (lambda _k, v: _to_float(v))
+        sums = self.group_fold(key_fn, lambda _k: 0.0, lambda acc, k, v: acc + proj(k, v))
+        counts = self.group_size(key_fn)
+        return sums.to_dict(
+            lambda k, _v: k, lambda k, v: v / float(counts[k]), lambda _a, b, _k: b
+        )
+
+    def group_every(self, key_fn: Any, pred: Any) -> EastDict:
+        """Per group: True when ``pred(key, value)`` holds for all entries."""
+        return self.group_fold(key_fn, lambda _k: True, lambda acc, k, v: acc & pred(k, v))
+
+    def group_some(self, key_fn: Any, pred: Any) -> EastDict:
+        """Per group: True when ``pred(key, value)`` holds for any entry."""
+        return self.group_fold(key_fn, lambda _k: False, lambda acc, k, v: acc | pred(k, v))
+
+    def group_to_arrays(self, key_fn: Any, value_fn: Any) -> EastDict:
+        """Arrays of ``value_fn(key, value)`` per group (native via to_array)."""
+        pairs = self.to_array(lambda k, v: {"k": key_fn(k, v), "v": value_fn(k, v)})
+        return pairs.group_to_arrays(lambda p: p["k"], lambda p: p["v"])
+
+    def group_to_sets(self, key_fn: Any, value_fn: Any) -> EastDict:
+        """Sets of ``value_fn(key, value)`` per group (native via to_array)."""
+        pairs = self.to_array(lambda k, v: {"k": key_fn(k, v), "v": value_fn(k, v)})
+        return pairs.group_to_sets(lambda p: p["k"], lambda p: p["v"])
+
+    def group_to_dicts(self, key_fn: Any, key2_fn: Any, value_fn: Any, combine: Any = None) -> EastDict:
+        """Dicts of ``key2 -> value`` per group (native via to_array)."""
+        pairs = self.to_array(
+            lambda k, v: {"k": key_fn(k, v), "k2": key2_fn(k, v), "v": value_fn(k, v)}
+        )
+        return pairs.group_to_dicts(
+            lambda p: p["k"], lambda p: p["k2"], lambda p: p["v"], combine
+        )
 
     def update_many(
         self,
