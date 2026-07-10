@@ -225,7 +225,7 @@ typedef struct {
     char escape_char;
     bool has_header;
     const char **null_strings; /* array of strings treated as null */
-    int null_strings_count;    /* -1 = use default [""] */
+    int null_strings_count;    /* -1 = use default [] (no strings are null) */
     bool trim_fields;
     bool skip_empty_lines;
     bool strict;
@@ -298,8 +298,10 @@ static bool is_null_string(const CsvDecodeOpts *o, const char *str)
         }
         return false;
     }
-    /* Default: only empty string is null */
-    return str[0] == '\0';
+    /* Default: no strings are null — an empty field is an empty string
+     * (opt in to null semantics with nullStrings, e.g. [""]) */
+    (void)str;
+    return false;
 }
 
 /* ================================================================== */

@@ -221,6 +221,13 @@ export class BlobExpr extends Expr<BlobType> {
    *
    * @throws East runtime error if the CSV is malformed or doesn't match the struct type
    *
+   * @remarks By default no field text is treated as null (`nullStrings: []`):
+   * an empty field decodes as an empty string for `String` columns, matching
+   * common CSV-tool semantics. To decode empty (or sentinel) fields as `none`
+   * for `Option` columns, opt in with `nullStrings: [""]` (or e.g.
+   * `["", "NULL", "N/A"]`); a null-string match on a required (non-Option)
+   * column is an error.
+   *
    * @example
    * ```ts
    * const PersonType = StructType({ name: StringType, age: IntegerType });

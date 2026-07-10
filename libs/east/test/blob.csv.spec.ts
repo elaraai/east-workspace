@@ -137,16 +137,34 @@ await describe("Blob (CSV)", (test) => {
     ));
   });
 
-  test("decodeCsv - optional string empty is none", $ => {
+  test("decodeCsv - optional string empty is some empty string by default", $ => {
     const T = StructType({ value: VariantType({ none: NullType, some: StringType }) });
-    // Empty string after header creates one data row with empty value
-    // Use skipEmptyLines: false to include the empty row
+    // Empty string after header creates one data row with empty value.
+    // Default nullStrings is [] so the empty field decodes as "".
     const csv = $.let(East.value(
       new TextEncoder().encode("value\n\n"),
       BlobType
     ));
 
     const result = $.let(csv.decodeCsv(T, { skipEmptyLines: false }));
+
+    $(assert.equal(result.size(), 1n));
+    $(assert.equal(result.get(0n).value.getTag(), "some"));
+    $(assert.equal(
+      Expr.match(result.get(0n).value, { some: ($, v) => v, none: () => "missing" }),
+      ""
+    ));
+  });
+
+  test("decodeCsv - optional string empty is none with nullStrings", $ => {
+    const T = StructType({ value: VariantType({ none: NullType, some: StringType }) });
+    // Opt in to null semantics: empty field decodes as none
+    const csv = $.let(East.value(
+      new TextEncoder().encode("value\n\n"),
+      BlobType
+    ));
+
+    const result = $.let(csv.decodeCsv(T, { skipEmptyLines: false, nullStrings: [""] }));
 
     $(assert.equal(result.size(), 1n));
     $(assert.equal(result.get(0n).value.getTag(), "none"));
@@ -309,14 +327,36 @@ await describe("Blob (CSV)", (test) => {
     $(assert.throws(csv.decodeCsv(T), /missing required column 'age'/));
   });
 
-  // T4: error message for null required field
+  // T4: empty field decodes as empty string for a required String column
+  test("decodeCsv - empty field is empty string for required column by default", $ => {
+    const T = StructType({ name: StringType });
+    const csv = $.let(East.value(
+      new TextEncoder().encode("name\n\n"),
+      BlobType
+    ));
+    const result = $.let(csv.decodeCsv(T, { skipEmptyLines: false }));
+    $(assert.equal(result.size(), 1n));
+    $(assert.equal(result.get(0n).name, ""));
+  });
+
+  // T4b: error message for null required field (opt-in null semantics)
   test("decodeCsv - error message for null required field", $ => {
     const T = StructType({ name: StringType });
     const csv = $.let(East.value(
       new TextEncoder().encode("name\n\n"),
       BlobType
     ));
-    $(assert.throws(csv.decodeCsv(T, { skipEmptyLines: false }), /null value for required field/));
+    $(assert.throws(csv.decodeCsv(T, { skipEmptyLines: false, nullStrings: [""] }), /null value for required field/));
+  });
+
+  // T4c: empty field for a required Float column errors by default
+  test("decodeCsv - empty field for required float errors by default", $ => {
+    const T = StructType({ value: FloatType });
+    const csv = $.let(East.value(
+      new TextEncoder().encode("value\n\n"),
+      BlobType
+    ));
+    $(assert.throws(csv.decodeCsv(T, { skipEmptyLines: false }), /expected float/));
   });
 
   // T5: error message for strict extra column

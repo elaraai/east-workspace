@@ -32,7 +32,15 @@ export type CsvParseOptions = {
   newline?: string;
   /** Whether first row is headers (default: true) */
   hasHeader?: boolean;
-  /** String values to treat as null (default: [""]) */
+  /**
+   * String values to treat as null (default: `[]` — no strings are null).
+   *
+   * By default an empty field decodes as an empty string, matching the
+   * universal CSV-tool semantics (empty-field == empty-string), so files full
+   * of empty `String` fields decode without configuration. Pass `[""]` to
+   * treat empty fields as null instead: a null decodes to `none` for
+   * `Option` columns and errors for required (non-Option) columns.
+   */
   nullStrings?: string[];
   /** Skip rows that are entirely empty (default: true) */
   skipEmptyLines?: boolean;
@@ -153,7 +161,7 @@ export function resolveParseConfig(config: ValueTypeOf<CsvParseConfigType>): Req
     escapeChar: config.escapeChar.type === "some" ? config.escapeChar.value : '"',
     newline: config.newline.type === "some" ? config.newline.value : "",  // empty = auto-detect
     hasHeader: config.hasHeader.type === "some" ? config.hasHeader.value : true,
-    nullStrings: config.nullStrings.type === "some" ? config.nullStrings.value : [""],
+    nullStrings: config.nullStrings.type === "some" ? config.nullStrings.value : [],
     skipEmptyLines: config.skipEmptyLines.type === "some" ? config.skipEmptyLines.value : true,
     trimFields: config.trimFields.type === "some" ? config.trimFields.value : false,
     columnMapping: config.columnMapping.type === "some" ? new Map(config.columnMapping.value) : new Map(),
@@ -578,7 +586,7 @@ export function decodeCsvFor(structType: EastTypeValue | StructType, config?: Va
     escapeChar: '"',
     newline: "",
     hasHeader: true,
-    nullStrings: [""],
+    nullStrings: [],
     skipEmptyLines: true,
     trimFields: false,
     columnMapping: new Map<string, string>(),
