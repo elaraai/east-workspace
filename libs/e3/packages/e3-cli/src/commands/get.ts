@@ -17,7 +17,7 @@
 
 import { datasetRead, workspaceGetDatasetHash, LocalStorage } from '@elaraai/e3-core';
 import { datasetGet as datasetGetRemote } from '@elaraai/e3-api-client';
-import { printFor, toJSONFor, decodeBeast2, toEastTypeValue, isVariant, type EastTypeValue } from '@elaraai/east';
+import { printFor, toJSONFor, decodeBeast2, encodeBeast2For, toEastTypeValue, isVariant, type EastTypeValue } from '@elaraai/east';
 import { parseRepoLocation, formatError, exitError } from '../utils.js';
 import { resolveDatasetPath } from '../path-resolver.js';
 
@@ -49,6 +49,9 @@ export async function getCommand(
 
     let type: EastTypeValue;
     let value: unknown;
+    // the remote API hands us the wire beast2 verbatim — reuse it for `-f beast2`
+    // instead of a decode → re-encode round-trip (matters on multi-GB datasets)
+    let rawBeast2: Uint8Array | null = null;
 
     if (location.type === 'local') {
       const storage = new LocalStorage();
@@ -78,6 +81,7 @@ export async function getCommand(
       const decoded = decodeBeast2(beast2Data);
       type = decoded.type;
       value = decoded.value;
+      rawBeast2 = beast2Data;
     }
 
     switch (format) {
@@ -92,9 +96,15 @@ export async function getCommand(
         console.log(JSON.stringify(jsonValue, null, 2));
         break;
       }
-      case 'beast2':
-        exitError('beast2 output format not yet implemented for get command');
+      case 'beast2': {
+        // binary to stdout — redirect to a file (`> out.beast2`); round-trips
+        // through `e3 dataset set` unchanged
+        const bytes = rawBeast2 ?? encodeBeast2For(type)(value as never);
+        await new Promise<void>((resolve, reject) => {
+          process.stdout.write(bytes, (err) => (err ? reject(err) : resolve()));
+        });
         break;
+      }
       default:
         exitError(`Unknown format: ${format}. Use: east, json, beast2`);
     }
