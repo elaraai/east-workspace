@@ -179,18 +179,27 @@ class EastBlob(bytes):
         """Decode CSV bytes into an Array of ``element_type`` (east-c BlobDecodeCsv).
 
         Args:
-            element_type: East type of each decoded row; each CSV record is
-                parsed into a value of this type, yielding the array element.
+            element_type: East type of each decoded row (a ``StructType``);
+                each CSV record is parsed into a value of this type, yielding
+                the array element. The array wrapping is applied internally —
+                pass the row type, not ``ArrayType(row)``.
             config: Optional CSV decode configuration (delimiter, header
-                handling, etc.); ``None`` uses the defaults.
+                handling, etc.) shaped as ``CsvParseConfigType``; ``None``
+                uses the defaults.
 
         Returns:
             An EastArray whose element type is ``element_type``, one entry per
             parsed CSV record.
+
+        Raises:
+            ValueError: If the CSV cannot be decoded (malformed input, a field
+                that fails to parse as its column type, or a missing required
+                column).
         """
         from east.serialization.csv import decode_csv_for
+        from east.types.types import ArrayType
 
-        return decode_csv_for(element_type, config)(bytes(self))
+        return decode_csv_for(ArrayType(element_type), config)(bytes(self))
 
     def decode_beast2(self, typ: EastType) -> Any:
         """Decode beast2-encoded bytes as a value of ``typ`` (east-c BlobDecodeBeast2).

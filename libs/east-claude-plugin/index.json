@@ -1,10 +1,10 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1446,
+    "totalEntries": 1447,
     "totalFiles": 183,
     "packages": {
-      "east": 489,
+      "east": 490,
       "east-node-std": 42,
       "east-node-io": 63,
       "east-py-datascience": 89,
@@ -1574,7 +1574,7 @@
         "bytes"
       ],
       "imports": [
-        "import { East, BlobType, StringType, IntegerType, StructType, ArrayType, example } from \"@elaraai/east\";"
+        "import { East, BlobType, StringType, IntegerType, FloatType, StructType, ArrayType, example } from \"@elaraai/east\";"
       ],
       "source": "// Get the size of a blob in bytes\n// inputs: []  returns: 3n\nEast.function([], IntegerType, ($) => {\n        const b = $.const(Uint8Array.from([1, 2, 3]), BlobType);\n        return b.size();\n    })"
     },
@@ -1594,7 +1594,7 @@
         "access"
       ],
       "imports": [
-        "import { East, BlobType, StringType, IntegerType, StructType, ArrayType, example } from \"@elaraai/east\";"
+        "import { East, BlobType, StringType, IntegerType, FloatType, StructType, ArrayType, example } from \"@elaraai/east\";"
       ],
       "source": "// Get a byte value from a blob by index\n// inputs: []  returns: 20n\nEast.function([], IntegerType, ($) => {\n        const b = $.const(Uint8Array.from([10, 20, 30]), BlobType);\n        return b.getUint8(1n);\n    })"
     },
@@ -1614,7 +1614,7 @@
         "encoding"
       ],
       "imports": [
-        "import { East, BlobType, StringType, IntegerType, StructType, ArrayType, example } from \"@elaraai/east\";"
+        "import { East, BlobType, StringType, IntegerType, FloatType, StructType, ArrayType, example } from \"@elaraai/east\";"
       ],
       "source": "// Encode a string to a UTF-8 blob\n// inputs: []  returns: Uint8Array.from([0x48, 0x65, 0x6c, 0x6c, 0x6f])\nEast.function([], BlobType, ($) => {\n        const s = $.const(\"Hello\", StringType);\n        return s.encodeUtf8();\n    })"
     },
@@ -1634,7 +1634,7 @@
         "decoding"
       ],
       "imports": [
-        "import { East, BlobType, StringType, IntegerType, StructType, ArrayType, example } from \"@elaraai/east\";"
+        "import { East, BlobType, StringType, IntegerType, FloatType, StructType, ArrayType, example } from \"@elaraai/east\";"
       ],
       "source": "// Decode a UTF-8 blob to a string\n// inputs: []  returns: \"Hello\"\nEast.function([], StringType, ($) => {\n        const b = $.const(Uint8Array.from([0x48, 0x65, 0x6c, 0x6c, 0x6f]), BlobType);\n        return b.decodeUtf8();\n    })"
     },
@@ -1654,7 +1654,7 @@
         "encoding"
       ],
       "imports": [
-        "import { East, BlobType, StringType, IntegerType, StructType, ArrayType, example } from \"@elaraai/east\";"
+        "import { East, BlobType, StringType, IntegerType, FloatType, StructType, ArrayType, example } from \"@elaraai/east\";"
       ],
       "source": "// Encode a string to a UTF-16 blob with BOM\n// inputs: []  returns: Uint8Array.from([\n        0xFF, 0xFE,\n        0x48, 0x00,\n        0x65, 0x00,\n        0x6C, 0x00,\n        0x6C, 0x00,\n        0x6F, 0x00,\n    ])\nEast.function([], BlobType, ($) => {\n        const s = $.const(\"Hello\", StringType);\n        return s.encodeUtf16();\n    })"
     },
@@ -1674,7 +1674,7 @@
         "decoding"
       ],
       "imports": [
-        "import { East, BlobType, StringType, IntegerType, StructType, ArrayType, example } from \"@elaraai/east\";"
+        "import { East, BlobType, StringType, IntegerType, FloatType, StructType, ArrayType, example } from \"@elaraai/east\";"
       ],
       "source": "// Decode a UTF-16 blob to a string\n// inputs: []  returns: \"Hello\"\nEast.function([], StringType, ($) => {\n        const b = $.const(Uint8Array.from([\n            0xFF, 0xFE,\n            0x48, 0x00,\n            0x65, 0x00,\n            0x6C, 0x00,\n            0x6C, 0x00,\n            0x6F, 0x00,\n        ]), BlobType);\n        return b.decodeUtf16();\n    })"
     },
@@ -1695,7 +1695,7 @@
         "serialization"
       ],
       "imports": [
-        "import { East, BlobType, StringType, IntegerType, StructType, ArrayType, example } from \"@elaraai/east\";"
+        "import { East, BlobType, StringType, IntegerType, FloatType, StructType, ArrayType, example } from \"@elaraai/east\";"
       ],
       "source": "// Encode a value to Beast v1 binary format\n// inputs: []  returns: new Uint8Array([\n        69, 97, 115, 116, 0, 234, 87, 255,\n        6,\n        128, 0, 0, 0, 0, 0, 0, 42,\n    ])\nEast.function([], BlobType, ($) => {\n        const value = $.const(42n, IntegerType);\n        return East.Blob.encodeBeast(value, 'v1');\n    })"
     },
@@ -1716,7 +1716,7 @@
         "deserialization"
       ],
       "imports": [
-        "import { East, BlobType, StringType, IntegerType, StructType, ArrayType, example } from \"@elaraai/east\";"
+        "import { East, BlobType, StringType, IntegerType, FloatType, StructType, ArrayType, example } from \"@elaraai/east\";"
       ],
       "source": "// Decode a Beast v1 blob back to a typed value\n// inputs: []  returns: 42n\nEast.function([], IntegerType, ($) => {\n        const value = $.const(42n, IntegerType);\n        const encoded = $.let(East.Blob.encodeBeast(value, 'v1'));\n        return encoded.decodeBeast(IntegerType, 'v1');\n    })"
     },
@@ -1737,7 +1737,7 @@
         "serialization"
       ],
       "imports": [
-        "import { East, BlobType, StringType, IntegerType, StructType, ArrayType, example } from \"@elaraai/east\";"
+        "import { East, BlobType, StringType, IntegerType, FloatType, StructType, ArrayType, example } from \"@elaraai/east\";"
       ],
       "source": "// Encode a value to Beast v2 binary format\n// inputs: []  returns: new Uint8Array([\n        137, 69, 97, 115, 116, 13, 10, 4,  // magic v4\n        3, 0, 1, 2,                          // type table: header=3, root=0, count=1, Integer\n        1, 0,                                // string table: empty\n        1, 0,                                // source map: empty\n        1, 0,                                // value table: empty\n        84,                                  // zigzag(42) = 84\n    ])\nEast.function([], BlobType, ($) => {\n        const value = $.const(42n, IntegerType);\n        return East.Blob.encodeBeast(value, 'v2');\n    })"
     },
@@ -1758,7 +1758,7 @@
         "deserialization"
       ],
       "imports": [
-        "import { East, BlobType, StringType, IntegerType, StructType, ArrayType, example } from \"@elaraai/east\";"
+        "import { East, BlobType, StringType, IntegerType, FloatType, StructType, ArrayType, example } from \"@elaraai/east\";"
       ],
       "source": "// Decode a Beast v2 blob back to a typed value\n// inputs: []  returns: 42n\nEast.function([], IntegerType, ($) => {\n        const value = $.const(42n, IntegerType);\n        const encoded = $.let(East.Blob.encodeBeast(value, 'v2'));\n        return encoded.decodeBeast(IntegerType, 'v2');\n    })"
     },
@@ -1778,9 +1778,33 @@
         "tabular"
       ],
       "imports": [
-        "import { East, BlobType, StringType, IntegerType, StructType, ArrayType, example } from \"@elaraai/east\";"
+        "import { East, BlobType, StringType, IntegerType, FloatType, StructType, ArrayType, example } from \"@elaraai/east\";"
       ],
       "source": "// Decode a CSV blob into an array of structs\n// inputs: []  returns: [{ name: \"Alice\", age: 30n }, { name: \"Bob\", age: 25n }]\nEast.function([], ArrayType(StructType({ name: StringType, age: IntegerType })), ($) => {\n        const csv = $.const(new TextEncoder().encode(\"name,age\\nAlice,30\\nBob,25\"), BlobType);\n        return csv.decodeCsv(StructType({ name: StringType, age: IntegerType }));\n    })"
+    },
+    {
+      "id": "east:blob.examples.ts:blobDecodeCsvDefaults",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/blob.examples.ts",
+      "suite": "CSV Decoding",
+      "test": "Decode a defensive CSV with per-column defaults for unparseable fields and absent columns",
+      "keywords": [
+        "blob",
+        "decodeCsv",
+        "csv",
+        "defaults",
+        "ingestion",
+        "defensive",
+        "unparseable",
+        "fallback",
+        "constant-fill",
+        "absent column"
+      ],
+      "imports": [
+        "import { East, BlobType, StringType, IntegerType, FloatType, StructType, ArrayType, example } from \"@elaraai/east\";"
+      ],
+      "source": "// Decode a defensive CSV with per-column defaults for unparseable fields and absent columns\n// inputs: []  returns: [\n        { name: \"Alice\", qty: 3.5, region: \"unassigned\" },\n        { name: \"Bob\", qty: 0.0, region: \"unassigned\" },\n        { name: \"Carol\", qty: 0.0, region: \"unassigned\" },\n    ]\nEast.function([], ArrayType(StructType({ name: StringType, qty: FloatType, region: StringType })), ($) => {\n        // qty carries garbage/empty fields; region is absent entirely —\n        // defaults recover both without a python/TS post-map\n        const csv = $.const(new TextEncoder().encode(\"name,qty\\nAlice,3.5\\nBob,n/a\\nCarol,\"), BlobType);\n        return csv.decodeCsv(\n            StructType({ name: StringType, qty: FloatType, region: StringType }),\n            { defaults: new Map([[\"qty\", \"0.0\"], [\"region\", \"unassigned\"]]) }\n        );\n    })"
     },
     {
       "id": "east:block.examples.ts:blockConst",

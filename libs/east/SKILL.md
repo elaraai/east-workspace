@@ -117,7 +117,7 @@ Task → What do you need?
     │   │   └─ Compare → .equals()/.equal()/.eq(), .notEquals()/.notEqual()/.ne(), .lessThan()/.less()/.lt(), .greaterThan()/.greater()/.gt(), .lessThanOrEqual()/.lessEqual()/.lte()/.le(), .greaterThanOrEqual()/.greaterEqual()/.gte()/.ge()
     │   ├─ Blob
     │   │   ├─ Read → .size(), .getUint8()
-    │   │   ├─ Decode → .decodeUtf8(), .decodeUtf16(), .decodeBeast(), .decodeCsv()
+    │   │   ├─ Decode → .decodeUtf8(), .decodeUtf16(), .decodeBeast(), .decodeCsv(rowType, { nullStrings: [] by default (empty field == empty string; opt in for none), defaults: per-column fallback/constant-fill, trimFields, … })
     │   │   └─ Compare → .equals()/.equal()/.eq(), .notEquals()/.notEqual()/.ne()
     │   ├─ Array
     │   │   ├─ Read → .size(), .length(), .has(), .get(), .at(), .tryGet(), .getKeys()

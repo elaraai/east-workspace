@@ -59,6 +59,22 @@ class EastStruct(Generic[T]):
         except KeyError:
             raise KeyError(key) from None
 
+    def __getattr__(self, name: str) -> Any:
+        """Field access as attributes: ``row.price`` == ``row["price"]``.
+
+        Fires only when normal attribute lookup fails, so methods and slots
+        shadow same-named fields (use item access for those). Keeps struct
+        lambdas uniform across the traced-kernel and python paths.
+        """
+        if name.startswith("_"):
+            raise AttributeError(name)
+        try:
+            return self._values[self._key_index[name]]
+        except KeyError:
+            raise AttributeError(
+                f"'{type(self).__name__}' object has no attribute or field {name!r}"
+            ) from None
+
     def __contains__(self, key: object) -> bool:
         """Check if field name exists."""
         return key in self._key_index
@@ -199,6 +215,41 @@ class EastVariant(Generic[V]):
     def __iter__(self) -> Iterator[str]:
         """Iterate over keys."""
         return iter(("type", "value"))
+
+    def get_tag(self) -> str:
+        """The case name (same as ``.type`` — mirrors the TS ``getTag``)."""
+        return self.type
+
+    def has_tag(self, tag: str) -> bool:
+        """Whether the variant's case is ``tag`` (mirrors the TS ``hasTag``)."""
+        return self.type == tag
+
+    def unwrap(self, tag: str) -> Any:
+        """The payload of case ``tag``; raises if the case differs.
+
+        Mirrors the TS ``unwrap``: use when a different case is a logic
+        error. For a fallback value use ``match`` (or ``unwrap_or`` in
+        traced kernels).
+
+        Raises:
+            ValueError: If the variant holds a different case.
+        """
+        if self.type != tag:
+            raise ValueError(f"unwrap: expected variant case '{tag}', got '{self.type}'")
+        return self.value
+
+    def match(self, cases: dict, default: Any = None) -> Any:
+        """Dispatch on the case, calling the matching handler with the payload.
+
+        Mirrors the TS variant ``match`` as a method (the module-level
+        ``east.match(v, cases, default)`` is equivalent): handlers are always
+        called ``handler(payload)`` — a ``none`` arm is ``lambda v: ...``.
+        Returns ``default`` when no case matches.
+        """
+        handler = cases.get(self.type)
+        if handler is None:
+            return default
+        return handler(self.value)
 
     def keys(self) -> tuple[str, str]:
         """Return keys."""

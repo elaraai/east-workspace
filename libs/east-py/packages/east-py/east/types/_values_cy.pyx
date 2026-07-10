@@ -82,6 +82,24 @@ cdef class CyEastStruct:
         except KeyError:
             raise KeyError(key) from None
 
+    def __getattr__(self, str name):
+        """Field access as attributes: ``row.price`` == ``row["price"]``.
+
+        Fires only when normal attribute lookup fails, so methods and slots
+        shadow same-named fields (use item access for those). Keeps struct
+        lambdas uniform across the traced-kernel and python paths.
+        """
+        cdef int idx
+        if name.startswith("_"):
+            raise AttributeError(name)
+        try:
+            idx = self._key_index[name]
+            return self._values[idx]
+        except (KeyError, TypeError):
+            raise AttributeError(
+                f"'{type(self).__name__}' object has no attribute or field {name!r}"
+            ) from None
+
     def __contains__(self, key):
         """Check if field name exists."""
         return key in self._key_index
@@ -222,6 +240,28 @@ cdef class CyEastVariant:
     def __iter__(self):
         """Iterate over keys."""
         return iter(("type", "value"))
+
+    def get_tag(self):
+        """The case name (same as ``.type`` — mirrors the TS ``getTag``)."""
+        return self.type
+
+    def has_tag(self, str tag):
+        """Whether the variant's case is ``tag`` (mirrors the TS ``hasTag``)."""
+        return self.type == tag
+
+    def unwrap(self, str tag):
+        """The payload of case ``tag``; raises ValueError if the case differs."""
+        if self.type != tag:
+            raise ValueError(f"unwrap: expected variant case '{tag}', got '{self.type}'")
+        return self.value
+
+    def match(self, dict cases, default=None):
+        """Dispatch on the case: ``handler(payload)`` of the matching arm,
+        else ``default`` (mirrors the TS variant ``match`` as a method)."""
+        handler = cases.get(self.type)
+        if handler is None:
+            return default
+        return handler(self.value)
 
     def keys(self):
         """Return keys."""

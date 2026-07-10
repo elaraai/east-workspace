@@ -32,7 +32,15 @@ export type CsvParseOptions = {
   newline?: string;
   /** Whether first row is headers (default: true) */
   hasHeader?: boolean;
-  /** String values to treat as null (default: [""]) */
+  /**
+   * String values to treat as null (default: `[]` — no strings are null).
+   *
+   * By default an empty field decodes as an empty string, matching the
+   * universal CSV-tool semantics (empty-field == empty-string), so files full
+   * of empty `String` fields decode without configuration. Pass `[""]` to
+   * treat empty fields as null instead: a null decodes to `none` for
+   * `Option` columns and errors for required (non-Option) columns.
+   */
   nullStrings?: string[];
   /** Skip rows that are entirely empty (default: true) */
   skipEmptyLines?: boolean;
@@ -42,6 +50,17 @@ export type CsvParseOptions = {
   columnMapping?: Map<string, string>;
   /** Error on schema mismatch (default: false) */
   strict?: boolean;
+  /**
+   * Per-column default values, keyed by struct field name, written as CSV
+   * field text (e.g. `"0.0"` for a Float column) and parsed once with that
+   * column's parser. A column's default applies when a present field fails
+   * to decode (unparseable text, or a null-string match on a required
+   * column) and when the column is absent from the header entirely
+   * (constant-fill — which also lifts the missing-required-column error).
+   * Rows with too few fields still error: ragged-row handling is a separate
+   * concern.
+   */
+  defaults?: Map<string, string>;
 };
 
 /**
@@ -83,6 +102,7 @@ export const CsvParseConfigType = StructType({
   trimFields: OptionType(BooleanType),
   columnMapping: OptionType(DictType(StringType, StringType)),
   strict: OptionType(BooleanType),
+  defaults: OptionType(DictType(StringType, StringType)),
 });
 
 export type CsvParseConfigType = typeof CsvParseConfigType;
@@ -113,6 +133,9 @@ export function csvParseOptionsToValue(options?: CsvParseOptions): ValueTypeOf<C
   const columnMappingValue = options?.columnMapping
     ? new SortedMap([...options.columnMapping.entries()])
     : undefined;
+  const defaultsValue = options?.defaults
+    ? new SortedMap([...options.defaults.entries()])
+    : undefined;
 
   return {
     delimiter: options?.delimiter !== undefined ? variant("some", options.delimiter) : variant("none", null),
@@ -125,6 +148,7 @@ export function csvParseOptionsToValue(options?: CsvParseOptions): ValueTypeOf<C
     trimFields: options?.trimFields !== undefined ? variant("some", options.trimFields) : variant("none", null),
     columnMapping: columnMappingValue !== undefined ? variant("some", columnMappingValue) : variant("none", null),
     strict: options?.strict !== undefined ? variant("some", options.strict) : variant("none", null),
+    defaults: defaultsValue !== undefined ? variant("some", defaultsValue) : variant("none", null),
   };
 }
 
@@ -146,18 +170,19 @@ export function csvSerializeOptionsToValue(options?: CsvSerializeOptions): Value
 /**
  * Extracts resolved options from an East config value, applying defaults.
  */
-export function resolveParseConfig(config: ValueTypeOf<CsvParseConfigType>): Required<Omit<CsvParseOptions, 'columnMapping'>> & { columnMapping: Map<string, string> } {
+export function resolveParseConfig(config: ValueTypeOf<CsvParseConfigType>): Required<Omit<CsvParseOptions, 'columnMapping' | 'defaults'>> & { columnMapping: Map<string, string>, defaults: Map<string, string> } {
   return {
     delimiter: config.delimiter.type === "some" ? config.delimiter.value : ",",
     quoteChar: config.quoteChar.type === "some" ? config.quoteChar.value : '"',
     escapeChar: config.escapeChar.type === "some" ? config.escapeChar.value : '"',
     newline: config.newline.type === "some" ? config.newline.value : "",  // empty = auto-detect
     hasHeader: config.hasHeader.type === "some" ? config.hasHeader.value : true,
-    nullStrings: config.nullStrings.type === "some" ? config.nullStrings.value : [""],
+    nullStrings: config.nullStrings.type === "some" ? config.nullStrings.value : [],
     skipEmptyLines: config.skipEmptyLines.type === "some" ? config.skipEmptyLines.value : true,
     trimFields: config.trimFields.type === "some" ? config.trimFields.value : false,
     columnMapping: config.columnMapping.type === "some" ? new Map(config.columnMapping.value) : new Map(),
     strict: config.strict.type === "some" ? config.strict.value : false,
+    defaults: config.defaults?.type === "some" ? new Map(config.defaults.value) : new Map(),
   };
 }
 
@@ -578,22 +603,39 @@ export function decodeCsvFor(structType: EastTypeValue | StructType, config?: Va
     escapeChar: '"',
     newline: "",
     hasHeader: true,
-    nullStrings: [""],
+    nullStrings: [] as string[],
     skipEmptyLines: true,
     trimFields: false,
     columnMapping: new Map<string, string>(),
     strict: false,
+    defaults: new Map<string, string>(),
   };
 
-  const { delimiter, quoteChar, escapeChar, hasHeader, nullStrings, skipEmptyLines, trimFields, columnMapping, strict } = resolved;
+  const { delimiter, quoteChar, escapeChar, hasHeader, nullStrings, skipEmptyLines, trimFields, columnMapping, strict, defaults } = resolved;
 
-  // Pre-build field info array (like Beast does)
-  const fieldInfos = fields.map(({ name, type }) => ({
-    name,
-    type,
-    isOptional: isOptionTypeValue(type),
-    decoder: createFieldDecoder(type, name, nullStrings, trimFields),
-  }));
+  // Pre-build field info array (like Beast does). Each column's default text
+  // is parsed once, with the same field decoder used for data (so trim and
+  // nullStrings apply to it identically); an unparseable default fails here,
+  // at decoder construction.
+  const fieldInfos = fields.map(({ name, type }) => {
+    const decoder = createFieldDecoder(type, name, nullStrings, trimFields);
+    let defaultValue: any = undefined;
+    const defaultText = defaults.get(name);
+    if (defaultText !== undefined) {
+      try {
+        defaultValue = decoder(defaultText, { row: 0, column: 0, columnName: name });
+      } catch (e) {
+        throw new Error(`CSV field '${name}' has invalid default '${defaultText}': ${e instanceof Error ? e.message : e}`);
+      }
+    }
+    return {
+      name,
+      type,
+      isOptional: isOptionTypeValue(type),
+      decoder,
+      defaultValue,
+    };
+  });
   const fieldNames = fieldInfos.map(f => f.name);
 
   return (blob: Uint8Array): any[] => {
@@ -619,9 +661,10 @@ export function decodeCsvFor(structType: EastTypeValue | StructType, config?: Va
       headerToIndex.set(headers[i]!, i);
     }
 
-    // Validate: check for missing required fields and extra columns
-    for (const { name, isOptional } of fieldInfos) {
-      if (!headerToIndex.has(name) && !isOptional) {
+    // Validate: check for missing required fields and extra columns.
+    // A column with a configured default may be absent — it constant-fills.
+    for (const { name, isOptional, defaultValue } of fieldInfos) {
+      if (!headerToIndex.has(name) && !isOptional && defaultValue === undefined) {
         throw new CsvError(`missing required column '${name}'`);
       }
     }
@@ -634,10 +677,11 @@ export function decodeCsvFor(structType: EastTypeValue | StructType, config?: Va
     }
 
     // Build per-field decoder info with header indices
-    const decoders = fieldInfos.map(({ name, isOptional, decoder }) => ({
+    const decoders = fieldInfos.map(({ name, isOptional, decoder, defaultValue }) => ({
       name,
       isOptional,
       decoder,
+      defaultValue,
       headerIndex: headerToIndex.get(name) ?? null,
     }));
 
@@ -657,14 +701,27 @@ export function decodeCsvFor(structType: EastTypeValue | StructType, config?: Va
 
       // Decode row into struct
       const row: any = {};
-      for (const { name, isOptional, decoder, headerIndex } of decoders) {
+      for (const { name, isOptional, decoder, defaultValue, headerIndex } of decoders) {
         if (headerIndex === null) {
-          row[name] = variant("none", null);
+          // Column absent from the header: constant-fill with the default
+          // when configured, otherwise none (only Option columns reach here)
+          row[name] = defaultValue !== undefined ? defaultValue : variant("none", null);
         } else if (headerIndex >= rowFields.length) {
+          // Ragged (short) rows are out of scope for defaults — behaviour
+          // unchanged: none for Option columns, error otherwise
           if (isOptional) {
             row[name] = variant("none", null);
           } else {
             throw new CsvError(`row has ${rowFields.length} fields, expected at least ${headerIndex + 1}`, { row: rowNum, column: headerIndex, columnName: name });
+          }
+        } else if (defaultValue !== undefined) {
+          // Field present with a default: fall back on any decode failure
+          // (unparseable text, or a null-string match on a required column)
+          try {
+            row[name] = decoder(rowFields[headerIndex]!, { row: rowNum, column: headerIndex, columnName: name });
+          } catch (e) {
+            if (!(e instanceof CsvError)) throw e;
+            row[name] = defaultValue;
           }
         } else {
           row[name] = decoder(rowFields[headerIndex]!, { row: rowNum, column: headerIndex, columnName: name });

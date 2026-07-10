@@ -225,7 +225,7 @@ typedef struct {
     char escape_char;
     bool has_header;
     const char **null_strings; /* array of strings treated as null */
-    int null_strings_count;    /* -1 = use default [""] */
+    int null_strings_count;    /* -1 = use default [] (no strings are null) */
     bool trim_fields;
     bool skip_empty_lines;
     bool strict;
@@ -298,8 +298,10 @@ static bool is_null_string(const CsvDecodeOpts *o, const char *str)
         }
         return false;
     }
-    /* Default: only empty string is null */
-    return str[0] == '\0';
+    /* Default: no strings are null — an empty field is an empty string
+     * (opt in to null semantics with nullStrings, e.g. [""]) */
+    (void)str;
+    return false;
 }
 
 /* ================================================================== */
@@ -617,6 +619,16 @@ static FieldArray csv_parse_row(const char *data, size_t data_len, size_t *offse
     return fa;
 }
 
+/* Release a per-field parsed-defaults array (entries may be NULL) */
+static void free_field_defaults(EastValue **defaults, size_t nf)
+{
+    if (!defaults) return;
+    for (size_t f = 0; f < nf; f++) {
+        if (defaults[f]) east_value_release(defaults[f]);
+    }
+    free(defaults);
+}
+
 /* Check if a row is empty (all fields are empty strings) */
 static bool csv_row_is_empty(FieldArray *fa)
 {
@@ -924,6 +936,40 @@ EastValue *east_csv_decode_with_error(const char *csv, EastType *type, EastValue
         return NULL;
     }
 
+    /* Per-column defaults: parse each configured default text once, with the
+     * same field parser used for data (trim and nullStrings apply to it
+     * identically). An unparseable default fails the whole decode up front.
+     * field_defaults[f] == NULL means no default for that field. */
+    EastValue **field_defaults = calloc(nf, sizeof(EastValue *));
+    if (!field_defaults) {
+        free(col_indices);
+        decode_opts_free(&opts);
+        return NULL;
+    }
+    EastValue *defaults_dict = config_get_dict(config, "defaults");
+    if (defaults_dict) {
+        for (size_t f = 0; f < nf; f++) {
+            const char *fname = elem_type->data.struct_.fields[f].name;
+            const char *dtext = dict_lookup_string(defaults_dict, fname);
+            if (!dtext) continue;
+            EastType *ftype = elem_type->data.struct_.fields[f].type;
+            char *default_error = NULL;
+            field_defaults[f] = csv_parse_field(dtext, ftype, &opts, &default_error, fname);
+            if (!field_defaults[f]) {
+                if (error_out)
+                    *error_out =
+                        format_csv_error("CSV error: invalid default for column '%s': %s", fname,
+                                         default_error ? default_error : "parse failed");
+                free(default_error);
+                free_field_defaults(field_defaults, nf);
+                free(col_indices);
+                decode_opts_free(&opts);
+                return NULL;
+            }
+            free(default_error);
+        }
+    }
+
     bool is_end = false;
 
     if (opts.has_header) {
@@ -936,6 +982,7 @@ EastValue *east_csv_decode_with_error(const char *csv, EastType *type, EastValue
             if (error_out)
                 *error_out = format_csv_error("CSV error: unclosed quote at end of file");
             field_array_free(&header);
+            free_field_defaults(field_defaults, nf);
             free(col_indices);
             decode_opts_free(&opts);
             return NULL;
@@ -960,16 +1007,18 @@ EastValue *east_csv_decode_with_error(const char *csv, EastType *type, EastValue
             }
         }
 
-        /* Check for missing required columns */
+        /* Check for missing required columns. A column with a configured
+         * default may be absent — it constant-fills with the default. */
         for (size_t f = 0; f < nf; f++) {
             if (col_indices[f] < 0) {
                 EastType *ftype = elem_type->data.struct_.fields[f].type;
-                if (!is_option_type(ftype)) {
+                if (!is_option_type(ftype) && !field_defaults[f]) {
                     /* Missing required column - error */
                     if (error_out)
                         *error_out = format_csv_error("CSV error: missing required column '%s'",
                                                       elem_type->data.struct_.fields[f].name);
                     field_array_free(&header);
+                    free_field_defaults(field_defaults, nf);
                     free(col_indices);
                     decode_opts_free(&opts);
                     return NULL;
@@ -994,6 +1043,7 @@ EastValue *east_csv_decode_with_error(const char *csv, EastType *type, EastValue
                         *error_out = format_csv_error(
                             "CSV error: unexpected column '%s' in strict mode", hname);
                     field_array_free(&header);
+                    free_field_defaults(field_defaults, nf);
                     free(col_indices);
                     decode_opts_free(&opts);
                     return NULL;
@@ -1012,6 +1062,7 @@ EastValue *east_csv_decode_with_error(const char *csv, EastType *type, EastValue
     /* Parse data rows */
     EastValue *result = east_array_new(elem_type);
     if (!result) {
+        free_field_defaults(field_defaults, nf);
         free(col_indices);
         decode_opts_free(&opts);
         return NULL;
@@ -1028,6 +1079,7 @@ EastValue *east_csv_decode_with_error(const char *csv, EastType *type, EastValue
                 *error_out = format_csv_error("CSV error: unclosed quote at end of file");
             field_array_free(&row);
             east_value_release(result);
+            free_field_defaults(field_defaults, nf);
             free(col_indices);
             decode_opts_free(&opts);
             return NULL;
@@ -1060,6 +1112,15 @@ EastValue *east_csv_decode_with_error(const char *csv, EastType *type, EastValue
             if (ci >= 0 && (size_t)ci < row.count) {
                 char *field_error = NULL;
                 values[f] = csv_parse_field(row.fields[ci], ftype, &opts, &field_error, fname);
+                if (!values[f] && field_defaults[f]) {
+                    /* Fall back to the configured default on any decode
+                     * failure (unparseable text, or a null-string match on
+                     * a required column) */
+                    free(field_error);
+                    field_error = NULL;
+                    east_value_retain(field_defaults[f]);
+                    values[f] = field_defaults[f];
+                }
                 if (!values[f]) {
                     /* Parse error — format full location message */
                     if (error_out && field_error) {
@@ -1088,8 +1149,14 @@ EastValue *east_csv_decode_with_error(const char *csv, EastType *type, EastValue
                     break;
                 }
             } else {
-                /* Column not in header at all */
-                values[f] = east_variant_new("none", east_null(), ftype);
+                /* Column not in header at all: constant-fill with the
+                 * configured default, else none (Option columns only) */
+                if (field_defaults[f]) {
+                    east_value_retain(field_defaults[f]);
+                    values[f] = field_defaults[f];
+                } else {
+                    values[f] = east_variant_new("none", east_null(), ftype);
+                }
             }
         }
 
@@ -1110,6 +1177,7 @@ EastValue *east_csv_decode_with_error(const char *csv, EastType *type, EastValue
 
         if (!row_ok) {
             east_value_release(result);
+            free_field_defaults(field_defaults, nf);
             free(col_indices);
             decode_opts_free(&opts);
             return NULL;
@@ -1119,6 +1187,7 @@ EastValue *east_csv_decode_with_error(const char *csv, EastType *type, EastValue
         if (is_end) break;
     }
 
+    free_field_defaults(field_defaults, nf);
     free(col_indices);
     decode_opts_free(&opts);
     return result;

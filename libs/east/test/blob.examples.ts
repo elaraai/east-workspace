@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, BlobType, StringType, IntegerType, StructType, ArrayType, example } from "@elaraai/east";
+import { East, BlobType, StringType, IntegerType, FloatType, StructType, ArrayType, example } from "@elaraai/east";
 
 // ---------------------------------------------------------------------------
 // Construction & Access
@@ -174,5 +174,25 @@ export const blobDecodeCsv = example({
     }),
     inputs: [],
     returns: [{ name: "Alice", age: 30n }, { name: "Bob", age: 25n }],
+});
+
+export const blobDecodeCsvDefaults = example({
+    keywords: ["blob", "decodeCsv", "csv", "defaults", "ingestion", "defensive", "unparseable", "fallback", "constant-fill", "absent column"],
+    description: "Decode a defensive CSV with per-column defaults for unparseable fields and absent columns",
+    fn: East.function([], ArrayType(StructType({ name: StringType, qty: FloatType, region: StringType })), ($) => {
+        // qty carries garbage/empty fields; region is absent entirely —
+        // defaults recover both without a python/TS post-map
+        const csv = $.const(new TextEncoder().encode("name,qty\nAlice,3.5\nBob,n/a\nCarol,"), BlobType);
+        return csv.decodeCsv(
+            StructType({ name: StringType, qty: FloatType, region: StringType }),
+            { defaults: new Map([["qty", "0.0"], ["region", "unassigned"]]) }
+        );
+    }),
+    inputs: [],
+    returns: [
+        { name: "Alice", qty: 3.5, region: "unassigned" },
+        { name: "Bob", qty: 0.0, region: "unassigned" },
+        { name: "Carol", qty: 0.0, region: "unassigned" },
+    ],
 });
 

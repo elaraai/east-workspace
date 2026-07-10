@@ -167,9 +167,22 @@ describe('decodeCsvFor', () => {
       assert.deepEqual(result, [{ value: some("hello") }]);
     });
 
-    test('should parse optional string as none when empty', () => {
+    test('should parse optional empty string as some("") by default', () => {
       const T = StructType({ value: OptionType(StringType) });
       const config = csvParseOptionsToValue({ skipEmptyLines: false });
+      const decode = decodeCsvFor(T, config);
+
+      // Two newlines: header row, then a data row with empty field.
+      // Default nullStrings is [] — the empty field is an empty string.
+      const csv = encoder.encode("value\n\n");
+      const result = decode(csv);
+
+      assert.deepEqual(result, [{ value: some("") }]);
+    });
+
+    test('should parse optional string as none when empty with nullStrings [""]', () => {
+      const T = StructType({ value: OptionType(StringType) });
+      const config = csvParseOptionsToValue({ skipEmptyLines: false, nullStrings: [""] });
       const decode = decodeCsvFor(T, config);
 
       // Two newlines: header row, then a data row with empty field
@@ -295,7 +308,8 @@ describe('decodeCsvFor', () => {
       const csv = encoder.encode("value\nhello\n\nworld");
       const result = decode(csv);
 
-      // Empty line becomes a row with empty field -> none
+      // Empty line becomes a row with empty field -> some("") under the
+      // default nullStrings [] (empty-field == empty-string)
       assert.equal(result.length, 3);
     });
 
@@ -350,6 +364,92 @@ describe('decodeCsvFor', () => {
     });
   });
 
+  describe('per-column defaults', () => {
+    test('should apply default when a field fails to parse', () => {
+      const T = StructType({ qty: FloatType });
+      const config = csvParseOptionsToValue({
+        skipEmptyLines: false,
+        defaults: new Map([["qty", "0.0"]]),
+      });
+      const decode = decodeCsvFor(T, config);
+
+      // Real exports carry garbage and empty numeric fields — both fall
+      // back to the parsed default
+      const csv = encoder.encode("qty\n1.5\ngarbage\n\n2.5");
+      const result = decode(csv);
+
+      assert.deepEqual(result, [
+        { qty: 1.5 },
+        { qty: 0.0 },
+        { qty: 0.0 },
+        { qty: 2.5 },
+      ]);
+    });
+
+    test('should apply default on null-string match for required column', () => {
+      const T = StructType({ name: StringType });
+      const config = csvParseOptionsToValue({
+        skipEmptyLines: false,
+        nullStrings: [""],
+        defaults: new Map([["name", "unknown"]]),
+      });
+      const decode = decodeCsvFor(T, config);
+
+      const csv = encoder.encode("name\nAlice\n\n");
+      const result = decode(csv);
+
+      assert.deepEqual(result, [{ name: "Alice" }, { name: "unknown" }]);
+    });
+
+    test('should constant-fill an absent required column', () => {
+      const T = StructType({ name: StringType, qty: FloatType });
+      const config = csvParseOptionsToValue({ defaults: new Map([["qty", "42.0"]]) });
+      const decode = decodeCsvFor(T, config);
+
+      // qty column entirely absent: no missing-required-column error,
+      // every row takes the default
+      const csv = encoder.encode("name\nAlice\nBob");
+      const result = decode(csv);
+
+      assert.deepEqual(result, [
+        { name: "Alice", qty: 42.0 },
+        { name: "Bob", qty: 42.0 },
+      ]);
+    });
+
+    test('should constant-fill an absent Option column with its default', () => {
+      const T = StructType({ name: StringType, score: OptionType(FloatType) });
+      const config = csvParseOptionsToValue({ defaults: new Map([["score", "1.5"]]) });
+      const decode = decodeCsvFor(T, config);
+
+      const csv = encoder.encode("name\nAlice");
+      const result = decode(csv);
+
+      assert.deepEqual(result, [{ name: "Alice", score: some(1.5) }]);
+    });
+
+    test('should error on an unparseable default at decoder construction', () => {
+      const T = StructType({ qty: FloatType });
+      const config = csvParseOptionsToValue({ defaults: new Map([["qty", "abc"]]) });
+
+      assert.throws(() => decodeCsvFor(T, config), /invalid default/);
+    });
+
+    test('should not mask short-row errors', () => {
+      const T = StructType({ name: StringType, qty: FloatType });
+      const config = csvParseOptionsToValue({ defaults: new Map([["qty", "0.0"]]) });
+      const decode = decodeCsvFor(T, config);
+
+      // Ragged rows remain an error — defaults only cover decode failures
+      // and absent columns
+      const csv = encoder.encode("name,qty\nAlice");
+
+      assert.throws(() => decode(csv), (e: Error) => {
+        return e instanceof CsvError && e.message.includes("row has 1 fields");
+      });
+    });
+  });
+
   describe('error handling', () => {
     test('should error on missing required column', () => {
       const T = StructType({ name: StringType, age: IntegerType });
@@ -362,9 +462,22 @@ describe('decodeCsvFor', () => {
       });
     });
 
-    test('should error on null value for required field', () => {
+    test('should decode empty field as empty string for required String field by default', () => {
       const T = StructType({ name: StringType });
       const config = csvParseOptionsToValue({ skipEmptyLines: false });
+      const decode = decodeCsvFor(T, config);
+
+      // Header followed by empty data row (two newlines). Default
+      // nullStrings is [] so the empty field is just an empty string.
+      const csv = encoder.encode("name\n\n");
+      const result = decode(csv);
+
+      assert.deepEqual(result, [{ name: "" }]);
+    });
+
+    test('should error on null value for required field with nullStrings [""]', () => {
+      const T = StructType({ name: StringType });
+      const config = csvParseOptionsToValue({ skipEmptyLines: false, nullStrings: [""] });
       const decode = decodeCsvFor(T, config);
 
       // Header followed by empty data row (two newlines)
@@ -372,6 +485,19 @@ describe('decodeCsvFor', () => {
 
       assert.throws(() => decode(csv), (e: Error) => {
         return e instanceof CsvError && e.message.includes("null value for required field");
+      });
+    });
+
+    test('should error on empty field for required Float field by default', () => {
+      const T = StructType({ value: FloatType });
+      const config = csvParseOptionsToValue({ skipEmptyLines: false });
+      const decode = decodeCsvFor(T, config);
+
+      // With no null strings the empty text reaches the float parser
+      const csv = encoder.encode("value\n\n");
+
+      assert.throws(() => decode(csv), (e: Error) => {
+        return e instanceof CsvError && e.message.includes("expected float");
       });
     });
 
@@ -659,7 +785,10 @@ describe('CSV round-trip', () => {
   test('should round-trip optional fields', () => {
     const T = StructType({ name: StringType, nickname: OptionType(StringType) });
     const encode = encodeCsvFor(T);
-    const decode = decodeCsvFor(T);
+    // The encoder writes none as "" (nullString default); to round-trip it,
+    // the decoder must opt in to treating "" as null — the parse default
+    // nullStrings [] would decode the empty field as some("").
+    const decode = decodeCsvFor(T, csvParseOptionsToValue({ nullStrings: [""] }));
 
     const original = [
       { name: "Alice", nickname: some("Ali") },

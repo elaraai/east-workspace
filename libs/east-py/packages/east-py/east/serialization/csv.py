@@ -6,6 +6,13 @@
 
 Encode/decode is handled by east-c via the _csv_eastc Cython extension.
 Config types, error types, and config resolvers remain in Python.
+
+Null handling: by default no field text is treated as null (``nullStrings``
+defaults to ``[]``), so an empty field decodes as an empty string — the
+universal CSV-tool semantics. To decode empty (or sentinel) fields as
+``none`` for Option columns, opt in explicitly, e.g.
+``csv_parse_config(null_strings=[""])``; a null-string match on a required
+(non-Option) column is a decode error.
 """
 
 from __future__ import annotations
@@ -13,6 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, NamedTuple
 
+from east.types.construct import none, some
 from east.types.types import (
     ArrayType,
     BooleanType,
@@ -40,6 +48,7 @@ CsvParseConfigType: EastType = StructType(
         ("trimFields", OptionType(BooleanType)),
         ("columnMapping", OptionType(DictType(StringType, StringType))),
         ("strict", OptionType(BooleanType)),
+        ("defaults", OptionType(DictType(StringType, StringType))),
     ]
 )
 
@@ -90,18 +99,24 @@ class CsvError(Exception):
 
 
 class ResolvedParseConfig(NamedTuple):
-    """Resolved parse configuration with defaults applied."""
+    """Resolved parse configuration with defaults applied.
+
+    ``null_strings`` defaults to the empty set: no field text is treated as
+    null, so an empty field decodes as an empty string (universal CSV-tool
+    semantics). Opt in to null handling with e.g. ``frozenset(("",))``.
+    """
 
     delimiter: str = ","
     quote_char: str = '"'
     escape_char: str = '"'
     newline: str = ""  # empty = auto-detect
     has_header: bool = True
-    null_strings: frozenset[str] = frozenset(("",))
+    null_strings: frozenset[str] = frozenset()
     skip_empty_lines: bool = True
     trim_fields: bool = False
     column_mapping: dict[str, str] | None = None
     strict: bool = False
+    defaults: dict[str, str] | None = None
 
 
 class ResolvedSerializeConfig(NamedTuple):
@@ -136,6 +151,7 @@ def resolve_parse_config(config: Any) -> ResolvedParseConfig:
 
     null_strings_val = _get_option_value(data.get("nullStrings"), None)
     column_mapping_val = _get_option_value(data.get("columnMapping"), None)
+    defaults_val = _get_option_value(data.get("defaults"), None)
 
     return ResolvedParseConfig(
         delimiter=_get_option_value(data.get("delimiter"), ","),
@@ -143,11 +159,12 @@ def resolve_parse_config(config: Any) -> ResolvedParseConfig:
         escape_char=_get_option_value(data.get("escapeChar"), '"'),
         newline=_get_option_value(data.get("newline"), ""),
         has_header=_get_option_value(data.get("hasHeader"), True),
-        null_strings=frozenset(null_strings_val) if null_strings_val else frozenset(("",)),
+        null_strings=frozenset(null_strings_val) if null_strings_val is not None else frozenset(),
         skip_empty_lines=_get_option_value(data.get("skipEmptyLines"), True),
         trim_fields=_get_option_value(data.get("trimFields"), False),
         column_mapping=dict(column_mapping_val) if column_mapping_val else None,
         strict=_get_option_value(data.get("strict"), False),
+        defaults=dict(defaults_val) if defaults_val else None,
     )
 
 
@@ -170,6 +187,111 @@ def resolve_serialize_config(config: Any) -> ResolvedSerializeConfig:
 
 
 # =============================================================================
+# Config builders
+# =============================================================================
+
+
+def _opt(value: Any) -> Any:
+    """Wrap a python value as some(value), or none when it is None."""
+    return some(value) if value is not None else none
+
+
+def csv_parse_config(
+    *,
+    delimiter: str | None = None,
+    quote_char: str | None = None,
+    escape_char: str | None = None,
+    newline: str | None = None,
+    has_header: bool | None = None,
+    null_strings: list[str] | None = None,
+    skip_empty_lines: bool | None = None,
+    trim_fields: bool | None = None,
+    column_mapping: dict[str, str] | None = None,
+    strict: bool | None = None,
+    defaults: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Build a ``CsvParseConfigType`` value from keyword options.
+
+    Unset options become ``none`` and take the decoder defaults. Note the
+    null-handling default: ``null_strings`` is ``[]`` (no field text is null),
+    so empty fields decode as empty strings; pass ``null_strings=[""]`` to
+    decode empty fields as ``none`` for Option columns instead.
+
+    Args:
+        delimiter: Field delimiter (default ``","``).
+        quote_char: Quote character (default ``'"'``).
+        escape_char: Escape character (default ``'"'`` for doubled quotes).
+        newline: Line ending; auto-detected when unset.
+        has_header: Whether the first row is a header (default ``True``).
+        null_strings: Field texts to treat as null (default ``[]``).
+        skip_empty_lines: Skip rows whose fields are all empty (default ``True``).
+        trim_fields: Trim surrounding whitespace from each field (default ``False``).
+        column_mapping: Map of CSV header name to struct field name.
+        strict: Error on columns not present in the struct (default ``False``).
+        defaults: Per-column default values keyed by struct field name,
+            written as CSV field text (e.g. ``{"price": "0.0"}``) and parsed
+            once with that column's parser. A default applies when a present
+            field fails to decode and when the column is absent from the
+            header entirely (constant-fill).
+
+    Returns:
+        A plain value of ``CsvParseConfigType`` accepted as the ``config``
+        argument of ``decode_csv_for`` and ``EastBlob.decode_csv``.
+    """
+    return {
+        "delimiter": _opt(delimiter),
+        "quoteChar": _opt(quote_char),
+        "escapeChar": _opt(escape_char),
+        "newline": _opt(newline),
+        "hasHeader": _opt(has_header),
+        "nullStrings": _opt(null_strings),
+        "skipEmptyLines": _opt(skip_empty_lines),
+        "trimFields": _opt(trim_fields),
+        "columnMapping": _opt(column_mapping),
+        "strict": _opt(strict),
+        "defaults": _opt(defaults),
+    }
+
+
+def csv_serialize_config(
+    *,
+    delimiter: str | None = None,
+    quote_char: str | None = None,
+    escape_char: str | None = None,
+    newline: str | None = None,
+    include_header: bool | None = None,
+    null_string: str | None = None,
+    always_quote: bool | None = None,
+) -> dict[str, Any]:
+    """Build a ``CsvSerializeConfigType`` value from keyword options.
+
+    Unset options become ``none`` and take the encoder defaults.
+
+    Args:
+        delimiter: Field delimiter (default ``","``).
+        quote_char: Quote character (default ``'"'``).
+        escape_char: Escape character (default ``'"'``).
+        newline: Line ending (default ``"\\r\\n"``).
+        include_header: Whether to emit the header row (default ``True``).
+        null_string: Text emitted for ``none`` values (default ``""``).
+        always_quote: Quote every field (default ``False``).
+
+    Returns:
+        A plain value of ``CsvSerializeConfigType`` accepted as the ``config``
+        argument of ``encode_csv_for``.
+    """
+    return {
+        "delimiter": _opt(delimiter),
+        "quoteChar": _opt(quote_char),
+        "escapeChar": _opt(escape_char),
+        "newline": _opt(newline),
+        "includeHeader": _opt(include_header),
+        "nullString": _opt(null_string),
+        "alwaysQuote": _opt(always_quote),
+    }
+
+
+# =============================================================================
 # Encode/Decode via east-c
 # =============================================================================
 
@@ -187,6 +309,9 @@ __all__ = [
     # Config resolution
     "resolve_parse_config",
     "resolve_serialize_config",
+    # Config builders
+    "csv_parse_config",
+    "csv_serialize_config",
     # Functions
     "decode_csv_for",
     "encode_csv_for",

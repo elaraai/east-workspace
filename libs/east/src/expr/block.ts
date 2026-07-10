@@ -25,7 +25,7 @@ import { StructExpr } from "./struct.js";
 import { VariantExpr } from "./variant.js";
 import { RecursiveExpr } from "./recursive.js";
 import { type CallableFunctionExpr, createFunctionExpr, FunctionExpr } from "./function.js";
-import { valueOrExprToAst, valueOrExprToAstTyped } from "./ast.js";
+import { astUnderCurrentSourceMap, valueOrExprToAst, valueOrExprToAstTyped } from "./ast.js";
 import type { PlatformFunction } from "../platform.js";
 import { toEastTypeValue, type EastTypeValue } from "../type_of_type.js";
 import { isVariant } from "../containers/variant.js";
@@ -132,6 +132,11 @@ export function from(value: any, type?: EastType): Expr<any> {
       throw new Error(`Expected function but got ${typeof value}`);
     }
 
+    // Build under a source map (inheriting any ambient one) and stamp the
+    // map on the result so a later embed can re-intern the locations —
+    // otherwise a top-level East.value(lambda, FunctionType) loses its
+    // pointer to user code (issue #204).
+    return ensure_source_map(() => {
     const { inputs, output } = type;
     const input_variables: VariableAST[] = inputs.map(i => ({
       ast_type: "Variable",
@@ -209,12 +214,17 @@ export function from(value: any, type?: EastType): Expr<any> {
       body: body_ast,
     };
 
-    return fromAst(ast);
+    const expr = fromAst(ast);
+    Object.defineProperty(expr, SourceMapSymbol, { enumerable: false, value: get_current_source_map() });
+    Object.defineProperty(ast, SourceMapSymbol, { enumerable: false, value: get_current_source_map() });
+    return expr;
+    }); // ensure_source_map
   } else if (type && type.type === "AsyncFunction") {
     if (typeof value !== "function") {
       throw new Error(`Expected function but got ${typeof value}`);
     }
 
+    return ensure_source_map(() => {
     const { inputs, output } = type;
     const input_variables: VariableAST[] = inputs.map(i => ({
       ast_type: "Variable",
@@ -292,7 +302,11 @@ export function from(value: any, type?: EastType): Expr<any> {
       body: body_ast,
     };
 
-    return fromAst(ast);
+    const expr = fromAst(ast);
+    Object.defineProperty(expr, SourceMapSymbol, { enumerable: false, value: get_current_source_map() });
+    Object.defineProperty(ast, SourceMapSymbol, { enumerable: false, value: get_current_source_map() });
+    return expr;
+    }); // ensure_source_map
   }
 
   const ast = type ? valueOrExprToAstTyped(value, type) : valueOrExprToAst(value);
@@ -1863,7 +1877,7 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
       if (type && !isSubtype(Expr.type(value), type)) {
         throw typeMismatchError(Expr.type(value), type, { loc_id: get_location_id() });
       }
-      ast = Expr.ast(value);
+      ast = astUnderCurrentSourceMap(value);
     } else {
       ast = type ? valueOrExprToAstTyped(value, type) : valueOrExprToAst(value);
     }
@@ -1896,7 +1910,7 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
       if (type && !isSubtype(Expr.type(value), type)) {
         throw typeMismatchError(Expr.type(value), type, { loc_id: get_location_id() });
       }
-      ast = Expr.ast(value);
+      ast = astUnderCurrentSourceMap(value);
     } else {
       ast = type ? valueOrExprToAstTyped(value, type) : valueOrExprToAst(value);
     }

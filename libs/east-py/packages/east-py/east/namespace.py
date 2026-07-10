@@ -833,6 +833,88 @@ class _DateTimeNamespace:
         """
         return _call_builtin("DateTimeAddMilliseconds", [], [dt, millis], DateTimeType)
 
+    # ── unit sugar over add/duration_milliseconds (TS-expr parity) ──
+
+    @staticmethod
+    def _shift(dt: datetime, n: int | float, scale: int) -> datetime:
+        millis = int(n * scale)
+        return _call_builtin("DateTimeAddMilliseconds", [], [dt, millis], DateTimeType)
+
+    @staticmethod
+    def add_seconds(dt: datetime, n: int | float) -> datetime:
+        """Offset ``dt`` by ``n`` seconds (east-c DateTimeAddMilliseconds, scaled)."""
+        return East.DateTime._shift(dt, n, 1000)
+
+    @staticmethod
+    def add_minutes(dt: datetime, n: int | float) -> datetime:
+        """Offset ``dt`` by ``n`` minutes."""
+        return East.DateTime._shift(dt, n, 60_000)
+
+    @staticmethod
+    def add_hours(dt: datetime, n: int | float) -> datetime:
+        """Offset ``dt`` by ``n`` hours."""
+        return East.DateTime._shift(dt, n, 3_600_000)
+
+    @staticmethod
+    def add_days(dt: datetime, n: int | float) -> datetime:
+        """Offset ``dt`` by ``n`` days."""
+        return East.DateTime._shift(dt, n, 86_400_000)
+
+    @staticmethod
+    def add_weeks(dt: datetime, n: int | float) -> datetime:
+        """Offset ``dt`` by ``n`` weeks."""
+        return East.DateTime._shift(dt, n, 604_800_000)
+
+    @staticmethod
+    def subtract_seconds(dt: datetime, n: int | float) -> datetime:
+        """Offset ``dt`` backwards by ``n`` seconds."""
+        return East.DateTime._shift(dt, -n, 1000)
+
+    @staticmethod
+    def subtract_minutes(dt: datetime, n: int | float) -> datetime:
+        """Offset ``dt`` backwards by ``n`` minutes."""
+        return East.DateTime._shift(dt, -n, 60_000)
+
+    @staticmethod
+    def subtract_hours(dt: datetime, n: int | float) -> datetime:
+        """Offset ``dt`` backwards by ``n`` hours."""
+        return East.DateTime._shift(dt, -n, 3_600_000)
+
+    @staticmethod
+    def subtract_days(dt: datetime, n: int | float) -> datetime:
+        """Offset ``dt`` backwards by ``n`` days."""
+        return East.DateTime._shift(dt, -n, 86_400_000)
+
+    @staticmethod
+    def subtract_weeks(dt: datetime, n: int | float) -> datetime:
+        """Offset ``dt`` backwards by ``n`` weeks."""
+        return East.DateTime._shift(dt, -n, 604_800_000)
+
+    @staticmethod
+    def duration_seconds(a: datetime, b: datetime) -> float:
+        """``a - b`` in seconds as a Float (like the TS durationSeconds)."""
+        return East.DateTime.duration_milliseconds(a, b) / 1000.0
+
+    @staticmethod
+    def duration_minutes(a: datetime, b: datetime) -> float:
+        """``a - b`` in minutes as a Float."""
+        return East.DateTime.duration_milliseconds(a, b) / 60_000.0
+
+    @staticmethod
+    def duration_hours(a: datetime, b: datetime) -> float:
+        """``a - b`` in hours as a Float."""
+        return East.DateTime.duration_milliseconds(a, b) / 3_600_000.0
+
+    @staticmethod
+    def duration_days(a: datetime, b: datetime) -> float:
+        """``a - b`` in days as a Float."""
+        return East.DateTime.duration_milliseconds(a, b) / 86_400_000.0
+
+    @staticmethod
+    def duration_weeks(a: datetime, b: datetime) -> float:
+        """``a - b`` in weeks as a Float."""
+        return East.DateTime.duration_milliseconds(a, b) / 604_800_000.0
+
     @staticmethod
     def duration_milliseconds(a: datetime, b: datetime) -> int:
         """Compute the signed millisecond gap between two datetimes (east-c DateTimeDurationMilliseconds).
