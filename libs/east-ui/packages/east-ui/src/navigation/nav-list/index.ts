@@ -17,6 +17,7 @@ import {
     NavListType,
     NavSectionType,
     NavItemType,
+    NavListSurfaceType,
     type NavListStyle,
     type NavSectionInput,
 } from "./types.js";
@@ -25,6 +26,8 @@ export {
     NavListType,
     NavSectionType,
     NavItemType,
+    NavListSurfaceType,
+    type NavListSurfaceLiteral,
     type NavListStyle,
     type NavSectionInput,
     type NavItemInput,
@@ -40,7 +43,7 @@ export {
  * 3 px brand-d left rule, paper-2 card chrome).
  *
  * @param sections - Array of sections, each with optional label + items
- * @param style - Optional behaviour configuration (`onSelect`)
+ * @param style - Optional configuration (`onSelect`, `surface`, `background`)
  * @returns An East expression representing the NavList
  *
  * @remarks
@@ -105,6 +108,12 @@ function createNavList(
     return East.value(variant("NavList", {
         sections: sectionsExpr,
         onSelect: style?.onSelect ? some(style.onSelect) : none,
+        surface: style?.surface !== undefined
+            ? some(typeof style.surface === "string"
+                ? East.value(variant(style.surface, null), NavListSurfaceType)
+                : style.surface)
+            : none,
+        background: style?.background !== undefined ? some(style.background) : none,
     }), UIComponentType);
 }
 

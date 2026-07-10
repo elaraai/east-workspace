@@ -29,8 +29,10 @@ export interface EastChakraNavListProps {
  * rows, an inset brand-tint pill for the active row, paper-2 card chrome.
  */
 export const EastChakraNavList = memo(function EastChakraNavList({ value }: EastChakraNavListProps) {
+    const surface = getSomeorUndefined(value.surface)?.type ?? "card";
+    const background = getSomeorUndefined(value.background);
     const recipe = useSlotRecipe({ key: "navList" });
-    const styles = recipe();
+    const styles = recipe({ surface });
 
     const onSelectFn = useMemo(() => getSomeorUndefined(value.onSelect), [value.onSelect]);
 
@@ -68,7 +70,7 @@ export const EastChakraNavList = memo(function EastChakraNavList({ value }: East
     };
 
     return (
-        <Box css={styles.root} role="navigation">
+        <Box css={background ? { ...styles.root, background } : styles.root} role="navigation">
             {value.sections.map((section, sectionIdx) => {
                 const label = getSomeorUndefined(section.label);
                 return (
