@@ -35,6 +35,21 @@ import { DecisionQueue as DecisionQueueFactory } from "../../decision/queue.js";
  * ));
  * ```
  *
+ * @example
+ * ```tsx
+ * // Grouped queue — `groupBy` mounts the Group-by toolbar (built-in Urgency /
+ * // Kind / None plus the custom `groups` accessors); sections collapse.
+ * <DecisionQueue
+ *     handle={handle}
+ *     heading="Decisions waiting"
+ *     groupBy="urgency"
+ *     groups={{
+ *         'Value band': d => d.value.greater(50000.0).ifElse(() => 'High', () => 'Standard'),
+ *     }}
+ *     collapsible
+ * />
+ * ```
+ *
  * @remarks
  * Carries `DecisionQueue.Types`. Desugars to `DecisionQueue.Root(options)`. The
  * renderer registers against `DecisionQueue.Component` (from

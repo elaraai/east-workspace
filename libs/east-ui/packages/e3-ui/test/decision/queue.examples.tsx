@@ -470,3 +470,37 @@ export const decisionQueueSlice = example({
     }),
     inputs: [],
 });
+
+
+// ============================================================================
+// 8. Grouped queue — `groupBy` mounts the Group-by toolbar (built-in Urgency /
+//    Kind / None plus the custom `groups` accessors); sections collapse with a
+//    Collapse-all control, and the urgency grouping's Routine section ships
+//    collapsed hosting the bulk Accept all.
+// ============================================================================
+
+export const decisionQueueGrouped = example({
+    keywords: ['DecisionQueue', 'Decide', 'grouping', 'groupBy', 'groups', 'collapsible', 'urgency', 'kind', 'custom', 'accessor', 'Accept all'],
+    description: 'Grouped queue — Group-by Urgency (default) / Kind / a custom Value-band accessor; collapsible sections with Collapse-all, the Routine section collapsed with its bulk Accept all',
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <Reactive>{$ => {
+                const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));
+                const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));
+                const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));
+                return (
+                    <DecisionQueue
+                        handle={handle}
+                        heading="Decisions waiting"
+                        groupBy="urgency"
+                        groups={{
+                            'Value band': d => d.value.greater(50000.0).ifElse(() => 'High', () => 'Standard'),
+                        }}
+                        collapsible
+                    />
+                );
+            }}</Reactive>
+        );
+    }),
+    inputs: [],
+});

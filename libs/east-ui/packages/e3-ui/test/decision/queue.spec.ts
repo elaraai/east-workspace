@@ -16,5 +16,6 @@ describeEast("DecisionQueue", (test) => {
         decisionQueueNarrow: ex.decisionQueueNarrow,
         decisionQueueScroll: ex.decisionQueueScroll,
         decisionQueueSlice: ex.decisionQueueSlice,
+        decisionQueueGrouped: ex.decisionQueueGrouped,
     });
 }, { platformFns: TestImpl });

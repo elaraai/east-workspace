@@ -7,10 +7,12 @@
  * DecisionQueue slot recipe — the Decide entry surface's row layout.
  *
  * Owns only what the shared chrome doesn't: the active-decision row grid
- * (urgency · title · value · actions), the collapsed routine rows, and the
- * dashed routine-summary bar. The frame, header, urgency flag, action
- * buttons and any staged footer come from `frame` / `eyebrowRow` / `status`
- * / `button` / `commitBar` — this recipe never restyles them.
+ * (urgency · title · value · actions), the Group-by toolbar band and its
+ * collapsible group heads, the collapsed routine rows, and the dashed
+ * routine-summary bar. The frame, header, urgency flag, action buttons,
+ * Group-by toggle pills (the `chip` recipe) and any staged footer come from
+ * `frame` / `eyebrowRow` / `status` / `button` / `chip` / `commitBar` —
+ * this recipe never restyles them.
  *
  * Active rows lead the queue; routine rows demote to a quieter compact grid
  * (no per-row actions) under a single bulk-accept summary.
@@ -22,7 +24,12 @@ import { defineSlotRecipe } from "@chakra-ui/react";
 
 export const decisionQueueSlotRecipe = defineSlotRecipe({
     className: "elara-decision-queue",
-    slots: ["rowShell", "row", "title", "value", "actions", "routineGroup", "routineRow", "routineValue", "summary", "summaryCap"],
+    slots: [
+        "rowShell", "row", "title", "titleText", "value", "actions",
+        "toolbar", "segLabel", "collapseAll",
+        "groupHead", "groupCaret", "groupLabel", "groupSummary",
+        "routineGroup", "routineRow", "routineValue", "summary", "summaryCap",
+    ],
     base: {
         // Wraps every queue row so a resolved decision can animate out before
         // it unmounts. The exit is verdict-aware: Apply washes the row in the
@@ -70,6 +77,85 @@ export const decisionQueueSlotRecipe = defineSlotRecipe({
             overflow: "hidden",
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
+        },
+        // The element that DIRECTLY contains the kind · title · summary spans.
+        // `text-overflow: ellipsis` only clips inline content of the element
+        // that owns it — a block child (the old structure) defeats it.
+        titleText: {
+            minWidth: "0",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+        },
+        toolbar: {
+            display: "flex",
+            alignItems: "center",
+            gap: "{spacing.4}",
+            paddingX: "{spacing.5}",
+            paddingY: "{spacing.2}",
+            borderBottomWidth: "1px",
+            borderBottomColor: "border.subtle",
+            flexWrap: "wrap",
+        },
+        segLabel: {
+            fontFamily: "mono",
+            fontSize: "10px",
+            fontWeight: "600",
+            letterSpacing: "0.14em",
+            lineHeight: "normal",
+            textTransform: "uppercase",
+            color: "fg.subtle",
+            marginRight: "{spacing.1}",
+        },
+        collapseAll: {
+            marginLeft: "auto",
+            fontFamily: "mono",
+            fontSize: "11px",
+            fontWeight: "600",
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+            color: "link",
+            cursor: "pointer",
+            background: "transparent",
+            border: "none",
+            padding: "0",
+        },
+        groupHead: {
+            display: "flex",
+            alignItems: "center",
+            gap: "{spacing.3}",
+            paddingInline: "18px",
+            paddingBlock: "{spacing.2}",
+            background: "bg.panel",
+            borderBottomWidth: "1px",
+            borderBottomColor: "border.subtle",
+            "&[data-collapsible]": { cursor: "pointer" },
+        },
+        groupCaret: {
+            fontFamily: "mono",
+            fontSize: "10px",
+            color: "fg.subtle",
+            width: "12px",
+            flexShrink: "0",
+        },
+        groupLabel: {
+            fontFamily: "mono",
+            fontSize: "10px",
+            fontWeight: "600",
+            letterSpacing: "0.14em",
+            lineHeight: "normal",
+            textTransform: "uppercase",
+            color: "fg.muted",
+        },
+        groupSummary: {
+            marginLeft: "auto",
+            fontFamily: "mono",
+            fontSize: "10px",
+            fontWeight: "600",
+            letterSpacing: "0.14em",
+            lineHeight: "normal",
+            textTransform: "uppercase",
+            color: "fg.subtle",
         },
         value: {
             fontFamily: "mono",

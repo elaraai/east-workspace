@@ -112,6 +112,7 @@ export * from "./layout/box/types.js";
 export * from "./layout/stack/types.js";
 export * from "./layout/aligned-stack/types.js";
 export * from "./shared/plot-gutter.js";
+export { reifyAccessor } from "./shared/reify.js";
 export * from "./layout/grid/types.js";
 export * from "./layout/separator/types.js";
 export * from "./layout/splitter/types.js";
