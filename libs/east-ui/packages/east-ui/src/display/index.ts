@@ -6,6 +6,7 @@
 export { Badge } from "./badge/index.js";
 export { Tag } from "./tag/index.js";
 export { Avatar } from "./avatar/index.js";
+export { Image } from "./image/index.js";
 export { Stat } from "./stat/index.js";
 export { Icon, type IconName } from "./icon/index.js";
 export { MetricChip } from "./metric-chip/index.js";

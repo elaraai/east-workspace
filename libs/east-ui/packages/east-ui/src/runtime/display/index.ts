@@ -12,6 +12,7 @@ export { Kbd } from "./kbd.js";
 export { EditableChip } from "./editable-chip.js";
 export { MetricChip } from "./metric-chip.js";
 export { Avatar } from "./avatar.js";
+export { Image } from "./image.js";
 export { AvatarGroup } from "./avatar-group.js";
 export { BarStrip } from "./bar-strip.js";
 export { SegmentedMeter } from "./segmented-meter.js";

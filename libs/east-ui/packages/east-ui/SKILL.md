@@ -168,6 +168,7 @@ Task → Which tag?
 │   ├─ <Badge> — pill/tag label; colorPalette + variant: solid | subtle | outline
 │   ├─ <Tag> — removable chip with close trigger
 │   ├─ <Avatar> / <AvatarGroup> — user avatar / overlapping cluster with "+N more"
+│   ├─ <Image source={Image.url(u) | Image.dataUri(s) | Image.blob(bytes,"png"|"svg"|…)} /> — raster/vector image or logo; fit (object-fit contain|cover|fill|none|scaleDown), aspectRatio, width/height, alt, borderRadius. url = hosted; dataUri = self-contained base64; blob = raw BlobType bytes (+ format) → revocable object URL
 │   ├─ <Icon name="…"> — FontAwesome icon; size + colour
 │   ├─ <Kbd> — keyboard-shortcut chip (⌘ K)
 │   ├─ <Stat label="…" value={…}> — metric tile with label / value / change indicator

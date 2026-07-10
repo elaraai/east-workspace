@@ -58,6 +58,7 @@ import { EastChakraIcon } from "./display/icon";
 import { EastChakraBadge } from "./display/badge";
 import { EastChakraTag } from "./display/tag";
 import { EastChakraAvatar } from "./display/avatar";
+import { EastChakraImage } from "./display/image";
 import { EastChakraStat } from "./display/stat";
 import { EastChakraMetricChip } from "./display/metric-chip";
 import { EastChakraSliceSummary } from "./slice/summary";
@@ -214,6 +215,7 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
             Badge: (v) => <EastChakraBadge value={v} />,
             Tag: (v) => <EastChakraTag value={v} />,
             Avatar: (v) => <EastChakraAvatar value={v} />,
+            Image: (v) => <EastChakraImage value={v} />,
             Stat: (v) => <EastChakraStat value={v} storageKey={childKey(storageKey, "Stat")} />,
             MetricChip: (v) => <EastChakraMetricChip value={v} storageKey={childKey(storageKey, "MetricChip")} />,
             EditableChip: (v) => <EastChakraEditableChip value={v} storageKey={childKey(storageKey, "EditableChip")} />,

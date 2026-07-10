@@ -75,7 +75,7 @@ export { Navigation, Pages, NavBindHandleType, navBindPlatformFn, NavBindPrimiti
 export type {
     NavRoutes, NavRouteConfig, NavConfig, RouteVariantOf, NavHandleType, BoundNav, PageConstructors, PagesHandlers, PagesInput,
 } from "./navigation/index.js";
-export { Badge, Tag, Avatar, Stat, Icon, MetricChip, EditableChip, Kbd, Meter, SegmentedMeter, BarStrip, AvatarGroup, Trace, ChipRail, type IconName } from "./display/index.js";
+export { Badge, Tag, Avatar, Image, Stat, Icon, MetricChip, EditableChip, Kbd, Meter, SegmentedMeter, BarStrip, AvatarGroup, Trace, ChipRail, type IconName } from "./display/index.js";
 export { Card } from "./container/index.js";
 export { DataList, Matrix, Pagination, Table, TreeView, Gantt, Planner, Library, Roster, Board, Calendar, Schematic, Map, Blend } from "./collections/index.js";
 export { Chart } from "./charts/chart/index.js";
@@ -130,6 +130,7 @@ export * from "./feedback/banner/status-type.js";
 export * from "./feedback/banner/types.js";
 export * from "./feedback/progress/types.js";
 export * from "./display/avatar/types.js";
+export * from "./display/image/types.js";
 export * from "./display/badge/types.js";
 export * from "./display/stat/types.js";
 export * from "./display/tag/types.js";
