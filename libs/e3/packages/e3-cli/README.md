@@ -72,7 +72,8 @@ e3 dataflow run <repo> <ws> [--filter <p>] [--concurrency <n>] [--force] [-v]
 block to the task's logs (`e3 task logs <repo> <ws.task>`) — identical across
 east-node, east-py and east-c. It is a runtime-only toggle that never affects
 caching (a cached task stays cached; add `--force` to see the block for one).
-Also on `e3 run`, and on `e3 call` / `e3 mutate` for local repositories.
+Also on `e3 run`, `e3 call`, and `e3 mutate` — local and remote repositories
+(remote carries it as a `?verbose=1` query param).
 
 After a successful run, the CLI prints the task output paths so you can read them straight away:
 

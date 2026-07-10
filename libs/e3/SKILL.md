@@ -433,8 +433,9 @@ timing/perf block (Load / Compile / Execute / Output / Total + Peak RSS) — ide
 across east-node, east-py and east-c — to the task's logs (`e3 task logs <repo>
 <ws.task>`). Pure runtime toggle: it never changes task hashes or caching, so a
 cached task stays cached with or without it (add `--force` to see the block for
-an already-cached task). Same flag on `e3 run`, and on `e3 call` / `e3 mutate` for
-**local** repos (not yet wired over a remote HTTP repo).
+an already-cached task). Same flag on `e3 run`, `e3 call`, and `e3 mutate` —
+against **local and remote** repos (remote carries it as a `?verbose=1` query
+param; a server's `e3 task logs` / the call response surfaces the block).
 
 ### Ad-hoc Run
 

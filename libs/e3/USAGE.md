@@ -345,9 +345,9 @@ block (load, compile, execute, output, total + peak RSS) to the task's logs
 (`e3 task logs <repo> <ws>.<task>`). It is a pure runtime toggle: it never
 affects task hashes or caching, so a cached task stays cached whether or not you
 pass it — combine with `--force` to see the block for an already-cached task. The
-same flag works on `e3 run`, and on `e3 call` / `e3 mutate` for **local**
-repositories (`-v` over a remote HTTP repo is not yet wired). All three known
-runtimes (east-node, east-py, east-c) print the identical block.
+same flag works on `e3 run`, `e3 call`, and `e3 mutate`, against **local and
+remote** repositories (remote sends it as a `?verbose=1` query param). All three
+known runtimes (east-node, east-py, east-c) print the identical block.
 
 After a successful run, the CLI prints the resolved task output paths so you can read them straight away without having to walk the tree:
 
