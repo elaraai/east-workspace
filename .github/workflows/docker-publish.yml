@@ -332,3 +332,261 @@ jobs:
             EAST_C_CLI_VERSION=${{ steps.versions.outputs.east_c_cli }}
             EAST_PY_VERSION=${{ steps.versions.outputs.east_py }}
             EAST_PY_CACHEBUST=${{ github.run_id }}
+
+  build-east-py:
+    name: Build east-py (BUSL, no datascience)
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      version: ${{ steps.versions.outputs.version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Get package versions
+        id: versions
+        run: |
+          CHANNEL="${{ inputs.release_type || 'latest' }}"
+          echo "channel=${CHANNEL}" >> $GITHUB_OUTPUT
+
+          # Packages release in lockstep: pin to ONE version. Tag push -> the
+          # tag's version; dispatch -> explicit input; otherwise resolve the
+          # channel's current version from npm. @elaraai/east-c-cli is the npm
+          # proxy for the lockstep version of the PyPI east-py packages (the
+          # same convention build-e3 uses).
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            PINNED="${GITHUB_REF_NAME#v}"
+          else
+            PINNED="${{ inputs.version }}"
+          fi
+
+          if [[ -n "$PINNED" ]]; then
+            # Wait for npm propagation (tag push can race npm publish)
+            for i in $(seq 1 30); do
+              if npm view "@elaraai/east-c-cli@${PINNED}" version >/dev/null 2>&1; then break; fi
+              echo "Waiting for @elaraai/east-c-cli@${PINNED} on npm... ($i/30)"
+              sleep 10
+            done
+            npm view "@elaraai/east-c-cli@${PINNED}" version >/dev/null
+            VERSION="$PINNED"
+          elif [[ "$CHANNEL" == "beta" ]]; then
+            VERSION=$(npm view @elaraai/east-c-cli dist-tags.beta 2>/dev/null || npm view @elaraai/east-c-cli version)
+          else
+            VERSION=$(npm view @elaraai/east-c-cli version)
+          fi
+
+          echo "pinned=${PINNED}" >> $GITHUB_OUTPUT
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Lockstep version: ${VERSION}"
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/elaraai/east-py
+          tags: |
+            type=ref,event=tag
+            type=raw,value=${{ steps.versions.outputs.pinned }},enable=${{ steps.versions.outputs.pinned != '' }}
+            type=raw,value=${{ steps.versions.outputs.channel }},enable=true
+            type=raw,value=latest,enable=${{ inputs.release_type == 'latest' || github.ref_type == 'tag' }}
+            type=sha,prefix=
+
+      - name: Build and push east-py
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/images/Dockerfile.east-py
+          push: ${{ github.event_name != 'pull_request' && (github.event.inputs.push != 'false') }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            EAST_PY_VERSION=${{ steps.versions.outputs.version }}
+            EAST_PY_CACHEBUST=${{ github.run_id }}
+
+  build-east-py-datascience:
+    name: Build east-py-datascience (BUSL, FROM east-py)
+    # FROM-chained: consumes the east-py image this run just pushed.
+    needs: build-east-py
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/elaraai/east-py-datascience
+          tags: |
+            type=ref,event=tag
+            type=raw,value=${{ needs.build-east-py.outputs.version }},enable=true
+            type=raw,value=${{ inputs.release_type || 'latest' }},enable=true
+            type=raw,value=latest,enable=${{ inputs.release_type == 'latest' || github.ref_type == 'tag' }}
+            type=sha,prefix=
+
+      - name: Build and push east-py-datascience
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/images/Dockerfile.east-py-datascience
+          push: ${{ github.event_name != 'pull_request' && (github.event.inputs.push != 'false') }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            EAST_PY_VERSION=${{ needs.build-east-py.outputs.version }}
+            EAST_PY_CACHEBUST=${{ github.run_id }}
+
+  build-east-c:
+    name: Build east-c (BUSL)
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Get package versions
+        id: versions
+        run: |
+          CHANNEL="${{ inputs.release_type || 'latest' }}"
+          echo "channel=${CHANNEL}" >> $GITHUB_OUTPUT
+
+          # Packages release in lockstep: pin to ONE version. Tag push -> the
+          # tag's version; dispatch -> explicit input; otherwise resolve the
+          # channel's current version from npm. @elaraai/east-c-cli is the npm
+          # proxy for the lockstep version of the PyPI east-py packages (the
+          # same convention build-e3 uses).
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            PINNED="${GITHUB_REF_NAME#v}"
+          else
+            PINNED="${{ inputs.version }}"
+          fi
+
+          if [[ -n "$PINNED" ]]; then
+            # Wait for npm propagation (tag push can race npm publish)
+            for i in $(seq 1 30); do
+              if npm view "@elaraai/east-c-cli@${PINNED}" version >/dev/null 2>&1; then break; fi
+              echo "Waiting for @elaraai/east-c-cli@${PINNED} on npm... ($i/30)"
+              sleep 10
+            done
+            npm view "@elaraai/east-c-cli@${PINNED}" version >/dev/null
+            VERSION="$PINNED"
+          elif [[ "$CHANNEL" == "beta" ]]; then
+            VERSION=$(npm view @elaraai/east-c-cli dist-tags.beta 2>/dev/null || npm view @elaraai/east-c-cli version)
+          else
+            VERSION=$(npm view @elaraai/east-c-cli version)
+          fi
+
+          echo "pinned=${PINNED}" >> $GITHUB_OUTPUT
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Lockstep version: ${VERSION}"
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/elaraai/east-c
+          tags: |
+            type=ref,event=tag
+            type=raw,value=${{ steps.versions.outputs.pinned }},enable=${{ steps.versions.outputs.pinned != '' }}
+            type=raw,value=${{ steps.versions.outputs.channel }},enable=true
+            type=raw,value=latest,enable=${{ inputs.release_type == 'latest' || github.ref_type == 'tag' }}
+            type=sha,prefix=
+
+      - name: Build and push east-c
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/images/Dockerfile.east-c
+          push: ${{ github.event_name != 'pull_request' && (github.event.inputs.push != 'false') }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            EAST_C_CLI_VERSION=${{ steps.versions.outputs.version }}
+
+  images-complete:
+    name: Verify complete tier set
+    # The release gate (elaraai/east-workspace#299): a version must never ship
+    # with a partial tier set — e3-cloud keys derived artifacts by
+    # (envHash, e3Version) and assumes EVERY tier base exists at that version.
+    # Verifies each image resolves anonymously (also catches a ghcr package
+    # accidentally left Private — a private base 401s at FROM).
+    needs: [build-east-node, build-e3, build-east-py, build-east-py-datascience, build-east-c]
+    if: ${{ github.event_name != 'pull_request' && (github.event.inputs.push != 'false') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Inspect all image manifests anonymously
+        run: |
+          VERSION="${{ needs.build-east-py.outputs.version }}"
+          echo "Verifying all five images at :${VERSION} (anonymous pulls)"
+          docker logout ghcr.io 2>/dev/null || true
+          FAILED=0
+          for IMAGE in east-node e3 east-py east-py-datascience east-c; do
+            if docker manifest inspect "ghcr.io/elaraai/${IMAGE}:${VERSION}" >/dev/null 2>&1; then
+              echo "  OK   ghcr.io/elaraai/${IMAGE}:${VERSION}"
+            else
+              echo "  FAIL ghcr.io/elaraai/${IMAGE}:${VERSION} — missing, or the ghcr package is Private (anonymous pull 401s)"
+              FAILED=1
+            fi
+          done
+          exit $FAILED

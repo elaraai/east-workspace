@@ -1,0 +1,66 @@
+# East Python Runtime (BUSL-1.1 + AGPL-3.0)
+# Python runtime for East programs — east-py + std + io, NO datascience.
+#
+# This is the slim python cloud tier (elaraai/east-workspace#299): the
+# datascience stack (torch, sklearn, pymc, …) is what makes the `e3`
+# everything-image multi-GB, so it lives in the east-py-datascience image
+# (FROM this one) and is only pulled when a task actually uses it. The node
+# base provides the runtime shims cloud runners layer on top (aws-lambda-ric
+# et al); no node East packages are installed — an east_py task needs only
+# the python runtime.
+#
+# License: Contains BUSL-1.1 components - production use requires commercial license
+# See: https://github.com/elaraai/e3/blob/main/LICENSE.md
+#
+# Usage:
+#   docker build -f Dockerfile.east-py -t ghcr.io/elaraai/east-py .
+#   docker run --rm -v $(pwd):/workspace ghcr.io/elaraai/east-py east-py run program.east
+
+FROM node:22-slim AS base
+
+LABEL org.opencontainers.image.source="https://github.com/elaraai/east-workspace"
+LABEL org.opencontainers.image.description="East Python Runtime (no datascience) - BUSL-1.1 + AGPL-3.0"
+LABEL org.opencontainers.image.licenses="BUSL-1.1 AND AGPL-3.0"
+
+# Python east-py (PyPI), pinned to the lockstep release so the runtime
+# evaluates the same-version IR the release's compiler emits.
+ARG EAST_PY_VERSION
+ENV EAST_PY_VERSION=${EAST_PY_VERSION:-latest}
+
+# System dependencies: python toolchain (python3-dev + gcc for Cython/numba
+# extension builds) mirrors Dockerfile.e3's python setup.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    git \
+    curl \
+    python3 \
+    python3-pip \
+    python3-venv \
+    python3-dev \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv for Python package management
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.local/bin:$PATH"
+
+# Create Python virtual environment
+RUN python3 -m venv /opt/venv
+ENV VIRTUAL_ENV="/opt/venv"
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Set working directory
+WORKDIR /workspace
+
+# Cache-bust knob for the version-pinned PyPI install in install-packages.sh
+# (see Dockerfile.e3).
+ARG EAST_PY_CACHEBUST=0
+
+# Copy and run install script (python packages minus datascience)
+COPY docker/images/install-packages.sh /tmp/install-packages.sh
+RUN chmod +x /tmp/install-packages.sh && \
+    /tmp/install-packages.sh --py-only && \
+    rm /tmp/install-packages.sh
+
+# Default command
+CMD ["bash"]

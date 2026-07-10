@@ -6,14 +6,20 @@
 #   EAST_VERSION, EAST_NODE_STD_VERSION, EAST_NODE_IO_VERSION,
 #   EAST_NODE_CLI_VERSION, EAST_UI_VERSION, E3_VERSION, etc.
 #
-# Flags:
-#   --node-only    Only install Node.js packages (skip Python)
+# Flags (each selects one image's package set; default = the e3 everything image):
+#   --node-only    Node.js packages only (east-node image: no Python, no east-c)
+#   --py-only      Python packages minus datascience (east-py image: no Node
+#                  East packages, no east-c; datascience is the
+#                  east-py-datascience image's own FROM-layer)
+#   --c-only       east-c binary only (east-c image)
 #   --skip-verify  Skip verification step
 
 set -e
 
 # Parse arguments
+INSTALL_NODE=true
 INSTALL_PYTHON=true
+INSTALL_DATASCIENCE=true
 INSTALL_EAST_C=true
 VERIFY=true
 
@@ -21,7 +27,12 @@ for arg in "$@"; do
     case $arg in
         # --node-only = the minimal AGPL east-node image: Node packages only,
         # no Python and no native east-c runtime.
-        --node-only) INSTALL_PYTHON=false; INSTALL_EAST_C=false ;;
+        --node-only) INSTALL_PYTHON=false; INSTALL_DATASCIENCE=false; INSTALL_EAST_C=false ;;
+        # --py-only = the slim BUSL east-py image: python runtime without the
+        # multi-GB datascience stack (elaraai/east-workspace#299).
+        --py-only) INSTALL_NODE=false; INSTALL_DATASCIENCE=false; INSTALL_EAST_C=false ;;
+        # --c-only = the tiny BUSL east-c image: just the prebuilt evaluator.
+        --c-only) INSTALL_NODE=false; INSTALL_PYTHON=false; INSTALL_DATASCIENCE=false ;;
         --skip-verify) VERIFY=false ;;
     esac
 done
@@ -45,26 +56,28 @@ EAST_PY_VERSION="${EAST_PY_VERSION:-latest}"
 
 echo "Installing East packages..."
 
-# Install Node.js packages (AGPL)
-echo "Installing Node.js packages..."
-npm install -g \
-    typescript \
-    @types/node \
-    "@elaraai/east@${EAST_VERSION}" \
-    "@elaraai/east-node-std@${EAST_NODE_STD_VERSION}" \
-    "@elaraai/east-node-io@${EAST_NODE_IO_VERSION}" \
-    "@elaraai/east-node-cli@${EAST_NODE_CLI_VERSION}" \
-    "@elaraai/east-ui@${EAST_UI_VERSION}"
+if [ "$INSTALL_NODE" = true ]; then
+    # Install Node.js packages (AGPL)
+    echo "Installing Node.js packages..."
+    npm install -g \
+        typescript \
+        @types/node \
+        "@elaraai/east@${EAST_VERSION}" \
+        "@elaraai/east-node-std@${EAST_NODE_STD_VERSION}" \
+        "@elaraai/east-node-io@${EAST_NODE_IO_VERSION}" \
+        "@elaraai/east-node-cli@${EAST_NODE_CLI_VERSION}" \
+        "@elaraai/east-ui@${EAST_UI_VERSION}"
 
-# Install e3 Node.js packages (BSL + AGPL)
-echo "Installing e3 packages..."
-npm install -g \
-    "@elaraai/e3@${E3_VERSION}" \
-    "@elaraai/e3-types@${E3_TYPES_VERSION}" \
-    "@elaraai/e3-core@${E3_CORE_VERSION}" \
-    "@elaraai/e3-cli@${E3_CLI_VERSION}" \
-    "@elaraai/e3-api-client@${E3_API_CLIENT_VERSION}" \
-    "@elaraai/e3-api-server@${E3_API_SERVER_VERSION}"
+    # Install e3 Node.js packages (BSL + AGPL)
+    echo "Installing e3 packages..."
+    npm install -g \
+        "@elaraai/e3@${E3_VERSION}" \
+        "@elaraai/e3-types@${E3_TYPES_VERSION}" \
+        "@elaraai/e3-core@${E3_CORE_VERSION}" \
+        "@elaraai/e3-cli@${E3_CLI_VERSION}" \
+        "@elaraai/e3-api-client@${E3_API_CLIENT_VERSION}" \
+        "@elaraai/e3-api-server@${E3_API_SERVER_VERSION}"
+fi
 
 # Install native east-c from the published npm package (same artifact `npm
 # create` projects use). The @elaraai/east-c-cli meta-package pulls the
@@ -102,6 +115,7 @@ fi
 # not. All @elaraai packages are the same lockstep version, so collapse every
 # nested copy to a symlink to its top-level copy → exactly one instance of each.
 NM="$(npm root -g)"
+if [ -d "$NM/@elaraai" ]; then
 echo "Deduplicating @elaraai packages under ${NM}..."
 for top in "$NM"/@elaraai/*; do
     [ -d "$top" ] || continue
@@ -112,6 +126,7 @@ for top in "$NM"/@elaraai/*; do
         ln -sfn "$canon" "$nested"
     done
 done
+fi
 
 # Install Python packages if requested
 if [ "$INSTALL_PYTHON" = true ]; then
@@ -128,8 +143,13 @@ if [ "$INSTALL_PYTHON" = true ]; then
             "elaraai-east-py${EAST_PY_PIN}" \
             "elaraai-east-py-std${EAST_PY_PIN}" \
             "elaraai-east-py-io[all]${EAST_PY_PIN}" \
-            "elaraai-east-py-datascience[all]${EAST_PY_PIN}" \
             "elaraai-east-py-cli${EAST_PY_PIN}"
+        # The datascience stack (torch, sklearn, pymc, …) is what makes an
+        # image multi-GB — the slim east-py image skips it; the
+        # east-py-datascience image adds it as its own FROM-layer.
+        if [ "$INSTALL_DATASCIENCE" = true ]; then
+            uv pip install "elaraai-east-py-datascience[all]${EAST_PY_PIN}"
+        fi
     else
         echo "Warning: uv not found, skipping Python packages"
     fi
@@ -138,8 +158,10 @@ fi
 # Verify installations
 if [ "$VERIFY" = true ]; then
     echo "Verifying installations..."
-    npx @elaraai/east-node-cli --version || echo "east-node-cli installed"
-    e3 --version || echo "e3-cli installed"
+    if [ "$INSTALL_NODE" = true ]; then
+        npx @elaraai/east-node-cli --version || echo "east-node-cli installed"
+        e3 --version || echo "e3-cli installed"
+    fi
     if [ "$INSTALL_EAST_C" = true ]; then
         east-c --help >/dev/null 2>&1 && echo "east-c installed" || echo "east-c NOT installed"
     fi

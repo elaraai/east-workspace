@@ -1,0 +1,41 @@
+# East Python Datascience Runtime (BUSL-1.1 + AGPL-3.0)
+# east-py + std + io PLUS the stock datascience platform (torch,
+# pytorch-lightning, xgboost, lightgbm, scipy, sklearn, shap, pymc, optuna).
+#
+# Built FROM the slim east-py image as ONE added layer, so registries (ghcr,
+# ECR) dedup the shared base — pulling this image only adds the datascience
+# delta on top of an east-py already present (elaraai/east-workspace#299).
+#
+# License: Contains BUSL-1.1 components - production use requires commercial license
+# See: https://github.com/elaraai/e3/blob/main/LICENSE.md
+#
+# Usage:
+#   docker build -f Dockerfile.east-py-datascience -t ghcr.io/elaraai/east-py-datascience .
+#   docker run --rm -v $(pwd):/workspace ghcr.io/elaraai/east-py-datascience east-py run program.east
+
+# The base MUST be the same lockstep version this layer installs — the two
+# resolve to one coherent python environment. BASE_IMAGE is overridable for
+# CI smoke builds (point it at a locally-built east-py tag).
+ARG EAST_PY_VERSION=latest
+ARG BASE_IMAGE=ghcr.io/elaraai/east-py:${EAST_PY_VERSION}
+FROM ${BASE_IMAGE}
+
+LABEL org.opencontainers.image.source="https://github.com/elaraai/east-workspace"
+LABEL org.opencontainers.image.description="East Python Datascience Runtime - BUSL-1.1 + AGPL-3.0"
+LABEL org.opencontainers.image.licenses="BUSL-1.1 AND AGPL-3.0"
+
+# Re-declare after FROM (args before FROM are not in the build stage scope).
+ARG EAST_PY_VERSION=latest
+# Cache-bust knob for the version-pinned PyPI install (see Dockerfile.e3).
+ARG EAST_PY_CACHEBUST=0
+
+# The single datascience layer. "latest" means no version constraint
+# (dev/local convenience) — releases always pin.
+RUN if [ "$EAST_PY_VERSION" = "latest" ]; then \
+      uv pip install "elaraai-east-py-datascience[all]"; \
+    else \
+      uv pip install "elaraai-east-py-datascience[all]==${EAST_PY_VERSION}"; \
+    fi
+
+# Default command
+CMD ["bash"]
