@@ -13,6 +13,7 @@ describeEast("NavList", (test) => {
         navListBasic: ex.navListBasic,
         navListGrouped: ex.navListGrouped,
         navListWithIcons: ex.navListWithIcons,
+        navListShellSurface: ex.navListShellSurface,
         navListReactive: ex.navListReactive,
     });
 
@@ -73,5 +74,20 @@ describeEast("NavList", (test) => {
     test("onSelect absent when not provided", $ => {
         const r = $.let(NavList.Root([{ items: [{ key: "x", label: "X" }] }]));
         $(Assert.equal(r.unwrap().unwrap("NavList").onSelect.hasTag("none"), true));
+    });
+
+    test("surface round-trips", $ => {
+        const r = $.let(NavList.Root([{ items: [{ key: "x", label: "X" }] }], { surface: "shell" }));
+        $(Assert.equal(r.unwrap().unwrap("NavList").surface.unwrap("some").hasTag("shell"), true));
+    });
+
+    test("surface absent when not provided", $ => {
+        const r = $.let(NavList.Root([{ items: [{ key: "x", label: "X" }] }]));
+        $(Assert.equal(r.unwrap().unwrap("NavList").surface.hasTag("none"), true));
+    });
+
+    test("background round-trips", $ => {
+        const r = $.let(NavList.Root([{ items: [{ key: "x", label: "X" }] }], { background: "bg.subtle" }));
+        $(Assert.equal(r.unwrap().unwrap("NavList").background.unwrap("some"), "bg.subtle"));
     });
 }, { platformFns: TestImpl });

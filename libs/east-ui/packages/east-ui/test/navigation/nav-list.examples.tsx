@@ -79,6 +79,30 @@ export const navListWithIcons = example({
     inputs: [],
 });
 
+export const navListShellSurface = example({
+    keywords: ["NavList", "surface", "shell", "background", "app-shell", "sidebar"],
+    description: "App-shell sidebar — chrome-less shell surface with a host rail background",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <NavList
+                surface="shell"
+                background="bg.subtle"
+                sections={[
+                    {
+                        label: "Winemaking",
+                        items: [
+                            { key: "overview", label: "Overview", icon: { prefix: "fas", name: "gauge" }, active: true },
+                            { key: "batches", label: "Batches", icon: { prefix: "fas", name: "flask" } },
+                            { key: "audit", label: "Audit trail", icon: { prefix: "fas", name: "list" } },
+                        ],
+                    },
+                ]}
+            />
+        );
+    }),
+    inputs: [],
+});
+
 export const navListReactive = example({
     keywords: ["NavList", "Reactive", "State", "onSelect", "interactive"],
     description: "Reactive nav list — clicking an item updates State and re-renders the active highlight + selected-key display",

@@ -1,14 +1,14 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1447,
+    "totalEntries": 1448,
     "totalFiles": 183,
     "packages": {
       "east": 490,
       "east-node-std": 42,
       "east-node-io": 63,
       "east-py-datascience": 89,
-      "east-ui": 689,
+      "east-ui": 690,
       "e3-ui": 58,
       "e3": 7,
       "e3-ui-cli": 4,
@@ -25232,6 +25232,28 @@
         "import { NavList, VStack, Text, Reactive } from \"@elaraai/east-ui\";"
       ],
       "source": "// Items with leading icons\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <NavList sections={[\n                {\n                    items: [\n                        { key: \"dashboard\", label: \"Dashboard\", icon: { prefix: \"fas\", name: \"gauge\" }, active: true },\n                        { key: \"orders\", label: \"Orders\", icon: { prefix: \"fas\", name: \"list\" }, badge: \"12\" },\n                        { key: \"settings\", label: \"Settings\", icon: { prefix: \"fas\", name: \"gear\" } },\n                    ],\n                },\n            ]} />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:nav-list.examples.tsx:navListShellSurface",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/navigation/nav-list.examples.tsx",
+      "suite": "",
+      "test": "App-shell sidebar — chrome-less shell surface with a host rail background",
+      "keywords": [
+        "NavList",
+        "surface",
+        "shell",
+        "background",
+        "app-shell",
+        "sidebar"
+      ],
+      "imports": [
+        "import { East, NullType, StringType, example } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { NavList, VStack, Text, Reactive } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// App-shell sidebar — chrome-less shell surface with a host rail background\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <NavList\n                surface=\"shell\"\n                background=\"bg.subtle\"\n                sections={[\n                    {\n                        label: \"Winemaking\",\n                        items: [\n                            { key: \"overview\", label: \"Overview\", icon: { prefix: \"fas\", name: \"gauge\" }, active: true },\n                            { key: \"batches\", label: \"Batches\", icon: { prefix: \"fas\", name: \"flask\" } },\n                            { key: \"audit\", label: \"Audit trail\", icon: { prefix: \"fas\", name: \"list\" } },\n                        ],\n                    },\n                ]}\n            />\n        );\n    })"
     },
     {
       "id": "east-ui:nav-list.examples.tsx:navListReactive",
