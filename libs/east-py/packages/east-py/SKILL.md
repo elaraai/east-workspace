@@ -64,11 +64,14 @@ real numpy/scipy/torch/solver op) — cross via `to_numpy()`/`to_torch()`
 (zero-copy for tensors) and wrap the result back. Bare scalars stay plain Python
 — an East `Float` *is* a `float`; don't wrap a running sum in an `EastRef`.
 
-The largest wins are the **callback-free** ops (`sort`/`sorted`, `unique`,
-`union`/`intersect`/`diff`, `concat`, `group_by`, `merge`, `to_dict`/`to_set`,
-`find_sorted_*`) — east-c does the whole loop. `map`/`filter`/`fold` still run
-your lambda per element in Python, but the container work around it is C and you
-skip the conversion round trips, so they still beat a hand-rolled Python loop.
+The callback-free ops (`sort`/`sorted`, `unique`, `union`/`intersect`/`diff`,
+`concat`, `group_by`, `merge`, `to_dict`/`to_set`, `find_sorted_*`) always run
+the whole loop in east-c. And `map`/`filter`/`fold`/… callbacks are **traced
+into native East kernels automatically when the lambda is pure** (see
+[Kernels](#kernels--pure-lambdas-run-natively-ir-push-down)) — a lambda like
+`lambda r: r.price * r.qty` never executes per element; a lambda that does real
+python work falls back to the per-element callback path, which still beats a
+hand-rolled Python loop.
 
 ### Anti-patterns → do this instead
 
@@ -98,6 +101,102 @@ def totals_by_region(items):
         .map(lambda rows: rows.fold(0.0, lambda acc, r: acc + r["amount"])) # Dict<region, total>
         .to_array(lambda region, total: struct({"region": region, "total": total}, Row)))
 ```
+
+## Kernels — pure lambdas run natively (IR push-down)
+
+Eager callback methods accept three kinds of function, all with the same
+syntax, fastest first:
+
+1. **A pure python lambda — traced automatically.** The method calls your
+   lambda ONCE with typed expression proxies (exactly like a TS
+   `East.function` builder); field access, arithmetic, comparisons and
+   boolean algebra record East IR, east-c compiles it, and the loop AND the
+   kernel execute natively — zero python per element (~5× a per-element
+   callback on a 300k-row map, and it composes with chaining):
+
+   ```python
+   rows    = EastBlob(csv_bytes).decode_csv(Row)          # C-backed Array<Row>
+   amounts = rows.map(lambda r: r.price * r.qty)          # traced -> native
+   hot     = rows.filter(lambda r: (r.sku == "A-1") & (r.price > 100.0))
+   total   = rows.fold(0.0, lambda acc, r: acc + r.price) # multi-param traces too
+   by_sku  = rows.group_by(lambda r: r.sku)               # fully native grouping
+   top     = rows.sorted(key=lambda r: -r.price)
+   spend   = rows.to_dict(key=lambda r: r.sku,
+                          value=lambda r: r.price * r.qty,
+                          combine=lambda a, b: a + b)
+   ```
+
+2. **A precompiled kernel** — `east.kernel(param_types, fn)` traces now and
+   returns a reusable compiled callable (it also raises `KernelTraceError`
+   instead of silently falling back — use it when you need to *know* you're
+   native, or to hoist compilation out of a loop). Compiled East functions
+   loaded from elsewhere (`compile_from_beast2/json/east`) are accepted the
+   same way:
+
+   ```python
+   from east import kernel, where, FloatType
+
+   amount = kernel(Row, lambda r: r.price * r.qty)     # compile once
+   for blob in batches:
+       out = blob.decode_csv(Row).map(amount)          # reuse — no re-trace
+
+   step = kernel([FloatType, Row], lambda acc, r: acc + r.price)  # fold arity
+   k = compile_from_beast2(bytes_)                     # kernel compiled in TS
+   ```
+
+3. **Any other python callable** — runs per element exactly as before
+   (east-c drives the loop and calls back into python each iteration).
+
+**Tracing rules** (what makes a lambda "pure" enough to trace):
+
+- Reference only the lambda's parameters, plain scalar constants
+  (closure floats/ints/strings are baked — same value per element either
+  way), East types/values, and `where`. Any module reference
+  (`random.…`, `np.…`), mutable closure, callable helper that itself
+  fails these rules, or closure mutation (`nonlocal x; x += 1`)
+  **disables tracing** — the python path runs and semantics are exactly
+  today's. Side effects therefore never get lost: an impure lambda runs
+  per element; a traced lambda ran once, at trace time.
+- Python won't let a library overload `and`/`or`/`not`/`if`, so traced
+  kernels use `&`, `|`, `~` (parenthesised, pandas-style) and
+  `where(cond, then, otherwise)` for conditionals. `where` is dual-mode:
+  eager on plain values, an East `IfElse` on traced expressions — the same
+  lambda works on both paths.
+- Arithmetic follows East types exactly: no implicit Integer↔Float mixing
+  (`.to_float()` / `.to_integer()` convert), `//` is East IntegerDivide,
+  `/` is Float division. Struct fields read as attributes or items
+  (`r.price` / `r["price"]` — both trace, and both work on real rows).
+- Each eager call re-traces (compilation is a few µs — amortised over the
+  loop); hoist a `kernel(...)` if you call the same lambda in a tight
+  python loop.
+
+## Columnar escape hatches — when the logic must stay python
+
+When per-element logic genuinely needs python (numpy, a model, an external
+library), don't touch rows one at a time — cross the boundary **once per
+column** instead of once per row × field:
+
+```python
+cols = rows.to_columns()          # {"price": np.float64[...], "qty": np.int64[...],
+                                  #  "sku": [str, ...] (interned), ...} — one crossing/column
+amount = cols["price"] * cols["qty"].astype(np.float64)     # vectorised numpy
+out = EastArray.from_columns(Out, {"sku": cols["sku"], "amount": amount})
+
+result = rows.map_batches(f, out=Out, batch_size=50_000)    # f sees columnar chunks;
+                                                            # batches may shrink (filter-like)
+
+acc = EastDict(StringType, FloatType)                       # dicts as accumulators:
+acc.update_many(keys, values, combine=lambda cur, new: cur + new)  # one crossing,
+                                                            # combine traces -> collisions in C
+arr.extend(np_array)                                        # bulk push, one crossing
+```
+
+`Float`/`Integer`/`Boolean` columns move through numpy buffers filled in C
+(`Option<Float>` ↔ float64 with NaN for `none`); `String` columns box once
+through a bounded intern table (repeated categories/ids come back as the
+same python object); other field types fall back to boxed lists. Composition
+rule: **kernels for East-expressible transforms, columns/batches for the
+genuinely-python remainder.**
 
 ### Put the logic in the platform function, not a pure-Python shim
 
@@ -175,16 +274,20 @@ Task → What do you need?
     │   ├─ Boolean check → is_value_of(value, typ)
     │   └─ Infer a value's type → type_of(value)
     │
-    ├─ Transform a value (eager — runs NOW in east-c; results stay C-side and chain)
+    ├─ Transform a value (eager — runs NOW in east-c; results stay C-side and chain;
+    │   pure lambdas trace into NATIVE kernels — see “Kernels” — and east.kernel()/where() author them explicitly)
     │   ├─ Array<T>      → access · sort/sorted/reverse · slice/concat · map/filter/filter_map/for_each ·
     │   │                  fold/map_reduce · group_by/to_dict/to_set/unique · find_*/first_map/is_sorted ·
-    │   │                  flatten_to_* · string_join/copy · (mutate) append/extend/insert/pop/remove/clear
+    │   │                  flatten_to_* · string_join/copy · (mutate) append/extend(bulk)/insert/pop/remove/clear ·
+    │   │                  (columnar) to_columns/from_columns/map_batches
     │   ├─ Set<T>        → union/intersect/diff/sym_diff/is_subset/is_disjoint · map(→Dict)/filter/reduce ·
     │   │                  to_array/to_dict/group_fold · (mutate) add/remove/discard/clear
     │   ├─ Dict<K,V>     → d[k]/get/has · merge · map(value)/filter(key,value)/reduce(acc,key,value) ·
-    │   │                  keys_set/to_array/to_set/group_fold · (mutate) d[k]=v/update/insert_or_update/pop
+    │   │                  keys_set/to_array/to_set/group_fold · (mutate) d[k]=v/update/insert_or_update/pop ·
+    │   │                  (bulk) update_many(keys, values, combine)
     │   ├─ Vector/Matrix → get/set(→new)/slice/concat/map/fold · transpose/get_row/get_col · to_array/to_matrix
-    │   └─ Blob          → size/get_uint8 · decode_utf8/utf16 · encode_beast2/decode_beast2/decode_csv
+    │   └─ Blob          → size/get_uint8 · decode_utf8/utf16 · encode_beast2/decode_beast2 ·
+    │                      decode_csv(row_type, csv_parse_config(null_strings=…, defaults=…, …))
     │
     ├─ A scalar/primitive builtin (you can't method-call a float/int/str/bool/datetime)
     │   ├─ Numeric → East.Float.<op> / East.Integer.<op>
@@ -209,8 +312,13 @@ Task → What do you need?
   their East element types; scalars are plain `int`/`float`/`str`/`bool`/`datetime`
   (East `Float` *is* a Python `float`, `Integer` *is* a Python `int`, …).
 - **Eager methods delegate to east-c.** `arr.sort()` / `arr.map(fn)` run immediately
-  in the native runtime — no IR, no compile. Collection results come back as live
-  east-c-backed values, so `arr.map(f).filter(g).sorted()` stays C-side.
+  in the native runtime. Collection results come back as live east-c-backed values,
+  so `arr.map(f).filter(g).sorted()` stays C-side.
+- **Pure lambdas become native kernels.** Callback methods trace pure lambdas into
+  East IR (once, at call time) and run loop + kernel entirely in east-c; impure
+  lambdas keep exact per-element python semantics. `east.kernel(...)` compiles one
+  explicitly (loud on untraceable) and `east.where(cond, a, b)` is the traced
+  conditional.
 - **Methods vs namespaces.** You can't attach methods to Python's `float`/`int`/
   `str`/`bool`/`datetime`, so their builtins live on the `East.<Type>` namespaces.
   Everything else (the containers + `EastBlob`) has real methods.
@@ -276,9 +384,11 @@ Container constructors are also direct: `EastArray(elem, items=None)`, `EastSet(
 ### EastArray — complete method surface
 
 Eager; results are live east-c-backed values that chain. `arr[i]`, `len(arr)`, `for x in arr`
-work via the sequence protocol. Callbacks receive **decoded East values** and their return is
-coerced to the East result type — pass `out`/`element_type` when the result type can't be sampled
-from the first element (empty input, or a widening map). `.element_type` is the logical element type.
+work via the sequence protocol. Callback methods accept a python lambda (pure → traced into a
+native kernel; impure → per-element python) or a precompiled `east.kernel(...)`. Python-path
+callbacks receive **decoded East values** and their return is coerced to the East result type —
+pass `out`/`element_type` when the result type can't be sampled from the first element (empty
+input, or a widening map). `.element_type` is the logical element type.
 
 | Group | Methods |
 |-------|----------------------|
@@ -290,8 +400,9 @@ from the first element (empty input, or a widening map). `.element_type` is the 
 | Group & index | `group_by(key(el)) -> Dict` · `to_dict(key(el), value=None, combine=None) -> Dict` · `to_set(key=None) -> Set` · `unique() -> Set` |
 | Search | `find_first(target, key=None) -> some/none` · `find_sorted_first/last(target, key=None) -> int` · `find_sorted_range(target, key=None) -> {start,end}` · `first_map(fn(el)->some/none, out=None)` · `is_sorted(key=None) -> bool` |
 | Flatten | `flatten_to_array(fn(el)->arr, out=None)` · `flatten_to_set(fn(el)->arr, out=None)` · `flatten_to_dict(fn(el)->dict, combine=None)` |
+| Columnar | `to_columns(fields=None) -> dict` (numpy per numeric/bool column, `Option<Float>`→NaN, interned strings) · `EastArray.from_columns(element_type, columns)` *(static)* · `map_batches(fn(cols)->cols, out=None, batch_size=100_000)` |
 | Convert | `string_join(sep) -> str` (String arrays) |
-| Mutate (in place) | `append(item)` · `extend(items)` · `insert(i, item)` · `pop(i=-1)` · `remove(item)` · `clear()` · `count(value) -> int` · `index(value) -> int` |
+| Mutate (in place) | `append(item)` · `extend(items)` (bulk: one crossing; C-to-C for same-type East arrays, raw buffers for numpy) · `insert(i, item)` · `pop(i=-1)` · `remove(item)` · `clear()` · `count(value) -> int` · `index(value) -> int` |
 
 ### EastSet — complete method surface
 
@@ -326,6 +437,7 @@ take `fn(key, value)`; `reduce` takes `fn(acc, key, value)`; collision `combine`
 | Flatten | `flatten_to_array(fn(key, value)->arr)` · `flatten_to_set(fn(key, value)->set)` · `flatten_to_dict(fn(key, value)->dict, combine(existing, incoming, key))` |
 | Convert | `keys_set() -> Set` · `to_array(fn(key, value), out=None)` · `to_set(fn(key, value), out=None)` · `to_dict(key_fn, value_fn, combine(existing, incoming, new_key), key_out=None, value_out=None)` · `copy()` |
 | Mutate (in place) | `d[k]=v` · `del d[k]` · `insert(k, v)` · `get_or_insert(k, fn(k))` · `insert_or_update(k, v, combine(existing, incoming, k))` · `update(k, fn(current))` · `swap(k, v) -> prev` · `delete(k)` · `try_delete(k) -> bool` · `pop(k, *default)` · `clear()` |
+| Bulk (in place) | `update_many(keys, values, combine(existing, incoming)=None)` — the whole batch crosses once; a pure/precompiled `combine` resolves collisions C-to-C (dicts as hot-loop accumulators) |
 
 ### EastVector — complete method surface
 
@@ -374,12 +486,13 @@ key. Construct via the `EastMatrix.*` classmethods (see [Container generators](#
 | `decode_utf8() -> str` / `decode_utf16() -> str` | Text decode |
 | `EastBlob.encode_beast2(value) -> EastBlob` *(static)* | Serialize an East value to BEAST2 (type inferred via `type_of`) |
 | `decode_beast2(typ) -> value` | Decode BEAST2 as `typ` |
-| `decode_csv(element_type, config=None) -> EastArray` | Decode CSV rows into `Array<element_type>` |
+| `decode_csv(element_type, config=None) -> EastArray` | Decode CSV rows into `Array<element_type>` (east-c decoder). Build `config` with `east.serialization.csv.csv_parse_config(...)`: by default **no field text is null** (empty field == empty string); opt in with `null_strings=[""]` (`none` for Option columns, error for required); `defaults={"qty": "0.0"}` gives per-column fallbacks for unparseable fields and constant-fill for absent columns |
 
 ### EastStruct / EastVariant / EastRef
 
-- **`EastStruct`** — frozen record; read fields by name: `s["price"]`. Build/transform with
-  `struct({...}, StructType)`.
+- **`EastStruct`** — frozen record; read fields by name: `s["price"]` or as an
+  attribute, `s.price` (methods shadow same-named fields — item access always
+  works). Build/transform with `struct({...}, StructType)`.
 - **`EastVariant`** — frozen tagged value; `.type` is the case name, `.value` the payload.
   Build with `variant(case, value, T)` / `some` / `none`; dispatch with `match`.
 - **`EastRef`** — mutable cell: `get()` · `set(value)` · `update(fn(current))` ·
