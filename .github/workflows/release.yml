@@ -232,7 +232,7 @@ jobs:
       - name: Install
         run: pnpm install
       - name: Upgrade npm for trusted publishing
-        run: npm install -g npm@latest
+        run: npm install -g npm@11 # pin: npm 12.0.0's `publish --provenance` can't require sigstore; stay on the last-good major (cf. .nvmrc node pin)
       - name: Build east
         working-directory: libs/east
         run: make build
@@ -293,6 +293,11 @@ jobs:
       - name: Build e3
         working-directory: libs/e3
         run: make build
+      - name: Build east-py-datascience TypeScript
+        # e3-ui's Experiment tests import @elaraai/east-py-datascience; its .d.ts
+        # must exist before east-ui builds (publish-npm already does this).
+        working-directory: libs/east-py/packages/east-py-datascience
+        run: pnpm run build
       - name: Build east-ui
         working-directory: libs/east-ui
         run: make build
@@ -624,7 +629,7 @@ jobs:
           cache: "pnpm"
           registry-url: "https://registry.npmjs.org"
       - name: Upgrade npm for trusted publishing
-        run: npm install -g npm@latest
+        run: npm install -g npm@11 # pin: npm 12.0.0's `publish --provenance` can't require sigstore; stay on the last-good major (cf. .nvmrc node pin)
       - name: Publish per-platform packages
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
