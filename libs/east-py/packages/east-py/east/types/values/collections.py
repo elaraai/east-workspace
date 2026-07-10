@@ -410,9 +410,16 @@ class EastArray(MutableSequence, Generic[T]):
         Returns:
             A new array of the matching elements in original order.
         """
+        from east.kernel import KernelExpr
         from east.types.types import ArrayType, BooleanType, IntegerType
 
-        callback = EastFunction(lambda el, idx: bool(predicate(el)), [self.element_type, IntegerType], BooleanType)
+        # bool() coerces python truthiness only — a traced predicate stays a
+        # Boolean expression so pure lambdas push down into east-c
+        def _pred(el, _idx):  # noqa: ANN001, ANN202
+            r = predicate(el)
+            return r if isinstance(r, KernelExpr) else bool(r)
+
+        callback = EastFunction(_pred, [self.element_type, IntegerType], BooleanType)
         return _call_builtin("ArrayFilter", [self.element_type], [self, callback], ArrayType(self.element_type))
 
     def filter_map(self, fn: Any, out: EastType | None = None) -> EastArray:
@@ -596,6 +603,7 @@ class EastArray(MutableSequence, Generic[T]):
             A dict mapping each group key to an array of its elements, with keys
             in East total order.
         """
+        from east.kernel import _append_kernel, _empty_array_kernel, try_push_down
         from east.types.types import ArrayType, DictType, IntegerType
 
         bucket_type = ArrayType(self.element_type)
@@ -603,13 +611,28 @@ class EastArray(MutableSequence, Generic[T]):
             return EastDict(self.element_type, bucket_type)
         k2 = _ev.type_of(key(self[0]))
 
+        # ArrayGroupFold callbacks carry the element index: key(elem, idx),
+        # init(group_key), fold(acc, elem, idx).
+        key_cb = EastFunction(lambda el, _idx: key(el), [self.element_type, IntegerType], k2)
+
+        # When the key traces to a native kernel, pair it with hand-built
+        # init/append kernels so the whole grouping runs inside east-c (the
+        # internal python init/append lambdas would otherwise trampoline
+        # per element even with a native key).
+        native_key = try_push_down(key_cb)
+        if native_key is not None:
+            return _call_builtin(
+                "ArrayGroupFold",
+                [self.element_type, k2, bucket_type],
+                [self, native_key, _empty_array_kernel(k2, self.element_type),
+                 _append_kernel(self.element_type)],
+                DictType(k2, bucket_type),
+            )
+
         def _append(acc: EastArray, el: Any, _idx: int) -> EastArray:
             acc.append(el)
             return acc
 
-        # ArrayGroupFold callbacks carry the element index: key(elem, idx),
-        # init(group_key), fold(acc, elem, idx).
-        key_cb = EastFunction(lambda el, _idx: key(el), [self.element_type, IntegerType], k2)
         init_cb = EastFunction(lambda _gk: EastArray(self.element_type, []), [k2], bucket_type)
         fold_cb = EastFunction(_append, [bucket_type, self.element_type, IntegerType], bucket_type)
         return _call_builtin(
@@ -982,9 +1005,14 @@ class EastSet(Generic[T]):
         Returns:
             A new set of the elements for which ``predicate`` is true.
         """
+        from east.kernel import KernelExpr
         from east.types.types import BooleanType, SetType
 
-        callback = EastFunction(lambda el: bool(predicate(el)), [self.element_type], BooleanType)
+        def _pred(el):  # noqa: ANN001, ANN202
+            r = predicate(el)
+            return r if isinstance(r, KernelExpr) else bool(r)
+
+        callback = EastFunction(_pred, [self.element_type], BooleanType)
         return _call_builtin("SetFilter", [self.element_type], [self, callback], SetType(self.element_type))
 
     def filter_map(self, fn: Any, out: EastType | None = None) -> EastDict:
@@ -1533,9 +1561,14 @@ class EastDict(Generic[K, V]):
         Returns:
             A new dict containing the retained entries in key order.
         """
+        from east.kernel import KernelExpr
         from east.types.types import BooleanType, DictType
 
-        callback = EastFunction(lambda v, k: bool(predicate(k, v)), [self.value_type, self.key_type], BooleanType)
+        def _pred(v, k):  # noqa: ANN001, ANN202
+            r = predicate(k, v)
+            return r if isinstance(r, KernelExpr) else bool(r)
+
+        callback = EastFunction(_pred, [self.value_type, self.key_type], BooleanType)
         return _call_builtin("DictFilter", [self.key_type, self.value_type], [self, callback], DictType(self.key_type, self.value_type))
 
     def filter_map(self, fn: Any, out: EastType | None = None) -> EastDict:

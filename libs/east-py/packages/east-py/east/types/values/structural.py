@@ -59,6 +59,22 @@ class EastStruct(Generic[T]):
         except KeyError:
             raise KeyError(key) from None
 
+    def __getattr__(self, name: str) -> Any:
+        """Field access as attributes: ``row.price`` == ``row["price"]``.
+
+        Fires only when normal attribute lookup fails, so methods and slots
+        shadow same-named fields (use item access for those). Keeps struct
+        lambdas uniform across the traced-kernel and python paths.
+        """
+        if name.startswith("_"):
+            raise AttributeError(name)
+        try:
+            return self._values[self._key_index[name]]
+        except KeyError:
+            raise AttributeError(
+                f"'{type(self).__name__}' object has no attribute or field {name!r}"
+            ) from None
+
     def __contains__(self, key: object) -> bool:
         """Check if field name exists."""
         return key in self._key_index

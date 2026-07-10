@@ -45,6 +45,7 @@ with contextlib.suppress(ImportError):
 
 # --- public value/type surface (curated in east.types) ---
 import east.types as _types  # noqa: E402
+from east.kernel import KernelTraceError, kernel, where  # noqa: E402
 from east.namespace import East  # noqa: E402
 from east.runtime.errors import EastError  # noqa: E402
 from east.runtime.memo import configure_memo, memoize  # noqa: E402
@@ -94,4 +95,8 @@ __all__ = [
     "platform_functions",
     "memoize",
     "configure_memo",
+    # kernels (IR push-down for eager methods)
+    "kernel",
+    "where",
+    "KernelTraceError",
 ]

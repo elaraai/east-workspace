@@ -28,7 +28,6 @@ from east.serialization.csv import (
 )
 from east.types.values import is_east_variant
 
-
 ROW = StructType([("a", StringType), ("b", StringType)])
 
 
@@ -48,7 +47,7 @@ def test_blob_decode_csv_matches_decode_csv_for():
     via_blob = EastBlob(data).decode_csv(ROW)
     via_module = decode_csv_for(ArrayType(ROW))(data)
     assert len(via_blob) == len(via_module) == 2
-    for lhs, rhs in zip(via_blob, via_module):
+    for lhs, rhs in zip(via_blob, via_module, strict=True):
         assert lhs["a"] == rhs["a"]
         assert lhs["b"] == rhs["b"]
 

@@ -106,6 +106,38 @@ cdef _eastc.EastValue* _wrap_pyfn(object east_fn) except NULL:
     return fv
 
 
+cdef object _try_push_down_py(object east_fn):
+    """Trace an EastFunction's pure python callback into a native kernel.
+
+    Returns the compiled kernel callable (whose function value can then be
+    passed straight to the builtin — IR push-down), or None to use the
+    per-element trampoline. Never raises.
+    """
+    try:
+        from east.kernel import try_push_down
+        return try_push_down(east_fn)
+    except BaseException:
+        return None
+
+
+cdef uintptr_t _native_fn_val_ptr(object obj) noexcept:
+    """The EastValue* of a compiled East function callable, or 0.
+
+    Callables from _make_callable_from_value (compile_from_json/beast2/east
+    and east.kernel) carry an _eastc_handle whose _fn_val is the retained
+    EAST_VAL_FUNCTION pointer — passing it straight to a callback builtin
+    keeps the whole loop inside east-c (IR push-down, no trampoline).
+    """
+    try:
+        handle = obj._eastc_handle
+    except BaseException:
+        return 0
+    try:
+        return <uintptr_t>getattr(handle, "_fn_val", 0)
+    except BaseException:
+        return 0
+
+
 # ─── Eager builtin invocation (no IR compile) ────────────────────────────
 
 def call_builtin(str name, list type_params, list args, object output_type):
@@ -134,7 +166,10 @@ def call_builtin(str name, list type_params, list args, object output_type):
     cdef _eastc.EastValue* result
     cdef char* err
     cdef size_t i, j
+    cdef uintptr_t fn_ptr
     cdef object py_result
+    # Keeps traced kernels alive until their function values are released.
+    cdef list native_holds = []
 
     from east.types.values import EastFunction, type_of
 
@@ -162,11 +197,29 @@ def call_builtin(str name, list type_params, list args, object output_type):
                 arg_types[i] = NULL
             for i in range(nargs):
                 if isinstance(args[i], EastFunction):
-                    # Wrap the Python callable as an east-c function value.
-                    c_args[i] = _wrap_pyfn(args[i])
+                    # IR push-down: trace a provably-pure python callback
+                    # into a native kernel so the loop never re-enters
+                    # python; otherwise wrap the callable behind the
+                    # per-element invoke trampoline.
+                    native = _try_push_down_py(args[i])
+                    fn_ptr = _native_fn_val_ptr(native) if native is not None else 0
+                    if fn_ptr != 0:
+                        native_holds.append(native)
+                        c_args[i] = <_eastc.EastValue*>fn_ptr
+                        _eastc.east_value_retain(c_args[i])
+                    else:
+                        c_args[i] = _wrap_pyfn(args[i])
                 else:
-                    arg_types[i] = py_type_to_c(type_of(args[i]))
-                    c_args[i] = py_value_to_c(args[i], arg_types[i])
+                    fn_ptr = _native_fn_val_ptr(args[i])
+                    if fn_ptr != 0:
+                        # Compiled East function (east.kernel / compile_from_*):
+                        # pass its value through so the callback executes
+                        # natively (no python).
+                        c_args[i] = <_eastc.EastValue*>fn_ptr
+                        _eastc.east_value_retain(c_args[i])
+                    else:
+                        arg_types[i] = py_type_to_c(type_of(args[i]))
+                        c_args[i] = py_value_to_c(args[i], arg_types[i])
 
         c_out = py_type_to_c(output_type)
 

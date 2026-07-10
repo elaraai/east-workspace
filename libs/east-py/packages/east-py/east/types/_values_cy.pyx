@@ -82,6 +82,24 @@ cdef class CyEastStruct:
         except KeyError:
             raise KeyError(key) from None
 
+    def __getattr__(self, str name):
+        """Field access as attributes: ``row.price`` == ``row["price"]``.
+
+        Fires only when normal attribute lookup fails, so methods and slots
+        shadow same-named fields (use item access for those). Keeps struct
+        lambdas uniform across the traced-kernel and python paths.
+        """
+        cdef int idx
+        if name.startswith("_"):
+            raise AttributeError(name)
+        try:
+            idx = self._key_index[name]
+            return self._values[idx]
+        except (KeyError, TypeError):
+            raise AttributeError(
+                f"'{type(self).__name__}' object has no attribute or field {name!r}"
+            ) from None
+
     def __contains__(self, key):
         """Check if field name exists."""
         return key in self._key_index
