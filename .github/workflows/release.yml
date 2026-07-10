@@ -242,14 +242,14 @@ jobs:
       - name: Build e3
         working-directory: libs/e3
         run: make build
+      - name: Build east-py-datascience TypeScript
+        working-directory: libs/east-py/packages/east-py-datascience
+        run: pnpm run build
       - name: Build east-ui
         working-directory: libs/east-ui
         run: make build
         env:
           NODE_OPTIONS: --max-old-space-size=4096
-      - name: Build east-py-datascience TypeScript
-        working-directory: libs/east-py/packages/east-py-datascience
-        run: pnpm run build
       - name: Build east-diagnostics
         working-directory: libs/east-diagnostics
         run: make build

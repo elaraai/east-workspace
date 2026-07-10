@@ -61,8 +61,8 @@ if [[ "${SKIP_BUILD:-}" != "1" ]]; then
   make -C libs/east build
   make -C libs/east-node build
   make -C libs/e3 build
-  NODE_OPTIONS=--max-old-space-size=4096 make -C libs/east-ui build
   pnpm --filter @elaraai/east-py-datascience run build
+  NODE_OPTIONS=--max-old-space-size=4096 make -C libs/east-ui build
   make -C libs/east-diagnostics build
   make -C libs/eslint-plugin-east build
   make -C libs/tsserver-plugin-east build
