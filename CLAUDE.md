@@ -65,8 +65,8 @@ cd libs/e3 && make help
 ## Plugin skills (DO NOT EDIT WITHOUT INTENT)
 
 The following `SKILL.md` files back Claude Code plugin skills
-(`east:east`, `east:e3`, `east:east-ui`, `east:e3-ui`, `east:e3-ui-cli`,
-`east:east-node-std`, `east:east-node-io`, `east:east-py`,
+(`east:east`, `east:e3`, `east:e3-create`, `east:east-ui`, `east:e3-ui`,
+`east:e3-ui-cli`, `east:east-node-std`, `east:east-node-io`, `east:east-py`,
 `east:east-py-std`, `east:east-py-io`, `east:east-py-datascience`).
 Editing them changes plugin behaviour — coordinate before touching. The
 plugin (`libs/east-claude-plugin/skills/<name>/SKILL.md`) holds **symlinks**
@@ -75,12 +75,13 @@ index (`libs/east-claude-plugin/index.json`) is regenerated from each lib's
 `*.examples.ts` and must be re-run when these change (see the
 `plugin-artifacts` workflow). `east:east-py`, `east:east-py-std`, and
 `east:east-py-io` are **skill-file-only** for now — no `*.examples.py` are
-indexed. `east:e3-ui-cli` is indexed via hand-written `index.static.json`
-stubs (the `e3` precedent) — its CLI surface is not East-expression code, so
-it has no `*.examples.ts`.
+indexed. `east:e3-ui-cli` and `east:e3-create` are indexed via hand-written
+`index.static.json` stubs (the `e3` precedent) — their CLI surface is not
+East-expression code, so they have no `*.examples.ts`.
 
 - `libs/east/SKILL.md`
 - `libs/e3/SKILL.md`
+- `libs/create/SKILL.md` (`east:e3-create` — the `npm create @elaraai/{e3,east}` scaffolder)
 - `libs/east-ui/packages/east-ui/SKILL.md`
 - `libs/east-ui/packages/e3-ui/SKILL.md`
 - `libs/east-ui/packages/e3-ui-cli/SKILL.md`

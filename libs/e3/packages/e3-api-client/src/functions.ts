@@ -28,7 +28,7 @@ import {
   OneShotRequestType,
 } from './types.js';
 import { ArrayType } from '@elaraai/east';
-import { get, post, type RequestOptions } from './http.js';
+import { get, post, verboseQuery, type RequestOptions } from './http.js';
 
 const enc = encodeURIComponent;
 
@@ -83,7 +83,7 @@ export async function functionCall(
   req: FunctionCallRequest,
   options: RequestOptions
 ): Promise<ExecuteResult> {
-  return post(url, pkgBase(repo, pkg, version, fn), req, FunctionCallRequestType, ExecuteResultType, options);
+  return post(url, verboseQuery(pkgBase(repo, pkg, version, fn), options), req, FunctionCallRequestType, ExecuteResultType, options);
 }
 
 
@@ -123,7 +123,7 @@ export async function workspaceFunctionCall(
   req: FunctionCallRequest,
   options: RequestOptions
 ): Promise<ExecuteResult> {
-  return post(url, wsBase(repo, ws, fn), req, FunctionCallRequestType, ExecuteResultType, options);
+  return post(url, verboseQuery(wsBase(repo, ws, fn), options), req, FunctionCallRequestType, ExecuteResultType, options);
 }
 
 
@@ -141,7 +141,7 @@ export async function oneShotExecute(
   req: OneShotRequest,
   options: RequestOptions
 ): Promise<ExecuteResult> {
-  return post(url, oneShotBase(repo, ws), req, OneShotRequestType, ExecuteResultType, options);
+  return post(url, verboseQuery(oneShotBase(repo, ws), options), req, OneShotRequestType, ExecuteResultType, options);
 }
 
 

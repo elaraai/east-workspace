@@ -65,8 +65,15 @@ e3 task logs <repo> <ws.task> [--follow]        # Stream task logs
 ### Dataflow execution
 
 ```bash
-e3 dataflow run <repo> <ws> [--filter <p>] [--concurrency <n>] [--force]
+e3 dataflow run <repo> <ws> [--filter <p>] [--concurrency <n>] [--force] [-v]
 ```
+
+`-v` / `--verbose` forwards `-v` to each task's runner so it prints a timing/perf
+block to the task's logs (`e3 task logs <repo> <ws.task>`) — identical across
+east-node, east-py and east-c. It is a runtime-only toggle that never affects
+caching (a cached task stays cached; add `--force` to see the block for one).
+Also on `e3 run`, `e3 call`, and `e3 mutate` — local and remote repositories
+(remote carries it as a `?verbose=1` query param).
 
 After a successful run, the CLI prints the task output paths so you can read them straight away:
 
@@ -81,7 +88,7 @@ Outputs:
 
 ```bash
 e3 run <repo> <pkg.task> <inputs...> -o <out>
-e3 run <repo> <pkg@1.0.0.task> <in.beast2> -o <out.beast2>
+e3 run <repo> <pkg@1.0.0.task> <in.beast2> -o <out.beast2> [-v]
 ```
 
 ### Watch / live development

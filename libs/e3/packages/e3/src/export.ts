@@ -16,12 +16,12 @@
 import * as fs from 'node:fs';
 import { createHash } from 'node:crypto';
 import yazl from 'yazl';
-import { variant, encodeBeast2For, encodeEastIR, EastIR, AsyncEastIR, printIdentifier, SortedMap, toEastTypeValue } from '@elaraai/east';
+import { variant, some, none, encodeBeast2For, encodeEastIR, EastIR, AsyncEastIR, printIdentifier, SortedMap, toEastTypeValue } from '@elaraai/east';
 import type { Structure, PackageObject, DatasetRef, FunctionObject, MutationObject, RecordObject } from '@elaraai/e3-types';
 import { DatasetRefType, PackageObjectType, TaskObjectType, FunctionObjectType, MutationObjectType, RecordObjectType } from '@elaraai/e3-types';
 import type { PackageDef, PackageItem } from './types.js';
-import { runnerToVariant } from './runner.js';
-import { captureEnvironment } from './environment-capture.js';
+import { runnerToVariant, type Runner } from './runner.js';
+import { captureEnvironment, captureAutoEnvironment } from './environment-capture.js';
 import type { EnvironmentDecl } from './environment.js';
 
 /**
@@ -55,17 +55,38 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
   // Resolve environment declarations to content-addressed EnvironmentSpec
   // objects, once per distinct declaration per export run (a project capture
   // shells out to uv/npm — identical declarations must not re-build).
-  const environmentHashes = new Map<string, string>(); // canonical decl key -> spec object hash
-  const resolveEnvironment = (decl: EnvironmentDecl | undefined, owner: string): variant<'some', string> | variant<'none', null> => {
-    if (!decl) return variant('none', null);
-    const key = JSON.stringify(decl);
+  // Environment spec hashes, memoized per distinct decl/derivation key (a
+  // capture shells out to uv/npm). '' marks a key that resolved to "no
+  // environment", so it is neither re-derived nor mistaken for a cache miss.
+  const environmentHashes = new Map<string, string>();
+  const cachedEnvHash = (key: string, capture: () => Uint8Array | null): string | null => {
     let hash = environmentHashes.get(key);
     if (hash === undefined) {
-      const specData = captureEnvironment(decl, owner, (blob) => addObject(zipfile, blob));
-      hash = addObject(zipfile, Buffer.from(specData));
+      const specData = capture();
+      hash = specData === null ? '' : addObject(zipfile, Buffer.from(specData));
       environmentHashes.set(key, hash);
     }
-    return variant('some', hash);
+    return hash === '' ? null : hash;
+  };
+  const environmentHashFor = (decl: EnvironmentDecl | undefined, runner: Runner | undefined, owner: string): string | null => {
+    // An explicit `environment` wins (and is the only path to tools/image).
+    if (decl) {
+      return cachedEnvHash(`decl:${JSON.stringify(decl)}`, () => captureEnvironment(decl, owner, (blob) => addObject(zipfile, blob)));
+    }
+    // Otherwise derive it from the runner's `{ custom }` platform references, so
+    // a project split into workspace packages gets per-package change-detection
+    // granularity with no hand-written `environment`.
+    if (!runner || runner.runtime === 'custom') return null;
+    const customs = (runner.platforms ?? [])
+      .filter((p): p is { custom: string } => typeof p === 'object' && p !== null && 'custom' in p)
+      .map((p) => p.custom);
+    if (customs.length === 0) return null;
+    const key = `auto:${runner.runtime}:${[...customs].sort().join(',')}`;
+    return cachedEnvHash(key, () => captureAutoEnvironment(runner.runtime, customs, process.cwd(), owner, (blob) => addObject(zipfile, blob)));
+  };
+  const resolveEnvironment = (decl: EnvironmentDecl | undefined, runner: Runner | undefined, owner: string): variant<'some', string> | variant<'none', null> => {
+    const hash = environmentHashFor(decl, runner, owner);
+    return hash === null ? none : some(hash);
   };
 
   // Create root structure as first entry
@@ -185,7 +206,7 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
         // customTask leaves TaskDef.runner undefined -> opaque custom
         // (empty command: the wire field is informational for custom tasks).
         runner: item.runner ? runnerToVariant(item.runner) : variant('custom', { command: [] as string[] }),
-        environment: resolveEnvironment(item.environment, item.name),
+        environment: resolveEnvironment(item.environment, item.runner, item.name),
       };
 
       // Serialize and add to zip
@@ -217,7 +238,7 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
       inputTypes: fdef.inputTypes.map((t) => toEastTypeValue(t)),
       outputType: toEastTypeValue(fdef.outputType),
       runner: runnerToVariant(fdef.runner),
-      environment: resolveEnvironment(fdef.environment, fname),
+      environment: resolveEnvironment(fdef.environment, fdef.runner, fname),
     };
     const fnHash = addObject(zipfile, Buffer.from(functionEncoder(fnObject)));
     functions.set(fname, fnHash);

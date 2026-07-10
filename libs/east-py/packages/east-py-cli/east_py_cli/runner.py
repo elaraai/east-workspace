@@ -146,8 +146,8 @@ def run_program(
                 peak_kb = peak_kb / 1024
             print("\nMemory:", file=sys.stderr)
             if peak_kb >= 1024:
-                print(f"  Peak RSS:  {peak_kb / 1024:8.1f} MB", file=sys.stderr)
+                print(f"  Peak RSS: {peak_kb / 1024:8.1f} MB", file=sys.stderr)
             else:
-                print(f"  Peak RSS:  {peak_kb:8.0f} KB", file=sys.stderr)
+                print(f"  Peak RSS: {peak_kb:8.0f} KB", file=sys.stderr)
 
     return result

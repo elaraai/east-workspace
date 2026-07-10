@@ -9,10 +9,14 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { StringType } from '@elaraai/east';
+import { StringType, variant, some, none, encodeBeast2For } from '@elaraai/east';
 import e3 from '@elaraai/e3';
+import {
+  EnvironmentSpecType, TaskObjectType, PackageObjectType, WorkspaceStateType,
+} from '@elaraai/e3-types';
+import type { TaskObject, PackageObject, WorkspaceState } from '@elaraai/e3-types';
 import {
   workspaceList,
   workspaceCreate,
@@ -256,6 +260,83 @@ describe('workspaces', () => {
       assert.strictEqual(result.name, 'export-test');
       assert.ok(result.version.startsWith('1.0.0-'));
       assert.ok(result.objectCount >= 1);
+    });
+
+    it('round-trips a workspace holding tools + workspace_node envs into a fresh repo (#281g)', async () => {
+      // Build a deployed workspace whose tasks carry the NEW env kinds (tools,
+      // workspace_node), writing every referenced blob into the object store,
+      // then export the bundle and import it into a FRESH repo. If the export
+      // walker misses a new-kind env blob, that blob is absent after import —
+      // this is the regression guard that the walkers carry new-kind blobs.
+      const put = (s: string) => storage.objects.write(testRepo, Buffer.from(s));
+
+      // env blobs (leaves the walker must carry) + a dummy commandIr (the walker
+      // hash-scans it leniently, so it only has to exist).
+      const toolsBinary = await put('#!/bin/sh\necho solver\n');
+      const wnPackageJson = await put('{"name":"@acme/pricing","version":"1.0.0"}');
+      const wnLock = await put('lockfileVersion: 9\n');
+      const wnConfig = await put('node-linker=hoisted\n');
+      const wnTarball = await put('\x1f\x8b fake tarball bytes');
+      const commandIr = await put('dummy-command-ir');
+
+      // env-spec objects
+      const specEnc = encodeBeast2For(EnvironmentSpecType);
+      const toolsEnv = await storage.objects.write(testRepo, specEnc(variant('tools', {
+        files: [{ path: 'bin/solver', hash: toolsBinary }],
+      })));
+      const wnEnv = await storage.objects.write(testRepo, specEnc(variant('workspace_node', {
+        packageJson: wnPackageJson, lock: wnLock, config: some(wnConfig), subject: 'packages/pricing',
+        members: [{ path: 'packages/pricing', name: '@acme/pricing', tarball: wnTarball }],
+      })));
+
+      // tasks referencing the env specs
+      const taskEnc = encodeBeast2For(TaskObjectType);
+      const mkTask = (envHash: string, out: string): TaskObject => ({
+        commandIr, inputs: [], output: [variant('field', out)],
+        kind: none, metadata: none, runner: variant('custom', { command: [] }),
+        environment: some(envHash),
+      } as TaskObject);
+      const toolsTask = await storage.objects.write(testRepo, taskEnc(mkTask(toolsEnv, 'tools_out')));
+      const wnTask = await storage.objects.write(testRepo, taskEnc(mkTask(wnEnv, 'wn_out')));
+
+      // package + a deployed workspace state pointing at it (bypasses deploy
+      // validation — export reads state.packageHash → the package's tasks).
+      const pkg: PackageObject = {
+        tasks: new Map([['tools_task', toolsTask], ['wn_task', wnTask]]),
+        data: { structure: variant('struct', new Map()), refs: new Map() },
+        functions: new Map(), records: new Map(),
+      };
+      const pkgHash = await storage.objects.write(testRepo, encodeBeast2For(PackageObjectType)(pkg));
+
+      const wsDir = join(testRepo, 'workspaces');
+      mkdirSync(wsDir, { recursive: true });
+      const state: WorkspaceState = {
+        packageName: 'envbundle', packageVersion: '1.0.0', packageHash: pkgHash,
+        deployedAt: new Date(), currentRunId: none,
+      };
+      writeFileSync(join(wsDir, 'envws.beast2'), encodeBeast2For(WorkspaceStateType)(state));
+
+      // export → import into a FRESH repo
+      const exportZip = join(tempDir, 'envbundle.zip');
+      await workspaceExport(storage, testRepo, 'envws', exportZip);
+      assert.ok(existsSync(exportZip));
+
+      const freshRepo = createTestRepo();
+      const freshStorage = new LocalStorage();
+      try {
+        await packageImport(freshStorage, freshRepo, exportZip);
+        // Every env-spec object AND its blobs must have travelled in the bundle.
+        for (const [label, hash] of [
+          ['tools env spec', toolsEnv], ['tools binary', toolsBinary],
+          ['workspace_node env spec', wnEnv], ['wn package.json', wnPackageJson],
+          ['wn lockfile', wnLock], ['wn config', wnConfig], ['wn member tarball', wnTarball],
+        ] as const) {
+          const data = await freshStorage.objects.read(freshRepo, hash);
+          assert.ok(data && data.length > 0, `${label} (${hash.slice(0, 8)}…) missing from the imported bundle`);
+        }
+      } finally {
+        removeTestRepo(freshRepo);
+      }
     });
 
     it('uses custom name and version', async () => {

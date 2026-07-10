@@ -60,3 +60,28 @@ export function runnerToArgv(r: RunnerValue): string[] {
     case 'custom':    return [...r.value.command];
   }
 }
+
+/**
+ * Insert the runner's `-v/--verbose` flag into a fully-built argv, for the
+ * known runtimes only.
+ *
+ * All three known runners (`east-node`/`east-py`/`east-c run`) accept `-v`
+ * among their options and print timing/perf detail to stderr; a `custom`
+ * runner's argv is user-authored, so a flag is never spliced into it. A
+ * known-runtime argv always starts `[<bin>, 'run', …]` (see
+ * {@link runnerToArgv} and the SDK's `runnerToCommand`), so `-v` goes at
+ * index 2 — ahead of the `-p`/`-i`/`-o` flags and the trailing IR path.
+ *
+ * This is a pure **runtime** toggle: it is applied to the *evaluated* argv
+ * immediately before spawn and never touches the task's `commandIr`, the
+ * {@link RunnerType}, or any hash — so it cannot affect caching.
+ *
+ * @param runner - the runner the argv was built for (gates the injection)
+ * @param args - the fully-built argv (runner prefix + `-i`/`-o`/`<ir>` suffix)
+ * @param verbose - when true, request the runner's verbose output
+ * @returns the argv, with `-v` inserted for known runtimes when verbose
+ */
+export function withRunnerVerbose(runner: RunnerValue, args: string[], verbose?: boolean): string[] {
+  if (!verbose || runner.type === 'custom' || args.length < 2) return args;
+  return [...args.slice(0, 2), '-v', ...args.slice(2)];
+}

@@ -369,4 +369,5 @@ East is the language inside every other skill's `East.function` bodies. East its
 - **east-ui** — typed UI components returning `UIComponentType`.
 - **e3** — run East functions as durable, content-addressed dataflow tasks.
 - **east-project** — author a project-owned platform function (`East.platform(...).implement(...)`) and wire it into an e3 task via the `./platform` export.
+- **e3-create** — scaffold a project (and its custom-platform packages) with `npm create @elaraai/{e3,east}`.
 - **east-design** — when you have a goal but no architecture yet (start here).

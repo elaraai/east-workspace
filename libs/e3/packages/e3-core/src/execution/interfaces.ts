@@ -29,6 +29,9 @@ import type { DetachedSpec, DetachedResult, DetachedRunOptions } from './runDeta
 export interface TaskExecuteOptions {
   /** Force execution even if cached */
   force?: boolean;
+  /** Pass `-v` to the runner (known runtimes only) so it prints timing/perf
+   *  to stderr. Runtime-only: never affects the task hash or caching. */
+  verbose?: boolean;
   /** AbortSignal for cancellation */
   signal?: AbortSignal;
   /** Callback for stdout data */

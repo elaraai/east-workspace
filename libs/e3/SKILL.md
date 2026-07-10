@@ -86,7 +86,7 @@ Task → What do you need?
 │   └─ Remove                        → e3 workspace remove <repo> <ws>
 │
 ├─ Running the dataflow
-│   └─ Execute all tasks    → e3 dataflow run <repo> <ws> [--force] [--concurrency <n>]
+│   └─ Execute all tasks    → e3 dataflow run <repo> <ws> [--force] [--concurrency <n>] [-v]
 │
 ├─ Datasets (read / write values)
 │   ├─ Read a value         → e3 dataset get <repo> <ws.name> [-f east|json|beast2]
@@ -207,33 +207,50 @@ implementation and wire it (the `./platform` export, the Python package, the
 `--platform` scaffold), see the **east-project** skill (and **east** for
 `East.platform(...).implement(...)`, **east-py** for `@platform_function`).
 
-#### Execution environments (bundle your implementation with the package)
+#### Execution environments — auto-derived from the platform reference
 
-A `{ custom: ... }` platform only runs where its implementation is installed.
-Declaring an `environment` on the task (or function) captures the project's
-dependency closure into the exported package — `pyproject.toml` + `uv.lock` +
-an sdist of the project itself (`package.json` + lockfile + `npm pack` for
-node) — as content-addressed objects. The runner materializes it into a
-per-repo cache before spawning (warm after first use), so the package runs on
-repos/machines that never saw your working tree. Because the environment hash
-covers your implementation code, editing it re-executes affected tasks
-(no stale cache reuse).
+A `{ custom: <name> }` platform only runs where its implementation is installed.
+e3 handles this for you: at `e3.export` it **derives the task's environment from
+the platform reference** — it resolves `<name>` to the workspace package that
+provides it and captures that package's dependency closure (`pyproject.toml` +
+`uv.lock` + sdists for python; `package.json` + lockfile + `npm pack` for node)
+into the exported package as content-addressed objects. **No `environment` field
+is needed.** The runner materializes the closure into a per-repo cache before
+spawning (warm after first use), so the package runs on repos/machines that never
+saw your working tree.
 
 ```typescript
+// e3 derives the environment from { custom: 'pricing' } — captures the
+// packages/python/pricing closure. No `environment` field.
 const forecast = e3.task('forecast', [history],
   East.function([ArrayType(FloatType)], FloatType, ($, h) => forecastDemand(h)),
-  {
-    runner: { runtime: 'east-py', platforms: [{ custom: 'platform_module' }, 'east-py-std'] },
-    environment: { python: { project: '.' } },  // dir with pyproject.toml + uv.lock
-  });
+  { runner: { runtime: 'east-py', platforms: [{ custom: 'pricing' }, 'east-py-std'] } });
+```
 
-// node projects: { node: { project: '.' } } (package.json + lockfile);
-// pinned container image (cloud only): { image: { digest: 'repo@sha256:<64 hex>' } }
+**Per-package change detection.** Split platform code into separate workspace
+packages — scaffold with `create-e3 --python-packages=pricing,forecasting`
+(`--node-packages=…` → npm members, `--c-packages=…` → native binaries via a
+`tools` env; see the **east-project** skill). Each package is its own captured
+environment, so editing one package changes only its tasks' hashes: e3 re-runs
+only those tasks and serves the rest from the cache — even across a redeploy, and
+alongside the reactive re-run when an input or record changes. A task calling
+several packages captures the union of their closures.
+
+**Explicit `environment` (override).** Pass an `environment` to override the
+derivation — it is the only way to reach `tools` (attach prebuilt binaries, e.g.
+a compiled C runner) or a pinned container `image`, or to point at a specific
+project directory:
+
+```typescript
+{ environment: { tools: { files: ['./native/solver/build/solver'] } } } // prebuilt C binary
+{ environment: { image: { digest: 'repo@sha256:<64 hex>' } } }          // cloud only
+{ environment: { python: { project: 'packages/python/pricing' } } }      // explicit dir
 ```
 
 Environments resolve at `e3.export` time (missing lockfile or failed build ⇒
-export error; a mutable `image` tag is rejected at definition time). Without
-an `environment`, tasks run on the stock runtime image as before.
+export error; a mutable `image` tag is rejected at definition time). A task whose
+platforms are all stock (no local `{ custom }` package) runs on the stock runtime
+image, as before.
 
 ### e3.customTask(name, inputs, outputType, command)
 
@@ -386,7 +403,7 @@ workspace-scoped live state. Read the current value with `dataset get` like any
 dataset.
 
 ```bash
-e3 mutate <repo> <record.mutation> [args...] -w <ws>  # apply a mutation; args = .east literals or .beast2/.json/.east files
+e3 mutate <repo> <record.mutation> [args...] -w <ws> [-v]  # apply a mutation; args = .east literals or .beast2/.json/.east files; -v = runner timing/perf (local)
 e3 history <repo> <record> -w <ws> [--limit <n>] [--from <hash>]  # commit chain, newest first (--from pages)
 e3 compact <repo> <record> -w <ws>                    # collapse history to a $compact root (state preserved)
 ```
@@ -406,21 +423,30 @@ e3 task logs <repo> <ws.task> [--follow]    # View / follow a task's logs
 ### Dataflow
 
 ```bash
-e3 dataflow run <repo> <ws> [--filter <p>] [--concurrency <n>] [--force]
+e3 dataflow run <repo> <ws> [--filter <p>] [--concurrency <n>] [--force] [-v]
 ```
 
 After a successful run the output paths are printed in flat form, ready to read with `e3 dataset get`.
 
+**`-v` / `--verbose`** forwards `-v` to each task's runner so it prints a
+timing/perf block (Load / Compile / Execute / Output / Total + Peak RSS) — identical
+across east-node, east-py and east-c — to the task's logs (`e3 task logs <repo>
+<ws.task>`). Pure runtime toggle: it never changes task hashes or caching, so a
+cached task stays cached with or without it (add `--force` to see the block for
+an already-cached task). Same flag on `e3 run`, `e3 call`, and `e3 mutate` —
+against **local and remote** repos (remote carries it as a `?verbose=1` query
+param; a server's `e3 task logs` / the call response surfaces the block).
+
 ### Ad-hoc Run
 
 ```bash
-e3 run <repo> <pkg.task> [inputs...] -o <output>     # task spec uses dots: pkg.task or pkg@1.0.0.task
+e3 run <repo> <pkg.task> [inputs...] -o <output> [-v]  # task spec uses dots: pkg.task or pkg@1.0.0.task
 ```
 
 ### Call (named functions)
 
 ```bash
-e3 call <repo> <pkg.fn> [args...] [-o out.beast2]     # function spec uses dots: pkg.fn or pkg@1.0.0.fn
+e3 call <repo> <pkg.fn> [args...] [-o out.beast2] [-v]  # function spec uses dots: pkg.fn or pkg@1.0.0.fn
 e3 call <repo> -w <ws> <fn> [args...]                 # against a workspace's deployed package
 ```
 
@@ -522,8 +548,10 @@ Use `--force` to bypass: `e3 dataflow run . dev --force`
 ## Related skills
 
 - **east** — the language for task bodies (`e3.task` runs an `East.function`).
-- **east-project** — scaffold an e3 project (incl. `--platform` for project-owned platform functions) and drive its build / deploy / run / watch lifecycle.
+- **e3-create** — scaffold an e3 project: the `npm create @elaraai/e3` flags (`--runners`, `--platform`, `--python/node/c-packages`, `--ui`) and what each generates.
+- **east-project** — drive the scaffolded project's build / deploy / run / watch / test lifecycle.
 - **east-ui** + **e3-ui** — author dashboards and decision surfaces as `ui()` tasks bound to workspace datasets.
 - **east-py-datascience** — ML / optimization tasks; set a Python runner (`{ runner: { runtime: 'east-py', platforms: ['east-py-datascience'] } }`).
-- **east-node-io** / **east-node-std** — pull databases, storage, files, and HTTP into tasks.
+- **east-py** — author Python `@platform_function`s that a `{ custom: '<pkg>' }` east-py task calls (the per-package Python environment e3 auto-derives).
+- **east-node-io** / **east-node-std** — pull databases, storage, files, and HTTP into tasks; author your own east-node platform fns for `{ custom }` node-package tasks.
 - **east-design** / **east-ontology** — plan the dataflow and model the business before building.

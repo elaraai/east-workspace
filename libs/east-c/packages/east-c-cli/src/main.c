@@ -648,16 +648,16 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
         long peak_kb = east_peak_rss_kb();
 
         fprintf(stderr, "\nTiming:\n");
-        fprintf(stderr, "  Load:      %8.1f ms\n", elapsed_ms(&t0, &t1));
-        fprintf(stderr, "  Compile:   %8.1f ms\n", elapsed_ms(&t1, &t2));
-        fprintf(stderr, "  Execute:   %8.1f ms\n", elapsed_ms(&t2, &t3));
-        fprintf(stderr, "  Output:    %8.1f ms\n", elapsed_ms(&t3, &t4));
-        fprintf(stderr, "  Total:     %8.1f ms\n", elapsed_ms(&t0, &t5));
+        fprintf(stderr, "  Load:     %8.1f ms\n", elapsed_ms(&t0, &t1));
+        fprintf(stderr, "  Compile:  %8.1f ms\n", elapsed_ms(&t1, &t2));
+        fprintf(stderr, "  Execute:  %8.1f ms\n", elapsed_ms(&t2, &t3));
+        fprintf(stderr, "  Output:   %8.1f ms\n", elapsed_ms(&t3, &t4));
+        fprintf(stderr, "  Total:    %8.1f ms\n", elapsed_ms(&t0, &t5));
         fprintf(stderr, "\nMemory:\n");
         if (peak_kb >= 1024)
-            fprintf(stderr, "  Peak RSS:  %8.1f MB\n", (double)peak_kb / 1024.0);
+            fprintf(stderr, "  Peak RSS: %8.1f MB\n", (double)peak_kb / 1024.0);
         else
-            fprintf(stderr, "  Peak RSS:  %8ld KB\n", peak_kb);
+            fprintf(stderr, "  Peak RSS: %8ld KB\n", peak_kb);
     }
 
     return exit_code;

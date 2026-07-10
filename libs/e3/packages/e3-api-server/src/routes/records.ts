@@ -74,7 +74,7 @@ export function createWorkspaceRecordRoutes(
       return await callMutationSync(
         storage, repoPath, getRunner(repoPath),
         c.req.param('ws')!, c.req.param('rec')!, c.req.param('mut')!, req, actor, authoritative,
-        { signal: c.req.raw.signal, idempotencyKey },
+        { signal: c.req.raw.signal, idempotencyKey, verbose: c.req.query('verbose') === '1' },
       );
     } catch (err) {
       return sendError(MutationResultType, errorToVariant(err));

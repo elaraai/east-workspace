@@ -1093,6 +1093,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
 
     const execOptions: TaskExecuteOptions = {
       force: execution.state.force,
+      verbose: options.verbose,
       signal: options.signal,
       onStdout: options.onStdout ? (data) => options.onStdout!(taskName, data) : undefined,
       onStderr: options.onStderr ? (data) => options.onStderr!(taskName, data) : undefined,

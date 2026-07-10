@@ -53,6 +53,17 @@ export interface RequestOptions {
    * Omit to use the default policy; set `{ attempts: 1 }` to disable retries.
    */
   retry?: RetryOptions;
+  /**
+   * Request the runner's timing/perf output on execution endpoints (call /
+   * one-shot / mutate / dataflow). Sent out-of-band as a `?verbose=1` query
+   * param — no wire-type change — so a server that predates it simply ignores
+   * it. Runtime-only: never affects hashing or caching. */
+  verbose?: boolean;
+}
+
+/** Append `?verbose=1` to an endpoint path when verbose was requested. */
+export function verboseQuery(path: string, options: RequestOptions): string {
+  return options.verbose ? `${path}?verbose=1` : path;
 }
 
 /**

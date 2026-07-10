@@ -11,7 +11,7 @@ import {
   DataflowGraphType,
   DataflowExecutionStateType,
 } from './types.js';
-import { get, post, ApiError, type RequestOptions } from './http.js';
+import { get, post, verboseQuery, ApiError, type RequestOptions } from './http.js';
 
 /**
  * Options for starting dataflow execution.
@@ -63,7 +63,7 @@ export async function dataflowExecuteLaunch(
     try {
       await post(
         url,
-        `/repos/${encodeURIComponent(repo)}/workspaces/${encodeURIComponent(workspace)}/dataflow`,
+        verboseQuery(`/repos/${encodeURIComponent(repo)}/workspaces/${encodeURIComponent(workspace)}/dataflow`, options),
         {
           concurrency: dataflowOptions.concurrency != null ? some(BigInt(dataflowOptions.concurrency)) : none,
           force: dataflowOptions.force ?? false,

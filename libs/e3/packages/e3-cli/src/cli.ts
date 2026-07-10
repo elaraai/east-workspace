@@ -276,6 +276,7 @@ program
       .option('--filter <pattern>', 'Only run tasks matching pattern')
       .option('--concurrency <n>', 'Max concurrent tasks', '4')
       .option('--force', 'Force re-execution even if cached')
+      .option('-v, --verbose', "Pass -v to each task's runner (timing/perf to stderr)")
       .action(withDefaultRepo(startCommand))
   );
 
@@ -295,6 +296,7 @@ program
   .argument('[inputs...]', 'Input file paths (.beast2)')
   .option('-o, --output <path>', 'Output file path')
   .option('--force', 'Force re-execution even if cached')
+  .option('-v, --verbose', "Pass -v to the runner (timing/perf to stderr)")
   .action(runCommand);
 
 // ---------------------------------------------------------------------------
@@ -308,6 +310,7 @@ program
   .argument('[args...]', 'Arguments: .east literals or .beast2/.json/.east file paths')
   .option('-w, --workspace <ws>', 'Call against the package deployed in a workspace')
   .option('-o, --output <path>', 'Write the result to a .beast2 file instead of printing')
+  .option('-v, --verbose', "Pass -v to the runner (timing/perf to stderr; local or remote)")
   .action(callCommand);
 
 // ---------------------------------------------------------------------------
@@ -320,6 +323,7 @@ program
   .argument('<mutation>', 'Mutation specifier: record.mutation')
   .argument('[args...]', 'Arguments: .east literals or .beast2/.json/.east file paths')
   .option('-w, --workspace <ws>', 'Workspace holding the record (required)')
+  .option('-v, --verbose', "Pass -v to the reducer's runner (timing/perf to stderr; local or remote)")
   .action(mutateCommand);
 
 // ---------------------------------------------------------------------------

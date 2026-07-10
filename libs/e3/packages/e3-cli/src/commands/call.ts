@@ -181,7 +181,8 @@ async function callLocal(
   spec: { name?: string; version?: string; fn: string },
   workspace: string | undefined,
   rawArgs: string[],
-  outputPath?: string
+  outputPath?: string,
+  verbose?: boolean
 ): Promise<void> {
   const storage = new LocalStorage();
 
@@ -228,7 +229,7 @@ async function callLocal(
     runner: fnObj.runner as RunnerValue,
     limits: LOCAL_LIMITS,
     environment: fnObj.environment.type === 'some' ? fnObj.environment.value : undefined,
-  }, { storage });
+  }, { storage, verbose });
 
   // Reuse the wire shape for rendering
   const streams = {
@@ -265,9 +266,10 @@ async function callRemote(
   spec: { name?: string; version?: string; fn: string },
   workspace: string | undefined,
   rawArgs: string[],
-  outputPath?: string
+  outputPath?: string,
+  verbose?: boolean
 ): Promise<void> {
-  const opts = { token };
+  const opts = { token, verbose };
 
   let version = spec.version;
   if (!workspace && version === 'latest') {
@@ -308,15 +310,15 @@ export async function callCommand(
   repoArg: string,
   fnSpec: string,
   args: string[],
-  options: { workspace?: string; output?: string }
+  options: { workspace?: string; output?: string; verbose?: boolean }
 ): Promise<void> {
   try {
     const spec = parseFunctionSpec(fnSpec, options.workspace !== undefined);
     const location = await parseRepoLocation(repoArg);
     if (location.type === 'local') {
-      await callLocal(location.path, spec, options.workspace, args, options.output);
+      await callLocal(location.path, spec, options.workspace, args, options.output, options.verbose);
     } else {
-      await callRemote(location.baseUrl, location.repo, location.token, spec, options.workspace, args, options.output);
+      await callRemote(location.baseUrl, location.repo, location.token, spec, options.workspace, args, options.output, options.verbose);
     }
   } catch (err) {
     exitError(formatError(err));

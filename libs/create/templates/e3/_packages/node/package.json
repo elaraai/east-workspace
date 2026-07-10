@@ -1,0 +1,24 @@
+{
+  "name": "@__PROJECT_NAME__/__PACKAGE_NAME__",
+  "version": "1.0.0",
+  "description": "The __PACKAGE_NAME__ platform package for __DISPLAY_NAME__",
+  "type": "module",
+  "private": true,
+  "exports": {
+    "./platform": "./dist/platform.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@elaraai/east": "^__VERSION__",
+    "@elaraai/east-node-std": "^__VERSION__"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}

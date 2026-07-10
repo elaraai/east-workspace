@@ -8,6 +8,7 @@ import { join, relative } from "node:path";
 import { spawnSync } from "node:child_process";
 
 import { deriveNames, type ProjectNames } from "./names.js";
+import { generatePackages, type PackageSpec } from "./packages.js";
 
 export type ProjectKind = "e3" | "east";
 
@@ -31,6 +32,12 @@ export interface ScaffoldOptions {
   version: string;
   /** Feature toggles; unspecified features use the manifest default. */
   features?: Features;
+  /**
+   * Workspace packages to generate, grouped by runtime (e3 only). Each becomes
+   * a member with its own execution environment under `packages/<runtime>/`.
+   * See {@link generatePackages}.
+   */
+  packages?: PackageSpec;
   /** Install dependencies after writing files (npm install, plus uv sync for e3). */
   install?: boolean;
   /** Logger; defaults to console.log. */
@@ -261,6 +268,9 @@ export function scaffold(options: ScaffoldOptions): ScaffoldResult {
   for (const srcPath of walk(templateDir)) {
     const rel = relative(templateDir, srcPath).replaceAll("\\", "/");
     if (rel === MANIFEST_FILE) continue;
+    // `_`-prefixed top-level entries (e.g. `_packages/`) are sub-templates
+    // stamped per-package by generatePackages, not part of the base project.
+    if (rel.split("/")[0]!.startsWith("_")) continue;
     if (skip.has(rel)) continue;
 
     const destRel = renames[rel] ?? rel;
@@ -283,6 +293,12 @@ export function scaffold(options: ScaffoldOptions): ScaffoldResult {
   }
 
   log(`Created ${names.projectName} (${kind}) at ${projectDir}`);
+
+  // The value-list half: split platform code into per-runtime workspace
+  // packages, each with its own captured execution environment.
+  if (options.packages) {
+    generatePackages({ projectDir, templateDir, names, version, spec: options.packages, log });
+  }
 
   if (options.install) {
     runInstall(kind, projectDir, enabled, log);

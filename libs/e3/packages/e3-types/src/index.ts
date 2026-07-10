@@ -56,6 +56,10 @@ export {
   type NodeEnvironment,
   ImageEnvironmentType,
   type ImageEnvironment,
+  ToolsEnvironmentType,
+  type ToolsEnvironment,
+  WorkspaceNodeEnvironmentType,
+  type WorkspaceNodeEnvironment,
   environmentSpecObjectHashes,
 } from './environment.js';
 
@@ -86,6 +90,7 @@ export {
   RunnerType,
   type RunnerValue,
   runnerToArgv,
+  withRunnerVerbose,
 } from './runner.js';
 
 // Function objects

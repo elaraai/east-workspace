@@ -33,14 +33,21 @@
  *   packages the project itself.
  * - `image`: a full immutable digest reference (`repo@sha256:<64 hex>`);
  *   validated at definition time — mutable tags are rejected.
+ * - `tools`: `files` names ≥1 prebuilt file (a compiled binary, or any
+ *   artifact) to capture as content-addressed blobs and place on the
+ *   runner's PATH. e3 never builds these — the developer builds them
+ *   however they like. The C story: embed east-c in your binary, run it via
+ *   a `custom` runner, and attach `{ tools: { files: ['./build/runner'] } }`
+ *   so a rebuild changes the environment hash and re-runs its tasks.
  *
- * Relative `project` paths resolve against the exporting process's working
- * directory.
+ * Relative `project`/`files` paths resolve against the exporting process's
+ * working directory.
  */
 export type EnvironmentDecl =
   | { python: { project: string } }
   | { node: { project: string } }
-  | { image: { digest: string } };
+  | { image: { digest: string } }
+  | { tools: { files: [string, ...string[]] } };
 
 const IMAGE_DIGEST_RE = /@sha256:[0-9a-f]{64}$/;
 
@@ -52,7 +59,8 @@ const IMAGE_DIGEST_RE = /@sha256:[0-9a-f]{64}$/;
  *
  * @param decl - The declaration to validate
  * @param owner - The declaring task/function name, for error messages
- * @throws {Error} if an `image` reference is not a full sha256 digest
+ * @throws {Error} if an `image` reference is not a full sha256 digest, or a
+ *   `tools` declaration is empty, names a directory, or has duplicate basenames
  */
 export function validateEnvironmentDecl(decl: EnvironmentDecl, owner: string): void {
   if ('image' in decl) {
@@ -62,6 +70,24 @@ export function validateEnvironmentDecl(decl: EnvironmentDecl, owner: string): v
         `('repo@sha256:<64 hex chars>'), got '${decl.image.digest}' — tags are mutable and ` +
         `would let the environment drift under a fixed hash`,
       );
+    }
+  } else if ('tools' in decl) {
+    const files = decl.tools.files;
+    if (files.length === 0) {
+      throw new Error(`Environment for '${owner}': tools.files must name at least one file`);
+    }
+    const basenames = new Set<string>();
+    for (const f of files) {
+      if (f.endsWith('/') || f.endsWith('\\')) {
+        throw new Error(`Environment for '${owner}': tools file '${f}' looks like a directory — list files individually`);
+      }
+      // The env has one flat bin dir; case-insensitive because win32/macOS
+      // filesystems collapse case.
+      const base = f.replace(/[/\\]+$/, '').split(/[/\\]/).pop()!.toLowerCase();
+      if (basenames.has(base)) {
+        throw new Error(`Environment for '${owner}': tools files collide on basename '${base}' — each captured file needs a distinct name`);
+      }
+      basenames.add(base);
     }
   }
 }

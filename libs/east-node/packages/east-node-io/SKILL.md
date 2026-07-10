@@ -149,3 +149,4 @@ $(Module.close(conn));
 - **east-node-std** — Console / FileSystem / Fetch / Crypto / Time basics (this package is the database, cloud, and format layer on top).
 - **e3** — run ingest / sync as durable, cached dataflow tasks; pair with **east-ui** / **e3-ui** to surface the results.
 - **east-project** — to author your OWN custom platform function (not just use these stock ones): `East.platform(...).implement(...)` exported from your package's `./platform`, called from an e3 task via `{ runtime: 'east-node', platforms: [{ custom: '@elaraai/<project>' }] }`.
+- **e3-create** — scaffold that custom platform: `--platform` for one module, or `--node-packages=<name>` for a dedicated npm workspace member (its own auto-derived e3 environment).

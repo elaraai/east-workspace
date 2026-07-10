@@ -18,7 +18,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomBytes } from 'crypto';
-import type { RunnerValue } from '@elaraai/e3-types';
+import { withRunnerVerbose, type RunnerValue } from '@elaraai/e3-types';
 import {
   marshalBytesToDir,
   buildRunnerArgv,
@@ -73,6 +73,9 @@ export interface DetachedRunOptions {
   /** Storage backend for materializing `spec.environment` (local runner);
    *  required when the spec declares an environment. */
   storage?: StorageBackend;
+  /** Pass `-v` to the runner (known runtimes only) so it prints timing/perf
+   *  to stderr. Runtime-only: applied to the built argv just before spawn. */
+  verbose?: boolean;
 }
 
 /**
@@ -101,7 +104,11 @@ export async function runDetached(
 
     const argPaths = await marshalBytesToDir(scratchDir, spec.args);
     const outputPath = path.join(scratchDir, 'output.beast2');
-    const args = buildRunnerArgv(spec.runner, argPaths, outputPath, bodyIrPath);
+    const args = withRunnerVerbose(
+      spec.runner,
+      buildRunnerArgv(spec.runner, argPaths, outputPath, bodyIrPath),
+      options.verbose,
+    );
 
     const searchDirs = options.runnerSearchDir
       ? [options.runnerSearchDir, process.cwd()]

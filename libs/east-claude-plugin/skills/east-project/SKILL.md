@@ -1,18 +1,36 @@
 ---
 name: east-project
-description: "Create, initialise, and manage East / e3 projects end-to-end. Use when: (1) Scaffolding a new project ('create an e3 project called X', 'set up an East project', 'new East project'), (2) Choosing between an e3 project (BSL-1.1, Node + Python, durable execution) and an East project (AGPL-3.0, Node-only), (3) Driving the project lifecycle — install, build, deploy, run, watch, test — with the e3 CLI ('how do I run / deploy / watch / test this'), (4) Going from an empty directory to a running dataflow."
+description: "Create, initialise, and manage East / e3 projects end-to-end. Use when: (1) Scaffolding a new project ('create an e3 project called X', 'set up an East project', 'new East project'), (2) Choosing between an e3 project (BSL-1.1, Node + Python, durable execution) and an East project (AGPL-3.0, Node-only), (3) Driving the project lifecycle — install, build, deploy, run, watch, test — with the e3 CLI ('how do I run / deploy / watch / test this'), (4) Going from an empty directory to a running dataflow, (5) Splitting platform code into per-runtime workspace packages (--python-packages / --node-packages / --c-packages) for per-package change detection across Python, Node and C runners."
 ---
 
 # East / e3 Project Lifecycle
 
 Scaffold and run East projects. This skill creates the skeleton, then you implement the logic using the **e3**, **east**, **east-ui**, and **east-py-datascience** skills.
 
-## Decision: which project?
+## Decision tree
 
-| Want | Use | License | Stack |
+```
+Scaffolding an East project?
+│
+├─ Which kind?
+│   ├─ Durable dataflow, workspaces, Python+Node+C  → npm create @elaraai/e3   <name>   (BSL-1.1)
+│   └─ Plain East, Node platform fns only           → npm create @elaraai/east <name>   (AGPL-3.0)
+│       └─ pass '.' for the current dir · add `-- --install` to install deps
+│
+├─ Need custom NATIVE functions?
+│   ├─ One project-owned module (quick)   → add `--platform`  (TS-East; + Python via `--runners=east-node,east-py`)
+│   └─ Split into SEPARATE packages, each its own change-detection boundary:
+│       ├─ Python (numpy / pandas / ML)   → `--python-packages=pricing,forecasting`  → packages/python/*
+│       ├─ Node (TS / Node libraries)     → `--node-packages=api`                     → packages/node/*
+│       └─ C (native binary)              → `--c-packages=solver`                     → packages/native/*
+│
+└─ Run it → npm run setup → npm run start (deploy + dataflow run; add `-v` for runner timing) → npm run watch
+```
+
+| Kind | Command | License | Stack |
 |---|---|---|---|
-| Durable dataflow, workspaces, multi-runtime | **e3 project** | BSL-1.1 | Node + Python |
-| Plain East programs, Node platform fns only | **East project** | AGPL-3.0 | Node-only |
+| **e3** | `npm create @elaraai/e3 <name>` | BSL-1.1 | Node + Python (+ C) |
+| **East** | `npm create @elaraai/east <name>` | AGPL-3.0 | Node-only |
 
 ## Scaffold
 
@@ -93,6 +111,17 @@ package.json `name` exactly; and ensure the project is **built** before
 Python half, add the setuptools `[build-system]` + `[tool.setuptools] packages`
 to `pyproject.toml` and `uv sync`.
 
+## Multi-package projects (per-runner change granularity)
+
+Split platform code into separate workspace packages — each its own captured
+execution environment, so editing one re-runs only its tasks (the rest stay
+cached, even across a redeploy). Scaffold with `--python-packages` /
+`--node-packages` / `--c-packages`; the **e3-create** skill is the full
+reference — every flag, the generated layout, and the per-runtime task wiring
+(python & node auto-derive the environment from `{ custom }`; C attaches a
+prebuilt binary via `environment: { tools }`).
+
+
 ## Lifecycle (generated npm scripts)
 
 ```bash
@@ -110,7 +139,7 @@ Under the hood the e3 scripts use the e3 CLI's source-deploy:
 ```bash
 e3 repo create .repos --exist-ok
 e3 workspace deploy .repos <ws> --from-source ./src/index.ts   # bundle + import + create ws + deploy
-e3 dataflow run .repos <ws>
+e3 dataflow run .repos <ws>                                   # add -v for per-runner timing/perf (in `e3 task logs`)
 e3 dataset get .repos <ws>.<name>                              # read a result (flat path)
 ```
 
@@ -124,6 +153,7 @@ e3 dataset get .repos <ws>.<name>                              # read a result (
 
 ## Related skills
 
+- **e3-create** — the full `npm create @elaraai/{e3,east}` flag reference (every option + its effect, single vs multi-package layouts). This skill picks up *after* scaffolding.
 - **e3** — the SDK + CLI this builds on.
 - **east** — the language for task bodies.
 - **east-ui** / **e3-ui** — decision surfaces.

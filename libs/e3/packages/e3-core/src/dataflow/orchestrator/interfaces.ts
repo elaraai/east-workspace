@@ -63,6 +63,13 @@ export interface OrchestratorStartOptions {
   force?: boolean;
   /** Filter to run only specific task(s) by exact name */
   filter?: string;
+  /**
+   * Pass `-v` to each task's runner (known runtimes only) so it prints
+   * timing/perf to stderr (captured into the task's logs). A runtime
+   * collaborator like {@link signal}/callbacks — supplied fresh per run and
+   * never persisted, so it has no effect on the task hash or caching.
+   */
+  verbose?: boolean;
   /** AbortSignal for cancellation */
   signal?: AbortSignal;
   /** External lock handle (if caller manages locking) */

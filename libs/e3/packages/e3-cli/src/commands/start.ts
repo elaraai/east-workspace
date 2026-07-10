@@ -45,7 +45,7 @@ const POLL_INTERVAL = 500;
 export async function startCommand(
   repoArg: string,
   ws: string,
-  options: { filter?: string; concurrency?: string; force?: boolean }
+  options: { filter?: string; concurrency?: string; force?: boolean; verbose?: boolean }
 ): Promise<void> {
   // Set up abort controller for signal handling
   const controller = new AbortController();
@@ -80,6 +80,7 @@ export async function startCommand(
       await executeLocal(location.path, ws, {
         concurrency,
         force: options.force,
+        verbose: options.verbose,
         filter: options.filter,
         signal: controller.signal,
       });
@@ -92,6 +93,7 @@ export async function startCommand(
           concurrency,
           force: options.force,
           filter: options.filter,
+          verbose: options.verbose,
         },
         () => aborted
       );
@@ -117,6 +119,7 @@ export async function startCommand(
 interface LocalExecuteOptions {
   concurrency: number;
   force?: boolean;
+  verbose?: boolean;
   filter?: string;
   signal: AbortSignal;
 }
@@ -134,6 +137,7 @@ async function executeLocal(
   const handle = await orchestrator.start(storage, repoPath, ws, {
     concurrency: options.concurrency,
     force: options.force,
+    verbose: options.verbose,
     filter: options.filter,
     signal: options.signal,
     onTaskStart: (name) => {
@@ -202,6 +206,7 @@ interface RemoteExecuteOptions {
   concurrency: number;
   force?: boolean;
   filter?: string;
+  verbose?: boolean;
 }
 
 async function executeRemote(
@@ -220,7 +225,7 @@ async function executeRemote(
     concurrency: options.concurrency,
     force: options.force,
     filter: options.filter,
-  }, { token: await getValidToken(baseUrl) });
+  }, { token: await getValidToken(baseUrl), verbose: options.verbose });
 
   // Poll for execution state
   let eventOffset = 0;

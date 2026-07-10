@@ -75,7 +75,7 @@ export function createPackageFunctionRoutes(
     const repoPath = getRepoPath(c.req.param('repo')!);
     try {
       const req = await decodeBody(c, FunctionCallRequestType);
-      return await callFunctionSync(storage, repoPath, getRunner(repoPath), c.req.param('pkg')!, c.req.param('version')!, c.req.param('fn')!, req);
+      return await callFunctionSync(storage, repoPath, getRunner(repoPath), c.req.param('pkg')!, c.req.param('version')!, c.req.param('fn')!, req, c.req.query('verbose') === '1');
     } catch (err) {
       return sendError(ExecuteResultType, errorToVariant(err));
     }
@@ -125,7 +125,7 @@ export function createWorkspaceFunctionRoutes(
     try {
       const { repoPath, name, version } = await deployed(c);
       const req = await decodeBody(c, FunctionCallRequestType);
-      return await callFunctionSync(storage, repoPath, getRunner(repoPath), name, version, c.req.param('fn')!, req);
+      return await callFunctionSync(storage, repoPath, getRunner(repoPath), name, version, c.req.param('fn')!, req, c.req.query('verbose') === '1');
     } catch (err) {
       return sendError(ExecuteResultType, errorToVariant(err));
     }
@@ -161,7 +161,7 @@ export function createOneShotRoutes(
     const repoPath = getRepoPath(c.req.param('repo')!);
     try {
       const req = await decodeBody(c, OneShotRequestType);
-      return await callOneShotSync(storage, repoPath, getRunner(repoPath), c.req.param('ws')!, req);
+      return await callOneShotSync(storage, repoPath, getRunner(repoPath), c.req.param('ws')!, req, c.req.query('verbose') === '1');
     } catch (err) {
       return sendError(ExecuteResultType, errorToVariant(err));
     }

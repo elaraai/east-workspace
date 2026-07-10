@@ -7,7 +7,14 @@
       "file": "static",
       "suite": "e3.input",
       "test": "Define an input dataset with a default value",
-      "keywords": ["e3", "input", "dataset", "default", "StringType", "IntegerType"],
+      "keywords": [
+        "e3",
+        "input",
+        "dataset",
+        "default",
+        "StringType",
+        "IntegerType"
+      ],
       "imports": [
         "import { East, StringType, IntegerType } from '@elaraai/east';",
         "import e3 from '@elaraai/e3';"
@@ -21,7 +28,13 @@
       "file": "static",
       "suite": "e3.task",
       "test": "Define a task that runs an East function",
-      "keywords": ["e3", "task", "function", "dataflow", "dependency"],
+      "keywords": [
+        "e3",
+        "task",
+        "function",
+        "dataflow",
+        "dependency"
+      ],
       "imports": [
         "import { East, StringType } from '@elaraai/east';",
         "import e3 from '@elaraai/e3';"
@@ -35,7 +48,14 @@
       "file": "static",
       "suite": "e3.task",
       "test": "Chain tasks via .output",
-      "keywords": ["e3", "task", "chain", "output", "dependency", "pipeline"],
+      "keywords": [
+        "e3",
+        "task",
+        "chain",
+        "output",
+        "dependency",
+        "pipeline"
+      ],
       "imports": [
         "import { East, StringType } from '@elaraai/east';",
         "import e3 from '@elaraai/e3';"
@@ -49,7 +69,14 @@
       "file": "static",
       "suite": "e3.task",
       "test": "Define a task with a custom Python runner",
-      "keywords": ["e3", "task", "runner", "python", "uv", "east-py"],
+      "keywords": [
+        "e3",
+        "task",
+        "runner",
+        "python",
+        "uv",
+        "east-py"
+      ],
       "imports": [
         "import { East, IntegerType } from '@elaraai/east';",
         "import e3 from '@elaraai/e3';"
@@ -63,7 +90,14 @@
       "file": "static",
       "suite": "e3.customTask",
       "test": "Define a task that runs a shell command",
-      "keywords": ["e3", "customTask", "shell", "command", "script", "process"],
+      "keywords": [
+        "e3",
+        "customTask",
+        "shell",
+        "command",
+        "script",
+        "process"
+      ],
       "imports": [
         "import { East, StringType } from '@elaraai/east';",
         "import e3 from '@elaraai/e3';"
@@ -77,7 +111,14 @@
       "file": "static",
       "suite": "e3.package",
       "test": "Bundle tasks into a package and export to zip",
-      "keywords": ["e3", "package", "export", "bundle", "zip", "deploy"],
+      "keywords": [
+        "e3",
+        "package",
+        "export",
+        "bundle",
+        "zip",
+        "deploy"
+      ],
       "imports": [
         "import e3 from '@elaraai/e3';"
       ],
@@ -90,7 +131,16 @@
       "file": "static",
       "suite": "e3 Quick Start",
       "test": "Complete e3 package with input, task, package, and export",
-      "keywords": ["e3", "input", "task", "package", "export", "complete", "example", "hello world"],
+      "keywords": [
+        "e3",
+        "input",
+        "task",
+        "package",
+        "export",
+        "complete",
+        "example",
+        "hello world"
+      ],
       "imports": [
         "import { East, StringType } from '@elaraai/east';",
         "import e3 from '@elaraai/e3';"
@@ -104,7 +154,19 @@
       "file": "static",
       "suite": "e3-ui shot",
       "test": "Screenshot a .tsx component (or a ui() task) to PNG from the command line",
-      "keywords": ["e3-ui-cli", "shot", "screenshot", "png", "render", "cli", "from-source", "ui task", "surface", "headless", "chromium"],
+      "keywords": [
+        "e3-ui-cli",
+        "shot",
+        "screenshot",
+        "png",
+        "render",
+        "cli",
+        "from-source",
+        "ui task",
+        "surface",
+        "headless",
+        "chromium"
+      ],
       "imports": [],
       "source": "# One-time per machine (add --with-deps on a fresh Linux server):\ne3-ui install-browser\n\n# A .tsx exporting an East function returning UIComponentType, or an e3 ui() task:\ne3-ui shot --from-source ./dashboard.tsx -o dashboard.png\n\n# Pick an export, set a viewport, also emit standalone HTML:\ne3-ui shot --from-source src/ui/index.tsx --export surface --viewport 800x600 --html"
     },
@@ -115,9 +177,24 @@
       "file": "static",
       "suite": "e3-ui shots",
       "test": "Sweep a project for every renderable UI export (fns, example() defs, ui() tasks) and render each to a structured .shots/ dir",
-      "keywords": ["e3-ui-cli", "shots", "sweep", "all", "examples", "example", "batch", "gallery", "png", "html", "manifest", "frame-width", "audit", "renderable"],
+      "keywords": [
+        "e3-ui-cli",
+        "shots",
+        "sweep",
+        "all",
+        "examples",
+        "example",
+        "batch",
+        "gallery",
+        "png",
+        "html",
+        "manifest",
+        "frame-width",
+        "audit",
+        "renderable"
+      ],
       "imports": [],
-      "source": "# EVERYTHING renderable under src/ (default) \u2192 .shots/<relative-path>/<export>.png\n# One shared browser; every skip carries its typed reason; exit 1 on render failures.\ne3-ui shots src --out .shots --json\n\n# Also write a standalone HTML beside each PNG:\ne3-ui shots src --out .shots --html\n\n# Width-flexible components (Schematic/Gantt/Table) mount at viewport width by\n# default (--frame-width full); 'none' restores the shrink-to-fit crop:\ne3-ui shots test/collections --out .shots --frame-width full\n\n# Skips are an AUDIT of the renderable surface \u2014 e.g.:\n#   skipped  src/tasks.ts \u203a sumExample \u2014 output type is Integer, not UIComponentType\n#   skipped  src/ui/queue.tsx \u203a queuePage \u2014 reads e3 workspace data (data_read) \u2014 use --from-task"
+      "source": "# EVERYTHING renderable under src/ (default) → .shots/<relative-path>/<export>.png\n# One shared browser; every skip carries its typed reason; exit 1 on render failures.\ne3-ui shots src --out .shots --json\n\n# Also write a standalone HTML beside each PNG:\ne3-ui shots src --out .shots --html\n\n# Width-flexible components (Schematic/Gantt/Table) mount at viewport width by\n# default (--frame-width full); 'none' restores the shrink-to-fit crop:\ne3-ui shots test/collections --out .shots --frame-width full\n\n# Skips are an AUDIT of the renderable surface — e.g.:\n#   skipped  src/tasks.ts › sumExample — output type is Integer, not UIComponentType\n#   skipped  src/ui/queue.tsx › queuePage — reads e3 workspace data (data_read) — use --from-task"
     },
     {
       "id": "e3-ui-cli:static:shot-from-task",
@@ -126,7 +203,17 @@
       "file": "static",
       "suite": "e3-ui shot",
       "test": "Screenshot a live e3 task's computed output with real workspace data",
-      "keywords": ["e3-ui-cli", "shot", "from-task", "workspace", "repo", "live", "dataflow", "screenshot", "png"],
+      "keywords": [
+        "e3-ui-cli",
+        "shot",
+        "from-task",
+        "workspace",
+        "repo",
+        "live",
+        "dataflow",
+        "screenshot",
+        "png"
+      ],
       "imports": [],
       "source": "# The workspace dataflow must have already produced the task output:\ne3-ui shot --from-task main.dashboard --repo ./.repos -o dashboard.png\n\n# Serialized component IR also works (stdin with -):\ne3-ui shot --from-ir ./component.beast2 -o component.png"
     },
@@ -137,9 +224,123 @@
       "file": "static",
       "suite": "programmatic",
       "test": "Render a component to PNG from Node with renderToPng",
-      "keywords": ["e3-ui-cli", "renderToPng", "renderTaskToPng", "programmatic", "node", "png", "screenshot", "doctor", "install-browser"],
-      "imports": ["import { renderToPng, renderTaskToPng } from '@elaraai/e3-ui-cli';"],
+      "keywords": [
+        "e3-ui-cli",
+        "renderToPng",
+        "renderTaskToPng",
+        "programmatic",
+        "node",
+        "png",
+        "screenshot",
+        "doctor",
+        "install-browser"
+      ],
+      "imports": [
+        "import { renderToPng, renderTaskToPng } from '@elaraai/e3-ui-cli';"
+      ],
       "source": "// Source/IR input -> PNG (and optional standalone HTML):\nawait renderToPng({\n  input: { path: './dashboard.tsx' },\n  output: 'dashboard.png',\n  html: 'dashboard.html',\n});\n\n// A deployed e3 task's computed output:\nawait renderTaskToPng({ repo: './.repos', workspace: 'main', task: 'dashboard', output: 'dashboard.png' });"
+    },
+    {
+      "id": "e3-create:static:new-e3-project",
+      "skill": "e3-create",
+      "package": "e3-create",
+      "file": "static",
+      "suite": "npm create @elaraai/e3",
+      "test": "Scaffold a new e3 project (durable dataflow; Node + Python + C runners)",
+      "keywords": [
+        "e3-create",
+        "scaffold",
+        "create",
+        "new project",
+        "npm create",
+        "e3",
+        "init",
+        "initializer"
+      ],
+      "imports": [],
+      "source": "# Interactive when a TTY; pass flags after `--` for a non-interactive run:\nnpm create @elaraai/e3 my-app\nnpm create @elaraai/e3 .                       # scaffold into the current directory\nnpm create @elaraai/e3 my-app -- --no-ui --install"
+    },
+    {
+      "id": "e3-create:static:choose-runners",
+      "skill": "e3-create",
+      "package": "e3-create",
+      "file": "static",
+      "suite": "create-e3 --runners",
+      "test": "Choose which East runtimes a project includes (default: all three)",
+      "keywords": [
+        "e3-create",
+        "runners",
+        "east-node",
+        "east-py",
+        "east-c",
+        "runtime",
+        "scaffold",
+        "prune"
+      ],
+      "imports": [],
+      "source": "# Default is east-node,east-py,east-c; prune to what you need (drops unused setup):\nnpm create @elaraai/e3 planner -- --runners=east-node,east-py"
+    },
+    {
+      "id": "e3-create:static:multi-package",
+      "skill": "e3-create",
+      "package": "e3-create",
+      "file": "static",
+      "suite": "create-e3 --python-packages / --node-packages / --c-packages",
+      "test": "Split platform code into per-runtime workspace packages for per-package change detection",
+      "keywords": [
+        "e3-create",
+        "python-packages",
+        "node-packages",
+        "c-packages",
+        "workspace",
+        "multi-package",
+        "environment",
+        "granularity",
+        "uv",
+        "npm",
+        "native",
+        "per-package"
+      ],
+      "imports": [],
+      "source": "# Each package is its own captured environment — editing one re-runs only its tasks:\nnpm create @elaraai/e3 my-app -- --python-packages=pricing --node-packages=api --c-packages=solver\n# generates packages/python/pricing (uv member), packages/node/api (npm member),\n# packages/native/solver (tools env) + src/packages/{pricing,api,solver}.ts wiring each\n# task to its runner. python/node auto-derive the env from { custom }; C attaches the binary."
+    },
+    {
+      "id": "e3-create:static:platform-module",
+      "skill": "e3-create",
+      "package": "e3-create",
+      "file": "static",
+      "suite": "create-e3 --platform",
+      "test": "Scaffold one project-owned platform module (TS-East, plus Python when east-py is on)",
+      "keywords": [
+        "e3-create",
+        "platform",
+        "custom platform function",
+        "East.platform",
+        "implement",
+        "scaffold",
+        "module"
+      ],
+      "imports": [],
+      "source": "npm create @elaraai/e3 my-app -- --platform                     # TS-East only\nnpm create @elaraai/e3 my-app -- --platform --runners=east-node,east-py   # + Python half"
+    },
+    {
+      "id": "e3-create:static:new-east-project",
+      "skill": "e3-create",
+      "package": "e3-create",
+      "file": "static",
+      "suite": "npm create @elaraai/east",
+      "test": "Scaffold a plain East (Node-only) project",
+      "keywords": [
+        "e3-create",
+        "east",
+        "create-east",
+        "node-only",
+        "scaffold",
+        "AGPL",
+        "library"
+      ],
+      "imports": [],
+      "source": "npm create @elaraai/east mylib\nnpm create @elaraai/east mylib -- --no-tests"
     }
   ]
 }

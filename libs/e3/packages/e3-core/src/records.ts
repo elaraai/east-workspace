@@ -106,6 +106,9 @@ export interface RecordMutateOptions {
   signal?: AbortSignal;
   /** Externally-held shared workspace lock; acquired internally when omitted. */
   lock?: LockHandle;
+  /** Pass `-v` to the reducer's runner (known runtimes only) so it prints
+   *  timing/perf to stderr. Runtime-only; never affects hashing or caching. */
+  verbose?: boolean;
 }
 
 /**
@@ -249,7 +252,7 @@ export async function recordMutate(
       const stateBytes = await storage.objects.read(repo, existing.ref.value.hash);
       const result = await runner.runDetached(
         { bodyIr, args: [stateBytes, ...args], runner: mutObj.runner, limits: runLimits },
-        { signal: opts.signal },
+        { signal: opts.signal, verbose: opts.verbose },
       );
       if (result.kind !== 'success') return failureOutcome(result);
 

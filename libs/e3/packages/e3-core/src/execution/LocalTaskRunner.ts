@@ -17,7 +17,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { tmpdir } from 'os';
 import { variant } from '@elaraai/east';
-import { type ExecutionStatus, type TaskObject, decodeTaskObject } from '@elaraai/e3-types';
+import { type ExecutionStatus, type TaskObject, decodeTaskObject, withRunnerVerbose } from '@elaraai/e3-types';
 import { inputsHash, evaluateCommandIr } from '../executions.js';
 import { uuidv7 } from '../uuid.js';
 import type { StorageBackend } from '../storage/interfaces.js';
@@ -37,6 +37,10 @@ export { collectNodeModulesBins, collectVenvBins } from './processExec.js';
 export interface ExecuteOptions {
   /** Re-run even if cached (default: false) */
   force?: boolean;
+  /** Pass `-v` to the runner (known runtimes only) so it prints timing/perf
+   *  to stderr. Runtime-only: applied to the evaluated argv just before spawn,
+   *  so it never affects the task hash or caching. */
+  verbose?: boolean;
   /** Timeout in milliseconds (default: none) */
   timeout?: number;
   /** AbortSignal for cancellation */
@@ -86,6 +90,7 @@ export class LocalTaskRunner implements TaskRunner {
   ): Promise<TaskResult> {
     const result = await taskExecute(storage, this.repo, taskHash, inputHashes, {
       force: options?.force,
+      verbose: options?.verbose,
       signal: options?.signal,
       onStdout: options?.onStdout,
       onStderr: options?.onStderr,
@@ -119,6 +124,7 @@ export class LocalTaskRunner implements TaskRunner {
     }
     return runDetached(spec, {
       signal: options?.signal,
+      verbose: options?.verbose,
       // Anchor the runner-binary PATH walk at the repo's parent (the
       // project dir), matching the tracked path's walk-up in spawnAndCapture.
       runnerSearchDir: options?.runnerSearchDir ?? path.dirname(this.repo),
@@ -280,6 +286,12 @@ export async function taskExecute(
         error: 'Command IR produced empty command',
       };
     }
+
+    // Step 6.4: Runtime verbose toggle. Splice `-v` into the evaluated argv for
+    // known runtimes only (never a custom runner's user-authored command). This
+    // is applied AFTER the cache decision and never touches commandIr/hashes, so
+    // `-v` changes only what a task that actually spawns prints — not caching.
+    args = withRunnerVerbose(task.runner, args, options.verbose);
 
     // Step 6.5: Materialize the task's declared execution environment (warm
     // cache hit after first use); its bin dir is prepended to the child PATH.

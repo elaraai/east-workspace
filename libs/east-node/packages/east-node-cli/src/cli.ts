@@ -92,7 +92,13 @@ async function cmdRun(irFile: string | undefined, options: RunOptions): Promise<
         if (err instanceof EastError) {
             console.error(`Error: ${err.toString()}`);
         } else {
-            console.error(`Error: ${(err as Error).message}`);
+            // A plain (non-East) error — e.g. one thrown by a custom platform
+            // function. Print the STACK, not just the message: East runtime and
+            // platform errors carry source-mapped frames (the platform code that
+            // threw + the East call site), and the message alone drops them. The
+            // stack already begins with `Error: <message>`, so don't re-prefix.
+            const e = err as Error;
+            console.error(e.stack ?? `Error: ${e.message ?? String(err)}`);
         }
         process.exit(1);
     }
