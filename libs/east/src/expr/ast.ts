@@ -4,7 +4,7 @@
  */
 
 import type { AST } from "../ast.js";
-import { get_location_id } from "../location.js";
+import { get_current_source_map, get_location_id, type SourceMap } from "../location.js";
 import { SortedMap } from "../containers/sortedmap.js";
 import { SortedSet } from "../containers/sortedset.js";
 import {
@@ -31,7 +31,7 @@ import {
 } from "../types.js";
 import { isVariant, variant } from "../containers/variant.js";
 import { typeMismatchError } from "../type_diff.js";
-import { Expr, AstSymbol, TypeSymbol } from "./expr.js";
+import { Expr, AstSymbol, SourceMapSymbol, TypeSymbol } from "./expr.js";
 import { isRef } from "../containers/ref.js";
 import { isMatrix } from "../containers/matrix.js";
 
@@ -150,6 +150,88 @@ export function valueOrExprToAst(value: any): AST {
 }
 
 /**
+ * Rewrite every loc_id in an AST subtree from one source map into another.
+ *
+ * A function expression built with no ambient source map interns its
+ * locations into its own private map (`ensure_source_map`); embedding that
+ * subtree under a different (ambient) map would leave loc_ids resolving
+ * against the wrong map — misleading or empty locations at error time.
+ * Nodes are copied, not mutated, so the original expression stays
+ * consistent with its own map. `type` fields (EastTypes) and Value-node
+ * payloads (data, which may legitimately contain a `loc_id` struct field)
+ * are passed through untouched.
+ */
+function remapAstLocations(node: any, from: SourceMap, to: SourceMap, seen: Map<object, any> = new Map()): any {
+  if (Array.isArray(node)) {
+    const cached = seen.get(node);
+    if (cached !== undefined) return cached;
+    const copy: any[] = [];
+    seen.set(node, copy);
+    for (const item of node) copy.push(remapAstLocations(item, from, to, seen));
+    return copy;
+  }
+  if (node === null || typeof node !== "object" || isVariant(node)) {
+    return node;
+  }
+  // AST aliasing is identity-based (a Variable node in `parameters` IS the
+  // node referenced from the body), so copies must be memoized: the same
+  // input node always maps to the same output node.
+  const cached = seen.get(node);
+  if (cached !== undefined) return cached;
+  const isValueNode = node.ast_type === "Value";
+  const out: any = {};
+  seen.set(node, out);
+  for (const [key, item] of Object.entries(node)) {
+    // `type`/`type_parameters` hold EastTypes (identity- and
+    // symbol-stamped — never copy) and a Value node's `value` is data
+    if (key === "type" || key === "type_parameters" || (isValueNode && key === "value")) {
+      out[key] = item;
+    } else if (key === "loc_id" && typeof item === "bigint") {
+      out[key] = to.intern_stack([...from.resolve(item)]);
+    } else if (item !== null && typeof item === "object" && !isVariant(item)) {
+      out[key] = remapAstLocations(item, from, to, seen);
+    } else {
+      out[key] = item;
+    }
+  }
+  return out;
+}
+
+/**
+ * Extract an expression's AST for embedding under the current source map.
+ *
+ * When the expression was built under its own private source map (it was
+ * constructed with no ambient map active — e.g. a bare lambda coerced by a
+ * top-level `East.value`) and a different map is active now, its locations
+ * are re-interned into the active map so they survive serialization. The
+ * private map is read from the expression or from the AST node itself (the
+ * coercion branches annotate the node, since wrappers like `East.value`
+ * rebuild the expression and would drop an expression-level annotation).
+ * With no map active yet, the annotation is preserved for a later embed.
+ */
+export function astUnderCurrentSourceMap(expr: any): AST {
+  const ast = expr[AstSymbol] as AST;
+  const own = (expr[SourceMapSymbol] ?? (ast as any)[SourceMapSymbol]) as SourceMap | undefined;
+  const ambient = get_current_source_map();
+  if (own && ambient && own !== ambient) {
+    return remapAstLocations(ast, own, ambient);
+  }
+  return ast;
+}
+
+/**
+ * Annotate an AST node with the private source map its loc_ids belong to,
+ * so a later embedding under a real map can re-intern them.
+ */
+function carrySourceMap(ast: AST, own: SourceMap | undefined | null): AST {
+  const ambient = get_current_source_map();
+  if (own && !ambient) {
+    Object.defineProperty(ast, SourceMapSymbol, { enumerable: false, value: own });
+  }
+  return ast;
+}
+
+/**
  * Convert a value to AST with explicit type checking
  */
 export function valueOrExprToAstTyped<T extends EastType>(value: any, type: T, visited?: Set<any>, loc_id = get_location_id()): AST & { type: T } {
@@ -158,7 +240,7 @@ export function valueOrExprToAstTyped<T extends EastType>(value: any, type: T, v
     if (!isSubtype(valueType, type)) {
       throw typeMismatchError(valueType, type, { loc_id });
     }
-    return value[AstSymbol] as AST & { type: T };
+    return astUnderCurrentSourceMap(value) as AST & { type: T };
   }
 
   // For primitive values, validate type matches and create AST
@@ -317,13 +399,20 @@ export function valueOrExprToAstTyped<T extends EastType>(value: any, type: T, v
       throw new Error(`Expected function but got ${value === null ? "null" : typeof value}`);
     }
 
-    return Expr.function(type.inputs, type.output, value)[AstSymbol] as any; // location?
+    // Coerce the bare lambda into a real East function, re-homing its
+    // locations under the active source map and stamping the coercion
+    // site's loc_id like every sibling branch (issue #204). With no map
+    // active (e.g. a top-level East.value), the function's private map is
+    // carried on the node so a later embed can re-intern it.
+    const fnExpr = Expr.function(type.inputs, type.output, value) as any;
+    return carrySourceMap({ ...astUnderCurrentSourceMap(fnExpr), loc_id }, fnExpr[SourceMapSymbol]) as any;
   } else if (type.type === "AsyncFunction") {
     if (typeof value !== "function") {
       throw new Error(`Expected function but got ${value === null ? "null" : typeof value}`);
     }
 
-    return Expr.asyncFunction(type.inputs, type.output, value)[AstSymbol] as any; // location?
+    const fnExpr = Expr.asyncFunction(type.inputs, type.output, value) as any;
+    return carrySourceMap({ ...astUnderCurrentSourceMap(fnExpr), loc_id }, fnExpr[SourceMapSymbol]) as any;
   } else if (type.type === "Vector") {
     const elemType = type.element;
     if (value instanceof Float64Array || value instanceof BigInt64Array || value instanceof Uint8ClampedArray || value instanceof Uint8Array) {
