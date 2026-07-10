@@ -409,7 +409,11 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
     // Opt-in row-hover affordance (#120 item 5) — the recipe `rowHover` variant
     // adds the `_hover` outline to the `row` slot, so no inline hover styling.
     const rowHoverOn = getSomeorUndefined(value.rowHover) === true;
-    const base = useMemo(() => recipe({ size, rowHover: rowHoverOn } as Record<string, unknown>) as unknown as RecipeStyles, [recipe, size, rowHoverOn]);
+    // Opt-in vertical scroll (#302) — when `maxHeight` is set the plan body
+    // scrolls within it and the header pins (sticky-top, via the recipe `scroll`
+    // variant); the dynamic cap value is applied inline on the root below.
+    const maxHeight = getSomeorUndefined(value.maxHeight);
+    const base = useMemo(() => recipe({ size, rowHover: rowHoverOn, scroll: maxHeight !== undefined } as Record<string, unknown>) as unknown as RecipeStyles, [recipe, size, rowHoverOn, maxHeight]);
     // Header cells reuse the shared `table` columnHeader chrome (solid wash +
     // strong bottom rule) — one source across Table / Gantt / Planner / Matrix.
     const headerCellStyle = useMemo(() => (tableRecipe({ size }) as unknown as RecipeStyles).columnHeader ?? {}, [tableRecipe, size]);
@@ -824,7 +828,7 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
     };
 
     const plannerContent = (
-        <Box css={base.root} {...(gutterActive ? { width: "100%" } : {})}>
+        <Box css={maxHeight !== undefined ? { ...base.root, maxHeight } : base.root} {...(gutterActive ? { width: "100%" } : {})}>
             {/* Header: left data-column headers (Table chrome) + right slot axis. */}
             <Box css={base.header} data-slot="header" display="grid" gridTemplateColumns={outerCols} minWidth={outerMinWidth} height={`${headerH}px`}>
                 <Box css={stickyLeftHeader} display="flex" width="100%" style={effectiveSizeVars}>

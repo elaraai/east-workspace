@@ -11,6 +11,8 @@ import * as ex from "./chart.examples.js";
 describeEast("Chart", (test) => {
     Assert.examples(test, {
         lineBasic: ex.lineBasic,
+        tooltipOverStickyTable: ex.tooltipOverStickyTable,
+        columnStackedDiverging: ex.columnStackedDiverging,
         lineMultiColumns: ex.lineMultiColumns,
         lineBreakdown: ex.lineBreakdown,
         lineCurveNatural: ex.lineCurveNatural,

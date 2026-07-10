@@ -307,9 +307,29 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     const sliceChrome = getSomeorUndefined(value.slice) as
         { slice: unknown; affordances: ReadonlyArray<{ type: string }> } | undefined;
     const sliceHandle = sliceChrome?.slice as ValueTypeOf<typeof SliceInternal.Types.Bind> | undefined;
-    useSliceReactivity(sliceHandle?.key);
+    // The version bumps only when the slice is mutated — used below to rebuild the
+    // slice chrome ONLY on slice changes, never on the per-frame camera re-render.
+    const sliceVersion = useSliceReactivity(sliceHandle?.key);
     const sliceFrameStyles = useSlotRecipe({ key: "sliceFrame" })();
     const hasSliceChrome = sliceChrome !== undefined && sliceHandle !== undefined;
+    // The slice rail mounts live Slice affordance components (filter / search /
+    // range …) that recompute over the WHOLE dataset. Isolate that subtree from
+    // the schematic's per-frame camera re-render: memoise the element on the slice
+    // VERSION + handle + affordances so a pan/zoom (which re-renders this component
+    // ~60×/s via `setCameraSnapshot`) reuses the SAME element and React skips the
+    // whole O(rows) slice-chrome render. It still rebuilds when the slice actually
+    // changes (version bump) or the rail's own internal state does.
+    const affordanceKinds = useMemo(
+        () => sliceChrome?.affordances.map(a => a.type) ?? [],
+        [sliceChrome],
+    );
+    const sliceRail = useMemo(
+        () => (hasSliceChrome ? <SliceRailCluster slice={sliceHandle!} affordanceKinds={affordanceKinds} /> : null),
+        // sliceVersion is the reactive trigger (not referenced in the body); handle
+        // identity is stable across camera frames, so pans reuse the element.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [hasSliceChrome, sliceHandle, affordanceKinds, sliceVersion],
+    );
     // A fixed height pins the panel instead of the extent's aspect ratio.
     const fixedHeight = getSomeorUndefined(value.height);
 
@@ -2645,7 +2665,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     return (
         <Box css={{ ...sliceFrameStyles.root, display: "flex", flexDirection: "column", minHeight: 0, ...(fixedHeight !== undefined ? { height: fixedHeight, maxHeight: fixedHeight } : {}) }}>
             <Box css={{ ...sliceFrameStyles.frameEyebrow, flexShrink: 0 }}>
-                <SliceRailCluster slice={sliceHandle!} affordanceKinds={sliceChrome!.affordances.map(a => a.type)} />
+                {sliceRail}
             </Box>
             <Box css={{ ...sliceFrameStyles.frameBody, flex: "1 1 0%", minHeight: 0, position: "relative" }}>
                 {schematicBody}

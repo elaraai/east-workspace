@@ -5,7 +5,14 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { AlignedStack, Box, Chart, Reactive } from "@elaraai/east-ui";
+import { AlignedStack, Box, Chart, Reactive, Table, VStack } from "@elaraai/east-ui";
+
+// Rows for the tooltip-over-sticky-header layering example (below).
+const TOOLTIP_TABLE_ROWS = Array.from({ length: 14 }, (_, i) => ({
+    id: `SKU-${String(i + 1).padStart(3, "0")}`,
+    region: (["North", "South", "East", "West"] as const)[i % 4]!,
+    value: BigInt(600 + i * 73),
+}));
 
 // ============================================================================
 // Line — marks, encodings, curves, scales
@@ -22,6 +29,54 @@ export const lineBasic = example({
         return (
             <Box height="220px" width="100%">
                 <Chart layers={Chart.Line(rows, { x: r => r.month, y: r => r.sales }, { color: "teal.solid" })} grid tooltip />
+            </Box>
+        );
+    }),
+    inputs: [],
+});
+
+export const tooltipOverStickyTable = example({
+    keywords: ["Chart", "tooltip", "zIndex", "z-index", "sticky", "stickyHeader", "Table", "header", "overlay", "layering", "portal"],
+    description: "Chart hover tooltip layers ABOVE a sibling Table's sticky column header — hover the line near the BOTTOM of the chart so the tooltip overlaps the header row directly below it. The tooltip's z-index must sit on its own positioned content (the visx portal wrapper is position:static, so its z-index is ignored) or the sticky header (z-index 2) paints over it.",
+    fn: East.function([], UIComponentType, ($) => {
+        const chartRows = $.const([
+            { month: "Jan", sales: 100n }, { month: "Feb", sales: 150n }, { month: "Mar", sales: 120n },
+            { month: "Apr", sales: 180n }, { month: "May", sales: 140n }, { month: "Jun", sales: 170n },
+        ], ArrayType(StructType({ month: StringType, sales: IntegerType })));
+        const tableRows = $.const(TOOLTIP_TABLE_ROWS, ArrayType(StructType({ id: StringType, region: StringType, value: IntegerType })));
+        return (
+            <VStack gap="0" align="stretch" width="100%">
+                <Box height="160px" width="100%">
+                    <Chart layers={Chart.Line(chartRows, { x: r => r.month, y: r => r.sales }, { color: "teal.solid" })} grid tooltip />
+                </Box>
+                <Table data={tableRows} columns={["id", "region", "value"]} height="150px" stickyHeader />
+            </VStack>
+        );
+    }),
+    inputs: [],
+});
+
+export const columnStackedDiverging = example({
+    keywords: ["Chart", "Column", "stack", "stacked", "negative", "diverging", "bidirectional", "refLine"],
+    description: "Diverging stacked columns — a positive stack grows UP from zero and a negative stack (values × -1) grows DOWN, on one left axis; the negative stacked bars must render (a bare bot−top height collapses them to zero).",
+    fn: East.function([], UIComponentType, ($) => {
+        const freed = $.const([
+            { day: "Mon", grp: "A", kl: 40.0 }, { day: "Mon", grp: "B", kl: 30.0 },
+            { day: "Tue", grp: "A", kl: 55.0 }, { day: "Tue", grp: "B", kl: 20.0 },
+            { day: "Wed", grp: "A", kl: 35.0 }, { day: "Wed", grp: "B", kl: 45.0 },
+        ], ArrayType(StructType({ day: StringType, grp: StringType, kl: FloatType })));
+        const consumed = $.const([
+            { day: "Mon", grp: "X", kl: 25.0 }, { day: "Mon", grp: "Y", kl: 35.0 },
+            { day: "Tue", grp: "X", kl: 40.0 }, { day: "Tue", grp: "Y", kl: 15.0 },
+            { day: "Wed", grp: "X", kl: 30.0 }, { day: "Wed", grp: "Y", kl: 20.0 },
+        ], ArrayType(StructType({ day: StringType, grp: StringType, kl: FloatType })));
+        return (
+            <Box height="280px" width="100%">
+                <Chart grid legend tooltip layers={[
+                    Chart.Column(freed, { x: r => r.day, y: r => r.kl, by: r => r.grp }, { stack: "freed" }),
+                    Chart.Column(consumed, { x: r => r.day, y: r => r.kl.multiply(-1.0), by: r => r.grp }, { stack: "consumed" }),
+                    Chart.refLine({ y: 0.0 }),
+                ]} />
             </Box>
         );
     }),

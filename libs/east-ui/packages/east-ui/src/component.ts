@@ -876,6 +876,9 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         now: OptionType(PlannerSlotType),
         density: OptionType(DensityType),
         slotMinWidth: OptionType(StringType),
+        // Optional max-height (CSS) for the plan area — body scrolls vertically
+        // within it with the header pinned (sticky-top). Absent ⇒ content-sized.
+        maxHeight: OptionType(StringType),
         plotGutter: OptionType(PlotGutterType),
         onSelectRow: OptionType(FunctionType([PlannerSelectEventType], NullType)),
         // Optional review chrome — the per-row decision column + batch foot.

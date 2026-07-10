@@ -181,6 +181,33 @@ describe("Chart renderer — per-layer tooltip opt-out (issue #117)", () => {
         expect(screen.queryByText("s1")).toBeNull();
     });
 
+    test("the hover tooltip carries a z-index on its own positioned content (a sticky sibling header can't paint over it)", () => {
+        // visx's useTooltipInPortal sets the zIndex on the portal's `position:static`
+        // wrapper, where it is IGNORED. Without a zIndex on the tooltip's OWN
+        // positioned content it renders at z-auto (0) and a sibling `position:sticky`
+        // Table header (zIndex 2) paints over it. Guard: some ancestor of the tooltip
+        // text carries a positive zIndex well above any collection's sticky chrome.
+        const node = frame([
+            lineNode([series("Median", "blue.solid", [pt("Jan", 2), pt("Feb", 3)])]),
+            axisNode("axisBottom"),
+            axisNode("axisLeft"),
+        ], { tooltip: true });
+        const { container } = ui(<EastVisxChart value={node as never} />);
+        const overlay = container.querySelector('rect[fill="transparent"]');
+        expect(overlay).not.toBeNull();
+        fireEvent.mouseMove(overlay!, { clientX: 176, clientY: 100 });
+
+        let el: HTMLElement | null = screen.getByText("Median");
+        let z = 0;
+        while (el !== null) {
+            const zi = Number(el.style.zIndex);
+            if (!Number.isNaN(zi) && zi > 0) { z = zi; break; }
+            el = el.parentElement;
+        }
+        // Above every collection sticky header (Table = 2, Planner = 5, Matrix = 2, …).
+        expect(z).toBeGreaterThan(100);
+    });
+
     test("a layer with legend:false but no tooltip flag still appears in the tooltip (independent flags)", () => {
         // legend:false on the fan keeps it out of the legend, but with no tooltip
         // flag its series remain tooltip-eligible — proving the two flags are independent.
