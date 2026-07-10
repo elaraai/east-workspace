@@ -1212,7 +1212,9 @@ await describe("Array", (test) => {
         ], ArrayType(T));
 
         const encoded = $.let(original.encodeCsv());
-        const decoded = $.let(encoded.decodeCsv(T));
+        // The encoder writes none as "" — decoding it back as none requires
+        // opting in to null semantics (the parse default nullStrings is [])
+        const decoded = $.let(encoded.decodeCsv(T, { nullStrings: [""] }));
 
         $(assert.equal(decoded, original));
     });
