@@ -17501,7 +17501,7 @@
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/collections/schematic.examples.tsx",
       "suite": "",
-      "test": "Semantic-zoom stress probe — 320 generated items across 4 bays exercise the LOD ladder (cards ⇢ labelled dots ⇢ dots as you zoom out, dense rows degrading as one block instead of checkerboarding), the minimap, and 60 fps pan; the manual perf budget probe for the renderer",
+      "test": "Semantic-zoom + Slice stress probe — 3,000 generated items exercise the LOD ladder AND the Slice chrome (rail + sliceEffect ghosting) at scale; the manual perf-budget probe for pan/zoom WITH slice enabled. The slice chrome is memoised on the slice version so it no longer re-renders on the schematic",
       "keywords": [
         "Schematic",
         "stress",
@@ -17511,14 +17511,19 @@
         "declutter",
         "minimap",
         "large",
-        "many items"
+        "many items",
+        "slice",
+        "sliceEffect",
+        "pan",
+        "zoom",
+        "10k"
       ],
       "imports": [
         "import { East, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, StringType, StructType, example, variant, some, none } from \"@elaraai/east\";",
         "import { State, StatusTokenType, UIComponentType } from \"@elaraai/east-ui\";",
         "import { HStack, Reactive, Schematic, Slice, Slider, Sparkline, Switch, Text, VStack } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Semantic-zoom stress probe — 320 generated items across 4 bays exercise the LOD ladder (cards ⇢ labelled dots ⇢ dots as you zoom out, dense rows degrading as one block instead of checkerboarding), the minimap, and 60 fps pan; the manual perf budget probe for the renderer\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Schematic\n            extent={{ width: 64, height: 34 }}\n            height=\"460px\"\n            items={STRESS_GRID_ITEMS}\n            item={r => ({ key: r.id, x: r.x, y: r.y, label: r.id, icon: \"microchip\", meter: { value: r.load, max: 1.0 } })}\n            zones={[\n                { id: \"bay-a\", name: \"Bay A\", x: 0.5, y: 0.5, w: 31.0, h: 16.0 },\n                { id: \"bay-b\", name: \"Bay B\", x: 32.5, y: 0.5, w: 31.0, h: 16.0 },\n                { id: \"bay-c\", name: \"Bay C\", x: 0.5, y: 17.5, w: 31.0, h: 16.0 },\n                { id: \"bay-d\", name: \"Bay D\", x: 32.5, y: 17.5, w: 31.0, h: 16.0 },\n            ]}\n            zone={z => ({ key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h, pattern: Schematic.outline() })}\n            selectionMode=\"multiple\"\n            minimap={true}\n            scaleUnit=\"m\"\n        />\n    ))"
+      "source": "// Semantic-zoom + Slice stress probe — 3,000 generated items exercise the LOD ladder AND the Slice chrome (rail + sliceEffect ghosting) at scale; the manual perf-budget probe for pan/zoom WITH slice enabled. The slice chrome is memoised on the slice version so it no longer re-renders on the schematic\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const EquipType = StructType({ id: StringType, x: FloatType, y: FloatType, load: FloatType, kind: StringType });\n        const cfg = Slice.config(EquipType, {\n            fields: { id: { label: \"ID\" }, kind: { label: \"Kind\" } },\n            searchFieldIds: [\"id\", \"kind\"],\n        });\n        return (\n            <Reactive>{$ => {\n                const data = $.const(STRESS_GRID_ITEMS, ArrayType(EquipType));\n                // Seed a filter so ~3/4 of the items are slice-excluded (ghosted) —\n                // exercises the slice-effect paint path as well as the rail chrome.\n                const slice = $.let(Slice.bind([EquipType], \"ex.schematic.stress\", cfg, Slice.state({\n                    filters: [variant(\"string\", { fieldId: \"kind\", op: variant(\"eq\", \"unit\") })],\n                }), data, none));\n                const tagged = $.let(Slice.partition([EquipType], slice));\n                return (\n                    <Schematic\n                        extent={{ width: 104, height: 100 }}\n                        height=\"460px\"\n                        items={tagged}\n                        item={t => ({\n                            key: t.value.id, x: t.value.x, y: t.value.y, label: t.value.id,\n                            icon: \"microchip\", meter: { value: t.value.load, max: 1.0 },\n                            excluded: t.matched.not(),\n                        })}\n                        slice={slice}\n                        affordances={[\"search\", \"filter\"]}\n                        sliceOpacity={0.35}\n                        sliceDesaturate={true}\n                        selectionMode=\"multiple\"\n                        minimap={true}\n                        scaleUnit=\"m\"\n                    />\n                );\n            }}</Reactive>\n        );\n    })"
     },
     {
       "id": "east-ui:schematic.examples.tsx:schematicHover",

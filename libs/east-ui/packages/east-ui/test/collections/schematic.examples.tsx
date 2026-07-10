@@ -471,37 +471,61 @@ export const schematicItemMove = example({
 // 320 generated demo units across 4 bays — authored at MODULE scope (an East
 // function's body must be East all the way down; authoring-time constants are
 // host-declared outside it).
-const STRESS_GRID_ITEMS = Array.from({ length: 320 }, (_, i) => {
-    const bay = Math.floor(i / 80), col = i % 16, row = Math.floor((i % 80) / 16);
+const STRESS_KINDS = ["unit", "pack", "pallet", "tank"];
+// A large generated grid — the count is the perf-probe knob (#302-adjacent
+// schematic-slice-perf): bump it to reproduce the slice-on pan/zoom slowdown at
+// scale. 3,000 sits above the 2,000-item pan budget.
+const STRESS_GRID_ITEMS = Array.from({ length: 3000 }, (_, i) => {
+    const col = i % 50, row = Math.floor(i / 50);
     return {
-        id: `U-${String(i).padStart(3, "0")}`,
-        x: (bay % 2) * 32 + col * 1.9 + 2.0,
-        y: Math.floor(bay / 2) * 17 + row * 2.9 + 2.5,
+        id: `U-${String(i).padStart(4, "0")}`,
+        x: col * 2.0 + 2.0,
+        y: row * 2.4 + 2.0,
         load: (i * 37 % 100) / 100,
+        kind: STRESS_KINDS[i % STRESS_KINDS.length]!,
     };
 });
 
 export const schematicStress = example({
-    keywords: ["Schematic", "stress", "performance", "LOD", "semantic zoom", "declutter", "minimap", "large", "many items"],
-    description: "Semantic-zoom stress probe — 320 generated items across 4 bays exercise the LOD ladder (cards ⇢ labelled dots ⇢ dots as you zoom out, dense rows degrading as one block instead of checkerboarding), the minimap, and 60 fps pan; the manual perf budget probe for the renderer",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Schematic
-            extent={{ width: 64, height: 34 }}
-            height="460px"
-            items={STRESS_GRID_ITEMS}
-            item={r => ({ key: r.id, x: r.x, y: r.y, label: r.id, icon: "microchip", meter: { value: r.load, max: 1.0 } })}
-            zones={[
-                { id: "bay-a", name: "Bay A", x: 0.5, y: 0.5, w: 31.0, h: 16.0 },
-                { id: "bay-b", name: "Bay B", x: 32.5, y: 0.5, w: 31.0, h: 16.0 },
-                { id: "bay-c", name: "Bay C", x: 0.5, y: 17.5, w: 31.0, h: 16.0 },
-                { id: "bay-d", name: "Bay D", x: 32.5, y: 17.5, w: 31.0, h: 16.0 },
-            ]}
-            zone={z => ({ key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h, pattern: Schematic.outline() })}
-            selectionMode="multiple"
-            minimap={true}
-            scaleUnit="m"
-        />
-    )),
+    keywords: ["Schematic", "stress", "performance", "LOD", "semantic zoom", "declutter", "minimap", "large", "many items", "slice", "sliceEffect", "pan", "zoom", "10k"],
+    description: "Semantic-zoom + Slice stress probe — 3,000 generated items exercise the LOD ladder AND the Slice chrome (rail + sliceEffect ghosting) at scale; the manual perf-budget probe for pan/zoom WITH slice enabled. The slice chrome is memoised on the slice version so it no longer re-renders on the schematic's per-frame camera update — pan/zoom stays smooth at scale with slice on.",
+    fn: East.function([], UIComponentType, (_$) => {
+        const EquipType = StructType({ id: StringType, x: FloatType, y: FloatType, load: FloatType, kind: StringType });
+        const cfg = Slice.config(EquipType, {
+            fields: { id: { label: "ID" }, kind: { label: "Kind" } },
+            searchFieldIds: ["id", "kind"],
+        });
+        return (
+            <Reactive>{$ => {
+                const data = $.const(STRESS_GRID_ITEMS, ArrayType(EquipType));
+                // Seed a filter so ~3/4 of the items are slice-excluded (ghosted) —
+                // exercises the slice-effect paint path as well as the rail chrome.
+                const slice = $.let(Slice.bind([EquipType], "ex.schematic.stress", cfg, Slice.state({
+                    filters: [variant("string", { fieldId: "kind", op: variant("eq", "unit") })],
+                }), data, none));
+                const tagged = $.let(Slice.partition([EquipType], slice));
+                return (
+                    <Schematic
+                        extent={{ width: 104, height: 100 }}
+                        height="460px"
+                        items={tagged}
+                        item={t => ({
+                            key: t.value.id, x: t.value.x, y: t.value.y, label: t.value.id,
+                            icon: "microchip", meter: { value: t.value.load, max: 1.0 },
+                            excluded: t.matched.not(),
+                        })}
+                        slice={slice}
+                        affordances={["search", "filter"]}
+                        sliceOpacity={0.35}
+                        sliceDesaturate={true}
+                        selectionMode="multiple"
+                        minimap={true}
+                        scaleUnit="m"
+                    />
+                );
+            }}</Reactive>
+        );
+    }),
     inputs: [],
 });
 

@@ -15,10 +15,14 @@ import { getStore } from "../platform/state-runtime.js";
  *
  * @param key - The slice's store key (`slice.key`); a falsy key is a no-op
  *              (e.g. test fakes that don't go through the store).
+ * @returns the store's current version for `key` — a monotonic counter that
+ *          bumps on every mutation. Callers can use it as a memo dep to rebuild
+ *          slice-derived UI only when the slice actually changes (not on
+ *          unrelated re-renders, e.g. a Schematic's per-frame camera state).
  */
-export function useSliceReactivity(key: string | undefined): void {
+export function useSliceReactivity(key: string | undefined): number {
     const store = getStore();
-    useSyncExternalStore(
+    return useSyncExternalStore(
         cb => (key ? store.subscribe(key, cb) : () => {}),
         () => (key ? store.getKeyVersion(key) : 0),
         () => (key ? store.getKeyVersion(key) : 0),
