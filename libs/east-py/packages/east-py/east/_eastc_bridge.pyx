@@ -18,7 +18,8 @@ from cpython.unicode cimport PyUnicode_AsUTF8AndSize, PyUnicode_DecodeUTF8
 from libc.stddef cimport size_t
 from libc.stdint cimport int64_t, uint8_t, uintptr_t
 from libc.stdlib cimport free, malloc, calloc
-from libc.string cimport memcpy, strdup
+from libc.string cimport memcpy, strcmp, strdup
+from libc.math cimport NAN, isnan
 
 cimport numpy as cnp
 
@@ -513,6 +514,31 @@ cdef object c_value_to_py(_eastc.EastValue *val, _eastc.EastType *c_type):
     return _c_value_to_py_impl(val, c_type, alias_map)
 
 
+# Bounded intern table for short boxed strings (issue #255): repeated slab
+# strings — categories, ids — box to the same python object, deduplicating
+# memory and enabling identity-fast equality downstream. Content-keyed and
+# cleared wholesale when full, so growth is bounded by unique short strings.
+cdef dict _str_intern = {}
+cdef Py_ssize_t _STR_INTERN_MAX_LEN = 64
+cdef Py_ssize_t _STR_INTERN_MAX_SIZE = 1 << 16
+
+
+cdef inline object _box_string(_eastc.EastValue *val):
+    s = PyUnicode_DecodeUTF8(
+        val.data.string.data,
+        <Py_ssize_t>val.data.string.len,
+        NULL,
+    )
+    if <Py_ssize_t>val.data.string.len <= _STR_INTERN_MAX_LEN:
+        cached = _str_intern.get(s)
+        if cached is not None:
+            return cached
+        if len(_str_intern) >= _STR_INTERN_MAX_SIZE:
+            _str_intern.clear()
+        _str_intern[s] = s
+    return s
+
+
 cdef object _c_value_to_py_impl(_eastc.EastValue *val, _eastc.EastType *c_type, dict alias_map):
     """Inner conversion with aliasing tracking."""
     cdef _eastc.EastTypeKind kind = c_type.kind
@@ -532,11 +558,7 @@ cdef object _c_value_to_py_impl(_eastc.EastValue *val, _eastc.EastType *c_type, 
         return val.data.float64
 
     elif kind == _eastc.EAST_TYPE_STRING:
-        return PyUnicode_DecodeUTF8(
-            val.data.string.data,
-            <Py_ssize_t>val.data.string.len,
-            NULL,
-        )
+        return _box_string(val)
 
     elif kind == _eastc.EAST_TYPE_DATETIME:
         millis = val.data.datetime
@@ -2015,3 +2037,377 @@ class EastRefProxy(EastRef):
     @value.setter
     def value(self, val):
         _proxy_ref_set(self._c_ptr, self._c_inner_type_ptr, val)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Columnar interop (issue #255)
+#
+#  Struct-of-arrays views over Array<Struct> with one crossing per column
+#  instead of one per row × field, plus bulk mutation entry points. Numeric
+#  and boolean columns move through numpy buffers filled in C; strings box
+#  once through the intern table.
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+cdef bint _is_option_of(_eastc.EastType *t, _eastc.EastTypeKind inner_kind) noexcept:
+    """Whether t is Option<inner_kind> = Variant{none: Null, some: inner_kind}."""
+    if t == NULL or t.kind != _eastc.EAST_TYPE_VARIANT:
+        return False
+    if t.data.variant.num_cases != 2:
+        return False
+    if strcmp(t.data.variant.cases[0].name, b"none") != 0:
+        return False
+    if strcmp(t.data.variant.cases[1].name, b"some") != 0:
+        return False
+    return t.data.variant.cases[1].type.kind == inner_kind
+
+
+cdef _eastc.EastValue *east_struct_get_field_checked(_eastc.EastValue *elem, const char *name) except NULL:
+    cdef _eastc.EastValue *fval = _eastc.east_struct_get_field(elem, name)
+    if fval == NULL:
+        raise ValueError(f"struct element missing field '{name.decode('utf-8')}'")
+    return fval
+
+
+def _array_to_columns(uintptr_t ptr, uintptr_t elem_type_ptr, object fields,
+                      Py_ssize_t start, Py_ssize_t stop):
+    """Columnar view of an Array<Struct> slice: {field: ndarray | list}.
+
+    Float/Integer/Boolean columns fill numpy arrays in C (Option<Float>
+    becomes float64 with NaN for none); String columns box once with
+    interning; any other field type falls back to a list of boxed values.
+    """
+    cdef _eastc.EastValue *arr = <_eastc.EastValue*>ptr
+    cdef _eastc.EastType *et = <_eastc.EastType*>elem_type_ptr
+    if et == NULL or et.kind != _eastc.EAST_TYPE_STRUCT:
+        raise TypeError("to_columns requires an Array of Struct elements")
+    cdef Py_ssize_t n = <Py_ssize_t>arr.data.array.len
+    if start < 0:
+        start = 0
+    if stop < 0 or stop > n:
+        stop = n
+    if stop < start:
+        stop = start
+    cdef Py_ssize_t rows = stop - start
+
+    cdef size_t nf = et.data.struct_.num_fields
+    cdef size_t f
+    cdef Py_ssize_t i
+    cdef _eastc.EastType *ftype
+    cdef _eastc.EastValue *elem
+    cdef _eastc.EastValue *fval
+    cdef const char *fname_c
+    cdef double[::1] dview
+    cdef int64_t[::1] iview
+    cdef uint8_t[::1] bview
+    cdef dict out = {}
+
+    wanted = set(fields) if fields is not None else None
+    for f in range(nf):
+        fname_c = et.data.struct_.fields[f].name
+        fname = fname_c.decode("utf-8")
+        if wanted is not None and fname not in wanted:
+            continue
+        if wanted is not None:
+            wanted.discard(fname)
+        ftype = et.data.struct_.fields[f].type
+
+        if ftype.kind == _eastc.EAST_TYPE_FLOAT or _is_option_of(ftype, _eastc.EAST_TYPE_FLOAT):
+            farr = np.empty(rows, dtype=np.float64)
+            dview = farr
+            if ftype.kind == _eastc.EAST_TYPE_FLOAT:
+                for i in range(rows):
+                    fval = east_struct_get_field_checked(arr.data.array.items[start + i], fname_c)
+                    dview[i] = fval.data.float64
+            else:
+                for i in range(rows):
+                    fval = east_struct_get_field_checked(arr.data.array.items[start + i], fname_c)
+                    if strcmp(fval.data.variant.case_tag, b"some") == 0:
+                        dview[i] = fval.data.variant.value.data.float64
+                    else:
+                        dview[i] = NAN
+            out[fname] = farr
+        elif ftype.kind == _eastc.EAST_TYPE_INTEGER:
+            iarr = np.empty(rows, dtype=np.int64)
+            iview = iarr
+            for i in range(rows):
+                fval = east_struct_get_field_checked(arr.data.array.items[start + i], fname_c)
+                iview[i] = fval.data.integer
+            out[fname] = iarr
+        elif ftype.kind == _eastc.EAST_TYPE_BOOLEAN:
+            barr = np.empty(rows, dtype=np.bool_)
+            bview = barr.view(np.uint8)
+            for i in range(rows):
+                fval = east_struct_get_field_checked(arr.data.array.items[start + i], fname_c)
+                bview[i] = 1 if fval.data.boolean else 0
+            out[fname] = barr
+        elif ftype.kind == _eastc.EAST_TYPE_STRING:
+            slist = [None] * rows
+            for i in range(rows):
+                fval = east_struct_get_field_checked(arr.data.array.items[start + i], fname_c)
+                slist[i] = _box_string(fval)
+            out[fname] = slist
+        else:
+            # Generic fallback: still one pass, values boxed individually
+            glist = [None] * rows
+            for i in range(rows):
+                fval = east_struct_get_field_checked(arr.data.array.items[start + i], fname_c)
+                glist[i] = c_value_to_py(fval, ftype)
+            out[fname] = glist
+
+    if wanted:
+        raise KeyError(f"to_columns: unknown field(s) {sorted(wanted)!r}")
+    return out
+
+
+def _array_from_columns(object element_type, dict columns):
+    """Build a C-backed Array<Struct> from equal-length columns in one pass.
+
+    float64/int64/bool numpy columns write through raw buffers; Option<Float>
+    fields accept float64 with NaN meaning none; everything else goes through
+    the generic converter per cell.
+    """
+    cdef _eastc.EastType *et = py_type_to_c(element_type)
+    if et.kind != _eastc.EAST_TYPE_STRUCT:
+        _eastc.east_type_release(et)
+        raise TypeError("from_columns requires a Struct element type")
+
+    cdef size_t nf = et.data.struct_.num_fields
+    cdef size_t f
+    cdef Py_ssize_t i, rows = -1
+    cdef list py_cols = []
+    cdef list np_keep = []
+    cdef const char **names = NULL
+    cdef _eastc.EastValue **values = NULL
+    cdef void **dptr = NULL
+    cdef int *tags = NULL  # 0 generic, 1 f64, 2 i64, 3 bool, 4 f64->Option<Float>
+    cdef _eastc.EastValue *arr = NULL
+    cdef _eastc.EastValue *sv
+    cdef _eastc.EastValue *inner
+    cdef _eastc.EastType *ftype
+    cdef double dv
+    cdef size_t built
+
+    field_names = [et.data.struct_.fields[f].name.decode("utf-8") for f in range(nf)]
+    extra = set(columns.keys()) - set(field_names)
+    if extra:
+        _eastc.east_type_release(et)
+        raise KeyError(f"from_columns: column(s) {sorted(extra)!r} not in element type")
+
+    try:
+        names = <const char**>malloc(nf * sizeof(char*))
+        values = <_eastc.EastValue**>malloc(nf * sizeof(_eastc.EastValue*))
+        dptr = <void**>malloc(nf * sizeof(void*))
+        tags = <int*>malloc(nf * sizeof(int))
+        if names == NULL or values == NULL or dptr == NULL or tags == NULL:
+            raise MemoryError()
+
+        for f in range(nf):
+            names[f] = et.data.struct_.fields[f].name
+            ftype = et.data.struct_.fields[f].type
+            fname = field_names[f]
+            if fname not in columns:
+                raise KeyError(f"from_columns: missing column '{fname}'")
+            col = columns[fname]
+            clen = len(col)
+            if rows < 0:
+                rows = clen
+            elif clen != rows:
+                raise ValueError(
+                    f"from_columns: column '{fname}' has {clen} rows, expected {rows}"
+                )
+            tags[f] = 0
+            dptr[f] = NULL
+            if isinstance(col, np.ndarray):
+                a = <object>col
+                if a.dtype == np.float64 and a.flags["C_CONTIGUOUS"]:
+                    if ftype.kind == _eastc.EAST_TYPE_FLOAT:
+                        tags[f] = 1
+                    elif _is_option_of(ftype, _eastc.EAST_TYPE_FLOAT):
+                        tags[f] = 4
+                elif a.dtype == np.int64 and a.flags["C_CONTIGUOUS"] and ftype.kind == _eastc.EAST_TYPE_INTEGER:
+                    tags[f] = 2
+                elif a.dtype == np.bool_ and a.flags["C_CONTIGUOUS"] and ftype.kind == _eastc.EAST_TYPE_BOOLEAN:
+                    tags[f] = 3
+                if tags[f] != 0:
+                    np_keep.append(a)
+                    dptr[f] = cnp.PyArray_DATA(<cnp.ndarray>a)
+            py_cols.append(col)
+
+        if rows < 0:
+            rows = 0
+
+        arr = _eastc.east_array_new(et)
+        if arr == NULL:
+            raise MemoryError()
+
+        for i in range(rows):
+            built = 0
+            try:
+                for f in range(nf):
+                    if tags[f] == 1:
+                        values[f] = _eastc.east_float((<double*>dptr[f])[i])
+                    elif tags[f] == 2:
+                        values[f] = _eastc.east_integer((<int64_t*>dptr[f])[i])
+                    elif tags[f] == 3:
+                        values[f] = _eastc.east_boolean((<uint8_t*>dptr[f])[i] != 0)
+                    elif tags[f] == 4:
+                        dv = (<double*>dptr[f])[i]
+                        ftype = et.data.struct_.fields[f].type
+                        if isnan(dv):
+                            values[f] = _eastc.east_variant_new(b"none", _eastc.east_null(), ftype)
+                        else:
+                            inner = _eastc.east_float(dv)
+                            values[f] = _eastc.east_variant_new(b"some", inner, ftype)
+                            _eastc.east_value_release(inner)
+                    else:
+                        values[f] = py_value_to_c(py_cols[f][i], et.data.struct_.fields[f].type)
+                    built += 1
+                sv = _eastc.east_struct_new(names, values, nf, et)
+                if sv == NULL:
+                    raise MemoryError()
+                _eastc.east_array_push(arr, sv)
+                _eastc.east_value_release(sv)
+            finally:
+                for f in range(built):
+                    _eastc.east_value_release(values[f])
+
+        proxy = EastArrayProxy._wrap(element_type, <uintptr_t>arr, <uintptr_t>et)
+        # _wrap retained its own value/type references; drop our value ref
+        _eastc.east_value_release(arr)
+        arr = NULL
+        return proxy
+    except BaseException:
+        if arr != NULL:
+            _eastc.east_value_release(arr)
+        raise
+    finally:
+        free(names)
+        free(values)
+        free(dptr)
+        free(tags)
+        _eastc.east_type_release(et)
+
+
+def _array_extend_bulk(uintptr_t ptr, uintptr_t elem_type_ptr, object items,
+                       bint allow_c_copy):
+    """Append many elements in one crossing (issue #255 bulk mutation).
+
+    Fast paths: another C-backed array of the SAME element type (caller
+    asserts via allow_c_copy) is copied C-to-C with no boxing;
+    float64/int64/bool numpy arrays convert through raw buffers. Anything
+    else marshals per item inside this single call.
+    """
+    cdef _eastc.EastValue *arr = <_eastc.EastValue*>ptr
+    cdef _eastc.EastType *elem_t = <_eastc.EastType*>elem_type_ptr
+    cdef _eastc.EastValue *src
+    cdef _eastc.EastValue *c_val
+    cdef Py_ssize_t i, n
+    cdef const double *dp
+    cdef const int64_t *ip
+    cdef const uint8_t *bp
+
+    src_ptr = getattr(items, "_c_ptr", None) if allow_c_copy else None
+    if src_ptr is not None:
+        # C-to-C: push retains each element; no python objects involved
+        src = <_eastc.EastValue*><uintptr_t>src_ptr
+        if src.kind == _eastc.EAST_VAL_ARRAY:
+            n = <Py_ssize_t>src.data.array.len
+            for i in range(n):
+                _eastc.east_array_push(arr, src.data.array.items[i])
+            return
+
+    if isinstance(items, np.ndarray):
+        a = <object>items
+        if a.dtype == np.float64 and a.flags["C_CONTIGUOUS"] and elem_t.kind == _eastc.EAST_TYPE_FLOAT:
+            dp = <const double*>cnp.PyArray_DATA(<cnp.ndarray>a)
+            n = len(a)
+            for i in range(n):
+                c_val = _eastc.east_float(dp[i])
+                _eastc.east_array_push(arr, c_val)
+                _eastc.east_value_release(c_val)
+            return
+        if a.dtype == np.int64 and a.flags["C_CONTIGUOUS"] and elem_t.kind == _eastc.EAST_TYPE_INTEGER:
+            ip = <const int64_t*>cnp.PyArray_DATA(<cnp.ndarray>a)
+            n = len(a)
+            for i in range(n):
+                c_val = _eastc.east_integer(ip[i])
+                _eastc.east_array_push(arr, c_val)
+                _eastc.east_value_release(c_val)
+            return
+        if a.dtype == np.bool_ and a.flags["C_CONTIGUOUS"] and elem_t.kind == _eastc.EAST_TYPE_BOOLEAN:
+            bp = <const uint8_t*>cnp.PyArray_DATA(<cnp.ndarray>a)
+            n = len(a)
+            for i in range(n):
+                c_val = _eastc.east_boolean(bp[i] != 0)
+                _eastc.east_array_push(arr, c_val)
+                _eastc.east_value_release(c_val)
+            return
+
+    for item in items:
+        c_val = py_value_to_c(item, elem_t)
+        _eastc.east_array_push(arr, c_val)
+        _eastc.east_value_release(c_val)
+
+
+def _dict_update_many(uintptr_t ptr, uintptr_t key_type_ptr, uintptr_t val_type_ptr,
+                      object keys, object values,
+                      uintptr_t combine_fn_ptr, object combine_py):
+    """Apply many (key, value) updates in one crossing (issue #255).
+
+    On a key collision the combine function resolves the new value from
+    (existing, incoming): combine_fn_ptr is a native East function value
+    (invoked C-to-C via east_call), combine_py a python callable, and with
+    neither the incoming value wins.
+    """
+    cdef _eastc.EastValue *d = <_eastc.EastValue*>ptr
+    cdef _eastc.EastType *kt = <_eastc.EastType*>key_type_ptr
+    cdef _eastc.EastType *vt = <_eastc.EastType*>val_type_ptr
+    cdef _eastc.EastValue *c_key
+    cdef _eastc.EastValue *c_val
+    cdef _eastc.EastValue *existing
+    cdef _eastc.EastValue *combined
+    cdef _eastc.EastValue *cargs[2]
+    cdef _eastc.EastValue *fn_val = <_eastc.EastValue*>combine_fn_ptr
+    cdef _eastc.EvalResult r
+    cdef Py_ssize_t i, n = len(keys)
+
+    if len(values) != n:
+        raise ValueError(f"update_many: {n} keys but {len(values)} values")
+    has_combine = combine_fn_ptr != 0 or combine_py is not None
+
+    for i in range(n):
+        c_key = py_value_to_c(keys[i], kt)
+        try:
+            c_val = py_value_to_c(values[i], vt)
+        except BaseException:
+            _eastc.east_value_release(c_key)
+            raise
+        try:
+            existing = _eastc.east_dict_get(d, c_key) if has_combine else NULL
+            if existing != NULL:
+                if combine_fn_ptr != 0:
+                    cargs[0] = existing
+                    cargs[1] = c_val
+                    r = _eastc.east_call(fn_val.data.function.compiled, cargs, 2)
+                    if r.status != _eastc.EVAL_OK and r.status != _eastc.EVAL_RETURN:
+                        msg = "update_many combine failed"
+                        if r.error_message != NULL:
+                            msg = r.error_message.decode("utf-8")
+                        if r.value != NULL:
+                            _eastc.east_value_release(r.value)
+                        _eastc.eval_result_free(&r)
+                        raise RuntimeError(msg)
+                    combined = r.value
+                    _eastc.east_dict_set(d, c_key, combined)
+                    _eastc.east_value_release(combined)
+                else:
+                    py_combined = combine_py(c_value_to_py(existing, vt), values[i])
+                    combined = py_value_to_c(py_combined, vt)
+                    _eastc.east_dict_set(d, c_key, combined)
+                    _eastc.east_value_release(combined)
+            else:
+                _eastc.east_dict_set(d, c_key, c_val)
+        finally:
+            _eastc.east_value_release(c_val)
+            _eastc.east_value_release(c_key)

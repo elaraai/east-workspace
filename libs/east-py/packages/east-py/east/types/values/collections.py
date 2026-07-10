@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from collections.abc import MutableSequence
+from collections.abc import Callable, Iterable, MutableSequence
 from typing import TYPE_CHECKING, Any, Generic
 
 import east.types.values as _ev
@@ -654,6 +654,109 @@ class EastArray(MutableSequence, Generic[T]):
         from east.types.types import StringType
 
         return _call_builtin("ArrayStringJoin", [], [self, separator], StringType)
+
+    # ----- Columnar interop (one crossing per column, not per row × field) ---
+
+    def to_columns(self, fields: list[str] | None = None) -> dict[str, Any]:
+        """Struct-of-arrays view of an Array<Struct>: ``{field: column}``.
+
+        One C↔python crossing per column instead of per row × field:
+        Float/Integer/Boolean columns come back as numpy arrays filled in C
+        (``Option<Float>`` becomes float64 with NaN for none), String columns
+        as interned python lists, and any other field type as a list of boxed
+        values. Transform with vectorised numpy, then rebuild with
+        ``EastArray.from_columns``.
+
+        Args:
+            fields: Optional subset of field names to extract; all fields
+                when omitted.
+
+        Returns:
+            Dict mapping field name to its column (ndarray or list).
+        """
+        return _proxy_cls("_array_to_columns")(
+            self._c_ptr, self._c_elem_type_ptr, fields, 0, -1
+        )
+
+    @staticmethod
+    def from_columns(element_type: EastType, columns: dict[str, Any]) -> EastArray:
+        """Build a C-backed Array<Struct> from equal-length columns in one pass.
+
+        The inverse of ``to_columns``: float64/int64/bool numpy columns write
+        through raw buffers (float64 with NaN maps to ``none`` for
+        ``Option<Float>`` fields); other columns convert per cell.
+
+        Args:
+            element_type: The ``StructType`` of each row; every field must
+                have a matching column.
+            columns: Field name → sequence (numpy array or list), all the
+                same length.
+
+        Returns:
+            A new C-backed array of ``element_type`` rows.
+        """
+        return _proxy_cls("_array_from_columns")(element_type, dict(columns))
+
+    def map_batches(
+        self,
+        fn: Callable[[dict[str, Any]], dict[str, Any]],
+        out: EastType | None = None,
+        batch_size: int = 100_000,
+    ) -> EastArray:
+        """Transform in columnar batches: python sees columns, not rows.
+
+        Slices the array into batches of ``batch_size`` rows, hands ``fn`` a
+        columnar dict per batch (as ``to_columns``), and rebuilds the results
+        (as ``from_columns``) into one output array — amortising the
+        C↔python boundary to O(columns × batches) crossings where per-row
+        callbacks pay O(rows × fields). ``fn`` may change the number of rows
+        per batch (filter-like) but must return equal-length columns.
+
+        Args:
+            fn: ``fn(columns: dict) -> dict`` of output columns.
+            out: Element type of the result rows; the input element type
+                when omitted.
+            batch_size: Rows per batch (default 100_000).
+
+        Returns:
+            A new array of ``out`` rows across all batches.
+        """
+        out_type = out if out is not None else self.element_type
+        to_cols = _proxy_cls("_array_to_columns")
+        extend = _proxy_cls("_array_extend_bulk")
+        n = len(self)
+        result: EastArray | None = None
+        start = 0
+        while start < n or result is None:
+            stop = min(start + batch_size, n)
+            cols = to_cols(self._c_ptr, self._c_elem_type_ptr, None, start, stop)
+            part = EastArray.from_columns(out_type, fn(cols))
+            if result is None:
+                result = part
+            else:
+                extend(result._c_ptr, result._c_elem_type_ptr, part, True)
+            start = stop
+            if n == 0:
+                break
+        return result
+
+    def extend(self, values: Iterable[T]) -> None:
+        """Append many elements in one crossing (east-c bulk push).
+
+        Fast paths: another East array of the same element type copies
+        C-to-C with no boxing; float64/int64/bool numpy arrays convert
+        through raw buffers. Other iterables marshal per item inside the
+        single call. Replaces MutableSequence's per-item append loop.
+
+        Args:
+            values: Iterable of elements (EastArray, numpy array, or any
+                python sequence).
+        """
+        self._check_not_iterating()
+        allow_c_copy = isinstance(values, EastArray) and values.element_type == self.element_type
+        _proxy_cls("_array_extend_bulk")(
+            self._c_ptr, self._c_elem_type_ptr, values, allow_c_copy
+        )
 
     @classmethod
     def generate(cls, count: int, fn: Any, element_type: EastType | None = None) -> EastArray:
@@ -1418,6 +1521,53 @@ class EastDict(Generic[K, V]):
             del self[key]
             return True
         return False
+
+    def update_many(
+        self,
+        keys: Iterable[K],
+        values: Iterable[V],
+        combine: Callable[[V, V], V] | None = None,
+    ) -> None:
+        """Apply many (key, value) updates in one crossing (issue #255).
+
+        Makes East dicts viable as hot-loop accumulators: instead of one FFI
+        round trip per ``d[k] = combine(d[k], v)``, the whole batch crosses
+        once. A pure ``combine`` lambda (or a precompiled East kernel) runs
+        the collision handling C-to-C as well.
+
+        Args:
+            keys: Sequence of keys (same length as ``values``).
+            values: Sequence of incoming values.
+            combine: Optional ``combine(existing, incoming) -> value`` used
+                when a key is already present; the incoming value wins when
+                omitted. Accepts a python callable (traced into a native
+                kernel when pure) or a compiled East function.
+        """
+        combine_ptr = 0
+        combine_py = None
+        keep_alive = None
+        if combine is not None:
+            handle = getattr(combine, "_eastc_handle", None)
+            fn_val = getattr(handle, "_fn_val", 0) if handle is not None else 0
+            if fn_val:
+                combine_ptr = fn_val
+                keep_alive = combine
+            else:
+                from east.kernel import try_push_down
+
+                native = try_push_down(
+                    EastFunction(combine, [self.value_type, self.value_type], self.value_type)
+                )
+                if native is not None:
+                    combine_ptr = native._eastc_handle._fn_val
+                    keep_alive = native
+                else:
+                    combine_py = combine
+        _proxy_cls("_dict_update_many")(
+            self._c_ptr, self._c_key_type_ptr, self._c_val_type_ptr,
+            list(keys), list(values), combine_ptr, combine_py,
+        )
+        del keep_alive
 
     def merge(self, other: EastDict, combine: Any = None) -> EastDict:
         """New dict merging ``other`` into a copy of this one (east-c DictCopy + DictUnionInPlace).
