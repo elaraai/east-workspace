@@ -51,7 +51,9 @@ showcase:
 
 ## Build east-ui-showcase for production deployment (used by GitHub Pages workflow)
 build-showcase:
-	pnpm --filter @elaraai/east-ui --filter @elaraai/east-ui-components --filter @elaraai/e3-ui --filter @elaraai/e3-ui-components run build
+	# east-py-datascience first: e3-ui's experiment spec imports its types, so its
+	# dist .d.ts must exist before e3-ui compiles (pnpm topo-orders the filter set).
+	pnpm --filter @elaraai/east-py-datascience --filter @elaraai/east-ui --filter @elaraai/east-ui-components --filter @elaraai/e3-ui --filter @elaraai/e3-ui-components run build
 	pnpm --filter @elaraai/east-ui-showcase run build
 
 ## Render every `.pattern` and `.bsys` element from `design/*.html` in headless
