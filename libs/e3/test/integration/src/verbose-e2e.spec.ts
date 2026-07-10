@@ -104,4 +104,31 @@ describe('e3 dataflow run -v (east-c)', () => {
         assert.match(verboseLogs.stdout, re, `-v output must reach the task logs (${re}):\n${verboseLogs.stdout}`);
       }
     });
+
+  // `e3 call` runs graph-free via runDetached (a different injection site than
+  // dataflow's taskExecute), so it gets its own coverage.
+  it('e3 call -v surfaces the runner verbose block (runDetached path)',
+    { skip: hasEastC ? false : 'east-c not built' }, async () => {
+      const fn = e3.function(
+        'doubled',
+        East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n)),
+        { runner: { runtime: 'east-c', platforms: ['east-c-std'] } },
+      );
+      await e3.export(e3.package('verbose-fn', '1.0.0', fn), zip);
+      assert.strictEqual((await runE3Command(['repo', 'create', repoDir], testDir)).exitCode, 0);
+      assert.strictEqual((await runE3Command(['package', 'import', repoDir, zip], testDir)).exitCode, 0);
+
+      // -v on: the canonical verbose block reaches stderr; the result (10) prints.
+      const v = await runE3Command(['call', repoDir, 'verbose-fn.doubled', '5', '-v'], testDir, { env: runEnv });
+      assert.strictEqual(v.exitCode, 0, `call -v failed: ${v.stderr}`);
+      assert.match(v.stdout, /\b10\b/, `call should print the doubled result:\n${v.stdout}`);
+      for (const re of [/^Running: /m, /^Timing:$/m, /^ {2}Execute: +\d+\.\d ms$/m]) {
+        assert.match(v.stderr, re, `call -v must surface the runner verbose block (${re}):\n${v.stderr}`);
+      }
+
+      // -v off: no verbose block.
+      const q = await runE3Command(['call', repoDir, 'verbose-fn.doubled', '5'], testDir, { env: runEnv });
+      assert.strictEqual(q.exitCode, 0, `call failed: ${q.stderr}`);
+      assert.doesNotMatch(q.stderr, /^Timing:$/m, `no verbose block without -v:\n${q.stderr}`);
+    });
 });

@@ -310,6 +310,7 @@ program
   .argument('[args...]', 'Arguments: .east literals or .beast2/.json/.east file paths')
   .option('-w, --workspace <ws>', 'Call against the package deployed in a workspace')
   .option('-o, --output <path>', 'Write the result to a .beast2 file instead of printing')
+  .option('-v, --verbose', "Pass -v to the runner (timing/perf to stderr; local repos only)")
   .action(callCommand);
 
 // ---------------------------------------------------------------------------
@@ -322,6 +323,7 @@ program
   .argument('<mutation>', 'Mutation specifier: record.mutation')
   .argument('[args...]', 'Arguments: .east literals or .beast2/.json/.east file paths')
   .option('-w, --workspace <ws>', 'Workspace holding the record (required)')
+  .option('-v, --verbose', "Pass -v to the reducer's runner (timing/perf to stderr; local repos only)")
   .action(mutateCommand);
 
 // ---------------------------------------------------------------------------

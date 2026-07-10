@@ -124,6 +124,7 @@ export class LocalTaskRunner implements TaskRunner {
     }
     return runDetached(spec, {
       signal: options?.signal,
+      verbose: options?.verbose,
       // Anchor the runner-binary PATH walk at the repo's parent (the
       // project dir), matching the tracked path's walk-up in spawnAndCapture.
       runnerSearchDir: options?.runnerSearchDir ?? path.dirname(this.repo),
