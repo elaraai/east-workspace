@@ -363,6 +363,17 @@ export const plannerSlotRecipe = defineSlotRecipe({
             },
             false: {},
         },
+        // Vertical scroll (opt-in via the IR `maxHeight`) — the plan body scrolls
+        // within the bound and the header row stays pinned (sticky-top), forming a
+        // frozen corner with the existing sticky-left pane. zIndex sits above the
+        // event/marker overlays so a scrolled row never bleeds over the header.
+        scroll: {
+            true: {
+                root: { overflowY: "auto" },
+                header: { position: "sticky", top: 0, zIndex: 5 },
+            },
+            false: {},
+        },
     },
-    defaultVariants: { size: "md", shape: "point", animation: "none", rowHover: false },
+    defaultVariants: { size: "md", shape: "point", animation: "none", rowHover: false, scroll: false },
 });

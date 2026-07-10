@@ -234,6 +234,7 @@ export type PlannerReviewType = typeof PlannerReviewType;
  * @property now - Optional explicit committed/proposed divider; else derived from the data
  * @property density - Optional density (row / header rhythm)
  * @property slotMinWidth - Optional min-width (CSS) per x-axis slot column; the timeline scrolls when slots can't fit
+ * @property maxHeight - Optional max-height (CSS) for the plan area; the body scrolls vertically within it with the header pinned. Absent ⇒ content-sized
  * @property onSelectRow - Optional row-selection callback
  * @property rowHover - Optional opt-in row-highlight outline on hover (absent/false ⇒ no hover affordance)
  */
@@ -245,6 +246,7 @@ export const PlannerRootType: StructType<{
     now: OptionType<PlannerSlotType>,
     density: OptionType<DensityType>,
     slotMinWidth: OptionType<StringType>,
+    maxHeight: OptionType<StringType>,
     plotGutter: OptionType<PlotGutterType>,
     onSelectRow: OptionType<FunctionType<[PlannerSelectEventType], NullType>>,
     review: OptionType<PlannerReviewType>,
@@ -261,6 +263,10 @@ export const PlannerRootType: StructType<{
     now:          OptionType(PlannerSlotType),
     density:      OptionType(DensityType),
     slotMinWidth: OptionType(StringType),
+    // Optional max-height (CSS) for the plan area — when set, the body scrolls
+    // vertically within it and the header row stays pinned (sticky-top). Absent
+    // ⇒ content-sized (grows with the rows, no vertical scroll).
+    maxHeight:    OptionType(StringType),
     plotGutter:   OptionType(PlotGutterType),
     onSelectRow:  OptionType(FunctionType([PlannerSelectEventType], NullType)),
     // Optional review chrome — the per-row Approve/Reject decision column + the
@@ -660,6 +666,7 @@ function cellValue<R extends StructType>(col: PlannerColumnDef<R>, row: ExprType
  * @property now - Optional explicit committed/proposed divider slot
  * @property density - Optional density
  * @property slotMinWidth - Optional min-width (CSS) per x-axis slot column; the timeline scrolls horizontally when slots would otherwise be squeezed below it
+ * @property maxHeight - Optional max-height (CSS) for the plan area; the body scrolls vertically within it with the header pinned. Absent ⇒ content-sized
  * @property onSelectRow - Optional row-selection callback
  */
 export interface PlannerConfig<R extends StructType> {
@@ -680,6 +687,11 @@ export interface PlannerConfig<R extends StructType> {
     /** Optional min-width (CSS) per x-axis slot column. With it set, the
      *  timeline scrolls horizontally rather than squeezing slots below it. */
     slotMinWidth?: SubtypeExprOrValue<StringType>;
+    /** Optional max-height (CSS, e.g. `"420px"`) for the plan area. With it
+     *  set, the body scrolls vertically within that cap and the header row
+     *  stays pinned (sticky-top), the way the Table's `stickyHeader` scrolls.
+     *  Absent ⇒ the plan is content-sized (grows with the rows, no scroll). */
+    maxHeight?: SubtypeExprOrValue<StringType>;
     /** Shared plot gutter (#147) — pins the timeline grid to `[left, W−right]` (px) so the Planner lines up under a stacked Chart on a shared day axis; the frozen channel columns fill `left`. Usually supplied by an enclosing `<AlignedStack>`. */
     plotGutter?: PlotGutter;
     /** Optional row-selection callback. */
@@ -777,6 +789,7 @@ function buildRoot(
         now:          config.now !== undefined ? some(config.now) : none,
         density,
         slotMinWidth: config.slotMinWidth !== undefined ? some(config.slotMinWidth) : none,
+        maxHeight:    config.maxHeight !== undefined ? some(config.maxHeight) : none,
         plotGutter:   config.plotGutter !== undefined
             ? some(East.value({
                 left:  config.plotGutter.left  !== undefined ? some(config.plotGutter.left)  : none,
@@ -1117,6 +1130,7 @@ export const Planner: PlannerNamespace = {
          * @property now - Optional explicit committed/proposed divider; else derived from the data
          * @property density - Optional density (row / header rhythm)
          * @property slotMinWidth - Optional min-width (CSS) per x-axis slot column; the timeline scrolls when slots can't fit
+         * @property maxHeight - Optional max-height (CSS) for the plan area; the body scrolls vertically within it with the header pinned. Absent ⇒ content-sized
          * @property onSelectRow - Optional row-selection callback
          */
         Root: PlannerRootType,

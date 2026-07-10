@@ -11,6 +11,7 @@ import * as ex from "./planner.examples.js";
 describeEast("Planner", (test) => {
     Assert.examples(test, {
         plannerPoint: ex.plannerPoint,
+        plannerScroll: ex.plannerScroll,
         plannerEventStates: ex.plannerEventStates,
         plannerBuckets: ex.plannerBuckets,
         plannerMixedBuckets: ex.plannerMixedBuckets,
@@ -49,6 +50,31 @@ describeEast("Planner", (test) => {
         $(Assert.equal(root.axis.scale.hasTag("number"), true));
         $(Assert.equal(root.axis.buckets.length(), 2n));
         $(Assert.equal(root.columns.get(0n).frozen.unwrap("some"), true));
+    });
+
+    test("maxHeight round-trips", $ => {
+        const p = $.let(Planner.Point(
+            [{ name: "A" }],
+            {
+                axis: Planner.axis.number(),
+                columns: [{ key: "name", frozen: true, value: r => r.name }],
+                events: _r => [Planner.event({ slot: Planner.at.number(1), label: "X", state: "committed" })],
+                maxHeight: "320px",
+            },
+        ));
+        $(Assert.equal(p.unwrap().unwrap("Planner").maxHeight.unwrap("some"), "320px"));
+    });
+
+    test("maxHeight absent when not provided", $ => {
+        const p = $.let(Planner.Point(
+            [{ name: "A" }],
+            {
+                axis: Planner.axis.number(),
+                columns: [{ key: "name", frozen: true, value: r => r.name }],
+                events: _r => [Planner.event({ slot: Planner.at.number(1), label: "X", state: "committed" })],
+            },
+        ));
+        $(Assert.equal(p.unwrap().unwrap("Planner").maxHeight.hasTag("none"), true));
     });
 
     test("Span carries the span variant and a time axis", $ => {

@@ -16638,6 +16638,30 @@
       "source": "// Slot-based Point planner: resources × days, AM/PM buckets, committed past + proposed future, now-line\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Planner.Point\n                data={[\n                    { name: \"api-01\", role: \"Lead\", team: \"Web\" },\n                    { name: \"api-02\", role: \"Engineer\", team: \"Web\" },\n                    { name: \"cache\", role: \"Service\", team: \"Web\" },\n                    { name: \"etl-01\", role: \"Lead\", team: \"Batch\" },\n                    { name: \"etl-02\", role: \"Engineer\", team: \"Batch\" },\n                ]}\n                axis={Planner.axis.number({ buckets: [{ key: \"am\", label: \"AM\" }, { key: \"pm\", label: \"PM\" }], range: { min: 1, max: 8 } })}\n                groupBy={r => r.team}\n                columns={[{ key: \"name\", frozen: true, value: r => r.name, sublabel: r => r.role }]}\n                events={_r => [\n                    Planner.event({ slot: Planner.at.number(1), bucket: \"am\", label: \"✓\", state: \"committed\" }),\n                    Planner.event({ slot: Planner.at.number(2), bucket: \"pm\", label: \"✓\", state: \"committed\" }),\n                    Planner.event({ slot: Planner.at.number(3), bucket: \"am\", label: \"✓\", state: \"committed\" }),\n                    Planner.event({ slot: Planner.at.number(4), bucket: \"am\", label: \"✓\", state: \"committed\" }),\n                    Planner.event({ slot: Planner.at.number(5), bucket: \"am\", label: \"check\", state: \"added\" }),\n                    Planner.event({ slot: Planner.at.number(6), bucket: \"pm\", label: \"check\", state: \"added\" }),\n                    Planner.event({ slot: Planner.at.number(7), bucket: \"am\", label: \"? plan\", state: \"model\" }),\n                ]}\n                now={Planner.at.number(5)}\n                onSelectRow={East.function([Planner.Types.SelectEvent], NullType, _$ => null)}\n            />\n        );\n    })"
     },
     {
+      "id": "east-ui:planner.examples.tsx:plannerScroll",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/planner.examples.tsx",
+      "suite": "",
+      "test": "Vertical scroll — maxHeight caps the plan area, body scrolls with the header pinned (sticky-top)",
+      "keywords": [
+        "Planner",
+        "maxHeight",
+        "scroll",
+        "vertical",
+        "stickyHeader",
+        "sticky",
+        "overflow",
+        "pinned"
+      ],
+      "imports": [
+        "import { BooleanType, East, IntegerType, NullType, FloatType, ArrayType, OptionType, StringType, some, none, variant, example } from \"@elaraai/east\";",
+        "import { DragEventType, State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Library, Planner, Reactive, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Vertical scroll — maxHeight caps the plan area, body scrolls with the header pinned (sticky-top)\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Planner.Point\n                data={[\n                    { name: \"api-01\", role: \"Lead\" }, { name: \"api-02\", role: \"Engineer\" },\n                    { name: \"api-03\", role: \"Engineer\" }, { name: \"cache-01\", role: \"Service\" },\n                    { name: \"cache-02\", role: \"Service\" }, { name: \"etl-01\", role: \"Lead\" },\n                    { name: \"etl-02\", role: \"Engineer\" }, { name: \"etl-03\", role: \"Engineer\" },\n                    { name: \"web-01\", role: \"Lead\" }, { name: \"web-02\", role: \"Engineer\" },\n                    { name: \"web-03\", role: \"Engineer\" }, { name: \"queue-01\", role: \"Service\" },\n                    { name: \"queue-02\", role: \"Service\" }, { name: \"batch-01\", role: \"Lead\" },\n                    { name: \"batch-02\", role: \"Engineer\" }, { name: \"batch-03\", role: \"Engineer\" },\n                ]}\n                axis={Planner.axis.number({ buckets: [{ key: \"am\", label: \"AM\" }, { key: \"pm\", label: \"PM\" }], range: { min: 1, max: 6 } })}\n                columns={[{ key: \"name\", frozen: true, value: r => r.name, sublabel: r => r.role }]}\n                events={_r => [\n                    Planner.event({ slot: Planner.at.number(1), bucket: \"am\", label: \"✓\", state: \"committed\" }),\n                    Planner.event({ slot: Planner.at.number(2), bucket: \"pm\", label: \"✓\", state: \"committed\" }),\n                    Planner.event({ slot: Planner.at.number(3), bucket: \"am\", label: \"✓\", state: \"committed\" }),\n                    Planner.event({ slot: Planner.at.number(4), bucket: \"pm\", label: \"plan\", state: \"added\" }),\n                    Planner.event({ slot: Planner.at.number(5), bucket: \"am\", label: \"plan\", state: \"model\" }),\n                ]}\n                now={Planner.at.number(4)}\n                maxHeight=\"320px\"\n            />\n        );\n    })"
+    },
+    {
       "id": "east-ui:planner.examples.tsx:plannerEventStates",
       "skill": "east-ui",
       "package": "east-ui",

@@ -117,6 +117,7 @@ Task → Which tag?
 │   │     └─ DnD target: id + sources={[libraryId]} + onDrag (ONE grammar funnel: Library `add` lands proposed(added) bars at the dragStep-snapped instant; task-body drags = `move`, edge drags = `resize`; row = row index key, slot = snapped ISO instant, event = t<i>/m<i>) + canDrop veto (⊘, pointer-resolved); progress-handle drag stays bespoke (onTaskProgressChange — not a spatial drag)
 │   ├─ <Planner.Point …> / <Planner.Span …> — discrete rows × ordered-slot scheduler
 │   │     └─ Planner.axis.time()/.number({buckets})/.ordinal({range}), Planner.event(…), Planner.marker(…)
+│   │     └─ maxHeight (CSS) caps the plan area — body scrolls vertically with the header pinned (sticky-top), like Table's stickyHeader; absent ⇒ content-sized. slotMinWidth drives horizontal slot scroll
 │   │     └─ review={{ … }} + status/approval row accessors — per-row Approve/Reject Decision column + commitBar batch foot (clean ⇒ approved, flagged ⇒ pending via deriveApproval; {rowIndex} events)
 │   │     └─ opt-in DnD target (#269): id + sources + onDrag (+ canDrop) — a Planner without onDrag is exactly click-only; PROPOSED tiles drag (committed history inert; tiles need an authored event key), drops land proposed(added); slot keys compose the bucket in ("wed" / "wed:am"); Span edges resize via the shared runtime
 │   ├─ <Matrix data={…} columns={…} cell={(r, col) => Matrix.cell({ segments, markers })} />
