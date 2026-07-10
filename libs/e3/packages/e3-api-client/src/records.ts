@@ -12,7 +12,7 @@
 import { none } from '@elaraai/east';
 import type { MutationCallRequest, MutationResult, RecordHistoryResult, RecordSignature } from './types.js';
 import { MutationCallRequestType, MutationResultType, RecordHistoryResultType, RecordSignatureType } from './types.js';
-import { get, post, type RequestOptions } from './http.js';
+import { get, post, verboseQuery, type RequestOptions } from './http.js';
 
 const enc = encodeURIComponent;
 
@@ -49,7 +49,7 @@ export async function workspaceRecordMutate(
   // after a gateway timeout cannot double-apply, and adding it changes no wire
   // type — an un-upgraded server simply ignores the header.
   const extraHeaders = idempotencyKey !== undefined ? { 'Idempotency-Key': idempotencyKey } : undefined;
-  return post(url, `${recordBase(repo, ws, record)}/mutations/${enc(mutation)}`, req, MutationCallRequestType, MutationResultType, options, extraHeaders);
+  return post(url, verboseQuery(`${recordBase(repo, ws, record)}/mutations/${enc(mutation)}`, options), req, MutationCallRequestType, MutationResultType, options, extraHeaders);
 }
 
 /** Compact a record's history (drops the prior chain), returning the result of

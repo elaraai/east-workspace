@@ -266,9 +266,10 @@ async function callRemote(
   spec: { name?: string; version?: string; fn: string },
   workspace: string | undefined,
   rawArgs: string[],
-  outputPath?: string
+  outputPath?: string,
+  verbose?: boolean
 ): Promise<void> {
-  const opts = { token };
+  const opts = { token, verbose };
 
   let version = spec.version;
   if (!workspace && version === 'latest') {
@@ -317,7 +318,7 @@ export async function callCommand(
     if (location.type === 'local') {
       await callLocal(location.path, spec, options.workspace, args, options.output, options.verbose);
     } else {
-      await callRemote(location.baseUrl, location.repo, location.token, spec, options.workspace, args, options.output);
+      await callRemote(location.baseUrl, location.repo, location.token, spec, options.workspace, args, options.output, options.verbose);
     }
   } catch (err) {
     exitError(formatError(err));

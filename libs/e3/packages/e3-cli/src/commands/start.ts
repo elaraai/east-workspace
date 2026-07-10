@@ -93,6 +93,7 @@ export async function startCommand(
           concurrency,
           force: options.force,
           filter: options.filter,
+          verbose: options.verbose,
         },
         () => aborted
       );
@@ -205,6 +206,7 @@ interface RemoteExecuteOptions {
   concurrency: number;
   force?: boolean;
   filter?: string;
+  verbose?: boolean;
 }
 
 async function executeRemote(
@@ -223,7 +225,7 @@ async function executeRemote(
     concurrency: options.concurrency,
     force: options.force,
     filter: options.filter,
-  }, { token: await getValidToken(baseUrl) });
+  }, { token: await getValidToken(baseUrl), verbose: options.verbose });
 
   // Poll for execution state
   let eventOffset = 0;

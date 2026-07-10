@@ -57,6 +57,9 @@ export interface MutationCallControls {
   signal?: AbortSignal;
   /** Client idempotency key (the `Idempotency-Key` header). */
   idempotencyKey?: string;
+  /** Pass `-v` to the reducer's runner (known runtimes only) — timing/perf to
+   *  stderr. Runtime-only; never affects hashing or caching. */
+  verbose?: boolean;
 }
 
 function resolveLimits(limits: { type: 'some'; value: ExecuteLimits } | { type: 'none'; value: null }) {
@@ -146,6 +149,7 @@ export async function callMutationSync(
         budgetMs: effectiveBudgetMs(controls.budgetMs),
         signal: controls.signal,
         idempotencyKey: controls.idempotencyKey,
+        verbose: controls.verbose,
       },
     );
     return sendSuccess(MutationResultType, outcomeToResult(outcome));

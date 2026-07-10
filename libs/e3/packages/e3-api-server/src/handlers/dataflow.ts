@@ -165,7 +165,7 @@ export async function startDataflow(
   storage: StorageBackend,
   repoPath: string,
   workspace: string,
-  options: { concurrency: number; force: boolean; filter?: string }
+  options: { concurrency: number; force: boolean; filter?: string; verbose?: boolean }
 ): Promise<Response> {
   try {
     const orchestrator = getOrchestrator(repoPath);
@@ -175,6 +175,7 @@ export async function startDataflow(
       concurrency: options.concurrency,
       force: options.force,
       filter: options.filter,
+      verbose: options.verbose,
     });
 
     // Track as active execution for this workspace

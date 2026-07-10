@@ -31,7 +31,10 @@ import { join, dirname, delimiter } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createTestDir, removeTestDir, runE3Command } from './helpers.js';
 import e3 from '@elaraai/e3';
-import { IntegerType, East } from '@elaraai/east';
+import { IntegerType, East, encodeBeast2For, none } from '@elaraai/east';
+import { createServer, type Server } from '@elaraai/e3-api-server';
+import { functionCall } from '@elaraai/e3-api-client';
+import { repoInit, packageImport, LocalStorage } from '@elaraai/e3-core';
 
 const WS = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..', '..');
 const EAST_C = join(WS, 'libs', 'east-c', 'build', 'packages', 'east-c-cli', 'east-c');
@@ -130,5 +133,60 @@ describe('e3 dataflow run -v (east-c)', () => {
       const q = await runE3Command(['call', repoDir, 'verbose-fn.doubled', '5'], testDir, { env: runEnv });
       assert.strictEqual(q.exitCode, 0, `call failed: ${q.stderr}`);
       assert.doesNotMatch(q.stderr, /^Timing:$/m, `no verbose block without -v:\n${q.stderr}`);
+    });
+});
+
+// ===========================================================================
+// Remote path: `?verbose=1` query param → api-server → runner. Proves the
+// out-of-band verbose transport end-to-end against a real in-process server.
+// (The shared api-tests suite is NOT used — it also runs against e3-cloud,
+// which honours the param only once #277 lands; asserting it there would break
+// cloud compliance. This local-server test is the right home.)
+// ===========================================================================
+describe('remote e3 call -v over HTTP (?verbose=1 query param → server)', () => {
+  it('the runner verbose block comes back in the ExecuteResult (and is absent without -v)',
+    { skip: hasEastC ? false : 'east-c not built' }, async () => {
+      const dir = createTestDir();
+      mkdirSync(dir, { recursive: true });
+      const reposDir = join(dir, 'repos');
+      mkdirSync(reposDir, { recursive: true });
+      const repoName = 'verbrepo';
+      const repoPath = join(reposDir, repoName);
+      repoInit(repoPath);
+
+      const fn = e3.function(
+        'doubled',
+        East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n)),
+        { runner: { runtime: 'east-c', platforms: ['east-c-std'] } },
+      );
+      const zip = join(dir, 'fn.zip');
+      await e3.export(e3.package('verbose-fn', '1.0.0', fn), zip);
+      await packageImport(new LocalStorage(), repoPath, zip);
+
+      // The server's LocalTaskRunner spawns `east-c` by name — put it on PATH.
+      const prevPath = process.env.PATH ?? '';
+      process.env.PATH = `${EAST_C_DIR}${delimiter}${prevPath}`;
+      const server: Server = await createServer({ reposDir, port: 0, host: 'localhost' });
+      await server.start();
+      try {
+        const baseUrl = `http://localhost:${server.port}`;
+        const req = { args: [encodeBeast2For(IntegerType)(5n)], runner: none, limits: none };
+
+        // -v ON: the canonical verbose block travels back on stderr; result is 10.
+        const v = await functionCall(baseUrl, repoName, 'verbose-fn', '1.0.0', 'doubled', req, { token: null, verbose: true });
+        assert.strictEqual(v.outcome.type, 'success', `remote call failed: ${v.stderr}`);
+        for (const re of [/^Running: /m, /^Timing:$/m, /^ {2}Execute: +\d+\.\d ms$/m]) {
+          assert.match(v.stderr, re, `remote -v must surface the runner verbose block (${re}):\n${v.stderr}`);
+        }
+
+        // -v OFF (control): no verbose block.
+        const q = await functionCall(baseUrl, repoName, 'verbose-fn', '1.0.0', 'doubled', req, { token: null });
+        assert.strictEqual(q.outcome.type, 'success', `remote call failed: ${q.stderr}`);
+        assert.doesNotMatch(q.stderr, /^Timing:$/m, `no verbose block without -v:\n${q.stderr}`);
+      } finally {
+        await server.stop();
+        process.env.PATH = prevPath;
+        removeTestDir(dir);
+      }
     });
 });

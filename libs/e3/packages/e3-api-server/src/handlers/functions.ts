@@ -161,7 +161,8 @@ async function executeFunction(
   fnObj: FunctionObject,
   req: FunctionCallRequest,
   sync: boolean,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  verbose?: boolean
 ): Promise<ExecuteResult> {
   // Signature validation: arity is checked here, before anything runs.
   // Per-element type errors surface as a runtime decode failure (`failed`)
@@ -184,7 +185,7 @@ async function executeFunction(
       limits,
       environment: fnObj.environment.type === 'some' ? fnObj.environment.value : undefined,
     },
-    { signal, storage }
+    { signal, storage, verbose }
   );
   return detachedToExecuteResult(result);
 }
@@ -231,7 +232,8 @@ async function executeOneShot(
   runner: TaskRunner,
   req: OneShotRequest,
   sync: boolean,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  verbose?: boolean
 ): Promise<ExecuteResult> {
   const resolved = await resolveOneShotArgs(storage, repoPath, workspace, req.args);
   if (!resolved.ok) {
@@ -245,7 +247,7 @@ async function executeOneShot(
       runner: req.runner,
       limits,
     },
-    { signal }
+    { signal, verbose }
   );
   return detachedToExecuteResult(result);
 }
@@ -317,11 +319,12 @@ export async function callFunctionSync(
   pkgName: string,
   version: string,
   fnName: string,
-  req: FunctionCallRequest
+  req: FunctionCallRequest,
+  verbose?: boolean
 ): Promise<Response> {
   try {
     const fnObj = await resolveFunction(storage, repoPath, pkgName, version, fnName);
-    const result = await executeFunction(storage, repoPath, runner, fnObj, req, true);
+    const result = await executeFunction(storage, repoPath, runner, fnObj, req, true, undefined, verbose);
     return sendSuccess(ExecuteResultType, result);
   } catch (err) {
     return sendError(ExecuteResultType, errorToVariant(err));
@@ -344,12 +347,13 @@ export async function callOneShotSync(
   repoPath: string,
   runner: TaskRunner,
   workspace: string,
-  req: OneShotRequest
+  req: OneShotRequest,
+  verbose?: boolean
 ): Promise<Response> {
   try {
     // Validate the workspace exists / is deployed before running anything.
     await workspaceGetPackage(storage, repoPath, workspace);
-    const result = await executeOneShot(storage, repoPath, workspace, runner, req, true);
+    const result = await executeOneShot(storage, repoPath, workspace, runner, req, true, undefined, verbose);
     return sendSuccess(ExecuteResultType, result);
   } catch (err) {
     return sendError(ExecuteResultType, errorToVariant(err));

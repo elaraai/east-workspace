@@ -36,6 +36,7 @@ export function createExecutionRoutes(
       concurrency,
       force: body.force,
       filter,
+      verbose: c.req.query('verbose') === '1',
     });
   });
 

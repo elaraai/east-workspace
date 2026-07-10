@@ -92,8 +92,8 @@ async function mutateLocal(repoPath: string, ws: string, record: string, mutatio
   renderOutcome(outcome);
 }
 
-async function mutateRemote(baseUrl: string, repo: string, token: string, ws: string, record: string, mutation: string, rawArgs: string[]): Promise<void> {
-  const opts = { token };
+async function mutateRemote(baseUrl: string, repo: string, token: string, ws: string, record: string, mutation: string, rawArgs: string[], verbose?: boolean): Promise<void> {
+  const opts = { token, verbose };
   const sig = await workspaceRecordDescribe(baseUrl, repo, ws, record, opts);
   const mut = sig.mutations.find((m) => m.name === mutation);
   if (!mut) {
@@ -129,7 +129,7 @@ export async function mutateCommand(
     if (location.type === 'local') {
       await mutateLocal(location.path, options.workspace, record, mutation, args, options.verbose);
     } else {
-      await mutateRemote(location.baseUrl, location.repo, location.token, options.workspace, record, mutation, args);
+      await mutateRemote(location.baseUrl, location.repo, location.token, options.workspace, record, mutation, args, options.verbose);
     }
   } catch (err) {
     exitError(formatError(err));
