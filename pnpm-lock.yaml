@@ -640,6 +640,9 @@ importers:
       '@elaraai/east-node-std':
         specifier: workspace:*
         version: link:../../../east-node/packages/east-node-std
+      '@elaraai/east-py-datascience':
+        specifier: workspace:*
+        version: link:../../../east-py/packages/east-py-datascience
       '@types/node':
         specifier: ^22
         version: 22.19.15

@@ -54,6 +54,10 @@ jobs:
         working-directory: libs/e3
         run: make build
 
+      - name: Build east-py-datascience TypeScript (dependency)
+        working-directory: libs/east-py/packages/east-py-datascience
+        run: pnpm run build
+
       - name: Build east-ui packages
         working-directory: libs/east-ui
         run: make build

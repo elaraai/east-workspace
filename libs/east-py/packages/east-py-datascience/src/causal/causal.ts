@@ -182,6 +182,21 @@ export const BalanceRowType = StructType({
     control_mean: FloatType,
     /** Standardized mean difference, (mt-mc)/sqrt((vt+vc)/2). */
     std_diff: FloatType,
+    /** Post-adjustment SMD (weighted means, same pooled-sd denominator) — proof the
+     *  adjustment closed the gap. `some` only for `propensity_score_weighting` with
+     *  computable scores; `none` for the regression estimator (which doesn't
+     *  reweight) or a failed propensity fit.
+     *  twin: causal_impl.py / e3-ui `BalanceRowType.std_diff_adjusted` */
+    std_diff_adjusted: OptionType(FloatType),
+});
+
+/** One observed confounder placed on the sensitivity strengths axis — the simulated
+ *  strength whose effect-shift equals the shift from omitting that confounder, so
+ *  "tips at 0.9" reads as "a hidden cause as strong as `column`".
+ *  twin: causal_impl.py / e3-ui `SensitivityBenchmarkType` */
+export const SensitivityBenchmarkType = StructType({
+    column: StringType,
+    strength: FloatType,
 });
 
 /**
@@ -242,6 +257,10 @@ export const RefutationType = StructType({
     sensitivity: OptionType(StructType({
         strengths: VectorType(FloatType),
         effects: VectorType(FloatType),
+        /** Observed-confounder benchmarks on the SAME strengths axis (empty when
+         *  none is computable) — lets a consumer say "survives a hidden cause as
+         *  strong as `incoming_grade`". Clamped to the last simulated strength. */
+        benchmarks: ArrayType(SensitivityBenchmarkType),
     })),
     /** Sign-prior check (when `config.expected_sign` is set): `some(true)` if a
      *  material effect matches the expected direction, `some(false)` if it points the
@@ -283,6 +302,29 @@ export const ExperimentVerdictType = VariantType({
 });
 
 /**
+ * Machine-readable reason a verdict fell short of `causal`. Every FAILING gate
+ * is emitted (the verdict tag is chosen by severity precedence, but a consumer
+ * explaining "why modest?" needs all of them); empty for `causal` (all gates
+ * passed) and for the two refusal verdicts (the tag itself is the reason).
+ *
+ * twin: causal_impl.py / e3-ui `VerdictReasonType`
+ */
+export const VerdictReasonType = VariantType({
+    /** The placebo (shuffle) refuter didn't collapse to ~0. */
+    placebo_failed: NullType,
+    /** |effect| below the materiality band (0.10 × outcome_sd). */
+    not_material: NullType,
+    /** The adjusted CI straddles zero. */
+    ci_spans_zero: NullType,
+    /** Material + CI-clear but pointing against `config.expected_sign`. */
+    wrong_sign: NullType,
+    /** Common support cleared the refuse gate but is below `strong_overlap`. */
+    thin_support: NullType,
+    /** E-value below the (opt-in) `evalue_floor`. */
+    low_robustness: NullType,
+});
+
+/**
  * The complete, honest result of {@link causal_experiment}. `adjusted` is
  * `none` when the engine refuses (positivity / no-variation); the `verdict` tag
  * carries the headline; every word/colour on the surface derives from these numbers.
@@ -296,6 +338,9 @@ export const CausalExperimentResultType = StructType({
     n_total: IntegerType,
     n_treated: IntegerType,
     n_control: IntegerType,
+    /** Rows OUTSIDE the propensity common support — units with no like-for-like
+     *  counterpart on the other side. Display-only; nothing is dropped from the
+     *  estimate. */
     n_dropped: IntegerType,
     /** Per-confounder before-adjustment imbalance, most-imbalanced first. */
     balance: ArrayType(BalanceRowType),
@@ -304,6 +349,18 @@ export const CausalExperimentResultType = StructType({
     /** ALE dose-response of `dose_feature` (present when `config.dose_feature` is set). */
     dose_response: OptionType(DoseResponseType),
     verdict: ExperimentVerdictType,
+    /** Why the verdict fell short of `causal` — every failing gate (empty for
+     *  `causal` and for the refusals, where the tag itself is the reason). */
+    verdict_reasons: ArrayType(VerdictReasonType),
+    /** The outcome's standard deviation — the scale the materiality band is on. */
+    outcome_sd: FloatType,
+    /** The materiality band the verdict applied (0.10 × outcome_sd), echoed so a
+     *  consumer can say "smaller than what would matter here (±x)". */
+    materiality_threshold: FloatType,
+    /** Raw outcome mean of the treated arm (`none` when the arm is empty). */
+    treated_outcome_mean: OptionType(FloatType),
+    /** Raw outcome mean of the control arm (`none` when the arm is empty). */
+    control_outcome_mean: OptionType(FloatType),
 });
 
 /**
@@ -445,11 +502,13 @@ export const CausalTypes = {
     RefuteSpecType,
     CausalExperimentConfigType,
     BalanceRowType,
+    SensitivityBenchmarkType,
     SupportStrengthType,
     OverlapDiagnosticType,
     RefutationType,
     DoseResponseType,
     ExperimentVerdictType,
+    VerdictReasonType,
     CausalExperimentResultType,
     // Validation-design contract
     DesignBasisType,
