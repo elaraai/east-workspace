@@ -954,13 +954,12 @@ EastValue *east_csv_decode_with_error(const char *csv, EastType *type, EastValue
             if (!dtext) continue;
             EastType *ftype = elem_type->data.struct_.fields[f].type;
             char *default_error = NULL;
-            field_defaults[f] =
-                csv_parse_field(dtext, ftype, &opts, &default_error, fname);
+            field_defaults[f] = csv_parse_field(dtext, ftype, &opts, &default_error, fname);
             if (!field_defaults[f]) {
                 if (error_out)
-                    *error_out = format_csv_error(
-                        "CSV error: invalid default for column '%s': %s", fname,
-                        default_error ? default_error : "parse failed");
+                    *error_out =
+                        format_csv_error("CSV error: invalid default for column '%s': %s", fname,
+                                         default_error ? default_error : "parse failed");
                 free(default_error);
                 free_field_defaults(field_defaults, nf);
                 free(col_indices);
