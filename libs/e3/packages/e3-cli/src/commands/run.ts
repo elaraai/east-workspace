@@ -59,7 +59,7 @@ export async function runCommand(
   repoArg: string,
   taskSpec: string,
   inputs: string[],
-  options: { output?: string; force?: boolean }
+  options: { output?: string; force?: boolean; verbose?: boolean }
 ): Promise<void> {
   try {
     const repoPath = resolveRepo(repoArg);
@@ -107,6 +107,7 @@ export async function runCommand(
     const startTime = Date.now();
     const result = await taskExecute(storage, repoPath, taskHash, inputHashes, {
       force: options.force,
+      verbose: options.verbose,
     });
 
     const elapsed = Date.now() - startTime;

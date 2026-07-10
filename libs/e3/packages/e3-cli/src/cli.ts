@@ -276,6 +276,7 @@ program
       .option('--filter <pattern>', 'Only run tasks matching pattern')
       .option('--concurrency <n>', 'Max concurrent tasks', '4')
       .option('--force', 'Force re-execution even if cached')
+      .option('-v, --verbose', "Pass -v to each task's runner (timing/perf to stderr)")
       .action(withDefaultRepo(startCommand))
   );
 
@@ -295,6 +296,7 @@ program
   .argument('[inputs...]', 'Input file paths (.beast2)')
   .option('-o, --output <path>', 'Output file path')
   .option('--force', 'Force re-execution even if cached')
+  .option('-v, --verbose', "Pass -v to the runner (timing/perf to stderr)")
   .action(runCommand);
 
 // ---------------------------------------------------------------------------

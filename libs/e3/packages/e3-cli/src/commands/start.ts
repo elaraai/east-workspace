@@ -45,7 +45,7 @@ const POLL_INTERVAL = 500;
 export async function startCommand(
   repoArg: string,
   ws: string,
-  options: { filter?: string; concurrency?: string; force?: boolean }
+  options: { filter?: string; concurrency?: string; force?: boolean; verbose?: boolean }
 ): Promise<void> {
   // Set up abort controller for signal handling
   const controller = new AbortController();
@@ -80,6 +80,7 @@ export async function startCommand(
       await executeLocal(location.path, ws, {
         concurrency,
         force: options.force,
+        verbose: options.verbose,
         filter: options.filter,
         signal: controller.signal,
       });
@@ -117,6 +118,7 @@ export async function startCommand(
 interface LocalExecuteOptions {
   concurrency: number;
   force?: boolean;
+  verbose?: boolean;
   filter?: string;
   signal: AbortSignal;
 }
@@ -134,6 +136,7 @@ async function executeLocal(
   const handle = await orchestrator.start(storage, repoPath, ws, {
     concurrency: options.concurrency,
     force: options.force,
+    verbose: options.verbose,
     filter: options.filter,
     signal: options.signal,
     onTaskStart: (name) => {

@@ -90,6 +90,7 @@ export {
   RunnerType,
   type RunnerValue,
   runnerToArgv,
+  withRunnerVerbose,
 } from './runner.js';
 
 // Function objects
