@@ -28,6 +28,7 @@ import {
     OptionType,
     VariantType,
     StringType,
+    BooleanType,
     NullType,
     FunctionType,
     some,
@@ -37,7 +38,7 @@ import {
     type SubtypeExprOrValue,
 } from "@elaraai/east";
 import { EastUI, DensityType, UIComponentType, type DensityLiteral } from "@elaraai/east-ui";
-import { SliceAffordanceType, type SliceAffordanceLiteral } from "@elaraai/east-ui/internal";
+import { SliceAffordanceType, reifyAccessor, type SliceAffordanceLiteral } from "@elaraai/east-ui/internal";
 
 import { DecisionHandleRefType, type DecisionHandleLike } from "./bind.js";
 import { DecisionType, DecisionUpdateType } from "./types.js";
@@ -76,6 +77,22 @@ export type DataFacetType = typeof DataFacetType;
 export type DataFacetLiteral = "evidence" | "options" | "judgement";
 
 /**
+ * One custom grouping offered in the Group-by toolbar: a toolbar label plus a
+ * group-value accessor over the decision. The built-in `urgency` / `kind` /
+ * `none` groupings are framework-provided and never declared here.
+ *
+ * @property label - Toolbar segment label + group-head identity.
+ * @property value - Group-value accessor; the renderer runs it per decision to
+ *   bucket rows into sections.
+ */
+export const DecisionGroupType = StructType({
+    label: StringType,
+    value: FunctionType([DecisionType], StringType),
+});
+/** Type alias for {@link DecisionGroupType}. */
+export type DecisionGroupType = typeof DecisionGroupType;
+
+/**
  * The `DecisionQueue` component payload.
  *
  * @property handle - The surface's decision handle ref (binding descriptors).
@@ -104,6 +121,13 @@ export type DataFacetLiteral = "evidence" | "options" | "judgement";
  * @property maxHeight - Optional cap on the queue's height (a CSS length).
  *   The header stays pinned; the rows scroll.
  * @property density - Information-density preset.
+ * @property groups - Custom groupings for the Group-by toolbar (label →
+ *   accessor); built-in `urgency` / `kind` / `none` are added by the renderer.
+ * @property groupBy - The grouping that opens first (`"urgency"` / `"kind"` /
+ *   `"none"` / a `groups` label). Present (or non-empty `groups`) ⇒ the toolbar
+ *   mounts; both absent ⇒ the flat queue.
+ * @property collapsible - Whether group heads collapse and a Collapse-/Expand-all
+ *   control mounts.
  */
 export const DecisionQueuePayloadType = StructType({
     handle: DecisionHandleRefType,
@@ -118,6 +142,9 @@ export const DecisionQueuePayloadType = StructType({
     slice: OptionType(ArrayType(SliceAffordanceType)),
     maxHeight: OptionType(StringType),
     density: OptionType(DensityType),
+    groups: OptionType(ArrayType(DecisionGroupType)),
+    groupBy: OptionType(StringType),
+    collapsible: OptionType(BooleanType),
 });
 /** Type alias for {@link DecisionQueuePayloadType}. */
 export type DecisionQueuePayloadType = typeof DecisionQueuePayloadType;
@@ -162,6 +189,13 @@ export const DecisionQueueComponent = EastUI.component("DecisionQueue", Decision
  *   its content.
  * @property density - Information-density preset (`comfortable` | `compact`
  *   | `condensed`).
+ * @property groups - Custom groupings for the Group-by toolbar — a map of
+ *   toolbar label → group-value accessor `(decision) => String`.
+ * @property groupBy - The grouping that opens first (`"urgency"` / `"kind"` /
+ *   `"none"` / a `groups` label; default `"urgency"`). Passing this or `groups`
+ *   mounts the toolbar; omit both for the flat queue.
+ * @property collapsible - Whether group heads collapse and a Collapse-/Expand-all
+ *   control mounts (default `true`).
  */
 export interface DecisionQueueOptions {
     handle: DecisionHandleLike;
@@ -190,6 +224,16 @@ export interface DecisionQueueOptions {
     slice?: SliceAffordanceLiteral[] | true;
     maxHeight?: SubtypeExprOrValue<StringType>;
     density?: SubtypeExprOrValue<OptionType<DensityType>> | DensityLiteral;
+    /** Custom groupings for the Group-by toolbar — a map of toolbar label →
+     *  group-value accessor `(decision) => String`. Urgency / Kind / None are
+     *  added automatically; you declare only custom groupings, all one shape. */
+    groups?: Record<string, (decision: ExprType<DecisionType>) => SubtypeExprOrValue<StringType>>;
+    /** The grouping that opens first: `"urgency"` | `"kind"` | `"none"` | a
+     *  `groups` label (default `"urgency"`). Passing this or `groups` mounts the
+     *  Group-by toolbar; omit both for a flat queue. */
+    groupBy?: string;
+    /** Group heads collapse + a Collapse-/Expand-all control mounts (default `true`). */
+    collapsible?: SubtypeExprOrValue<BooleanType>;
 }
 
 /**
@@ -209,6 +253,7 @@ export const DecisionQueue: {
         Update: DecisionUpdateType;
         Facet: FacetType;
         DataFacet: DataFacetType;
+        Group: DecisionGroupType;
     };
 } = {
     /**
@@ -263,6 +308,22 @@ export const DecisionQueue: {
             : typeof options.density === "string"
                 ? some(East.value(variant(options.density, null), DensityType))
                 : options.density;
+        // Custom groupings: lift each bare accessor to a pass-through East
+        // function (like `modify` / `evidence`) — the renderer runs it per row.
+        const groups = options.groups === undefined
+            ? none
+            : some(East.value(
+                Object.entries(options.groups).map(([label, accessor]) => ({
+                    label,
+                    value: reifyAccessor([DecisionType], (d: ExprType<DecisionType>) => East.value(accessor(d), StringType)),
+                })),
+                ArrayType(DecisionGroupType)));
+        // Grouping mounts when either the default or a custom map is given.
+        const grouped = options.groupBy !== undefined || options.groups !== undefined;
+        const groupBy = grouped ? some(East.value(options.groupBy ?? "urgency", StringType)) : none;
+        const collapsible = options.collapsible === undefined
+            ? none
+            : some(East.value(options.collapsible, BooleanType));
         return DecisionQueueComponent.Root({
             handle: East.value({
                 decisions: options.handle.decisions,
@@ -282,6 +343,9 @@ export const DecisionQueue: {
             slice,
             maxHeight: options.maxHeight !== undefined ? some(options.maxHeight) : none,
             density,
+            groups,
+            groupBy,
+            collapsible,
         });
     },
     /** The internal {@link EastUI.component} carrier renderers register against. */
@@ -295,5 +359,7 @@ export const DecisionQueue: {
         Facet: FacetType,
         /** The author-selectable data-facet subset (`evidence` / `options` / `judgement`). */
         DataFacet: DataFacetType,
+        /** One custom grouping definition (`label` + accessor). */
+        Group: DecisionGroupType,
     },
 } as const;

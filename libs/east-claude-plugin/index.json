@@ -1,7 +1,7 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1445,
+    "totalEntries": 1446,
     "totalFiles": 183,
     "packages": {
       "east": 489,
@@ -9,7 +9,7 @@
       "east-node-io": 63,
       "east-py-datascience": 89,
       "east-ui": 689,
-      "e3-ui": 57,
+      "e3-ui": 58,
       "e3": 7,
       "e3-ui-cli": 4,
       "e3-create": 5
@@ -29196,6 +29196,34 @@
         "import * as e3 from '@elaraai/e3';"
       ],
       "source": "// The handle-owned slice — Decision.bind seeds the initial state (kind = roster, shown as a removable chip); the queue\\\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Reactive>{$ => {\n                const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));\n                const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));\n                const handle = $.let(Decision.bind([RosterConstraint], {\n                    decisions: [decisions],\n                    judgements,\n                    slice: Slice.state({\n                        filters: [variant('string', { fieldId: 'kind', op: variant('eq', 'roster') })],\n                    }),\n                }));\n                return (\n                    <DecisionQueue\n                        handle={handle}\n                        heading=\"Decisions waiting\"\n                        slice={['filter', 'search']}\n                    />\n                );\n            }}</Reactive>\n        );\n    })"
+    },
+    {
+      "id": "e3-ui:queue.examples.tsx:decisionQueueGrouped",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/decision/queue.examples.tsx",
+      "suite": "",
+      "test": "Grouped queue — Group-by Urgency (default) / Kind / a custom Value-band accessor; collapsible sections with Collapse-all, the Routine section collapsed with its bulk Accept all",
+      "keywords": [
+        "DecisionQueue",
+        "Decide",
+        "grouping",
+        "groupBy",
+        "groups",
+        "collapsible",
+        "urgency",
+        "kind",
+        "custom",
+        "accessor",
+        "Accept all"
+      ],
+      "imports": [
+        "import {",
+        "import { Box, Chart, Field, Reactive, Slice, UIComponentType } from '@elaraai/east-ui';",
+        "import { Data, Decision, DecisionQueue, DecisionType } from '@elaraai/e3-ui';",
+        "import * as e3 from '@elaraai/e3';"
+      ],
+      "source": "// Grouped queue — Group-by Urgency (default) / Kind / a custom Value-band accessor; collapsible sections with Collapse-all, the Routine section collapsed with its bulk Accept all\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Reactive>{$ => {\n                const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));\n                const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));\n                const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));\n                return (\n                    <DecisionQueue\n                        handle={handle}\n                        heading=\"Decisions waiting\"\n                        groupBy=\"urgency\"\n                        groups={{\n                            'Value band': d => d.value.greater(50000.0).ifElse(() => 'High', () => 'Standard'),\n                        }}\n                        collapsible\n                    />\n                );\n            }}</Reactive>\n        );\n    })"
     },
     {
       "id": "e3-ui:diff.examples.tsx:workforcePolicyEditor",

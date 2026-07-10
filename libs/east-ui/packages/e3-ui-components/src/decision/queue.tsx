@@ -14,6 +14,12 @@
  * are display-only, the toggles become a full-width segment, and the
  * Options facet stacks.
  *
+ * With the payload's `groupBy` set, a Group-by toolbar folds the rows into
+ * collapsible sections (built-in Urgency / Kind / None plus the payload's
+ * custom `groups` accessors, run per decision), each head carrying a
+ * `label · count` plus a roll-up summary; the urgency grouping's Routine
+ * section hosts the bulk Accept all and ships collapsed.
+ *
  * Composes the shared chrome recipes (`frame` / `eyebrowRow` / `status` /
  * `button` / `facetTabs`) plus the `decisionQueue` row recipe; holds no
  * design values of its own. Registers against
@@ -35,6 +41,7 @@ import {
     getSomeorUndefined,
     formatTick,
     SliceRailCluster,
+    usePersistedState,
     useSliceReactivity,
     type TickFormatOpt,
 } from '@elaraai/east-ui-components';
@@ -43,6 +50,7 @@ import { getBindingTypes, getReactiveDatasetCache } from '../platform/index.js';
 import { useDecisionHandle, DECISION_SLICE_CONFIG, type UseDecisionHandleResult, type DecisionHandleRefValue } from './handle-runtime.js';
 import { EvidenceFacet, OptionsFacet, JudgementFacet } from './facets.js';
 import { normalizeTypeValue, type TypeNode } from './lever-editor.js';
+import { URGENCY_GROUP_LABEL, buildGroups, type GroupOption, type QueueGroup } from './grouping.js';
 import { URGENCY_RANK, type Decision, type UrgencyKind } from './types.js';
 
 type DecisionQueueValue = ValueTypeOf<typeof DecisionQueue.Component.schema>;
@@ -73,6 +81,13 @@ const EXIT_MS = 560;
 
 /** Hosts narrower than this wrap rows to the two-line rail layout. */
 const NARROW_PX = 560;
+
+/** Toolbar state persisted per `storageKey`: the active grouping + collapsed
+ *  section labels. */
+interface DecisionQueueToolbarState {
+    groupKey: string;
+    collapsed: string[];
+}
 
 function decisionValue(d: Decision, n: number, showSign = false): string {
     return formatTick(n, getSomeorUndefined(d.format) as TickFormatOpt, showSign);
@@ -218,8 +233,11 @@ const Row = memo(function Row({ decision, handle, selected, narrow, leverPayload
         </Box>
     );
 
+    // The truncating element must DIRECTLY contain the spans (a block child
+    // defeats text-overflow); the native title carries the untruncated line.
+    const fullTitle = `${decision.kind} · ${decision.title}${summary !== undefined ? ` · ${summary}` : ''}`;
     const title = (
-        <Box minW={0} cursor={selected ? undefined : 'pointer'} onClick={handleSelect}>
+        <Box css={rs.titleText} title={fullTitle} cursor={selected ? undefined : 'pointer'} onClick={handleSelect}>
             <Text as="span" fontWeight="semibold">{decision.kind}</Text>
             <Text as="span" color="fg.subtle"> · </Text>
             <Text as="span">{decision.title}</Text>
@@ -357,6 +375,50 @@ const RoutineGroup = memo(function RoutineGroup({ routine, acceptAll, leaving, n
 });
 
 // =============================================================================
+// Group head — one collapsible section band: caret, label · count, roll-up
+// summary, and the bulk Accept all on the routine section.
+// =============================================================================
+
+interface GroupHeadProps {
+    group: QueueGroup;
+    collapsible: boolean;
+    collapsed: boolean;
+    onToggle: (label: string) => void;
+    acceptAll: ((ds: Decision[]) => void) | undefined;
+}
+
+const GroupHead = memo(function GroupHead({ group, collapsible, collapsed, onToggle, acceptAll }: GroupHeadProps) {
+    const dq = useSlotRecipe({ key: 'decisionQueue' });
+    const button = useRecipe({ key: 'button' });
+    const rs = dq({});
+
+    const format = group.decisions[0] ? (getSomeorUndefined(group.decisions[0].format) as TickFormatOpt) : undefined;
+
+    const handleToggle = useCallback(() => {
+        if (collapsible) onToggle(group.label);
+    }, [collapsible, onToggle, group.label]);
+    const handleAcceptAll = useCallback((e: { stopPropagation: () => void }) => {
+        e.stopPropagation();
+        if (acceptAll) acceptAll(group.decisions);
+    }, [acceptAll, group.decisions]);
+
+    return (
+        <Box css={rs.groupHead} {...(collapsible ? { 'data-collapsible': '' } : {})} onClick={handleToggle}>
+            {collapsible && <Box as="span" css={rs.groupCaret}>{collapsed ? '▸' : '▾'}</Box>}
+            <Box as="span" css={rs.groupLabel}>{group.label} · {group.decisions.length}</Box>
+            <Box as="span" css={rs.groupSummary}>
+                {formatTick(group.total, format)}{group.pastSla > 0 ? ` · ${group.pastSla} past SLA` : ''}
+            </Box>
+            {acceptAll && (
+                <Box as="button" css={button({ variant: 'solid', size: 'xs' })} onClick={handleAcceptAll}>
+                    Accept all
+                </Box>
+            )}
+        </Box>
+    );
+});
+
+// =============================================================================
 // Main component.
 // =============================================================================
 
@@ -368,6 +430,11 @@ export interface EastChakraDecisionQueueProps {
 const EastChakraDecisionQueue = memo(function EastChakraDecisionQueue({ value, storageKey }: EastChakraDecisionQueueProps) {
     const eyebrow = useSlotRecipe({ key: 'eyebrowRow' });
     const es = eyebrow({});
+    const dq = useSlotRecipe({ key: 'decisionQueue' });
+    const qs = dq({});
+    // Group-by toggle pills share the slice vocabulary: the `chip` recipe,
+    // brand tone when active (the Library toolbar precedent).
+    const chip = useRecipe({ key: 'chip' });
 
     const handleRef = value.handle;
     const handle = useDecisionHandle(handleRef);
@@ -457,6 +524,30 @@ const EastChakraDecisionQueue = memo(function EastChakraDecisionQueue({ value, s
     }, [value.facets]);
     const defaultExpanded = getSomeorUndefined(value.defaultExpanded);
 
+    // Grouping — a present `groupBy` mounts the Group-by toolbar (the factory
+    // defaults it to "urgency" whenever custom `groups` are given). Custom
+    // accessors decode to callable functions run per decision, like `modify`.
+    const groupDefs = useMemo(
+        () => (getSomeorUndefined(value.groups) ?? []) as ReadonlyArray<{ label: string; value: (d: Decision) => string }>,
+        [value.groups],
+    );
+    const defaultGroupKey = getSomeorUndefined(value.groupBy);
+    const grouped = defaultGroupKey !== undefined;
+    const collapsible = grouped && (getSomeorUndefined(value.collapsible) ?? true);
+    const groupOptions = useMemo<GroupOption[]>(() => [
+        { key: 'urgency', label: 'Urgency' },
+        { key: 'kind', label: 'Kind' },
+        ...groupDefs.map(g => ({ key: g.label, label: g.label, accessor: g.value })),
+        { key: 'none', label: 'None' },
+    ], [groupDefs]);
+    const { state: toolbar, setState: setToolbar } = usePersistedState<DecisionQueueToolbarState>(`${storageKey}.toolbar`, {
+        groupKey: defaultGroupKey ?? 'urgency',
+        // The urgency grouping's routine tail ships collapsed.
+        collapsed: [URGENCY_GROUP_LABEL.routine],
+    });
+    // A stale persisted key (a custom facet since removed) falls back to the default.
+    const activeOption = groupOptions.find(o => o.key === toolbar.groupKey) ?? groupOptions[0]!;
+
     // Selection is the expanded row; before any selection exists the host's
     // display-only default (derived from data) shows expanded.
     const selectedId = handle.selected ?? defaultExpanded?.id ?? null;
@@ -480,7 +571,7 @@ const EastChakraDecisionQueue = memo(function EastChakraDecisionQueue({ value, s
 
     // Urgency sort (overdue → due → routine; deadline within bucket), with
     // exiting rows merged back in at their old positions.
-    const { active, routine, pastSla, visible } = useMemo(() => {
+    const { merged, active, routine, pastSla, visible } = useMemo(() => {
         const scoped = decisions ?? [];
         const now = new Date();
         const live = sliceState !== null
@@ -499,6 +590,7 @@ const EastChakraDecisionQueue = memo(function EastChakraDecisionQueue({ value, s
             return b.value - a.value;
         });
         return {
+            merged,
             active: merged.filter(d => d.urgency.type !== 'routine'),
             routine: merged.filter(d => d.urgency.type === 'routine'),
             pastSla: merged.filter(d => d.urgency.type === 'overdue').length,
@@ -506,11 +598,51 @@ const EastChakraDecisionQueue = memo(function EastChakraDecisionQueue({ value, s
         };
     }, [decisions, exiting, sliceState]);
 
+    const groups = useMemo(
+        () => (grouped ? buildGroups(merged, activeOption) : []),
+        [grouped, merged, activeOption],
+    );
+    const allCollapsed = groups.length > 0 && groups.every(g => g.label === '' || toolbar.collapsed.includes(g.label));
+    const toggleGroup = useCallback((label: string) => {
+        setToolbar(prev => ({
+            ...prev,
+            collapsed: prev.collapsed.includes(label)
+                ? prev.collapsed.filter(l => l !== label)
+                : [...prev.collapsed, label],
+        }));
+    }, [setToolbar]);
+    const toggleAll = useCallback(() => {
+        const next = allCollapsed ? [] : groups.map(g => g.label).filter(l => l !== '');
+        setToolbar(prev => ({ ...prev, collapsed: next }));
+    }, [setToolbar, allCollapsed, groups]);
+    const setGroupKey = useCallback((key: string) => {
+        setToolbar(prev => (prev.groupKey === key ? prev : { ...prev, groupKey: key }));
+    }, [setToolbar]);
+
     const exitingReasons = useMemo(() => {
         const m = new Map<string, ExitReason>();
         for (const [id, e] of exiting) m.set(id, e.reason);
         return m;
     }, [exiting]);
+
+    const renderRow = (d: Decision) => (
+        <Row
+            key={d.id}
+            decision={d}
+            handle={handle}
+            selected={selectedId === d.id}
+            narrow={narrow}
+            leverPayloads={leverPayloads}
+            modify={modify}
+            evidence={evidence}
+            defaultFacet={defaultFacet}
+            facetInclude={facetInclude}
+            apply={apply}
+            reject={reject}
+            leaving={exitingReasons.get(d.id)}
+            storageKey={storageKey}
+        />
+    );
 
     if (decisions === null) {
         return (
@@ -543,30 +675,54 @@ const EastChakraDecisionQueue = memo(function EastChakraDecisionQueue({ value, s
                 </Box>
             </Box>
 
+            {grouped && (
+                <Box css={qs.toolbar}>
+                    <Box as="span" css={qs.segLabel}>Group by</Box>
+                    {groupOptions.map(o => (
+                        <Box
+                            as="button"
+                            key={o.key}
+                            css={{ ...chip({ tone: toolbar.groupKey === o.key ? 'brand' : 'neutral', size: 'sm' }), cursor: 'pointer' }}
+                            aria-pressed={toolbar.groupKey === o.key}
+                            onClick={() => setGroupKey(o.key)}
+                        >
+                            {o.label}
+                        </Box>
+                    ))}
+                    {collapsible && (
+                        <Box as="button" css={qs.collapseAll} onClick={toggleAll}>
+                            {allCollapsed ? 'Expand all' : 'Collapse all'}
+                        </Box>
+                    )}
+                </Box>
+            )}
+
             <Box
                 maxHeight={getSomeorUndefined(value.maxHeight)}
                 overflowY={value.maxHeight.type === 'some' ? 'auto' : undefined}
             >
-                {active.map(d => (
-                    <Row
-                        key={d.id}
-                        decision={d}
-                        handle={handle}
-                        selected={selectedId === d.id}
-                        narrow={narrow}
-                        leverPayloads={leverPayloads}
-                        modify={modify}
-                        evidence={evidence}
-                        defaultFacet={defaultFacet}
-                        facetInclude={facetInclude}
-                        apply={apply}
-                        reject={reject}
-                        leaving={exitingReasons.get(d.id)}
-                        storageKey={storageKey}
-                    />
-                ))}
-
-                <RoutineGroup routine={routine} acceptAll={acceptAll} leaving={exitingReasons} narrow={narrow} />
+                {grouped ? groups.map(g => {
+                    const isCollapsed = collapsible && g.label !== '' && toolbar.collapsed.includes(g.label);
+                    return (
+                        <Box key={g.label || '_flat'}>
+                            {g.label !== '' && (
+                                <GroupHead
+                                    group={g}
+                                    collapsible={collapsible}
+                                    collapsed={isCollapsed}
+                                    onToggle={toggleGroup}
+                                    acceptAll={g.bulk ? acceptAll : undefined}
+                                />
+                            )}
+                            {!isCollapsed && g.decisions.map(renderRow)}
+                        </Box>
+                    );
+                }) : (
+                    <>
+                        {active.map(renderRow)}
+                        <RoutineGroup routine={routine} acceptAll={acceptAll} leaving={exitingReasons} narrow={narrow} />
+                    </>
+                )}
             </Box>
         </Box>
     );

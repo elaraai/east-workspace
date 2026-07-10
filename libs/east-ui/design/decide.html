@@ -306,6 +306,120 @@
         </div>
       </div>
 
+
+      <!-- ============================================================
+           SECOND LAYOUT · optional grouping
+           Reuses Collections.Library's toolbar + group-head vocabulary
+           (lib-toolbar / lib-seg / lib-group-head) verbatim.
+           ============================================================ -->
+      <p class="pattern-blurb" style="margin-top: 22px;"><strong>Optional grouping</strong> &mdash; a second layout of the same anchor. The queue stays a flat, urgency-sorted list by default; a <span class="mono">Group by</span> control &mdash; borrowed wholesale from <span class="mono">Collections.Library</span>&rsquo;s toolbar (the same <span class="mono">lib-seg</span> segmented control and the same <span class="mono">label&nbsp;&middot;&nbsp;count</span> group-head band) &mdash; folds the cases into labelled sections without touching a single row. <span class="mono">Group by</span> is single-select over the envelope&rsquo;s categorical facets (<span class="mono">Urgency</span> &middot; <span class="mono">Kind</span> &middot; <span class="mono">Region</span>, plus <span class="mono">None</span> = flat); <span class="mono">Secondary</span> multi-selects which meta rides on each row (<span class="mono">Value</span> &middot; <span class="mono">Confidence</span> &middot; <span class="mono">Stakes</span> &middot; <span class="mono">Owner</span>), exactly as the Library toggles a card&rsquo;s secondary dimensions.</p>
+      <p class="pattern-blurb">Every group head carries a count and a rolled-up summary &mdash; value at stake, past-SLA count, average confidence &mdash; and a routine-heavy group hosts its own <span class="mono">Accept all</span> in the head, collapsed to a single line. That is where the flat queue&rsquo;s hand-built routine-collapse band goes to live: the band was always just the <span class="mono">Routine</span> group, collapsed. Grouping stays a pure projection of the <span class="mono">Decision.Handle</span> &mdash; the bound cases are re-grouped, never re-fetched, and selection, the expanded facets, and Apply&nbsp;/&nbsp;Reject are unchanged.</p>
+
+      <div class="frame">
+        <div class="eyebrow-row">
+          <span class="lbl">Decisions waiting</span>
+          <span class="meta">
+            <span class="num" style="color: var(--ink); font-weight: 600;">17</span> waiting
+            <span class="sep">·</span>
+            <span class="num" style="color: var(--neg); font-weight: 600;">2</span> past SLA
+            <span class="sep">·</span>
+            grouped by <span style="color: var(--ink);">urgency</span>
+          </span>
+        </div>
+
+        <!-- toolbar · the Collections.Library control surface: quick search · Group by (single) · Secondary (multi) -->
+        <div class="lib-toolbar">
+          <input class="lib-search" placeholder="Search kind, SKU, region…" />
+          <span class="lib-sep"></span>
+          <span class="cap-eyebrow">Group by</span>
+          <span class="lib-seg">
+            <button class="lib-seg-btn active">Urgency</button>
+            <button class="lib-seg-btn">Kind</button>
+            <button class="lib-seg-btn">Region</button>
+            <button class="lib-seg-btn">None</button>
+          </span>
+          <span class="cap-eyebrow muted" style="margin-left: auto;">Secondary</span>
+          <span class="lib-seg">
+            <button class="lib-seg-btn active">Value</button>
+            <button class="lib-seg-btn active">Confidence</button>
+            <button class="lib-seg-btn">Stakes</button>
+            <button class="lib-seg-btn">Owner</button>
+          </span>
+        </div>
+
+        <!-- GROUP · Overdue (expanded) — summary rolls up value at risk + past-SLA count -->
+        <div class="lib-group-head" style="padding: 8px 18px 6px;">
+          <span class="cap-eyebrow"><span class="mono" style="color: var(--ink-4); letter-spacing: 0;">▾</span> Overdue · <span class="num">2</span></span>
+          <span class="muted cap-eyebrow"><span class="num" style="color: var(--neg);">$122k</span> at risk · <span class="num" style="color: var(--neg);">2</span> past SLA</span>
+        </div>
+        <div style="display: grid; grid-template-columns: 130px 1fr 90px auto; gap: 16px; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--rule);">
+          <div class="status"><span class="dot error"></span>overdue 2h</div>
+          <div style="font-size: 13.5px;"><strong>Reorder</strong> <span class="muted">·</span> <span class="mono">SKU-001</span> <span class="muted">· 2k units · 82% conf</span></div>
+          <div class="num text-r" style="font-weight: 600;">$42k</div>
+          <div class="row gap-2">
+            <button class="btn primary compact">Apply</button>
+            <button class="btn compact">Modify</button>
+            <button class="btn ghost compact">Reject</button>
+          </div>
+        </div>
+        <div style="display: grid; grid-template-columns: 130px 1fr 90px auto; gap: 16px; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--rule);">
+          <div class="status"><span class="dot error"></span>overdue 5h</div>
+          <div style="font-size: 13.5px;"><strong>Reorder</strong> <span class="muted">·</span> <span class="mono">SKU-047</span> <span class="muted">· 900 units · 74% conf</span></div>
+          <div class="num text-r" style="font-weight: 600;">$80k</div>
+          <div class="row gap-2">
+            <button class="btn primary compact">Apply</button>
+            <button class="btn ghost compact">Reject</button>
+          </div>
+        </div>
+
+        <!-- GROUP · Due today (expanded) -->
+        <div class="lib-group-head" style="padding: 8px 18px 6px;">
+          <span class="cap-eyebrow"><span class="mono" style="color: var(--ink-4); letter-spacing: 0;">▾</span> Due today · <span class="num">3</span></span>
+          <span class="muted cap-eyebrow"><span class="num pos">+$336k</span> upside · 76% avg conf</span>
+        </div>
+        <div style="display: grid; grid-template-columns: 130px 1fr 90px auto; gap: 16px; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--rule);">
+          <div class="status"><span class="dot warn"></span>due 4pm</div>
+          <div style="font-size: 13.5px;"><strong>Roster</strong> <span class="muted">·</span> Move 3 SE shifts Patel → Cho <span class="muted">· SE region · 82% conf</span></div>
+          <div class="num text-r" style="font-weight: 600; color: var(--pos);">+$80k</div>
+          <div class="row gap-2">
+            <button class="btn primary compact">Apply</button>
+            <button class="btn compact">Modify</button>
+            <button class="btn ghost compact">Reject</button>
+          </div>
+        </div>
+        <div style="display: grid; grid-template-columns: 130px 1fr 90px auto; gap: 16px; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--rule);">
+          <div class="status"><span class="dot warn"></span>due 4pm</div>
+          <div style="font-size: 13.5px;"><strong>Promo</strong> <span class="muted">·</span> Easter clearance early-end <span class="muted">· 68% conf</span></div>
+          <div class="num text-r" style="font-weight: 600;">$128k</div>
+          <div class="row gap-2">
+            <button class="btn primary compact">Apply</button>
+            <button class="btn ghost compact">Reject</button>
+          </div>
+        </div>
+        <div style="display: grid; grid-template-columns: 130px 1fr 90px auto; gap: 16px; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--rule);">
+          <div class="status"><span class="dot warn"></span>due 6pm</div>
+          <div style="font-size: 13.5px;"><strong>Reorder</strong> <span class="muted">·</span> <span class="mono">SKU-112</span> <span class="muted">· 5k units · 79% conf</span></div>
+          <div class="num text-r" style="font-weight: 600;">$128k</div>
+          <div class="row gap-2">
+            <button class="btn primary compact">Apply</button>
+            <button class="btn ghost compact">Reject</button>
+          </div>
+        </div>
+
+        <!-- GROUP · Routine (collapsed) — the routine-collapse band is now a group head hosting the bulk Accept all -->
+        <div class="lib-group-head" style="padding: 10px 18px; cursor: pointer;">
+          <span class="cap-eyebrow"><span class="mono" style="color: var(--ink-4); letter-spacing: 0;">▸</span> Routine · <span class="num">12</span></span>
+          <span class="row gap-3" style="align-items: baseline;">
+            <span class="muted cap-eyebrow"><span class="num">$14k</span> total · all reversible · ≥ 90% conf</span>
+            <button class="btn primary compact">Accept all</button>
+          </span>
+        </div>
+
+        <div class="lib-foot">
+          <span class="cap-eyebrow muted">Group heads &amp; Secondary toggles are view-only — the bound cases, row expansion, and Apply / Reject are unchanged from the flat queue above.</span>
+        </div>
+      </div>
+
     </article>
 
     <!-- ANCHOR · DECISION JOURNAL -->
