@@ -296,6 +296,15 @@ Task → What do you need?
     │   ├─ Logic → East.Boolean.<op>
     │   └─ Compare / order (East total order) → East.less / compare / equal / …(T, a, b)
     │
+    ├─ Run custom per-element logic natively (IR push-down — build East kernels from python)
+    │   ├─ Pure lambda in ANY eager callback → traced automatically (nothing to import; falls back if impure)
+    │   ├─ Author a reusable/must-be-native kernel → east.kernel(param_types, fn)   ❗KernelTraceError if untraceable
+    │   │   (multi-param: kernel([acc_t, elem_t], lambda acc, r: …) for fold-shaped callbacks)
+    │   ├─ Conditional inside a kernel → where(cond, then, otherwise) · boolean logic via & | ~ (never and/or/if)
+    │   ├─ Load a kernel compiled elsewhere (e.g. TS, serialized) → compile_from_beast2/json/east — pass to any eager method
+    │   └─ Logic genuinely needs python (numpy/models) → to_columns/from_columns · map_batches ·
+    │       EastDict.update_many(keys, values, combine) · extend — O(columns)/O(batches) crossings, not O(rows × fields)
+    │
     ├─ Hand a buffer to numpy / torch → EastVector/EastMatrix .to_numpy()/.to_torch()   (no arithmetic methods)
     │
     └─ Let East call your Python function
