@@ -199,7 +199,7 @@ Task → Which tag?
 │   └─ <Disclosure> — "Show more / Show less" toggle
 │
 ├─ Navigation
-│   ├─ <Breadcrumb items={…} /> — ancestor trail; separator chevron / slash
+│   ├─ <Breadcrumb items={…} runAnchor? leadingSeparator? /> — ancestor trail; '/' separators; leadingSeparator adds a leading '/' so it reads as a path (/ workspace / page); runAnchor pins a trailing run stamp
 │   ├─ <NavList sections={…} surface="card|shell" background /> — sidebar nav; active item slots + badges; surface="shell" + a background token (bg.subtle) drop the card chrome so the list reads as one surface with a host app-shell rail (default "card" keeps the bordered card)
 │   └─ Route-stack pages (first-class navigation). Navigation.config({ route: { value: T, label } }) → typed registry (config.Route, config.Page.<route>(payload)); Navigation.bind(config, key, [config.Page.home()]) → reactive path-stack handle { path, current, depth, canPop, pop, go.<route>(payload), navigateTo([…]) } — go/navigateTo are typed per route from the config (the Record.bind pattern). <Pages nav={nav} pages={{ route: ($, payload, nav) => <…/> }} /> takes the nav binding as a required prop and renders only the active route (leaf-only, remounts on change); the nav handle fixes the route types for the pages handlers. Pair <Breadcrumb>/<NavList> on the same key to drive/derive chrome from nav.path()
 │

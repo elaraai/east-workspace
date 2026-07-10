@@ -1,14 +1,14 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1455,
+    "totalEntries": 1456,
     "totalFiles": 184,
     "packages": {
       "east": 490,
       "east-node-std": 42,
       "east-node-io": 63,
       "east-py-datascience": 89,
-      "east-ui": 697,
+      "east-ui": 698,
       "e3-ui": 58,
       "e3": 7,
       "e3-ui-cli": 4,
@@ -25324,6 +25324,29 @@
         "import { Breadcrumb, VStack, Text, Reactive } from \"@elaraai/east-ui\";"
       ],
       "source": "// Breadcrumb pinned to a run via a trailing run anchor\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Breadcrumb\n                items={[\n                    { label: \"SE region\", current: none, onClick: none },\n                    { label: \"wk of Sep 16\", current: none, onClick: none },\n                    { label: \"Roster builder\", current: some(true), onClick: none },\n                ]}\n                runAnchor=\"run #42\"\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:breadcrumb.examples.tsx:breadcrumbLeadingSeparator",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/navigation/breadcrumb.examples.tsx",
+      "suite": "",
+      "test": "Path-style breadcrumb — a leading ",
+      "keywords": [
+        "Breadcrumb",
+        "Root",
+        "leadingSeparator",
+        "path",
+        "leading",
+        "separator",
+        "e3-cloud"
+      ],
+      "imports": [
+        "import { East, NullType, StringType, example, some, none } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Breadcrumb, VStack, Text, Reactive } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Path-style breadcrumb — a leading \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Breadcrumb\n                items={[\n                    { label: \"workspace\", current: none, onClick: none },\n                    { label: \"roster\", current: none, onClick: none },\n                    { label: \"wk of Sep 16\", current: some(true), onClick: none },\n                ]}\n                leadingSeparator={true}\n            />\n        );\n    })"
     },
     {
       "id": "east-ui:breadcrumb.examples.tsx:breadcrumbInteractive",

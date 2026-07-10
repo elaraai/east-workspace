@@ -54,9 +54,10 @@ function createBreadcrumb(
     items: SubtypeExprOrValue<ArrayType<BreadcrumbItemType>>,
     style?: BreadcrumbStyle
 ): ExprType<UIComponentType> {
-    const styleValue = style?.runAnchor !== undefined
+    const styleValue = (style?.runAnchor !== undefined || style?.leadingSeparator !== undefined)
         ? East.value({
-            runAnchor: some(style.runAnchor),
+            runAnchor: style.runAnchor !== undefined ? some(style.runAnchor) : none,
+            leadingSeparator: style.leadingSeparator !== undefined ? some(style.leadingSeparator) : none,
         }, BreadcrumbStyleType)
         : undefined;
 
