@@ -434,15 +434,19 @@ Beast2MutableValues read_value_table_section(const uint8_t *data, size_t len, si
                      elem_type->kind == EAST_TYPE_DICT || elem_type->kind == EAST_TYPE_REF)) {
                     uint64_t idx;
                     if (!read_varint_checked(data, entry_end, &off, &idx)) goto fail2;
-                    elem = (idx < mv.count && mv.values[idx]) ? mv.values[idx] : east_null();
+                    /* An out-of-range table ref is corruption, not a null (#287). */
+                    if (idx >= mv.count || !mv.values[idx]) goto fail2;
+                    elem = mv.values[idx];
                     east_value_retain(elem);
                 } else {
                     elem = beast2_decode_value(data, entry_end, &off, elem_type, &dctx);
                 }
-                if (elem) {
-                    east_array_push(arr, elem);
-                    east_value_release(elem);
-                }
+                /* A failed element decode MUST fail the whole decode — skipping
+                 * it silently truncates the array AND leaves `off` desynced,
+                 * corrupting everything after it (#287). */
+                if (!elem) goto fail2;
+                east_array_push(arr, elem);
+                east_value_release(elem);
             }
             break;
         }
@@ -459,15 +463,15 @@ Beast2MutableValues read_value_table_section(const uint8_t *data, size_t len, si
                      elem_type->kind == EAST_TYPE_DICT || elem_type->kind == EAST_TYPE_REF)) {
                     uint64_t idx;
                     if (!read_varint_checked(data, entry_end, &off, &idx)) goto fail2;
-                    elem = (idx < mv.count && mv.values[idx]) ? mv.values[idx] : east_null();
+                    if (idx >= mv.count || !mv.values[idx]) goto fail2;
+                    elem = mv.values[idx];
                     east_value_retain(elem);
                 } else {
                     elem = beast2_decode_value(data, entry_end, &off, elem_type, &dctx);
                 }
-                if (elem) {
-                    east_set_insert(set, elem);
-                    east_value_release(elem);
-                }
+                if (!elem) goto fail2; /* silent skip = truncation + desync (#287) */
+                east_set_insert(set, elem);
+                east_value_release(elem);
             }
             break;
         }
@@ -486,29 +490,37 @@ Beast2MutableValues read_value_table_section(const uint8_t *data, size_t len, si
                      key_type->kind == EAST_TYPE_DICT || key_type->kind == EAST_TYPE_REF)) {
                     uint64_t idx;
                     if (!read_varint_checked(data, entry_end, &off, &idx)) goto fail2;
-                    k = (idx < mv.count && mv.values[idx]) ? mv.values[idx] : east_null();
+                    if (idx >= mv.count || !mv.values[idx]) goto fail2;
+                    k = mv.values[idx];
                     east_value_retain(k);
                 } else {
                     k = beast2_decode_value(data, entry_end, &off, key_type, &dctx);
                 }
+                if (!k) goto fail2; /* silent skip = truncation + desync (#287) */
                 if (val_type &&
                     (val_type->kind == EAST_TYPE_ARRAY || val_type->kind == EAST_TYPE_SET ||
                      val_type->kind == EAST_TYPE_DICT || val_type->kind == EAST_TYPE_REF)) {
                     uint64_t idx;
                     if (!read_varint_checked(data, entry_end, &off, &idx)) {
-                        if (k) east_value_release(k);
+                        east_value_release(k);
                         goto fail2;
                     }
-                    v = (idx < mv.count && mv.values[idx]) ? mv.values[idx] : east_null();
+                    if (idx >= mv.count || !mv.values[idx]) {
+                        east_value_release(k);
+                        goto fail2;
+                    }
+                    v = mv.values[idx];
                     east_value_retain(v);
                 } else {
                     v = beast2_decode_value(data, entry_end, &off, val_type, &dctx);
                 }
-                if (k && v) {
-                    east_dict_set(dict, k, v);
+                if (!v) {
+                    east_value_release(k);
+                    goto fail2;
                 }
-                if (k) east_value_release(k);
-                if (v) east_value_release(v);
+                east_dict_set(dict, k, v);
+                east_value_release(k);
+                east_value_release(v);
             }
             break;
         }
@@ -523,18 +535,23 @@ Beast2MutableValues read_value_table_section(const uint8_t *data, size_t len, si
                  inner_type->kind == EAST_TYPE_DICT || inner_type->kind == EAST_TYPE_REF)) {
                 uint64_t idx;
                 if (!read_varint_checked(data, entry_end, &off, &idx)) goto fail2;
-                inner = (idx < mv.count && mv.values[idx]) ? mv.values[idx] : east_null();
+                if (idx >= mv.count || !mv.values[idx]) goto fail2;
+                inner = mv.values[idx];
                 east_value_retain(inner);
             } else {
                 inner = beast2_decode_value(data, entry_end, &off, inner_type, &dctx);
             }
-            if (inner) {
-                east_ref_set(ref, inner);
-                east_value_release(inner);
-            }
+            if (!inner) goto fail2; /* silent skip = truncation + desync (#287) */
+            east_ref_set(ref, inner);
+            east_value_release(inner);
             break;
         }
         }
+
+        /* A well-formed entry is consumed EXACTLY — leftover (or overrun)
+         * bytes mean the element stream desynced from the declared layout,
+         * which is corruption even when every element "decoded" (#287). */
+        if (off != entry_end) goto fail2;
     }
 
     beast2_dec_ctx_free(&dctx);
