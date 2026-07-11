@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Box, Popover, Portal, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCheck, faGripVertical, faTrashCan } from "@fortawesome/free-solid-svg-icons";
@@ -11,6 +11,7 @@ import { equalFor, match, some, none, variant, type ValueTypeOf } from "@elaraai
 import { Board, type CellRefType } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { parseCssSize } from "../../style/parse-size.js";
+import { VirtualRows } from "../virtual-rows.js";
 import { useDragTarget, useDropCell, useDragEventChip, type DragEventValue, type DragMeta, type DragPayload } from "../../dnd/drag-layer";
 import { useIRCanDrop, canDropAllows, type CanDropFn } from "../../dnd/ir-can-drop";
 import { useReviewController, ReviewFoot } from "../shared/review";
@@ -442,58 +443,81 @@ export const EastChakraBoard = memo(function EastChakraBoard({ value, storageKey
     const areaWidth = getSomeorUndefined(value.areaWidth) ?? "150px";
     const summary = getSomeorUndefined(value.summary);
 
-    // Uniform sizing contract (#320) — bound the board; it scrolls within.
-    const boundH = parseCssSize(getSomeorUndefined(value.height));
-    const boundMaxH = parseCssSize(getSomeorUndefined(value.maxHeight));
-    return (
-        <Box css={styles.root} height={boundH} maxHeight={boundMaxH} {...((boundH ?? boundMaxH) !== undefined ? { overflowY: "auto" as const, minHeight: "0" } : {})}>
-            <Box css={styles.grid} style={{ gridTemplateColumns: `${areaWidth} repeat(${value.shifts.length}, 1fr)` }}>
-                <Box css={styles.headerCell}>{areaHeader}</Box>
-                {value.shifts.map(shift => {
-                    const sublabel = getSomeorUndefined(shift.sublabel);
-                    return (
-                        <Box key={shift.key} css={styles.headerCell}>
-                            {shift.label}
-                            {sublabel !== undefined && <Box as="span" css={styles.headerSublabel}>{sublabel}</Box>}
-                        </Box>
-                    );
-                })}
-                {value.areas.map(area => {
-                    const sublabel = getSomeorUndefined(area.sublabel);
-                    return [
-                        <Box key={`${area.key}-label`} css={styles.areaCell}>
-                            <Box as="span" css={styles.areaLabel}>{area.label}</Box>
-                            {sublabel !== undefined && <Box as="span" css={styles.areaSublabel}>{sublabel}</Box>}
-                        </Box>,
-                        ...value.shifts.map(shift => (
-                            <BoardCell
-                                key={`${area.key}-${shift.key}`}
-                                surface={value.id}
-                                area={area.key}
-                                shift={shift.key}
-                                chips={cells.get(`${area.key} ${shift.key}`) ?? []}
-                                required={requirements.get(`${area.key} ${shift.key}`)}
-                                maxVisible={maxVisible}
-                                edit={edit}
-                                canDrop={cellCanDrop(area.key, shift.key)}
-                                styles={styles}
-                                onSelect={handleSelect}
-                                onAccept={edit ? handleAccept : undefined}
-                                onRemove={edit ? handleRemove : undefined}
-                                onAddAt={handleAddAt}
-                            />
-                        )),
-                    ];
-                })}
-            </Box>
-            {summary !== undefined && (
-                <Box css={styles.strip}>
-                    <Box as="span" css={styles.stripSummary}>{summary}</Box>
-                </Box>
-            )}
-            {reviewController !== undefined && reviewController.showFoot && (
-                <ReviewFoot controller={reviewController} storageKey={storageKey} />
-            )}
+    // Uniform sizing contract (#320) — bound the board; it scrolls within,
+    // mounting only the visible area rows via the shared VirtualRows frame.
+    const gridCols = `${areaWidth} repeat(${value.shifts.length}, 1fr)`;
+
+    // The header row and each area row are independent grids sharing one column
+    // template (border-per-cell, no grid gap), so they align while each row
+    // becomes a self-contained virtual item.
+    const headerNode = (
+        <Box css={styles.grid} style={{ gridTemplateColumns: gridCols }}>
+            <Box css={styles.headerCell}>{areaHeader}</Box>
+            {value.shifts.map(shift => {
+                const sublabel = getSomeorUndefined(shift.sublabel);
+                return (
+                    <Box key={shift.key} css={styles.headerCell}>
+                        {shift.label}
+                        {sublabel !== undefined && <Box as="span" css={styles.headerSublabel}>{sublabel}</Box>}
+                    </Box>
+                );
+            })}
         </Box>
     );
+
+    const renderRow = (i: number): ReactNode => {
+        const area = value.areas[i];
+        if (area === undefined) return null;
+        const sublabel = getSomeorUndefined(area.sublabel);
+        return (
+            <Box css={styles.grid} style={{ gridTemplateColumns: gridCols }}>
+                <Box css={styles.areaCell}>
+                    <Box as="span" css={styles.areaLabel}>{area.label}</Box>
+                    {sublabel !== undefined && <Box as="span" css={styles.areaSublabel}>{sublabel}</Box>}
+                </Box>
+                {value.shifts.map(shift => (
+                    <BoardCell
+                        key={`${area.key}-${shift.key}`}
+                        surface={value.id}
+                        area={area.key}
+                        shift={shift.key}
+                        chips={cells.get(`${area.key} ${shift.key}`) ?? []}
+                        required={requirements.get(`${area.key} ${shift.key}`)}
+                        maxVisible={maxVisible}
+                        edit={edit}
+                        canDrop={cellCanDrop(area.key, shift.key)}
+                        styles={styles}
+                        onSelect={handleSelect}
+                        onAccept={edit ? handleAccept : undefined}
+                        onRemove={edit ? handleRemove : undefined}
+                        onAddAt={handleAddAt}
+                    />
+                ))}
+            </Box>
+        );
+    };
+
+    const footerNode = summary !== undefined ? (
+        <Box css={styles.strip}>
+            <Box as="span" css={styles.stripSummary}>{summary}</Box>
+        </Box>
+    ) : undefined;
+
+    const frame = (
+        <VirtualRows
+            height={parseCssSize(getSomeorUndefined(value.height))}
+            maxHeight={parseCssSize(getSomeorUndefined(value.maxHeight))}
+            header={headerNode}
+            footer={footerNode}
+            count={value.areas.length}
+            estimateSize={() => 80}
+            renderRow={renderRow}
+            rootCss={{ ...styles.root }}
+        />
+    );
+
+    // The review commit bar pins outside the scroll frame (like Planner).
+    return reviewController !== undefined && reviewController.showFoot
+        ? <Box display="flex" flexDirection="column" width="100%">{frame}<ReviewFoot controller={reviewController} storageKey={storageKey} /></Box>
+        : frame;
 }, (prev, next) => boardEqual(prev.value, next.value) && prev.storageKey === next.storageKey);

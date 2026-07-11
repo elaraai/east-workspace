@@ -22,7 +22,7 @@
  *   the visible rows (+ overscan) are mounted, positioned by `translateY`.
  */
 
-import { useRef, type ReactNode } from "react";
+import { Fragment, useRef, type ReactNode } from "react";
 import { Box } from "@chakra-ui/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { parseCssSize } from "../style/parse-size.js";
@@ -88,7 +88,9 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         return (
             <Box css={rootCss}>
                 {header}
-                {Array.from({ length: count }, (_unused, i) => renderRow(i))}
+                {Array.from({ length: count }, (_unused, i) => (
+                    <Fragment key={i}>{renderRow(i)}</Fragment>
+                ))}
                 {footer}
             </Box>
         );

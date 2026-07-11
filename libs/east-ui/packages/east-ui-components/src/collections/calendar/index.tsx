@@ -3,12 +3,13 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useState, type ReactNode } from "react";
 import { Box, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Calendar } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { parseCssSize } from "../../style/parse-size.js";
+import { VirtualRows } from "../virtual-rows.js";
 import { useDensity } from "../../contracts/density";
 import { usePlotGutter } from "../../contracts/plot-gutter.js";
 
@@ -108,76 +109,103 @@ export const EastChakraCalendar = memo(function EastChakraCalendar({ value }: Ea
     const selectedDelta = selectedCell ? getSomeorUndefined(selectedCell.delta) : undefined;
     const showFooter = selected !== null || actionLabel !== undefined;
 
-    // Uniform sizing contract (#320) — bound the calendar; it scrolls within.
-    const boundH = parseCssSize(getSomeorUndefined(value.height));
-    const boundMaxH = parseCssSize(getSomeorUndefined(value.maxHeight));
-    return (
-        <Box css={styles.root} {...(gutterActive ? { display: "block", width: "100%" } : {})} height={boundH} maxHeight={boundMaxH} {...((boundH ?? boundMaxH) !== undefined ? { overflowY: "auto" as const, minHeight: "0" } : {})}>
+    // Uniform sizing contract (#320) — bound the calendar; it scrolls within,
+    // mounting only the visible week rows via the shared VirtualRows frame. The
+    // single grid's `padding` / `gap` are redistributed onto the frame + each
+    // per-row grid (horizontal padding + column gap per row, an inter-row gap
+    // as row paddingBottom) so the split rows lay out like the old one grid.
+    const gridPadding = styles.grid?.padding as string | undefined;
+    const gridGap = styles.grid?.gap as string | undefined;
+    const rowGridCss = {
+        display: "grid",
+        gap: gridGap,
+        gridTemplateColumns: gridColumns,
+        paddingBottom: gridGap,
+        ...(gutterActive ? { paddingLeft: "0", paddingRight: "0" } : { paddingLeft: gridPadding, paddingRight: gridPadding }),
+    };
+
+    const headerNode = (
+        <>
             {value.legend !== "" && (
                 <Box css={styles.header}>
                     <Box as="span" css={styles.legend}>{value.legend}</Box>
                 </Box>
             )}
-            <Box
-                css={styles.grid}
-                style={{
-                    gridTemplateColumns: gridColumns,
-                    ...(gutterActive ? { paddingLeft: "0", paddingRight: "0" } : {}),
-                }}
-            >
+            <Box css={{ ...rowGridCss, paddingTop: gridPadding }}>
                 <Box css={styles.dayHeader} />
                 {WEEK.map(day => (
                     <Box key={day} css={styles.dayHeader}>{day}</Box>
                 ))}
                 {/* trailing right-gutter cell so the day band ends at W−right (#147) */}
                 {gutterActive && <Box key="hdr-rpad" aria-hidden="true" />}
-                {weeks.map(week => [
-                    <Box key={`${week}-label`} css={styles.weekLabel}>{week}</Box>,
-                    ...WEEK.map(day => {
-                        const cell = cells.get(`${week} ${day}`);
-                        const isSelected = selected?.week === week && selected.day === day;
-                        return (
-                            <Box
-                                key={`${week}-${day}`}
-                                css={styles.cell}
-                                data-level={cell !== undefined ? levelOf(cell.value) : undefined}
-                                {...(cell === undefined ? { "data-empty": "" } : {})}
-                                {...(isSelected ? { "data-selected": "" } : {})}
-                                onClick={cell !== undefined ? () => handleSelect(week, day) : undefined}
-                            >
-                                {cell !== undefined ? cell.text : "−"}
-                            </Box>
-                        );
-                    }),
-                    ...(gutterActive ? [<Box key={`${week}-rpad`} aria-hidden="true" />] : []),
-                ])}
             </Box>
-            {showFooter && (
-                <Box css={styles.footer}>
-                    {selected !== null && (
-                        <Box as="span" css={styles.summary}>
-                            Selected · {selected.day} {selected.week}
-                            {selectedSummary !== undefined && ` · ${selectedSummary}`}
-                        </Box>
-                    )}
-                    {selectedDelta !== undefined && (
-                        <Box as="span" css={styles.deltaChip} data-tone={selectedDelta >= 0 ? "pos" : "neg"}>
-                            {formatDelta(selectedDelta)}
-                        </Box>
-                    )}
-                    {actionLabel !== undefined && (
+        </>
+    );
+
+    const renderRow = (weekIndex: number): ReactNode => {
+        const week = weeks[weekIndex];
+        if (week === undefined) return null;
+        return (
+            <Box css={rowGridCss}>
+                <Box css={styles.weekLabel}>{week}</Box>
+                {WEEK.map(day => {
+                    const cell = cells.get(`${week} ${day}`);
+                    const isSelected = selected?.week === week && selected.day === day;
+                    return (
                         <Box
-                            as="button"
-                            css={styles.action}
-                            marginLeft="auto"
-                            onClick={handleAction}
-                            {...(selected === null ? { "data-disabled": "" } : {})}
+                            key={`${week}-${day}`}
+                            css={styles.cell}
+                            data-level={cell !== undefined ? levelOf(cell.value) : undefined}
+                            {...(cell === undefined ? { "data-empty": "" } : {})}
+                            {...(isSelected ? { "data-selected": "" } : {})}
+                            onClick={cell !== undefined ? () => handleSelect(week, day) : undefined}
                         >
-                            {actionLabel} →
+                            {cell !== undefined ? cell.text : "−"}
                         </Box>
-                    )}
+                    );
+                })}
+                {gutterActive && <Box key={`${week}-rpad`} aria-hidden="true" />}
+            </Box>
+        );
+    };
+
+    const footerNode = showFooter ? (
+        <Box css={styles.footer}>
+            {selected !== null && (
+                <Box as="span" css={styles.summary}>
+                    Selected · {selected.day} {selected.week}
+                    {selectedSummary !== undefined && ` · ${selectedSummary}`}
+                </Box>
+            )}
+            {selectedDelta !== undefined && (
+                <Box as="span" css={styles.deltaChip} data-tone={selectedDelta >= 0 ? "pos" : "neg"}>
+                    {formatDelta(selectedDelta)}
+                </Box>
+            )}
+            {actionLabel !== undefined && (
+                <Box
+                    as="button"
+                    css={styles.action}
+                    marginLeft="auto"
+                    onClick={handleAction}
+                    {...(selected === null ? { "data-disabled": "" } : {})}
+                >
+                    {actionLabel} →
                 </Box>
             )}
         </Box>
+    ) : undefined;
+
+    return (
+        <VirtualRows
+            height={parseCssSize(getSomeorUndefined(value.height))}
+            maxHeight={parseCssSize(getSomeorUndefined(value.maxHeight))}
+            header={headerNode}
+            footer={footerNode}
+            count={weeks.length}
+            estimateSize={() => 44}
+            renderRow={renderRow}
+            rootCss={{ ...styles.root, paddingBottom: gridPadding, ...(gutterActive ? { display: "block", width: "100%" } : {}) }}
+        />
     );
 }, (prev, next) => calendarEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
