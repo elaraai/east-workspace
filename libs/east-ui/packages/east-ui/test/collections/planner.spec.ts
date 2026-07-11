@@ -21,6 +21,7 @@ describeEast("Planner", (test) => {
         plannerMarkers: ex.plannerMarkers,
         plannerPopover: ex.plannerPopover,
         plannerSpan: ex.plannerSpan,
+        plannerDayResolution: ex.plannerDayResolution,
         plannerDensity: ex.plannerDensity,
         plannerReview: ex.plannerReview,
         plannerLibraryDnd: ex.plannerLibraryDnd,
@@ -104,6 +105,51 @@ describeEast("Planner", (test) => {
         const root = $.let(p.unwrap().unwrap("Planner"));
         $(Assert.equal(root.axis.scale.hasTag("ordinal"), true));
         $(Assert.equal(root.axis.range.unwrap("some").unwrap("ordinal").length(), 3n));
+    });
+
+    // =========================================================================
+    // Time-axis resolution (issue #309)
+    // =========================================================================
+
+    test("time axis carries resolution from the string shorthand", $ => {
+        const p = $.let(Planner.Point(
+            [{ name: "A" }],
+            {
+                axis: Planner.axis.time({
+                    resolution: "day",
+                    format: "ddd DD",
+                    range: { min: new Date("2026-03-30"), max: new Date("2026-04-06") },
+                }),
+                columns: [{ key: "name", value: r => r.name }],
+                events: _r => [Planner.event({ slot: Planner.at.time(new Date("2026-04-01T10:00:00Z")), label: "x", state: "committed" })],
+            },
+        ));
+        const axis = $.let(p.unwrap().unwrap("Planner").axis);
+        $(Assert.equal(axis.resolution.unwrap("some").hasTag("day"), true));
+        $(Assert.equal(axis.format.unwrap("some"), "ddd DD"));
+    });
+
+    test("time axis resolution accepts an East expression; absent ⇒ none", $ => {
+        const hourly = $.const(variant("hour", null), Planner.Types.Resolution);
+        const p = $.let(Planner.Point(
+            [{ name: "A" }],
+            {
+                axis: Planner.axis.time({ resolution: hourly }),
+                columns: [{ key: "name", value: r => r.name }],
+                events: _r => [Planner.event({ slot: Planner.at.time(new Date("2026-04-01T10:00:00Z")), label: "x", state: "committed" })],
+            },
+        ));
+        $(Assert.equal(p.unwrap().unwrap("Planner").axis.resolution.unwrap("some").hasTag("hour"), true));
+
+        const q = $.let(Planner.Point(
+            [{ name: "A" }],
+            {
+                axis: Planner.axis.time(),
+                columns: [{ key: "name", value: r => r.name }],
+                events: _r => [Planner.event({ slot: Planner.at.time(new Date("2026-04-01T10:00:00Z")), label: "x", state: "committed" })],
+            },
+        ));
+        $(Assert.equal(q.unwrap().unwrap("Planner").axis.resolution.hasTag("none"), true));
     });
 
     // =========================================================================

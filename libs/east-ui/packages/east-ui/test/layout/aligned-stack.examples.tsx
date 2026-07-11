@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, ArrayType, FloatType, StringType, StructType, example } from "@elaraai/east";
+import { East, ArrayType, DateTimeType, FloatType, StringType, StructType, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
 import { NullType } from "@elaraai/east";
 import { AlignedStack, Box, Calendar, Chart, Gantt, Matrix, Planner, Table, Trace } from "@elaraai/east-ui";
@@ -264,6 +264,61 @@ export const alignedStackChartPlanner = example({
                     ]}
                     now={Planner.at.number(4)}
                     onSelectRow={East.function([Planner.Types.SelectEvent], NullType, _$ => null)}
+                />
+            </AlignedStack>
+        );
+    }),
+    inputs: [],
+});
+
+/**
+ * A `<Chart>` and a `<Planner>` on one FORMATTED DATE axis (#309) — both lanes
+ * speak real instants and the same date-pattern tokens. The Planner pins a
+ * half-open day window `[min, max)` at `resolution: "day"` (seven columns,
+ * `"ddd DD"` → `Mon 30 … Sun 05`); the Chart's time x-axis pins the SAME
+ * `[min, max]` domain with `Chart.format.date("ddd DD")` ticks. Because the
+ * window spans exactly seven days, each day-noon data point lands at
+ * `(i + 0.5)/7` of the shared gutter lane — the centre of its Planner day
+ * column — so the bars sit inside the day cells they schedule.
+ */
+export const alignedStackDateAxis = example({
+    keywords: ["AlignedStack", "plotGutter", "Chart", "Planner", "time", "date", "resolution", "day", "format", "ddd", "tick", "align", "instants"],
+    description: "A Chart and a day-resolution Planner share one gutter and one formatted date axis — the same [min, max) window and 'ddd DD' tokens on both lanes",
+    fn: East.function([], UIComponentType, ($) => {
+        const runs = $.const([
+            { at: new Date("2026-03-30T12:00:00Z"), kl: 8.0 },
+            { at: new Date("2026-03-31T12:00:00Z"), kl: 10.0 },
+            { at: new Date("2026-04-01T12:00:00Z"), kl: 14.0 },
+            { at: new Date("2026-04-02T12:00:00Z"), kl: 12.0 },
+            { at: new Date("2026-04-03T12:00:00Z"), kl: 9.0 },
+            { at: new Date("2026-04-04T12:00:00Z"), kl: 5.0 },
+            { at: new Date("2026-04-05T12:00:00Z"), kl: 3.0 },
+        ], ArrayType(StructType({ at: DateTimeType, kl: FloatType })));
+        return (
+            <AlignedStack gutter={{ left: "150px", right: "14px" }} gap="8px">
+                <Box height="150px" width="100%">
+                    <Chart
+                        height="fill"
+                        layers={Chart.Column(runs, { x: r => r.at, y: r => r.kl }, { color: "teal.solid" })}
+                        x={{ scale: "time", domain: [new Date("2026-03-30"), new Date("2026-04-06")], format: Chart.format.date("ddd DD") }}
+                        y={{ label: "kL" }}
+                        grid
+                    />
+                </Box>
+                <Planner.Point
+                    data={[{ name: "Press A", role: "Crush" }, { name: "Press B", role: "Crush" }]}
+                    axis={Planner.axis.time({
+                        resolution: "day",
+                        format: "ddd DD",
+                        range: { min: new Date("2026-03-30"), max: new Date("2026-04-06") },
+                    })}
+                    now={Planner.at.time(new Date("2026-04-02"))}
+                    columns={[{ key: "name", frozen: true, value: r => r.name, sublabel: r => r.role }]}
+                    events={_r => [
+                        Planner.event({ slot: Planner.at.time(new Date("2026-03-30T09:00:00Z")), label: "Setup", state: "committed" }),
+                        Planner.event({ slot: Planner.at.time(new Date("2026-04-01T09:00:00Z")), label: "Run", state: "committed" }),
+                        Planner.event({ slot: Planner.at.time(new Date("2026-04-03T09:00:00Z")), label: "Plan", state: "added" }),
+                    ]}
                 />
             </AlignedStack>
         );

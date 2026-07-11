@@ -46,6 +46,7 @@ import {
     PlannerSlotType,
     PlannerScaleType,
     type PlannerScaleLiteral,
+    PlannerResolutionType,
     PlannerBucketType,
     PlannerRangeType,
     PlannerAxisType,
@@ -79,6 +80,8 @@ export {
     PlannerSlotType,
     PlannerScaleType,
     type PlannerScaleLiteral,
+    PlannerResolutionType,
+    type PlannerResolutionLiteral,
     PlannerBucketType,
     PlannerRangeType,
     PlannerAxisType,
@@ -300,33 +303,45 @@ function axisFields(
     buckets: { key: string; label: string }[] | undefined,
     range: SubtypeExprOrValue<PlannerRangeType> | undefined,
     format: SubtypeExprOrValue<StringType> | undefined,
+    resolution?: SubtypeExprOrValue<PlannerResolutionType>,
 ): ExprType<PlannerAxisType> {
     return East.value({
-        scale:   variant(scale, null),
-        buckets: (buckets ?? []).map(b => East.value({ key: b.key, label: b.label }, PlannerBucketType)),
-        range:   range !== undefined ? some(range) : none,
-        format:  format !== undefined ? some(format) : none,
+        scale:      variant(scale, null),
+        buckets:    (buckets ?? []).map(b => East.value({ key: b.key, label: b.label }, PlannerBucketType)),
+        range:      range !== undefined ? some(range) : none,
+        format:     format !== undefined ? some(format) : none,
+        resolution: resolution !== undefined ? some(resolution) : none,
     }, PlannerAxisType);
 }
 
 /**
  * Builds a datetime axis (calendar slots).
  *
- * @param options - Buckets, format, and an optional datetime range
+ * @param options - Buckets, format, resolution, and an optional datetime range
  * @returns An East expression of {@link PlannerAxisType}
  *
  * @remarks
- * Pass `options.range` to fix the visible extent to a closed datetime interval;
- * omit it to derive the extent from the data. `options.buckets` subdivides each
- * slot column into named bands (e.g. AM / PM). `options.format` controls the
- * tick-label format pattern forwarded to the renderer.
+ * Pass `options.range` to pin the visible extent to a half-open calendar
+ * window `[min, max)`; omit it to derive a closed extent from the data.
+ * `options.resolution` sets the calendar unit of each slot column (`"hour"` /
+ * `"day"` / `"week"` / `"month"` / `"quarter"` / `"year"`); omitted or
+ * `"auto"`, a pinned range spanning ≤ 14 days derives day columns and
+ * anything else month columns. `options.buckets` subdivides each slot column
+ * into named bands (e.g. AM / PM). `options.format` controls the column-label
+ * date pattern (Chart tick-format tokens, e.g. `"ddd DD"` → `Mon 30`);
+ * omitted, a resolution-appropriate default applies.
  * Pair every event and `now` coordinate with {@link slotTime}.
  */
 function axisTime(options?: AxisTimeOptions): ExprType<PlannerAxisType> {
     const range = options?.range !== undefined
         ? East.value(variant("time", { min: options.range.min, max: options.range.max }), PlannerRangeType)
         : undefined;
-    return axisFields("time", options?.buckets, range, options?.format);
+    const resolution = options?.resolution !== undefined
+        ? (typeof options.resolution === "string"
+            ? East.value(variant(options.resolution, null), PlannerResolutionType)
+            : options.resolution)
+        : undefined;
+    return axisFields("time", options?.buckets, range, options?.format, resolution);
 }
 
 /**
@@ -868,8 +883,12 @@ export interface PlannerNamespace {
          * Builds a datetime axis (calendar slots).
          *
          * @remarks
-         * Accepts an optional datetime range, bucket list, and format string.
-         * Pair every event and `now` coordinate with `Planner.at.time`.
+         * Accepts an optional half-open datetime range `[min, max)`, a column
+         * `resolution` (`"hour"` / `"day"` / `"week"` / `"month"` /
+         * `"quarter"` / `"year"`; omitted, a pinned range ≤ 14 days infers
+         * day columns, else month), a bucket list, and a format string
+         * (Chart date-pattern tokens, e.g. `"ddd DD"`). Pair every event and
+         * `now` coordinate with `Planner.at.time`.
          */
         time: typeof axisTime;
         /**
@@ -933,6 +952,8 @@ export interface PlannerNamespace {
         Slot: typeof PlannerSlotType;
         /** The axis scale kind. */
         Scale: typeof PlannerScaleType;
+        /** The time-axis column resolution (auto / hour / day / week / month / quarter / year). */
+        Resolution: typeof PlannerResolutionType;
         /** A labelled sub-slot bucket. */
         Bucket: typeof PlannerBucketType;
         /** An explicit axis domain. */
@@ -1042,7 +1063,10 @@ export const Planner: PlannerNamespace = {
      * Choose the builder that matches your slot coordinates — mixing arms within
      * one Planner is unsupported. All three accept an optional bucket list and
      * format string; the range option is typed per-scale:
-     * - `time` — datetime axis, `range: { min: Date, max: Date }`.
+     * - `time` — datetime axis, `range: { min: Date, max: Date }` (a half-open
+     *   window `[min, max)`), plus an optional column `resolution` (`"hour"` /
+     *   `"day"` / `"week"` / `"month"` / `"quarter"` / `"year"`; omitted, a
+     *   pinned range ≤ 14 days infers day columns, else month).
      * - `number` — numeric axis, `range: { min: number, max: number }`.
      * - `ordinal` — ordered-category axis, `range: string[]`.
      */
@@ -1171,6 +1195,24 @@ export const Planner: PlannerNamespace = {
          * @property ordinal - Ordinal axis
          */
         Scale: PlannerScaleType,
+        /**
+         * The time-axis column resolution — the calendar unit of each slot
+         * column.
+         *
+         * @remarks
+         * The optional `resolution` on {@link PlannerAxisType}; built via
+         * `Planner.axis.time({ resolution })`. Absent ≡ `auto` (a pinned
+         * range spanning ≤ 14 days infers day columns, anything else month).
+         *
+         * @property auto - Infer from the pinned range span (≤ 14 days ⇒ day, else month)
+         * @property hour - One column per hour
+         * @property day - One column per day
+         * @property week - One column per week
+         * @property month - One column per calendar month
+         * @property quarter - One column per calendar quarter
+         * @property year - One column per calendar year
+         */
+        Resolution: PlannerResolutionType,
         /**
          * One labelled sub-slot bucket inside a column — the explicit name an
          * operator reads (AM/PM, the parts of a day, …).

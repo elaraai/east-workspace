@@ -22,9 +22,16 @@ import {
 
 import { SliceChromeType } from "../../platform/slice/index.js";
 import {
+    FontFamilyType,
+    type FontFamilyLiteral,
+    FontWeightType,
+    type FontWeightLiteral,
+} from "../../style/typography.js";
+import {
     ChartPointType,
     ChartXType,
     ChartDomainType,
+    ChartAxisTextStyleType,
     ChartSeriesType,
     ChartSeriesArrayType,
     ChartBandPointType,
@@ -305,6 +312,41 @@ export function chartBandArea(
     }), ChartSpecType);
 }
 
+/**
+ * Typography override for one run of axis text (#315) — flat TS input for
+ * {@link ChartAxisTextStyleType}. Every field optional; string shorthands for
+ * the shared family / weight enums.
+ *
+ * @property fontSize      - CSS font size (e.g. `"12px"`)
+ * @property fontFamily    - Theme font family — `"sans"` / `"serif"` / `"mono"` or an expression
+ * @property fontWeight    - Font weight — `"normal"` / `"medium"` / `"semibold"` / `"bold"` / `"light"` or an expression
+ * @property color         - Theme colour token (e.g. `"fg.default"`) or CSS colour
+ * @property letterSpacing - CSS letter spacing (e.g. `"0.04em"`)
+ */
+export interface ChartAxisTextStyle {
+    /** CSS font size (e.g. `"12px"`). */
+    fontSize?: SubtypeExprOrValue<StringType>;
+    /** Theme font family (resolves through the theme font tokens). */
+    fontFamily?: SubtypeExprOrValue<FontFamilyType> | FontFamilyLiteral;
+    /** Font weight. */
+    fontWeight?: SubtypeExprOrValue<FontWeightType> | FontWeightLiteral;
+    /** Theme colour token (e.g. `"fg.default"`) or a raw CSS colour. */
+    color?: SubtypeExprOrValue<StringType>;
+    /** CSS letter spacing (e.g. `"0.04em"`). */
+    letterSpacing?: SubtypeExprOrValue<StringType>;
+}
+
+/** Envelope a {@link ChartAxisTextStyle} input into the {@link ChartAxisTextStyleType} struct. */
+function axisTextStyle(s: ChartAxisTextStyle): ExprType<ChartAxisTextStyleType> {
+    return East.value({
+        fontSize:      s.fontSize !== undefined ? some(s.fontSize) : none,
+        fontFamily:    s.fontFamily !== undefined ? some(typeof s.fontFamily === "string" ? East.value(variant(s.fontFamily, null), FontFamilyType) : s.fontFamily) : none,
+        fontWeight:    s.fontWeight !== undefined ? some(typeof s.fontWeight === "string" ? East.value(variant(s.fontWeight, null), FontWeightType) : s.fontWeight) : none,
+        color:         s.color !== undefined ? some(s.color) : none,
+        letterSpacing: s.letterSpacing !== undefined ? some(s.letterSpacing) : none,
+    }, ChartAxisTextStyleType);
+}
+
 /** Options shared by {@link chartAxisBottom} / {@link chartAxisLeft} / {@link chartAxisRight}. */
 export interface AxisNodeOptions {
     /** Optional axis caption. */
@@ -322,6 +364,10 @@ export interface AxisNodeOptions {
     domain?: SubtypeExprOrValue<ChartDomainType>;
     /** Tick-label format (see {@link ChartTickFormatType}). */
     tickFormat?: SubtypeExprOrValue<ChartTickFormatType>;
+    /** Typography override for the tick labels (#315); omit for the spec default. */
+    tickStyle?: ChartAxisTextStyle;
+    /** Typography override for the axis caption (#315); omit for the spec default. */
+    titleStyle?: ChartAxisTextStyle;
 }
 
 /** Builds the shared {@link ChartAxisType} struct fields from {@link AxisNodeOptions}. */
@@ -334,6 +380,8 @@ function axisFields(options?: AxisNodeOptions) {
         hideLine:   options?.hideLine !== undefined ? some(options.hideLine) : none,
         domain:     options?.domain !== undefined ? some(options.domain) : none,
         tickFormat: options?.tickFormat !== undefined ? some(options.tickFormat) : none,
+        tickStyle:  options?.tickStyle !== undefined ? some(axisTextStyle(options.tickStyle)) : none,
+        titleStyle: options?.titleStyle !== undefined ? some(axisTextStyle(options.titleStyle)) : none,
     };
 }
 
@@ -873,8 +921,26 @@ export const ChartSpec = {
          * @property hideTicks - Hide the tick marks
          * @property hideLine  - Hide the baseline rule
          * @property domain    - Explicit extent for a linear/time axis
+         * @property tickStyle  - Typography override for the tick labels
+         * @property titleStyle - Typography override for the axis caption
          */
         Axis: ChartAxisType,
+        /**
+         * Axis text typography override (#315).
+         *
+         * @remarks
+         * Mirror of {@link ChartAxisTextStyleType} — the `tickStyle` /
+         * `titleStyle` of an axis config, reusing the shared typography
+         * vocabulary. Absent fields fall back to the spec chrome (mono 11px,
+         * `fg.muted`).
+         *
+         * @property fontSize      - CSS font size
+         * @property fontFamily    - Theme font family (sans / serif / mono)
+         * @property fontWeight    - Font weight
+         * @property color         - Theme colour token or CSS colour
+         * @property letterSpacing - CSS letter spacing
+         */
+        AxisTextStyle: ChartAxisTextStyleType,
         /**
          * A gridlines config.
          *

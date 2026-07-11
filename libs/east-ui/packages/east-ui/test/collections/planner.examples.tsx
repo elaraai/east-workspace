@@ -365,6 +365,41 @@ export const plannerSpan = example({
 });
 
 /**
+ * Day-resolution time axis (#309) — a pinned time range spanning ≤ 14 days
+ * derives one column per day automatically (`resolution: "hour" | "day" |
+ * "week" | "month" | "quarter" | "year"` forces the unit instead), and
+ * `format` prints each column with the Chart date-pattern tokens (`"ddd DD"`
+ * → `Mon 30`). The pinned range is a half-open calendar window `[min, max)`:
+ * Mar 30 … Apr 6 is exactly the seven columns Mon 30 … Sun 05. Events and the
+ * now divider keep real instants — each floors to its day column.
+ */
+export const plannerDayResolution = example({
+    keywords: ["Planner", "time", "day", "resolution", "week", "daily", "format", "ddd", "axis", "range", "roster", "hour", "columns"],
+    description: "Day-resolution time axis — a pinned 7-day window derives Mon 30 … Sun 05 day columns (format 'ddd DD'); resolution: 'hour'/'day'/'week'/'month'/'quarter'/'year' forces the unit",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Planner.Point
+            data={[
+                { name: "Press A", role: "Crush" },
+                { name: "Press B", role: "Crush" },
+                { name: "Line 1", role: "Bottling" },
+            ]}
+            axis={Planner.axis.time({
+                format: "ddd DD",
+                range: { min: new Date("2026-03-30"), max: new Date("2026-04-06") },
+            })}
+            now={Planner.at.time(new Date("2026-04-02"))}
+            columns={[{ key: "name", frozen: true, value: r => r.name, sublabel: r => r.role }]}
+            events={_r => [
+                Planner.event({ slot: Planner.at.time(new Date("2026-03-30T10:00:00Z")), label: "Setup", state: "committed" }),
+                Planner.event({ slot: Planner.at.time(new Date("2026-04-01T09:00:00Z")), label: "Run", state: "committed" }),
+                Planner.event({ slot: Planner.at.time(new Date("2026-04-03T09:00:00Z")), label: "Plan", state: "added" }),
+            ]}
+        />
+    )),
+    inputs: [],
+});
+
+/**
  * Density — the row / header rhythm (compact here; comfortable / condensed also
  * available), mirroring Table and Gantt.
  */

@@ -1,14 +1,14 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1456,
+    "totalEntries": 1459,
     "totalFiles": 184,
     "packages": {
       "east": 490,
       "east-node-std": 42,
       "east-node-io": 63,
       "east-py-datascience": 89,
-      "east-ui": 698,
+      "east-ui": 701,
       "e3-ui": 58,
       "e3": 7,
       "e3-ui-cli": 4,
@@ -14474,6 +14474,36 @@
       "source": "// Time x-axis whose extent is given by DateTime expressions (runtime-driven temporal domain)\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { at: new Date(\"2025-01-01\"), v: 10.0 },\n            { at: new Date(\"2025-02-01\"), v: 18.0 },\n            { at: new Date(\"2025-03-01\"), v: 26.0 },\n        ], ArrayType(StructType({ at: DateTimeType, v: FloatType })));\n        const start = $.const(new Date(\"2024-12-15\"), DateTimeType);\n        const end = $.const(new Date(\"2025-03-20\"), DateTimeType);\n        return (\n            <Box height=\"240px\" width=\"100%\">\n                <Chart\n                    layers={Chart.Line(rows, { x: r => r.at, y: r => r.v })}\n                    x={{ label: \"Month\", scale: \"time\", domain: [start, end], format: Chart.format.date(\"MMM YYYY\") }}\n                    y={{ label: \"Value\" }}\n                    grid\n                />\n            </Box>\n        );\n    })"
     },
     {
+      "id": "east-ui:chart.examples.tsx:axisTextStyled",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/charts/chart.examples.tsx",
+      "suite": "",
+      "test": "Axis typography overrides — tickStyle/titleStyle set font size / family / weight / colour per axis (weekday date ticks in 12px sans fg.default)",
+      "keywords": [
+        "Chart",
+        "axis",
+        "tickStyle",
+        "titleStyle",
+        "font",
+        "typography",
+        "fontSize",
+        "fontFamily",
+        "fontWeight",
+        "color",
+        "letterSpacing",
+        "legibility",
+        "ticks",
+        "label"
+      ],
+      "imports": [
+        "import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { AlignedStack, Box, Chart, Reactive, Table, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Axis typography overrides — tickStyle/titleStyle set font size / family / weight / colour per axis (weekday date ticks in 12px sans fg.default)\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { at: new Date(\"2026-03-30T12:00:00Z\"), v: 8.0 },\n            { at: new Date(\"2026-03-31T12:00:00Z\"), v: 10.0 },\n            { at: new Date(\"2026-04-01T12:00:00Z\"), v: 14.0 },\n            { at: new Date(\"2026-04-02T12:00:00Z\"), v: 12.0 },\n            { at: new Date(\"2026-04-03T12:00:00Z\"), v: 9.0 },\n        ], ArrayType(StructType({ at: DateTimeType, v: FloatType })));\n        return (\n            <Box height=\"240px\" width=\"100%\">\n                <Chart\n                    layers={Chart.Line(rows, { x: r => r.at, y: r => r.v })}\n                    x={{ scale: \"time\", format: Chart.format.date(\"ddd DD\"), tickStyle: { fontSize: \"12px\", fontFamily: \"sans\", color: \"fg.default\" } }}\n                    y={{ label: \"Clarified kL\", tickStyle: { fontSize: \"12px\" }, titleStyle: { fontFamily: \"sans\", fontWeight: \"semibold\", color: \"fg.default\", letterSpacing: \"0.02em\" } }}\n                    grid\n                />\n            </Box>\n        );\n    })"
+    },
+    {
       "id": "east-ui:chart.examples.tsx:lineSampleFan",
       "skill": "east-ui",
       "package": "east-ui",
@@ -16925,6 +16955,35 @@
         "import { Library, Planner, Reactive, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// Span variant: multi-slot datetime spans, committed and proposed\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Planner.Span\n                data={[\n                    { name: \"Workstream A\", owner: \"d.park\" },\n                    { name: \"Workstream B\", owner: \"r.chen\" },\n                ]}\n                axis={Planner.axis.time({ format: \"MMM\" })}\n                columns={[{ key: \"name\", frozen: true, value: r => r.name, sublabel: r => r.owner }]}\n                events={_r => [\n                    Planner.event({\n                        slot: Planner.at.time(new Date(\"2024-01-01\")), endSlot: Planner.at.time(new Date(\"2024-02-15\")),\n                        label: \"Phase one\", state: \"committed\",\n                    }),\n                    Planner.event({\n                        slot: Planner.at.time(new Date(\"2024-02-15\")), endSlot: Planner.at.time(new Date(\"2024-04-01\")),\n                        label: \"Phase two\", state: \"added\",\n                    }),\n                ]}\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:planner.examples.tsx:plannerDayResolution",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/planner.examples.tsx",
+      "suite": "",
+      "test": "Day-resolution time axis — a pinned 7-day window derives Mon 30 … Sun 05 day columns (format ",
+      "keywords": [
+        "Planner",
+        "time",
+        "day",
+        "resolution",
+        "week",
+        "daily",
+        "format",
+        "ddd",
+        "axis",
+        "range",
+        "roster",
+        "hour",
+        "columns"
+      ],
+      "imports": [
+        "import { BooleanType, East, IntegerType, NullType, FloatType, ArrayType, OptionType, StringType, some, none, variant, example } from \"@elaraai/east\";",
+        "import { DragEventType, State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Library, Planner, Reactive, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Day-resolution time axis — a pinned 7-day window derives Mon 30 … Sun 05 day columns (format \n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Planner.Point\n            data={[\n                { name: \"Press A\", role: \"Crush\" },\n                { name: \"Press B\", role: \"Crush\" },\n                { name: \"Line 1\", role: \"Bottling\" },\n            ]}\n            axis={Planner.axis.time({\n                format: \"ddd DD\",\n                range: { min: new Date(\"2026-03-30\"), max: new Date(\"2026-04-06\") },\n            })}\n            now={Planner.at.time(new Date(\"2026-04-02\"))}\n            columns={[{ key: \"name\", frozen: true, value: r => r.name, sublabel: r => r.role }]}\n            events={_r => [\n                Planner.event({ slot: Planner.at.time(new Date(\"2026-03-30T10:00:00Z\")), label: \"Setup\", state: \"committed\" }),\n                Planner.event({ slot: Planner.at.time(new Date(\"2026-04-01T09:00:00Z\")), label: \"Run\", state: \"committed\" }),\n                Planner.event({ slot: Planner.at.time(new Date(\"2026-04-03T09:00:00Z\")), label: \"Plan\", state: \"added\" }),\n            ]}\n        />\n    ))"
     },
     {
       "id": "east-ui:planner.examples.tsx:plannerDensity",
@@ -23592,7 +23651,7 @@
         "shared"
       ],
       "imports": [
-        "import { East, ArrayType, FloatType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { East, ArrayType, DateTimeType, FloatType, StringType, StructType, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
         "import { NullType } from \"@elaraai/east\";",
         "import { AlignedStack, Box, Calendar, Chart, Gantt, Matrix, Planner, Table, Trace } from \"@elaraai/east-ui\";"
@@ -23617,7 +23676,7 @@
         "day"
       ],
       "imports": [
-        "import { East, ArrayType, FloatType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { East, ArrayType, DateTimeType, FloatType, StringType, StructType, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
         "import { NullType } from \"@elaraai/east\";",
         "import { AlignedStack, Box, Calendar, Chart, Gantt, Matrix, Planner, Table, Trace } from \"@elaraai/east-ui\";"
@@ -23642,7 +23701,7 @@
         "week"
       ],
       "imports": [
-        "import { East, ArrayType, FloatType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { East, ArrayType, DateTimeType, FloatType, StringType, StructType, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
         "import { NullType } from \"@elaraai/east\";",
         "import { AlignedStack, Box, Calendar, Chart, Gantt, Matrix, Planner, Table, Trace } from \"@elaraai/east-ui\";"
@@ -23667,7 +23726,7 @@
         "day"
       ],
       "imports": [
-        "import { East, ArrayType, FloatType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { East, ArrayType, DateTimeType, FloatType, StringType, StructType, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
         "import { NullType } from \"@elaraai/east\";",
         "import { AlignedStack, Box, Calendar, Chart, Gantt, Matrix, Planner, Table, Trace } from \"@elaraai/east-ui\";"
@@ -23692,7 +23751,7 @@
         "categories"
       ],
       "imports": [
-        "import { East, ArrayType, FloatType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { East, ArrayType, DateTimeType, FloatType, StringType, StructType, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
         "import { NullType } from \"@elaraai/east\";",
         "import { AlignedStack, Box, Calendar, Chart, Gantt, Matrix, Planner, Table, Trace } from \"@elaraai/east-ui\";"
@@ -23718,12 +23777,42 @@
         "align"
       ],
       "imports": [
-        "import { East, ArrayType, FloatType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { East, ArrayType, DateTimeType, FloatType, StringType, StructType, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
         "import { NullType } from \"@elaraai/east\";",
         "import { AlignedStack, Box, Calendar, Chart, Gantt, Matrix, Planner, Table, Trace } from \"@elaraai/east-ui\";"
       ],
       "source": "// A Chart stacked over a Planner sharing one gutter — the frozen channel fills \n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const temp = $.const([\n            { day: 0.0, v: 12.0 }, { day: 1.0, v: 14.0 }, { day: 2.0, v: 18.0 },\n            { day: 3.0, v: 20.0 }, { day: 4.0, v: 19.0 }, { day: 5.0, v: 16.0 }, { day: 6.0, v: 13.0 },\n        ], ArrayType(StructType({ day: FloatType, v: FloatType })));\n        return (\n            <AlignedStack gutter={{ left: \"140px\", right: \"12px\" }} gap=\"8px\">\n                <Box height=\"150px\" width=\"100%\">\n                    <Chart\n                        height=\"fill\"\n                        layers={Chart.Line(temp, { x: r => r.day, y: r => r.v }, { color: \"teal.solid\" })}\n                        x={{ scale: \"linear\", domain: [-0.5, 6.5], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0] }}\n                        y={{ label: \"°C\" }}\n                        grid\n                    />\n                </Box>\n                <Planner.Point\n                    data={[{ name: \"Line A\", role: \"Primary\" }, { name: \"Line B\", role: \"Backup\" }]}\n                    axis={Planner.axis.number({ range: { min: 0, max: 6 } })}\n                    columns={[{ key: \"name\", frozen: true, value: r => r.name, sublabel: r => r.role }]}\n                    events={_r => [\n                        Planner.event({ slot: Planner.at.number(0), label: \"✓\", state: \"committed\" }),\n                        Planner.event({ slot: Planner.at.number(2), label: \"✓\", state: \"committed\" }),\n                        Planner.event({ slot: Planner.at.number(4), label: \"plan\", state: \"added\" }),\n                        Planner.event({ slot: Planner.at.number(6), label: \"?\", state: \"model\" }),\n                    ]}\n                    now={Planner.at.number(4)}\n                    onSelectRow={East.function([Planner.Types.SelectEvent], NullType, _$ => null)}\n                />\n            </AlignedStack>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:aligned-stack.examples.tsx:alignedStackDateAxis",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/layout/aligned-stack.examples.tsx",
+      "suite": "",
+      "test": "A Chart and a day-resolution Planner share one gutter and one formatted date axis — the same [min, max) window and ",
+      "keywords": [
+        "AlignedStack",
+        "plotGutter",
+        "Chart",
+        "Planner",
+        "time",
+        "date",
+        "resolution",
+        "day",
+        "format",
+        "ddd",
+        "tick",
+        "align",
+        "instants"
+      ],
+      "imports": [
+        "import { East, ArrayType, DateTimeType, FloatType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { NullType } from \"@elaraai/east\";",
+        "import { AlignedStack, Box, Calendar, Chart, Gantt, Matrix, Planner, Table, Trace } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// A Chart and a day-resolution Planner share one gutter and one formatted date axis — the same [min, max) window and \n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const runs = $.const([\n            { at: new Date(\"2026-03-30T12:00:00Z\"), kl: 8.0 },\n            { at: new Date(\"2026-03-31T12:00:00Z\"), kl: 10.0 },\n            { at: new Date(\"2026-04-01T12:00:00Z\"), kl: 14.0 },\n            { at: new Date(\"2026-04-02T12:00:00Z\"), kl: 12.0 },\n            { at: new Date(\"2026-04-03T12:00:00Z\"), kl: 9.0 },\n            { at: new Date(\"2026-04-04T12:00:00Z\"), kl: 5.0 },\n            { at: new Date(\"2026-04-05T12:00:00Z\"), kl: 3.0 },\n        ], ArrayType(StructType({ at: DateTimeType, kl: FloatType })));\n        return (\n            <AlignedStack gutter={{ left: \"150px\", right: \"14px\" }} gap=\"8px\">\n                <Box height=\"150px\" width=\"100%\">\n                    <Chart\n                        height=\"fill\"\n                        layers={Chart.Column(runs, { x: r => r.at, y: r => r.kl }, { color: \"teal.solid\" })}\n                        x={{ scale: \"time\", domain: [new Date(\"2026-03-30\"), new Date(\"2026-04-06\")], format: Chart.format.date(\"ddd DD\") }}\n                        y={{ label: \"kL\" }}\n                        grid\n                    />\n                </Box>\n                <Planner.Point\n                    data={[{ name: \"Press A\", role: \"Crush\" }, { name: \"Press B\", role: \"Crush\" }]}\n                    axis={Planner.axis.time({\n                        resolution: \"day\",\n                        format: \"ddd DD\",\n                        range: { min: new Date(\"2026-03-30\"), max: new Date(\"2026-04-06\") },\n                    })}\n                    now={Planner.at.time(new Date(\"2026-04-02\"))}\n                    columns={[{ key: \"name\", frozen: true, value: r => r.name, sublabel: r => r.role }]}\n                    events={_r => [\n                        Planner.event({ slot: Planner.at.time(new Date(\"2026-03-30T09:00:00Z\")), label: \"Setup\", state: \"committed\" }),\n                        Planner.event({ slot: Planner.at.time(new Date(\"2026-04-01T09:00:00Z\")), label: \"Run\", state: \"committed\" }),\n                        Planner.event({ slot: Planner.at.time(new Date(\"2026-04-03T09:00:00Z\")), label: \"Plan\", state: \"added\" }),\n                    ]}\n                />\n            </AlignedStack>\n        );\n    })"
     },
     {
       "id": "east-ui:aligned-stack.examples.tsx:alignedStackChartGantt",
@@ -23744,7 +23833,7 @@
         "time"
       ],
       "imports": [
-        "import { East, ArrayType, FloatType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { East, ArrayType, DateTimeType, FloatType, StringType, StructType, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
         "import { NullType } from \"@elaraai/east\";",
         "import { AlignedStack, Box, Calendar, Chart, Gantt, Matrix, Planner, Table, Trace } from \"@elaraai/east-ui\";"
@@ -23776,7 +23865,7 @@
         "shared"
       ],
       "imports": [
-        "import { East, ArrayType, FloatType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { East, ArrayType, DateTimeType, FloatType, StringType, StructType, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
         "import { NullType } from \"@elaraai/east\";",
         "import { AlignedStack, Box, Calendar, Chart, Gantt, Matrix, Planner, Table, Trace } from \"@elaraai/east-ui\";"
@@ -23806,7 +23895,7 @@
         "all"
       ],
       "imports": [
-        "import { East, ArrayType, FloatType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { East, ArrayType, DateTimeType, FloatType, StringType, StructType, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
         "import { NullType } from \"@elaraai/east\";",
         "import { AlignedStack, Box, Calendar, Chart, Gantt, Matrix, Planner, Table, Trace } from \"@elaraai/east-ui\";"
@@ -23836,7 +23925,7 @@
         "all"
       ],
       "imports": [
-        "import { East, ArrayType, FloatType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { East, ArrayType, DateTimeType, FloatType, StringType, StructType, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
         "import { NullType } from \"@elaraai/east\";",
         "import { AlignedStack, Box, Calendar, Chart, Gantt, Matrix, Planner, Table, Trace } from \"@elaraai/east-ui\";"
@@ -23858,7 +23947,7 @@
         "align"
       ],
       "imports": [
-        "import { East, ArrayType, FloatType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { East, ArrayType, DateTimeType, FloatType, StringType, StructType, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
         "import { NullType } from \"@elaraai/east\";",
         "import { AlignedStack, Box, Calendar, Chart, Gantt, Matrix, Planner, Table, Trace } from \"@elaraai/east-ui\";"
