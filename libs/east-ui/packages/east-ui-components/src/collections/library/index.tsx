@@ -17,6 +17,7 @@ import { useDragSourceItem, useDropSink } from "../../dnd/drag-layer";
 import { SliceRailCluster } from "../../slice/rail";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity";
 import { parseCssSize } from "../../style/parse-size.js";
+import { virtualScrollbarCss } from "../../style/scrollbar.js";
 
 const libraryEqual = equalFor(Library.Types.Library);
 
@@ -483,7 +484,7 @@ function LibraryCore({ value, storageKey, suppressSearch }: LibraryCoreProps) {
             )}
             <Box
                 ref={scrollRef}
-                css={styles.body}
+                css={scrollable ? { ...styles.body, ...virtualScrollbarCss } : styles.body}
                 {...(scrollable ? { "data-scrollable": "" } : {})}
                 onScroll={handleScrollPersist}
             >

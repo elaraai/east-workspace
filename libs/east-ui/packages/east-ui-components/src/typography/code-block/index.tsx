@@ -10,6 +10,7 @@ import { faCopy } from "@fortawesome/free-solid-svg-icons";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { CodeBlock } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
+import { parseCssSize } from "../../style/parse-size.js";
 
 // Pre-define the equality function at module level
 const codeBlockEqual = equalFor(CodeBlock.Types.CodeBlock);
@@ -73,15 +74,15 @@ export function toCodeBlockProps(value: CodeBlockValue): CodeBlockProps {
         showCopyButton: getSomeorUndefined(value.showCopyButton),
         title: getSomeorUndefined(value.title),
         // Visual (style)
-        maxHeight: style ? getSomeorUndefined(style.maxHeight) : undefined,
+        maxHeight: parseCssSize(style ? getSomeorUndefined(style.maxHeight) : undefined),
         overflow: style ? getSomeorUndefined(style.overflow)?.type : undefined,
         overflowX: style ? getSomeorUndefined(style.overflowX)?.type : undefined,
         overflowY: style ? getSomeorUndefined(style.overflowY)?.type : undefined,
-        width: style ? getSomeorUndefined(style.width) : undefined,
-        height: style ? getSomeorUndefined(style.height) : undefined,
-        minWidth: style ? getSomeorUndefined(style.minWidth) : undefined,
-        minHeight: style ? getSomeorUndefined(style.minHeight) : undefined,
-        maxWidth: style ? getSomeorUndefined(style.maxWidth) : undefined,
+        width: parseCssSize(style ? getSomeorUndefined(style.width) : undefined),
+        height: parseCssSize(style ? getSomeorUndefined(style.height) : undefined),
+        minWidth: parseCssSize(style ? getSomeorUndefined(style.minWidth) : undefined),
+        minHeight: parseCssSize(style ? getSomeorUndefined(style.minHeight) : undefined),
+        maxWidth: parseCssSize(style ? getSomeorUndefined(style.maxWidth) : undefined),
         pt: padding ? getSomeorUndefined(padding.top) : undefined,
         pr: padding ? getSomeorUndefined(padding.right) : undefined,
         pb: padding ? getSomeorUndefined(padding.bottom) : undefined,

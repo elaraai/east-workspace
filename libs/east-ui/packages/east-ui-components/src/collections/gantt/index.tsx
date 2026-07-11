@@ -29,6 +29,7 @@ import { compareFor, equalFor, printFor, variant, some, none, type ValueTypeOf }
 import { Gantt, Table, Slice as SliceInternal, type UIComponentType } from "@elaraai/east-ui/internal";
 import { SliceRailCluster } from "../../slice/rail";
 import { parseCssSize } from "../../style/parse-size.js";
+import { virtualScrollbarCss } from "../../style/scrollbar.js";
 import { brushHitTest, brushDragWindow, brushRelease, brushCursor, type BrushDrag } from "../../slice/brush-math.js";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity";
 import { getSomeorUndefined } from "../../utils";
@@ -996,6 +997,9 @@ const GanttCore = function GanttCore({
                     overflowY="auto"
                     position="relative"
                     onScroll={handleTableScroll}
+                    // Left pane of the synced pair hides its own bar; the
+                    // timeline pane carries the single visible gutter scrollbar.
+                    css={{ scrollbarWidth: "none", "&::-webkit-scrollbar": { display: "none" } }}
                 >
                     <ChakraTable.Root
                         {...props}
@@ -1178,6 +1182,7 @@ const GanttCore = function GanttCore({
                     overflowX="hidden"
                     position="relative"
                     onScroll={handleTimelineScroll}
+                    css={virtualScrollbarCss}
                 >
                     {/* Timeline Header - matches table header styling */}
                     <Box position="sticky" top={0} zIndex={1} css={ganttSlotStyles.header}>

@@ -8,6 +8,7 @@ import { Badge as ChakraBadge, type BadgeProps } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Badge } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
+import { parseCssSize } from "../../style/parse-size.js";
 import { useDensity } from "../../contracts/density";
 
 const badgeEqual = equalFor(Badge.Types.Badge);
@@ -48,12 +49,12 @@ export function toChakraBadge(value: BadgeValue): BadgeProps {
         overflowY: getSomeorUndefined(style.overflowY)?.type,
         justifyContent: getSomeorUndefined(style.justifyContent)?.type,
         alignItems: getSomeorUndefined(style.alignItems)?.type,
-        width: getSomeorUndefined(style.width),
-        height: getSomeorUndefined(style.height),
-        minWidth: getSomeorUndefined(style.minWidth),
-        minHeight: getSomeorUndefined(style.minHeight),
-        maxWidth: getSomeorUndefined(style.maxWidth),
-        maxHeight: getSomeorUndefined(style.maxHeight),
+        width: parseCssSize(getSomeorUndefined(style.width)),
+        height: parseCssSize(getSomeorUndefined(style.height)),
+        minWidth: parseCssSize(getSomeorUndefined(style.minWidth)),
+        minHeight: parseCssSize(getSomeorUndefined(style.minHeight)),
+        maxWidth: parseCssSize(getSomeorUndefined(style.maxWidth)),
+        maxHeight: parseCssSize(getSomeorUndefined(style.maxHeight)),
         pt: padding ? getSomeorUndefined(padding.top) : undefined,
         pr: padding ? getSomeorUndefined(padding.right) : undefined,
         pb: padding ? getSomeorUndefined(padding.bottom) : undefined,

@@ -98,6 +98,7 @@ export const tokens = defineTokens({
         overlay: {
             backdrop:    { value: "rgba(17, 27, 34, 0.40)" },   // dialog backdrop
             scrollThumb: { value: "rgba(17, 27, 34, 0.30)" },   // scroll-area thumb
+            scrollTrack: { value: "rgba(17, 27, 34, 0.06)" },   // reserved-gutter scroll track
             highlight:   { value: "rgba(255, 255, 255, 0.30)" }, // on-image highlight
         },
         // Status — muted "document-print" hues per pattern_spec/spec.css.

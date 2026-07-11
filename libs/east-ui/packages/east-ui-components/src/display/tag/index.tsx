@@ -8,6 +8,7 @@ import { Tag as ChakraTag, type TagRootProps } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Tag } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
+import { parseCssSize } from "../../style/parse-size.js";
 import { useDensity } from "../../contracts/density";
 
 const tagEqual = equalFor(Tag.Types.Tag);
@@ -44,12 +45,12 @@ export function toChakraTag(value: TagValue): TagRootProps {
         overflow: getSomeorUndefined(style.overflow)?.type,
         overflowX: getSomeorUndefined(style.overflowX)?.type,
         overflowY: getSomeorUndefined(style.overflowY)?.type,
-        width: getSomeorUndefined(style.width),
-        height: getSomeorUndefined(style.height),
-        minWidth: getSomeorUndefined(style.minWidth),
-        minHeight: getSomeorUndefined(style.minHeight),
-        maxWidth: getSomeorUndefined(style.maxWidth),
-        maxHeight: getSomeorUndefined(style.maxHeight),
+        width: parseCssSize(getSomeorUndefined(style.width)),
+        height: parseCssSize(getSomeorUndefined(style.height)),
+        minWidth: parseCssSize(getSomeorUndefined(style.minWidth)),
+        minHeight: parseCssSize(getSomeorUndefined(style.minHeight)),
+        maxWidth: parseCssSize(getSomeorUndefined(style.maxWidth)),
+        maxHeight: parseCssSize(getSomeorUndefined(style.maxHeight)),
         pt: padding ? getSomeorUndefined(padding.top) : undefined,
         pr: padding ? getSomeorUndefined(padding.right) : undefined,
         pb: padding ? getSomeorUndefined(padding.bottom) : undefined,

@@ -36,6 +36,7 @@ import { EastChakraComponent } from "../../component";
 import { Slice as SliceInternal } from "@elaraai/east-ui/internal";
 import { SliceRailCluster } from "../../slice/rail";
 import { parseCssSize } from "../../style/parse-size.js";
+import { virtualScrollbarCss } from "../../style/scrollbar.js";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity";
 import { RowStateManager, type RowKey, type RowState } from "../../utils/RowStateManager";
 import { useRowStatusBg, useDensityHeights } from "../shared/helpers";
@@ -807,6 +808,7 @@ const TableCore = function TableCore({
             maxHeight={parseCssSize(style ? getSomeorUndefined(style.maxHeight) : undefined)}
             overflowY="auto"
             overflowX={gutterActive ? 'hidden' : (hasFrozen ? 'auto' : undefined)}
+            css={virtualScrollbarCss}
             position="relative"
             {...(gutterActive ? { width: "100%" } : {})}
         >

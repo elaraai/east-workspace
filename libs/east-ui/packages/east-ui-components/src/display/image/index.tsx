@@ -8,6 +8,7 @@ import { chakra } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Image } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
+import { parseCssSize } from "../../style/parse-size.js";
 
 const imageEqual = equalFor(Image.Types.Image);
 
@@ -72,12 +73,12 @@ export const EastChakraImage = memo(function EastChakraImage({ value }: EastChak
         return {
             objectFit: fit ? OBJECT_FIT[fit] : undefined,
             aspectRatio: getSomeorUndefined(style.aspectRatio),
-            width: getSomeorUndefined(style.width),
-            height: getSomeorUndefined(style.height),
-            minWidth: getSomeorUndefined(style.minWidth),
-            minHeight: getSomeorUndefined(style.minHeight),
-            maxWidth: getSomeorUndefined(style.maxWidth),
-            maxHeight: getSomeorUndefined(style.maxHeight),
+            width: parseCssSize(getSomeorUndefined(style.width)),
+            height: parseCssSize(getSomeorUndefined(style.height)),
+            minWidth: parseCssSize(getSomeorUndefined(style.minWidth)),
+            minHeight: parseCssSize(getSomeorUndefined(style.minHeight)),
+            maxWidth: parseCssSize(getSomeorUndefined(style.maxWidth)),
+            maxHeight: parseCssSize(getSomeorUndefined(style.maxHeight)),
             opacity: getSomeorUndefined(style.opacity),
             borderRadius: getSomeorUndefined(style.borderRadius),
             background: getSomeorUndefined(style.background),

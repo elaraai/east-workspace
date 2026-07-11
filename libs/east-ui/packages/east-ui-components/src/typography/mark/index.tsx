@@ -8,6 +8,7 @@ import { Mark as ChakraMark, type MarkProps } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Mark } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
+import { parseCssSize } from "../../style/parse-size.js";
 
 // Pre-define the equality function at module level
 const markEqual = equalFor(Mark.Types.Mark);
@@ -33,12 +34,12 @@ export function toChakraMark(value: MarkValue): MarkProps {
         overflow: style ? getSomeorUndefined(style.overflow)?.type : undefined,
         overflowX: style ? getSomeorUndefined(style.overflowX)?.type : undefined,
         overflowY: style ? getSomeorUndefined(style.overflowY)?.type : undefined,
-        width: style ? getSomeorUndefined(style.width) : undefined,
-        height: style ? getSomeorUndefined(style.height) : undefined,
-        minWidth: style ? getSomeorUndefined(style.minWidth) : undefined,
-        minHeight: style ? getSomeorUndefined(style.minHeight) : undefined,
-        maxWidth: style ? getSomeorUndefined(style.maxWidth) : undefined,
-        maxHeight: style ? getSomeorUndefined(style.maxHeight) : undefined,
+        width: parseCssSize(style ? getSomeorUndefined(style.width) : undefined),
+        height: parseCssSize(style ? getSomeorUndefined(style.height) : undefined),
+        minWidth: parseCssSize(style ? getSomeorUndefined(style.minWidth) : undefined),
+        minHeight: parseCssSize(style ? getSomeorUndefined(style.minHeight) : undefined),
+        maxWidth: parseCssSize(style ? getSomeorUndefined(style.maxWidth) : undefined),
+        maxHeight: parseCssSize(style ? getSomeorUndefined(style.maxHeight) : undefined),
         pt: padding ? getSomeorUndefined(padding.top) : undefined,
         pr: padding ? getSomeorUndefined(padding.right) : undefined,
         pb: padding ? getSomeorUndefined(padding.bottom) : undefined,
