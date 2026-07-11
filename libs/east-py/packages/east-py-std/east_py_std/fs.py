@@ -28,7 +28,13 @@ def fs_read_file_impl(path: str) -> str:
     Raises:
         RuntimeError: If the file cannot be read or is not valid UTF-8.
     """
-    return Path(path).read_text(encoding="utf-8")
+    try:
+        return Path(path).read_text(encoding="utf-8")
+    except OSError as err:
+        # Cross-runtime error-message parity (#64): east-node-std and east-c
+        # raise "Failed to read file <path>: <detail>" — match it so shared
+        # compliance tests (and callers matching on messages) agree.
+        raise RuntimeError(f"Failed to read file {path}: {err}") from err
 
 
 @platform_function(name="fs_write_file", inputs=[StringType, StringType], output=NullType)
@@ -45,7 +51,10 @@ def fs_write_file_impl(path: str, content: str) -> None:
     Raises:
         RuntimeError: If the file cannot be written.
     """
-    Path(path).write_text(content, encoding="utf-8")
+    try:
+        Path(path).write_text(content, encoding="utf-8")
+    except OSError as err:
+        raise RuntimeError(f"Failed to write file {path}: {err}") from err
 
 
 @platform_function(name="fs_append_file", inputs=[StringType, StringType], output=NullType)
@@ -64,8 +73,11 @@ def fs_append_file_impl(path: str, content: str) -> None:
     Raises:
         RuntimeError: If the file cannot be opened for appending.
     """
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(content)
+    try:
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(content)
+    except OSError as err:
+        raise RuntimeError(f"Failed to append to file {path}: {err}") from err
 
 
 @platform_function(name="fs_delete_file", inputs=[StringType], output=NullType)
@@ -175,7 +187,10 @@ def fs_read_file_bytes_impl(path: str) -> EastBlob:
     Raises:
         RuntimeError: If the file cannot be read.
     """
-    return EastBlob(Path(path).read_bytes())
+    try:
+        return EastBlob(Path(path).read_bytes())
+    except OSError as err:
+        raise RuntimeError(f"Failed to read file bytes {path}: {err}") from err
 
 
 @platform_function(name="fs_write_file_bytes", inputs=[StringType, BlobType], output=NullType)
@@ -192,7 +207,10 @@ def fs_write_file_bytes_impl(path: str, content: bytes) -> None:
     Raises:
         RuntimeError: If the file cannot be written.
     """
-    Path(path).write_bytes(content)
+    try:
+        Path(path).write_bytes(content)
+    except OSError as err:
+        raise RuntimeError(f"Failed to write file bytes {path}: {err}") from err
 
 
 # Collected from the @platform_function decorations above.

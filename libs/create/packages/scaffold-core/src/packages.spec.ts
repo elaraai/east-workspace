@@ -143,18 +143,26 @@ test("member-flag scaffold with default features rewrites index.spec.ts against 
   rmSync(dirname(dir), { recursive: true, force: true });
 });
 
-test("member-flag scaffold with default features compiles (tsc --noEmit) (#301)", () => {
-  const dir = scaffoldPackagesDefaultFeatures("envpy", { python: ["calc"] });
+test("member-flag scaffold with default features compiles (tsc --noEmit) (#301)", (t) => {
   // Resolve deps against the monorepo's built lib packages (pnpm links
   // @elaraai/* per-package, not at the root, so link each one), then
-  // typecheck the scaffold exactly as `npm run build` would.
+  // typecheck the scaffold exactly as `npm run build` would. The create CI
+  // job builds only the scaffolder packages, so skip (loudly) when the lib
+  // dists aren't built — the spec-rewrite assertions above still pin #301
+  // there; this compile gate runs wherever the monorepo is built.
   const repoRoot = join(TEMPLATES, "..", "..", "..");
   const links: Array<[string, string]> = [
     ["@elaraai/east", join(repoRoot, "libs", "east")],
     ["@elaraai/e3", join(repoRoot, "libs", "e3", "packages", "e3")],
     ["@elaraai/east-node-std", join(repoRoot, "libs", "east-node", "packages", "east-node-std")],
-    ["@types/node", dirname(createRequire(import.meta.url).resolve("@types/node/package.json"))],
   ];
+  const unbuilt = links.filter(([, target]) => !existsSync(join(target, "dist")));
+  if (unbuilt.length > 0) {
+    t.skip(`lib dists not built here: ${unbuilt.map(([n]) => n).join(", ")}`);
+    return;
+  }
+  const dir = scaffoldPackagesDefaultFeatures("envpy", { python: ["calc"] });
+  links.push(["@types/node", dirname(createRequire(import.meta.url).resolve("@types/node/package.json"))]);
   for (const [name, target] of links) {
     assert.ok(existsSync(target), `${name} source present at ${target}`);
     const linkPath = join(dir, "node_modules", ...name.split("/"));
@@ -163,6 +171,11 @@ test("member-flag scaffold with default features compiles (tsc --noEmit) (#301)"
   }
   const require = createRequire(import.meta.url);
   const tsc = join(dirname(require.resolve("typescript")), "..", "bin", "tsc");
-  execFileSync(process.execPath, [tsc, "--noEmit", "-p", dir], { stdio: "pipe" });
+  try {
+    execFileSync(process.execPath, [tsc, "--noEmit", "-p", dir], { stdio: "pipe" });
+  } catch (err) {
+    const out = (err as { stdout?: Buffer }).stdout?.toString() ?? "";
+    assert.fail(`member-flag scaffold failed to typecheck:\n${out.slice(0, 4000)}`);
+  }
   rmSync(dirname(dir), { recursive: true, force: true });
 });

@@ -273,8 +273,7 @@ int main(void)
                     copy[pos] ^= patterns[p];
                     EastValue *v = east_beast2_decode_full(copy, rows_buf->len, rows_t);
                     if (v) {
-                        if (v->kind == EAST_VAL_ARRAY && v->data.array.len != 8)
-                            short_decodes++;
+                        if (v->kind == EAST_VAL_ARRAY && v->data.array.len != 8) short_decodes++;
                         east_value_release(v);
                     }
                 }
@@ -285,7 +284,8 @@ int main(void)
                        short_decodes);
                 failures++;
             } else {
-                printf("  [+] no corruption yields a silently short container (%zu positions x 3, #287)\n",
+                printf("  [+] no corruption yields a silently short container (%zu positions x 3, "
+                       "#287)\n",
                        rows_buf->len - 8);
             }
             byte_buffer_free(rows_buf);
