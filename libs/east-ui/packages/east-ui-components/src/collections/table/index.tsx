@@ -35,6 +35,7 @@ import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 import { Slice as SliceInternal } from "@elaraai/east-ui/internal";
 import { SliceRailCluster } from "../../slice/rail";
+import { parseCssSize } from "../../style/parse-size.js";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity";
 import { RowStateManager, type RowKey, type RowState } from "../../utils/RowStateManager";
 import { useRowStatusBg, useDensityHeights } from "../shared/helpers";
@@ -802,7 +803,8 @@ const TableCore = function TableCore({
         <Box
             ref={tableContainerRef}
             onScroll={handleScrollPersist}
-            height={(style ? getSomeorUndefined(style.height) : undefined) ?? height}
+            height={parseCssSize(style ? getSomeorUndefined(style.height) : undefined) ?? height}
+            maxHeight={parseCssSize(style ? getSomeorUndefined(style.maxHeight) : undefined)}
             overflowY="auto"
             overflowX={gutterActive ? 'hidden' : (hasFrozen ? 'auto' : undefined)}
             position="relative"

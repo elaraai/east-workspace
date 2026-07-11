@@ -781,6 +781,7 @@ function createGantt<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
 
     const hasStyle = !!style && (
         style.height !== undefined ||
+        (style as { maxHeight?: unknown }).maxHeight !== undefined ||
         style.variant !== undefined ||
         style.size !== undefined ||
         style.density !== undefined ||
@@ -794,7 +795,8 @@ function createGantt<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
 
     const gutterCfg = (style as GanttStyle | undefined)?.plotGutter;
     const styleValue = hasStyle ? East.value({
-        height: style!.height ? some(style!.height) : none,
+        height: style!.height !== undefined ? some(style!.height) : none,
+        maxHeight: style!.maxHeight !== undefined ? some(style!.maxHeight) : none,
         variant: variantValue ? some(variantValue) : none,
         size: sizeValue ? some(sizeValue) : none,
         density: densityValue ? some(densityValue) : none,

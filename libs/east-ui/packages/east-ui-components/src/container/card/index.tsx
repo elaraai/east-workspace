@@ -4,6 +4,7 @@
  */
 
 import { memo, useMemo } from "react";
+import { parseCssSize } from "../../style/parse-size.js";
 import {
     Card as ChakraCard,
     type CardRootProps,
@@ -40,12 +41,12 @@ export function toChakraCard(value: CardValue): CardRootProps {
     const style = getSomeorUndefined(value.style);
 
     return {
-        height: style ? getSomeorUndefined(style.height) : undefined,
-        minHeight: style ? getSomeorUndefined(style.minHeight) : undefined,
-        maxHeight: style ? getSomeorUndefined(style.maxHeight) : undefined,
-        width: style ? getSomeorUndefined(style.width) : undefined,
-        minWidth: style ? getSomeorUndefined(style.minWidth) : undefined,
-        maxWidth: style ? getSomeorUndefined(style.maxWidth) : undefined,
+        height: parseCssSize(style ? getSomeorUndefined(style.height) : undefined),
+        minHeight: parseCssSize(style ? getSomeorUndefined(style.minHeight) : undefined),
+        maxHeight: parseCssSize(style ? getSomeorUndefined(style.maxHeight) : undefined),
+        width: parseCssSize(style ? getSomeorUndefined(style.width) : undefined),
+        minWidth: parseCssSize(style ? getSomeorUndefined(style.minWidth) : undefined),
+        maxWidth: parseCssSize(style ? getSomeorUndefined(style.maxWidth) : undefined),
         flex: style ? getSomeorUndefined(style.flex) : undefined,
         overflow: style ? getSomeorUndefined(style.overflow)?.type : undefined,
     };

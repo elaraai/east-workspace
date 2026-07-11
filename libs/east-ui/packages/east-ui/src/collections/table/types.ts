@@ -290,6 +290,7 @@ export type TableSelectionType = typeof TableSelectionType;
  */
 export const TableStyleType = StructType({
     height: OptionType(StringType),
+    maxHeight: OptionType(StringType),
     variant: OptionType(TableVariantType),
     size: OptionType(TableSizeType),
     striped: OptionType(BooleanType),
@@ -347,8 +348,10 @@ export type TableStyleType = typeof TableStyleType;
 export interface TableStyle<ColumnKeys extends string = string> {
     /** Column keys to freeze (pin left). Frozen columns appear first and stay visible during horizontal scroll. */
     frozen?: ColumnKeys[];
-    /** CSS height for the table container (e.g., "500px", "100%") */
+    /** Uniform sizing (#320): bound the table — a pixel `number`, `"fill"` (fill the parent box; the parent must have a definite height), or a CSS length (`"500px"`, `"100%"`). Chrome-inclusive; the rows scroll within. */
     height?: SubtypeExprOrValue<StringType>;
+    /** Uniform sizing (#320): max-height cap — a pixel `number` or CSS length; the table is content-sized up to it, then scrolls. */
+    maxHeight?: SubtypeExprOrValue<StringType>;
     /** Table variant (line or outline) */
     variant?: SubtypeExprOrValue<TableVariantType> | TableVariantLiteral;
     /** Table size (sm, md, lg) */

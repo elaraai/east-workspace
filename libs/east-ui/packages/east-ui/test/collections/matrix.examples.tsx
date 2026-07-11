@@ -300,12 +300,12 @@ export const matrixReactivePivot = example({
 });
 
 /**
- * Bounded (#320) — `maxHeight` (a plain pixel number) caps the whole matrix;
- * it becomes its own scroll region (chrome-inclusive) and scrolls within.
+ * Bounded (#320) — a bare-number `maxHeight` (parsed to px) caps the whole
+ * matrix; it becomes its own scroll region (chrome-inclusive) and scrolls within.
  */
 export const matrixBounded = example({
     keywords: ["Matrix", "maxHeight", "height", "bounded", "scroll", "sizing", "#320"],
-    description: "Bounded matrix (#320) — `maxHeight={140}` caps the whole component; it scrolls within its box instead of growing to content",
+    description: "Bounded matrix (#320) — a bare-number maxHeight ('140', parsed to 140px) caps the whole component; it scrolls within its box instead of growing to content",
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Matrix
@@ -329,7 +329,7 @@ export const matrixBounded = example({
                     Matrix.segment({ fill: "free", weight: East.value(1.0, FloatType).subtract(r.booked.get(col.key)) }),
                 ] })}
                 legend={[{ fill: "brand", label: "Booked" }, { fill: "free", label: "Free" }]}
-                maxHeight={140}
+                maxHeight="140"
             />
         );
     }),

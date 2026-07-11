@@ -8,6 +8,7 @@
  */
 
 import { memo, useMemo } from "react";
+import { parseCssSize } from "../../style/parse-size.js";
 import { Box as ChakraBox, type BoxProps } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Box } from "@elaraai/east-ui/internal";
@@ -81,19 +82,19 @@ export function toChakraBox(value: BoxValue): BoxProps {
             overflow: style ? getSomeorUndefined(style.overflow)?.type : undefined,
             overflowX: style ? getSomeorUndefined(style.overflowX)?.type : undefined,
             overflowY: style ? getSomeorUndefined(style.overflowY)?.type : undefined,
-            minWidth: style ? getSomeorUndefined(style.minWidth) : undefined,
-            minHeight: style ? getSomeorUndefined(style.minHeight) : undefined,
+            minWidth: parseCssSize(style ? getSomeorUndefined(style.minWidth) : undefined),
+            minHeight: parseCssSize(style ? getSomeorUndefined(style.minHeight) : undefined),
         },
     });
 
     return {
         display: style ? getSomeorUndefined(style.display)?.type : undefined,
-        width: style ? getSomeorUndefined(style.width) : undefined,
-        height: style ? getSomeorUndefined(style.height) : undefined,
-        minHeight: style ? getSomeorUndefined(style.minHeight) : undefined,
-        minWidth: style ? getSomeorUndefined(style.minWidth) : undefined,
-        maxHeight: style ? getSomeorUndefined(style.maxHeight) : undefined,
-        maxWidth: style ? getSomeorUndefined(style.maxWidth) : undefined,
+        width: parseCssSize(style ? getSomeorUndefined(style.width) : undefined),
+        height: parseCssSize(style ? getSomeorUndefined(style.height) : undefined),
+        minHeight: parseCssSize(style ? getSomeorUndefined(style.minHeight) : undefined),
+        minWidth: parseCssSize(style ? getSomeorUndefined(style.minWidth) : undefined),
+        maxHeight: parseCssSize(style ? getSomeorUndefined(style.maxHeight) : undefined),
+        maxWidth: parseCssSize(style ? getSomeorUndefined(style.maxWidth) : undefined),
         // Padding struct -> individual props
         pt: padding ? getSomeorUndefined(padding.top) : undefined,
         pr: padding ? getSomeorUndefined(padding.right) : undefined,

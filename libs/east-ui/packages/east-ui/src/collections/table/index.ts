@@ -608,6 +608,7 @@ export function createTable<T extends SubtypeExprOrValue<ArrayType<StructType>>>
 
     const hasVisualStyle = !!style && (
         style.height !== undefined ||
+        (style as { maxHeight?: unknown }).maxHeight !== undefined ||
         style.variant !== undefined ||
         style.size !== undefined ||
         style.striped !== undefined ||
@@ -627,7 +628,8 @@ export function createTable<T extends SubtypeExprOrValue<ArrayType<StructType>>>
     );
 
     const styleValue = hasVisualStyle ? East.value({
-        height: style!.height ? some(style!.height) : none,
+        height: style!.height !== undefined ? some(style!.height) : none,
+        maxHeight: style!.maxHeight !== undefined ? some(style!.maxHeight) : none,
         variant: variantValue ? some(variantValue) : none,
         size: sizeValue ? some(sizeValue) : none,
         striped: style!.striped !== undefined ? some(style!.striped) : none,

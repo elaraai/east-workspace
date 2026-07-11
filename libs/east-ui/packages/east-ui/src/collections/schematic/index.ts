@@ -122,6 +122,7 @@ export const SchematicRootType: StructType<{
     sliceEffect: OptionType<SchematicSliceEffectType>,
     layers: OptionType<ArrayType<SchematicLayerType>>,
     height: OptionType<StringType>,
+    maxHeight: OptionType<StringType>,
     onSelect: OptionType<FunctionType<[StringType], NullType>>,
     selectionMode: OptionType<SchematicSelectionModeType>,
     onSelectionChange: OptionType<FunctionType<[SchematicSelectionEventType], NullType>>,
@@ -159,6 +160,7 @@ export const SchematicRootType: StructType<{
     sliceEffect: OptionType(SchematicSliceEffectType),
     layers: OptionType(ArrayType(SchematicLayerType)),
     height: OptionType(StringType),
+    maxHeight: OptionType(StringType),
     onSelect: OptionType(FunctionType([StringType], NullType)),
     selectionMode: OptionType(SchematicSelectionModeType),
     onSelectionChange: OptionType(FunctionType([SchematicSelectionEventType], NullType)),
@@ -699,8 +701,10 @@ export interface SchematicConfig<
      * each entity with a matching `layer` key. Absent ⇒ no layer chrome.
      */
     layers?: SchematicLayerInput[];
-    /** Optional fixed panel height (any CSS length, e.g. `"400px"`); default: aspect-driven, capped at 75vh. */
-    height?: SubtypeExprOrValue<StringType> | string;
+    /** Uniform sizing (#320): fixed panel height — a CSS length — a bare number (`"320"`), `"fill"` (fill the parent box), a percentage, `calc(...)`, or explicit `px` (`"400px"`); default: aspect-driven, capped at 75vh. */
+    height?: SubtypeExprOrValue<StringType>;
+    /** Uniform sizing (#320): max-height cap — a pixel `number` or CSS length; overrides the default 75vh cap. */
+    maxHeight?: SubtypeExprOrValue<StringType>;
     /** Optional item-click callback (receives the item key). */
     onSelect?: SubtypeExprOrValue<FunctionType<[StringType], NullType>>;
     /** Optional selection cardinality (`"single"` / `"multiple"` / `"range"`); absent ⇒ single. `multiple` / `range` reveal the marquee tool. */
@@ -907,6 +911,7 @@ function buildRoot(
             ? some(East.value(config.layers.map(toLayer), ArrayType(SchematicLayerType)))
             : none,
         height: config.height !== undefined ? some(config.height) : none,
+        maxHeight: config.maxHeight !== undefined ? some(config.maxHeight) : none,
         onSelect: config.onSelect !== undefined ? some(config.onSelect) : none,
         selectionMode: config.selectionMode !== undefined
             ? some(typeof config.selectionMode === "string" ? variant(config.selectionMode, null) : config.selectionMode)

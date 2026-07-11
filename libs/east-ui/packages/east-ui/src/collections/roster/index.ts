@@ -36,7 +36,6 @@ import {
     StringType,
     StructType,
 } from "@elaraai/east";
-import { encodeHeightOption, encodeMaxHeightOption } from "../sizing.js";
 
 import { UIComponentType } from "../../component.js";
 import { mapRows } from "../../shared/reify.js";
@@ -253,9 +252,9 @@ export interface RosterConfig<P extends StructType, S extends StructType> {
     /** Optional density. */
     density?: SubtypeExprOrValue<DensityType> | DensityLiteral;
     /** Uniform sizing (#320): bound the component — a pixel number, `"fill"` (fill the parent box), or a CSS length; the whole component takes this height and scrolls within. */
-    height?: number | "fill" | SubtypeExprOrValue<StringType>;
+    height?: SubtypeExprOrValue<StringType>;
     /** Uniform sizing (#320): max-height cap — a pixel number or CSS length; content-sized up to it. */
-    maxHeight?: number | SubtypeExprOrValue<StringType>;
+    maxHeight?: SubtypeExprOrValue<StringType>;
     /** Optional status-strip text (dirty / ghost counts). */
     summary?: SubtypeExprOrValue<StringType>;
     /** Drag funnel — add / move / remove events. */
@@ -340,8 +339,8 @@ function buildRoot(
         people: resolvedPeople,
         shifts: resolvedShifts,
         density,
-        height: encodeHeightOption(config.height),
-        maxHeight: encodeMaxHeightOption(config.maxHeight),
+        height: config.height !== undefined ? some(config.height) : none,
+        maxHeight: config.maxHeight !== undefined ? some(config.maxHeight) : none,
         summary: config.summary !== undefined ? some(config.summary) : none,
         onDrag: config.onDrag !== undefined ? some(config.onDrag) : none,
         canDrop: config.canDrop !== undefined ? some(config.canDrop) : none,

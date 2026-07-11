@@ -16,6 +16,7 @@ import { usePersistedState } from "../../hooks/usePersistedState";
 import { useDragSourceItem, useDropSink } from "../../dnd/drag-layer";
 import { SliceRailCluster } from "../../slice/rail";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity";
+import { parseCssSize } from "../../style/parse-size.js";
 
 const libraryEqual = equalFor(Library.Types.Library);
 
@@ -286,8 +287,9 @@ function LibraryCore({ value, storageKey, suppressSearch }: LibraryCoreProps) {
     // own scroll region and rows virtualize; unconstrained, the component
     // grows to content height (the pre-#258 behaviour, ancestor scrolls).
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
-    const height = style ? getSomeorUndefined(style.height) : undefined;
-    const maxHeight = style ? getSomeorUndefined(style.maxHeight) : undefined;
+    // Uniform sizing (#320) — `"fill"` → 100% of the parent box.
+    const height = parseCssSize(style ? getSomeorUndefined(style.height) : undefined);
+    const maxHeight = parseCssSize(style ? getSomeorUndefined(style.maxHeight) : undefined);
     const scrollable = height !== undefined || maxHeight !== undefined;
     const virtualEnabled = scrollable && (style ? getSomeorUndefined(style.virtualization) : undefined) !== false;
 

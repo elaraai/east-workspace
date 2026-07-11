@@ -285,6 +285,7 @@ export type GanttMilestoneClickEventType = typeof GanttMilestoneClickEventType;
  */
 export const GanttStyleType = StructType({
     height: OptionType(StringType),
+    maxHeight: OptionType(StringType),
     variant: OptionType(TableVariantType),
     size: OptionType(TableSizeType),
     density: OptionType(DensityType),
@@ -350,8 +351,10 @@ export interface GanttStyle<ColumnKeys extends string = string> {
     affordances?: SliceAffordanceLiteral[];
     /** Time-axis configuration — explicit `{ min, max }` window, tick-label `format`, and header `tier`. Omit to fit the domain to the data with an auto-chosen tick interval. */
     axis?: GanttAxisInput;
-    /** CSS height for the Gantt container (e.g., "500px", "100%") */
+    /** Uniform sizing (#320): bound the Gantt — a CSS length — a bare number (`"320"`), `"fill"` (fill the parent box), a percentage, `calc(...)`, or explicit `px` (`"500px"`, `"100%"`). Chrome-inclusive; the rows scroll within. */
     height?: SubtypeExprOrValue<StringType>;
+    /** Uniform sizing (#320): max-height cap — a pixel `number` or CSS length; content-sized up to it, then scrolls. */
+    maxHeight?: SubtypeExprOrValue<StringType>;
     /** Table variant (line or outline). */
     variant?: SubtypeExprOrValue<TableVariantType> | TableVariantLiteral;
     /** Table size (sm, md, lg). */

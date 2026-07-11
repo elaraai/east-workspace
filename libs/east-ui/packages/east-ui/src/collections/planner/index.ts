@@ -34,7 +34,6 @@ import {
     some,
     none,
 } from "@elaraai/east";
-import { encodeHeightOption, encodeMaxHeightOption } from "../sizing.js";
 
 import { UIComponentType } from "../../component.js";
 import { mapRowsBlock } from "../../shared/reify.js";
@@ -704,7 +703,7 @@ export interface PlannerConfig<R extends StructType> {
     /** Optional density (row / header rhythm). */
     density?: SubtypeExprOrValue<DensityType> | DensityLiteral;
     /** Uniform sizing (#320): definite height — a pixel number, `"fill"` (fill the parent box), or CSS length; the plan takes exactly this box, header pinned, body scrolls within. */
-    height?: number | "fill" | SubtypeExprOrValue<StringType>;
+    height?: SubtypeExprOrValue<StringType>;
     /** Optional min-width (CSS) per x-axis slot column. With it set, the
      *  timeline scrolls horizontally rather than squeezing slots below it. */
     slotMinWidth?: SubtypeExprOrValue<StringType>;
@@ -810,8 +809,8 @@ function buildRoot(
         now:          config.now !== undefined ? some(config.now) : none,
         density,
         slotMinWidth: config.slotMinWidth !== undefined ? some(config.slotMinWidth) : none,
-        maxHeight:    encodeMaxHeightOption(config.maxHeight),
-        height:       encodeHeightOption(config.height),
+        maxHeight:    config.maxHeight !== undefined ? some(config.maxHeight) : none,
+        height:       config.height !== undefined ? some(config.height) : none,
         plotGutter:   config.plotGutter !== undefined
             ? some(East.value({
                 left:  config.plotGutter.left  !== undefined ? some(config.plotGutter.left)  : none,

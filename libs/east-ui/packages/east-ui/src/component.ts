@@ -1006,6 +1006,7 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         sliceEffect: OptionType(SchematicSliceEffectType),
         layers: OptionType(ArrayType(SchematicLayerType)),
         height: OptionType(StringType),
+        maxHeight: OptionType(StringType),
         onSelect: OptionType(FunctionType([StringType], NullType)),
         selectionMode: OptionType(SchematicSelectionModeType),
         onSelectionChange: OptionType(FunctionType([SchematicSelectionEventType], NullType)),

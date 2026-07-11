@@ -19,7 +19,7 @@ import { timeDay, timeHour, timeMonth, timeWeek, timeYear, type TimeInterval } f
 import { Planner } from "@elaraai/east-ui/internal";
 import { formatDatePattern } from "../../charts/spec";
 import { getSomeorUndefined } from "../../utils";
-import { resolveDataHeight } from "../sizing.js";
+import { parseCssSize } from "../../style/parse-size.js";
 import { usePersistedState } from "../../hooks/usePersistedState";
 import { EastChakraComponent } from "../../component";
 import {
@@ -485,11 +485,11 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
     // Opt-in vertical scroll (#302) — when `maxHeight` is set the plan body
     // scrolls within it and the header pins (sticky-top, via the recipe `scroll`
     // variant); the dynamic cap value is applied inline on the root below.
-    const maxHeight = getSomeorUndefined(value.maxHeight);
+    const maxHeight = parseCssSize(getSomeorUndefined(value.maxHeight));
     // Definite height (#320) — pins the plan to exactly this box (`"fill"` fills
     // the parent); like `maxHeight` it flips the `scroll` variant (header pinned,
     // body scrolls) and is applied inline on the root below.
-    const height = resolveDataHeight(getSomeorUndefined(value.height));
+    const height = parseCssSize(getSomeorUndefined(value.height));
     const sizeBounded = maxHeight !== undefined || height !== undefined;
     const base = useMemo(() => recipe({ size, rowHover: rowHoverOn, scroll: sizeBounded } as Record<string, unknown>) as unknown as RecipeStyles, [recipe, size, rowHoverOn, sizeBounded]);
     // Header cells reuse the shared `table` columnHeader chrome (solid wash +

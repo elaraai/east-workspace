@@ -41,7 +41,6 @@ import {
     StructType,
     NullType,
 } from "@elaraai/east";
-import { encodeHeightOption, encodeMaxHeightOption } from "../sizing.js";
 
 import { UIComponentType } from "../../component.js";
 import { mapRows } from "../../shared/reify.js";
@@ -289,9 +288,9 @@ export interface BoardConfig<
     /** Optional density. */
     density?: SubtypeExprOrValue<DensityType> | DensityLiteral;
     /** Uniform sizing (#320): bound the component — a pixel number, `"fill"` (fill the parent box), or a CSS length; the whole component takes this height and scrolls within. */
-    height?: number | "fill" | SubtypeExprOrValue<StringType>;
+    height?: SubtypeExprOrValue<StringType>;
     /** Uniform sizing (#320): max-height cap — a pixel number or CSS length; content-sized up to it. */
-    maxHeight?: number | SubtypeExprOrValue<StringType>;
+    maxHeight?: SubtypeExprOrValue<StringType>;
     /** Optional per-cell chip cap before the `+N` overflow. */
     maxVisible?: SubtypeExprOrValue<IntegerType> | number;
     /** Optional status-strip text (open / proposed counts). */
@@ -451,8 +450,8 @@ function buildRoot(
         requirements: resolvedRequirements,
         density,
         maxVisible,
-        height: encodeHeightOption(config.height),
-        maxHeight: encodeMaxHeightOption(config.maxHeight),
+        height: config.height !== undefined ? some(config.height) : none,
+        maxHeight: config.maxHeight !== undefined ? some(config.maxHeight) : none,
         summary: config.summary !== undefined ? some(config.summary) : none,
         canDrop: canDrop !== undefined ? some(canDrop) : none,
         review: config.review !== undefined ? some(buildReview(reviewFootOnly(config.review), RowReviewType)) : none,

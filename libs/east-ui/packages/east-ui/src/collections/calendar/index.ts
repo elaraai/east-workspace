@@ -30,7 +30,6 @@ import {
     StringType,
     StructType,
 } from "@elaraai/east";
-import { encodeHeightOption, encodeMaxHeightOption } from "../sizing.js";
 
 import { UIComponentType } from "../../component.js";
 import { mapRows } from "../../shared/reify.js";
@@ -117,9 +116,9 @@ export interface CalendarConfig<R extends StructType> {
     /** Optional density preset (comfortable | compact | condensed). Default comfortable. */
     density?: SubtypeExprOrValue<DensityType> | DensityLiteral;
     /** Uniform sizing (#320): bound the component — a pixel number, `"fill"` (fill the parent box), or a CSS length; the whole component takes this height and scrolls within. */
-    height?: number | "fill" | SubtypeExprOrValue<StringType>;
+    height?: SubtypeExprOrValue<StringType>;
     /** Uniform sizing (#320): max-height cap — a pixel number or CSS length; content-sized up to it. */
-    maxHeight?: number | SubtypeExprOrValue<StringType>;
+    maxHeight?: SubtypeExprOrValue<StringType>;
     /** Shared plot gutter (#147) — pins the day grid to `[left, W−right]` (px) so a Calendar stacked under a Chart lines up; `left` is the week-label column width. Usually supplied by an enclosing `<AlignedStack>`. */
     plotGutter?: PlotGutter;
 }
@@ -162,8 +161,8 @@ function buildRoot(
         onAction: config.onAction !== undefined ? some(config.onAction) : none,
         onSelect: config.onSelect !== undefined ? some(config.onSelect) : none,
         density: densityValue !== undefined ? some(densityValue) : none,
-        height: encodeHeightOption(config.height),
-        maxHeight: encodeMaxHeightOption(config.maxHeight),
+        height: config.height !== undefined ? some(config.height) : none,
+        maxHeight: config.maxHeight !== undefined ? some(config.maxHeight) : none,
         plotGutter: config.plotGutter !== undefined
             ? some(East.value({
                 left:  config.plotGutter.left  !== undefined ? some(config.plotGutter.left)  : none,

@@ -10,7 +10,7 @@ import { faCheck, faGripVertical, faTrashCan } from "@fortawesome/free-solid-svg
 import { equalFor, match, some, none, variant, type ValueTypeOf } from "@elaraai/east";
 import { Board, type CellRefType } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
-import { resolveDataHeight } from "../sizing.js";
+import { parseCssSize } from "../../style/parse-size.js";
 import { useDragTarget, useDropCell, useDragEventChip, type DragEventValue, type DragMeta, type DragPayload } from "../../dnd/drag-layer";
 import { useIRCanDrop, canDropAllows, type CanDropFn } from "../../dnd/ir-can-drop";
 import { useReviewController, ReviewFoot } from "../shared/review";
@@ -443,8 +443,8 @@ export const EastChakraBoard = memo(function EastChakraBoard({ value, storageKey
     const summary = getSomeorUndefined(value.summary);
 
     // Uniform sizing contract (#320) — bound the board; it scrolls within.
-    const boundH = resolveDataHeight(getSomeorUndefined(value.height));
-    const boundMaxH = getSomeorUndefined(value.maxHeight);
+    const boundH = parseCssSize(getSomeorUndefined(value.height));
+    const boundMaxH = parseCssSize(getSomeorUndefined(value.maxHeight));
     return (
         <Box css={styles.root} height={boundH} maxHeight={boundMaxH} {...((boundH ?? boundMaxH) !== undefined ? { overflowY: "auto" as const, minHeight: "0" } : {})}>
             <Box css={styles.grid} style={{ gridTemplateColumns: `${areaWidth} repeat(${value.shifts.length}, 1fr)` }}>

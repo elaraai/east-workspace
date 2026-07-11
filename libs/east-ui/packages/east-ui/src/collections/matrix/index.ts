@@ -20,7 +20,6 @@ import {
     some,
     none,
 } from "@elaraai/east";
-import { encodeHeightOption, encodeMaxHeightOption } from "../sizing.js";
 
 import {
     AlignType,
@@ -469,9 +468,9 @@ export interface MatrixConfig<R extends StructType> {
     /** Density preset (header / row rhythm). */
     density?: SubtypeExprOrValue<DensityType> | DensityLiteral;
     /** Uniform sizing (#320): bound the component — a pixel number, `"fill"` (fill the parent box), or a CSS length; the whole component takes this height and scrolls within. */
-    height?: number | "fill" | SubtypeExprOrValue<StringType>;
+    height?: SubtypeExprOrValue<StringType>;
     /** Uniform sizing (#320): max-height cap — a pixel number or CSS length; content-sized up to it. */
-    maxHeight?: number | SubtypeExprOrValue<StringType>;
+    maxHeight?: SubtypeExprOrValue<StringType>;
     /** Shared plot gutter (#147) — pins the value-grid columns to `[left, W−right]` (px) so the Matrix lines up under a stacked Chart; `left` is the row-header column. Usually supplied by an enclosing `<AlignedStack>`. */
     plotGutter?: PlotGutter;
     /** Cell-click callback. */
@@ -566,8 +565,8 @@ function createMatrix<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
         minLabelSize: cfg.minLabelSize !== undefined ? some(cfg.minLabelSize) : none,
         density,
         plotGutter,
-        height: encodeHeightOption(cfg.height),
-        maxHeight: encodeMaxHeightOption(cfg.maxHeight),
+        height: cfg.height !== undefined ? some(cfg.height) : none,
+        maxHeight: cfg.maxHeight !== undefined ? some(cfg.maxHeight) : none,
         onCellClick: cfg.onCellClick !== undefined ? some(cfg.onCellClick) : none,
         onSegmentClick: cfg.onSegmentClick !== undefined ? some(cfg.onSegmentClick) : none,
         onSegmentChange: cfg.onSegmentChange !== undefined ? some(cfg.onSegmentChange) : none,

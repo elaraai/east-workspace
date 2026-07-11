@@ -4,6 +4,7 @@
  */
 
 import { memo, useMemo } from "react";
+import { parseCssSize } from "../../style/parse-size.js";
 import { Stack as ChakraStack, type StackProps } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Stack } from "@elaraai/east-ui/internal";
@@ -48,8 +49,8 @@ export function toChakraStack(value: StackValue): StackProps {
             overflow: style ? getSomeorUndefined(style.overflow)?.type : undefined,
             overflowX: style ? getSomeorUndefined(style.overflowX)?.type : undefined,
             overflowY: style ? getSomeorUndefined(style.overflowY)?.type : undefined,
-            minWidth: style ? getSomeorUndefined(style.minWidth) : undefined,
-            minHeight: style ? getSomeorUndefined(style.minHeight) : undefined,
+            minWidth: parseCssSize(style ? getSomeorUndefined(style.minWidth) : undefined),
+            minHeight: parseCssSize(style ? getSomeorUndefined(style.minHeight) : undefined),
         },
     });
 
@@ -73,12 +74,12 @@ export function toChakraStack(value: StackValue): StackProps {
         border: style ? getSomeorUndefined(style.border) : undefined,
         borderColor: style ? getSomeorUndefined(style.borderColor) : undefined,
         borderWidth: style ? getSomeorUndefined(style.borderWidth) : undefined,
-        width: style ? getSomeorUndefined(style.width) : undefined,
-        height: style ? getSomeorUndefined(style.height) : undefined,
-        minHeight: style ? getSomeorUndefined(style.minHeight) : undefined,
-        minWidth: style ? getSomeorUndefined(style.minWidth) : undefined,
-        maxHeight: style ? getSomeorUndefined(style.maxHeight) : undefined,
-        maxWidth: style ? getSomeorUndefined(style.maxWidth) : undefined,
+        width: parseCssSize(style ? getSomeorUndefined(style.width) : undefined),
+        height: parseCssSize(style ? getSomeorUndefined(style.height) : undefined),
+        minHeight: parseCssSize(style ? getSomeorUndefined(style.minHeight) : undefined),
+        minWidth: parseCssSize(style ? getSomeorUndefined(style.minWidth) : undefined),
+        maxHeight: parseCssSize(style ? getSomeorUndefined(style.maxHeight) : undefined),
+        maxWidth: parseCssSize(style ? getSomeorUndefined(style.maxWidth) : undefined),
         overflow: style ? getSomeorUndefined(style.overflow)?.type : undefined,
         overflowX: style ? getSomeorUndefined(style.overflowX)?.type : undefined,
         overflowY: style ? getSomeorUndefined(style.overflowY)?.type : undefined,
