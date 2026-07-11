@@ -1,14 +1,14 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1451,
-    "totalFiles": 183,
+    "totalEntries": 1456,
+    "totalFiles": 184,
     "packages": {
       "east": 490,
       "east-node-std": 42,
       "east-node-io": 63,
       "east-py-datascience": 89,
-      "east-ui": 693,
+      "east-ui": 698,
       "e3-ui": 58,
       "e3": 7,
       "e3-ui-cli": 4,
@@ -20554,6 +20554,99 @@
       "source": "// Toggle between a star and heart icon on each click\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const counter = $.let(State.bind([IntegerType], \"icon_counter\", 0n));\n            const value = $.let(counter.read());\n            const isStar = $.let(value.remainder(2n).equal(0n));\n            const display = $.let(isStar.ifElse(\n                () => <Icon prefix=\"fas\" name=\"star\" size=\"2xl\" colorPalette=\"yellow\" />,\n                () => <Icon prefix=\"fas\" name=\"heart\" size=\"2xl\" colorPalette=\"red\" />,\n            ));\n            const inc = $.const(East.function([], NullType, $ => {\n                const cur = $.let(counter.read());\n                $(counter.write(cur.add(1n)));\n            }));\n            return (\n                <HStack gap=\"3\" align=\"center\">\n                    {display}\n                    <Button onClick={inc}>Toggle icon</Button>\n                </HStack>\n            );\n        }}</Reactive>\n    ))"
     },
     {
+      "id": "east-ui:image.examples.tsx:imageLogo",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/display/image.examples.tsx",
+      "suite": "",
+      "test": "A self-contained SVG logo from a data URI — sized by height, object-fit contain, with alt text (an app-shell header lockup)",
+      "keywords": [
+        "Image",
+        "logo",
+        "dataUri",
+        "svg",
+        "fit",
+        "contain",
+        "alt",
+        "header"
+      ],
+      "imports": [
+        "import { East, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { HStack, Image, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// A self-contained SVG logo from a data URI — sized by height, object-fit contain, with alt text (an app-shell header lockup)\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <HStack gap=\"3\" align=\"center\">\n            <Image source={Image.dataUri(LOGO_DATA_URI)} height=\"36px\" fit=\"contain\" alt=\"Acme\" />\n            <Text textStyle=\"body-lg\" fontWeight=\"bold\">Acme Winery</Text>\n        </HStack>\n    ))"
+    },
+    {
+      "id": "east-ui:image.examples.tsx:imageFit",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/display/image.examples.tsx",
+      "suite": "",
+      "test": "object-fit in a fixed 112×64 box — ",
+      "keywords": [
+        "Image",
+        "fit",
+        "objectFit",
+        "contain",
+        "cover",
+        "aspectRatio",
+        "borderRadius",
+        "background"
+      ],
+      "imports": [
+        "import { East, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { HStack, Image, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// object-fit in a fixed 112×64 box — \n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <HStack gap=\"6\" align=\"flex-start\">\n            <VStack gap=\"1\" align=\"center\">\n                <Image source={Image.dataUri(WIDE_DATA_URI)} width=\"112px\" height=\"64px\" fit=\"contain\" borderRadius=\"8px\" background=\"bg.subtle\" alt=\"contain\" />\n                <Text textStyle=\"body-sm\" color=\"fg.muted\">contain</Text>\n            </VStack>\n            <VStack gap=\"1\" align=\"center\">\n                <Image source={Image.dataUri(WIDE_DATA_URI)} width=\"112px\" height=\"64px\" fit=\"cover\" borderRadius=\"8px\" alt=\"cover\" />\n                <Text textStyle=\"body-sm\" color=\"fg.muted\">cover</Text>\n            </VStack>\n        </HStack>\n    ))"
+    },
+    {
+      "id": "east-ui:image.examples.tsx:imageBlob",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/display/image.examples.tsx",
+      "suite": "",
+      "test": "An embedded image from raw bytes — Image.blob(bytes, \\",
+      "keywords": [
+        "Image",
+        "blob",
+        "BlobType",
+        "bytes",
+        "format",
+        "svg",
+        "embed",
+        "self-contained"
+      ],
+      "imports": [
+        "import { East, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { HStack, Image, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// An embedded image from raw bytes — Image.blob(bytes, \\\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Image source={Image.blob(LOGO_BYTES, \"svg\")} height=\"48px\" fit=\"contain\" alt=\"embedded logo\" />\n    ))"
+    },
+    {
+      "id": "east-ui:image.examples.tsx:imageUrl",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/display/image.examples.tsx",
+      "suite": "",
+      "test": "A hosted image referenced by URL (not self-contained — the value doesn",
+      "keywords": [
+        "Image",
+        "url",
+        "hosted",
+        "external",
+        "src"
+      ],
+      "imports": [
+        "import { East, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { HStack, Image, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// A hosted image referenced by URL (not self-contained — the value doesn\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Image source={Image.url(\"https://example.com/logo.svg\")} height=\"36px\" fit=\"contain\" alt=\"hosted logo\" />\n    ))"
+    },
+    {
       "id": "east-ui:kbd.examples.tsx:kbdSingle",
       "skill": "east-ui",
       "package": "east-ui",
@@ -25231,6 +25324,29 @@
         "import { Breadcrumb, VStack, Text, Reactive } from \"@elaraai/east-ui\";"
       ],
       "source": "// Breadcrumb pinned to a run via a trailing run anchor\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Breadcrumb\n                items={[\n                    { label: \"SE region\", current: none, onClick: none },\n                    { label: \"wk of Sep 16\", current: none, onClick: none },\n                    { label: \"Roster builder\", current: some(true), onClick: none },\n                ]}\n                runAnchor=\"run #42\"\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:breadcrumb.examples.tsx:breadcrumbLeadingSeparator",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/navigation/breadcrumb.examples.tsx",
+      "suite": "",
+      "test": "Path-style breadcrumb — a leading ",
+      "keywords": [
+        "Breadcrumb",
+        "Root",
+        "leadingSeparator",
+        "path",
+        "leading",
+        "separator",
+        "e3-cloud"
+      ],
+      "imports": [
+        "import { East, NullType, StringType, example, some, none } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Breadcrumb, VStack, Text, Reactive } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Path-style breadcrumb — a leading \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Breadcrumb\n                items={[\n                    { label: \"workspace\", current: none, onClick: none },\n                    { label: \"roster\", current: none, onClick: none },\n                    { label: \"wk of Sep 16\", current: some(true), onClick: none },\n                ]}\n                leadingSeparator={true}\n            />\n        );\n    })"
     },
     {
       "id": "east-ui:breadcrumb.examples.tsx:breadcrumbInteractive",

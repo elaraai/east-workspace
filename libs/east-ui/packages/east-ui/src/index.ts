@@ -104,7 +104,7 @@ export type {
 } from "./navigation/index.js";
 
 // Display
-export { Badge, Tag, Avatar, Stat, Icon, MetricChip, EditableChip, Kbd, Meter, SegmentedMeter, BarStrip, AvatarGroup, Trace, ChipRail } from "./runtime/display/index.js";
+export { Badge, Tag, Avatar, Image, Stat, Icon, MetricChip, EditableChip, Kbd, Meter, SegmentedMeter, BarStrip, AvatarGroup, Trace, ChipRail } from "./runtime/display/index.js";
 export type { IconName } from "./display/index.js";
 
 // Containers

@@ -103,6 +103,7 @@ import { NavListType } from "./navigation/nav-list/types.js";
 import { BadgeType } from "./display/badge/types.js";
 import { TagType } from "./display/tag/types.js";
 import { AvatarType } from "./display/avatar/types.js";
+import { ImageType } from "./display/image/types.js";
 import { MetricChipToneType, MetricChipStyleType } from "./display/metric-chip/types.js";
 import { EditableChipStyleType } from "./display/editable-chip/types.js";
 import { KbdType } from "./display/kbd/types.js";
@@ -272,6 +273,7 @@ import { HotkeyType } from "./platform/hotkey/types.js";
  * @property Badge - Badge component for labels and counts (leaf)
  * @property Tag - Tag component for categorization (leaf)
  * @property Avatar - Avatar component for user images (leaf)
+ * @property Image - Image / logo component; url / dataUri / blob source with fit + aspect-ratio (leaf)
  * @property Card - Card component for content containers (container with body)
  * @property Stat - Stat component for metric display (leaf)
  * @property DataList - DataList component for label-value pairs (leaf)
@@ -546,6 +548,7 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
     Badge: BadgeType,
     Tag: TagType,
     Avatar: AvatarType,
+    Image: ImageType,
     Stat: StructType({
         label: StringType,
         value: LiteralValueType,

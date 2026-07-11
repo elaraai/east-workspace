@@ -68,12 +68,13 @@ const EastChakraBreadcrumbItem = memo(function EastChakraBreadcrumbItem({ value 
 export const EastChakraBreadcrumb = memo(function EastChakraBreadcrumb({ value }: EastChakraBreadcrumbProps) {
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
     const runAnchor = useMemo(() => (style ? getSomeorUndefined(style.runAnchor) : undefined), [style]);
+    const leadingSeparator = style ? (getSomeorUndefined(style.leadingSeparator) ?? false) : false;
     return (
         <ChakraBreadcrumb.Root>
             <ChakraBreadcrumb.List>
                 {value.items.map((item, index) => (
                     <Fragment key={index}>
-                        {index > 0 && <ChakraBreadcrumb.Separator>/</ChakraBreadcrumb.Separator>}
+                        {(index > 0 || leadingSeparator) && <ChakraBreadcrumb.Separator>/</ChakraBreadcrumb.Separator>}
                         <EastChakraBreadcrumbItem value={item} />
                     </Fragment>
                 ))}

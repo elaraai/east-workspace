@@ -45,9 +45,12 @@ export type BreadcrumbItemType = typeof BreadcrumbItemType;
  *
  * @property runAnchor - Optional trailing run anchor text (e.g. `run #42`),
  *   rendered after a vertical rule to pin the crumb to a specific run
+ * @property leadingSeparator - Render a separator before the first item too, so
+ *   the trail reads as a path (`/ workspace / page`) — the e3-cloud / bsys style
  */
 export const BreadcrumbStyleType = StructType({
     runAnchor: OptionType(StringType),
+    leadingSeparator: OptionType(BooleanType),
 });
 
 /** Type alias for the Breadcrumb style struct. */
@@ -77,8 +80,11 @@ export type BreadcrumbRootType = typeof BreadcrumbRootType;
  * TypeScript interface for Breadcrumb style options.
  *
  * @property runAnchor - Optional trailing run anchor text (e.g. `run #42`)
+ * @property leadingSeparator - Render a separator before the first item (path style)
  */
 export interface BreadcrumbStyle {
     /** Optional trailing run anchor text (e.g. `run #42`), pinned after a vertical rule. */
     runAnchor?: SubtypeExprOrValue<StringType>;
+    /** Render a separator before the first item too, so the trail reads as a path (`/ workspace / page`). */
+    leadingSeparator?: SubtypeExprOrValue<BooleanType>;
 }

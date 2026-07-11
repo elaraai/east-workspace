@@ -40,6 +40,24 @@ export const breadcrumbRunAnchor = example({
     inputs: [],
 });
 
+export const breadcrumbLeadingSeparator = example({
+    keywords: ["Breadcrumb", "Root", "leadingSeparator", "path", "leading", "separator", "e3-cloud"],
+    description: "Path-style breadcrumb — a leading '/' before the first item, so the trail reads as a path (`/ workspace / roster / …`)",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <Breadcrumb
+                items={[
+                    { label: "workspace", current: none, onClick: none },
+                    { label: "roster", current: none, onClick: none },
+                    { label: "wk of Sep 16", current: some(true), onClick: none },
+                ]}
+                leadingSeparator={true}
+            />
+        );
+    }),
+    inputs: [],
+});
+
 export const breadcrumbInteractive = example({
     keywords: ["Breadcrumb", "Root", "Reactive", "State", "onClick", "interactive"],
     description: "Click items to navigate - uses Reactive.Root to display current page",
