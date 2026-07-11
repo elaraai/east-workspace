@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Box, Popover, Portal, Tooltip, useSlotRecipe } from "@chakra-ui/react";
 import {
     useReactTable, getCoreRowModel, createColumnHelper,
@@ -17,7 +17,7 @@ import {
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Matrix } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
-import { SizedScrollFrame } from "../sizing.js";
+import { VirtualRows } from "../virtual-rows.js";
 import { usePersistedState } from "../../hooks/usePersistedState";
 import { EastChakraComponent } from "../../component";
 import {
@@ -470,9 +470,7 @@ export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageK
         return out;
     }, [value.rows]);
 
-    const matrixContent = (
-        <Box css={base.root} {...(gutterActive ? { width: "100%" } : {})}>
-            {/* Header: the row-header column header (corner) + the column axis. */}
+    const headerNode = (
             <Box css={base.header} data-slot="header" display="grid" gridTemplateColumns={outerCols} minWidth={outerMinWidth} height={`${headerH}px`}>
                 <Box css={stickyLeftHeader} display="flex" width="100%" style={effectiveSizeVars}>
                     {headerCells.map((header) => (
@@ -510,16 +508,31 @@ export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageK
                     stops there). */}
                 {gutterActive && <Box data-slot="headerGutter" aria-hidden="true" background="bg.surface" />}
             </Box>
+    );
 
-            {/* Body: group-head rows + data rows. */}
-            {groups.map((group, gi) => (
-                <Box key={gi}>
-                    {group.label !== undefined && (
-                        <Box css={base.groupHead} data-slot="groupHead" minWidth={outerMinWidth} display="grid" gridTemplateColumns={outerCols}>
-                            <Box css={{ ...stickyLeft, ...base.groupHeadCell, background: "bg.panel" }} data-slot="groupHeadCell">{group.label}</Box>
-                        </Box>
-                    )}
-                    {group.rows.map(({ row, index }) => (
+    // Flat virtual-row list: each group head and each data row is one item, so
+    // the shared VirtualRows frame mounts only what's visible when bounded (#320).
+    type MatrixVItem =
+        | { kind: "groupHead"; label: string }
+        | { kind: "row"; row: MatrixRowValue; index: number };
+    const flatRows: MatrixVItem[] = [];
+    for (const group of groups) {
+        if (group.label !== undefined) flatRows.push({ kind: "groupHead", label: group.label });
+        for (const r of group.rows) flatRows.push({ kind: "row", row: r.row, index: r.index });
+    }
+
+    const renderRow = (i: number): ReactNode => {
+        const item = flatRows[i];
+        if (item === undefined) return null;
+        if (item.kind === "groupHead") {
+            return (
+                <Box css={base.groupHead} data-slot="groupHead" minWidth={outerMinWidth} display="grid" gridTemplateColumns={outerCols}>
+                    <Box css={{ ...stickyLeft, ...base.groupHeadCell, background: "bg.panel" }} data-slot="groupHeadCell">{item.label}</Box>
+                </Box>
+            );
+        }
+        const { row, index } = item;
+        return (
                         <Box
                             key={index}
                             css={base.row}
@@ -587,14 +600,13 @@ export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageK
                                 })}
                             </Box>
                         </Box>
-                    ))}
-                </Box>
-            ))}
+        );
+    };
 
-            {/* Legend — reuses the Slice.Legend rail + item slots (one swatch ·
-                label chip per declared fill), so it reads like a Slice breakdown
-                legend. The grid's last-row rule already separates it above. */}
-            {legendEntries && legendEntries.length > 0 && (
+    // Legend — reuses the Slice.Legend rail + item slots (one swatch · label
+    // chip per declared fill), so it reads like a Slice breakdown legend. It
+    // trails the rows (scrolls with the body) via the frame's footer slot.
+    const footerNode = (legendEntries && legendEntries.length > 0) ? (
                 <Box css={sliceStyles.legendRail} data-slot="legend" borderTopWidth="1px" borderTopColor="border.subtle">
                     {legendEntries.map((entry, li) => {
                         const fill = entry.fill.type as FillKey;
@@ -618,19 +630,27 @@ export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageK
                         );
                     })}
                 </Box>
-            )}
-        </Box>
+    ) : undefined;
+
+    // Uniform sizing contract (#320) — bound the whole matrix; it scrolls
+    // within, mounting only the visible rows via the shared VirtualRows frame.
+    const frame = (
+        <VirtualRows
+            height={getSomeorUndefined(value.height)}
+            maxHeight={getSomeorUndefined(value.maxHeight)}
+            header={headerNode}
+            footer={footerNode}
+            count={flatRows.length}
+            estimateSize={(i) => (flatRows[i]?.kind === "groupHead" ? headerH : rowH)}
+            renderRow={renderRow}
+            minWidth={outerMinWidth}
+            rootCss={{ ...base.root, ...(gutterActive ? { width: "100%" } : {}) }}
+        />
     );
 
-    // A density set on the matrix cascades to display components rendered in
-    // its cells, matching the Table behaviour.
-    const inner = densityTag !== undefined
-        ? <DensityProvider value={densityTag}>{matrixContent}</DensityProvider>
-        : matrixContent;
-    // Uniform sizing contract (#320) — bound the whole matrix; it scrolls within.
-    return (
-        <SizedScrollFrame height={getSomeorUndefined(value.height)} maxHeight={getSomeorUndefined(value.maxHeight)}>
-            {inner}
-        </SizedScrollFrame>
-    );
+    // A density set on the matrix cascades to display components rendered in its
+    // cells, matching the Table behaviour.
+    return densityTag !== undefined
+        ? <DensityProvider value={densityTag}>{frame}</DensityProvider>
+        : frame;
 }, (prev, next) => matrixRootEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
