@@ -97,6 +97,30 @@ describeEast("FileSystem platform functions", (test) => {
         $(Assert.equal(exists, false));
     });
 
+    // OS failures must be loud (#64) — a missing/unreadable file previously
+    // returned an empty value from the east-c runner (and a failed write was
+    // a silent no-op). These cases replay against every runner via the
+    // compliance suite, pinning cross-runtime parity of the error behaviour.
+    test("readFile of a missing path throws", $ => {
+        $(Assert.throws(FileSystem.readFile("/definitely/does/not/exist-64.txt"), /Failed to read file/));
+    });
+
+    test("readFileBytes of a missing path throws", $ => {
+        $(Assert.throws(FileSystem.readFileBytes("/definitely/does/not/exist-64.bin"), /Failed to read file bytes/));
+    });
+
+    test("writeFile into a missing directory throws", $ => {
+        $(Assert.throws(FileSystem.writeFile("/definitely/does/not/exist-64/out.txt", "content"), /Failed to write file/));
+    });
+
+    test("appendFile into a missing directory throws", $ => {
+        $(Assert.throws(FileSystem.appendFile("/definitely/does/not/exist-64/out.txt", "content"), /Failed to append to file/));
+    });
+
+    test("writeFileBytes into a missing directory throws", $ => {
+        $(Assert.throws(FileSystem.writeFileBytes("/definitely/does/not/exist-64/out.bin", new Uint8Array([1])), /Failed to write file bytes/));
+    });
+
     test("writeFileBytes and readFileBytes work with binary data", $ => {
         const path = $.let(East.value(join(tmpdir(), "binary.dat")));
         const data = $.let(new Uint8Array([0, 1, 2, 255]));

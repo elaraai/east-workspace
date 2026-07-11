@@ -21,6 +21,21 @@
 #endif
 #include <errno.h>
 
+/*
+ * OS failures must be LOUD (#64): a missing/unreadable file previously
+ * returned an empty value and a failed write was a silent no-op, so the
+ * real failure surfaced far downstream (or as data loss). Every failure
+ * path now returns an eval error carrying the action, path and errno
+ * detail — message shape matches the east-node-std runtime
+ * ("Failed to read file <path>: <detail>") so runners agree.
+ */
+static EvalResult fs_error(const char *action, const char *path, const char *detail)
+{
+    char msg[1024];
+    snprintf(msg, sizeof msg, "Failed to %s %s: %s", action, path, detail);
+    return eval_error(msg);
+}
+
 static EvalResult fs_read_file(EastValue **args, size_t num_args, EastType **input_types,
                                size_t num_input_types, EastType *output_type)
 {
@@ -29,7 +44,7 @@ static EvalResult fs_read_file(EastValue **args, size_t num_args, EastType **inp
 
     FILE *f = fopen(path, "rb");
     if (!f) {
-        return eval_ok(east_string(""));
+        return fs_error("read file", path, strerror(errno));
     }
 
     fseek(f, 0, SEEK_END);
@@ -38,17 +53,21 @@ static EvalResult fs_read_file(EastValue **args, size_t num_args, EastType **inp
 
     if (size < 0) {
         fclose(f);
-        return eval_ok(east_string(""));
+        return fs_error("read file", path, strerror(errno));
     }
 
     char *buf = malloc((size_t)size + 1);
     if (!buf) {
         fclose(f);
-        return eval_ok(east_string(""));
+        return fs_error("read file", path, "out of memory");
     }
 
     size_t read_bytes = fread(buf, 1, (size_t)size, f);
     fclose(f);
+    if (read_bytes != (size_t)size) {
+        free(buf);
+        return fs_error("read file", path, "short read");
+    }
 
     buf[read_bytes] = '\0';
     EastValue *result = east_string_len(buf, read_bytes);
@@ -67,9 +86,12 @@ static EvalResult fs_write_file(EastValue **args, size_t num_args, EastType **in
     /* Binary mode: East strings are byte-exact, so no \n -> \r\n translation
      * (Windows text mode would corrupt the round-trip against the "rb" read). */
     FILE *f = fopen(path, "wb");
-    if (f) {
-        fwrite(content, 1, len, f);
-        fclose(f);
+    if (!f) {
+        return fs_error("write file", path, strerror(errno));
+    }
+    size_t written = fwrite(content, 1, len, f);
+    if (fclose(f) != 0 || written != len) {
+        return fs_error("write file", path, written != len ? "short write" : strerror(errno));
     }
     return eval_ok(east_null());
 }
@@ -83,9 +105,12 @@ static EvalResult fs_append_file(EastValue **args, size_t num_args, EastType **i
     size_t len = args[1]->data.string.len;
 
     FILE *f = fopen(path, "ab");
-    if (f) {
-        fwrite(content, 1, len, f);
-        fclose(f);
+    if (!f) {
+        return fs_error("append to file", path, strerror(errno));
+    }
+    size_t written = fwrite(content, 1, len, f);
+    if (fclose(f) != 0 || written != len) {
+        return fs_error("append to file", path, written != len ? "short write" : strerror(errno));
     }
     return eval_ok(east_null());
 }
@@ -194,7 +219,7 @@ static EvalResult fs_read_file_bytes(EastValue **args, size_t num_args, EastType
 
     FILE *f = fopen(path, "rb");
     if (!f) {
-        return eval_ok(east_blob(NULL, 0));
+        return fs_error("read file bytes", path, strerror(errno));
     }
 
     fseek(f, 0, SEEK_END);
@@ -203,17 +228,22 @@ static EvalResult fs_read_file_bytes(EastValue **args, size_t num_args, EastType
 
     if (size < 0) {
         fclose(f);
-        return eval_ok(east_blob(NULL, 0));
+        return fs_error("read file bytes", path, strerror(errno));
     }
 
-    uint8_t *buf = malloc((size_t)size);
-    if (!buf) {
+    /* A zero-byte file needs no buffer — malloc(0) may legally return NULL. */
+    uint8_t *buf = size > 0 ? malloc((size_t)size) : NULL;
+    if (size > 0 && !buf) {
         fclose(f);
-        return eval_ok(east_blob(NULL, 0));
+        return fs_error("read file bytes", path, "out of memory");
     }
 
     size_t read_bytes = fread(buf, 1, (size_t)size, f);
     fclose(f);
+    if (read_bytes != (size_t)size) {
+        free(buf);
+        return fs_error("read file bytes", path, "short read");
+    }
 
     EastValue *result = east_blob(buf, read_bytes);
     free(buf);
@@ -229,9 +259,12 @@ static EvalResult fs_write_file_bytes(EastValue **args, size_t num_args, EastTyp
     size_t len = args[1]->data.blob.len;
 
     FILE *f = fopen(path, "wb");
-    if (f) {
-        fwrite(data, 1, len, f);
-        fclose(f);
+    if (!f) {
+        return fs_error("write file bytes", path, strerror(errno));
+    }
+    size_t written = fwrite(data, 1, len, f);
+    if (fclose(f) != 0 || written != len) {
+        return fs_error("write file bytes", path, written != len ? "short write" : strerror(errno));
     }
     return eval_ok(east_null());
 }
