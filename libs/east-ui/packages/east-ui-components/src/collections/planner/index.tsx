@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Box, HoverCard, Popover, Portal, Tooltip, useSlotRecipe } from "@chakra-ui/react";
 import {
     useReactTable, getCoreRowModel, createColumnHelper,
@@ -20,6 +20,7 @@ import { Planner } from "@elaraai/east-ui/internal";
 import { formatDatePattern } from "../../charts/spec";
 import { getSomeorUndefined } from "../../utils";
 import { parseCssSize } from "../../style/parse-size.js";
+import { VirtualRows } from "../virtual-rows.js";
 import { usePersistedState } from "../../hooks/usePersistedState";
 import { EastChakraComponent } from "../../component";
 import {
@@ -490,8 +491,9 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
     // the parent); like `maxHeight` it flips the `scroll` variant (header pinned,
     // body scrolls) and is applied inline on the root below.
     const height = parseCssSize(getSomeorUndefined(value.height));
-    const sizeBounded = maxHeight !== undefined || height !== undefined;
-    const base = useMemo(() => recipe({ size, rowHover: rowHoverOn, scroll: sizeBounded } as Record<string, unknown>) as unknown as RecipeStyles, [recipe, size, rowHoverOn, sizeBounded]);
+    // Scroll + sticky header are owned by the shared VirtualRows frame now, so
+    // the recipe `scroll` variant stays off (#320).
+    const base = useMemo(() => recipe({ size, rowHover: rowHoverOn, scroll: false } as Record<string, unknown>) as unknown as RecipeStyles, [recipe, size, rowHoverOn]);
     // Header cells reuse the shared `table` columnHeader chrome (solid wash +
     // strong bottom rule) — one source across Table / Gantt / Planner / Matrix.
     const headerCellStyle = useMemo(() => (tableRecipe({ size }) as unknown as RecipeStyles).columnHeader ?? {}, [tableRecipe, size]);
@@ -909,9 +911,7 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
         });
     };
 
-    const plannerContent = (
-        <Box css={sizeBounded ? { ...base.root, ...(maxHeight !== undefined ? { maxHeight } : {}), ...(height !== undefined ? { height, minHeight: 0 } : {}) } : base.root} {...(gutterActive ? { width: "100%" } : {})}>
-            {/* Header: left data-column headers (Table chrome) + right slot axis. */}
+    const headerNode = (
             <Box css={base.header} data-slot="header" display="grid" gridTemplateColumns={outerCols} minWidth={outerMinWidth} height={`${headerH}px`}>
                 <Box css={stickyLeftHeader} display="flex" width="100%" style={effectiveSizeVars}>
                     {headerCells.map((header) => (
@@ -960,28 +960,42 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
                     with the column cells (whose bottom rule already stops there). */}
                 {gutterActive && <Box data-slot="headerGutter" aria-hidden="true" background="bg.surface" />}
             </Box>
+    );
 
-            {/* Body: group-head rows + data rows. */}
-            {groups.map((group, gi) => (
-                <Box key={gi}>
-                    {group.label !== undefined && (
-                        <Box css={base.groupHead} data-slot="groupHead" minWidth={outerMinWidth} display="grid" gridTemplateColumns={outerCols}>
-                            <Box css={{ ...stickyLeft, ...base.groupHeadCell, background: "bg.panel" }} data-slot="groupHeadCell">{group.label}</Box>
-                        </Box>
-                    )}
-                    {group.rows.map(({ row: rowBase, index }) => {
-                        // Optimistic drops (#269) — locally-added proposed tiles
-                        // merge into the row until the value prop reconciles.
-                        const rowAdds = localAdds.get(index);
-                        const row = rowAdds !== undefined && rowAdds.length > 0
-                            ? { ...rowBase, events: [...rowBase.events, ...rowAdds] }
-                            : rowBase;
-                        const rowStatusTag = hasReview ? getSomeorUndefined(row.status)?.type : undefined;
-                        // Per-cell bucketing (#120 item 6) — each cell decides flat
-                        // vs sub-grid independently; `needsNA` adds the orphan lane
-                        // to this row's bucketed cells when a same-cell mix exists.
-                        const needsNA = rowNeedsNA.has(index);
-                        return (
+    // Flat virtual-row list: each group head and each data row is one item, so
+    // the shared VirtualRows frame mounts only what's visible when bounded (#320).
+    type PlannerVItem =
+        | { kind: "groupHead"; label: string }
+        | { kind: "row"; rowBase: PlannerRowValue; index: number };
+    const flatRows: PlannerVItem[] = [];
+    for (const group of groups) {
+        if (group.label !== undefined) flatRows.push({ kind: "groupHead", label: group.label });
+        for (const r of group.rows) flatRows.push({ kind: "row", rowBase: r.row, index: r.index });
+    }
+
+    const renderRow = (i: number): ReactNode => {
+        const item = flatRows[i];
+        if (item === undefined) return null;
+        if (item.kind === "groupHead") {
+            return (
+                <Box css={base.groupHead} data-slot="groupHead" minWidth={outerMinWidth} display="grid" gridTemplateColumns={outerCols}>
+                    <Box css={{ ...stickyLeft, ...base.groupHeadCell, background: "bg.panel" }} data-slot="groupHeadCell">{item.label}</Box>
+                </Box>
+            );
+        }
+        const { rowBase, index } = item;
+        // Optimistic drops (#269) — locally-added proposed tiles merge into the
+        // row until the value prop reconciles.
+        const rowAdds = localAdds.get(index);
+        const row = rowAdds !== undefined && rowAdds.length > 0
+            ? { ...rowBase, events: [...rowBase.events, ...rowAdds] }
+            : rowBase;
+        const rowStatusTag = hasReview ? getSomeorUndefined(row.status)?.type : undefined;
+        // Per-cell bucketing (#120 item 6) — each cell decides flat vs sub-grid
+        // independently; `needsNA` adds the orphan lane to this row's bucketed
+        // cells when a same-cell mix exists.
+        const needsNA = rowNeedsNA.has(index);
+        return (
                         <Box
                             key={index}
                             css={base.row}
@@ -1139,11 +1153,25 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
                                 </Box>
                             )}
                         </Box>
-                        );
-                    })}
-                </Box>
-            ))}
-        </Box>
+        );
+    };
+
+    // Uniform sizing contract (#320) — bound the plan; it scrolls within,
+    // mounting only the visible rows via the shared VirtualRows frame. The
+    // header pins above the event/marker overlays (zIndex 5, matching the old
+    // recipe `scroll` variant).
+    const plannerContent = (
+        <VirtualRows
+            height={height}
+            maxHeight={maxHeight}
+            header={headerNode}
+            count={flatRows.length}
+            estimateSize={(i) => (flatRows[i]?.kind === "groupHead" ? headerH : unitH)}
+            renderRow={renderRow}
+            minWidth={outerMinWidth}
+            headerZIndex={5}
+            rootCss={{ ...base.root, ...(gutterActive ? { width: "100%" } : {}) }}
+        />
     );
 
     // The batch foot is the shared `ReviewFoot` on the `commitBar` recipe (the
