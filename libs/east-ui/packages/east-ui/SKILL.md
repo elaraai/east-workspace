@@ -347,6 +347,23 @@ A `<Card>` given `height` / `maxHeight` becomes a flex column that constrains
 its body, so a single `height="fill"` child (a data component, a scroll region)
 resolves against it.
 
+Caveats that save a render cycle:
+
+- **`"fill"` / percentages need a definite parent.** `height="fill"` resolves
+  against the nearest box with a real height (a sized `<Box>`/`<Card>`, a flex
+  item with `fill`, a Drawer `fillBody`). Inside a content-sized parent it
+  silently resolves to auto — bound the parent, don't add pixels to the child.
+- **`height` vs `maxHeight`**: `height` pins the component to exactly that box
+  (header pinned, body scrolls); `maxHeight` stays content-sized UP TO the cap,
+  then scrolls. Bounded data components virtualize (only visible rows mount)
+  and show a reserved-gutter scrollbar; unbounded ones grow to content.
+- **A definite `height`/`width` on Box/Flex/Stack also pins `flex-shrink: 0`**
+  (a sized box no longer collapses under flex pressure) — opt back in with
+  `flexShrink` if you want it squeezable.
+- **Bare numbers are pixels, not Chakra spacing tokens** — `width="8"` is 8px.
+  `gap` / `padding` / `margin` keep token semantics (`gap="4"` is a spacing
+  token, not 4px).
+
 ### Row groups — a nested P&L in one Table (#317)
 
 `groupBy` folds flat statement lines into nested, collapsible group header
