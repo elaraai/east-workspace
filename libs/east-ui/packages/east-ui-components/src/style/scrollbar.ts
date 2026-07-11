@@ -6,7 +6,9 @@
 /**
  * Reserved-gutter scrollbar styling shared by the virtual-scroll data
  * components (Table / Gantt / Library / Planner / Matrix / Board / Roster /
- * Calendar). Spread onto the scroll element's `css` prop (#320).
+ * Calendar). Spread onto the scroll element's `css` prop — only when the
+ * component is actually bounded (a definite `height` / `maxHeight`), so
+ * content-sized components don't reserve a dead gutter (#320).
  *
  * Two problems it solves at once:
  *
@@ -14,20 +16,29 @@
  *    *overlay* scrollbar, which never paints until the user hovers/scrolls —
  *    so a height-bounded component gives no "there's more" signal (and shows
  *    nothing in a static snapshot). Declaring `::-webkit-scrollbar` switches
- *    Chromium to a classic, always-rendered bar; the Firefox `scrollbar-*`
- *    pair mirrors it.
+ *    Chromium to a classic, always-rendered bar that also paints in headless
+ *    screenshots.
  * 2. **No layout shift.** `scrollbar-gutter: stable` reserves the gutter
  *    whether or not the bar is present, so content width doesn't jump when a
  *    virtualizer's total size crosses the scroll threshold.
+ *
+ * The standard `scrollbar-width` / `scrollbar-color` pair is scoped to a
+ * Firefox-only `@supports (-moz-appearance: none)` block: Chromium ≥121 also
+ * implements the standard properties, and setting them there DISABLES all
+ * `::-webkit-scrollbar` styling — declared unscoped, the pair silently
+ * replaces the styled 12px pill with a bare thin native bar.
  *
  * Colours come from the `overlay.scrollThumb` / `overlay.scrollTrack` theme
  * tokens (the same thumb the styled `ScrollArea` uses), never raw hex.
  */
 export const virtualScrollbarCss = {
     scrollbarGutter: "stable",
-    // Firefox
-    scrollbarWidth: "thin",
-    scrollbarColor: "var(--chakra-colors-overlay-scroll-thumb) var(--chakra-colors-overlay-scroll-track)",
+    // Firefox only — it has no ::-webkit-scrollbar support; the @supports
+    // gate keeps these properties away from Chromium (see note above).
+    "@supports (-moz-appearance: none)": {
+        scrollbarWidth: "thin",
+        scrollbarColor: "var(--chakra-colors-overlay-scroll-thumb) var(--chakra-colors-overlay-scroll-track)",
+    },
     // WebKit / Blink — declaring these forces a classic (non-overlay) bar that
     // is always rendered while the element is scrollable.
     "&::-webkit-scrollbar": { width: "12px", height: "12px" },
@@ -39,6 +50,33 @@ export const virtualScrollbarCss = {
         borderRadius: "6px",
         // A transparent border + padding-box clip insets the thumb so it reads
         // as a rounded pill inside the 12px gutter rather than edge-to-edge.
+        border: "3px solid transparent",
+        backgroundClip: "padding-box",
+    },
+    "&::-webkit-scrollbar-corner": { background: "transparent" },
+} as const;
+
+/**
+ * Scrollbar styling for the LEFT pane of a vertically scroll-synced pane pair
+ * (the Gantt's data-table pane beside its timeline pane). The pane hides only
+ * its **vertical** bar — the synced timeline pane carries the single visible
+ * vertical bar for the pair — while its **horizontal** bar stays visible and
+ * styled, because nothing else can scroll that pane's own x-overflow (frozen
+ * columns wider than the pane, #320/#323 review).
+ *
+ * Vertical-only hiding needs `::-webkit-scrollbar:vertical`; the standard
+ * `scrollbar-width: none` would hide both axes, so Firefox keeps its native
+ * bars here (functional, just unstyled).
+ */
+export const syncedPaneScrollbarCss = {
+    "&::-webkit-scrollbar": { width: "12px", height: "12px" },
+    "&::-webkit-scrollbar:vertical": { display: "none" },
+    "&::-webkit-scrollbar-track": {
+        background: "var(--chakra-colors-overlay-scroll-track)",
+    },
+    "&::-webkit-scrollbar-thumb": {
+        background: "var(--chakra-colors-overlay-scroll-thumb)",
+        borderRadius: "6px",
         border: "3px solid transparent",
         backgroundClip: "padding-box",
     },

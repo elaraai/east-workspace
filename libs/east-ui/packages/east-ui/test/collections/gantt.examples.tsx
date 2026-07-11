@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { BooleanType, East, DateTimeType, IntegerType, NullType, StringType, none, some, variant, example } from "@elaraai/east";
 import { DragEventType, State, Style, UIComponentType } from "@elaraai/east-ui";
-import { Card, Badge, Gantt, Library, Reactive, Table, Text, VStack } from "@elaraai/east-ui";
+import { Badge, Box, Gantt, Library, Reactive, Table, Text, VStack } from "@elaraai/east-ui";
 
 export const ganttBasic = example({
     keywords: ["Gantt", "Root", "Task", "basic", "timeline"],
@@ -728,32 +728,28 @@ export const ganttRichLabel = example({
 
 
 export const ganttFill = example({
-    keywords: ["Gantt", "fill", "height", "Card", "scroll", "sizing", "#320"],
-    description: "height=\"fill\" (#320) — the gantt fills a fixed 180px Card body and scrolls within it; eight rows overflow so it clips mid-row with the header pinned",
+    keywords: ["Gantt", "fill", "height", "Box", "scroll", "virtual", "sizing", "#320"],
+    description: "height=\"fill\" (#320) — the gantt fills a fixed 220px Box and scrolls within it; two hundred rows overflow the box so only the visible rows mount, with the header pinned",
     fn: East.function([], UIComponentType, (_$) => {
         return (
-            <Card height="180px">
+            <Box height="220px">
                 <Gantt
                     variant="line"
                     striped={true}
                     height="fill"
-                    data={[
-                        { id: "#1", task: "Planning", start: new Date("2024-01-01"), end: new Date("2024-01-15") },
-                        { id: "#2", task: "Design", start: new Date("2024-01-10"), end: new Date("2024-02-01") },
-                        { id: "#3", task: "Development", start: new Date("2024-01-20"), end: new Date("2024-03-15") },
-                        { id: "#4", task: "Testing", start: new Date("2024-03-01"), end: new Date("2024-03-30") },
-                        { id: "#5", task: "Deployment", start: new Date("2024-03-20"), end: new Date("2024-04-15") },
-                        { id: "#6", task: "Review", start: new Date("2024-04-01"), end: new Date("2024-04-20") },
-                        { id: "#7", task: "Launch", start: new Date("2024-04-15"), end: new Date("2024-05-01") },
-                        { id: "#8", task: "Retro", start: new Date("2024-05-01"), end: new Date("2024-05-10") },
-                    ]}
+                    data={East.Array.range(0n, 200n).map((_$, i) => ({
+                        id: East.str`#${i}`,
+                        task: East.str`Task ${i}`,
+                        start: East.value(new Date("2024-01-01T00:00:00Z")).addDays(i.multiply(3n)),
+                        end: East.value(new Date("2024-01-01T00:00:00Z")).addDays(i.multiply(3n).add(14n)),
+                    }))}
                     columns={{
                         id: { header: "ID", width: "80px" },
                         task: { header: "Task", width: "150px" },
                     }}
                     rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
                 />
-            </Card>
+            </Box>
         );
     }),
     inputs: [],

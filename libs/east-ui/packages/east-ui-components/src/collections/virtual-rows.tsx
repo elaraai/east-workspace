@@ -10,19 +10,25 @@
  * through this one helper so they all bound, scroll and virtualize identically
  * (#320).
  *
- * Two modes, chosen by whether a definite `height` / `maxHeight` is set:
+ * Two modes, chosen by whether a definite `height` / `maxHeight` (or
+ * `fillParent`) is set:
  *
- * - **Unbounded** (neither set) — the historical grow-to-content behaviour:
+ * - **Unbounded** (none set) — the historical grow-to-content behaviour:
  *   the header and every row render in normal flow, no scroll container, no
- *   virtualization. Byte-for-byte the previous output, so content-sized
- *   examples and snapshots are unchanged.
+ *   virtualization, so content-sized examples and snapshots are unchanged.
  * - **Bounded** — the frame becomes the virtualizer's scroll element at the
  *   parsed height / maxHeight (reserved-gutter scrollbar via
- *   {@link virtualScrollbarCss}); the header pins (`position: sticky`) and only
- *   the visible rows (+ overscan) are mounted, positioned by `translateY`.
+ *   {@link virtualScrollbarCss}); the header pins (`position: sticky`, opaque
+ *   `bg.surface` so rows never paint through it) and only the visible rows
+ *   (+ overscan) are mounted, positioned by `translateY`.
+ *
+ * The virtualizer's window is measured from the scroll element's origin, but
+ * the rows start BELOW the in-flow sticky header — `scrollMargin` (the items
+ * container's `offsetTop`) corrects the window so the visible range is not
+ * offset by the header height.
  */
 
-import { Fragment, useRef, type ReactNode } from "react";
+import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Box } from "@chakra-ui/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { parseCssSize } from "../style/parse-size.js";
@@ -33,6 +39,14 @@ export interface VirtualRowsProps {
     height: string | undefined;
     /** Raw `maxHeight` size string (parsed here). */
     maxHeight: string | undefined;
+    /**
+     * Bound the frame as a flex item (`flex: 1 1 auto; min-height: 0`) instead
+     * of by its own `height` / `maxHeight`. Used when a host wraps the frame in
+     * a sized flex column together with chrome that must stay outside the
+     * scroll region (e.g. the review commit bar) — the WRAPPER takes the
+     * component's `height` / `maxHeight` and the frame fills the remainder.
+     */
+    fillParent?: boolean | undefined;
     /** Sticky-top header row; spans the full (min-)width and pins on scroll. */
     header?: ReactNode | undefined;
     /** Trailing content after the rows (e.g. a legend); scrolls with the body. */
@@ -43,7 +57,7 @@ export interface VirtualRowsProps {
     estimateSize: (index: number) => number;
     /** Renders body row `index` — a full-width, self-contained row element. */
     renderRow: (index: number) => ReactNode;
-    /** Rows above/below the viewport to keep mounted (default 8). */
+    /** Rows above/below the viewport to keep mounted (default 4). */
     overscan?: number | undefined;
     /**
      * Min-width for the header + row band, so a grid wider than the viewport
@@ -62,23 +76,35 @@ export interface VirtualRowsProps {
 /**
  * @param props - see {@link VirtualRowsProps}
  * @returns the bounded virtual-scroll frame, or the unbounded grow-to-content
- *   flow when no height / maxHeight is set
+ *   flow when no height / maxHeight / fillParent is set
  */
 export function VirtualRows(props: VirtualRowsProps): ReactNode {
     const {
         header, footer, count, estimateSize, renderRow,
-        overscan = 8, minWidth, headerZIndex = 3, onScroll, rootCss,
+        overscan = 4, minWidth, headerZIndex = 3, onScroll, rootCss, fillParent,
     } = props;
     const h = parseCssSize(props.height);
     const mh = parseCssSize(props.maxHeight);
-    const bounded = h !== undefined || mh !== undefined;
+    const bounded = h !== undefined || mh !== undefined || fillParent === true;
 
     const scrollRef = useRef<HTMLDivElement | null>(null);
+    // The items container sits BELOW the in-flow sticky header; its offsetTop
+    // is the virtualizer's scrollMargin so the visible-range window is not
+    // shifted by the header height. Measured after layout (0 on first pass —
+    // the virtualizer re-renders once the state settles).
+    const itemsRef = useRef<HTMLDivElement | null>(null);
+    const [itemsOffset, setItemsOffset] = useState(0);
+    // Re-measure when the row set changes (the header may rewrap); any residual
+    // drift from a pure style change is absorbed by the overscan rows.
+    useLayoutEffect(() => {
+        setItemsOffset(itemsRef.current?.offsetTop ?? 0);
+    }, [count]);
     const virtualizer = useVirtualizer({
         count,
         getScrollElement: () => scrollRef.current,
         estimateSize,
         overscan,
+        scrollMargin: itemsOffset,
         measureElement: (el) => el?.getBoundingClientRect().height,
     });
 
@@ -105,17 +131,27 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
             // break the scroll. `overflowY:auto` (after rootCss) becomes the
             // virtualizer's scroll axis; horizontal overflow is inherited from
             // rootCss when the collection sets it.
-            css={{ ...rootCss, display: "block", overflowY: "auto", minHeight: "0", ...virtualScrollbarCss }}
-            height={h}
-            maxHeight={mh}
+            css={{
+                ...rootCss,
+                display: "block",
+                overflowY: "auto",
+                minHeight: "0",
+                ...(fillParent === true ? { flex: "1 1 auto" } : {}),
+                ...virtualScrollbarCss,
+            }}
+            height={fillParent === true ? undefined : h}
+            maxHeight={fillParent === true ? undefined : mh}
             onScroll={onScroll}
         >
             {header !== undefined && (
-                <Box position="sticky" top="0" zIndex={headerZIndex} minWidth={minWidth}>
+                // Opaque wash: scrolled rows must never paint through the
+                // pinned header (not every collection's header cells carry
+                // their own background — Calendar's don't).
+                <Box position="sticky" top="0" zIndex={headerZIndex} minWidth={minWidth} background="bg.surface">
                     {header}
                 </Box>
             )}
-            <Box position="relative" height={`${virtualizer.getTotalSize()}px`} minWidth={minWidth}>
+            <Box ref={itemsRef} position="relative" height={`${virtualizer.getTotalSize()}px`} minWidth={minWidth}>
                 {items.map((item) => (
                     <Box
                         key={item.key}
@@ -125,7 +161,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
                         top="0"
                         left="0"
                         width="100%"
-                        style={{ transform: `translateY(${item.start}px)` }}
+                        style={{ transform: `translateY(${item.start - itemsOffset}px)` }}
                     >
                         {renderRow(item.index)}
                     </Box>

@@ -1159,11 +1159,17 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
     // Uniform sizing contract (#320) — bound the plan; it scrolls within,
     // mounting only the visible rows via the shared VirtualRows frame. The
     // header pins above the event/marker overlays (zIndex 5, matching the old
-    // recipe `scroll` variant).
+    // recipe `scroll` variant). With the review commit bar pinned OUTSIDE the
+    // scroll frame, the sized flex-column WRAPPER takes the plan's bound and
+    // the frame fills the remainder (`fillParent`) — otherwise a percentage /
+    // `fill` height would resolve against the auto-height wrapper and unbind.
+    const footShown = reviewController !== undefined && reviewController.showFoot;
+    const frameFills = footShown && (height !== undefined || maxHeight !== undefined);
     const plannerContent = (
         <VirtualRows
-            height={height}
-            maxHeight={maxHeight}
+            height={frameFills ? undefined : height}
+            maxHeight={frameFills ? undefined : maxHeight}
+            fillParent={frameFills}
             header={headerNode}
             count={flatRows.length}
             estimateSize={(i) => (flatRows[i]?.kind === "groupHead" ? headerH : unitH)}
@@ -1177,12 +1183,17 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
     // The batch foot is the shared `ReviewFoot` on the `commitBar` recipe (the
     // same block the Diff + DecisionQueue commit bars use), pinned outside the
     // horizontally scrolling grid so it stays full-width under the plan.
-    const foot = reviewController !== undefined && reviewController.showFoot
+    const foot = footShown && reviewController !== undefined
         ? <ReviewFoot controller={reviewController} storageKey={storageKey} />
         : null;
 
     const surface = foot !== null
-        ? <Box display="flex" flexDirection="column" width="100%">{plannerContent}{foot}</Box>
+        ? (
+            <Box display="flex" flexDirection="column" width="100%" height={height} maxHeight={maxHeight} minHeight="0">
+                {plannerContent}
+                {foot}
+            </Box>
+        )
         : plannerContent;
 
     // A density set on the planner cascades to display components rendered in

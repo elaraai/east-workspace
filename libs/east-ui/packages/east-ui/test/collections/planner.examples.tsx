@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { BooleanType, East, IntegerType, NullType, FloatType, ArrayType, OptionType, StringType, some, none, variant, example } from "@elaraai/east";
 import { DragEventType, State, UIComponentType } from "@elaraai/east-ui";
-import { Card, Library, Planner, Reactive, Text, VStack } from "@elaraai/east-ui";
+import { Box, Library, Planner, Reactive, Text, VStack } from "@elaraai/east-ui";
 
 /**
  * Point Planner — a numeric day axis with AM/PM buckets, an identity column,
@@ -834,20 +834,16 @@ export const plannerFillHeight = example({
 
 
 export const plannerFill = example({
-    keywords: ["Planner", "fill", "height", "Card", "bounded", "scroll", "sizing", "#320"],
-    description: "height=\"fill\" (#320) — the plan fills a fixed 200px Card body and scrolls within it; twelve rows overflow so it clips mid-row with the header pinned (contrast plannerFillHeight's own definite height)",
+    keywords: ["Planner", "fill", "height", "Box", "bounded", "scroll", "virtual", "sizing", "#320"],
+    description: "height=\"fill\" (#320) — the plan fills a fixed 200px Box and scrolls within it; two hundred rows overflow the box so only the visible rows (plus overscan) mount, with the header pinned (contrast plannerFillHeight's own definite height)",
     fn: East.function([], UIComponentType, (_$) => {
         return (
-            <Card height="200px">
+            <Box height="200px">
                 <Planner.Point
-                    data={[
-                        { name: "api-01", role: "Lead" }, { name: "api-02", role: "Engineer" },
-                        { name: "api-03", role: "Engineer" }, { name: "cache-01", role: "Service" },
-                        { name: "cache-02", role: "Service" }, { name: "etl-01", role: "Lead" },
-                        { name: "etl-02", role: "Engineer" }, { name: "etl-03", role: "Engineer" },
-                        { name: "web-01", role: "Lead" }, { name: "web-02", role: "Engineer" },
-                        { name: "web-03", role: "Engineer" }, { name: "queue-01", role: "Service" },
-                    ]}
+                    data={East.Array.range(0n, 200n).map((_$, i) => ({
+                        name: East.str`unit-${i}`,
+                        role: i.remainder(3n).equals(0n).ifElse(() => "Lead", () => "Engineer"),
+                    }))}
                     axis={Planner.axis.number({ buckets: [{ key: "am", label: "AM" }, { key: "pm", label: "PM" }], range: { min: 1, max: 6 } })}
                     columns={[{ key: "name", frozen: true, value: r => r.name, sublabel: r => r.role }]}
                     events={_r => [
@@ -856,7 +852,7 @@ export const plannerFill = example({
                     ]}
                     height="fill"
                 />
-            </Card>
+            </Box>
         );
     }),
     inputs: [],

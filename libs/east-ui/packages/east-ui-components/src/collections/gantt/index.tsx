@@ -29,7 +29,7 @@ import { compareFor, equalFor, printFor, variant, some, none, type ValueTypeOf }
 import { Gantt, Table, Slice as SliceInternal, type UIComponentType } from "@elaraai/east-ui/internal";
 import { SliceRailCluster } from "../../slice/rail";
 import { parseCssSize } from "../../style/parse-size.js";
-import { virtualScrollbarCss } from "../../style/scrollbar.js";
+import { syncedPaneScrollbarCss, virtualScrollbarCss } from "../../style/scrollbar.js";
 import { brushHitTest, brushDragWindow, brushRelease, brushCursor, type BrushDrag } from "../../slice/brush-math.js";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity";
 import { getSomeorUndefined } from "../../utils";
@@ -997,9 +997,11 @@ const GanttCore = function GanttCore({
                     overflowY="auto"
                     position="relative"
                     onScroll={handleTableScroll}
-                    // Left pane of the synced pair hides its own bar; the
-                    // timeline pane carries the single visible gutter scrollbar.
-                    css={{ scrollbarWidth: "none", "&::-webkit-scrollbar": { display: "none" } }}
+                    // Left pane of the synced pair hides only its VERTICAL bar
+                    // (the timeline pane carries the pair's single visible
+                    // vertical bar); its horizontal bar stays — nothing else
+                    // scrolls this pane's own x-overflow (frozen columns).
+                    css={syncedPaneScrollbarCss}
                 >
                     <ChakraTable.Root
                         {...props}

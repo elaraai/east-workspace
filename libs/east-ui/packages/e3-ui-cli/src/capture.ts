@@ -375,7 +375,15 @@ async function captureInSession(
             await page.evaluate(() => {
                 for (const el of Array.from(document.querySelectorAll('*'))) {
                     const h = el as HTMLElement;
-                    if (h.scrollWidth > h.clientWidth + 1 || h.scrollHeight > h.clientHeight + 1) {
+                    // An intentional scroll container (overflow auto/scroll on
+                    // the overflowing axis) is healthy — outline only content
+                    // that escapes a box which CANNOT scroll to reveal it.
+                    const cs = getComputedStyle(h);
+                    const xScrolls = cs.overflowX === 'auto' || cs.overflowX === 'scroll';
+                    const yScrolls = cs.overflowY === 'auto' || cs.overflowY === 'scroll';
+                    const xOverflows = !xScrolls && h.scrollWidth > h.clientWidth + 1;
+                    const yOverflows = !yScrolls && h.scrollHeight > h.clientHeight + 1;
+                    if (xOverflows || yOverflows) {
                         h.setAttribute('data-e3-overflow', '');
                     }
                 }

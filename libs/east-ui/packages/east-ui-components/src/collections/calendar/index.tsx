@@ -112,8 +112,10 @@ export const EastChakraCalendar = memo(function EastChakraCalendar({ value }: Ea
     // Uniform sizing contract (#320) — bound the calendar; it scrolls within,
     // mounting only the visible week rows via the shared VirtualRows frame. The
     // single grid's `padding` / `gap` are redistributed onto the frame + each
-    // per-row grid (horizontal padding + column gap per row, an inter-row gap
-    // as row paddingBottom) so the split rows lay out like the old one grid.
+    // per-row grid: horizontal padding + column gap per row, the inter-row gap
+    // as each DATA row's paddingTop (leading, not trailing — a trailing pad
+    // would stack with the frame's own paddingBottom after the LAST row and
+    // grow the bottom whitespace beyond the old single grid's `padding`).
     const gridPadding = styles.grid?.padding as string | undefined;
     const gridGap = styles.grid?.gap as string | undefined;
     // `gridTemplateColumns` stays an inline `style` (not `css`) so the gutter
@@ -121,9 +123,9 @@ export const EastChakraCalendar = memo(function EastChakraCalendar({ value }: Ea
     const rowGridCss = {
         display: "grid",
         gap: gridGap,
-        paddingBottom: gridGap,
         ...(gutterActive ? { paddingLeft: "0", paddingRight: "0" } : { paddingLeft: gridPadding, paddingRight: gridPadding }),
     };
+    const dataRowCss = { ...rowGridCss, paddingTop: gridGap };
 
     const headerNode = (
         <>
@@ -147,7 +149,7 @@ export const EastChakraCalendar = memo(function EastChakraCalendar({ value }: Ea
         const week = weeks[weekIndex];
         if (week === undefined) return null;
         return (
-            <Box css={rowGridCss} style={{ gridTemplateColumns: gridColumns }}>
+            <Box css={dataRowCss} style={{ gridTemplateColumns: gridColumns }}>
                 <Box css={styles.weekLabel}>{week}</Box>
                 {WEEK.map(day => {
                     const cell = cells.get(`${week} ${day}`);

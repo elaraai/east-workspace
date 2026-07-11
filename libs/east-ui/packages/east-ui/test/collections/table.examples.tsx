@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, IntegerType, NullType, OptionType, StringType, example, none, some, variant } from "@elaraai/east";
 import { State, Style, UIComponentType } from "@elaraai/east-ui";
-import { Card, Badge, Box, HStack, Reactive, Status, Table, Tag, Text, VStack } from "@elaraai/east-ui";
+import { Badge, Box, HStack, Reactive, Status, Table, Tag, Text, VStack } from "@elaraai/east-ui";
 
 export const tableBasic = example({
     keywords: ["Table", "Root", "basic", "header"],
@@ -427,7 +427,7 @@ export const tableReviewPaginated = example({
                     <Table
                         variant="line"
                         pagination={{ pageSize: 20n, page, onPageChange }}
-                        data={East.Array.range(0n, 60n).map((_$, i) => ({
+                        data={East.Array.range(0n, 200n).map((_$, i) => ({
                             id: East.str`#${i}`,
                             name: East.str`Order ${i}`,
                         }))}
@@ -663,16 +663,16 @@ export const tableRangeSelection = example({
 
 
 export const tableFill = example({
-    keywords: ["Table", "fill", "height", "Card", "scroll", "sizing", "#320"],
-    description: "height=\"fill\" (#320) — the table fills a fixed 220px Card body and scrolls within it; twenty rows overflow so it clips mid-row with the header pinned",
+    keywords: ["Table", "fill", "height", "Box", "scroll", "virtual", "sizing", "#320"],
+    description: "height=\"fill\" (#320) — the table fills a fixed 220px Box and scrolls within it; two hundred rows overflow the box so only the visible rows mount, with the header pinned",
     fn: East.function([], UIComponentType, (_$) => {
         return (
-            <Card height="220px">
+            <Box height="220px">
                 <Table
                     variant="line"
                     striped={true}
                     height="fill"
-                    data={East.Array.range(0n, 20n).map((_$, i) => ({
+                    data={East.Array.range(0n, 200n).map((_$, i) => ({
                         id: East.str`#${i}`,
                         name: East.str`User ${i}`,
                         email: East.str`user${i}@example.com`,
@@ -685,7 +685,7 @@ export const tableFill = example({
                         dept: { header: "Department", width: "150px" },
                     }}
                 />
-            </Card>
+            </Box>
         );
     }),
     inputs: [],

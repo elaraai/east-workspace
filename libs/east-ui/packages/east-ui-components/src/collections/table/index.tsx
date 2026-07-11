@@ -800,15 +800,19 @@ const TableCore = function TableCore({
         };
     };
 
+    const styleHeightCss = parseCssSize(style ? getSomeorUndefined(style.height) : undefined);
+    const styleMaxHeightCss = parseCssSize(style ? getSomeorUndefined(style.maxHeight) : undefined);
     const tableContent = (
         <Box
             ref={tableContainerRef}
             onScroll={handleScrollPersist}
-            height={parseCssSize(style ? getSomeorUndefined(style.height) : undefined) ?? height}
-            maxHeight={parseCssSize(style ? getSomeorUndefined(style.maxHeight) : undefined)}
+            height={styleHeightCss ?? height}
+            maxHeight={styleMaxHeightCss}
             overflowY="auto"
             overflowX={gutterActive ? 'hidden' : (hasFrozen ? 'auto' : undefined)}
-            css={virtualScrollbarCss}
+            // Reserved-gutter bar only when the author bounded the table — an
+            // unbounded (content-sized) table must not reserve a dead gutter.
+            css={styleHeightCss !== undefined || styleMaxHeightCss !== undefined ? virtualScrollbarCss : undefined}
             position="relative"
             {...(gutterActive ? { width: "100%" } : {})}
         >

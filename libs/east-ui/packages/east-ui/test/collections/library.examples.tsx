@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, example, some, none, ArrayType, FloatType, IntegerType, StringType, StructType } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { Card, Library, Reactive, Slice } from "@elaraai/east-ui";
+import { Box, Library, Reactive, Slice } from "@elaraai/east-ui";
 
 export const libraryPeople = example({
     keywords: ["Library", "card", "meter", "chips", "group", "status", "search", "drag", "palette"],
@@ -275,28 +275,26 @@ export const libraryScroll = example({
 });
 
 export const libraryFill = example({
-    keywords: ["Library", "fill", "height", "Card", "bounded", "scroll", "sizing", "#320"],
-    description: "height=\"fill\" (#320) — the library card grid fills a fixed 200px Card body and scrolls within it; six cards overflow so it clips mid-row",
+    keywords: ["Library", "fill", "height", "Box", "bounded", "scroll", "virtual", "sizing", "#320"],
+    description: "height=\"fill\" (#320) — the library card grid fills a fixed 200px Box and scrolls within it; two hundred cards over two roles overflow the box so only the visible cards (plus overscan) mount",
     fn: East.function([], UIComponentType, ($) => {
-        const people = $.const([
-            { id: "patel", name: "Patel, R.", role: "Senior", hours: 38.0 },
-            { id: "cho", name: "Cho, J.", role: "Senior", hours: 26.0 },
-            { id: "rivera", name: "Rivera, M.", role: "Senior", hours: 32.0 },
-            { id: "okafor", name: "Okafor, S.", role: "Mid", hours: 40.0 },
-            { id: "nguyen", name: "Nguyen, T.", role: "Mid", hours: 20.0 },
-            { id: "kim", name: "Kim, A.", role: "Mid", hours: 22.0 },
-        ]);
+        const people = $.const(East.Array.range(0n, 200n).map((_$, i) => ({
+            id: East.str`p${i}`,
+            name: East.str`Person ${i}`,
+            role: i.remainder(2n).equals(0n).ifElse(() => "Senior", () => "Mid"),
+            hours: i.remainder(40n).toFloat(),
+        })));
         return (
-            <Card height="200px">
-            <Library
-                id="library-fill"
-                data={people}
-                item={p => ({ key: p.id, label: p.name, sublabel: p.role })}
-                dimensions={[{ kind: "meter", key: "hours", label: "Hours", value: p => p.hours, max: 40.0, format: h => East.str`${h}h` }]}
-                groupBy={[{ key: "role", label: "Role", value: p => p.role }]}
-                style={{ height: "fill" }}
-            />
-            </Card>
+            <Box height="200px">
+                <Library
+                    id="library-fill"
+                    data={people}
+                    item={p => ({ key: p.id, label: p.name, sublabel: p.role })}
+                    dimensions={[{ kind: "meter", key: "hours", label: "Hours", value: p => p.hours, max: 40.0, format: h => East.str`${h}h` }]}
+                    groupBy={[{ key: "role", label: "Role", value: p => p.role }]}
+                    style={{ height: "fill" }}
+                />
+            </Box>
         );
     }),
     inputs: [],

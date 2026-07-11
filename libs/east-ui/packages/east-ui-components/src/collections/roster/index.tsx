@@ -388,10 +388,19 @@ export const EastChakraRoster = memo(function EastChakraRoster({ value, storageK
         </Box>
     ) : undefined;
 
+    // With the review commit bar pinned OUTSIDE the scroll frame, the sized
+    // flex-column WRAPPER takes the component's bound and the frame fills the
+    // remainder (`fillParent`) — otherwise a percentage / `fill` height would
+    // resolve against the auto-height wrapper and silently unbind.
+    const heightCss = parseCssSize(getSomeorUndefined(value.height));
+    const maxHeightCss = parseCssSize(getSomeorUndefined(value.maxHeight));
+    const footShown = reviewController !== undefined && reviewController.showFoot;
+    const frameFills = footShown && (heightCss !== undefined || maxHeightCss !== undefined);
     const frame = (
         <VirtualRows
-            height={parseCssSize(getSomeorUndefined(value.height))}
-            maxHeight={parseCssSize(getSomeorUndefined(value.maxHeight))}
+            height={frameFills ? undefined : heightCss}
+            maxHeight={frameFills ? undefined : maxHeightCss}
+            fillParent={frameFills}
             header={headerNode}
             footer={footerNode}
             count={value.people.length}
@@ -402,7 +411,12 @@ export const EastChakraRoster = memo(function EastChakraRoster({ value, storageK
     );
 
     // The review commit bar pins outside the scroll frame (like Planner).
-    return reviewController !== undefined && reviewController.showFoot
-        ? <Box display="flex" flexDirection="column" width="100%">{frame}<ReviewFoot controller={reviewController} storageKey={storageKey} /></Box>
+    return reviewController !== undefined && footShown
+        ? (
+            <Box display="flex" flexDirection="column" width="100%" height={heightCss} maxHeight={maxHeightCss} minHeight="0">
+                {frame}
+                <ReviewFoot controller={reviewController} storageKey={storageKey} />
+            </Box>
+        )
         : frame;
 }, (prev, next) => rosterEqual(prev.value, next.value) && prev.storageKey === next.storageKey);

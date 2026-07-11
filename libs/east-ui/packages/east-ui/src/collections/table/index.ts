@@ -608,7 +608,7 @@ export function createTable<T extends SubtypeExprOrValue<ArrayType<StructType>>>
 
     const hasVisualStyle = !!style && (
         style.height !== undefined ||
-        (style as { maxHeight?: unknown }).maxHeight !== undefined ||
+        style.maxHeight !== undefined ||
         style.variant !== undefined ||
         style.size !== undefined ||
         style.striped !== undefined ||

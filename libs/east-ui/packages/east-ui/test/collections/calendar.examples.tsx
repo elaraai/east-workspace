@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, StringType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Card, Calendar, Reactive, Text, VStack } from "@elaraai/east-ui";
+import { Box, Calendar, Reactive, Text, VStack } from "@elaraai/east-ui";
 
 export const calendarDemand = example({
     keywords: ["Calendar", "heatmap", "intensity", "week", "day", "summary", "delta"],
@@ -133,7 +133,7 @@ export const calendarInteractive = example({
 
 export const calendarScroll = example({
     keywords: ["Calendar", "maxHeight", "bounded", "scroll", "virtual", "week", "sizing", "#320"],
-    description: "Bounded calendar (#320) — maxHeight=\"200px\" caps the component; eight week rows overflow so it clips mid-row and scrolls within (only the visible weeks mount)",
+    description: "Bounded calendar (#320) — maxHeight=\"200px\" caps the component; eight week rows overflow so it clips mid-row and scrolls within",
     fn: East.function([], UIComponentType, ($) => {
         const days = $.const([
             { week: "W31", day: "Mon", demand: 90.0 },
@@ -173,43 +173,22 @@ export const calendarScroll = example({
 });
 
 export const calendarFill = example({
-    keywords: ["Calendar", "fill", "height", "Card", "bounded", "scroll", "week", "sizing", "#320"],
-    description: "height=\"fill\" (#320) — the calendar fills a fixed 200px Card body and scrolls within it; eight week rows overflow so it clips mid-row",
+    keywords: ["Calendar", "fill", "height", "Box", "bounded", "scroll", "virtual", "week", "sizing", "#320"],
+    description: "height=\"fill\" (#320) — the calendar fills a fixed 200px Box and scrolls within it; two hundred week rows overflow the box so only the visible weeks (plus overscan) mount",
     fn: East.function([], UIComponentType, ($) => {
-        const days = $.const([
-            { week: "W31", day: "Mon", demand: 90.0 },
-            { week: "W31", day: "Wed", demand: 108.0 },
-            { week: "W31", day: "Fri", demand: 126.0 },
-            { week: "W32", day: "Mon", demand: 97.0 },
-            { week: "W32", day: "Wed", demand: 115.0 },
-            { week: "W32", day: "Fri", demand: 133.0 },
-            { week: "W33", day: "Mon", demand: 104.0 },
-            { week: "W33", day: "Wed", demand: 122.0 },
-            { week: "W33", day: "Fri", demand: 140.0 },
-            { week: "W34", day: "Mon", demand: 111.0 },
-            { week: "W34", day: "Wed", demand: 129.0 },
-            { week: "W34", day: "Fri", demand: 147.0 },
-            { week: "W35", day: "Mon", demand: 118.0 },
-            { week: "W35", day: "Wed", demand: 136.0 },
-            { week: "W35", day: "Fri", demand: 154.0 },
-            { week: "W36", day: "Mon", demand: 125.0 },
-            { week: "W36", day: "Wed", demand: 143.0 },
-            { week: "W36", day: "Fri", demand: 161.0 },
-            { week: "W37", day: "Mon", demand: 132.0 },
-            { week: "W37", day: "Wed", demand: 150.0 },
-            { week: "W37", day: "Fri", demand: 168.0 },
-            { week: "W38", day: "Mon", demand: 139.0 },
-            { week: "W38", day: "Wed", demand: 157.0 },
-            { week: "W38", day: "Fri", demand: 175.0 },
-        ]);
+        const days = $.const(East.Array.range(10n, 210n).map((_$, w) => ({
+            week: East.str`W${w}`,
+            day: "Wed",
+            demand: w.toFloat().multiply(4.0),
+        })));
         return (
-            <Card height="200px">
-            <Calendar
-                data={days}
-                cell={d => ({ week: d.week, day: d.day, value: d.demand, text: East.Float.printFixed(d.demand, 0n) })}
-                height="fill"
-            />
-            </Card>
+            <Box height="200px">
+                <Calendar
+                    data={days}
+                    cell={d => ({ week: d.week, day: d.day, value: d.demand, text: East.Float.printFixed(d.demand, 0n) })}
+                    height="fill"
+                />
+            </Box>
         );
     }),
     inputs: [],

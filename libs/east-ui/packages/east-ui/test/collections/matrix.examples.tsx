@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { ArrayType, East, FloatType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
+import { ArrayType, DictType, East, FloatType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Card, Matrix, Reactive, Slider, Text, VStack } from "@elaraai/east-ui";
+import { Box, Matrix, Reactive, Slider, Text, VStack } from "@elaraai/east-ui";
 
 /**
  * Heat-grid — rows × days, each cell a booked/free weight bar, rows grouped by
@@ -337,20 +337,18 @@ export const matrixBounded = example({
 });
 
 export const matrixFill = example({
-    keywords: ["Matrix", "fill", "height", "Card", "bounded", "scroll", "sizing", "#320"],
-    description: "height=\"fill\" (#320) — the matrix fills a fixed 200px Card body and scrolls within it; six rows over two teams overflow the box so it clips mid-row (the reserved-gutter scrollbar shows there is more)",
+    keywords: ["Matrix", "fill", "height", "Box", "bounded", "scroll", "virtual", "sizing", "#320"],
+    description: "height=\"fill\" (#320) — the matrix fills a fixed 200px Box and scrolls within it; two hundred rows over two teams overflow the box so only the visible rows (plus overscan) mount, the reserved-gutter scrollbar showing there is more",
     fn: East.function([], UIComponentType, (_$) => {
         return (
-            <Card height="200px">
+            <Box height="200px">
                 <Matrix
-                    data={[
-                        { name: "Alice", role: "Senior PM", team: "Web", booked: new Map([["mon", 0.45], ["tue", 0.70], ["wed", 0.85]]) },
-                        { name: "Bob", role: "Designer", team: "Web", booked: new Map([["mon", 0.35], ["tue", 0.60], ["wed", 0.30]]) },
-                        { name: "Carol", role: "Engineer", team: "Web", booked: new Map([["mon", 0.55], ["tue", 0.40], ["wed", 0.90]]) },
-                        { name: "Dan", role: "Engineer", team: "Batch", booked: new Map([["mon", 0.25], ["tue", 0.80], ["wed", 0.50]]) },
-                        { name: "Erin", role: "Analyst", team: "Batch", booked: new Map([["mon", 0.65], ["tue", 0.55], ["wed", 0.35]]) },
-                        { name: "Frank", role: "Engineer", team: "Batch", booked: new Map([["mon", 0.75], ["tue", 0.45], ["wed", 0.60]]) },
-                    ]}
+                    data={East.Array.range(0n, 200n).map((_$, i) => ({
+                        name: East.str`Res ${i}`,
+                        role: "Engineer",
+                        team: i.lessThan(100n).ifElse(() => "Web", () => "Batch"),
+                        booked: East.value(new Map([["mon", 0.45], ["tue", 0.7], ["wed", 0.85]]), DictType(StringType, FloatType)),
+                    }))}
                     columns={[
                         Matrix.column({ key: "mon", label: "Mon" }),
                         Matrix.column({ key: "tue", label: "Tue" }),
@@ -364,9 +362,10 @@ export const matrixFill = example({
                         Matrix.segment({ fill: "brand", weight: r.booked.get(col.key) }),
                         Matrix.segment({ fill: "free", weight: East.value(1.0, FloatType).subtract(r.booked.get(col.key)) }),
                     ] })}
+                    legend={[{ fill: "brand", label: "Booked" }, { fill: "free", label: "Free" }]}
                     height="fill"
                 />
-            </Card>
+            </Box>
         );
     }),
     inputs: [],

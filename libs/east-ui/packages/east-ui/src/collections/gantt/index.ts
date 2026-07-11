@@ -781,7 +781,7 @@ function createGantt<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
 
     const hasStyle = !!style && (
         style.height !== undefined ||
-        (style as { maxHeight?: unknown }).maxHeight !== undefined ||
+        style.maxHeight !== undefined ||
         style.variant !== undefined ||
         style.size !== undefined ||
         style.density !== undefined ||

@@ -35,6 +35,11 @@ import { chromium, type Browser } from 'playwright-core';
 /** Chromium args shared by every launch — `--disable-gpu` matches the in-repo
  *  snapshot pipeline so CLI captures are pixel-comparable with it. */
 const LAUNCH_ARGS = ['--disable-gpu'];
+// Playwright's headless defaults include `--hide-scrollbars`, which suppresses
+// EVERY scrollbar (native and CSS-styled) — a shot of a bounded scroll region
+// then shows no "there's more" affordance at all. This tool's whole job is a
+// faithful layout snapshot, so put scrollbars back (#320).
+const IGNORE_DEFAULT_ARGS = ['--hide-scrollbars'];
 
 /** The env vars honored as an explicit browser override, in precedence order. */
 export const BROWSER_ENV_VARS = ['E3_UI_CHROMIUM_PATH', 'PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH'] as const;
@@ -168,7 +173,7 @@ export async function launchBrowser(
     const override = envBrowserPath(env);
     if (override) {
         try {
-            const browser = await chromium.launch({ headless: true, executablePath: override, args: LAUNCH_ARGS });
+            const browser = await chromium.launch({ headless: true, executablePath: override, args: LAUNCH_ARGS, ignoreDefaultArgs: IGNORE_DEFAULT_ARGS });
             return { browser, source: { kind: 'env', executablePath: override } };
         } catch (err) {
             throw new Error(
@@ -180,7 +185,7 @@ export async function launchBrowser(
 
     let managedError: unknown;
     try {
-        const browser = await chromium.launch({ headless: true, args: LAUNCH_ARGS });
+        const browser = await chromium.launch({ headless: true, args: LAUNCH_ARGS, ignoreDefaultArgs: IGNORE_DEFAULT_ARGS });
         return { browser, source: { kind: 'managed' } };
     } catch (err) {
         managedError = err;
@@ -189,7 +194,7 @@ export async function launchBrowser(
     const system = findSystemBrowser();
     if (system) {
         try {
-            const browser = await chromium.launch({ headless: true, executablePath: system, args: LAUNCH_ARGS });
+            const browser = await chromium.launch({ headless: true, executablePath: system, args: LAUNCH_ARGS, ignoreDefaultArgs: IGNORE_DEFAULT_ARGS });
             return { browser, source: { kind: 'system', executablePath: system } };
         } catch (err) {
             throw new Error(
