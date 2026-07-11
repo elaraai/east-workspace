@@ -808,8 +808,8 @@ const TableCore = function TableCore({
     // grew). The LAST visible leaf data column now grows (`flex: 1 0 auto` —
     // its sized width stays the floor), matching how unsized tables fill.
     // Skipped under frozen pinning (table width IS the summed sizes, h-scroll)
-    // and an active plot gutter (the right gutter region owns the slack), and
-    // when the user drag-resized that column (respect the manual size).
+    // and an active plot gutter (the right gutter region owns the slack). A
+    // drag-resize keeps the stretch — the resized width is the new floor.
     const lastStretchId = (!hasFrozen && !gutterActive)
         ? table.getVisibleLeafColumns().filter(c => c.id !== REVIEW_COLUMN_ID && !c.getIsPinned()).at(-1)?.id
         : undefined;
@@ -1002,7 +1002,9 @@ const TableCore = function TableCore({
                                             width: `var(--header-${header.id}-size)`,
                                             flex: hasFrozen ? 'none'
                                                 : (columnSizing[header.id] || header.column.columnDef.meta?.width)
-                                                    ? (header.column.id === lastStretchId && !columnSizing[header.id] ? '1 0 auto' : 'none')
+                                                    // The stretch survives a drag-resize: the size var already
+                                                    // reflects the resized width, so it stays the flex FLOOR.
+                                                    ? (header.column.id === lastStretchId ? '1 0 auto' : 'none')
                                                     : 1,
                                             ...pinningStyles,
                                             zIndex: isPinned ? 3 : undefined,
@@ -1312,7 +1314,7 @@ const TableCore = function TableCore({
                                         width: `var(--col-${cell.column.id}-size)`,
                                         flex: hasFrozen ? 'none'
                                             : (columnSizing[cell.column.id] || meta?.width)
-                                                ? (cell.column.id === lastStretchId && !columnSizing[cell.column.id] ? '1 0 auto' : 'none')
+                                                ? (cell.column.id === lastStretchId ? '1 0 auto' : 'none')
                                                 : 1,
                                         display: 'flex',
                                         // Spec `.dt` reads vertically centered (its rows hug
