@@ -17,6 +17,7 @@ describeEast("Matrix", (test) => {
         matrixPopover: ex.matrixPopover,
         matrixReactiveAdjust: ex.matrixReactiveAdjust,
         matrixBounded: ex.matrixBounded,
+        matrixFill: ex.matrixFill,
     });
 
     // =========================================================================

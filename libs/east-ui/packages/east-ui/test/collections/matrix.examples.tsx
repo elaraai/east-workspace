@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { ArrayType, East, FloatType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Matrix, Reactive, Slider, Text, VStack } from "@elaraai/east-ui";
+import { Card, Matrix, Reactive, Slider, Text, VStack } from "@elaraai/east-ui";
 
 /**
  * Heat-grid — rows × days, each cell a booked/free weight bar, rows grouped by
@@ -331,6 +331,42 @@ export const matrixBounded = example({
                 legend={[{ fill: "brand", label: "Booked" }, { fill: "free", label: "Free" }]}
                 maxHeight="140"
             />
+        );
+    }),
+    inputs: [],
+});
+
+export const matrixFill = example({
+    keywords: ["Matrix", "fill", "height", "Card", "bounded", "scroll", "sizing", "#320"],
+    description: "height=\"fill\" (#320) — the matrix fills a fixed 200px Card body and scrolls within it; six rows over two teams overflow the box so it clips mid-row (the reserved-gutter scrollbar shows there is more)",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <Card height="200px">
+                <Matrix
+                    data={[
+                        { name: "Alice", role: "Senior PM", team: "Web", booked: new Map([["mon", 0.45], ["tue", 0.70], ["wed", 0.85]]) },
+                        { name: "Bob", role: "Designer", team: "Web", booked: new Map([["mon", 0.35], ["tue", 0.60], ["wed", 0.30]]) },
+                        { name: "Carol", role: "Engineer", team: "Web", booked: new Map([["mon", 0.55], ["tue", 0.40], ["wed", 0.90]]) },
+                        { name: "Dan", role: "Engineer", team: "Batch", booked: new Map([["mon", 0.25], ["tue", 0.80], ["wed", 0.50]]) },
+                        { name: "Erin", role: "Analyst", team: "Batch", booked: new Map([["mon", 0.65], ["tue", 0.55], ["wed", 0.35]]) },
+                        { name: "Frank", role: "Engineer", team: "Batch", booked: new Map([["mon", 0.75], ["tue", 0.45], ["wed", 0.60]]) },
+                    ]}
+                    columns={[
+                        Matrix.column({ key: "mon", label: "Mon" }),
+                        Matrix.column({ key: "tue", label: "Tue" }),
+                        Matrix.column({ key: "wed", label: "Wed" }),
+                    ]}
+                    rowKey={r => r.name}
+                    rowHeader="Resource"
+                    rowSublabel={r => r.role}
+                    groupBy={r => r.team}
+                    cell={(r, col) => Matrix.cell({ segments: [
+                        Matrix.segment({ fill: "brand", weight: r.booked.get(col.key) }),
+                        Matrix.segment({ fill: "free", weight: East.value(1.0, FloatType).subtract(r.booked.get(col.key)) }),
+                    ] })}
+                    height="fill"
+                />
+            </Card>
         );
     }),
     inputs: [],

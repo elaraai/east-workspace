@@ -10,6 +10,8 @@ import * as ex from "./roster.examples.js";
 
 describeEast("Roster", (test) => {
     Assert.examples(test, {
+        rosterScroll: ex.rosterScroll,
+        rosterFill: ex.rosterFill,
         rosterEdit: ex.rosterEdit,
         rosterPublished: ex.rosterPublished,
         rosterInteractive: ex.rosterInteractive,

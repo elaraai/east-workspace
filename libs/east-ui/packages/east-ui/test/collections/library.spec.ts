@@ -10,6 +10,8 @@ import * as ex from "./library.examples.js";
 
 describeEast("Library", (test) => {
     Assert.examples(test, {
+        libraryScroll: ex.libraryScroll,
+        libraryFill: ex.libraryFill,
         libraryPeople: ex.libraryPeople,
         libraryAssets: ex.libraryAssets,
         libraryFlat: ex.libraryFlat,
