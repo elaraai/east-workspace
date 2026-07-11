@@ -116,10 +116,11 @@ export const EastChakraCalendar = memo(function EastChakraCalendar({ value }: Ea
     // as row paddingBottom) so the split rows lay out like the old one grid.
     const gridPadding = styles.grid?.padding as string | undefined;
     const gridGap = styles.grid?.gap as string | undefined;
+    // `gridTemplateColumns` stays an inline `style` (not `css`) so the gutter
+    // contract (#147) — and its dom test — can read the resolved template.
     const rowGridCss = {
         display: "grid",
         gap: gridGap,
-        gridTemplateColumns: gridColumns,
         paddingBottom: gridGap,
         ...(gutterActive ? { paddingLeft: "0", paddingRight: "0" } : { paddingLeft: gridPadding, paddingRight: gridPadding }),
     };
@@ -131,7 +132,7 @@ export const EastChakraCalendar = memo(function EastChakraCalendar({ value }: Ea
                     <Box as="span" css={styles.legend}>{value.legend}</Box>
                 </Box>
             )}
-            <Box css={{ ...rowGridCss, paddingTop: gridPadding }}>
+            <Box css={{ ...rowGridCss, paddingTop: gridPadding }} style={{ gridTemplateColumns: gridColumns }}>
                 <Box css={styles.dayHeader} />
                 {WEEK.map(day => (
                     <Box key={day} css={styles.dayHeader}>{day}</Box>
@@ -146,7 +147,7 @@ export const EastChakraCalendar = memo(function EastChakraCalendar({ value }: Ea
         const week = weeks[weekIndex];
         if (week === undefined) return null;
         return (
-            <Box css={rowGridCss}>
+            <Box css={rowGridCss} style={{ gridTemplateColumns: gridColumns }}>
                 <Box css={styles.weekLabel}>{week}</Box>
                 {WEEK.map(day => {
                     const cell = cells.get(`${week} ${day}`);
