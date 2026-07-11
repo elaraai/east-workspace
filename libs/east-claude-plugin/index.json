@@ -1,14 +1,14 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1459,
+    "totalEntries": 1465,
     "totalFiles": 184,
     "packages": {
       "east": 490,
       "east-node-std": 42,
       "east-node-io": 63,
       "east-py-datascience": 89,
-      "east-ui": 701,
+      "east-ui": 707,
       "e3-ui": 58,
       "e3": 7,
       "e3-ui-cli": 4,
@@ -16603,6 +16603,29 @@
       "source": "// Reactive pivot — rows and columns are both derived from the cell records; drag the threshold to drop low bookings and watch whole rows/columns appear and disappear\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const BookingArrayType = ArrayType(StructType({ resource: StringType, day: StringType, load: FloatType }));\n            const bookings = $.let([\n                { resource: \"Alice\", day: \"Mon\", load: 0.90 },\n                { resource: \"Alice\", day: \"Tue\", load: 0.30 },\n                { resource: \"Alice\", day: \"Wed\", load: 0.60 },\n                { resource: \"Bob\", day: \"Mon\", load: 0.20 },\n                { resource: \"Bob\", day: \"Wed\", load: 0.80 },\n                { resource: \"Carol\", day: \"Tue\", load: 0.50 },\n                { resource: \"Carol\", day: \"Thu\", load: 0.95 },\n                { resource: \"Dave\", day: \"Fri\", load: 0.15 },\n            ], BookingArrayType);\n\n            const thresholdBind = $.let(State.bind([FloatType], \"matrix_pivot_threshold\", 0.0));\n            const threshold = $.let(thresholdBind.read());\n            const onChange = $.const(East.function([FloatType], NullType, ($, next) => {\n                $(thresholdBind.write(next));\n            }));\n\n            // Both axes emerge from the surviving cells: keep bookings at or above\n            // the threshold, then take the distinct days (columns) and resources (rows).\n            const kept = $.let(bookings.filter(($, b) => b.load.greaterEqual(threshold)));\n            const dayKeys = $.let(kept.toSet(($, b) => b.day).toArray());\n            const resourceKeys = $.let(kept.toSet(($, b) => b.resource).toArray());\n\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <Slider value={threshold} min={0} max={1} step={0.05} onChange={onChange} />\n                    {<Text.MonoLabel>{East.str`THRESHOLD ${East.print(threshold)} · ${resourceKeys.size()} ROWS × ${dayKeys.size()} COLS`}</Text.MonoLabel>}\n                    <Matrix\n                        data={resourceKeys.map(($, name) => ({\n                            name,\n                            // Pivot this resource's surviving bookings into a day → load\n                            // cell, summed per (resource, day) and zero where it has none.\n                            loads: dayKeys.toDict(\n                                ($, day) => day,\n                                ($, day) => kept.filter(($, b) => b.resource.equal(name).and(() => b.day.equal(day))).sum(($, b) => b.load),\n                            ),\n                        }))}\n                        columns={dayKeys.map(($, day) => Matrix.column({ key: day, label: day }))}\n                        rowKey={r => r.name}\n                        rowHeader=\"Resource\"\n                        cell={(r, col) => Matrix.cell({ segments: [\n                            Matrix.segment({ fill: \"brand\", weight: r.loads.get(col.key), label: East.str`${r.loads.get(col.key).multiply(100.0)}%` }),\n                            Matrix.segment({ fill: \"free\", weight: East.value(1.0, FloatType).subtract(r.loads.get(col.key)) }),\n                        ] })}\n                        legend={[{ fill: \"brand\", label: \"Booked\" }, { fill: \"free\", label: \"Free\" }]}\n                    />\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
     },
     {
+      "id": "east-ui:matrix.examples.tsx:matrixBounded",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/matrix.examples.tsx",
+      "suite": "",
+      "test": "Bounded matrix (#320) — ",
+      "keywords": [
+        "Matrix",
+        "maxHeight",
+        "height",
+        "bounded",
+        "scroll",
+        "sizing",
+        "#320"
+      ],
+      "imports": [
+        "import { ArrayType, East, FloatType, NullType, StringType, StructType, example, variant } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Matrix, Reactive, Slider, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Bounded matrix (#320) — \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Matrix\n                data={[\n                    { name: \"Alice\", role: \"Senior PM\", team: \"Web\", booked: new Map([[\"mon\", 0.45], [\"tue\", 0.70], [\"wed\", 0.85]]) },\n                    { name: \"Bob\", role: \"Designer\", team: \"Web\", booked: new Map([[\"mon\", 0.35], [\"tue\", 0.60], [\"wed\", 0.30]]) },\n                    { name: \"Carol\", role: \"Engineer\", team: \"Batch\", booked: new Map([[\"mon\", 0.55], [\"tue\", 0.40], [\"wed\", 0.90]]) },\n                    { name: \"Dan\", role: \"Engineer\", team: \"Batch\", booked: new Map([[\"mon\", 0.25], [\"tue\", 0.80], [\"wed\", 0.50]]) },\n                ]}\n                columns={[\n                    Matrix.column({ key: \"mon\", label: \"Mon\" }),\n                    Matrix.column({ key: \"tue\", label: \"Tue\" }),\n                    Matrix.column({ key: \"wed\", label: \"Wed\" }),\n                ]}\n                rowKey={r => r.name}\n                rowHeader=\"Resource\"\n                rowSublabel={r => r.role}\n                groupBy={r => r.team}\n                cell={(r, col) => Matrix.cell({ segments: [\n                    Matrix.segment({ fill: \"brand\", weight: r.booked.get(col.key) }),\n                    Matrix.segment({ fill: \"free\", weight: East.value(1.0, FloatType).subtract(r.booked.get(col.key)) }),\n                ] })}\n                legend={[{ fill: \"brand\", label: \"Booked\" }, { fill: \"free\", label: \"Free\" }]}\n                maxHeight={140}\n            />\n        );\n    })"
+    },
+    {
       "id": "east-ui:pagination.examples.tsx:paginationBasic",
       "skill": "east-ui",
       "package": "east-ui",
@@ -17211,6 +17234,30 @@
         "import { Library, Planner, Reactive, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// Per-cell bucketing with stretch — Press A\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        // Press A — bucketed: day-1 am/pm lanes stretched to fill their band (+ a\n        // stray bucketless event ⇒ N/A lane); day-2 a normal-sized bucketed cell.\n        const pressA = $.const([\n            Planner.event({ slot: Planner.at.number(1), bucket: \"am\", label: \"Setup\", state: \"committed\", stretch: \"both\" }),\n            Planner.event({ slot: Planner.at.number(1), bucket: \"pm\", label: \"Run\", state: \"committed\", stretch: \"both\" }),\n            Planner.event({ slot: Planner.at.number(1), label: \"Note\", state: \"added\" }),\n            Planner.event({ slot: Planner.at.number(2), bucket: \"am\", label: \"QA\", state: \"committed\" }),\n        ], ArrayType(Planner.Types.Event));\n        // Press B — flat (unbucketed): day-1 a stretched tile filling the cell,\n        // day-2 a normal content-sized tile.\n        const pressB = $.const([\n            Planner.event({ slot: Planner.at.number(1), label: \"Maint\", state: \"committed\", stretch: \"both\" }),\n            Planner.event({ slot: Planner.at.number(2), label: \"Idle\", state: \"added\" }),\n        ], ArrayType(Planner.Types.Event));\n        return (\n            <Planner.Point\n                data={[\n                    { name: \"Press A\", bucketed: true },\n                    { name: \"Press B\", bucketed: false },\n                ]}\n                axis={Planner.axis.number({ buckets: [{ key: \"am\", label: \"AM\" }, { key: \"pm\", label: \"PM\" }], range: { min: 1, max: 3 } })}\n                columns={[{ key: \"name\", frozen: true, value: r => r.name }]}\n                events={r => r.bucketed.ifElse(() => pressA, () => pressB)}\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:planner.examples.tsx:plannerFillHeight",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/planner.examples.tsx",
+      "suite": "",
+      "test": "Definite height (#320) — ",
+      "keywords": [
+        "Planner",
+        "height",
+        "definite",
+        "bounded",
+        "scroll",
+        "sticky",
+        "sizing",
+        "#320"
+      ],
+      "imports": [
+        "import { BooleanType, East, IntegerType, NullType, FloatType, ArrayType, OptionType, StringType, some, none, variant, example } from \"@elaraai/east\";",
+        "import { DragEventType, State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Library, Planner, Reactive, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Definite height (#320) — \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Planner.Point\n                data={[\n                    { name: \"api-01\", role: \"Lead\" }, { name: \"api-02\", role: \"Engineer\" },\n                    { name: \"api-03\", role: \"Engineer\" }, { name: \"cache-01\", role: \"Service\" },\n                    { name: \"cache-02\", role: \"Service\" }, { name: \"etl-01\", role: \"Lead\" },\n                    { name: \"etl-02\", role: \"Engineer\" }, { name: \"etl-03\", role: \"Engineer\" },\n                    { name: \"web-01\", role: \"Lead\" }, { name: \"web-02\", role: \"Engineer\" },\n                    { name: \"web-03\", role: \"Engineer\" }, { name: \"queue-01\", role: \"Service\" },\n                ]}\n                axis={Planner.axis.number({ buckets: [{ key: \"am\", label: \"AM\" }, { key: \"pm\", label: \"PM\" }], range: { min: 1, max: 6 } })}\n                columns={[{ key: \"name\", frozen: true, value: r => r.name, sublabel: r => r.role }]}\n                events={_r => [\n                    Planner.event({ slot: Planner.at.number(1), bucket: \"am\", label: \"✓\", state: \"committed\" }),\n                    Planner.event({ slot: Planner.at.number(3), bucket: \"am\", label: \"✓\", state: \"committed\" }),\n                    Planner.event({ slot: Planner.at.number(4), bucket: \"pm\", label: \"plan\", state: \"added\" }),\n                ]}\n                now={Planner.at.number(4)}\n                height=\"220px\"\n            />\n        );\n    })"
     },
     {
       "id": "east-ui:roster.examples.tsx:rosterEdit",
@@ -18480,7 +18527,7 @@
       "imports": [
         "import { East, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Badge, Button, Card, Text, HStack } from \"@elaraai/east-ui\";"
+        "import { Badge, Box, Button, Card, Text, HStack, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// Simple card container\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Card>\n                <Text>This is a basic card with some content.</Text>\n            </Card>\n        );\n    })"
     },
@@ -18500,7 +18547,7 @@
       "imports": [
         "import { East, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Badge, Button, Card, Text, HStack } from \"@elaraai/east-ui\";"
+        "import { Badge, Box, Button, Card, Text, HStack, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// Card with an eyebrow header\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Card header={{ eyebrow: \"Run summary\" }}>\n                <Text>Card content goes here. The header is the mono eyebrow strip.</Text>\n            </Card>\n        );\n    })"
     },
@@ -18521,7 +18568,7 @@
       "imports": [
         "import { East, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Badge, Button, Card, Text, HStack } from \"@elaraai/east-ui\";"
+        "import { Badge, Box, Button, Card, Text, HStack, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// Header with eyebrow + brand title + description\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Card header={{ eyebrow: \"Featured\", title: \"Featured Article\", description: \"A brief summary of what this card contains\" }}>\n                <Text>The main content area of the card.</Text>\n            </Card>\n        );\n    })"
     },
@@ -18542,7 +18589,7 @@
       "imports": [
         "import { East, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Badge, Button, Card, Text, HStack } from \"@elaraai/east-ui\";"
+        "import { Badge, Box, Button, Card, Text, HStack, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// Card with action buttons in the footer\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Card\n                header={{ title: \"Actions Card\" }}\n                footer={{ actions: [\n                    <Button variant=\"outline\" size=\"sm\">Cancel</Button>,\n                    <Button variant=\"solid\" colorPalette=\"blue\" size=\"sm\">Save</Button>,\n                ] }}\n            >\n                <Text>This card has action buttons placed in the footer area.</Text>\n            </Card>\n        );\n    })"
     },
@@ -18563,7 +18610,7 @@
       "imports": [
         "import { East, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Badge, Button, Card, Text, HStack } from \"@elaraai/east-ui\";"
+        "import { Badge, Box, Button, Card, Text, HStack, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// Fixed height and scroll overflow\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Card header={{ eyebrow: \"Sized card\" }} height=\"200px\" overflow=\"auto\">\n                <Text>This card has a fixed height of 200px and will scroll if content overflows.</Text>\n                <Text>The dimension properties allow precise control over card sizing.</Text>\n            </Card>\n        );\n    })"
     },
@@ -18584,7 +18631,7 @@
       "imports": [
         "import { East, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Badge, Button, Card, Text, HStack } from \"@elaraai/east-ui\";"
+        "import { Badge, Box, Button, Card, Text, HStack, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// A flush card (zero body padding) for full-bleed content, beside a card with a custom bodyPadding\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <HStack gap=\"4\">\n                <Card header={{ eyebrow: \"Full bleed\" }} width=\"240px\" flush>\n                    <Badge>fills the body edge-to-edge</Badge>\n                </Card>\n                <Card header={{ eyebrow: \"Tight\" }} width=\"240px\" bodyPadding=\"6px 8px\">\n                    <Text>Custom 6×8 body padding.</Text>\n                </Card>\n            </HStack>\n        );\n    })"
     },
@@ -18605,7 +18652,7 @@
       "imports": [
         "import { East, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Badge, Button, Card, Text, HStack } from \"@elaraai/east-ui\";"
+        "import { Badge, Box, Button, Card, Text, HStack, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// Card that grows with flex\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <HStack gap=\"4\" width=\"100%\">\n                <Card header={{ eyebrow: \"Flex card 1\" }} flex=\"1\">\n                    <Text>This card uses flex: 1 to fill available space.</Text>\n                </Card>\n                <Card header={{ eyebrow: \"Flex card 2\" }} flex=\"1\">\n                    <Text>Both cards share the space equally.</Text>\n                </Card>\n            </HStack>\n        );\n    })"
     },
@@ -18625,7 +18672,7 @@
       "imports": [
         "import { East, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Badge, Button, Card, Text, HStack } from \"@elaraai/east-ui\";"
+        "import { Badge, Box, Button, Card, Text, HStack, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// Card with multiple child components\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Card\n                header={{ eyebrow: \"Action required\", title: \"Please review and respond\" }}\n                footer={{ actions: [\n                    <Button variant=\"solid\" colorPalette=\"green\" size=\"sm\">Accept</Button>,\n                    <Button variant=\"outline\" colorPalette=\"red\" size=\"sm\">Decline</Button>,\n                ] }}\n            >\n                <HStack gap=\"2\">\n                    <Badge colorPalette=\"green\" variant=\"solid\">New</Badge>\n                    <Badge colorPalette=\"purple\" variant=\"solid\">Featured</Badge>\n                </HStack>\n                <Text>This card demonstrates how multiple components can be nested inside a card body.</Text>\n            </Card>\n        );\n    })"
     },
@@ -18646,7 +18693,7 @@
       "imports": [
         "import { East, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Badge, Button, Card, Text, HStack } from \"@elaraai/east-ui\";"
+        "import { Badge, Box, Button, Card, Text, HStack, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// Header with eyebrow + title + trailing meta, action in the footer\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Card\n                header={{ eyebrow: \"Forecast · SE region\", title: \"Per plan week\", meta: \"14s ago\" }}\n                footer={{ content: [<Text>Last synced 14:32</Text>], actions: [<Button variant=\"subtle\">Export</Button>] }}\n            >\n                <Text>Scenario vs baseline — per-plan week comparison.</Text>\n            </Card>\n        );\n    })"
     },
@@ -18666,7 +18713,7 @@
       "imports": [
         "import { East, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Badge, Button, Card, Text, HStack } from \"@elaraai/east-ui\";"
+        "import { Badge, Box, Button, Card, Text, HStack, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// Card in loading state — skeleton body\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Card header={{ title: \"Run summary\" }} state=\"loading\">\n                <Text>Original content — replaced by skeleton while loading.</Text>\n            </Card>\n        );\n    })"
     },
@@ -18686,7 +18733,7 @@
       "imports": [
         "import { East, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Badge, Button, Card, Text, HStack } from \"@elaraai/east-ui\";"
+        "import { Badge, Box, Button, Card, Text, HStack, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// Card in empty state — EmptyState fallback body\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Card header={{ eyebrow: \"Scenarios\" }} state=\"empty\">\n                <Text>Original content — replaced by EmptyState when empty.</Text>\n            </Card>\n        );\n    })"
     },
@@ -18705,7 +18752,7 @@
       "imports": [
         "import { East, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Badge, Button, Card, Text, HStack } from \"@elaraai/east-ui\";"
+        "import { Badge, Box, Button, Card, Text, HStack, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// Card in error state — compute-error fallback body\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Card header={{ eyebrow: \"Run summary\" }} state=\"error\">\n                <Text>Original content — replaced by error alert.</Text>\n            </Card>\n        );\n    })"
     },
@@ -18725,7 +18772,7 @@
       "imports": [
         "import { East, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Badge, Button, Card, Text, HStack } from \"@elaraai/east-ui\";"
+        "import { Badge, Box, Button, Card, Text, HStack, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// Card in permission-denied state — access-denied fallback body\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Card header={{ eyebrow: \"Admin panel\" }} state=\"permission-denied\">\n                <Text>Sensitive content.</Text>\n            </Card>\n        );\n    })"
     },
@@ -18744,9 +18791,33 @@
       "imports": [
         "import { East, example } from \"@elaraai/east\";",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Badge, Button, Card, Text, HStack } from \"@elaraai/east-ui\";"
+        "import { Badge, Box, Button, Card, Text, HStack, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// Card with two hairline-separated sections\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Card header={{ title: \"Commit approval\" }}>\n                <Text>Top-level summary line.</Text>\n                {Card.Section([<Text>Scope A details</Text>], { title: \"Scope\" })}\n                {Card.Section([\n                    <HStack gap=\"2\">\n                        <Button>Apply</Button>\n                        <Button variant=\"subtle\">Revert</Button>\n                    </HStack>,\n                ], { title: \"Actions\" })}\n            </Card>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:card.examples.tsx:cardFillBody",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/container/card.examples.tsx",
+      "suite": "",
+      "test": "A height-bounded Card constrains its body (#320) — with a definite ",
+      "keywords": [
+        "Card",
+        "height",
+        "fill",
+        "body",
+        "constrain",
+        "scroll",
+        "sizing",
+        "fillBody"
+      ],
+      "imports": [
+        "import { East, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Badge, Box, Button, Card, Text, HStack, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// A height-bounded Card constrains its body (#320) — with a definite \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Card height=\"240px\" width=\"280px\">\n                <Box fill scrollY>\n                    <VStack align=\"stretch\" gap=\"2\">\n                        {Array.from({ length: 20 }, (_, i) => <Text>{`Row ${i + 1}`}</Text>)}\n                    </VStack>\n                </Box>\n            </Card>\n        );\n    })"
     },
     {
       "id": "east-ui:accordion.examples.tsx:accordionBasic",
@@ -24235,6 +24306,30 @@
       "source": "// Box with fontFamily=\\\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Box fontFamily=\"mono\" fontVariantNumeric=\"tabular-nums\" padding=\"3\" background=\"gray.50\" borderRadius=\"md\">\n                <VStack gap=\"1\" align=\"flex-end\">\n                    <Text>{\"  1,234.56\"}</Text>\n                    <Text>{\"    56.07\"}</Text>\n                    <Text>{\"789,012.30\"}</Text>\n                </VStack>\n            </Box>\n        );\n    })"
     },
     {
+      "id": "east-ui:box.examples.tsx:boxFillScroll",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/layout/box.examples.tsx",
+      "suite": "",
+      "test": "Bounded column (#320) — a fixed-height Box whose pinned header does not shrink (definite size ⇒ flexShrink:0) above a ",
+      "keywords": [
+        "Box",
+        "fill",
+        "scroll",
+        "scrollY",
+        "flexShrink",
+        "bounded",
+        "sizing",
+        "height"
+      ],
+      "imports": [
+        "import { East, IntegerType, NullType, example } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Button, Text, VStack, HStack, Reactive } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Bounded column (#320) — a fixed-height Box whose pinned header does not shrink (definite size ⇒ flexShrink:0) above a \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Box display=\"flex\" flexDirection=\"column\" height=\"220px\" width=\"260px\" border=\"1px solid\" borderColor=\"gray.200\" borderRadius=\"md\" overflow=\"hidden\">\n                <Box padding=\"3\" background=\"gray.50\"><Text>Pinned header</Text></Box>\n                <Box fill scrollY padding=\"3\">\n                    <VStack align=\"stretch\" gap=\"2\">\n                        {Array.from({ length: 20 }, (_, i) => <Text>{`Scrolling row ${i + 1}`}</Text>)}\n                    </VStack>\n                </Box>\n            </Box>\n        );\n    })"
+    },
+    {
       "id": "east-ui:expandable.examples.tsx:expandableRegion",
       "skill": "east-ui",
       "package": "east-ui",
@@ -24470,6 +24565,30 @@
         "import { Button, Flex, Text, VStack, Reactive } from \"@elaraai/east-ui\";"
       ],
       "source": "// Flex direction toggles between row and column on each click\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const counter = $.let(State.bind([IntegerType], \"flex_counter\", 0n));\n            const value = $.let(counter.read());\n            const isRow = $.let(value.remainder(2n).equal(0n));\n            const direction = $.let(isRow.ifElse(() => Style.FlexDirection(\"row\"), () => Style.FlexDirection(\"column\")));\n            const inc = $.const(East.function([], NullType, $ => {\n                const cur = $.let(counter.read());\n                $(counter.write(cur.add(1n)));\n            }));\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <Flex direction={direction} gap=\"4\" padding=\"4\" background=\"gray.100\" borderRadius=\"md\">\n                        <Text>A</Text>\n                        <Text>B</Text>\n                        <Text>C</Text>\n                    </Flex>\n                    <Button onClick={inc}>Toggle direction</Button>\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "east-ui:flex.examples.tsx:flexFillScroll",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/layout/flex.examples.tsx",
+      "suite": "",
+      "test": "A column Flex bounded to a fixed height (#320): a non-shrinking toolbar row above a ",
+      "keywords": [
+        "Flex",
+        "fill",
+        "scroll",
+        "scrollY",
+        "column",
+        "bounded",
+        "sizing",
+        "height"
+      ],
+      "imports": [
+        "import { East, IntegerType, NullType, example } from \"@elaraai/east\";",
+        "import { State, Style, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Button, Flex, Text, VStack, Reactive } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// A column Flex bounded to a fixed height (#320): a non-shrinking toolbar row above a \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Flex direction=\"column\" height=\"220px\" width=\"260px\">\n                <Flex background=\"gray.50\" padding=\"3\"><Text>Toolbar</Text></Flex>\n                <Flex fill scrollY direction=\"column\" gap=\"2\" padding=\"3\">\n                    {Array.from({ length: 20 }, (_, i) => <Text>{`Row ${i + 1}`}</Text>)}\n                </Flex>\n            </Flex>\n        );\n    })"
     },
     {
       "id": "east-ui:grid.examples.tsx:gridBasic3Col",
@@ -25329,6 +25448,30 @@
         "import { Badge, Box, Button, Meter, Stack, Tag, Text, VStack, HStack, Reactive } from \"@elaraai/east-ui\";"
       ],
       "source": "// Stack gap toggles between tight and wide on each click\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const counter = $.let(State.bind([IntegerType], \"stack_counter\", 0n));\n            const value = $.let(counter.read());\n            const isTight = $.let(value.remainder(2n).equal(0n));\n            const gap = $.let(isTight.ifElse(() => \"1\", () => \"8\"));\n            const inc = $.const(East.function([], NullType, $ => {\n                const cur = $.let(counter.read());\n                $(counter.write(cur.add(1n)));\n            }));\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <VStack gap={gap} align=\"stretch\">\n                        <Text>First</Text>\n                        <Text>Second</Text>\n                        <Text>Third</Text>\n                    </VStack>\n                    <Button onClick={inc}>Toggle gap</Button>\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "east-ui:stack.examples.tsx:stackFillScroll",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/layout/stack.examples.tsx",
+      "suite": "",
+      "test": "A height-bounded VStack (#320): a pinned header above a ",
+      "keywords": [
+        "Stack",
+        "VStack",
+        "fill",
+        "scroll",
+        "scrollY",
+        "bounded",
+        "sizing",
+        "height"
+      ],
+      "imports": [
+        "import { East, IntegerType, NullType, example } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Badge, Box, Button, Meter, Stack, Tag, Text, VStack, HStack, Reactive } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// A height-bounded VStack (#320): a pinned header above a \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <VStack height=\"220px\" width=\"260px\" align=\"stretch\" gap=\"0\">\n                <Box background=\"gray.50\" padding=\"3\"><Text>Header</Text></Box>\n                <VStack fill scrollY align=\"stretch\" gap=\"2\" padding=\"3\">\n                    {Array.from({ length: 20 }, (_, i) => <Text>{`Item ${i + 1}`}</Text>)}\n                </VStack>\n            </VStack>\n        );\n    })"
     },
     {
       "id": "east-ui:sticky.examples.tsx:stickyHeader",

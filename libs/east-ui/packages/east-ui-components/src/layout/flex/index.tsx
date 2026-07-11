@@ -9,6 +9,7 @@ import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Flex } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
+import { resolveSizingShorthands } from "../sizing.js";
 import { DensityProvider } from "../../contracts/density.js";
 
 // Pre-define the equality function at module level
@@ -28,6 +29,29 @@ export function toChakraFlex(value: FlexValue): FlexProps {
     const style = getSomeorUndefined(value.style);
     const padding = style ? getSomeorUndefined(style.padding) : undefined;
     const margin = style ? getSomeorUndefined(style.margin) : undefined;
+
+    // Sizing shorthands (fill / scroll / definite-size shrink) resolve to the
+    // flex-item + overflow + min-size subset, spread last so they win (#320).
+    const heightVal = style ? getSomeorUndefined(style.height) : undefined;
+    const widthVal = style ? getSomeorUndefined(style.width) : undefined;
+    const sizing = resolveSizingShorthands({
+        fill: style ? getSomeorUndefined(style.fill) : undefined,
+        scroll: style ? getSomeorUndefined(style.scroll) : undefined,
+        scrollX: style ? getSomeorUndefined(style.scrollX) : undefined,
+        scrollY: style ? getSomeorUndefined(style.scrollY) : undefined,
+        hasHeight: heightVal !== undefined,
+        hasWidth: widthVal !== undefined,
+        explicit: {
+            flex: style ? getSomeorUndefined(style.flex) : undefined,
+            flexGrow: style ? getSomeorUndefined(style.flexGrow) : undefined,
+            flexShrink: style ? getSomeorUndefined(style.flexShrink) : undefined,
+            overflow: style ? getSomeorUndefined(style.overflow)?.type : undefined,
+            overflowX: style ? getSomeorUndefined(style.overflowX)?.type : undefined,
+            overflowY: style ? getSomeorUndefined(style.overflowY)?.type : undefined,
+            minWidth: style ? getSomeorUndefined(style.minWidth) : undefined,
+            minHeight: style ? getSomeorUndefined(style.minHeight) : undefined,
+        },
+    });
 
     return {
         direction: style ? getSomeorUndefined(style.direction)?.type : undefined,
@@ -63,6 +87,7 @@ export function toChakraFlex(value: FlexValue): FlexProps {
         flex: style ? getSomeorUndefined(style.flex) : undefined,
         flexGrow: style ? getSomeorUndefined(style.flexGrow) : undefined,
         flexShrink: style ? getSomeorUndefined(style.flexShrink) : undefined,
+        ...sizing,
     };
 }
 

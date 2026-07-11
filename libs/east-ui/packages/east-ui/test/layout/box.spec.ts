@@ -21,6 +21,7 @@ describeEast("Box", (test) => {
         boxElevated: ex.boxElevated,
         boxAnimated: ex.boxAnimated,
         boxTabularNumeric: ex.boxTabularNumeric,
+        boxFillScroll: ex.boxFillScroll,
     });
 
     // =========================================================================

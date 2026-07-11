@@ -681,6 +681,10 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         onCellClick: OptionType(FunctionType([MatrixCellClickEventType], NullType)),
         onSegmentClick: OptionType(FunctionType([MatrixSegmentClickEventType], NullType)),
         onSegmentChange: OptionType(FunctionType([MatrixSegmentChangeEventType], NullType)),
+        // Uniform sizing contract (#320) — bound the whole component; the grid
+        // scrolls within. `"fill"` fills the parent box.
+        height: OptionType(StringType),
+        maxHeight: OptionType(StringType),
     }),
 
     // Charts
@@ -882,6 +886,9 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         // Optional max-height (CSS) for the plan area — body scrolls vertically
         // within it with the header pinned (sticky-top). Absent ⇒ content-sized.
         maxHeight: OptionType(StringType),
+        // Definite height (#320) — pins the plan to exactly this box (`"fill"`
+        // fills the parent), header pinned, body scrolls within.
+        height: OptionType(StringType),
         plotGutter: OptionType(PlotGutterType),
         onSelectRow: OptionType(FunctionType([PlannerSelectEventType], NullType)),
         // Optional review chrome — the per-row decision column + batch foot.
@@ -919,6 +926,9 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         people: ArrayType(RosterPersonType),
         shifts: ArrayType(RosterShiftType),
         density: OptionType(DensityType),
+        // Uniform sizing contract (#320) — bound the grid; it scrolls within.
+        height: OptionType(StringType),
+        maxHeight: OptionType(StringType),
         summary: OptionType(StringType),
         onDrag: OptionType(FunctionType([DragEventType], NullType)),
         canDrop: OptionType(FunctionType([DragEventType], BooleanType)),
@@ -954,6 +964,9 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         requirements: OptionType(ArrayType(BoardRequirementType)),
         density: OptionType(DensityType),
         maxVisible: OptionType(IntegerType),
+        // Uniform sizing contract (#320) — bound the board; it scrolls within.
+        height: OptionType(StringType),
+        maxHeight: OptionType(StringType),
         summary: OptionType(StringType),
         canDrop: OptionType(FunctionType([DragEventType], BooleanType)),
         onDrag: OptionType(FunctionType([DragEventType], NullType)),

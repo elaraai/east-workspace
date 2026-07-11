@@ -55,7 +55,10 @@ export const EastChakraImage = memo(function EastChakraImage({ value }: EastChak
     const [blobSrc, setBlobSrc] = useState<string | undefined>(undefined);
     useEffect(() => {
         if (source.type !== "blob") { setBlobSrc(undefined); return; }
-        const url = URL.createObjectURL(new Blob([source.value.bytes], { type: MIME[source.value.format.type] ?? "application/octet-stream" }));
+        // `bytes` is a plain Uint8Array; the `as BlobPart` narrows the lib.dom
+        // generic `Uint8Array<ArrayBufferLike>` (whose `ArrayBufferLike` admits
+        // `SharedArrayBuffer`) to the `BufferSource` the Blob constructor wants.
+        const url = URL.createObjectURL(new Blob([source.value.bytes as BlobPart], { type: MIME[source.value.format.type] ?? "application/octet-stream" }));
         setBlobSrc(url);
         return () => URL.revokeObjectURL(url);
     }, [source]);

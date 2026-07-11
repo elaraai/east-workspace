@@ -166,3 +166,19 @@ export const flexInteractive = example({
     )),
     inputs: [],
 });
+
+export const flexFillScroll = example({
+    keywords: ["Flex", "fill", "scroll", "scrollY", "column", "bounded", "sizing", "height"],
+    description: "A column Flex bounded to a fixed height (#320): a non-shrinking toolbar row above a `fill scrollY` body that consumes the remainder and scrolls — the `flex:1 + min-height:0 + overflow` incantation as declarative props",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <Flex direction="column" height="220px" width="260px">
+                <Flex background="gray.50" padding="3"><Text>Toolbar</Text></Flex>
+                <Flex fill scrollY direction="column" gap="2" padding="3">
+                    {Array.from({ length: 20 }, (_, i) => <Text>{`Row ${i + 1}`}</Text>)}
+                </Flex>
+            </Flex>
+        );
+    }),
+    inputs: [],
+});

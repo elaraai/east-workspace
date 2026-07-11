@@ -8,6 +8,7 @@ import { Box, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Calendar } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
+import { resolveDataHeight } from "../sizing.js";
 import { useDensity } from "../../contracts/density";
 import { usePlotGutter } from "../../contracts/plot-gutter.js";
 
@@ -107,8 +108,11 @@ export const EastChakraCalendar = memo(function EastChakraCalendar({ value }: Ea
     const selectedDelta = selectedCell ? getSomeorUndefined(selectedCell.delta) : undefined;
     const showFooter = selected !== null || actionLabel !== undefined;
 
+    // Uniform sizing contract (#320) — bound the calendar; it scrolls within.
+    const boundH = resolveDataHeight(getSomeorUndefined(value.height));
+    const boundMaxH = getSomeorUndefined(value.maxHeight);
     return (
-        <Box css={styles.root} {...(gutterActive ? { display: "block", width: "100%" } : {})}>
+        <Box css={styles.root} {...(gutterActive ? { display: "block", width: "100%" } : {})} height={boundH} maxHeight={boundMaxH} {...((boundH ?? boundMaxH) !== undefined ? { overflowY: "auto" as const, minHeight: "0" } : {})}>
             {value.legend !== "" && (
                 <Box css={styles.header}>
                     <Box as="span" css={styles.legend}>{value.legend}</Box>

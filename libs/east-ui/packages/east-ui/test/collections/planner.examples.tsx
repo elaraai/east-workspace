@@ -798,3 +798,36 @@ export const plannerPerCellBuckets = example({
     }),
     inputs: [],
 });
+
+/**
+ * Definite height (#320) — `height` pins the plan to exactly this box (vs
+ * `maxHeight`'s grow-up-to-a-cap); the header stays pinned and the body scrolls.
+ */
+export const plannerFillHeight = example({
+    keywords: ["Planner", "height", "definite", "bounded", "scroll", "sticky", "sizing", "#320"],
+    description: "Definite height (#320) — `height=\"220px\"` pins the plan to exactly this box; header pinned, body scrolls within (contrast `plannerScroll`'s grow-to-a-cap `maxHeight`)",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <Planner.Point
+                data={[
+                    { name: "api-01", role: "Lead" }, { name: "api-02", role: "Engineer" },
+                    { name: "api-03", role: "Engineer" }, { name: "cache-01", role: "Service" },
+                    { name: "cache-02", role: "Service" }, { name: "etl-01", role: "Lead" },
+                    { name: "etl-02", role: "Engineer" }, { name: "etl-03", role: "Engineer" },
+                    { name: "web-01", role: "Lead" }, { name: "web-02", role: "Engineer" },
+                    { name: "web-03", role: "Engineer" }, { name: "queue-01", role: "Service" },
+                ]}
+                axis={Planner.axis.number({ buckets: [{ key: "am", label: "AM" }, { key: "pm", label: "PM" }], range: { min: 1, max: 6 } })}
+                columns={[{ key: "name", frozen: true, value: r => r.name, sublabel: r => r.role }]}
+                events={_r => [
+                    Planner.event({ slot: Planner.at.number(1), bucket: "am", label: "✓", state: "committed" }),
+                    Planner.event({ slot: Planner.at.number(3), bucket: "am", label: "✓", state: "committed" }),
+                    Planner.event({ slot: Planner.at.number(4), bucket: "pm", label: "plan", state: "added" }),
+                ]}
+                now={Planner.at.number(4)}
+                height="220px"
+            />
+        );
+    }),
+    inputs: [],
+});

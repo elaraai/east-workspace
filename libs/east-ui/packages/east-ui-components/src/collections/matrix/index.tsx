@@ -17,6 +17,7 @@ import {
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Matrix } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
+import { SizedScrollFrame } from "../sizing.js";
 import { usePersistedState } from "../../hooks/usePersistedState";
 import { EastChakraComponent } from "../../component";
 import {
@@ -623,7 +624,13 @@ export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageK
 
     // A density set on the matrix cascades to display components rendered in
     // its cells, matching the Table behaviour.
-    return densityTag !== undefined
+    const inner = densityTag !== undefined
         ? <DensityProvider value={densityTag}>{matrixContent}</DensityProvider>
         : matrixContent;
+    // Uniform sizing contract (#320) — bound the whole matrix; it scrolls within.
+    return (
+        <SizedScrollFrame height={getSomeorUndefined(value.height)} maxHeight={getSomeorUndefined(value.maxHeight)}>
+            {inner}
+        </SizedScrollFrame>
+    );
 }, (prev, next) => matrixRootEqual(prev.value, next.value) && prev.storageKey === next.storageKey);

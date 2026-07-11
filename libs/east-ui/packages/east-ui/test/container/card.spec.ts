@@ -23,6 +23,7 @@ describeEast("Card", (test) => {
         cardError: ex.cardError,
         cardPermissionDenied: ex.cardPermissionDenied,
         cardWithSections: ex.cardWithSections,
+        cardFillBody: ex.cardFillBody,
     });
 
     // =========================================================================

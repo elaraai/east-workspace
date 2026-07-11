@@ -36,6 +36,7 @@ import {
     StringType,
     StructType,
 } from "@elaraai/east";
+import { encodeHeightOption, encodeMaxHeightOption } from "../sizing.js";
 
 import { UIComponentType } from "../../component.js";
 import { mapRows } from "../../shared/reify.js";
@@ -104,6 +105,10 @@ export const RosterRootType = StructType({
     shifts: ArrayType(RosterShiftType),
     /** Optional density */
     density: OptionType(DensityType),
+    /** Uniform sizing (#320): bound the grid; it scrolls within. `"fill"` fills the parent box. */
+    height: OptionType(StringType),
+    /** Uniform sizing (#320): max-height cap; content-sized up to it. */
+    maxHeight: OptionType(StringType),
     /** Optional status-strip text (dirty / ghost counts) */
     summary: OptionType(StringType),
     /** Drag funnel — add / move / remove events */
@@ -247,6 +252,10 @@ export interface RosterConfig<P extends StructType, S extends StructType> {
     days?: string[];
     /** Optional density. */
     density?: SubtypeExprOrValue<DensityType> | DensityLiteral;
+    /** Uniform sizing (#320): bound the component — a pixel number, `"fill"` (fill the parent box), or a CSS length; the whole component takes this height and scrolls within. */
+    height?: number | "fill" | SubtypeExprOrValue<StringType>;
+    /** Uniform sizing (#320): max-height cap — a pixel number or CSS length; content-sized up to it. */
+    maxHeight?: number | SubtypeExprOrValue<StringType>;
     /** Optional status-strip text (dirty / ghost counts). */
     summary?: SubtypeExprOrValue<StringType>;
     /** Drag funnel — add / move / remove events. */
@@ -331,6 +340,8 @@ function buildRoot(
         people: resolvedPeople,
         shifts: resolvedShifts,
         density,
+        height: encodeHeightOption(config.height),
+        maxHeight: encodeMaxHeightOption(config.maxHeight),
         summary: config.summary !== undefined ? some(config.summary) : none,
         onDrag: config.onDrag !== undefined ? some(config.onDrag) : none,
         canDrop: config.canDrop !== undefined ? some(config.canDrop) : none,

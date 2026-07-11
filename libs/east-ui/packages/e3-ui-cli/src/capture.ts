@@ -71,6 +71,9 @@ export interface CaptureOptions {
     settleMs?: number;
     /** Per-navigation timeout (ms). Default 30000. */
     timeoutMs?: number;
+    /** Outline any element whose content overflows its box before capture —
+     *  surfaces collapsed / clipped regions invisible in a normal shot (#320). */
+    debugLayout?: boolean | undefined;
 }
 
 const MIME: Record<string, string> = {
@@ -361,6 +364,23 @@ async function captureInSession(
                 { timeout, polling: CAPTURE_DEFAULTS.skeletonPollMs })
             .catch(() => console.warn('[e3-ui shot] skeletons still present at capture — the image may be premature (raise --wait).'));
         await page.waitForTimeout(settleMs);
+
+        // --debug-layout: after layout settles, outline any element whose
+        // content overflows its box. A collapsed / clipped region is otherwise
+        // invisible in the shot; the outline lands in both the PNG and (via the
+        // added <style>) the --html (#320). Runs after settle so measurements
+        // are final.
+        if (opts.debugLayout) {
+            await page.addStyleTag({ content: '[data-e3-overflow]{outline:2px solid #e5484d !important;outline-offset:-2px;}' });
+            await page.evaluate(() => {
+                for (const el of Array.from(document.querySelectorAll('*'))) {
+                    const h = el as HTMLElement;
+                    if (h.scrollWidth > h.clientWidth + 1 || h.scrollHeight > h.clientHeight + 1) {
+                        h.setAttribute('data-e3-overflow', '');
+                    }
+                }
+            });
+        }
 
         if (mode.kind === 'full-page') {
             await page.screenshot({ path: opts.outPng, fullPage: true });

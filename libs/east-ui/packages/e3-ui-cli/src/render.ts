@@ -40,6 +40,8 @@ export interface RenderToPngOptions {
     storageKey?: string | undefined;
     /** Component-frame mount width ('full' or a CSS width) — see CaptureOptions. */
     frameWidth?: string | undefined;
+    /** Outline elements whose content overflows their box (dev layout debugging). */
+    debugLayout?: boolean | undefined;
 }
 
 /** Resolve the shipped prebuilt app directory (`dist/app`, sibling of this module). */
@@ -68,6 +70,7 @@ export async function renderToPng(opts: RenderToPngOptions): Promise<void> {
         frameWidth: opts.frameWidth,
         settleMs: opts.settleMs,
         timeoutMs: opts.timeoutMs,
+        debugLayout: opts.debugLayout,
     });
 }
 

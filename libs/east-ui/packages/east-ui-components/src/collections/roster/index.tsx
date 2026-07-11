@@ -10,6 +10,7 @@ import { faCheck, faGripVertical, faTrashCan } from "@fortawesome/free-solid-svg
 import { equalFor, match, some, none, variant, type ValueTypeOf } from "@elaraai/east";
 import { Roster, type CellRefType } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
+import { resolveDataHeight } from "../sizing.js";
 import { useDragTarget, useDropCell, useDragEventChip, type DragEventValue, type DragMeta, type DragPayload } from "../../dnd/drag-layer";
 import { useIRCanDrop, canDropAllows, type CanDropFn } from "../../dnd/ir-can-drop";
 import { useReviewController, DecisionButtons, ReviewFoot, DECISION_WIDTH } from "../shared/review";
@@ -312,8 +313,11 @@ export const EastChakraRoster = memo(function EastChakraRoster({ value, storageK
 
     const summary = getSomeorUndefined(value.summary);
 
+    // Uniform sizing contract (#320) — bound the grid; it scrolls within.
+    const boundH = resolveDataHeight(getSomeorUndefined(value.height));
+    const boundMaxH = getSomeorUndefined(value.maxHeight);
     return (
-        <Box css={styles.root}>
+        <Box css={styles.root} height={boundH} maxHeight={boundMaxH} {...((boundH ?? boundMaxH) !== undefined ? { overflowY: "auto" as const, minHeight: "0" } : {})}>
             <Box css={styles.grid} style={{ gridTemplateColumns: `${getSomeorUndefined(value.personWidth) ?? "150px"} repeat(${value.days.length}, 1fr)${reviewController !== undefined ? ` ${DECISION_WIDTH}` : ""}` }}>
                 <Box css={styles.headerCell}>{value.personHeader}</Box>
                 {value.days.map(day => (

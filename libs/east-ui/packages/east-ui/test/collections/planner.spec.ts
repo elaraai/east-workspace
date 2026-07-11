@@ -31,6 +31,7 @@ describeEast("Planner", (test) => {
         plannerHovercard: ex.plannerHovercard,
         plannerRowHover: ex.plannerRowHover,
         plannerPerCellBuckets: ex.plannerPerCellBuckets,
+        plannerFillHeight: ex.plannerFillHeight,
     });
 
     // =========================================================================

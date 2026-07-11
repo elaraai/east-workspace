@@ -19,6 +19,7 @@ import { timeDay, timeHour, timeMonth, timeWeek, timeYear, type TimeInterval } f
 import { Planner } from "@elaraai/east-ui/internal";
 import { formatDatePattern } from "../../charts/spec";
 import { getSomeorUndefined } from "../../utils";
+import { resolveDataHeight } from "../sizing.js";
 import { usePersistedState } from "../../hooks/usePersistedState";
 import { EastChakraComponent } from "../../component";
 import {
@@ -485,7 +486,12 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
     // scrolls within it and the header pins (sticky-top, via the recipe `scroll`
     // variant); the dynamic cap value is applied inline on the root below.
     const maxHeight = getSomeorUndefined(value.maxHeight);
-    const base = useMemo(() => recipe({ size, rowHover: rowHoverOn, scroll: maxHeight !== undefined } as Record<string, unknown>) as unknown as RecipeStyles, [recipe, size, rowHoverOn, maxHeight]);
+    // Definite height (#320) — pins the plan to exactly this box (`"fill"` fills
+    // the parent); like `maxHeight` it flips the `scroll` variant (header pinned,
+    // body scrolls) and is applied inline on the root below.
+    const height = resolveDataHeight(getSomeorUndefined(value.height));
+    const sizeBounded = maxHeight !== undefined || height !== undefined;
+    const base = useMemo(() => recipe({ size, rowHover: rowHoverOn, scroll: sizeBounded } as Record<string, unknown>) as unknown as RecipeStyles, [recipe, size, rowHoverOn, sizeBounded]);
     // Header cells reuse the shared `table` columnHeader chrome (solid wash +
     // strong bottom rule) — one source across Table / Gantt / Planner / Matrix.
     const headerCellStyle = useMemo(() => (tableRecipe({ size }) as unknown as RecipeStyles).columnHeader ?? {}, [tableRecipe, size]);
@@ -904,7 +910,7 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
     };
 
     const plannerContent = (
-        <Box css={maxHeight !== undefined ? { ...base.root, maxHeight } : base.root} {...(gutterActive ? { width: "100%" } : {})}>
+        <Box css={sizeBounded ? { ...base.root, ...(maxHeight !== undefined ? { maxHeight } : {}), ...(height !== undefined ? { height, minHeight: 0 } : {}) } : base.root} {...(gutterActive ? { width: "100%" } : {})}>
             {/* Header: left data-column headers (Table chrome) + right slot axis. */}
             <Box css={base.header} data-slot="header" display="grid" gridTemplateColumns={outerCols} minWidth={outerMinWidth} height={`${headerH}px`}>
                 <Box css={stickyLeftHeader} display="flex" width="100%" style={effectiveSizeVars}>
