@@ -802,6 +802,17 @@ const TableCore = function TableCore({
 
     const styleHeightCss = parseCssSize(style ? getSomeorUndefined(style.height) : undefined);
     const styleMaxHeightCss = parseCssSize(style ? getSomeorUndefined(style.maxHeight) : undefined);
+    // Width-slack absorber (#323 review): with every column explicitly sized,
+    // the flex rows ended short of the table width and the leftover painted as
+    // a dead strip (fixed-width cells are `flex: none`; only UNSIZED columns
+    // grew). The LAST visible leaf data column now grows (`flex: 1 0 auto` —
+    // its sized width stays the floor), matching how unsized tables fill.
+    // Skipped under frozen pinning (table width IS the summed sizes, h-scroll)
+    // and an active plot gutter (the right gutter region owns the slack), and
+    // when the user drag-resized that column (respect the manual size).
+    const lastStretchId = (!hasFrozen && !gutterActive)
+        ? table.getVisibleLeafColumns().filter(c => c.id !== REVIEW_COLUMN_ID && !c.getIsPinned()).at(-1)?.id
+        : undefined;
     const tableContent = (
         <Box
             ref={tableContainerRef}
@@ -852,6 +863,9 @@ const TableCore = function TableCore({
                                         const groupKeys: string[] = Array.from(g.columnKeys);
                                         if (groupKeys.length === 0) return null;
                                         const widthCalc = groupKeys.map(k => `var(--col-${k}-size)`).join(" + ");
+                                        // A group spanning the slack-absorbing last column
+                                        // must grow with it (min-width keeps the floor).
+                                        const spansStretch = lastStretchId !== undefined && groupKeys.includes(lastStretchId);
                                         return (
                                             <ChakraTable.ColumnHeader
                                                 key={`group-${gi}`}
@@ -860,7 +874,7 @@ const TableCore = function TableCore({
                                                 style={{
                                                     width: `calc(${widthCalc})`,
                                                     minWidth: `calc(${widthCalc})`,
-                                                    flex: groupsRowGrows ? `${groupKeys.length} 1 0%` : "none",
+                                                    flex: groupsRowGrows ? `${groupKeys.length} 1 0%` : (spansStretch ? "1 0 auto" : "none"),
                                                     borderColor,
                                                     paddingLeft: densityCellPadX,
                                                     paddingRight: densityCellPadX,
@@ -986,7 +1000,10 @@ const TableCore = function TableCore({
                                         transition="background 0.2s"
                                         style={{
                                             width: `var(--header-${header.id}-size)`,
-                                            flex: hasFrozen ? 'none' : (columnSizing[header.id] || header.column.columnDef.meta?.width) ? 'none' : 1,
+                                            flex: hasFrozen ? 'none'
+                                                : (columnSizing[header.id] || header.column.columnDef.meta?.width)
+                                                    ? (header.column.id === lastStretchId && !columnSizing[header.id] ? '1 0 auto' : 'none')
+                                                    : 1,
                                             ...pinningStyles,
                                             zIndex: isPinned ? 3 : undefined,
                                             borderColor: borderColor,
@@ -1293,7 +1310,10 @@ const TableCore = function TableCore({
 
                                     const cellStyle: React.CSSProperties = {
                                         width: `var(--col-${cell.column.id}-size)`,
-                                        flex: hasFrozen ? 'none' : (columnSizing[cell.column.id] || meta?.width) ? 'none' : 1,
+                                        flex: hasFrozen ? 'none'
+                                            : (columnSizing[cell.column.id] || meta?.width)
+                                                ? (cell.column.id === lastStretchId && !columnSizing[cell.column.id] ? '1 0 auto' : 'none')
+                                                : 1,
                                         display: 'flex',
                                         // Spec `.dt` reads vertically centered (its rows hug
                                         // content, so its `vertical-align: top` is moot); our
@@ -1444,10 +1464,14 @@ const TableCore = function TableCore({
                                     const footerRowGrows = !hasFrozen && Object.keys(columnSizing).length === 0
                                         && value.columns.every(c => getSomeorUndefined(c.width) === undefined);
                                     const widthCalc = span > 1 ? `calc(${widthVar})` : `var(--col-${colKey}-size)`;
+                                    // A footer cell spanning the slack-absorbing last
+                                    // column must grow with it (min-width keeps the floor).
+                                    const footerSpansStretch = lastStretchId !== undefined
+                                        && Array.from({ length: span }, (_, k) => value.columns[i + k]!.key).includes(lastStretchId);
                                     const cellStyle: React.CSSProperties = {
                                         width: widthCalc,
                                         minWidth: widthCalc,
-                                        flex: footerRowGrows ? `${span} 1 0%` : "none",
+                                        flex: footerRowGrows ? `${span} 1 0%` : (footerSpansStretch ? "1 0 auto" : "none"),
                                         display: "flex",
                                         alignItems: "center",
                                         overflow: "hidden",
