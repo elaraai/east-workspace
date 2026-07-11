@@ -22,49 +22,51 @@ import {
   packageRemove as packageRemoveRemote,
 } from '@elaraai/e3-api-client';
 import { parseRepoLocation, parsePackageSpec, formatError, exitError } from '../utils.js';
-import { writeExportProgress, clearProgress } from '../format.js';
+import { createProgress, formatBytes } from '../progress.js';
 
 export const packageCommand = {
   /**
    * Import a package from a .zip file.
    */
-  async import(repoArg: string, zipPath: string): Promise<void> {
+  async import(repoArg: string, zipPath: string, options: { quiet?: boolean } = {}): Promise<void> {
     try {
       const location = await parseRepoLocation(repoArg);
+      // Step-level progress on stderr (#311); stdout keeps the machine summary.
+      const progress = createProgress({ quiet: options.quiet === true });
 
+      let result: { name: string; version: string; packageHash: string; objectCount: number | bigint };
       if (location.type === 'local') {
         const storage = new LocalStorage();
-        const result = await packageImport(storage, location.path, zipPath);
-
-        console.log(`Imported ${result.name}@${result.version}`);
-        console.log(`  Package hash: ${result.packageHash.slice(0, 12)}...`);
-        console.log(`  Objects: ${result.objectCount}`);
+        result = await packageImport(storage, location.path, zipPath);
       } else {
         // Remote import - read local zip and send to server
         const zipBytes = readFileSync(zipPath);
-        const result = await packageImportRemote(
-          location.baseUrl, location.repo, new Uint8Array(zipBytes),
-          { token: location.token },
-          {
-            onUploadProgress: (uploaded, total) => {
-              const pct = Math.round((uploaded / total) * 100);
-              const mb = (uploaded / 1024 / 1024).toFixed(1);
-              const totalMb = (total / 1024 / 1024).toFixed(1);
-              process.stdout.write(`\rUploading... ${mb}/${totalMb} MB (${pct}%)`);
+        const step = progress.step(`uploading package (${formatBytes(zipBytes.byteLength)})`);
+        try {
+          result = await packageImportRemote(
+            location.baseUrl, location.repo, new Uint8Array(zipBytes),
+            { token: location.token },
+            {
+              onUploadProgress: (uploaded, total) => {
+                step.update(`uploading package ${formatBytes(uploaded)}/${formatBytes(total)}`);
+              },
+              onProgress: (p) => {
+                if (p.type === 'importing') {
+                  step.update(`importing… ${p.value.objectsProcessed} objects processed`);
+                } else if (p.type === 'pending' || p.type === 'downloading') {
+                  step.update('importing… waiting for server');
+                }
+              },
             },
-            onProgress: (progress) => {
-              if (progress.type === 'pending') {
-                process.stdout.write(`\rPending...\x1b[K`);
-              } else if (progress.type === 'downloading') {
-                process.stdout.write(`\rPreparing...\x1b[K`);
-              } else if (progress.type === 'importing') {
-                process.stdout.write(`\rImporting... ${progress.value.objectsProcessed} objects processed\x1b[K`);
-              }
-            },
-          },
-        );
-        clearProgress();
+          );
+        } catch (err) {
+          step.fail();
+          throw err;
+        }
+        step.done(`imported ${result.name}@${result.version} (${result.objectCount} objects)`);
+      }
 
+      if (!progress.quiet) {
         console.log(`Imported ${result.name}@${result.version}`);
         console.log(`  Package hash: ${result.packageHash.slice(0, 12)}...`);
         console.log(`  Objects: ${result.objectCount}`);
@@ -77,32 +79,54 @@ export const packageCommand = {
   /**
    * Export a package to a .zip file.
    */
-  async export(repoArg: string, pkgSpec: string, zipPath: string): Promise<void> {
+  async export(repoArg: string, pkgSpec: string, zipPath: string, options: { quiet?: boolean } = {}): Promise<void> {
     try {
       const location = await parseRepoLocation(repoArg);
       const { name, version } = parsePackageSpec(pkgSpec);
+      // Step-level progress on stderr (#311); stdout keeps the machine summary.
+      const progress = createProgress({ quiet: options.quiet === true });
 
       if (location.type === 'local') {
         const storage = new LocalStorage();
         const result = await packageExport(storage, location.path, name, version, zipPath);
 
-        console.log(`Exported ${name}@${version} to ${zipPath}`);
-        console.log(`  Package hash: ${result.packageHash.slice(0, 12)}...`);
-        console.log(`  Objects: ${result.objectCount}`);
+        if (!progress.quiet) {
+          console.log(`Exported ${name}@${version} to ${zipPath}`);
+          console.log(`  Package hash: ${result.packageHash.slice(0, 12)}...`);
+          console.log(`  Objects: ${result.objectCount}`);
+        }
       } else {
         // Remote export - fetch zip bytes and write locally
-        const zipBytes = await packageExportRemote(
-          location.baseUrl, location.repo, name, version,
-          { token: location.token },
-          {
-            onProgress: writeExportProgress,
-          },
-        );
-        clearProgress();
+        const step = progress.step(`exporting ${name}@${version}`);
+        let zipBytes;
+        try {
+          zipBytes = await packageExportRemote(
+            location.baseUrl, location.repo, name, version,
+            { token: location.token },
+            {
+              onProgress: (p) => {
+                if (p.type === 'exporting') {
+                  step.update(`exporting… ${p.value.objectsProcessed} objects`);
+                } else if (p.type === 'pending' || p.type === 'uploading') {
+                  step.update('exporting… waiting for server');
+                }
+              },
+              onDownloadProgress: (downloaded, total) => {
+                step.update(`downloading ${formatBytes(downloaded)}/${formatBytes(total)}`);
+              },
+            },
+          );
+        } catch (err) {
+          step.fail();
+          throw err;
+        }
         writeFileSync(zipPath, zipBytes);
+        step.done(`exported ${name}@${version} (${formatBytes(zipBytes.length)})`);
 
-        console.log(`Exported ${name}@${version} to ${zipPath}`);
-        console.log(`  Size: ${zipBytes.length} bytes`);
+        if (!progress.quiet) {
+          console.log(`Exported ${name}@${version} to ${zipPath}`);
+          console.log(`  Size: ${zipBytes.length} bytes`);
+        }
       }
     } catch (err) {
       exitError(formatError(err));
