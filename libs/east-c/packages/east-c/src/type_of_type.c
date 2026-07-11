@@ -832,6 +832,19 @@ typedef struct {
     } *recs;
     int num_recs;
     int recs_cap;
+    /* Per-conversion type->value memo (issue #83). Mirrors the TS reference's
+     * persistent `toEastTypeValueCache` (libs/east/src/type_of_type.ts:119):
+     * structurally-equal sub-types are the SAME interned EastType*, so the
+     * same EastType* must yield the SAME (shared) EastValue* within one
+     * conversion. The beast2 value encoder dedups by pointer identity, so
+     * without this, two struct fields referencing the same interned type
+     * emit their value sub-tree twice (302 bytes vs the TS-canonical 293).
+     * Non-recursive composite kinds only; the cache OWNS one reference to
+     * each stored value (released in east_type_to_value). */
+    EastType **memo_keys;
+    EastValue **memo_vals;
+    size_t memo_len;
+    size_t memo_cap;
 } TVCtx;
 
 static void tv_ctx_push(TVCtx *ctx)
@@ -856,6 +869,39 @@ static void tv_ctx_add_rec(TVCtx *ctx, EastType *wrapper)
     ctx->recs[ctx->num_recs].wrapper = wrapper;
     ctx->recs[ctx->num_recs].stack_index = ctx->len; /* where inner will be pushed */
     ctx->num_recs++;
+}
+
+/* Per-conversion memo lookup (issue #83). Linear scan by pointer equality —
+ * types per conversion are small, like the recursive-intern scan above.
+ * On hit, retains and returns the cached value (caller owns the +1). */
+static EastValue *tv_memo_lookup(TVCtx *ctx, EastType *type)
+{
+    for (size_t i = 0; i < ctx->memo_len; i++) {
+        if (ctx->memo_keys[i] == type) {
+            east_value_retain(ctx->memo_vals[i]);
+            return ctx->memo_vals[i];
+        }
+    }
+    return NULL;
+}
+
+/* Store (type, result) in the memo; the cache holds its own +1 reference. */
+static void tv_memo_store(TVCtx *ctx, EastType *type, EastValue *result)
+{
+    if (ctx->memo_len >= ctx->memo_cap) {
+        size_t new_cap = ctx->memo_cap ? ctx->memo_cap * 2 : 8;
+        EastType **nk = realloc(ctx->memo_keys, new_cap * sizeof(*nk));
+        if (!nk) return;
+        ctx->memo_keys = nk;
+        EastValue **nv = realloc(ctx->memo_vals, new_cap * sizeof(*nv));
+        if (!nv) return;
+        ctx->memo_vals = nv;
+        ctx->memo_cap = new_cap;
+    }
+    ctx->memo_keys[ctx->memo_len] = type;
+    east_value_retain(result);
+    ctx->memo_vals[ctx->memo_len] = result;
+    ctx->memo_len++;
 }
 
 static EastValue *make_field_value(const char *name, EastValue *type_val)
@@ -920,6 +966,33 @@ static EastValue *type_to_value_ctx(EastType *type, TVCtx *ctx)
 
     EastType *vtype = east_type_type->data.recursive.node; /* inner variant */
 
+    /* Memo lookup for non-recursive composite kinds (issue #83). Primitives
+     * are cheap singletons and not worth caching; EAST_TYPE_RECURSIVE is
+     * handled above. A hit returns a shared value (retained for the caller). */
+    bool memoizable = false;
+    switch (type->kind) {
+    case EAST_TYPE_ARRAY:
+    case EAST_TYPE_SET:
+    case EAST_TYPE_REF:
+    case EAST_TYPE_VECTOR:
+    case EAST_TYPE_MATRIX:
+    case EAST_TYPE_DICT:
+    case EAST_TYPE_STRUCT:
+    case EAST_TYPE_VARIANT:
+    case EAST_TYPE_FUNCTION:
+    case EAST_TYPE_ASYNC_FUNCTION:
+        memoizable = true;
+        break;
+    default:
+        break;
+    }
+    if (memoizable) {
+        EastValue *cached = tv_memo_lookup(ctx, type);
+        if (cached) return cached;
+    }
+
+    EastValue *result = NULL;
+
     switch (type->kind) {
     case EAST_TYPE_NEVER:
         return east_variant_new("Never", east_null(), vtype);
@@ -942,31 +1015,36 @@ static EastValue *type_to_value_ctx(EastType *type, TVCtx *ctx)
         tv_ctx_push(ctx);
         EastValue *elem = type_to_value_ctx(type->data.element, ctx);
         tv_ctx_pop(ctx);
-        return east_variant_new("Array", elem, vtype);
+        result = east_variant_new("Array", elem, vtype);
+        break;
     }
     case EAST_TYPE_SET: {
         tv_ctx_push(ctx);
         EastValue *elem = type_to_value_ctx(type->data.element, ctx);
         tv_ctx_pop(ctx);
-        return east_variant_new("Set", elem, vtype);
+        result = east_variant_new("Set", elem, vtype);
+        break;
     }
     case EAST_TYPE_REF: {
         tv_ctx_push(ctx);
         EastValue *elem = type_to_value_ctx(type->data.element, ctx);
         tv_ctx_pop(ctx);
-        return east_variant_new("Ref", elem, vtype);
+        result = east_variant_new("Ref", elem, vtype);
+        break;
     }
     case EAST_TYPE_VECTOR: {
         tv_ctx_push(ctx);
         EastValue *elem = type_to_value_ctx(type->data.element, ctx);
         tv_ctx_pop(ctx);
-        return east_variant_new("Vector", elem, vtype);
+        result = east_variant_new("Vector", elem, vtype);
+        break;
     }
     case EAST_TYPE_MATRIX: {
         tv_ctx_push(ctx);
         EastValue *elem = type_to_value_ctx(type->data.element, ctx);
         tv_ctx_pop(ctx);
-        return east_variant_new("Matrix", elem, vtype);
+        result = east_variant_new("Matrix", elem, vtype);
+        break;
     }
 
     case EAST_TYPE_DICT: {
@@ -987,7 +1065,8 @@ static EastValue *type_to_value_ctx(EastType *type, TVCtx *ctx)
         EastValue *payload = east_struct_new(names, vals, 2, dict_struct);
         east_value_release(key);
         east_value_release(val);
-        return east_variant_new("Dict", payload, vtype);
+        result = east_variant_new("Dict", payload, vtype);
+        break;
     }
 
     case EAST_TYPE_STRUCT:
@@ -1014,7 +1093,8 @@ static EastValue *type_to_value_ctx(EastType *type, TVCtx *ctx)
             east_value_release(field);
         }
         tv_ctx_pop(ctx);
-        return east_variant_new(case_name, arr, vtype);
+        result = east_variant_new(case_name, arr, vtype);
+        break;
     }
 
     case EAST_TYPE_FUNCTION:
@@ -1047,7 +1127,8 @@ static EastValue *type_to_value_ctx(EastType *type, TVCtx *ctx)
         EastValue *payload = east_struct_new(names, vals, 2, fn_struct);
         east_value_release(inputs);
         east_value_release(output);
-        return east_variant_new(case_name, payload, vtype);
+        result = east_variant_new(case_name, payload, vtype);
+        break;
     }
 
     case EAST_TYPE_RECURSIVE:
@@ -1055,15 +1136,35 @@ static EastValue *type_to_value_ctx(EastType *type, TVCtx *ctx)
         return NULL;
     }
 
-    return NULL;
+    /* Store composite results so a later occurrence of the same interned
+     * EastType* shares this exact EastValue* (issue #83). The cache holds its
+     * own reference; the caller's +1 is separate. */
+    if (memoizable && result) tv_memo_store(ctx, type, result);
+
+    return result;
 }
 
 EastValue *east_type_to_value(EastType *type)
 {
     if (!type) return NULL;
     if (!east_type_type) east_type_of_type_init();
-    TVCtx ctx = {.len = 0, .cap = 0, .recs = NULL, .num_recs = 0, .recs_cap = 0};
+    TVCtx ctx = {.len = 0,
+                 .cap = 0,
+                 .recs = NULL,
+                 .num_recs = 0,
+                 .recs_cap = 0,
+                 .memo_keys = NULL,
+                 .memo_vals = NULL,
+                 .memo_len = 0,
+                 .memo_cap = 0};
     EastValue *result = type_to_value_ctx(type, &ctx);
+    /* Release the memo cache's own references (issue #83). Each stored value
+     * got exactly one retain on store; this balances it. The result tree holds
+     * its own references independently, so it survives. */
+    for (size_t i = 0; i < ctx.memo_len; i++)
+        east_value_release(ctx.memo_vals[i]);
+    free(ctx.memo_keys);
+    free(ctx.memo_vals);
     free(ctx.recs);
     return result;
 }
