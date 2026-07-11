@@ -312,6 +312,40 @@ Non-UI sub-structures are never child sub-tags.
 </Box>
 ```
 
+### Sizing — one string prop, parsed everywhere
+
+Every size prop is a **plain string** and every renderer parses it the same
+way (`parseCssSize`). Four spellings, uniform across data components (`<Table>`,
+`<Gantt>`, `<Planner>`, `<Matrix>`, `<Board>`, `<Roster>`, `<Calendar>`,
+`<Library>`, `<Schematic>`) and layout primitives (`<Box>` / `<Flex>` /
+`<Stack>` / `<Grid>` / `<Card>`):
+
+| Value | Means |
+|---|---|
+| `"fill"` | fill the parent box (`100%`) |
+| `"240"` | a bare number → pixels (`240px`) |
+| `"50%"` / `"calc(100vh - 4rem)"` | any CSS length passes through |
+| `"18px"` | explicit units pass through |
+
+```tsx
+// height bounds the whole component and it scrolls within; maxHeight caps
+// it but stays content-sized until the cap is hit.
+<Table data={rows} columns={cols} height="fill" />      // fills its parent
+<Planner …  maxHeight="420" />                           // content up to 420px, then scrolls
+
+// Layout primitives add boolean shorthands so you never hand-write the
+// flex:1 + min-height:0 + overflow incantation for a scroll region:
+<Card height="fill">
+    <Box fill scrollY>       {/* fill remaining space, scroll vertically */}
+        <Table data={rows} columns={cols} height="fill" />
+    </Box>
+</Card>
+```
+
+A `<Card>` given `height` / `maxHeight` becomes a flex column that constrains
+its body, so a single `height="fill"` child (a data component, a scroll region)
+resolves against it.
+
 ### Overlays — trigger prop + body children
 
 ```tsx
