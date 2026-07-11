@@ -163,6 +163,7 @@ Task → Which tag?
 │   │     Chart.Band(rows, { x, low, high }, style?) — filled range (e.g. confidence band)
 │   ├─ Annotations: Chart.refLine({ y }|{ x }) · Chart.refBand({ y:[lo,hi] }) · Chart.refDot({ x, y, label })
 │   ├─ Chart.format.{ number, currency, percent, compact, date, time, datetime } — axis tick formats
+│   ├─ tickValues (#318): floats on a linear axis ([0,1,2,…] to line up with a Planner) or DateTime[] on a time axis (pin ticks to exact instants, rendered through the date format); Date ticks on y/y2 are a build-time error
 │   │     date patterns share East's tokens incl. weekdays: "ddd DD" → Mon 30 (dd/ddd/dddd)
 │   ├─ Axis typography (#315): x/y/y2 accept tickStyle/titleStyle { fontSize?, fontFamily?: "sans"|"serif"|"mono", fontWeight?, color?, letterSpacing? } — restyle ticks/captions over the spec chrome (mono 11px fg.muted)
 │   ├─ <Sparkline> — inline trend (line | area), fits beside a <Stat>

@@ -10,6 +10,7 @@ import * as ex from "./chart.examples.js";
 
 describeEast("Chart", (test) => {
     Assert.examples(test, {
+        chartTimeTickValues: ex.chartTimeTickValues,
         lineBasic: ex.lineBasic,
         tooltipOverStickyTable: ex.tooltipOverStickyTable,
         columnStackedDiverging: ex.columnStackedDiverging,

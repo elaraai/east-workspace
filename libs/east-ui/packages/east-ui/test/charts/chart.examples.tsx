@@ -779,3 +779,45 @@ export const interactiveValue = example({
     )),
     inputs: [],
 });
+
+/**
+ * Explicit Date ticks on a `time` axis (#318) — `tickValues` accepts
+ * `DateTime[]` positions on a time scale (previously float-only), rendered
+ * through the date `tickFormat`; pins ticks to exact instants (e.g. a stacked
+ * Planner's day-column starts under a shared AlignedStack gutter) instead of
+ * the scale's auto-chosen ones. Float `tickValues` on linear axes unchanged.
+ */
+export const chartTimeTickValues = example({
+    keywords: ["Chart", "axis", "tickValues", "DateTime", "time", "date", "ticks", "pin", "explicit", "#318"],
+    description: "Explicit Date tickValues on a time axis (#318) — ticks pinned to exact Monday instants render through the date tickFormat; a pinned [min, max) domain matches a stacked Planner's day columns",
+    fn: East.function([], UIComponentType, ($) => {
+        const rows = $.const([
+            { at: new Date("2026-03-30T00:00:00Z"), v: 12.0 },
+            { at: new Date("2026-03-31T12:00:00Z"), v: 15.5 },
+            { at: new Date("2026-04-02T00:00:00Z"), v: 14.0 },
+            { at: new Date("2026-04-03T18:00:00Z"), v: 18.5 },
+            { at: new Date("2026-04-05T06:00:00Z"), v: 16.0 },
+        ], ArrayType(StructType({ at: DateTimeType, v: FloatType })));
+        return (
+            <Box height="240px" width="100%">
+                <Chart
+                    layers={Chart.Line(rows, { x: r => r.at, y: r => r.v }, { color: "teal.solid", dots: true })}
+                    x={{
+                        scale: "time",
+                        domain: [new Date("2026-03-30T00:00:00Z"), new Date("2026-04-06T00:00:00Z")],
+                        tickValues: [
+                            new Date("2026-03-30T00:00:00Z"),
+                            new Date("2026-04-01T00:00:00Z"),
+                            new Date("2026-04-03T00:00:00Z"),
+                            new Date("2026-04-05T00:00:00Z"),
+                        ],
+                        format: Chart.format.date("ddd DD"),
+                    }}
+                    grid
+                />
+            </Box>
+        );
+    }),
+    inputs: [],
+});
+

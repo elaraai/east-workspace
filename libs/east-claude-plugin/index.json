@@ -1,14 +1,14 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1478,
+    "totalEntries": 1479,
     "totalFiles": 184,
     "packages": {
       "east": 490,
       "east-node-std": 42,
       "east-node-io": 63,
       "east-py-datascience": 89,
-      "east-ui": 720,
+      "east-ui": 721,
       "e3-ui": 58,
       "e3": 7,
       "e3-ui-cli": 4,
@@ -14958,6 +14958,32 @@
         "import { AlignedStack, Box, Chart, Reactive, Table, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// A column chart whose last value is driven by reactive State\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const peak = $.let(State.bind([IntegerType], \"chart_peak\", 90n));\n            const peakVal = $.let(peak.read());\n            const rows = $.const([\n                { q: \"Q1\", v: 40n }, { q: \"Q2\", v: 65n }, { q: \"Q3\", v: 55n }, { q: \"Q4\", v: peakVal },\n            ], ArrayType(StructType({ q: StringType, v: IntegerType })));\n            return <Chart layers={Chart.Column(rows, { x: r => r.q, y: r => r.v }, { color: \"teal.solid\" })} grid />;\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "east-ui:chart.examples.tsx:chartTimeTickValues",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/charts/chart.examples.tsx",
+      "suite": "",
+      "test": "Explicit Date tickValues on a time axis (#318) — ticks pinned to exact Monday instants render through the date tickFormat; a pinned [min, max) domain matches a stacked Planner",
+      "keywords": [
+        "Chart",
+        "axis",
+        "tickValues",
+        "DateTime",
+        "time",
+        "date",
+        "ticks",
+        "pin",
+        "explicit",
+        "#318"
+      ],
+      "imports": [
+        "import { East, IntegerType, FloatType, DateTimeType, StringType, StructType, ArrayType, example } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { AlignedStack, Box, Chart, Reactive, Table, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Explicit Date tickValues on a time axis (#318) — ticks pinned to exact Monday instants render through the date tickFormat; a pinned [min, max) domain matches a stacked Planner\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { at: new Date(\"2026-03-30T00:00:00Z\"), v: 12.0 },\n            { at: new Date(\"2026-03-31T12:00:00Z\"), v: 15.5 },\n            { at: new Date(\"2026-04-02T00:00:00Z\"), v: 14.0 },\n            { at: new Date(\"2026-04-03T18:00:00Z\"), v: 18.5 },\n            { at: new Date(\"2026-04-05T06:00:00Z\"), v: 16.0 },\n        ], ArrayType(StructType({ at: DateTimeType, v: FloatType })));\n        return (\n            <Box height=\"240px\" width=\"100%\">\n                <Chart\n                    layers={Chart.Line(rows, { x: r => r.at, y: r => r.v }, { color: \"teal.solid\", dots: true })}\n                    x={{\n                        scale: \"time\",\n                        domain: [new Date(\"2026-03-30T00:00:00Z\"), new Date(\"2026-04-06T00:00:00Z\")],\n                        tickValues: [\n                            new Date(\"2026-03-30T00:00:00Z\"),\n                            new Date(\"2026-04-01T00:00:00Z\"),\n                            new Date(\"2026-04-03T00:00:00Z\"),\n                            new Date(\"2026-04-05T00:00:00Z\"),\n                        ],\n                        format: Chart.format.date(\"ddd DD\"),\n                    }}\n                    grid\n                />\n            </Box>\n        );\n    })"
     },
     {
       "id": "east-ui:sparkline.examples.tsx:sparklineLine",

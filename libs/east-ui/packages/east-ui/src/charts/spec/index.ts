@@ -7,7 +7,9 @@ import {
     type ExprType,
     type SubtypeExprOrValue,
     East,
+    Expr,
     ArrayType,
+    DateTimeType,
     StringType,
     FloatType,
     BooleanType,
@@ -31,6 +33,7 @@ import {
     ChartPointType,
     ChartXType,
     ChartDomainType,
+    ChartTickValuesType,
     ChartAxisTextStyleType,
     ChartSeriesType,
     ChartSeriesArrayType,
@@ -353,9 +356,11 @@ export interface AxisNodeOptions {
     label?: SubtypeExprOrValue<StringType>;
     /** Suggested tick count (a hint; the scale chooses nice ticks). */
     numTicks?: SubtypeExprOrValue<FloatType>;
-    /** Explicit tick positions (domain values), overriding `numTicks` — e.g.
-     *  integer day ticks `[0,1,2,…]` to line up with a stacked Planner. */
-    tickValues?: SubtypeExprOrValue<ArrayType<FloatType>>;
+    /** Explicit tick positions overriding `numTicks` — float domain values on
+     *  a linear axis (e.g. integer day ticks `[0,1,2,…]` to line up with a
+     *  stacked Planner), or `Date` instants on a `time` axis (#318; rendered
+     *  through the date `tickFormat`). */
+    tickValues?: SubtypeExprOrValue<ArrayType<FloatType>> | SubtypeExprOrValue<ArrayType<DateTimeType>>;
     /** Hide the small tick marks (labels stay). */
     hideTicks?: SubtypeExprOrValue<BooleanType>;
     /** Hide the axis baseline rule. */
@@ -370,12 +375,33 @@ export interface AxisNodeOptions {
     titleStyle?: ChartAxisTextStyle;
 }
 
+/**
+ * Wraps explicit tick positions into the scale-kind variant (#318) — `Date`
+ * ticks as the `time` arm, floats as `number` — following the
+ * {@link ChartDomainType} pattern, keyed off the value's East element type.
+ *
+ * @param tv - Tick positions (floats or Dates; plain values or expressions)
+ * @returns The {@link ChartTickValuesType} expression
+ */
+function tickValuesExpr(
+    tv: SubtypeExprOrValue<ArrayType<FloatType>> | SubtypeExprOrValue<ArrayType<DateTimeType>>,
+): ExprType<ChartTickValuesType> {
+    const expr = East.value(tv as unknown as SubtypeExprOrValue<ArrayType<FloatType>>) as ExprType<ArrayType<FloatType>>;
+    const isTemporal = (Expr.type(expr) as unknown as ArrayType).value.type === "DateTime";
+    return East.value(
+        isTemporal
+            ? variant("time", tv as SubtypeExprOrValue<ArrayType<DateTimeType>>)
+            : variant("number", tv as SubtypeExprOrValue<ArrayType<FloatType>>),
+        ChartTickValuesType,
+    );
+}
+
 /** Builds the shared {@link ChartAxisType} struct fields from {@link AxisNodeOptions}. */
 function axisFields(options?: AxisNodeOptions) {
     return {
         label:      options?.label !== undefined ? some(options.label) : none,
         numTicks:   options?.numTicks !== undefined ? some(options.numTicks) : none,
-        tickValues: options?.tickValues !== undefined ? some(options.tickValues) : none,
+        tickValues: options?.tickValues !== undefined ? some(tickValuesExpr(options.tickValues)) : none,
         hideTicks:  options?.hideTicks !== undefined ? some(options.hideTicks) : none,
         hideLine:   options?.hideLine !== undefined ? some(options.hideLine) : none,
         domain:     options?.domain !== undefined ? some(options.domain) : none,
