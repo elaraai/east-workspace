@@ -1,14 +1,14 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1459,
+    "totalEntries": 1460,
     "totalFiles": 184,
     "packages": {
       "east": 490,
       "east-node-std": 42,
       "east-node-io": 63,
       "east-py-datascience": 89,
-      "east-ui": 701,
+      "east-ui": 702,
       "e3-ui": 58,
       "e3": 7,
       "e3-ui-cli": 4,
@@ -26640,12 +26640,14 @@
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/slice/slice.examples.tsx",
       "suite": "",
-      "test": "The compress ladder under width pressure — the same Table chrome in a ~360px rail: chips fold whole into ",
+      "test": "The compress ladder under width pressure — a four-affordance Table chrome (",
       "keywords": [
         "Slice",
         "narrow",
         "ladder",
         "compress",
+        "progressive",
+        "fold",
         "count chip",
         "editor"
       ],
@@ -26654,7 +26656,32 @@
         "import { UIComponentType } from \"@elaraai/east-ui\";",
         "import { Box, Chart, Gantt, Reactive, Slice, State, Table, VStack } from \"@elaraai/east-ui\";"
       ],
-      "source": "// The compress ladder under width pressure — the same Table chrome in a ~360px rail: chips fold whole into \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const EventType = StructType({ scenario: StringType, region: StringType, sessions: IntegerType });\n        const cfg = Slice.config(EventType, {\n            fields: { scenario: { label: \"Scenario\" }, region: { label: \"Region\" }, sessions: { label: \"Sessions\" } },\n            searchFieldIds: [\"scenario\"],\n        });\n        return (\n            <Reactive>{$ => {\n                const data = $.const([\n                    { scenario: \"procurement v3\", region: \"EU\", sessions: 42n },\n                    { scenario: \"procurement v3\", region: \"NA\", sessions: 18n },\n                    { scenario: \"procurement v2\", region: \"EU\", sessions: 31n },\n                ], ArrayType(EventType));\n                const slice = $.let(Slice.bind([EventType], \"ex.slice.narrow\", cfg, Slice.state({\n                    filters: [\n                        variant(\"string\", { fieldId: \"scenario\", op: variant(\"eq\", \"procurement v3\") }),\n                        variant(\"string\", { fieldId: \"region\", op: variant(\"eq\", \"EU\") }),\n                        variant(\"integer\", { fieldId: \"sessions\", op: variant(\"gte\", 10n) }),\n                    ],\n                }), data, none));\n                const narrowed = $.let(Slice.rows([EventType], slice));\n                return (\n                    <Box width=\"360px\">\n                        <Table data={narrowed} columns={{\n                            scenario: { header: \"Scenario\" },\n                            sessions: { header: \"Sessions\" },\n                        }} slice={slice} />\n                    </Box>\n                );\n            }}</Reactive>\n        );\n    })"
+      "source": "// The compress ladder under width pressure — a four-affordance Table chrome (\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const EventType = StructType({ scenario: StringType, region: StringType, sessions: IntegerType });\n        const cfg = Slice.config(EventType, {\n            fields: { scenario: { label: \"Scenario\" }, region: { label: \"Region\" }, sessions: { label: \"Sessions\" } },\n            breakdownFieldIds: [\"region\"],\n            searchFieldIds: [\"scenario\"],\n        });\n        return (\n            <Reactive>{$ => {\n                const data = $.const([\n                    { scenario: \"procurement v3\", region: \"EU\", sessions: 42n },\n                    { scenario: \"procurement v3\", region: \"NA\", sessions: 18n },\n                    { scenario: \"procurement v2\", region: \"EU\", sessions: 31n },\n                ], ArrayType(EventType));\n                const slice = $.let(Slice.bind([EventType], \"ex.slice.narrow\", cfg, Slice.state({\n                    filters: [\n                        variant(\"string\", { fieldId: \"scenario\", op: variant(\"eq\", \"procurement v3\") }),\n                        variant(\"string\", { fieldId: \"region\", op: variant(\"eq\", \"EU\") }),\n                        variant(\"integer\", { fieldId: \"sessions\", op: variant(\"gte\", 10n) }),\n                    ],\n                    cohorts: [{ id: \"high-volume\", name: \"High volume\", filters: [\n                        variant(\"integer\", { fieldId: \"sessions\", op: variant(\"gte\", 10n) }),\n                    ] }],\n                }), data, none));\n                const narrowed = $.let(Slice.rows([EventType], slice));\n                return (\n                    <Box width=\"360px\">\n                        <Table data={narrowed} columns={{\n                            scenario: { header: \"Scenario\" },\n                            sessions: { header: \"Sessions\" },\n                        }} slice={slice} affordances={[\"filter\", \"breakdown\", \"cohort\", \"search\"]} />\n                    </Box>\n                );\n            }}</Reactive>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:slice.examples.tsx:slicePresetsRail",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/slice/slice.examples.tsx",
+      "suite": "",
+      "test": "Preset cohorts on a squeezed rail — a Table ",
+      "keywords": [
+        "Slice",
+        "presets",
+        "cohort",
+        "dedupe",
+        "duplicate",
+        "narrow",
+        "summary",
+        "compress",
+        "contents"
+      ],
+      "imports": [
+        "import { East, DateTimeType, StringType, IntegerType, NullType, ArrayType, StructType, variant, some, none, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Chart, Gantt, Reactive, Slice, State, Table, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Preset cohorts on a squeezed rail — a Table \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const OrderType = StructType({ sku: StringType, region: StringType, qty: IntegerType });\n        const cfg = Slice.config(OrderType, {\n            fields: { sku: { label: \"SKU\" }, region: { label: \"Region\" }, qty: { label: \"Qty\" } },\n            searchFieldIds: [\"sku\"],\n        });\n        return (\n            <Reactive>{$ => {\n                const data = $.const([\n                    { sku: \"A-100\", region: \"EU\",   qty: 40n },\n                    { sku: \"A-101\", region: \"EU\",   qty: 12n },\n                    { sku: \"B-200\", region: \"NA\",   qty: 55n },\n                    { sku: \"C-300\", region: \"APAC\", qty: 23n },\n                ], ArrayType(OrderType));\n                const slice = $.let(Slice.bind([OrderType], \"ex.slice.presets.rail\", cfg, Slice.state({\n                    cohorts: [\n                        { id: \"eu\",   name: \"EU\",          filters: [variant(\"string\",  { fieldId: \"region\", op: variant(\"eq\", \"EU\") })] },\n                        { id: \"bulk\", name: \"Bulk orders\", filters: [variant(\"integer\", { fieldId: \"qty\",    op: variant(\"gte\", 20n) })] },\n                    ],\n                }), data, none));\n                const narrowed = $.let(Slice.rows([OrderType], slice));\n                return (\n                    <Box width=\"300px\">\n                        <Table data={narrowed} columns={{\n                            sku:    { header: \"SKU\" },\n                            region: { header: \"Region\" },\n                            qty:    { header: \"Qty\" },\n                        }} slice={slice} affordances={[\"presets\", \"filter\", \"search\"]} />\n                    </Box>\n                );\n            }}</Reactive>\n        );\n    })"
     },
     {
       "id": "east-ui:slice.examples.tsx:slicePresetsBar",
