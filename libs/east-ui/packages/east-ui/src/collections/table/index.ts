@@ -52,6 +52,9 @@ import {
     TableSelectionType,
     TableSelectionModeType,
     type TableSelectionModeLiteral,
+    TableAggregateType,
+    TableGroupLevelType,
+    type TableAggregateLiteral,
 } from "./types.js";
 import { UIComponentType } from "../../component.js";
 import { SliceBindType, SliceChromeType } from "../../platform/slice/index.js";
@@ -163,7 +166,32 @@ export interface TableSelectionInput {
     onChange: SubtypeExprOrValue<FunctionType<[ArrayType<IntegerType>], NullType>>;
 }
 
-export interface TableOptions<ColumnKeys extends string = string> extends TableStyle<ColumnKeys> {
+/**
+ * One `groupBy` level (#317) — a group-key accessor over the row, or a config
+ * object adding the level's default collapse state. Levels nest in array
+ * order (level 0 outermost).
+ *
+ * @typeParam RowType - The East struct type of a data row
+ */
+export type TableGroupByInput<RowType extends StructType = StructType> =
+    | ((row: ExprType<RowType>) => SubtypeExprOrValue<NullType | BooleanType | IntegerType | FloatType | StringType | DateTimeType>)
+    | {
+        /** Group-key accessor — rows with equal printed keys share a group. */
+        value: (row: ExprType<RowType>) => SubtypeExprOrValue<NullType | BooleanType | IntegerType | FloatType | StringType | DateTimeType>;
+        /** Whether groups at this level start collapsed (drill-down closed). Default false. */
+        collapsed?: boolean;
+    };
+
+export interface TableOptions<ColumnKeys extends string = string, RowType extends StructType = StructType> extends TableStyle<ColumnKeys> {
+    /**
+     * Row grouping (#317) — nested collapsible group header rows. Each level
+     * is an accessor (or `{ value, collapsed }`); groups keep first-appearance
+     * data order (a P&L's Revenue stays above Cost of Sales under any sort),
+     * sorting reorders members WITHIN their group, and columns with an
+     * `aggregate` show their group subtotal on the header row — so a
+     * collapsed group reads as its subtotal line.
+     */
+    groupBy?: Array<TableGroupByInput<RowType>>;
     /** Column-group heading row (type-checked `columnKeys`). */
     columnGroups?: TableColumnGroupInput<ColumnKeys>[];
     /** Single footer row — keys narrowed to the Table's columns. */
@@ -194,6 +222,9 @@ export {
     TableStyleType,
     TableSizeType,
     TableCellRenderContextType,
+    TableAggregateType,
+    TableGroupLevelType,
+    type TableAggregateLiteral,
     type TableSizeLiteral,
     type TableStyle,
 } from "./types.js";
@@ -219,6 +250,11 @@ export const TableColumnType = StructType({
     minWidth: OptionType(StringType),
     maxWidth: OptionType(StringType),
     render: FunctionType([TableCellRenderContextType], UIComponentType),
+    // Row grouping (#317) — the aggregate shown for this column on group
+    // header rows, and an optional renderer for the aggregated value (the
+    // cell `render` takes a rowIndex, which a synthetic group row lacks).
+    aggregate: OptionType(TableAggregateType),
+    aggregateRender: OptionType(FunctionType([LiteralValueType], UIComponentType)),
 });
 
 export type TableColumnType = typeof TableColumnType;
@@ -301,6 +337,7 @@ export const TableRootType: StructType<{
     reviewStatus: OptionType<FunctionType<[IntegerType], OptionType<StatusValueType>>>,
     reviewApproval: OptionType<FunctionType<[IntegerType], OptionType<ApprovalStateType>>>,
     slice: OptionType<typeof SliceChromeType>,
+    groupBy: OptionType<ArrayType<typeof TableGroupLevelType>>,
     style: OptionType<TableStyleType>,
 }> = StructType({
     rows: ArrayType(DictType(StringType, TableCellType)),
@@ -331,6 +368,9 @@ export const TableRootType: StructType<{
     reviewStatus: OptionType(FunctionType([IntegerType], OptionType(StatusValueType))),
     reviewApproval: OptionType(FunctionType([IntegerType], OptionType(ApprovalStateType))),
     slice: OptionType(SliceChromeType),
+    // Row grouping (#317) — nested levels of per-row printed group keys; the
+    // renderer folds the sorted rows into collapsible group-headed segments.
+    groupBy: OptionType(ArrayType(TableGroupLevelType)),
     style: OptionType(TableStyleType),
 });
 
@@ -365,6 +405,10 @@ interface TableColumnConfigBase {
     minWidth?: SubtypeExprOrValue<StringType>;
     /** Maximum column width (CSS value) */
     maxWidth?: SubtypeExprOrValue<StringType>;
+    /** Group-subtotal aggregate for this column (#317) — shown on each group header row when `groupBy` is set. `sum` / `mean` require a numeric (Integer / Float) column value. */
+    aggregate?: TableAggregateLiteral;
+    /** Optional East render function for the aggregated value on group header rows (#317) — receives the aggregated cell value (the cell `render` takes a `rowIndex`, which a synthetic group row lacks). Defaults to plain formatted text. */
+    aggregateRender?: SubtypeExprOrValue<FunctionType<[TableCellType], UIComponentType>>;
 }
 
 
@@ -453,7 +497,7 @@ type ExtractRowType<T> = T extends ArrayType<infer S>
     : StructType;
 
 type DataFields<T extends SubtypeExprOrValue<ArrayType<StructType>>> = ExtractStructFields<TypeOf<T>>;
-type DataRowType<T extends SubtypeExprOrValue<ArrayType<StructType>>> = ExtractRowType<TypeOf<T>>;
+export type DataRowType<T extends SubtypeExprOrValue<ArrayType<StructType>>> = ExtractRowType<TypeOf<T>>;
 
 // Helper type to extract only primitive field keys from a struct's fields
 type PrimitiveFieldKeys<Fields> = {
@@ -481,7 +525,7 @@ export type DataFieldKeys<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
 export function createTable<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
     data: T,
     columns: ColumnSpec<T>,
-    style?: TableOptions<DataFieldKeys<T>>
+    style?: TableOptions<DataFieldKeys<T>, DataRowType<T>>
 ): ExprType<UIComponentType> {
     const data_expr = East.value(data) as ExprType<ArrayType<StructType>>;
     const field_types = Expr.type(data_expr).value.fields;
@@ -529,6 +573,13 @@ export function createTable<T extends SubtypeExprOrValue<ArrayType<StructType>>>
             throw new Error(`Column "${col_key}" has value type "${valueTypeTag}" which is not a valid column type. Complex types require a value function that returns a primitive type.`);
         }
         (col_config as any).valueType = variant(valueTypeTag, null) as EastTypeValue;
+
+        // Row grouping (#317): sum / mean only make sense over numbers — fail
+        // at build time, not with NaN subtotals at render time.
+        const agg = (col_config as { aggregate?: TableAggregateLiteral }).aggregate;
+        if ((agg === "sum" || agg === "mean") && valueTypeTag !== "Integer" && valueTypeTag !== "Float") {
+            throw new Error(`Column "${col_key}" has aggregate "${agg}" but a ${valueTypeTag} value — sum/mean require an Integer or Float column value.`);
+        }
     }
 
     const rows_mapped = mapRowsBlock(data_expr, DictType(StringType, TableCellType), ($, datum) => {
@@ -572,6 +623,12 @@ export function createTable<T extends SubtypeExprOrValue<ArrayType<StructType>>>
                         overflow: "hidden",
                         textOverflow: "ellipsis",
                     })),
+            aggregate: (config as { aggregate?: TableAggregateLiteral } | undefined)?.aggregate !== undefined
+                ? some(variant((config as { aggregate: TableAggregateLiteral }).aggregate, null)) as any
+                : none as any,
+            aggregateRender: (config as { aggregateRender?: unknown } | undefined)?.aggregateRender !== undefined
+                ? some(East.value((config as { aggregateRender: SubtypeExprOrValue<FunctionType<[TableCellType], UIComponentType>> }).aggregateRender, FunctionType([TableCellType], UIComponentType))) as any
+                : none as any,
         });
     }
 
@@ -703,6 +760,25 @@ export function createTable<T extends SubtypeExprOrValue<ArrayType<StructType>>>
         }, TableSelectionType)
         : undefined;
 
+    // Row grouping (#317) — reify each level's accessor into a real East
+    // function and stamp a PRINTED group key per data row (parallel to
+    // `rows`), so the renderer folds the sorted row model into group-headed
+    // segments without re-deriving keys. Non-string keys go through
+    // `East.print` for a stable text label.
+    const groupByValue = style?.groupBy !== undefined && style.groupBy.length > 0
+        ? East.value(style.groupBy.map((lvl) => {
+            const accessor = typeof lvl === "function" ? lvl : lvl.value;
+            const collapsed = typeof lvl === "function" ? false : (lvl.collapsed ?? false);
+            const keyFn = reifyAccessor([rowType], accessor as (row: ExprType<StructType>) => SubtypeExprOrValue<StringType>);
+            const outType = (Expr.type(keyFn) as FunctionType).output as EastType;
+            const keys = mapRowsBlock(data_expr, StringType, (_$, datum) =>
+                outType.type === "String"
+                    ? keyFn(datum) as ExprType<StringType>
+                    : East.print(keyFn(datum)));
+            return { keys, collapsed };
+        }), ArrayType(TableGroupLevelType))
+        : undefined;
+
     if (style?.affordances?.includes("brush")) {
         throw new Error("Table does not support the 'brush' affordance — it has no continuous axis. Use it on a Chart or Gantt.");
     }
@@ -739,6 +815,7 @@ export function createTable<T extends SubtypeExprOrValue<ArrayType<StructType>>>
         pagination: paginationValue ? some(paginationValue) : none,
         selection: selectionValue ? some(selectionValue) : none,
         slice: sliceChromeValue ? some(sliceChromeValue) : none,
+        groupBy: groupByValue ? some(groupByValue) : none,
         onCellClick: style?.onCellClick ? some(style.onCellClick) : none,
         onCellDoubleClick: style?.onCellDoubleClick ? some(style.onCellDoubleClick) : none,
         onRowClick: style?.onRowClick ? some(style.onRowClick) : none,

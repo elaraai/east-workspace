@@ -1,14 +1,14 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1477,
+    "totalEntries": 1478,
     "totalFiles": 184,
     "packages": {
       "east": 490,
       "east-node-std": 42,
       "east-node-io": 63,
       "east-py-datascience": 89,
-      "east-ui": 719,
+      "east-ui": 720,
       "e3-ui": 58,
       "e3": 7,
       "e3-ui-cli": 4,
@@ -18593,6 +18593,37 @@
         "import { Badge, Box, HStack, Reactive, Status, Table, Tag, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// height=\\\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Box height=\"220px\">\n                <Table\n                    variant=\"line\"\n                    striped={true}\n                    height=\"fill\"\n                    data={East.Array.range(0n, 200n).map((_$, i) => ({\n                        id: East.str`#${i}`,\n                        name: East.str`User ${i}`,\n                        email: East.str`user${i}@example.com`,\n                        dept: \"Engineering\",\n                    }))}\n                    columns={{\n                        id: { header: \"ID\", width: \"80px\" },\n                        name: { header: \"Name\", width: \"150px\" },\n                        email: { header: \"Email\", width: \"250px\" },\n                        dept: { header: \"Department\", width: \"150px\" },\n                    }}\n                />\n            </Box>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:table.examples.tsx:tablePnlGrouped",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/table.examples.tsx",
+      "suite": "",
+      "test": "Nested P&L (#317) — groupBy [section, category] folds accounts into collapsible group rows; sum aggregates render as currency subtotals on the group headers (a collapsed group reads as its subtotal line); categories start collapsed, Net income rides footerRows",
+      "keywords": [
+        "Table",
+        "groupBy",
+        "rowGroups",
+        "group",
+        "collapse",
+        "expand",
+        "aggregate",
+        "sum",
+        "subtotal",
+        "P&L",
+        "statement",
+        "accounting",
+        "nested",
+        "drill",
+        "#317"
+      ],
+      "imports": [
+        "import { East, ArrayType, BooleanType, IntegerType, NullType, OptionType, StringType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { State, Style, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Badge, Box, HStack, Reactive, Status, Table, Tag, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Nested P&L (#317) — groupBy [section, category] folds accounts into collapsible group rows; sum aggregates render as currency subtotals on the group headers (a collapsed group reads as its subtotal line); categories start collapsed, Net income rides footerRows\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const money = $.const(East.function([Table.Types.CellRenderContext], UIComponentType, (_$, ctx) => (\n            <Text width=\"100%\" textAlign=\"right\">{East.Float.printCurrency(ctx.cellValue.unwrap(\"Float\"))}</Text>\n        )));\n        const moneyTotal = $.const(East.function([Table.Types.Cell], UIComponentType, (_$, v) => (\n            <Text width=\"100%\" textAlign=\"right\" fontWeight=\"semibold\">{East.Float.printCurrency(v.unwrap(\"Float\"))}</Text>\n        )));\n        return (\n            <Table\n                variant=\"line\"\n                data={[\n                    { section: \"Revenue\", category: \"Product sales\", account: \"Product line A\", q1: 210000.0, q2: 232500.0, q3: 198000.0, q4: 251500.0, fy: 892000.0 },\n                    { section: \"Revenue\", category: \"Product sales\", account: \"Product line B\", q1: 118000.0, q2: 141000.0, q3: 122500.0, q4: 133500.0, fy: 515000.0 },\n                    { section: \"Revenue\", category: \"Product sales\", account: \"Direct sales\", q1: 45500.0, q2: 61000.0, q3: 74000.0, q4: 66500.0, fy: 247000.0 },\n                    { section: \"Revenue\", category: \"Services\", account: \"Consulting\", q1: 18500.0, q2: 27000.0, q3: 33500.0, q4: 24000.0, fy: 103000.0 },\n                    { section: \"Revenue\", category: \"Services\", account: \"Subscriptions\", q1: 22000.0, q2: 12500.0, q3: 9000.0, q4: 19500.0, fy: 63000.0 },\n                    { section: \"Cost of sales\", category: \"Materials\", account: \"Raw materials\", q1: 62000.0, q2: 58000.0, q3: 44000.0, q4: 71000.0, fy: 235000.0 },\n                    { section: \"Cost of sales\", category: \"Materials\", account: \"Freight & duty\", q1: 38500.0, q2: 42000.0, q3: 31000.0, q4: 47500.0, fy: 159000.0 },\n                    { section: \"Cost of sales\", category: \"Production\", account: \"Equipment & maintenance\", q1: 24000.0, q2: 18500.0, q3: 21000.0, q4: 26500.0, fy: 90000.0 },\n                    { section: \"Cost of sales\", category: \"Production\", account: \"Packaging\", q1: 41000.0, q2: 46500.0, q3: 39000.0, q4: 52500.0, fy: 179000.0 },\n                    { section: \"Cost of sales\", category: \"Production\", account: \"Direct labour\", q1: 55000.0, q2: 55000.0, q3: 57500.0, q4: 57500.0, fy: 225000.0 },\n                    { section: \"Operating expenses\", category: \"Sales & marketing\", account: \"Distribution\", q1: 28000.0, q2: 31500.0, q3: 27000.0, q4: 36500.0, fy: 123000.0 },\n                    { section: \"Operating expenses\", category: \"Sales & marketing\", account: \"Marketing\", q1: 19500.0, q2: 22000.0, q3: 30500.0, q4: 28000.0, fy: 100000.0 },\n                    { section: \"Operating expenses\", category: \"Administration\", account: \"Insurance\", q1: 12500.0, q2: 12500.0, q3: 12500.0, q4: 12500.0, fy: 50000.0 },\n                    { section: \"Operating expenses\", category: \"Administration\", account: \"Utilities\", q1: 9000.0, q2: 8500.0, q3: 10000.0, q4: 11500.0, fy: 39000.0 },\n                    { section: \"Operating expenses\", category: \"Administration\", account: \"Salaries\", q1: 47500.0, q2: 47500.0, q3: 47500.0, q4: 47500.0, fy: 190000.0 },\n                ]}\n                columns={{\n                    account: { header: \"Account\", width: \"220px\" },\n                    q1: { header: \"Q1\", aggregate: \"sum\", render: money, aggregateRender: moneyTotal },\n                    q2: { header: \"Q2\", aggregate: \"sum\", render: money, aggregateRender: moneyTotal },\n                    q3: { header: \"Q3\", aggregate: \"sum\", render: money, aggregateRender: moneyTotal },\n                    q4: { header: \"Q4\", aggregate: \"sum\", render: money, aggregateRender: moneyTotal },\n                    fy: { header: \"FY\", aggregate: \"sum\", render: money, aggregateRender: moneyTotal },\n                }}\n                groupBy={[\n                    r => r.section,\n                    { value: r => r.category, collapsed: true },\n                ]}\n                footerRows={[\n                    // Net income = Revenue - Cost of sales - Operating expenses (per quarter).\n                    {\n                        account: { content: <Text fontWeight=\"bold\">Net income</Text> },\n                        q1: { content: <Text width=\"100%\" textAlign=\"right\" fontWeight=\"bold\">$77,000.00</Text> },\n                        q2: { content: <Text width=\"100%\" textAlign=\"right\" fontWeight=\"bold\">$132,000.00</Text> },\n                        q3: { content: <Text width=\"100%\" textAlign=\"right\" fontWeight=\"bold\">$117,000.00</Text> },\n                        q4: { content: <Text width=\"100%\" textAlign=\"right\" fontWeight=\"bold\">$104,000.00</Text> },\n                        fy: { content: <Text width=\"100%\" textAlign=\"right\" fontWeight=\"bold\">$430,000.00</Text> },\n                    },\n                ]}\n            />\n        );\n    })"
     },
     {
       "id": "east-ui:tree-view.examples.tsx:treeViewFile",

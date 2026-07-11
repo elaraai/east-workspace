@@ -745,6 +745,9 @@ function createGantt<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
                         overflow: "hidden",
                         textOverflow: "ellipsis",
                     })),
+            // Row grouping is Table-only — the Gantt pane carries no group rows.
+            aggregate: none as any,
+            aggregateRender: none as any,
         });
     }
 

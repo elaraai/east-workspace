@@ -109,6 +109,7 @@ Task → Which tag?
 │   │        full-row access = capture the data array + index it: ($, ctx) => { const row = $.let(rows.get(ctx.rowIndex)); … };
 │   │        render/on* fns may capture only data + bind-handles — never a UIComponentType value (beast2 can't serialize it)
 │   │     └─ review={{ … }} + reviewStatus/reviewApproval={(rowIndex) => Option<…>} accessors — pinned-right Decision column + commitBar foot BELOW the pager; rowIndex is the UNSLICED row index (stable under sorting AND pagination, the expandedContent convention)
+│   │     └─ row groups (#317): groupBy={[r => r.section, { value: r => r.category, collapsed: true }]} — nested collapsible group header rows (accounting statements / P&L); groups keep first-appearance DATA order (never alphabetized), sort is group-scoped; columns with aggregate: "sum"|"mean"|"min"|"max"|"count" show subtotals ON the group row (a collapsed group reads as its subtotal line), aggregateRender formats them (East fn over the aggregated cell value — the cell render's rowIndex doesn't exist on a group row); grand totals stay in footerRows
 │   ├─ <DataList items={[DataList.Item(label, value)]} /> — label/value pairs; orientation
 │   ├─ <TreeView nodes={…} /> — expandable hierarchical tree with selection
 │   ├─ <Gantt /> — Gantt chart; builders Gantt.Task(…), Gantt.Milestone(…); showToday marker
@@ -345,6 +346,45 @@ way (`parseCssSize`). Four spellings, uniform across data components (`<Table>`,
 A `<Card>` given `height` / `maxHeight` becomes a flex column that constrains
 its body, so a single `height="fill"` child (a data component, a scroll region)
 resolves against it.
+
+### Row groups — a nested P&L in one Table (#317)
+
+`groupBy` folds flat statement lines into nested, collapsible group header
+rows. Groups keep first-appearance data order (Revenue stays above Cost of
+sales under any sort — sorting reorders members WITHIN their group); columns
+with an `aggregate` show their subtotal ON the group row, so a collapsed group
+reads as its subtotal line (drill up) and expanding drills down. Collapse
+state persists per `storageKey`. Grand totals stay in `footerRows`.
+
+```tsx
+const money = $.const(East.function([Table.Types.CellRenderContext], UIComponentType, (_$, ctx) => (
+    <Text width="100%" textAlign="right">{East.Float.printCurrency(ctx.cellValue.unwrap("Float"))}</Text>
+)));
+// `aggregateRender` takes the aggregated CELL VALUE — a group row has no rowIndex.
+const moneyTotal = $.const(East.function([Table.Types.Cell], UIComponentType, (_$, v) => (
+    <Text width="100%" textAlign="right" fontWeight="semibold">{East.Float.printCurrency(v.unwrap("Float"))}</Text>
+)));
+return (
+    <Table
+        data={lines}   // flat leaf accounts: { section, category, account, q1..fy }
+        columns={{
+            account: { header: "Account" },
+            q1: { header: "Q1", aggregate: "sum", render: money, aggregateRender: moneyTotal },
+            fy: { header: "FY", aggregate: "sum", render: money, aggregateRender: moneyTotal },
+        }}
+        groupBy={[
+            r => r.section,                              // level 0: Revenue / Cost of sales / Opex
+            { value: r => r.category, collapsed: true }, // level 1: starts collapsed
+        ]}
+        footerRows={[{ account: { content: <Text fontWeight="bold">Net income</Text> }, /* … */ }]}
+    />
+);
+```
+
+Aggregates: `"sum" | "mean" | "min" | "max" | "count"` (`sum`/`mean` require a
+numeric column value — build-time error otherwise). Computed statement lines
+(Gross profit) that aren't plain subtotals: model them as their own
+single-member section in the data, or use `footerRows`.
 
 ### Overlays — trigger prop + body children
 

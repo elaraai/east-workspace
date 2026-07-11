@@ -12,6 +12,7 @@ import {
     Table as TableFactory,
     type ColumnSpec,
     type DataFieldKeys,
+    type DataRowType,
     type TableOptions,
 } from "../../collections/table/index.js";
 import { hasKeys } from "../combinators.js";
@@ -24,13 +25,13 @@ import type { UIElement } from "../runtime.js";
  * checked — a key that is not a data field is a type error.
  */
 function TableTag<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
-    props: { data: T; columns: ColumnSpec<T> } & TableOptions<DataFieldKeys<T>>,
+    props: { data: T; columns: ColumnSpec<T> } & TableOptions<DataFieldKeys<T>, DataRowType<T>>,
 ): UIElement {
     const { data, columns, ...options } = props as { data: T; columns: ColumnSpec<T> } & Record<string, unknown>;
     return TableFactory.Root(
         data,
         columns,
-        (hasKeys(options) ? options : undefined) as TableOptions<DataFieldKeys<T>>,
+        (hasKeys(options) ? options : undefined) as TableOptions<DataFieldKeys<T>, DataRowType<T>>,
     );
 }
 

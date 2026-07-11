@@ -22,7 +22,8 @@ export const tableSlotRecipe = defineSlotRecipe({
     className: "elara-table",
     slots: [
         "root", "header", "body", "row", "cell", "columnHeader",
-        "footer", "caption", "scrollArea",
+        "footer", "caption", "scrollArea", "groupHead", "groupHeadCell",
+        "groupHeadAggregate",
     ],
     base: {
         root: {
@@ -45,6 +46,41 @@ export const tableSlotRecipe = defineSlotRecipe({
             borderBottomColor: "border.strong",
             textAlign: "left",
             whiteSpace: "nowrap",
+        },
+        // Row grouping (#317) — group header rows, one visual family with the
+        // Matrix / Planner groupHead band (bg.panel wash, mono micro-label).
+        groupHead: {
+            background: "bg.panel",
+            minHeight: "28px",
+            borderBottomWidth: "1px",
+            borderBottomColor: "border.subtle",
+            cursor: "pointer",
+            _hover: { background: "bg.muted" },
+        },
+        groupHeadCell: {
+            fontFamily: "mono",
+            fontSize: "10.5px",
+            fontWeight: "600",
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+            color: "fg.muted",
+            paddingX: "{spacing.3}",
+            paddingY: "{spacing.1}",
+            fontFeatureSettings: '"tnum" 1',
+        },
+        // Aggregate cells stay at MEMBER-cell scale (an accounting subtotal
+        // matches its member numbers, just heavier) — only the group LABEL
+        // wears the mono micro-label treatment.
+        groupHeadAggregate: {
+            fontFamily: "body",
+            fontSize: "{fontSizes.control}",
+            fontWeight: "600",
+            letterSpacing: "normal",
+            textTransform: "none",
+            color: "fg",
+            paddingX: "{spacing.3}",
+            paddingY: "{spacing.1}",
+            fontFeatureSettings: '"tnum" 1',
         },
         cell: {
             fontSize: "{fontSizes.control}",

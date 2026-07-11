@@ -179,6 +179,8 @@ import {
     TableColumnGroupType,
     TableSelectionType,
     TablePaginationType,
+    TableAggregateType,
+    TableGroupLevelType,
 } from "./collections/table/types.js";
 import {
     GanttStyleType,
@@ -729,6 +731,10 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
             minWidth: OptionType(StringType),
             maxWidth: OptionType(StringType),
             render: FunctionType([TableCellRenderContextType], node),
+            // Row grouping (#317) — group-subtotal aggregate + optional
+            // renderer for the aggregated value on group header rows.
+            aggregate: OptionType(TableAggregateType),
+            aggregateRender: OptionType(FunctionType([LiteralValueType], node)),
         })),
         frozen: ArrayType(StringType),
         columnGroups: OptionType(ArrayType(TableColumnGroupType)),
@@ -750,6 +756,8 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         rowStatus: OptionType(FunctionType([IntegerType], StatusTokenType)),
         pagination: OptionType(TablePaginationType),
         selection: OptionType(TableSelectionType),
+        // Row grouping (#317) — nested levels of per-row printed group keys.
+        groupBy: OptionType(ArrayType(TableGroupLevelType)),
         onCellClick: OptionType(FunctionType([TableCellClickEventType], NullType)),
         onCellDoubleClick: OptionType(FunctionType([TableCellClickEventType], NullType)),
         onRowClick: OptionType(FunctionType([TableRowClickEventType], NullType)),
@@ -811,6 +819,9 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
             minWidth: OptionType(StringType),
             maxWidth: OptionType(StringType),
             render: FunctionType([TableCellRenderContextType], node),
+            // Mirrors TableColumnType (#317) — unused by the Gantt pane.
+            aggregate: OptionType(TableAggregateType),
+            aggregateRender: OptionType(FunctionType([LiteralValueType], node)),
         })),
         frozen: ArrayType(StringType),
         axis: OptionType(GanttAxisType),

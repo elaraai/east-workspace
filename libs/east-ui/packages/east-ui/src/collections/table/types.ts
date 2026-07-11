@@ -95,6 +95,49 @@ export type TableSelectionModeType = typeof TableSelectionModeType;
 export type TableSelectionModeLiteral = "single" | "multiple" | "range";
 
 // ============================================================================
+// Row grouping (#317)
+// ============================================================================
+
+/**
+ * Aggregate applied to a column's member cell values on a group header row.
+ *
+ * @property sum - Numeric sum of the member values (Integer / Float columns)
+ * @property mean - Numeric mean of the member values (Integer / Float columns)
+ * @property min - Minimum member value (native ordering)
+ * @property max - Maximum member value (native ordering)
+ * @property count - Number of member rows
+ */
+export const TableAggregateType = VariantType({
+    sum: NullType,
+    mean: NullType,
+    min: NullType,
+    max: NullType,
+    count: NullType,
+});
+
+export type TableAggregateType = typeof TableAggregateType;
+
+/** String-literal shorthand for {@link TableAggregateType}. */
+export type TableAggregateLiteral = "sum" | "mean" | "min" | "max" | "count";
+
+/**
+ * One row-grouping level (#317) — the printed group key per data row
+ * (parallel to the Table's `rows` array) plus the level's default collapse
+ * state. Nested levels stack in `groupBy` order; the renderer folds the
+ * sorted row model into group-headed segments from these keys.
+ *
+ * @property keys - Per data row, this level's printed group key (parallel to `rows`)
+ * @property collapsed - Whether groups at this level start collapsed
+ */
+export const TableGroupLevelType = StructType({
+    keys: ArrayType(StringType),
+    collapsed: BooleanType,
+});
+
+export type TableGroupLevelType = typeof TableGroupLevelType;
+
+
+// ============================================================================
 // Primitive East Types
 // ============================================================================
 
