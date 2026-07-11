@@ -9,15 +9,21 @@
  * (`Slice.Frame`'s eyebrow today; Table / Chart / DecisionQueue headers as
  * they gain the `slice` chrome option).
  *
- * One row that never wraps, compressing along the chip ladder:
- * rung 0 — the live affordance bar (the affordances fold their own trailing
- * chips into `+M more`, so spec rungs ① and ② live inside them);
- * rung 1 — each active family collapses to its count chip;
- * rung 2 — terminal: one `N narrowed` chip.
- * Rungs 1–2 open the sectioned `Slice.Edit` popover (every affordance flat,
- * in `editor` density, under its family caption), floating over whatever
- * sits below — the host never changes height. The editor is the terminal
- * surface: nothing folds inside it and nothing opens a further popover.
+ * One row that never wraps, compressing progressively rather than all at once.
+ * With `N` mounted affordances the rung runs `0 … N+1`:
+ * rung 0 — every affordance live (each folds its own trailing chips into
+ *   `+M more`, so the per-affordance spec rungs live inside them);
+ * rung k (1 ≤ k ≤ N) — the `k` lowest-ranked affordances (see `COLLAPSE_RANK`
+ *   — search / range fold first, the filter builder last) each collapse to a
+ *   single summary chip in a trailing cluster, the rest stay live;
+ * rung N+1 — terminal: all fold into one chip that *names its contents*
+ *   (`Filter · Search +1`, or `3 filters · EU +1` when narrowing) — never the
+ *   bare verb "narrow".
+ * Every folded chip and the terminal chip open the sectioned `Slice.Edit`
+ * popover (every affordance flat, in `editor` density, under its family
+ * caption), floating over whatever sits below — the host never changes height.
+ * The editor is the terminal surface: nothing folds inside it and nothing opens
+ * a further popover.
  */
 
 import { useEffect, useLayoutEffect, useRef, useState, memo, type ReactNode } from "react";
@@ -29,6 +35,7 @@ import { type ValueTypeOf } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { boundRangeDomain, boundRangeHistogram, enableSlicePersistence, type SlicePersistMode } from "../../platform/slice";
+import { railAffordanceKinds } from "../rail-kinds.js";
 // Function-declaration import across the rail ↔ charts module cycle is safe
 // (hoisted; charts/spec imports SliceRailCluster from here the same way).
 import { tickFormatter, type TickFormat } from "../../charts/spec/index.js";
@@ -53,30 +60,79 @@ const AFFORDANCE_META: Record<string, { icon: IconDefinition; label: string }> =
     range:     { icon: faCalendar,        label: "Range" },
 };
 
-/** The compress-ladder rung — see the module doc. */
-type Rung = 0 | 1 | 2;
+/**
+ * Fold rank per affordance kind — the order affordances degrade from live
+ * control to summary chip under width pressure. Lower folds first: `search`
+ * and `range` summarise cheaply, so they go first; the `filter` clause builder
+ * is the primary narrowing surface, so it stays live longest. A kind with no
+ * entry folds mid-pack. Purely presentational — nothing here reaches East IR.
+ */
+const COLLAPSE_RANK: Record<string, number> = {
+    search: 1,
+    range: 2,
+    cohort: 3,
+    presets: 3,
+    breakdown: 4,
+    filter: 5,
+};
+
+/** A folded affordance's summary chip: `active` when the family is narrowing
+ *  (`3 filters`, `"EU"`), else its idle capability (`Filter`, `2 cohorts`). */
+interface AffordanceDescriptor { kind: string; icon: IconDefinition; text: string; active: boolean }
 
 /**
- * The active-narrowing summary per family — drives the rung-1 count chips
- * and the editor's `N active` head count.
+ * The summary descriptor for one affordance — capability when idle, active
+ * narrowing when engaged. Drives the folded count chips, the terminal merged
+ * chip, and (summed over active families) the editor's `N active` head count.
  */
-function familySummary(
+export function affordanceDescriptor(
+    kind: string,
     state: ValueTypeOf<typeof Slice.Types.State>,
     dimensions: ReadonlyArray<ValueTypeOf<typeof Slice.Types.Dimension>>,
-): Array<{ kind: string; icon: IconDefinition; text: string; count: number }> {
-    const parts: Array<{ kind: string; icon: IconDefinition; text: string; count: number }> = [];
-    const cohorts = state.activeCohorts.size;
-    if (cohorts > 0) parts.push({ kind: "cohort", icon: faUsers, text: cohorts === 1 ? [...state.activeCohorts][0]! : `${cohorts} cohorts`, count: cohorts });
-    const n = state.filters.length;
-    if (n > 0) parts.push({ kind: "filter", icon: faFilter, text: `${n} filter${n > 1 ? "s" : ""}`, count: n });
-    const breakdown = getSomeorUndefined(state.breakdown);
-    if (breakdown !== undefined) {
-        parts.push({ kind: "breakdown", icon: faLayerGroup, text: dimensions.find(d => d.fieldId === breakdown.fieldId)?.label ?? breakdown.fieldId, count: 1 });
+): AffordanceDescriptor {
+    const icon = AFFORDANCE_META[kind]?.icon ?? faFilter;
+    switch (kind) {
+        case "filter": {
+            const n = state.filters.length;
+            return { kind, icon, text: n > 0 ? `${n} filter${n > 1 ? "s" : ""}` : "Filter", active: n > 0 };
+        }
+        case "breakdown": {
+            const breakdown = getSomeorUndefined(state.breakdown);
+            return breakdown !== undefined
+                ? { kind, icon, text: dimensions.find(d => d.fieldId === breakdown.fieldId)?.label ?? breakdown.fieldId, active: true }
+                : { kind, icon, text: "Split", active: false };
+        }
+        case "cohort":
+        case "presets": {
+            const active = [...state.activeCohorts];
+            if (active.length > 0) {
+                const name = (id: string) => state.cohorts.find(c => c.id === id)?.name ?? id;
+                return { kind, icon, text: active.length === 1 ? name(active[0]!) : `${name(active[0]!)} +${active.length - 1}`, active: true };
+            }
+            const avail = state.cohorts.length;
+            return { kind, icon, text: avail === 1 ? "1 cohort" : `${avail} cohorts`, active: false };
+        }
+        case "range":
+            return { kind, icon, text: "Range", active: getSomeorUndefined(state.range) !== undefined };
+        case "search": {
+            const q = getSomeorUndefined(state.search);
+            const active = q !== undefined && q !== "";
+            return { kind, icon, text: active ? `"${q}"` : "Search", active };
+        }
+        default:
+            return { kind, icon, text: AFFORDANCE_META[kind]?.label ?? kind, active: false };
     }
-    if (getSomeorUndefined(state.range) !== undefined) parts.push({ kind: "range", icon: faCalendar, text: "Range", count: 1 });
+}
+
+/** Total count of active narrowings — the editor's `N active` head count.
+ *  Filters count individually; each other engaged family counts once. */
+function activeNarrowingCount(state: ValueTypeOf<typeof Slice.Types.State>): number {
+    let n = state.filters.length + state.activeCohorts.size;
+    if (getSomeorUndefined(state.breakdown) !== undefined) n += 1;
+    if (getSomeorUndefined(state.range) !== undefined) n += 1;
     const q = getSomeorUndefined(state.search);
-    if (q !== undefined && q !== "") parts.push({ kind: "search", icon: faMagnifyingGlass, text: `"${q}"`, count: 1 });
-    return parts;
+    if (q !== undefined && q !== "") n += 1;
+    return n;
 }
 
 export interface SliceRailClusterProps {
@@ -111,27 +167,37 @@ export function SliceRailCluster({ slice, affordanceKinds }: SliceRailClusterPro
         }
     };
 
+    // Fold order (mount indices, lowest COLLAPSE_RANK first) and the ladder
+    // ceiling: rung 0 all live, rungs 1..N fold that many affordances into the
+    // trailing cluster, rung N+1 merges into one terminal chip.
+    const foldOrder = affordanceKinds
+        .map((kind, i) => ({ i, rank: COLLAPSE_RANK[kind] ?? 3 }))
+        .sort((a, b) => a.rank - b.rank || a.i - b.i)
+        .map(o => o.i);
+    const maxRung = affordanceKinds.length + 1;
+
     // Ladder measurement: render the current rung, and if the row overflows,
-    // escalate. The affordances run their own internal fold pass (all chips in
-    // flow while measuring), so a bump only commits when the overflow persists
-    // across two animation frames — otherwise the transient measure pass would
-    // drive the rung straight to terminal. A width change resets to rung 0 and
-    // re-measures down. The row never wraps; chips render whole or not at all.
+    // escalate by one (fold the next-ranked affordance). The affordances run
+    // their own internal fold pass (all chips in flow while measuring), so a
+    // bump only commits when the overflow persists across two animation frames
+    // — otherwise the transient measure pass would over-collapse. A width
+    // change resets to rung 0 and re-measures down. The row never wraps; chips
+    // render whole or not at all.
     const rowRef = useRef<HTMLDivElement | null>(null);
-    const [rung, setRung] = useState<Rung>(0);
+    const [rung, setRung] = useState(0);
     // Width changes force a render even when the rung is already 0, so the
     // escalation effect below re-measures after every resize (without this a
     // shrink at rung 0 would clip instead of folding).
     const [, bumpMeasure] = useState(0);
     useLayoutEffect(() => {
         const el = rowRef.current;
-        if (!el || rung >= 2) return;
+        if (!el || rung >= maxRung) return;
         const overflowing = () => el.scrollWidth > el.clientWidth + 1;
         if (!overflowing()) return;
         let raf2 = 0;
         const raf1 = requestAnimationFrame(() => {
             raf2 = requestAnimationFrame(() => {
-                if (overflowing()) setRung(r => (r + 1) as Rung);
+                if (overflowing()) setRung(r => Math.min(r + 1, maxRung));
             });
         });
         return () => { cancelAnimationFrame(raf1); cancelAnimationFrame(raf2); };
@@ -158,29 +224,44 @@ export function SliceRailCluster({ slice, affordanceKinds }: SliceRailClusterPro
     const [editorOpen, setEditorOpen] = useState(false);
 
     const state = slice.read();
-    const summary = familySummary(state, typeof slice.dimensions === "function" ? slice.dimensions() : []);
-    const activeCount = summary.reduce((acc, p) => acc + p.count, 0);
+    const dimensions = typeof slice.dimensions === "function" ? slice.dimensions() : [];
+    const activeCount = activeNarrowingCount(state);
 
-    const countChip = (key: string, icon: IconDefinition, text: string): ReactNode => (
-        <Box key={key} as="span" css={chip({ tone: "brand", numeric: true, shape: "pill" })} cursor="pointer" flexShrink={0}>
+    const countChip = (key: string, icon: IconDefinition, text: string, active: boolean): ReactNode => (
+        <Box key={key} as="span" css={chip({ tone: active ? "brand" : "neutral", numeric: true, shape: "pill" })} cursor="pointer" flexShrink={0}>
             <FontAwesomeIcon icon={icon} style={{ fontSize: "9px" }} />
             <Box as="span" whiteSpace="nowrap">{text}</Box>
         </Box>
     );
 
-    const ladderContent = rung === 0 ? (
-        affordanceKinds.map((kind, i) => {
-            const m = AFFORDANCE_META[kind];
-            return (
-                <Box key={`af-${kind}-${i}`} display="inline-flex" alignItems="center" gap="{spacing.1.5}" flexShrink="0" minWidth="0" title={m?.label}>
-                    <Box as="span" css={styles.frameAffordanceIcon}>
-                        {m && <FontAwesomeIcon icon={m.icon} style={{ fontSize: "10px" }} />}
-                    </Box>
-                    {renderAffordance(kind, i)}
-                </Box>
-            );
+    // rung 0..N: the folded affordances (lowest-ranked `rung` of them) collapse
+    // into a trailing summary cluster; the rest stay live, in mount order.
+    const collapsedIdx = new Set(foldOrder.slice(0, Math.min(rung, affordanceKinds.length)));
+    const liveKinds = affordanceKinds.map((kind, i) => ({ kind, i })).filter(({ i }) => !collapsedIdx.has(i));
+
+    // The trailing collapsed cluster's trigger content: at the terminal rung a
+    // single chip that *names the rail's contents* (active families first, so
+    // an engaged narrowing leads); below that, one summary chip per folded
+    // family in fold order.
+    const clusterTrigger: ReactNode = rung >= maxRung ? (() => {
+        const descriptors = affordanceKinds
+            .map(kind => affordanceDescriptor(kind, state, dimensions))
+            .map((d, idx) => ({ d, idx }))
+            .sort((a, b) => (b.d.active ? 1 : 0) - (a.d.active ? 1 : 0) || a.idx - b.idx)
+            .map(o => o.d);
+        const labels = descriptors.map(d => d.text);
+        const head = labels.slice(0, 2).join(" · ");
+        const extra = labels.length > 2 ? ` +${labels.length - 2}` : "";
+        const anyActive = descriptors.some(d => d.active);
+        return countChip("all", descriptors[0]?.icon ?? faFilter, labels.length > 0 ? head + extra : "Slice", anyActive);
+    })() : (
+        foldOrder.slice(0, rung).map(i => {
+            const d = affordanceDescriptor(affordanceKinds[i]!, state, dimensions);
+            return countChip(`fold-${d.kind}-${i}`, d.icon, d.text, d.active);
         })
-    ) : (
+    );
+
+    const collapsedCluster = rung === 0 ? null : (
         <SliceEditPopover
             open={editorOpen}
             onOpenChange={setEditorOpen}
@@ -192,10 +273,8 @@ export function SliceRailCluster({ slice, affordanceKinds }: SliceRailClusterPro
                 </chakra.button>
             }
             trigger={
-                <Box display="inline-flex" alignItems="center" gap="{spacing.1.5}" cursor="pointer" onClick={() => setEditorOpen(true)}>
-                    {rung === 1 && summary.length > 0
-                        ? summary.map(p => countChip(p.kind, p.icon, p.text))
-                        : countChip("all", faFilter, activeCount > 0 ? `${activeCount} narrowed` : "narrow")}
+                <Box display="inline-flex" alignItems="center" gap="{spacing.1.5}" flexShrink="0" cursor="pointer" onClick={() => setEditorOpen(true)}>
+                    {clusterTrigger}
                     <FontAwesomeIcon icon={faChevronDown} style={{ fontSize: "8px", opacity: 0.6 }} />
                 </Box>
             }
@@ -215,6 +294,23 @@ export function SliceRailCluster({ slice, affordanceKinds }: SliceRailClusterPro
                 </Box>
             </SliceDensityContext.Provider>
         </SliceEditPopover>
+    );
+
+    const ladderContent = (
+        <>
+            {liveKinds.map(({ kind, i }) => {
+                const m = AFFORDANCE_META[kind];
+                return (
+                    <Box key={`af-${kind}-${i}`} display="inline-flex" alignItems="center" gap="{spacing.1.5}" flexShrink="0" minWidth="0" title={m?.label}>
+                        <Box as="span" css={styles.frameAffordanceIcon}>
+                            {m && <FontAwesomeIcon icon={m.icon} style={{ fontSize: "10px" }} />}
+                        </Box>
+                        {renderAffordance(kind, i)}
+                    </Box>
+                );
+            })}
+            {collapsedCluster}
+        </>
     );
 
     return (
@@ -428,7 +524,8 @@ function RailBrushStrip({ slice, style }: { slice: ValueTypeOf<typeof Slice.Type
  * Renders an East UI `Slice.Rail` — the cluster as a standalone strip.
  * Place above components reading `Slice.rows([RowType], slice)`; the strip
  * narrows them all. A cohort created via "Save as cohort" appends a cohort
- * affordance even when the author didn't list one. With `"brush"` listed
+ * affordance even when the author didn't list one (unless a `presets` bar —
+ * which is already the cohort surface — is mounted, #319). With `"brush"` listed
  * (and a `rangeFieldId` on the config) a slim brush strip renders beneath
  * the chips — drag a window to set the range.
  */
@@ -444,11 +541,8 @@ export const EastChakraSliceRail = memo(function EastChakraSliceRail({ value }: 
     }, [slice.key, persistMode]);
     const state = slice.read();
     const configuredKinds = value.affordances.map(a => a.type);
-    const withCohort = state.cohorts.length > 0 && !configuredKinds.includes("cohort")
-        ? [...configuredKinds, "cohort"]
-        : configuredKinds;
     // `brush` and `legend` render beneath the cluster, not as rail chips.
-    const affordanceKinds = withCohort.filter(k => k !== "brush" && k !== "legend");
+    const affordanceKinds = railAffordanceKinds(configuredKinds, state).filter(k => k !== "brush" && k !== "legend");
     const brushEnabled = configuredKinds.includes("brush");
     // Explicit only (#187) — the legend renders when listed, never implicitly.
     const legendEnabled = configuredKinds.includes("legend");

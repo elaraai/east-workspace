@@ -174,12 +174,13 @@ export const sliceRail = example({
 // ============================================================================
 
 export const sliceNarrow = example({
-    keywords: ["Slice", "narrow", "ladder", "compress", "count chip", "editor"],
-    description: "The compress ladder under width pressure — the same Table chrome in a ~360px rail: chips fold whole into `+M more`, families collapse to count chips, and the terminal chip opens the sectioned editor; nothing ever clips mid-chip",
+    keywords: ["Slice", "narrow", "ladder", "compress", "progressive", "fold", "count chip", "editor"],
+    description: "The compress ladder under width pressure — a four-affordance Table chrome (`[\"filter\", \"breakdown\", \"cohort\", \"search\"]`) in a ~360px rail: affordances fold one at a time, cheapest first (search, then the cohort/split summaries), keeping the filter builder live longest; each folded family becomes a summary chip and the terminal chip names the rail's contents (never the bare word \"narrow\"). Every folded chip opens the sectioned editor",
     fn: East.function([], UIComponentType, (_$) => {
         const EventType = StructType({ scenario: StringType, region: StringType, sessions: IntegerType });
         const cfg = Slice.config(EventType, {
             fields: { scenario: { label: "Scenario" }, region: { label: "Region" }, sessions: { label: "Sessions" } },
+            breakdownFieldIds: ["region"],
             searchFieldIds: ["scenario"],
         });
         return (
@@ -195,6 +196,9 @@ export const sliceNarrow = example({
                         variant("string", { fieldId: "region", op: variant("eq", "EU") }),
                         variant("integer", { fieldId: "sessions", op: variant("gte", 10n) }),
                     ],
+                    cohorts: [{ id: "high-volume", name: "High volume", filters: [
+                        variant("integer", { fieldId: "sessions", op: variant("gte", 10n) }),
+                    ] }],
                 }), data, none));
                 const narrowed = $.let(Slice.rows([EventType], slice));
                 return (
@@ -202,7 +206,52 @@ export const sliceNarrow = example({
                         <Table data={narrowed} columns={{
                             scenario: { header: "Scenario" },
                             sessions: { header: "Sessions" },
-                        }} slice={slice} />
+                        }} slice={slice} affordances={["filter", "breakdown", "cohort", "search"]} />
+                    </Box>
+                );
+            }}</Reactive>
+        );
+    }),
+    inputs: [],
+});
+
+// ============================================================================
+// 4b. Preset cohorts on a narrow rail — presets IS the cohort surface (#319).
+//     Exercises: the no-duplicate-cohort-band fix and the contents-summary
+//     collapsed chip (never the bare word "narrow") when nothing is active.
+// ============================================================================
+
+export const slicePresetsRail = example({
+    keywords: ["Slice", "presets", "cohort", "dedupe", "duplicate", "narrow", "summary", "compress", "contents"],
+    description: "Preset cohorts on a squeezed rail — a Table `slice` chrome mounting `[\"presets\", \"filter\", \"search\"]` over saved cohorts: the presets bar already IS the cohort surface, so no duplicate `cohort` band is auto-appended (#319); at ~300px with nothing active the rail folds to a summary chip that names its contents (e.g. `2 cohorts · Filter +1`) rather than the placeholder \"narrow\"",
+    fn: East.function([], UIComponentType, (_$) => {
+        const OrderType = StructType({ sku: StringType, region: StringType, qty: IntegerType });
+        const cfg = Slice.config(OrderType, {
+            fields: { sku: { label: "SKU" }, region: { label: "Region" }, qty: { label: "Qty" } },
+            searchFieldIds: ["sku"],
+        });
+        return (
+            <Reactive>{$ => {
+                const data = $.const([
+                    { sku: "A-100", region: "EU",   qty: 40n },
+                    { sku: "A-101", region: "EU",   qty: 12n },
+                    { sku: "B-200", region: "NA",   qty: 55n },
+                    { sku: "C-300", region: "APAC", qty: 23n },
+                ], ArrayType(OrderType));
+                const slice = $.let(Slice.bind([OrderType], "ex.slice.presets.rail", cfg, Slice.state({
+                    cohorts: [
+                        { id: "eu",   name: "EU",          filters: [variant("string",  { fieldId: "region", op: variant("eq", "EU") })] },
+                        { id: "bulk", name: "Bulk orders", filters: [variant("integer", { fieldId: "qty",    op: variant("gte", 20n) })] },
+                    ],
+                }), data, none));
+                const narrowed = $.let(Slice.rows([OrderType], slice));
+                return (
+                    <Box width="300px">
+                        <Table data={narrowed} columns={{
+                            sku:    { header: "SKU" },
+                            region: { header: "Region" },
+                            qty:    { header: "Qty" },
+                        }} slice={slice} affordances={["presets", "filter", "search"]} />
                     </Box>
                 );
             }}</Reactive>

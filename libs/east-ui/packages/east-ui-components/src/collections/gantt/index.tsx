@@ -28,6 +28,7 @@ import {
 import { compareFor, equalFor, printFor, variant, some, none, type ValueTypeOf } from "@elaraai/east";
 import { Gantt, Table, Slice as SliceInternal, type UIComponentType } from "@elaraai/east-ui/internal";
 import { SliceRailCluster } from "../../slice/rail";
+import { railAffordanceKinds } from "../../slice/rail-kinds.js";
 import { brushHitTest, brushDragWindow, brushRelease, brushCursor, type BrushDrag } from "../../slice/brush-math.js";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity";
 import { getSomeorUndefined } from "../../utils";
@@ -1427,9 +1428,7 @@ export const EastChakraGantt = memo(function EastChakraGantt(props: EastChakraGa
 
     const state = slice.read();
     const configuredKinds = chrome.affordances.map(a => a.type);
-    const railKinds = (state.cohorts.length > 0 && !configuredKinds.includes("cohort")
-        ? [...configuredKinds, "cohort"]
-        : configuredKinds).filter(k => k !== "brush");
+    const railKinds = railAffordanceKinds(configuredKinds, state).filter(k => k !== "brush");
     const total = Number(slice.totalCount() as bigint);
     const result = Number(slice.resultCount() as bigint);
     const pct = total > 0 ? Math.round((1 - result / total) * 100) : 0;
