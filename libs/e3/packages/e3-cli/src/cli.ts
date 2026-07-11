@@ -114,6 +114,7 @@ program
       .description('Import package from .zip file')
       .argument('[repo]', 'Repository path or URL (default: $E3_REPO or .)')
       .argument('<zipPath>', 'Path to .zip file')
+      .option('--quiet', 'Suppress progress and success output (errors only)')
       .action(withDefaultRepo(packageCommand.import))
   )
   .addCommand(
@@ -122,6 +123,7 @@ program
       .argument('[repo]', 'Repository path or URL (default: $E3_REPO or .)')
       .argument('<pkg>', 'Package name[@version]')
       .argument('<zipPath>', 'Output .zip path')
+      .option('--quiet', 'Suppress progress and success output (errors only)')
       .action(withDefaultRepo(packageCommand.export))
   )
   .addCommand(
@@ -159,6 +161,7 @@ program
       .argument('[pkg]', 'Package name[@version] (omit when using --from-zip / --from-source)')
       .option('--from-zip <path>', 'Import the zip and deploy (creates the workspace if needed)')
       .option('--from-source <path>', 'Bundle a TypeScript source file into a package, then import and deploy (creates the workspace if needed)')
+      .option('--quiet', 'Suppress progress and success output (errors only)')
       .action(withDefaultRepo(workspaceCommand.deploy))
   )
   .addCommand(
@@ -169,6 +172,7 @@ program
       .argument('<zipPath>', 'Output .zip path')
       .option('--name <name>', 'Package name (default: deployed package name)')
       .option('--version <version>', 'Package version (default: auto-generated)')
+      .option('--quiet', 'Suppress progress and success output (errors only)')
       .action(withDefaultRepo(workspaceCommand.export))
   )
   .addCommand(

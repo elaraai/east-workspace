@@ -3,13 +3,15 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Box, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCheck, faGripVertical, faTrashCan } from "@fortawesome/free-solid-svg-icons";
 import { equalFor, match, some, none, variant, type ValueTypeOf } from "@elaraai/east";
 import { Roster, type CellRefType } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
+import { parseCssSize } from "../../style/parse-size.js";
+import { VirtualRows } from "../virtual-rows.js";
 import { useDragTarget, useDropCell, useDragEventChip, type DragEventValue, type DragMeta, type DragPayload } from "../../dnd/drag-layer";
 import { useIRCanDrop, canDropAllows, type CanDropFn } from "../../dnd/ir-can-drop";
 import { useReviewController, DecisionButtons, ReviewFoot, DECISION_WIDTH } from "../shared/review";
@@ -312,70 +314,109 @@ export const EastChakraRoster = memo(function EastChakraRoster({ value, storageK
 
     const summary = getSomeorUndefined(value.summary);
 
-    return (
-        <Box css={styles.root}>
-            <Box css={styles.grid} style={{ gridTemplateColumns: `${getSomeorUndefined(value.personWidth) ?? "150px"} repeat(${value.days.length}, 1fr)${reviewController !== undefined ? ` ${DECISION_WIDTH}` : ""}` }}>
-                <Box css={styles.headerCell}>{value.personHeader}</Box>
-                {value.days.map(day => (
-                    <Box key={day} css={styles.headerCell}>{day}</Box>
-                ))}
-                {reviewController !== undefined && review !== undefined && (
-                    <Box css={reviewChrome.decisionHeader} data-slot="decisionHeader">{review.columnLabel}</Box>
-                )}
-                {value.people.map((person, personIndex) => {
-                    const sublabel = getSomeorUndefined(person.sublabel);
-                    const rowStatusTag = reviewController !== undefined ? getSomeorUndefined(person.status)?.type : undefined;
-                    return [
-                        <Box key={`${person.key}-label`} css={styles.personCell}>
-                            <Box as="span" css={styles.personLabel}>
-                                {rowStatusTag !== undefined && <Box as="span" css={reviewDotStyles[rowStatusTag]} data-slot="statusDot" />}
-                                {person.label}
-                            </Box>
-                            {sublabel && <Box as="span" css={styles.personSublabel}>{sublabel}</Box>}
-                        </Box>,
-                        ...value.days.map(day => (
-                            <RosterCell
-                                key={`${person.key}-${day}`}
-                                surface={value.id}
-                                person={person.key}
-                                day={day}
-                                shifts={cells.get(`${person.key} ${day}`) ?? []}
-                                edit={edit}
-                                styles={styles}
-                                vetoFor={vetoFor}
-                                onSelect={handleSelect}
-                                onAccept={edit ? handleAccept : undefined}
-                                onRemove={edit ? handleRemove : undefined}
-                                onAddAt={handleAddAt}
-                            />
-                        )),
-                        ...(reviewController !== undefined ? [(
-                            <Box
-                                key={`${person.key}-decision`}
-                                css={reviewChrome.decisionCol}
-                                data-slot="decisionCol"
-                                data-status={rowStatusTag}
-                                onClick={(e: React.MouseEvent) => e.stopPropagation()}
-                            >
-                                <DecisionButtons rowIndex={personIndex} controller={reviewController} />
-                            </Box>
-                        )] : []),
-                    ];
-                })}
-            </Box>
-            {(summary !== undefined || edit) && (
-                <Box css={styles.strip}>
-                    {summary !== undefined && <Box as="span" css={styles.stripSummary}>{summary}</Box>}
-                    {edit && (
-                        <Box as="span" css={styles.stripHint}>
-                            drag handles ⠿ · click empty cell to add · ✓ accept ghost · ⌫ remove
-                        </Box>
-                    )}
-                </Box>
-            )}
-            {reviewController !== undefined && reviewController.showFoot && (
-                <ReviewFoot controller={reviewController} storageKey={storageKey} />
+    // Uniform sizing contract (#320) — bound the grid; it scrolls within,
+    // mounting only the visible person rows via the shared VirtualRows frame.
+    const gridCols = `${getSomeorUndefined(value.personWidth) ?? "150px"} repeat(${value.days.length}, 1fr)${reviewController !== undefined ? ` ${DECISION_WIDTH}` : ""}`;
+
+    // Header + each person row are independent grids sharing one column template
+    // (border-per-cell, no grid gap), so they align while each row becomes a
+    // self-contained virtual item.
+    const headerNode = (
+        <Box css={styles.grid} style={{ gridTemplateColumns: gridCols }}>
+            <Box css={styles.headerCell}>{value.personHeader}</Box>
+            {value.days.map(day => (
+                <Box key={day} css={styles.headerCell}>{day}</Box>
+            ))}
+            {reviewController !== undefined && review !== undefined && (
+                <Box css={reviewChrome.decisionHeader} data-slot="decisionHeader">{review.columnLabel}</Box>
             )}
         </Box>
     );
+
+    const renderRow = (personIndex: number): ReactNode => {
+        const person = value.people[personIndex];
+        if (person === undefined) return null;
+        const sublabel = getSomeorUndefined(person.sublabel);
+        const rowStatusTag = reviewController !== undefined ? getSomeorUndefined(person.status)?.type : undefined;
+        return (
+            <Box css={styles.grid} style={{ gridTemplateColumns: gridCols }}>
+                <Box css={styles.personCell}>
+                    <Box as="span" css={styles.personLabel}>
+                        {rowStatusTag !== undefined && <Box as="span" css={reviewDotStyles[rowStatusTag]} data-slot="statusDot" />}
+                        {person.label}
+                    </Box>
+                    {sublabel && <Box as="span" css={styles.personSublabel}>{sublabel}</Box>}
+                </Box>
+                {value.days.map(day => (
+                    <RosterCell
+                        key={`${person.key}-${day}`}
+                        surface={value.id}
+                        person={person.key}
+                        day={day}
+                        shifts={cells.get(`${person.key} ${day}`) ?? []}
+                        edit={edit}
+                        styles={styles}
+                        vetoFor={vetoFor}
+                        onSelect={handleSelect}
+                        onAccept={edit ? handleAccept : undefined}
+                        onRemove={edit ? handleRemove : undefined}
+                        onAddAt={handleAddAt}
+                    />
+                ))}
+                {reviewController !== undefined && (
+                    <Box
+                        css={reviewChrome.decisionCol}
+                        data-slot="decisionCol"
+                        data-status={rowStatusTag}
+                        onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                    >
+                        <DecisionButtons rowIndex={personIndex} controller={reviewController} />
+                    </Box>
+                )}
+            </Box>
+        );
+    };
+
+    const footerNode = (summary !== undefined || edit) ? (
+        <Box css={styles.strip}>
+            {summary !== undefined && <Box as="span" css={styles.stripSummary}>{summary}</Box>}
+            {edit && (
+                <Box as="span" css={styles.stripHint}>
+                    drag handles ⠿ · click empty cell to add · ✓ accept ghost · ⌫ remove
+                </Box>
+            )}
+        </Box>
+    ) : undefined;
+
+    // With the review commit bar pinned OUTSIDE the scroll frame, the sized
+    // flex-column WRAPPER takes the component's bound and the frame fills the
+    // remainder (`fillParent`) — otherwise a percentage / `fill` height would
+    // resolve against the auto-height wrapper and silently unbind.
+    const heightCss = parseCssSize(getSomeorUndefined(value.height));
+    const maxHeightCss = parseCssSize(getSomeorUndefined(value.maxHeight));
+    const footShown = reviewController !== undefined && reviewController.showFoot;
+    const frameFills = footShown && (heightCss !== undefined || maxHeightCss !== undefined);
+    const frame = (
+        <VirtualRows
+            height={frameFills ? undefined : heightCss}
+            maxHeight={frameFills ? undefined : maxHeightCss}
+            fillParent={frameFills}
+            header={headerNode}
+            footer={footerNode}
+            count={value.people.length}
+            estimateSize={() => 72}
+            renderRow={renderRow}
+            rootCss={{ ...styles.root }}
+        />
+    );
+
+    // The review commit bar pins outside the scroll frame (like Planner).
+    return reviewController !== undefined && footShown
+        ? (
+            <Box display="flex" flexDirection="column" width="100%" height={heightCss} maxHeight={maxHeightCss} minHeight="0">
+                {frame}
+                <ReviewFoot controller={reviewController} storageKey={storageKey} />
+            </Box>
+        )
+        : frame;
 }, (prev, next) => rosterEqual(prev.value, next.value) && prev.storageKey === next.storageKey);

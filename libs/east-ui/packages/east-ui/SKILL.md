@@ -109,6 +109,7 @@ Task → Which tag?
 │   │        full-row access = capture the data array + index it: ($, ctx) => { const row = $.let(rows.get(ctx.rowIndex)); … };
 │   │        render/on* fns may capture only data + bind-handles — never a UIComponentType value (beast2 can't serialize it)
 │   │     └─ review={{ … }} + reviewStatus/reviewApproval={(rowIndex) => Option<…>} accessors — pinned-right Decision column + commitBar foot BELOW the pager; rowIndex is the UNSLICED row index (stable under sorting AND pagination, the expandedContent convention)
+│   │     └─ row groups (#317): groupBy={[r => r.section, { value: r => r.category, collapsed: true }]} — nested collapsible group header rows (accounting statements / P&L); groups keep first-appearance DATA order (never alphabetized), sort is group-scoped; columns with aggregate: "sum"|"mean"|"min"|"max"|"count" show subtotals ON the group row (a collapsed group reads as its subtotal line), aggregateRender formats them (East fn over the aggregated cell value — the cell render's rowIndex doesn't exist on a group row); grand totals stay in footerRows
 │   ├─ <DataList items={[DataList.Item(label, value)]} /> — label/value pairs; orientation
 │   ├─ <TreeView nodes={…} /> — expandable hierarchical tree with selection
 │   ├─ <Gantt /> — Gantt chart; builders Gantt.Task(…), Gantt.Milestone(…); showToday marker
@@ -162,6 +163,7 @@ Task → Which tag?
 │   │     Chart.Band(rows, { x, low, high }, style?) — filled range (e.g. confidence band)
 │   ├─ Annotations: Chart.refLine({ y }|{ x }) · Chart.refBand({ y:[lo,hi] }) · Chart.refDot({ x, y, label })
 │   ├─ Chart.format.{ number, currency, percent, compact, date, time, datetime } — axis tick formats
+│   ├─ tickValues (#318): floats on a linear axis ([0,1,2,…] to line up with a Planner) or DateTime[] on a time axis (pin ticks to exact instants, rendered through the date format); Date ticks on y/y2 are a build-time error
 │   │     date patterns share East's tokens incl. weekdays: "ddd DD" → Mon 30 (dd/ddd/dddd)
 │   ├─ Axis typography (#315): x/y/y2 accept tickStyle/titleStyle { fontSize?, fontFamily?: "sans"|"serif"|"mono", fontWeight?, color?, letterSpacing? } — restyle ticks/captions over the spec chrome (mono 11px fg.muted)
 │   ├─ <Sparkline> — inline trend (line | area), fits beside a <Stat>
@@ -311,6 +313,96 @@ Non-UI sub-structures are never child sub-tags.
     />
 </Box>
 ```
+
+### Sizing — one string prop, parsed everywhere
+
+Every size prop is a **plain string** and every renderer parses it the same
+way (`parseCssSize`). Four spellings, uniform across data components (`<Table>`,
+`<Gantt>`, `<Planner>`, `<Matrix>`, `<Board>`, `<Roster>`, `<Calendar>`,
+`<Library>`, `<Schematic>`) and layout primitives (`<Box>` / `<Flex>` /
+`<Stack>` / `<Grid>` / `<Card>`):
+
+| Value | Means |
+|---|---|
+| `"fill"` | fill the parent box (`100%`) |
+| `"240"` | a bare number → pixels (`240px`) |
+| `"50%"` / `"calc(100vh - 4rem)"` | any CSS length passes through |
+| `"18px"` | explicit units pass through |
+
+```tsx
+// height bounds the whole component and it scrolls within; maxHeight caps
+// it but stays content-sized until the cap is hit.
+<Table data={rows} columns={cols} height="fill" />      // fills its parent
+<Planner …  maxHeight="420" />                           // content up to 420px, then scrolls
+
+// Layout primitives add boolean shorthands so you never hand-write the
+// flex:1 + min-height:0 + overflow incantation for a scroll region:
+<Card height="fill">
+    <Box fill scrollY>       {/* fill remaining space, scroll vertically */}
+        <Table data={rows} columns={cols} height="fill" />
+    </Box>
+</Card>
+```
+
+A `<Card>` given `height` / `maxHeight` becomes a flex column that constrains
+its body, so a single `height="fill"` child (a data component, a scroll region)
+resolves against it.
+
+Caveats that save a render cycle:
+
+- **`"fill"` / percentages need a definite parent.** `height="fill"` resolves
+  against the nearest box with a real height (a sized `<Box>`/`<Card>`, a flex
+  item with `fill`, a Drawer `fillBody`). Inside a content-sized parent it
+  silently resolves to auto — bound the parent, don't add pixels to the child.
+- **`height` vs `maxHeight`**: `height` pins the component to exactly that box
+  (header pinned, body scrolls); `maxHeight` stays content-sized UP TO the cap,
+  then scrolls. Bounded data components virtualize (only visible rows mount)
+  and show a reserved-gutter scrollbar; unbounded ones grow to content.
+- **A definite `height`/`width` on Box/Flex/Stack also pins `flex-shrink: 0`**
+  (a sized box no longer collapses under flex pressure) — opt back in with
+  `flexShrink` if you want it squeezable.
+- **Bare numbers are pixels, not Chakra spacing tokens** — `width="8"` is 8px.
+  `gap` / `padding` / `margin` keep token semantics (`gap="4"` is a spacing
+  token, not 4px).
+
+### Row groups — a nested P&L in one Table (#317)
+
+`groupBy` folds flat statement lines into nested, collapsible group header
+rows. Groups keep first-appearance data order (Revenue stays above Cost of
+sales under any sort — sorting reorders members WITHIN their group); columns
+with an `aggregate` show their subtotal ON the group row, so a collapsed group
+reads as its subtotal line (drill up) and expanding drills down. Collapse
+state persists per `storageKey`. Grand totals stay in `footerRows`.
+
+```tsx
+const money = $.const(East.function([Table.Types.CellRenderContext], UIComponentType, (_$, ctx) => (
+    <Text width="100%" textAlign="right">{East.Float.printCurrency(ctx.cellValue.unwrap("Float"))}</Text>
+)));
+// `aggregateRender` takes the aggregated CELL VALUE — a group row has no rowIndex.
+const moneyTotal = $.const(East.function([Table.Types.Cell], UIComponentType, (_$, v) => (
+    <Text width="100%" textAlign="right" fontWeight="semibold">{East.Float.printCurrency(v.unwrap("Float"))}</Text>
+)));
+return (
+    <Table
+        data={lines}   // flat leaf accounts: { section, category, account, q1..fy }
+        columns={{
+            account: { header: "Account" },
+            q1: { header: "Q1", aggregate: "sum", render: money, aggregateRender: moneyTotal },
+            fy: { header: "FY", aggregate: "sum", render: money, aggregateRender: moneyTotal },
+        }}
+        groupBy={[
+            r => r.section,                              // level 0: Revenue / Cost of sales / Opex
+            { value: r => r.category, collapsed: true }, // level 1: starts collapsed
+        ]}
+        footerRows={[{ account: { content: <Text fontWeight="bold">Net income</Text> }, /* … */ }]}
+    />
+);
+```
+
+Aggregates: `"sum" | "mean" | "min" | "max" | "count"` (`sum`/`mean` require a
+numeric column value — build-time error otherwise). Computed statement lines
+(Gross profit) that aren't plain subtotals: model them as their own
+single-member section in the data, or use `footerRows`.
 
 ### Overlays — trigger prop + body children
 

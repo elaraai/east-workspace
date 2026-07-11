@@ -598,7 +598,10 @@ function AxisBMark({ value }: { value: Axis }): ReactNode {
     // Pin to the data-point positions by default — UNLESS the caller asked for an
     // explicit `numTicks` (#149); otherwise the default would shadow numTicks on x
     // (visx prefers tickValues over numTicks), unlike the y / y2 axes.
-    const tickValues = getSomeorUndefined(value.tickValues) ?? (numTicks !== undefined ? undefined : xTickValues);
+    // #318 — tickValues is a scale-kind variant (number | time); both arms
+    // decode to arrays visx maps directly onto the linear / time scale.
+    const explicitTicks = getSomeorUndefined(value.tickValues);
+    const tickValues = (explicitTicks !== undefined ? [...explicitTicks.value] : undefined) ?? (numTicks !== undefined ? undefined : xTickValues);
     const hideTicks = getSomeorUndefined(value.hideTicks) ?? true;
     const hideLine = getSomeorUndefined(value.hideLine) ?? horizontal;
     const tickCss = axisTextCss(style, getSomeorUndefined(value.tickStyle));
@@ -628,7 +631,8 @@ function AxisLMark({ value }: { value: Axis }): ReactNode {
     // baseline rule (the categorical baseline the bars sit on).
     const fmt = tickFormatter(getSomeorUndefined(value.tickFormat), horizontal ? "band" : "linear");
     const label = getSomeorUndefined(value.label);
-    const tickValues = getSomeorUndefined(value.tickValues);
+    const explicitTicks = getSomeorUndefined(value.tickValues);
+    const tickValues = explicitTicks !== undefined ? [...explicitTicks.value] : undefined;
     const numTicks = getSomeorUndefined(value.numTicks);
     const tickCss = axisTextCss(style, getSomeorUndefined(value.tickStyle));
     const titleCss = axisTextCss(style, getSomeorUndefined(value.titleStyle), 600);
@@ -655,7 +659,8 @@ function AxisRMark({ value }: { value: Axis }): ReactNode {
     const scale = y2 ?? y;
     const fmt = tickFormatter(getSomeorUndefined(value.tickFormat), "linear");
     const label = getSomeorUndefined(value.label);
-    const tickValues = getSomeorUndefined(value.tickValues);
+    const explicitTicks = getSomeorUndefined(value.tickValues);
+    const tickValues = explicitTicks !== undefined ? [...explicitTicks.value] : undefined;
     const tickCss = axisTextCss(style, getSomeorUndefined(value.tickStyle));
     const titleCss = axisTextCss(style, getSomeorUndefined(value.titleStyle), 600);
     return (

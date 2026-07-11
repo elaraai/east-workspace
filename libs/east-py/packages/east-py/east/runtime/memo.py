@@ -166,26 +166,28 @@ def memoize(fn: Callable[..., Any] | None = None, *, salt: str = "") -> Callable
         os.replace(tmp.name, path)
         _log.info("save %s (%s)", pf["name"], path)
 
-    if pf["type"] == "async":
+    # Two named variants picked at runtime: mypy requires conditionally
+    # re-defined functions to share an identical signature, and an `async def`
+    # really returns a coroutine — so define both and select.
+    async def run_async(*args: Any) -> Any:
+        path, hit = _load(args)
+        if hit is not _MISS:
+            return hit
+        out = await fn(*args)
+        if path is not None:
+            _store(path, out)
+        return out
 
-        async def run(*args: Any) -> Any:
-            path, hit = _load(args)
-            if hit is not _MISS:
-                return hit
-            out = await fn(*args)
-            if path is not None:
-                _store(path, out)
-            return out
-    else:
+    def run_sync(*args: Any) -> Any:
+        path, hit = _load(args)
+        if hit is not _MISS:
+            return hit
+        out = fn(*args)
+        if path is not None:
+            _store(path, out)
+        return out
 
-        def run(*args: Any) -> Any:
-            path, hit = _load(args)
-            if hit is not _MISS:
-                return hit
-            out = fn(*args)
-            if path is not None:
-                _store(path, out)
-            return out
+    run: Any = run_async if pf["type"] == "async" else run_sync
 
     run.__name__ = getattr(fn, "__name__", pf["name"])
     run.__doc__ = fn.__doc__

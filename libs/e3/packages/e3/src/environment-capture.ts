@@ -23,6 +23,23 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { execFileSync } from 'node:child_process';
+
+/**
+ * One environment-capture progress event (#311) — emitted after each member
+ * artifact build (`uv build --sdist` / `npm pack`), so callers can surface
+ * per-member progress during otherwise-silent multi-member exports.
+ */
+export interface CaptureEvent {
+  /** The captured member/project name. */
+  member: string;
+  /** The tool that produced the artifact (e.g. `uv build --sdist`, `npm pack`). */
+  tool: string;
+  /** Total artifact bytes captured for this member. */
+  bytes: number;
+}
+
+/** Capture progress callback (#311). */
+export type CaptureEventFn = (event: CaptureEvent) => void;
 import { parse as parseToml } from 'smol-toml';
 import { variant, none, encodeBeast2For } from '@elaraai/east';
 import type { EnvironmentSpec } from '@elaraai/e3-types';
@@ -215,6 +232,7 @@ function buildMemberSdists(
   closure: Array<{ name: string; dir: string }>,
   owner: string,
   addBlob: (data: Buffer) => string,
+  onEvent?: CaptureEventFn,
 ): Array<{ filename: string; hash: string }> {
   const sdists: Array<{ filename: string; hash: string }> = [];
   for (const member of closure) {
@@ -222,9 +240,12 @@ function buildMemberSdists(
     // is unambiguous. Installers derive the package name from the filename.
     const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'e3-env-sdist-'));
     try {
+      let memberBytes = 0;
       for (const a of buildArtifacts('uv', ['build', '--sdist', '--out-dir', outDir], member.dir, outDir, '.tar.gz', owner)) {
+        memberBytes += a.data.byteLength;
         sdists.push({ filename: a.filename, hash: addBlob(a.data) });
       }
+      onEvent?.({ member: member.name, tool: 'uv build --sdist', bytes: memberBytes });
     } finally {
       fs.rmSync(outDir, { recursive: true, force: true });
     }
@@ -249,6 +270,7 @@ function capturePythonPlatforms(
   anchorDir: string,
   owner: string,
   addBlob: (data: Buffer) => string,
+  onEvent?: CaptureEventFn,
 ): Uint8Array | null {
   const found = findUvLock(anchorDir, owner);
   if (!found) return null;
@@ -266,7 +288,7 @@ function capturePythonPlatforms(
   const pyproject = addBlob(readProjectFile(root, 'pyproject.toml', owner));
   const lockBlob = addBlob(readProjectFile(root, 'uv.lock', owner));
   const members = [...union.entries()].map(([name, dir]) => ({ name, dir })).sort((a, b) => (a.name < b.name ? -1 : 1));
-  const sdists = buildMemberSdists(members, owner, addBlob);
+  const sdists = buildMemberSdists(members, owner, addBlob, onEvent);
   return encodeEnvironmentSpec(variant('python', { pyproject, lock: lockBlob, sdists }));
 }
 
@@ -299,6 +321,7 @@ function captureNodePlatforms(
   anchorDir: string,
   owner: string,
   addBlob: (data: Buffer) => string,
+  onEvent?: CaptureEventFn,
 ): Uint8Array | null {
   const found = findNpmRoot(anchorDir);
   if (!found) return null;
@@ -320,7 +343,7 @@ function captureNodePlatforms(
     );
   }
   // A single member reuses the explicit workspace_node capture verbatim.
-  return captureEnvironment({ node: { project: memberDirs[0]! } }, owner, addBlob);
+  return captureEnvironment({ node: { project: memberDirs[0]! } }, owner, addBlob, onEvent);
 }
 
 /**
@@ -346,13 +369,14 @@ export function captureAutoEnvironment(
   anchorDir: string,
   owner: string,
   addBlob: (data: Buffer) => string,
+  onEvent?: CaptureEventFn,
 ): Uint8Array | null {
   if (customNames.length === 0) return null;
   // east-py resolves against a uv workspace, east-node against an npm
   // workspace. east-c (tools) is never derived — it uses explicit
   // `environment: { tools }`. Unknown runtimes never auto-derive.
-  if (runtime === 'east-py') return capturePythonPlatforms(customNames, anchorDir, owner, addBlob);
-  if (runtime === 'east-node') return captureNodePlatforms(customNames, anchorDir, owner, addBlob);
+  if (runtime === 'east-py') return capturePythonPlatforms(customNames, anchorDir, owner, addBlob, onEvent);
+  if (runtime === 'east-node') return captureNodePlatforms(customNames, anchorDir, owner, addBlob, onEvent);
   return null;
 }
 
@@ -568,6 +592,7 @@ export function captureEnvironment(
   decl: EnvironmentDecl,
   owner: string,
   addBlob: (data: Buffer) => string,
+  onEvent?: CaptureEventFn,
 ): Uint8Array {
   let spec: EnvironmentSpec;
 
@@ -604,7 +629,7 @@ export function captureEnvironment(
     const { root, lock, subject } = discoverPythonRoot(project, owner);
     const pyproject = addBlob(readProjectFile(root, 'pyproject.toml', owner));
     const lockBlob = addBlob(readProjectFile(root, 'uv.lock', owner));
-    const sdists = buildMemberSdists(pythonClosure(lock, root, subject, owner), owner, addBlob);
+    const sdists = buildMemberSdists(pythonClosure(lock, root, subject, owner), owner, addBlob, onEvent);
     spec = variant('python', { pyproject, lock: lockBlob, sdists });
   } else {
     const project = path.resolve(decl.node.project);
@@ -615,9 +640,15 @@ export function captureEnvironment(
       const lock = addBlob(readProjectFile(project, disco.lockName, owner));
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'e3-env-pack-'));
       try {
-        const tarballs = buildArtifacts(
+        const built = buildArtifacts(
           'npm', ['pack', '--pack-destination', outDir], project, outDir, '.tgz', owner,
-        ).map((a) => addBlob(a.data));
+        );
+        onEvent?.({
+          member: path.basename(project),
+          tool: 'npm pack',
+          bytes: built.reduce((sum, a) => sum + a.data.byteLength, 0),
+        });
+        const tarballs = built.map((a) => addBlob(a.data));
         spec = variant('node', { packageJson, lock, tarballs });
       } finally {
         fs.rmSync(outDir, { recursive: true, force: true });
@@ -634,6 +665,7 @@ export function captureEnvironment(
         const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'e3-env-pack-'));
         try {
           const built = buildArtifacts('npm', ['pack', '--pack-destination', outDir], memberDir, outDir, '.tgz', owner);
+          onEvent?.({ member: member.name, tool: 'npm pack', bytes: built[0]!.data.byteLength });
           return { path: member.path, name: member.name, tarball: addBlob(built[0]!.data) };
         } finally {
           fs.rmSync(outDir, { recursive: true, force: true });

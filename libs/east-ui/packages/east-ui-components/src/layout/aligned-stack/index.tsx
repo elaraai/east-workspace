@@ -8,6 +8,7 @@ import { Flex } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { AlignedStack } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
+import { parseCssSize } from "../../style/parse-size.js";
 import { EastChakraComponent } from "../../component";
 import { PlotGutterProvider, type PlotGutter } from "../../contracts/plot-gutter.js";
 import { DensityProvider, type Density } from "../../contracts/density";
@@ -59,9 +60,9 @@ export const EastChakraAlignedStack = memo(function EastChakraAlignedStack({ val
         <Flex
             direction="column"
             gap={(style ? getSomeorUndefined(style.gap) : undefined) ?? "0"}
-            width={(style ? getSomeorUndefined(style.width) : undefined) ?? "100%"}
-            {...((style && getSomeorUndefined(style.height)) ? { height: getSomeorUndefined(style.height) } : {})}
-            {...((style && getSomeorUndefined(style.minHeight)) ? { minHeight: getSomeorUndefined(style.minHeight) } : {})}
+            width={parseCssSize(style ? getSomeorUndefined(style.width) : undefined) ?? "100%"}
+            {...((style && getSomeorUndefined(style.height)) ? { height: parseCssSize(getSomeorUndefined(style.height)) } : {})}
+            {...((style && getSomeorUndefined(style.minHeight)) ? { minHeight: parseCssSize(getSomeorUndefined(style.minHeight)) } : {})}
         >
             {value.children.map((child, index) => (
                 <EastChakraComponent key={index} value={child} storageKey={`${storageKey}.${index}`} />

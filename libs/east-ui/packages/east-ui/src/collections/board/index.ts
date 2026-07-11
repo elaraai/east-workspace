@@ -117,6 +117,10 @@ export const BoardRootType = StructType({
     density: OptionType(DensityType),
     /** Optional per-cell chip cap before the `+N` overflow */
     maxVisible: OptionType(IntegerType),
+    /** Uniform sizing (#320): bound the board; it scrolls within. `"fill"` fills the parent box. */
+    height: OptionType(StringType),
+    /** Uniform sizing (#320): max-height cap; content-sized up to it. */
+    maxHeight: OptionType(StringType),
     /** Optional status-strip text (open / proposed counts) */
     summary: OptionType(StringType),
     /** Optional IR-level drop veto — consulted per hovered cell with the
@@ -283,6 +287,10 @@ export interface BoardConfig<
     requirement?: (requirement: ExprType<R>) => BoardRequirementFields;
     /** Optional density. */
     density?: SubtypeExprOrValue<DensityType> | DensityLiteral;
+    /** Uniform sizing (#320): bound the component — a pixel number, `"fill"` (fill the parent box), or a CSS length; the whole component takes this height and scrolls within. */
+    height?: SubtypeExprOrValue<StringType>;
+    /** Uniform sizing (#320): max-height cap — a pixel number or CSS length; content-sized up to it. */
+    maxHeight?: SubtypeExprOrValue<StringType>;
     /** Optional per-cell chip cap before the `+N` overflow. */
     maxVisible?: SubtypeExprOrValue<IntegerType> | number;
     /** Optional status-strip text (open / proposed counts). */
@@ -442,6 +450,8 @@ function buildRoot(
         requirements: resolvedRequirements,
         density,
         maxVisible,
+        height: config.height !== undefined ? some(config.height) : none,
+        maxHeight: config.maxHeight !== undefined ? some(config.maxHeight) : none,
         summary: config.summary !== undefined ? some(config.summary) : none,
         canDrop: canDrop !== undefined ? some(canDrop) : none,
         review: config.review !== undefined ? some(buildReview(reviewFootOnly(config.review), RowReviewType)) : none,

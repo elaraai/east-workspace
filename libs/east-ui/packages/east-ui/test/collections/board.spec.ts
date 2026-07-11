@@ -10,6 +10,8 @@ import * as ex from "./board.examples.js";
 
 describeEast("Board", (test) => {
     Assert.examples(test, {
+        boardScroll: ex.boardScroll,
+        boardFill: ex.boardFill,
         boardEdit: ex.boardEdit,
         boardPublished: ex.boardPublished,
         boardCoverage: ex.boardCoverage,

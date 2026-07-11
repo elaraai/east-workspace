@@ -5,6 +5,7 @@
 
 import {
     type SubtypeExprOrValue,
+    BooleanType,
     FloatType,
     OptionType,
     StringType,
@@ -114,6 +115,14 @@ export type FlexStyle = {
     overflowX?: SubtypeExprOrValue<OverflowType> | OverflowLiteral;
     /** Vertical overflow behavior (visible, hidden, scroll, auto) */
     overflowY?: SubtypeExprOrValue<OverflowType> | OverflowLiteral;
+    /** `fill` shorthand — occupy the remaining main-axis space (`flex: 1 1 0%` + min-size 0), so a child bounds and scrolls inside a flex parent without the `flex:1 + min-height:0` incantation (#320). */
+    fill?: SubtypeExprOrValue<BooleanType>;
+    /** `scroll` shorthand — scroll on both axes (`overflow: auto` + min-size 0). Composes with `fill`. */
+    scroll?: SubtypeExprOrValue<BooleanType>;
+    /** `scrollX` shorthand — scroll horizontally (`overflow-x: auto` + min-width 0). */
+    scrollX?: SubtypeExprOrValue<BooleanType>;
+    /** `scrollY` shorthand — scroll vertically (`overflow-y: auto` + min-height 0). */
+    scrollY?: SubtypeExprOrValue<BooleanType>;
     /** Padding configuration - use Padding() helper */
     padding?: SubtypeExprOrValue<PaddingType> | string;
     /** Margin configuration - use Margin() helper */
@@ -208,6 +217,10 @@ export const FlexStyleType = StructType({
     overflow: OptionType(OverflowType),
     overflowX: OptionType(OverflowType),
     overflowY: OptionType(OverflowType),
+    fill: OptionType(BooleanType),
+    scroll: OptionType(BooleanType),
+    scrollX: OptionType(BooleanType),
+    scrollY: OptionType(BooleanType),
     padding: OptionType(PaddingType),
     margin: OptionType(MarginType),
     background: OptionType(StringType),

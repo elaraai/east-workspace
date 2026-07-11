@@ -95,6 +95,49 @@ export type TableSelectionModeType = typeof TableSelectionModeType;
 export type TableSelectionModeLiteral = "single" | "multiple" | "range";
 
 // ============================================================================
+// Row grouping (#317)
+// ============================================================================
+
+/**
+ * Aggregate applied to a column's member cell values on a group header row.
+ *
+ * @property sum - Numeric sum of the member values (Integer / Float columns)
+ * @property mean - Numeric mean of the member values (Integer / Float columns)
+ * @property min - Minimum member value (native ordering)
+ * @property max - Maximum member value (native ordering)
+ * @property count - Number of member rows
+ */
+export const TableAggregateType = VariantType({
+    sum: NullType,
+    mean: NullType,
+    min: NullType,
+    max: NullType,
+    count: NullType,
+});
+
+export type TableAggregateType = typeof TableAggregateType;
+
+/** String-literal shorthand for {@link TableAggregateType}. */
+export type TableAggregateLiteral = "sum" | "mean" | "min" | "max" | "count";
+
+/**
+ * One row-grouping level (#317) — the printed group key per data row
+ * (parallel to the Table's `rows` array) plus the level's default collapse
+ * state. Nested levels stack in `groupBy` order; the renderer folds the
+ * sorted row model into group-headed segments from these keys.
+ *
+ * @property keys - Per data row, this level's printed group key (parallel to `rows`)
+ * @property collapsed - Whether groups at this level start collapsed
+ */
+export const TableGroupLevelType = StructType({
+    keys: ArrayType(StringType),
+    collapsed: BooleanType,
+});
+
+export type TableGroupLevelType = typeof TableGroupLevelType;
+
+
+// ============================================================================
 // Primitive East Types
 // ============================================================================
 
@@ -290,6 +333,7 @@ export type TableSelectionType = typeof TableSelectionType;
  */
 export const TableStyleType = StructType({
     height: OptionType(StringType),
+    maxHeight: OptionType(StringType),
     variant: OptionType(TableVariantType),
     size: OptionType(TableSizeType),
     striped: OptionType(BooleanType),
@@ -347,8 +391,10 @@ export type TableStyleType = typeof TableStyleType;
 export interface TableStyle<ColumnKeys extends string = string> {
     /** Column keys to freeze (pin left). Frozen columns appear first and stay visible during horizontal scroll. */
     frozen?: ColumnKeys[];
-    /** CSS height for the table container (e.g., "500px", "100%") */
+    /** Uniform sizing (#320): bound the table — a pixel `number`, `"fill"` (fill the parent box; the parent must have a definite height), or a CSS length (`"500px"`, `"100%"`). Chrome-inclusive; the rows scroll within. */
     height?: SubtypeExprOrValue<StringType>;
+    /** Uniform sizing (#320): max-height cap — a pixel `number` or CSS length; the table is content-sized up to it, then scrolls. */
+    maxHeight?: SubtypeExprOrValue<StringType>;
     /** Table variant (line or outline) */
     variant?: SubtypeExprOrValue<TableVariantType> | TableVariantLiteral;
     /** Table size (sm, md, lg) */

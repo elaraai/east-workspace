@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { BooleanType, East, DateTimeType, IntegerType, NullType, StringType, none, some, variant, example } from "@elaraai/east";
 import { DragEventType, State, Style, UIComponentType } from "@elaraai/east-ui";
-import { Badge, Gantt, Library, Reactive, Table, Text, VStack } from "@elaraai/east-ui";
+import { Badge, Box, Gantt, Library, Reactive, Table, Text, VStack } from "@elaraai/east-ui";
 
 export const ganttBasic = example({
     keywords: ["Gantt", "Root", "Task", "basic", "timeline"],
@@ -721,6 +721,35 @@ export const ganttRichLabel = example({
                     ],
                 })}
             />
+        );
+    }),
+    inputs: [],
+});
+
+
+export const ganttFill = example({
+    keywords: ["Gantt", "fill", "height", "Box", "scroll", "virtual", "sizing", "#320"],
+    description: "height=\"fill\" (#320) — the gantt fills a fixed 220px Box and scrolls within it; two hundred rows overflow the box so only the visible rows mount, with the header pinned",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <Box height="220px">
+                <Gantt
+                    variant="line"
+                    striped={true}
+                    height="fill"
+                    data={East.Array.range(0n, 200n).map((_$, i) => ({
+                        id: East.str`#${i}`,
+                        task: East.str`Task ${i}`,
+                        start: East.value(new Date("2024-01-01T00:00:00Z")).addDays(i.multiply(3n)),
+                        end: East.value(new Date("2024-01-01T00:00:00Z")).addDays(i.multiply(3n).add(14n)),
+                    }))}
+                    columns={{
+                        id: { header: "ID", width: "80px" },
+                        task: { header: "Task", width: "150px" },
+                    }}
+                    rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
+                />
+            </Box>
         );
     }),
     inputs: [],

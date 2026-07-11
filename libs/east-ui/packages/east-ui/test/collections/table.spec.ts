@@ -10,6 +10,8 @@ import * as ex from "./table.examples.js";
 
 describeEast("Table", (test) => {
     Assert.examples(test, {
+        tableFill: ex.tableFill,
+        tablePnlGrouped: ex.tablePnlGrouped,
         tableBasic: ex.tableBasic,
         tableCustomHeaders: ex.tableCustomHeaders,
         tableStriped: ex.tableStriped,

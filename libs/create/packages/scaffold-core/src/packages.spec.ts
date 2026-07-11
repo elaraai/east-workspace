@@ -5,7 +5,9 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, readFileSync, existsSync, symlinkSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -111,5 +113,69 @@ test("C packages: native dir with a Makefile + a tools-wired customTask (explici
   const wiring = read(dir, join("src", "packages", "solver.ts"));
   assert.ok(wiring.includes("e3.customTask"), "C is wired as a customTask, not an auto-derived platform");
   assert.ok(wiring.includes('files: ["packages/native/solver/build/solver"]'), "explicit tools env points at the built binary");
+  rmSync(dirname(dir), { recursive: true, force: true });
+});
+
+// ---------------------------------------------------------------------------
+// #301 — a member-flag scaffold with DEFAULT features (tests ON) must compile.
+// writeAppWiring rewrites src/index.ts to the generated barrel app, so the
+// base template's src/index.spec.ts (which imported the example app's
+// `reorderFn`) must be rewritten too, or the scaffold fails `npm run build`
+// out of the box.
+// ---------------------------------------------------------------------------
+
+/** Scaffold with workspace packages and DEFAULT features (tests stay on). */
+function scaffoldPackagesDefaultFeatures(name: string, packages: PackageSpec): string {
+  const cwd = mkdtempSync(join(tmpdir(), "create-pkg-default-"));
+  scaffold({
+    kind: "e3", name, cwd, templateDir: join(TEMPLATES, "e3"), version: "9.9.9", log: () => {},
+    packages,
+  });
+  return join(cwd, deriveNames(name, cwd).projectName);
+}
+
+test("member-flag scaffold with default features rewrites index.spec.ts against the generated app (#301)", () => {
+  const dir = scaffoldPackagesDefaultFeatures("envpy", { python: ["calc"] });
+  const spec = read(dir, join("src", "index.spec.ts"));
+  assert.ok(!spec.includes("reorderFn"), "spec must not import the example app the wiring replaced");
+  assert.ok(spec.includes('from "./packages/index.js"'), "spec smoke-tests the generated barrel");
+  assert.ok(spec.includes("packageTasks"), "spec asserts the per-package task wiring");
+  rmSync(dirname(dir), { recursive: true, force: true });
+});
+
+test("member-flag scaffold with default features compiles (tsc --noEmit) (#301)", (t) => {
+  // Resolve deps against the monorepo's built lib packages (pnpm links
+  // @elaraai/* per-package, not at the root, so link each one), then
+  // typecheck the scaffold exactly as `npm run build` would. The create CI
+  // job builds only the scaffolder packages, so skip (loudly) when the lib
+  // dists aren't built — the spec-rewrite assertions above still pin #301
+  // there; this compile gate runs wherever the monorepo is built.
+  const repoRoot = join(TEMPLATES, "..", "..", "..");
+  const links: Array<[string, string]> = [
+    ["@elaraai/east", join(repoRoot, "libs", "east")],
+    ["@elaraai/e3", join(repoRoot, "libs", "e3", "packages", "e3")],
+    ["@elaraai/east-node-std", join(repoRoot, "libs", "east-node", "packages", "east-node-std")],
+  ];
+  const unbuilt = links.filter(([, target]) => !existsSync(join(target, "dist")));
+  if (unbuilt.length > 0) {
+    t.skip(`lib dists not built here: ${unbuilt.map(([n]) => n).join(", ")}`);
+    return;
+  }
+  const dir = scaffoldPackagesDefaultFeatures("envpy", { python: ["calc"] });
+  links.push(["@types/node", dirname(createRequire(import.meta.url).resolve("@types/node/package.json"))]);
+  for (const [name, target] of links) {
+    assert.ok(existsSync(target), `${name} source present at ${target}`);
+    const linkPath = join(dir, "node_modules", ...name.split("/"));
+    mkdirSync(dirname(linkPath), { recursive: true });
+    symlinkSync(target, linkPath, "junction");
+  }
+  const require = createRequire(import.meta.url);
+  const tsc = join(dirname(require.resolve("typescript")), "..", "bin", "tsc");
+  try {
+    execFileSync(process.execPath, [tsc, "--noEmit", "-p", dir], { stdio: "pipe" });
+  } catch (err) {
+    const out = (err as { stdout?: Buffer }).stdout?.toString() ?? "";
+    assert.fail(`member-flag scaffold failed to typecheck:\n${out.slice(0, 4000)}`);
+  }
   rmSync(dirname(dir), { recursive: true, force: true });
 });

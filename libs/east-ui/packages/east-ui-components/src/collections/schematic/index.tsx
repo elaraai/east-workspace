@@ -15,6 +15,7 @@ import type { IconName } from "@fortawesome/fontawesome-common-types";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 import { SliceRailCluster } from "../../slice/rail";
+import { parseCssSize } from "../../style/parse-size.js";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity";
 import { usePersistedState } from "../../hooks/usePersistedState";
 import { LINK_HIT_SLOP, MARKER_LABEL_FONT, distanceToPolyline, markerHit, markerHitbox, netGeometry, orthogonalize, paintSchematic, parallelLanes as paintParallelLanes, LINK_LANE_GAP, type SchematicPalette, type SchematicPaintEffect } from "./paint";
@@ -331,7 +332,10 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         [hasSliceChrome, sliceHandle, affordanceKinds, sliceVersion],
     );
     // A fixed height pins the panel instead of the extent's aspect ratio.
-    const fixedHeight = getSomeorUndefined(value.height);
+    // Uniform sizing (#320) — `"fill"` → 100% of the parent box; `maxHeight`
+    // overrides the recipe's default 75vh cap.
+    const fixedHeight = parseCssSize(getSomeorUndefined(value.height));
+    const maxHeightCss = parseCssSize(getSomeorUndefined(value.maxHeight));
 
     // --- Slice effect: how filtered-out items render instead of vanishing. ---
     // Feed the FULL item set with each item's `excluded` flag set; the flat effect
@@ -2364,7 +2368,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     };
 
     const schematicBody = (
-        <Box css={styles.root} {...(fixedHeight !== undefined ? { style: { height: fixedHeight, maxHeight: fixedHeight } } : {})}>
+        <Box css={styles.root} {...(fixedHeight !== undefined ? { style: { height: fixedHeight, maxHeight: maxHeightCss ?? fixedHeight } } : (maxHeightCss !== undefined ? { style: { maxHeight: maxHeightCss } } : {}))}>
             <SchematicPaletteProbe onResolve={setPalette} />
             {showNavigator && navCollapsed && (
                 <Box css={styles.navCollapsed}>
@@ -2663,7 +2667,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     if (!hasSliceChrome) return schematicBody;
     // Slice chrome → a full-width top-edge rail above the schematic frame (#128).
     return (
-        <Box css={{ ...sliceFrameStyles.root, display: "flex", flexDirection: "column", minHeight: 0, ...(fixedHeight !== undefined ? { height: fixedHeight, maxHeight: fixedHeight } : {}) }}>
+        <Box css={{ ...sliceFrameStyles.root, display: "flex", flexDirection: "column", minHeight: 0, ...(fixedHeight !== undefined ? { height: fixedHeight, maxHeight: maxHeightCss ?? fixedHeight } : (maxHeightCss !== undefined ? { maxHeight: maxHeightCss } : {})) }}>
             <Box css={{ ...sliceFrameStyles.frameEyebrow, flexShrink: 0 }}>
                 {sliceRail}
             </Box>

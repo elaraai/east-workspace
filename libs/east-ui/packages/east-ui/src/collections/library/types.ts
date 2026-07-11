@@ -246,9 +246,9 @@ export type LibraryStyleType = typeof LibraryStyleType;
  * @property virtualization - Whether rows virtualize inside the scroll region (default `true`; set `false` to always mount every card)
  */
 export interface LibraryStyle {
-    /** Optional CSS height (e.g. `"480px"`, `"100%"`); constraining it makes the card grid the Library's own scroll region */
+    /** Uniform sizing (#320): bound the Library — a CSS length — a bare number (`"320"`), `"fill"` (fill the parent box), a percentage, `calc(...)`, or explicit `px` (`"480px"`, `"100%"`); constraining it makes the card grid the Library's own scroll region */
     height?: SubtypeExprOrValue<StringType>;
-    /** Optional CSS max-height */
+    /** Uniform sizing (#320): max-height cap — a pixel `number` or CSS length */
     maxHeight?: SubtypeExprOrValue<StringType>;
     /** Whether rows virtualize inside the scroll region (default `true`; set `false` to always mount every card) */
     virtualization?: SubtypeExprOrValue<BooleanType>;

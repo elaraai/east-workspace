@@ -4,6 +4,7 @@
  */
 
 import { memo, useMemo } from "react";
+import { parseCssSize } from "../../style/parse-size.js";
 import { Grid as ChakraGrid, GridItem as ChakraGridItem, type GridProps } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Grid } from "@elaraai/east-ui/internal";
@@ -51,12 +52,12 @@ export function toChakraGrid(value: GridValue): GridProps {
     } : {};
 
     return {
-        width: style ? getSomeorUndefined(style.width) : undefined,
-        height: style ? getSomeorUndefined(style.height) : undefined,
-        minHeight: style ? getSomeorUndefined(style.minHeight) : undefined,
-        minWidth: style ? getSomeorUndefined(style.minWidth) : undefined,
-        maxHeight: style ? getSomeorUndefined(style.maxHeight) : undefined,
-        maxWidth: style ? getSomeorUndefined(style.maxWidth) : undefined,
+        width: parseCssSize(style ? getSomeorUndefined(style.width) : undefined),
+        height: parseCssSize(style ? getSomeorUndefined(style.height) : undefined),
+        minHeight: parseCssSize(style ? getSomeorUndefined(style.minHeight) : undefined),
+        minWidth: parseCssSize(style ? getSomeorUndefined(style.minWidth) : undefined),
+        maxHeight: parseCssSize(style ? getSomeorUndefined(style.maxHeight) : undefined),
+        maxWidth: parseCssSize(style ? getSomeorUndefined(style.maxWidth) : undefined),
         ...paddingProps,
         templateColumns: style ? getSomeorUndefined(style.templateColumns) : undefined,
         templateRows: style ? getSomeorUndefined(style.templateRows) : undefined,

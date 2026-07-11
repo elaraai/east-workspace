@@ -3,8 +3,6 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import type { PackageExportProgress } from '@elaraai/e3-types';
-
 /**
  * Shared formatting utilities for CLI commands.
  */
@@ -30,16 +28,3 @@ export function formatSize(bytes: number): string {
   return `${bytes} B`;
 }
 
-export function writeExportProgress(progress: PackageExportProgress): void {
-  if (progress.type === 'pending') {
-    process.stdout.write(`\rPending...\x1b[K`);
-  } else if (progress.type === 'exporting') {
-    process.stdout.write(`\rExporting... ${progress.value.objectsProcessed} objects\x1b[K`);
-  } else if (progress.type === 'uploading') {
-    process.stdout.write(`\rUploading...\x1b[K`);
-  }
-}
-
-export function clearProgress(): void {
-  process.stdout.write('\r\x1b[K');
-}

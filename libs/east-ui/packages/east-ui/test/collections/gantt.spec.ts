@@ -10,6 +10,7 @@ import * as ex from "./gantt.examples.js";
 
 describeEast("Gantt", (test) => {
     Assert.examples(test, {
+        ganttFill: ex.ganttFill,
         ganttBasic: ex.ganttBasic,
         ganttRowHeight: ex.ganttRowHeight,
         ganttCustomHeaders: ex.ganttCustomHeaders,

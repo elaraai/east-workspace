@@ -4,11 +4,13 @@
  */
 
 import { memo, useMemo } from "react";
+import { parseCssSize } from "../../style/parse-size.js";
 import { Flex as ChakraFlex, type FlexProps } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Flex } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
+import { resolveSizingShorthands } from "../sizing.js";
 import { DensityProvider } from "../../contracts/density.js";
 
 // Pre-define the equality function at module level
@@ -29,18 +31,41 @@ export function toChakraFlex(value: FlexValue): FlexProps {
     const padding = style ? getSomeorUndefined(style.padding) : undefined;
     const margin = style ? getSomeorUndefined(style.margin) : undefined;
 
+    // Sizing shorthands (fill / scroll / definite-size shrink) resolve to the
+    // flex-item + overflow + min-size subset, spread last so they win (#320).
+    const heightVal = style ? getSomeorUndefined(style.height) : undefined;
+    const widthVal = style ? getSomeorUndefined(style.width) : undefined;
+    const sizing = resolveSizingShorthands({
+        fill: style ? getSomeorUndefined(style.fill) : undefined,
+        scroll: style ? getSomeorUndefined(style.scroll) : undefined,
+        scrollX: style ? getSomeorUndefined(style.scrollX) : undefined,
+        scrollY: style ? getSomeorUndefined(style.scrollY) : undefined,
+        hasHeight: heightVal !== undefined,
+        hasWidth: widthVal !== undefined,
+        explicit: {
+            flex: style ? getSomeorUndefined(style.flex) : undefined,
+            flexGrow: style ? getSomeorUndefined(style.flexGrow) : undefined,
+            flexShrink: style ? getSomeorUndefined(style.flexShrink) : undefined,
+            overflow: style ? getSomeorUndefined(style.overflow)?.type : undefined,
+            overflowX: style ? getSomeorUndefined(style.overflowX)?.type : undefined,
+            overflowY: style ? getSomeorUndefined(style.overflowY)?.type : undefined,
+            minWidth: parseCssSize(style ? getSomeorUndefined(style.minWidth) : undefined),
+            minHeight: parseCssSize(style ? getSomeorUndefined(style.minHeight) : undefined),
+        },
+    });
+
     return {
         direction: style ? getSomeorUndefined(style.direction)?.type : undefined,
         wrap: style ? getSomeorUndefined(style.wrap)?.type : undefined,
         justifyContent: style ? getSomeorUndefined(style.justifyContent)?.type : undefined,
         alignItems: style ? getSomeorUndefined(style.alignItems)?.type : undefined,
         gap: style ? getSomeorUndefined(style.gap) : undefined,
-        width: style ? getSomeorUndefined(style.width) : undefined,
-        height: style ? getSomeorUndefined(style.height) : undefined,
-        minHeight: style ? getSomeorUndefined(style.minHeight) : undefined,
-        minWidth: style ? getSomeorUndefined(style.minWidth) : undefined,
-        maxHeight: style ? getSomeorUndefined(style.maxHeight) : undefined,
-        maxWidth: style ? getSomeorUndefined(style.maxWidth) : undefined,
+        width: parseCssSize(style ? getSomeorUndefined(style.width) : undefined),
+        height: parseCssSize(style ? getSomeorUndefined(style.height) : undefined),
+        minHeight: parseCssSize(style ? getSomeorUndefined(style.minHeight) : undefined),
+        minWidth: parseCssSize(style ? getSomeorUndefined(style.minWidth) : undefined),
+        maxHeight: parseCssSize(style ? getSomeorUndefined(style.maxHeight) : undefined),
+        maxWidth: parseCssSize(style ? getSomeorUndefined(style.maxWidth) : undefined),
         // Padding struct -> individual props
         pt: padding ? getSomeorUndefined(padding.top) : undefined,
         pr: padding ? getSomeorUndefined(padding.right) : undefined,
@@ -63,6 +88,7 @@ export function toChakraFlex(value: FlexValue): FlexProps {
         flex: style ? getSomeorUndefined(style.flex) : undefined,
         flexGrow: style ? getSomeorUndefined(style.flexGrow) : undefined,
         flexShrink: style ? getSomeorUndefined(style.flexShrink) : undefined,
+        ...sizing,
     };
 }
 

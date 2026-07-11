@@ -427,7 +427,7 @@ export const tableReviewPaginated = example({
                     <Table
                         variant="line"
                         pagination={{ pageSize: 20n, page, onPageChange }}
-                        data={East.Array.range(0n, 60n).map((_$, i) => ({
+                        data={East.Array.range(0n, 200n).map((_$, i) => ({
                             id: East.str`#${i}`,
                             name: East.str`Order ${i}`,
                         }))}
@@ -658,5 +658,104 @@ export const tableRangeSelection = example({
             );
         }}</Reactive>
     )),
+    inputs: [],
+});
+
+
+export const tableFill = example({
+    keywords: ["Table", "fill", "height", "Box", "scroll", "virtual", "sizing", "#320"],
+    description: "height=\"fill\" (#320) — the table fills a fixed 220px Box and scrolls within it; two hundred rows overflow the box so only the visible rows mount, with the header pinned",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <Box height="220px">
+                <Table
+                    variant="line"
+                    striped={true}
+                    height="fill"
+                    data={East.Array.range(0n, 200n).map((_$, i) => ({
+                        id: East.str`#${i}`,
+                        name: East.str`User ${i}`,
+                        email: East.str`user${i}@example.com`,
+                        dept: "Engineering",
+                    }))}
+                    columns={{
+                        id: { header: "ID", width: "80px" },
+                        name: { header: "Name", width: "150px" },
+                        email: { header: "Email", width: "250px" },
+                        dept: { header: "Department", width: "150px" },
+                    }}
+                />
+            </Box>
+        );
+    }),
+    inputs: [],
+});
+
+/**
+ * Nested P&L (#317) — `groupBy` folds leaf accounts into collapsible group
+ * header rows: section (Revenue / Cost of sales / Operating expenses) →
+ * category → account. Columns with `aggregate: "sum"` put subtotals on each
+ * group row, so a COLLAPSED group reads as its subtotal line (drill up) and
+ * expanding drills down; `aggregateRender` gives subtotals the members'
+ * currency treatment. Sections keep statement order under any sort (groups
+ * hold first-appearance data order; sorting reorders within groups). The
+ * grand-total Net income line rides `footerRows`.
+ */
+export const tablePnlGrouped = example({
+    keywords: ["Table", "groupBy", "rowGroups", "group", "collapse", "expand", "aggregate", "sum", "subtotal", "P&L", "statement", "accounting", "nested", "drill", "#317"],
+    description: "Nested P&L (#317) — groupBy [section, category] folds accounts into collapsible group rows; sum aggregates render as currency subtotals on the group headers (a collapsed group reads as its subtotal line); categories start collapsed, Net income rides footerRows",
+    fn: East.function([], UIComponentType, ($) => {
+        const money = $.const(East.function([Table.Types.CellRenderContext], UIComponentType, (_$, ctx) => (
+            <Text width="100%" textAlign="right">{East.Float.printCurrency(ctx.cellValue.unwrap("Float"))}</Text>
+        )));
+        const moneyTotal = $.const(East.function([Table.Types.Cell], UIComponentType, (_$, v) => (
+            <Text width="100%" textAlign="right" fontWeight="semibold">{East.Float.printCurrency(v.unwrap("Float"))}</Text>
+        )));
+        return (
+            <Table
+                variant="line"
+                data={[
+                    { section: "Revenue", category: "Product sales", account: "Product line A", q1: 210000.0, q2: 232500.0, q3: 198000.0, q4: 251500.0, fy: 892000.0 },
+                    { section: "Revenue", category: "Product sales", account: "Product line B", q1: 118000.0, q2: 141000.0, q3: 122500.0, q4: 133500.0, fy: 515000.0 },
+                    { section: "Revenue", category: "Product sales", account: "Direct sales", q1: 45500.0, q2: 61000.0, q3: 74000.0, q4: 66500.0, fy: 247000.0 },
+                    { section: "Revenue", category: "Services", account: "Consulting", q1: 18500.0, q2: 27000.0, q3: 33500.0, q4: 24000.0, fy: 103000.0 },
+                    { section: "Revenue", category: "Services", account: "Subscriptions", q1: 22000.0, q2: 12500.0, q3: 9000.0, q4: 19500.0, fy: 63000.0 },
+                    { section: "Cost of sales", category: "Materials", account: "Raw materials", q1: 62000.0, q2: 58000.0, q3: 44000.0, q4: 71000.0, fy: 235000.0 },
+                    { section: "Cost of sales", category: "Materials", account: "Freight & duty", q1: 38500.0, q2: 42000.0, q3: 31000.0, q4: 47500.0, fy: 159000.0 },
+                    { section: "Cost of sales", category: "Production", account: "Equipment & maintenance", q1: 24000.0, q2: 18500.0, q3: 21000.0, q4: 26500.0, fy: 90000.0 },
+                    { section: "Cost of sales", category: "Production", account: "Packaging", q1: 41000.0, q2: 46500.0, q3: 39000.0, q4: 52500.0, fy: 179000.0 },
+                    { section: "Cost of sales", category: "Production", account: "Direct labour", q1: 55000.0, q2: 55000.0, q3: 57500.0, q4: 57500.0, fy: 225000.0 },
+                    { section: "Operating expenses", category: "Sales & marketing", account: "Distribution", q1: 28000.0, q2: 31500.0, q3: 27000.0, q4: 36500.0, fy: 123000.0 },
+                    { section: "Operating expenses", category: "Sales & marketing", account: "Marketing", q1: 19500.0, q2: 22000.0, q3: 30500.0, q4: 28000.0, fy: 100000.0 },
+                    { section: "Operating expenses", category: "Administration", account: "Insurance", q1: 12500.0, q2: 12500.0, q3: 12500.0, q4: 12500.0, fy: 50000.0 },
+                    { section: "Operating expenses", category: "Administration", account: "Utilities", q1: 9000.0, q2: 8500.0, q3: 10000.0, q4: 11500.0, fy: 39000.0 },
+                    { section: "Operating expenses", category: "Administration", account: "Salaries", q1: 47500.0, q2: 47500.0, q3: 47500.0, q4: 47500.0, fy: 190000.0 },
+                ]}
+                columns={{
+                    account: { header: "Account", width: "220px" },
+                    q1: { header: "Q1", aggregate: "sum", render: money, aggregateRender: moneyTotal },
+                    q2: { header: "Q2", aggregate: "sum", render: money, aggregateRender: moneyTotal },
+                    q3: { header: "Q3", aggregate: "sum", render: money, aggregateRender: moneyTotal },
+                    q4: { header: "Q4", aggregate: "sum", render: money, aggregateRender: moneyTotal },
+                    fy: { header: "FY", aggregate: "sum", render: money, aggregateRender: moneyTotal },
+                }}
+                groupBy={[
+                    r => r.section,
+                    { value: r => r.category, collapsed: true },
+                ]}
+                footerRows={[
+                    // Net income = Revenue - Cost of sales - Operating expenses (per quarter).
+                    {
+                        account: { content: <Text fontWeight="bold">Net income</Text> },
+                        q1: { content: <Text width="100%" textAlign="right" fontWeight="bold">$77,000.00</Text> },
+                        q2: { content: <Text width="100%" textAlign="right" fontWeight="bold">$132,000.00</Text> },
+                        q3: { content: <Text width="100%" textAlign="right" fontWeight="bold">$117,000.00</Text> },
+                        q4: { content: <Text width="100%" textAlign="right" fontWeight="bold">$104,000.00</Text> },
+                        fy: { content: <Text width="100%" textAlign="right" fontWeight="bold">$430,000.00</Text> },
+                    },
+                ]}
+            />
+        );
+    }),
     inputs: [],
 });

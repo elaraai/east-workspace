@@ -35,6 +35,8 @@ import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 import { Slice as SliceInternal } from "@elaraai/east-ui/internal";
 import { SliceRailCluster } from "../../slice/rail";
+import { parseCssSize } from "../../style/parse-size.js";
+import { virtualScrollbarCss } from "../../style/scrollbar.js";
 import { railAffordanceKinds } from "../../slice/rail-kinds.js";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity";
 import { RowStateManager, type RowKey, type RowState } from "../../utils/RowStateManager";
@@ -137,6 +139,45 @@ export interface EastChakraTableProps {
 /** The synthetic Decision column's TanStack id (#264). */
 const REVIEW_COLUMN_ID = "__review__";
 
+/** One decoded table cell — a LiteralValue variant ({ type, value }). */
+type TableCellVariant = ValueTypeOf<typeof Table.Types.Cell>;
+
+/** Row grouping (#317): fold member cell values into one aggregate cell. */
+function computeAggregate(tag: string, cells: TableCellVariant[]): TableCellVariant {
+    if (tag === "count") return variant("Integer", BigInt(cells.length)) as TableCellVariant;
+    if (cells.length === 0) return variant("Null", null) as TableCellVariant;
+    const kind = cells[0]!.type;
+    if (tag === "sum" || tag === "mean") {
+        // Factory-validated: sum/mean columns are Integer or Float.
+        const nums = cells.map(c => typeof c.value === "bigint" ? Number(c.value) : (c.value as number));
+        const sum = nums.reduce((a, b) => a + b, 0);
+        if (tag === "mean") return variant("Float", sum / nums.length) as TableCellVariant;
+        return kind === "Integer"
+            ? variant("Integer", (cells as { value: bigint }[]).reduce((a, c) => a + c.value, 0n)) as TableCellVariant
+            : variant("Float", sum) as TableCellVariant;
+    }
+    // min / max — native ordering over the column's primitive values.
+    let best = cells[0]!;
+    for (const c of cells) {
+        const a = c.value as number | bigint | string | Date | boolean;
+        const b = best.value as number | bigint | string | Date | boolean;
+        if (tag === "min" ? a < b : a > b) best = c;
+    }
+    return best;
+}
+
+/** Row grouping (#317): default text for an aggregated value (no `aggregateRender`). */
+function formatAggregate(cell: TableCellVariant): string {
+    switch (cell.type) {
+        case "Integer": return (cell.value as bigint).toLocaleString("en-US");
+        case "Float": return (cell.value as number).toLocaleString("en-US", { maximumFractionDigits: 2 });
+        case "DateTime": return (cell.value as Date).toISOString().slice(0, 10);
+        case "Boolean": return String(cell.value);
+        case "String": return cell.value as string;
+        default: return "\u2014";
+    }
+}
+
 interface TablePersistedState {
     sorting: SortingState;
     columnSizing: Record<string, number>;
@@ -145,6 +186,9 @@ interface TablePersistedState {
      *  the current row count. A clamped index survives data changes where a raw
      *  scrollTop would not (#143). */
     scrollIndex?: number;
+    /** Row grouping (#317): per group-path collapse overrides. Absent paths
+     *  fall back to the level's default `collapsed`. */
+    groupCollapse?: Record<string, boolean>;
 }
 
 /**
@@ -247,6 +291,9 @@ const TableCore = function TableCore({
     // values (10px mono header, fg.subtle, 13px cells, 1px rules, top-align)
     // come from the theme rather than per-site inline literals.
     const tableSlotStyles = useSlotRecipe({ key: "table" })({ size: tableSize });
+    // Chakra generates the "table" slot union from ITS built-in table recipe,
+    // so our custom groupHead slots (#317) need a wider view of the result.
+    const tableGroupSlotStyles = tableSlotStyles as unknown as Record<string, React.CSSProperties>;
 
     // Expandable rows — `value.expandedContent` is a `(rowIndex) =>
     // UIComponent` callback. When defined, an extra toggle column is
@@ -636,6 +683,86 @@ const TableCore = function TableCore({
     // Get sorted rows from table
     const { rows } = table.getRowModel();
 
+    // ── Row grouping (#317) ─────────────────────────────────────────────────
+    // Fold the sorted row model into a DISPLAY LIST of group header entries +
+    // leaf rows. Groups keep FIRST-APPEARANCE data order (a P&L's Revenue
+    // stays above Cost of Sales under any sort); sorting reorders members
+    // WITHIN their group. Collapsed groups (persisted per path, defaulting to
+    // the level's `collapsed`) contribute only their header — which carries
+    // the per-column aggregates, so a collapsed group reads as its subtotal.
+    const groupLevels = useMemo(() => getSomeorUndefined(value.groupBy), [value.groupBy]);
+    const groupAggByKey = useMemo(() => {
+        const out = new Map<string, { tag: string; renderFn: ((v: TableCellVariant) => unknown) | undefined }>();
+        for (const col of value.columns) {
+            const agg = getSomeorUndefined(col.aggregate);
+            if (agg === undefined) continue;
+            out.set(col.key, { tag: agg.type, renderFn: getSomeorUndefined(col.aggregateRender) as ((v: TableCellVariant) => unknown) | undefined });
+        }
+        return out;
+    }, [value.columns]);
+    type GroupEntry = { kind: "group"; path: string; depth: number; label: string; count: number; collapsed: boolean; aggregates: Map<string, TableCellVariant> };
+    type DisplayEntry = GroupEntry | { kind: "leaf"; row: (typeof rows)[number] };
+    const groupCollapse = persistedState.groupCollapse;
+    const displayRows: DisplayEntry[] | undefined = useMemo(() => {
+        if (groupLevels === undefined || groupLevels.length === 0) return undefined;
+        const pageOffset = pageSize ? currentPage * pageSize : 0;
+        const rankByIndex = new Map<number, number>();
+        rows.forEach((r, i) => rankByIndex.set(r.index, i));
+        const rowByIndex = new Map(rows.map(r => [r.index, r]));
+        type Node = { path: string; depth: number; label: string; children: Map<string, Node>; order: Node[]; members: number[] };
+        const root: Node = { path: "", depth: -1, label: "", children: new Map(), order: [], members: [] };
+        // First-appearance order over the (page-sliced) data indices.
+        const sliceSize = rows.length;
+        for (let i = 0; i < sliceSize; i++) {
+            const row = rowByIndex.get(i);
+            if (row === undefined) continue;
+            let node = root;
+            for (let d = 0; d < groupLevels.length; d++) {
+                const key = groupLevels[d]!.keys[pageOffset + i] ?? "";
+                let child = node.children.get(key);
+                if (child === undefined) {
+                    child = { path: `${node.path}\u0000${key}`, depth: d, label: key, children: new Map(), order: [], members: [] };
+                    node.children.set(key, child);
+                    node.order.push(child);
+                }
+                node = child;
+            }
+            node.members.push(i);
+        }
+        const collectMembers = (node: Node): number[] =>
+            node.children.size === 0 ? node.members : node.order.flatMap(collectMembers);
+        const out: DisplayEntry[] = [];
+        const emit = (node: Node) => {
+            for (const child of node.order) {
+                const memberIdxs = collectMembers(child);
+                const aggregates = new Map<string, TableCellVariant>();
+                for (const [colKey, { tag }] of groupAggByKey) {
+                    const cells = memberIdxs
+                        .map(idx => rowByIndex.get(idx)?.original?.get(colKey))
+                        .filter((c): c is TableCellVariant => c !== undefined);
+                    aggregates.set(colKey, computeAggregate(tag, cells));
+                }
+                const collapsed = groupCollapse?.[child.path] ?? groupLevels[child.depth]!.collapsed;
+                out.push({ kind: "group", path: child.path, depth: child.depth, label: child.label, count: memberIdxs.length, collapsed, aggregates });
+                if (collapsed) continue;
+                if (child.depth === groupLevels.length - 1) {
+                    [...child.members]
+                        .sort((a, b) => (rankByIndex.get(a) ?? 0) - (rankByIndex.get(b) ?? 0))
+                        .forEach(idx => out.push({ kind: "leaf", row: rowByIndex.get(idx)! }));
+                } else {
+                    emit(child);
+                }
+            }
+        };
+        emit(root);
+        return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [groupLevels, rows, groupAggByKey, groupCollapse, currentPage, pageSize]);
+    const toggleGroup = useCallback((path: string, current: boolean) => {
+        setPersistedState(prev => ({ ...prev, groupCollapse: { ...(prev.groupCollapse ?? {}), [path]: !current } }));
+    }, [setPersistedState]);
+    const displayCount = displayRows !== undefined ? displayRows.length : rows.length;
+
     // Calculate column size CSS variables for performance
     const columnSizeVars = useMemo(() => {
         const headers = table.getFlatHeaders();
@@ -654,7 +781,7 @@ const TableCore = function TableCore({
     // density token overrides the default; else the JS-side `rowHeight` prop.
     const effectiveRowHeight = explicitRowHeight ?? (densityTag ? densityRowHeight : rowHeight);
     const virtualizer = useVirtualizer({
-        count: rows.length,
+        count: displayCount,
         getScrollElement: () => tableContainerRef.current,
         estimateSize: () => effectiveRowHeight,
         overscan,
@@ -668,7 +795,7 @@ const TableCore = function TableCore({
     // list of items so the existing render loop walks every row.
     const virtualItems = useMemo(() => {
         if (virtualizationEnabled) return virtualizer.getVirtualItems();
-        return rows.map((_r, idx) => ({
+        return Array.from({ length: displayCount }, (_r, idx) => ({
             index: idx,
             start: idx * effectiveRowHeight,
             end: (idx + 1) * effectiveRowHeight,
@@ -677,7 +804,7 @@ const TableCore = function TableCore({
             lane: 0,
         }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [virtualizationEnabled, virtualizer, rows.length, effectiveRowHeight, virtualizer.getVirtualItems()]);
+    }, [virtualizationEnabled, virtualizer, displayCount, effectiveRowHeight, virtualizer.getVirtualItems()]);
 
     // ── Scroll position persistence (#143) ──────────────────────────────────
     // Persist the top visible ROW INDEX (never a pixel scrollTop — a clamped
@@ -799,13 +926,30 @@ const TableCore = function TableCore({
         };
     };
 
+    const styleHeightCss = parseCssSize(style ? getSomeorUndefined(style.height) : undefined);
+    const styleMaxHeightCss = parseCssSize(style ? getSomeorUndefined(style.maxHeight) : undefined);
+    // Width-slack absorber (#323 review): with every column explicitly sized,
+    // the flex rows ended short of the table width and the leftover painted as
+    // a dead strip (fixed-width cells are `flex: none`; only UNSIZED columns
+    // grew). The LAST visible leaf data column now grows (`flex: 1 0 auto` —
+    // its sized width stays the floor), matching how unsized tables fill.
+    // Skipped under frozen pinning (table width IS the summed sizes, h-scroll)
+    // and an active plot gutter (the right gutter region owns the slack). A
+    // drag-resize keeps the stretch — the resized width is the new floor.
+    const lastStretchId = (!hasFrozen && !gutterActive)
+        ? table.getVisibleLeafColumns().filter(c => c.id !== REVIEW_COLUMN_ID && !c.getIsPinned()).at(-1)?.id
+        : undefined;
     const tableContent = (
         <Box
             ref={tableContainerRef}
             onScroll={handleScrollPersist}
-            height={(style ? getSomeorUndefined(style.height) : undefined) ?? height}
+            height={styleHeightCss ?? height}
+            maxHeight={styleMaxHeightCss}
             overflowY="auto"
             overflowX={gutterActive ? 'hidden' : (hasFrozen ? 'auto' : undefined)}
+            // Reserved-gutter bar only when the author bounded the table — an
+            // unbounded (content-sized) table must not reserve a dead gutter.
+            css={styleHeightCss !== undefined || styleMaxHeightCss !== undefined ? virtualScrollbarCss : undefined}
             position="relative"
             {...(gutterActive ? { width: "100%" } : {})}
         >
@@ -845,6 +989,9 @@ const TableCore = function TableCore({
                                         const groupKeys: string[] = Array.from(g.columnKeys);
                                         if (groupKeys.length === 0) return null;
                                         const widthCalc = groupKeys.map(k => `var(--col-${k}-size)`).join(" + ");
+                                        // A group spanning the slack-absorbing last column
+                                        // must grow with it (min-width keeps the floor).
+                                        const spansStretch = lastStretchId !== undefined && groupKeys.includes(lastStretchId);
                                         return (
                                             <ChakraTable.ColumnHeader
                                                 key={`group-${gi}`}
@@ -853,7 +1000,7 @@ const TableCore = function TableCore({
                                                 style={{
                                                     width: `calc(${widthCalc})`,
                                                     minWidth: `calc(${widthCalc})`,
-                                                    flex: groupsRowGrows ? `${groupKeys.length} 1 0%` : "none",
+                                                    flex: groupsRowGrows ? `${groupKeys.length} 1 0%` : (spansStretch ? "1 0 auto" : "none"),
                                                     borderColor,
                                                     paddingLeft: densityCellPadX,
                                                     paddingRight: densityCellPadX,
@@ -979,7 +1126,12 @@ const TableCore = function TableCore({
                                         transition="background 0.2s"
                                         style={{
                                             width: `var(--header-${header.id}-size)`,
-                                            flex: hasFrozen ? 'none' : (columnSizing[header.id] || header.column.columnDef.meta?.width) ? 'none' : 1,
+                                            flex: hasFrozen ? 'none'
+                                                : (columnSizing[header.id] || header.column.columnDef.meta?.width)
+                                                    // The stretch survives a drag-resize: the size var already
+                                                    // reflects the resized width, so it stays the flex FLOOR.
+                                                    ? (header.column.id === lastStretchId ? '1 0 auto' : 'none')
+                                                    : 1,
                                             ...pinningStyles,
                                             zIndex: isPinned ? 3 : undefined,
                                             borderColor: borderColor,
@@ -1087,7 +1239,67 @@ const TableCore = function TableCore({
                     }}
                 >
                     {virtualItems.map(virtualRow => {
-                        const row = rows[virtualRow.index];
+                        // Row grouping (#317): group header entries interleave
+                        // with leaf rows in the display list.
+                        const displayEntry = displayRows !== undefined ? displayRows[virtualRow.index] : undefined;
+                        if (displayEntry !== undefined && displayEntry.kind === "group") {
+                            const g = displayEntry;
+                            return (
+                                <div
+                                    key={`group:${g.path}`}
+                                    data-index={virtualRow.index}
+                                    ref={virtualizer.measureElement}
+                                    style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${virtualRow.start}px)` }}
+                                >
+                                    <ChakraTable.Row
+                                        css={tableGroupSlotStyles.groupHead}
+                                        data-slot="groupHead"
+                                        data-depth={g.depth}
+                                        display="flex"
+                                        width="100%"
+                                        onClick={() => toggleGroup(g.path, g.collapsed)}
+                                    >
+                                        {table.getVisibleLeafColumns().map((col, ci) => {
+                                            const sizedFlex = hasFrozen ? 'none'
+                                                : (columnSizing[col.id] || col.columnDef.meta?.width)
+                                                    ? (col.id === lastStretchId ? '1 0 auto' : 'none')
+                                                    : 1;
+                                            const cellStyle: React.CSSProperties = {
+                                                width: `var(--col-${col.id}-size)`,
+                                                flex: sizedFlex,
+                                                display: "flex",
+                                                alignItems: "center",
+                                                minHeight: `${effectiveRowHeight}px`,
+                                            };
+                                            if (col.id === REVIEW_COLUMN_ID) {
+                                                return <ChakraTable.Cell key={col.id} css={tableGroupSlotStyles.groupHeadCell} style={{ ...cellStyle, flex: "none" }} />;
+                                            }
+                                            if (ci === 0) {
+                                                return (
+                                                    <ChakraTable.Cell key={col.id} css={tableGroupSlotStyles.groupHeadCell} data-slot="groupHeadLabel" style={{ ...cellStyle, cursor: "pointer", paddingLeft: `${12 + g.depth * 18}px`, gap: "8px", overflow: "visible", whiteSpace: "nowrap" }}>
+                                                        <FontAwesomeIcon icon={g.collapsed ? faChevronRight : faChevronDown} style={{ width: 9, height: 9 }} />
+                                                        {g.label === "" ? "\u2014" : g.label}
+                                                    </ChakraTable.Cell>
+                                                );
+                                            }
+                                            const agg = g.aggregates.get(col.id);
+                                            const aggSpec = groupAggByKey.get(col.id);
+                                            if (agg === undefined || aggSpec === undefined) {
+                                                return <ChakraTable.Cell key={col.id} css={tableGroupSlotStyles.groupHeadCell} style={cellStyle} />;
+                                            }
+                                            return (
+                                                <ChakraTable.Cell key={col.id} css={tableGroupSlotStyles.groupHeadAggregate} data-slot="groupHeadAggregate" style={cellStyle}>
+                                                    {aggSpec.renderFn !== undefined
+                                                        ? <EastChakraComponent value={aggSpec.renderFn(agg) as Parameters<typeof EastChakraComponent>[0]["value"]} storageKey={`${storageKey ?? "table"}.group.${g.path}.${col.id}`} />
+                                                        : formatAggregate(agg)}
+                                                </ChakraTable.Cell>
+                                            );
+                                        })}
+                                    </ChakraTable.Row>
+                                </div>
+                            );
+                        }
+                        const row = displayEntry !== undefined ? (displayEntry as { kind: "leaf"; row: (typeof rows)[number] }).row : rows[virtualRow.index];
                         if (!row) return null;
 
                         const rowKey = virtualRow.index;
@@ -1286,7 +1498,10 @@ const TableCore = function TableCore({
 
                                     const cellStyle: React.CSSProperties = {
                                         width: `var(--col-${cell.column.id}-size)`,
-                                        flex: hasFrozen ? 'none' : (columnSizing[cell.column.id] || meta?.width) ? 'none' : 1,
+                                        flex: hasFrozen ? 'none'
+                                            : (columnSizing[cell.column.id] || meta?.width)
+                                                ? (cell.column.id === lastStretchId ? '1 0 auto' : 'none')
+                                                : 1,
                                         display: 'flex',
                                         // Spec `.dt` reads vertically centered (its rows hug
                                         // content, so its `vertical-align: top` is moot); our
@@ -1437,10 +1652,14 @@ const TableCore = function TableCore({
                                     const footerRowGrows = !hasFrozen && Object.keys(columnSizing).length === 0
                                         && value.columns.every(c => getSomeorUndefined(c.width) === undefined);
                                     const widthCalc = span > 1 ? `calc(${widthVar})` : `var(--col-${colKey}-size)`;
+                                    // A footer cell spanning the slack-absorbing last
+                                    // column must grow with it (min-width keeps the floor).
+                                    const footerSpansStretch = lastStretchId !== undefined
+                                        && Array.from({ length: span }, (_, k) => value.columns[i + k]!.key).includes(lastStretchId);
                                     const cellStyle: React.CSSProperties = {
                                         width: widthCalc,
                                         minWidth: widthCalc,
-                                        flex: footerRowGrows ? `${span} 1 0%` : "none",
+                                        flex: footerRowGrows ? `${span} 1 0%` : (footerSpansStretch ? "1 0 auto" : "none"),
                                         display: "flex",
                                         alignItems: "center",
                                         overflow: "hidden",

@@ -208,6 +208,113 @@ DateTimeType: EastVariant = EastVariant("DateTime", None)
 NeverType: EastVariant = EastVariant("Never", None)
 
 
+# =============================================================================
+# Type interning — ensures structurally identical composite types share identity.
+#
+# Mirrors the TS reference (`libs/east/src/types.ts`): TS memoizes its type
+# constructors so that structurally-equal types are the SAME object. The beast2
+# value encoder dedups by object identity, so without interning a repeated
+# sub-structure (e.g. an Option appearing in two struct fields) would be emitted
+# twice instead of once + backref, diverging from the canonical TS encoding.
+#
+# We hash a per-kind tag combined with child hashes (FNV-1a style hashCombine),
+# then verify structural equality on lookup. Recursive markers are NOT interned
+# (cyclic structures are hashed by tag/marker only and never recursed into);
+# primitives are already module singletons above.
+# =============================================================================
+
+_FNV_PRIME = 0x01000193
+_FNV_MASK = 0xFFFFFFFF
+
+# Per-kind tags, mirroring the byte tags used by the TS reference where they
+# overlap; the exact values are arbitrary but must be stable.
+_KIND_TAGS: dict[str, int] = {
+    "Null": 0x00,
+    "Boolean": 0x01,
+    "Integer": 0x02,
+    "Float": 0x03,
+    "String": 0x04,
+    "Blob": 0x05,
+    "DateTime": 0x06,
+    "Never": 0x07,
+    "Variant": 0x08,
+    "Struct": 0x09,
+    "Array": 0x41,
+    "Function": 0x46,
+    "AsyncFunction": 0x47,
+    "Set": 0x53,
+    "Ref": 0x52,
+    "Dict": 0x44,
+    "Vector": 0x56,
+    "Matrix": 0x4D,
+    "Recursive": 0x72,
+}
+
+# Intern table: structural hash -> EastVariant, or list[EastVariant] on collision.
+_intern: dict[int, Any] = {}
+
+
+def _hash_combine(h: int, v: int) -> int:
+    """Combine an accumulator hash with a value (FNV-1a style)."""
+    return ((h ^ (v & _FNV_MASK)) * _FNV_PRIME) & _FNV_MASK
+
+
+def _type_hash(t: Any) -> int:
+    """Compute a structural hash of an East type (EastVariant).
+
+    Recurses through child types, combining a per-kind tag with child hashes.
+    Recursive markers are hashed by tag + marker only (never recursed into) to
+    keep this finite on cyclic structures.
+    """
+    kind = t.type
+    h = _hash_combine(0, _KIND_TAGS.get(kind, hash(kind) & _FNV_MASK))
+    value = t.value
+    if kind in ("Array", "Vector", "Matrix", "Set", "Ref"):
+        # Single child type.
+        return _hash_combine(h, _type_hash(value))
+    if kind == "Dict":
+        h = _hash_combine(h, _type_hash(value["key"]))
+        return _hash_combine(h, _type_hash(value["value"]))
+    if kind in ("Struct", "Variant"):
+        for member in value:
+            h = _hash_combine(h, hash(member["name"]) & _FNV_MASK)
+            h = _hash_combine(h, _type_hash(member["type"]))
+        return h
+    if kind in ("Function", "AsyncFunction"):
+        for inp in value["inputs"]:
+            h = _hash_combine(h, _type_hash(inp))
+        return _hash_combine(h, _type_hash(value["output"]))
+    if kind == "Recursive":
+        # Hash the marker only; do not recurse into the (cyclic) body.
+        return _hash_combine(h, (value if isinstance(value, int) else 0) & _FNV_MASK)
+    # Primitive: tag only.
+    return h
+
+
+def _intern_type(built: EastVariant) -> EastVariant:
+    """Return the canonical interned instance structurally equal to ``built``.
+
+    Stores and returns ``built`` if no structural match exists yet, chaining
+    into a list on hash collision. Uses EastVariant structural ``==`` to verify
+    a candidate (correct and finite for non-cyclic types).
+    """
+    h = _type_hash(built)
+    entry = _intern.get(h)
+    if entry is None:
+        _intern[h] = built
+        return built
+    if isinstance(entry, list):
+        for candidate in entry:
+            if candidate == built:
+                return candidate
+        entry.append(built)
+        return built
+    if entry == built:
+        return entry
+    _intern[h] = [entry, built]
+    return built
+
+
 def ArrayType(element_type: EastType) -> EastVariant[EastType]:
     """Create an array type.
 
@@ -217,7 +324,7 @@ def ArrayType(element_type: EastType) -> EastVariant[EastType]:
     Returns:
         Array type
     """
-    return EastVariant("Array", element_type)
+    return _intern_type(EastVariant("Array", element_type))
 
 
 _VECTOR_ELEMENT_TYPES = frozenset({"Float", "Integer", "Boolean"})
@@ -241,7 +348,7 @@ def VectorType(element_type: EastType) -> EastVariant[EastType]:
         raise TypeError(
             f"Vector element type must be Float, Integer, or Boolean, got {print_type(element_type)}"
         )
-    return EastVariant("Vector", element_type)
+    return _intern_type(EastVariant("Vector", element_type))
 
 
 def MatrixType(element_type: EastType) -> EastVariant[EastType]:
@@ -262,7 +369,7 @@ def MatrixType(element_type: EastType) -> EastVariant[EastType]:
         raise TypeError(
             f"Matrix element type must be Float, Integer, or Boolean, got {print_type(element_type)}"
         )
-    return EastVariant("Matrix", element_type)
+    return _intern_type(EastVariant("Matrix", element_type))
 
 
 def SetType(element_type: EastType) -> EastVariant[EastType]:
@@ -281,7 +388,7 @@ def SetType(element_type: EastType) -> EastVariant[EastType]:
         from east.serialization.east_printer import print_type
 
         raise TypeError(f"Set key type must be an immutable type, got {print_type(element_type)}")
-    return EastVariant("Set", element_type)
+    return _intern_type(EastVariant("Set", element_type))
 
 
 def DictType(key_type: EastType, value_type: EastType) -> EastVariant[DictValueTypeDef]:
@@ -301,7 +408,7 @@ def DictType(key_type: EastType, value_type: EastType) -> EastVariant[DictValueT
         from east.serialization.east_printer import print_type
 
         raise TypeError(f"Dict key type must be an immutable type, got {print_type(key_type)}")
-    return EastVariant("Dict", {"key": key_type, "value": value_type})
+    return _intern_type(EastVariant("Dict", {"key": key_type, "value": value_type}))
 
 
 def RefType(value_type: EastType) -> EastVariant[EastType]:
@@ -313,7 +420,7 @@ def RefType(value_type: EastType) -> EastVariant[EastType]:
     Returns:
         Ref type
     """
-    return EastVariant("Ref", value_type)
+    return _intern_type(EastVariant("Ref", value_type))
 
 
 def StructType(fields: list[tuple[str, EastType]]) -> EastVariant[list[StructFieldDef]]:
@@ -329,7 +436,7 @@ def StructType(fields: list[tuple[str, EastType]]) -> EastVariant[list[StructFie
     for name, field_type in fields:
         field_defs.append({"name": name, "type": field_type})
 
-    return EastVariant("Struct", field_defs)
+    return _intern_type(EastVariant("Struct", field_defs))
 
 
 def VariantType(cases: list[tuple[str, EastType]]) -> EastVariant[list[VariantCaseDef]]:
@@ -356,7 +463,7 @@ def VariantType(cases: list[tuple[str, EastType]]) -> EastVariant[list[VariantCa
     # Sort cases alphabetically by name
     case_defs.sort(key=lambda c: c["name"])
 
-    return EastVariant("Variant", case_defs)
+    return _intern_type(EastVariant("Variant", case_defs))
 
 
 def FunctionType(inputs: list[EastType], output: EastType) -> EastVariant[FunctionTypeValue]:
@@ -369,7 +476,7 @@ def FunctionType(inputs: list[EastType], output: EastType) -> EastVariant[Functi
     Returns:
         Function type
     """
-    return EastVariant("Function", {"inputs": inputs, "output": output})
+    return _intern_type(EastVariant("Function", {"inputs": inputs, "output": output}))
 
 
 def AsyncFunctionType(
@@ -384,7 +491,7 @@ def AsyncFunctionType(
     Returns:
         AsyncFunction type
     """
-    return EastVariant("AsyncFunction", {"inputs": inputs, "output": output})
+    return _intern_type(EastVariant("AsyncFunction", {"inputs": inputs, "output": output}))
 
 
 def RecursiveTypeRef(marker: int) -> EastVariant[int]:

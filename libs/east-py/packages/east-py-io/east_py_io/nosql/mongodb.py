@@ -17,8 +17,9 @@ from east.runtime.platform import platform_function, platform_functions
 from east.types.types import ArrayType, IntegerType, NullType, OptionType, StringType
 from east.types.values import EastArray, EastDict, EastStruct, EastVariant, east_null
 
+_BsonObjectId: type | None
 try:
-    from bson import ObjectId as _BsonObjectId
+    from bson import ObjectId as _BsonObjectId  # type: ignore[no-redef]
 except ImportError:  # bson ships with the mongodb extra; absent otherwise
     _BsonObjectId = None
 
@@ -81,7 +82,7 @@ def convert_bson_to_east(value: Any) -> EastVariant:
             "Array", EastArray(BsonValueType, [convert_bson_to_east(v) for v in value])
         )
     elif isinstance(value, dict):
-        obj = EastDict(StringType, BsonValueType)
+        obj: EastDict = EastDict(StringType, BsonValueType)
         for k, v in value.items():
             obj[k] = convert_bson_to_east(v)
         return EastVariant("Object", obj)

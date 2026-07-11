@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { BooleanType, East, IntegerType, NullType, StringType, example, variant } from "@elaraai/east";
 import { CellRefType, DragEventType, State, UIComponentType } from "@elaraai/east-ui";
-import { Board, Library, Reactive, Text, VStack } from "@elaraai/east-ui";
+import { Board, Box, Library, Reactive, Text, VStack } from "@elaraai/east-ui";
 
 export const boardEdit = example({
     keywords: ["Board", "assignment", "edit", "areas", "shifts", "ghost", "added", "removed", "summary"],
@@ -344,5 +344,92 @@ export const boardLibraryDnd = example({
             );
         }}</Reactive>
     )),
+    inputs: [],
+});
+
+
+export const boardScroll = example({
+    keywords: ["Board", "maxHeight", "bounded", "scroll", "virtual", "sizing", "#320"],
+    description: "Bounded board (#320) — maxHeight=\"180px\" caps the component; eight areas overflow so it clips mid-row and scrolls within",
+    fn: East.function([], UIComponentType, ($) => {
+        const areas = $.const([
+            { id: "emergency", name: "Emergency" }, { id: "icu", name: "ICU" },
+            { id: "warda", name: "Ward A" }, { id: "wardb", name: "Ward B" },
+            { id: "theatre", name: "Theatre" }, { id: "recovery", name: "Recovery" },
+            { id: "triage", name: "Triage" }, { id: "pharmacy", name: "Pharmacy" },
+        ]);
+        const shifts = $.const([
+            { id: "am", name: "AM" }, { id: "pm", name: "PM" },
+        ]);
+        const people = $.const([
+            { id: "patel", name: "Patel, R." }, { id: "cho", name: "Cho, J." },
+            { id: "rivera", name: "Rivera, M." }, { id: "okafor", name: "Okafor, S." },
+        ]);
+        const committed = variant("committed", null);
+        const assignments = $.const([
+            { id: "a1", person: "patel", area: "emergency", shift: "am", state: committed },
+            { id: "a2", person: "cho", area: "icu", shift: "am", state: committed },
+            { id: "a3", person: "rivera", area: "warda", shift: "pm", state: committed },
+            { id: "a4", person: "okafor", area: "theatre", shift: "am", state: committed },
+            { id: "a5", person: "patel", area: "triage", shift: "pm", state: committed },
+        ]);
+        return (
+            <Board
+                id="board-scroll"
+                areas={areas}
+                area={a => ({ key: a.id, label: a.name })}
+                shifts={shifts}
+                shift={s => ({ key: s.id, label: s.name })}
+                people={people}
+                person={p => ({ key: p.id, label: p.name })}
+                assignments={assignments}
+                assignment={x => ({ key: x.id, person: x.person, area: x.area, shift: x.shift, state: x.state })}
+                maxHeight="180px"
+            />
+        );
+    }),
+    inputs: [],
+});
+
+export const boardFill = example({
+    keywords: ["Board", "fill", "height", "Box", "bounded", "scroll", "virtual", "sizing", "#320"],
+    description: "height=\"fill\" (#320) — the board fills a fixed 180px Box and scrolls within it; two hundred areas overflow the box so only the visible area rows (plus overscan) mount",
+    fn: East.function([], UIComponentType, ($) => {
+        const areas = $.const(East.Array.range(0n, 200n).map((_$, i) => ({
+            id: East.str`area${i}`,
+            name: East.str`Area ${i}`,
+        })));
+        const shifts = $.const([
+            { id: "am", name: "AM" }, { id: "pm", name: "PM" },
+        ]);
+        const people = $.const([
+            { id: "patel", name: "Patel, R." }, { id: "cho", name: "Cho, J." },
+            { id: "rivera", name: "Rivera, M." }, { id: "okafor", name: "Okafor, S." },
+        ]);
+        const committed = variant("committed", null);
+        const assignments = $.const([
+            { id: "a1", person: "patel", area: "area0", shift: "am", state: committed },
+            { id: "a2", person: "cho", area: "area1", shift: "am", state: committed },
+            { id: "a3", person: "rivera", area: "area2", shift: "pm", state: committed },
+            { id: "a4", person: "okafor", area: "area15", shift: "am", state: committed },
+            { id: "a5", person: "patel", area: "area199", shift: "pm", state: committed },
+        ]);
+        return (
+            <Box height="180px">
+                <Board
+                    id="board-fill"
+                    areas={areas}
+                    area={a => ({ key: a.id, label: a.name })}
+                    shifts={shifts}
+                    shift={s => ({ key: s.id, label: s.name })}
+                    people={people}
+                    person={p => ({ key: p.id, label: p.name })}
+                    assignments={assignments}
+                    assignment={x => ({ key: x.id, person: x.person, area: x.area, shift: x.shift, state: x.state })}
+                    height="fill"
+                />
+            </Box>
+        );
+    }),
     inputs: [],
 });

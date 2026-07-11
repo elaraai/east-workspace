@@ -35,8 +35,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import e3 from '@elaraai/e3';
 import { parseRepoLocation, parsePackageSpec, formatError, exitError } from '../utils.js';
-import { writeExportProgress, clearProgress } from '../format.js';
 import { loadPackageFile } from './load-package.js';
+import { createProgress, formatBytes, type Progress } from '../progress.js';
 
 export const workspaceCommand = {
   /**
@@ -72,7 +72,7 @@ export const workspaceCommand = {
     repoArg: string,
     ws: string,
     pkgSpec: string | undefined,
-    options: { fromZip?: string; fromSource?: string } = {},
+    options: { fromZip?: string; fromSource?: string; quiet?: boolean } = {},
   ): Promise<void> {
     try {
       const modes = [pkgSpec, options.fromZip, options.fromSource].filter(Boolean);
@@ -85,15 +85,17 @@ export const workspaceCommand = {
 
       const location = await parseRepoLocation(repoArg);
 
+      const progress = createProgress({ quiet: options.quiet === true });
+
       // --from-source mode: bundle the TS source into a package, then import + deploy
       if (options.fromSource) {
-        await deployFromSource(location, ws, options.fromSource);
+        await deployFromSource(location, ws, options.fromSource, progress);
         return;
       }
 
       // --from-zip mode: import then deploy
       if (options.fromZip) {
-        await deployFromZip(location, ws, options.fromZip);
+        await deployFromZip(location, ws, options.fromZip, progress);
         return;
       }
 
@@ -120,36 +122,58 @@ export const workspaceCommand = {
     repoArg: string,
     ws: string,
     zipPath: string,
-    options: { name?: string; version?: string }
+    options: { name?: string; version?: string; quiet?: boolean }
   ): Promise<void> {
     try {
       const location = await parseRepoLocation(repoArg);
+      // Step-level progress on stderr (#311); stdout keeps the machine summary.
+      const progress = createProgress({ quiet: options.quiet === true });
 
       if (location.type === 'local') {
         const storage = new LocalStorage();
         const result = await workspaceExport(storage, location.path, ws, zipPath, options.name, options.version);
 
-        console.log(`Exported workspace ${ws} as ${result.name}@${result.version}`);
-        console.log(`  Output: ${zipPath}`);
-        console.log(`  Package hash: ${result.packageHash.slice(0, 12)}...`);
-        console.log(`  Objects: ${result.objectCount}`);
+        if (!progress.quiet) {
+          console.log(`Exported workspace ${ws} as ${result.name}@${result.version}`);
+          console.log(`  Output: ${zipPath}`);
+          console.log(`  Package hash: ${result.packageHash.slice(0, 12)}...`);
+          console.log(`  Objects: ${result.objectCount}`);
+        }
       } else {
         // Remote export - async transfer protocol with progress
-        const zipBytes = await workspaceExportRemote(
-          location.baseUrl, location.repo, ws,
-          { token: location.token },
-          {
-            name: options.name,
-            version: options.version,
-            onProgress: writeExportProgress,
-          },
-        );
-        clearProgress();
+        const step = progress.step(`exporting workspace ${ws}`);
+        let zipBytes;
+        try {
+          zipBytes = await workspaceExportRemote(
+            location.baseUrl, location.repo, ws,
+            { token: location.token },
+            {
+              name: options.name,
+              version: options.version,
+              onProgress: (p) => {
+                if (p.type === 'exporting') {
+                  step.update(`exporting… ${p.value.objectsProcessed} objects`);
+                } else if (p.type === 'pending' || p.type === 'uploading') {
+                  step.update('exporting… waiting for server');
+                }
+              },
+              onDownloadProgress: (downloaded, total) => {
+                step.update(`downloading ${formatBytes(downloaded)}/${formatBytes(total)}`);
+              },
+            },
+          );
+        } catch (err) {
+          step.fail();
+          throw err;
+        }
         writeFileSync(zipPath, zipBytes);
+        step.done(`exported workspace ${ws} (${formatBytes(zipBytes.length)})`);
 
-        console.log(`Exported workspace ${ws}`);
-        console.log(`  Output: ${zipPath}`);
-        console.log(`  Size: ${zipBytes.length} bytes`);
+        if (!progress.quiet) {
+          console.log(`Exported workspace ${ws}`);
+          console.log(`  Output: ${zipPath}`);
+          console.log(`  Size: ${zipBytes.length} bytes`);
+        }
       }
     } catch (err) {
       exitError(formatError(err));
@@ -355,6 +379,7 @@ async function deployFromZip(
   location: Awaited<ReturnType<typeof parseRepoLocation>>,
   ws: string,
   zipPath: string,
+  progress: Progress,
 ): Promise<void> {
   let name: string;
   let version: string;
@@ -363,11 +388,13 @@ async function deployFromZip(
 
   if (location.type === 'local') {
     const storage = new LocalStorage();
+    const step = progress.step(`importing ${path.basename(zipPath)}`);
     const result = await packageImport(storage, location.path, zipPath);
     name = result.name;
     version = result.version;
     packageHash = result.packageHash;
     objectCount = result.objectCount;
+    step.done(`imported ${name}@${version} (${objectCount} objects)`);
 
     try {
       await workspaceCreate(storage, location.path, ws);
@@ -377,30 +404,61 @@ async function deployFromZip(
     await workspaceDeploy(storage, location.path, ws, name, version);
   } else {
     const zipBytes = readFileSync(zipPath);
-    const result = await packageImportRemote(
-      location.baseUrl, location.repo, new Uint8Array(zipBytes),
-      { token: location.token },
-    );
+    // Upload + server-side import progress (#311) — byte counter while the
+    // zip streams up, then the server's per-object import counter.
+    const step = progress.step(`uploading package (${formatBytes(zipBytes.byteLength)})`);
+    let result;
+    try {
+      result = await packageImportRemote(
+        location.baseUrl, location.repo, new Uint8Array(zipBytes),
+        { token: location.token },
+        {
+          onUploadProgress: (uploaded, total) => {
+            step.update(`uploading package ${formatBytes(uploaded)}/${formatBytes(total)}`);
+          },
+          onProgress: (p) => {
+            if (p.type === 'importing') {
+              step.update(`importing… ${p.value.objectsProcessed} objects processed`);
+            } else if (p.type === 'pending' || p.type === 'downloading') {
+              step.update('importing… waiting for server');
+            }
+          },
+        },
+      );
+    } catch (err) {
+      step.fail();
+      throw err;
+    }
     name = result.name;
     version = result.version;
     packageHash = result.packageHash;
     objectCount = Number(result.objectCount);
+    step.done(`imported ${name}@${version} (${objectCount} objects)`);
 
     try {
       await workspaceCreateRemote(location.baseUrl, location.repo, ws, { token: location.token });
     } catch (err) {
       if (!(err instanceof ApiError && err.code === 'workspace_exists')) throw err;
     }
-    await workspaceDeployRemote(
-      location.baseUrl, location.repo, ws, `${name}@${version}`,
-      { token: location.token },
-    );
+    const deployStep = progress.step(`deploying to workspace ${ws}`);
+    try {
+      await workspaceDeployRemote(
+        location.baseUrl, location.repo, ws, `${name}@${version}`,
+        { token: location.token },
+      );
+    } catch (err) {
+      deployStep.fail();
+      throw err;
+    }
+    deployStep.done(`deployed to workspace ${ws}`);
   }
 
-  console.log(`Imported ${name}@${version}`);
-  console.log(`  Package hash: ${packageHash.slice(0, 12)}...`);
-  console.log(`  Objects: ${objectCount}`);
-  console.log(`Deployed to workspace: ${ws}`);
+  if (!progress.quiet) {
+    console.log(`Imported ${name}@${version}`);
+    console.log(`  Package hash: ${packageHash.slice(0, 12)}...`);
+    console.log(`  Objects: ${objectCount}`);
+    console.log(`Deployed to workspace: ${ws}`);
+  }
 }
 
 /**
@@ -413,12 +471,37 @@ async function deployFromSource(
   location: Awaited<ReturnType<typeof parseRepoLocation>>,
   ws: string,
   sourceFile: string,
+  progress: Progress,
 ): Promise<void> {
-  const { pkg } = await loadPackageFile(path.resolve(sourceFile));
+  // Step-level progress (#311): compile and per-member capture are the
+  // dominant, previously-silent costs of a multi-package deploy.
+  const compileStep = progress.step(`compiling ${sourceFile}`);
+  let loaded;
+  try {
+    loaded = await loadPackageFile(path.resolve(sourceFile));
+  } catch (err) {
+    compileStep.fail();
+    throw err;
+  }
+  const { pkg } = loaded;
+  compileStep.done(`compiled ${sourceFile} (${pkg.name}@${pkg.version})`);
   const tempZip = path.join(os.tmpdir(), `e3-deploy-${Date.now()}.zip`);
   try {
-    await e3.export(pkg, tempZip);
-    await deployFromZip(location, ws, tempZip);
+    const captureStep = progress.step('capturing package');
+    try {
+      await e3.export(pkg, tempZip, {
+        onEvent: (e) => {
+          if (e.kind === 'capture') {
+            progress.phase(`captured ${e.member} (${e.tool}, ${formatBytes(e.bytes)})`);
+          }
+        },
+      });
+    } catch (err) {
+      captureStep.fail();
+      throw err;
+    }
+    captureStep.done(`captured package ${pkg.name}@${pkg.version}`);
+    await deployFromZip(location, ws, tempZip, progress);
   } finally {
     try {
       unlinkSync(tempZip);

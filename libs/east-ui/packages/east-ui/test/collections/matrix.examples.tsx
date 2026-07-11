@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { ArrayType, East, FloatType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
+import { ArrayType, DictType, East, FloatType, NullType, StringType, StructType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Matrix, Reactive, Slider, Text, VStack } from "@elaraai/east-ui";
+import { Box, Matrix, Reactive, Slider, Text, VStack } from "@elaraai/east-ui";
 
 /**
  * Heat-grid — rows × days, each cell a booked/free weight bar, rows grouped by
@@ -296,5 +296,77 @@ export const matrixReactivePivot = example({
             );
         }}</Reactive>
     )),
+    inputs: [],
+});
+
+/**
+ * Bounded (#320) — a bare-number `maxHeight` (parsed to px) caps the whole
+ * matrix; it becomes its own scroll region (chrome-inclusive) and scrolls within.
+ */
+export const matrixBounded = example({
+    keywords: ["Matrix", "maxHeight", "height", "bounded", "scroll", "sizing", "#320"],
+    description: "Bounded matrix (#320) — a bare-number maxHeight ('140', parsed to 140px) caps the whole component; it scrolls within its box instead of growing to content",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <Matrix
+                data={[
+                    { name: "Alice", role: "Senior PM", team: "Web", booked: new Map([["mon", 0.45], ["tue", 0.70], ["wed", 0.85]]) },
+                    { name: "Bob", role: "Designer", team: "Web", booked: new Map([["mon", 0.35], ["tue", 0.60], ["wed", 0.30]]) },
+                    { name: "Carol", role: "Engineer", team: "Batch", booked: new Map([["mon", 0.55], ["tue", 0.40], ["wed", 0.90]]) },
+                    { name: "Dan", role: "Engineer", team: "Batch", booked: new Map([["mon", 0.25], ["tue", 0.80], ["wed", 0.50]]) },
+                ]}
+                columns={[
+                    Matrix.column({ key: "mon", label: "Mon" }),
+                    Matrix.column({ key: "tue", label: "Tue" }),
+                    Matrix.column({ key: "wed", label: "Wed" }),
+                ]}
+                rowKey={r => r.name}
+                rowHeader="Resource"
+                rowSublabel={r => r.role}
+                groupBy={r => r.team}
+                cell={(r, col) => Matrix.cell({ segments: [
+                    Matrix.segment({ fill: "brand", weight: r.booked.get(col.key) }),
+                    Matrix.segment({ fill: "free", weight: East.value(1.0, FloatType).subtract(r.booked.get(col.key)) }),
+                ] })}
+                legend={[{ fill: "brand", label: "Booked" }, { fill: "free", label: "Free" }]}
+                maxHeight="140"
+            />
+        );
+    }),
+    inputs: [],
+});
+
+export const matrixFill = example({
+    keywords: ["Matrix", "fill", "height", "Box", "bounded", "scroll", "virtual", "sizing", "#320"],
+    description: "height=\"fill\" (#320) — the matrix fills a fixed 200px Box and scrolls within it; two hundred rows over two teams overflow the box so only the visible rows (plus overscan) mount, the reserved-gutter scrollbar showing there is more",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <Box height="200px">
+                <Matrix
+                    data={East.Array.range(0n, 200n).map((_$, i) => ({
+                        name: East.str`Res ${i}`,
+                        role: "Engineer",
+                        team: i.lessThan(100n).ifElse(() => "Web", () => "Batch"),
+                        booked: East.value(new Map([["mon", 0.45], ["tue", 0.7], ["wed", 0.85]]), DictType(StringType, FloatType)),
+                    }))}
+                    columns={[
+                        Matrix.column({ key: "mon", label: "Mon" }),
+                        Matrix.column({ key: "tue", label: "Tue" }),
+                        Matrix.column({ key: "wed", label: "Wed" }),
+                    ]}
+                    rowKey={r => r.name}
+                    rowHeader="Resource"
+                    rowSublabel={r => r.role}
+                    groupBy={r => r.team}
+                    cell={(r, col) => Matrix.cell({ segments: [
+                        Matrix.segment({ fill: "brand", weight: r.booked.get(col.key) }),
+                        Matrix.segment({ fill: "free", weight: East.value(1.0, FloatType).subtract(r.booked.get(col.key)) }),
+                    ] })}
+                    legend={[{ fill: "brand", label: "Booked" }, { fill: "free", label: "Free" }]}
+                    height="fill"
+                />
+            </Box>
+        );
+    }),
     inputs: [],
 });

@@ -107,6 +107,10 @@ export const CalendarRootType = StructType({
     density: OptionType(DensityType),
     /** Shared plot gutter (#147) — pins the day grid to `[left, W−right]` so a Calendar stacked under a Chart lines up; `left` is the week-label column width */
     plotGutter: OptionType(PlotGutterType),
+    /** Uniform sizing (#320): bound the calendar; it scrolls within. `"fill"` fills the parent box. */
+    height: OptionType(StringType),
+    /** Uniform sizing (#320): max-height cap; content-sized up to it. */
+    maxHeight: OptionType(StringType),
 });
 
 /**

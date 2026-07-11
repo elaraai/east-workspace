@@ -8,11 +8,13 @@
  */
 
 import { memo, useMemo } from "react";
+import { parseCssSize } from "../../style/parse-size.js";
 import { Box as ChakraBox, type BoxProps } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Box } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
+import { resolveSizingShorthands } from "../sizing.js";
 import { toTransition, type TransitionToken, type MotionDurationToken, type MotionEasingToken } from "../../style/motion.js";
 import { toAnimationProps, type AnimationPresetToken } from "../../style/animation.js";
 import { usePrefersReducedMotion } from "../../contracts/reduced-motion.js";
@@ -62,14 +64,37 @@ export function toChakraBox(value: BoxValue): BoxProps {
         )
         : undefined;
 
+    // Sizing shorthands (fill / scroll / definite-size shrink) resolve to the
+    // flex-item + overflow + min-size subset, spread last so they win (#320).
+    const heightVal = style ? getSomeorUndefined(style.height) : undefined;
+    const widthVal = style ? getSomeorUndefined(style.width) : undefined;
+    const sizing = resolveSizingShorthands({
+        fill: style ? getSomeorUndefined(style.fill) : undefined,
+        scroll: style ? getSomeorUndefined(style.scroll) : undefined,
+        scrollX: style ? getSomeorUndefined(style.scrollX) : undefined,
+        scrollY: style ? getSomeorUndefined(style.scrollY) : undefined,
+        hasHeight: heightVal !== undefined,
+        hasWidth: widthVal !== undefined,
+        explicit: {
+            flex: style ? getSomeorUndefined(style.flex) : undefined,
+            flexGrow: style ? getSomeorUndefined(style.flexGrow) : undefined,
+            flexShrink: style ? getSomeorUndefined(style.flexShrink) : undefined,
+            overflow: style ? getSomeorUndefined(style.overflow)?.type : undefined,
+            overflowX: style ? getSomeorUndefined(style.overflowX)?.type : undefined,
+            overflowY: style ? getSomeorUndefined(style.overflowY)?.type : undefined,
+            minWidth: parseCssSize(style ? getSomeorUndefined(style.minWidth) : undefined),
+            minHeight: parseCssSize(style ? getSomeorUndefined(style.minHeight) : undefined),
+        },
+    });
+
     return {
         display: style ? getSomeorUndefined(style.display)?.type : undefined,
-        width: style ? getSomeorUndefined(style.width) : undefined,
-        height: style ? getSomeorUndefined(style.height) : undefined,
-        minHeight: style ? getSomeorUndefined(style.minHeight) : undefined,
-        minWidth: style ? getSomeorUndefined(style.minWidth) : undefined,
-        maxHeight: style ? getSomeorUndefined(style.maxHeight) : undefined,
-        maxWidth: style ? getSomeorUndefined(style.maxWidth) : undefined,
+        width: parseCssSize(style ? getSomeorUndefined(style.width) : undefined),
+        height: parseCssSize(style ? getSomeorUndefined(style.height) : undefined),
+        minHeight: parseCssSize(style ? getSomeorUndefined(style.minHeight) : undefined),
+        minWidth: parseCssSize(style ? getSomeorUndefined(style.minWidth) : undefined),
+        maxHeight: parseCssSize(style ? getSomeorUndefined(style.maxHeight) : undefined),
+        maxWidth: parseCssSize(style ? getSomeorUndefined(style.maxWidth) : undefined),
         // Padding struct -> individual props
         pt: padding ? getSomeorUndefined(padding.top) : undefined,
         pr: padding ? getSomeorUndefined(padding.right) : undefined,
@@ -106,6 +131,7 @@ export function toChakraBox(value: BoxValue): BoxProps {
         opacity: style ? getSomeorUndefined(style.opacity) : undefined,
         fontFamily: fontFamilyTag,
         fontVariantNumeric: fontVariantNumericTag,
+        ...sizing,
     };
 }
 

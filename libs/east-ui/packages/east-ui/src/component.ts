@@ -179,6 +179,8 @@ import {
     TableColumnGroupType,
     TableSelectionType,
     TablePaginationType,
+    TableAggregateType,
+    TableGroupLevelType,
 } from "./collections/table/types.js";
 import {
     GanttStyleType,
@@ -681,6 +683,10 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         onCellClick: OptionType(FunctionType([MatrixCellClickEventType], NullType)),
         onSegmentClick: OptionType(FunctionType([MatrixSegmentClickEventType], NullType)),
         onSegmentChange: OptionType(FunctionType([MatrixSegmentChangeEventType], NullType)),
+        // Uniform sizing contract (#320) — bound the whole component; the grid
+        // scrolls within. `"fill"` fills the parent box.
+        height: OptionType(StringType),
+        maxHeight: OptionType(StringType),
     }),
 
     // Charts
@@ -725,6 +731,10 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
             minWidth: OptionType(StringType),
             maxWidth: OptionType(StringType),
             render: FunctionType([TableCellRenderContextType], node),
+            // Row grouping (#317) — group-subtotal aggregate + optional
+            // renderer for the aggregated value on group header rows.
+            aggregate: OptionType(TableAggregateType),
+            aggregateRender: OptionType(FunctionType([LiteralValueType], node)),
         })),
         frozen: ArrayType(StringType),
         columnGroups: OptionType(ArrayType(TableColumnGroupType)),
@@ -746,6 +756,8 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         rowStatus: OptionType(FunctionType([IntegerType], StatusTokenType)),
         pagination: OptionType(TablePaginationType),
         selection: OptionType(TableSelectionType),
+        // Row grouping (#317) — nested levels of per-row printed group keys.
+        groupBy: OptionType(ArrayType(TableGroupLevelType)),
         onCellClick: OptionType(FunctionType([TableCellClickEventType], NullType)),
         onCellDoubleClick: OptionType(FunctionType([TableCellClickEventType], NullType)),
         onRowClick: OptionType(FunctionType([TableRowClickEventType], NullType)),
@@ -807,6 +819,9 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
             minWidth: OptionType(StringType),
             maxWidth: OptionType(StringType),
             render: FunctionType([TableCellRenderContextType], node),
+            // Mirrors TableColumnType (#317) — unused by the Gantt pane.
+            aggregate: OptionType(TableAggregateType),
+            aggregateRender: OptionType(FunctionType([LiteralValueType], node)),
         })),
         frozen: ArrayType(StringType),
         axis: OptionType(GanttAxisType),
@@ -882,6 +897,9 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         // Optional max-height (CSS) for the plan area — body scrolls vertically
         // within it with the header pinned (sticky-top). Absent ⇒ content-sized.
         maxHeight: OptionType(StringType),
+        // Definite height (#320) — pins the plan to exactly this box (`"fill"`
+        // fills the parent), header pinned, body scrolls within.
+        height: OptionType(StringType),
         plotGutter: OptionType(PlotGutterType),
         onSelectRow: OptionType(FunctionType([PlannerSelectEventType], NullType)),
         // Optional review chrome — the per-row decision column + batch foot.
@@ -919,6 +937,9 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         people: ArrayType(RosterPersonType),
         shifts: ArrayType(RosterShiftType),
         density: OptionType(DensityType),
+        // Uniform sizing contract (#320) — bound the grid; it scrolls within.
+        height: OptionType(StringType),
+        maxHeight: OptionType(StringType),
         summary: OptionType(StringType),
         onDrag: OptionType(FunctionType([DragEventType], NullType)),
         canDrop: OptionType(FunctionType([DragEventType], BooleanType)),
@@ -954,6 +975,9 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         requirements: OptionType(ArrayType(BoardRequirementType)),
         density: OptionType(DensityType),
         maxVisible: OptionType(IntegerType),
+        // Uniform sizing contract (#320) — bound the board; it scrolls within.
+        height: OptionType(StringType),
+        maxHeight: OptionType(StringType),
         summary: OptionType(StringType),
         canDrop: OptionType(FunctionType([DragEventType], BooleanType)),
         onDrag: OptionType(FunctionType([DragEventType], NullType)),
@@ -993,6 +1017,7 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         sliceEffect: OptionType(SchematicSliceEffectType),
         layers: OptionType(ArrayType(SchematicLayerType)),
         height: OptionType(StringType),
+        maxHeight: OptionType(StringType),
         onSelect: OptionType(FunctionType([StringType], NullType)),
         selectionMode: OptionType(SchematicSelectionModeType),
         onSelectionChange: OptionType(FunctionType([SchematicSelectionEventType], NullType)),

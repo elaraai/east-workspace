@@ -8,6 +8,7 @@ import { Avatar as ChakraAvatar, type AvatarRootProps } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Avatar } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
+import { parseCssSize } from "../../style/parse-size.js";
 import { useDensity } from "../../contracts/density";
 
 const avatarEqual = equalFor(Avatar.Types.Avatar);
@@ -38,12 +39,12 @@ export function toChakraAvatar(value: AvatarValue): AvatarRootProps {
         overflow: getSomeorUndefined(style.overflow)?.type,
         overflowX: getSomeorUndefined(style.overflowX)?.type,
         overflowY: getSomeorUndefined(style.overflowY)?.type,
-        width: getSomeorUndefined(style.width),
-        height: getSomeorUndefined(style.height),
-        minWidth: getSomeorUndefined(style.minWidth),
-        minHeight: getSomeorUndefined(style.minHeight),
-        maxWidth: getSomeorUndefined(style.maxWidth),
-        maxHeight: getSomeorUndefined(style.maxHeight),
+        width: parseCssSize(getSomeorUndefined(style.width)),
+        height: parseCssSize(getSomeorUndefined(style.height)),
+        minWidth: parseCssSize(getSomeorUndefined(style.minWidth)),
+        minHeight: parseCssSize(getSomeorUndefined(style.minHeight)),
+        maxWidth: parseCssSize(getSomeorUndefined(style.maxWidth)),
+        maxHeight: parseCssSize(getSomeorUndefined(style.maxHeight)),
         color: getSomeorUndefined(style.color),
         background: getSomeorUndefined(style.background),
         borderColor: getSomeorUndefined(style.borderColor),

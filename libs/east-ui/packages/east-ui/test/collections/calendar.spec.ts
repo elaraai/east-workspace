@@ -10,6 +10,8 @@ import * as ex from "./calendar.examples.js";
 
 describeEast("Calendar", (test) => {
     Assert.examples(test, {
+        calendarScroll: ex.calendarScroll,
+        calendarFill: ex.calendarFill,
         calendarDemand: ex.calendarDemand,
         calendarMinimal: ex.calendarMinimal,
         calendarDensity: ex.calendarDensity,

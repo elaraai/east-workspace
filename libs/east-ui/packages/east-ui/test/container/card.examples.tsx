@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { Badge, Button, Card, Text, HStack } from "@elaraai/east-ui";
+import { Badge, Box, Button, Card, Text, HStack, VStack } from "@elaraai/east-ui";
 
 export const cardBasic = example({
     keywords: ["Card", "Root", "basic"],
@@ -220,6 +220,23 @@ export const cardWithSections = example({
                         <Button variant="subtle">Revert</Button>
                     </HStack>,
                 ], { title: "Actions" })}
+            </Card>
+        );
+    }),
+    inputs: [],
+});
+
+export const cardFillBody = example({
+    keywords: ["Card", "height", "fill", "body", "constrain", "scroll", "sizing", "fillBody"],
+    description: "A height-bounded Card constrains its body (#320) — with a definite `height` the body becomes `flex:1; min-height:0`, so a `fill scrollY` child resolves against the card and scrolls inside it instead of overflowing the card",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <Card height="240px" width="280px">
+                <Box fill scrollY>
+                    <VStack align="stretch" gap="2">
+                        {Array.from({ length: 20 }, (_, i) => <Text>{`Row ${i + 1}`}</Text>)}
+                    </VStack>
+                </Box>
             </Card>
         );
     }),

@@ -18,6 +18,7 @@ describeEast("Stack", (test) => {
         stackNested: ex.stackNested,
         stackNavbar: ex.stackNavbar,
         stackDensityCascade: ex.stackDensityCascade,
+        stackFillScroll: ex.stackFillScroll,
     });
 
     // =========================================================================

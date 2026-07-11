@@ -216,3 +216,21 @@ export const boxTabularNumeric = example({
     }),
     inputs: [],
 });
+
+export const boxFillScroll = example({
+    keywords: ["Box", "fill", "scroll", "scrollY", "flexShrink", "bounded", "sizing", "height"],
+    description: "Bounded column (#320) — a fixed-height Box whose pinned header does not shrink (definite size ⇒ flexShrink:0) above a `fill scrollY` region that takes the remaining height and scrolls, replacing the hand-written `flex:1 + min-height:0 + overflow` chain with one prop each",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <Box display="flex" flexDirection="column" height="220px" width="260px" border="1px solid" borderColor="gray.200" borderRadius="md" overflow="hidden">
+                <Box padding="3" background="gray.50"><Text>Pinned header</Text></Box>
+                <Box fill scrollY padding="3">
+                    <VStack align="stretch" gap="2">
+                        {Array.from({ length: 20 }, (_, i) => <Text>{`Scrolling row ${i + 1}`}</Text>)}
+                    </VStack>
+                </Box>
+            </Box>
+        );
+    }),
+    inputs: [],
+});

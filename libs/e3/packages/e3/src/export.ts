@@ -21,7 +21,7 @@ import type { Structure, PackageObject, DatasetRef, FunctionObject, MutationObje
 import { DatasetRefType, PackageObjectType, TaskObjectType, FunctionObjectType, MutationObjectType, RecordObjectType } from '@elaraai/e3-types';
 import type { PackageDef, PackageItem } from './types.js';
 import { runnerToVariant, type Runner } from './runner.js';
-import { captureEnvironment, captureAutoEnvironment } from './environment-capture.js';
+import { captureEnvironment, captureAutoEnvironment, type CaptureEvent } from './environment-capture.js';
 import type { EnvironmentDecl } from './environment.js';
 
 /**
@@ -34,14 +34,31 @@ import type { EnvironmentDecl } from './environment.js';
  *
  * @param pkg - The package to export
  * @param outputPath - Path to write the .zip file
+ * @param options - Optional progress callback (see {@link ExportOptions})
  *
  * @example
  * ```ts
  * await e3.export(pkg, './my-package-1.0.0.zip');
  * ```
  */
+/**
+ * One export progress event (#311). `capture` events surface the per-member
+ * environment-artifact builds (`uv build --sdist` / `npm pack`) that dominate
+ * multi-package export time.
+ */
+export type ExportEvent = { kind: 'capture' } & CaptureEvent;
+
+/** Export options (#311). */
+export interface ExportOptions {
+  /** Progress callback — receives one event per captured environment member. */
+  onEvent?: (event: ExportEvent) => void;
+}
+
 // Named export_ to avoid conflict with reserved word
-export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>, outputPath: string): Promise<void> {
+export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>, outputPath: string, options?: ExportOptions): Promise<void> {
+  const onCapture = options?.onEvent === undefined
+    ? undefined
+    : (e: CaptureEvent) => options.onEvent!({ kind: 'capture', ...e });
   const partialPath = `${outputPath}.partial`;
 
   // Create zip file
@@ -71,7 +88,7 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
   const environmentHashFor = (decl: EnvironmentDecl | undefined, runner: Runner | undefined, owner: string): string | null => {
     // An explicit `environment` wins (and is the only path to tools/image).
     if (decl) {
-      return cachedEnvHash(`decl:${JSON.stringify(decl)}`, () => captureEnvironment(decl, owner, (blob) => addObject(zipfile, blob)));
+      return cachedEnvHash(`decl:${JSON.stringify(decl)}`, () => captureEnvironment(decl, owner, (blob) => addObject(zipfile, blob), onCapture));
     }
     // Otherwise derive it from the runner's `{ custom }` platform references, so
     // a project split into workspace packages gets per-package change-detection
@@ -82,7 +99,7 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
       .map((p) => p.custom);
     if (customs.length === 0) return null;
     const key = `auto:${runner.runtime}:${[...customs].sort().join(',')}`;
-    return cachedEnvHash(key, () => captureAutoEnvironment(runner.runtime, customs, process.cwd(), owner, (blob) => addObject(zipfile, blob)));
+    return cachedEnvHash(key, () => captureAutoEnvironment(runner.runtime, customs, process.cwd(), owner, (blob) => addObject(zipfile, blob), onCapture));
   };
   const resolveEnvironment = (decl: EnvironmentDecl | undefined, runner: Runner | undefined, owner: string): variant<'some', string> | variant<'none', null> => {
     const hash = environmentHashFor(decl, runner, owner);

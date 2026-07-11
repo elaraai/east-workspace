@@ -10,6 +10,7 @@ import * as ex from "./planner.examples.js";
 
 describeEast("Planner", (test) => {
     Assert.examples(test, {
+        plannerFill: ex.plannerFill,
         plannerPoint: ex.plannerPoint,
         plannerScroll: ex.plannerScroll,
         plannerEventStates: ex.plannerEventStates,
@@ -31,6 +32,7 @@ describeEast("Planner", (test) => {
         plannerHovercard: ex.plannerHovercard,
         plannerRowHover: ex.plannerRowHover,
         plannerPerCellBuckets: ex.plannerPerCellBuckets,
+        plannerFillHeight: ex.plannerFillHeight,
     });
 
     // =========================================================================

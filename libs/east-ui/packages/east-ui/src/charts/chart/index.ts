@@ -744,11 +744,15 @@ export interface AxisOptions {
     /** Suggested tick count (the renderer may round to nice values). A hint. */
     numTicks?: SubtypeExprOrValue<FloatType>;
     /**
-     * Explicit tick positions — e.g. integer day ticks `[0, 1, 2, …]` to line up
-     * with a stacked `<Planner>`'s columns. Overrides `numTicks`'s auto-"nice"
-     * ticks. (Numbers are the axis-domain values, not pixels.)
+     * Explicit tick positions, overriding `numTicks`'s auto-"nice" ticks —
+     * floats on a linear axis (axis-domain values, not pixels; e.g. integer
+     * day ticks `[0, 1, 2, …]` to line up with a stacked `<Planner>`), or
+     * `Date` instants on a `time` axis (#318) — e.g. the Planner's day-column
+     * instants under a shared `AlignedStack` gutter. Date ticks render through
+     * the date `tickFormat`; on `y`/`y2` (always numeric) they are a
+     * build-time error.
      */
-    tickValues?: SubtypeExprOrValue<ArrayType<FloatType>>;
+    tickValues?: SubtypeExprOrValue<ArrayType<FloatType>> | SubtypeExprOrValue<ArrayType<DateTimeType>>;
     /** Hide the small tick marks (labels stay). */
     hideTicks?: SubtypeExprOrValue<BooleanType>;
     /** Hide the axis baseline rule. */
@@ -806,6 +810,13 @@ function isTemporalBound(bound: SubtypeExprOrValue<FloatType> | SubtypeExprOrVal
     return typeTag(bound as SubtypeExprOrValue<ScalarType>) === "DateTime";
 }
 
+/** Whether explicit tick positions are temporal (`Date[]` / `DateTime` array expression) — see #318. */
+function isTemporalTickValues(tv: SubtypeExprOrValue<ArrayType<FloatType>> | SubtypeExprOrValue<ArrayType<DateTimeType>> | undefined): boolean {
+    if (tv === undefined) return false;
+    const expr = East.value(tv as unknown as SubtypeExprOrValue<ArrayType<FloatType>>) as ExprType<ArrayType<FloatType>>;
+    return (Expr.type(expr) as unknown as ArrayType).value.type === "DateTime";
+}
+
 /** Translate an {@link AxisOptions} domain into a {@link ChartDomainType} expr. */
 function domainExpr(domain: AxisDomain | undefined): ExprType<ChartDomainType> | undefined {
     if (domain === undefined) return undefined;
@@ -819,6 +830,12 @@ function domainExpr(domain: AxisDomain | undefined): ExprType<ChartDomainType> |
 function createChartRoot(layers: ChartLayer | ChartLayer[], options?: ChartOptions): ExprType<UIComponentType> {
     const list = Array.isArray(layers) ? layers : [layers];
     const opts = options ?? {};
+
+    // Date tick positions only make sense on the (potentially time-scaled)
+    // x axis — the value axes are always numeric (#318).
+    if (isTemporalTickValues(opts.y?.tickValues) || isTemporalTickValues(opts.y2?.tickValues)) {
+        throw new Error("Date tickValues are only valid on the x axis (a time scale) — y/y2 are numeric value axes; pass float tick positions.");
+    }
 
     const dataLayers = list.filter((l): l is SeriesLayer | BandLayer => l.kind !== "ref");
 

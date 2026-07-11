@@ -71,6 +71,20 @@ export const ChartDomainType = VariantType({
 export type ChartDomainType = typeof ChartDomainType;
 
 /**
+ * Explicit axis tick positions, switched on the axis scale kind like
+ * {@link ChartDomainType} (#318) — float positions for a linear axis, Date
+ * positions for a `time` axis (rendered through the date `tickFormat`).
+ *
+ * @property number - Tick positions on a linear axis (domain values)
+ * @property time - Tick positions on a `time` axis (Date instants)
+ */
+export const ChartTickValuesType = VariantType({
+    number: ArrayType(FloatType),
+    time:   ArrayType(DateTimeType),
+});
+export type ChartTickValuesType = typeof ChartTickValuesType;
+
+/**
  * One point along a series — a typed x position and its numeric value.
  *
  * @property x     - The point's x-axis coordinate (see {@link ChartXType})
@@ -317,7 +331,7 @@ export type ChartAxisTextStyleType = typeof ChartAxisTextStyleType;
  *
  * @property label     - Optional axis caption
  * @property numTicks  - Suggested tick count (renderer may round to nice values)
- * @property tickValues - Explicit tick positions (domain values), overriding `numTicks` — e.g. integer day ticks to line up with a Planner
+ * @property tickValues - Explicit tick positions overriding `numTicks`, switched on scale kind (#318) — float domain values on a linear axis, Date instants on a `time` axis
  * @property hideTicks - Hide the small tick marks (keep labels)
  * @property hideLine  - Hide the axis baseline rule
  * @property domain     - Explicit extent for a linear/time axis (see {@link ChartDomainType}); omit to derive from the data, and not meaningful for a `band` scale
@@ -328,7 +342,7 @@ export type ChartAxisTextStyleType = typeof ChartAxisTextStyleType;
 export const ChartAxisType = StructType({
     label:      OptionType(StringType),
     numTicks:   OptionType(FloatType),
-    tickValues: OptionType(ArrayType(FloatType)),
+    tickValues: OptionType(ChartTickValuesType),
     hideTicks:  OptionType(BooleanType),
     hideLine:   OptionType(BooleanType),
     domain:     OptionType(ChartDomainType),

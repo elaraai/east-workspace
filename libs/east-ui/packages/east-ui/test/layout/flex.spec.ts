@@ -17,6 +17,7 @@ describeEast("Flex", (test) => {
         flexNested: ex.flexNested,
         flexAlignItems: ex.flexAlignItems,
         flexReverse: ex.flexReverse,
+        flexFillScroll: ex.flexFillScroll,
     });
 
     // =========================================================================

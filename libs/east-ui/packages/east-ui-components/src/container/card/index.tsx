@@ -4,6 +4,7 @@
  */
 
 import { memo, useMemo } from "react";
+import { parseCssSize } from "../../style/parse-size.js";
 import {
     Card as ChakraCard,
     type CardRootProps,
@@ -40,12 +41,12 @@ export function toChakraCard(value: CardValue): CardRootProps {
     const style = getSomeorUndefined(value.style);
 
     return {
-        height: style ? getSomeorUndefined(style.height) : undefined,
-        minHeight: style ? getSomeorUndefined(style.minHeight) : undefined,
-        maxHeight: style ? getSomeorUndefined(style.maxHeight) : undefined,
-        width: style ? getSomeorUndefined(style.width) : undefined,
-        minWidth: style ? getSomeorUndefined(style.minWidth) : undefined,
-        maxWidth: style ? getSomeorUndefined(style.maxWidth) : undefined,
+        height: parseCssSize(style ? getSomeorUndefined(style.height) : undefined),
+        minHeight: parseCssSize(style ? getSomeorUndefined(style.minHeight) : undefined),
+        maxHeight: parseCssSize(style ? getSomeorUndefined(style.maxHeight) : undefined),
+        width: parseCssSize(style ? getSomeorUndefined(style.width) : undefined),
+        minWidth: parseCssSize(style ? getSomeorUndefined(style.minWidth) : undefined),
+        maxWidth: parseCssSize(style ? getSomeorUndefined(style.maxWidth) : undefined),
         flex: style ? getSomeorUndefined(style.flex) : undefined,
         overflow: style ? getSomeorUndefined(style.overflow)?.type : undefined,
     };
@@ -159,6 +160,12 @@ export const EastChakraCard = memo(function EastChakraCard({ value, storageKey }
     // else explicit `bodyPadding`; else the default 18×20 (#132).
     const bodyPadding = style ? getSomeorUndefined(style.bodyPadding) : undefined;
     const flush = (style ? getSomeorUndefined(style.flush) : undefined) === true;
+    // A definite height / maxHeight makes the card a column that constrains its
+    // body (`flex:1; min-height:0`), so a `height:"100%"` / `"fill"` child (a
+    // sized data component, a scroll region) resolves against it — the same
+    // mechanism as the Drawer's `fillBody` (#320). Content-sized cards are
+    // unchanged (body grows to content).
+    const sized = props.height !== undefined || props.maxHeight !== undefined;
 
     const isDisabled = stateTag === "disabled";
     const isStale = stateTag === "stale";
@@ -174,7 +181,10 @@ export const EastChakraCard = memo(function EastChakraCard({ value, storageKey }
             borderRadius="10px"
             borderColor={defaultBorderColor}
             borderWidth="1px"
-            overflow="hidden"
+            // Author `overflow` wins over the default clip (it used to be
+            // hard-overridden to `hidden` after the props spread).
+            overflow={props.overflow ?? "hidden"}
+            {...(sized ? { display: "flex", flexDirection: "column" } : {})}
             {...(background !== undefined ? { bg: background } : {})}
             {...(accentColor !== undefined ? { borderLeftWidth: "3px", borderLeftColor: accentColor } : {})}
             aria-disabled={isDisabled || undefined}
@@ -214,6 +224,7 @@ export const EastChakraCard = memo(function EastChakraCard({ value, storageKey }
                 display="flex"
                 flexDirection="column"
                 gap={flush ? "0" : "3"}
+                {...(sized ? { flex: "1", minHeight: "0" } : {})}
                 opacity={isStale ? 0.6 : undefined}
             >
                 {hasFallbackBody ? (

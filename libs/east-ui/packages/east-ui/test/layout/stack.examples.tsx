@@ -185,3 +185,19 @@ export const stackInteractive = example({
     )),
     inputs: [],
 });
+
+export const stackFillScroll = example({
+    keywords: ["Stack", "VStack", "fill", "scroll", "scrollY", "bounded", "sizing", "height"],
+    description: "A height-bounded VStack (#320): a pinned header above a `fill scrollY` VStack that takes the remaining height and scrolls, so the region bounds and scrolls inside its box without pixel arithmetic",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <VStack height="220px" width="260px" align="stretch" gap="0">
+                <Box background="gray.50" padding="3"><Text>Header</Text></Box>
+                <VStack fill scrollY align="stretch" gap="2" padding="3">
+                    {Array.from({ length: 20 }, (_, i) => <Text>{`Item ${i + 1}`}</Text>)}
+                </VStack>
+            </VStack>
+        );
+    }),
+    inputs: [],
+});

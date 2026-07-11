@@ -28,6 +28,8 @@ import {
 import { compareFor, equalFor, printFor, variant, some, none, type ValueTypeOf } from "@elaraai/east";
 import { Gantt, Table, Slice as SliceInternal, type UIComponentType } from "@elaraai/east-ui/internal";
 import { SliceRailCluster } from "../../slice/rail";
+import { parseCssSize } from "../../style/parse-size.js";
+import { syncedPaneScrollbarCss, virtualScrollbarCss } from "../../style/scrollbar.js";
 import { railAffordanceKinds } from "../../slice/rail-kinds.js";
 import { brushHitTest, brushDragWindow, brushRelease, brushCursor, type BrushDrag } from "../../slice/brush-math.js";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity";
@@ -930,7 +932,9 @@ const GanttCore = function GanttCore({
     // The review decision pane — a third, fixed-width column beside the
     // timeline wearing the shared `reviewChrome` slots, scroll-synced with
     // both panes. Cells act on the ORIGINAL row index (sort-stable).
-    const heightCss = (style ? getSomeorUndefined(style.height) : undefined) ?? height;
+    // Uniform sizing (#320) — `"fill"` → 100% of the parent box; `maxHeight` caps.
+    const heightCss = parseCssSize(style ? getSomeorUndefined(style.height) : undefined) ?? height;
+    const maxHeightCss = parseCssSize(style ? getSomeorUndefined(style.maxHeight) : undefined);
     const showFoot = reviewController !== undefined && reviewController.showFoot;
     const decisionPane = reviewController !== undefined && review !== undefined ? (
         <Box width={DECISION_WIDTH} flexShrink={0} display="flex" flexDirection="column" height="100%" background="bg.surface">
@@ -973,6 +977,7 @@ const GanttCore = function GanttCore({
             ref={rootRef}
             width="100%"
             {...(showFoot ? { flex: "1", minHeight: 0 } : { height: heightCss })}
+            {...(maxHeightCss !== undefined ? { maxHeight: maxHeightCss, minHeight: 0 } : {})}
             overflow="hidden"
             display="flex"
         >
@@ -993,6 +998,11 @@ const GanttCore = function GanttCore({
                     overflowY="auto"
                     position="relative"
                     onScroll={handleTableScroll}
+                    // Left pane of the synced pair hides only its VERTICAL bar
+                    // (the timeline pane carries the pair's single visible
+                    // vertical bar); its horizontal bar stays — nothing else
+                    // scrolls this pane's own x-overflow (frozen columns).
+                    css={syncedPaneScrollbarCss}
                 >
                     <ChakraTable.Root
                         {...props}
@@ -1175,6 +1185,7 @@ const GanttCore = function GanttCore({
                     overflowX="hidden"
                     position="relative"
                     onScroll={handleTimelineScroll}
+                    css={virtualScrollbarCss}
                 >
                     {/* Timeline Header - matches table header styling */}
                     <Box position="sticky" top={0} zIndex={1} css={ganttSlotStyles.header}>
@@ -1396,7 +1407,7 @@ const GanttCore = function GanttCore({
     // mounts below the fixed-height chassis, full-width (#263).
     const surface = showFoot && reviewController !== undefined
         ? (
-            <Box display="flex" flexDirection="column" width="100%" height={heightCss}>
+            <Box display="flex" flexDirection="column" width="100%" height={heightCss} {...(maxHeightCss !== undefined ? { maxHeight: maxHeightCss } : {})}>
                 {ganttContent}
                 <ReviewFoot controller={reviewController} storageKey={storageKey ?? "gantt"} />
             </Box>
