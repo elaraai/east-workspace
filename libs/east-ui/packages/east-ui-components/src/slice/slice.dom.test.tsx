@@ -28,7 +28,8 @@ import { system } from "../theme/index.js";
 import { EastChakraSliceCohort } from "./cohort/index.js";
 import { EastChakraSliceFilter } from "./filter/index.js";
 import { EastChakraSliceLegend } from "./legend/index.js";
-import { EastChakraSliceRail } from "./rail/index.js";
+import { EastChakraSliceRail, affordanceDescriptor } from "./rail/index.js";
+import { railAffordanceKinds } from "./rail-kinds.js";
 import { EastChakraSliceRange } from "./range/index.js";
 import { EastChakraSliceSearch } from "./search/index.js";
 import { EastChakraSliceSummary } from "./summary/index.js";
@@ -904,5 +905,69 @@ describe("Slice.Filter against the REAL store — round-trip + reactivity (#170)
 
         expect(await screen.findByText(/sessions ≥ 20/)).toBeTruthy();   // chip appeared
         expect(screen.getByText(/SHOWING 2 OF 3 events/)).toBeTruthy();  // count updated
+    });
+});
+
+// ============================================================================
+// Rail affordance resolution + summary descriptors (#319)
+// ============================================================================
+
+describe("rail affordance resolution — presets IS the cohort surface (#319)", () => {
+    const withCohorts = { cohorts: [{ id: "eu", name: "EU", filters: [] }] } as never;
+    const noCohorts = { cohorts: [] } as never;
+
+    test("appends a cohort surface when the slice has saved cohorts and none is listed", () => {
+        expect(railAffordanceKinds(["filter", "search"], withCohorts)).toEqual(["filter", "search", "cohort"]);
+    });
+    test("does NOT append when a presets bar already IS the cohort surface", () => {
+        expect(railAffordanceKinds(["presets"], withCohorts)).toEqual(["presets"]);
+    });
+    test("does NOT append when a cohort surface is already listed", () => {
+        expect(railAffordanceKinds(["cohort"], withCohorts)).toEqual(["cohort"]);
+    });
+    test("appends nothing when there are no saved cohorts", () => {
+        expect(railAffordanceKinds(["filter"], noCohorts)).toEqual(["filter"]);
+    });
+
+    test("a presets rail renders exactly one cohort surface — no duplicate authoring band", () => {
+        const slice = fakeSlice({
+            cohorts: [
+                { id: "eu", name: "EU", filters: [variant("string", { fieldId: "region", op: variant("eq", "EU") })] },
+                { id: "bulk", name: "Bulk", filters: [variant("integer", { fieldId: "qty", op: variant("gte", 20n) })] },
+            ],
+        });
+        ui(<EastChakraSliceRail value={{ slice, affordances: [variant("presets", null)], persist: none, brush: none } as never} />);
+        // Toggle presets render each preset once…
+        expect(screen.getAllByText("EU")).toHaveLength(1);
+        expect(screen.getAllByText("Bulk")).toHaveLength(1);
+        // …and there is NO manage-mode "+ cohort" authoring pill from a second band.
+        expect(screen.queryByText("cohort")).toBeNull();
+    });
+});
+
+describe("rail summary descriptors — capability when idle, active when narrowing (#319)", () => {
+    const base = {
+        range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
+        breakdown: none, search: none, visible: none, selectedIndex: none,
+    };
+    const dims = [{ fieldId: "region", label: "Region" }] as never;
+
+    test("filter: 'Filter' idle, 'N filters' active", () => {
+        expect(affordanceDescriptor("filter", base as never, dims)).toMatchObject({ text: "Filter", active: false });
+        expect(affordanceDescriptor("filter", { ...base, filters: [1, 2, 3] } as never, dims)).toMatchObject({ text: "3 filters", active: true });
+    });
+    test("cohort: available count idle, name(+N) active", () => {
+        const avail = { ...base, cohorts: [{ id: "eu", name: "EU", filters: [] }, { id: "bulk", name: "Bulk", filters: [] }] } as never;
+        expect(affordanceDescriptor("cohort", avail, dims)).toMatchObject({ text: "2 cohorts", active: false });
+        const active = { ...(avail as object), activeCohorts: new Set(["eu", "bulk"]) } as never;
+        expect(affordanceDescriptor("cohort", active, dims)).toMatchObject({ text: "EU +1", active: true });
+    });
+    test("search: 'Search' idle, quoted query active", () => {
+        expect(affordanceDescriptor("search", base as never, dims)).toMatchObject({ text: "Search", active: false });
+        expect(affordanceDescriptor("search", { ...base, search: some("proc") } as never, dims)).toMatchObject({ text: "\"proc\"", active: true });
+    });
+    test("breakdown: 'Split' idle, dimension label active", () => {
+        expect(affordanceDescriptor("breakdown", base as never, dims)).toMatchObject({ text: "Split", active: false });
+        expect(affordanceDescriptor("breakdown", { ...base, breakdown: some({ fieldId: "region" }) } as never, dims)).toMatchObject({ text: "Region", active: true });
     });
 });

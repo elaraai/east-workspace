@@ -15,6 +15,7 @@ import { getSomeorUndefined } from "../../utils";
 import { usePersistedState } from "../../hooks/usePersistedState";
 import { useDragSourceItem, useDropSink } from "../../dnd/drag-layer";
 import { SliceRailCluster } from "../../slice/rail";
+import { railAffordanceKinds } from "../../slice/rail-kinds.js";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity";
 import { parseCssSize } from "../../style/parse-size.js";
 import { virtualScrollbarCss } from "../../style/scrollbar.js";
@@ -537,9 +538,7 @@ export const EastChakraLibrary = memo(function EastChakraLibrary(props: EastChak
 
     const state = slice.read();
     const configuredKinds = chrome.affordances.map(a => a.type);
-    const affordanceKinds = state.cohorts.length > 0 && !configuredKinds.includes("cohort")
-        ? [...configuredKinds, "cohort"]
-        : configuredKinds;
+    const affordanceKinds = railAffordanceKinds(configuredKinds, state);
     const total = Number(slice.totalCount() as bigint);
     const result = Number(slice.resultCount() as bigint);
     const pct = total > 0 ? Math.round((1 - result / total) * 100) : 0;

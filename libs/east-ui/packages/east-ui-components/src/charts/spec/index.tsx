@@ -9,6 +9,7 @@ import { useTooltip, useTooltipInPortal } from "@visx/tooltip";
 import { match, equalFor, some, none, variant, type ValueTypeOf } from "@elaraai/east";
 import { Chart, Slice as SliceInternal } from "@elaraai/east-ui/internal";
 import { SliceRailCluster } from "../../slice/rail";
+import { railAffordanceKinds } from "../../slice/rail-kinds.js";
 import { EastChakraSliceLegend } from "../../slice/legend";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity";
 import { ParentSize } from "@visx/responsive";
@@ -1067,9 +1068,7 @@ function SliceChromeFrame({ node, chrome }: { node: Spec; chrome: { slice: unkno
     const configuredKinds = chrome.affordances.map(a => a.type);
     // `brush` and `legend` are host-rendered (plot gesture / below-plot rail),
     // not rail chips.
-    const railKinds = (state.cohorts.length > 0 && !configuredKinds.includes("cohort")
-        ? [...configuredKinds, "cohort"]
-        : configuredKinds).filter(k => k !== "brush" && k !== "legend");
+    const railKinds = railAffordanceKinds(configuredKinds, state).filter(k => k !== "brush" && k !== "legend");
 
     // Brush: enabled by the affordance; the range arm (datetime vs float)
     // follows the slice's range field kind.

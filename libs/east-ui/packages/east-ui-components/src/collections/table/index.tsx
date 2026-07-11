@@ -37,6 +37,7 @@ import { Slice as SliceInternal } from "@elaraai/east-ui/internal";
 import { SliceRailCluster } from "../../slice/rail";
 import { parseCssSize } from "../../style/parse-size.js";
 import { virtualScrollbarCss } from "../../style/scrollbar.js";
+import { railAffordanceKinds } from "../../slice/rail-kinds.js";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity";
 import { RowStateManager, type RowKey, type RowState } from "../../utils/RowStateManager";
 import { useRowStatusBg, useDensityHeights } from "../shared/helpers";
@@ -1779,9 +1780,7 @@ export const EastChakraTable = memo(function EastChakraTable(props: EastChakraTa
 
     const state = slice.read();
     const configuredKinds = chrome.affordances.map(a => a.type);
-    const affordanceKinds = state.cohorts.length > 0 && !configuredKinds.includes("cohort")
-        ? [...configuredKinds, "cohort"]
-        : configuredKinds;
+    const affordanceKinds = railAffordanceKinds(configuredKinds, state);
     const total = Number(slice.totalCount() as bigint);
     const result = Number(slice.resultCount() as bigint);
     const pct = total > 0 ? Math.round((1 - result / total) * 100) : 0;
