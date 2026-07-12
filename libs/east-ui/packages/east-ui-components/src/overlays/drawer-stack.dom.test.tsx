@@ -15,6 +15,7 @@
  * overlay-manager stack/rail logic without the portal + body-scroll machinery.
  */
 
+import { type ReactNode } from "react";
 import { describe, test, expect, afterEach, vi } from "vitest";
 import { render, cleanup, act, fireEvent } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
@@ -27,8 +28,13 @@ vi.mock("./drawer/index.js", async (orig) => {
     const actual = await orig<typeof import("./drawer/index.js")>();
     return {
         ...actual,
-        DrawerContent: ({ value }: { value: { title: { type: string; value: string } } }) => (
-            <div data-testid="full-drawer">{value.title?.type === "some" ? value.title.value : "drawer"}</div>
+        // Render the title + the railsSlot (the ancestor rails ride inside the
+        // active drawer's content in the real component — #328).
+        DrawerContent: ({ value, railsSlot }: { value: { title: { type: string; value: string } }; railsSlot?: ReactNode }) => (
+            <div data-testid="full-drawer">
+                {value.title?.type === "some" ? value.title.value : "drawer"}
+                {railsSlot}
+            </div>
         ),
     };
 });

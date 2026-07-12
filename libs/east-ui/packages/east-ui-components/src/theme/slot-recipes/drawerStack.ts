@@ -21,6 +21,9 @@ export const drawerStackRailSlotRecipe = defineSlotRecipe({
     base: {
         rail: {
             position: "fixed",
+            // The drawer Positioner it rides in is pointer-events:none (clicks fall
+            // through to the backdrop); re-enable so the rail is clickable.
+            pointerEvents: "auto",
             display: "flex",
             flexDirection: "column",
             alignItems: "center",

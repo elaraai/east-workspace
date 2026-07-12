@@ -64,12 +64,17 @@ export interface DrawerContentProps {
     onClose?: () => void;
     /** Fires once Ark UI's close transition is fully complete (programmatic drawers use it to unmount only after body-lock cleanup runs) */
     onExitComplete?: () => void;
+    /** Extra content rendered inside this drawer's Portal + Positioner (#328) — the
+     *  stacked-ancestor rails ride here so they inherit this drawer's exact Chakra
+     *  overlay layer (above its backdrop, below any popover/tooltip opened from it)
+     *  without a hardcoded z-index. */
+    railsSlot?: ReactNode;
 }
 
 /**
  * Shared drawer content component used by both trigger-based and programmatic drawers.
  */
-export function DrawerContent({ value, storageKey, trigger, open, onClose, onExitComplete: onExitCompleteCallback }: DrawerContentProps) {
+export function DrawerContent({ value, storageKey, trigger, open, onClose, onExitComplete: onExitCompleteCallback, railsSlot }: DrawerContentProps) {
     const props = useMemo(() => toChakraDrawer(value), [value]);
     const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -132,6 +137,12 @@ export function DrawerContent({ value, storageKey, trigger, open, onClose, onExi
             <Portal>
                 <ChakraDrawer.Backdrop />
                 <ChakraDrawer.Positioner>
+                    {/* #328 — stacked-ancestor rails ride inside this drawer's
+                      * Positioner so they inherit its exact overlay layer (above
+                      * this backdrop, below any popover/tooltip opened from the
+                      * drawer). They are position:fixed, so they don't disturb the
+                      * panel's edge layout. */}
+                    {railsSlot}
                     <ChakraDrawer.Content>
                         <ChakraDrawer.Header>
                             <ChakraBox flex="1" minWidth="0">

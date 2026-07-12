@@ -94,12 +94,14 @@ function DrawerStackRail({ meta, ordinal, onClick }: DrawerStackRailProps) {
     const onLeft = meta.placement !== "start";
     const label = meta.title ?? "Back";
     const chevron = onLeft ? faChevronLeft : faChevronRight;
+    // No explicit z-index: the rail is rendered inside the active drawer's
+    // Positioner (#328), so it inherits that drawer's exact overlay layer —
+    // above its backdrop, below any popover/tooltip opened from the drawer.
     return (
         <chakra.button
             css={styles.rail}
             aria-label={`Back to ${label}`}
             onClick={onClick}
-            zIndex={1450}
             top="50%"
             transform="translateY(-50%)"
             {...(onLeft ? { left: `${offset}px` } : { right: `${offset}px` })}
@@ -198,16 +200,31 @@ export function OverlayManagerProvider({ children }: OverlayManagerProviderProps
               * pops the stack to it when clicked; every other drawer renders full
               * (the deepest is always full). */}
             {(() => {
-                let railOrdinal = 0;
+                // Stacked ancestors (any drawer that is NOT the deepest and opted
+                // into `stacked`) collapse to rails rendered INSIDE the active
+                // drawer's Positioner (#328), so they inherit its overlay layer.
+                const stackedAncestors = drawers
+                    .slice(0, -1)
+                    .map((d) => ({ d, meta: drawerMeta(d.value) }))
+                    .filter(({ meta }) => meta.stacked);
+                const rails = stackedAncestors.length > 0
+                    ? stackedAncestors.map(({ d, meta }, ordinal) => (
+                        <DrawerStackRail key={d.id} meta={meta} ordinal={ordinal} onClick={() => popTo(d.id)} />
+                    ))
+                    : undefined;
                 return drawers.map(({ id, value }, i) => {
                     const isTop = i === drawers.length - 1;
-                    const meta = drawerMeta(value);
-                    if (!isTop && meta.stacked) {
-                        const rail = <DrawerStackRail key={id} meta={meta} ordinal={railOrdinal} onClick={() => popTo(id)} />;
-                        railOrdinal += 1;
-                        return rail;
-                    }
-                    return <ProgrammaticDrawer key={id} value={value} onClose={() => closeDrawer(id)} />;
+                    // A stacked ancestor renders as a rail in the active drawer's
+                    // slot, not as its own (hidden) full drawer.
+                    if (!isTop && drawerMeta(value).stacked) return null;
+                    return (
+                        <ProgrammaticDrawer
+                            key={id}
+                            value={value}
+                            onClose={() => closeDrawer(id)}
+                            railsSlot={isTop ? rails : undefined}
+                        />
+                    );
                 });
             })()}
         </OverlayManagerContext.Provider>
@@ -251,9 +268,10 @@ function ProgrammaticDialog({ value, onClose }: ProgrammaticDialogProps) {
 interface ProgrammaticDrawerProps {
     value: DrawerOpenInputValue;
     onClose: () => void;
+    railsSlot?: ReactNode;
 }
 
-function ProgrammaticDrawer({ value, onClose }: ProgrammaticDrawerProps) {
+function ProgrammaticDrawer({ value, onClose, railsSlot }: ProgrammaticDrawerProps) {
     // Mount closed, then open after commit — see ProgrammaticDialog for why.
     const [open, setOpen] = useState(false);
     useEffect(() => { setOpen(true); }, []);
@@ -266,6 +284,7 @@ function ProgrammaticDrawer({ value, onClose }: ProgrammaticDrawerProps) {
             open={open}
             onClose={handleClose}
             onExitComplete={handleExitComplete}
+            railsSlot={railsSlot}
         />
     );
 }
