@@ -13,3 +13,4 @@ export { Splitter } from "./splitter/index.js";
 export { Sticky } from "./sticky/index.js";
 export { ScrollArea } from "./scroll-area/index.js";
 export { Expandable } from "./expandable/index.js";
+export { Dock } from "./dock/index.js";

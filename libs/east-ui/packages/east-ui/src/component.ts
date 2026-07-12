@@ -46,6 +46,7 @@ import { GridStyleType } from "./layout/grid/types.js";
 import { SplitterStyleType } from "./layout/splitter/types.js";
 import { StickyBoundaryType, StickyStyleType } from "./layout/sticky/types.js";
 import { ExpandableStyleType } from "./layout/expandable/types.js";
+import { DockStyleType } from "./layout/dock/types.js";
 import {
     ScrollbarStyleType,
     ScrollAreaStyleType,
@@ -449,6 +450,19 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         onExpandedChange: OptionType(FunctionType([BooleanType], NullType)),
         label: OptionType(StringType),
         style: OptionType(ExpandableStyleType),
+    }),
+
+    /**
+     * Dock — inline panel that collapses along an axis to an icon rail and
+     * stays in the document flow (siblings reflow; never overlays). The
+     * collapse-to-rail sibling of Expandable. See `layout/dock/`.
+     */
+    Dock: StructType({
+        body: ArrayType(node),
+        collapsed: OptionType(BooleanType),
+        defaultCollapsed: OptionType(BooleanType),
+        onCollapsedChange: OptionType(FunctionType([BooleanType], NullType)),
+        style: OptionType(DockStyleType),
     }),
 
     /**
