@@ -4,11 +4,12 @@
  */
 
 /**
- * Drawer-stack rail slot recipe (#328) — an ancestor drawer collapsed to a thin
- * vertical rail while a deeper drawer is active. The recipe carries the static
- * chrome (surface, border, rotated label, icon, hover); the fixed edge position
- * + stacking offset are data-driven and set inline (they depend on the drawer's
- * placement and its depth in the stack, not tokens).
+ * Drawer-stack rail slot recipe (#328) — ancestor drawers collapsed to thin
+ * vertical rails while a deeper drawer is active. The `railGroup` is a
+ * full-height flex sibling of the drawer panel INSIDE the active drawer's
+ * Positioner, so the rails sit beside the panel (no hardcoded width / position /
+ * z-index) and inherit the drawer's overlay layer. Each `rail` stretches to the
+ * group's full height with its icon + rotated label centred.
  *
  * @packageDocumentation
  */
@@ -17,19 +18,31 @@ import { defineSlotRecipe } from "@chakra-ui/react";
 
 export const drawerStackRailSlotRecipe = defineSlotRecipe({
     className: "elara-drawer-stack-rail",
-    slots: ["rail", "icon", "label"],
+    slots: ["railGroup", "rail", "icon", "label"],
     base: {
+        railGroup: {
+            display: "flex",
+            flexDirection: "row",
+            // Stretch to the Positioner's full height so the rails are a
+            // full-height spine beside the panel.
+            alignSelf: "stretch",
+            alignItems: "stretch",
+            gap: "{spacing.2}",
+            paddingBlock: "{spacing.3}",
+            paddingInline: "{spacing.2}",
+            // The Positioner is pointer-events:none (clicks fall through to the
+            // backdrop); re-enable so the rails are clickable.
+            pointerEvents: "auto",
+        },
         rail: {
-            position: "fixed",
-            // The drawer Positioner it rides in is pointer-events:none (clicks fall
-            // through to the backdrop); re-enable so the rail is clickable.
             pointerEvents: "auto",
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
+            justifyContent: "center",
             gap: "{spacing.2}",
-            width: "40px",
-            paddingBlock: "{spacing.3}",
+            width: "44px",
+            flexShrink: 0,
             background: "bg.subtle",
             borderColor: "border.subtle",
             borderWidth: "1px",

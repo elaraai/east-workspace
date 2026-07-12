@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useCallback, memo, type ReactNode } from "react";
 import { chakra, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { library, type IconName } from "@fortawesome/fontawesome-svg-core";
@@ -52,10 +52,6 @@ export function useOverlayManager(): OverlayManagerContextValue {
 // Drawer stack rails (#328)
 // ============================================================================
 
-const RAIL_EDGE_INSET = 12;
-const RAIL_WIDTH = 40;
-const RAIL_GAP = 8;
-
 interface DrawerRailMeta {
     title: string | undefined;
     icon: string | undefined;
@@ -75,40 +71,49 @@ function drawerMeta(value: DrawerOpenInputValue): DrawerRailMeta {
 
 interface DrawerStackRailProps {
     meta: DrawerRailMeta;
-    ordinal: number;
     onClick: () => void;
 }
 
 /**
- * An ancestor drawer collapsed to a thin vertical rail while a deeper drawer is
- * active (#328). Pins to the edge OPPOSITE the drawer placement — the active
- * drawer covers its own edge — so an `end`-placed (right) stack lays its
- * ancestor rails down the LEFT edge, in stack order. Clicking pops the stack
- * back to this drawer.
+ * One ancestor drawer collapsed to a full-height rail (#328) — icon + rotated
+ * title. `memo`'d so re-rendering the active drawer doesn't re-render the rails.
  */
-function DrawerStackRail({ meta, ordinal, onClick }: DrawerStackRailProps) {
+const DrawerStackRail = memo(function DrawerStackRail({ meta, onClick }: DrawerStackRailProps) {
     const styles = useSlotRecipe({ key: "drawerStackRail" })();
-    const offset = RAIL_EDGE_INSET + ordinal * (RAIL_WIDTH + RAIL_GAP);
-    // `start`-placed drawers sit on the left, so their rails go on the RIGHT;
-    // every other placement rails on the LEFT.
-    const onLeft = meta.placement !== "start";
     const label = meta.title ?? "Back";
-    const chevron = onLeft ? faChevronLeft : faChevronRight;
-    // No explicit z-index: the rail is rendered inside the active drawer's
-    // Positioner (#328), so it inherits that drawer's exact overlay layer —
-    // above its backdrop, below any popover/tooltip opened from the drawer.
+    // Chevron points back toward the panel: an end-placed panel sits to the
+    // rail's right (chevron ▸), a start-placed one to its left (◂).
+    const chevron = meta.placement === "start" ? faChevronLeft : faChevronRight;
     return (
-        <chakra.button
-            css={styles.rail}
-            aria-label={`Back to ${label}`}
-            onClick={onClick}
-            top="50%"
-            transform="translateY(-50%)"
-            {...(onLeft ? { left: `${offset}px` } : { right: `${offset}px` })}
-        >
+        <chakra.button css={styles.rail} aria-label={`Back to ${label}`} onClick={onClick}>
             <FontAwesomeIcon icon={meta.icon ? (meta.icon as IconName) : chevron} />
             <chakra.span css={styles.label}>{label}</chakra.span>
         </chakra.button>
+    );
+});
+
+interface DrawerStackRailGroupProps {
+    ancestors: { id: string; meta: DrawerRailMeta }[];
+    placement: string;
+    onPopTo: (id: string) => void;
+}
+
+/**
+ * The full-height rail spine (#328) — a flex sibling of the drawer panel INSIDE
+ * the active drawer's Positioner, so it inherits the drawer's overlay layer (no
+ * hardcoded z-index) and stands full-height beside the panel. `order` pins it to
+ * the panel's INNER edge: after a start/top-placed panel, before an end-placed
+ * one.
+ */
+function DrawerStackRailGroup({ ancestors, placement, onPopTo }: DrawerStackRailGroupProps) {
+    const styles = useSlotRecipe({ key: "drawerStackRail" })();
+    const order = placement === "start" || placement === "top" ? 1 : -1;
+    return (
+        <chakra.div css={styles.railGroup} order={order}>
+            {ancestors.map(({ id, meta }) => (
+                <DrawerStackRail key={id} meta={meta} onClick={() => onPopTo(id)} />
+            ))}
+        </chakra.div>
     );
 }
 
@@ -205,12 +210,11 @@ export function OverlayManagerProvider({ children }: OverlayManagerProviderProps
                 // drawer's Positioner (#328), so they inherit its overlay layer.
                 const stackedAncestors = drawers
                     .slice(0, -1)
-                    .map((d) => ({ d, meta: drawerMeta(d.value) }))
+                    .map((d) => ({ id: d.id, meta: drawerMeta(d.value) }))
                     .filter(({ meta }) => meta.stacked);
+                const activePlacement = drawers.length > 0 ? drawerMeta(drawers[drawers.length - 1]!.value).placement : "end";
                 const rails = stackedAncestors.length > 0
-                    ? stackedAncestors.map(({ d, meta }, ordinal) => (
-                        <DrawerStackRail key={d.id} meta={meta} ordinal={ordinal} onClick={() => popTo(d.id)} />
-                    ))
+                    ? <DrawerStackRailGroup ancestors={stackedAncestors} placement={activePlacement} onPopTo={popTo} />
                     : undefined;
                 return drawers.map(({ id, value }, i) => {
                     const isTop = i === drawers.length - 1;
