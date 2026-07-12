@@ -29,7 +29,10 @@ export const drawerSlotRecipe = defineSlotRecipe({
             borderLeftColor: "border.strong",
             borderRightWidth: "1px",
             borderRightColor: "border.strong",
-            boxShadow: "lg",
+            // Flat — the edge borders + the dimmed backdrop separate the panel from
+            // the page; override Chakra's base `lg` drop shadow off (it read cheap
+            // and bled onto the stacked rails).
+            boxShadow: "none",
             _open: { animationDuration: "0ms" },
             _closed: { animationDuration: "0ms" },
         },

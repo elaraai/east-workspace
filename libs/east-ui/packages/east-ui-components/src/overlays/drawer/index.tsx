@@ -148,6 +148,12 @@ export function DrawerContent({ value, storageKey, trigger, open, onClose, onExi
             <Portal>
                 <ChakraDrawer.Backdrop />
                 <ChakraDrawer.Positioner>
+                    {/* #328 — stacked-ancestor rails ride inside this drawer's
+                      * Positioner so they inherit its exact overlay layer: above
+                      * this backdrop, below any popover/tooltip opened from the
+                      * drawer. In-flow flex siblings of the panel (they don't
+                      * overlap it), so no z-index handling is needed. */}
+                    {railsSlot}
                     <ChakraDrawer.Content>
                         <ChakraDrawer.Header>
                             <ChakraBox flex="1" minWidth="0">
@@ -175,13 +181,6 @@ export function DrawerContent({ value, storageKey, trigger, open, onClose, onExi
                             ))}
                         </ChakraDrawer.Body>
                     </ChakraDrawer.Content>
-                    {/* #328 — stacked-ancestor rails ride inside this drawer's
-                      * Positioner (so they inherit its exact overlay layer: above
-                      * this backdrop, below any popover/tooltip opened from the
-                      * drawer). Rendered AFTER the content so, at the same layer
-                      * z-index, the rail spine paints over the content's box-shadow
-                      * rather than the shadow bleeding onto the closest rail. */}
-                    {railsSlot}
                 </ChakraDrawer.Positioner>
             </Portal>
         </ChakraDrawer.Root>
