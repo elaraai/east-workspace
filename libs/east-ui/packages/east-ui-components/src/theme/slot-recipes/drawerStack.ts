@@ -8,9 +8,9 @@
  * vertical rails while a deeper drawer is active. The `railGroup` is a
  * full-height flex sibling of the drawer panel INSIDE the active drawer's
  * Positioner, so it inherits the drawer's overlay layer (no hardcoded z-index)
- * and stands beside the panel: same height, same `l3` corner radius, same
- * border + shadow as the drawer content. The rail segments sit FLUSH (no gap),
- * clipped to the rounded corners, divided by a hairline.
+ * and stands flush against the panel: full height, FLAT (square, no shadow),
+ * with the rail segments flush (no gap) and hairline-divided. The icon + rotated
+ * label sit at the TOP of each rail.
  *
  * @packageDocumentation
  */
@@ -24,29 +24,27 @@ export const drawerStackRailSlotRecipe = defineSlotRecipe({
         railGroup: {
             display: "flex",
             flexDirection: "row",
-            // Match the drawer panel: full height, same radius / border / shadow.
-            alignSelf: "stretch",
-            borderRadius: "l3",
-            borderWidth: "1px",
-            borderColor: "border.strong",
-            boxShadow: "lg",
-            background: "bg.surface",
+            alignSelf: "stretch",            // full height, matches the panel
+            background: "bg.subtle",
+            borderInlineStartWidth: "1px",   // delineate the spine's outer edge
+            borderColor: "border.subtle",
             overflow: "hidden",
             // The Positioner is pointer-events:none (clicks fall through to the
             // backdrop); re-enable so the rails are clickable.
             pointerEvents: "auto",
+            // flat + square: no radius, no shadow — butts flush against the panel.
         },
         rail: {
             pointerEvents: "auto",
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
-            justifyContent: "center",
+            justifyContent: "flex-start",    // icon + label at the TOP
             gap: "{spacing.2}",
+            paddingBlockStart: "{spacing.4}",
             paddingInline: "{spacing.2}",
             width: "44px",
             flexShrink: 0,
-            background: "bg.subtle",
             cursor: "pointer",
             color: "fg.muted",
             // Hairline divider between flush rail segments (none after the last).
@@ -68,7 +66,7 @@ export const drawerStackRailSlotRecipe = defineSlotRecipe({
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
-            maxHeight: "70%",
+            maxHeight: "60%",
         },
     },
 });

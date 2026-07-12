@@ -69,6 +69,17 @@ async function main(): Promise<void> {
         const railBox = await rails.first().boundingBox();
         const railVisible = await rails.first().isVisible();
         console.log(`[probe] rails present=${railCount}, first visible=${railVisible}, box=${JSON.stringify(railBox)}`);
+        // Gap check: the rail spine's right edge vs the active drawer panel's left edge.
+        const gap = await page.evaluate(() => {
+            const railEls = Array.from(document.querySelectorAll('button[aria-label^="Back to"]')) as HTMLElement[];
+            const panels = Array.from(document.querySelectorAll('[data-part="content"]')) as HTMLElement[];
+            const panel = panels[panels.length - 1] ?? null;
+            if (railEls.length === 0 || !panel) return 'n/a';
+            const spineRight = Math.max(...railEls.map(r => r.getBoundingClientRect().right));
+            const panelLeft = panel.getBoundingClientRect().left;
+            return `spine.right=${spineRight.toFixed(1)}, panel.left=${panelLeft.toFixed(1)}, gap=${(panelLeft - spineRight).toFixed(1)}px`;
+        });
+        console.log(`[probe] ${gap}`);
 
         // Click the outermost (B4418) rail → pop the stack back to it.
         await rails.first().click();
