@@ -575,11 +575,13 @@ describe("Chart renderer — axis tickStyle / titleStyle (#315)", () => {
         expect(jan.style.fontSize).toBe("13px");
         expect(jan.style.fontWeight).toBe("600");
         expect(jan.style.letterSpacing).toBe("0.08em");
-        // The y caption carries its own override (weight keeps the 600 chrome).
+        // The y caption carries its own fontSize override; the weight keeps the
+        // #327 title default — a real medium (500), not the faux-bold 600 that
+        // read faint on the mono chrome.
         const caption = texts.find((t) => t.textContent === "kL")!;
         expect(caption).toBeTruthy();
         expect(caption.style.fontSize).toBe("14px");
-        expect(caption.style.fontWeight).toBe("600");
+        expect(caption.style.fontWeight).toBe("500");
         // The unstyled left tick labels keep the legibility-floor chrome (11px).
         const leftTick = texts.find((t) => t.textContent !== "Jan" && t.textContent !== "Feb" && t.textContent !== "kL")!;
         expect(leftTick).toBeTruthy();

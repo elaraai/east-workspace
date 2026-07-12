@@ -1,6 +1,6 @@
 ---
 name: east-ui
-description: "Type-safe UI component library for the East language, authored as JSX tags. Use when writing East programs that define user interfaces. Triggers for: (1) Authoring `.tsx` component trees with `@elaraai/east-ui` tags, (2) Layout with <Box>, <Flex>, <Stack>/<VStack>/<HStack>, <Grid>, <Splitter>, <ScrollArea>, <Sticky>, <Expandable>, (3) Forms with <Input>, <Textarea>, <Select>, <Combobox>, <Checkbox>, <Switch>, <Slider>, <RadioGroup>, <RadioCardGroup>, <TagsInput>, <FileUpload>, <Field>, <DateRangeInput>, <TimeRangeInput>, (4) Data display with <Table>, <TreeView>, <DataList>, <Gantt>, <Planner>, <Matrix>, <Calendar>, <Schematic>, <Map>, <Library>, <Roster>, <Blend>, <Slice.Rail>, <Pagination>, <ChipRail>, <Trace>, (5) Charts with <Chart layers={Chart.Line/Column/Bar/Area/Scatter/Band(...)}/> (Column = vertical, Bar = horizontal) plus Chart.refLine/refBand/refDot, <Sparkline>, (6) Overlays with <Dialog>, <Drawer>, <Popover>, <Menu>, <Tooltip>, <HoverCard>, <ToggleTip>, <ActionBar>, <CommandPalette>, <Hotkey>, (7) Feedback with <Banner>, <Status>, <Progress>, <Skeleton>, <EmptyState>, (8) Disclosure with <Tabs>, <Accordion>, <Carousel>, <Collapsible>, <SegmentGroup>, <OptionList>, <Story>, (9) Navigation with <Breadcrumb>, <NavList>, and route-stack page switching (Navigation.config / Navigation.bind / <Pages>), (10) Reactive UI via <Reactive>{$ => …}</Reactive> + State.bind."
+description: "Type-safe UI component library for the East language, authored as JSX tags. Use when writing East programs that define user interfaces. Triggers for: (1) Authoring `.tsx` component trees with `@elaraai/east-ui` tags, (2) Layout with <Box>, <Flex>, <Stack>/<VStack>/<HStack>, <Grid>, <Splitter>, <ScrollArea>, <Sticky>, <Expandable>, <Dock>, (3) Forms with <Input>, <Textarea>, <Select>, <Combobox>, <Checkbox>, <Switch>, <Slider>, <RadioGroup>, <RadioCardGroup>, <TagsInput>, <FileUpload>, <Field>, <DateRangeInput>, <TimeRangeInput>, (4) Data display with <Table>, <TreeView>, <DataList>, <Gantt>, <Planner>, <Matrix>, <Calendar>, <Schematic>, <Map>, <Library>, <Roster>, <Blend>, <Slice.Rail>, <Pagination>, <ChipRail>, <Trace>, (5) Charts with <Chart layers={Chart.Line/Column/Bar/Area/Scatter/Band(...)}/> (Column = vertical, Bar = horizontal) plus Chart.refLine/refBand/refDot, <Sparkline>, (6) Overlays with <Dialog>, <Drawer>, <Popover>, <Menu>, <Tooltip>, <HoverCard>, <ToggleTip>, <ActionBar>, <CommandPalette>, <Hotkey>, (7) Feedback with <Banner>, <Status>, <Progress>, <Skeleton>, <EmptyState>, (8) Disclosure with <Tabs>, <Accordion>, <Carousel>, <Collapsible>, <SegmentGroup>, <OptionList>, <Story>, (9) Navigation with <Breadcrumb>, <NavList>, and route-stack page switching (Navigation.config / Navigation.bind / <Pages>), (10) Reactive UI via <Reactive>{$ => …}</Reactive> + State.bind."
 ---
 
 # East UI
@@ -61,7 +61,8 @@ Task → Which tag?
 │   ├─ <Separator> — 1px rule; orientation; variant: subtle | brand | dashed | strong
 │   ├─ <ScrollArea> — styled-scrollbar scroll container; overflow x/y
 │   ├─ <Sticky> — position-sticky wrapper; top / bottom offset
-│   └─ <Expandable> — region expands in place to fill the app container (CSS takeover, no remount); expanded / onExpandedChange / label; Esc collapses
+│   ├─ <Expandable> — region expands in place to fill the app container (CSS takeover, no remount); expanded / onExpandedChange / label; Esc collapses
+│   └─ <Dock> — inline panel that collapses along an axis to an icon rail, staying in flow (siblings reflow; never overlays) — for a source panel beside a drop target (Library beside Planner); orientation horizontal/vertical, side start/end, expandedSize/railSize, icon/label/badge, collapsed/onCollapsedChange or defaultCollapsed + persist, keepMounted/lazy/animated; Esc does NOT collapse
 │
 ├─ Typography (display text)
 │   ├─ <Text> — inline/block text; textStyle preset, fontWeight / fontStyle / textAlign / lineClamp
@@ -118,7 +119,7 @@ Task → Which tag?
 │   │     └─ DnD target: id + sources={[libraryId]} + onDrag (ONE grammar funnel: Library `add` lands proposed(added) bars at the dragStep-snapped instant; task-body drags = `move`, edge drags = `resize`; row = row index key, slot = snapped ISO instant, event = t<i>/m<i>) + canDrop veto (⊘, pointer-resolved); progress-handle drag stays bespoke (onTaskProgressChange — not a spatial drag)
 │   ├─ <Planner.Point …> / <Planner.Span …> — discrete rows × ordered-slot scheduler
 │   │     └─ Planner.axis.time({resolution?, format?, range?})/.number({buckets})/.ordinal({range}), Planner.event(…), Planner.marker(…)
-│   │     └─ time axis resolution (#309): "hour"|"day"|"week"|"month"|"quarter"|"year" sets the column unit; omitted, a PINNED range ≤ 14 days infers day columns (else month). A pinned range is half-open [min, max) — {Mar 30 … Apr 6} at day resolution = Mon 30 … Sun 05, so a sibling Chart pinning the same [min, max] time domain centres its points over the columns under an AlignedStack gutter. format uses the Chart date tokens ("ddd DD" → Mon 30); day default is "ddd DD". Drag slot keys stay period-start ISO instants
+│   │     └─ time axis resolution (#309): "hour"|"day"|"week"|"month"|"quarter"|"year" sets the column unit; omitted, a PINNED range ≤ 14 days infers day columns (else month). A pinned range is half-open [min, max), interpreted in UTC (#326 — East DateTime is a UTC instant, so columns are timezone-independent) and authoritative (events outside [min, max) are culled, never grow the axis). {Mar 30 … Apr 6} at day resolution = Mon 30 … Sun 05, and a sibling Chart pinning the same [min, max] time domain lines its day ticks up with the columns cell-for-cell under an AlignedStack gutter. format uses the Chart date tokens ("ddd DD" → Mon 30, in UTC); day default is "ddd DD". Drag slot keys stay period-start ISO instants
 │   │     └─ maxHeight (CSS) caps the plan area — body scrolls vertically with the header pinned (sticky-top), like Table's stickyHeader; absent ⇒ content-sized. slotMinWidth drives horizontal slot scroll
 │   │     └─ review={{ … }} + status/approval row accessors — per-row Approve/Reject Decision column + commitBar batch foot (clean ⇒ approved, flagged ⇒ pending via deriveApproval; {rowIndex} events)
 │   │     └─ opt-in DnD target (#269): id + sources + onDrag (+ canDrop) — a Planner without onDrag is exactly click-only; PROPOSED tiles drag (committed history inert; tiles need an authored event key), drops land proposed(added); slot keys compose the bucket in ("wed" / "wed:am"); Span edges resize via the shared runtime
@@ -165,7 +166,8 @@ Task → Which tag?
 │   ├─ Chart.format.{ number, currency, percent, compact, date, time, datetime } — axis tick formats
 │   ├─ tickValues (#318): floats on a linear axis ([0,1,2,…] to line up with a Planner) or DateTime[] on a time axis (pin ticks to exact instants, rendered through the date format); Date ticks on y/y2 are a build-time error
 │   │     date patterns share East's tokens incl. weekdays: "ddd DD" → Mon 30 (dd/ddd/dddd)
-│   ├─ Axis typography (#315): x/y/y2 accept tickStyle/titleStyle { fontSize?, fontFamily?: "sans"|"serif"|"mono", fontWeight?, color?, letterSpacing? } — restyle ticks/captions over the spec chrome (mono 11px fg.muted)
+│   ├─ Axis typography (#315): x/y/y2 accept tickStyle/titleStyle { fontSize?, fontFamily?: "sans"|"serif"|"mono", fontWeight?, color?, letterSpacing? } — restyle ticks/captions over the spec chrome (readable sans/medium/fg.default title default)
+│   ├─ titleGap (#327): x/y/y2 accept titleGap (px) — extra space between the ticks and the caption; widens that axis's OWN margin band, never the shared AlignedStack gutter, so nudging a title can't shift a stacked plot lane
 │   ├─ <Sparkline> — inline trend (line | area), fits beside a <Stat>
 │   └─ Slice-bound chart: a Chart.Series(slice, { x, value, mark? }) layer + <Chart slice={slice}> chrome (brush sets the slice's range)
 │
@@ -210,7 +212,7 @@ Task → Which tag?
 │
 ├─ Overlays (floating content) — `trigger` is a UIComponent prop; body is children
 │   ├─ <Dialog trigger={<Button>…</Button>} title="…"> body </Dialog> — modal
-│   ├─ <Drawer trigger={…} placement="end"> body </Drawer> — side panel; placement start|end|top|bottom; flush / bodyPadding control body padding; fillBody ⇒ a single height:100% child (Table/Planner) fills + owns its scroll
+│   ├─ <Drawer trigger={…} placement="end"> body </Drawer> — side panel; placement start|end|top|bottom; flush / bodyPadding control body padding; fillBody ⇒ a single height:100% child (Table/Planner) fills + owns its scroll. Drawer.open(OpenInput) opens one programmatically (nests/stacks by depth). stacked (+ stackIcon) (#328): while a deeper drawer is open, this drawer collapses to a labeled vertical icon rail (instead of hiding behind) — click the rail to pop the stack back to it; Esc pops one level
 │   ├─ <Popover trigger={…}> body </Popover> — click-triggered floating panel
 │   ├─ <HoverCard trigger={…}> body </HoverCard> — hover preview card
 │   ├─ <Tooltip trigger={…} content="…"> — hover tooltip (content is a string)

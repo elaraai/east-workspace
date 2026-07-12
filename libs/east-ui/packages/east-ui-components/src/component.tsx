@@ -36,6 +36,7 @@ import { EastChakraSplitter } from "./layout/splitter";
 import { EastChakraSticky } from "./layout/sticky";
 import { EastChakraScrollArea } from "./layout/scroll-area";
 import { EastChakraExpandable } from "./layout/expandable";
+import { EastChakraDock } from "./layout/dock";
 import { EastChakraChipRail } from "./display/chip-rail";
 import { EastChakraAccordion } from "./disclosure/accordion";
 import { EastChakraCarousel } from "./disclosure/carousel";
@@ -172,6 +173,7 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
             Sticky: (v) => <EastChakraSticky value={v} storageKey={childKey(storageKey, "Sticky")} />,
             ScrollArea: (v) => <EastChakraScrollArea value={v} storageKey={childKey(storageKey, "ScrollArea")} />,
             Expandable: (v) => <EastChakraExpandable value={v} storageKey={childKey(storageKey, "Expandable")} />,
+            Dock: (v) => <EastChakraDock value={v} storageKey={childKey(storageKey, "Dock")} />,
             ChipRail: (v) => <EastChakraChipRail value={v} storageKey={childKey(storageKey, "ChipRail")} />,
 
             // Forms

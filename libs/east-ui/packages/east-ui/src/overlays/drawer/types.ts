@@ -92,6 +92,10 @@ export const DrawerStyleType = StructType({
     flush: OptionType(BooleanType),
     /** When `true`, body becomes a definite-height flex column so a single child fills + owns its scroll */
     fillBody: OptionType(BooleanType),
+    /** When `true`, this drawer collapses to a thin vertical rail (icon + rotated title) while a deeper drawer is open on top of it, instead of hiding behind it (#328); clicking the rail pops the stack back to it */
+    stacked: OptionType(BooleanType),
+    /** Font Awesome icon name shown on the collapsed stack rail (#328); falls back to a chevron */
+    stackIcon: OptionType(StringType),
 });
 
 export type DrawerStyleType = typeof DrawerStyleType;
@@ -156,4 +160,8 @@ export interface DrawerStyle {
     flush?: SubtypeExprOrValue<BooleanType>;
     /** When `true`, the body is a definite-height flex column (`minHeight:0`, clipped) so a single `height:100%`/`flex:1` child fills the panel and owns its internal scroll instead of the whole panel scrolling. */
     fillBody?: SubtypeExprOrValue<BooleanType>;
+    /** When `true`, this drawer collapses to a thin vertical rail (icon + rotated title) while a deeper drawer is open on top of it — instead of hiding behind it — so the stack you drilled through stays a visible, navigable spine (#328). Click the rail to pop back to this drawer (closing the deeper ones); Esc pops one level. */
+    stacked?: SubtypeExprOrValue<BooleanType>;
+    /** Font Awesome icon name shown on the collapsed stack rail (#328); falls back to a chevron. */
+    stackIcon?: SubtypeExprOrValue<StringType>;
 }

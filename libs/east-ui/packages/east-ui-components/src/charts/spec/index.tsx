@@ -101,6 +101,10 @@ interface ChartStyle {
     color: (token: string) => string;
     /** Resolve a theme font-family tag (`sans` / `serif` / `mono`) to its stack (#315). */
     fontFor: (tag: string) => string;
+    /** Default axis-TITLE font stack — the sans/UI font (titles read better than the mono tick chrome; #327). */
+    titleFont: string;
+    /** Default axis-TITLE colour — full-contrast `fg.default` (not the muted tick colour). */
+    titleColor: string;
 }
 
 /** Shared font-weight tags → CSS weights (the `FontWeightType` arms). */
@@ -115,20 +119,31 @@ type AxisTextStyleValue = ValueTypeOf<typeof T.AxisTextStyle>;
  * fields keep the chrome (mono `labelSize` `fg.muted`); `defaultWeight` is the
  * chrome weight for the run (600 for axis captions, inherit for ticks).
  */
-function axisTextCss(style: ChartStyle, s: AxisTextStyleValue | undefined, defaultWeight?: number): CSSProperties {
+function axisTextCss(
+    style: ChartStyle,
+    s: AxisTextStyleValue | undefined,
+    defaults?: { weight?: number; family?: string; color?: string },
+): CSSProperties {
     const family = s ? getSomeorUndefined(s.fontFamily)?.type : undefined;
     const color = s ? getSomeorUndefined(s.color) : undefined;
     const weightTag = s ? getSomeorUndefined(s.fontWeight)?.type : undefined;
     const css: CSSProperties = {
-        fontFamily: family !== undefined ? style.fontFor(family) : style.font,
+        fontFamily: family !== undefined ? style.fontFor(family) : (defaults?.family ?? style.font),
         fontSize: (s ? getSomeorUndefined(s.fontSize) : undefined) ?? style.labelSize,
-        fill: color !== undefined ? style.color(color) : style.labelColor,
+        fill: color !== undefined ? style.color(color) : (defaults?.color ?? style.labelColor),
     };
-    const weight = weightTag !== undefined ? FONT_WEIGHTS[weightTag] : defaultWeight;
+    const weight = weightTag !== undefined ? FONT_WEIGHTS[weightTag] : defaults?.weight;
     if (weight !== undefined) css.fontWeight = weight;
     const spacing = s ? getSomeorUndefined(s.letterSpacing) : undefined;
     if (spacing !== undefined) css.letterSpacing = spacing;
     return css;
+}
+
+/** Axis-TITLE defaults (#327): titles use the sans/UI font at a real medium (500)
+ *  weight in full-contrast `fg.default` — not the mono `600`/`fg.muted` tick
+ *  chrome, which synthesised faux-bold and read faint. Overrides still win. */
+function titleTextCss(style: ChartStyle, s: AxisTextStyleValue | undefined): CSSProperties {
+    return axisTextCss(style, s, { weight: 500, family: style.titleFont, color: style.titleColor });
 }
 
 /** Resolve an optional curve variant to its visx curve fn (default monotoneX). */
@@ -162,11 +177,15 @@ const WEEKDAYS_LONG = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "
 export function formatDatePattern(pattern: string, d: Date): string {
     if (isNaN(d.getTime())) return "";
     const pad = (n: number) => String(n).padStart(2, "0");
+    // #326 — format in UTC: East DateTime values are UTC instants, so a pinned
+    // `[min, max)` window (and the ticks / day-columns derived from it) must
+    // render identically regardless of the viewer's timezone — deterministic,
+    // and consistent with the time-axis flooring in Planner / Gantt.
     const map: Record<string, string> = {
-        YYYY: String(d.getFullYear()), YY: pad(d.getFullYear() % 100),
-        MMMM: MONTHS_LONG[d.getMonth()]!, MMM: MONTHS[d.getMonth()]!, MM: pad(d.getMonth() + 1),
-        DD: pad(d.getDate()), HH: pad(d.getHours()), mm: pad(d.getMinutes()), ss: pad(d.getSeconds()),
-        dddd: WEEKDAYS_LONG[d.getDay()]!, ddd: WEEKDAYS_LONG[d.getDay()]!.slice(0, 3), dd: WEEKDAYS_LONG[d.getDay()]!.slice(0, 2),
+        YYYY: String(d.getUTCFullYear()), YY: pad(d.getUTCFullYear() % 100),
+        MMMM: MONTHS_LONG[d.getUTCMonth()]!, MMM: MONTHS[d.getUTCMonth()]!, MM: pad(d.getUTCMonth() + 1),
+        DD: pad(d.getUTCDate()), HH: pad(d.getUTCHours()), mm: pad(d.getUTCMinutes()), ss: pad(d.getUTCSeconds()),
+        dddd: WEEKDAYS_LONG[d.getUTCDay()]!, ddd: WEEKDAYS_LONG[d.getUTCDay()]!.slice(0, 3), dd: WEEKDAYS_LONG[d.getUTCDay()]!.slice(0, 2),
     };
     return pattern.replace(/YYYY|YY|MMMM|MMM|MM|DD|dddd|ddd|dd|HH|mm|ss/g, t => map[t] ?? t);
 }
@@ -605,7 +624,7 @@ function AxisBMark({ value }: { value: Axis }): ReactNode {
     const hideTicks = getSomeorUndefined(value.hideTicks) ?? true;
     const hideLine = getSomeorUndefined(value.hideLine) ?? horizontal;
     const tickCss = axisTextCss(style, getSomeorUndefined(value.tickStyle));
-    const titleCss = axisTextCss(style, getSomeorUndefined(value.titleStyle), 600);
+    const titleCss = titleTextCss(style, getSomeorUndefined(value.titleStyle));
     return (
         <>
             <AxisBottom
@@ -635,7 +654,7 @@ function AxisLMark({ value }: { value: Axis }): ReactNode {
     const tickValues = explicitTicks !== undefined ? [...explicitTicks.value] : undefined;
     const numTicks = getSomeorUndefined(value.numTicks);
     const tickCss = axisTextCss(style, getSomeorUndefined(value.tickStyle));
-    const titleCss = axisTextCss(style, getSomeorUndefined(value.titleStyle), 600);
+    const titleCss = titleTextCss(style, getSomeorUndefined(value.titleStyle));
     return (
         <>
             <AxisLeft
@@ -662,7 +681,7 @@ function AxisRMark({ value }: { value: Axis }): ReactNode {
     const explicitTicks = getSomeorUndefined(value.tickValues);
     const tickValues = explicitTicks !== undefined ? [...explicitTicks.value] : undefined;
     const tickCss = axisTextCss(style, getSomeorUndefined(value.tickStyle));
-    const titleCss = axisTextCss(style, getSomeorUndefined(value.titleStyle), 600);
+    const titleCss = titleTextCss(style, getSomeorUndefined(value.titleStyle));
     return (
         <>
             <AxisRight
@@ -737,6 +756,8 @@ function Frame({ node, brush, onBrushEnd, brushKey }: { node: Spec; brush?: bool
         // 11px (was 10px) — the #315 legibility floor for axis/label text.
         labelSize: "11px",
         labelColor: system.token("colors.fg.muted", "#64748b"),
+        titleFont: system.token("fonts.body", "system-ui, sans-serif"),
+        titleColor: system.token("colors.fg.default", "#0f172a"),
         axisStroke: system.token("colors.border.strong", "#cbd5d5"),
         gridStroke: system.token("colors.border.strong", "#cbd5d5"),
         lineWidth: 1.8,
@@ -811,10 +832,14 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
             // Axis-node config: domain overrides + label/format presence (for margins).
             let leftDomain: [number, number] | undefined, rightDomain: [number, number] | undefined, bottomDomain: [number, number] | undefined;
             let xLabel = false, yLabel = false, y2Label = false;
+            // #327 — extra px between the tick labels and each axis caption. Added
+            // to that axis's OWN margin band below (never the shared gutter), so a
+            // title nudge can't shift an AlignedStack lane.
+            let xTitleGap = 0, yTitleGap = 0, y2TitleGap = 0;
             for (const c of f.children) match(c, {
-                axisLeft: (v: Axis) => { const d = getSomeorUndefined(v.domain); if (d) leftDomain = domainBounds(d); if (getSomeorUndefined(v.label)) yLabel = true; },
-                axisRight: (v: Axis) => { const d = getSomeorUndefined(v.domain); if (d) rightDomain = domainBounds(d); if (getSomeorUndefined(v.label)) y2Label = true; },
-                axisBottom: (v: Axis) => { const d = getSomeorUndefined(v.domain); if (d) bottomDomain = domainBounds(d); if (getSomeorUndefined(v.label)) xLabel = true; },
+                axisLeft: (v: Axis) => { const d = getSomeorUndefined(v.domain); if (d) leftDomain = domainBounds(d); if (getSomeorUndefined(v.label)) yLabel = true; yTitleGap = getSomeorUndefined(v.titleGap) ?? 0; },
+                axisRight: (v: Axis) => { const d = getSomeorUndefined(v.domain); if (d) rightDomain = domainBounds(d); if (getSomeorUndefined(v.label)) y2Label = true; y2TitleGap = getSomeorUndefined(v.titleGap) ?? 0; },
+                axisBottom: (v: Axis) => { const d = getSomeorUndefined(v.domain); if (d) bottomDomain = domainBounds(d); if (getSomeorUndefined(v.label)) xLabel = true; xTitleGap = getSomeorUndefined(v.titleGap) ?? 0; },
             }, undefined);
 
             // Margins: base, widened for axis titles + the right axis. A shared
@@ -826,9 +851,9 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
             const base = getSomeorUndefined(f.margin) ?? { top: 8, right: 8, bottom: 24, left: 40 };
             const margin: Margin = {
                 top: base.top,
-                right: gutterRight ?? (Math.max(base.right, hasY2 ? 44 : 8) + (y2Label ? 14 : 0)),
-                bottom: base.bottom + (xLabel ? 16 : 0),
-                left: gutterLeft ?? (base.left + (yLabel ? 14 : 0)),
+                right: gutterRight ?? (Math.max(base.right, hasY2 ? 44 : 8) + (y2Label ? 14 + y2TitleGap : 0)),
+                bottom: base.bottom + (xLabel ? 16 + xTitleGap : 0),
+                left: gutterLeft ?? (base.left + (yLabel ? 14 + yTitleGap : 0)),
             };
 
             const legendOn = getSomeorUndefined(f.legend) !== undefined;
@@ -858,8 +883,8 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
                 // Axis-title x at the NATURAL margin (just past the tick labels), not
                 // the gutter-widened `margin.left/right` — so a shared plotGutter keeps
                 // the rotated y / y2 titles by their axis instead of the lane edge (#147).
-                const yTitleX = -((base.left + (yLabel ? 14 : 0)) - 11);
-                const y2TitleX = innerW + ((Math.max(base.right, hasY2 ? 44 : 8) + (y2Label ? 14 : 0)) - 11);
+                const yTitleX = -((base.left + (yLabel ? 14 + yTitleGap : 0)) - 11);
+                const y2TitleX = innerW + ((Math.max(base.right, hasY2 ? 44 : 8) + (y2Label ? 14 + y2TitleGap : 0)) - 11);
 
                 // The measure scale: values → screen y normally; values →
                 // screen x in a horizontal frame (#249). The measure domain

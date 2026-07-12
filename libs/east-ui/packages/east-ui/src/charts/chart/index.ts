@@ -762,6 +762,10 @@ export interface AxisOptions {
     tickStyle?: ChartAxisTextStyle;
     /** Typography override for the axis caption (#315). */
     titleStyle?: ChartAxisTextStyle;
+    /** Extra px between the tick labels and the axis caption (#327). Widens this
+     *  axis's own margin band, never the shared plot gutter — so it cannot shift
+     *  an `AlignedStack`-aligned plot lane. */
+    titleGap?: SubtypeExprOrValue<FloatType>;
 }
 
 /** Options for {@link createChartRoot}. */
@@ -875,9 +879,9 @@ function createChartRoot(layers: ChartLayer | ChartLayer[], options?: ChartOptio
     const children: ChartSpecValue[] = [
         ...(grid ? [chartGridRows({ dashArray: "2 4" }), chartGridColumns({ dashArray: "2 4" })] : []),
         ...markNodes,
-        chartAxisBottom(compact({ label: opts.x?.label, numTicks: opts.x?.numTicks, tickValues: opts.x?.tickValues, hideTicks: opts.x?.hideTicks, hideLine: opts.x?.hideLine, domain: domainExpr(opts.x?.domain), tickFormat: opts.x?.format, tickStyle: opts.x?.tickStyle, titleStyle: opts.x?.titleStyle })),
-        chartAxisLeft(compact({ label: opts.y?.label, numTicks: opts.y?.numTicks, tickValues: opts.y?.tickValues, hideTicks: opts.y?.hideTicks, hideLine: opts.y?.hideLine, domain: domainExpr(opts.y?.domain), tickFormat: opts.y?.format, tickStyle: opts.y?.tickStyle, titleStyle: opts.y?.titleStyle })),
-        ...(dualAxis ? [chartAxisRight(compact({ label: opts.y2?.label, numTicks: opts.y2?.numTicks, tickValues: opts.y2?.tickValues, hideTicks: opts.y2?.hideTicks, hideLine: opts.y2?.hideLine, domain: domainExpr(opts.y2?.domain), tickFormat: opts.y2?.format, tickStyle: opts.y2?.tickStyle, titleStyle: opts.y2?.titleStyle }))] : []),
+        chartAxisBottom(compact({ label: opts.x?.label, numTicks: opts.x?.numTicks, tickValues: opts.x?.tickValues, hideTicks: opts.x?.hideTicks, hideLine: opts.x?.hideLine, domain: domainExpr(opts.x?.domain), tickFormat: opts.x?.format, tickStyle: opts.x?.tickStyle, titleStyle: opts.x?.titleStyle, titleGap: opts.x?.titleGap })),
+        chartAxisLeft(compact({ label: opts.y?.label, numTicks: opts.y?.numTicks, tickValues: opts.y?.tickValues, hideTicks: opts.y?.hideTicks, hideLine: opts.y?.hideLine, domain: domainExpr(opts.y?.domain), tickFormat: opts.y?.format, tickStyle: opts.y?.tickStyle, titleStyle: opts.y?.titleStyle, titleGap: opts.y?.titleGap })),
+        ...(dualAxis ? [chartAxisRight(compact({ label: opts.y2?.label, numTicks: opts.y2?.numTicks, tickValues: opts.y2?.tickValues, hideTicks: opts.y2?.hideTicks, hideLine: opts.y2?.hideLine, domain: domainExpr(opts.y2?.domain), tickFormat: opts.y2?.format, tickStyle: opts.y2?.tickStyle, titleStyle: opts.y2?.titleStyle, titleGap: opts.y2?.titleGap }))] : []),
     ];
 
     const sliceChrome = opts.slice !== undefined

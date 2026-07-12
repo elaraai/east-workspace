@@ -12,6 +12,7 @@ describeEast("Drawer", (test) => {
         drawerLeft: ex.drawerLeft,
         drawerInteractive: ex.drawerInteractive,
         drawerProgrammatic: ex.drawerProgrammatic,
+        drawerStackedNested: ex.drawerStackedNested,
         drawerFlush: ex.drawerFlush,
     });
 }, { platformFns: TestImpl });

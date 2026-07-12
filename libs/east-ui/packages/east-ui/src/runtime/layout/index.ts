@@ -12,6 +12,7 @@ export { AlignedStack } from "./aligned-stack.js";
 export { ScrollArea } from "./scroll-area.js";
 export { Sticky } from "./sticky.js";
 export { Expandable } from "./expandable.js";
+export { Dock } from "./dock.js";
 export { Separator } from "./separator.js";
 export { Grid } from "./grid.js";
 export { Splitter } from "./splitter.js";

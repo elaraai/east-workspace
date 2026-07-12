@@ -15,7 +15,7 @@ import {
     type IconDefinition,
 } from "@fortawesome/free-solid-svg-icons";
 import { equalFor, match, none, some, variant, type ValueTypeOf } from "@elaraai/east";
-import { timeDay, timeHour, timeMonth, timeWeek, timeYear, type TimeInterval } from "d3-time";
+import { utcDay, utcHour, utcMonth, utcWeek, utcYear, type TimeInterval } from "d3-time";
 import { Planner } from "@elaraai/east-ui/internal";
 import { formatDatePattern } from "../../charts/spec";
 import { getSomeorUndefined } from "../../utils";
@@ -110,15 +110,18 @@ const DAY_MS = 86_400_000;
 const MAX_TIME_COLS = 500;
 
 /** The d3-time interval for a concrete resolution (quarter = 3-month steps),
- *  mirroring the Gantt `EventAxis` tier intervals. */
+ *  mirroring the Gantt `EventAxis` tier intervals. UTC (`utc*`), not local
+ *  (#326): East DateTime values are UTC instants, so a pinned `[min, max)`
+ *  window buckets to the same day/hour columns under any viewer timezone —
+ *  matching the Chart's day ticks cell-for-cell under a shared gutter. */
 function resolutionInterval(res: FixedResolution): TimeInterval {
     switch (res) {
-        case "hour": return timeHour;
-        case "day": return timeDay;
-        case "week": return timeWeek;
-        case "month": return timeMonth;
-        case "quarter": return timeMonth.every(3) ?? timeMonth;
-        case "year": return timeYear;
+        case "hour": return utcHour;
+        case "day": return utcDay;
+        case "week": return utcWeek;
+        case "month": return utcMonth;
+        case "quarter": return utcMonth.every(3) ?? utcMonth;
+        case "year": return utcYear;
     }
 }
 

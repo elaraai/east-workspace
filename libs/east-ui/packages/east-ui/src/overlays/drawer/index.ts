@@ -163,7 +163,8 @@ function createDrawer(
 
     const hasStyle = sizeValue || placementValue || style.contained !== undefined ||
         style.onOpenChange !== undefined || style.onExitComplete !== undefined ||
-        style.bodyPadding !== undefined || style.flush !== undefined || style.fillBody !== undefined;
+        style.bodyPadding !== undefined || style.flush !== undefined || style.fillBody !== undefined ||
+        style.stacked !== undefined || style.stackIcon !== undefined;
 
     return East.value(variant("Drawer", {
         trigger: trigger,
@@ -181,6 +182,8 @@ function createDrawer(
                 bodyPadding: style.bodyPadding !== undefined ? some(style.bodyPadding) : none,
                 flush: style.flush !== undefined ? some(style.flush) : none,
                 fillBody: style.fillBody !== undefined ? some(style.fillBody) : none,
+                stacked: style.stacked !== undefined ? some(style.stacked) : none,
+                stackIcon: style.stackIcon !== undefined ? some(style.stackIcon) : none,
             }, DrawerStyleType))
             : none,
     }), UIComponentType);

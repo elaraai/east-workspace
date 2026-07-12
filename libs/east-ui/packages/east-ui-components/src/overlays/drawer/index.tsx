@@ -64,14 +64,29 @@ export interface DrawerContentProps {
     onClose?: () => void;
     /** Fires once Ark UI's close transition is fully complete (programmatic drawers use it to unmount only after body-lock cleanup runs) */
     onExitComplete?: () => void;
+    /** Extra content rendered inside this drawer's Portal + Positioner (#328) — the
+     *  stacked-ancestor rails ride here so they inherit this drawer's exact Chakra
+     *  overlay layer (above its backdrop, below any popover/tooltip opened from it)
+     *  without a hardcoded z-index. */
+    railsSlot?: ReactNode;
+    /** Controlled fullscreen state (#328). Programmatic stacked drawers lift this
+     *  to the overlay manager (keyed by drawer id) so it survives the unmount/remount
+     *  when nesting changes; trigger-based drawers omit it and keep local state. */
+    fullscreen?: boolean;
+    /** Toggle handler paired with {@link DrawerContentProps.fullscreen} — when
+     *  provided, the fullscreen button drives the lifted state instead of local. */
+    onToggleFullscreen?: () => void;
 }
 
 /**
  * Shared drawer content component used by both trigger-based and programmatic drawers.
  */
-export function DrawerContent({ value, storageKey, trigger, open, onClose, onExitComplete: onExitCompleteCallback }: DrawerContentProps) {
+export function DrawerContent({ value, storageKey, trigger, open, onClose, onExitComplete: onExitCompleteCallback, railsSlot, fullscreen, onToggleFullscreen }: DrawerContentProps) {
     const props = useMemo(() => toChakraDrawer(value), [value]);
-    const [isFullscreen, setIsFullscreen] = useState(false);
+    // Fullscreen is controlled by the overlay manager for stacked drawers (so it
+    // survives the unmount/remount across nesting changes) and local otherwise.
+    const [localFullscreen, setLocalFullscreen] = useState(false);
+    const isFullscreen = fullscreen ?? localFullscreen;
 
     // Extract header fields from value
     const eyebrow = useMemo(() => getSomeorUndefined(value.eyebrow), [value.eyebrow]);
@@ -109,8 +124,9 @@ export function DrawerContent({ value, storageKey, trigger, open, onClose, onExi
     }, [onExitCompleteFn, onExitCompleteCallback]);
 
     const toggleFullscreen = useCallback(() => {
-        setIsFullscreen(prev => !prev);
-    }, []);
+        if (onToggleFullscreen) onToggleFullscreen();
+        else setLocalFullscreen(prev => !prev);
+    }, [onToggleFullscreen]);
 
     // Use full size when fullscreen, otherwise use props size
     const effectiveSize = isFullscreen ? "full" : props.size;
@@ -132,6 +148,12 @@ export function DrawerContent({ value, storageKey, trigger, open, onClose, onExi
             <Portal>
                 <ChakraDrawer.Backdrop />
                 <ChakraDrawer.Positioner>
+                    {/* #328 — stacked-ancestor rails ride inside this drawer's
+                      * Positioner so they inherit its exact overlay layer: above
+                      * this backdrop, below any popover/tooltip opened from the
+                      * drawer. In-flow flex siblings of the panel (they don't
+                      * overlap it), so no z-index handling is needed. */}
+                    {railsSlot}
                     <ChakraDrawer.Content>
                         <ChakraDrawer.Header>
                             <ChakraBox flex="1" minWidth="0">

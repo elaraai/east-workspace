@@ -93,6 +93,8 @@ import { tableSlotRecipe } from "./slot-recipes/table.js";
 import { carouselSlotRecipe } from "./slot-recipes/carousel.js";
 import { collapsibleSlotRecipe } from "./slot-recipes/collapsible.js";
 import { expandableSlotRecipe } from "./slot-recipes/expandable.js";
+import { dockSlotRecipe } from "./slot-recipes/dock.js";
+import { drawerStackRailSlotRecipe } from "./slot-recipes/drawerStack.js";
 import { optionListSlotRecipe } from "./slot-recipes/optionList.js";
 import { codeBlockSlotRecipe } from "./slot-recipes/codeBlock.js";
 import { commandPaletteSlotRecipe } from "./slot-recipes/commandPalette.js";
@@ -186,6 +188,8 @@ const config = defineConfig({
             carousel:        carouselSlotRecipe,
             collapsible:     collapsibleSlotRecipe,
             expandable:      expandableSlotRecipe,
+            dock:            dockSlotRecipe,
+            drawerStackRail: drawerStackRailSlotRecipe,
             optionList:      optionListSlotRecipe,
             codeBlock:       codeBlockSlotRecipe,
             commandPalette:  commandPaletteSlotRecipe,
