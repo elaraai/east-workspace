@@ -4,9 +4,9 @@
  */
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, DateTimeType, FloatType, StringType, StructType, example } from "@elaraai/east";
-import { UIComponentType } from "@elaraai/east-ui";
+import { UIComponentType, DragEventType } from "@elaraai/east-ui";
 import { NullType } from "@elaraai/east";
-import { AlignedStack, Box, Calendar, Chart, Gantt, Matrix, Planner, Table, Trace } from "@elaraai/east-ui";
+import { AlignedStack, Box, Calendar, Chart, Gantt, HStack, Library, Matrix, Planner, Table, Trace } from "@elaraai/east-ui";
 
 /**
  * Two charts on the same day axis, stacked in an `<AlignedStack>` with a shared
@@ -363,6 +363,65 @@ export const alignedStackDateAxis = example({
                     ]}
                 />
             </AlignedStack>
+        );
+    }),
+    inputs: [],
+});
+
+/**
+ * DnD across an `<AlignedStack>` (#330) — a `<Library>` (drag SOURCE) beside a
+ * Chart-over-`<Planner>` stack whose Planner is the drop TARGET (`sources` +
+ * `onDrag`). The natural planning-board layout: drag an incoming delivery from
+ * the library onto the planner while the chart stays aligned above it. The
+ * Library cards must keep their grab handles even though the target is nested
+ * in the AlignedStack (a sibling of the source).
+ */
+export const alignedStackLibraryDnd = example({
+    keywords: ["AlignedStack", "Library", "Planner", "DnD", "drag", "drop", "target", "source", "sources", "onDrag", "grab", "handle", "board", "gutter"],
+    description: "DnD across an AlignedStack (#330) — a Library drag-source beside a Chart-over-Planner stack whose Planner is the drop target; the library cards should keep their grab handles",
+    fn: East.function([], UIComponentType, ($) => {
+        const temp = $.const([
+            { day: 0.0, v: 12.0 }, { day: 2.0, v: 18.0 }, { day: 4.0, v: 16.0 }, { day: 6.0, v: 13.0 },
+        ], ArrayType(StructType({ day: FloatType, v: FloatType })));
+        const tanks = $.const([
+            { name: "Tank A", role: "Ferment" }, { name: "Tank B", role: "Crush" },
+        ], ArrayType(StructType({ name: StringType, role: StringType })));
+        return (
+            <HStack gap="4" width="100%" align="stretch">
+                <Box width="200px">
+                    <Library
+                        id="incoming"
+                        data={[
+                            { id: "d1", name: "Cabernet — Bin 3" },
+                            { id: "d2", name: "Shiraz — Bin 7" },
+                        ]}
+                        item={r => ({ key: r.id, label: r.name, icon: "box" })}
+                    />
+                </Box>
+                <Box flex="1" minWidth="0">
+                    <AlignedStack gutter={{ left: "120px", right: "12px" }} gap="8px">
+                        <Box height="140px" width="100%">
+                            <Chart
+                                height="fill"
+                                layers={Chart.Line(temp, { x: r => r.day, y: r => r.v }, { color: "teal.solid" })}
+                                x={{ label: "Day", scale: "linear", domain: [-0.5, 6.5], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0] }}
+                                y={{ label: "°C" }}
+                                grid
+                            />
+                        </Box>
+                        <Planner.Point
+                            id="board"
+                            sources={["incoming"]}
+                            data={tanks}
+                            axis={Planner.axis.number({ range: { min: 0, max: 6 } })}
+                            columns={[{ key: "name", frozen: true, value: r => r.name, sublabel: r => r.role }]}
+                            events={_r => [Planner.event({ slot: Planner.at.number(3), label: "plan", state: "added" })]}
+                            onDrag={East.function([DragEventType], NullType, (_$, _event) => {})}
+                            now={Planner.at.number(3)}
+                        />
+                    </AlignedStack>
+                </Box>
+            </HStack>
         );
     }),
     inputs: [],

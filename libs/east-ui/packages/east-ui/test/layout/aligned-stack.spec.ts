@@ -18,6 +18,7 @@ describeEast("AlignedStack", (test) => {
         alignedStackChartPlanner: ex.alignedStackChartPlanner,
         alignedStackChartTitles: ex.alignedStackChartTitles,
         alignedStackDateAxis: ex.alignedStackDateAxis,
+        alignedStackLibraryDnd: ex.alignedStackLibraryDnd,
         alignedStackChartGantt: ex.alignedStackChartGantt,
         alignedStackAll: ex.alignedStackAll,
         alignedStackAllCompact: ex.alignedStackAllCompact,
