@@ -97,6 +97,70 @@ export const drawerProgrammatic = example({
     inputs: [],
 });
 
+export const drawerStackedNested = example({
+    keywords: ["Drawer", "open", "stacked", "stackIcon", "nested", "stack", "rail", "programmatic", "pop", "drill"],
+    description: "Programmatic nested drawers with stacked:true — each drawer's body opens the next, and every ancestor collapses to a labeled icon rail you can click to pop back to it (#328)",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <Button
+                variant="solid"
+                onClick={East.function([], NullType, $ => {
+                    $(Drawer.open(East.value({
+                        body: [
+                            <VStack gap="4" align="flex-start">
+                                <Text>Fermenter B4418 — detail. Drill into its decisions from here.</Text>
+                                <Button
+                                    variant="outline"
+                                    onClick={East.function([], NullType, $ => {
+                                        $(Drawer.open(East.value({
+                                            body: [
+                                                <VStack gap="4" align="flex-start">
+                                                    <Text>Decisions queue for B4418.</Text>
+                                                    <Button
+                                                        variant="outline"
+                                                        onClick={East.function([], NullType, $ => {
+                                                            $(Drawer.open(East.value({
+                                                                body: [<Text>Adjust setpoint — the deepest drawer.</Text>],
+                                                                eyebrow: some("Decision"),
+                                                                title: some("Adjust setpoint"),
+                                                                description: none,
+                                                                style: none,
+                                                            }, Drawer.Types.OpenInput)));
+                                                        })}
+                                                    >Open decision detail</Button>
+                                                </VStack>,
+                                            ],
+                                            eyebrow: some("Notifications"),
+                                            title: some("Decisions"),
+                                            description: none,
+                                            // Collapses to a "bell" rail when the detail drawer opens on top.
+                                            style: some(East.value({
+                                                size: none, placement: none, contained: none,
+                                                onOpenChange: none, onExitComplete: none, bodyPadding: none,
+                                                flush: none, fillBody: none, stacked: some(true), stackIcon: some("bell"),
+                                            }, Drawer.Types.Style)),
+                                        }, Drawer.Types.OpenInput)));
+                                    })}
+                                >Open decisions</Button>
+                            </VStack>,
+                        ],
+                        eyebrow: some("Fermenter"),
+                        title: some("B4418"),
+                        description: none,
+                        // Collapses to a "flask" rail while any deeper drawer is open.
+                        style: some(East.value({
+                            size: none, placement: none, contained: none,
+                            onOpenChange: none, onExitComplete: none, bodyPadding: none,
+                            flush: none, fillBody: none, stacked: some(true), stackIcon: some("flask"),
+                        }, Drawer.Types.Style)),
+                    }, Drawer.Types.OpenInput)));
+                })}
+            >Open B4418</Button>
+        );
+    }),
+    inputs: [],
+});
+
 export const drawerFlush = example({
     keywords: ["Drawer", "flush", "bodyPadding", "fillBody", "full-bleed", "padding", "fill-height", "scroll"],
     description: "Body padding control: a full-bleed fill-height body (flush + fillBody) so a single child fills the panel and owns its own scroll, plus a custom bodyPadding inset",

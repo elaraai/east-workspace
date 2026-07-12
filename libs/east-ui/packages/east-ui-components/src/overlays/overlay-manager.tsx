@@ -4,10 +4,18 @@
  */
 
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
+import { chakra, useSlotRecipe } from "@chakra-ui/react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { library, type IconName } from "@fortawesome/fontawesome-svg-core";
+import { fas, faChevronLeft, faChevronRight } from "@fortawesome/free-solid-svg-icons";
 import { type PlatformFunction } from "@elaraai/east/internal";
 import { dialog_open, drawer_open } from "@elaraai/east-ui/internal";
 import { DialogContent, type DialogOpenInputValue } from "./dialog/index.js";
 import { DrawerContent, type DrawerOpenInputValue } from "./drawer/index.js";
+import { getSomeorUndefined } from "../utils";
+
+// Stack-rail icons (#328) are dynamic FA names; register the free-solid set.
+library.add(fas);
 
 interface PendingDialog {
     id: string;
@@ -38,6 +46,68 @@ export function useOverlayManager(): OverlayManagerContextValue {
         throw new Error("useOverlayManager must be used within an OverlayManagerProvider");
     }
     return context;
+}
+
+// ============================================================================
+// Drawer stack rails (#328)
+// ============================================================================
+
+const RAIL_EDGE_INSET = 12;
+const RAIL_WIDTH = 40;
+const RAIL_GAP = 8;
+
+interface DrawerRailMeta {
+    title: string | undefined;
+    icon: string | undefined;
+    stacked: boolean;
+    placement: string;
+}
+
+/** Read the rail-relevant fields off a programmatic drawer's open input. */
+function drawerMeta(value: DrawerOpenInputValue): DrawerRailMeta {
+    const title = getSomeorUndefined(value.title);
+    const style = getSomeorUndefined(value.style);
+    const stacked = style ? (getSomeorUndefined(style.stacked) ?? false) : false;
+    const icon = style ? getSomeorUndefined(style.stackIcon) : undefined;
+    const placement = (style ? getSomeorUndefined(style.placement)?.type : undefined) ?? "end";
+    return { title, icon, stacked, placement };
+}
+
+interface DrawerStackRailProps {
+    meta: DrawerRailMeta;
+    ordinal: number;
+    onClick: () => void;
+}
+
+/**
+ * An ancestor drawer collapsed to a thin vertical rail while a deeper drawer is
+ * active (#328). Pins to the edge OPPOSITE the drawer placement — the active
+ * drawer covers its own edge — so an `end`-placed (right) stack lays its
+ * ancestor rails down the LEFT edge, in stack order. Clicking pops the stack
+ * back to this drawer.
+ */
+function DrawerStackRail({ meta, ordinal, onClick }: DrawerStackRailProps) {
+    const styles = useSlotRecipe({ key: "drawerStackRail" })();
+    const offset = RAIL_EDGE_INSET + ordinal * (RAIL_WIDTH + RAIL_GAP);
+    // `start`-placed drawers sit on the left, so their rails go on the RIGHT;
+    // every other placement rails on the LEFT.
+    const onLeft = meta.placement !== "start";
+    const label = meta.title ?? "Back";
+    const chevron = onLeft ? faChevronLeft : faChevronRight;
+    return (
+        <chakra.button
+            css={styles.rail}
+            aria-label={`Back to ${label}`}
+            onClick={onClick}
+            zIndex={1450}
+            top="50%"
+            transform="translateY(-50%)"
+            {...(onLeft ? { left: `${offset}px` } : { right: `${offset}px` })}
+        >
+            <FontAwesomeIcon icon={meta.icon ? (meta.icon as IconName) : chevron} />
+            <chakra.span css={styles.label}>{label}</chakra.span>
+        </chakra.button>
+    );
 }
 
 // ============================================================================
@@ -93,6 +163,15 @@ export function OverlayManagerProvider({ children }: OverlayManagerProviderProps
         setDrawers(prev => prev.filter(d => d.id !== id));
     }, []);
 
+    // #328 — pop the drawer stack back to `id`, closing every drawer opened
+    // after it (a click on that ancestor's collapsed rail).
+    const popTo = useCallback((id: string) => {
+        setDrawers(prev => {
+            const idx = prev.findIndex(d => d.id === id);
+            return idx === -1 ? prev : prev.slice(0, idx + 1);
+        });
+    }, []);
+
     const contextValue: OverlayManagerContextValue = {
         openDialog,
         openDrawer,
@@ -114,14 +193,23 @@ export function OverlayManagerProvider({ children }: OverlayManagerProviderProps
                 />
             ))}
 
-            {/* Render programmatic drawers */}
-            {drawers.map(({ id, value }) => (
-                <ProgrammaticDrawer
-                    key={id}
-                    value={value}
-                    onClose={() => closeDrawer(id)}
-                />
-            ))}
+            {/* Render programmatic drawers — a `stacked` ancestor (any drawer
+              * that is NOT the deepest) collapses to a vertical rail (#328) that
+              * pops the stack to it when clicked; every other drawer renders full
+              * (the deepest is always full). */}
+            {(() => {
+                let railOrdinal = 0;
+                return drawers.map(({ id, value }, i) => {
+                    const isTop = i === drawers.length - 1;
+                    const meta = drawerMeta(value);
+                    if (!isTop && meta.stacked) {
+                        const rail = <DrawerStackRail key={id} meta={meta} ordinal={railOrdinal} onClick={() => popTo(id)} />;
+                        railOrdinal += 1;
+                        return rail;
+                    }
+                    return <ProgrammaticDrawer key={id} value={value} onClose={() => closeDrawer(id)} />;
+                });
+            })()}
         </OverlayManagerContext.Provider>
     );
 }

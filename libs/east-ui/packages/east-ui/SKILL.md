@@ -212,7 +212,7 @@ Task → Which tag?
 │
 ├─ Overlays (floating content) — `trigger` is a UIComponent prop; body is children
 │   ├─ <Dialog trigger={<Button>…</Button>} title="…"> body </Dialog> — modal
-│   ├─ <Drawer trigger={…} placement="end"> body </Drawer> — side panel; placement start|end|top|bottom; flush / bodyPadding control body padding; fillBody ⇒ a single height:100% child (Table/Planner) fills + owns its scroll
+│   ├─ <Drawer trigger={…} placement="end"> body </Drawer> — side panel; placement start|end|top|bottom; flush / bodyPadding control body padding; fillBody ⇒ a single height:100% child (Table/Planner) fills + owns its scroll. Drawer.open(OpenInput) opens one programmatically (nests/stacks by depth). stacked (+ stackIcon) (#328): while a deeper drawer is open, this drawer collapses to a labeled vertical icon rail (instead of hiding behind) — click the rail to pop the stack back to it; Esc pops one level
 │   ├─ <Popover trigger={…}> body </Popover> — click-triggered floating panel
 │   ├─ <HoverCard trigger={…}> body </HoverCard> — hover preview card
 │   ├─ <Tooltip trigger={…} content="…"> — hover tooltip (content is a string)

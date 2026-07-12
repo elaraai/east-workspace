@@ -1,14 +1,14 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1486,
+    "totalEntries": 1487,
     "totalFiles": 185,
     "packages": {
       "east": 490,
       "east-node-std": 42,
       "east-node-io": 63,
       "east-py-datascience": 89,
-      "east-ui": 728,
+      "east-ui": 729,
       "e3-ui": 58,
       "e3": 7,
       "e3-ui-cli": 4,
@@ -26545,6 +26545,32 @@
         "import { Box, Button, Drawer, Reactive, Status, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// Drawer.open() without trigger — defaults to brand-d primary button\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Button\n                variant=\"solid\"\n                onClick={East.function([], NullType, $ => {\n                    $(Drawer.open(East.value({\n                        body: [\n                            <VStack gap=\"4\">\n                                <Text>This drawer was opened programmatically using Drawer.open().</Text>\n                                <Text color=\"fg.muted\">Great for navigation, notifications, or dynamic content.</Text>\n                            </VStack>,\n                        ],\n                        eyebrow: some(\"Rail · programmatic\"),\n                        title: some(\"Programmatic Drawer\"),\n                        description: some(\"Opened via Drawer.open()\"),\n                        style: none,\n                    }, Drawer.Types.OpenInput)));\n                })}\n            >Open Drawer Programmatically</Button>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:drawer.examples.tsx:drawerStackedNested",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/overlays/drawer.examples.tsx",
+      "suite": "",
+      "test": "Programmatic nested drawers with stacked:true — each drawer",
+      "keywords": [
+        "Drawer",
+        "open",
+        "stacked",
+        "stackIcon",
+        "nested",
+        "stack",
+        "rail",
+        "programmatic",
+        "pop",
+        "drill"
+      ],
+      "imports": [
+        "import { East, BooleanType, IntegerType, NullType, example, some, none } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Button, Drawer, Reactive, Status, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Programmatic nested drawers with stacked:true — each drawer\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Button\n                variant=\"solid\"\n                onClick={East.function([], NullType, $ => {\n                    $(Drawer.open(East.value({\n                        body: [\n                            <VStack gap=\"4\" align=\"flex-start\">\n                                <Text>Fermenter B4418 — detail. Drill into its decisions from here.</Text>\n                                <Button\n                                    variant=\"outline\"\n                                    onClick={East.function([], NullType, $ => {\n                                        $(Drawer.open(East.value({\n                                            body: [\n                                                <VStack gap=\"4\" align=\"flex-start\">\n                                                    <Text>Decisions queue for B4418.</Text>\n                                                    <Button\n                                                        variant=\"outline\"\n                                                        onClick={East.function([], NullType, $ => {\n                                                            $(Drawer.open(East.value({\n                                                                body: [<Text>Adjust setpoint — the deepest drawer.</Text>],\n                                                                eyebrow: some(\"Decision\"),\n                                                                title: some(\"Adjust setpoint\"),\n                                                                description: none,\n                                                                style: none,\n                                                            }, Drawer.Types.OpenInput)));\n                                                        })}\n                                                    >Open decision detail</Button>\n                                                </VStack>,\n                                            ],\n                                            eyebrow: some(\"Notifications\"),\n                                            title: some(\"Decisions\"),\n                                            description: none,\n                                            // Collapses to a \"bell\" rail when the detail drawer opens on top.\n                                            style: some(East.value({\n                                                size: none, placement: none, contained: none,\n                                                onOpenChange: none, onExitComplete: none, bodyPadding: none,\n                                                flush: none, fillBody: none, stacked: some(true), stackIcon: some(\"bell\"),\n                                            }, Drawer.Types.Style)),\n                                        }, Drawer.Types.OpenInput)));\n                                    })}\n                                >Open decisions</Button>\n                            </VStack>,\n                        ],\n                        eyebrow: some(\"Fermenter\"),\n                        title: some(\"B4418\"),\n                        description: none,\n                        // Collapses to a \"flask\" rail while any deeper drawer is open.\n                        style: some(East.value({\n                            size: none, placement: none, contained: none,\n                            onOpenChange: none, onExitComplete: none, bodyPadding: none,\n                            flush: none, fillBody: none, stacked: some(true), stackIcon: some(\"flask\"),\n                        }, Drawer.Types.Style)),\n                    }, Drawer.Types.OpenInput)));\n                })}\n            >Open B4418</Button>\n        );\n    })"
     },
     {
       "id": "east-ui:drawer.examples.tsx:drawerFlush",
