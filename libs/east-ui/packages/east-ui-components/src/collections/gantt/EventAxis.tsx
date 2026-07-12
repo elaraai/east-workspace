@@ -6,7 +6,7 @@
 import { useMemo } from "react";
 import { Box, type SystemStyleObject } from "@chakra-ui/react";
 import { scaleTime } from "@visx/scale";
-import { timeDay, timeWeek, timeMonth, timeYear, type TimeInterval } from "d3-time";
+import { utcDay, utcWeek, utcMonth, utcYear, type TimeInterval } from "d3-time";
 import { formatDatePattern } from "../../charts/spec";
 
 /** Header band granularity — mirrors the IR `GanttTierType` arms. */
@@ -48,11 +48,11 @@ export function effectiveTier(tier: GanttTier, start: Date, end: Date): FixedTie
 /** The d3-time interval for a concrete tier. */
 function fixedInterval(tier: FixedTier): TimeInterval {
     switch (tier) {
-        case "day": return timeDay;
-        case "week": return timeWeek;
-        case "month": return timeMonth;
-        case "quarter": return timeMonth.every(3) ?? timeMonth;
-        case "year": return timeYear;
+        case "day": return utcDay;
+        case "week": return utcWeek;
+        case "month": return utcMonth;
+        case "quarter": return utcMonth.every(3) ?? utcMonth;
+        case "year": return utcYear;
     }
 }
 
@@ -111,7 +111,7 @@ export const EventAxis = ({
         const inner = boundaries.filter(d => d.getTime() > startDate.getTime() && d.getTime() < endDate.getTime());
         const periodStarts = [startDate, ...inner];
 
-        const multiYear = startDate.getFullYear() !== endDate.getFullYear();
+        const multiYear = startDate.getUTCFullYear() !== endDate.getUTCFullYear();
         const pattern = format ?? defaultPattern(eff, multiYear);
 
         // Thin the labels to the measured space: keep a period only when the

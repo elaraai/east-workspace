@@ -177,11 +177,15 @@ const WEEKDAYS_LONG = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "
 export function formatDatePattern(pattern: string, d: Date): string {
     if (isNaN(d.getTime())) return "";
     const pad = (n: number) => String(n).padStart(2, "0");
+    // #326 — format in UTC: East DateTime values are UTC instants, so a pinned
+    // `[min, max)` window (and the ticks / day-columns derived from it) must
+    // render identically regardless of the viewer's timezone — deterministic,
+    // and consistent with the time-axis flooring in Planner / Gantt.
     const map: Record<string, string> = {
-        YYYY: String(d.getFullYear()), YY: pad(d.getFullYear() % 100),
-        MMMM: MONTHS_LONG[d.getMonth()]!, MMM: MONTHS[d.getMonth()]!, MM: pad(d.getMonth() + 1),
-        DD: pad(d.getDate()), HH: pad(d.getHours()), mm: pad(d.getMinutes()), ss: pad(d.getSeconds()),
-        dddd: WEEKDAYS_LONG[d.getDay()]!, ddd: WEEKDAYS_LONG[d.getDay()]!.slice(0, 3), dd: WEEKDAYS_LONG[d.getDay()]!.slice(0, 2),
+        YYYY: String(d.getUTCFullYear()), YY: pad(d.getUTCFullYear() % 100),
+        MMMM: MONTHS_LONG[d.getUTCMonth()]!, MMM: MONTHS[d.getUTCMonth()]!, MM: pad(d.getUTCMonth() + 1),
+        DD: pad(d.getUTCDate()), HH: pad(d.getUTCHours()), mm: pad(d.getUTCMinutes()), ss: pad(d.getUTCSeconds()),
+        dddd: WEEKDAYS_LONG[d.getUTCDay()]!, ddd: WEEKDAYS_LONG[d.getUTCDay()]!.slice(0, 3), dd: WEEKDAYS_LONG[d.getUTCDay()]!.slice(0, 2),
     };
     return pattern.replace(/YYYY|YY|MMMM|MMM|MM|DD|dddd|ddd|dd|HH|mm|ss/g, t => map[t] ?? t);
 }
