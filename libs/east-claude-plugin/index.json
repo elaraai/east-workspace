@@ -1,14 +1,14 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1480,
-    "totalFiles": 184,
+    "totalEntries": 1486,
+    "totalFiles": 185,
     "packages": {
       "east": 490,
       "east-node-std": 42,
       "east-node-io": 63,
       "east-py-datascience": 89,
-      "east-ui": 722,
+      "east-ui": 728,
       "e3-ui": 58,
       "e3": 7,
       "e3-ui-cli": 4,
@@ -14479,12 +14479,13 @@
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/charts/chart.examples.tsx",
       "suite": "",
-      "test": "Axis typography overrides — tickStyle/titleStyle set font size / family / weight / colour per axis (weekday date ticks in 12px sans fg.default)",
+      "test": "Axis typography overrides — tickStyle/titleStyle set font size / family / weight / colour per axis (weekday date ticks in 12px sans fg.default), and titleGap pushes the y caption out from the ticks",
       "keywords": [
         "Chart",
         "axis",
         "tickStyle",
         "titleStyle",
+        "titleGap",
         "font",
         "typography",
         "fontSize",
@@ -14501,7 +14502,7 @@
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
         "import { AlignedStack, Box, Chart, Reactive, Table, VStack } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Axis typography overrides — tickStyle/titleStyle set font size / family / weight / colour per axis (weekday date ticks in 12px sans fg.default)\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { at: new Date(\"2026-03-30T12:00:00Z\"), v: 8.0 },\n            { at: new Date(\"2026-03-31T12:00:00Z\"), v: 10.0 },\n            { at: new Date(\"2026-04-01T12:00:00Z\"), v: 14.0 },\n            { at: new Date(\"2026-04-02T12:00:00Z\"), v: 12.0 },\n            { at: new Date(\"2026-04-03T12:00:00Z\"), v: 9.0 },\n        ], ArrayType(StructType({ at: DateTimeType, v: FloatType })));\n        return (\n            <Box height=\"240px\" width=\"100%\">\n                <Chart\n                    layers={Chart.Line(rows, { x: r => r.at, y: r => r.v })}\n                    x={{ scale: \"time\", format: Chart.format.date(\"ddd DD\"), tickStyle: { fontSize: \"12px\", fontFamily: \"sans\", color: \"fg.default\" } }}\n                    y={{ label: \"Clarified kL\", tickStyle: { fontSize: \"12px\" }, titleStyle: { fontFamily: \"sans\", fontWeight: \"semibold\", color: \"fg.default\", letterSpacing: \"0.02em\" } }}\n                    grid\n                />\n            </Box>\n        );\n    })"
+      "source": "// Axis typography overrides — tickStyle/titleStyle set font size / family / weight / colour per axis (weekday date ticks in 12px sans fg.default), and titleGap pushes the y caption out from the ticks\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const rows = $.const([\n            { at: new Date(\"2026-03-30T12:00:00Z\"), v: 8.0 },\n            { at: new Date(\"2026-03-31T12:00:00Z\"), v: 10.0 },\n            { at: new Date(\"2026-04-01T12:00:00Z\"), v: 14.0 },\n            { at: new Date(\"2026-04-02T12:00:00Z\"), v: 12.0 },\n            { at: new Date(\"2026-04-03T12:00:00Z\"), v: 9.0 },\n        ], ArrayType(StructType({ at: DateTimeType, v: FloatType })));\n        return (\n            <Box height=\"240px\" width=\"100%\">\n                <Chart\n                    layers={Chart.Line(rows, { x: r => r.at, y: r => r.v })}\n                    x={{ scale: \"time\", format: Chart.format.date(\"ddd DD\"), tickStyle: { fontSize: \"12px\", fontFamily: \"sans\", color: \"fg.default\" } }}\n                    y={{ label: \"Clarified kL\", titleGap: 6, tickStyle: { fontSize: \"12px\" }, titleStyle: { fontFamily: \"sans\", fontWeight: \"semibold\", color: \"fg.default\", letterSpacing: \"0.02em\" } }}\n                    grid\n                />\n            </Box>\n        );\n    })"
     },
     {
       "id": "east-ui:chart.examples.tsx:lineSampleFan",
@@ -24205,6 +24206,33 @@
       "source": "// A Chart stacked over a Planner sharing one gutter — the frozen channel fills \n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const temp = $.const([\n            { day: 0.0, v: 12.0 }, { day: 1.0, v: 14.0 }, { day: 2.0, v: 18.0 },\n            { day: 3.0, v: 20.0 }, { day: 4.0, v: 19.0 }, { day: 5.0, v: 16.0 }, { day: 6.0, v: 13.0 },\n        ], ArrayType(StructType({ day: FloatType, v: FloatType })));\n        return (\n            <AlignedStack gutter={{ left: \"140px\", right: \"12px\" }} gap=\"8px\">\n                <Box height=\"150px\" width=\"100%\">\n                    <Chart\n                        height=\"fill\"\n                        layers={Chart.Line(temp, { x: r => r.day, y: r => r.v }, { color: \"teal.solid\" })}\n                        x={{ scale: \"linear\", domain: [-0.5, 6.5], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0] }}\n                        y={{ label: \"°C\" }}\n                        grid\n                    />\n                </Box>\n                <Planner.Point\n                    data={[{ name: \"Line A\", role: \"Primary\" }, { name: \"Line B\", role: \"Backup\" }]}\n                    axis={Planner.axis.number({ range: { min: 0, max: 6 } })}\n                    columns={[{ key: \"name\", frozen: true, value: r => r.name, sublabel: r => r.role }]}\n                    events={_r => [\n                        Planner.event({ slot: Planner.at.number(0), label: \"✓\", state: \"committed\" }),\n                        Planner.event({ slot: Planner.at.number(2), label: \"✓\", state: \"committed\" }),\n                        Planner.event({ slot: Planner.at.number(4), label: \"plan\", state: \"added\" }),\n                        Planner.event({ slot: Planner.at.number(6), label: \"?\", state: \"model\" }),\n                    ]}\n                    now={Planner.at.number(4)}\n                    onSelectRow={East.function([Planner.Types.SelectEvent], NullType, _$ => null)}\n                />\n            </AlignedStack>\n        );\n    })"
     },
     {
+      "id": "east-ui:aligned-stack.examples.tsx:alignedStackChartTitles",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/layout/aligned-stack.examples.tsx",
+      "suite": "",
+      "test": "A Chart with x + y axis titles (nudged out with titleGap) stacked over a Planner — the titles push into their own axis bands while the day ticks stay aligned with the Planner columns (#327)",
+      "keywords": [
+        "AlignedStack",
+        "Chart",
+        "Planner",
+        "axis",
+        "title",
+        "label",
+        "titleGap",
+        "margin",
+        "align",
+        "gutter"
+      ],
+      "imports": [
+        "import { East, ArrayType, DateTimeType, FloatType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { NullType } from \"@elaraai/east\";",
+        "import { AlignedStack, Box, Calendar, Chart, Gantt, Matrix, Planner, Table, Trace } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// A Chart with x + y axis titles (nudged out with titleGap) stacked over a Planner — the titles push into their own axis bands while the day ticks stay aligned with the Planner columns (#327)\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const temp = $.const([\n            { day: 0.0, v: 12.0 }, { day: 1.0, v: 14.0 }, { day: 2.0, v: 18.0 },\n            { day: 3.0, v: 20.0 }, { day: 4.0, v: 19.0 }, { day: 5.0, v: 16.0 }, { day: 6.0, v: 13.0 },\n        ], ArrayType(StructType({ day: FloatType, v: FloatType })));\n        return (\n            <AlignedStack gutter={{ left: \"140px\", right: \"12px\" }} gap=\"8px\">\n                <Box height=\"170px\" width=\"100%\">\n                    <Chart\n                        height=\"fill\"\n                        layers={Chart.Line(temp, { x: r => r.day, y: r => r.v }, { color: \"teal.solid\" })}\n                        x={{ label: \"Day\", titleGap: 8, scale: \"linear\", domain: [-0.5, 6.5], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0] }}\n                        y={{ label: \"°C\", titleGap: 6 }}\n                        grid\n                    />\n                </Box>\n                <Planner.Point\n                    data={[{ name: \"Line A\", role: \"Primary\" }, { name: \"Line B\", role: \"Backup\" }]}\n                    axis={Planner.axis.number({ range: { min: 0, max: 6 } })}\n                    columns={[{ key: \"name\", frozen: true, value: r => r.name, sublabel: r => r.role }]}\n                    events={_r => [\n                        Planner.event({ slot: Planner.at.number(0), label: \"✓\", state: \"committed\" }),\n                        Planner.event({ slot: Planner.at.number(4), label: \"plan\", state: \"added\" }),\n                    ]}\n                    now={Planner.at.number(4)}\n                />\n            </AlignedStack>\n        );\n    })"
+    },
+    {
       "id": "east-ui:aligned-stack.examples.tsx:alignedStackDateAxis",
       "skill": "east-ui",
       "package": "east-ui",
@@ -24677,6 +24705,129 @@
         "import { Box, Button, Text, VStack, HStack, Reactive } from \"@elaraai/east-ui\";"
       ],
       "source": "// Bounded column (#320) — a fixed-height Box whose pinned header does not shrink (definite size ⇒ flexShrink:0) above a \n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Box display=\"flex\" flexDirection=\"column\" height=\"220px\" width=\"260px\" border=\"1px solid\" borderColor=\"gray.200\" borderRadius=\"md\" overflow=\"hidden\">\n                <Box padding=\"3\" background=\"gray.50\"><Text>Pinned header</Text></Box>\n                <Box fill scrollY padding=\"3\">\n                    <VStack align=\"stretch\" gap=\"2\">\n                        {Array.from({ length: 20 }, (_, i) => <Text>{`Scrolling row ${i + 1}`}</Text>)}\n                    </VStack>\n                </Box>\n            </Box>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:dock.examples.tsx:dockExpanded",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/layout/dock.examples.tsx",
+      "suite": "",
+      "test": "A horizontal Dock expanded — icon + label + badge header over its content, with a collapse chevron",
+      "keywords": [
+        "Dock",
+        "layout",
+        "collapse",
+        "rail",
+        "expanded",
+        "icon",
+        "badge",
+        "sidebar"
+      ],
+      "imports": [
+        "import { East, ArrayType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Dock, HStack, Planner, Stack, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// A horizontal Dock expanded — icon + label + badge header over its content, with a collapse chevron\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Box height=\"220px\" width=\"320px\">\n            <Dock icon=\"book\" label=\"Bookings\" badge=\"3\" expandedSize=\"100%\">\n                <Stack gap=\"2\" padding=\"3\">\n                    <Box padding=\"2\" background=\"bg.subtle\" borderRadius=\"md\"><Text>Cabernet — Block 3</Text></Box>\n                    <Box padding=\"2\" background=\"bg.subtle\" borderRadius=\"md\"><Text>Shiraz — Block 7</Text></Box>\n                    <Box padding=\"2\" background=\"bg.subtle\" borderRadius=\"md\"><Text>Merlot — Block 1</Text></Box>\n                </Stack>\n            </Dock>\n        </Box>\n    ))"
+    },
+    {
+      "id": "east-ui:dock.examples.tsx:dockCollapsedRail",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/layout/dock.examples.tsx",
+      "suite": "",
+      "test": "A horizontal Dock collapsed to its icon rail — icon + expand chevron + badge, label as tooltip",
+      "keywords": [
+        "Dock",
+        "layout",
+        "collapsed",
+        "rail",
+        "icon",
+        "badge",
+        "defaultCollapsed",
+        "tooltip"
+      ],
+      "imports": [
+        "import { East, ArrayType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Dock, HStack, Planner, Stack, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// A horizontal Dock collapsed to its icon rail — icon + expand chevron + badge, label as tooltip\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Box height=\"220px\" width=\"320px\">\n            <HStack gap=\"3\" width=\"100%\" height=\"100%\">\n                <Dock icon=\"book\" label=\"Bookings\" badge=\"3\" railSize=\"44px\" defaultCollapsed>\n                    <Stack gap=\"2\" padding=\"3\">\n                        <Box padding=\"2\" background=\"bg.subtle\" borderRadius=\"md\"><Text>Cabernet — Block 3</Text></Box>\n                    </Stack>\n                </Dock>\n                <Box flex=\"1\" minWidth=\"0\" padding=\"3\" background=\"bg.subtle\" borderRadius=\"md\">\n                    <Text>Board reclaims the freed width</Text>\n                </Box>\n            </HStack>\n        </Box>\n    ))"
+    },
+    {
+      "id": "east-ui:dock.examples.tsx:dockBesidePlanner",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/layout/dock.examples.tsx",
+      "suite": "",
+      "test": "A Dock booking-source panel beside a Planner board — collapsing the dock frees width for the board without covering it",
+      "keywords": [
+        "Dock",
+        "layout",
+        "Planner",
+        "beside",
+        "drag",
+        "source",
+        "drop",
+        "target",
+        "in-flow",
+        "sidebar",
+        "board"
+      ],
+      "imports": [
+        "import { East, ArrayType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Dock, HStack, Planner, Stack, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// A Dock booking-source panel beside a Planner board — collapsing the dock frees width for the board without covering it\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const tanks = $.const([\n            { name: \"Tank A\", role: \"Ferment\" },\n            { name: \"Tank B\", role: \"Crush\" },\n            { name: \"Tank C\", role: \"Press\" },\n        ], ArrayType(StructType({ name: StringType, role: StringType })));\n        return (\n            <Box height=\"260px\" width=\"100%\">\n                <HStack gap=\"4\" width=\"100%\" height=\"100%\">\n                    <Dock icon=\"book\" label=\"Bookings\" badge=\"3\" expandedSize=\"30%\">\n                        <Stack gap=\"2\" padding=\"3\">\n                            <Box padding=\"2\" background=\"bg.subtle\" borderRadius=\"md\"><Text>Cabernet — Block 3</Text></Box>\n                            <Box padding=\"2\" background=\"bg.subtle\" borderRadius=\"md\"><Text>Shiraz — Block 7</Text></Box>\n                            <Box padding=\"2\" background=\"bg.subtle\" borderRadius=\"md\"><Text>Merlot — Block 1</Text></Box>\n                        </Stack>\n                    </Dock>\n                    <Box flex=\"1\" minWidth=\"0\">\n                        <Planner.Point\n                            data={tanks}\n                            axis={Planner.axis.number({ range: { min: 0, max: 6 } })}\n                            columns={[{ key: \"name\", frozen: true, value: r => r.name, sublabel: r => r.role }]}\n                            events={_r => [\n                                Planner.event({ slot: Planner.at.number(2), label: \"plan\", state: \"added\" }),\n                            ]}\n                            now={Planner.at.number(3)}\n                        />\n                    </Box>\n                </HStack>\n            </Box>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:dock.examples.tsx:dockVertical",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/layout/dock.examples.tsx",
+      "suite": "",
+      "test": "A vertical Dock — collapses its height to a horizontal tray rail, pinned to the bottom edge",
+      "keywords": [
+        "Dock",
+        "layout",
+        "vertical",
+        "orientation",
+        "tray",
+        "collapse",
+        "height",
+        "side",
+        "end"
+      ],
+      "imports": [
+        "import { East, ArrayType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Dock, HStack, Planner, Stack, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// A vertical Dock — collapses its height to a horizontal tray rail, pinned to the bottom edge\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Box height=\"240px\" width=\"360px\">\n            <VStack gap=\"3\" width=\"100%\" height=\"100%\">\n                <Box flex=\"1\" minHeight=\"0\" width=\"100%\" padding=\"3\" background=\"bg.subtle\" borderRadius=\"md\">\n                    <Text>Main board grows into the freed height</Text>\n                </Box>\n                <Dock icon=\"chart-line\" label=\"Metrics\" orientation=\"vertical\" side=\"end\" expandedSize=\"120px\">\n                    <Box padding=\"3\"><Text>KPI tray content</Text></Box>\n                </Dock>\n            </VStack>\n        </Box>\n    ))"
+    },
+    {
+      "id": "east-ui:dock.examples.tsx:dockNested",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/layout/dock.examples.tsx",
+      "suite": "",
+      "test": "Nested Docks — a Dock inside a Dock, each with independent collapsed state",
+      "keywords": [
+        "Dock",
+        "layout",
+        "nested",
+        "nestable",
+        "independent",
+        "state",
+        "rail"
+      ],
+      "imports": [
+        "import { East, ArrayType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Dock, HStack, Planner, Stack, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Nested Docks — a Dock inside a Dock, each with independent collapsed state\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Box height=\"260px\" width=\"360px\">\n            <Dock icon=\"layer-group\" label=\"Outer\" expandedSize=\"100%\">\n                <Stack gap=\"2\" padding=\"3\" width=\"100%\">\n                    <Text>Outer content</Text>\n                    <Box height=\"140px\" width=\"100%\">\n                        <HStack gap=\"3\" width=\"100%\" height=\"100%\">\n                            <Dock icon=\"filter\" label=\"Filters\" defaultCollapsed>\n                                <Box padding=\"3\"><Text>Inner panel</Text></Box>\n                            </Dock>\n                            <Box flex=\"1\" minWidth=\"0\" padding=\"3\" background=\"bg.subtle\" borderRadius=\"md\">\n                                <Text>Inner board</Text>\n                            </Box>\n                        </HStack>\n                    </Box>\n                </Stack>\n            </Dock>\n        </Box>\n    ))"
     },
     {
       "id": "east-ui:expandable.examples.tsx:expandableRegion",
