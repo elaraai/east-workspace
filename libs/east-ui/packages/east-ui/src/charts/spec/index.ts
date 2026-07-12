@@ -373,6 +373,10 @@ export interface AxisNodeOptions {
     tickStyle?: ChartAxisTextStyle;
     /** Typography override for the axis caption (#315); omit for the spec default. */
     titleStyle?: ChartAxisTextStyle;
+    /** Extra px between the tick labels and the axis caption (#327). Widens the
+     *  axis's own margin band (bottom for x, left for y, right for y2) — never the
+     *  shared plot gutter — so it cannot shift an `AlignedStack`-aligned lane. */
+    titleGap?: SubtypeExprOrValue<FloatType>;
 }
 
 /**
@@ -408,6 +412,7 @@ function axisFields(options?: AxisNodeOptions) {
         tickFormat: options?.tickFormat !== undefined ? some(options.tickFormat) : none,
         tickStyle:  options?.tickStyle !== undefined ? some(axisTextStyle(options.tickStyle)) : none,
         titleStyle: options?.titleStyle !== undefined ? some(axisTextStyle(options.titleStyle)) : none,
+        titleGap:   options?.titleGap !== undefined ? some(options.titleGap) : none,
     };
 }
 

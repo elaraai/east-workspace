@@ -272,6 +272,48 @@ export const alignedStackChartPlanner = example({
 });
 
 /**
+ * #327 regression — a `<Chart>` carrying BOTH axis titles (`x` "Day", `y` "°C")
+ * stacked over a `<Planner>`. The x-title renders in its own band below the plot
+ * (growing the chart's footprint) rather than eating the bottom plot margin, so
+ * the plot rect stays put and the chart's day ticks still line up with the
+ * Planner's day columns — the title no longer shoves the stacked lane.
+ */
+export const alignedStackChartTitles = example({
+    keywords: ["AlignedStack", "Chart", "Planner", "axis", "title", "label", "titleGap", "margin", "align", "gutter"],
+    description: "A Chart with x + y axis titles (nudged out with titleGap) stacked over a Planner — the titles push into their own axis bands while the day ticks stay aligned with the Planner columns (#327)",
+    fn: East.function([], UIComponentType, ($) => {
+        const temp = $.const([
+            { day: 0.0, v: 12.0 }, { day: 1.0, v: 14.0 }, { day: 2.0, v: 18.0 },
+            { day: 3.0, v: 20.0 }, { day: 4.0, v: 19.0 }, { day: 5.0, v: 16.0 }, { day: 6.0, v: 13.0 },
+        ], ArrayType(StructType({ day: FloatType, v: FloatType })));
+        return (
+            <AlignedStack gutter={{ left: "140px", right: "12px" }} gap="8px">
+                <Box height="170px" width="100%">
+                    <Chart
+                        height="fill"
+                        layers={Chart.Line(temp, { x: r => r.day, y: r => r.v }, { color: "teal.solid" })}
+                        x={{ label: "Day", titleGap: 8, scale: "linear", domain: [-0.5, 6.5], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0] }}
+                        y={{ label: "°C", titleGap: 6 }}
+                        grid
+                    />
+                </Box>
+                <Planner.Point
+                    data={[{ name: "Line A", role: "Primary" }, { name: "Line B", role: "Backup" }]}
+                    axis={Planner.axis.number({ range: { min: 0, max: 6 } })}
+                    columns={[{ key: "name", frozen: true, value: r => r.name, sublabel: r => r.role }]}
+                    events={_r => [
+                        Planner.event({ slot: Planner.at.number(0), label: "✓", state: "committed" }),
+                        Planner.event({ slot: Planner.at.number(4), label: "plan", state: "added" }),
+                    ]}
+                    now={Planner.at.number(4)}
+                />
+            </AlignedStack>
+        );
+    }),
+    inputs: [],
+});
+
+/**
  * A `<Chart>` and a `<Planner>` on one FORMATTED DATE axis (#309) — both lanes
  * speak real instants and the same date-pattern tokens. The Planner pins a
  * half-open day window `[min, max)` at `resolution: "day"` (seven columns,

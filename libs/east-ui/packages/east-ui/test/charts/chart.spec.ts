@@ -81,7 +81,7 @@ describeEast("Chart", (test) => {
         const chart = $.let(Chart.Root(Chart.Line(rows, { x: r => r.month, y: r => r.sales }), {
             grid: false,
             x: { tickStyle: { fontSize: "12px", fontFamily: "sans", color: "fg.default" } },
-            y: { label: "kL", titleStyle: { fontWeight: "semibold", letterSpacing: "0.02em" } },
+            y: { label: "kL", titleStyle: { fontWeight: "semibold", letterSpacing: "0.02em" }, titleGap: 6.0 },
         }));
         // grid: false + one layer ⇒ children = [series, axisBottom, axisLeft].
         const frame = $.const(chart.unwrap().unwrap("VisxChart").unwrap().unwrap("frame"));
@@ -91,11 +91,14 @@ describeEast("Chart", (test) => {
         $(Assert.equal(tick.fontFamily.unwrap("some").hasTag("sans"), true));
         $(Assert.equal(tick.color.unwrap("some"), "fg.default"));
         $(Assert.equal(xAxis.titleStyle.hasTag("none"), true));
+        $(Assert.equal(xAxis.titleGap.hasTag("none"), true));
         const yAxis = $.const(frame.children.get(2n).unwrap().unwrap("axisLeft"));
         const title = $.const(yAxis.titleStyle.unwrap("some"));
         $(Assert.equal(title.fontWeight.unwrap("some").hasTag("semibold"), true));
         $(Assert.equal(title.letterSpacing.unwrap("some"), "0.02em"));
         $(Assert.equal(yAxis.tickStyle.hasTag("none"), true));
+        // #327 — titleGap lowers onto the axis node as an optional Float band.
+        $(Assert.equal(yAxis.titleGap.unwrap("some"), 6.0));
     });
 
     // =========================================================================

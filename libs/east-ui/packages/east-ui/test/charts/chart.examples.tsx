@@ -316,8 +316,8 @@ export const lineRuntimeTimeDomain = example({
  * the legibility treatment for a dense dashboard lane.
  */
 export const axisTextStyled = example({
-    keywords: ["Chart", "axis", "tickStyle", "titleStyle", "font", "typography", "fontSize", "fontFamily", "fontWeight", "color", "letterSpacing", "legibility", "ticks", "label"],
-    description: "Axis typography overrides — tickStyle/titleStyle set font size / family / weight / colour per axis (weekday date ticks in 12px sans fg.default)",
+    keywords: ["Chart", "axis", "tickStyle", "titleStyle", "titleGap", "font", "typography", "fontSize", "fontFamily", "fontWeight", "color", "letterSpacing", "legibility", "ticks", "label"],
+    description: "Axis typography overrides — tickStyle/titleStyle set font size / family / weight / colour per axis (weekday date ticks in 12px sans fg.default), and titleGap pushes the y caption out from the ticks",
     fn: East.function([], UIComponentType, ($) => {
         const rows = $.const([
             { at: new Date("2026-03-30T12:00:00Z"), v: 8.0 },
@@ -331,7 +331,7 @@ export const axisTextStyled = example({
                 <Chart
                     layers={Chart.Line(rows, { x: r => r.at, y: r => r.v })}
                     x={{ scale: "time", format: Chart.format.date("ddd DD"), tickStyle: { fontSize: "12px", fontFamily: "sans", color: "fg.default" } }}
-                    y={{ label: "Clarified kL", tickStyle: { fontSize: "12px" }, titleStyle: { fontFamily: "sans", fontWeight: "semibold", color: "fg.default", letterSpacing: "0.02em" } }}
+                    y={{ label: "Clarified kL", titleGap: 6, tickStyle: { fontSize: "12px" }, titleStyle: { fontFamily: "sans", fontWeight: "semibold", color: "fg.default", letterSpacing: "0.02em" } }}
                     grid
                 />
             </Box>
