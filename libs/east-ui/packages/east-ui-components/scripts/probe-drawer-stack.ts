@@ -40,7 +40,7 @@ async function main(): Promise<void> {
 
     const browser = await launchChromium({ headless: true });
     try {
-        const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+        const page = await browser.newPage({ viewport: { width: 1600, height: 1000 }, deviceScaleFactor: 2 });
         page.on('pageerror', err => console.log(`[pageerror] ${err.message}`));
         await page.goto(`http://127.0.0.1:${port}/#overlays/drawer/drawerStackedNested`, { waitUntil: 'networkidle', timeout: 60_000 });
         await page.waitForTimeout(2500);
@@ -70,6 +70,10 @@ async function main(): Promise<void> {
         await page.waitForTimeout(700);
         await page.screenshot({ path: path.join(OUT_DIR, 'drawer-stack-3_two-rails.png') });
         console.log('[probe] wrote drawer-stack-3_two-rails.png (Adjust setpoint active + B4418 + Decisions rails)');
+        // Close-up of the rail↔panel seam: confirms the content's box-shadow no
+        // longer bleeds onto the closest rail (would read as a gradient there).
+        await page.screenshot({ path: path.join(OUT_DIR, 'drawer-stack-3b_seam.png'), clip: { x: 1150, y: 10, width: 200, height: 480 } });
+        console.log('[probe] wrote drawer-stack-3b_seam.png (rail↔panel seam close-up)');
 
         // Layering proof: the ancestor rail must render at a HIGHER effective
         // stacking than the active drawer's backdrop (it rides inside the active

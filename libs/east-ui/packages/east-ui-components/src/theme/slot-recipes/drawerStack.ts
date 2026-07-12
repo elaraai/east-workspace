@@ -32,6 +32,14 @@ export const drawerStackRailSlotRecipe = defineSlotRecipe({
             // The Positioner is pointer-events:none (clicks fall through to the
             // backdrop); re-enable so the rails are clickable.
             pointerEvents: "auto",
+            // Sit in the drawer's own overlay layer — the same z-index the content
+            // carries, cascaded from the Positioner (no hardcoded z). Rendered AFTER
+            // the content in the DOM, so at equal z-index the rail paints OVER the
+            // content's `lg` box-shadow, which otherwise bled onto the closest rail
+            // and read as a gradient. A popover/tooltip opened from the drawer takes
+            // a deeper --layer-index, so it still layers above the rail.
+            position: "relative",
+            zIndex: "calc(var(--drawer-z-index) + var(--layer-index, 0))",
             // flat + square: no radius, no shadow — butts flush against the panel.
         },
         rail: {
