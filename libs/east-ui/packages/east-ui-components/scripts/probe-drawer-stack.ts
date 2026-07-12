@@ -50,6 +50,17 @@ async function main(): Promise<void> {
         await page.screenshot({ path: path.join(OUT_DIR, 'drawer-stack-1_b4418.png') });
         console.log('[probe] wrote drawer-stack-1_b4418.png (B4418 open, no rail yet)');
 
+        // #328 fullscreen persistence — expand B4418 to full, nest two deep, pop
+        // back, and confirm it re-mounts STILL fullscreen (the fullscreen flag is
+        // lifted to the overlay manager, so it survives the rail unmount/remount).
+        await page.getByRole('button', { name: 'Enter fullscreen' }).click();
+        await page.waitForTimeout(500);
+        const fsWidthBefore = await page.evaluate(() => {
+            const els = Array.from(document.querySelectorAll('[data-part="content"]')) as HTMLElement[];
+            return els.length ? els[els.length - 1]!.getBoundingClientRect().width : -1;
+        });
+        console.log(`[probe] B4418 fullscreen width=${fsWidthBefore.toFixed(0)} (expect ~1600 viewport)`);
+
         await page.getByRole('button', { name: 'Open decisions' }).click();
         await page.waitForTimeout(700);
         await page.screenshot({ path: path.join(OUT_DIR, 'drawer-stack-2_rail.png') });
@@ -87,6 +98,13 @@ async function main(): Promise<void> {
         await page.screenshot({ path: path.join(OUT_DIR, 'drawer-stack-4_popped.png') });
         const railsLeft = await page.locator('.elara-drawer-stack-rail').count();
         console.log(`[probe] wrote drawer-stack-4_popped.png (popped to B4418 — rails remaining: ${railsLeft}, expect 0)`);
+
+        const fsWidthAfter = await page.evaluate(() => {
+            const els = Array.from(document.querySelectorAll('[data-part="content"]')) as HTMLElement[];
+            return els.length ? els[els.length - 1]!.getBoundingClientRect().width : -1;
+        });
+        const persisted = fsWidthAfter > 1000;
+        console.log(`[probe] B4418 width after nest+pop=${fsWidthAfter.toFixed(0)} — fullscreen ${persisted ? 'PERSISTED ✓' : 'RESET ✗'} (expect ~1600)`);
     } finally {
         await browser.close();
         await server.close();

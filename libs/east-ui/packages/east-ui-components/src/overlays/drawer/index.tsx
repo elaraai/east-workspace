@@ -69,14 +69,24 @@ export interface DrawerContentProps {
      *  overlay layer (above its backdrop, below any popover/tooltip opened from it)
      *  without a hardcoded z-index. */
     railsSlot?: ReactNode;
+    /** Controlled fullscreen state (#328). Programmatic stacked drawers lift this
+     *  to the overlay manager (keyed by drawer id) so it survives the unmount/remount
+     *  when nesting changes; trigger-based drawers omit it and keep local state. */
+    fullscreen?: boolean;
+    /** Toggle handler paired with {@link DrawerContentProps.fullscreen} — when
+     *  provided, the fullscreen button drives the lifted state instead of local. */
+    onToggleFullscreen?: () => void;
 }
 
 /**
  * Shared drawer content component used by both trigger-based and programmatic drawers.
  */
-export function DrawerContent({ value, storageKey, trigger, open, onClose, onExitComplete: onExitCompleteCallback, railsSlot }: DrawerContentProps) {
+export function DrawerContent({ value, storageKey, trigger, open, onClose, onExitComplete: onExitCompleteCallback, railsSlot, fullscreen, onToggleFullscreen }: DrawerContentProps) {
     const props = useMemo(() => toChakraDrawer(value), [value]);
-    const [isFullscreen, setIsFullscreen] = useState(false);
+    // Fullscreen is controlled by the overlay manager for stacked drawers (so it
+    // survives the unmount/remount across nesting changes) and local otherwise.
+    const [localFullscreen, setLocalFullscreen] = useState(false);
+    const isFullscreen = fullscreen ?? localFullscreen;
 
     // Extract header fields from value
     const eyebrow = useMemo(() => getSomeorUndefined(value.eyebrow), [value.eyebrow]);
@@ -114,8 +124,9 @@ export function DrawerContent({ value, storageKey, trigger, open, onClose, onExi
     }, [onExitCompleteFn, onExitCompleteCallback]);
 
     const toggleFullscreen = useCallback(() => {
-        setIsFullscreen(prev => !prev);
-    }, []);
+        if (onToggleFullscreen) onToggleFullscreen();
+        else setLocalFullscreen(prev => !prev);
+    }, [onToggleFullscreen]);
 
     // Use full size when fullscreen, otherwise use props size
     const effectiveSize = isFullscreen ? "full" : props.size;

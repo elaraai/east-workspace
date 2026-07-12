@@ -25,7 +25,7 @@ export const drawerStackRailSlotRecipe = defineSlotRecipe({
             display: "flex",
             flexDirection: "row",
             alignSelf: "stretch",            // full height, matches the panel
-            background: "bg.subtle",
+            background: "bg.surface",        // same surface as the drawer content
             borderInlineStartWidth: "1px",   // delineate the spine's outer edge
             borderColor: "border.subtle",
             overflow: "hidden",

@@ -151,6 +151,35 @@ let drawerIdCounter = 0;
 export function OverlayManagerProvider({ children }: OverlayManagerProviderProps) {
     const [dialogs, setDialogs] = useState<PendingDialog[]>([]);
     const [drawers, setDrawers] = useState<PendingDrawer[]>([]);
+    // #328 — fullscreen is tracked per drawer id HERE, not as local DrawerContent
+    // state, so a stacked drawer's fullscreen survives the unmount/remount when the
+    // nesting changes (it collapses to a rail, then re-mounts full when popped back).
+    const [fullscreenIds, setFullscreenIds] = useState<Set<string>>(new Set());
+
+    const toggleFullscreen = useCallback((id: string) => {
+        setFullscreenIds(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+    }, []);
+
+    // Prune fullscreen flags for drawers that have closed. Drawer ids are monotonic
+    // (never reused), so this only bounds the set — it can't resurface a stale flag.
+    useEffect(() => {
+        setFullscreenIds(prev => {
+            if (prev.size === 0) return prev;
+            const live = new Set(drawers.map(d => d.id));
+            let changed = false;
+            const next = new Set<string>();
+            for (const id of prev) {
+                if (live.has(id)) next.add(id);
+                else changed = true;
+            }
+            return changed ? next : prev;
+        });
+    }, [drawers]);
 
     const openDialog = useCallback((value: DialogOpenInputValue) => {
         const id = `dialog-${++dialogIdCounter}`;
@@ -227,6 +256,8 @@ export function OverlayManagerProvider({ children }: OverlayManagerProviderProps
                             value={value}
                             onClose={() => closeDrawer(id)}
                             railsSlot={isTop ? rails : undefined}
+                            fullscreen={fullscreenIds.has(id)}
+                            onToggleFullscreen={() => toggleFullscreen(id)}
                         />
                     );
                 });
@@ -273,9 +304,11 @@ interface ProgrammaticDrawerProps {
     value: DrawerOpenInputValue;
     onClose: () => void;
     railsSlot?: ReactNode;
+    fullscreen: boolean;
+    onToggleFullscreen: () => void;
 }
 
-function ProgrammaticDrawer({ value, onClose, railsSlot }: ProgrammaticDrawerProps) {
+function ProgrammaticDrawer({ value, onClose, railsSlot, fullscreen, onToggleFullscreen }: ProgrammaticDrawerProps) {
     // Mount closed, then open after commit — see ProgrammaticDialog for why.
     const [open, setOpen] = useState(false);
     useEffect(() => { setOpen(true); }, []);
@@ -289,6 +322,8 @@ function ProgrammaticDrawer({ value, onClose, railsSlot }: ProgrammaticDrawerPro
             onClose={handleClose}
             onExitComplete={handleExitComplete}
             railsSlot={railsSlot}
+            fullscreen={fullscreen}
+            onToggleFullscreen={onToggleFullscreen}
         />
     );
 }
