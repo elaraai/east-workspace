@@ -13,7 +13,16 @@ export const drawerSlotRecipe = defineSlotRecipe({
      * Dialog surface header. */
     slots: ["trigger", "backdrop", "positioner", "content", "eyebrow", "title", "description", "header", "body", "footer", "closeTrigger"],
     base: {
-        backdrop: { background: "{colors.overlay.backdrop}" },
+        // The drawer opens WITHOUT a slide/fade transition (the Chakra default
+        // slide is `slowest` and janks while heavy content — Table / Planner /
+        // Chart — lays out during the animation). Zero the animation duration so
+        // the panel + backdrop appear instantly (the animationend still fires, so
+        // Ark's mount/exit lifecycle is preserved).
+        backdrop: {
+            background: "{colors.overlay.backdrop}",
+            _open: { animationDuration: "0ms" },
+            _closed: { animationDuration: "0ms" },
+        },
         content: {
             background: "bg.surface",
             borderLeftWidth: "1px",
@@ -21,6 +30,8 @@ export const drawerSlotRecipe = defineSlotRecipe({
             borderRightWidth: "1px",
             borderRightColor: "border.strong",
             boxShadow: "lg",
+            _open: { animationDuration: "0ms" },
+            _closed: { animationDuration: "0ms" },
         },
         header: {
             display: "flex",
