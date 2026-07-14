@@ -559,6 +559,16 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         render: FunctionType([], node),
         navKey: StringType,
     }),
+    /**
+     * Route — `Pages` generalized to any slot (#333): the same nav-typed
+     * switcher payload, but placeable anywhere (a header widget, a sidebar, a
+     * drawer body). Any number of Route slots bind the same nav handle as the
+     * body Pages and each remounts its own slot on navigation.
+     */
+    Route: StructType({
+        render: FunctionType([], node),
+        navKey: StringType,
+    }),
 
     // Display
     Badge: BadgeType,
@@ -1335,6 +1345,19 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
     ReactiveComponent: StructType({
         /** The render function to execute - returns UIComponentType */
         render: FunctionType([], node),
+    }),
+
+    /**
+     * Match — hosting slot over a variant (#333): the component-level twin of
+     * `variant.match`. `render` matches the active case to its body (all case
+     * bodies sit in the IR for the manifest union; only the active arm runs);
+     * `tag` yields the active case name — the renderer keys the mounted
+     * subtree by it, so the active case remounts exactly on tag change and
+     * same-tag payload/data churn re-renders without losing mounted state.
+     */
+    Match: StructType({
+        render: FunctionType([], node),
+        tag: FunctionType([], StringType),
     }),
 
     /**

@@ -1,14 +1,14 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1488,
-    "totalFiles": 185,
+    "totalEntries": 1492,
+    "totalFiles": 187,
     "packages": {
       "east": 490,
       "east-node-std": 42,
       "east-node-io": 63,
       "east-py-datascience": 89,
-      "east-ui": 730,
+      "east-ui": 734,
       "e3-ui": 58,
       "e3": 7,
       "e3-ui-cli": 4,
@@ -26285,6 +26285,54 @@
       "source": "// App shell — NavList rail + breadcrumb app bar from nav.path() + Pages content; navigateTo drives all three\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const DetailRow = StructType({ id: StringType, group: StringType });\n        const routes = Navigation.config({\n            overview: { value: NullType, label: \"Overview\" },\n            scenarios: { value: NullType, label: \"Scenarios\" },\n            audit: { value: NullType, label: \"Audit\" },\n            detail: { value: DetailRow, label: \"Item\" },\n        });\n        return (\n            <Reactive>{$ => {\n                const nav = $.let(Navigation.bind(routes, \"shell.route\", [routes.Page.overview()]));\n\n                // Page bodies as $.const closures capturing the shared handle.\n                const overviewPage = $.const(East.function([], UIComponentType, ($) => {\n                    const open = $.const(East.function([], NullType, $ => {\n                        $(nav.go.detail(East.value({ id: \"item-1\", group: \"A\" }, DetailRow)));\n                    }));\n                    return (\n                        <VStack gap=\"3\" align=\"stretch\">\n                            <Text>Overview — item list</Text>\n                            <Button onClick={open}>Open item-1</Button>\n                        </VStack>\n                    );\n                }));\n                const scenariosPage = $.const(East.function([], UIComponentType, (_$) => <Text>Scenarios</Text>));\n                const auditPage = $.const(East.function([], UIComponentType, (_$) => <Text>Audit trail</Text>));\n                const detailPage = $.const(East.function([DetailRow], UIComponentType, ($, row) => {\n                    const back = $.const(East.function([], NullType, $ => { $(nav.pop()); }));\n                    return (\n                        <VStack gap=\"2\" align=\"stretch\">\n                            <Text>{East.str`Item ${row.id} · group ${row.group}`}</Text>\n                            <Button onClick={back}>← Back</Button>\n                        </VStack>\n                    );\n                }));\n\n                // Breadcrumb items derived live from the path: label via a per-route\n                // match, current = is-leaf, onClick = navigate back to that prefix.\n                const crumbs = nav.path().map(($, seg, i) => {\n                    const label = seg.match({\n                        overview: (_$, _v) => \"Overview\",\n                        scenarios: (_$, _v) => \"Scenarios\",\n                        audit: (_$, _v) => \"Audit\",\n                        detail: (_$, r) => East.str`Item ${r.id}`,\n                    });\n                    const prefixLen = $.let(i.add(1n));\n                    const isLeaf = $.let(East.equal(i, nav.path().size().subtract(1n)));\n                    const jump = $.const(East.function([], NullType, $ => {\n                        $(nav.navigateTo(nav.path().slice(0n, prefixLen)));\n                    }));\n                    const item = $.const({ label, current: some(isLeaf), onClick: some(jump) }, Breadcrumb.Types.Item);\n                    return item;\n                });\n\n                // The rail navigates to a top-level (argless) route by key.\n                const onSelect = $.const(East.function([StringType], NullType, ($, key) => {\n                    $.if(East.equal(key, \"scenarios\"), $ => { $(nav.navigateTo([routes.Page.scenarios()])); });\n                    $.if(East.equal(key, \"audit\"), $ => { $(nav.navigateTo([routes.Page.audit()])); });\n                    $.if(East.equal(key, \"overview\"), $ => { $(nav.navigateTo([routes.Page.overview()])); });\n                }));\n\n                return (\n                    <VStack gap=\"0\" align=\"stretch\">\n                        <Box padding=\"3\">\n                            <Breadcrumb items={crumbs} />\n                        </Box>\n                        <HStack gap=\"4\" align=\"stretch\">\n                            <NavList\n                                sections={[{ items: [\n                                    { key: \"overview\", label: \"Overview\" },\n                                    { key: \"scenarios\", label: \"Scenarios\" },\n                                    { key: \"audit\", label: \"Audit\" },\n                                ] }]}\n                                onSelect={onSelect}\n                            />\n                            <Pages nav={nav} pages={{\n                                overview: () => overviewPage(),\n                                scenarios: () => scenariosPage(),\n                                audit: () => auditPage(),\n                                detail: (_$, row) => detailPage(row),\n                            }} />\n                        </HStack>\n                    </VStack>\n                );\n            }}</Reactive>\n        );\n    })"
     },
     {
+      "id": "east-ui:route.examples.tsx:routeBasic",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/navigation/route.examples.tsx",
+      "suite": "",
+      "test": "A Route slot hosts a per-route widget — typed payload per route, remounts on navigation",
+      "keywords": [
+        "Route",
+        "Navigation",
+        "nav",
+        "routes",
+        "hosting slot",
+        "remount",
+        "navigate",
+        "widget"
+      ],
+      "imports": [
+        "import { East, NullType, StringType, IntegerType, StructType, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Navigation, Route, Pages, Reactive, VStack, HStack, Box, Text, Button } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// A Route slot hosts a per-route widget — typed payload per route, remounts on navigation\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const ItemRow = StructType({ id: StringType, value: IntegerType });\n        const routes = Navigation.config({\n            overview: { value: NullType, label: \"Overview\" },\n            detail: { value: ItemRow, label: \"Item\" },\n        });\n        return (\n            <Reactive>{$ => {\n                const nav = $.let(Navigation.bind(routes, \"route.basic\", [routes.Page.overview()]));\n                const open = $.const(East.function([], NullType, $ => {\n                    $(nav.go.detail(East.value({ id: \"item-1\", value: 42n }, ItemRow)));\n                }));\n                const back = $.const(East.function([], NullType, $ => { $(nav.pop()); }));\n                return (\n                    <VStack gap=\"3\" align=\"stretch\">\n                        <HStack gap=\"2\">\n                            <Button onClick={open}>Open item-1</Button>\n                            <Button onClick={back}>← Back</Button>\n                        </HStack>\n                        <Route nav={nav} routes={{\n                            overview: () => <Text>Overview widget</Text>,\n                            detail: (_$, row) => <Text>{East.str`Item ${row.id} — value ${East.print(row.value)}`}</Text>,\n                        }} />\n                    </VStack>\n                );\n            }}</Reactive>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:route.examples.tsx:routeSidebarSlot",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/navigation/route.examples.tsx",
+      "suite": "",
+      "test": "A sidebar Route slot beside the body Pages — one nav handle drives both, each remounts its own slot on navigation",
+      "keywords": [
+        "Route",
+        "Pages",
+        "Navigation",
+        "sidebar",
+        "slot",
+        "lockstep",
+        "app shell",
+        "remount"
+      ],
+      "imports": [
+        "import { East, NullType, StringType, IntegerType, StructType, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Navigation, Route, Pages, Reactive, VStack, HStack, Box, Text, Button } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// A sidebar Route slot beside the body Pages — one nav handle drives both, each remounts its own slot on navigation\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const DetailRow = StructType({ id: StringType, group: StringType });\n        const routes = Navigation.config({\n            overview: { value: NullType, label: \"Overview\" },\n            detail: { value: DetailRow, label: \"Item\" },\n        });\n        return (\n            <Reactive>{$ => {\n                const nav = $.let(Navigation.bind(routes, \"route.shell\", [routes.Page.overview()]));\n                const open = $.const(East.function([], NullType, $ => {\n                    $(nav.go.detail(East.value({ id: \"item-7\", group: \"B\" }, DetailRow)));\n                }));\n                const back = $.const(East.function([], NullType, $ => { $(nav.pop()); }));\n                return (\n                    <HStack gap=\"4\" align=\"stretch\">\n                        <Box padding=\"3\">\n                            <Route nav={nav} routes={{\n                                overview: () => <Text>No selection</Text>,\n                                detail: (_$, row) => <Text>{East.str`Selected: ${row.id} · ${row.group}`}</Text>,\n                            }} />\n                        </Box>\n                        <Pages nav={nav} pages={{\n                            overview: () => (\n                                <VStack gap=\"2\" align=\"stretch\">\n                                    <Text>Overview — item list</Text>\n                                    <Button onClick={open}>Open item-7</Button>\n                                </VStack>\n                            ),\n                            detail: (_$, row) => (\n                                <VStack gap=\"2\" align=\"stretch\">\n                                    <Text>{East.str`Item ${row.id} · group ${row.group}`}</Text>\n                                    <Button onClick={back}>← Back</Button>\n                                </VStack>\n                            ),\n                        }} />\n                    </HStack>\n                );\n            }}</Reactive>\n        );\n    })"
+    },
+    {
       "id": "east-ui:command-palette.examples.tsx:commandPaletteBasic",
       "skill": "east-ui",
       "package": "east-ui",
@@ -27256,6 +27304,56 @@
         "import { Button, Reactive, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// Reactive counter — State.bind exposes read / write closures and Reactive.Root re-renders on change\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const countBind = $.let(State.bind([IntegerType], \"demo.counter\", 0n));\n            const count = $.let(countBind.read());\n            const increment = $.const(East.function([], NullType, $ => {\n                const current = $.let(countBind.read());\n                $(countBind.write(current.add(1n)));\n            }));\n            return (\n                <VStack gap=\"2\" align=\"stretch\">\n                    <Text>{East.str`Count: ${count}`}</Text>\n                    <Button onClick={increment}>+1</Button>\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "east-ui:match.examples.tsx:matchModeSwitch",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/reactive/match.examples.tsx",
+      "suite": "",
+      "test": "Match hosts one of two panels by a State-bound mode variant — typed payload per case, remounts on tag change",
+      "keywords": [
+        "Match",
+        "on",
+        "cases",
+        "variant",
+        "mode",
+        "hosting slot",
+        "remount",
+        "conditional",
+        "switch"
+      ],
+      "imports": [
+        "import { East, IntegerType, NullType, StringType, VariantType, variant, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Match, Reactive, State, Button, HStack, VStack, Text } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Match hosts one of two panels by a State-bound mode variant — typed payload per case, remounts on tag change\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const ModeType = VariantType({ list: NullType, detail: StringType });\n        return (\n            <Reactive>{$ => {\n                const modeBind = $.let(State.bind([ModeType], \"match.mode\", variant(\"list\", null)));\n                const toDetail = $.const(East.function([], NullType, $ => {\n                    $(modeBind.write(East.value(variant(\"detail\", \"item-1\"), ModeType)));\n                }));\n                const toList = $.const(East.function([], NullType, $ => {\n                    $(modeBind.write(East.value(variant(\"list\", null), ModeType)));\n                }));\n                return (\n                    <VStack gap=\"3\" align=\"stretch\">\n                        <HStack gap=\"2\">\n                            <Button onClick={toList}>List</Button>\n                            <Button onClick={toDetail}>Open item-1</Button>\n                        </HStack>\n                        <Match on={modeBind.read()} cases={{\n                            list: (_$) => <Text>All items</Text>,\n                            detail: (_$, id) => <Text>{East.str`Detail — ${id}`}</Text>,\n                        }} />\n                    </VStack>\n                );\n            }}</Reactive>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:match.examples.tsx:matchStatefulPanels",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/reactive/match.examples.tsx",
+      "suite": "",
+      "test": "Match swaps two self-contained stateful panels (each its own Reactive + State.bind) — the active case mounts fresh per tag change",
+      "keywords": [
+        "Match",
+        "Reactive",
+        "State",
+        "stateful",
+        "panel",
+        "remount",
+        "fresh",
+        "hosting slot",
+        "swap"
+      ],
+      "imports": [
+        "import { East, IntegerType, NullType, StringType, VariantType, variant, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Match, Reactive, State, Button, HStack, VStack, Text } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Match swaps two self-contained stateful panels (each its own Reactive + State.bind) — the active case mounts fresh per tag change\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const PanelType = VariantType({ counter: NullType, notes: NullType });\n        return (\n            <Reactive>{$ => {\n                const panelBind = $.let(State.bind([PanelType], \"match.panel\", variant(\"counter\", null)));\n                const showCounter = $.const(East.function([], NullType, $ => {\n                    $(panelBind.write(East.value(variant(\"counter\", null), PanelType)));\n                }));\n                const showNotes = $.const(East.function([], NullType, $ => {\n                    $(panelBind.write(East.value(variant(\"notes\", null), PanelType)));\n                }));\n                return (\n                    <VStack gap=\"3\" align=\"stretch\">\n                        <HStack gap=\"2\">\n                            <Button onClick={showCounter}>Counter</Button>\n                            <Button onClick={showNotes}>Notes</Button>\n                        </HStack>\n                        <Match on={panelBind.read()} cases={{\n                            counter: (_$) => (\n                                <Reactive>{$ => {\n                                    const countBind = $.let(State.bind([IntegerType], \"match.panel.count\", 0n));\n                                    const count = $.let(countBind.read());\n                                    const increment = $.const(East.function([], NullType, $ => {\n                                        const current = $.let(countBind.read());\n                                        $(countBind.write(current.add(1n)));\n                                    }));\n                                    return (\n                                        <VStack gap=\"2\" align=\"stretch\">\n                                            <Text>{East.str`Count: ${East.print(count)}`}</Text>\n                                            <Button onClick={increment}>+1</Button>\n                                        </VStack>\n                                    );\n                                }}</Reactive>\n                            ),\n                            notes: (_$) => (\n                                <Reactive>{$ => {\n                                    const noteBind = $.let(State.bind([StringType], \"match.panel.note\", \"…\"));\n                                    const note = $.let(noteBind.read());\n                                    return <Text>{East.str`Notes: ${note}`}</Text>;\n                                }}</Reactive>\n                            ),\n                        }} />\n                    </VStack>\n                );\n            }}</Reactive>\n        );\n    })"
     },
     {
       "id": "east-ui:slice.examples.tsx:sliceTableChrome",

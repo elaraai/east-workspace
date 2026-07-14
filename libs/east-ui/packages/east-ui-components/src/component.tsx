@@ -118,6 +118,7 @@ import {
 } from "./overlays";
 import { EastChakraHotkey } from "./platform/hotkey";
 import { EastReactiveComponent } from "./reactive";
+import { EastChakraMatch } from "./reactive/match.js";
 import { EastChakraPages } from "./navigation/pages.js";
 import { EastChakraExtension } from "./extension/index.js";
 
@@ -211,6 +212,9 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
             // bodies are ReactiveComponents that equalFor can't tell apart (functions
             // compare equal), so the generic memo'd swap would otherwise bail (#114).
             Pages: (v) => <EastChakraPages value={v as never} storageKey={childKey(storageKey, "Pages")} />,
+            // Route — Pages generalized to any slot (#333): identical payload +
+            // remount mechanism, so it reuses the Pages renderer.
+            Route: (v) => <EastChakraPages value={v as never} storageKey={childKey(storageKey, "Route")} />,
 
             // Display
             Icon: (v) => <EastChakraIcon value={v} />,
@@ -288,6 +292,10 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
 
             // Reactive
             ReactiveComponent: (v) => <EastReactiveComponent value={v} storageKey={childKey(storageKey, "ReactiveComponent")} />,
+            // Match — hosting slot over a variant (#333). EastChakraMatch keys the
+            // reactive subtree by the active case name (tracked), so the mounted
+            // case remounts exactly on tag change.
+            Match: (v) => <EastChakraMatch value={v as never} storageKey={childKey(storageKey, "Match")} />,
 
             // Extension — declared via `EastUI.component(...)` in any package;
             // renderer registered via `implementUIComponent`.

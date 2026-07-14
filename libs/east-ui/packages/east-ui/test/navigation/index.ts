@@ -8,3 +8,4 @@
 export * from "./breadcrumb.examples.js";
 export * from "./nav-list.examples.js";
 export * from "./pages.examples.js";
+export * from "./route.examples.js";
