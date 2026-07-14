@@ -301,7 +301,7 @@ Task → What do you need?
     │   │   ├─ Convert → to_array(key=) · to_set(fn) · to_dict(key, value, combine=)
     │   │   └─ Mutate (in place) → add · insert · remove · delete · discard · clear · copy()
     │   ├─ Dict<K,V>  (callbacks: map=fn(v) · filter/first_map/to_*/flatten_*/group_fold=fn(k,v) · reduce=fn(acc,k,v))
-    │   │   ├─ Access → d[k] · get(k, default=) · get_or_default · try_get · has · keys()/values()/items() · len()
+    │   │   ├─ Access → d[k] · get_or_default(k, d) · try_get(k) · has(k) · keys()/values()/items() · len() ❗ no python-style .get(k, default=)
     │   │   ├─ Combine → merge(other, combine(existing, incoming)=) · get_keys(keys, fill)
     │   │   ├─ Per-entry → map(fn, out=) · filter(pred) · filter_map(fn, out=) · first_map(fn, out=) · for_each(fn)
     │   │   ├─ Reduce → reduce(init, fn) · map_reduce(map_fn, reduce_fn, out=) ❗empty · sum? (use reduce) · mean(fn=)
@@ -359,6 +359,27 @@ Task → What do you need?
            inert until configure_memo(dir) / EAST_MEMO_DIR — e3 is the production cache
 ```
 
+## Sharp edges
+
+- **Type constructors take PAIRS, not a dict** (unlike the TS DSL):
+  `StructType([("name", StringType), ("price", FloatType)])` /
+  `VariantType([("ok", T), ("err", E)])`.
+- **`@platform_function` output must be an East value.** Returning plain Python
+  (a `dict`, a `list` of dicts) fails output validation — build with
+  `array`/`struct`/`variant` or `coerce_to(raw, OutputType)` at the return
+  boundary.
+- **Two lambda surfaces.** A pure lambda kernel-traces into east-c — inside it
+  you hold traced expressions (options: `.is_some()` / `.unwrap_or(default)`).
+  An untraceable lambda runs as a per-element **Python callback over decoded
+  values** — there an option is an `EastVariant` with `.type` / `.value` /
+  `.unwrap(tag)` and **no** `.unwrap_or`; branch on `opt.type == "some"` and
+  read `opt.value`.
+- **`EastDict` has no python-style `.get(k, default)`** — use
+  `get_or_default(k, default)` / `try_get(k)` / `has(k)` / `d[k]`.
+- **Genuinely-Python loops cross the boundary once** —
+  `to_columns()` / `EastArray.from_columns` / `map_batches`, never a platform
+  call or a decode per element.
+
 ## Core Concepts
 
 - **Values are plain Python data.** Containers (`EastArray`/`EastSet`/`EastDict`/
@@ -402,8 +423,8 @@ by building a new value; `set` returns a new tensor).
 | `DictType(K, V)` | `EastDict` (East-sorted by key) | **Mutable** |
 | `VectorType(T)` | `EastVector`; 1-D numpy buffer via `.to_numpy()` | Immutable |
 | `MatrixType(T)` | `EastMatrix`; 2-D row-major numpy buffer via `.to_numpy()` | Immutable |
-| `StructType({...})` | `EastStruct` (index by field name: `s["name"]`) | Immutable (frozen) |
-| `VariantType({...})` | `EastVariant` (`.type` tag, `.value`; compared **by case name**) | Immutable (frozen) |
+| `StructType([("field", T), …])` | `EastStruct` (index by field name: `s["name"]`) | Immutable (frozen) |
+| `VariantType([("case", T), …])` | `EastVariant` (`.type` tag, `.value`; compared **by case name**) | Immutable (frozen) |
 | `RefType(T)` | `EastRef` (cell; `.get()` / `.set()` / `.update()`) | **Mutable** |
 | `FunctionType(I, O)` / `AsyncFunctionType(I, O)` | `EastFunction` | Immutable |
 

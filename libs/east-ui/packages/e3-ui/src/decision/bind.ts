@@ -39,14 +39,9 @@ import {
     StringType,
     IntegerType,
     NullType,
-    some,
-    none,
     type EastType,
     type ExprType,
-    type SubtypeExprOrValue,
 } from '@elaraai/east';
-
-import { SliceStateType, SliceBindType } from '@elaraai/east-ui/internal';
 
 import { DiffBindingType, type BoundValue } from '../bind/data.js';
 import {
@@ -109,12 +104,6 @@ export type JudgementsType = typeof JudgementsType;
  *
  * @property decisions - Per-source binding descriptors
  * @property judgements - The judgements binding descriptor
- * @property sliceInit - The initial slice state passed at bind (data; feeds
- *   component payload refs)
- * @property slice - The handle-owned slice over the unioned queue (canonical
- *   `DecisionType` config; key derived from the bound source paths, like the
- *   selection). Components mount its rail; seeding `slice` at bind with no
- *   rail mounted gives an invisible author scope.
  * @property queue - The visible queue: union of every bound view (source ⊕
  *   patch each)
  * @property selected - The selected case id, if any
@@ -141,8 +130,6 @@ export function decisionHandleType<C extends EastType = DecisionConstraintType>(
     return StructType({
         decisions: ArrayType(DiffBindingType),
         judgements: DiffBindingType,
-        sliceInit: OptionType(SliceStateType),
-        slice: SliceBindType,
         queue: FunctionType([], ArrayType(DecisionType)),
         selected: FunctionType([], OptionType(StringType)),
         select: FunctionType([StringType], NullType),
@@ -170,7 +157,7 @@ export type DecisionHandle<C extends EastType = DecisionConstraintType> =
 /** What a surface needs from a handle of ANY contract — the descriptor
  *  fields its payload ref carries. Components accept this so one queue
  *  serves every solution contract. */
-export type DecisionHandleLike = Pick<DecisionHandle, 'decisions' | 'judgements' | 'sliceInit'>;
+export type DecisionHandleLike = Pick<DecisionHandle, 'decisions' | 'judgements'>;
 
 /**
  * The encodable identity of a handle — its binding descriptors. Extension
@@ -184,7 +171,6 @@ export type DecisionHandleLike = Pick<DecisionHandle, 'decisions' | 'judgements'
 export const DecisionHandleRefType = StructType({
     decisions: ArrayType(DiffBindingType),
     judgements: DiffBindingType,
-    slice: OptionType(SliceStateType),
 });
 /** Type alias for {@link DecisionHandleRefType}. */
 export type DecisionHandleRefType = typeof DecisionHandleRefType;
@@ -202,7 +188,7 @@ export type DecisionHandleRefType = typeof DecisionHandleRefType;
 export const decisionBindPlatformFn = East.genericPlatform(
     "decision_bind",
     ["C"],
-    [ArrayType(DiffBindingType), DiffBindingType, OptionType(SliceStateType)],
+    [ArrayType(DiffBindingType), DiffBindingType],
     decisionHandleType("C" as never),
     { optional: true },
 );
@@ -275,15 +261,10 @@ export const DecisionBindPrimitives = {
  * @property judgements - The bound judgements view —
  *   `Data.bind(…)` (the staged
  *   operator input)
- * @property slice - Optional initial state for the handle-owned slice over
- *   the queue (`Slice.state({ filters: [...] })`). Seeded once; the
- *   operator's rail edits write over it. With no rail mounted on the queue
- *   it acts as an invisible author scope.
  */
 export interface DecisionBindOptions<C extends EastType = DecisionConstraintType> {
     decisions: BoundValue<ArrayType<DecisionType>>[];
     judgements: BoundValue<ReturnType<typeof judgementsType<C>>>;
-    slice?: SubtypeExprOrValue<SliceStateType>;
 }
 
 /**
@@ -324,6 +305,5 @@ export function decisionBind<C extends EastType>(
         [constraint],
         options.decisions.map(view => view.binding),
         options.judgements.binding,
-        options.slice !== undefined ? some(East.value(options.slice, SliceStateType)) : none,
     ) as unknown as DecisionHandle<C>;
 }

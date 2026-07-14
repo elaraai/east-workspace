@@ -256,6 +256,18 @@ function boundRows(entry: { rows: Row[] | (() => Row[]) }): Row[] {
 }
 
 /**
+ * The bound slice's decoded config, live from the caller's most recent
+ * `Slice.bind` — for components whose rows arrive outside a `Slice.rows`
+ * feed (a `DecisionQueue`'s rows come from binding descriptors) and that
+ * therefore narrow their own rows with `sliceMatches(state, config, row,
+ * now)`. Matching with the caller's config keeps the rail's fields and the
+ * component's narrowing in exact agreement.
+ */
+export function boundSliceConfig(key: string): Parameters<typeof sliceMatches>[1] | undefined {
+    return boundByKey.get(key)?.config;
+}
+
+/**
  * The bound rows' domain over the slice's range field — feeds the standalone
  * `Slice.Rail` brush strip (track = full domain, window = applied range).
  * Values are epoch ms for datetime fields, plain numbers for float/integer.

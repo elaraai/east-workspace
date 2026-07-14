@@ -7,3 +7,4 @@
 
 export { Reactive } from "./reactive.js";
 export type { ReactiveRender } from "./reactive.js";
+export { Match } from "./match.js";

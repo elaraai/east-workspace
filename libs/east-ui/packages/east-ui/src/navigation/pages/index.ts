@@ -186,8 +186,8 @@ export interface PagesInput<R extends NavRoutes> {
 }
 
 /**
- * Build a `<Pages>` content-switcher from a bound nav handle + a typed page
- * registry.
+ * Shared switcher builder for `Pages` / `Route` — the two emit the same
+ * payload (`render` + `navKey`) under their own variant case.
  *
  * The nullary `render` reads `current()` on the **passed** handle (no internal
  * re-bind) and `match`es the active route to its page body. The bodies live in
@@ -196,11 +196,12 @@ export interface PagesInput<R extends NavRoutes> {
  * the active page (leaf-only, visible-only). The render closes over `nav`, so
  * its `current()` read subscribes to the same store the app's handle is bound
  * to (#114).
- *
- * @param input - The {@link PagesInput} (`nav` handle + `pages` registry).
- * @returns A `Pages` `UIComponentType` value.
  */
-function createPages<R extends NavRoutes>({ nav, pages }: PagesInput<R>): ExprType<typeof UIComponentType> {
+function createNavSwitcher<R extends NavRoutes>(
+    caseName: "Pages" | "Route",
+    nav: BoundNav<R>,
+    pages: PagesHandlers<R>,
+): ExprType<typeof UIComponentType> {
     const handlers = pages as Record<string, (h: unknown, p: unknown, n: unknown) => unknown>;
     // Build the match arms in host TS (outside the East block): one arm per
     // route, forwarding the typed payload + the shared handle to the page body.
@@ -216,7 +217,18 @@ function createPages<R extends NavRoutes>({ nav, pages }: PagesInput<R>): ExprTy
         const cur = $.const(nav.current());
         return (cur as unknown as { match(h: unknown): ExprType<typeof UIComponentType> }).match(armsFor(nav));
     });
-    return East.value(variant("Pages", { render, navKey: nav.key }), UIComponentType);
+    return East.value(variant(caseName, { render, navKey: nav.key }), UIComponentType);
+}
+
+/**
+ * Build a `<Pages>` content-switcher from a bound nav handle + a typed page
+ * registry.
+ *
+ * @param input - The {@link PagesInput} (`nav` handle + `pages` registry).
+ * @returns A `Pages` `UIComponentType` value.
+ */
+function createPages<R extends NavRoutes>({ nav, pages }: PagesInput<R>): ExprType<typeof UIComponentType> {
+    return createNavSwitcher("Pages", nav, pages);
 }
 
 /**
@@ -231,4 +243,57 @@ function createPages<R extends NavRoutes>({ nav, pages }: PagesInput<R>): ExprTy
 export const Pages = {
     /** Build a `<Pages>` content-switcher from `{ nav, pages }`. See {@link createPages}. */
     Root: createPages,
+} as const;
+
+// ============================================================================
+// Route — Pages generalized to any slot (#333)
+// ============================================================================
+
+/**
+ * The input to the `<Route>` slot: the nav handle (bound once in the enclosing
+ * `<Reactive>` via `Navigation.bind`, shared with the body `<Pages>` and the
+ * chrome) plus the typed route registry — one body per route, receiving
+ * `($, payload, nav)` exactly like {@link PagesHandlers}.
+ *
+ * @remarks
+ * `R` is fixed by `nav`, so every `routes` handler is contextually typed and
+ * the registry is exhaustive against the `Navigation.config`.
+ */
+export interface RouteInput<R extends NavRoutes> {
+    /** The nav handle from `Navigation.bind(config, key, initial)`, bound in the enclosing `<Reactive>`. */
+    nav: BoundNav<R>;
+    /** One body per route — see {@link PagesHandlers}. `R` is fixed by `nav`, so the handlers are contextually typed. */
+    routes: PagesHandlers<NoInfer<R>>;
+}
+
+/**
+ * Build a `<Route>` hosting slot from a bound nav handle + a typed route
+ * registry — `<Pages>` generalized to any slot.
+ *
+ * Renders only the active route's body and remounts it on navigation, but is
+ * placeable anywhere (a header widget, a sidebar, a drawer body). The body
+ * `<Pages>` and any number of `<Route>` slots bind the **same** `nav` handle,
+ * so they stay in lockstep and each remounts *its own* slot on navigation.
+ *
+ * @param input - The {@link RouteInput} (`nav` handle + `routes` registry).
+ * @returns A `Route` `UIComponentType` value.
+ */
+function createRoute<R extends NavRoutes>({ nav, routes }: RouteInput<R>): ExprType<typeof UIComponentType> {
+    return createNavSwitcher("Route", nav, routes);
+}
+
+/**
+ * The `Route` namespace — the nav-typed hosting slot.
+ *
+ * @remarks
+ * Authored as the `<Route nav={…} routes={{…}} />` tag; `Route.Root({ nav,
+ * routes })` is the underlying factory. Use it to swap a **stateful**
+ * component (its own `<Reactive>` / binds) in any slot by route: each case is
+ * a self-contained component built with the existing binds, torn down and
+ * rebuilt fresh when the route changes. For a non-route key (a `State`-bound
+ * mode, a tagged selection), use `<Match on cases>` instead.
+ */
+export const Route = {
+    /** Build a `<Route>` hosting slot from `{ nav, routes }`. See {@link createRoute}. */
+    Root: createRoute,
 } as const;

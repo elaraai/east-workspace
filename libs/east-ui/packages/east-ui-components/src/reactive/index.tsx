@@ -21,19 +21,28 @@ export interface ReactiveValue {
     render: () => ValueTypeOf<typeof UIComponentType>;
 }
 
+/** The outcome of one tracked evaluation — the value, or the error to display. */
+export type TrackedResult<T> = { ok: true; value: T } | { ok: false; error: unknown };
+
 /**
- * Renders a reactive component that re-renders independently when its dependencies change.
+ * Evaluates an East closure with dependency tracking and re-evaluates when the
+ * State/Data keys it read change.
  *
  * @remarks
- * This component executes the render function with dependency tracking enabled.
- * It subscribes only to the state and dataset keys that were accessed during rendering,
- * enabling selective re-rendering when those specific keys change.
+ * The shared engine behind {@link EastReactiveComponent} (evaluating a
+ * `render()` subtree) and `EastChakraMatch` (evaluating the active-case
+ * `tag()`). Trackers are pluggable — State registers at module load, Data
+ * registers when ReactiveDatasetProvider mounts; the hook re-evaluates when
+ * trackers are added/removed via useSyncExternalStore on the tracker registry.
+ * Errors thrown by `fn` are captured (with the dependencies read up to the
+ * throw, so the evaluation re-runs when they change) rather than propagated.
  *
- * Trackers are pluggable — State registers at module load, Data registers when
- * ReactiveDatasetProvider mounts. The component re-renders when trackers are
- * added/removed via useSyncExternalStore on the tracker registry.
+ * @param fn - The closure to evaluate — memoise it (`useCallback`) so the
+ *   evaluation is not redone every host render.
+ * @returns The current {@link TrackedResult} plus the dependency-version
+ *   `snapshot` string it was computed at.
  */
-export function EastReactiveComponent({ value, storageKey }: { value: ReactiveValue; storageKey: string }) {
+export function useTrackedEvaluation<T>(fn: () => T): { result: TrackedResult<T>; snapshot: string } {
     // Re-render when trackers are added/removed (e.g. DatasetProvider mounts)
     const trackersVersion = useSyncExternalStore(subscribeTrackers, getTrackersVersion);
     const trackers = getReactiveTrackers();
@@ -41,13 +50,13 @@ export function EastReactiveComponent({ value, storageKey }: { value: ReactiveVa
     // Track which keys each tracker records
     const depsRef = useRef<Map<string, string[]>>(new Map());
 
-    // Execute render with dependency tracking for all registered trackers.
-    // Returns either a successful render result or an error to display.
-    const executeWithTracking = useCallback((): { ok: true; value: ValueTypeOf<typeof UIComponentType> } | { ok: false; error: unknown } => {
+    // Execute fn with dependency tracking for all registered trackers.
+    // Returns either a successful result or an error to display.
+    const executeWithTracking = useCallback((): TrackedResult<T> => {
         for (const t of trackers) t.enableTracking();
 
         try {
-            const result = value.render();
+            const result = fn();
             const deps = new Map<string, string[]>();
             for (const t of trackers) {
                 deps.set(t.id, t.disableTracking());
@@ -63,7 +72,7 @@ export function EastReactiveComponent({ value, storageKey }: { value: ReactiveVa
             depsRef.current = deps;
             return { ok: false, error: e };
         }
-    }, [value, trackers]);
+    }, [fn, trackers]);
 
     // Subscribe to the keys we depend on across all trackers
     const subscribe = useCallback((cb: () => void) => {
@@ -78,7 +87,7 @@ export function EastReactiveComponent({ value, storageKey }: { value: ReactiveVa
         }
         return () => unsubs.forEach(fn => fn());
         // depsRef is a stable ref; `trackers` is the only reactive input (mirrors
-        // getSnapshot below). storageKey is not read here, so it's not a dep.
+        // getSnapshot below).
     }, [trackers]);
 
     // Snapshot based on our dependencies' versions across all trackers
@@ -95,9 +104,24 @@ export function EastReactiveComponent({ value, storageKey }: { value: ReactiveVa
 
     const snapshot = useSyncExternalStore(subscribe, getSnapshot);
 
-    // trackersVersion forces re-render when trackers change
+    // trackersVersion forces re-evaluation when trackers change
     // eslint-disable-next-line react-hooks/exhaustive-deps
     const result = useMemo(() => executeWithTracking(), [executeWithTracking, snapshot, trackersVersion]);
+
+    return { result, snapshot };
+}
+
+/**
+ * Renders a reactive component that re-renders independently when its dependencies change.
+ *
+ * @remarks
+ * This component executes the render function with dependency tracking enabled.
+ * It subscribes only to the state and dataset keys that were accessed during rendering,
+ * enabling selective re-rendering when those specific keys change.
+ */
+export function EastReactiveComponent({ value, storageKey }: { value: ReactiveValue; storageKey: string }) {
+    const render = useCallback(() => value.render(), [value]);
+    const { result, snapshot } = useTrackedEvaluation(render);
 
     if (!result.ok) {
         const info = toEastErrorInfo(result.error);

@@ -91,7 +91,7 @@ export { Input, Checkbox, RadioGroup, RadioCardGroup, TimeRangeInput, DateRangeI
 export { Progress, Banner, EmptyState, Skeleton, Status } from "./runtime/feedback/index.js";
 
 // Navigation
-export { Breadcrumb, NavList, Pages } from "./runtime/navigation/index.js";
+export { Breadcrumb, NavList, Pages, Route } from "./runtime/navigation/index.js";
 export { NavListType, NavSectionType, NavItemType } from "./navigation/index.js";
 export type { NavListStyle, NavSectionInput, NavItemInput } from "./navigation/index.js";
 // First-class navigation: the Navigation config/bind handle API (like State / Slice).
@@ -126,7 +126,7 @@ export { HotkeyType } from "./platform/hotkey/index.js";
 export { Hotkey } from "./runtime/platform-hotkey.js";
 
 // Reactive (selective re-rendering)
-export { Reactive } from "./runtime/reactive/index.js";
+export { Reactive, Match } from "./runtime/reactive/index.js";
 
 // Component Types
 export { UIComponentType, type UIComponentNode } from "./component.js";

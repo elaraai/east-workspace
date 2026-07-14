@@ -16,6 +16,7 @@ export {
 export {
     Navigation,
     Pages,
+    Route,
     NavBindHandleType,
     navBindPlatformFn,
     NavBindPrimitives,
@@ -29,4 +30,5 @@ export {
     type PageConstructors,
     type PagesHandlers,
     type PagesInput,
+    type RouteInput,
 } from "./pages/index.js";
