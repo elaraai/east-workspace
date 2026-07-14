@@ -1,6 +1,6 @@
 ---
 name: e3-ui
-description: "e3 + UI bridge — build interactive, reactive decision surfaces as e3 tasks, authored as JSX. Use when: (1) Declaring UI tasks with ui() (e3 tasks of kind 'ui' producing a UIComponentType), (2) Binding reactive workspace data with Data.bind (read/write/has/commit/discard/status against e3.input / task defs) inside a <Reactive>{$ => …}</Reactive> block, (3) Staged vs direct edit modes and reviewing pending changes with the <Diff> tag, (4) Graph/ontology editing with the <Ontology> tag, (5) Calling named package functions (e3.function) RPC-style with Func.bind (call/read/status/error/pending/cancel), (6) Wiring a manifest (reads/writes + bound functions auto-derived from a UI task's IR), (7) Interactive causal-experiment surfaces ('did X change Y?') with the <Experiment> tag, generic over a bound dataset's row and driven by e3.function estimators."
+description: "e3 + UI bridge — build interactive, reactive decision surfaces as e3 tasks, authored as JSX. Use when: (1) Declaring UI tasks with ui() (e3 tasks of kind 'ui' producing a UIComponentType), (2) Binding reactive workspace data with Data.bind (read/write/has/commit/discard/status against e3.input / task defs) inside a <Reactive>{$ => …}</Reactive> block, (3) Staged vs direct edit modes and reviewing pending changes with the <Diff> tag, (4) Graph/ontology editing with the <Ontology> tag, (5) Calling named package functions (e3.function) RPC-style with Func.bind (call/read/status/error/pending/cancel), (6) Wiring a manifest (reads/writes + bound functions auto-derived from a UI task's IR), (7) Interactive causal-experiment surfaces ('did X change Y?') with the <Experiment> tag, generic over a bound dataset's row and driven by e3.function estimators, (8) The Decide loop — Decision.bind unions reasoning-task decision outputs into one handle (shared selection + commit gate), <DecisionQueue> (urgency-sorted queue with evidence/options/judgement/modify facets, Apply/Reject, grouping, an author-bound Slice scope) and <DecisionJournal> (the resolved read-back)."
 ---
 
 # e3-ui — e3 + UI Bridge
@@ -78,6 +78,12 @@ Task → What do you need?
     │
     ├─ Edit a graph / ontology dataset
     │   └─ <Ontology binding={view.binding} />   (OntologyType: NodeType / LinkType)
+    │
+    ├─ Run the Decide loop over reasoning-task decisions
+    │   ├─ Union the bound decision views into one handle → Decision.bind([Contract]?, { decisions, judgements })
+    │   ├─ The queue (triage → understand → judge → apply) → <DecisionQueue handle={handle} …/>
+    │   ├─ The resolved read-back (Decide↔Trust seam)       → <DecisionJournal handle={handle} />
+    │   └─ Scope the queue (author-owned, Table pattern)    → Slice.bind over Decision.Types.Decision, rows = handle.queue()
     │
     └─ Let a user ask "did X change Y?" against a dataset and trust the answer
         └─ <Experiment data configs … />   (generic over the row; runs e3.functions)
@@ -216,6 +222,76 @@ The render-contract value types are reached via `Experiment.Types.*`
 two refusal verdicts (`adjusted = none`) render explanatory zones instead of a
 number.
 
+### The Decide loop — `Decision.bind` + `<DecisionQueue>` + `<DecisionJournal>`
+
+Reasoning tasks emit decisions as `Array<Decision.Types.Decision>` datasets
+(built with `Decision.make` / `Decision.option` / `Decision.reference` /
+`Decision.judgement`). `Decision.bind` unions the bound views into **one
+per-surface handle** — it owns what no single binding can: the union +
+write-routing by case id, the shared case **selection** (every component on
+the handle stays in sync by construction), and the derived per-case **commit
+gate**. The operator's staged contribution is a judgements dict bound the
+same way.
+
+```tsx
+const roster     = $.let(Data.bind(rosterDecisions, { mode: 'direct' }));   // source ⊕ patch view
+const orders     = $.let(Data.bind(orderDecisions,  { mode: 'direct' }));
+const judgements = $.let(Data.bind(judgementsInput, { mode: 'staged' }));
+const handle     = $.let(Decision.bind([RosterConstraint], { decisions: [roster, orders], judgements }));
+```
+
+The optional type token is the solution's **constraint contract** (a by-name
+`VariantType` shared with the reasoning task, which `$.matchTag`s injected
+constraints fully typed); omit it for the default primitive op-variant.
+Handle methods: `queue()` (the unioned cases) · `selected()` / `select(id)` /
+`clearSelection()` · `decision()` · `update(d)` (probe edit through the owning
+patch) · `judgement(id)` / `answer(id, promptId, answer)` /
+`addKnowledge(id, text)` / `inject(id, constraint)` · `resolve(id, verdict)`
+(verdict + removal + selection clear) · `commitState(id)` (gated / blocked /
+handoff / ready).
+
+**`<DecisionQueue handle={handle} …/>`** — *the* Decide surface: one queue over
+the handle's cases, urgency-sorted with the routine tail collapsed; selecting a
+row expands one facet at a time beneath it; Apply / Reject resolve through the
+handle.
+
+| Prop | Meaning |
+|---|---|
+| `handle` | **required** — the `Decision.bind` handle |
+| `heading` | header label (e.g. `"Decisions waiting"`) |
+| `modify` | per-kind probe editor `(decision, update) => UIComponent` — the Modify facet; `update(edited)` writes back through the owning binding |
+| `evidence` | per-decision canvas `(decision) => UIComponent` inside the Evidence facet |
+| `defaultExpanded` | the case shown expanded before any selection (an `Option` — derive from bound data, e.g. a `firstMap`) |
+| `defaultFacet` / `facets` | which facet opens first (`'evidence'` default) / include-list of data facets (`modify` stays callback-gated) |
+| `onApply` / `onReject` | side-effect hooks fired with the decision on resolve |
+| `slice` | author-bound slice handle over the queue (see below) — narrowing applies before the urgency sort whether or not a rail mounts |
+| `affordances` | rail affordances when `slice` is set (default `["filter", "search"]`; `brush` rejected) |
+| `groups` / `groupBy` / `collapsible` | Group-by toolbar: custom label → `(decision) => String` accessors atop built-in Urgency / Kind / None; which opens first; collapsible heads |
+| `maxHeight` / `density` | pinned-header scroll cap / density preset |
+
+**The queue's scope is an ordinary author-owned slice** (the `Table` pattern —
+you own the key and config, so scopes are per-surface over one shared handle,
+and shareable with any other component). Bind it over the decision envelope
+with the handle's own union as the rows feed:
+
+```tsx
+const cfg = Slice.config(Decision.Types.Decision, {
+    fields: { kind: { label: 'Kind' }, title: { label: 'Title' }, value: { label: 'Value' } },
+    searchFieldIds: ['kind', 'title'],
+});
+const slice = $.let(Slice.bind([Decision.Types.Decision], 'ops.queue.slice', cfg,
+    Slice.state({ filters: [variant('string', { fieldId: 'kind', op: variant('eq', 'roster') })] }),
+    handle.queue(), none));
+return <DecisionQueue handle={handle} heading="Decisions waiting" slice={slice} />;
+```
+
+Pass `affordances={[]}` to keep the seeded narrowing with **no** rail — an
+invisible author scope.
+
+**`<DecisionJournal handle={handle} />`** — the resolved-cases read-back (the
+Decide↔Trust seam): every staged judgement whose verdict is set, newest first —
+the exact complement of the queue. Options: `heading`, `maxHeight`.
+
 ## Key Patterns
 
 ### Staged commit / discard
@@ -257,6 +333,11 @@ Tested examples live in `test/*.examples.tsx`:
 - `diff.examples.tsx` — reviewing pending changes with `<Diff>`.
 - `ontology.examples.tsx` — graph/ontology editing with `<Ontology>`.
 - `experiment/experiment.examples.tsx` — causal-experiment surface with `<Experiment>`.
+- `decision/queue.examples.tsx` — `<DecisionQueue>` facets, probe editors, the
+  author-bound slice scope, grouping.
+- `decision/journal.examples.tsx` — `<DecisionJournal>` read-back.
+- `decision/loop.examples.tsx` — the full loop: two task outputs unioned by one
+  `Decision.bind` handle, queue + journal in lockstep.
 
 ## Related skills
 

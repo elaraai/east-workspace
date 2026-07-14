@@ -30333,16 +30333,18 @@
       "package": "e3-ui",
       "file": "east-ui/packages/e3-ui/test/decision/queue.examples.tsx",
       "suite": "",
-      "test": "The handle-owned slice — Decision.bind seeds the initial state (kind = roster, shown as a removable chip); the queue\\",
+      "test": "The author-owned slice — Slice.bind over the decision envelope (rows = handle.queue()) seeded with a kind filter (shown as a removable chip); pass the handle as the queue\\",
       "keywords": [
         "DecisionQueue",
         "Decide",
         "slice",
-        "bind",
+        "Slice.bind",
+        "Slice.config",
         "seed",
         "rail",
         "filter",
         "search",
+        "affordances",
         "operator"
       ],
       "imports": [
@@ -30351,7 +30353,7 @@
         "import { Data, Decision, DecisionQueue, DecisionType } from '@elaraai/e3-ui';",
         "import * as e3 from '@elaraai/e3';"
       ],
-      "source": "// The handle-owned slice — Decision.bind seeds the initial state (kind = roster, shown as a removable chip); the queue\\\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Reactive>{$ => {\n                const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));\n                const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));\n                const handle = $.let(Decision.bind([RosterConstraint], {\n                    decisions: [decisions],\n                    judgements,\n                    slice: Slice.state({\n                        filters: [variant('string', { fieldId: 'kind', op: variant('eq', 'roster') })],\n                    }),\n                }));\n                return (\n                    <DecisionQueue\n                        handle={handle}\n                        heading=\"Decisions waiting\"\n                        slice={['filter', 'search']}\n                    />\n                );\n            }}</Reactive>\n        );\n    })"
+      "source": "// The author-owned slice — Slice.bind over the decision envelope (rows = handle.queue()) seeded with a kind filter (shown as a removable chip); pass the handle as the queue\\\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Reactive>{$ => {\n                const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));\n                const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));\n                const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));\n                const cfg = Slice.config(DecisionType, {\n                    fields: { kind: { label: 'Kind' }, title: { label: 'Title' }, value: { label: 'Value' } },\n                    searchFieldIds: ['kind', 'title'],\n                });\n                const slice = $.let(Slice.bind([DecisionType], 'ex.decision.queue.slice', cfg, Slice.state({\n                    filters: [variant('string', { fieldId: 'kind', op: variant('eq', 'roster') })],\n                }), handle.queue(), none));\n                return (\n                    <DecisionQueue\n                        handle={handle}\n                        heading=\"Decisions waiting\"\n                        slice={slice}\n                    />\n                );\n            }}</Reactive>\n        );\n    })"
     },
     {
       "id": "e3-ui:queue.examples.tsx:decisionQueueGrouped",

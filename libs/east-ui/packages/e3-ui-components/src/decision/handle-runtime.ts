@@ -53,10 +53,7 @@ import {
     judgementInputType,
     type AnswerLiteral,
 } from '@elaraai/e3-ui/internal';
-import { StateRuntime, registerPlatformImplementation, getRegisteredPlatformImplementations, buildSliceHandle, DEFAULT_SLICE_STATE, getSomeorUndefined } from '@elaraai/east-ui-components/platform';
-import type { Slice as SliceNS } from '@elaraai/east-ui/internal';
-
-type SliceStateValue = ValueTypeOf<typeof SliceNS.Types.State>;
+import { StateRuntime, registerPlatformImplementation, getRegisteredPlatformImplementations } from '@elaraai/east-ui-components/platform';
 import {
     defaultBindRuntime,
     getBindingTypes,
@@ -116,36 +113,7 @@ function viewFor(binding: DiffBindingValue): BindHandle {
     return defaultBindRuntime.buildBindHandle(types.sourceType, source, patch, binding.mode.type);
 }
 
-/**
- * The canonical slice config over the fixed `DecisionType` — kind / title /
- * value filterable, kind + title searchable. Decoded form (plain JS
- * accessors); also what the queue's narrowing matches against.
- */
-export const DECISION_SLICE_CONFIG = {
-    fields: new Map<string, unknown>([
-        ['kind', variant('string', { label: 'Kind', accessor: (d: Decision) => d.kind })],
-        ['title', variant('string', { label: 'Title', accessor: (d: Decision) => d.title })],
-        ['value', variant('float', { label: 'Value', accessor: (d: Decision) => d.value })],
-    ]),
-    rangeFieldId: none,
-    searchFieldIds: ['kind', 'title'],
-    breakdownFieldIds: [],
-};
-
-/**
- * The handle-owned slice key — derived from the bound source paths (like the
- * selection) plus a hash of the seed. The slice store is first-write-wins
- * (operator narrowing persists across reloads), so the seed must be part of
- * the key's identity: a changed seed binds a fresh key and always applies,
- * while edits over any given seed still persist.
- */
-function deriveSliceKey(decisions: readonly DiffBindingValue[], sliceInit?: SliceStateValue): string {
-    const sources = decisions.map(d => datasetPathToString(d.source as TreePath));
-    const seed = sliceInit === undefined ? 'none' : hashString(stableStringify(sliceInit));
-    return ['decision.slice', ...sources, seed].join('|');
-}
-
-/** Stable JSON for slice-state values (bigint / Date / Set / Map safe). */
+/** Stable JSON for descriptor values (bigint / Date / Set / Map safe). */
 function stableStringify(v: unknown): string {
     return JSON.stringify(v, (_k, x) => {
         if (typeof x === 'bigint') return `${x}n`;
@@ -274,8 +242,6 @@ function compileDecisionMethods(
 interface DecisionHandleFns {
     decisions: DiffBindingValue[];
     judgements: DiffBindingValue;
-    sliceInit: unknown;
-    slice: ReturnType<typeof buildSliceHandle>;
     queue: () => Decision[];
     selected: () => SelectionValue;
     select: (caseId: string) => unknown;
@@ -293,10 +259,10 @@ interface DecisionHandleFns {
 
 /**
  * Build a decision handle from its binding descriptors. The descriptor fields
- * (decisions / judgements / sliceInit) are plain data; the 12 methods are
- * IR-bearing East.functions capturing only those descriptors, so the whole
- * handle is serializable East data (issue #106). `journal` is a host-only helper
- * the React hook calls on the locally-built handle (not part of the encodable
+ * (decisions / judgements) are plain data; the 12 methods are IR-bearing
+ * East.functions capturing only those descriptors, so the whole handle is
+ * serializable East data (issue #106). `journal` is a host-only helper the
+ * React hook calls on the locally-built handle (not part of the encodable
  * handle type). `constraintType` is the contract `C` — supplied by the platform
  * resolver for East-side callers; the hook omits it (the methods' runtime
  * behaviour is contract-agnostic, so the default contract's types suffice for a
@@ -305,19 +271,10 @@ interface DecisionHandleFns {
 function buildDecisionHandle(
     decisions: DiffBindingValue[],
     judgements: DiffBindingValue,
-    sliceInit?: SliceStateValue,
     constraintType?: EastTypeValue,
 ): DecisionHandleFns {
     const cType = constraintType ?? toEastTypeValue(DecisionConstraintType);
     const selectionKey = deriveSelectionKey(decisions);
-
-    const slice = buildSliceHandle(
-        deriveSliceKey(decisions, sliceInit),
-        DECISION_SLICE_CONFIG,
-        sliceInit ?? DEFAULT_SLICE_STATE,
-        () => hostQueue(decisions),
-        none,
-    );
 
     const journal = (): Judgement[] => {
         const entries = [...readJudgementsAt(judgements).values()].filter(j => j.verdict.type === 'some');
@@ -335,8 +292,6 @@ function buildDecisionHandle(
     return {
         decisions,
         judgements,
-        sliceInit: sliceInit !== undefined ? some(sliceInit) : none,
-        slice,
         journal,
         ...methods,
     } as unknown as DecisionHandleFns;
@@ -348,11 +303,10 @@ export const DecisionBindPlatform: PlatformFunction[] = [
     // Generic over the constraint contract — the resolver receives the contract
     // type value and threads it into the IR-bearing judgement / inject methods.
     decisionBindPlatformFn.implement((constraintType: EastTypeValue) =>
-        (decisionsArg: unknown, judgementsArg: unknown, sliceInitArg: unknown) =>
+        (decisionsArg: unknown, judgementsArg: unknown) =>
             buildDecisionHandle(
                 decisionsArg as DiffBindingValue[],
                 judgementsArg as DiffBindingValue,
-                getSomeorUndefined(sliceInitArg as never) as SliceStateValue | undefined,
                 constraintType,
             )),
 
@@ -455,9 +409,6 @@ export interface UseDecisionHandleResult {
     /** Commit a verdict: judgement write + removal through the owning patch
      *  + selection clear. */
     resolve: (caseId: string, verdict: Verdict) => void;
-    /** The handle-owned slice over the queue (closures; key derived from the
-     *  bound source paths). `null` until the bindings are readable. */
-    slice: ReturnType<typeof buildSliceHandle> | null;
 }
 
 /** Subscribe to every store the handle projects from: each binding's source
@@ -510,10 +461,7 @@ export function useDecisionHandle(ref: DecisionHandleRefValue | null): UseDecisi
     // (re)constructed locally — the same construction the `decision_bind`
     // platform impl performs for East-side callers.
     const fns = useMemo(
-        () => (ref
-            ? buildDecisionHandle([...ref.decisions], ref.judgements,
-                getSomeorUndefined(ref.slice as never) as SliceStateValue | undefined)
-            : null),
+        () => (ref ? buildDecisionHandle([...ref.decisions], ref.judgements) : null),
         [ref],
     );
 
@@ -574,6 +522,5 @@ export function useDecisionHandle(ref: DecisionHandleRefValue | null): UseDecisi
         addKnowledge,
         inject,
         resolve,
-        slice: fns ? (fns.slice as ReturnType<typeof buildSliceHandle>) : null,
     };
 }

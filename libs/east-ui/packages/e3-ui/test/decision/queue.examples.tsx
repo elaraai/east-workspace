@@ -438,31 +438,35 @@ export const decisionQueueScroll = example({
 
 
 // ============================================================================
-// 7. The handle-owned slice — `Decision.bind` binds it (seeded with an
-//    initial kind filter); the queue's `slice` option only mounts the rail.
-//    The same seed with NO rail mounted is an invisible author scope.
+// 7. The author-owned slice — an ordinary `Slice.bind` over the decision
+//    envelope (rows = `handle.queue()`, the Table pattern), seeded with an
+//    initial kind filter; pass the handle as the queue's `slice` option to
+//    mount the rail. The same seed with NO rail mounted is an invisible
+//    author scope, and the author-owned key gives per-surface scopes over
+//    one handle (or a slice shared with any other component).
 // ============================================================================
 
 export const decisionQueueSlice = example({
-    keywords: ['DecisionQueue', 'Decide', 'slice', 'bind', 'seed', 'rail', 'filter', 'search', 'operator'],
-    description: 'The handle-owned slice — Decision.bind seeds the initial state (kind = roster, shown as a removable chip); the queue\'s slice option mounts the rail; omitting the rail would make the same seed an invisible author scope',
+    keywords: ['DecisionQueue', 'Decide', 'slice', 'Slice.bind', 'Slice.config', 'seed', 'rail', 'filter', 'search', 'affordances', 'operator'],
+    description: 'The author-owned slice — Slice.bind over the decision envelope (rows = handle.queue()) seeded with a kind filter (shown as a removable chip); pass the handle as the queue\'s slice option to mount the rail; the same seed with no rail is an invisible author scope',
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
                 const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));
                 const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));
-                const handle = $.let(Decision.bind([RosterConstraint], {
-                    decisions: [decisions],
-                    judgements,
-                    slice: Slice.state({
-                        filters: [variant('string', { fieldId: 'kind', op: variant('eq', 'roster') })],
-                    }),
-                }));
+                const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));
+                const cfg = Slice.config(DecisionType, {
+                    fields: { kind: { label: 'Kind' }, title: { label: 'Title' }, value: { label: 'Value' } },
+                    searchFieldIds: ['kind', 'title'],
+                });
+                const slice = $.let(Slice.bind([DecisionType], 'ex.decision.queue.slice', cfg, Slice.state({
+                    filters: [variant('string', { fieldId: 'kind', op: variant('eq', 'roster') })],
+                }), handle.queue(), none));
                 return (
                     <DecisionQueue
                         handle={handle}
                         heading="Decisions waiting"
-                        slice={['filter', 'search']}
+                        slice={slice}
                     />
                 );
             }}</Reactive>

@@ -38,7 +38,7 @@ import {
     type SubtypeExprOrValue,
 } from "@elaraai/east";
 import { EastUI, DensityType, UIComponentType, type DensityLiteral } from "@elaraai/east-ui";
-import { SliceAffordanceType, reifyAccessor, type SliceAffordanceLiteral } from "@elaraai/east-ui/internal";
+import { SliceAffordanceType, SliceBindType, reifyAccessor, type SliceAffordanceLiteral } from "@elaraai/east-ui/internal";
 
 import { DecisionHandleRefType, type DecisionHandleLike } from "./bind.js";
 import { DecisionType, DecisionUpdateType } from "./types.js";
@@ -115,9 +115,11 @@ export type DecisionGroupType = typeof DecisionGroupType;
  *   Apply resolves it (the resolution itself goes through the handle).
  * @property onReject - Optional side-effect hook fired with the decision
  *   when Reject resolves it.
- * @property slice - Optional rail affordances. The slice itself is
- *   handle-owned (bound by `Decision.bind`, seeded there); this field only
- *   chooses what mounts in the queue's eyebrow rail.
+ * @property slice - Optional author-bound slice handle over the queue; its
+ *   narrowing (matched with the slice's own bound config) applies before the
+ *   urgency sort and the routine split whether or not a rail mounts.
+ * @property affordances - Which rail affordances mount in the queue's eyebrow
+ *   when `slice` is set.
  * @property maxHeight - Optional cap on the queue's height (a CSS length).
  *   The header stays pinned; the rows scroll.
  * @property density - Information-density preset.
@@ -139,7 +141,8 @@ export const DecisionQueuePayloadType = StructType({
     facets: OptionType(ArrayType(DataFacetType)),
     onApply: OptionType(FunctionType([DecisionType], NullType)),
     onReject: OptionType(FunctionType([DecisionType], NullType)),
-    slice: OptionType(ArrayType(SliceAffordanceType)),
+    slice: OptionType(SliceBindType),
+    affordances: OptionType(ArrayType(SliceAffordanceType)),
     maxHeight: OptionType(StringType),
     density: OptionType(DensityType),
     groups: OptionType(ArrayType(DecisionGroupType)),
@@ -178,12 +181,19 @@ export const DecisionQueueComponent = EastUI.component("DecisionQueue", Decision
  *   `evidence`).
  * @property onApply - Optional per-row Apply side-effect hook.
  * @property onReject - Optional per-row Reject side-effect hook.
- * @property slice - Operator-facing rail over the handle-owned slice: list
- *   the affordances (`["filter", "search"]`-style, or `true` for that
- *   default). The slice itself (binding, initial state, key) belongs to
- *   `Decision.bind`; its narrowing applies before the urgency sort and the
- *   routine split whether or not a rail is mounted — seeding state at bind
- *   with no rail gives an invisible author scope. `brush` is rejected.
+ * @property slice - Author-bound slice handle over the queue — the `Table`
+ *   pattern, with an ordinary `Slice.config` over the decision envelope and
+ *   the handle's own queue union as the rows feed:
+ *   `Slice.bind([Decision.Types.Decision], key, cfg, Slice.state({…}),
+ *   handle.queue(), none)`. You own the key (per-surface scopes over one
+ *   handle, shareable with any other component) and the config (which fields
+ *   the rail offers; the queue's narrowing matches with the same bound
+ *   config). Narrowing applies before the urgency sort and the routine split
+ *   whether or not a rail is mounted — seeding state with no rail gives an
+ *   invisible author scope.
+ * @property affordances - Rail affordances when `slice` is set (default
+ *   `["filter", "search"]`). `brush` is rejected — the queue has no
+ *   continuous axis.
  * @property maxHeight - Optional cap on the queue's height (a CSS length).
  *   The header stays pinned; the rows scroll. Unset, the queue grows with
  *   its content.
@@ -221,7 +231,10 @@ export interface DecisionQueueOptions {
     onApply?: SubtypeExprOrValue<FunctionType<[DecisionType], NullType>>;
     /** Per-row Reject side-effect hook — a pass-through `East.function` value, not invoked at build time. */
     onReject?: SubtypeExprOrValue<FunctionType<[DecisionType], NullType>>;
-    slice?: SliceAffordanceLiteral[] | true;
+    /** Author-bound slice handle over the queue (`Slice.bind` over the decision envelope, rows = `handle.queue()`) — chrome + narrowing. */
+    slice?: SubtypeExprOrValue<SliceBindType>;
+    /** Rail affordances when `slice` is set. Default `["filter", "search"]`; `[]` keeps the narrowing with no rail; `brush` is rejected. */
+    affordances?: SliceAffordanceLiteral[];
     maxHeight?: SubtypeExprOrValue<StringType>;
     density?: SubtypeExprOrValue<OptionType<DensityType>> | DensityLiteral;
     /** Custom groupings for the Group-by toolbar — a map of toolbar label →
@@ -294,13 +307,21 @@ export const DecisionQueue: {
             : some(Array.isArray(options.facets) && options.facets.every(f => typeof f === "string")
                 ? East.value((options.facets as DataFacetLiteral[]).map(f => variant(f, null)), ArrayType(DataFacetType))
                 : East.value(options.facets as SubtypeExprOrValue<ArrayType<DataFacetType>>, ArrayType(DataFacetType)));
+        // Author-bound slice handle (Table pattern) + rail affordances. The
+        // affordance list defaults when a slice is passed; a rail without a
+        // slice has nothing to mount, so `affordances` alone is ignored, and
+        // an explicit `[]` keeps the slice's narrowing with no rail (the
+        // invisible author scope).
         const sliceAffordances = options.slice === undefined
             ? undefined
-            : options.slice === true ? (["filter", "search"] as SliceAffordanceLiteral[]) : options.slice;
+            : options.affordances ?? (["filter", "search"] as SliceAffordanceLiteral[]);
         if (sliceAffordances?.includes("brush")) {
             throw new Error("DecisionQueue does not support the 'brush' affordance — it has no continuous axis.");
         }
-        const slice = sliceAffordances === undefined
+        const slice = options.slice === undefined
+            ? none
+            : some(East.value(options.slice, SliceBindType));
+        const affordances = sliceAffordances === undefined || sliceAffordances.length === 0
             ? none
             : some(East.value(sliceAffordances.map(a => variant(a, null)), ArrayType(SliceAffordanceType)));
         const density = options.density === undefined
@@ -328,7 +349,6 @@ export const DecisionQueue: {
             handle: East.value({
                 decisions: options.handle.decisions,
                 judgements: options.handle.judgements,
-                slice: options.handle.sliceInit,
             }, DecisionHandleRefType),
             heading: options.heading !== undefined ? some(options.heading) : none,
             modify,
@@ -341,6 +361,7 @@ export const DecisionQueue: {
             onApply,
             onReject,
             slice,
+            affordances,
             maxHeight: options.maxHeight !== undefined ? some(options.maxHeight) : none,
             density,
             groups,

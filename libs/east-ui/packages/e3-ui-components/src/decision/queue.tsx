@@ -46,8 +46,10 @@ import {
     type TickFormatOpt,
 } from '@elaraai/east-ui-components';
 
+import { boundSliceConfig } from '@elaraai/east-ui-components/platform';
+
 import { getBindingTypes, getReactiveDatasetCache } from '../platform/index.js';
-import { useDecisionHandle, DECISION_SLICE_CONFIG, type UseDecisionHandleResult, type DecisionHandleRefValue } from './handle-runtime.js';
+import { useDecisionHandle, type UseDecisionHandleResult, type DecisionHandleRefValue } from './handle-runtime.js';
 import { EvidenceFacet, OptionsFacet, JudgementFacet } from './facets.js';
 import { normalizeTypeValue, type TypeNode } from './lever-editor.js';
 import { URGENCY_GROUP_LABEL, buildGroups, type GroupOption, type QueueGroup } from './grouping.js';
@@ -441,15 +443,15 @@ const EastChakraDecisionQueue = memo(function EastChakraDecisionQueue({ value, s
     const decisions = handle.decisions;
     const leverPayloads = useLeverPayloads(handleRef);
 
-    // The slice is handle-owned (bound by Decision.bind, seeded there); the
-    // payload's `slice` field only lists which affordances mount in the rail.
-    // Its narrowing applies whether or not a rail shows — initial state with
-    // no rail is an invisible author scope.
-    const railAffordances = getSomeorUndefined(value.slice);
-    // `buildSliceHandle` now returns a serializable IR handle typed loosely
-    // (`Record<string, unknown>`, issue #106); narrow to the methods this view
-    // reads. `read()` yields the decoded SliceState (cast `as never` at use).
-    const sliceHandle = handle.slice as { key: string; read: () => unknown } | null;
+    // The slice is author-owned (a `Slice.bind` handle passed in the payload,
+    // the `Table` pattern); `affordances` lists what mounts in the rail. Its
+    // narrowing applies whether or not a rail shows — a seeded state with no
+    // rail is an invisible author scope.
+    const railAffordances = getSomeorUndefined(value.affordances);
+    // The decoded handle's closures re-bind by key on decode (issue #106);
+    // narrow to the methods this view reads. `read()` yields the decoded
+    // SliceState (cast `as never` at use).
+    const sliceHandle = (getSomeorUndefined(value.slice) ?? null) as { key: string; read: () => unknown } | null;
     useSliceReactivity(sliceHandle?.key as string | undefined);
     // Read at render level: the handle's identity is stable across slice
     // writes, so the narrowing memo must depend on the state value itself
@@ -574,8 +576,12 @@ const EastChakraDecisionQueue = memo(function EastChakraDecisionQueue({ value, s
     const { merged, active, routine, pastSla, visible } = useMemo(() => {
         const scoped = decisions ?? [];
         const now = new Date();
-        const live = sliceState !== null
-            ? scoped.filter(d => sliceMatches(sliceState as never, DECISION_SLICE_CONFIG as never, d as never, now))
+        // Match with the slice's own bound config (registered by the author's
+        // `Slice.bind` in the enclosing Reactive — it runs before this mounts),
+        // so the rail's fields and the narrowing always agree.
+        const sliceConfig = sliceHandle !== null ? boundSliceConfig(sliceHandle.key) : undefined;
+        const live = sliceState !== null && sliceConfig !== undefined
+            ? scoped.filter(d => sliceMatches(sliceState as never, sliceConfig as never, d as never, now))
             : scoped;
         const merged = [...live];
         for (const { decision } of exiting.values()) {
@@ -596,7 +602,7 @@ const EastChakraDecisionQueue = memo(function EastChakraDecisionQueue({ value, s
             pastSla: merged.filter(d => d.urgency.type === 'overdue').length,
             visible: live.length,
         };
-    }, [decisions, exiting, sliceState]);
+    }, [decisions, exiting, sliceState, sliceHandle]);
 
     const groups = useMemo(
         () => (grouped ? buildGroups(merged, activeOption) : []),

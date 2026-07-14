@@ -45,6 +45,7 @@ export {
     SliceApplyImpl,
     buildSliceHandle,
     DEFAULT_SLICE_STATE,
+    boundSliceConfig,
 } from "./platform/index.js";
 export {
     UIStore,

@@ -99,7 +99,6 @@ export const DecisionJournal: {
             handle: East.value({
                 decisions: options.handle.decisions,
                 judgements: options.handle.judgements,
-                slice: options.handle.sliceInit,
             }, DecisionHandleRefType),
             heading: options.heading !== undefined ? some(options.heading) : none,
             maxHeight: options.maxHeight !== undefined ? some(options.maxHeight) : none,
