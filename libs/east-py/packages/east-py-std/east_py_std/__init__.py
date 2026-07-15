@@ -28,6 +28,10 @@ from east_py_std.crypto import (
     crypto_random_bytes_impl,
     crypto_uuid_impl,
 )
+from east_py_std.env import (
+    env_get_impl,
+    env_impl,
+)
 from east_py_std.fetch import (
     FetchMethodType,
     FetchRequestConfigType,
@@ -99,6 +103,7 @@ __version__ = "0.1.0"
 platform = [
     *console_impl,
     *crypto_impl,
+    *env_impl,
     *fetch_impl,
     *fs_impl,
     *path_impl,
@@ -113,6 +118,7 @@ __all__ = [
     # ---------- registration lists ----------
     "console_impl",
     "crypto_impl",
+    "env_impl",
     "fetch_impl",
     "fs_impl",
     "path_impl",
@@ -128,6 +134,8 @@ __all__ = [
     "crypto_hash_sha256_impl",
     "crypto_hash_sha256_bytes_impl",
     "crypto_uuid_impl",
+    # ---------- env ----------
+    "env_get_impl",
     # ---------- fetch ----------
     "fetch_get_impl",
     "fetch_get_bytes_impl",

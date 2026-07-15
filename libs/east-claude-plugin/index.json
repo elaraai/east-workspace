@@ -1,11 +1,11 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1492,
-    "totalFiles": 187,
+    "totalEntries": 1493,
+    "totalFiles": 188,
     "packages": {
       "east": 490,
-      "east-node-std": 42,
+      "east-node-std": 43,
       "east-node-io": 63,
       "east-py-datascience": 89,
       "east-ui": 734,
@@ -9547,6 +9547,30 @@
         "import { Crypto } from \"@elaraai/east-node-std\";"
       ],
       "source": "// Generate a UUID string with 36 characters\n// inputs: []  returns: 36n\nEast.asyncFunction([], IntegerType, ($) => {\n        const uuid = $.let(Crypto.uuid());\n        return uuid.length();\n    })"
+    },
+    {
+      "id": "east-node-std:env.examples.ts:envGet",
+      "skill": "east-node-std",
+      "package": "east-node-std",
+      "file": "east-node/packages/east-node-std/test/env.examples.ts",
+      "suite": "",
+      "test": "Read an environment variable as an option — some when set, none when not (keep credentials out of East source)",
+      "keywords": [
+        "env",
+        "Env",
+        "get",
+        "environment",
+        "variable",
+        "credential",
+        "secret",
+        "config",
+        "password"
+      ],
+      "imports": [
+        "import { East, BooleanType, example } from \"@elaraai/east\";",
+        "import { Env } from \"@elaraai/east-node-std\";"
+      ],
+      "source": "// Read an environment variable as an option — some when set, none when not (keep credentials out of East source)\n// inputs: []  returns: true\nEast.asyncFunction([], BooleanType, ($) => {\n        // PATH is set in every process environment; the sentinel is not.\n        const path = $.let(Env.get(\"PATH\"));\n        const missing = $.let(Env.get(\"EAST_EXAMPLE_UNSET_VARIABLE\"));\n        return path.hasTag(\"some\").and(_$ => missing.hasTag(\"none\"));\n    })"
     },
     {
       "id": "east-node-std:fetch.examples.ts:fetchGet",

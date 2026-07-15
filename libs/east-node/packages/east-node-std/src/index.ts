@@ -14,6 +14,7 @@ export * from "./test.js";
 
 // Export platform function definitions and implementations
 export * from "./console.js";
+export * from "./env.js";
 export * from "./fs.js";
 export * from "./path.js";
 export * from "./crypto.js";
@@ -23,6 +24,7 @@ export * from "./random.js";
 
 // Import implementations for combined export
 import { ConsoleImpl } from "./console.js";
+import { EnvImpl } from "./env.js";
 import { FileSystemImpl } from "./fs.js";
 import { PathImpl } from "./path.js";
 import { CryptoImpl } from "./crypto.js";
@@ -53,6 +55,7 @@ import { TestImpl } from "./test.js";
  */
 export const NodePlatform = [
     ...ConsoleImpl,
+    ...EnvImpl,
     ...FileSystemImpl,
     ...PathImpl,
     ...CryptoImpl,
@@ -82,6 +85,7 @@ export const NodePlatform = [
  */
 export const NodePlatformSync = [
     ...ConsoleImpl,
+    ...EnvImpl,
     ...FileSystemImpl,
     ...PathImpl,
     ...CryptoImpl,

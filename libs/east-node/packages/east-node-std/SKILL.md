@@ -1,6 +1,6 @@
 ---
 name: east-node-std
-description: "Node.js platform functions for the East language. Use when writing East programs that need Console I/O, FileSystem operations, HTTP Fetch requests, Cryptography, Time operations, Path manipulation, Random number generation, or Testing. Triggers for: (1) Writing East programs with @elaraai/east-node-std, (2) Using platform functions like Console.log, FileSystem.readFile, Fetch.get, Crypto.uuid, Time.now, Path.join, Random.normal, (3) Testing East code with describeEast and Assert."
+description: "Node.js platform functions for the East language. Use when writing East programs that need Console I/O, Environment variables, FileSystem operations, HTTP Fetch requests, Cryptography, Time operations, Path manipulation, Random number generation, or Testing. Triggers for: (1) Writing East programs with @elaraai/east-node-std, (2) Using platform functions like Console.log, Env.get, FileSystem.readFile, Fetch.get, Crypto.uuid, Time.now, Path.join, Random.normal, (3) Testing East code with describeEast and Assert, (4) Passing credentials/secrets to East tasks without putting them in source."
 ---
 
 # East Node Standard Library
@@ -34,6 +34,10 @@ Task → What do you need?
     │
     ├─ Console (stdout/stderr output)
     │   └─ .log(), .error(), .write()
+    │
+    ├─ Env (environment variables — credentials/config supplied at runtime)
+    │   └─ .get() → Option<String> (some when set, none when not; never
+    │       write a credential literal — IR is content-addressed and replicated)
     │
     ├─ FileSystem (read/write files and directories)
     │   ├─ Text → .readFile(), .writeFile(), .appendFile()
@@ -82,6 +86,7 @@ const compiled = East.compile(myFunction.toIR(), [...Console.Implementation, ...
 | Module | Import | Purpose |
 |--------|--------|---------|
 | Console | `import { Console } from "@elaraai/east-node-std"` | stdout/stderr output |
+| Env | `import { Env } from "@elaraai/east-node-std"` | Environment variables (runtime credentials/config; name in IR, value from the environment) |
 | FileSystem | `import { FileSystem } from "@elaraai/east-node-std"` | Read/write files and directories |
 | Fetch | `import { Fetch } from "@elaraai/east-node-std"` | HTTP requests |
 | Crypto | `import { Crypto } from "@elaraai/east-node-std"` | Hashing, UUIDs, random bytes |
