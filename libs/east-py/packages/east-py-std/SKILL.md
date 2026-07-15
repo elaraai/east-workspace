@@ -1,12 +1,13 @@
 ---
 name: east-py-std
-description: "Standard platform functions for the East language on the Python runtime - console, filesystem, HTTP fetch, crypto, time, path, random, testing. Use when writing Python (not the TypeScript DSL) that calls or registers these platform functions. Triggers for: (1) Calling east_py_std *_impl functions directly from a project's own Python @platform_function (fs_read_file_impl, fetch_request_impl, crypto_uuid_impl, random_normal_impl, ...), (2) Registering the east_py_std platform list with compile() so East programs can use Console/FileSystem/Fetch/Crypto/Time/Path/Random/Test on the Python runtime, (3) Building FetchRequestConfigType requests in Python, (4) Deterministic random streams with random_seed. For authoring East programs in TypeScript against these functions, use the east-node-std skill instead."
+description: "Standard platform functions for the East language on the Python runtime - console, environment variables, filesystem, HTTP fetch, crypto, time, path, random, testing. Use when writing Python (not the TypeScript DSL) that calls or registers these platform functions. Triggers for: (1) Calling east_py_std *_impl functions directly from a project's own Python @platform_function (env_get_impl, fs_read_file_impl, fetch_request_impl, crypto_uuid_impl, random_normal_impl, ...), (2) Registering the east_py_std platform list with compile() so East programs can use Console/Env/FileSystem/Fetch/Crypto/Time/Path/Random/Test on the Python runtime, (3) Building FetchRequestConfigType requests in Python, (4) Deterministic random streams with random_seed. For authoring East programs in TypeScript against these functions, use the east-node-std skill instead."
 ---
 
 # East.py Standard Platform Functions
 
 `east_py_std` is the Python implementation of the East standard platform:
-console, filesystem, HTTP fetch, crypto, time, path, random, and testing.
+console, environment variables, filesystem, HTTP fetch, crypto, time, path,
+random, and testing.
 Every `*_impl` function is a **plain Python callable taking and returning East
 values** - call them directly from a project `@platform_function`, or register
 the whole `platform` list so East programs running on the Python runtime can
@@ -39,6 +40,9 @@ Task → What do you need?
     │
     ├─ Console output
     │   └─ console_log_impl(msg) · console_error_impl(msg) · console_write_impl(msg)
+    │
+    ├─ Environment variables (runtime credentials/config — never literals in source)
+    │   └─ env_get_impl(name) -> Option<String> (some when set, none when not)
     │
     ├─ Filesystem
     │   ├─ Text → fs_read_file_impl(path) · fs_write_file_impl(path, text) · fs_append_file_impl(path, text)

@@ -1,7 +1,7 @@
 # east-py-std
 
 Standard platform functions for East on Python — mirror of
-`@elaraai/east-node-std`. Console, fs, fetch, crypto, time, path,
+`@elaraai/east-node-std`. Console, env, fs, fetch, crypto, time, path,
 random, plus the test framework.
 
 Pure Python (no native code).

@@ -46,6 +46,25 @@ function resolvesToFsImport(id: ts.Identifier, ctx: RuleContext): boolean {
   );
 }
 
+/** Is `node` inside a callback passed to a `.implement(...)` call? Platform
+ * function implementation bodies run at RUNTIME on the host — reading
+ * `process.env` / the filesystem there is exactly what a platform function is
+ * for (same stance as `no-build-time-clock`'s function exemption). */
+function insidePlatformImplement(node: ts.Node, t: TsModule): boolean {
+  let cur: ts.Node | undefined = node.parent;
+  while (cur !== undefined) {
+    if (
+      t.isCallExpression(cur) &&
+      t.isPropertyAccessExpression(cur.expression) &&
+      cur.expression.name.text === "implement"
+    ) {
+      return true;
+    }
+    cur = cur.parent;
+  }
+  return false;
+}
+
 function isProcessEnv(node: ts.Node, t: TsModule): boolean {
   return (
     t.isPropertyAccessExpression(node) &&
@@ -89,8 +108,10 @@ export const noCompileTimeDataInjection: EastRule = {
     }
 
     // All remaining forms are abuse only at module scope (not inside an East
-    // block, where the runtime platform forms legitimately run).
+    // block, where the runtime platform forms legitimately run, and not inside
+    // a platform `.implement(...)` body, which IS the runtime).
     if (insideBlockScope(node, ctx)) return;
+    if (insidePlatformImplement(node, t)) return;
 
     // `process.env` probe — fire once on the bare `process.env` access (the outer
     // `process.env.X` / `process.env["X"]` has it as its receiver, so reporting the

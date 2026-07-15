@@ -29,6 +29,7 @@ import { noHandrolledValueTypeMirror } from "./no-handrolled-value-type-mirror.j
 import { noHostComparisonOnEastValues } from "./no-host-comparison-on-east-values.js";
 import { requireExampleReturns } from "./require-example-returns.js";
 import { noDuplicateDefinitionName } from "./no-duplicate-definition-name.js";
+import { noInlineCredentials } from "./no-inline-credentials.js";
 
 export { noRedundantEastCast } from "./no-redundant-east-cast.js";
 export { preferExplicitEastType } from "./prefer-explicit-east-type.js";
@@ -56,6 +57,7 @@ export { noHandrolledValueTypeMirror } from "./no-handrolled-value-type-mirror.j
 export { noHostComparisonOnEastValues } from "./no-host-comparison-on-east-values.js";
 export { requireExampleReturns } from "./require-example-returns.js";
 export { noDuplicateDefinitionName } from "./no-duplicate-definition-name.js";
+export { noInlineCredentials } from "./no-inline-credentials.js";
 
 export const allRules: readonly EastRule[] = [
   // East-side idiom hygiene (original set)
@@ -89,4 +91,6 @@ export const allRules: readonly EastRule[] = [
   noHostComparisonOnEastValues,
   requireExampleReturns,
   noDuplicateDefinitionName,
+  // secrets hygiene: IR is content-addressed and replicated — no literal creds
+  noInlineCredentials,
 ];

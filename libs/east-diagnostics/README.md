@@ -65,6 +65,7 @@ These share one principle: **inside an East block the code must be East all the 
 - **`no-host-comparison-on-east-values`** - `===`/`<` on decoded East values (variants/options, `SortedMap`/`SortedSet`) — use `equalFor(T)` / `compareFor(T)`.
 - **`require-example-returns`** - An `example()` without `returns` (for a non-`NullType`/`UIComponentType` output) — the harness runs the fn as a bare statement and the assertion false-passes.
 - **`no-duplicate-definition-name`** - Two same-kind e3 definitions sharing a name string in one file — they collide at deploy time.
+- **`no-inline-credentials`** - A literal string credential (`password`, `secretAccessKey`, `token`, …, directly or wrapped in `some(…)`/`variant("some", …)`) in East/e3 source — the IR is content-addressed, exported, and replicated, so a secret in it is effectively unredactable. Use `Env.get("NAME")` (east-node-std) and supply the value per environment. Credentials paired with a localhost host/endpoint (test containers) are exempt.
 
 ## Usage
 

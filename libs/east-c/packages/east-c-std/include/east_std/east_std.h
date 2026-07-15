@@ -6,6 +6,7 @@
 
 // Individual module registration
 void east_std_register_console(PlatformRegistry *reg);
+void east_std_register_env(PlatformRegistry *reg);
 void east_std_register_fs(PlatformRegistry *reg);
 void east_std_register_path(PlatformRegistry *reg);
 void east_std_register_crypto(PlatformRegistry *reg);

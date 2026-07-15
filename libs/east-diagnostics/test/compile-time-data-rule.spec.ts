@@ -81,3 +81,14 @@ test("silent in a plain (non-East) TypeScript file — fs/JSON.parse/process.env
     `export const dir = process.env["DATA_DIR"];\n`;
   assert.equal(rule(src).length, 0);
 });
+
+test("silent inside a platform `.implement(...)` body — that IS the runtime", () => {
+  // The east-node-std shape: `East.platform(...)` declares a program, but the
+  // implementation callback executes on the host at runtime — reading
+  // `process.env` there is exactly what a platform function is for.
+  const src =
+    `import { East, StringType } from "@elaraai/east";\n` +
+    `export const env_get = East.platform("env_get", [StringType], StringType);\n` +
+    `export const impl = env_get.implement((name: string) => process.env[name] ?? "");\n`;
+  assert.equal(rule(src).length, 0);
+});
