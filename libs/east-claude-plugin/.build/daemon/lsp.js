@@ -892,6 +892,16 @@ function resolvesToFsImport(id, ctx) {
   const imp = importOfSymbol(ctx.checker.getSymbolAtLocation(id), t);
   return imp !== void 0 && t.isStringLiteral(imp.moduleSpecifier) && FS_MODULES.has(imp.moduleSpecifier.text);
 }
+function insidePlatformImplement(node, t) {
+  let cur = node.parent;
+  while (cur !== void 0) {
+    if (t.isCallExpression(cur) && t.isPropertyAccessExpression(cur.expression) && cur.expression.name.text === "implement") {
+      return true;
+    }
+    cur = cur.parent;
+  }
+  return false;
+}
 function isProcessEnv(node, t) {
   return t.isPropertyAccessExpression(node) && t.isIdentifier(node.expression) && node.expression.text === "process" && node.name.text === "env";
 }
@@ -913,6 +923,8 @@ var noCompileTimeDataInjection = {
       return;
     }
     if (insideBlockScope(node, ctx))
+      return;
+    if (insidePlatformImplement(node, t))
       return;
     if (isProcessEnv(node, t)) {
       fire(ctx, node, "Reading `process.env` at module scope couples the deployed program to its build environment. Make it an `e3.input` / dataset parameter.");
@@ -2056,6 +2068,95 @@ var noDuplicateDefinitionName = {
   }
 };
 
+// ../east-diagnostics/dist/src/rules/no-inline-credentials.js
+var NAME27 = "no-inline-credentials";
+var CODE27 = 990032;
+var CREDENTIAL_FIELDS = /* @__PURE__ */ new Set([
+  "password",
+  "passphrase",
+  "privateKey",
+  "secretAccessKey",
+  "accessKeyId",
+  "apiKey",
+  "token",
+  "accessToken",
+  "refreshToken",
+  "sessionToken",
+  "secretKey",
+  "clientSecret"
+]);
+var HOST_FIELDS = /* @__PURE__ */ new Set(["host", "hostname", "endpoint", "url", "server", "address"]);
+var LOCAL_HOSTS = ["localhost", "127.0.0.1", "::1"];
+function isStringy(node, t) {
+  return t.isStringLiteral(node) || t.isNoSubstitutionTemplateLiteral(node);
+}
+function literalCredential(init2, t) {
+  if (isStringy(init2, t) && init2.text.length > 0)
+    return init2;
+  if (!t.isCallExpression(init2))
+    return void 0;
+  const callee = init2.expression;
+  const calleeName = t.isIdentifier(callee) ? callee.text : t.isPropertyAccessExpression(callee) ? callee.name.text : void 0;
+  if (calleeName !== "some" && calleeName !== "variant")
+    return void 0;
+  const args = calleeName === "variant" ? init2.arguments.slice(1) : init2.arguments;
+  for (const arg of args) {
+    if (isStringy(arg, t) && arg.text.length > 0)
+      return arg;
+  }
+  return void 0;
+}
+function mentionsLocalHost(node, t) {
+  if (isStringy(node, t) && LOCAL_HOSTS.some((h) => node.text.includes(h)))
+    return true;
+  let found = false;
+  t.forEachChild(node, (child) => {
+    if (!found && mentionsLocalHost(child, t))
+      found = true;
+  });
+  return found;
+}
+function targetsLocalHost(obj, t) {
+  for (const prop of obj.properties) {
+    if (!t.isPropertyAssignment(prop))
+      continue;
+    const name = t.isIdentifier(prop.name) || t.isStringLiteral(prop.name) ? prop.name.text : void 0;
+    if (name !== void 0 && HOST_FIELDS.has(name) && mentionsLocalHost(prop.initializer, t))
+      return true;
+  }
+  return false;
+}
+var noInlineCredentials = {
+  name: NAME27,
+  code: CODE27,
+  description: "Flag literal string credentials (password, secretAccessKey, token, \u2026) in East/e3 source \u2014 use Env.get so the IR carries the variable name, not the secret.",
+  check(node, ctx) {
+    const t = ctx.ts;
+    if (!t.isPropertyAssignment(node))
+      return;
+    const name = t.isIdentifier(node.name) || t.isStringLiteral(node.name) ? node.name.text : void 0;
+    if (name === void 0 || !CREDENTIAL_FIELDS.has(name))
+      return;
+    if (!importsEastPackage(ctx.sourceFile, t))
+      return;
+    const literal = literalCredential(node.initializer, t);
+    if (literal === void 0)
+      return;
+    if (t.isObjectLiteralExpression(node.parent) && targetsLocalHost(node.parent, t))
+      return;
+    const sf = ctx.sourceFile;
+    const start = literal.getStart(sf);
+    ctx.report({
+      ruleName: NAME27,
+      code: CODE27,
+      start,
+      length: literal.getEnd() - start,
+      messageText: `Literal credential in \`${name}\` \u2014 East source compiles to content-addressed IR that is stored, exported, and replicated, so a secret here is effectively unredactable. Use \`Env.get("YOUR_VAR")\` (east-node-std) and supply the value per environment: your shell locally, the deployment's secret store in hosted runtimes.`,
+      category: "warning"
+    });
+  }
+};
+
 // ../east-diagnostics/dist/src/rules/index.js
 var allRules = [
   // East-side idiom hygiene (original set)
@@ -2088,7 +2189,9 @@ var allRules = [
   noHandrolledValueTypeMirror,
   noHostComparisonOnEastValues,
   requireExampleReturns,
-  noDuplicateDefinitionName
+  noDuplicateDefinitionName,
+  // secrets hygiene: IR is content-addressed and replicated — no literal creds
+  noInlineCredentials
 ];
 
 // ../east-diagnostics/dist/src/run.js

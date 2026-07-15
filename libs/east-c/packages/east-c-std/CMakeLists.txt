@@ -1,5 +1,6 @@
 add_library(east-c-std
     src/console.c
+    src/env.c
     src/fs.c
     src/path.c
     src/crypto.c
