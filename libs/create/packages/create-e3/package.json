@@ -1,6 +1,6 @@
 {
   "name": "@elaraai/create-e3",
-  "version": "1.0.36",
+  "version": "1.0.37",
   "description": "Scaffold a new e3 project (BSL-1.1, Node + Python, durable execution): npm create @elaraai/e3",
   "type": "module",
   "bin": {
