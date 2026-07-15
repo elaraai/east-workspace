@@ -17,11 +17,15 @@ docker build -f docker/images/Dockerfile.east-node -t test-east-node-$$ . --quie
 docker rmi test-east-node-$$ > /dev/null
 echo "[OK] Dockerfile.east-node"
 
-# Test 2: east-c image (tiny — just the prebuilt evaluator)
+# Test 2: east-c image (tiny — just the prebuilt evaluator). Build alone is
+# NOT enough: the prebuilt binary has runtime link deps (libcurl.so.4) the
+# slim base doesn't ship, and a build-only test let that gap ship silently
+# (issue #336) — smoke-RUN the evaluator so a missing shared library fails here.
 echo "[2/5] Building Dockerfile.east-c..."
 docker build -f docker/images/Dockerfile.east-c -t test-east-c-$$ . --quiet
+docker run --rm test-east-c-$$ east-c version > /dev/null
 docker rmi test-east-c-$$ > /dev/null
-echo "[OK] Dockerfile.east-c"
+echo "[OK] Dockerfile.east-c (builds + evaluator runs)"
 
 # Test 3: east-py image (python runtime, no datascience). Kept for test 4's
 # FROM chain, removed after.

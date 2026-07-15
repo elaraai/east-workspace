@@ -25,9 +25,14 @@ LABEL org.opencontainers.image.licenses="BUSL-1.1"
 ARG EAST_C_CLI_VERSION
 ENV EAST_C_CLI_VERSION=${EAST_C_CLI_VERSION:-latest}
 
-# System dependencies
+# System dependencies. libcurl4 is a RUNTIME link dependency of the prebuilt
+# east-c binary (node:22-slim doesn't ship it) — without it the evaluator
+# dies at exec with "error while loading shared libraries: libcurl.so.4"
+# anywhere this base is used directly (found live on e3-cloud rack microVMs,
+# issue #336; the e3-cloud runner image only worked by installing it itself).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
+    libcurl4 \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
