@@ -6,9 +6,14 @@
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import type { QueryOverrides } from './types.js';
 import { taskList, taskGet, taskExecutionList } from '@elaraai/e3-api-client';
-import type { RequestOptions, TaskDetails, ExecutionListItem } from '@elaraai/e3-api-client';
+import type { RequestOptions, TaskDetails, TaskListItem, ExecutionListItem } from '@elaraai/e3-api-client';
 
-export function useTaskList(url: string, repo: string, workspace: string | null, requestOptions?: RequestOptions, queryOptions?: QueryOverrides) {
+// NOTE: the return type must stay explicitly annotated. TaskListItem carries
+// an East option (`kind`), so the inferred type references east-internal
+// symbols the declaration emitter cannot name (TS4058) — vite-plugin-dts then
+// silently drops this whole FILE from the published types (how 1.0.38 shipped
+// without the task hooks).
+export function useTaskList(url: string, repo: string, workspace: string | null, requestOptions?: RequestOptions, queryOptions?: QueryOverrides): UseQueryResult<TaskListItem[], Error> {
     return useQuery({
         queryKey: ['taskList', url, repo, workspace],
         queryFn: () => taskList(url, repo, workspace!, requestOptions ?? { token: null }),
