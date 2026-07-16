@@ -28,11 +28,12 @@ export async function listTasks(
   try {
     const taskNames = await workspaceListTasks(storage, repoPath, workspace);
 
-    // Get hash for each task
+    // Get hash + kind for each task (the object read is content-addressed and cheap)
     const result = await Promise.all(
       taskNames.map(async (name) => {
         const hash = await workspaceGetTaskHash(storage, repoPath, workspace, name);
-        return { name, hash };
+        const task = await workspaceGetTask(storage, repoPath, workspace, name);
+        return { name, hash, kind: task.kind };
       })
     );
 

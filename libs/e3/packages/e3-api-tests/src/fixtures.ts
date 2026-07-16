@@ -51,6 +51,46 @@ export async function createPackageZip(
 }
 
 /**
+ * Create a package mixing task kinds for the list API (#341).
+ *
+ * Creates a package with:
+ * - Input: "value" (Integer, default 10)
+ * - Task: "compute" - plain task (no kind)
+ * - Task: "display" - kind "ui" (what e3-ui's `ui()` wrapper sets)
+ *
+ * @param tempDir - Directory to write the zip file
+ * @param name - Package name
+ * @param version - Package version
+ * @returns Path to the created zip file
+ */
+export async function createKindsPackageZip(
+  tempDir: string,
+  name: string,
+  version: string
+): Promise<string> {
+  mkdirSync(tempDir, { recursive: true });
+
+  const input = e3.input('value', IntegerType, 10n);
+  const compute = e3.task(
+    'compute',
+    [input],
+    East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n))
+  );
+  const display = e3.task(
+    'display',
+    [input],
+    East.function([IntegerType], StringType, ($, x) => East.print(x)),
+    { kind: 'ui' }
+  );
+  const pkg = e3.package(name, version, compute, display);
+
+  const zipPath = join(tempDir, `${name}-${version}.zip`);
+  await e3.export(pkg, zipPath);
+
+  return zipPath;
+}
+
+/**
  * Create a package with named functions for testing `e3.function` calls.
  *
  * Creates a package with:
