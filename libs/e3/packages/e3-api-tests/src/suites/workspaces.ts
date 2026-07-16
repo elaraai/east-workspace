@@ -28,7 +28,7 @@ import {
 
 import type { TestContext } from '../context.js';
 import type { TestSetup } from '../setup.js';
-import { createPackageZip } from '../fixtures.js';
+import { createPackageZip, createKindsPackageZip } from '../fixtures.js';
 
 /**
  * Register workspace operation tests.
@@ -128,6 +128,24 @@ export function workspaceTests(setup: TestSetup<TestContext>): void {
         const computeTask = tasks.find(t => t.name === 'compute');
         assert.ok(computeTask, 'should have compute task');
         assert.ok(computeTask.hash.length > 0);
+        // Plain task() → no kind (#341)
+        assert.strictEqual(computeTask.kind.type, 'none');
+      });
+
+      it('taskList carries task kind (#341)', async (t) => {
+        const ctx = await setup(t);
+        const opts = await ctx.opts();
+
+        const zipPath = await createKindsPackageZip(ctx.tempDir, 'kinds-pkg', '1.0.0');
+        await packageImport(ctx.config.baseUrl, ctx.repoName, readFileSync(zipPath), opts);
+        await workspaceCreate(ctx.config.baseUrl, ctx.repoName, 'kinds-ws', opts);
+        await workspaceDeploy(ctx.config.baseUrl, ctx.repoName, 'kinds-ws', 'kinds-pkg@1.0.0', opts);
+
+        const tasks = await taskList(ctx.config.baseUrl, ctx.repoName, 'kinds-ws', opts);
+        const byName = new Map(tasks.map(task => [task.name, task]));
+        const display = byName.get('display');
+        assert.ok(display?.kind.type === 'some' && display.kind.value === 'ui');
+        assert.strictEqual(byName.get('compute')?.kind.type, 'none');
       });
 
       it('taskGet returns task details', async (t) => {

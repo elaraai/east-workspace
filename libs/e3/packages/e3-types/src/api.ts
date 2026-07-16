@@ -439,10 +439,12 @@ export const WorkspaceStatusResultType = StructType({
  *
  * @property name - Task name
  * @property hash - Task definition hash
+ * @property kind - Task kind: "ui" (e3-ui `ui()`), other future kinds; none for plain tasks / old packages
  */
 export const TaskListItemType = StructType({
   name: StringType,
   hash: StringType,
+  kind: OptionType(StringType),
 });
 
 /**
