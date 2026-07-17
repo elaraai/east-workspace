@@ -26,6 +26,7 @@ import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { some, none, variant } from "@elaraai/east";
 import { useDensity } from "../../contracts/density.js";
+import { useContainerBelow } from "../../contracts/adaptive.js";
 import { EastChakraSelect } from "../select/index.js";
 import { EastChakraStringInput, EastChakraIntegerInput, EastChakraFloatInput, EastChakraDateTimeInput } from "../input/index.js";
 import { EastChakraTagsInput } from "../tags-input/index.js";
@@ -162,6 +163,11 @@ export function ClauseBuilder({ fields, opsFor, onSubmit, initial, lockField, su
     const density = useDensity();
     const controlSize = size ?? (density === "comfortable" ? "md" : "sm");
     const inputStyle = sizeVariant(controlSize);
+
+    // Compact containers (#348): the 4-track inline grid squeezes below
+    // ~480px — fall back to the existing #193 stacked layout instead.
+    const rowRef = useRef<HTMLDivElement | null>(null);
+    const compact = useContainerBelow(rowRef, 480);
 
     const [fieldId, setFieldId] = useState(initial?.fieldId ?? fields[0]?.id ?? "");
     const field = fields.find(f => f.id === fieldId) ?? fields[0];
@@ -322,9 +328,9 @@ export function ClauseBuilder({ fields, opsFor, onSubmit, initial, lockField, su
     // bounds + join), and datetime singles (a segmented date input cannot
     // shrink into the inline grid's value track — it overflowed the popover).
     // The inline grid stays for the compact singles.
-    if (input === "set" || input === "range" || kind === "datetime") {
+    if (input === "set" || input === "range" || kind === "datetime" || compact) {
         return (
-            <Box css={styles.rowStacked} data-clause-stacked>
+            <Box ref={rowRef} css={styles.rowStacked} data-clause-stacked>
                 <Box css={styles.stackControls}>
                     {fieldControl}
                     {opControl}
@@ -336,7 +342,7 @@ export function ClauseBuilder({ fields, opsFor, onSubmit, initial, lockField, su
         );
     }
     return (
-        <Box css={styles.row}>
+        <Box ref={rowRef} css={styles.row}>
             {fieldControl}
             {opControl}
             {valueControl ?? <Box />}

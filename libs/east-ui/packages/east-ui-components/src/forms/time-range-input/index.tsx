@@ -88,6 +88,8 @@ export const EastChakraTimeRangeInput = memo(function EastChakraTimeRangeInput({
         ...fieldChrome,
         display: "inline-flex",
         alignItems: "center",
+        /* Touch (#348): 44px field rows on coarse pointers. */
+        _coarse: { minHeight: "44px" },
         ...(background !== undefined ? { background } : {}),
         ...(colour !== undefined ? { color: colour } : {}),
         ...(borderColor !== undefined ? { borderColor } : {}),
@@ -96,7 +98,8 @@ export const EastChakraTimeRangeInput = memo(function EastChakraTimeRangeInput({
     };
 
     const inputs = (
-        <HStack gap="2" align="center">
+        // wrap (#348): compact containers drop the end field to a second line.
+        <HStack gap="2" align="center" flexWrap="wrap">
             <Box css={fieldShell}>
                 <TimeField value={localStart} onChange={handleStartChange} isReadOnly={disabled} aria-label="Start time">
                     <TimeInput>

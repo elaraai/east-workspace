@@ -54,6 +54,8 @@ const sizeOverride = {
         paddingX: "10px",
         paddingY: "7px",
         "--input-height": "auto",
+        /* Touch (#348): 44px row + 16px text (iOS zoom-on-focus guard). */
+        _coarse: { fontSize: "{fontSizes.md}", minHeight: "44px" },
     },
     control: {
         fontSize: "inherit",

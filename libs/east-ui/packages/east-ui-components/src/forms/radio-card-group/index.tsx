@@ -63,7 +63,12 @@ export const EastChakraRadioCardGroup = memo(function EastChakraRadioCardGroup({
             name={name}
             orientation={orientation}
         >
-            <Stack gap="3" align={orientation === "vertical" ? "stretch" : undefined}>
+            <Stack
+                gap="3"
+                align={orientation === "vertical" ? "stretch" : undefined}
+                // wrap (#348): horizontal card rows wrap in compact containers.
+                flexWrap={orientation === "horizontal" ? "wrap" : undefined}
+            >
                 {value.items.map((item) => {
                     const itemDisabled = getSomeorUndefined(item.disabled) ?? false;
                     const description = getSomeorUndefined(item.description);

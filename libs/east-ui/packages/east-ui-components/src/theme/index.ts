@@ -28,7 +28,7 @@
  * @packageDocumentation
  */
 
-import { createSystem, defaultConfig, defineConfig } from "@chakra-ui/react";
+import { createSystem, defaultConfig, defineConfig, defineRecipe } from "@chakra-ui/react";
 
 import { tokens } from "./tokens.js";
 import { semanticTokens } from "./semantic-tokens.js";
@@ -153,6 +153,11 @@ const config = defineConfig({
             separator:  separatorRecipe,
             skeleton:   skeletonRecipe,
             chip:       chipRecipe,
+            /* Touch floor (#348) merged onto Chakra's default textarea
+             * recipe — sub-16px focused fields make iOS Safari zoom. */
+            textarea:   defineRecipe({
+                base: { _coarse: { fontSize: "{fontSizes.md}", minHeight: "44px" } },
+            }),
         },
         slotRecipes: {
             tag:             tagSlotRecipe,
