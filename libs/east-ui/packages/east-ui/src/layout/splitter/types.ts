@@ -99,12 +99,16 @@ export type SplitterResizeDetailsType = typeof SplitterResizeDetailsType;
  * @property onResize - Callback triggered when panel sizes change during drag
  * @property onResizeStart - Callback triggered when drag starts
  * @property onResizeEnd - Callback triggered when drag ends
+ * @property collapseBelow - Container width in CSS pixels below which the
+ *   panels stack vertically instead of splitting (responsive fallback for
+ *   narrow hosts); unset keeps the split at every width
  */
 export const SplitterStyleType = StructType({
     orientation: OptionType(OrientationType),
     onResize: OptionType(FunctionType([SplitterResizeDetailsType], NullType)),
     onResizeStart: OptionType(FunctionType([], NullType)),
     onResizeEnd: OptionType(FunctionType([SplitterResizeDetailsType], NullType)),
+    collapseBelow: OptionType(FloatType),
 });
 
 /**
@@ -123,6 +127,8 @@ export type SplitterStyleType = typeof SplitterStyleType;
  * @property onResize - Callback triggered when panel sizes change during drag
  * @property onResizeStart - Callback triggered when drag starts
  * @property onResizeEnd - Callback triggered when drag ends
+ * @property collapseBelow - Container width in CSS pixels below which the
+ *   panels stack vertically instead of splitting
  */
 export interface SplitterStyle {
     /** Layout orientation (horizontal or vertical) */
@@ -133,4 +139,7 @@ export interface SplitterStyle {
     onResizeStart?: SubtypeExprOrValue<FunctionType<[], NullType>>;
     /** Callback triggered when drag ends */
     onResizeEnd?: SubtypeExprOrValue<FunctionType<[SplitterResizeDetailsType], NullType>>;
+    /** Container width in CSS pixels below which the panels stack vertically
+     * instead of splitting (responsive fallback for narrow hosts). */
+    collapseBelow?: SubtypeExprOrValue<FloatType> | number;
 }

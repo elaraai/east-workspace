@@ -57,7 +57,7 @@ Task → Which tag?
 │   ├─ <Flex> — flexbox; direction / justify / align / wrap / gap
 │   ├─ <Stack> / <VStack> / <HStack> — flex with defaults; gap / align / justify
 │   ├─ <Grid> — CSS grid; templateColumns / templateRows / gap
-│   ├─ <Splitter> — resizable panels; panels carry { id, minSize, maxSize, collapsible }
+│   ├─ <Splitter> — resizable panels; panels carry { id, minSize, maxSize, collapsible }; collapseBelow (px) stacks panels vertically in narrower containers
 │   ├─ <Separator> — 1px rule; orientation; variant: subtle | brand | dashed | strong
 │   ├─ <ScrollArea> — styled-scrollbar scroll container; overflow x/y
 │   ├─ <Sticky> — position-sticky wrapper; top / bottom offset
@@ -332,6 +332,13 @@ way (`parseCssSize`). Four spellings, uniform across data components (`<Table>`,
 | `"240"` | a bare number → pixels (`240px`) |
 | `"50%"` / `"calc(100vh - 4rem)"` | any CSS length passes through |
 | `"18px"` | explicit units pass through |
+| `"min(420px, 100%)"` / `"clamp(240px, 50%, 420px)"` | fluid sizes pass through — the mobile-safe way to say "420px, but never wider than the container" |
+
+**Fluid layouts** (desktop + mobile from one definition): prefer
+`width="min(<ideal>px, 100%)"` over a bare pixel width; a `<Grid>` with
+`templateColumns="repeat(auto-fit, minmax(240px, 1fr))"` reflows cards to
+1 column on phones; `<Splitter collapseBelow={480}>` stacks its panels
+vertically when its container is narrower than 480px.
 
 ```tsx
 // height bounds the whole component and it scrolls within; maxHeight caps

@@ -207,3 +207,24 @@ export const splitterInteractive = example({
     )),
     inputs: [],
 });
+
+export const splitterCollapseBelow = example({
+    keywords: ["Splitter", "collapseBelow", "responsive", "stack", "narrow", "mobile", "compact"],
+    description: "Panels stack vertically when the container is narrower than collapseBelow",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (
+            <Box height="150px">
+                <Splitter
+                    panels={[
+                        Splitter.Panel(<Box padding="4" background="blue.50"><Text>Primary</Text></Box>, { id: "primary" }),
+                        Splitter.Panel(<Box padding="4" background="green.50"><Text>Secondary</Text></Box>, { id: "secondary" }),
+                    ]}
+                    defaultSize={[60, 40]}
+                    orientation="horizontal"
+                    collapseBelow={480}
+                />
+            </Box>
+        );
+    }),
+    inputs: [],
+});

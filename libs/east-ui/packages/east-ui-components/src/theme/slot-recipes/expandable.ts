@@ -53,6 +53,11 @@ export const expandableSlotRecipe = defineSlotRecipe({
                     zIndex: 900,
                     background: "bg.canvas",
                     overflow: "hidden",
+                    /* Notched phones (#350): the takeover fills the screen,
+                     * so pad the content clear of the notch/home indicator.
+                     * `inset: 0` already tracks the visual viewport (no vh). */
+                    paddingTop: "env(safe-area-inset-top, 0px)",
+                    paddingBottom: "env(safe-area-inset-bottom, 0px)",
                 },
                 control: {
                     boxShadow: "md",

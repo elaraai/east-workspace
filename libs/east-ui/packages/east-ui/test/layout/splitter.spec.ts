@@ -17,6 +17,7 @@ describeEast("Splitter", (test) => {
         splitterEditor: ex.splitterEditor,
         splitterInteractive: ex.splitterInteractive,
         splitterOnResizeStartEnd: ex.splitterOnResizeStartEnd,
+        splitterCollapseBelow: ex.splitterCollapseBelow,
     });
 
     // Helper to create a simple text component (already returns UIComponentType)
@@ -155,6 +156,22 @@ describeEast("Splitter", (test) => {
         const splitter = $.let(Splitter.Root({ panels: [panel1, panel2], defaultSize: [50, 50], orientation: "horizontal" }));
 
         $(Assert.equal(splitter.unwrap().unwrap("Splitter").style.unwrap("some").orientation.unwrap("some").hasTag("horizontal"), true));
+    });
+
+    test("creates splitter with collapseBelow", $ => {
+        const panel1 = Splitter.Panel(Text.Root("Left"), { id: "left" });
+        const panel2 = Splitter.Panel(Text.Root("Right"), { id: "right" });
+        const splitter = $.let(Splitter.Root({ panels: [panel1, panel2], defaultSize: [50, 50], collapseBelow: 480 }));
+
+        $(Assert.equal(splitter.unwrap().unwrap("Splitter").style.unwrap("some").collapseBelow.unwrap("some"), 480));
+    });
+
+    test("collapseBelow defaults to none", $ => {
+        const panel1 = Splitter.Panel(Text.Root("Left"), { id: "left" });
+        const panel2 = Splitter.Panel(Text.Root("Right"), { id: "right" });
+        const splitter = $.let(Splitter.Root({ panels: [panel1, panel2], defaultSize: [50, 50], orientation: "horizontal" }));
+
+        $(Assert.equal(splitter.unwrap().unwrap("Splitter").style.unwrap("some").collapseBelow.hasTag("none"), true));
     });
 
     // =========================================================================

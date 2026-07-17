@@ -19,8 +19,21 @@ import { coarseHitArea } from "../../style/hit-area.js";
 
 export const splitterSlotRecipe = defineSlotRecipe({
     className: "elara-splitter",
-    slots: ["root", "panel", "resizeTrigger"],
+    slots: ["root", "panel", "resizeTrigger", "stacked", "stackedPanel"],
     base: {
+        /* collapseBelow (#350): panels stack vertically in narrow hosts —
+         * a plain column, no resize chrome. */
+        stacked: {
+            display: "flex",
+            flexDirection: "column",
+            width: "100%",
+            gap: "{spacing.2}",
+            minWidth: 0,
+        },
+        stackedPanel: {
+            minWidth: 0,
+            width: "100%",
+        },
         resizeTrigger: {
             width: "9px",
             background: "transparent",

@@ -1,14 +1,14 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1493,
+    "totalEntries": 1494,
     "totalFiles": 188,
     "packages": {
       "east": 490,
       "east-node-std": 43,
       "east-node-io": 63,
       "east-py-datascience": 89,
-      "east-ui": 734,
+      "east-ui": 735,
       "e3-ui": 58,
       "e3": 7,
       "e3-ui-cli": 4,
@@ -25796,6 +25796,29 @@
         "import { Badge, Box, Splitter, Text, VStack, HStack, Reactive } from \"@elaraai/east-ui\";"
       ],
       "source": "// Drag to see onResize callback\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const leftBind = $.let(State.bind([FloatType], \"splitter_left_size\", 50.0));\n            const rightBind = $.let(State.bind([FloatType], \"splitter_right_size\", 50.0));\n            const leftSize = $.let(leftBind.read());\n            const rightSize = $.let(rightBind.read());\n            const onResize = $.const(East.function([Splitter.Types.ResizeDetails], NullType, ($, details) => {\n                const sizes = $.let(details.size);\n                $(leftBind.write(sizes.get(0n)));\n                $(rightBind.write(sizes.get(1n)));\n            }));\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <Box height=\"150px\">\n                        <Splitter\n                            panels={[\n                                Splitter.Panel(<Box padding=\"4\" background=\"blue.100\"><Text>Left Panel</Text></Box>, { id: \"left\" }),\n                                Splitter.Panel(<Box padding=\"4\" background=\"green.100\"><Text>Right Panel</Text></Box>, { id: \"right\" }),\n                            ]}\n                            defaultSize={[50, 50]}\n                            orientation=\"horizontal\"\n                            onResize={onResize}\n                        />\n                    </Box>\n                    <HStack gap=\"2\">\n                        <Badge colorPalette=\"blue\" variant=\"solid\">{East.str`Left: ${East.print(leftSize)}%`}</Badge>\n                        <Badge colorPalette=\"green\" variant=\"solid\">{East.str`Right: ${East.print(rightSize)}%`}</Badge>\n                    </HStack>\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "east-ui:splitter.examples.tsx:splitterCollapseBelow",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/layout/splitter.examples.tsx",
+      "suite": "",
+      "test": "Panels stack vertically when the container is narrower than collapseBelow",
+      "keywords": [
+        "Splitter",
+        "collapseBelow",
+        "responsive",
+        "stack",
+        "narrow",
+        "mobile",
+        "compact"
+      ],
+      "imports": [
+        "import { East, FloatType, IntegerType, NullType, example } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Badge, Box, Splitter, Text, VStack, HStack, Reactive } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Panels stack vertically when the container is narrower than collapseBelow\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Box height=\"150px\">\n                <Splitter\n                    panels={[\n                        Splitter.Panel(<Box padding=\"4\" background=\"blue.50\"><Text>Primary</Text></Box>, { id: \"primary\" }),\n                        Splitter.Panel(<Box padding=\"4\" background=\"green.50\"><Text>Secondary</Text></Box>, { id: \"secondary\" }),\n                    ]}\n                    defaultSize={[60, 40]}\n                    orientation=\"horizontal\"\n                    collapseBelow={480}\n                />\n            </Box>\n        );\n    })"
     },
     {
       "id": "east-ui:stack.examples.tsx:stackBasicVStack",

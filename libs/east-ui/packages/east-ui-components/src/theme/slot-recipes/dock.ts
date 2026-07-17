@@ -14,6 +14,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { coarseHitArea } from "../../style/hit-area.js";
 
 export const dockSlotRecipe = defineSlotRecipe({
     className: "elara-dock",
@@ -70,6 +71,8 @@ export const dockSlotRecipe = defineSlotRecipe({
         toggle: {
             color: "fg.muted",
             flexShrink: 0,
+            /* Touch hit target (#350). */
+            ...coarseHitArea({ position: true }),
         },
         body: {
             flex: 1,
@@ -84,6 +87,8 @@ export const dockSlotRecipe = defineSlotRecipe({
             padding: "{spacing.2}",
             color: "fg.muted",
             cursor: "pointer",
+            /* Touch hit target (#350). */
+            ...coarseHitArea({ position: true }),
             transitionProperty: "background",
             transitionDuration: "{durations.fast}",
             transitionTimingFunction: "{easings.out}",

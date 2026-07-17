@@ -213,7 +213,7 @@ function SplitterRoot(
             : options.orientation)
         : undefined;
 
-    const hasStyle = orientationValue || options.onResize !== undefined || options.onResizeStart !== undefined || options.onResizeEnd !== undefined;
+    const hasStyle = orientationValue || options.onResize !== undefined || options.onResizeStart !== undefined || options.onResizeEnd !== undefined || options.collapseBelow !== undefined;
 
     return East.value(variant("Splitter", {
         panels: panels_expr,
@@ -223,6 +223,7 @@ function SplitterRoot(
             onResize: options.onResize !== undefined ? some(options.onResize) : none,
             onResizeStart: options.onResizeStart !== undefined ? some(options.onResizeStart) : none,
             onResizeEnd: options.onResizeEnd !== undefined ? some(options.onResizeEnd) : none,
+            collapseBelow: options.collapseBelow !== undefined ? some(options.collapseBelow) : none,
         }, SplitterStyleType)) : none,
     }), UIComponentType);
 }
