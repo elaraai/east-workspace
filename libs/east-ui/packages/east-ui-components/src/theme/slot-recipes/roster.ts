@@ -26,6 +26,9 @@ export const rosterSlotRecipe = defineSlotRecipe({
          * is host composition via Card / Slice.Frame. */
         root: {
             background: "bg.surface",
+            /* Compact hosts (#353): the slot grid pans horizontally. */
+            overflowX: "auto",
+            overscrollBehaviorX: "contain",
         },
         grid: {
             display: "grid",

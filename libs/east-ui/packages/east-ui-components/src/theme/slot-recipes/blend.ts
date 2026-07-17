@@ -43,7 +43,9 @@ export const blendSlotRecipe = defineSlotRecipe({
             borderColor: "border.subtle",
             borderRadius: "{radii.md}",
             background: "bg.surface",
-            "&[data-mode=portfolio]": { minWidth: "300px", flex: "0 0 300px" },
+            /* Compact hosts (#353): the fixed 300px basis yields to the
+             * container so the portfolio panel stacks instead of overflowing. */
+            "&[data-mode=portfolio]": { minWidth: "min(300px, 100%)", flex: "0 1 300px" },
         },
         panelHead: {
             display: "flex",

@@ -141,7 +141,7 @@ export const mapSlotRecipe = defineSlotRecipe({
         // (bg.surface + border.strong + md shadow + 14/16 padding).
         overlayItem: {
             maxWidth: "360px",
-            minWidth: "240px",
+            minWidth: "min(240px, calc(100% - 16px))",
             width: "fit-content",
             background: "bg.surface",
             borderWidth: "1px",

@@ -13,7 +13,7 @@
  */
 
 import { describe, test, expect, afterEach, vi } from "vitest";
-import { render, cleanup, fireEvent } from "@testing-library/react";
+import { render, cleanup, fireEvent, act } from "@testing-library/react";
 import { useEffect } from "react";
 import {
     DragLayerProvider,
@@ -355,5 +355,55 @@ describe("DragLayerProvider", () => {
         );
         fireEvent.pointerDown(getByTestId("card-okafor"), { clientX: 0, clientY: 0 });
         expect(getByTestId("cell-okafor-thu").hasAttribute("data-drop-valid")).toBe(false);
+    });
+});
+
+describe("touch long-press protocol (#353)", () => {
+    test("a swipe (>8px before the hold) stands down — no drag engages", () => {
+        vi.useFakeTimers();
+        const events: DragEventValue[] = [];
+        const { getByTestId } = render(
+            <DragLayerProvider>
+                <Target config={{ id: "roster", sources: ["people"], kinds: KINDS_ALL, onDrag: e => events.push(e) }} />
+                <Card library="people" itemKey="patel" />
+                <Cell surface="roster" row="patel" slot="thu" />
+            </DragLayerProvider>,
+        );
+        const card = getByTestId("card-patel");
+        fireEvent.pointerDown(card, { pointerType: "touch", clientX: 0, clientY: 0 });
+        fireEvent.pointerMove(document, { pointerType: "touch", clientX: 20, clientY: 0 });
+        act(() => { vi.advanceTimersByTime(400); });
+        expect(card.hasAttribute("data-dragging")).toBe(false);
+        fireEvent.pointerUp(document, { pointerType: "touch" });
+        expect(events).toHaveLength(0);
+        vi.useRealTimers();
+    });
+
+    test("a stationary 300ms hold engages the drag; release ends it", () => {
+        vi.useFakeTimers();
+        const events: DragEventValue[] = [];
+        const { getByTestId } = render(
+            <DragLayerProvider>
+                <Target config={{ id: "roster", sources: ["people"], kinds: KINDS_ALL, onDrag: e => events.push(e) }} />
+                <Card library="people" itemKey="patel" />
+                <Cell surface="roster" row="patel" slot="thu" />
+            </DragLayerProvider>,
+        );
+        const card = getByTestId("card-patel");
+        const cell = getByTestId("cell-patel-thu");
+        fireEvent.pointerDown(card, { pointerType: "touch", clientX: 0, clientY: 0 });
+        expect(card.hasAttribute("data-dragging")).toBe(false);
+        act(() => { vi.advanceTimersByTime(320); });
+        expect(card.hasAttribute("data-dragging")).toBe(true);
+        expect(cell.hasAttribute("data-drop-valid")).toBe(true);
+
+        // Drop on the connected cell — the pointer path is live post-engage.
+        pointAt(cell);
+        fireEvent.pointerMove(document, { pointerType: "touch", clientX: 10, clientY: 10 });
+        fireEvent.pointerUp(document, { pointerType: "touch", clientX: 10, clientY: 10 });
+        expect(card.hasAttribute("data-dragging")).toBe(false);
+        expect(events).toHaveLength(1);
+        expect(events[0].type).toBe("add");
+        vi.useRealTimers();
     });
 });

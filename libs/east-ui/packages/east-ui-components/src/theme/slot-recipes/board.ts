@@ -31,6 +31,10 @@ export const boardSlotRecipe = defineSlotRecipe({
          * toolbar) is host composition via Card / Slice.Frame. */
         root: {
             background: "bg.surface",
+            /* Compact hosts (#353): the column grid pans horizontally
+             * (columns keep their 180px floors) instead of overflowing. */
+            overflowX: "auto",
+            overscrollBehaviorX: "contain",
         },
         grid: {
             display: "grid",

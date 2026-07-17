@@ -1614,6 +1614,10 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     // inner <canvas> — so a click handler there never fires for a marker /
     // footprint tap (issue #57, P11). `moved` distinguishes a pan from a tap.
     const panRef = useRef<{ x: number; y: number; tx: number; ty: number } | null>(null);
+    // Pinch-zoom (#353): live touch points on the canvas; two concurrent
+    // touches zoom about their midpoint (the wheel-zoom math reused).
+    const touchesRef = useRef(new Map<number, { x: number; y: number }>());
+    const pinchRef = useRef<{ dist: number } | null>(null);
     const movedRef = useRef(false);
 
     // Pick the item under a tap. Card-tier hits take precedence over markers
@@ -1704,6 +1708,20 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
 
     const onCanvasPointerDown = useCallback((e: React.PointerEvent) => {
         if (e.button !== 0) return;
+        // Pinch-zoom (#353): the second touch starts a pinch — cancel any
+        // pan/press in flight; moves are consumed by the pinch until a
+        // finger lifts.
+        if (e.pointerType === "touch") {
+            touchesRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+            if (touchesRef.current.size === 2) {
+                const [a, b] = [...touchesRef.current.values()];
+                pinchRef.current = { dist: Math.hypot(a!.x - b!.x, a!.y - b!.y) };
+                panRef.current = null;
+                moveDragRef.current = null;
+                movedRef.current = true;
+                return;
+            }
+        }
         closeHover();
         // Presses on the controls / nav buttons are theirs. Cards are NOT
         // excluded — a drag-pan can start anywhere, including over a card; a
@@ -1873,6 +1891,26 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         hoverOpenRef.current = { timer, target };
     }, [itemHoverFn, zoneHoverFn, linkHoverFn, itemKeyAt, zoneKeyAt, linkKeyAt, centers, scheduleHoverClose, cancelHoverOpen, cancelHoverClose]);
     const onCanvasPointerMove = useCallback((e: React.PointerEvent) => {
+        // Pinch-zoom (#353): with two live touches the gesture owns the
+        // canvas — zoom about the midpoint, ratio of successive distances.
+        if (e.pointerType === "touch" && touchesRef.current.has(e.pointerId)) {
+            touchesRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+            const pinch = pinchRef.current;
+            if (pinch && touchesRef.current.size >= 2) {
+                const [a, b] = [...touchesRef.current.values()];
+                const dist = Math.hypot(a!.x - b!.x, a!.y - b!.y);
+                if (dist > 0 && pinch.dist > 0) {
+                    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                    const mx = (a!.x + b!.x) / 2 - rect.left;
+                    const my = (a!.y + b!.y) / 2 - rect.top;
+                    transition("wheel");
+                    cameraRef.current = zoomAbout(cameraRef.current, dist / pinch.dist, mx, my, 1, MAX_ZOOM);
+                    requestRender();
+                }
+                pinch.dist = dist;
+                return;
+            }
+        }
         // Move drag (#179): every mover follows the shared world delta, clamped
         // to the extent; a PURE functional merge preserves other items' moves.
         const md = moveDragRef.current;
@@ -1961,7 +1999,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         if (Math.abs(e.clientX - pan.x) > 4 || Math.abs(e.clientY - pan.y) > 4) movedRef.current = true;
         cameraRef.current = { ...cameraRef.current, tx: pan.tx + e.clientX - pan.x, ty: pan.ty + e.clientY - pan.y };
         requestRender();
-    }, [requestRender, collectMarquee, itemKeyAt, hoverEnabled, hoverProbe, W, H, connectAllowed]);
+    }, [requestRender, collectMarquee, itemKeyAt, hoverEnabled, hoverProbe, W, H, connectAllowed, transition]);
     // End an in-progress canvas drag-pan (panning → idle). Returns whether a pan
     // was active; never disturbs a running fly.
     const endPan = useCallback(() => {
@@ -1971,6 +2009,12 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         return true;
     }, [transition]);
     const onCanvasPointerUp = useCallback((e: React.PointerEvent) => {
+        // Pinch-zoom (#353): a lifted finger ends the pinch; the remaining
+        // touch resumes ordinary pan/tap handling.
+        if (e.pointerType === "touch") {
+            touchesRef.current.delete(e.pointerId);
+            if (touchesRef.current.size < 2) pinchRef.current = null;
+        }
         // Move release (#179): fire onMoveItem once with the final delta.
         const mdUp = moveDragRef.current;
         if (mdUp !== null) {
