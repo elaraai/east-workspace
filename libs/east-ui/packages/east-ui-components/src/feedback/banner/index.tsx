@@ -104,6 +104,9 @@ export const EastChakraBanner = memo(function EastChakraBanner({ value, storageK
             display="flex"
             alignItems="flex-start"
             gap="3"
+            // wrap (#349): action cluster drops below the message when the
+            // banner is hosted in a compact container.
+            flexWrap="wrap"
             {...(useSolid
                 ? { bg: background ?? fg, color: color ?? "white", paddingX: "4", paddingY: "3", borderRadius: "2px" }
                 : { layerStyle: layer, ...(background !== undefined ? { bg: background } : {}), ...(color !== undefined ? { color } : {}) }

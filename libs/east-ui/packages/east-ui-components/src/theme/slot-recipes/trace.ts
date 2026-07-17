@@ -26,6 +26,10 @@ export const traceSlotRecipe = defineSlotRecipe({
             position: "relative",
             display: "inline-block",
             fontFamily: "mono",
+            /* Compact containers (#349): a wide step grid pans instead of
+             * clipping (the stub column stays readable while panning). */
+            maxWidth: "100%",
+            overflowX: "auto",
         },
         stub: {
             display: "flex",

@@ -10,6 +10,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { coarseHitArea } from "../../style/hit-area.js";
 
 export const carouselSlotRecipe = defineSlotRecipe({
     className: "elara-carousel",
@@ -46,6 +47,9 @@ export const carouselSlotRecipe = defineSlotRecipe({
             borderRadius: "{radii.full}",
             background: "border.strong",
             cursor: "pointer",
+            /* Touch hit target (#349) — Zag's swipe gesture handles slide
+             * changes natively; the dots stay 8px visually. */
+            ...coarseHitArea({ position: true, size: 32 }),
             transitionProperty: "background",
             transitionDuration: "{durations.fast}",
             /* Use brand.700 (deep ink-teal) for the active dot. brand.500
