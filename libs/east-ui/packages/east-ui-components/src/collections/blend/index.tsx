@@ -93,7 +93,7 @@ function AllocationRow({ surface, targetKey, alloc, unit, capacity, styles, onAm
             {...(draggable && onPointerDown ? { "data-draggable": "" } : {})}
         >
             {draggable && onPointerDown && (
-                <Box as="span" css={styles.allocGrip}><FontAwesomeIcon icon={faGripVertical} /></Box>
+                <Box as="span" css={styles.allocGrip} data-drag-grip=""><FontAwesomeIcon icon={faGripVertical} /></Box>
             )}
             <Box css={styles.allocBody}>
                 <Box as="span" css={styles.allocLabel}>{alloc.label}</Box>

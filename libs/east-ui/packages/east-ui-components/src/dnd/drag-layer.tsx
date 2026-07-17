@@ -412,11 +412,19 @@ export function DragLayerProvider({ children }: DragLayerProviderProps) {
         if (dragRef.current) return;
         const origin = e.currentTarget as HTMLElement;
 
+        // Grip fast-path: a touch ON A DRAG GRIP (`[data-drag-grip]` — the
+        // ⋮⋮ handles on Library cards, Planner chips, Blend allocations,
+        // Board cards) is unambiguous drag intent, so it engages
+        // immediately — grips carry `touch-action: none`, so no scroll
+        // gesture competes. Body touches keep the long-press below.
+        const onGrip = e.pointerType === "touch"
+            && (e.target as HTMLElement).closest?.("[data-drag-grip]") !== null;
+
         // Long-press protocol (#353): on touch, a pointerdown must NOT steal
         // the scroll gesture — the drag only engages after a ~300ms hold;
         // >8px of movement first means the user is scrolling, so we stand
         // down and let the browser pan.
-        if (e.pointerType === "touch") {
+        if (e.pointerType === "touch" && !onGrip) {
             const startX = e.clientX, startY = e.clientY, altKey = e.altKey;
             const stand = () => {
                 clearTimeout(timer);
@@ -438,7 +446,7 @@ export function DragLayerProvider({ children }: DragLayerProviderProps) {
         }
 
         e.preventDefault();
-        engageDrag(origin, payload, e.clientX, e.clientY, e.altKey, false);
+        engageDrag(origin, payload, e.clientX, e.clientY, e.altKey, e.pointerType === "touch");
     }, [engageDrag]);
 
     const context = useMemo<DragLayerContextValue>(() => ({

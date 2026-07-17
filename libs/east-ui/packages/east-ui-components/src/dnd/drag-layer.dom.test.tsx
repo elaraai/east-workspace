@@ -407,3 +407,35 @@ describe("touch long-press protocol (#353)", () => {
         vi.useRealTimers();
     });
 });
+
+describe("touch grip fast-path", () => {
+    function GripCard({ library, itemKey }: { library: string; itemKey: string }) {
+        const onPointerDown = useDragSourceItem({ library, key: itemKey }, <span>{itemKey}</span>, false);
+        return (
+            <div data-testid={`gcard-${itemKey}`} onPointerDown={onPointerDown}>
+                <span data-drag-grip="" data-testid={`grip-${itemKey}`} />
+            </div>
+        );
+    }
+
+    test("a touch on a [data-drag-grip] handle engages immediately (no hold)", () => {
+        const events: DragEventValue[] = [];
+        const { getByTestId } = render(
+            <DragLayerProvider>
+                <Target config={{ id: "roster", sources: ["people"], kinds: KINDS_ALL, onDrag: e => events.push(e) }} />
+                <GripCard library="people" itemKey="patel" />
+                <Cell surface="roster" row="patel" slot="thu" />
+            </DragLayerProvider>,
+        );
+        const card = getByTestId("gcard-patel");
+        const cell = getByTestId("cell-patel-thu");
+        fireEvent.pointerDown(getByTestId("grip-patel"), { pointerType: "touch", clientX: 0, clientY: 0 });
+        expect(card.hasAttribute("data-dragging")).toBe(true);
+
+        pointAt(cell);
+        fireEvent.pointerMove(document, { pointerType: "touch", clientX: 10, clientY: 10 });
+        fireEvent.pointerUp(document, { pointerType: "touch", clientX: 10, clientY: 10 });
+        expect(events).toHaveLength(1);
+        expect(events[0].type).toBe("add");
+    });
+});

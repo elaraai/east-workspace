@@ -12,6 +12,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { coarseHitArea } from "../../style/hit-area.js";
 
 export const librarySlotRecipe = defineSlotRecipe({
     className: "elara-library",
@@ -175,6 +176,12 @@ export const librarySlotRecipe = defineSlotRecipe({
             opacity: "0",
             transition: "opacity {durations.fast}",
             "[data-draggable]:hover &": { opacity: "1" },
+            /* Touch: the grip is the instant-drag handle (drag-layer grip
+             * fast-path) — always visible, no scroll gesture from it, and a
+             * 32px tap halo. */
+            _hoverNone: { opacity: "0.7" },
+            touchAction: "none",
+            ...coarseHitArea({ position: true, size: 32 }),
             "[data-compact] &": { paddingTop: "0" },
         },
         iconTile: {

@@ -15,6 +15,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { coarseHitArea } from "../../style/hit-area.js";
 
 export const boardSlotRecipe = defineSlotRecipe({
     className: "elara-board",
@@ -177,6 +178,11 @@ export const boardSlotRecipe = defineSlotRecipe({
             opacity: "0",
             transition: "opacity {durations.fast}",
             "[data-draggable]:hover &": { opacity: "1" },
+            /* Touch: instant-drag handle (grip fast-path) — visible, no
+             * scroll gesture, 32px tap halo. */
+            _hoverNone: { opacity: "0.7" },
+            touchAction: "none",
+            ...coarseHitArea({ position: true, size: 32 }),
         },
         /* Hover action buttons — accept (check) on ghosts, remove (bin) on
          * proposals. First action pushes to the chip's right edge. */

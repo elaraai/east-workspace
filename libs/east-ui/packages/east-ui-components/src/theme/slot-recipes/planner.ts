@@ -22,6 +22,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { coarseHitArea } from "../../style/hit-area.js";
 
 export const plannerSlotRecipe = defineSlotRecipe({
     className: "elara-planner",
@@ -215,6 +216,10 @@ export const plannerSlotRecipe = defineSlotRecipe({
             fontSize: "11px",
             flexShrink: 0,
             color: "{colors.brand.600}",
+            /* Touch: instant-drag handle (drag-layer grip fast-path) — no
+             * scroll gesture from it, 32px tap halo. */
+            touchAction: "none",
+            ...coarseHitArea({ position: true, size: 32 }),
         },
         // "Now" divider — 1px brand-600 rule with a small cap pip.
         nowLine: {

@@ -405,7 +405,7 @@ function EventChip({ event, eventStyle, gripStyle, shape, inLane = false, dnd }:
         <Box css={chipCss} data-slot="event" data-state={sk}
             onPointerDown={onChipPointerDown}
             {...(from && onChipPointerDown ? { "data-draggable": "" } : {})}>
-            {showGrip && <Box as="span" css={gripStyle} data-slot="grip"><FontAwesomeIcon icon={faGripVertical} /></Box>}
+            {showGrip && <Box as="span" css={gripStyle} data-slot="grip" data-drag-grip=""><FontAwesomeIcon icon={faGripVertical} /></Box>}
             <Box as="span" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" minW={0}>{event.label}</Box>
             {shape === "span" && startEdgeDown && (
                 <Box as="span" position="absolute" left="-3px" top="0" bottom="0" width="6px" cursor="ew-resize"

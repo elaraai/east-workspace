@@ -124,7 +124,7 @@ function BoardChip({ surface, area, shift, assignment, label, edit, dragDisabled
             {...(draggable && onPointerDown ? { "data-draggable": "" } : {})}
         >
             {draggable && onPointerDown && (
-                <Box as="span" css={styles.chipGrip}>
+                <Box as="span" css={styles.chipGrip} data-drag-grip="">
                     <FontAwesomeIcon icon={faGripVertical} />
                 </Box>
             )}

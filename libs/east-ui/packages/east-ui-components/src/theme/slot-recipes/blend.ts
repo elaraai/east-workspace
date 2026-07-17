@@ -12,6 +12,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { coarseHitArea } from "../../style/hit-area.js";
 
 export const blendSlotRecipe = defineSlotRecipe({
     className: "elara-blend",
@@ -145,6 +146,11 @@ export const blendSlotRecipe = defineSlotRecipe({
             opacity: "0",
             transition: "opacity {durations.fast}",
             "[data-draggable]:hover &": { opacity: "1" },
+            /* Touch: instant-drag handle (grip fast-path) — visible, no
+             * scroll gesture, 32px tap halo. */
+            _hoverNone: { opacity: "0.7" },
+            touchAction: "none",
+            ...coarseHitArea({ position: true, size: 32 }),
         },
         allocBody: {
             flex: "1",
