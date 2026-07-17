@@ -277,7 +277,7 @@ export function VirtualizedLogViewer({ content, tabs }: VirtualizedLogViewerProp
                         border="none"
                         color="white"
                         _placeholder={{ color: 'gray.400' }}
-                        width="150px"
+                        width="min(150px, 40vw)"
                     />
                     {searchQuery && (
                         <Text fontSize="xs" color="gray.400" minWidth="50px" textAlign="center">
