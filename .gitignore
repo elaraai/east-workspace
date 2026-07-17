@@ -109,3 +109,7 @@ Thumbs.db
 # showcase (Playwright's bundled browser has no ubuntu26.04 build). Kept
 # locally, never committed.
 /chrome/
+
+# Playwright responsive-suite artifacts (east-ui-showcase, #357)
+test-results/
+playwright-report/

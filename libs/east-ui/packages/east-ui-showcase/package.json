@@ -9,7 +9,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test:responsive": "playwright test"
   },
   "dependencies": {
     "@chakra-ui/react": "^3.0.0",
