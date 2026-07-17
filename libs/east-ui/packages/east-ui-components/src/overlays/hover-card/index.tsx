@@ -3,12 +3,13 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useMemo, useCallback } from "react";
+import { memo, useMemo, useCallback, useState } from "react";
 import { Box as ChakraBox, HoverCard as ChakraHoverCard, Portal, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { HoverCard } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
+import { useHoverCapable } from "../../contracts/index.js";
 
 // Pre-define equality function at module level
 const hoverCardEqual = equalFor(HoverCard.Types.HoverCard);
@@ -46,11 +47,25 @@ export const EastChakraHoverCard = memo(function EastChakraHoverCard({ value, st
     // Extract callbacks from style
     const onOpenChangeFn = useMemo(() => style ? getSomeorUndefined(style.onOpenChange) : undefined, [style]);
 
+    // Hover parity (#347): hover-incapable devices (touch) get tap-to-toggle —
+    // the card opens on trigger tap and closes on outside interaction, driven
+    // through a controlled `open`. Hover-capable devices keep Zag's hover
+    // machine untouched.
+    const hoverCapable = useHoverCapable();
+    const [tapOpen, setTapOpen] = useState(false);
+
     const handleOpenChange = useCallback((details: { open: boolean }) => {
+        if (!hoverCapable) setTapOpen(details.open);
         if (onOpenChangeFn) {
             queueMicrotask(() => onOpenChangeFn(details.open));
         }
-    }, [onOpenChangeFn]);
+    }, [hoverCapable, onOpenChangeFn]);
+
+    const handleTriggerTap = useCallback(() => {
+        const next = !tapOpen;
+        setTapOpen(next);
+        if (onOpenChangeFn) queueMicrotask(() => onOpenChangeFn(next));
+    }, [tapOpen, onOpenChangeFn]);
 
     return (
         <ChakraHoverCard.Root
@@ -58,10 +73,14 @@ export const EastChakraHoverCard = memo(function EastChakraHoverCard({ value, st
             size={size}
             openDelay={openDelay}
             closeDelay={closeDelay}
-            onOpenChange={onOpenChangeFn ? handleOpenChange : undefined}
+            {...(hoverCapable ? {} : { open: tapOpen })}
+            onOpenChange={(!hoverCapable || onOpenChangeFn) ? handleOpenChange : undefined}
         >
             <ChakraHoverCard.Trigger asChild>
-                <span style={{ display: "inline-flex" }}>
+                <span
+                    style={{ display: "inline-flex" }}
+                    {...(hoverCapable ? {} : { onClick: handleTriggerTap })}
+                >
                     <EastChakraComponent value={value.trigger} storageKey={`${storageKey}.trigger`} />
                 </span>
             </ChakraHoverCard.Trigger>

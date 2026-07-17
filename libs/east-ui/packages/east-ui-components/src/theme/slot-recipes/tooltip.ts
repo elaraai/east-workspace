@@ -28,7 +28,8 @@ export const tooltipSlotRecipe = defineSlotRecipe({
             borderWidth: "0",
             borderRadius: "{radii.sm}",
             boxShadow: "sm",
-            maxWidth: "280px",
+            /* Viewport clamp (#347) — also inherited by ToggleTip. */
+            maxWidth: "min(280px, calc(100vw - 16px))",
             lineHeight: "1.5",
         },
         arrow: {

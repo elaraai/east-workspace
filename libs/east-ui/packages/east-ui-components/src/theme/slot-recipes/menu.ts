@@ -22,7 +22,12 @@ export const menuSlotRecipe = defineSlotRecipe({
             borderColor: "border.strong",
             boxShadow: "md",
             fontSize: "{fontSizes.control}",
-            overflow: "hidden",
+            /* Viewport clamp (#347): long menus scroll inside Zag's
+             * available height instead of running off small screens. */
+            maxWidth: "calc(100vw - 16px)",
+            maxHeight: "min(var(--available-height, 70vh), 85vh)",
+            overflowY: "auto",
+            overflowX: "hidden",
         },
         item: {
             display: "flex",

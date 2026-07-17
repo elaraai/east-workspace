@@ -7,6 +7,20 @@
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 
+/* Small-viewport sheet (#347): below 480px every non-`full` dialog renders
+ * as a bottom sheet — full width, top-only radius, body scrolling inside a
+ * dvh-capped panel. Viewport (not container) media is correct here: dialogs
+ * are viewport-scoped overlays. Spread into each size variant because
+ * variant styles land after base in the cascade (a base-level override
+ * would lose to the variant's unconditional maxWidth). */
+const SHEET_MEDIA = "@media (max-width: 479px)";
+const sheetContent = {
+    [SHEET_MEDIA]: {
+        maxWidth: "100vw",
+        width: "100vw",
+    },
+};
+
 export const dialogSlotRecipe = defineSlotRecipe({
     className: "elara-dialog",
     slots: [
@@ -17,6 +31,12 @@ export const dialogSlotRecipe = defineSlotRecipe({
     base: {
         backdrop: {
             background: "{colors.overlay.backdrop}",
+        },
+        positioner: {
+            [SHEET_MEDIA]: {
+                alignItems: "flex-end",
+                padding: "0",
+            },
         },
         content: {
             background: "bg.surface",
@@ -29,6 +49,14 @@ export const dialogSlotRecipe = defineSlotRecipe({
             overflow: "visible",
             display: "flex",
             flexDirection: "column",
+            [SHEET_MEDIA]: {
+                margin: "0",
+                borderRadius: "10px 10px 0 0",
+                borderBottomWidth: "0",
+                borderInlineWidth: "0",
+                maxHeight: "calc(100dvh - 16px - env(safe-area-inset-top, 0px))",
+                overflowY: "auto",
+            },
         },
         eyebrow: {
             fontFamily: "mono",
@@ -80,16 +108,19 @@ export const dialogSlotRecipe = defineSlotRecipe({
             alignItems: "center",
             justifyContent: "flex-end",
             gap: "8px",
+            [SHEET_MEDIA]: {
+                paddingBottom: "env(safe-area-inset-bottom, 0px)",
+            },
         },
     },
     variants: {
         size: {
-            xs: { content: { maxWidth: "320px" } },
-            sm: { content: { maxWidth: "400px" } },
-            md: { content: { maxWidth: "480px" } },
-            lg: { content: { maxWidth: "640px" } },
-            xl: { content: { maxWidth: "800px" } },
-            cover: { content: { maxWidth: "calc(100vw - 32px)" } },
+            xs: { content: { maxWidth: "320px", ...sheetContent } },
+            sm: { content: { maxWidth: "400px", ...sheetContent } },
+            md: { content: { maxWidth: "480px", ...sheetContent } },
+            lg: { content: { maxWidth: "640px", ...sheetContent } },
+            xl: { content: { maxWidth: "800px", ...sheetContent } },
+            cover: { content: { maxWidth: "calc(100vw - 32px)", ...sheetContent } },
             full: { content: { maxWidth: "100vw" } },
         },
     },

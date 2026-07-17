@@ -20,6 +20,14 @@ export const commandPaletteSlotRecipe = defineSlotRecipe({
     ],
     base: {
         backdrop: { background: "{colors.overlay.backdrop}" },
+        /* Small viewports (#347): pin to the top (the dialog sheet rule
+         * bottom-pins, which would fight the on-screen keyboard here). */
+        positioner: {
+            "@media (max-width: 479px)": {
+                alignItems: "flex-start",
+                padding: "0",
+            },
+        },
         /* Rendered inside a Dialog.Root, so this must zero out the dialog
          * recipe's content padding — the palette owns its own interior. */
         content: {
@@ -32,6 +40,16 @@ export const commandPaletteSlotRecipe = defineSlotRecipe({
             maxWidth: "560px",
             padding: "0",
             gap: "0",
+            /* Small viewports (#347): full-width sheet pinned to the top —
+             * the list height yields to the on-screen keyboard. */
+            "@media (max-width: 479px)": {
+                maxWidth: "100vw",
+                width: "100vw",
+                margin: "0",
+                borderRadius: "0",
+                borderInlineWidth: "0",
+                borderTopWidth: "0",
+            },
         },
         input: {
             width: "100%",
@@ -46,7 +64,15 @@ export const commandPaletteSlotRecipe = defineSlotRecipe({
             outline: "none",
             _placeholder: { color: "fg.subtle" },
         },
-        list: { padding: "{spacing.1}", maxHeight: "320px", overflowY: "auto" },
+        list: {
+            padding: "{spacing.1}",
+            maxHeight: "320px",
+            overflowY: "auto",
+            /* Small viewports (#347): dvh-based cap (input row ≈ 49px). */
+            "@media (max-width: 479px)": {
+                maxHeight: "calc(100dvh - 49px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))",
+            },
+        },
         item: {
             display: "flex",
             alignItems: "center",
