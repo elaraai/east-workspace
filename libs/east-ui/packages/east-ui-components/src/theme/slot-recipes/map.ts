@@ -18,7 +18,7 @@ import { defineSlotRecipe } from "@chakra-ui/react";
 
 export const mapSlotRecipe = defineSlotRecipe({
     className: "elara-map",
-    slots: ["root", "fallback", "overlay", "overlayItem"],
+    slots: ["root", "fallback", "overlay", "overlayItem", "overlayToggle"],
     base: {
         root: {
             position: "relative",
@@ -152,6 +152,35 @@ export const mapSlotRecipe = defineSlotRecipe({
             fontSize: "{fontSizes.control}",
             lineHeight: "{lineHeights.normal}",
             color: "fg",
+            /* Compact hosts: the OverlayHost's dismiss chip anchors here. */
+            position: "relative",
+        },
+        /* Compact hosts: interactive overlays start collapsed to this 44px
+         * chip; tapping expands the panel (a dismiss chip re-collapses). */
+        overlayToggle: {
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: "44px",
+            height: "44px",
+            background: "bg.surface",
+            borderWidth: "1px",
+            borderColor: "border.strong",
+            borderRadius: "{radii.md}",
+            boxShadow: "md",
+            color: "fg.muted",
+            cursor: "pointer",
+            _hover: { color: "fg", background: "bg.subtle" },
+            "&[data-dismiss]": {
+                position: "absolute",
+                top: "4px",
+                right: "4px",
+                width: "32px",
+                height: "32px",
+                boxShadow: "none",
+                borderWidth: "0",
+                background: "transparent",
+            },
         },
     },
 });

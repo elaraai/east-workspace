@@ -74,8 +74,14 @@ export const calendarSlotRecipe = defineSlotRecipe({
             paddingY: "{spacing.2}",
             borderRadius: "{radii.sm}",
             cursor: "pointer",
-            /* Touch (#352): selectable day cells reach a 40px row on coarse. */
-            _coarse: { minHeight: "40px" },
+            /* Touch (#352): selectable day cells reach a 40px row on coarse —
+             * flex-centred so the taller cell doesn't top-pin the number. */
+            _coarse: {
+                minHeight: "40px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+            },
             color: "fg",
             /* Brand intensity ramp — text flips to the on-tint ink in the
              * upper steps for contrast. */

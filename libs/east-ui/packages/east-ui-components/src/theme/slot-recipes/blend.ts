@@ -21,7 +21,7 @@ export const blendSlotRecipe = defineSlotRecipe({
         "allocList", "allocRow", "allocGrip", "allocBody", "allocLabel", "allocSublabel",
         "amountInput", "amountText", "share", "pinBadge", "allocAction", "dragGhost",
         "metricList", "metricRow", "metricLabel", "metricValue", "trustChip", "bandText",
-        "panelFoot", "objective",
+        "panelFoot", "objective", "panelRail", "panelRailLabel",
         "diff", "diffRow", "verdict",
     ],
     base: {
@@ -46,6 +46,9 @@ export const blendSlotRecipe = defineSlotRecipe({
             /* Compact hosts (#353): the fixed 300px basis yields to the
              * container so the portfolio panel stacks instead of overflowing. */
             "&[data-mode=portfolio]": { minWidth: "min(300px, 100%)", flex: "0 1 300px" },
+            /* Compact rail mode: the one expanded panel takes the width the
+             * collapsed rails leave. */
+            "&[data-compact-active]": { flex: "1 1 auto", minWidth: 0 },
         },
         panelHead: {
             display: "flex",
@@ -287,6 +290,39 @@ export const blendSlotRecipe = defineSlotRecipe({
             letterSpacing: "0.06em",
             textTransform: "uppercase",
             color: "fg.muted",
+        },
+        /* Compact rail mode: inactive panels collapse to a Dock-style
+         * vertical bar (44px ≥ touch target) — one expanded panel at a
+         * time; tapping a rail swaps it in. */
+        panelRail: {
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: "{spacing.2}",
+            flex: "0 0 44px",
+            minWidth: "44px",
+            paddingBlock: "{spacing.3}",
+            borderWidth: "1px",
+            borderColor: "border.subtle",
+            borderRadius: "{radii.md}",
+            background: "bg.surface",
+            cursor: "pointer",
+            transitionProperty: "background, border-color",
+            transitionDuration: "{durations.fast}",
+            _hover: { background: "bg.subtle", borderColor: "border.strong" },
+        },
+        panelRailLabel: {
+            writingMode: "vertical-rl",
+            fontFamily: "mono",
+            fontSize: "10px",
+            fontWeight: "600",
+            letterSpacing: "0.14em",
+            textTransform: "uppercase",
+            color: "fg.muted",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            maxHeight: "200px",
         },
         /* (The action buttons moved to the shared `commitBar` slots (#266) —
            Apply = btnPrimary, Discard = btnDanger, Reset = btn — so the
