@@ -76,7 +76,9 @@ test("chart: touch tap opens the tooltip", async ({ page }) => {
 test("search filters the page", async ({ page }) => {
     await page.goto("/#buttons/button");
     await page.waitForSelector("header");
-    const input = page.getByPlaceholder("Search examples");
+    // Desktop and mobile render separate search inputs (row 1 vs row 3);
+    // only one is visible per viewport.
+    const input = page.getByPlaceholder("Search examples").filter({ visible: true });
     await input.fill("zzz-no-such-example");
     await expect(page.getByText("No examples match your search.")).toBeVisible();
 });

@@ -621,11 +621,12 @@ function AxisBMark({ value }: { value: Axis }): ReactNode {
     // decode to arrays visx maps directly onto the linear / time scale.
     const explicitTicks = getSomeorUndefined(value.tickValues);
     const tickValuesRaw = (explicitTicks !== undefined ? [...explicitTicks.value] : undefined) ?? (numTicks !== undefined ? undefined : xTickValues);
-    // #354 — width-adaptive default: on narrow measured plots the
-    // per-category labels collide, so the default thins by stride to
-    // roughly one label per 64px. Explicit tickValues / numTicks (#149)
-    // always win — only the unset default adapts.
-    const tickValues = (explicitTicks === undefined && numTicks === undefined && tickValuesRaw !== undefined)
+    // #354 — width-adaptive default, COMPACT PLOTS ONLY (innerW < 480):
+    // colliding per-point labels thin by stride to ~one per 64px. Regular
+    // and wide plots keep the exact pre-#354 default (every data-point
+    // position) — desktop output is unchanged. Explicit tickValues /
+    // numTicks (#149) always win.
+    const tickValues = (explicitTicks === undefined && numTicks === undefined && tickValuesRaw !== undefined && innerW < 480)
         ? (() => {
             const maxLabels = Math.max(2, Math.floor(innerW / 64));
             if (tickValuesRaw.length <= maxLabels) return tickValuesRaw;

@@ -389,8 +389,9 @@ function Header({
 }: { category: string; categoryCount: number; search: string; onSearch: (q: string) => void; onOpenNav: () => void }) {
     return (
         <Box as="header" layerStyle="header.bar" position="sticky" top="0" zIndex={10}>
-            {/* Row 1 — (mobile) hamburger · breadcrumb left · search right */}
-            <Flex align="center" gap="3" mb="6px" h="28px">
+            {/* Row 1 — (mobile) hamburger · breadcrumb · (desktop) search.
+              * The breadcrumb never wraps: it truncates on one 28px line. */}
+            <Flex align="center" gap="3" mb="6px" h="28px" minW="0">
                 {/* Mobile nav trigger (#356): ≥44px tap target, hidden on md+. */}
                 <chakra.button
                     type="button"
@@ -411,12 +412,17 @@ function Header({
                 >
                     <FontAwesomeIcon icon={faBars} />
                 </chakra.button>
-                <Breadcrumb category={category} />
-                <Box ml="auto" flexShrink={1} minW="0">
+                <Box minW="0" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap">
+                    <Breadcrumb category={category} />
+                </Box>
+                {/* Desktop search keeps its spec position; mobile search moves
+                  * to its own full-width row below (the coarse 44px input
+                  * floor doesn't fit the 28px breadcrumb line). */}
+                <Box ml="auto" hideBelow="md">
                     <InputGroup
-                        maxW={{ base: "160px", md: "280px" }}
+                        maxW="280px"
                         startElement={<FontAwesomeIcon icon={faMagnifyingGlass} />}
-                        endElement={<Kbd hideBelow="md">⌘K</Kbd>}
+                        endElement={<Kbd>⌘K</Kbd>}
                     >
                         <Input
                             size="sm"
@@ -435,6 +441,22 @@ function Header({
                     {categoryCount} example{categoryCount === 1 ? "" : "s"}
                 </Text>
             </Flex>
+
+            {/* Row 3 (mobile only) — full-width search on its own line. */}
+            <Box hideFrom="md" mt="8px">
+                <InputGroup
+                    w="100%"
+                    startElement={<FontAwesomeIcon icon={faMagnifyingGlass} />}
+                >
+                    <Input
+                        size="sm"
+                        w="100%"
+                        placeholder="Search examples"
+                        value={search}
+                        onChange={(e) => onSearch(e.target.value)}
+                    />
+                </InputGroup>
+            </Box>
         </Box>
     );
 }
