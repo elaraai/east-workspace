@@ -29,7 +29,7 @@ export const matrixSlotRecipe = defineSlotRecipe({
         "markerRing", "markerIcon",
     ],
     base: {
-        root: { display: "flex", flexDirection: "column", overflowX: "auto", overflowY: "hidden", background: "bg.surface", width: "100%" },
+        root: { display: "flex", flexDirection: "column", overflowX: "auto", overflowY: "hidden", overscrollBehaviorX: "contain" /* touch pan containment (#352) */, background: "bg.surface", width: "100%" },
         // Header band — wrapper only. The header cells reuse the shared `table`
         // recipe's `columnHeader` slot (same chrome as Table / Gantt), so the
         // strong bottom rule + mono eyebrow are one source across all three.

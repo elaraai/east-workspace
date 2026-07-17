@@ -11,6 +11,7 @@ import { useDrag } from "@use-gesture/react";
 import type { ValueTypeOf } from "@elaraai/east";
 import type { Gantt } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
+import { useCoarsePointer } from "../../contracts/adaptive.js";
 import { EastChakraComponent } from "../../component";
 import { alignToCss } from "../shared/helpers";
 import { ganttStateKey, GANTT_STATE_COLOR, GANTT_STATUS_TINT, GANTT_STATE_DASH, GANTT_STATE_OPACITY, GANTT_STATE_STRIKE } from "./palette";
@@ -88,6 +89,8 @@ export const GanttTask = ({
     dragStep,
     durationStep,
 }: GanttTaskProps) => {
+    // Touch (#352): drag grips widen on coarse pointers.
+    const coarse = useCoarsePointer();
     const [isHovered, setIsHovered] = useState(false);
     // In-progress drag offsets (px). null when not dragging that axis.
     const [dragOffset, setDragOffset] = useState<number | null>(null);
@@ -420,10 +423,12 @@ export const GanttTask = ({
                         opacity={isActive ? 1 : 0}
                         style={{ transition: "opacity 0.2s", pointerEvents: "none" }}
                     />
+                    {/* Touch (#352): the 6px end-edge grip widens to 24px on
+                        coarse pointers (fingers can't land a 6px strip). */}
                     <rect
-                        x={currentX + taskWidth - 3}
+                        x={currentX + taskWidth - (coarse ? 12 : 3)}
                         y={y}
-                        width={6}
+                        width={coarse ? 24 : 6}
                         height={height}
                         fill="transparent"
                         onMouseEnter={handleMouseEnter}
@@ -437,9 +442,9 @@ export const GanttTask = ({
             {/* Progress drag handle */}
             {isProgressDraggable && progressWidth > 8 && (
                 <rect
-                    x={currentX + progressWidth - 6}
+                    x={currentX + progressWidth - (coarse ? 12 : 6)}
                     y={y}
-                    width={12}
+                    width={coarse ? 24 : 12}
                     height={height}
                     fill="transparent"
                     onMouseEnter={handleMouseEnter}

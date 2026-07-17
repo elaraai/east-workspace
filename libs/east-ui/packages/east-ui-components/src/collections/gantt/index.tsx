@@ -766,8 +766,13 @@ const GanttCore = function GanttCore({
     const gutterTablePanelSize = (gutterActive && gLeftPx !== undefined && containerWidth > 0)
         ? Math.min(Math.max((gLeftPx / containerWidth) * 100, 1), 99)
         : undefined;
-    const effectiveTablePanelSize = gutterTablePanelSize
-        ?? dragSize ?? persistedState.tablePanelSize ?? computedTablePanelSize;
+    // Compact hosts (#352): below 480px there is no room for two usable
+    // panes — the table pane collapses and the timeline takes the width
+    // (persisted sizes are kept for when the split restores).
+    const compactHost = containerWidth > 0 && containerWidth < 480;
+    const effectiveTablePanelSize = compactHost
+        ? 0
+        : (gutterTablePanelSize ?? dragSize ?? persistedState.tablePanelSize ?? computedTablePanelSize);
 
     // Last unpinned column stretches to fill remaining panel space
     // (shared derivation, also used by Planner).
@@ -852,10 +857,15 @@ const GanttCore = function GanttCore({
         }
     }, []);
 
-    const panels = useMemo(() => [
-        { id: "table", minSize: 20 },
-        { id: "timeline", minSize: 20 },
-    ], []);
+    const panels = useMemo(() => compactHost
+        ? [
+            { id: "table", minSize: 0 },
+            { id: "timeline", minSize: 20 },
+        ]
+        : [
+            { id: "table", minSize: 20 },
+            { id: "timeline", minSize: 20 },
+        ], [compactHost]);
 
     // ── DnD target role (#268) ────────────────────────────────────────────
     // With `onDrag` wired the Gantt registers as a drag target: Library cards

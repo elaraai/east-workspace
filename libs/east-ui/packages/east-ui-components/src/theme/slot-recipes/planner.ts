@@ -33,7 +33,7 @@ export const plannerSlotRecipe = defineSlotRecipe({
         "event", "grip", "nowLine", "nowPip", "nowHint", "markerRing", "markerIcon", "axis",
     ],
     base: {
-        root: { display: "flex", flexDirection: "column", overflowX: "auto", overflowY: "hidden", background: "bg.surface", width: "100%" },
+        root: { display: "flex", flexDirection: "column", overflowX: "auto", overflowY: "hidden", overscrollBehaviorX: "contain" /* touch pan containment (#352) */, background: "bg.surface", width: "100%" },
         // Header band — paper-2 wash. The strong bottom rule lives on each header
         // cell (so column headers + day headers share one continuous line);
         // `stretch` makes the cells fill the band so that rule sits flush.
