@@ -12,7 +12,8 @@ import type { CatalogEntry } from "../catalog";
 /* Doc column — spec `.shell main`: rule-separated entries on a centred
  * measure rather than a card grid. */
 const CONTENT_MAX_WIDTH = "1100px";
-const CONTENT_GUTTER = "40px";
+// #356: comfortable desktop gutters, tight on phones.
+const CONTENT_GUTTER = { base: "12px", md: "40px" };
 /** Virtualizer padding above the first / below the last item. */
 const PAD_START = 8;
 const PAD_END = 96;
