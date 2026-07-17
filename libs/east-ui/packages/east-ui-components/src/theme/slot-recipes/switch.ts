@@ -10,6 +10,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { coarseHitArea } from "../../style/hit-area.js";
 
 export const switchSlotRecipe = defineSlotRecipe({
     className: "elara-switch",
@@ -20,6 +21,8 @@ export const switchSlotRecipe = defineSlotRecipe({
             alignItems: "center",
             gap: "{spacing.2}",
             cursor: "pointer",
+            /* Touch hit target (#346). */
+            ...coarseHitArea({ position: true }),
         },
         control: {
             display: "inline-flex",

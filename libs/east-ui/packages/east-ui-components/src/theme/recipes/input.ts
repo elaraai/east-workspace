@@ -21,7 +21,11 @@ import { fieldChrome, numericChrome } from "../field-chrome.js";
 
 export const inputRecipe = defineRecipe({
     className: "elara-input",
-    base: { ...fieldChrome },
+    /* Touch (#346): 44px minimum control height on coarse pointers. The
+     * 16px font floor lives on each size variant (variant styles land after
+     * base in the cascade) — sub-16px focused inputs make iOS Safari zoom
+     * the page. */
+    base: { ...fieldChrome, _coarse: { minHeight: "44px" } },
     variants: {
         variant: {
             default: {},
@@ -48,8 +52,8 @@ export const inputRecipe = defineRecipe({
             },
         },
         size: {
-            sm: { fontSize: "{fontSizes.xs}" /* 12 */, paddingX: "{spacing.2}", paddingY: "{spacing.1}" },
-            md: { fontSize: "{fontSizes.control}", paddingX: "10px", paddingY: "7px" },
+            sm: { fontSize: "{fontSizes.xs}" /* 12 */, paddingX: "{spacing.2}", paddingY: "{spacing.1}", _coarse: { fontSize: "{fontSizes.md}" } },
+            md: { fontSize: "{fontSizes.control}", paddingX: "10px", paddingY: "7px", _coarse: { fontSize: "{fontSizes.md}" } },
             lg: { fontSize: "{fontSizes.md}" /* 16 */, paddingX: "{spacing.4}", paddingY: "{spacing.3}" },
         },
     },

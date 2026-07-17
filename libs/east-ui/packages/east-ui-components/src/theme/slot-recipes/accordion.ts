@@ -42,6 +42,8 @@ export const accordionSlotRecipe = defineSlotRecipe({
             paddingX: "16px",
             paddingY: "12px",
             cursor: "pointer",
+            /* Touch (#346). */
+            _coarse: { minHeight: "44px" },
             background: "bg.surface",
             transitionProperty: "background",
             transitionDuration: "{durations.fast}",

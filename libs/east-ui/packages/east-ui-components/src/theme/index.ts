@@ -123,6 +123,15 @@ import { decisionQueueSlotRecipe } from "./slot-recipes/decisionQueue.js";
 
 const config = defineConfig({
     globalCss,
+    /* Adaptive conditions (#346) — pointer capability as first-class recipe
+     * conditions. `_coarse` gates the touch hit-area inflation
+     * (`style/hit-area.ts`) and touch-size bumps; `_hoverNone` gates
+     * hover-parity fallbacks (always-visible affordances where desktop
+     * reveals on hover). Mirrored in JS by `contracts/adaptive.ts`. */
+    conditions: {
+        coarse: "@media (pointer: coarse)",
+        hoverNone: "@media (hover: none)",
+    },
     theme: {
         tokens,
         semanticTokens,

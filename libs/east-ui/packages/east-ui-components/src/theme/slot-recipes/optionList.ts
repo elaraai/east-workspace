@@ -32,6 +32,8 @@ export const optionListSlotRecipe = defineSlotRecipe({
         item: {
             display: "flex",
             alignItems: "center",
+            /* Touch (#346). */
+            _coarse: { minHeight: "44px" },
             gap: "{spacing.3}",
             width: "100%",
             paddingX: "16px",

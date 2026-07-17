@@ -40,6 +40,8 @@ export const navListSlotRecipe = defineSlotRecipe({
             gap: "10px",
             width: "full",
             height: "36px",
+            /* Touch (#346): the fixed 36px row grows to 44px on coarse. */
+            _coarse: { height: "44px" },
             paddingInline: "14px",
             paddingBlock: "0",
             borderRadius: "{radii.sm}",

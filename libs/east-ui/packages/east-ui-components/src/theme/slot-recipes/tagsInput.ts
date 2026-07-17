@@ -12,6 +12,7 @@
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { fieldChrome, fieldFocusRing } from "../field-chrome.js";
+import { coarseHitArea } from "../../style/hit-area.js";
 
 export const tagsInputSlotRecipe = defineSlotRecipe({
     className: "elara-tags-input",
@@ -60,6 +61,8 @@ export const tagsInputSlotRecipe = defineSlotRecipe({
             fontWeight: "normal",
             display: "inline-flex",
             alignItems: "center",
+            /* Touch (#346). */
+            ...coarseHitArea({ position: true }),
         },
         input: {
             flex: 1,

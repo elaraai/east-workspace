@@ -14,6 +14,7 @@
  */
 
 import { defineRecipe } from "@chakra-ui/react";
+import { coarseHitArea } from "../../style/hit-area.js";
 
 export const iconButtonRecipe = defineRecipe({
     className: "elara-icon-btn",
@@ -24,6 +25,8 @@ export const iconButtonRecipe = defineRecipe({
         borderRadius: "{radii.sm}",
         cursor: "pointer",
         userSelect: "none",
+        /* Touch hit target (#346) — ≥44px effective area on coarse pointers. */
+        ...coarseHitArea({ position: true }),
         transitionProperty: "background, color, border-color, box-shadow",
         transitionDuration: "{durations.fast}",
         transitionTimingFunction: "{easings.out}",

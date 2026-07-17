@@ -12,6 +12,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { coarseHitArea } from "../../style/hit-area.js";
 
 export const editableChipSlotRecipe = defineSlotRecipe({
     className: "elara-editable-chip",
@@ -39,6 +40,8 @@ export const editableChipSlotRecipe = defineSlotRecipe({
             alignItems: "center",
             color: "fg.muted",
             fontSize: "{fontSizes.xs}",
+            /* Touch (#346). */
+            ...coarseHitArea({ position: true }),
         },
     },
     variants: {

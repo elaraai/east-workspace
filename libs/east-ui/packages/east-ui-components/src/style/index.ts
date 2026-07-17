@@ -53,3 +53,8 @@ export {
     type AnimationProps,
     toAnimationProps,
 } from "./animation.js";
+
+export {
+    type CoarseHitAreaOptions,
+    coarseHitArea,
+} from "./hit-area.js";

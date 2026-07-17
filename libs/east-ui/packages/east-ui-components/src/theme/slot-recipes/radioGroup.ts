@@ -10,6 +10,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { coarseHitArea } from "../../style/hit-area.js";
 
 export const radioGroupSlotRecipe = defineSlotRecipe({
     className: "elara-radio-group",
@@ -25,6 +26,8 @@ export const radioGroupSlotRecipe = defineSlotRecipe({
             alignItems: "center",
             gap: "{spacing.2}",
             cursor: "pointer",
+            /* Touch hit target (#346). */
+            ...coarseHitArea({ position: true }),
         },
         itemControl: {
             /* Outlined circle on paper with a brand inner dot when checked.

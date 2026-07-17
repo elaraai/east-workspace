@@ -455,6 +455,17 @@ export {
 export { getSomeorUndefined } from "./utils.js";
 export { formatTick, type TickFormatOpt } from "./typography/numeric/format-tick.js";
 
+// Adaptive contract (#346) — container-width + pointer-capability hooks for
+// this package's renderers and sibling renderer packages (e3-ui-components).
+export {
+    type ContainerBreakpoint,
+    type ContainerBreakpointThresholds,
+    useContainerBreakpoint,
+    useContainerBelow,
+    useCoarsePointer,
+    useHoverCapable,
+} from "./contracts/index.js";
+
 export { SliceRailCluster, EastChakraSliceRail } from "./slice/rail";
 export { useSliceReactivity } from "./slice/use-slice-reactivity";
 // Reusable, handle-free Slice predicate-editor pieces — used by the Experiment

@@ -65,6 +65,8 @@ export const segmentGroupSlotRecipe = defineSlotRecipe({
             justifyContent: "center",
             paddingX: "{spacing.3}",
             paddingY: "{spacing.2}",
+            /* Touch (#346). */
+            _coarse: { minHeight: "44px" },
             borderRadius: "0",
             borderRightWidth: "1px",
             borderRightColor: "border.strong",

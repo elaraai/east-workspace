@@ -13,6 +13,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { coarseHitArea } from "../../style/hit-area.js";
 
 export const checkboxSlotRecipe = defineSlotRecipe({
     className: "elara-checkbox",
@@ -23,6 +24,9 @@ export const checkboxSlotRecipe = defineSlotRecipe({
             alignItems: "center",
             gap: "{spacing.2}",
             cursor: "pointer",
+            /* Touch hit target (#346) — the 14px control keeps its spec size;
+             * the whole label row tap area inflates to ≥44px on coarse. */
+            ...coarseHitArea({ position: true }),
         },
         control: {
             display: "inline-flex",

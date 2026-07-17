@@ -15,6 +15,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { coarseHitArea } from "../../style/hit-area.js";
 
 export const splitterSlotRecipe = defineSlotRecipe({
     className: "elara-splitter",
@@ -26,6 +27,9 @@ export const splitterSlotRecipe = defineSlotRecipe({
             cursor: "col-resize",
             position: "relative",
             outline: "none",
+            /* Touch (#346): `_after` carries the visual grip, so the coarse
+             * hit halo rides `_before`. */
+            ...coarseHitArea({ pseudo: "_before" }),
             // Hide Chakra's default handle children — the grip below replaces it.
             "& > *": { display: "none" },
             _after: {

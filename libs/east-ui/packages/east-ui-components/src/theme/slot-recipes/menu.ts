@@ -30,6 +30,8 @@ export const menuSlotRecipe = defineSlotRecipe({
             borderRadius: "{radii.sm}",
             color: "fg",
             cursor: "pointer",
+            /* Touch (#346): comfortable row height on coarse pointers. */
+            _coarse: { minHeight: "44px" },
             transitionProperty: "background, color",
             transitionDuration: "{durations.fast}",
             _hover: { background: "bg.subtle" },

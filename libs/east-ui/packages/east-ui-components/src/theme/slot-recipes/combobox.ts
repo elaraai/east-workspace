@@ -40,6 +40,8 @@ export const comboboxSlotRecipe = defineSlotRecipe({
             minHeight: "0",
             background: "transparent",
             border: "none",
+            /* Touch (#346): 44px input row + 16px text (iOS zoom guard). */
+            _coarse: { minHeight: "44px", fontSize: "{fontSizes.md}" },
             paddingInline: "10px",
             paddingBlock: "7px",
             fontFamily: "body",
@@ -72,6 +74,8 @@ export const comboboxSlotRecipe = defineSlotRecipe({
             paddingY: "{spacing.2}",
             fontSize: "{fontSizes.control}",
             cursor: "pointer",
+            /* Touch (#346). */
+            _coarse: { minHeight: "44px" },
             _hover: { background: "bg.subtle" },
             _highlighted: { background: "bg.subtle" },
             _selected: { color: "{colors.brand.700}" },

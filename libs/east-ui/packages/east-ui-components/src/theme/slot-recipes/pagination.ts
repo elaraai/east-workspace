@@ -10,6 +10,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { coarseHitArea } from "../../style/hit-area.js";
 
 export const paginationSlotRecipe = defineSlotRecipe({
     className: "elara-pagination",
@@ -22,6 +23,8 @@ export const paginationSlotRecipe = defineSlotRecipe({
             justifyContent: "center",
             minWidth: "28px",
             height: "28px",
+            /* Touch hit target (#346). */
+            ...coarseHitArea({ position: true }),
             paddingX: "{spacing.2}",
             borderRadius: "{radii.sm}",
             borderWidth: "1px",
@@ -49,7 +52,7 @@ export const paginationSlotRecipe = defineSlotRecipe({
             color: "fg.muted",
             fontFamily: "mono",
         },
-        prevTrigger: { color: "fg.muted", cursor: "pointer", padding: "{spacing.1}", _hover: { color: "fg" }, _disabled: { color: "fg.muted", opacity: 0.4, cursor: "not-allowed" } },
-        nextTrigger: { color: "fg.muted", cursor: "pointer", padding: "{spacing.1}", _hover: { color: "fg" }, _disabled: { color: "fg.muted", opacity: 0.4, cursor: "not-allowed" } },
+        prevTrigger: { color: "fg.muted", cursor: "pointer", padding: "{spacing.1}", ...coarseHitArea({ position: true }), _hover: { color: "fg" }, _disabled: { color: "fg.muted", opacity: 0.4, cursor: "not-allowed" } },
+        nextTrigger: { color: "fg.muted", cursor: "pointer", padding: "{spacing.1}", ...coarseHitArea({ position: true }), _hover: { color: "fg" }, _disabled: { color: "fg.muted", opacity: 0.4, cursor: "not-allowed" } },
     },
 });

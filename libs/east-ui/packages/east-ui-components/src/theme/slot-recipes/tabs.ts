@@ -29,6 +29,8 @@ export const tabsSlotRecipe = defineSlotRecipe({
             alignItems: "center",
             gap: "{spacing.2}",
             cursor: "pointer",
+            /* Touch (#346). */
+            _coarse: { minHeight: "44px" },
             transitionProperty: "background, color, border-color",
             transitionDuration: "{durations.fast}",
             transitionTimingFunction: "{easings.out}",
