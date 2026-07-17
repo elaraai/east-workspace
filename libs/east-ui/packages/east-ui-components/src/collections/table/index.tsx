@@ -37,6 +37,7 @@ import { Slice as SliceInternal } from "@elaraai/east-ui/internal";
 import { SliceRailCluster } from "../../slice/rail";
 import { parseCssSize } from "../../style/parse-size.js";
 import { virtualScrollbarCss } from "../../style/scrollbar.js";
+import { coarseHitArea } from "../../style/hit-area.js";
 import { railAffordanceKinds } from "../../slice/rail-kinds.js";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity";
 import { RowStateManager, type RowKey, type RowState } from "../../utils/RowStateManager";
@@ -44,6 +45,10 @@ import { useRowStatusBg, useDensityHeights } from "../shared/helpers";
 import { useReviewController, DecisionButtons, ReviewFoot, DECISION_WIDTH, type ApprovalOptionValue } from "../shared/review";
 import { DensityProvider } from "../../contracts/density";
 import { usePlotGutter, gutterPx } from "../../contracts/plot-gutter.js";
+
+/* Touch (#351): 36px tap halo on the 24px pin/sort/expander controls (36,
+ * not 44 — the controls sit adjacent; full halos would swallow each other). */
+const coarseControlHalo = coarseHitArea({ position: true, size: 36 });
 
 // Pre-define equality function at module level
 const tableRootEqual = equalFor(Table.Types.Root);
@@ -946,7 +951,11 @@ const TableCore = function TableCore({
             height={styleHeightCss ?? height}
             maxHeight={styleMaxHeightCss}
             overflowY="auto"
-            overflowX={gutterActive ? 'hidden' : (hasFrozen ? 'auto' : undefined)}
+            // Horizontal containment (#351): a wide table pans inside its own
+            // scroll container instead of squeezing columns / overflowing the
+            // page — frozen or not (gutter mode still owns clipping).
+            overflowX={gutterActive ? 'hidden' : 'auto'}
+            overscrollBehaviorX="contain"
             // Reserved-gutter bar only when the author bounded the table — an
             // unbounded (content-sized) table must not reserve a dead gutter.
             css={styleHeightCss !== undefined || styleMaxHeightCss !== undefined ? virtualScrollbarCss : undefined}
@@ -1157,7 +1166,13 @@ const TableCore = function TableCore({
                                                 {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
                                             </Box>
                                             <HStack className="col-controls" gap={0} flexShrink={0} alignItems="center"
-                                                opacity={isPinned || isSorted ? 1 : 0} transition="opacity 0.15s">
+                                                // Hover parity (#351): no hover ⇒ controls stay
+                                                // visible at reduced emphasis instead of invisible.
+                                                css={{
+                                                    opacity: isPinned || isSorted ? 1 : 0,
+                                                    "@media (hover: none)": { opacity: isPinned || isSorted ? 1 : 0.6 },
+                                                }}
+                                                transition="opacity 0.15s">
                                                 {/* Pin toggle — always visible */}
                                                 <Box
                                                     as="button"
@@ -1170,7 +1185,7 @@ const TableCore = function TableCore({
                                                     display="flex"
                                                     alignItems="center"
                                                     justifyContent="center"
-                                                    w="24px" h="24px"
+                                                    w="24px" h="24px" css={coarseControlHalo}
                                                     borderRadius="sm"
                                                 >
                                                     <FontAwesomeIcon icon={faThumbtack} style={{ width: '10px', height: '10px', transform: isPinned ? undefined : 'rotate(45deg)' }} />
@@ -1187,7 +1202,7 @@ const TableCore = function TableCore({
                                                         display="flex"
                                                         alignItems="center"
                                                         justifyContent="center"
-                                                        w="24px" h="24px"
+                                                        w="24px" h="24px" css={coarseControlHalo}
                                                         borderRadius="sm"
                                                         position="relative"
                                                     >
@@ -1443,7 +1458,7 @@ const TableCore = function TableCore({
                                             display="flex"
                                             alignItems="center"
                                             justifyContent="center"
-                                            w="24px" h="24px"
+                                            w="24px" h="24px" css={coarseControlHalo}
                                             borderRadius="sm"
                                             color="fg.muted"
                                             _hover={{ color: "fg.default", bg: "bg.emphasized" }}

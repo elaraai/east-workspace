@@ -27,7 +27,7 @@ export const dataListSlotRecipe = defineSlotRecipe({
         orientation: {
             vertical:   {},
             horizontal: {
-                item: { flexDirection: "row", alignItems: "baseline", gap: "14px" },
+                item: { flexDirection: "row", alignItems: "baseline", gap: "14px", flexWrap: "wrap" /* compact hosts: value drops under the label (#351) */ },
                 itemLabel: { minWidth: "116px", flexShrink: 0 },
             },
         },

@@ -9,6 +9,11 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronUp, faChevronDown, faAnglesDown, faThumbtack } from "@fortawesome/free-solid-svg-icons";
 import { flexRender } from "@tanstack/react-table";
 import type { Column, Header, SortingState, Table } from "@tanstack/react-table";
+import { coarseHitArea } from "../../style/hit-area.js";
+
+/* Touch (#351): 36px tap halo on the 24px pin/sort controls (36, not 44 —
+ * pin and sort sit adjacent; full halos would swallow each other). */
+const coarseControlHalo = coarseHitArea({ position: true, size: 36 });
 
 // The custom column meta both Table/Gantt and Planner attach. Declared here in
 // the shared module so any consumer of these helpers carries the typing.
@@ -108,7 +113,13 @@ export function HeaderControls<TData>({
                     header cell reveals `.col-controls`), except a pinned/sorted
                     column keeps its indicator visible. Mirrors the Table. */}
                 <HStack className="col-controls" gap={0} flexShrink={0} alignItems="center"
-                    opacity={isPinned || isSorted ? 1 : 0} transition="opacity 0.15s">
+                    // Hover parity (#351): no hover ⇒ controls stay visible
+                    // at reduced emphasis instead of invisible.
+                    css={{
+                        opacity: isPinned || isSorted ? 1 : 0,
+                        "@media (hover: none)": { opacity: isPinned || isSorted ? 1 : 0.6 },
+                    }}
+                    transition="opacity 0.15s">
                     {/* Pin toggle */}
                     <Box
                         as="button"
@@ -121,7 +132,7 @@ export function HeaderControls<TData>({
                         display="flex"
                         alignItems="center"
                         justifyContent="center"
-                        w="24px" h="24px"
+                        w="24px" h="24px" css={coarseControlHalo}
                         borderRadius="sm"
                     >
                         <FontAwesomeIcon icon={faThumbtack} style={{ width: '10px', height: '10px', transform: isPinned ? undefined : 'rotate(45deg)' }} />
@@ -138,7 +149,7 @@ export function HeaderControls<TData>({
                             display="flex"
                             alignItems="center"
                             justifyContent="center"
-                            w="24px" h="24px"
+                            w="24px" h="24px" css={coarseControlHalo}
                             borderRadius="sm"
                             position="relative"
                         >

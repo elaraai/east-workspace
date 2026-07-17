@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useMemo, useCallback } from "react";
+import { memo, useMemo, useCallback, useRef } from "react";
 import {
     Box,
     Pagination as ChakraPagination,
@@ -13,6 +13,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronLeft, faChevronRight } from "@fortawesome/free-solid-svg-icons";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Pagination } from "@elaraai/east-ui/internal";
+import { useContainerBelow } from "../../contracts/adaptive.js";
 import { getSomeorUndefined } from "../../utils";
 
 const paginationEqual = equalFor(Pagination.Types.Pagination);
@@ -62,6 +63,12 @@ export const EastChakraPagination = memo(function EastChakraPagination({ value, 
     const recipe = useSlotRecipe({ key: "pagination" });
     const styles = recipe();
 
+    // Compact containers (#351): the page-number strip collapses to a
+    // "page / total" readout between prev/next.
+    const rootRef = useRef<HTMLDivElement | null>(null);
+    const compact = useContainerBelow(rootRef, 360);
+    const totalPages = Math.max(1, Math.ceil(count / Math.max(1, pageSize)));
+
     const triggerOverride = useMemo(() => ({
         ...(color !== undefined ? { color } : {}),
     }), [color]);
@@ -92,18 +99,24 @@ export const EastChakraPagination = memo(function EastChakraPagination({ value, 
             siblingCount={siblings !== undefined ? Number(siblings) : undefined}
             onPageChange={handleChange}
         >
-            <Box css={styles.root}>
+            <Box ref={rootRef} css={styles.root}>
                 <ChakraPagination.PrevTrigger asChild>
                     <Box as="button" aria-label="Previous page" css={{ ...styles.prevTrigger, ...triggerOverride }}>
                         <FontAwesomeIcon icon={faChevronLeft} />
                     </Box>
                 </ChakraPagination.PrevTrigger>
 
-                <ChakraPagination.Items
-                    render={(page) => (
-                        <Box as="button" aria-label={`Page ${page.value}`} css={itemCss}>{page.value}</Box>
-                    )}
-                />
+                {compact ? (
+                    <Box as="span" aria-live="polite" css={{ ...styles.ellipsis, ...triggerOverride }}>
+                        {irPage + 1} / {totalPages}
+                    </Box>
+                ) : (
+                    <ChakraPagination.Items
+                        render={(page) => (
+                            <Box as="button" aria-label={`Page ${page.value}`} css={itemCss}>{page.value}</Box>
+                        )}
+                    />
+                )}
 
                 <ChakraPagination.NextTrigger asChild>
                     <Box as="button" aria-label="Next page" css={{ ...styles.nextTrigger, ...triggerOverride }}>
