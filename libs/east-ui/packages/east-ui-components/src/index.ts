@@ -467,6 +467,7 @@ export {
 } from "./contracts/index.js";
 
 export { SliceRailCluster, EastChakraSliceRail } from "./slice/rail";
+export { EastChakraDeck, type EastChakraDeckProps, type DeckValue, type DeckItemValue } from "./collections/deck";
 export { useSliceReactivity } from "./slice/use-slice-reactivity";
 // Reusable, handle-free Slice predicate-editor pieces — used by the Experiment
 // surface's population filter (its population is an Array<SlicePredicate>).

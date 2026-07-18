@@ -12,6 +12,7 @@ export { Table } from "./table.js";
 export { Matrix } from "./matrix.js";
 export { Gantt } from "./gantt.js";
 export { Planner } from "./planner.js";
+export { Deck } from "./deck.js";
 export { Library } from "./library.js";
 export { Roster } from "./roster.js";
 export { Board } from "./board.js";

@@ -113,7 +113,8 @@ import { SegmentedMeterSegmentType, SegmentedMeterStyleType } from "./display/se
 import { BarStripStyleType, BarStripSortType } from "./display/bar-strip/types.js";
 import { AvatarGroupType } from "./display/avatar-group/types.js";
 import { TraceType } from "./display/trace/types.js";
-import { LibraryRootType } from "./collections/library/types.js";
+import { LibraryRootType, LibraryStatusType, LibraryGroupMetaType } from "./collections/library/types.js";
+import { DeckFactType, DeckLayoutType, DeckStyleType } from "./collections/deck/types.js";
 import { RosterModeType, RosterPersonType, RosterShiftType } from "./collections/roster/types.js";
 import { BoardModeType, BoardEntityType, BoardAssignmentType, BoardRequirementType } from "./collections/board/types.js";
 import { CellRefType, DragEventType } from "./contracts/drag.js";
@@ -639,6 +640,31 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
 
     // Library — draggable palette (drag & drop source role)
     Library: LibraryRootType,
+
+    // Deck — declarative grouped card collection (#359). Items are resolved
+    // at factory time (the renderer never sees the host row type); `face`
+    // carries an optional fully-custom card body, hence the inline `node`.
+    Deck: StructType({
+        items: ArrayType(StructType({
+            key: StringType,
+            title: StringType,
+            sublabel: OptionType(StringType),
+            icon: OptionType(StringType),
+            status: OptionType(LibraryStatusType),
+            facts: ArrayType(DeckFactType),
+            filtered: BooleanType,
+            search: OptionType(StringType),
+            groups: DictType(StringType, StringType),
+            face: OptionType(node),
+        })),
+        groupOptions: ArrayType(LibraryGroupMetaType),
+        groupSummaries: DictType(StringType, DictType(StringType, StringType)),
+        searchable: BooleanType,
+        layout: OptionType(DeckLayoutType),
+        onCardClick: OptionType(FunctionType([StringType], NullType)),
+        slice: OptionType(SliceChromeType),
+        style: OptionType(DeckStyleType),
+    }),
 
     // Slice — typed-narrowing UI family (bound to the Slice platform)
     SliceSummary: SliceSummaryType,

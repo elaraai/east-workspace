@@ -61,6 +61,20 @@ export {
     BoardModeType, type BoardModeLiteral,
 } from "./board/index.js";
 export {
+    Deck,
+    DeckItemType,
+    DeckRootType,
+    DeckCardFaceType,
+    DeckFactType,
+    DeckLayoutType,
+    DeckStyleType,
+    type DeckConfig,
+    type DeckCardFields,
+    type DeckGroupOption,
+    type DeckLayoutLiteral,
+    type DeckStyle,
+} from "./deck/index.js";
+export {
     Library,
     type LibraryConfig,
     type LibraryCardFields,
