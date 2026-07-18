@@ -22,7 +22,7 @@ EAST_UI_EXAMPLE_ITEM_KEYS := $(shell for f in $$(find packages/east-ui/test \( -
 E3_UI_EXAMPLE_KEYS := $(shell find packages/e3-ui/test \( -name '*.examples.ts' -o -name '*.examples.tsx' \) 2>/dev/null \
                              | sed -e 's|^packages/e3-ui/test/||' -e 's|\.examples\.tsx$$||' -e 's|\.examples\.ts$$||')
 
-.PHONY: build test lint showcase build-showcase design design-html-all probe-slice probe-collections clean extension extension-install extension-uninstall examples test-responsive \
+.PHONY: build test lint showcase build-showcase design design-html-all probe-slice probe-collections clean extension extension-install extension-uninstall examples test-responsive test-responsive-bank \
         east-ui-examples-html-all $(EAST_UI_EXAMPLE_KEYS:%=east-ui-examples-html-%) \
         $(EAST_UI_EXAMPLE_ITEM_KEYS:%=east-ui-examples-html-%) \
         e3-ui-examples-html-all $(E3_UI_EXAMPLE_KEYS:%=e3-ui-examples-html-%) help
@@ -199,6 +199,7 @@ help:
 	@echo "  examples              - Rebuild east-ui + e3-ui (example sources)"
 	@echo "  east-ui-examples-html-all     - Snapshot every east-ui example to standalone HTML"
 	@echo "  test-responsive               - Playwright responsive sweep (desktop + mobile) over the showcase catalog"
+	@echo "  test-responsive-bank          - Bank/refresh the per-component visual goldens (committed)"
 	@echo "  east-ui-examples-html-<pathKey> - Snapshot a single example (e.g. east-ui-examples-html-disclosure/tabs)"
 	@echo "  extension         - Build and package VS Code extension"
 	@echo "  extension-install - Install VS Code extension"
@@ -215,3 +216,10 @@ help:
 test-responsive:
 	-pnpm --filter @elaraai/east-ui-showcase exec playwright install chromium
 	pnpm --filter @elaraai/east-ui-showcase run test:responsive
+
+## Bank / refresh the per-component visual goldens the responsive suite
+## compares against (tests/responsive/__goldens__/ — committed). Run after
+## an INTENTIONAL visual change, review the diff, commit the updated PNGs.
+test-responsive-bank:
+	-pnpm --filter @elaraai/east-ui-showcase exec playwright install chromium
+	pnpm --filter @elaraai/east-ui-showcase run test:responsive:bank

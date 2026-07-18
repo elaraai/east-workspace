@@ -22,6 +22,17 @@ export default defineConfig({
     timeout: 60_000,
     fullyParallel: true,
     reporter: [["list"]],
+    /* Visual goldens (goldens.spec.ts): committed per-component baselines.
+     * Tolerances absorb sub-pixel AA drift; animations are frozen and the
+     * caret hidden for determinism. */
+    snapshotPathTemplate: "{testDir}/__goldens__/{projectName}/{arg}{ext}",
+    expect: {
+        toHaveScreenshot: {
+            animations: "disabled",
+            caret: "hide",
+            maxDiffPixelRatio: 0.002,
+        },
+    },
     webServer: {
         // Production build — dev-mode HMR/overlay noise excluded.
         command: "pnpm run build && pnpm run preview -- --port 4173 --strictPort",
