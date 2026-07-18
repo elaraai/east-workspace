@@ -8,20 +8,26 @@
  *
  * `Deck.Root(data, config)` renders rows as presentation cards: a
  * structured face (`card` accessor — title / sublabel / icon / status /
- * facts) or a fully custom face (`render` accessor returning any UI
- * component), grouped by named GROUP BY toolbar options, filtered by
- * slice chrome, laid out as a wrapping card grid or a single-column list.
+ * tone / facts) or a fully custom face (`render` accessor returning any
+ * UI component), grouped by named GROUP BY toolbar options, laid out as
+ * a wrapping card grid or a single-column list. Filtering and search
+ * flow through the SLICE interface (like Table) — a Deck has no bespoke
+ * search of its own.
  *
- * Shares the Library card grammar (status pills, meter / chips / text
- * fact values) so palettes and decks read as one family; unlike Library,
- * a Deck is a display/interaction surface — cards are tap targets
- * (`onCardClick`), never drag sources.
+ * Cards carry two states: the LIST face (the summary above) and an
+ * optional VIEW state — a `view` accessor composes the card's full
+ * detail (any UI component), opened by tapping the card into a side
+ * panel (a full-screen sheet on phones) with prev/next traversal, plus
+ * an optional `hover` peek on hover-capable pointers. `onOpen` /
+ * `onClose` report the transitions; `onCardClick` remains the plain tap
+ * callback. Cards are tap targets, never drag sources.
  */
 
 import {
     type ExprType,
     type SubtypeExprOrValue,
     ArrayType,
+    AsyncFunctionType,
     BooleanType,
     DictType,
     East,
@@ -40,7 +46,7 @@ import {
 import { UIComponentType } from "../../component.js";
 import { mapRowsBlock } from "../../shared/reify.js";
 import { type IconName } from "../../display/icon/types.js";
-import { type StatusTokenLiteral } from "../../style/interaction.js";
+import { StatusTokenType, type StatusTokenLiteral } from "../../style/interaction.js";
 import { SliceBindType, SliceChromeType } from "../../platform/slice/index.js";
 import { SliceAffordanceType, type SliceAffordanceLiteral } from "../../contracts/slice-affordances.js";
 import type { RowElement } from "../library/index.js";
@@ -77,6 +83,7 @@ export const DeckCardFaceType = StructType({
     sublabel: OptionType(StringType),
     icon: OptionType(StringType),
     status: OptionType(LibraryStatusType),
+    tone: OptionType(StatusTokenType),
     facts: ArrayType(DeckFactType),
     filtered: BooleanType,
 });
@@ -101,11 +108,13 @@ export const DeckItemType = StructType({
     sublabel: OptionType(StringType),
     icon: OptionType(StringType),
     status: OptionType(LibraryStatusType),
+    tone: OptionType(StatusTokenType),
     facts: ArrayType(DeckFactType),
     filtered: BooleanType,
-    search: OptionType(StringType),
     groups: DictType(StringType, StringType),
     face: OptionType(UIComponentType),
+    detail: OptionType(UIComponentType),
+    hover: OptionType(UIComponentType),
 });
 
 /**
@@ -122,9 +131,10 @@ export const DeckRootType = StructType({
     items: ArrayType(DeckItemType),
     groupOptions: ArrayType(LibraryGroupMetaType),
     groupSummaries: DictType(StringType, DictType(StringType, StringType)),
-    searchable: BooleanType,
     layout: OptionType(DeckLayoutType),
     onCardClick: OptionType(FunctionType([StringType], NullType)),
+    onOpen: OptionType(AsyncFunctionType([StringType], NullType)),
+    onClose: OptionType(AsyncFunctionType([], NullType)),
     slice: OptionType(SliceChromeType),
     style: OptionType(DeckStyleType),
 });
@@ -137,16 +147,18 @@ export type DeckRootType = typeof DeckRootType;
 /**
  * The structured card-face fields accepted by the `card` accessor.
  *
- * @property key - Card identity (reported by `onCardClick`)
+ * @property key - Card identity (reported by `onCardClick` / `onOpen`)
  * @property title - Primary identity line
  * @property sublabel - Optional muted second line
  * @property icon - Optional Font Awesome solid icon name
  * @property status - Optional status pill (`Deck.status(...)`)
+ * @property tone - Optional card accent tone (a left accent bar in the
+ *   standard status palette — the card-level colour)
  * @property facts - Optional labelled facts (`Deck.meter` / `Deck.chips` / `Deck.text`)
  * @property filtered - Render de-emphasised (the `Slice.partition` "keep the excluded" feed)
  */
 export interface DeckCardFields {
-    /** Card identity (reported by `onCardClick`) */
+    /** Card identity (reported by `onCardClick` / `onOpen`) */
     key: SubtypeExprOrValue<StringType>;
     /** Primary identity line */
     title: SubtypeExprOrValue<StringType>;
@@ -156,6 +168,8 @@ export interface DeckCardFields {
     icon?: SubtypeExprOrValue<StringType> | IconName;
     /** Optional status pill (`Deck.status(...)`) */
     status?: ExprType<typeof LibraryStatusType>;
+    /** Optional card accent tone (standard status palette) */
+    tone?: SubtypeExprOrValue<typeof StatusTokenType> | StatusTokenLiteral;
     /** Optional labelled facts */
     facts?: Array<ExprType<typeof DeckFactType>>;
     /** Render de-emphasised (dimmed) */
@@ -164,12 +178,14 @@ export interface DeckCardFields {
 
 /** Build a {@link DeckCardFaceType} value from plain face fields. */
 function createCard(fields: DeckCardFields): ExprType<DeckCardFaceType> {
+    const tone = typeof fields.tone === "string" ? variant(fields.tone, null) : fields.tone;
     return East.value({
         key: fields.key,
         title: fields.title,
         sublabel: fields.sublabel !== undefined ? some(fields.sublabel) : none,
         icon: fields.icon !== undefined ? some(fields.icon) : none,
         status: fields.status !== undefined ? some(fields.status) : none,
+        tone: tone !== undefined ? some(tone) : none,
         facts: fields.facts !== undefined ? East.value(fields.facts, ArrayType(DeckFactType)) : East.value([], ArrayType(DeckFactType)),
         filtered: fields.filtered ?? false,
     }, DeckCardFaceType);
@@ -202,34 +218,49 @@ export interface DeckGroupOption<R extends StructType> {
 /**
  * Configuration for {@link Deck.Root}.
  *
- * @property card - Accessor from a row to the structured card face
+ * @property card - Accessor from a row to the structured card face (the
+ *   LIST state — the summary)
  * @property render - Optional accessor from a row to a fully custom card
  *   body (any UI component), rendered inside the card frame beneath the
  *   structured face fields
+ * @property view - Optional accessor from a row to the card's VIEW state
+ *   (any UI component) — tapping the card opens it in a side panel
+ *   (full-screen sheet on phones) with prev/next traversal
+ * @property hover - Optional accessor from a row to a hover peek (any UI
+ *   component) — shown on hover-capable pointers only
  * @property groupBy - Named GROUP BY toolbar options (empty = no toolbar)
- * @property search - Optional accessor feeding the quick search (the
- *   input renders only when set)
  * @property layout - `"grid"` (default — wrapping card rows) or `"list"`
  * @property onCardClick - Optional tap callback with the card `key`
- * @property slice - Optional bound slice handle (rail chrome renders above)
+ * @property onOpen - Optional callback when a card's view opens (card `key`)
+ * @property onClose - Optional callback when the view closes
+ * @property slice - Optional bound slice handle (rail chrome renders
+ *   above) — filtering and search flow through the slice, like Table
  * @property affordances - Rail affordances when `slice` is set (default
  *   `["filter", "search"]`)
  * @property style - Layout style (height / maxHeight / minCardWidth)
  */
 export interface DeckConfig<R extends StructType> {
-    /** Accessor from a row to the structured card face */
+    /** Accessor from a row to the structured card face (the LIST state) */
     card: (row: ExprType<R>) => DeckCardFields | ExprType<DeckCardFaceType>;
     /** Optional accessor from a row to a fully custom card body */
     render?: (row: ExprType<R>) => ExprType<UIComponentType>;
+    /** Optional accessor from a row to the card's VIEW state (detail) */
+    view?: (row: ExprType<R>) => ExprType<UIComponentType>;
+    /** Optional accessor from a row to a hover peek */
+    hover?: (row: ExprType<R>) => ExprType<UIComponentType>;
     /** Named GROUP BY toolbar options (empty = no toolbar) */
     groupBy?: Array<DeckGroupOption<R>>;
-    /** Optional accessor feeding the quick search */
-    search?: (row: ExprType<R>) => SubtypeExprOrValue<StringType>;
     /** `"grid"` (default) or `"list"` */
     layout?: DeckLayoutLiteral;
     /** Optional tap callback with the card `key` */
     onCardClick?: SubtypeExprOrValue<FunctionType<[StringType], NullType>>;
-    /** Optional bound slice handle */
+    /** Optional view-opened callback with the card `key` */
+    onOpen?: SubtypeExprOrValue<FunctionType<[StringType], NullType>>
+        | SubtypeExprOrValue<AsyncFunctionType<[StringType], NullType>>;
+    /** Optional view-closed callback */
+    onClose?: SubtypeExprOrValue<FunctionType<[], NullType>>
+        | SubtypeExprOrValue<AsyncFunctionType<[], NullType>>;
+    /** Optional bound slice handle (filter/search flow through it) */
     slice?: SubtypeExprOrValue<SliceBindType>;
     /** Rail affordances when `slice` is set (default `["filter", "search"]`) */
     affordances?: SliceAffordanceLiteral[];
@@ -252,6 +283,8 @@ function buildRoot(
     const data_expr = East.value(data) as ExprType<ArrayType<StructType>>;
     const groupDefs = config.groupBy ?? [];
     const render = config.render;
+    const view = config.view;
+    const hover = config.hover;
 
     const items = mapRowsBlock(data_expr, DeckItemType, ($, row) => {
         const groups = $.let(new Map(), DictType(StringType, StringType));
@@ -266,11 +299,13 @@ function buildRoot(
             sublabel: face.sublabel,
             icon: face.icon,
             status: face.status,
+            tone: face.tone,
             facts: face.facts,
             filtered: face.filtered,
-            search: config.search !== undefined ? some(config.search(row)) : none,
             groups,
             face: render !== undefined ? some(render(row)) : none,
+            detail: view !== undefined ? some(view(row)) : none,
+            hover: hover !== undefined ? some(hover(row)) : none,
         }, DeckItemType);
     });
 
@@ -314,15 +349,18 @@ function buildRoot(
         }, DeckStyleType)
         : undefined;
 
+    // Sync onOpen/onClose widen into the async slots at runtime
+    // (FunctionType <: AsyncFunctionType) — the casts only quiet TS.
     return East.value(variant("Deck", {
         items,
         groupOptions: East.value(
             groupDefs.map(g => ({ key: g.key, label: g.label })),
             ArrayType(LibraryGroupMetaType)),
         groupSummaries: summariesFn(data_expr),
-        searchable: config.search !== undefined,
         layout: config.layout !== undefined ? some(variant(config.layout, null)) : none,
         onCardClick: config.onCardClick !== undefined ? some(config.onCardClick) : none,
+        onOpen: config.onOpen !== undefined ? some(config.onOpen as never) : none,
+        onClose: config.onClose !== undefined ? some(config.onClose as never) : none,
         slice: sliceChromeValue !== undefined ? some(sliceChromeValue) : none,
         style: styleValue !== undefined ? some(styleValue) : none,
     }), UIComponentType);
@@ -474,6 +512,8 @@ export const Deck = {
         Fact: DeckFactType,
         /** Status pill (shared with Library). */
         Status: LibraryStatusType,
+        /** Card accent tone (the standard status token palette). */
+        Tone: StatusTokenType,
         /** Fact value kinds (shared with Library dimensions). */
         FactValue: LibraryDimValueType,
         /** Layout mode. */

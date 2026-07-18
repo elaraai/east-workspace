@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { East } from "@elaraai/east";
+import { East, NullType, StringType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Deck } from "@elaraai/east-ui/internal";
+import { Deck, Text } from "@elaraai/east-ui/internal";
 import * as ex from "./deck.examples.js";
 
 describeEast("Deck", (test) => {
@@ -14,6 +14,7 @@ describeEast("Deck", (test) => {
         deckGroupBy: ex.deckGroupBy,
         deckListLayout: ex.deckListLayout,
         deckCustomFace: ex.deckCustomFace,
+        deckDetail: ex.deckDetail,
         deckClickable: ex.deckClickable,
     });
 
@@ -75,17 +76,31 @@ describeEast("Deck", (test) => {
         $(Assert.equal(list.unwrap().unwrap("Deck").layout.unwrap("some").hasTag("list"), true));
     });
 
-    test("searchable follows the search accessor; face defaults to none", $ => {
+    test("tone, view and hover carry per item; open callbacks fill their slots", $ => {
         const plain = $.let(Deck.Root(ROWS, { card: r => ({ key: r.id, title: r.name }) }));
-        $(Assert.equal(plain.unwrap().unwrap("Deck").searchable, false));
-        $(Assert.equal(plain.unwrap().unwrap("Deck").items.get(0n).face.hasTag("none"), true));
+        const plainItem = $.let(plain.unwrap().unwrap("Deck").items.get(0n));
+        $(Assert.equal(plainItem.face.hasTag("none"), true));
+        $(Assert.equal(plainItem.tone.hasTag("none"), true));
+        $(Assert.equal(plainItem.detail.hasTag("none"), true));
+        $(Assert.equal(plainItem.hover.hasTag("none"), true));
+        $(Assert.equal(plain.unwrap().unwrap("Deck").onOpen.hasTag("none"), true));
+        $(Assert.equal(plain.unwrap().unwrap("Deck").onClose.hasTag("none"), true));
 
-        const searchable = $.let(Deck.Root(ROWS, {
-            card: r => ({ key: r.id, title: r.name }),
-            search: r => r.name,
+        const rich = $.let(Deck.Root(ROWS, {
+            card: r => ({ key: r.id, title: r.name, tone: "danger" }),
+            view: r => Text.Root(r.name),
+            hover: r => Text.Root(r.team),
+            onOpen: East.function([StringType], NullType, (_$h, _key) => null),
+            onClose: East.function([], NullType, (_$h) => null),
         }));
-        $(Assert.equal(searchable.unwrap().unwrap("Deck").searchable, true));
-        $(Assert.equal(searchable.unwrap().unwrap("Deck").items.get(0n).search.unwrap("some"), "Line A"));
+        const payload = $.let(rich.unwrap().unwrap("Deck"));
+        const item = $.let(payload.items.get(0n));
+        $(Assert.equal(item.tone.unwrap("some").hasTag("danger"), true));
+        $(Assert.equal(item.detail.hasTag("some"), true));
+        $(Assert.equal(item.hover.hasTag("some"), true));
+        $(Assert.equal(item.detail.unwrap("some").unwrap().unwrap("Text").value, "Line A"));
+        $(Assert.equal(payload.onOpen.hasTag("some"), true));
+        $(Assert.equal(payload.onClose.hasTag("some"), true));
     });
 
     // =========================================================================

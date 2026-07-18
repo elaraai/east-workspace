@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, NullType, StringType, example } from "@elaraai/east";
+import { East, NullType, StringType, example, variant } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
 import { Deck, HStack, Reactive, Tag, Text, VStack } from "@elaraai/east-ui";
 
@@ -34,8 +34,8 @@ export const deckBasic = example({
 });
 
 export const deckGroupBy = example({
-    keywords: ["Deck", "groupBy", "group", "toolbar", "summary", "chips", "search"],
-    description: "Named GROUP BY options (Status / Team / None) with group-head summaries and quick search",
+    keywords: ["Deck", "groupBy", "group", "toolbar", "summary", "chips"],
+    description: "Named GROUP BY options (Status / Team / None) with group-head summaries — filtering flows through the slice interface, not a bespoke search",
     fn: East.function([], UIComponentType, (_$) => (
         <Deck
             data={LINES}
@@ -50,7 +50,6 @@ export const deckGroupBy = example({
                 { key: "state", label: "Status", value: r => r.state, summary: rows => East.str`${East.print(rows.size())} lines` },
                 { key: "team", label: "Team", value: r => r.team },
             ]}
-            search={r => r.name}
         />
     )),
     inputs: [],
@@ -91,6 +90,60 @@ export const deckCustomFace = example({
                 </VStack>
             )}
         />
+    )),
+    inputs: [],
+});
+
+export const deckDetail = example({
+    keywords: ["Deck", "view", "detail", "open", "panel", "tone", "color", "hover", "peek", "onOpen", "onClose"],
+    description: "The card VIEW state — tone-accented cards open a composed detail panel via `view` (prev/next traversal, Esc closes), with a hover peek and onOpen/onClose events",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const logBind = $.let(State.bind([StringType], "deck_view_log", "closed"));
+            const log = $.let(logBind.read());
+            const onOpen = $.const(East.function([StringType], NullType, ($, key) => {
+                $(logBind.write(East.str`viewing ${key}`));
+            }));
+            const onClose = $.const(East.function([], NullType, ($) => {
+                $(logBind.write("closed"));
+            }));
+            return (
+                <VStack gap="3" align="stretch">
+                    <Deck
+                        data={LINES}
+                        card={r => ({
+                            key: r.id,
+                            title: r.name,
+                            sublabel: r.team,
+                            tone: r.state.equals("DOWN").ifElse(
+                                () => East.value(variant("danger", null), Deck.Types.Tone),
+                                () => r.state.equals("RUNNING").ifElse(
+                                    () => East.value(variant("success", null), Deck.Types.Tone),
+                                    () => East.value(variant("neutral", null), Deck.Types.Tone),
+                                ),
+                            ),
+                            status: Deck.status(r.state, "info"),
+                        })}
+                        view={r => (
+                            <VStack gap="2" align="stretch">
+                                <Text fontWeight="bold">{East.str`${r.name} — ${r.state}`}</Text>
+                                <Text color="gray.500">{East.str`Team ${r.team} · load ${East.print(r.load.multiply(100.0))}%`}</Text>
+                                <HStack gap="2">
+                                    <Tag>{r.team}</Tag>
+                                    <Tag>{r.state}</Tag>
+                                </HStack>
+                            </VStack>
+                        )}
+                        hover={r => (
+                            <Text color="gray.500">{East.str`${r.name} · load ${East.print(r.load.multiply(100.0))}%`}</Text>
+                        )}
+                        onOpen={onOpen}
+                        onClose={onClose}
+                    />
+                    <Text color="gray.500">{log}</Text>
+                </VStack>
+            );
+        }}</Reactive>
     )),
     inputs: [],
 });

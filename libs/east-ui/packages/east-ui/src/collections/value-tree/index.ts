@@ -49,7 +49,7 @@ import {
     StringType,
     StructType,
     type VariantType,
-    ref,
+    defaultValue,
     some,
     none,
     variant,
@@ -864,45 +864,18 @@ function createValueTree<T extends EastType>(
  *
  * @param t - The East type to zero
  * @returns The TypeScript `ValueTypeOf` zero value
- * @throws When the type has no zero (matrices, functions)
+ * @throws When the type has no default (functions; recursion below the
+ *   top level)
+ *
+ * @remarks
+ * Delegates to east's {@link defaultValue} (option variants default to
+ * `none` — their sorted first case), unrolling a top-level
+ * RecursiveType wrapper first.
  */
 function zeroValue<T extends EastType>(t: T): ValueTypeOf<T> {
-    switch (t.type) {
-        case "Null": return null as ValueTypeOf<T>;
-        case "Boolean": return false as ValueTypeOf<T>;
-        case "Integer": return 0n as ValueTypeOf<T>;
-        case "Float": return 0 as ValueTypeOf<T>;
-        case "String": return "" as ValueTypeOf<T>;
-        case "DateTime": return new Date(0) as ValueTypeOf<T>;
-        case "Blob": return new Uint8Array() as ValueTypeOf<T>;
-        case "Array": return [] as ValueTypeOf<T>;
-        case "Set": return new Set() as ValueTypeOf<T>;
-        case "Dict": return new Map() as ValueTypeOf<T>;
-        case "Vector": {
-            const elem = (t as unknown as { element: EastType }).element;
-            if (elem.type === "Integer") return new BigInt64Array() as ValueTypeOf<T>;
-            if (elem.type === "Boolean") return new Uint8ClampedArray() as ValueTypeOf<T>;
-            return new Float64Array() as ValueTypeOf<T>;
-        }
-        case "Ref":
-            return ref(zeroValue((t as unknown as { value: EastType }).value)) as ValueTypeOf<T>;
-        case "Struct": {
-            const fields = (t as unknown as { fields: Record<string, EastType> }).fields;
-            const out: Record<string, unknown> = {};
-            for (const [name, ft] of Object.entries(fields)) out[name] = zeroValue(ft);
-            return out as ValueTypeOf<T>;
-        }
-        case "Variant": {
-            const cases = (t as unknown as { cases: Record<string, EastType> }).cases;
-            if (isOptionType(t)) return none as ValueTypeOf<T>;
-            const [tag, caseType] = Object.entries(cases)[0]!;
-            return variant(tag, zeroValue(caseType)) as ValueTypeOf<T>;
-        }
-        case "Recursive":
-            return zeroValue((t as unknown as { node: EastType }).node) as ValueTypeOf<T>;
-        default:
-            throw new Error(`ValueTree.zero: no zero value for East type '${t.type}'`);
-    }
+    let ct: EastType = t;
+    while (ct.type === "Recursive") ct = (ct as { node: EastType }).node;
+    return defaultValue(ct) as ValueTypeOf<T>;
 }
 
 // ============================================================================

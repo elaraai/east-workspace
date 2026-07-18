@@ -158,7 +158,7 @@ describeEast("ValueTree", (test) => {
         $(Assert.equal(payload.style.unwrap("some").height.unwrap("some"), "320px"));
     });
 
-    test("zero builds defaults for compound, vector and ref types; throws for matrices", $ => {
+    test("zero delegates to east's defaultValue across every data type", $ => {
         const T = StructType({
             n: IntegerType,
             tags: ArrayType(StringType),
@@ -173,10 +173,8 @@ describeEast("ValueTree", (test) => {
         $(Assert.equal(vectorOk, true));
         const refOk = $.const(isValueOf(ValueTree.zero(RefType(IntegerType)), RefType(IntegerType)));
         $(Assert.equal(refOk, true));
-        let matrixThrew = false;
-        try { ValueTree.zero(MatrixType(FloatType)); } catch { matrixThrew = true; }
-        const matrixThrewE = $.const(matrixThrew);
-        $(Assert.equal(matrixThrewE, true));
+        const matrixOk = $.const(isValueOf(ValueTree.zero(MatrixType(FloatType)), MatrixType(FloatType)));
+        $(Assert.equal(matrixOk, true));
     });
 
     // ------------------------------------------------------------------

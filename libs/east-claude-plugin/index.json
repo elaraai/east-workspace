@@ -1,14 +1,14 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1508,
+    "totalEntries": 1509,
     "totalFiles": 190,
     "packages": {
       "east": 490,
       "east-node-std": 43,
       "east-node-io": 63,
       "east-py-datascience": 89,
-      "east-ui": 749,
+      "east-ui": 750,
       "e3-ui": 58,
       "e3": 7,
       "e3-ui-cli": 4,
@@ -15838,7 +15838,7 @@
         "meter"
       ],
       "imports": [
-        "import { East, NullType, StringType, example } from \"@elaraai/east\";",
+        "import { East, NullType, StringType, example, variant } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Deck, HStack, Reactive, Tag, Text, VStack } from \"@elaraai/east-ui\";"
       ],
@@ -15850,22 +15850,21 @@
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/collections/deck.examples.tsx",
       "suite": "",
-      "test": "Named GROUP BY options (Status / Team / None) with group-head summaries and quick search",
+      "test": "Named GROUP BY options (Status / Team / None) with group-head summaries — filtering flows through the slice interface, not a bespoke search",
       "keywords": [
         "Deck",
         "groupBy",
         "group",
         "toolbar",
         "summary",
-        "chips",
-        "search"
+        "chips"
       ],
       "imports": [
-        "import { East, NullType, StringType, example } from \"@elaraai/east\";",
+        "import { East, NullType, StringType, example, variant } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Deck, HStack, Reactive, Tag, Text, VStack } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Named GROUP BY options (Status / Team / None) with group-head summaries and quick search\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Deck\n            data={LINES}\n            card={r => ({\n                key: r.id,\n                title: r.name,\n                sublabel: r.team,\n                status: Deck.status(r.state, \"info\"),\n                facts: [Deck.chips(\"Skills\", r.skills)],\n            })}\n            groupBy={[\n                { key: \"state\", label: \"Status\", value: r => r.state, summary: rows => East.str`${East.print(rows.size())} lines` },\n                { key: \"team\", label: \"Team\", value: r => r.team },\n            ]}\n            search={r => r.name}\n        />\n    ))"
+      "source": "// Named GROUP BY options (Status / Team / None) with group-head summaries — filtering flows through the slice interface, not a bespoke search\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Deck\n            data={LINES}\n            card={r => ({\n                key: r.id,\n                title: r.name,\n                sublabel: r.team,\n                status: Deck.status(r.state, \"info\"),\n                facts: [Deck.chips(\"Skills\", r.skills)],\n            })}\n            groupBy={[\n                { key: \"state\", label: \"Status\", value: r => r.state, summary: rows => East.str`${East.print(rows.size())} lines` },\n                { key: \"team\", label: \"Team\", value: r => r.team },\n            ]}\n        />\n    ))"
     },
     {
       "id": "east-ui:deck.examples.tsx:deckListLayout",
@@ -15882,7 +15881,7 @@
         "text"
       ],
       "imports": [
-        "import { East, NullType, StringType, example } from \"@elaraai/east\";",
+        "import { East, NullType, StringType, example, variant } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Deck, HStack, Reactive, Tag, Text, VStack } from \"@elaraai/east-ui\";"
       ],
@@ -15903,11 +15902,38 @@
         "compose"
       ],
       "imports": [
-        "import { East, NullType, StringType, example } from \"@elaraai/east\";",
+        "import { East, NullType, StringType, example, variant } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Deck, HStack, Reactive, Tag, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// A fully custom card body via \n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Deck\n            data={LINES}\n            card={r => ({ key: r.id, title: r.name })}\n            render={r => (\n                <VStack gap=\"1\" align=\"stretch\">\n                    <HStack gap=\"2\">\n                        <Tag>{r.team}</Tag>\n                        <Tag>{r.state}</Tag>\n                    </HStack>\n                    <Text color=\"gray.500\">{East.str`load ${East.print(r.load)}`}</Text>\n                </VStack>\n            )}\n        />\n    ))"
+    },
+    {
+      "id": "east-ui:deck.examples.tsx:deckDetail",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/deck.examples.tsx",
+      "suite": "",
+      "test": "The card VIEW state — tone-accented cards open a composed detail panel via ",
+      "keywords": [
+        "Deck",
+        "view",
+        "detail",
+        "open",
+        "panel",
+        "tone",
+        "color",
+        "hover",
+        "peek",
+        "onOpen",
+        "onClose"
+      ],
+      "imports": [
+        "import { East, NullType, StringType, example, variant } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Deck, HStack, Reactive, Tag, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// The card VIEW state — tone-accented cards open a composed detail panel via \n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const logBind = $.let(State.bind([StringType], \"deck_view_log\", \"closed\"));\n            const log = $.let(logBind.read());\n            const onOpen = $.const(East.function([StringType], NullType, ($, key) => {\n                $(logBind.write(East.str`viewing ${key}`));\n            }));\n            const onClose = $.const(East.function([], NullType, ($) => {\n                $(logBind.write(\"closed\"));\n            }));\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <Deck\n                        data={LINES}\n                        card={r => ({\n                            key: r.id,\n                            title: r.name,\n                            sublabel: r.team,\n                            tone: r.state.equals(\"DOWN\").ifElse(\n                                () => East.value(variant(\"danger\", null), Deck.Types.Tone),\n                                () => r.state.equals(\"RUNNING\").ifElse(\n                                    () => East.value(variant(\"success\", null), Deck.Types.Tone),\n                                    () => East.value(variant(\"neutral\", null), Deck.Types.Tone),\n                                ),\n                            ),\n                            status: Deck.status(r.state, \"info\"),\n                        })}\n                        view={r => (\n                            <VStack gap=\"2\" align=\"stretch\">\n                                <Text fontWeight=\"bold\">{East.str`${r.name} — ${r.state}`}</Text>\n                                <Text color=\"gray.500\">{East.str`Team ${r.team} · load ${East.print(r.load.multiply(100.0))}%`}</Text>\n                                <HStack gap=\"2\">\n                                    <Tag>{r.team}</Tag>\n                                    <Tag>{r.state}</Tag>\n                                </HStack>\n                            </VStack>\n                        )}\n                        hover={r => (\n                            <Text color=\"gray.500\">{East.str`${r.name} · load ${East.print(r.load.multiply(100.0))}%`}</Text>\n                        )}\n                        onOpen={onOpen}\n                        onClose={onClose}\n                    />\n                    <Text color=\"gray.500\">{log}</Text>\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "east-ui:deck.examples.tsx:deckClickable",
@@ -15925,7 +15951,7 @@
         "State"
       ],
       "imports": [
-        "import { East, NullType, StringType, example } from \"@elaraai/east\";",
+        "import { East, NullType, StringType, example, variant } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Deck, HStack, Reactive, Tag, Text, VStack } from \"@elaraai/east-ui\";"
       ],

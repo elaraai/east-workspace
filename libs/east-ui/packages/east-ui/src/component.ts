@@ -18,6 +18,7 @@ import {
     BlobType,
     DictType,
     FunctionType,
+    AsyncFunctionType,
     LiteralValueType,
     EastTypeType,
 } from "@elaraai/east";
@@ -644,7 +645,9 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
 
     // Deck — declarative grouped card collection (#359). Items are resolved
     // at factory time (the renderer never sees the host row type); `face`
-    // carries an optional fully-custom card body, hence the inline `node`.
+    // carries an optional fully-custom card body and `detail` / `hover`
+    // the card's VIEW state and hover peek, hence the inline `node`.
+    // Filtering/search flow through the slice interface (like Table).
     Deck: StructType({
         items: ArrayType(StructType({
             key: StringType,
@@ -652,17 +655,20 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
             sublabel: OptionType(StringType),
             icon: OptionType(StringType),
             status: OptionType(LibraryStatusType),
+            tone: OptionType(StatusTokenType),
             facts: ArrayType(DeckFactType),
             filtered: BooleanType,
-            search: OptionType(StringType),
             groups: DictType(StringType, StringType),
             face: OptionType(node),
+            detail: OptionType(node),
+            hover: OptionType(node),
         })),
         groupOptions: ArrayType(LibraryGroupMetaType),
         groupSummaries: DictType(StringType, DictType(StringType, StringType)),
-        searchable: BooleanType,
         layout: OptionType(DeckLayoutType),
         onCardClick: OptionType(FunctionType([StringType], NullType)),
+        onOpen: OptionType(AsyncFunctionType([StringType], NullType)),
+        onClose: OptionType(AsyncFunctionType([], NullType)),
         slice: OptionType(SliceChromeType),
         style: OptionType(DeckStyleType),
     }),

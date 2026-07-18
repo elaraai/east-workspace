@@ -36,6 +36,7 @@ export const valueTreeSlotRecipe = defineSlotRecipe({
             alignItems: "center",
             gap: "{spacing.2}",
             paddingX: "{spacing.3}",
+            paddingY: "3px",
             minHeight: "32px",
             _hover: { background: "bg.subtle" },
             _focusVisible: {
@@ -81,6 +82,12 @@ export const valueTreeSlotRecipe = defineSlotRecipe({
             minWidth: 0,
             maxWidth: "300px",
             overflow: "hidden",
+            /* Editors are dense inline lines, not standalone form fields —
+             * cap their height so adjacent rows keep visible air. */
+            "& input": {
+                height: "26px",
+                minHeight: "26px",
+            },
             "&[data-leaf=integer] input, &[data-leaf=float] input": {
                 textAlign: "end",
                 fontVariantNumeric: "tabular-nums",
