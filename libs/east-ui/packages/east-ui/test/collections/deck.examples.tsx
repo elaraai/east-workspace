@@ -3,8 +3,8 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, NullType, StringType, example, variant } from "@elaraai/east";
-import { State, UIComponentType } from "@elaraai/east-ui";
+import { ArrayType, East, FloatType, IntegerType, NullType, StringType, StructType, example, none, variant } from "@elaraai/east";
+import { Slice, State, UIComponentType } from "@elaraai/east-ui";
 import { Deck, HStack, Reactive, Tag, Text, VStack } from "@elaraai/east-ui";
 
 const LINES = [
@@ -91,6 +91,63 @@ export const deckCustomFace = example({
             )}
         />
     )),
+    inputs: [],
+});
+
+const SliceLineType = StructType({
+    id: StringType,
+    name: StringType,
+    state: StringType,
+    team: StringType,
+    load: FloatType,
+});
+
+export const deckSlice = example({
+    keywords: ["Deck", "slice", "filter", "search", "rail", "chrome", "count", "footer", "Slice.rows"],
+    description: "A sliced deck — filtering and search flow through the slice interface (rail cluster + derived-count footer), exactly like Table",
+    fn: East.function([], UIComponentType, (_$) => {
+        const cfg = Slice.config(SliceLineType, {
+            fields: { name: { label: "Name" }, state: { label: "State" }, team: { label: "Team" } },
+            searchFieldIds: ["name", "state", "team"],
+        });
+        return (
+            <Reactive>{$ => {
+                const states = $.const(["RUNNING", "DOWN", "IDLE"], ArrayType(StringType));
+                const teams = $.const(["Alpha", "Beta", "Gamma", "Delta"], ArrayType(StringType));
+                const lines = $.const(East.Array.generate(48n, SliceLineType, East.function([IntegerType], SliceLineType, ($, i) => {
+                    const row = $.let({
+                        id: East.str`line-${i}`,
+                        name: East.str`Line ${i}`,
+                        state: states.get(i.remainder(3n)),
+                        team: teams.get(i.remainder(4n)),
+                        load: i.remainder(10n).toFloat().divide(10.0),
+                    }, SliceLineType);
+                    return row;
+                })));
+                const slice = $.let(Slice.bind([SliceLineType], "ex.deck.slice", cfg, Slice.state({}), lines, none));
+                const narrowed = $.let(Slice.rows([SliceLineType], slice));
+                return (
+                    <Deck
+                        data={narrowed}
+                        card={r => ({
+                            key: r.id,
+                            title: r.name,
+                            sublabel: r.team,
+                            tone: r.state.equals("DOWN").ifElse(
+                                () => East.value(variant("danger", null), Deck.Types.Tone),
+                                () => East.value(variant("success", null), Deck.Types.Tone),
+                            ),
+                            facts: [Deck.meter("Load", r.load.multiply(100.0), 100.0, East.str`${East.print(r.load.multiply(100.0))}%`)],
+                        })}
+                        groupBy={[{ key: "team", label: "Team", value: r => r.team, summary: rows => East.str`${East.print(rows.size())} lines` }]}
+                        slice={slice}
+                        affordances={["filter", "search"]}
+                        style={{ height: "420px" }}
+                    />
+                );
+            }}</Reactive>
+        );
+    }),
     inputs: [],
 });
 

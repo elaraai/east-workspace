@@ -116,16 +116,16 @@ function DeckCard({ item, styles, libStyles, open, activatable, onActivate, onHo
                 : {})}
         >
             {icon !== undefined && (
-                <Box css={libStyles.iconTile}><FontAwesomeIcon icon={icon} /></Box>
+                <Box css={styles.cardIcon}><FontAwesomeIcon icon={icon} /></Box>
             )}
-            <Box css={libStyles.cardBody}>
-                <Box css={libStyles.cardHead}>
-                    <Box as="span" css={libStyles.cardLabel}>{item.title}</Box>
+            <Box css={styles.cardBody}>
+                <Box css={styles.cardHead}>
+                    <Box as="span" css={styles.cardName}>{item.title}</Box>
                     {status !== undefined && (
                         <Box as="span" css={libStyles.statusPill} data-tone={status.tone.type}>{status.label}</Box>
                     )}
                 </Box>
-                {sublabel !== undefined && <Box as="span" css={libStyles.cardSublabel}>{sublabel}</Box>}
+                {sublabel !== undefined && <Box as="span" css={styles.cardSub}>{sublabel}</Box>}
                 {item.facts.map((fact, i) => {
                     const v = fact.value;
                     if (v.type === "meter") {

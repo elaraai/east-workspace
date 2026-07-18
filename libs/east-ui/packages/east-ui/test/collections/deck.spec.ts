@@ -14,6 +14,7 @@ describeEast("Deck", (test) => {
         deckGroupBy: ex.deckGroupBy,
         deckListLayout: ex.deckListLayout,
         deckCustomFace: ex.deckCustomFace,
+        deckSlice: ex.deckSlice,
         deckDetail: ex.deckDetail,
         deckClickable: ex.deckClickable,
     });

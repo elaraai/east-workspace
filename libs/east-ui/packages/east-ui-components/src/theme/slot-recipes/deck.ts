@@ -4,12 +4,15 @@
  */
 
 /**
- * Deck slot recipe — the grouped card collection (#359). Card INTERNALS
- * (icon tile, label, status pill, meter, chips) reuse the `library` slot
- * recipe so palettes and decks read as one family; this recipe carries
- * the deck-specific chrome: the group-by toolbar row, collapsible group
- * heads, the wrap-grid / list layouts, clickable-card states, tone
- * accent bars, the detail view panel (side panel on desktop, full-screen
+ * Deck slot recipe — the grouped card collection (#359). Cards follow the
+ * design spec's MINI-CARD grammar (`design/spec.css` `.sch-item`, which
+ * extends `.lib-card`): a paper card with a slim 2px status rule along
+ * the TOP edge in the standard tone palette, a tone-retinted icon tile,
+ * a 12.5px/600 name line and a mono-uppercase sub line. Shared value
+ * grammar (status pill, meter, chips) still reuses the `library` slots
+ * so the family reads as one. This recipe carries the deck chrome: the
+ * group-by toolbar, collapsible group heads, the wrap-grid / list
+ * layouts, the detail view panel (side panel on desktop, full-screen
  * sheet on phones) and the hover peek.
  */
 
@@ -20,7 +23,7 @@ export const deckSlotRecipe = defineSlotRecipe({
     slots: [
         "root", "toolbar", "segGroup", "segLabel",
         "body", "group", "groupHead", "groupChevron", "groupLabel", "groupCount", "groupSummary",
-        "grid", "list", "card", "face",
+        "grid", "list", "card", "cardIcon", "cardBody", "cardHead", "cardName", "cardSub", "face",
         "overlay", "panel", "panelHead", "panelTitle", "panelClose", "panelBody", "panelNav", "navBtn",
         "peek",
     ],
@@ -131,35 +134,100 @@ export const deckSlotRecipe = defineSlotRecipe({
             gap: "{spacing.2}",
             padding: "{spacing.4}",
         },
-        /* Card frame — internals reuse the library card slots. A `tone`
-         * paints the card-level accent bar (the customisable colour) in
-         * the standard status palette. */
+        /* Mini-card frame — the spec's `.sch-item` grammar: paper, 1px
+         * rule, 2px radius, and a slim 2px status rule along the TOP edge
+         * as the tone accent. Selected (open) = brand border + tint. */
         card: {
             position: "relative",
             display: "flex",
             alignItems: "flex-start",
-            gap: "{spacing.2}",
+            gap: "9px",
             background: "bg.surface",
             borderWidth: "1px",
             borderColor: "border.subtle",
-            borderRadius: "{radii.md}",
-            padding: "{spacing.3}",
+            borderRadius: "{radii.xs}",
+            paddingX: "11px",
+            paddingY: "9px",
             minWidth: 0,
+            transitionProperty: "border-color, background, opacity, box-shadow",
+            transitionDuration: "{durations.fast}",
             "&[data-clickable]": {
                 cursor: "pointer",
-                transitionProperty: "border-color, background",
-                transitionDuration: "{durations.fast}",
-                _hover: { borderColor: "border.strong", background: "bg.subtle" },
+                _hover: { borderColor: "border.strong" },
                 _focusVisible: { outline: "none", boxShadow: "{shadows.focus}" },
             },
-            "&[data-filtered]": { opacity: "0.45" },
-            "&[data-tone]": { borderLeftWidth: "3px" },
-            "&[data-tone=success]": { borderLeftColor: "fg.success" },
-            "&[data-tone=warning]": { borderLeftColor: "fg.warning" },
-            "&[data-tone=danger]": { borderLeftColor: "fg.danger" },
-            "&[data-tone=info]": { borderLeftColor: "{colors.brand.500}" },
-            "&[data-tone=neutral]": { borderLeftColor: "border.strong" },
-            "&[data-open]": { borderColor: "border.strong", boxShadow: "{shadows.focus}" },
+            "&[data-filtered]": { opacity: "0.4" },
+            /* Slim status rule along the top edge (the spec accent). */
+            "&[data-tone]::before": {
+                content: '""',
+                position: "absolute",
+                left: "-1px",
+                right: "-1px",
+                top: "-1px",
+                height: "2px",
+                borderTopLeftRadius: "{radii.xs}",
+                borderTopRightRadius: "{radii.xs}",
+            },
+            "&[data-tone=success]::before": { background: "{colors.status.pos}" },
+            "&[data-tone=warning]::before": { background: "{colors.status.warn}" },
+            "&[data-tone=danger]::before": { background: "{colors.status.neg}" },
+            "&[data-tone=info]::before": { background: "{colors.brand.600}" },
+            "&[data-tone=neutral]::before": { background: "border.strong", opacity: 0.45 },
+            "&[data-open]": { borderColor: "border.brand", background: "bg.brand.subtle" },
+        },
+        /* Icon tile — brand-tinted square, retinted by the card tone
+         * (the spec's `.sch-icon` treatment). */
+        cardIcon: {
+            width: "28px",
+            height: "28px",
+            flexShrink: 0,
+            borderRadius: "{radii.xs}",
+            background: "bg.brand.subtle",
+            color: "{colors.brand.700}",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: "14px",
+            "[data-tone=warning] &": { background: "bg.warning.subtle", color: "fg.warning" },
+            "[data-tone=danger] &": { background: "bg.danger.subtle", color: "fg.danger" },
+            "[data-tone=neutral] &": { background: "bg.subtle", color: "fg.subtle" },
+        },
+        cardBody: {
+            display: "flex",
+            flexDirection: "column",
+            gap: "3px",
+            flex: "1 1 auto",
+            minWidth: 0,
+        },
+        cardHead: {
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+            minWidth: 0,
+        },
+        /* Name line — 12.5px/600 body voice. */
+        cardName: {
+            fontFamily: "body",
+            fontSize: "12.5px",
+            fontWeight: "600",
+            color: "fg.default",
+            lineHeight: "1.15",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            minWidth: 0,
+        },
+        /* Sub line — the mono-uppercase `.sch-sub` voice. */
+        cardSub: {
+            fontFamily: "mono",
+            fontSize: "9.5px",
+            color: "fg.subtle",
+            letterSpacing: "0.04em",
+            textTransform: "uppercase",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            lineHeight: "1.2",
         },
         /* Custom face slot beneath the structured fields. */
         face: {
@@ -191,6 +259,7 @@ export const deckSlotRecipe = defineSlotRecipe({
             outline: "none",
         },
         panelHead: {
+            position: "relative",
             display: "flex",
             alignItems: "center",
             gap: "{spacing.2}",
@@ -198,12 +267,20 @@ export const deckSlotRecipe = defineSlotRecipe({
             paddingY: "{spacing.3}",
             borderBottomWidth: "1px",
             borderBottomColor: "border.subtle",
-            "&[data-tone]": { borderLeftWidth: "3px" },
-            "&[data-tone=success]": { borderLeftColor: "fg.success" },
-            "&[data-tone=warning]": { borderLeftColor: "fg.warning" },
-            "&[data-tone=danger]": { borderLeftColor: "fg.danger" },
-            "&[data-tone=info]": { borderLeftColor: "{colors.brand.500}" },
-            "&[data-tone=neutral]": { borderLeftColor: "border.strong" },
+            /* Same slim top status rule as the cards. */
+            "&[data-tone]::before": {
+                content: '""',
+                position: "absolute",
+                left: 0,
+                right: 0,
+                top: 0,
+                height: "2px",
+            },
+            "&[data-tone=success]::before": { background: "{colors.status.pos}" },
+            "&[data-tone=warning]::before": { background: "{colors.status.warn}" },
+            "&[data-tone=danger]::before": { background: "{colors.status.neg}" },
+            "&[data-tone=info]::before": { background: "{colors.brand.600}" },
+            "&[data-tone=neutral]::before": { background: "border.strong", opacity: 0.45 },
         },
         panelTitle: {
             fontWeight: "600",
