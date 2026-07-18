@@ -152,8 +152,8 @@ export const deckSlice = example({
 });
 
 export const deckDetail = example({
-    keywords: ["Deck", "view", "detail", "open", "panel", "tone", "color", "hover", "peek", "onOpen", "onClose"],
-    description: "The card VIEW state — tone-accented cards open a composed detail panel via `view` (prev/next traversal, Esc closes), with a hover peek and onOpen/onClose events",
+    keywords: ["Deck", "onClick", "onHover", "popover", "detail", "open", "tone", "color", "peek", "onOpen", "onClose"],
+    description: "The card VIEW state — onClick/onHover content renders in an anchored popover card whose head (icon, title, sublabel, status, tone) is inherited from the card face",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const logBind = $.let(State.bind([StringType], "deck_view_log", "closed"));
@@ -181,9 +181,8 @@ export const deckDetail = example({
                             ),
                             status: Deck.status(r.state, "info"),
                         })}
-                        view={r => (
+                        onClick={r => (
                             <VStack gap="2" align="stretch">
-                                <Text fontWeight="bold">{East.str`${r.name} — ${r.state}`}</Text>
                                 <Text color="gray.500">{East.str`Team ${r.team} · load ${East.print(r.load.multiply(100.0))}%`}</Text>
                                 <HStack gap="2">
                                     <Tag>{r.team}</Tag>
@@ -191,8 +190,8 @@ export const deckDetail = example({
                                 </HStack>
                             </VStack>
                         )}
-                        hover={r => (
-                            <Text color="gray.500">{East.str`${r.name} · load ${East.print(r.load.multiply(100.0))}%`}</Text>
+                        onHover={r => (
+                            <Text color="gray.500">{East.str`load ${East.print(r.load.multiply(100.0))}%`}</Text>
                         )}
                         onOpen={onOpen}
                         onClose={onClose}

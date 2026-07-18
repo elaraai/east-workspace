@@ -15,11 +15,13 @@
  * search of its own.
  *
  * Cards carry two states: the LIST face (the summary above) and an
- * optional VIEW state — a `view` accessor composes the card's full
- * detail (any UI component), opened by tapping the card into a side
- * panel (a full-screen sheet on phones) with prev/next traversal, plus
- * an optional `hover` peek on hover-capable pointers. `onOpen` /
- * `onClose` report the transitions; `onCardClick` remains the plain tap
+ * optional VIEW state rendered in an anchored POPOVER CARD. The
+ * `onClick` and `onHover` accessors return the popover's BODY content
+ * (any UI component); the popover's head is INHERITED from the card
+ * face (icon, title, sublabel, status, tone rule). Clicking opens a
+ * sticky popover (Esc / outside / × closes); hovering shows a transient
+ * peek on hover-capable pointers. `onOpen` / `onClose` report the
+ * click-popover transitions; `onCardClick` remains the plain tap
  * callback. Cards are tap targets, never drag sources.
  */
 
@@ -223,16 +225,16 @@ export interface DeckGroupOption<R extends StructType> {
  * @property render - Optional accessor from a row to a fully custom card
  *   body (any UI component), rendered inside the card frame beneath the
  *   structured face fields
- * @property view - Optional accessor from a row to the card's VIEW state
- *   (any UI component) — tapping the card opens it in a side panel
- *   (full-screen sheet on phones) with prev/next traversal
- * @property hover - Optional accessor from a row to a hover peek (any UI
- *   component) — shown on hover-capable pointers only
+ * @property onClick - Optional accessor from a row to the click
+ *   popover's BODY (any UI component); the popover head is inherited
+ *   from the card face. Opens sticky on tap (Esc / outside / × closes)
+ * @property onHover - Optional accessor from a row to the hover peek's
+ *   BODY (same inherited-head popover) — hover-capable pointers only
  * @property groupBy - Named GROUP BY toolbar options (empty = no toolbar)
  * @property layout - `"grid"` (default — wrapping card rows) or `"list"`
  * @property onCardClick - Optional tap callback with the card `key`
- * @property onOpen - Optional callback when a card's view opens (card `key`)
- * @property onClose - Optional callback when the view closes
+ * @property onOpen - Optional callback when the click popover opens (card `key`)
+ * @property onClose - Optional callback when it closes
  * @property slice - Optional bound slice handle (rail chrome renders
  *   above) — filtering and search flow through the slice, like Table
  * @property affordances - Rail affordances when `slice` is set (default
@@ -244,10 +246,10 @@ export interface DeckConfig<R extends StructType> {
     card: (row: ExprType<R>) => DeckCardFields | ExprType<DeckCardFaceType>;
     /** Optional accessor from a row to a fully custom card body */
     render?: (row: ExprType<R>) => ExprType<UIComponentType>;
-    /** Optional accessor from a row to the card's VIEW state (detail) */
-    view?: (row: ExprType<R>) => ExprType<UIComponentType>;
-    /** Optional accessor from a row to a hover peek */
-    hover?: (row: ExprType<R>) => ExprType<UIComponentType>;
+    /** Optional accessor from a row to the click popover's body */
+    onClick?: (row: ExprType<R>) => ExprType<UIComponentType>;
+    /** Optional accessor from a row to the hover peek's body */
+    onHover?: (row: ExprType<R>) => ExprType<UIComponentType>;
     /** Named GROUP BY toolbar options (empty = no toolbar) */
     groupBy?: Array<DeckGroupOption<R>>;
     /** `"grid"` (default) or `"list"` */
@@ -283,8 +285,8 @@ function buildRoot(
     const data_expr = East.value(data) as ExprType<ArrayType<StructType>>;
     const groupDefs = config.groupBy ?? [];
     const render = config.render;
-    const view = config.view;
-    const hover = config.hover;
+    const view = config.onClick;
+    const hover = config.onHover;
 
     const items = mapRowsBlock(data_expr, DeckItemType, ($, row) => {
         const groups = $.let(new Map(), DictType(StringType, StringType));

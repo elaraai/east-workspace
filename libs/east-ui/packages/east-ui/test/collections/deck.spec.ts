@@ -89,8 +89,8 @@ describeEast("Deck", (test) => {
 
         const rich = $.let(Deck.Root(ROWS, {
             card: r => ({ key: r.id, title: r.name, tone: "danger" }),
-            view: r => Text.Root(r.name),
-            hover: r => Text.Root(r.team),
+            onClick: r => Text.Root(r.name),
+            onHover: r => Text.Root(r.team),
             onOpen: East.function([StringType], NullType, (_$h, _key) => null),
             onClose: East.function([], NullType, (_$h) => null),
         }));

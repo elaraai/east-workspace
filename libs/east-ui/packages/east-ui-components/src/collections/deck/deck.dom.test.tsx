@@ -4,12 +4,12 @@
  *
  * @vitest-environment jsdom
  *
- * Deck interaction surface (#359): tone accent bars on cards, the VIEW
- * state — clicking a card with `detail` opens the panel (renders the
- * component, fires `onOpen`), Esc / scrim / × close it (`onClose`),
- * prev/next traverse the viewable cards — and the hover peek mounts only
- * on hover-capable pointers. Cards without `detail` stay plain tap
- * targets.
+ * Deck interaction surface (#359): tone accents on cards, the VIEW
+ * state — clicking a card with `onClick` content opens an anchored
+ * POPOVER CARD whose head is inherited from the card face (title,
+ * status), fires `onOpen`; Esc / outside click / × close it
+ * (`onClose`) — and the hover peek mounts only on hover-capable
+ * pointers. Cards without popover content stay plain tap targets.
  */
 
 import { describe, test, expect, afterEach, vi } from "vitest";
@@ -89,26 +89,29 @@ describe("EastChakraDeck interaction surface", () => {
         expect(screen.getByText("Card b").closest("[data-tone]")).toBeNull();
     });
 
-    test("clicking a card with detail opens the view panel and fires onOpen", async () => {
+    test("clicking a card with onClick content opens the popover with the inherited head", async () => {
         const onOpen = vi.fn();
         renderDeck(deckValue([
             item("a", { detail: text("DETAIL A") }),
         ], { onOpen }));
         fireEvent.click(screen.getByText("Card a").closest("[role=button]")!);
         expect(await screen.findByText("DETAIL A")).toBeTruthy();
-        const panel = screen.getByRole("dialog");
-        expect(panel.getAttribute("aria-label")).toBe("Card a");
+        const pop = screen.getByRole("dialog");
+        expect(pop.getAttribute("aria-label")).toBe("Card a");
+        // The popover head INHERITS the card face — the title appears in
+        // both the card and the popover head.
+        expect(screen.getAllByText("Card a").length).toBe(2);
         await waitFor(() => expect(onOpen).toHaveBeenCalledWith("a"));
     });
 
-    test("Escape and the close button close the panel and fire onClose", async () => {
+    test("Escape, the close button and outside clicks close the popover", async () => {
         const onClose = vi.fn();
         renderDeck(deckValue([
             item("a", { detail: text("DETAIL A") }),
         ], { onClose }));
         fireEvent.click(screen.getByText("Card a").closest("[role=button]")!);
-        const panel = await screen.findByRole("dialog");
-        fireEvent.keyDown(panel, { key: "Escape" });
+        const pop = await screen.findByRole("dialog");
+        fireEvent.keyDown(pop, { key: "Escape" });
         await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
         await waitFor(() => expect(onClose).toHaveBeenCalled());
         // Reopen and close via the × button.
@@ -116,28 +119,15 @@ describe("EastChakraDeck interaction surface", () => {
         fireEvent.click(await screen.findByLabelText("Close"));
         await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
         expect(onClose).toHaveBeenCalledTimes(2);
-    });
-
-    test("prev/next traverse the viewable cards", async () => {
-        const onOpen = vi.fn();
-        renderDeck(deckValue([
-            item("a", { detail: text("DETAIL A") }),
-            item("b", { detail: text("DETAIL B") }),
-            item("plain"),
-        ], { onOpen }));
+        // Reopen and close by clicking outside the popover.
         fireEvent.click(screen.getByText("Card a").closest("[role=button]")!);
-        await screen.findByText("DETAIL A");
-        fireEvent.click(screen.getByLabelText("Next"));
-        expect(await screen.findByText("DETAIL B")).toBeTruthy();
-        await waitFor(() => expect(onOpen).toHaveBeenCalledWith("b"));
-        // Wraps around the viewable set (skipping the plain card).
-        fireEvent.click(screen.getByLabelText("Next"));
-        expect(await screen.findByText("DETAIL A")).toBeTruthy();
-        fireEvent.click(screen.getByLabelText("Previous"));
-        expect(await screen.findByText("DETAIL B")).toBeTruthy();
+        await screen.findByRole("dialog");
+        fireEvent.mouseDown(document.body);
+        await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+        expect(onClose).toHaveBeenCalledTimes(3);
     });
 
-    test("cards without detail don't open a panel but still report clicks", async () => {
+    test("cards without popover content don't open one but still report clicks", async () => {
         const onCardClick = vi.fn();
         renderDeck(deckValue([item("plain")], { onCardClick }));
         fireEvent.click(screen.getByText("Card plain").closest("[role=button]")!);

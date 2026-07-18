@@ -12,8 +12,9 @@
  * grammar (status pill, meter, chips) still reuses the `library` slots
  * so the family reads as one. This recipe carries the deck chrome: the
  * group-by toolbar, collapsible group heads, the wrap-grid / list
- * layouts, the detail view panel (side panel on desktop, full-screen
- * sheet on phones) and the hover peek.
+ * layouts, and the VIEW-state popover card (an anchored paper card whose
+ * head inherits the card face; sticky when click-opened, transient when
+ * hover-peeked).
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
@@ -24,8 +25,7 @@ export const deckSlotRecipe = defineSlotRecipe({
         "root", "toolbar", "segGroup", "segLabel",
         "body", "group", "groupHead", "groupChevron", "groupLabel", "groupCount", "groupSummary",
         "grid", "list", "card", "cardIcon", "cardBody", "cardHead", "cardName", "cardSub", "face",
-        "overlay", "panel", "panelHead", "panelTitle", "panelClose", "panelBody", "panelNav", "navBtn",
-        "peek",
+        "pop", "popHead", "popBody", "popClose",
     ],
     base: {
         /* Bare like Library / Table — identity chrome is host composition. */
@@ -234,47 +234,34 @@ export const deckSlotRecipe = defineSlotRecipe({
             minWidth: 0,
             marginTop: "{spacing.1}",
         },
-        /* Detail-view scrim — click closes. */
-        overlay: {
+        /* The VIEW-state popover card — an anchored mini-card scaled up:
+         * paper, 1px rule, 2px radius, the same slim top status rule, a
+         * head inherited from the card face. Hover peeks are transient
+         * and non-interactive; click popovers are sticky. */
+        pop: {
             position: "fixed",
-            inset: 0,
-            background: "{colors.blackAlpha.500}",
-            zIndex: "1300",
-        },
-        /* The VIEW state panel — a right side panel; phones get the full
-         * width (a sheet). */
-        panel: {
-            position: "fixed",
-            top: 0,
-            right: 0,
-            height: "100dvh",
-            width: { base: "100%", sm: "440px" },
-            background: "bg.surface",
-            borderLeftWidth: "1px",
-            borderLeftColor: "border.subtle",
-            boxShadow: "{shadows.lg}",
             zIndex: "1400",
+            width: "380px",
+            maxWidth: "calc(100vw - 24px)",
+            maxHeight: "360px",
             display: "flex",
             flexDirection: "column",
+            background: "bg.surface",
+            borderWidth: "1px",
+            borderColor: "border.subtle",
+            borderRadius: "{radii.xs}",
+            boxShadow: "{shadows.lg}",
             outline: "none",
-        },
-        panelHead: {
-            position: "relative",
-            display: "flex",
-            alignItems: "center",
-            gap: "{spacing.2}",
-            paddingX: "{spacing.4}",
-            paddingY: "{spacing.3}",
-            borderBottomWidth: "1px",
-            borderBottomColor: "border.subtle",
-            /* Same slim top status rule as the cards. */
+            "&[data-mode=hover]": { pointerEvents: "none", zIndex: "1200" },
             "&[data-tone]::before": {
                 content: '""',
                 position: "absolute",
-                left: 0,
-                right: 0,
-                top: 0,
+                left: "-1px",
+                right: "-1px",
+                top: "-1px",
                 height: "2px",
+                borderTopLeftRadius: "{radii.xs}",
+                borderTopRightRadius: "{radii.xs}",
             },
             "&[data-tone=success]::before": { background: "{colors.status.pos}" },
             "&[data-tone=warning]::before": { background: "{colors.status.warn}" },
@@ -282,72 +269,36 @@ export const deckSlotRecipe = defineSlotRecipe({
             "&[data-tone=info]::before": { background: "{colors.brand.600}" },
             "&[data-tone=neutral]::before": { background: "border.strong", opacity: 0.45 },
         },
-        panelTitle: {
-            fontWeight: "600",
-            fontSize: "{fontSizes.sm}",
-            color: "fg.default",
-            minWidth: 0,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
+        /* Inherited head — the card face's icon / name / sub / pill. */
+        popHead: {
+            display: "flex",
+            alignItems: "flex-start",
+            gap: "9px",
+            paddingX: "11px",
+            paddingY: "9px",
+            borderBottomWidth: "1px",
+            borderBottomColor: "border.subtle",
         },
-        panelClose: {
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-            marginLeft: "auto",
-            width: "28px",
-            height: "28px",
-            color: "fg.subtle",
-            borderRadius: "{radii.sm}",
-            cursor: "pointer",
-            _hover: { background: "bg.emphasized", color: "fg.default" },
-            _coarse: { width: "36px", height: "36px" },
-        },
-        panelBody: {
-            flex: "1 1 0%",
+        popBody: {
+            flex: "1 1 auto",
             minHeight: 0,
             overflowY: "auto",
-            padding: "{spacing.4}",
+            paddingX: "11px",
+            paddingY: "9px",
         },
-        /* Prev / next traversal along the visible cards. */
-        panelNav: {
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "flex-end",
-            gap: "{spacing.1}",
-            paddingX: "{spacing.4}",
-            paddingY: "{spacing.2}",
-            borderTopWidth: "1px",
-            borderTopColor: "border.subtle",
-        },
-        navBtn: {
+        popClose: {
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
-            width: "28px",
-            height: "28px",
+            flexShrink: 0,
+            width: "22px",
+            height: "22px",
             fontSize: "11px",
             color: "fg.subtle",
-            borderRadius: "{radii.sm}",
+            borderRadius: "{radii.xs}",
             cursor: "pointer",
             _hover: { background: "bg.emphasized", color: "fg.default" },
-            _coarse: { width: "40px", height: "40px" },
-        },
-        /* Hover peek — a floating summary card (hover-capable pointers). */
-        peek: {
-            position: "fixed",
-            zIndex: "1200",
-            width: "340px",
-            maxHeight: "240px",
-            overflow: "hidden",
-            background: "bg.surface",
-            borderWidth: "1px",
-            borderColor: "border.subtle",
-            borderRadius: "{radii.md}",
-            boxShadow: "{shadows.lg}",
-            padding: "{spacing.3}",
-            pointerEvents: "none",
+            _coarse: { width: "32px", height: "32px" },
         },
     },
 });

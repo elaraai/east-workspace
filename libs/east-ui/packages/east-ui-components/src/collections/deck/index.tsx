@@ -6,19 +6,21 @@
 /**
  * `EastChakraDeck` — renderer for the Deck grouped card collection (#359).
  *
- * Cards reuse the Library card grammar (the `library` slot recipe's
- * iconTile / label / status-pill / meter / chips slots) so palettes and
- * decks read as one family; the `deck` recipe adds the grid/list layout,
- * clickable-card chrome, tone accent bars, collapsible group heads, the
- * detail panel and the hover peek. Filtering and search flow through the
- * SLICE interface (rail cluster + derived-count footer, like Table) —
- * the deck has no bespoke search.
+ * Cards follow the design spec's MINI-CARD grammar (`design/spec.css`
+ * `.sch-item`): a paper card with a slim 2px status rule along the TOP
+ * edge in the standard tone palette, a tone-retinted icon tile, a
+ * 12.5px/600 name line and a mono-uppercase sub line. Shared value
+ * grammar (status pill, meter, chips) reuses the `library` slots so the
+ * family reads as one. Filtering and search flow through the SLICE
+ * interface (rail cluster + derived-count footer, like Table) — the
+ * deck has no bespoke search.
  *
- * Cards carry two states: the LIST face (summary) and an optional VIEW
- * state — items with a `detail` component open it in a fixed side panel
- * (a full-screen sheet on phones) with prev/next traversal, Esc / scrim
- * close, and `onOpen` / `onClose` callbacks. Items with a `hover`
- * component show a floating peek on hover-capable pointers.
+ * The VIEW state is an anchored POPOVER CARD, not a drawer: `onClick` /
+ * `onHover` content renders as the popover's BODY beneath a head
+ * INHERITED from the card face (icon, title, sublabel, status, tone
+ * rule). Clicking opens a sticky popover (Esc / outside / × closes,
+ * `onOpen` / `onClose` report it); hovering shows a transient peek on
+ * hover-capable pointers.
  *
  * Layout is container-first: the grid uses
  * `repeat(auto-fill, minmax(minCardWidth, 1fr))`, so desktop shows rows of
@@ -31,7 +33,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { findIconDefinition, type IconName } from "@fortawesome/fontawesome-svg-core";
-import { faChevronDown, faChevronLeft, faChevronRight, faXmark } from "@fortawesome/free-solid-svg-icons";
+import { faChevronDown, faChevronRight, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Deck, Slice as SliceInternal } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
@@ -60,6 +62,10 @@ type SlotStyles = Record<string, SystemStyleObject>;
 
 /** Hover-peek intent delay (ms) — long enough to skip pass-through. */
 const PEEK_DELAY = 300;
+/** Popover width + clamping margins (px). */
+const POP_W = 380;
+const POP_MARGIN = 12;
+const POP_MAXH = 360;
 
 interface DeckToolbarState {
     groupKey: string | null;
@@ -72,11 +78,27 @@ interface DeckGroup {
     items: DeckItemValue[];
 }
 
+interface PopAnchor {
+    key: string;
+    left: number;
+    top: number;
+}
+
 /** A resolved FA solid icon, or undefined for unknown names. */
 function solidIcon(name: string | undefined) {
     if (name === undefined) return undefined;
     const def = findIconDefinition({ prefix: "fas", iconName: name as IconName });
     return def ?? undefined;
+}
+
+/** Anchor a popover beside a card, clamped into the viewport. */
+function anchorAt(el: HTMLElement, key: string): PopAnchor {
+    const rect = el.getBoundingClientRect();
+    return {
+        key,
+        left: Math.max(POP_MARGIN, Math.min(rect.right + 8, window.innerWidth - POP_W - POP_MARGIN)),
+        top: Math.max(POP_MARGIN, Math.min(rect.top, window.innerHeight - POP_MAXH - POP_MARGIN)),
+    };
 }
 
 // ============================================================================
@@ -89,8 +111,8 @@ function DeckCard({ item, styles, libStyles, open, activatable, onActivate, onHo
     libStyles: SlotStyles;
     open: boolean;
     activatable: boolean;
-    onActivate: (item: DeckItemValue) => void;
-    onHoverStart: (item: DeckItemValue, e: React.MouseEvent) => void;
+    onActivate: (item: DeckItemValue, el: HTMLElement) => void;
+    onHoverStart: (item: DeckItemValue, el: HTMLElement) => void;
     onHoverEnd: () => void;
     storageKey: string;
 }) {
@@ -99,7 +121,6 @@ function DeckCard({ item, styles, libStyles, open, activatable, onActivate, onHo
     const status = getSomeorUndefined(item.status);
     const tone = getSomeorUndefined(item.tone);
     const face = getSomeorUndefined(item.face);
-    const handleClick = useCallback(() => { onActivate(item); }, [onActivate, item]);
 
     return (
         <Box
@@ -108,11 +129,17 @@ function DeckCard({ item, styles, libStyles, open, activatable, onActivate, onHo
             data-filtered={item.filtered ? "" : undefined}
             data-tone={tone?.type}
             data-open={open ? "" : undefined}
-            onMouseEnter={(e: React.MouseEvent) => onHoverStart(item, e)}
+            onMouseEnter={(e: React.MouseEvent) => onHoverStart(item, e.currentTarget as HTMLElement)}
             onMouseLeave={onHoverEnd}
             {...(activatable
-                ? { role: "button", tabIndex: 0, onClick: handleClick,
-                    onKeyDown: (e: React.KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleClick(); } } }
+                ? { role: "button", tabIndex: 0,
+                    onClick: (e: React.MouseEvent) => onActivate(item, e.currentTarget as HTMLElement),
+                    onKeyDown: (e: React.KeyboardEvent) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            onActivate(item, e.currentTarget as HTMLElement);
+                        }
+                    } }
                 : {})}
         >
             {icon !== undefined && (
@@ -152,6 +179,66 @@ function DeckCard({ item, styles, libStyles, open, activatable, onActivate, onHo
                         <EastChakraComponent value={face} storageKey={`${storageKey}.face.${item.key}`} />
                     </Box>
                 )}
+            </Box>
+        </Box>
+    );
+}
+
+// ============================================================================
+// Popover card (the VIEW state — head inherited from the card face)
+// ============================================================================
+
+function DeckPopover({ item, body, mode, anchor, styles, libStyles, popRef, onClose, storageKey }: {
+    item: DeckItemValue;
+    body: ValueTypeOf<never> | object;
+    mode: "click" | "hover";
+    anchor: PopAnchor;
+    styles: SlotStyles;
+    libStyles: SlotStyles;
+    popRef: React.MutableRefObject<HTMLDivElement | null> | undefined;
+    onClose: (() => void) | undefined;
+    storageKey: string;
+}) {
+    const icon = solidIcon(getSomeorUndefined(item.icon));
+    const sublabel = getSomeorUndefined(item.sublabel);
+    const status = getSomeorUndefined(item.status);
+    const tone = getSomeorUndefined(item.tone);
+    return (
+        <Box
+            css={styles.pop}
+            data-mode={mode}
+            data-tone={tone?.type}
+            {...(popRef !== undefined ? { ref: popRef } : {})}
+            {...(mode === "click"
+                ? { role: "dialog", "aria-label": item.title, tabIndex: -1,
+                    onKeyDown: (e: React.KeyboardEvent) => {
+                        if (e.key === "Escape" && onClose !== undefined) { e.preventDefault(); onClose(); }
+                    } }
+                : {})}
+            style={{ left: `${anchor.left}px`, top: `${anchor.top}px` }}
+        >
+            <Box css={styles.popHead}>
+                {icon !== undefined && (
+                    <Box css={styles.cardIcon}><FontAwesomeIcon icon={icon} /></Box>
+                )}
+                <Box css={styles.cardBody}>
+                    <Box css={styles.cardHead}>
+                        <Box as="span" css={styles.cardName}>{item.title}</Box>
+                        {status !== undefined && (
+                            <Box as="span" css={libStyles.statusPill} data-tone={status.tone.type}>{status.label}</Box>
+                        )}
+                    </Box>
+                    {sublabel !== undefined && <Box as="span" css={styles.cardSub}>{sublabel}</Box>}
+                </Box>
+                {mode === "click" && onClose !== undefined && (
+                    <chakra.button type="button" css={styles.popClose} aria-label="Close"
+                        onClick={onClose}>
+                        <FontAwesomeIcon icon={faXmark} />
+                    </chakra.button>
+                )}
+            </Box>
+            <Box css={styles.popBody}>
+                <EastChakraComponent value={body as never} storageKey={`${storageKey}.${mode}.${item.key}`} />
             </Box>
         </Box>
     );
@@ -205,56 +292,42 @@ function DeckCore({ value, storageKey }: EastChakraDeckProps) {
     const onOpenFn = useMemo(() => getSomeorUndefined(value.onOpen), [value.onOpen]);
     const onCloseFn = useMemo(() => getSomeorUndefined(value.onClose), [value.onClose]);
 
-    // View state — the open card's detail panel (transient, like selection).
-    const [openKey, setOpenKey] = useState<string | null>(null);
-    const viewItems = useMemo(
-        () => groups.flatMap(g => g.items).filter(i => getSomeorUndefined(i.detail) !== undefined),
-        [groups]);
+    // Click popover — sticky until Esc / outside / ×.
+    const [open, setOpen] = useState<PopAnchor | null>(null);
+    const popRef = useRef<HTMLDivElement | null>(null);
     const openItem = useMemo(
-        () => (openKey !== null ? viewItems.find(i => i.key === openKey) : undefined),
-        [viewItems, openKey]);
-    const openDetail = openItem !== undefined ? getSomeorUndefined(openItem.detail) : undefined;
-    const panelRef = useRef<HTMLDivElement | null>(null);
-    useEffect(() => {
-        if (openKey !== null) panelRef.current?.focus();
-    }, [openKey]);
-
-    const activate = useCallback((item: DeckItemValue) => {
+        () => (open !== null ? value.items.find(i => i.key === open.key) : undefined),
+        [value.items, open]);
+    const openBody = openItem !== undefined ? getSomeorUndefined(openItem.detail) : undefined;
+    const close = useCallback(() => {
+        setOpen(null);
+        if (onCloseFn) queueMicrotask(() => { void onCloseFn(); });
+    }, [onCloseFn]);
+    const activate = useCallback((item: DeckItemValue, el: HTMLElement) => {
         if (getSomeorUndefined(item.detail) !== undefined) {
-            setOpenKey(item.key);
+            setOpen(anchorAt(el, item.key));
             if (onOpenFn) queueMicrotask(() => { void onOpenFn(item.key); });
         }
         if (onCardClickFn) queueMicrotask(() => onCardClickFn(item.key));
     }, [onOpenFn, onCardClickFn]);
-    const close = useCallback(() => {
-        setOpenKey(null);
-        if (onCloseFn) queueMicrotask(() => { void onCloseFn(); });
-    }, [onCloseFn]);
-    const traverse = useCallback((dir: -1 | 1) => {
-        if (openKey === null || viewItems.length === 0) return;
-        const idx = viewItems.findIndex(i => i.key === openKey);
-        const next = viewItems[(idx + dir + viewItems.length) % viewItems.length];
-        if (next !== undefined && next.key !== openKey) {
-            setOpenKey(next.key);
-            if (onOpenFn) queueMicrotask(() => { void onOpenFn(next.key); });
-        }
-    }, [openKey, viewItems, onOpenFn]);
+    useEffect(() => {
+        if (open === null) return;
+        popRef.current?.focus();
+        const onDown = (e: MouseEvent) => {
+            if (popRef.current !== null && !popRef.current.contains(e.target as Node)) close();
+        };
+        document.addEventListener("mousedown", onDown);
+        return () => document.removeEventListener("mousedown", onDown);
+    }, [open, close]);
 
     // Hover peek — hover-capable pointers only; delayed to skip pass-through.
     const hoverCapable = useHoverCapable();
-    const [peek, setPeek] = useState<{ key: string; left: number; top: number } | null>(null);
+    const [peek, setPeek] = useState<PopAnchor | null>(null);
     const peekTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const hoverStart = useCallback((item: DeckItemValue, e: React.MouseEvent) => {
+    const hoverStart = useCallback((item: DeckItemValue, el: HTMLElement) => {
         if (!hoverCapable || getSomeorUndefined(item.hover) === undefined) return;
-        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
         if (peekTimer.current !== null) clearTimeout(peekTimer.current);
-        peekTimer.current = setTimeout(() => {
-            setPeek({
-                key: item.key,
-                left: Math.min(rect.right + 8, window.innerWidth - 360),
-                top: Math.min(rect.top, window.innerHeight - 240),
-            });
-        }, PEEK_DELAY);
+        peekTimer.current = setTimeout(() => { setPeek(anchorAt(el, item.key)); }, PEEK_DELAY);
     }, [hoverCapable]);
     const hoverEnd = useCallback(() => {
         if (peekTimer.current !== null) clearTimeout(peekTimer.current);
@@ -265,7 +338,7 @@ function DeckCore({ value, storageKey }: EastChakraDeckProps) {
     const peekItem = useMemo(
         () => (peek !== null ? value.items.find(i => i.key === peek.key) : undefined),
         [value.items, peek]);
-    const peekComponent = peekItem !== undefined ? getSomeorUndefined(peekItem.hover) : undefined;
+    const peekBody = peekItem !== undefined ? getSomeorUndefined(peekItem.hover) : undefined;
 
     const layout = getSomeorUndefined(value.layout)?.type ?? "grid";
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
@@ -333,7 +406,7 @@ function DeckCore({ value, storageKey }: EastChakraDeckProps) {
                                             item={item}
                                             styles={styles}
                                             libStyles={libStyles}
-                                            open={openKey === item.key}
+                                            open={open?.key === item.key}
                                             activatable={onCardClickFn !== undefined || getSomeorUndefined(item.detail) !== undefined}
                                             onActivate={activate}
                                             onHoverStart={hoverStart}
@@ -347,57 +420,19 @@ function DeckCore({ value, storageKey }: EastChakraDeckProps) {
                     );
                 })}
             </Box>
-            {peekComponent !== undefined && peek !== null && openKey === null && (
-                <Box css={styles.peek} style={{ left: `${peek.left}px`, top: `${peek.top}px` }}>
-                    <EastChakraComponent value={peekComponent} storageKey={`${storageKey}.peek.${peek.key}`} />
-                </Box>
+            {peekItem !== undefined && peekBody !== undefined && peek !== null && open === null && (
+                <DeckPopover
+                    item={peekItem} body={peekBody} mode="hover" anchor={peek}
+                    styles={styles} libStyles={libStyles}
+                    popRef={undefined} onClose={undefined} storageKey={storageKey}
+                />
             )}
-            {openItem !== undefined && openDetail !== undefined && (
-                <>
-                    <Box css={styles.overlay} onClick={close} />
-                    <Box
-                        css={styles.panel}
-                        ref={panelRef}
-                        role="dialog"
-                        aria-modal="true"
-                        aria-label={openItem.title}
-                        tabIndex={-1}
-                        onKeyDown={(e: React.KeyboardEvent) => {
-                            if (e.key === "Escape") { e.preventDefault(); close(); }
-                            else if (e.key === "ArrowRight") { e.preventDefault(); traverse(1); }
-                            else if (e.key === "ArrowLeft") { e.preventDefault(); traverse(-1); }
-                        }}
-                    >
-                        <Box css={styles.panelHead} data-tone={getSomeorUndefined(openItem.tone)?.type}>
-                            <Box as="span" css={styles.panelTitle}>{openItem.title}</Box>
-                            {(() => {
-                                const status = getSomeorUndefined(openItem.status);
-                                return status !== undefined
-                                    ? <Box as="span" css={libStyles.statusPill} data-tone={status.tone.type}>{status.label}</Box>
-                                    : null;
-                            })()}
-                            <chakra.button type="button" css={styles.panelClose} aria-label="Close"
-                                onClick={close}>
-                                <FontAwesomeIcon icon={faXmark} />
-                            </chakra.button>
-                        </Box>
-                        <Box css={styles.panelBody}>
-                            <EastChakraComponent value={openDetail} storageKey={`${storageKey}.detail.${openItem.key}`} />
-                        </Box>
-                        {viewItems.length > 1 && (
-                            <Box css={styles.panelNav}>
-                                <chakra.button type="button" css={styles.navBtn} aria-label="Previous"
-                                    onClick={() => traverse(-1)}>
-                                    <FontAwesomeIcon icon={faChevronLeft} />
-                                </chakra.button>
-                                <chakra.button type="button" css={styles.navBtn} aria-label="Next"
-                                    onClick={() => traverse(1)}>
-                                    <FontAwesomeIcon icon={faChevronRight} />
-                                </chakra.button>
-                            </Box>
-                        )}
-                    </Box>
-                </>
+            {openItem !== undefined && openBody !== undefined && open !== null && (
+                <DeckPopover
+                    item={openItem} body={openBody} mode="click" anchor={open}
+                    styles={styles} libStyles={libStyles}
+                    popRef={popRef} onClose={close} storageKey={storageKey}
+                />
             )}
         </Box>
     );
