@@ -467,7 +467,18 @@ export {
 } from "./contracts/index.js";
 
 export { SliceRailCluster, EastChakraSliceRail } from "./slice/rail";
-export { EastChakraDeck, type EastChakraDeckProps, type DeckValue, type DeckItemValue } from "./collections/deck";
+export {
+    EastChakraDeck,
+    EastChakraDeckReadout,
+    EastChakraDeckRows,
+    EastChakraDeckNote,
+    type EastChakraDeckProps,
+    type DeckValue,
+    type DeckItemValue,
+    type DeckReadoutValue,
+    type DeckRowsValue,
+    type DeckNoteValue,
+} from "./collections/deck";
 export { EastChakraValueTree, type EastChakraValueTreeProps, type ValueTreeValue, type ValueTreeNodeValue, type ValueTreeStepValue, type ValueTreeLeafValue } from "./collections/value-tree";
 export { useSliceReactivity } from "./slice/use-slice-reactivity";
 // Reusable, handle-free Slice predicate-editor pieces — used by the Experiment

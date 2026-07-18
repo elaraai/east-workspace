@@ -28,6 +28,7 @@
 import {
     type ExprType,
     type SubtypeExprOrValue,
+    type ValueTypeOf,
     ArrayType,
     AsyncFunctionType,
     BooleanType,
@@ -48,15 +49,23 @@ import {
 import { UIComponentType } from "../../component.js";
 import { mapRowsBlock } from "../../shared/reify.js";
 import { type IconName } from "../../display/icon/types.js";
-import { StatusTokenType, type StatusTokenLiteral } from "../../style/interaction.js";
+import { type StatusTokenLiteral } from "../../style/interaction.js";
+import { ValueFormatType } from "../../contracts/format.js";
 import { SliceBindType, SliceChromeType } from "../../platform/slice/index.js";
 import { SliceAffordanceType, type SliceAffordanceLiteral } from "../../contracts/slice-affordances.js";
 import type { RowElement } from "../library/index.js";
 import {
     DeckFactType,
+    DeckFillType,
     DeckLayoutType,
+    DeckMetricType,
+    DeckNoteType,
+    DeckReadoutType,
+    DeckRowsType,
+    DeckStatusColorType,
+    DeckStatusType,
+    DeckStatusesType,
     DeckStyleType,
-    LibraryStatusType,
     LibraryDimValueType,
     LibraryGroupMetaType,
     type DeckLayoutLiteral,
@@ -65,11 +74,22 @@ import {
 
 export {
     DeckFactType,
+    DeckFillType,
     DeckLayoutType,
+    DeckMetricType,
+    DeckNoteType,
+    DeckReadoutType,
+    DeckRowsType,
+    DeckStatusColorType,
+    DeckStatusType,
+    DeckStatusesType,
     DeckStyleType,
     type DeckLayoutLiteral,
     type DeckStyle,
 } from "./types.js";
+
+/** The standard status tone literals (the `token` colour arm). */
+const STATUS_TOKENS: readonly StatusTokenLiteral[] = ["success", "warning", "danger", "info", "neutral"];
 
 // ============================================================================
 // Card face
@@ -84,8 +104,9 @@ export const DeckCardFaceType = StructType({
     title: StringType,
     sublabel: OptionType(StringType),
     icon: OptionType(StringType),
-    status: OptionType(LibraryStatusType),
-    tone: OptionType(StatusTokenType),
+    status: OptionType(StringType),
+    metrics: ArrayType(DeckMetricType),
+    fill: OptionType(DeckFillType),
     facts: ArrayType(DeckFactType),
     filtered: BooleanType,
 });
@@ -109,8 +130,9 @@ export const DeckItemType = StructType({
     title: StringType,
     sublabel: OptionType(StringType),
     icon: OptionType(StringType),
-    status: OptionType(LibraryStatusType),
-    tone: OptionType(StatusTokenType),
+    status: OptionType(StringType),
+    metrics: ArrayType(DeckMetricType),
+    fill: OptionType(DeckFillType),
     facts: ArrayType(DeckFactType),
     filtered: BooleanType,
     groups: DictType(StringType, StringType),
@@ -131,8 +153,11 @@ export type DeckItemType = typeof DeckItemType;
  */
 export const DeckRootType = StructType({
     items: ArrayType(DeckItemType),
+    statuses: DeckStatusesType,
     groupOptions: ArrayType(LibraryGroupMetaType),
     groupSummaries: DictType(StringType, DictType(StringType, StringType)),
+    footer: ArrayType(StructType({ label: StringType, value: StringType })),
+    legend: BooleanType,
     layout: OptionType(DeckLayoutType),
     onCardClick: OptionType(FunctionType([StringType], NullType)),
     onOpen: OptionType(AsyncFunctionType([StringType], NullType)),
@@ -151,11 +176,13 @@ export type DeckRootType = typeof DeckRootType;
  *
  * @property key - Card identity (reported by `onCardClick` / `onOpen`)
  * @property title - Primary identity line
- * @property sublabel - Optional muted second line
+ * @property sublabel - Optional muted mono-uppercase second line
  * @property icon - Optional Font Awesome solid icon name
- * @property status - Optional status pill (`Deck.status(...)`)
- * @property tone - Optional card accent tone (a left accent bar in the
- *   standard status palette — the card-level colour)
+ * @property status - Optional status KEY into the deck's `statuses`
+ *   registry — drives the solid status tag (+ dot / pulse), the faint
+ *   face wash and the fill-bar colour
+ * @property metrics - Optional metric strip (`Deck.metric(...)`)
+ * @property fill - Optional status-coloured fill bar
  * @property facts - Optional labelled facts (`Deck.meter` / `Deck.chips` / `Deck.text`)
  * @property filtered - Render de-emphasised (the `Slice.partition` "keep the excluded" feed)
  */
@@ -164,33 +191,250 @@ export interface DeckCardFields {
     key: SubtypeExprOrValue<StringType>;
     /** Primary identity line */
     title: SubtypeExprOrValue<StringType>;
-    /** Optional muted second line */
+    /** Optional muted mono-uppercase second line */
     sublabel?: SubtypeExprOrValue<StringType>;
     /** Optional Font Awesome solid icon name */
     icon?: SubtypeExprOrValue<StringType> | IconName;
-    /** Optional status pill (`Deck.status(...)`) */
-    status?: ExprType<typeof LibraryStatusType>;
-    /** Optional card accent tone (standard status palette) */
-    tone?: SubtypeExprOrValue<typeof StatusTokenType> | StatusTokenLiteral;
+    /** Optional status key into the deck's `statuses` registry */
+    status?: SubtypeExprOrValue<StringType>;
+    /** Optional metric strip (`Deck.metric(...)`) */
+    metrics?: Array<ExprType<DeckMetricType>>;
+    /** Optional status-coloured fill bar */
+    fill?: DeckFillFields;
     /** Optional labelled facts */
     facts?: Array<ExprType<typeof DeckFactType>>;
     /** Render de-emphasised (dimmed) */
     filtered?: SubtypeExprOrValue<BooleanType>;
 }
 
+/**
+ * The card fill-bar fields.
+ *
+ * @property value - Current value
+ * @property max - Full-bar value
+ * @property format - Reading format: a shared {@link ValueFormatType}
+ *   spec over `value`, or an accessor over `(value, max)`; omitted, the
+ *   renderer shows the percentage
+ */
+export interface DeckFillFields {
+    /** Current value */
+    value: SubtypeExprOrValue<FloatType>;
+    /** Full-bar value */
+    max: SubtypeExprOrValue<FloatType>;
+    /** Reading format (spec over `value`, or accessor over `(value, max)`) */
+    format?: ExprType<ValueFormatType>
+        | ((value: ExprType<FloatType>, max: ExprType<FloatType>) => SubtypeExprOrValue<StringType>);
+}
+
+/** Build a {@link DeckFillType} value from plain fill fields. */
+function createFill(fill: DeckFillFields): ExprType<DeckFillType> {
+    const value = East.value(fill.value) as ExprType<FloatType>;
+    const max = East.value(fill.max) as ExprType<FloatType>;
+    const accessor = typeof fill.format === "function" ? fill.format : undefined;
+    const spec = typeof fill.format === "function" ? undefined : fill.format;
+    return East.value({
+        value,
+        max,
+        format: spec !== undefined ? some(spec) : none,
+        text: accessor !== undefined ? some(accessor(value, max)) : none,
+    }, DeckFillType);
+}
+
 /** Build a {@link DeckCardFaceType} value from plain face fields. */
 function createCard(fields: DeckCardFields): ExprType<DeckCardFaceType> {
-    const tone = typeof fields.tone === "string" ? variant(fields.tone, null) : fields.tone;
     return East.value({
         key: fields.key,
         title: fields.title,
         sublabel: fields.sublabel !== undefined ? some(fields.sublabel) : none,
         icon: fields.icon !== undefined ? some(fields.icon) : none,
         status: fields.status !== undefined ? some(fields.status) : none,
-        tone: tone !== undefined ? some(tone) : none,
+        metrics: fields.metrics !== undefined ? East.value(fields.metrics, ArrayType(DeckMetricType)) : East.value([], ArrayType(DeckMetricType)),
+        fill: fields.fill !== undefined ? some(createFill(fields.fill)) : none,
         facts: fields.facts !== undefined ? East.value(fields.facts, ArrayType(DeckFactType)) : East.value([], ArrayType(DeckFactType)),
         filtered: fields.filtered ?? false,
     }, DeckCardFaceType);
+}
+
+// ============================================================================
+// Status registry + metric + popover-block builders (sub-factories)
+// ============================================================================
+
+/**
+ * One entry of the `Deck.statuses` config.
+ *
+ * @property label - The tag / legend label
+ * @property color - A standard status tone literal, or any custom CSS
+ *   colour (the faint face tint is derived from it)
+ * @property pulse - Pulse the tag dot (active states)
+ * @property hint - Optional legend / group-head description
+ */
+export interface DeckStatusOption {
+    /** The tag / legend label */
+    label: string;
+    /** Standard status tone literal, or a custom CSS colour */
+    color: StatusTokenLiteral | (string & {});
+    /** Pulse the tag dot (active states) */
+    pulse?: boolean;
+    /** Optional legend / group-head description */
+    hint?: string;
+}
+
+/**
+ * Builds the deck's status registry — the single definition per state
+ * that drives the card's solid status tag (+ dot / pulse), the faint
+ * face wash, the fill-bar colour, group-head swatches, the legend and
+ * the popover head wash. Card faces reference entries by key via their
+ * `status` field.
+ *
+ * @param statuses - Status key → definition
+ * @returns The registry value for the `statuses` config option
+ */
+function createStatuses(
+    statuses: Record<string, DeckStatusOption>,
+): ValueTypeOf<DeckStatusesType> {
+    return new Map(Object.entries(statuses).map(([key, s]) => [key, {
+        label: s.label,
+        color: (STATUS_TOKENS as readonly string[]).includes(s.color)
+            ? variant("token", variant(s.color, null))
+            : variant("custom", s.color),
+        pulse: s.pulse ?? false,
+        hint: s.hint !== undefined ? some(s.hint) : none,
+    }])) as ValueTypeOf<DeckStatusesType>;
+}
+
+/** Format option: a shared {@link ValueFormatType} spec, or a text
+ *  accessor over the raw value (reified at authoring time). */
+type DeckFormatOption =
+    | ExprType<ValueFormatType>
+    | ((value: ExprType<FloatType>) => SubtypeExprOrValue<StringType>);
+
+/** Normalize a metric/readout value to an Option expression + derived
+ *  text for accessor formatters (`none` values render "—"). */
+function normalizeScalar(
+    value: SubtypeExprOrValue<FloatType> | Expr,
+    format: DeckFormatOption | undefined,
+): { value: Expr; format: unknown; text: unknown } {
+    const v = East.value(value as never) as Expr;
+    const t = Expr.type(v) as { type: string; cases?: Record<string, unknown> };
+    const isOption = t.type === "Variant" && t.cases !== undefined
+        && Object.keys(t.cases).length === 2 && "some" in t.cases && "none" in t.cases;
+    const option = isOption
+        ? v
+        : East.value(some(v), OptionType(FloatType)) as unknown as Expr;
+    const accessor = typeof format === "function" ? format : undefined;
+    const spec = typeof format === "function" ? undefined : format;
+    let text: unknown = none;
+    if (accessor !== undefined) {
+        text = (option as unknown as { match: (h: unknown) => Expr }).match({
+            some: (_$: unknown, x: Expr) => East.value(some(accessor(x as ExprType<FloatType>)), OptionType(StringType)),
+            none: () => East.value(none, OptionType(StringType)),
+        });
+    }
+    return { value: option, format: spec !== undefined ? some(spec) : none, text };
+}
+
+/**
+ * Builds one card metric — a label-over-value pair in the mono tabular
+ * voice. The value stays RAW in the payload; display formatting uses
+ * the shared {@link ValueFormatType} vocabulary (`Chart.format.*`) or a
+ * text accessor. Option-valued metrics render "—" when `none`.
+ *
+ * @param label - Metric caption (mono uppercase)
+ * @param value - The raw value (Float, or an Option of Float)
+ * @param options - `format` (spec or accessor) + `warn` flag
+ * @returns A {@link DeckMetricType} expression
+ */
+function createMetric(
+    label: SubtypeExprOrValue<StringType>,
+    value: SubtypeExprOrValue<FloatType> | Expr,
+    options?: {
+        /** Display format: a `Chart.format.*` spec or a text accessor */
+        format?: DeckFormatOption;
+        /** Render the value in the danger tone */
+        warn?: SubtypeExprOrValue<BooleanType>;
+    },
+): ExprType<DeckMetricType> {
+    const scalar = normalizeScalar(value, options?.format);
+    return East.value({
+        label,
+        value: scalar.value,
+        format: scalar.format,
+        text: scalar.text,
+        warn: options?.warn ?? false,
+    } as never, DeckMetricType);
+}
+
+/**
+ * One cell of a `Deck.Readout` rail.
+ *
+ * @property label - Cell caption (mono uppercase)
+ * @property value - The raw value (Float, or an Option of Float)
+ * @property format - Display format (spec or accessor)
+ * @property unit - Optional small muted unit suffix
+ * @property warn - Render the value in the danger tone
+ */
+export interface DeckReadoutCell {
+    /** Cell caption (mono uppercase) */
+    label: SubtypeExprOrValue<StringType>;
+    /** The raw value (Float, or an Option of Float) */
+    value: SubtypeExprOrValue<FloatType> | Expr;
+    /** Display format (spec or accessor) */
+    format?: DeckFormatOption;
+    /** Optional small muted unit suffix */
+    unit?: SubtypeExprOrValue<StringType>;
+    /** Render the value in the danger tone */
+    warn?: SubtypeExprOrValue<BooleanType>;
+}
+
+/**
+ * Creates a readout rail — a bordered grid of big mono values with
+ * units, the popover body's headline numbers.
+ *
+ * @param cells - The readout cells ({@link DeckReadoutCell})
+ * @returns An East expression of `UIComponentType`
+ */
+function createReadout(cells: DeckReadoutCell[]): ExprType<UIComponentType> {
+    return East.value(variant("DeckReadout", {
+        cells: East.value(cells.map(cell => {
+            const scalar = normalizeScalar(cell.value, cell.format);
+            return East.value({
+                label: cell.label,
+                value: scalar.value,
+                format: scalar.format,
+                text: scalar.text,
+                unit: cell.unit !== undefined ? some(cell.unit) : none,
+                warn: cell.warn ?? false,
+            } as never, DeckReadoutType.fields.cells.value);
+        }), DeckReadoutType.fields.cells),
+    }), UIComponentType);
+}
+
+/**
+ * Creates key–value detail rows — the popover body's labelled facts
+ * (mono uppercase key column, body-voice values).
+ *
+ * @param rows - The rows (`label` + `value`)
+ * @returns An East expression of `UIComponentType`
+ */
+function createRows(
+    rows: Array<{ label: SubtypeExprOrValue<StringType>; value: SubtypeExprOrValue<StringType> }>,
+): ExprType<UIComponentType> {
+    return East.value(variant("DeckRows", {
+        rows: East.value(rows.map(row => East.value({
+            label: row.label,
+            value: row.value,
+        }, DeckRowsType.fields.rows.value)), DeckRowsType.fields.rows),
+    }), UIComponentType);
+}
+
+/**
+ * Creates a dashed-top mono footnote — the popover body's trailing note.
+ *
+ * @param text - The note text
+ * @returns An East expression of `UIComponentType`
+ */
+function createNote(text: SubtypeExprOrValue<StringType>): ExprType<UIComponentType> {
+    return East.value(variant("DeckNote", { text }), UIComponentType);
 }
 
 // ============================================================================
@@ -244,12 +488,18 @@ export interface DeckGroupOption<R extends StructType> {
 export interface DeckConfig<R extends StructType> {
     /** Accessor from a row to the structured card face (the LIST state) */
     card: (row: ExprType<R>) => DeckCardFields | ExprType<DeckCardFaceType>;
+    /** Status registry (`Deck.statuses(...)`) — card `status` keys resolve here */
+    statuses?: ValueTypeOf<DeckStatusesType>;
     /** Optional accessor from a row to a fully custom card body */
     render?: (row: ExprType<R>) => ExprType<UIComponentType>;
     /** Optional accessor from a row to the click popover's body */
     onClick?: (row: ExprType<R>) => ExprType<UIComponentType>;
     /** Optional accessor from a row to the hover peek's body */
     onHover?: (row: ExprType<R>) => ExprType<UIComponentType>;
+    /** Optional board-foot key/value stats */
+    footer?: Array<{ label: string; value: SubtypeExprOrValue<StringType> }>;
+    /** Render the status legend beneath the board (from the registry) */
+    legend?: boolean;
     /** Named GROUP BY toolbar options (empty = no toolbar) */
     groupBy?: Array<DeckGroupOption<R>>;
     /** `"grid"` (default) or `"list"` */
@@ -301,7 +551,8 @@ function buildRoot(
             sublabel: face.sublabel,
             icon: face.icon,
             status: face.status,
-            tone: face.tone,
+            metrics: face.metrics,
+            fill: face.fill,
             facts: face.facts,
             filtered: face.filtered,
             groups,
@@ -355,10 +606,15 @@ function buildRoot(
     // (FunctionType <: AsyncFunctionType) — the casts only quiet TS.
     return East.value(variant("Deck", {
         items,
+        statuses: East.value(config.statuses ?? new Map(), DeckStatusesType),
         groupOptions: East.value(
             groupDefs.map(g => ({ key: g.key, label: g.label })),
             ArrayType(LibraryGroupMetaType)),
         groupSummaries: summariesFn(data_expr),
+        footer: East.value(
+            (config.footer ?? []).map(f => ({ label: f.label, value: East.value(f.value) })),
+            DeckRootType.fields.footer),
+        legend: config.legend ?? false,
         layout: config.layout !== undefined ? some(variant(config.layout, null)) : none,
         onCardClick: config.onCardClick !== undefined ? some(config.onCardClick) : none,
         onOpen: config.onOpen !== undefined ? some(config.onOpen as never) : none,
@@ -401,21 +657,6 @@ function createDeck<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
     config: DeckConfig<RowElement<T>>,
 ): ExprType<UIComponentType> {
     return buildRoot(data, config as unknown as DeckConfig<StructType>);
-}
-
-/**
- * Creates a Deck status-pill value.
- *
- * @param label - Pill text (rendered uppercase)
- * @param tone - Standard status tone literal or expression
- * @returns A {@link LibraryStatusType} expression
- */
-function createStatus(
-    label: SubtypeExprOrValue<StringType>,
-    tone: SubtypeExprOrValue<typeof LibraryStatusType.fields.tone> | StatusTokenLiteral,
-): ExprType<typeof LibraryStatusType> {
-    const toneValue = typeof tone === "string" ? variant(tone, null) : tone;
-    return East.value({ label, tone: toneValue }, LibraryStatusType);
 }
 
 /**
@@ -495,8 +736,16 @@ export const Deck = {
      * @returns An East expression of `UIComponentType`
      */
     Root: createDeck,
-    /** Creates a status-pill value for a card face. */
-    status: createStatus,
+    /** Builds the status registry for the `statuses` config option. */
+    statuses: createStatuses,
+    /** Builds one card metric (label-over-value, raw value + shared format). */
+    metric: createMetric,
+    /** Creates a readout rail (popover headline numbers). */
+    Readout: createReadout,
+    /** Creates key–value detail rows (popover labelled facts). */
+    Rows: createRows,
+    /** Creates a dashed-top mono footnote (popover trailing note). */
+    Note: createNote,
     /** Creates a meter fact (utilisation bar + right-aligned text). */
     meter: createMeterFact,
     /** Creates a chips fact (a row of small chips). */
@@ -510,12 +759,24 @@ export const Deck = {
         Item: DeckItemType,
         /** The structured card face (`card` accessor target). */
         Face: DeckCardFaceType,
+        /** The status registry (key → definition). */
+        Statuses: DeckStatusesType,
+        /** One status registry entry. */
+        Status: DeckStatusType,
+        /** A status colour (token or custom). */
+        StatusColor: DeckStatusColorType,
+        /** A card metric. */
+        Metric: DeckMetricType,
+        /** The card fill bar. */
+        Fill: DeckFillType,
+        /** The readout rail component payload. */
+        Readout: DeckReadoutType,
+        /** The detail-rows component payload. */
+        Rows: DeckRowsType,
+        /** The note component payload. */
+        Note: DeckNoteType,
         /** A labelled card fact. */
         Fact: DeckFactType,
-        /** Status pill (shared with Library). */
-        Status: LibraryStatusType,
-        /** Card accent tone (the standard status token palette). */
-        Tone: StatusTokenType,
         /** Fact value kinds (shared with Library dimensions). */
         FactValue: LibraryDimValueType,
         /** Layout mode. */

@@ -114,8 +114,18 @@ import { SegmentedMeterSegmentType, SegmentedMeterStyleType } from "./display/se
 import { BarStripStyleType, BarStripSortType } from "./display/bar-strip/types.js";
 import { AvatarGroupType } from "./display/avatar-group/types.js";
 import { TraceType } from "./display/trace/types.js";
-import { LibraryRootType, LibraryStatusType, LibraryGroupMetaType } from "./collections/library/types.js";
-import { DeckFactType, DeckLayoutType, DeckStyleType } from "./collections/deck/types.js";
+import { LibraryRootType, LibraryGroupMetaType } from "./collections/library/types.js";
+import {
+    DeckFactType,
+    DeckFillType,
+    DeckLayoutType,
+    DeckMetricType,
+    DeckNoteType,
+    DeckReadoutType,
+    DeckRowsType,
+    DeckStatusesType,
+    DeckStyleType,
+} from "./collections/deck/types.js";
 import { ValueTreeRootType } from "./collections/value-tree/types.js";
 import { RosterModeType, RosterPersonType, RosterShiftType } from "./collections/roster/types.js";
 import { BoardModeType, BoardEntityType, BoardAssignmentType, BoardRequirementType } from "./collections/board/types.js";
@@ -647,15 +657,18 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
     // at factory time (the renderer never sees the host row type); `face`
     // carries an optional fully-custom card body and `detail` / `hover`
     // the card's VIEW state and hover peek, hence the inline `node`.
-    // Filtering/search flow through the slice interface (like Table).
+    // `status` keys resolve in the `statuses` registry (solid tag + face
+    // wash + fill colour). Filtering/search flow through the slice
+    // interface (like Table).
     Deck: StructType({
         items: ArrayType(StructType({
             key: StringType,
             title: StringType,
             sublabel: OptionType(StringType),
             icon: OptionType(StringType),
-            status: OptionType(LibraryStatusType),
-            tone: OptionType(StatusTokenType),
+            status: OptionType(StringType),
+            metrics: ArrayType(DeckMetricType),
+            fill: OptionType(DeckFillType),
             facts: ArrayType(DeckFactType),
             filtered: BooleanType,
             groups: DictType(StringType, StringType),
@@ -663,8 +676,11 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
             detail: OptionType(node),
             hover: OptionType(node),
         })),
+        statuses: DeckStatusesType,
         groupOptions: ArrayType(LibraryGroupMetaType),
         groupSummaries: DictType(StringType, DictType(StringType, StringType)),
+        footer: ArrayType(StructType({ label: StringType, value: StringType })),
+        legend: BooleanType,
         layout: OptionType(DeckLayoutType),
         onCardClick: OptionType(FunctionType([StringType], NullType)),
         onOpen: OptionType(AsyncFunctionType([StringType], NullType)),
@@ -672,6 +688,13 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         slice: OptionType(SliceChromeType),
         style: OptionType(DeckStyleType),
     }),
+
+    // Deck popover building blocks (`Deck.Readout` / `Deck.Rows` /
+    // `Deck.Note`) — the recipe-styled detail vocabulary for `onClick`
+    // popover bodies.
+    DeckReadout: DeckReadoutType,
+    DeckRows: DeckRowsType,
+    DeckNote: DeckNoteType,
 
     // ValueTree — editable value-driven tree (#360). Any East value is
     // materialized into the fixed recursive node IR at factory time; edits

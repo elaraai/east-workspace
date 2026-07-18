@@ -5,7 +5,7 @@
 
 import { East, NullType, StringType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Deck, Text } from "@elaraai/east-ui/internal";
+import { Chart, Deck, Text } from "@elaraai/east-ui/internal";
 import * as ex from "./deck.examples.js";
 
 describeEast("Deck", (test) => {
@@ -48,21 +48,81 @@ describeEast("Deck", (test) => {
         $(Assert.equal(payload.groupOptions.get(0n).label, "Status"));
     });
 
-    test("status and facts round-trip on the face", $ => {
+    test("facts round-trip on the face", $ => {
         const deck = $.let(Deck.Root(ROWS, {
             card: r => ({
                 key: r.id, title: r.name,
-                status: Deck.status(r.state, "warning"),
                 facts: [Deck.text("Team", r.team), Deck.chips("Tags", ["x", "y"]), Deck.meter("Load", 30.0, 100.0, "30%")],
             }),
         }));
         const first = $.let(deck.unwrap().unwrap("Deck").items.get(0n));
-        $(Assert.equal(first.status.unwrap("some").label, "RUNNING"));
-        $(Assert.equal(first.status.unwrap("some").tone.hasTag("warning"), true));
         $(Assert.equal(first.facts.size(), 3n));
         $(Assert.equal(first.facts.get(0n).value.unwrap("text"), "Alpha"));
         $(Assert.equal(first.facts.get(1n).value.unwrap("chips").size(), 2n));
         $(Assert.equal(first.facts.get(2n).value.unwrap("meter").max, 100.0));
+    });
+
+    test("the status registry resolves token and custom colours", $ => {
+        const statuses = Deck.statuses({
+            running: { label: "Running", color: "success", pulse: true, hint: "producing" },
+            standby: { label: "Standby", color: "#3568c9" },
+        });
+        const deck = $.let(Deck.Root(ROWS, {
+            card: r => ({ key: r.id, title: r.name, status: "running" }),
+            statuses,
+        }));
+        const payload = $.let(deck.unwrap().unwrap("Deck"));
+        $(Assert.equal(payload.items.get(0n).status.unwrap("some"), "running"));
+        const running = $.let(payload.statuses.get("running"));
+        $(Assert.equal(running.label, "Running"));
+        $(Assert.equal(running.color.unwrap("token").hasTag("success"), true));
+        $(Assert.equal(running.pulse, true));
+        $(Assert.equal(running.hint.unwrap("some"), "producing"));
+        const standby = $.let(payload.statuses.get("standby"));
+        $(Assert.equal(standby.color.unwrap("custom"), "#3568c9"));
+        $(Assert.equal(standby.pulse, false));
+    });
+
+    test("metrics carry raw values with shared formats or accessor text", $ => {
+        const deck = $.let(Deck.Root(ROWS, {
+            card: r => ({
+                key: r.id, title: r.name,
+                metrics: [
+                    Deck.metric("Rate", 118.0, { format: Chart.format.compact() }),
+                    Deck.metric("Temp", 44.1, { format: v => East.str`${East.print(v)}°`, warn: true }),
+                ],
+                fill: { value: 62.0, max: 100.0, format: (v, max) => East.str`${East.print(v)}/${East.print(max)}` },
+            }),
+        }));
+        const item = $.let(deck.unwrap().unwrap("Deck").items.get(0n));
+        const rate = $.let(item.metrics.get(0n));
+        $(Assert.equal(rate.value.unwrap("some"), 118.0));
+        $(Assert.equal(rate.format.unwrap("some").hasTag("compact"), true));
+        $(Assert.equal(rate.text.hasTag("none"), true));
+        const temp = $.let(item.metrics.get(1n));
+        $(Assert.equal(temp.text.unwrap("some"), "44.1°"));
+        $(Assert.equal(temp.warn, true));
+        const fill = $.let(item.fill.unwrap("some"));
+        $(Assert.equal(fill.value, 62.0));
+        // East.print of a float keeps the decimal point.
+        $(Assert.equal(fill.text.unwrap("some"), "62.0/100.0"));
+    });
+
+    test("footer and legend carry through the payload", $ => {
+        const deck = $.let(Deck.Root(ROWS, {
+            card: r => ({ key: r.id, title: r.name }),
+            footer: [{ label: "Lines", value: "2" }],
+            legend: true,
+        }));
+        const payload = $.let(deck.unwrap().unwrap("Deck"));
+        $(Assert.equal(payload.footer.get(0n).label, "Lines"));
+        $(Assert.equal(payload.footer.get(0n).value, "2"));
+        $(Assert.equal(payload.legend, true));
+
+        const plain = $.let(Deck.Root(ROWS, { card: r => ({ key: r.id, title: r.name }) }));
+        $(Assert.equal(plain.unwrap().unwrap("Deck").statuses.size(), 0n));
+        $(Assert.equal(plain.unwrap().unwrap("Deck").footer.size(), 0n));
+        $(Assert.equal(plain.unwrap().unwrap("Deck").legend, false));
     });
 
     // =========================================================================
@@ -81,14 +141,14 @@ describeEast("Deck", (test) => {
         const plain = $.let(Deck.Root(ROWS, { card: r => ({ key: r.id, title: r.name }) }));
         const plainItem = $.let(plain.unwrap().unwrap("Deck").items.get(0n));
         $(Assert.equal(plainItem.face.hasTag("none"), true));
-        $(Assert.equal(plainItem.tone.hasTag("none"), true));
+        $(Assert.equal(plainItem.status.hasTag("none"), true));
         $(Assert.equal(plainItem.detail.hasTag("none"), true));
         $(Assert.equal(plainItem.hover.hasTag("none"), true));
         $(Assert.equal(plain.unwrap().unwrap("Deck").onOpen.hasTag("none"), true));
         $(Assert.equal(plain.unwrap().unwrap("Deck").onClose.hasTag("none"), true));
 
         const rich = $.let(Deck.Root(ROWS, {
-            card: r => ({ key: r.id, title: r.name, tone: "danger" }),
+            card: r => ({ key: r.id, title: r.name, status: "running" }),
             onClick: r => Text.Root(r.name),
             onHover: r => Text.Root(r.team),
             onOpen: East.function([StringType], NullType, (_$h, _key) => null),
@@ -96,7 +156,7 @@ describeEast("Deck", (test) => {
         }));
         const payload = $.let(rich.unwrap().unwrap("Deck"));
         const item = $.let(payload.items.get(0n));
-        $(Assert.equal(item.tone.unwrap("some").hasTag("danger"), true));
+        $(Assert.equal(item.status.unwrap("some"), "running"));
         $(Assert.equal(item.detail.hasTag("some"), true));
         $(Assert.equal(item.hover.hasTag("some"), true));
         $(Assert.equal(item.detail.unwrap("some").unwrap().unwrap("Text").value, "Line A"));

@@ -5,16 +5,14 @@
 
 /**
  * Deck slot recipe — the grouped card collection (#359). Cards follow the
- * design spec's MINI-CARD grammar (`design/spec.css` `.sch-item`, which
- * extends `.lib-card`): a paper card with a slim 2px status rule along
- * the TOP edge in the standard tone palette, a tone-retinted icon tile,
- * a 12.5px/600 name line and a mono-uppercase sub line. Shared value
- * grammar (status pill, meter, chips) still reuses the `library` slots
- * so the family reads as one. This recipe carries the deck chrome: the
- * group-by toolbar, collapsible group heads, the wrap-grid / list
- * layouts, and the VIEW-state popover card (an anchored paper card whose
- * head inherits the card face; sticky when click-opened, transient when
- * hover-peeked).
+ * board grammar: a quiet Card-family frame (10px radius, 1px subtle
+ * border) whose STATUS paints an explicit colour system through two CSS
+ * vars the renderer binds from the deck's status registry — `--dc` (the
+ * bold indicator: solid tag, dot, fill bar, hover border) and `--dt`
+ * (the faint face wash derived from it). Metrics are label-over-value
+ * pairs in the mono tabular voice; the fill bar and readout / detail
+ * rows / note blocks carry the popover-body vocabulary. Shared value
+ * grammar (meter / chips / text facts) still reuses the `library` slots.
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
@@ -23,12 +21,22 @@ export const deckSlotRecipe = defineSlotRecipe({
     className: "elara-deck",
     slots: [
         "root", "toolbar", "segGroup", "segLabel",
-        "body", "group", "groupHead", "groupChevron", "groupLabel", "groupCount", "groupSummary",
-        "grid", "list", "card", "cardIcon", "cardBody", "cardHead", "cardName", "cardSub", "face",
+        "body", "group", "groupHead", "groupChevron", "groupSwatch", "groupLabel", "groupCount", "groupSummary",
+        "grid", "list",
+        "card", "cardIcon", "cardBody", "cardHead", "cardId", "cardName", "cardSub",
+        "stag", "sdot",
+        "metricsRow", "metricCell", "metricK", "metricV",
+        "fillRow", "fillTrack", "fillBar", "fillPct",
+        "face",
+        "footRow", "footK", "footV", "footSep",
+        "legend", "legendItem", "legendSw", "legendLb", "legendDs",
         "pop", "popHead", "popBody", "popClose",
+        "readout", "readoutCell", "readoutK", "readoutV", "readoutU",
+        "drows", "drow", "drowK", "drowV",
+        "note",
     ],
     base: {
-        /* Bare like Library / Table — identity chrome is host composition. */
+        /* Bare like Table / Library — identity chrome is host composition. */
         root: {
             background: "bg.surface",
             "&[data-scrollable]": {
@@ -94,6 +102,15 @@ export const deckSlotRecipe = defineSlotRecipe({
             flexShrink: 0,
             alignSelf: "center",
         },
+        /* Status swatch when grouping BY the status accessor (colour is
+         * data-driven from the registry). */
+        groupSwatch: {
+            width: "10px",
+            height: "10px",
+            borderRadius: "3px",
+            flexShrink: 0,
+            alignSelf: "center",
+        },
         groupLabel: {
             fontFamily: "mono",
             fontSize: "10px",
@@ -134,10 +151,9 @@ export const deckSlotRecipe = defineSlotRecipe({
             gap: "{spacing.2}",
             padding: "{spacing.4}",
         },
-        /* Mini card — the Card family frame (10px radius, 1px subtle
-         * border, the Card's 3px LEFT accent grammar for `tone`) at mini
-         * density with the compact head voice. Selected (open) = brand
-         * border + tint. */
+        /* The card — quiet Card-family frame; a STATUS paints the faint
+         * face wash (--dt) and the bold indicator (--dc) drives the
+         * hover border and selected ring. */
         card: {
             position: "relative",
             display: "flex",
@@ -148,28 +164,24 @@ export const deckSlotRecipe = defineSlotRecipe({
             borderColor: "border.subtle",
             borderRadius: "{radii.md}",
             overflow: "hidden",
-            paddingX: "12px",
-            paddingY: "10px",
+            paddingX: "13px",
+            paddingY: "11px",
             minWidth: 0,
             transitionProperty: "border-color, background, opacity, box-shadow",
             transitionDuration: "{durations.fast}",
+            "&[data-status]": { background: "var(--dt)" },
             "&[data-clickable]": {
                 cursor: "pointer",
-                _hover: { borderColor: "border.strong" },
+                _hover: { borderColor: "var(--dc, {colors.border.strong})" },
                 _focusVisible: { outline: "none", boxShadow: "{shadows.focus}" },
             },
             "&[data-filtered]": { opacity: "0.4" },
-            /* The Card accent — a 3px left border in the status palette. */
-            "&[data-tone]": { borderLeftWidth: "3px" },
-            "&[data-tone=success]": { borderLeftColor: "{colors.status.pos}" },
-            "&[data-tone=warning]": { borderLeftColor: "{colors.status.warn}" },
-            "&[data-tone=danger]": { borderLeftColor: "{colors.status.neg}" },
-            "&[data-tone=info]": { borderLeftColor: "{colors.brand.600}" },
-            "&[data-tone=neutral]": { borderLeftColor: "border.strong" },
-            "&[data-open]": { borderColor: "border.brand", background: "bg.brand.subtle" },
+            "&[data-open]": {
+                borderColor: "var(--dc, {colors.border.brand})",
+                boxShadow: "inset 0 0 0 1px var(--dc, {colors.border.brand})",
+            },
         },
-        /* Icon tile — brand-tinted square, retinted by the card tone
-         * (the spec's `.sch-icon` treatment). */
+        /* Icon tile — brand-tinted square. */
         cardIcon: {
             width: "28px",
             height: "28px",
@@ -181,28 +193,33 @@ export const deckSlotRecipe = defineSlotRecipe({
             alignItems: "center",
             justifyContent: "center",
             fontSize: "14px",
-            "[data-tone=warning] &": { background: "bg.warning.subtle", color: "fg.warning" },
-            "[data-tone=danger] &": { background: "bg.danger.subtle", color: "fg.danger" },
-            "[data-tone=neutral] &": { background: "bg.subtle", color: "fg.subtle" },
         },
         cardBody: {
             display: "flex",
             flexDirection: "column",
-            gap: "3px",
+            gap: "9px",
             flex: "1 1 auto",
             minWidth: 0,
         },
         cardHead: {
             display: "flex",
-            alignItems: "center",
-            gap: "6px",
+            alignItems: "flex-start",
+            justifyContent: "space-between",
+            gap: "{spacing.2}",
             minWidth: 0,
         },
-        /* Name line — 12.5px/600 body voice. */
+        cardId: {
+            display: "flex",
+            flexDirection: "column",
+            gap: "3px",
+            minWidth: 0,
+        },
+        /* Name line — brand-voice 15px/700. */
         cardName: {
-            fontFamily: "body",
-            fontSize: "12.5px",
-            fontWeight: "600",
+            fontFamily: "heading",
+            fontSize: "15px",
+            fontWeight: "700",
+            letterSpacing: "-0.01em",
             color: "fg.default",
             lineHeight: "1.15",
             whiteSpace: "nowrap",
@@ -210,33 +227,167 @@ export const deckSlotRecipe = defineSlotRecipe({
             textOverflow: "ellipsis",
             minWidth: 0,
         },
-        /* Sub line — the mono-uppercase `.sch-sub` voice. */
+        /* Sub line — mono-uppercase eyebrow voice. */
         cardSub: {
             fontFamily: "mono",
-            fontSize: "9.5px",
+            fontSize: "10.5px",
+            fontWeight: "500",
             color: "fg.subtle",
-            letterSpacing: "0.04em",
+            letterSpacing: "0.08em",
             textTransform: "uppercase",
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
             lineHeight: "1.2",
         },
+        /* THE explicit colour indicator — a solid saturated status tag. */
+        stag: {
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "5px",
+            fontFamily: "mono",
+            fontSize: "10px",
+            fontWeight: "700",
+            letterSpacing: "0.1em",
+            textTransform: "uppercase",
+            color: "white",
+            background: "var(--dc, {colors.fg.subtle})",
+            paddingY: "3px",
+            paddingLeft: "6px",
+            paddingRight: "8px",
+            borderRadius: "4px",
+            whiteSpace: "nowrap",
+            lineHeight: "1.2",
+            flexShrink: 0,
+            "&[data-pulse] [data-part=sdot]": {
+                animation: "elara-pulse 1.7s ease-in-out infinite",
+            },
+        },
+        sdot: {
+            width: "6px",
+            height: "6px",
+            borderRadius: "50%",
+            background: "whiteAlpha.900",
+        },
+        /* Metric strip — label-over-value pairs, mono tabular. */
+        metricsRow: {
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "6px 14px",
+        },
+        metricCell: {
+            display: "flex",
+            flexDirection: "column",
+            gap: "1px",
+        },
+        metricK: {
+            fontFamily: "mono",
+            fontSize: "9px",
+            fontWeight: "600",
+            letterSpacing: "0.14em",
+            textTransform: "uppercase",
+            color: "fg.subtle",
+        },
+        metricV: {
+            fontFamily: "mono",
+            fontSize: "13px",
+            fontWeight: "600",
+            color: "fg.default",
+            lineHeight: "1",
+            fontVariantNumeric: "tabular-nums",
+            "&[data-warn]": { color: "{colors.status.neg}" },
+            "&[data-muted]": { color: "fg.subtle", fontWeight: "500" },
+        },
+        /* Status-coloured fill bar with a right-aligned reading. */
+        fillRow: {
+            display: "flex",
+            alignItems: "center",
+            gap: "{spacing.2}",
+        },
+        fillTrack: {
+            flex: "1",
+            height: "5px",
+            borderRadius: "3px",
+            background: "color-mix(in srgb, var(--dc, {colors.fg.subtle}) 14%, {colors.bg.surface})",
+            overflow: "hidden",
+        },
+        fillBar: {
+            height: "100%",
+            borderRadius: "3px",
+            background: "var(--dc, {colors.fg.subtle})",
+        },
+        fillPct: {
+            fontFamily: "mono",
+            fontSize: "10.5px",
+            fontWeight: "600",
+            color: "fg.muted",
+            fontVariantNumeric: "tabular-nums",
+            minWidth: "30px",
+            textAlign: "right",
+        },
         /* Custom face slot beneath the structured fields. */
         face: {
             minWidth: 0,
-            marginTop: "{spacing.1}",
         },
-        /* The VIEW-state popover card — an anchored mini-card scaled up:
-         * paper, 1px rule, 2px radius, the same slim top status rule, a
-         * head inherited from the card face. Hover peeks are transient
-         * and non-interactive; click popovers are sticky. */
+        /* Board-foot key/value stats. */
+        footRow: {
+            display: "flex",
+            alignItems: "center",
+            gap: "{spacing.2}",
+            flexWrap: "wrap",
+            paddingX: "{spacing.5}",
+            paddingY: "{spacing.3}",
+            borderTopWidth: "1px",
+            borderTopColor: "border.subtle",
+            fontFamily: "mono",
+            fontSize: "11px",
+            color: "fg.subtle",
+        },
+        footK: {
+            letterSpacing: "0.1em",
+            textTransform: "uppercase",
+        },
+        footV: {
+            color: "fg.default",
+            fontWeight: "600",
+        },
+        footSep: { color: "border.strong" },
+        /* Status legend (from the registry). */
+        legend: {
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "8px 16px",
+            paddingX: "{spacing.5}",
+            paddingY: "{spacing.3}",
+            borderTopWidth: "1px",
+            borderTopColor: "border.subtle",
+        },
+        legendItem: {
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "7px",
+        },
+        legendSw: {
+            width: "11px",
+            height: "11px",
+            borderRadius: "3px",
+        },
+        legendLb: {
+            fontFamily: "mono",
+            fontSize: "10.5px",
+            fontWeight: "600",
+            letterSpacing: "0.1em",
+            textTransform: "uppercase",
+            color: "fg.muted",
+        },
+        legendDs: {
+            fontSize: "11.5px",
+            color: "fg.subtle",
+        },
+        /* The VIEW-state popover card — positioned by the popover
+         * machine's Positioner; the head inherits the card face and its
+         * status wash. */
         pop: {
-            /* Positioning comes from the popover machine's Positioner
-             * (floating-ui placement + scroll tracking; the machine's
-             * --available-width bounds it inside the viewport) — this
-             * styles only the content: the Card family frame with the
-             * 3px left tone accent. */
             position: "relative",
             width: "380px",
             maxWidth: "var(--available-width)",
@@ -245,28 +396,20 @@ export const deckSlotRecipe = defineSlotRecipe({
             flexDirection: "column",
             background: "bg.surface",
             borderWidth: "1px",
-            borderColor: "border.subtle",
+            borderColor: "border.strong",
             borderRadius: "{radii.md}",
             overflow: "hidden",
             boxShadow: "{shadows.lg}",
             outline: "none",
             "&[data-mode=hover]": { pointerEvents: "none" },
-            "&[data-tone]": { borderLeftWidth: "3px" },
-            "&[data-tone=success]": { borderLeftColor: "{colors.status.pos}" },
-            "&[data-tone=warning]": { borderLeftColor: "{colors.status.warn}" },
-            "&[data-tone=danger]": { borderLeftColor: "{colors.status.neg}" },
-            "&[data-tone=info]": { borderLeftColor: "{colors.brand.600}" },
-            "&[data-tone=neutral]": { borderLeftColor: "border.strong" },
         },
-        /* Inherited head — the card face's icon / name / sub / pill on
-         * the Card header treatment (canvas fill + bottom hairline). */
         popHead: {
             display: "flex",
             alignItems: "flex-start",
             gap: "9px",
-            paddingX: "12px",
-            paddingY: "10px",
-            background: "bg.canvas",
+            paddingX: "13px",
+            paddingY: "11px",
+            background: "var(--dt, {colors.bg.canvas})",
             borderBottomWidth: "1px",
             borderBottomColor: "border.subtle",
         },
@@ -274,22 +417,99 @@ export const deckSlotRecipe = defineSlotRecipe({
             flex: "1 1 auto",
             minHeight: 0,
             overflowY: "auto",
-            paddingX: "12px",
-            paddingY: "10px",
+            paddingX: "13px",
+            paddingY: "11px",
         },
         popClose: {
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
             flexShrink: 0,
-            width: "22px",
-            height: "22px",
-            fontSize: "11px",
+            width: "24px",
+            height: "24px",
+            fontSize: "12px",
             color: "fg.subtle",
+            borderWidth: "1px",
+            borderColor: "border.strong",
             borderRadius: "{radii.xs}",
+            background: "bg.surface",
             cursor: "pointer",
-            _hover: { background: "bg.emphasized", color: "fg.default" },
+            _hover: { color: "fg.default", borderColor: "fg.subtle" },
             _coarse: { width: "32px", height: "32px" },
+        },
+        /* Readout rail — bordered grid of big mono values. */
+        readout: {
+            display: "grid",
+            gridTemplateColumns: "repeat(3, 1fr)",
+            borderWidth: "1px",
+            borderColor: "border.subtle",
+            borderRadius: "{radii.sm}",
+            overflow: "hidden",
+        },
+        readoutCell: {
+            paddingX: "11px",
+            paddingY: "9px",
+            borderRightWidth: "1px",
+            borderRightColor: "border.subtle",
+            "&:last-child": { borderRightWidth: 0 },
+        },
+        readoutK: {
+            fontFamily: "mono",
+            fontSize: "9px",
+            fontWeight: "600",
+            letterSpacing: "0.14em",
+            textTransform: "uppercase",
+            color: "fg.subtle",
+            marginBottom: "4px",
+        },
+        readoutV: {
+            fontFamily: "mono",
+            fontSize: "17px",
+            fontWeight: "500",
+            color: "fg.default",
+            lineHeight: "1",
+            fontVariantNumeric: "tabular-nums",
+            letterSpacing: "-0.01em",
+            "&[data-warn]": { color: "{colors.status.neg}" },
+            "&[data-muted]": { color: "fg.subtle" },
+        },
+        readoutU: {
+            fontSize: "10px",
+            color: "fg.subtle",
+            marginLeft: "2px",
+        },
+        /* Key–value detail rows. */
+        drows: {
+            display: "flex",
+            flexDirection: "column",
+            gap: "7px",
+        },
+        drow: {
+            display: "grid",
+            gridTemplateColumns: "96px 1fr",
+            gap: "{spacing.3}",
+            alignItems: "baseline",
+            fontSize: "13px",
+        },
+        drowK: {
+            fontFamily: "mono",
+            fontSize: "10px",
+            fontWeight: "600",
+            letterSpacing: "0.12em",
+            textTransform: "uppercase",
+            color: "fg.subtle",
+        },
+        drowV: { color: "fg.default" },
+        /* Dashed-top mono footnote. */
+        note: {
+            fontFamily: "mono",
+            fontSize: "10.5px",
+            lineHeight: "1.5",
+            color: "fg.subtle",
+            borderTopWidth: "1px",
+            borderTopStyle: "dashed",
+            borderTopColor: "border.subtle",
+            paddingTop: "{spacing.2}",
         },
     },
 });

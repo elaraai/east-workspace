@@ -6,30 +6,25 @@
 /**
  * `EastChakraDeck` — renderer for the Deck grouped card collection (#359).
  *
- * Cards follow the design spec's MINI-CARD grammar (`design/spec.css`
- * `.sch-item`): a paper card with a slim 2px status rule along the TOP
- * edge in the standard tone palette, a tone-retinted icon tile, a
- * 12.5px/600 name line and a mono-uppercase sub line. Shared value
- * grammar (status pill, meter, chips) reuses the `library` slots so the
- * family reads as one. Filtering and search flow through the SLICE
- * interface (rail cluster + derived-count footer, like Table) — the
- * deck has no bespoke search.
+ * Every card carries an EXPLICIT status colour from the deck's status
+ * registry: a solid saturated status tag (+ matched dot, optionally
+ * pulsing), a faint status-tinted face wash and a status-coloured fill
+ * bar — so state reads at a glance while the surface stays in the
+ * quiet, bordered, shadow-free house style. Status colours are the
+ * standard tokens or custom CSS colours; the tint is derived. Metrics
+ * render RAW values through the shared {@link ValueFormatType}
+ * interpreter (`tickFormatter` — the same code path as chart ticks), so
+ * a deck metric and an axis format identically.
  *
- * The VIEW state is an anchored POPOVER CARD, not a drawer: `onClick` /
- * `onHover` content renders as the popover's BODY beneath a head
- * INHERITED from the card face (icon, title, sublabel, status, tone
- * rule). Clicking opens a sticky popover (Esc / outside / × closes,
- * `onOpen` / `onClose` report it); hovering shows a transient peek on
- * hover-capable pointers.
- *
- * Layout is container-first: the grid uses
- * `repeat(auto-fill, minmax(minCardWidth, 1fr))`, so desktop shows rows of
- * wrapping cards per group and phones collapse to one column with no
- * breakpoint logic. Virtualization is deferred (#359 fast-follow) — a
- * height-constrained Deck scrolls its body.
+ * The VIEW state is an anchored POPOVER CARD on the Chakra popover
+ * machine (virtual anchor + Positioner): `onClick` / `onHover` content
+ * renders beneath a head INHERITED from the card face. `Deck.Readout`,
+ * `Deck.Rows` and `Deck.Note` are the recipe-styled popover-body
+ * vocabulary. Filtering and search flow through the SLICE interface
+ * (rail cluster + derived-count footer, like Table).
  */
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, Fragment } from "react";
 import { Box, Popover as ChakraPopover, Portal, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { findIconDefinition, type IconName } from "@fortawesome/fontawesome-svg-core";
@@ -41,17 +36,30 @@ import { EastChakraComponent } from "../../component";
 import { usePersistedState } from "../../hooks/usePersistedState";
 import { useHoverCapable } from "../../contracts/adaptive.js";
 import { parseCssSize } from "../../style/parse-size.js";
+import { tickFormatter } from "../../charts/spec/index.js";
 import { SliceRailCluster } from "../../slice/rail";
 import { railAffordanceKinds } from "../../slice/rail-kinds.js";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity";
 
 const deckEqual = equalFor(Deck.Types.Deck);
+const readoutEqual = equalFor(Deck.Types.Readout);
+const rowsEqual = equalFor(Deck.Types.Rows);
+const noteEqual = equalFor(Deck.Types.Note);
 
 /** East Deck value type. */
 export type DeckValue = ValueTypeOf<typeof Deck.Types.Deck>;
 
 /** East Deck item value type. */
 export type DeckItemValue = ValueTypeOf<typeof Deck.Types.Item>;
+
+/** East Deck readout payload value type. */
+export type DeckReadoutValue = ValueTypeOf<typeof Deck.Types.Readout>;
+
+/** East Deck rows payload value type. */
+export type DeckRowsValue = ValueTypeOf<typeof Deck.Types.Rows>;
+
+/** East Deck note payload value type. */
+export type DeckNoteValue = ValueTypeOf<typeof Deck.Types.Note>;
 
 export interface EastChakraDeckProps {
     value: DeckValue;
@@ -63,15 +71,46 @@ type SlotStyles = Record<string, SystemStyleObject>;
 /** Hover-peek intent delay (ms) — long enough to skip pass-through. */
 const PEEK_DELAY = 300;
 
-interface DeckToolbarState {
-    groupKey: string | null;
-    collapsed: string[];
+/** Standard status tokens → their theme colour variables. */
+const TOKEN_CSS: Record<string, string> = {
+    success: "var(--chakra-colors-status-pos)",
+    warning: "var(--chakra-colors-status-warn)",
+    danger: "var(--chakra-colors-status-neg)",
+    info: "var(--chakra-colors-brand-600)",
+    neutral: "var(--chakra-colors-fg-subtle)",
+};
+
+interface ResolvedStatus {
+    label: string;
+    /** The bold indicator colour (tag / dot / fill bar / hover border). */
+    color: string;
+    /** The faint face wash derived from it. */
+    tint: string;
+    pulse: boolean;
+    hint: string | undefined;
 }
 
-interface DeckGroup {
-    label: string;
-    summary: string | undefined;
-    items: DeckItemValue[];
+/** Resolve a card's status key against the registry. */
+function resolveStatus(
+    statuses: DeckValue["statuses"],
+    key: string | undefined,
+): ResolvedStatus | undefined {
+    if (key === undefined) return undefined;
+    const s = statuses.get(key);
+    if (s === undefined) return undefined;
+    const color = s.color.type === "token" ? (TOKEN_CSS[s.color.value.type] ?? TOKEN_CSS["neutral"]!) : s.color.value;
+    return {
+        label: s.label,
+        color,
+        tint: `color-mix(in srgb, ${color} 8%, var(--chakra-colors-bg-surface))`,
+        pulse: s.pulse,
+        hint: getSomeorUndefined(s.hint),
+    };
+}
+
+/** The status CSS vars a status paints onto a card / popover. */
+function statusVars(st: ResolvedStatus | undefined): Record<string, string> | undefined {
+    return st !== undefined ? { "--dc": st.color, "--dt": st.tint } : undefined;
 }
 
 /** A resolved FA solid icon, or undefined for unknown names. */
@@ -81,12 +120,37 @@ function solidIcon(name: string | undefined) {
     return def ?? undefined;
 }
 
+/** Render a scalar (raw value + shared format / pre-rendered text). */
+function scalarText(
+    value: number | undefined,
+    format: ValueTypeOf<typeof Deck.Types.Metric>["format"],
+    text: ValueTypeOf<typeof Deck.Types.Metric>["text"],
+): string {
+    if (value === undefined) return "—";
+    const pre = getSomeorUndefined(text);
+    if (pre !== undefined) return pre;
+    const spec = getSomeorUndefined(format);
+    if (spec !== undefined) return tickFormatter(spec, "linear")(value);
+    return new Intl.NumberFormat().format(value);
+}
+
+/** The solid status tag — the explicit colour indicator. */
+function StatusTag({ st, styles }: { st: ResolvedStatus; styles: SlotStyles }) {
+    return (
+        <Box as="span" css={styles.stag} data-pulse={st.pulse ? "" : undefined}>
+            <Box as="span" css={styles.sdot} data-part="sdot" />
+            {st.label}
+        </Box>
+    );
+}
+
 // ============================================================================
 // Card
 // ============================================================================
 
-function DeckCard({ item, styles, libStyles, open, activatable, registerEl, onActivate, onHoverStart, onHoverEnd, storageKey }: {
+function DeckCard({ item, st, styles, libStyles, open, activatable, registerEl, onActivate, onHoverStart, onHoverEnd, storageKey }: {
     item: DeckItemValue;
+    st: ResolvedStatus | undefined;
     styles: SlotStyles;
     libStyles: SlotStyles;
     open: boolean;
@@ -99,9 +163,11 @@ function DeckCard({ item, styles, libStyles, open, activatable, registerEl, onAc
 }) {
     const icon = solidIcon(getSomeorUndefined(item.icon));
     const sublabel = getSomeorUndefined(item.sublabel);
-    const status = getSomeorUndefined(item.status);
-    const tone = getSomeorUndefined(item.tone);
     const face = getSomeorUndefined(item.face);
+    const fill = getSomeorUndefined(item.fill);
+    const fillPct = fill !== undefined && fill.max > 0
+        ? Math.min(100, Math.max(0, (fill.value / fill.max) * 100))
+        : 0;
 
     return (
         <Box
@@ -109,8 +175,9 @@ function DeckCard({ item, styles, libStyles, open, activatable, registerEl, onAc
             ref={(el: HTMLElement | null) => registerEl(item.key, el)}
             data-clickable={activatable ? "" : undefined}
             data-filtered={item.filtered ? "" : undefined}
-            data-tone={tone?.type}
+            data-status={st !== undefined ? "" : undefined}
             data-open={open ? "" : undefined}
+            style={statusVars(st)}
             onMouseEnter={() => onHoverStart(item)}
             onMouseLeave={onHoverEnd}
             {...(activatable
@@ -129,12 +196,29 @@ function DeckCard({ item, styles, libStyles, open, activatable, registerEl, onAc
             )}
             <Box css={styles.cardBody}>
                 <Box css={styles.cardHead}>
-                    <Box as="span" css={styles.cardName}>{item.title}</Box>
-                    {status !== undefined && (
-                        <Box as="span" css={libStyles.statusPill} data-tone={status.tone.type}>{status.label}</Box>
-                    )}
+                    <Box css={styles.cardId}>
+                        <Box as="span" css={styles.cardName}>{item.title}</Box>
+                        {sublabel !== undefined && <Box as="span" css={styles.cardSub}>{sublabel}</Box>}
+                    </Box>
+                    {st !== undefined && <StatusTag st={st} styles={styles} />}
                 </Box>
-                {sublabel !== undefined && <Box as="span" css={styles.cardSub}>{sublabel}</Box>}
+                {item.metrics.length > 0 && (
+                    <Box css={styles.metricsRow}>
+                        {item.metrics.map((m, i) => {
+                            const raw = getSomeorUndefined(m.value);
+                            return (
+                                <Box key={i} css={styles.metricCell}>
+                                    <Box as="span" css={styles.metricK}>{m.label}</Box>
+                                    <Box as="span" css={styles.metricV}
+                                        data-warn={m.warn ? "" : undefined}
+                                        data-muted={raw === undefined ? "" : undefined}>
+                                        {scalarText(raw, m.format, m.text)}
+                                    </Box>
+                                </Box>
+                            );
+                        })}
+                    </Box>
+                )}
                 {item.facts.map((fact, i) => {
                     const v = fact.value;
                     if (v.type === "meter") {
@@ -161,6 +245,17 @@ function DeckCard({ item, styles, libStyles, open, activatable, registerEl, onAc
                         <EastChakraComponent value={face} storageKey={`${storageKey}.face.${item.key}`} />
                     </Box>
                 )}
+                {fill !== undefined && (
+                    <Box css={styles.fillRow}>
+                        <Box css={styles.fillTrack}><Box css={styles.fillBar} style={{ width: `${fillPct}%` }} /></Box>
+                        <Box as="span" css={styles.fillPct}>
+                            {getSomeorUndefined(fill.text)
+                                ?? (getSomeorUndefined(fill.format) !== undefined
+                                    ? tickFormatter(getSomeorUndefined(fill.format), "linear")(fill.value)
+                                    : `${Math.round(fillPct)}%`)}
+                        </Box>
+                    </Box>
+                )}
             </Box>
         </Box>
     );
@@ -170,21 +265,19 @@ function DeckCard({ item, styles, libStyles, open, activatable, registerEl, onAc
 // Popover card (the VIEW state — head inherited from the card face)
 // ============================================================================
 
-function DeckPopover({ item, body, mode, getAnchorRect, onDismiss, contentRef, styles, libStyles, storageKey }: {
+function DeckPopover({ item, st, body, mode, getAnchorRect, onDismiss, contentRef, styles, storageKey }: {
     item: DeckItemValue;
+    st: ResolvedStatus | undefined;
     body: object;
     mode: "click" | "hover";
     getAnchorRect: () => DOMRect | null;
     onDismiss: () => void;
     contentRef: React.MutableRefObject<HTMLDivElement | null> | undefined;
     styles: SlotStyles;
-    libStyles: SlotStyles;
     storageKey: string;
 }) {
     const icon = solidIcon(getSomeorUndefined(item.icon));
     const sublabel = getSomeorUndefined(item.sublabel);
-    const status = getSomeorUndefined(item.status);
-    const tone = getSomeorUndefined(item.tone);
     return (
         <ChakraPopover.Root
             open
@@ -198,8 +291,9 @@ function DeckPopover({ item, body, mode, getAnchorRect, onDismiss, contentRef, s
                     <ChakraPopover.Content
                         css={styles.pop}
                         data-mode={mode}
-                        data-tone={tone?.type}
+                        data-status={st !== undefined ? "" : undefined}
                         aria-label={item.title}
+                        style={statusVars(st)}
                         {...(contentRef !== undefined ? { ref: contentRef } : {})}
                         onKeyDown={(e: React.KeyboardEvent) => {
                             if (mode === "click" && e.key === "Escape") { e.preventDefault(); onDismiss(); }
@@ -209,15 +303,11 @@ function DeckPopover({ item, body, mode, getAnchorRect, onDismiss, contentRef, s
                             {icon !== undefined && (
                                 <Box css={styles.cardIcon}><FontAwesomeIcon icon={icon} /></Box>
                             )}
-                            <Box css={styles.cardBody}>
-                                <Box css={styles.cardHead}>
-                                    <Box as="span" css={styles.cardName}>{item.title}</Box>
-                                    {status !== undefined && (
-                                        <Box as="span" css={libStyles.statusPill} data-tone={status.tone.type}>{status.label}</Box>
-                                    )}
-                                </Box>
+                            <Box css={styles.cardId}>
+                                <Box as="span" css={styles.cardName}>{item.title}</Box>
                                 {sublabel !== undefined && <Box as="span" css={styles.cardSub}>{sublabel}</Box>}
                             </Box>
+                            {st !== undefined && <StatusTag st={st} styles={styles} />}
                             {mode === "click" && (
                                 <chakra.button type="button" css={styles.popClose} aria-label="Close"
                                     onClick={onDismiss}>
@@ -236,8 +326,86 @@ function DeckPopover({ item, body, mode, getAnchorRect, onDismiss, contentRef, s
 }
 
 // ============================================================================
+// Popover building blocks (Deck.Readout / Deck.Rows / Deck.Note)
+// ============================================================================
+
+/**
+ * Renders a Deck readout rail — a bordered grid of big mono values.
+ *
+ * @param props - component props
+ * @param props.value - the decoded `Deck.Types.Readout` payload
+ * @returns the readout element
+ */
+export const EastChakraDeckReadout = memo(function EastChakraDeckReadout({ value }: { value: DeckReadoutValue }) {
+    const styles = useSlotRecipe({ key: "deck" })() as SlotStyles;
+    return (
+        <Box css={styles.readout}>
+            {value.cells.map((cell, i) => {
+                const raw = getSomeorUndefined(cell.value);
+                const unit = getSomeorUndefined(cell.unit);
+                return (
+                    <Box key={i} css={styles.readoutCell}>
+                        <Box css={styles.readoutK}>{cell.label}</Box>
+                        <Box css={styles.readoutV}
+                            data-warn={cell.warn ? "" : undefined}
+                            data-muted={raw === undefined ? "" : undefined}>
+                            {scalarText(raw, cell.format, cell.text)}
+                            {unit !== undefined && <Box as="span" css={styles.readoutU}>{unit}</Box>}
+                        </Box>
+                    </Box>
+                );
+            })}
+        </Box>
+    );
+}, (prev, next) => readoutEqual(prev.value, next.value));
+
+/**
+ * Renders Deck detail rows — mono-uppercase keys with body-voice values.
+ *
+ * @param props - component props
+ * @param props.value - the decoded `Deck.Types.Rows` payload
+ * @returns the rows element
+ */
+export const EastChakraDeckRows = memo(function EastChakraDeckRows({ value }: { value: DeckRowsValue }) {
+    const styles = useSlotRecipe({ key: "deck" })() as SlotStyles;
+    return (
+        <Box css={styles.drows}>
+            {value.rows.map((row, i) => (
+                <Box key={i} css={styles.drow}>
+                    <Box as="span" css={styles.drowK}>{row.label}</Box>
+                    <Box as="span" css={styles.drowV}>{row.value}</Box>
+                </Box>
+            ))}
+        </Box>
+    );
+}, (prev, next) => rowsEqual(prev.value, next.value));
+
+/**
+ * Renders a Deck note — the dashed-top mono footnote.
+ *
+ * @param props - component props
+ * @param props.value - the decoded `Deck.Types.Note` payload
+ * @returns the note element
+ */
+export const EastChakraDeckNote = memo(function EastChakraDeckNote({ value }: { value: DeckNoteValue }) {
+    const styles = useSlotRecipe({ key: "deck" })() as SlotStyles;
+    return <Box css={styles.note}>{value.text}</Box>;
+}, (prev, next) => noteEqual(prev.value, next.value));
+
+// ============================================================================
 // Core
 // ============================================================================
+
+interface DeckToolbarState {
+    groupKey: string | null;
+    collapsed: string[];
+}
+
+interface DeckGroup {
+    label: string;
+    summary: string | undefined;
+    items: DeckItemValue[];
+}
 
 function DeckCore({ value, storageKey }: EastChakraDeckProps) {
     const styles = useSlotRecipe({ key: "deck" })() as SlotStyles;
@@ -282,9 +450,11 @@ function DeckCore({ value, storageKey }: EastChakraDeckProps) {
     const onCardClickFn = useMemo(() => getSomeorUndefined(value.onCardClick), [value.onCardClick]);
     const onOpenFn = useMemo(() => getSomeorUndefined(value.onOpen), [value.onOpen]);
     const onCloseFn = useMemo(() => getSomeorUndefined(value.onClose), [value.onClose]);
+    const statusOf = useCallback(
+        (item: DeckItemValue) => resolveStatus(value.statuses, getSomeorUndefined(item.status)),
+        [value.statuses]);
 
-    // Card elements — the popover machine's virtual anchor source (kept
-    // live so the positioner tracks scroll/resize via floating-ui).
+    // Card elements — the popover machine's virtual anchor source.
     const cardEls = useRef(new Map<string, HTMLElement>());
     const registerEl = useCallback((key: string, el: HTMLElement | null) => {
         if (el === null) cardEls.current.delete(key);
@@ -295,8 +465,7 @@ function DeckCore({ value, storageKey }: EastChakraDeckProps) {
         return el !== undefined ? el.getBoundingClientRect() : null;
     }, []);
 
-    // Click popover — sticky; the popover machine owns Esc / outside
-    // dismissal and reports through onOpenChange.
+    // Click popover — sticky; the machine owns Esc / outside dismissal.
     const [open, setOpen] = useState<string | null>(null);
     const openItem = useMemo(
         () => (open !== null ? value.items.find(i => i.key === open) : undefined),
@@ -385,6 +554,9 @@ function DeckCore({ value, storageKey }: EastChakraDeckProps) {
             <Box css={styles.body} data-scrollable={scrollable ? "" : undefined}>
                 {groups.map(group => {
                     const collapsed = toolbar.collapsed.includes(group.label);
+                    // Group heads pick up the registry swatch + hint when
+                    // grouping BY the status accessor.
+                    const groupSt = resolveStatus(value.statuses, group.label !== "" ? group.label : undefined);
                     return (
                         <Box key={group.label || "∅"} css={styles.group}>
                             {group.label !== "" && (
@@ -397,10 +569,13 @@ function DeckCore({ value, storageKey }: EastChakraDeckProps) {
                                     <Box as="span" css={styles.groupChevron}>
                                         <FontAwesomeIcon icon={collapsed ? faChevronRight : faChevronDown} />
                                     </Box>
-                                    <Box as="span" css={styles.groupLabel}>{group.label}</Box>
+                                    {groupSt !== undefined && (
+                                        <Box as="span" css={styles.groupSwatch} style={{ background: groupSt.color }} />
+                                    )}
+                                    <Box as="span" css={styles.groupLabel}>{groupSt?.label ?? group.label}</Box>
                                     <Box as="span" css={styles.groupCount}>{group.items.length}</Box>
-                                    {group.summary !== undefined && (
-                                        <Box as="span" css={styles.groupSummary}>{group.summary}</Box>
+                                    {(group.summary ?? groupSt?.hint) !== undefined && (
+                                        <Box as="span" css={styles.groupSummary}>{group.summary ?? groupSt?.hint}</Box>
                                     )}
                                 </Box>
                             )}
@@ -413,6 +588,7 @@ function DeckCore({ value, storageKey }: EastChakraDeckProps) {
                                         <DeckCard
                                             key={item.key}
                                             item={item}
+                                            st={statusOf(item)}
                                             styles={styles}
                                             libStyles={libStyles}
                                             open={open === item.key}
@@ -430,20 +606,44 @@ function DeckCore({ value, storageKey }: EastChakraDeckProps) {
                     );
                 })}
             </Box>
+            {value.footer.length > 0 && (
+                <Box css={styles.footRow}>
+                    {value.footer.map((f, i) => (
+                        <Fragment key={i}>
+                            {i > 0 && <Box as="span" css={styles.footSep}>·</Box>}
+                            <Box as="span" css={styles.footK}>{f.label}</Box>
+                            <Box as="span" css={styles.footV}>{f.value}</Box>
+                        </Fragment>
+                    ))}
+                </Box>
+            )}
+            {value.legend && value.statuses.size > 0 && (
+                <Box css={styles.legend}>
+                    {[...value.statuses.keys()].map(key => {
+                        const st = resolveStatus(value.statuses, key);
+                        if (st === undefined) return null;
+                        return (
+                            <Box key={key} css={styles.legendItem}>
+                                <Box as="span" css={styles.legendSw} style={{ background: st.color }} />
+                                <Box as="span" css={styles.legendLb}>{st.label}</Box>
+                                {st.hint !== undefined && <Box as="span" css={styles.legendDs}>{st.hint}</Box>}
+                            </Box>
+                        );
+                    })}
+                </Box>
+            )}
             {peekItem !== undefined && peekBody !== undefined && peek !== null && open === null && (
                 <DeckPopover
-                    item={peekItem} body={peekBody} mode="hover"
+                    item={peekItem} st={statusOf(peekItem)} body={peekBody} mode="hover"
                     getAnchorRect={anchorRectFor(peekItem.key)} onDismiss={hoverEnd}
-                    contentRef={undefined}
-                    styles={styles} libStyles={libStyles} storageKey={storageKey}
+                    contentRef={undefined} styles={styles} storageKey={storageKey}
                 />
             )}
             {openItem !== undefined && openBody !== undefined && open !== null && (
                 <DeckPopover
-                    item={openItem} body={openBody} mode="click"
+                    item={openItem} st={statusOf(openItem)} body={openBody} mode="click"
                     getAnchorRect={anchorRectFor(openItem.key)} onDismiss={close}
-                    contentRef={popContentRef}
-                    styles={styles} libStyles={libStyles} storageKey={storageKey}
+                    contentRef={popContentRef} styles={styles} storageKey={storageKey}
                 />
             )}
         </Box>
