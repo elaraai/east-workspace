@@ -134,9 +134,10 @@ export const deckSlotRecipe = defineSlotRecipe({
             gap: "{spacing.2}",
             padding: "{spacing.4}",
         },
-        /* Mini-card frame — the spec's `.sch-item` grammar: paper, 1px
-         * rule, 2px radius, and a slim 2px status rule along the TOP edge
-         * as the tone accent. Selected (open) = brand border + tint. */
+        /* Mini card — the Card family frame (10px radius, 1px subtle
+         * border, the Card's 3px LEFT accent grammar for `tone`) at mini
+         * density with the compact head voice. Selected (open) = brand
+         * border + tint. */
         card: {
             position: "relative",
             display: "flex",
@@ -145,9 +146,10 @@ export const deckSlotRecipe = defineSlotRecipe({
             background: "bg.surface",
             borderWidth: "1px",
             borderColor: "border.subtle",
-            borderRadius: "{radii.xs}",
-            paddingX: "11px",
-            paddingY: "9px",
+            borderRadius: "{radii.md}",
+            overflow: "hidden",
+            paddingX: "12px",
+            paddingY: "10px",
             minWidth: 0,
             transitionProperty: "border-color, background, opacity, box-shadow",
             transitionDuration: "{durations.fast}",
@@ -157,22 +159,13 @@ export const deckSlotRecipe = defineSlotRecipe({
                 _focusVisible: { outline: "none", boxShadow: "{shadows.focus}" },
             },
             "&[data-filtered]": { opacity: "0.4" },
-            /* Slim status rule along the top edge (the spec accent). */
-            "&[data-tone]::before": {
-                content: '""',
-                position: "absolute",
-                left: "-1px",
-                right: "-1px",
-                top: "-1px",
-                height: "2px",
-                borderTopLeftRadius: "{radii.xs}",
-                borderTopRightRadius: "{radii.xs}",
-            },
-            "&[data-tone=success]::before": { background: "{colors.status.pos}" },
-            "&[data-tone=warning]::before": { background: "{colors.status.warn}" },
-            "&[data-tone=danger]::before": { background: "{colors.status.neg}" },
-            "&[data-tone=info]::before": { background: "{colors.brand.600}" },
-            "&[data-tone=neutral]::before": { background: "border.strong", opacity: 0.45 },
+            /* The Card accent — a 3px left border in the status palette. */
+            "&[data-tone]": { borderLeftWidth: "3px" },
+            "&[data-tone=success]": { borderLeftColor: "{colors.status.pos}" },
+            "&[data-tone=warning]": { borderLeftColor: "{colors.status.warn}" },
+            "&[data-tone=danger]": { borderLeftColor: "{colors.status.neg}" },
+            "&[data-tone=info]": { borderLeftColor: "{colors.brand.600}" },
+            "&[data-tone=neutral]": { borderLeftColor: "border.strong" },
             "&[data-open]": { borderColor: "border.brand", background: "bg.brand.subtle" },
         },
         /* Icon tile — brand-tinted square, retinted by the card tone
@@ -239,43 +232,41 @@ export const deckSlotRecipe = defineSlotRecipe({
          * head inherited from the card face. Hover peeks are transient
          * and non-interactive; click popovers are sticky. */
         pop: {
-            position: "fixed",
-            zIndex: "1400",
+            /* Positioning comes from the popover machine's Positioner
+             * (floating-ui placement + scroll tracking; the machine's
+             * --available-width bounds it inside the viewport) — this
+             * styles only the content: the Card family frame with the
+             * 3px left tone accent. */
+            position: "relative",
             width: "380px",
-            maxWidth: "calc(100vw - 24px)",
+            maxWidth: "var(--available-width)",
             maxHeight: "360px",
             display: "flex",
             flexDirection: "column",
             background: "bg.surface",
             borderWidth: "1px",
             borderColor: "border.subtle",
-            borderRadius: "{radii.xs}",
+            borderRadius: "{radii.md}",
+            overflow: "hidden",
             boxShadow: "{shadows.lg}",
             outline: "none",
-            "&[data-mode=hover]": { pointerEvents: "none", zIndex: "1200" },
-            "&[data-tone]::before": {
-                content: '""',
-                position: "absolute",
-                left: "-1px",
-                right: "-1px",
-                top: "-1px",
-                height: "2px",
-                borderTopLeftRadius: "{radii.xs}",
-                borderTopRightRadius: "{radii.xs}",
-            },
-            "&[data-tone=success]::before": { background: "{colors.status.pos}" },
-            "&[data-tone=warning]::before": { background: "{colors.status.warn}" },
-            "&[data-tone=danger]::before": { background: "{colors.status.neg}" },
-            "&[data-tone=info]::before": { background: "{colors.brand.600}" },
-            "&[data-tone=neutral]::before": { background: "border.strong", opacity: 0.45 },
+            "&[data-mode=hover]": { pointerEvents: "none" },
+            "&[data-tone]": { borderLeftWidth: "3px" },
+            "&[data-tone=success]": { borderLeftColor: "{colors.status.pos}" },
+            "&[data-tone=warning]": { borderLeftColor: "{colors.status.warn}" },
+            "&[data-tone=danger]": { borderLeftColor: "{colors.status.neg}" },
+            "&[data-tone=info]": { borderLeftColor: "{colors.brand.600}" },
+            "&[data-tone=neutral]": { borderLeftColor: "border.strong" },
         },
-        /* Inherited head — the card face's icon / name / sub / pill. */
+        /* Inherited head — the card face's icon / name / sub / pill on
+         * the Card header treatment (canvas fill + bottom hairline). */
         popHead: {
             display: "flex",
             alignItems: "flex-start",
             gap: "9px",
-            paddingX: "11px",
-            paddingY: "9px",
+            paddingX: "12px",
+            paddingY: "10px",
+            background: "bg.canvas",
             borderBottomWidth: "1px",
             borderBottomColor: "border.subtle",
         },
@@ -283,8 +274,8 @@ export const deckSlotRecipe = defineSlotRecipe({
             flex: "1 1 auto",
             minHeight: 0,
             overflowY: "auto",
-            paddingX: "11px",
-            paddingY: "9px",
+            paddingX: "12px",
+            paddingY: "10px",
         },
         popClose: {
             display: "inline-flex",

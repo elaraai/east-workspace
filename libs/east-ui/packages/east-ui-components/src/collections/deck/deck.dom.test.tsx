@@ -119,12 +119,13 @@ describe("EastChakraDeck interaction surface", () => {
         fireEvent.click(await screen.findByLabelText("Close"));
         await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
         expect(onClose).toHaveBeenCalledTimes(2);
-        // Reopen and close by clicking outside the popover.
+        // Reopen and close by clicking outside the popover (the machine's
+        // interact-outside tracks pointerdown).
         fireEvent.click(screen.getByText("Card a").closest("[role=button]")!);
         await screen.findByRole("dialog");
-        fireEvent.mouseDown(document.body);
+        fireEvent.pointerDown(document.body);
         await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-        expect(onClose).toHaveBeenCalledTimes(3);
+        await waitFor(() => expect(onClose).toHaveBeenCalledTimes(3));
     });
 
     test("cards without popover content don't open one but still report clicks", async () => {
