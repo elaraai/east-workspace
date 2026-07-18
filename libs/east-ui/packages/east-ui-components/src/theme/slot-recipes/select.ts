@@ -73,7 +73,7 @@ export const selectSlotRecipe = defineSlotRecipe({
             _coarse: { minHeight: "44px" },
             _hover: { background: "bg.subtle" },
             _highlighted: { background: "bg.subtle" },
-            _selected: { color: "{colors.brand.700}" },
+            _selected: { color: "brand.fg" },
         },
         itemGroupLabel: {
             textStyle: "caption.eyebrow",

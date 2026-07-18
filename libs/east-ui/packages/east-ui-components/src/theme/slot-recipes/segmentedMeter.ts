@@ -25,7 +25,7 @@ export const segmentedMeterSlotRecipe = defineSlotRecipe({
             gap: "2px",
             borderRadius: "1px",
             overflow: "hidden",
-            background: "{colors.gray.100}",
+            background: "bg.subtle",
         },
         segment: { height: "100%", borderRadius: "1px" },
         keyRow: {

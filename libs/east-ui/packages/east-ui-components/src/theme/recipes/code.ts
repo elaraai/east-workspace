@@ -19,7 +19,7 @@ export const codeRecipe = defineRecipe({
     base: {
         fontFamily: "mono",
         fontSize: "0.92em",
-        background: "{colors.gray.100}",
+        background: "bg.subtle",
         color: "fg",
         borderRadius: "{radii.sm}",
         paddingX: "5px",
@@ -27,7 +27,7 @@ export const codeRecipe = defineRecipe({
     },
     variants: {
         variant: {
-            subtle:  { background: "{colors.gray.100}",  color: "fg" },
+            subtle:  { background: "bg.subtle",  color: "fg" },
             outline: { background: "transparent", borderWidth: "1px", borderColor: "border.strong", color: "fg" },
             plain:   { background: "transparent", color: "fg" },
             surface: { background: "bg.muted", color: "fg" },

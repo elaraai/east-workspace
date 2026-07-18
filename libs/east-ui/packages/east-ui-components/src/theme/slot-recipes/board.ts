@@ -142,7 +142,7 @@ export const boardSlotRecipe = defineSlotRecipe({
                 background: "bg.brand.subtle",
                 borderColor: "{colors.brand.600}",
                 borderStyle: "dashed",
-                color: "{colors.brand.700}",
+                color: "brand.fg",
                 fontWeight: "600",
             },
             /* Removed — a proposed unassignment; struck, never worded. */
@@ -223,7 +223,7 @@ export const boardSlotRecipe = defineSlotRecipe({
             transition: "border-color {durations.fast}, color {durations.fast}",
             "&:hover": {
                 borderColor: "{colors.brand.600}",
-                color: "{colors.brand.700}",
+                color: "brand.fg",
             },
         },
         /* The `+N` chip collapsing a cell past `maxVisible`. */

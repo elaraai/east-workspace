@@ -166,7 +166,7 @@ export const sliceEditSlotRecipe = defineSlotRecipe({
             borderRadius: "{radii.sm}",
             color: "fg.muted",
         },
-        clauseField: { color: "{colors.brand.700}", fontWeight: "semibold", whiteSpace: "nowrap" },
+        clauseField: { color: "brand.fg", fontWeight: "semibold", whiteSpace: "nowrap" },
         clauseOp: { color: "fg.subtle" },
         clauseVal: { color: "fg", fontWeight: "semibold" },
 

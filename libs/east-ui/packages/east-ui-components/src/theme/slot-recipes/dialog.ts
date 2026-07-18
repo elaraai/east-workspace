@@ -87,7 +87,7 @@ export const dialogSlotRecipe = defineSlotRecipe({
         description: {
             fontSize: "13.5px",
             lineHeight: "1.55",
-            color: "{colors.brand.700}",
+            color: "brand.fg",
             margin: "0",
             marginBottom: "16px",
         },

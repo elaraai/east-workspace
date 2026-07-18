@@ -240,7 +240,7 @@ export const librarySlotRecipe = defineSlotRecipe({
             "&[data-tone=success]": { background: "bg.success.subtle", color: "fg.success" },
             "&[data-tone=warning]": { background: "bg.warning.subtle", color: "fg.warning" },
             "&[data-tone=danger]": { background: "bg.danger.subtle", color: "fg.danger" },
-            "&[data-tone=info]": { background: "bg.brand.subtle", color: "{colors.brand.700}" },
+            "&[data-tone=info]": { background: "bg.brand.subtle", color: "brand.fg" },
             "&[data-tone=neutral]": { background: "bg.subtle", color: "fg.muted" },
         },
         meter: {

@@ -34,8 +34,9 @@ import {
     Box, chakra, Drawer, Flex, Heading, Input, InputGroup, Kbd, Portal, Text, useSlotRecipe,
 } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faMagnifyingGlass, faChevronLeft, faChevronRight, faBars, faXmark } from "@fortawesome/free-solid-svg-icons";
+import { faMagnifyingGlass, faChevronLeft, faChevronRight, faBars, faXmark, faMoon, faSun } from "@fortawesome/free-solid-svg-icons";
 import { LogoCollapsed, LogoFull } from "./components/ElaraLogo";
+import { useThemeMode } from "./theme-mode";
 import { DocList, type DocScrollTarget } from "./components/DocList";
 import { catalog, navSections, type CatalogEntry } from "./catalog";
 import { ALL_PAGES, SECTION_EAST } from "./showcase-config";
@@ -417,21 +418,26 @@ function Header({
                 </Box>
                 {/* Desktop search keeps its spec position; mobile search moves
                   * to its own full-width row below (the coarse 44px input
-                  * floor doesn't fit the 28px breadcrumb line). */}
-                <Box ml="auto" hideBelow="md">
-                    <InputGroup
-                        maxW="280px"
-                        startElement={<FontAwesomeIcon icon={faMagnifyingGlass} />}
-                        endElement={<Kbd>⌘K</Kbd>}
-                    >
-                        <Input
-                            size="sm"
-                            placeholder="Search examples"
-                            value={search}
-                            onChange={(e) => onSearch(e.target.value)}
-                        />
-                    </InputGroup>
-                </Box>
+                  * floor doesn't fit the 28px breadcrumb line). The theme
+                  * toggle (#362) rides the same right-aligned cluster on
+                  * every viewport. */}
+                <Flex ml="auto" align="center" gap="2" flexShrink={0}>
+                    <Box hideBelow="md">
+                        <InputGroup
+                            maxW="280px"
+                            startElement={<FontAwesomeIcon icon={faMagnifyingGlass} />}
+                            endElement={<Kbd>⌘K</Kbd>}
+                        >
+                            <Input
+                                size="sm"
+                                placeholder="Search examples"
+                                value={search}
+                                onChange={(e) => onSearch(e.target.value)}
+                            />
+                        </InputGroup>
+                    </Box>
+                    <ThemeToggle />
+                </Flex>
             </Flex>
 
             {/* Row 2 — surface title left · state eyebrow right · 36 px tall */}
@@ -458,6 +464,18 @@ function Header({
                 </InputGroup>
             </Box>
         </Box>
+    );
+}
+
+/** Sun/moon colour-mode flip (#362) — Chakra v3 class-based dark mode. */
+function ThemeToggle() {
+    const [mode, toggle] = useThemeMode();
+    return (
+        <ToggleButton
+            aria-label={mode === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            onClick={toggle}
+            icon={mode === "dark" ? faSun : faMoon}
+        />
     );
 }
 

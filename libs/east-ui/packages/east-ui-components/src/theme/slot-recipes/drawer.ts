@@ -72,7 +72,7 @@ export const drawerSlotRecipe = defineSlotRecipe({
         description: {
             fontSize: "13.5px",
             lineHeight: "1.55",
-            color: "{colors.brand.700}",
+            color: "brand.fg",
             marginTop: "{spacing.1}",
         },
         // Body padding + fill-height are owned inline by the renderer

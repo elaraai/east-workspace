@@ -29,10 +29,15 @@ import { encodeBeast2For, FloatType, IntegerType } from "@elaraai/east";
 import type { DatasetDef, FunctionDef, RecordDef, MutationDef } from "@elaraai/e3";
 import type { TreePath } from "@elaraai/e3-types";
 import { App } from "./App";
+import { applyTheme, resolveInitialTheme } from "./theme-mode";
 import { catalog, e3ExampleModules } from "./catalog";
 import { codeBlockAdapter } from "./components/PatternEntry";
 import { IsolatedFileView } from "./components/IsolatedFileView";
 import { AppErrorBoundary } from "./components/ErrorOverlay";
+
+/* Stamp the colour mode onto <html> before anything renders (#362) —
+ * `?theme=dark` must also govern the `?file=` isolated snapshot views. */
+applyTheme(resolveInitialTheme());
 
 const store = new UIStore();
 

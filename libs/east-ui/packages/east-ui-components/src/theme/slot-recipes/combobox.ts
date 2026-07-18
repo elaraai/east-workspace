@@ -78,7 +78,7 @@ export const comboboxSlotRecipe = defineSlotRecipe({
             _coarse: { minHeight: "44px" },
             _hover: { background: "bg.subtle" },
             _highlighted: { background: "bg.subtle" },
-            _selected: { color: "{colors.brand.700}" },
+            _selected: { color: "brand.fg" },
         },
         itemGroupLabel: { textStyle: "caption.eyebrow", paddingX: "{spacing.3}", paddingY: "{spacing.2}" },
         label: { textStyle: "caption.eyebrow", marginBottom: "{spacing.1}" },

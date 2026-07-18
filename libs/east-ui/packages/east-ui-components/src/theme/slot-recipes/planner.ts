@@ -51,7 +51,7 @@ export const plannerSlotRecipe = defineSlotRecipe({
             fontWeight: "semibold",
             letterSpacing: "0.18em",
             textTransform: "uppercase",
-            color: "{colors.gray.500}",
+            color: "fg.subtle",
             padding: "10px 14px",
             display: "flex",
             alignItems: "center",
@@ -70,7 +70,7 @@ export const plannerSlotRecipe = defineSlotRecipe({
             fontWeight: "semibold",
             letterSpacing: "0.18em",
             textTransform: "uppercase",
-            color: "{colors.gray.500}",
+            color: "fg.subtle",
             padding: "10px 4px",
             position: "relative",
             display: "flex",
@@ -96,7 +96,7 @@ export const plannerSlotRecipe = defineSlotRecipe({
             fontWeight: "bold",
             letterSpacing: "0.16em",
             textTransform: "uppercase",
-            color: "{colors.gray.600}",
+            color: "fg.muted",
             display: "flex",
             alignItems: "center",
             // A group head is still a row — it carries the same bottom rule.
@@ -139,7 +139,7 @@ export const plannerSlotRecipe = defineSlotRecipe({
         rowHeaderSub: {
             fontFamily: "mono",
             fontSize: "10px",
-            color: "{colors.gray.500}",
+            color: "fg.subtle",
             marginTop: "2px",
             whiteSpace: "nowrap",
             overflow: "hidden",
@@ -162,7 +162,8 @@ export const plannerSlotRecipe = defineSlotRecipe({
         bucketedCell: { display: "grid", gap: "2px", padding: "2px", gridAutoFlow: "row", alignItems: "stretch" },
         bucket: {
             position: "relative",
-            background: "rgba(0,0,0,0.02)",
+            /* fg-derived so the barely-there veil flips with the mode (#362). */
+            background: "color-mix(in srgb, {colors.fg} 3%, transparent)",
             borderRadius: "2px",
             display: "flex",
             alignItems: "center",
@@ -176,7 +177,7 @@ export const plannerSlotRecipe = defineSlotRecipe({
             fontSize: "8.5px",
             letterSpacing: "0.12em",
             textTransform: "uppercase",
-            color: "{colors.gray.600}",
+            color: "fg.muted",
             fontWeight: "bold",
             flexShrink: 0,
             // Wide enough for the 3-glyph "N/A" orphan-lane label so every lane's
@@ -266,7 +267,7 @@ export const plannerSlotRecipe = defineSlotRecipe({
             cursor: "help",
             zIndex: 3,
         },
-        axis: { fontFamily: "mono", fontSize: "11px", letterSpacing: "0.18em", textTransform: "uppercase", color: "{colors.gray.500}" },
+        axis: { fontFamily: "mono", fontSize: "11px", letterSpacing: "0.18em", textTransform: "uppercase", color: "fg.subtle" },
         // (Review decision-column chrome — `decisionHeader` / `decisionCol` /
         // `statusDot` — moved to the shared `reviewChrome` slot recipe so every
         // review adopter wears identical chrome. The foot stays on `commitBar`.)
@@ -309,20 +310,20 @@ export const plannerSlotRecipe = defineSlotRecipe({
                 event: { background: "{colors.brand.700}", color: "{colors.white}", borderColor: "{colors.brand.700}" },
             },
             proposedAdded: {
-                event: { background: "{colors.brandTint}", color: "{colors.brand.700}", borderColor: "{colors.brand.600}", borderStyle: "dashed", cursor: "grab" },
+                event: { background: "{colors.brandTint}", color: "brand.fg", borderColor: "{colors.brand.600}", borderStyle: "dashed", cursor: "grab" },
             },
             proposedModel: {
-                event: { background: "transparent", color: "{colors.brand.700}", borderColor: "{colors.brand.600}", borderStyle: "dashed", fontStyle: "italic", cursor: "grab" },
+                event: { background: "transparent", color: "brand.fg", borderColor: "{colors.brand.600}", borderStyle: "dashed", fontStyle: "italic", cursor: "grab" },
             },
             proposedRemoved: {
                 event: {
                     // Diagonal stripe (spec `.evt-proposed.removed`): brand-tint with a thin neg-tinted hatch.
                     backgroundImage: "repeating-linear-gradient(45deg, {colors.brandTint} 0 4px, rgba(184,90,74,0.10) 4px 5px)",
-                    color: "{colors.gray.600}", borderColor: "{colors.brand.600}", borderStyle: "dashed", textDecoration: "line-through",
+                    color: "fg.muted", borderColor: "{colors.brand.600}", borderStyle: "dashed", textDecoration: "line-through",
                 },
             },
             rejected: {
-                event: { background: "transparent", color: "{colors.gray.500}", borderColor: "{colors.gray.400}", textDecoration: "line-through" },
+                event: { background: "transparent", color: "fg.subtle", borderColor: "{colors.gray.400}", textDecoration: "line-through" },
             },
         },
         // Conflict severity — colours the ring border + badge fill. (The review

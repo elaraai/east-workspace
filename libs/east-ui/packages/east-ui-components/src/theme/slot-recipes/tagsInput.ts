@@ -46,7 +46,7 @@ export const tagsInputSlotRecipe = defineSlotRecipe({
             background: "{colors.brandTint}",
             borderWidth: "1px",
             borderColor: "{colors.brand.500}",
-            color: "{colors.brand.700}",
+            color: "brand.fg",
             borderRadius: "{radii.sm}",
             paddingInline: "10px",
             paddingBlock: "4px",

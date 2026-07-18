@@ -32,7 +32,7 @@ export const reviewChromeSlotRecipe = defineSlotRecipe({
             fontWeight: "semibold",
             letterSpacing: "0.18em",
             textTransform: "uppercase",
-            color: "{colors.gray.500}",
+            color: "fg.subtle",
             padding: "10px 12px",
             display: "flex",
             alignItems: "center",

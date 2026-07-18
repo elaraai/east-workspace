@@ -39,7 +39,10 @@ export const tableSlotRecipe = defineSlotRecipe({
             letterSpacing: "{letterSpacings.wider2}",
             textTransform: "uppercase",
             color: "fg.subtle",
-            background: "bg.canvas",
+            /* Same gray.50 as canvas in light; in dark, canvas (gray.900) is
+             * DARKER than the surface the table sits on, so the header band
+             * read as a hole — panel tracks the surface level (#362). */
+            background: "bg.panel",
             paddingX: "14px",
             paddingY: "10px",
             borderBottomWidth: "1px",

@@ -63,7 +63,7 @@ export const accordionSlotRecipe = defineSlotRecipe({
             fontWeight: "semibold",
             letterSpacing: "0.14em",
             textTransform: "uppercase",
-            color: "{colors.gray.600}",
+            color: "fg.muted",
             "[data-state=open] &": {
                 color: "{colors.brand.900}",
             },
@@ -76,7 +76,7 @@ export const accordionSlotRecipe = defineSlotRecipe({
             fontWeight: "normal",
             letterSpacing: "normal",
             textTransform: "none",
-            color: "{colors.gray.500}",
+            color: "fg.subtle",
         },
         itemIndicator: {
             color: "fg.subtle",

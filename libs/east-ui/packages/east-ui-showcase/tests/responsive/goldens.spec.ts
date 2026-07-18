@@ -20,8 +20,11 @@ import { test, expect } from "playwright/test";
 import { catalogPathKeys } from "./routes";
 
 for (const key of catalogPathKeys()) {
-    test(`golden ${key}`, async ({ page }) => {
-        await page.goto(`/#${encodeURIComponent(key)}`);
+    test(`golden ${key}`, async ({ page }, testInfo) => {
+        // The `dark` project selects the colour mode via the query param the
+        // showcase resolves before first render (theme-mode.ts, #362).
+        const theme = testInfo.project.name === "dark" ? "?theme=dark" : "";
+        await page.goto(`/${theme}#${encodeURIComponent(key)}`);
         await page.waitForSelector("header", { timeout: 20_000 });
         // Webfonts must be resolved before any capture — a late-loading body
         // font renders one run's text in the fallback face (a pure text-diff

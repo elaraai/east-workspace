@@ -107,7 +107,7 @@ export const rosterSlotRecipe = defineSlotRecipe({
                 background: "bg.brand.subtle",
                 borderColor: "{colors.brand.600}",
                 borderStyle: "dashed",
-                color: "{colors.brand.700}",
+                color: "brand.fg",
                 fontWeight: "600",
             },
             /* Removed — a proposed deletion of a committed shift. */

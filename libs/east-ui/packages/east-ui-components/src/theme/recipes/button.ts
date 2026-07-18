@@ -64,12 +64,14 @@ export const buttonRecipe = defineRecipe({
         "&[data-group-item]:hover, &[data-group-item]:focus-visible": {
             zIndex: 1,
         },
+        /* `bg.emphasized` keeps the light look (gray.200) and stays a muted
+         * slab in dark (gray.600) instead of a washed light block (#362). */
         _disabled: {
-            background: "{colors.gray.200}",
+            background: "bg.emphasized",
             color: "fg.muted",
             cursor: "not-allowed",
             boxShadow: "none",
-            _hover: { background: "{colors.gray.200}" },
+            _hover: { background: "bg.emphasized" },
         },
         _active: {
             transform: "scale(0.98)",

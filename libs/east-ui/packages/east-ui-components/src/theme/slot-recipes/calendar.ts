@@ -85,13 +85,16 @@ export const calendarSlotRecipe = defineSlotRecipe({
             color: "fg",
             /* Brand intensity ramp — text flips to the on-tint ink in the
              * upper steps for contrast. */
-            "&[data-level='0']": { background: "{colors.brand.50}" },
-            "&[data-level='1']": { background: "{colors.brand.100}" },
-            "&[data-level='2']": { background: "{colors.brand.200}" },
-            "&[data-level='3']": { background: "{colors.brand.300}" },
-            "&[data-level='4']": { background: "{colors.brand.500}", color: "{colors.white}" },
-            "&[data-level='5']": { background: "{colors.brand.600}", color: "{colors.white}" },
-            "&[data-level='6']": { background: "{colors.brand.700}", color: "{colors.white}" },
+            /* Dark flips the ramp direction: on a dark surface intensity must
+             * climb toward BRIGHT teal (the light brand.50–300 steps would
+             * glare near-white), and the top steps take dark ink (#362). */
+            "&[data-level='0']": { background: "{colors.brand.50}", _dark: { background: "#233436" } },
+            "&[data-level='1']": { background: "{colors.brand.100}", _dark: { background: "#2b464c" } },
+            "&[data-level='2']": { background: "{colors.brand.200}", _dark: { background: "#366066" } },
+            "&[data-level='3']": { background: "{colors.brand.300}", _dark: { background: "#427d85" } },
+            "&[data-level='4']": { background: "{colors.brand.500}", color: "{colors.white}", _dark: { background: "#58a2ab", color: "{colors.brand.900}" } },
+            "&[data-level='5']": { background: "{colors.brand.600}", color: "{colors.white}", _dark: { background: "#74c3ca", color: "{colors.brand.900}" } },
+            "&[data-level='6']": { background: "{colors.brand.700}", color: "{colors.white}", _dark: { background: "#97dde2", color: "{colors.brand.900}" } },
             "&[data-empty]": { background: "bg.panel", color: "fg.subtle", cursor: "default" },
             "&[data-selected]": {
                 outline: "2px solid",

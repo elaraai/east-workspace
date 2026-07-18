@@ -136,10 +136,12 @@ export const segmentGroupSlotRecipe = defineSlotRecipe({
                     _checked: {
                         background: "{colors.brand.100}",
                         color: "{colors.brand.700}",
+                        _dark: { background: "{colors.brand.800}", color: "{colors.brand.300}" },
                     },
                     "&[data-state=checked]": {
                         background: "{colors.brand.100}",
                         color: "{colors.brand.700}",
+                        _dark: { background: "{colors.brand.800}", color: "{colors.brand.300}" },
                     },
                 },
             },

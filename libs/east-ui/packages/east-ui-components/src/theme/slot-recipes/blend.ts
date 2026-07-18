@@ -60,7 +60,7 @@ export const blendSlotRecipe = defineSlotRecipe({
             fontFamily: "mono",
             fontSize: "10px",
             fontWeight: "700",
-            color: "{colors.brand.700}",
+            color: "brand.fg",
             background: "{colors.brandTint}",
             paddingX: "{spacing.1.5}",
             borderRadius: "{radii.xs}",
@@ -98,14 +98,20 @@ export const blendSlotRecipe = defineSlotRecipe({
             "&[data-state=added]": {
                 background: "{colors.brand.200}",
                 backgroundImage: "repeating-linear-gradient(135deg, transparent 0 4px, {colors.brand.300} 4px 6px)",
+                /* Light cyan tints glare on dark — flip to the deep-teal end
+                 * of the same family (#362). */
+                _dark: {
+                    background: "{colors.brand.800}",
+                    backgroundImage: "repeating-linear-gradient(135deg, transparent 0 4px, {colors.brand.600} 4px 6px)",
+                },
             },
             "&[data-state=removed]": {
                 background: "bg.warning.subtle",
                 backgroundImage: "repeating-linear-gradient(135deg, transparent 0 4px, {colors.status.warn} 4px 5px)",
                 opacity: "0.7",
             },
-            "&[data-state=model]": { background: "{colors.brand.100}" },
-            "& + &": { borderLeftWidth: "1px", borderLeftColor: "{colors.white}" },
+            "&[data-state=model]": { background: "{colors.brand.100}", _dark: { background: "{colors.brand.700}" } },
+            "& + &": { borderLeftWidth: "1px", borderLeftColor: "{colors.bg.surface}" },
         },
         headroom: {
             height: "100%",

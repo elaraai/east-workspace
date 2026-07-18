@@ -34,7 +34,7 @@ export const kbdRecipe = defineRecipe({
     variants: {
         variant: {
             flat: {
-                background: "{colors.gray.100}",
+                background: "bg.subtle",
                 borderWidth: "1px",
                 borderColor: "border.strong",
                 color: "fg",
@@ -46,12 +46,12 @@ export const kbdRecipe = defineRecipe({
                 color: "fg",
             },
             subtle: {
-                background: "{colors.gray.100}",
+                background: "bg.subtle",
                 borderWidth: "0",
                 color: "fg",
             },
             raised: {
-                background: "{colors.gray.100}",
+                background: "bg.subtle",
                 borderWidth: "1px",
                 borderColor: "border.strong",
                 color: "fg",

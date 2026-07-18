@@ -34,7 +34,7 @@ export const hoverCardSlotRecipe = defineSlotRecipe({
         },
         arrow: {
             "--arrow-size": "12px",
-            "--arrow-background": "colors.white",
+            "--arrow-background": "colors.bg.surface",
             "--arrow-shadow-color": "colors.gray.300",
         },
         arrowTip: {

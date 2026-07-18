@@ -34,7 +34,7 @@ export const breadcrumbSlotRecipe = defineSlotRecipe({
             cursor: "pointer",
             transitionProperty: "color",
             transitionDuration: "{durations.fast}",
-            _hover: { color: "{colors.brand.700}", textDecoration: "none" },
+            _hover: { color: "link.hover", textDecoration: "none" },
         },
         currentLink: {
             fontFamily: "mono",
@@ -44,7 +44,7 @@ export const breadcrumbSlotRecipe = defineSlotRecipe({
             fontWeight: "semibold",
         },
         separator: {
-            color: "{colors.gray.500}",
+            color: "fg.subtle",
             marginX: "0",
             fontFamily: "mono",
             fontSize: "11px",

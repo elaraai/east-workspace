@@ -188,7 +188,7 @@ export const deckSlotRecipe = defineSlotRecipe({
             flexShrink: 0,
             borderRadius: "{radii.xs}",
             background: "bg.brand.subtle",
-            color: "{colors.brand.700}",
+            color: "brand.fg",
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",

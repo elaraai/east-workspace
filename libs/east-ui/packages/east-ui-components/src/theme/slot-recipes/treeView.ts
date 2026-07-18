@@ -53,8 +53,8 @@ export const treeViewSlotRecipe = defineSlotRecipe({
             /* Touch (#346). */
             _coarse: { minHeight: "44px" },
             _hover: { background: "bg.subtle" },
-            _selected: { background: "bg.brand.subtle", color: "{colors.brand.700}" },
-            "&[data-selected]": { background: "bg.brand.subtle", color: "{colors.brand.700}" },
+            _selected: { background: "bg.brand.subtle", color: "brand.fg" },
+            "&[data-selected]": { background: "bg.brand.subtle", color: "brand.fg" },
         },
         itemText: { fontSize: "{fontSizes.control}" },
     },

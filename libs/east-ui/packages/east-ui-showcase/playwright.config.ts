@@ -52,6 +52,18 @@ export default defineConfig({
             use: { viewport: { width: 1280, height: 800 } },
         },
         {
+            /* Dark-mode goldens (#362): the same catalog sweep with the
+             * showcase forced dark via `?theme=dark` (class-based Chakra v3
+             * colour mode — see theme-mode.ts). `colorScheme` keeps native
+             * chrome (scrollbars, form controls) consistent with the page. */
+            name: "dark",
+            // Goldens only: the catalog/shell behaviour sweeps are
+            // colour-mode-independent (and shell.spec keys "mobile" off the
+            // project name).
+            testMatch: /goldens\.spec\.ts/,
+            use: { viewport: { width: 1280, height: 800 }, colorScheme: "dark" },
+        },
+        {
             name: "mobile",
             use: {
                 viewport: { width: 390, height: 844 },

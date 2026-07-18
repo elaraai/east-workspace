@@ -48,10 +48,10 @@ export const avatarSlotRecipe = defineSlotRecipe({
         variant: {
             subtle: {
                 root: {
-                    background: "{colors.gray.100}",
-                    color: "{colors.brand.700}",
+                    background: "bg.subtle",
+                    color: "brand.fg",
                     borderWidth: "1px",
-                    borderColor: "{colors.gray.200}",
+                    borderColor: "border.subtle",
                 },
             },
             brand: {

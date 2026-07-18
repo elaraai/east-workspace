@@ -234,7 +234,7 @@ export const schematicSlotRecipe = defineSlotRecipe({
             height: "10px",
             borderRadius: "{radii.full}",
             borderWidth: "1.5px",
-            borderColor: "{colors.white}",
+            borderColor: "{colors.bg.surface}",
             cursor: "pointer",
             boxShadow: "0 0 0 1px color-mix(in oklch, {colors.fg} 18%, transparent)",
             "&[data-tone=success]": { background: "{colors.status.pos}" },
@@ -584,7 +584,7 @@ export const schematicSlotRecipe = defineSlotRecipe({
             overflow: "hidden",
             textOverflow: "ellipsis",
             flex: "1",
-            "&:hover": { color: "{colors.brand.700}" },
+            "&:hover": { color: "brand.fg" },
             "[data-current] &": { color: "fg" },
         },
         navCount: {
@@ -614,7 +614,7 @@ export const schematicSlotRecipe = defineSlotRecipe({
             textAlign: "left",
             whiteSpace: "nowrap",
             overflow: "hidden",
-            "&:hover": { color: "{colors.brand.700}" },
+            "&:hover": { color: "brand.fg" },
             "&[data-selected]": { color: "fg", fontWeight: "600" },
         },
         navMetric: {
