@@ -14,21 +14,26 @@
  * is set), with the expand-set and top visible row persisted per
  * `storageKey` — the Table discipline (#143).
  *
- * Editing is leaf-type-aware: leaves mount the typed `forms/input`
- * renderers (host-constructed decoded payloads — the ClauseBuilder
- * trick), booleans a Checkbox, variant tags the shared Select; arrays
- * and string-keyed dicts get add / remove controls and options a
- * set / clear toggle. Every edit reports a typed path through the
+ * The surface is written for END USERS, not developers: struct field
+ * names are humanized ("flowRate" → "Flow rate"), array elements carry
+ * content-derived titles ("Press", not "[0]"), struct rows preview
+ * their leaf values ("Press · 2.5 · Running"), options read "Not set"
+ * with a Set/Clear affordance, and expanded collections end in an
+ * "Add item" / "Add entry" ghost row. Editing is leaf-type-aware: leaves
+ * mount the typed `forms/input` renderers (host-constructed decoded
+ * payloads — the ClauseBuilder trick), booleans a Checkbox, variant tags
+ * the shared Select. Every edit reports a typed path through the
  * payload's `onEdit` / `onInsert` / `onRemove` / `onTag` callbacks —
  * the host owns the data and re-materializes. Without callbacks the
- * tree is a read-only inspector.
+ * tree is a read-only inspector. Arrow keys walk the rows (Right/Left
+ * expand/collapse, Enter/Space toggle) with roving tab index.
  */
 
-import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Box, chakra, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronDown, faChevronRight, faMinus, faPlus, faXmark } from "@fortawesome/free-solid-svg-icons";
-import { equalFor, some, variant, none, type ValueTypeOf } from "@elaraai/east";
+import { equalFor, some, none, variant, type ValueTypeOf } from "@elaraai/east";
 import { ValueTree } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { usePersistedState } from "../../hooks/usePersistedState";
@@ -70,6 +75,8 @@ const ROW_H = 32;
 const DEFAULT_OPEN_DEPTH = 2;
 /** Indent per depth level (px). */
 const INDENT = 18;
+/** Leaf preview parts a struct row surfaces. */
+const PREVIEW_PARTS = 3;
 
 interface ValueTreePersisted {
     open: Record<string, boolean>;
@@ -86,12 +93,14 @@ interface TreeCallbacks {
 
 interface RowModel {
     id: string;
+    parentId: string | undefined;
     depth: number;
     label: string;
     kind: "leaf" | "opaque" | "struct" | "array" | "dict" | "emptyOption" | "appendArray" | "appendDict";
     leaf: ValueTreeLeafValue | undefined;
     opaque: string | undefined;
-    childCount: number;
+    /** Muted value-cell text for branches (preview / counts / "Not set"). */
+    summary: string | undefined;
     /** Path to the resolved node — the edit / insert target. */
     path: ValueTreeStepValue[];
     /** Path of the row's own binding step — the remove target. */
@@ -101,6 +110,10 @@ interface RowModel {
     removable: boolean;
     expandable: boolean;
     expanded: boolean;
+    /** 1-based position among rendered siblings (aria-posinset). */
+    posinset: number;
+    /** Rendered sibling count (aria-setsize). */
+    setsize: number;
 }
 
 function pathKey(steps: ValueTreeStepValue[]): string {
@@ -113,6 +126,17 @@ function pathKey(steps: ValueTreeStepValue[]): string {
         else out += "!";
     }
     return out === "" ? "$" : out;
+}
+
+/** "flowRate" / "flow_rate" → "Flow rate" — end-user field labels.
+ *  Dict keys are user data and stay verbatim. */
+function humanize(name: string): string {
+    const spaced = name
+        .replace(/[_-]+/g, " ")
+        .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+        .trim();
+    if (spaced === "") return name;
+    return spaced.charAt(0).toUpperCase() + spaced.slice(1).toLowerCase();
 }
 
 interface ResolvedNode {
@@ -167,83 +191,21 @@ function resolveNode(raw: ValueTreeNodeValue, rawPath: ValueTreeStepValue[]): Re
     };
 }
 
-interface ChildEntry {
-    label: string;
-    node: ValueTreeNodeValue;
-    step: ValueTreeStepValue;
-}
-
-function childrenOf(node: ValueTreeNodeValue): ChildEntry[] {
-    if (node.type === "struct") {
-        return node.value.fields.map(f => ({ label: f.name, node: f.node, step: variant("field", f.name) }));
-    }
-    if (node.type === "array") {
-        return node.value.items.map((n, i) => ({ label: `[${i}]`, node: n, step: variant("index", BigInt(i)) }));
-    }
-    if (node.type === "dict") {
-        return node.value.entries.map(e => ({ label: e.key, node: e.node, step: variant("key", e.key) }));
-    }
-    return [];
-}
-
-/** Flattens the visible (expanded) rows of the tree, depth-first. */
-function flattenRows(
-    root: ValueTreeNodeValue,
-    open: Record<string, boolean>,
-    canRemove: boolean,
-    canInsert: boolean,
-): RowModel[] {
-    const rows: RowModel[] = [];
-    const visit = (
-        label: string,
-        raw: ValueTreeNodeValue,
-        rawPath: ValueTreeStepValue[],
-        depth: number,
-        removable: boolean,
-    ): void => {
-        const r = resolveNode(raw, rawPath);
-        const id = pathKey(rawPath);
-        const kids = childrenOf(r.node);
-        const expandable = kids.length > 0;
-        const expanded = expandable && (open[id] ?? depth < DEFAULT_OPEN_DEPTH);
-        rows.push({
-            id, depth, label,
-            kind: r.kind, leaf: r.leaf, opaque: r.opaque,
-            childCount: kids.length,
-            path: r.path, ownPath: rawPath,
-            variantCtl: r.variantCtl, optionCtl: r.optionCtl,
-            removable, expandable, expanded,
-        });
-        if (expanded) {
-            const kidsRemovable = canRemove && (r.kind === "array" || r.kind === "dict");
-            for (const k of kids) {
-                visit(k.label, k.node, [...r.path, k.step], depth + 1, kidsRemovable);
-            }
+/** Unwraps option/variant wrappers to the content node (display only). */
+function contentOf(node: ValueTreeNodeValue): ValueTreeNodeValue {
+    for (;;) {
+        if (node.type === "option") {
+            const inner = getSomeorUndefined(node.value.value);
+            if (inner === undefined) return node;
+            node = inner;
+            continue;
         }
-    };
-    // A compound root lists its children directly (no synthetic top row);
-    // anything else is a single row. A root collection has no own row to
-    // carry the add control, so it appends a trailing add row instead.
-    if (root.type === "struct" || root.type === "array" || root.type === "dict") {
-        const kidsRemovable = canRemove && (root.type === "array" || root.type === "dict");
-        for (const k of childrenOf(root)) {
-            visit(k.label, k.node, [k.step], 0, kidsRemovable);
+        if (node.type === "variant") {
+            node = node.value.value;
+            continue;
         }
-        if (canInsert && (root.type === "array" || root.type === "dict")) {
-            rows.push({
-                id: "$append", depth: 0,
-                label: root.type === "array" ? "Add item" : "Add entry",
-                kind: root.type === "array" ? "appendArray" : "appendDict",
-                leaf: undefined, opaque: undefined, childCount: 0,
-                path: [], ownPath: [],
-                variantCtl: undefined, optionCtl: undefined,
-                removable: false, expandable: false, expanded: false,
-            });
-        }
-    } else {
-        visit("value", root, [], 0, false);
+        return node;
     }
-    return rows;
 }
 
 function fmtLeaf(leaf: ValueTreeLeafValue): string {
@@ -253,18 +215,208 @@ function fmtLeaf(leaf: ValueTreeLeafValue): string {
         case "float": return String(leaf.value);
         case "boolean": return leaf.value ? "true" : "false";
         case "datetime": return leaf.value.toISOString().replace("T", " ").slice(0, 19);
-        default: return "null";
+        default: return "—";
     }
 }
 
-const smInputStyle = some({ size: some(variant("sm", null)) });
+/** One short preview token for a struct field's value, or undefined. */
+function previewPart(node: ValueTreeNodeValue): string | undefined {
+    for (;;) {
+        if (node.type === "option") {
+            const inner = getSomeorUndefined(node.value.value);
+            if (inner === undefined) return undefined;
+            node = inner;
+            continue;
+        }
+        break;
+    }
+    if (node.type === "variant") return humanize(node.value.tag);
+    if (node.type === "leaf") {
+        if (node.value.type === "null") return undefined;
+        const text = fmtLeaf(node.value);
+        return text === "" ? undefined : text;
+    }
+    return undefined;
+}
+
+/** The muted value-cell text for a resolved branch node. */
+function summaryOf(node: ValueTreeNodeValue): string {
+    if (node.type === "struct") {
+        const parts: string[] = [];
+        for (const f of node.value.fields) {
+            const part = previewPart(f.node);
+            if (part !== undefined) parts.push(part);
+            if (parts.length >= PREVIEW_PARTS) break;
+        }
+        if (parts.length > 0) return parts.join(" · ");
+        const n = node.value.fields.length;
+        return n === 0 ? "Empty" : n === 1 ? "1 field" : `${n} fields`;
+    }
+    if (node.type === "array") {
+        const n = node.value.items.length;
+        return n === 0 ? "Empty" : n === 1 ? "1 item" : `${n} items`;
+    }
+    if (node.type === "dict") {
+        const n = node.value.entries.length;
+        return n === 0 ? "Empty" : n === 1 ? "1 entry" : `${n} entries`;
+    }
+    return "";
+}
+
+/** A content-derived title for an array element — its first non-empty
+ *  string leaf (fields searched in order), else "Item N". */
+function itemTitle(node: ValueTreeNodeValue, index: number): string {
+    const content = contentOf(node);
+    if (content.type === "struct") {
+        for (const f of content.value.fields) {
+            const c = contentOf(f.node);
+            if (c.type === "leaf" && c.value.type === "string" && c.value.value !== "") {
+                return c.value.value;
+            }
+        }
+    }
+    return `Item ${index + 1}`;
+}
+
+interface ChildEntry {
+    label: string;
+    node: ValueTreeNodeValue;
+    step: ValueTreeStepValue;
+}
+
+function childrenOf(node: ValueTreeNodeValue): ChildEntry[] {
+    if (node.type === "struct") {
+        return node.value.fields.map(f => ({ label: humanize(f.name), node: f.node, step: variant("field", f.name) }));
+    }
+    if (node.type === "array") {
+        return node.value.items.map((n, i) => ({ label: itemTitle(n, i), node: n, step: variant("index", BigInt(i)) }));
+    }
+    if (node.type === "dict") {
+        return node.value.entries.map(e => ({ label: e.key, node: e.node, step: variant("key", e.key) }));
+    }
+    return [];
+}
+
+/** Flattens the visible (expanded) rows of the tree, depth-first.
+ *  Expanded editable collections end in an append ghost row. */
+function flattenRows(
+    root: ValueTreeNodeValue,
+    open: Record<string, boolean>,
+    canRemove: boolean,
+    canInsert: boolean,
+): RowModel[] {
+    const rows: RowModel[] = [];
+    const appendRow = (
+        parentId: string | undefined,
+        containerPath: ValueTreeStepValue[],
+        kind: "appendArray" | "appendDict",
+        depth: number,
+        posinset: number,
+        setsize: number,
+    ): RowModel => ({
+        id: `${parentId ?? "$"}/$append`,
+        parentId, depth,
+        label: kind === "appendArray" ? "Add item" : "Add entry",
+        kind,
+        leaf: undefined, opaque: undefined, summary: undefined,
+        path: containerPath, ownPath: containerPath,
+        variantCtl: undefined, optionCtl: undefined,
+        removable: false, expandable: false, expanded: false,
+        posinset, setsize,
+    });
+    const visit = (
+        label: string,
+        raw: ValueTreeNodeValue,
+        rawPath: ValueTreeStepValue[],
+        parentId: string | undefined,
+        depth: number,
+        removable: boolean,
+        posinset: number,
+        setsize: number,
+    ): void => {
+        const r = resolveNode(raw, rawPath);
+        const id = pathKey(rawPath);
+        const kids = childrenOf(r.node);
+        const insertable = canInsert && (
+            r.kind === "array" ||
+            (r.kind === "dict" && r.node.type === "dict" && r.node.value.editable)
+        );
+        const expandable = kids.length > 0 || insertable;
+        const expanded = expandable && (open[id] ?? depth < DEFAULT_OPEN_DEPTH);
+        let summary = r.kind === "emptyOption" ? "Not set"
+            : (r.kind === "struct" || r.kind === "array" || r.kind === "dict") ? summaryOf(r.node)
+            : undefined;
+        // A content-derived item title already IS the first preview part —
+        // don't repeat it beside itself.
+        if (summary !== undefined && summary !== label && summary.startsWith(`${label} · `)) {
+            summary = summary.slice(label.length + 3);
+        } else if (summary === label) {
+            summary = undefined;
+        }
+        rows.push({
+            id, parentId, depth, label,
+            kind: r.kind, leaf: r.leaf, opaque: r.opaque, summary,
+            path: r.path, ownPath: rawPath,
+            variantCtl: r.variantCtl, optionCtl: r.optionCtl,
+            removable, expandable, expanded,
+            posinset, setsize,
+        });
+        if (expanded) {
+            const kidsRemovable = canRemove && (
+                r.kind === "array" ||
+                (r.kind === "dict" && r.node.type === "dict" && r.node.value.editable)
+            );
+            const total = kids.length + (insertable ? 1 : 0);
+            kids.forEach((k, i) => {
+                visit(k.label, k.node, [...r.path, k.step], id, depth + 1, kidsRemovable, i + 1, total);
+            });
+            if (insertable) {
+                rows.push(appendRow(
+                    id, r.path,
+                    r.kind === "array" ? "appendArray" : "appendDict",
+                    depth + 1, total, total,
+                ));
+            }
+        }
+    };
+    // A compound root lists its children directly (no synthetic top row);
+    // anything else is a single row. A root collection appends a trailing
+    // add ghost row.
+    if (root.type === "struct" || root.type === "array" || root.type === "dict") {
+        const rootInsertable = canInsert && (
+            root.type === "array" || (root.type === "dict" && root.value.editable)
+        );
+        const kidsRemovable = canRemove && (
+            root.type === "array" || (root.type === "dict" && root.value.editable)
+        );
+        const kids = childrenOf(root);
+        const total = kids.length + (rootInsertable ? 1 : 0);
+        kids.forEach((k, i) => {
+            visit(k.label, k.node, [k.step], undefined, 0, kidsRemovable, i + 1, total);
+        });
+        if (rootInsertable) {
+            rows.push(appendRow(
+                undefined, [],
+                root.type === "array" ? "appendArray" : "appendDict",
+                0, total, total,
+            ));
+        }
+    } else {
+        visit("Value", root, [], undefined, 0, false, 1, 1);
+    }
+    return rows;
+}
+
+// Editors are the compact `xs` size — tree rows are dense lines, not
+// standalone form fields.
+const smInputStyle = some({ size: some(variant("xs", null)) });
 
 /** Fabricate a decoded `Select` payload for the shared select renderer —
  *  the ClauseBuilder trick (decoded-value shape, JS callbacks). */
 function tagSelectValue(tag: string, tags: string[], onChange: (t: string) => void): never {
     return {
         value: some(tag),
-        items: tags.map(t => ({ value: t, label: t, disabled: none })),
+        items: tags.map(t => ({ value: t, label: humanize(t), disabled: none })),
         placeholder: none,
         multiple: none,
         disabled: none,
@@ -315,8 +467,8 @@ function LeafEditor({ leaf, path, onEdit }: {
     }
 }
 
-/** The inline add-entry control for dict rows — the new key is entered in
- *  place (Enter commits as a trailing `key` step, Escape cancels). */
+/** The add-entry affordance for dict append rows — the new key is entered
+ *  in place (Enter commits as a trailing `key` step, Escape cancels). */
 function DictAdd({ path, styles, onInsert }: {
     path: ValueTreeStepValue[];
     styles: SlotStyles;
@@ -325,9 +477,9 @@ function DictAdd({ path, styles, onInsert }: {
     const [keyText, setKeyText] = useState<string | undefined>(undefined);
     if (keyText === undefined) {
         return (
-            <chakra.button type="button" css={styles["ctl"]} aria-label="Add entry"
+            <chakra.button type="button" css={styles["append"]} aria-label="Add entry"
                 onClick={() => setKeyText("")}>
-                <FontAwesomeIcon icon={faPlus} />
+                <FontAwesomeIcon icon={faPlus} /> Add entry
             </chakra.button>
         );
     }
@@ -336,7 +488,7 @@ function DictAdd({ path, styles, onInsert }: {
             css={styles["keyInput"]}
             autoFocus
             value={keyText}
-            placeholder="key"
+            placeholder="name"
             aria-label="New entry key"
             onChange={(e) => setKeyText(e.target.value)}
             onBlur={() => setKeyText(undefined)}
@@ -352,53 +504,77 @@ function DictAdd({ path, styles, onInsert }: {
     );
 }
 
-function Row({ row, styles, cbs, onToggle }: {
+function Row({ row, styles, cbs, tabbable, onToggle, onKeyNav, onFocusRow }: {
     row: RowModel;
     styles: SlotStyles;
     cbs: TreeCallbacks;
+    tabbable: boolean;
     onToggle: (id: string, expanded: boolean) => void;
+    onKeyNav: (rowId: string, key: string) => boolean;
+    onFocusRow: (rowId: string) => void;
 }): ReactNode {
     const { onEdit, onInsert, onRemove, onTag } = cbs;
-    // Trailing add row for a ROOT collection (it has no own row to carry
-    // the add control).
+    const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>): void => {
+        // Never hijack keys typed inside editors / selects on the row.
+        if (e.target !== e.currentTarget) return;
+        if (onKeyNav(row.id, e.key)) e.preventDefault();
+    };
+    // Append ghost row — the collection's add affordance, indented with
+    // its children.
     if ((row.kind === "appendArray" || row.kind === "appendDict") && onInsert !== undefined) {
         return (
             <Box css={styles["row"]} data-part="row" data-row-id={row.id}
+                role="treeitem" aria-level={row.depth + 1}
+                tabIndex={tabbable ? 0 : -1}
+                onKeyDown={handleKeyDown}
+                onFocus={(e) => { if (e.target === e.currentTarget) onFocusRow(row.id); }}
                 style={{ paddingLeft: `${12 + row.depth * INDENT}px` }}>
-            <Box css={styles["twist"]} visibility="hidden" aria-hidden="true" />
+                <Box css={styles["twist"]} visibility="hidden" aria-hidden="true" />
                 {row.kind === "appendArray" ? (
                     <chakra.button type="button" css={styles["append"]} aria-label={row.label}
-                        onClick={() => { void onInsert(row.path); }}>
+                        onClick={() => { void onInsert([...row.path, variant("append", null)]); }}>
                         <FontAwesomeIcon icon={faPlus} /> {row.label}
                     </chakra.button>
                 ) : (
-                    <Box css={styles["append"]}>
-                        <FontAwesomeIcon icon={faPlus} /> {row.label}
-                        <DictAdd path={row.path} styles={styles} onInsert={onInsert} />
-                    </Box>
+                    <DictAdd path={row.path} styles={styles} onInsert={onInsert} />
                 )}
             </Box>
         );
     }
-    // Read-only variants have no tag select — surface the active tag as
-    // text (and drop a null payload's redundant "null").
+    // The variant tag lives in the VALUE CELL: a select when editable,
+    // plain text when read-only — same position either way (and a null
+    // payload's redundant value is dropped).
     const tagText = row.variantCtl !== undefined && onTag === undefined
-        ? <Box as="span" css={styles["summary"]}>{row.variantCtl.tag}</Box>
+        ? <Box as="span" css={styles["summary"]}>{humanize(row.variantCtl.tag)}</Box>
+        : null;
+    const tagSelect = row.variantCtl !== undefined && onTag !== undefined
+        ? (() => {
+            const ctl = row.variantCtl;
+            return (
+                <Box css={styles["tagWrap"]}>
+                    <EastChakraSelect
+                        ariaLabel="Variant tag"
+                        value={tagSelectValue(ctl.tag, ctl.tags, (t) => {
+                            if (t !== ctl.tag) void onTag(ctl.path, t);
+                        })}
+                    />
+                </Box>
+            );
+        })()
         : null;
     let valueCell: ReactNode;
     if (row.kind === "leaf" && row.leaf !== undefined) {
         valueCell = onEdit !== undefined && row.leaf.type !== "null"
             ? <LeafEditor leaf={row.leaf} path={row.path} onEdit={onEdit} />
-            : (tagText !== null && row.leaf.type === "null"
+            : ((tagText !== null || tagSelect !== null) && row.leaf.type === "null"
                 ? null
                 : <Box as="span" css={styles["valueText"]}>{fmtLeaf(row.leaf)}</Box>);
     } else if (row.kind === "opaque") {
         valueCell = <Box as="span" css={styles["opaque"]} title={row.opaque}>{row.opaque}</Box>;
-    } else if (row.kind === "emptyOption") {
-        valueCell = <Box as="span" css={styles["summary"]}>—</Box>;
     } else {
-        const noun = row.kind === "struct" ? "fields" : row.kind === "array" ? "items" : "entries";
-        valueCell = <Box as="span" css={styles["summary"]}>{row.childCount} {noun}</Box>;
+        valueCell = row.summary !== undefined && row.summary !== ""
+            ? <Box as="span" css={styles["summary"]}>{row.summary}</Box>
+            : null;
     }
     return (
         <Box
@@ -407,13 +583,19 @@ function Row({ row, styles, cbs, onToggle }: {
             data-row-id={row.id}
             role="treeitem"
             aria-level={row.depth + 1}
+            aria-posinset={row.posinset}
+            aria-setsize={row.setsize}
             aria-expanded={row.expandable ? row.expanded : undefined}
+            tabIndex={tabbable ? 0 : -1}
+            onKeyDown={handleKeyDown}
+            onFocus={(e) => { if (e.target === e.currentTarget) onFocusRow(row.id); }}
             style={{ paddingLeft: `${12 + row.depth * INDENT}px` }}
         >
             {row.expandable ? (
                 <chakra.button
                     type="button"
                     css={styles["twist"]}
+                    tabIndex={-1}
                     aria-label={row.expanded ? "Collapse" : "Expand"}
                     onClick={() => onToggle(row.id, !row.expanded)}
                 >
@@ -423,40 +605,24 @@ function Row({ row, styles, cbs, onToggle }: {
                 <Box css={styles["twist"]} visibility="hidden" aria-hidden="true" />
             )}
             <Box as="span" css={styles["label"]} title={row.label}>{row.label}</Box>
-            <Box css={styles["value"]}>{tagText}{valueCell}</Box>
+            <Box css={styles["value"]} data-leaf={row.leaf?.type}>{tagText}{tagSelect}{valueCell}</Box>
             <Box css={styles["controls"]}>
-                {row.variantCtl !== undefined && onTag !== undefined && (() => {
-                    const ctl = row.variantCtl;
-                    return (
-                        <Box css={styles["tagWrap"]}>
-                            <EastChakraSelect
-                                ariaLabel="Variant tag"
-                                value={tagSelectValue(ctl.tag, ctl.tags, (t) => {
-                                    if (t !== ctl.tag) void onTag(ctl.path, t);
-                                })}
-                            />
-                        </Box>
-                    );
-                })()}
                 {row.optionCtl !== undefined && onTag !== undefined && (() => {
                     const ctl = row.optionCtl;
-                    return (
+                    return ctl.isSome ? (
                         <chakra.button type="button" css={styles["ctl"]}
-                            aria-label={ctl.isSome ? "Clear value" : "Set value"}
-                            onClick={() => { void onTag(ctl.path, ctl.isSome ? "none" : "some"); }}>
-                            <FontAwesomeIcon icon={ctl.isSome ? faMinus : faPlus} />
+                            aria-label="Clear value"
+                            onClick={() => { void onTag(ctl.path, "none"); }}>
+                            <FontAwesomeIcon icon={faMinus} />
+                        </chakra.button>
+                    ) : (
+                        <chakra.button type="button" css={styles["setBtn"]}
+                            aria-label="Set value"
+                            onClick={() => { void onTag(ctl.path, "some"); }}>
+                            Set
                         </chakra.button>
                     );
                 })()}
-                {row.kind === "array" && onInsert !== undefined && (
-                    <chakra.button type="button" css={styles["ctl"]} aria-label="Add item"
-                        onClick={() => { void onInsert(row.path); }}>
-                        <FontAwesomeIcon icon={faPlus} />
-                    </chakra.button>
-                )}
-                {row.kind === "dict" && onInsert !== undefined && (
-                    <DictAdd path={row.path} styles={styles} onInsert={onInsert} />
-                )}
                 {row.removable && onRemove !== undefined && (
                     <chakra.button type="button" css={styles["ctl"]} aria-label="Remove"
                         onClick={() => { void onRemove(row.ownPath); }}>
@@ -501,6 +667,56 @@ export const EastChakraValueTree = memo(function EastChakraValueTree(
         setPersisted(prev => ({ ...prev, open: { ...prev.open, [id]: expanded } }));
     }, [setPersisted]);
 
+    // Roving tab index + arrow-key traversal (transient, not persisted).
+    const rootElRef = useRef<HTMLDivElement | null>(null);
+    const [focusId, setFocusId] = useState<string | undefined>(undefined);
+    const onFocusRow = useCallback((rowId: string) => { setFocusId(rowId); }, []);
+    const focusRowEl = useCallback((rowId: string) => {
+        setFocusId(rowId);
+        // Attribute-value escape (CSS.escape is missing in some DOM envs).
+        const escaped = rowId.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+        const el = rootElRef.current?.querySelector<HTMLElement>(
+            `[data-row-id="${escaped}"]`);
+        el?.focus();
+    }, []);
+    const onKeyNav = useCallback((rowId: string, key: string): boolean => {
+        const idx = rows.findIndex(r => r.id === rowId);
+        if (idx < 0) return false;
+        const row = rows[idx]!;
+        switch (key) {
+            case "ArrowDown": {
+                const next = rows[idx + 1];
+                if (next !== undefined) focusRowEl(next.id);
+                return true;
+            }
+            case "ArrowUp": {
+                const prev = rows[idx - 1];
+                if (prev !== undefined) focusRowEl(prev.id);
+                return true;
+            }
+            case "ArrowRight": {
+                if (row.expandable && !row.expanded) onToggle(row.id, true);
+                else {
+                    const next = rows[idx + 1];
+                    if (next !== undefined) focusRowEl(next.id);
+                }
+                return true;
+            }
+            case "ArrowLeft": {
+                if (row.expandable && row.expanded) onToggle(row.id, false);
+                else if (row.parentId !== undefined) focusRowEl(row.parentId);
+                return true;
+            }
+            case "Enter":
+            case " ": {
+                if (row.expandable) onToggle(row.id, !row.expanded);
+                return true;
+            }
+            default:
+                return false;
+        }
+    }, [rows, focusRowEl, onToggle]);
+
     // Scroll persistence — top visible ROW INDEX, never a pixel offset
     // (the Table rule: an index survives row-height changes; #143).
     const scrollElRef = useRef<HTMLDivElement | null>(null);
@@ -529,8 +745,11 @@ export const EastChakraValueTree = memo(function EastChakraValueTree(
             </Box>
         );
     }
+    const tabbableId = focusId !== undefined && rows.some(r => r.id === focusId)
+        ? focusId
+        : rows[0]!.id;
     return (
-        <Box role="tree" aria-label="Value tree">
+        <Box role="tree" aria-label="Value tree" ref={rootElRef}>
             <VirtualRows
                 height={height}
                 maxHeight={maxHeight}
@@ -543,7 +762,11 @@ export const EastChakraValueTree = memo(function EastChakraValueTree(
                 renderRow={(i) => {
                     const row = rows[i];
                     if (row === undefined) return null;
-                    return <Row key={row.id} row={row} styles={styles} cbs={cbs} onToggle={onToggle} />;
+                    return (
+                        <Row key={row.id} row={row} styles={styles} cbs={cbs}
+                            tabbable={row.id === tabbableId}
+                            onToggle={onToggle} onKeyNav={onKeyNav} onFocusRow={onFocusRow} />
+                    );
                 }}
             />
         </Box>

@@ -1,14 +1,14 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1503,
+    "totalEntries": 1508,
     "totalFiles": 190,
     "packages": {
       "east": 490,
       "east-node-std": 43,
       "east-node-io": 63,
       "east-py-datascience": 89,
-      "east-ui": 744,
+      "east-ui": 749,
       "e3-ui": 58,
       "e3": 7,
       "e3-ui-cli": 4,
@@ -19048,22 +19048,45 @@
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/collections/value-tree.examples.tsx",
       "suite": "",
-      "test": "Editable leaves — onEdit applies the new float at the dict-key path to bound state",
+      "test": "Editable tree with onUpdate — every edit arrives as the whole rebuilt value; write it back and the tree refreshes",
       "keywords": [
         "ValueTree",
-        "onEdit",
-        "leaf",
+        "onUpdate",
         "edit",
+        "whole value",
         "Reactive",
-        "State",
-        "path"
+        "State"
       ],
       "imports": [
         "import {",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Reactive, ValueTree } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Editable leaves — onEdit applies the new float at the dict-key path to bound state\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const bind = $.let(State.bind(\n                [DictType(StringType, FloatType)],\n                \"vt_rates\",\n                new Map([[\"base\", 0.15], [\"peak\", 0.4]]),\n            ));\n            const rates = $.let(bind.read());\n            const onEdit = $.const(East.function(\n                [ValueTree.Types.Path, ValueTree.Types.Leaf], NullType,\n                ($, path, leaf) => {\n                    const key = $.let(path.get(0n).unwrap(\"key\"));\n                    const next = $.let(bind.read());\n                    $(next.insertOrUpdate(key, leaf.unwrap(\"float\")));\n                    $(bind.write(next));\n                },\n            ));\n            return <ValueTree value={rates} onEdit={onEdit} />;\n        }}</Reactive>\n    ))"
+      "source": "// Editable tree with onUpdate — every edit arrives as the whole rebuilt value; write it back and the tree refreshes\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const bind = $.let(State.bind(\n                [DictType(StringType, MachineType)],\n                \"vt_machines\",\n                new Map([\n                    [\"m1\", { name: \"Press\", rate: 2.5, operator: some(\"dana\"), state: variant(\"running\", null) }],\n                    [\"m2\", { name: \"Mill\", rate: 1.25, operator: none, state: variant(\"down\", \"belt snapped\") }],\n                ]),\n            ));\n            const machines = $.let(bind.read());\n            const onUpdate = $.const(East.function(\n                [DictType(StringType, MachineType)], NullType,\n                ($, next) => {\n                    $(bind.write(next));\n                },\n            ));\n            return <ValueTree value={machines} onUpdate={onUpdate} />;\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "east-ui:value-tree.examples.tsx:valueTreeScoped",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/value-tree.examples.tsx",
+      "suite": "",
+      "test": "Scoped subtree handlers — ValueTree.at routes edits inside one entry to a typed handler; everything else bubbles to onUpdate",
+      "keywords": [
+        "ValueTree",
+        "at",
+        "scope",
+        "subtree",
+        "handler",
+        "bubble",
+        "onUpdate",
+        "dispatch"
+      ],
+      "imports": [
+        "import {",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Reactive, ValueTree } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Scoped subtree handlers — ValueTree.at routes edits inside one entry to a typed handler; everything else bubbles to onUpdate\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const PlantType = DictType(StringType, MachineType);\n            const bind = $.let(State.bind(\n                [PlantType],\n                \"vt_plant\",\n                new Map([\n                    [\"press\", { name: \"Press\", rate: 2.5, operator: some(\"dana\"), state: variant(\"running\", null) }],\n                    [\"mill\", { name: \"Mill\", rate: 1.25, operator: none, state: variant(\"down\", \"belt snapped\") }],\n                ]),\n            ));\n            const plant = $.let(bind.read());\n            // The scope receives just the rebuilt \"press\" machine — a\n            // specialised, fully-typed handler for that subtree.\n            const onPress = $.const(East.function([MachineType], NullType, ($, m) => {\n                const next = $.let(bind.read());\n                $(next.insertOrUpdate(\"press\", m));\n                $(bind.write(next));\n            }));\n            // Edits outside the scope (the mill, adds/removes) bubble here.\n            const onUpdate = $.const(East.function([PlantType], NullType, ($, next) => {\n                $(bind.write(next));\n            }));\n            return (\n                <ValueTree\n                    value={plant}\n                    onUpdate={onUpdate}\n                    at={[ValueTree.at(PlantType, p => p.entry(\"press\"), onPress)]}\n                />\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "east-ui:value-tree.examples.tsx:valueTreeCollections",
@@ -19071,22 +19094,120 @@
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/collections/value-tree.examples.tsx",
       "suite": "",
-      "test": "Collection editing — onInsert appends a default element, onRemove drops the indexed one",
+      "test": "Collection editing through onUpdate — adds and removes arrive as the rebuilt value, no path plumbing",
       "keywords": [
         "ValueTree",
-        "onInsert",
-        "onRemove",
+        "onUpdate",
         "array",
+        "dict",
         "add",
         "remove",
-        "row"
+        "insert",
+        "collection"
       ],
       "imports": [
         "import {",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Reactive, ValueTree } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Collection editing — onInsert appends a default element, onRemove drops the indexed one\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const bind = $.let(State.bind([ArrayType(FloatType)], \"vt_samples\", [1.0, 2.5]));\n            const samples = $.let(bind.read());\n            const onInsert = $.const(East.function(\n                [ValueTree.Types.Path], NullType,\n                ($, _path) => {\n                    const next = $.let(bind.read());\n                    $(next.pushLast(0.0));\n                    $(bind.write(next));\n                },\n            ));\n            const onRemove = $.const(East.function(\n                [ValueTree.Types.Path], NullType,\n                ($, path) => {\n                    const idx = $.let(path.get(path.size().subtract(1n)).unwrap(\"index\"));\n                    const next = $.let(bind.read().filter((_$, _x, i) => i.notEquals(idx)));\n                    $(bind.write(next));\n                },\n            ));\n            return <ValueTree value={samples} onInsert={onInsert} onRemove={onRemove} />;\n        }}</Reactive>\n    ))"
+      "source": "// Collection editing through onUpdate — adds and removes arrive as the rebuilt value, no path plumbing\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const RunType = StructType({\n                samples: ArrayType(FloatType),\n                thresholds: DictType(StringType, FloatType),\n            });\n            const bind = $.let(State.bind([RunType], \"vt_run\", {\n                samples: [1.0, 2.5],\n                thresholds: new Map([[\"base\", 0.15]]),\n            }));\n            const run = $.let(bind.read());\n            const onUpdate = $.const(East.function([RunType], NullType, ($, next) => {\n                $(bind.write(next));\n            }));\n            return <ValueTree value={run} onUpdate={onUpdate} />;\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "east-ui:value-tree.examples.tsx:valueTreeRawPaths",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/value-tree.examples.tsx",
+      "suite": "",
+      "test": "Raw path callbacks — onEdit receives the typed path and leaf for hosts with a finer-grained store",
+      "keywords": [
+        "ValueTree",
+        "onEdit",
+        "path",
+        "leaf",
+        "raw",
+        "callback",
+        "escape hatch"
+      ],
+      "imports": [
+        "import {",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Reactive, ValueTree } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Raw path callbacks — onEdit receives the typed path and leaf for hosts with a finer-grained store\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const bind = $.let(State.bind(\n                [DictType(StringType, FloatType)],\n                \"vt_rates\",\n                new Map([[\"base\", 0.15], [\"peak\", 0.4]]),\n            ));\n            const rates = $.let(bind.read());\n            const onEdit = $.const(East.function(\n                [ValueTree.Types.Path, ValueTree.Types.Leaf], NullType,\n                ($, path, leaf) => {\n                    const key = $.let(path.get(0n).unwrap(\"key\"));\n                    const next = $.let(bind.read());\n                    $(next.insertOrUpdate(key, leaf.unwrap(\"float\")));\n                    $(bind.write(next));\n                },\n            ));\n            return <ValueTree value={rates} onEdit={onEdit} />;\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "east-ui:value-tree.examples.tsx:valueTreeKitchenSink",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/value-tree.examples.tsx",
+      "suite": "",
+      "test": "Deeply nested tree over every East type — nested variants, options of variants, recursion, and summarized opaque leaves",
+      "keywords": [
+        "ValueTree",
+        "all types",
+        "deep",
+        "nested",
+        "recursive",
+        "set",
+        "vector",
+        "matrix",
+        "blob",
+        "ref",
+        "kitchen sink"
+      ],
+      "imports": [
+        "import {",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Reactive, ValueTree } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Deeply nested tree over every East type — nested variants, options of variants, recursion, and summarized opaque leaves\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <ValueTree\n            value={East.value({\n                site: \"Riverside\",\n                commissioned: new Date(\"2021-06-01T00:00:00Z\"),\n                active: true,\n                batch: 42n,\n                output: 812.5,\n                notes: some(\"Night shift only\"),\n                lines: new Map([\n                    [\"packing\", {\n                        machines: [\n                            {\n                                name: \"Press\",\n                                state: variant(\"running\", { since: new Date(\"2026-07-01T06:00:00Z\"), rate: 2.5 }),\n                                calibration: some(variant(\"manual\", { offset: 0.02, by: \"dana\" })),\n                            },\n                            {\n                                name: \"Mill\",\n                                state: variant(\"down\", { reason: \"belt snapped\", parts: [\"belt\", \"tensioner\"] }),\n                                calibration: none,\n                            },\n                            {\n                                name: \"Wrapper\",\n                                state: variant(\"idle\", null),\n                                calibration: some(variant(\"auto\", null)),\n                            },\n                        ],\n                    }],\n                    [\"casting\", { machines: [] }],\n                ]),\n                lineage: variant(\"upgraded\", {\n                    from: \"Mark II\",\n                    prior: variant(\"upgraded\", { from: \"Mark I\", prior: variant(\"original\", null) }),\n                }),\n                codes: new Map([[7n, \"critical\"], [12n, \"routine\"]]),\n                tags: new Set([\"food-grade\", \"iso-9001\"]),\n                checksum: new Uint8Array([202, 254, 186]),\n                samples: new Float64Array([1.0, 1.5, 2.25]),\n                weights: East.Matrix.fromArray([[1.0, 0.0], [0.0, 1.0]]),\n                audit: ref(\"2026-07-01 dana\"),\n            }, PlantType)}\n        />\n    ))"
+    },
+    {
+      "id": "east-ui:value-tree.examples.tsx:valueTreeKitchenSinkEditable",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/value-tree.examples.tsx",
+      "suite": "",
+      "test": "Deep editable tree — every editable kind (all leaf types, nested variants, options, collections) through one onUpdate",
+      "keywords": [
+        "ValueTree",
+        "editable",
+        "deep",
+        "nested",
+        "variant",
+        "option",
+        "datetime",
+        "boolean",
+        "onUpdate"
+      ],
+      "imports": [
+        "import {",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Reactive, ValueTree } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Deep editable tree — every editable kind (all leaf types, nested variants, options, collections) through one onUpdate\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const LineType = StructType({\n                machines: ArrayType(StructType({\n                    name: StringType,\n                    commissioned: DateTimeType,\n                    active: BooleanType,\n                    batch: IntegerType,\n                    rate: FloatType,\n                    operator: OptionType(StringType),\n                    state: VariantType({\n                        running: StructType({ rate: FloatType }),\n                        down: StructType({ reason: StringType, parts: ArrayType(StringType) }),\n                        idle: NullType,\n                    }),\n                })),\n                thresholds: DictType(StringType, FloatType),\n            });\n            const bind = $.let(State.bind([LineType], \"vt_line\", {\n                machines: [\n                    {\n                        name: \"Press\",\n                        commissioned: new Date(\"2021-06-01T00:00:00Z\"),\n                        active: true,\n                        batch: 42n,\n                        rate: 2.5,\n                        operator: some(\"dana\"),\n                        state: variant(\"running\", { rate: 2.5 }),\n                    },\n                    {\n                        name: \"Mill\",\n                        commissioned: new Date(\"2019-02-15T00:00:00Z\"),\n                        active: false,\n                        batch: 7n,\n                        rate: 1.25,\n                        operator: none,\n                        state: variant(\"down\", { reason: \"belt snapped\", parts: [\"belt\"] }),\n                    },\n                ],\n                thresholds: new Map([[\"base\", 0.15], [\"peak\", 0.4]]),\n            }));\n            const line = $.let(bind.read());\n            const onUpdate = $.const(East.function([LineType], NullType, ($, next) => {\n                $(bind.write(next));\n            }));\n            return <ValueTree value={line} onUpdate={onUpdate} />;\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "east-ui:value-tree.examples.tsx:valueTreeVirtualized",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/value-tree.examples.tsx",
+      "suite": "",
+      "test": "A pinned-height tree over hundreds of rows — rows virtualize and scroll position persists",
+      "keywords": [
+        "ValueTree",
+        "virtualized",
+        "height",
+        "scroll",
+        "large",
+        "many rows"
+      ],
+      "imports": [
+        "import {",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Reactive, ValueTree } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// A pinned-height tree over hundreds of rows — rows virtualize and scroll position persists\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const SeriesType = DictType(StringType, ArrayType(FloatType));\n            const bind = $.let(State.bind([SeriesType], \"vt_series\", new Map<string, number[]>()));\n            $.if(bind.read().size().equals(0n), $ => {\n                const seeded = $.let(East.Array.range(0n, 24n).toDict(\n                    (_$, i) => East.str`sensor ${i}`,\n                    (_$, i) => East.Array.range(0n, 8n).map((_$2, j) => j.toFloat().multiply(0.5).add(i.toFloat())),\n                ));\n                $(bind.write(seeded));\n            });\n            const series = $.let(bind.read());\n            const onUpdate = $.const(East.function([SeriesType], NullType, ($, next) => {\n                $(bind.write(next));\n            }));\n            return <ValueTree value={series} onUpdate={onUpdate} style={{ height: \"320px\" }} />;\n        }}</Reactive>\n    ))"
     },
     {
       "id": "east-ui:card.examples.tsx:cardBasic",

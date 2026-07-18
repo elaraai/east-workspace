@@ -17,10 +17,11 @@ import { UIComponentType } from "../../component.js";
  * STATIC East type is walked at authoring time and materialized into a
  * fixed recursive node IR (structs, arrays, string-keyed dicts, options
  * and variants become branches; primitives become typed editable leaves;
- * everything else prints read-only). Edits report through typed path
- * callbacks (`onEdit` / `onInsert` / `onRemove` / `onTag`) — the host
- * owns the data, applies the edit, and the Reactive re-materialization
- * refreshes the tree. Omit all callbacks for a read-only inspector.
+ * everything else summarizes read-only). Pass `onUpdate` (and optionally
+ * `at` scopes built with `ValueTree.at`) to receive the whole rebuilt
+ * value — or subtree — after every edit; the raw path callbacks
+ * (`onEdit` / `onInsert` / `onRemove` / `onTag`) remain for hosts with a
+ * finer-grained store. Omit all callbacks for a read-only inspector.
  *
  * @example
  * ```tsx
@@ -41,12 +42,12 @@ import { UIComponentType } from "../../component.js";
  * ```
  *
  * @remarks
- * Carries `ValueTree.zero` (host-side default element for `onInsert`
- * handlers) and `ValueTree.Types`. Desugars to
- * `ValueTree.Root(value, options)`.
+ * Carries `ValueTree.at` (scoped subtree handlers), `ValueTree.zero`
+ * (host-side default element for raw `onInsert` handlers) and
+ * `ValueTree.Types`. Desugars to `ValueTree.Root(value, options)`.
  */
 function ValueTreeTag<T extends EastType>(
-    props: { value: SubtypeExprOrValue<T> | Expr } & ValueTreeOptions,
+    props: { value: SubtypeExprOrValue<T> | Expr } & ValueTreeOptions<T>,
 ): ExprType<UIComponentType> {
     const { value, ...options } = props;
     return ValueTreeFactory.Root(value, options);

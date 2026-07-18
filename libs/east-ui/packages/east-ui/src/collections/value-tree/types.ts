@@ -20,7 +20,7 @@
 
 import {
     ArrayType,
-    FunctionType,
+    AsyncFunctionType,
     BooleanType,
     DateTimeType,
     FloatType,
@@ -40,13 +40,19 @@ import {
 /**
  * One step of a node path.
  *
+ * @property append - Append a new element to the array at the path so far
+ *   (terminal step of array `onInsert` paths; disambiguates an array
+ *   append inside a dict from a dict key insert)
  * @property field - Struct field name
  * @property index - Array element index
- * @property key - Dict entry key (string-keyed dicts)
+ * @property key - Dict entry key (an existing entry mid-path; the NEW key
+ *   as the terminal step of dict `onInsert` paths)
  * @property some - Descend into an option's `some` payload
  * @property tag - Descend into a variant's active payload
  */
 export const ValueTreeStepType = VariantType({
+    /** Append to the array at the path so far (terminal `onInsert` step) */
+    append: NullType,
     /** Struct field name */
     field: StringType,
     /** Array element index */
@@ -118,11 +124,13 @@ export type ValueTreeLeafType = typeof ValueTreeLeafType;
  *
  * @property struct - Named fields
  * @property array - Ordered elements (insert/remove targets)
- * @property dict - String-keyed entries (insert/remove targets)
+ * @property dict - Keyed entries; `editable` is true only for
+ *   string-keyed dicts (other key types are browsable read-only — their
+ *   printed keys cannot round-trip through path steps)
  * @property option - `some` payload or empty (toggled via `onTag` "some"/"none")
  * @property variant - Active tag + all tags (switched via `onTag`) + payload
  * @property leaf - Primitive value (edited via `onEdit`)
- * @property opaque - Printed read-only value (sets, blobs, vectors,
+ * @property opaque - Summarized read-only value (sets, blobs, vectors,
  *   matrices, refs, functions, beyond-depth recursion)
  */
 export const ValueTreeNodeType = RecursiveType(node => VariantType({
@@ -134,9 +142,10 @@ export const ValueTreeNodeType = RecursiveType(node => VariantType({
     array: StructType({
         items: ArrayType(node),
     }),
-    /** String-keyed entries */
+    /** Keyed entries (editable only when string-keyed) */
     dict: StructType({
         entries: ArrayType(StructType({ key: StringType, node })),
+        editable: BooleanType,
     }),
     /** `some` payload or empty */
     option: StructType({
@@ -188,6 +197,10 @@ export type ValueTreeStyleType = typeof ValueTreeStyleType;
  * for `ValueTypeOf<typeof ValueTree.Types.Root>` in renderers and
  * assertions.
  *
+ * Callback slots are ASYNC function types: handlers routinely write
+ * State (an async platform effect), and a synchronous function is a
+ * subtype of its async counterpart — so both fit.
+ *
  * @property root - The materialized node tree
  * @property onEdit - Leaf edit callback (path + new leaf value)
  * @property onInsert - Append/insert callback (array/dict node path)
@@ -197,10 +210,10 @@ export type ValueTreeStyleType = typeof ValueTreeStyleType;
  */
 export const ValueTreeRootType = StructType({
     root: ValueTreeNodeType,
-    onEdit: OptionType(FunctionType([ValueTreePathType, ValueTreeLeafType], NullType)),
-    onInsert: OptionType(FunctionType([ValueTreePathType], NullType)),
-    onRemove: OptionType(FunctionType([ValueTreePathType], NullType)),
-    onTag: OptionType(FunctionType([ValueTreePathType, StringType], NullType)),
+    onEdit: OptionType(AsyncFunctionType([ValueTreePathType, ValueTreeLeafType], NullType)),
+    onInsert: OptionType(AsyncFunctionType([ValueTreePathType], NullType)),
+    onRemove: OptionType(AsyncFunctionType([ValueTreePathType], NullType)),
+    onTag: OptionType(AsyncFunctionType([ValueTreePathType, StringType], NullType)),
     style: OptionType(ValueTreeStyleType),
 });
 

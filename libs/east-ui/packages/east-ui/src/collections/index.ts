@@ -83,6 +83,9 @@ export {
     ValueTreeStyleType,
     ValueTreeRootType,
     type ValueTreeOptions,
+    type ValueTreeScope,
+    type ValueTreeScopeStep,
+    type ValueTreeProbe,
 } from "./value-tree/index.js";
 export {
     Library,
