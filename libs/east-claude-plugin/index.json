@@ -1,14 +1,14 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1499,
-    "totalFiles": 189,
+    "totalEntries": 1503,
+    "totalFiles": 190,
     "packages": {
       "east": 490,
       "east-node-std": 43,
       "east-node-io": 63,
       "east-py-datascience": 89,
-      "east-ui": 740,
+      "east-ui": 744,
       "e3-ui": 58,
       "e3": 7,
       "e3-ui-cli": 4,
@@ -18995,6 +18995,98 @@
         "import { Badge, Reactive, Text, TreeView, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// Colour escape hatches — item / hover / selection / caret / connector colour overrides for brand alignment\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <TreeView\n                variant=\"subtle\"\n                size=\"sm\"\n                itemColor=\"gray.800\"\n                itemHoverBackground=\"blue.50\"\n                selectedBackground=\"blue.100\"\n                selectedColor=\"blue.900\"\n                caretColor=\"blue.500\"\n                connectorColor=\"gray.300\"\n                defaultExpandedValue={[\"src\"]}\n                nodes={[\n                    TreeView.Branch(\"src\", \"src\", [\n                        TreeView.Item(\"index\", \"index.ts\"),\n                        TreeView.Item(\"utils\", \"utils.ts\"),\n                    ]),\n                    TreeView.Item(\"package\", \"package.json\"),\n                ]}\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:value-tree.examples.tsx:valueTreeBasic",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/value-tree.examples.tsx",
+      "suite": "",
+      "test": "Read-only inspector — any value materializes into an automatic tree",
+      "keywords": [
+        "ValueTree",
+        "value",
+        "tree",
+        "inspector",
+        "leaf",
+        "struct",
+        "read-only"
+      ],
+      "imports": [
+        "import {",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Reactive, ValueTree } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Read-only inspector — any value materializes into an automatic tree\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <ValueTree\n            value={{\n                rate: 0.15,\n                label: \"Base\",\n                tags: [\"a\", \"b\"],\n            }}\n        />\n    ))"
+    },
+    {
+      "id": "east-ui:value-tree.examples.tsx:valueTreeDictOfStructs",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/value-tree.examples.tsx",
+      "suite": "",
+      "test": "A dict of structs with option and variant fields — every branch kind in one tree",
+      "keywords": [
+        "ValueTree",
+        "dict",
+        "struct",
+        "option",
+        "variant",
+        "nested",
+        "branch"
+      ],
+      "imports": [
+        "import {",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Reactive, ValueTree } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// A dict of structs with option and variant fields — every branch kind in one tree\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <ValueTree\n            value={East.value(new Map([\n                [\"m1\", { name: \"Press\", rate: 2.5, operator: some(\"dana\"), state: variant(\"running\", null) }],\n                [\"m2\", { name: \"Mill\", rate: 1.25, operator: none, state: variant(\"down\", \"belt snapped\") }],\n            ]), DictType(StringType, MachineType))}\n        />\n    ))"
+    },
+    {
+      "id": "east-ui:value-tree.examples.tsx:valueTreeEditable",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/value-tree.examples.tsx",
+      "suite": "",
+      "test": "Editable leaves — onEdit applies the new float at the dict-key path to bound state",
+      "keywords": [
+        "ValueTree",
+        "onEdit",
+        "leaf",
+        "edit",
+        "Reactive",
+        "State",
+        "path"
+      ],
+      "imports": [
+        "import {",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Reactive, ValueTree } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Editable leaves — onEdit applies the new float at the dict-key path to bound state\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const bind = $.let(State.bind(\n                [DictType(StringType, FloatType)],\n                \"vt_rates\",\n                new Map([[\"base\", 0.15], [\"peak\", 0.4]]),\n            ));\n            const rates = $.let(bind.read());\n            const onEdit = $.const(East.function(\n                [ValueTree.Types.Path, ValueTree.Types.Leaf], NullType,\n                ($, path, leaf) => {\n                    const key = $.let(path.get(0n).unwrap(\"key\"));\n                    const next = $.let(bind.read());\n                    $(next.insertOrUpdate(key, leaf.unwrap(\"float\")));\n                    $(bind.write(next));\n                },\n            ));\n            return <ValueTree value={rates} onEdit={onEdit} />;\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "east-ui:value-tree.examples.tsx:valueTreeCollections",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/value-tree.examples.tsx",
+      "suite": "",
+      "test": "Collection editing — onInsert appends a default element, onRemove drops the indexed one",
+      "keywords": [
+        "ValueTree",
+        "onInsert",
+        "onRemove",
+        "array",
+        "add",
+        "remove",
+        "row"
+      ],
+      "imports": [
+        "import {",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Reactive, ValueTree } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Collection editing — onInsert appends a default element, onRemove drops the indexed one\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const bind = $.let(State.bind([ArrayType(FloatType)], \"vt_samples\", [1.0, 2.5]));\n            const samples = $.let(bind.read());\n            const onInsert = $.const(East.function(\n                [ValueTree.Types.Path], NullType,\n                ($, _path) => {\n                    const next = $.let(bind.read());\n                    $(next.pushLast(0.0));\n                    $(bind.write(next));\n                },\n            ));\n            const onRemove = $.const(East.function(\n                [ValueTree.Types.Path], NullType,\n                ($, path) => {\n                    const idx = $.let(path.get(path.size().subtract(1n)).unwrap(\"index\"));\n                    const next = $.let(bind.read().filter((_$, _x, i) => i.notEquals(idx)));\n                    $(bind.write(next));\n                },\n            ));\n            return <ValueTree value={samples} onInsert={onInsert} onRemove={onRemove} />;\n        }}</Reactive>\n    ))"
     },
     {
       "id": "east-ui:card.examples.tsx:cardBasic",

@@ -69,6 +69,12 @@ export interface VirtualRowsProps {
     headerZIndex?: number | undefined;
     /** Forwarded to the scroll element (e.g. scroll-position persistence). */
     onScroll?: (() => void) | undefined;
+    /**
+     * Receives the bounded-mode scroll element (null when unmounted or
+     * unbounded) — for scroll-position restore, which `onScroll` alone
+     * cannot do.
+     */
+    scrollElRef?: React.MutableRefObject<HTMLDivElement | null> | undefined;
     /** Extra props / styles for the outer element (root recipe styles, width). */
     rootCss?: Record<string, unknown> | undefined;
 }
@@ -81,7 +87,7 @@ export interface VirtualRowsProps {
 export function VirtualRows(props: VirtualRowsProps): ReactNode {
     const {
         header, footer, count, estimateSize, renderRow,
-        overscan = 4, minWidth, headerZIndex = 3, onScroll, rootCss, fillParent,
+        overscan = 4, minWidth, headerZIndex = 3, onScroll, rootCss, fillParent, scrollElRef,
     } = props;
     const h = parseCssSize(props.height);
     const mh = parseCssSize(props.maxHeight);
@@ -125,7 +131,10 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     const items = virtualizer.getVirtualItems();
     return (
         <Box
-            ref={scrollRef}
+            ref={(el: HTMLDivElement | null) => {
+                scrollRef.current = el;
+                if (scrollElRef !== undefined) scrollElRef.current = el;
+            }}
             // `display:block` overrides any flex-column root recipe — a flex
             // item's default shrink would collapse the total-size spacer and
             // break the scroll. `overflowY:auto` (after rootCss) becomes the

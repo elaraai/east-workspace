@@ -115,6 +115,7 @@ import { AvatarGroupType } from "./display/avatar-group/types.js";
 import { TraceType } from "./display/trace/types.js";
 import { LibraryRootType, LibraryStatusType, LibraryGroupMetaType } from "./collections/library/types.js";
 import { DeckFactType, DeckLayoutType, DeckStyleType } from "./collections/deck/types.js";
+import { ValueTreeRootType } from "./collections/value-tree/types.js";
 import { RosterModeType, RosterPersonType, RosterShiftType } from "./collections/roster/types.js";
 import { BoardModeType, BoardEntityType, BoardAssignmentType, BoardRequirementType } from "./collections/board/types.js";
 import { CellRefType, DragEventType } from "./contracts/drag.js";
@@ -665,6 +666,11 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         slice: OptionType(SliceChromeType),
         style: OptionType(DeckStyleType),
     }),
+
+    // ValueTree — editable value-driven tree (#360). Any East value is
+    // materialized into the fixed recursive node IR at factory time; edits
+    // report through typed path callbacks.
+    ValueTree: ValueTreeRootType,
 
     // Slice — typed-narrowing UI family (bound to the Slice platform)
     SliceSummary: SliceSummaryType,

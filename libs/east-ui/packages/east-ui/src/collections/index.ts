@@ -75,6 +75,16 @@ export {
     type DeckStyle,
 } from "./deck/index.js";
 export {
+    ValueTree,
+    ValueTreeStepType,
+    ValueTreePathType,
+    ValueTreeLeafType,
+    ValueTreeNodeType,
+    ValueTreeStyleType,
+    ValueTreeRootType,
+    type ValueTreeOptions,
+} from "./value-tree/index.js";
+export {
     Library,
     type LibraryConfig,
     type LibraryCardFields,
