@@ -163,7 +163,9 @@ export const textStyles = defineTextStyles({
             lineHeight: "{lineHeights.normal}",
             letterSpacing: "{letterSpacings.widest}",
             textTransform: "uppercase",
-            color: "{colors.brand.600}",
+            /* `link` = brand.600 light / brand.300 dark — fixed brand.600
+             * sits under 3:1 on dark surfaces (#362). */
+            color: "{colors.link}",
         },
     },
     /** Mono eyebrow — spec `.mode-id`, `.bf2-evi-tag`. */
@@ -175,7 +177,8 @@ export const textStyles = defineTextStyles({
             lineHeight: "{lineHeights.tight}",
             letterSpacing: "{letterSpacings.wider2}",   // 0.16em
             textTransform: "uppercase",
-            color: "{colors.brand.700}",
+            /* brand.fg = brand.700 light / brand.300 dark (#362). */
+            color: "{colors.brand.fg}",
         },
     },
     /** Caption-tier eyebrow — spec `.cell .lbl`, `.sc-eyebrow`, `.cap-eyebrow`.
@@ -410,7 +413,9 @@ export const textStyles = defineTextStyles({
             lineHeight: "{lineHeights.normal}",
             letterSpacing: "{letterSpacings.widest}",
             textTransform: "uppercase",
-            color: "{colors.brand.600}",
+            /* `link` = brand.600 light / brand.300 dark — fixed brand.600
+             * sits under 3:1 on dark surfaces (#362). */
+            color: "{colors.link}",
         },
     },
     "code-sm": {

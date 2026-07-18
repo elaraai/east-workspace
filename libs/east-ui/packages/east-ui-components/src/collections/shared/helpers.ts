@@ -48,13 +48,17 @@ type StatusToken = { type?: string };
 /**
  * Map a `StatusToken` variant tag to a Chakra background CSS variable.
  * Returns `undefined` when the tag is unrecognised.
+ *
+ * Uses the semantic status washes (spec banner tints), not raw palette
+ * `*-50` stops — the raw pastels are light-fixed and rendered rows as
+ * near-white slabs under dark-mode ink (#362).
  */
 export function statusTokenToBg(tag: string | undefined): string | undefined {
-    if (tag === "success") return "var(--chakra-colors-green-50)";
-    if (tag === "warning") return "var(--chakra-colors-yellow-50)";
-    if (tag === "danger") return "var(--chakra-colors-red-50)";
-    if (tag === "info") return "var(--chakra-colors-blue-50)";
-    if (tag === "neutral") return "var(--chakra-colors-gray-50)";
+    if (tag === "success") return "var(--chakra-colors-status-pos-subtle)";
+    if (tag === "warning") return "var(--chakra-colors-status-warn-subtle)";
+    if (tag === "danger") return "var(--chakra-colors-status-neg-subtle)";
+    if (tag === "info") return "var(--chakra-colors-status-info-subtle)";
+    if (tag === "neutral") return "var(--chakra-colors-bg-subtle)";
     return undefined;
 }
 

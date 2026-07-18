@@ -384,7 +384,7 @@ export const alignedStackLibraryDnd = example({
             { day: 0.0, v: 12.0 }, { day: 2.0, v: 18.0 }, { day: 4.0, v: 16.0 }, { day: 6.0, v: 13.0 },
         ], ArrayType(StructType({ day: FloatType, v: FloatType })));
         const tanks = $.const([
-            { name: "Tank A", role: "Mix" }, { name: "Tank B", role: "Stamp" },
+            { name: "Tank A", role: "Mix" }, { name: "Tank B", role: "Fill" },
         ], ArrayType(StructType({ name: StringType, role: StringType })));
         return (
             <HStack gap="4" width="100%" align="stretch">

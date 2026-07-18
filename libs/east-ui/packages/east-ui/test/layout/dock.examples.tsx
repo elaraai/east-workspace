@@ -20,9 +20,9 @@ export const dockExpanded = example({
         <Box height="220px" width="320px">
             <Dock icon="book" label="Bookings" badge="3" expandedSize="100%">
                 <Stack gap="2" padding="3">
-                    <Box padding="2" background="bg.subtle" borderRadius="md"><Text>Grade A — Block 3</Text></Box>
-                    <Box padding="2" background="bg.subtle" borderRadius="md"><Text>Grade B — Block 7</Text></Box>
-                    <Box padding="2" background="bg.subtle" borderRadius="md"><Text>Grade C — Block 1</Text></Box>
+                    <Box padding="2" background="bg.subtle" borderRadius="md"><Text>Grade A — Batch 3</Text></Box>
+                    <Box padding="2" background="bg.subtle" borderRadius="md"><Text>Grade B — Batch 7</Text></Box>
+                    <Box padding="2" background="bg.subtle" borderRadius="md"><Text>Grade C — Batch 1</Text></Box>
                 </Stack>
             </Dock>
         </Box>
@@ -43,7 +43,7 @@ export const dockCollapsedRail = example({
             <HStack gap="3" width="100%" height="100%">
                 <Dock icon="book" label="Bookings" badge="3" railSize="44px" defaultCollapsed>
                     <Stack gap="2" padding="3">
-                        <Box padding="2" background="bg.subtle" borderRadius="md"><Text>Grade A — Block 3</Text></Box>
+                        <Box padding="2" background="bg.subtle" borderRadius="md"><Text>Grade A — Batch 3</Text></Box>
                     </Stack>
                 </Dock>
                 <Box flex="1" minWidth="0" padding="3" background="bg.subtle" borderRadius="md">
@@ -69,16 +69,16 @@ export const dockBesidePlanner = example({
         const tanks = $.const([
             { name: "Tank A", role: "Mix" },
             { name: "Tank B", role: "Fill" },
-            { name: "Tank C", role: "Press" },
+            { name: "Tank C", role: "Hold" },
         ], ArrayType(StructType({ name: StringType, role: StringType })));
         return (
             <Box height="260px" width="100%">
                 <HStack gap="4" width="100%" height="100%">
                     <Dock icon="book" label="Bookings" badge="3" expandedSize="30%">
                         <Stack gap="2" padding="3">
-                            <Box padding="2" background="bg.subtle" borderRadius="md"><Text>Grade A — Block 3</Text></Box>
-                            <Box padding="2" background="bg.subtle" borderRadius="md"><Text>Grade B — Block 7</Text></Box>
-                            <Box padding="2" background="bg.subtle" borderRadius="md"><Text>Grade C — Block 1</Text></Box>
+                            <Box padding="2" background="bg.subtle" borderRadius="md"><Text>Grade A — Batch 3</Text></Box>
+                            <Box padding="2" background="bg.subtle" borderRadius="md"><Text>Grade B — Batch 7</Text></Box>
+                            <Box padding="2" background="bg.subtle" borderRadius="md"><Text>Grade C — Batch 1</Text></Box>
                         </Stack>
                     </Dock>
                     <Box flex="1" minWidth="0">
