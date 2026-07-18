@@ -34,6 +34,14 @@ export interface EastChakraRosterProps {
 
 type SlotStyles = Record<string, SystemStyleObject>;
 
+/** Cell-map key — NUL separator so person keys containing spaces can't
+ * collide with day names. MUST be used by both the grouping and the lookup
+ * side (they once disagreed — an invisible literal NUL vs a space — and every
+ * cell rendered empty). */
+function cellKey(person: string, day: string): string {
+    return `${person}\u0000${day}`;
+}
+
 function cellRef(surface: string, person: string, day: string, event?: string): CellRefValue {
     return { surface, row: person, slot: day, event: event !== undefined ? some(event) : none };
 }
@@ -305,7 +313,7 @@ export const EastChakraRoster = memo(function EastChakraRoster({ value, storageK
         for (const shift of shifts) {
             // Published rosters render committed shifts only.
             if (!edit && shift.state.type !== "committed") continue;
-            const key = `${shift.person} ${shift.day}`;
+            const key = cellKey(shift.person, shift.day);
             if (!out.has(key)) out.set(key, []);
             out.get(key)!.push(shift);
         }
@@ -353,7 +361,7 @@ export const EastChakraRoster = memo(function EastChakraRoster({ value, storageK
                         surface={value.id}
                         person={person.key}
                         day={day}
-                        shifts={cells.get(`${person.key} ${day}`) ?? []}
+                        shifts={cells.get(cellKey(person.key, day)) ?? []}
                         edit={edit}
                         styles={styles}
                         vetoFor={vetoFor}
