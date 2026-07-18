@@ -108,7 +108,7 @@ export const drawerStackedNested = example({
                     $(Drawer.open(East.value({
                         body: [
                             <VStack gap="4" align="flex-start">
-                                <Text>Fermenter B4418 — detail. Drill into its decisions from here.</Text>
+                                <Text>Reactor B4418 — detail. Drill into its decisions from here.</Text>
                                 <Button
                                     variant="outline"
                                     onClick={East.function([], NullType, $ => {
@@ -144,7 +144,7 @@ export const drawerStackedNested = example({
                                 >Open decisions</Button>
                             </VStack>,
                         ],
-                        eyebrow: some("Fermenter"),
+                        eyebrow: some("Reactor"),
                         title: some("B4418"),
                         description: none,
                         // Collapses to a "flask" rail while any deeper drawer is open.

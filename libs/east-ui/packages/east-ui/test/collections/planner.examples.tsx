@@ -379,8 +379,8 @@ export const plannerDayResolution = example({
     fn: East.function([], UIComponentType, (_$) => (
         <Planner.Point
             data={[
-                { name: "Press A", role: "Crush" },
-                { name: "Press B", role: "Crush" },
+                { name: "Press A", role: "Stamp" },
+                { name: "Press B", role: "Stamp" },
                 { name: "Line 1", role: "Bottling" },
             ]}
             axis={Planner.axis.time({

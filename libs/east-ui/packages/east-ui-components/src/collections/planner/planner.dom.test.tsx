@@ -245,14 +245,14 @@ describe("Planner time-axis resolution (#309)", () => {
 
     test("explicit hour resolution derives one column per hour", () => {
         const { container } = renderPlanner(timeRoot(
-            [row("Press A", [tev(new Date(Date.UTC(2026, 2, 30, 10, 30)), "Crush")])],
+            [row("Press A", [tev(new Date(Date.UTC(2026, 2, 30, 10, 30)), "Stamp")])],
             { range: { min: new Date(Date.UTC(2026, 2, 30)), max: new Date(Date.UTC(2026, 2, 31)) }, resolution: "hour" },
         ), "t5");
         const labels = headerLabels(container);
         expect(labels.length).toBe(24);
         expect(labels[0]).toBe("00:00");
         expect(labels[23]).toBe("23:00");
-        expect(screen.getByText("Crush")).toBeTruthy();
+        expect(screen.getByText("Stamp")).toBeTruthy();
     });
 
     test("explicit week resolution floors columns to week starts", () => {
