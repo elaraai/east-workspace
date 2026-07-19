@@ -906,10 +906,15 @@ const TableCore = function TableCore({
     const frozenScale = (gutterActive && gLeftPx !== undefined && frozenPanelWidth > 0)
         ? gLeftPx / frozenPanelWidth : 1;
     const leftSpacerPx = (gutterActive && gLeftPx !== undefined && frozenPanelWidth === 0) ? gLeft : undefined;
-    // Per-cell override for the centre (non-pinned) columns: flex-fill the lane.
+    // Per-cell override for the centre (non-pinned) columns: flex-fill the lane
+    // AND centre the content. In an aligned stack the day columns sit under the
+    // chart's tick centres, so their values / headers must read centred on the
+    // column (not left-aligned as a standalone data table) — otherwise the label
+    // drifts ~half a column off the shared axis. The frozen row-label column is
+    // pinned, so it keeps its default left alignment.
     const gutterCenterStyle = (column: ReturnType<typeof table.getAllColumns>[number]): CSSProperties =>
         (gutterActive && !column.getIsPinned())
-            ? { flex: "1 1 0", width: "auto", minWidth: 0, position: "relative", left: undefined }
+            ? { flex: "1 1 0", width: "auto", minWidth: 0, position: "relative", left: undefined, justifyContent: "center", textAlign: "center" }
             : {};
 
     // ── TanStack pinning styles (applied per-cell) ────────────────────
@@ -1121,6 +1126,11 @@ const TableCore = function TableCore({
                                 const icon = !isSorted ? faAnglesDown : sortDirection === 'asc' ? faChevronUp : faChevronDown;
                                 const pinningStyles = hasFrozen ? getCommonPinningStyles(header.column) : {};
                                 const isPinned = header.column.getIsPinned();
+                                // Aligned-stack day column: centre the label on the
+                                // shared axis and drop the pin/sort affordance (this
+                                // is a read-only display lane, and the controls' flex
+                                // space would pull the label off-centre).
+                                const centerInGutter = gutterActive && !isPinned;
 
                                 return (
                                     <ChakraTable.ColumnHeader
@@ -1158,14 +1168,14 @@ const TableCore = function TableCore({
                                         }}
                                         position={isPinned && !gutterActive ? "sticky" : "relative"}
                                     >
-                                        <HStack justify="space-between" align="center" width="100%" pr={enableColumnResizing ? "4px" : "0"}>
+                                        <HStack justify="space-between" align="center" width="100%" pr={centerInGutter ? "0" : (enableColumnResizing ? "4px" : "0")}>
                                             {/* Inherit the columnHeader slot's mono/10px/0.16em/uppercase/
                                                 fg.subtle — a bare span so the recipe governs the type,
                                                 not a competing textStyle. */}
-                                            <Box as="span" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" flex="1">
+                                            <Box as="span" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" flex="1" textAlign={centerInGutter ? "center" : undefined}>
                                                 {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
                                             </Box>
-                                            <HStack className="col-controls" gap={0} flexShrink={0} alignItems="center"
+                                            <HStack className="col-controls" gap={0} flexShrink={0} alignItems="center" display={centerInGutter ? "none" : undefined}
                                                 // Hover parity (#351): no hover ⇒ controls stay
                                                 // visible at reduced emphasis instead of invisible.
                                                 css={{

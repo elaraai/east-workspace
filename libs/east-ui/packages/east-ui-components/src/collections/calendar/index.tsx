@@ -193,6 +193,16 @@ export const EastChakraCalendar = memo(function EastChakraCalendar({ value }: Ea
         ...(gutterActive ? { paddingLeft: "0", paddingRight: "0" } : { paddingLeft: `${D.padX}px`, paddingRight: `${D.padX}px` }),
     };
     const dataRowCss: SystemStyleObject = { ...rowGridCss, paddingTop: gapPx };
+    // Under the gutter the tracks tile edge-to-edge (gap:0) so cell centres land
+    // on the chart's band centres — but bare tracks make the heat tiles touch,
+    // which reads as a solid block (reported regression). Restore the inter-cell
+    // gap as a SYMMETRIC per-cell `marginInline` (half the density gap): a
+    // stretched grid item insets equally on both sides, so its centre stays
+    // exactly on the track centre (alignment preserved) while `D.gap` of visual
+    // space returns between tiles.
+    const dayCellCss: SystemStyleObject = gutterActive
+        ? { ...styles.cell, marginInline: `${D.gap / 2}px` }
+        : styles.cell;
 
     const headerNode = (
         <Box css={{ ...rowGridCss, paddingTop: `${D.padTop}px` }} style={{ gridTemplateColumns: gridColumns }}>
@@ -222,7 +232,7 @@ export const EastChakraCalendar = memo(function EastChakraCalendar({ value }: Ea
                     return (
                         <Box
                             key={`${week}-${day}`}
-                            css={styles.cell}
+                            css={dayCellCss}
                             height={`${D.H}px`}
                             {...(cell === undefined ? { "data-empty": "" } : {})}
                             {...(!interactive && cell !== undefined ? { "data-static": "" } : {})}

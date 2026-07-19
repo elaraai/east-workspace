@@ -111,6 +111,13 @@ export const EastChakraTrace = memo(function EastChakraTrace({ value, storageKey
     const columns = gutterActive
         ? `${leftCol} repeat(${steps}, minmax(0, 1fr)) ${rightCol}`
         : `var(--t-stub-w) repeat(${steps}, var(--t-step-w))`;
+    // Under the gutter the step tracks must tile EDGE-TO-EDGE so each cell's
+    // centre lands on the chart's band centre (#147); a column `gap` redistributes
+    // into the flexible tracks and drifts the outer cells off-axis (accumulating to
+    // ~±1.3px by step 6). Drop the column gap (keep the row gap between tracks) and
+    // restore the inter-cell space as a symmetric per-cell `marginInline` below —
+    // symmetric insets leave the cell centre on the track centre.
+    const gutterGap = gutterActive ? ({ columnGap: "0px" } as React.CSSProperties) : undefined;
 
     // Tracks are expected to share one step grid (equal lengths). Ragged tracks
     // are now padded rather than producing a phantom row, but surface the
@@ -139,7 +146,7 @@ export const EastChakraTrace = memo(function EastChakraTrace({ value, storageKey
             {...(labelWidth !== undefined ? { style: { ["--t-stub-w"]: labelWidth } as React.CSSProperties } : {})}
         >
             {showAxis && (
-                <ChakraBox css={styles.axis} style={{ gridTemplateColumns: columns }}>
+                <ChakraBox css={styles.axis} style={{ gridTemplateColumns: columns, ...gutterGap }}>
                     <span />
                     {Array.from({ length: steps }, (_, k) => (
                         <ChakraBox key={`ax.${k}`} css={styles.axisCell}>{axis![k] ?? ""}</ChakraBox>
@@ -147,7 +154,7 @@ export const EastChakraTrace = memo(function EastChakraTrace({ value, storageKey
                     {gutterActive && <span />}
                 </ChakraBox>
             )}
-            <ChakraBox css={styles.grid} style={{ gridTemplateColumns: columns }} position="relative">
+            <ChakraBox css={styles.grid} style={{ gridTemplateColumns: columns, ...gutterGap }} position="relative">
                 {tracks.map((track, ti) => {
                     const values = track.values as unknown as number[];
                     const min = Math.min(...values);
@@ -161,6 +168,10 @@ export const EastChakraTrace = memo(function EastChakraTrace({ value, storageKey
                                 const isFuture = now !== undefined && i >= now;
                                 const { fill, edge, hot } = computeFill(v, min, max, mid, scale, hue, isFuture);
                                 const stepStyle: Record<string, string> = { background: fill };
+                                // Gutter mode drops the grid column gap for exact
+                                // axis alignment; put the inter-cell space back as a
+                                // symmetric margin so the cell centre stays on-track.
+                                if (gutterActive) stepStyle.marginInline = "calc(var(--t-gap) / 2)";
                                 if (isFuture) {
                                     stepStyle.color = edge;
                                     stepStyle.fontStyle = "italic";
