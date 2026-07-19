@@ -307,6 +307,11 @@ export const LinearSolverType = VariantType({
 export const LinearConfigType = StructType({
     solver: OptionType(LinearSolverType),
     max_time_seconds: OptionType(FloatType),
+    /** Stop with status OPTIMAL once the proven relative MIP gap
+     *  `(best − bound) / |best|` ≤ this, e.g. `0.01` for 1%. MIP only
+     *  (OR-Tools `RELATIVE_MIP_GAP`, honoured by SCIP/CBC); ignored for a
+     *  pure-LP (Glop) solve, which has no branch-and-bound gap. */
+    relative_gap_limit: OptionType(FloatType),
 });
 
 /** LP/MIP result. */
