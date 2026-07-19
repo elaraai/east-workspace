@@ -1,13 +1,13 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1493,
+    "totalEntries": 1494,
     "totalFiles": 188,
     "packages": {
       "east": 490,
       "east-node-std": 43,
       "east-node-io": 63,
-      "east-py-datascience": 89,
+      "east-py-datascience": 90,
       "east-ui": 734,
       "e3-ui": 58,
       "e3": 7,
@@ -11920,10 +11920,36 @@
         "mixed integer"
       ],
       "imports": [
-        "import { East, BooleanType, variant, example } from \"@elaraai/east\";",
+        "import { East, BooleanType, some, none, example } from \"@elaraai/east\";",
         "import { GoogleOr } from \"@elaraai/east-py-datascience\";"
       ],
-      "source": "// Allocate production hours across product lines to maximize throughput given machine and labor constraints\n// inputs: []  returns: true\nEast.function([], BooleanType, ($) => {\n        // 3 products: A, B, C\n        // Profit: A=$5, B=$8, C=$6 per unit\n        // Machine hours: A=2h, B=3h, C=1h — available: 18h\n        // Labor hours: A=1h, B=2h, C=2h — available: 12h\n        // Maximize profit\n        const model = $.let({\n            variables: [\n                { name: \"A\", lower_bound: 0.0, upper_bound: 100.0, is_integer: false },\n                { name: \"B\", lower_bound: 0.0, upper_bound: 100.0, is_integer: false },\n                { name: \"C\", lower_bound: 0.0, upper_bound: 100.0, is_integer: false },\n            ],\n            constraints: [\n                // Machine hours: 2A + 3B + 1C <= 18\n                {\n                    terms: [\n                        { var: \"A\", coeff: 2.0 },\n                        { var: \"B\", coeff: 3.0 },\n                        { var: \"C\", coeff: 1.0 },\n                    ],\n                    lower_bound: -1e20,\n                    upper_bound: 18.0,\n                },\n                // Labor hours: 1A + 2B + 2C <= 12\n                {\n                    terms: [\n                        { var: \"A\", coeff: 1.0 },\n                        { var: \"B\", coeff: 2.0 },\n                        { var: \"C\", coeff: 2.0 },\n                    ],\n                    lower_bound: -1e20,\n                    upper_bound: 12.0,\n                },\n            ],\n            objective: {\n                terms: [\n                    { var: \"A\", coeff: 5.0 },\n                    { var: \"B\", coeff: 8.0 },\n                    { var: \"C\", coeff: 6.0 },\n                ],\n                maximize: true,\n            },\n        }, GoogleOr.Types.LinearModelType);\n\n        const config = $.let({\n            solver: variant('none', null),\n            max_time_seconds: variant('none', null),\n        }, GoogleOr.Types.LinearConfigType);\n\n        const result = $.let(GoogleOr.linearSolve(model, config));\n\n        // Should find optimal allocation with positive objective\n        return result.objective_value.match({\n            some: ($, v) => v.greaterThan(0.0),\n            none: ($) => false,\n        });\n    })"
+      "source": "// Allocate production hours across product lines to maximize throughput given machine and labor constraints\n// inputs: []  returns: true\nEast.function([], BooleanType, ($) => {\n        // 3 products: A, B, C\n        // Profit: A=$5, B=$8, C=$6 per unit\n        // Machine hours: A=2h, B=3h, C=1h — available: 18h\n        // Labor hours: A=1h, B=2h, C=2h — available: 12h\n        // Maximize profit\n        const model = $.let({\n            variables: [\n                { name: \"A\", lower_bound: 0.0, upper_bound: 100.0, is_integer: false },\n                { name: \"B\", lower_bound: 0.0, upper_bound: 100.0, is_integer: false },\n                { name: \"C\", lower_bound: 0.0, upper_bound: 100.0, is_integer: false },\n            ],\n            constraints: [\n                // Machine hours: 2A + 3B + 1C <= 18\n                {\n                    terms: [\n                        { var: \"A\", coeff: 2.0 },\n                        { var: \"B\", coeff: 3.0 },\n                        { var: \"C\", coeff: 1.0 },\n                    ],\n                    lower_bound: -1e20,\n                    upper_bound: 18.0,\n                },\n                // Labor hours: 1A + 2B + 2C <= 12\n                {\n                    terms: [\n                        { var: \"A\", coeff: 1.0 },\n                        { var: \"B\", coeff: 2.0 },\n                        { var: \"C\", coeff: 2.0 },\n                    ],\n                    lower_bound: -1e20,\n                    upper_bound: 12.0,\n                },\n            ],\n            objective: {\n                terms: [\n                    { var: \"A\", coeff: 5.0 },\n                    { var: \"B\", coeff: 8.0 },\n                    { var: \"C\", coeff: 6.0 },\n                ],\n                maximize: true,\n            },\n        }, GoogleOr.Types.LinearModelType);\n\n        const config = $.let({\n            solver: none,\n            max_time_seconds: none,\n            relative_gap_limit: none,\n        }, GoogleOr.Types.LinearConfigType);\n\n        const result = $.let(GoogleOr.linearSolve(model, config));\n\n        // Should find optimal allocation with positive objective\n        return result.objective_value.match({\n            some: ($, v) => v.greaterThan(0.0),\n            none: ($) => false,\n        });\n    })"
+    },
+    {
+      "id": "east-py-datascience:google_or.linear.examples.ts:linearSolveMipRelativeGapLimit",
+      "skill": "east-py-datascience",
+      "package": "east-py-datascience",
+      "file": "east-py/packages/east-py-datascience/test/google_or.linear.examples.ts",
+      "suite": "",
+      "test": "Solve a 0/1 knapsack MIP with a 1% relative optimality-gap early-stop (relative_gap_limit)",
+      "keywords": [
+        "google or",
+        "linear",
+        "linearSolve",
+        "MIP",
+        "mixed integer",
+        "relative_gap_limit",
+        "gap",
+        "early stop",
+        "optimality gap",
+        "SCIP",
+        "knapsack"
+      ],
+      "imports": [
+        "import { East, BooleanType, some, none, example } from \"@elaraai/east\";",
+        "import { GoogleOr } from \"@elaraai/east-py-datascience\";"
+      ],
+      "source": "// Solve a 0/1 knapsack MIP with a 1% relative optimality-gap early-stop (relative_gap_limit)\n// inputs: []  returns: true\nEast.function([], BooleanType, ($) => {\n        // 0/1 knapsack: values [6, 10, 12], weights [2, 4, 6], capacity 10.\n        // Optimum picks items 1 and 2 (value 22, weight 10).\n        const model = $.let({\n            variables: [\n                { name: \"x0\", lower_bound: 0.0, upper_bound: 1.0, is_integer: true },\n                { name: \"x1\", lower_bound: 0.0, upper_bound: 1.0, is_integer: true },\n                { name: \"x2\", lower_bound: 0.0, upper_bound: 1.0, is_integer: true },\n            ],\n            constraints: [\n                {\n                    terms: [\n                        { var: \"x0\", coeff: 2.0 },\n                        { var: \"x1\", coeff: 4.0 },\n                        { var: \"x2\", coeff: 6.0 },\n                    ],\n                    lower_bound: -1e20,\n                    upper_bound: 10.0,\n                },\n            ],\n            objective: {\n                terms: [\n                    { var: \"x0\", coeff: 6.0 },\n                    { var: \"x1\", coeff: 10.0 },\n                    { var: \"x2\", coeff: 12.0 },\n                ],\n                maximize: true,\n            },\n        }, GoogleOr.Types.LinearModelType);\n\n        // relative_gap_limit stops branch-and-bound once the proven gap is\n        // within 1% — for this small instance the incumbent is the true optimum.\n        const config = $.let({\n            solver: none,\n            max_time_seconds: none,\n            relative_gap_limit: some(0.01),\n        }, GoogleOr.Types.LinearConfigType);\n\n        const result = $.let(GoogleOr.linearSolve(model, config));\n\n        // Optimum objective is 22 (items 1 + 2).\n        return result.objective_value.match({\n            some: ($, v) => v.greaterThanOrEqual(22.0),\n            none: ($) => false,\n        });\n    })"
     },
     {
       "id": "east-py-datascience:google_or.routing.examples.ts:routingSolveVRP",
