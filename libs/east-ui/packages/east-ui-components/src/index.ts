@@ -378,6 +378,7 @@ export {
 
 // Hooks
 export { usePersistedState, type PersistedStateResult } from "./hooks/usePersistedState.js";
+export { useColorMode, applyColorMode, type ColorMode } from "./hooks/useColorMode.js";
 
 // Platform (State Management)
 export {

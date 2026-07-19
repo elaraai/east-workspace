@@ -66,6 +66,7 @@ export const appBasic = example({
                         config={routes}
                         title="Acme Operations"
                         logo={Image.dataUri(LOGO)}
+                        themeToggle
                         pages={{
                             overview: () => overviewPage(),
                             throughput: () => throughputPage(),

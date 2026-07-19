@@ -18,7 +18,7 @@ export const appSlotRecipe = defineSlotRecipe({
     slots: [
         "root", "rail", "railHeader", "logo", "railBody", "collapseToggleRow", "collapseToggle",
         "railFooter", "content", "bannerTop", "header", "headerRow", "breadcrumb",
-        "barStart", "barCenter", "barEnd", "title", "main",
+        "barStart", "barCenter", "barEnd", "themeToggle", "title", "main",
     ],
     base: {
         // Full-viewport shell; the main region scrolls internally so the page
@@ -143,6 +143,23 @@ export const appSlotRecipe = defineSlotRecipe({
         // Center cluster (host global search) expands to push the trailing bar right.
         barCenter: { display: "inline-flex", alignItems: "center", flex: "1", minWidth: "0", justifyContent: "center" },
         barEnd: { display: "inline-flex", alignItems: "center", gap: "{spacing.2}", marginInlineStart: "auto", flexShrink: 0 },
+        // Built-in dark/light toggle (opt-in) — a ghost icon button in the bar.
+        themeToggle: {
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: "32px",
+            height: "32px",
+            border: "0",
+            background: "transparent",
+            color: "fg.muted",
+            cursor: "pointer",
+            fontSize: "14px",
+            borderRadius: "{radii.sm}",
+            transitionProperty: "background, color",
+            transitionDuration: "{durations.fast}",
+            _hover: { color: "brand.fg", background: "bg.muted" },
+        },
         // Surface title row — bsys "surface.title".
         title: {
             fontFamily: "heading",

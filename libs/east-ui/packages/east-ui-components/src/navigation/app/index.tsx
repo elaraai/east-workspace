@@ -18,13 +18,14 @@
 import { memo, useCallback, useEffect, type ReactNode } from "react";
 import { Box, Flex, chakra, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faChevronLeft, faChevronRight } from "@fortawesome/free-solid-svg-icons";
+import { faChevronLeft, faChevronRight, faMoon, faSun } from "@fortawesome/free-solid-svg-icons";
 import { equalFor, none, type ValueTypeOf } from "@elaraai/east";
 import { AppValueType } from "@elaraai/east-ui/internal";
 import { EastChakraComponent } from "../../component";
 import { EastChakraImage } from "../../display/image";
 import { getSomeorUndefined } from "../../utils";
 import { usePersistedState } from "../../hooks/usePersistedState";
+import { useColorMode } from "../../hooks/useColorMode";
 import { useAppSlots } from "../app-provider";
 
 /** Decoded `App` value — derived from the `AppValueType` mirror in east-ui. */
@@ -49,6 +50,10 @@ export const EastChakraApp = memo(function EastChakraApp({ value, storageKey }: 
     const { state: persistedCollapsed, setState: setCollapsed } = usePersistedState<boolean>(`${storageKey}.app.collapsed`, false);
     const collapsed = value.collapsible && persistedCollapsed;
     const toggle = useCallback(() => setCollapsed(prev => !prev), [setCollapsed]);
+
+    // Opt-in built-in dark/light toggle (pure-East surfaces); embedding apps
+    // normally inject their own via `AppProvider barEnd`.
+    const [colorMode, toggleColorMode] = useColorMode();
 
     // `[` toggles collapse globally (bsys Sidebar recipe) — ignored while typing.
     useEffect(() => {
@@ -122,6 +127,16 @@ export const EastChakraApp = memo(function EastChakraApp({ value, storageKey }: 
                                 <EastChakraComponent key={i} value={c} storageKey={`${storageKey}.barEnd.${i}`} />
                             ))}
                             {slots.barEnd}
+                            {value.themeToggle && (
+                                <chakra.button
+                                    type="button"
+                                    css={styles.themeToggle}
+                                    onClick={toggleColorMode}
+                                    aria-label={colorMode === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                                >
+                                    <FontAwesomeIcon icon={colorMode === "dark" ? faSun : faMoon} />
+                                </chakra.button>
+                            )}
                         </Box>
                     </Flex>
                     {title !== undefined && <Box css={styles.title}>{title}</Box>}
