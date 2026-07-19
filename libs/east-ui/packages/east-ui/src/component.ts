@@ -105,7 +105,7 @@ import { NavListType } from "./navigation/nav-list/types.js";
 import { BadgeType } from "./display/badge/types.js";
 import { TagType } from "./display/tag/types.js";
 import { AvatarType } from "./display/avatar/types.js";
-import { ImageType } from "./display/image/types.js";
+import { ImageType, ImageSourceType } from "./display/image/types.js";
 import { MetricChipToneType, MetricChipStyleType } from "./display/metric-chip/types.js";
 import { EditableChipStyleType } from "./display/editable-chip/types.js";
 import { KbdType } from "./display/kbd/types.js";
@@ -580,6 +580,29 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
      */
     Route: StructType({
         render: FunctionType([], node),
+        navKey: StringType,
+    }),
+    /**
+     * App — the application shell (#367). Composes the navigation primitives
+     * into one surface: a collapsible nav rail, a breadcrumb app bar, an
+     * optional brand logo, app-bar slots, and the routed page body. The
+     * `App.Root` factory pre-builds `rail` / `breadcrumb` as `Reactive`
+     * NavList / Breadcrumb nodes (reading the shared `nav` handle) and `body`
+     * as a `Pages` node; the renderer is dumb layout + chrome (collapse state,
+     * `AppProvider` host-slot injection). `navKey` is the nav path's State key
+     * (collapse persistence + hotkey scope).
+     */
+    App: StructType({
+        title: OptionType(StringType),
+        logo: OptionType(ImageSourceType),
+        logoCollapsed: OptionType(ImageSourceType),
+        rail: node,
+        breadcrumb: node,
+        body: node,
+        barStart: ArrayType(node),
+        barEnd: ArrayType(node),
+        collapsible: BooleanType,
+        themeToggle: BooleanType,
         navKey: StringType,
     }),
 
