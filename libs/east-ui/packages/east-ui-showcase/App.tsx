@@ -485,7 +485,9 @@ function Breadcrumb({ category }: { category: string }) {
         navSections.find(s => s.categories.includes(category))?.section ?? "East UI";
     return (
         <Text textStyle="breadcrumb">
-            <Box as="span" color="brand.600">{section}</Box>
+            {/* `link` (brand.600 / brand.300) not a raw brand.600 — the latter
+             *  stays dark and drops below AA on the dark surface (#362). */}
+            <Box as="span" color="link">{section}</Box>
             <Box as="span" px="1">/</Box>
             <Box as="span" color="fg">{category}</Box>
         </Text>

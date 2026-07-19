@@ -29,7 +29,9 @@ export const breadcrumbSlotRecipe = defineSlotRecipe({
             fontFamily: "mono",
             fontSize: "11px",
             letterSpacing: "0.06em",
-            color: "{colors.brand.600}",
+            // Mode-aware `link` token (brand.600 / brand.300) — a raw brand.600
+            // stays dark in dark mode and drops below AA on the dark surface (#362).
+            color: "link",
             textDecoration: "none",
             cursor: "pointer",
             transitionProperty: "color",
@@ -40,7 +42,9 @@ export const breadcrumbSlotRecipe = defineSlotRecipe({
             fontFamily: "mono",
             fontSize: "11px",
             letterSpacing: "0.06em",
-            color: "{colors.brand.900}",
+            // `fg` (brand.900 in light, gray.100 in dark) — the strong page ink;
+            // a raw brand.900 was near-invisible on the dark surface (#362).
+            color: "fg",
             fontWeight: "semibold",
         },
         separator: {
