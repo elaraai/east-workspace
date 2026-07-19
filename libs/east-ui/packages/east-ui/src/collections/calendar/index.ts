@@ -4,12 +4,14 @@
  */
 
 /**
- * `Calendar` — a day-of-week × week grid coloured by intensity (forecast,
- * demand, OT exposure). **Visualisation only**: clicking drills into a day,
- * but the Calendar is not part of the Planner family — no events, no
+ * `Calendar` — a day-of-week × week heatmap coloured by intensity (forecast,
+ * demand, OT exposure). **Visualisation only**: clicking selects/drills into
+ * a day, but the Calendar is not part of the Planner family — no events, no
  * committed/proposed state, no drag & drop. Takes one flat table with a
- * chart-style field encoding; the component owns the week (columns are
- * always Mon–Sun).
+ * chart-style field encoding; the component owns the week (columns are always
+ * Mon–Sun). Optional chrome — the weekly totals rail, the per-weekday
+ * aggregate row, and the selection footer — is composed with the
+ * `Calendar.*` sub-factories.
  *
  * @packageDocumentation
  */
@@ -24,8 +26,10 @@ import {
     some,
     none,
     ArrayType,
+    BooleanType,
     FloatType,
     type FunctionType,
+    IntegerType,
     type NullType,
     StringType,
     StructType,
@@ -41,6 +45,13 @@ import {
     CalendarRootType,
     CalendarCellType,
     CalendarCellRefType,
+    CalendarAggregateType,
+    type CalendarAggregateLiteral,
+    CalendarScaleType,
+    CalendarTotalsType,
+    CalendarAggregateRowType,
+    CalendarLegendType,
+    CalendarFooterType,
 } from "./types.js";
 
 // Re-export types
@@ -48,6 +59,13 @@ export {
     CalendarRootType,
     CalendarCellType,
     CalendarCellRefType,
+    CalendarAggregateType,
+    type CalendarAggregateLiteral,
+    CalendarScaleType,
+    CalendarTotalsType,
+    CalendarAggregateRowType,
+    CalendarLegendType,
+    CalendarFooterType,
 } from "./types.js";
 
 /**
@@ -55,6 +73,168 @@ export {
  */
 export type RowElement<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
     TypeOf<T> extends ArrayType<infer S> ? (S extends StructType ? S : never) : never;
+
+// ============================================================================
+// Sub-factory helpers
+// ============================================================================
+
+/** Normalise an aggregate literal / expression into a `CalendarAggregateType`. */
+function aggregateValue(
+    agg: SubtypeExprOrValue<CalendarAggregateType> | CalendarAggregateLiteral,
+): SubtypeExprOrValue<CalendarAggregateType> {
+    return typeof agg === "string"
+        ? East.value(variant(agg, null), CalendarAggregateType)
+        : agg;
+}
+
+/**
+ * Options for {@link Calendar.scale}.
+ *
+ * @property ramp - Optional low→high CSS colour list (absent = the default teal ramp)
+ * @property steps - Number of intensity buckets (default the ramp length, else 8)
+ */
+export interface CalendarScaleOptions {
+    /** Optional low→high CSS colour list (absent = the default teal ramp). */
+    ramp?: SubtypeExprOrValue<ArrayType<StringType>>;
+    /** Number of intensity buckets (default the ramp length, else 8). */
+    steps?: SubtypeExprOrValue<IntegerType>;
+}
+
+/**
+ * Builds a heatmap scale — the low→high colour ramp and bucket count that map
+ * a cell value to its fill. Pass the result as `config.scale`.
+ *
+ * @param options - The scale options ({@link CalendarScaleOptions})
+ * @returns An East `CalendarScaleType` value
+ *
+ * @example
+ * ```ts
+ * Calendar.scale({ steps: 6 })
+ * ```
+ */
+function calendarScale(options: CalendarScaleOptions = {}): SubtypeExprOrValue<CalendarScaleType> {
+    return East.value({
+        ramp: options.ramp !== undefined
+            ? some(East.value(options.ramp, ArrayType(StringType)))
+            : none,
+        steps: options.steps ?? 8n,
+    }, CalendarScaleType);
+}
+
+/**
+ * Options for {@link Calendar.totals}.
+ *
+ * @property aggregate - The reduction over each week's cells (default `"sum"`)
+ * @property label - The rail's column header (default `"Σ wk"`)
+ * @property bar - Whether to draw the proportion bar (default `true`)
+ */
+export interface CalendarTotalsOptions {
+    /** The reduction over each week's cells (default `"sum"`). */
+    aggregate?: SubtypeExprOrValue<CalendarAggregateType> | CalendarAggregateLiteral;
+    /** The rail's column header (default `"Σ wk"`). */
+    label?: SubtypeExprOrValue<StringType>;
+    /** Whether to draw the proportion bar (default `true`). */
+    bar?: SubtypeExprOrValue<BooleanType>;
+}
+
+/**
+ * Builds the weekly totals rail — a trailing column reducing each week row,
+ * with an optional proportion bar. Pass the result as `config.totals`.
+ * The aggregate vocabulary (`sum` / `mean` / `min` / `max` / `count`) matches
+ * the Table component.
+ *
+ * @param options - The totals options ({@link CalendarTotalsOptions})
+ * @returns An East `CalendarTotalsType` value
+ *
+ * @example
+ * ```ts
+ * Calendar.totals({ aggregate: "sum", label: "Σ wk" })
+ * ```
+ */
+function calendarTotals(options: CalendarTotalsOptions = {}): SubtypeExprOrValue<CalendarTotalsType> {
+    return East.value({
+        aggregate: aggregateValue(options.aggregate ?? "sum"),
+        label: options.label ?? "Σ wk",
+        bar: options.bar ?? true,
+    }, CalendarTotalsType);
+}
+
+/**
+ * Options for {@link Calendar.aggregateRow}.
+ *
+ * @property aggregate - The reduction over each weekday's cells (default `"mean"`)
+ * @property label - The row's label (default `"mean"`)
+ */
+export interface CalendarAggregateRowOptions {
+    /** The reduction over each weekday's cells (default `"mean"`). */
+    aggregate?: SubtypeExprOrValue<CalendarAggregateType> | CalendarAggregateLiteral;
+    /** The row's label (default `"mean"`). */
+    label?: SubtypeExprOrValue<StringType>;
+}
+
+/**
+ * Builds the per-weekday aggregate row — a trailing row reducing each weekday
+ * column, pinned under the grid. Pass the result as `config.aggregateRow`.
+ *
+ * @param options - The aggregate-row options ({@link CalendarAggregateRowOptions})
+ * @returns An East `CalendarAggregateRowType` value
+ *
+ * @example
+ * ```ts
+ * Calendar.aggregateRow({ aggregate: "mean", label: "mean" })
+ * ```
+ */
+function calendarAggregateRow(options: CalendarAggregateRowOptions = {}): SubtypeExprOrValue<CalendarAggregateRowType> {
+    return East.value({
+        aggregate: aggregateValue(options.aggregate ?? "mean"),
+        label: options.label ?? "mean",
+    }, CalendarAggregateRowType);
+}
+
+/**
+ * Options for {@link Calendar.footer}.
+ *
+ * @property valueLabel - Label for the cell value (default `"value"`)
+ * @property compareLabel - Label for the compare baseline (default `"prev"`)
+ * @property legend - Low→high gradient legend; `true` for the default captions
+ */
+export interface CalendarFooterOptions {
+    /** Label for the cell value (default `"value"`). */
+    valueLabel?: SubtypeExprOrValue<StringType>;
+    /** Label for the compare baseline (default `"prev"`). */
+    compareLabel?: SubtypeExprOrValue<StringType>;
+    /** Low→high gradient legend; `true` for the default `low` / `high` captions. */
+    legend?: { low?: SubtypeExprOrValue<StringType>; high?: SubtypeExprOrValue<StringType> } | boolean;
+}
+
+/**
+ * Builds the selection footer — the strip shown once a cell is selected,
+ * printing the cell value (labelled `valueLabel`), its `compare` baseline
+ * (labelled `compareLabel`) and a computed delta chip, plus an optional
+ * low→high gradient legend pinned right. Pass the result as `config.footer`.
+ *
+ * @param options - The footer options ({@link CalendarFooterOptions})
+ * @returns An East `CalendarFooterType` value
+ *
+ * @example
+ * ```ts
+ * Calendar.footer({ valueLabel: "predicted", compareLabel: "last yr", legend: true })
+ * ```
+ */
+function calendarFooter(options: CalendarFooterOptions = {}): SubtypeExprOrValue<CalendarFooterType> {
+    const legend = options.legend;
+    const legendValue = legend === undefined || legend === false
+        ? none
+        : some(East.value({
+            low: (legend === true ? undefined : legend.low) ?? "low",
+            high: (legend === true ? undefined : legend.high) ?? "high",
+        }, CalendarLegendType));
+    return East.value({
+        valueLabel: options.valueLabel ?? "value",
+        compareLabel: options.compareLabel ?? "prev",
+        legend: legendValue,
+    }, CalendarFooterType);
+}
 
 // ============================================================================
 // Configuration
@@ -71,8 +251,8 @@ export type RowElement<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
  * @property day - The day column — `"Mon"` … `"Sun"`, exact match
  * @property value - The intensity (drives fill; printed via `text`)
  * @property text - Optional cell text (defaults to `East.print(value)`)
- * @property summary - Optional selection-footer text for this day
- * @property delta - Optional signed change (renders as a pos/neg chip)
+ * @property compare - Optional baseline for the footer delta (e.g. last year)
+ * @property summary - Optional extra selection-footer text for this day
  */
 export interface CalendarCellFields {
     /** The row's week label (rows appear in first-appearance order). */
@@ -83,10 +263,10 @@ export interface CalendarCellFields {
     value: SubtypeExprOrValue<FloatType>;
     /** Optional cell text (defaults to `East.print(value)`). */
     text?: SubtypeExprOrValue<StringType>;
-    /** Optional selection-footer text for this day. */
+    /** Optional baseline for the footer delta (e.g. last year). */
+    compare?: SubtypeExprOrValue<FloatType>;
+    /** Optional extra selection-footer text for this day. */
     summary?: SubtypeExprOrValue<StringType>;
-    /** Optional signed change (renders as a pos/neg chip). */
-    delta?: SubtypeExprOrValue<FloatType>;
 }
 
 /**
@@ -94,20 +274,32 @@ export interface CalendarCellFields {
  *
  * @typeParam R - The day-row struct
  * @property cell - Cell row mapper (omit when rows are already resolved)
- * @property legend - Intensity caption (omitted by default; pass a string to caption the colour ramp)
+ * @property values - Print the value inside each cell (default `true`)
+ * @property scale - Heatmap scale ({@link Calendar.scale})
  * @property domain - Optional explicit intensity domain (default: observed min/max)
- * @property actionLabel - Optional footer-right drill label
+ * @property totals - Weekly totals rail ({@link Calendar.totals})
+ * @property aggregateRow - Per-weekday aggregate row ({@link Calendar.aggregateRow})
+ * @property footer - Selection footer ({@link Calendar.footer})
+ * @property actionLabel - Optional footer drill label
  * @property onAction - Optional drill callback (receives the selected cell)
  * @property onSelect - Optional cell-click callback
  */
 export interface CalendarConfig<R extends StructType> {
     /** Cell row mapper; omit when `data` is already `ArrayType(Calendar.Types.Cell)`. */
     cell?: (day: ExprType<R>) => CalendarCellFields;
-    /** Intensity caption (omitted by default; pass a string to caption the colour ramp). */
-    legend?: SubtypeExprOrValue<StringType>;
+    /** Print the value inside each cell (default `true`). */
+    values?: SubtypeExprOrValue<BooleanType>;
+    /** Heatmap scale ({@link Calendar.scale}). */
+    scale?: SubtypeExprOrValue<CalendarScaleType>;
     /** Optional explicit intensity domain (default: observed min/max). */
     domain?: { min: SubtypeExprOrValue<FloatType>; max: SubtypeExprOrValue<FloatType> };
-    /** Optional footer-right drill label. */
+    /** Weekly totals rail ({@link Calendar.totals}). */
+    totals?: SubtypeExprOrValue<CalendarTotalsType>;
+    /** Per-weekday aggregate row ({@link Calendar.aggregateRow}). */
+    aggregateRow?: SubtypeExprOrValue<CalendarAggregateRowType>;
+    /** Selection footer ({@link Calendar.footer}). */
+    footer?: SubtypeExprOrValue<CalendarFooterType>;
+    /** Optional footer drill label. */
     actionLabel?: SubtypeExprOrValue<StringType>;
     /** Optional drill callback (receives the selected cell). */
     onAction?: SubtypeExprOrValue<FunctionType<[CalendarCellRefType], NullType>>;
@@ -139,8 +331,8 @@ function buildRoot(
                 day: r.day,
                 value,
                 text: r.text !== undefined ? r.text : East.print(value),
+                compare: r.compare !== undefined ? some(East.value(r.compare, FloatType)) : none,
                 summary: r.summary !== undefined ? some(r.summary) : none,
-                delta: r.delta !== undefined ? some(r.delta) : none,
             }, CalendarCellType);
         });
 
@@ -151,12 +343,16 @@ function buildRoot(
         : undefined;
 
     return East.value(variant("Calendar", {
-        legend: config.legend ?? "",
         cells,
+        values: config.values ?? true,
+        scale: config.scale !== undefined ? some(East.value(config.scale, CalendarScaleType)) : none,
         domain: config.domain !== undefined
             ? some(East.value({ min: config.domain.min, max: config.domain.max },
                 StructType({ min: FloatType, max: FloatType })))
             : none,
+        totals: config.totals !== undefined ? some(East.value(config.totals, CalendarTotalsType)) : none,
+        aggregateRow: config.aggregateRow !== undefined ? some(East.value(config.aggregateRow, CalendarAggregateRowType)) : none,
+        footer: config.footer !== undefined ? some(East.value(config.footer, CalendarFooterType)) : none,
         actionLabel: config.actionLabel !== undefined ? some(config.actionLabel) : none,
         onAction: config.onAction !== undefined ? some(config.onAction) : none,
         onSelect: config.onSelect !== undefined ? some(config.onSelect) : none,
@@ -173,7 +369,7 @@ function buildRoot(
 }
 
 /**
- * Creates a Calendar — a day-of-week × week intensity grid.
+ * Creates a Calendar — a day-of-week × week intensity heatmap.
  *
  * @typeParam R - The day-table input
  * @param data - The day rows (one element per week × day cell; sparse is fine)
@@ -190,6 +386,8 @@ function buildRoot(
  *         [{ week: "W37", day: "Mon", demand: 102.0 }],
  *         {
  *             cell: d => ({ week: d.week, day: d.day, value: d.demand }),
+ *             totals: Calendar.totals(),
+ *             footer: Calendar.footer({ legend: true }),
  *         },
  *     ),
  * );
@@ -210,13 +408,16 @@ function createCalendar<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
  * Calendar component namespace.
  *
  * @remarks
- * `Calendar.Root(data, config)` builds the grid from one flat day table.
- * Visualisation only — pair it with a `Slice.Range` in the surrounding
- * chrome if the time window needs to narrow.
+ * `Calendar.Root(data, config)` builds the heatmap from one flat day table.
+ * Compose the optional chrome with the sub-factories: `Calendar.scale` (the
+ * colour ramp), `Calendar.totals` (the weekly rail), `Calendar.aggregateRow`
+ * (the per-weekday row), and `Calendar.footer` (the selection footer + legend).
+ * Visualisation only — pair it with a `Slice.Range` in the surrounding chrome
+ * if the time window needs to narrow.
  */
 export const Calendar = {
     /**
-     * Creates a Calendar — a day-of-week × week intensity grid.
+     * Creates a Calendar — a day-of-week × week intensity heatmap.
      *
      * @typeParam R - The day-table input
      * @param data - The day rows (one element per week × day cell; sparse is fine)
@@ -224,60 +425,70 @@ export const Calendar = {
      * @returns An East expression of `UIComponentType`
      *
      * @remarks
-     * Cells fill with brand-scale intensity normalised over the visible
-     * values (or the explicit `domain`); missing (week, day) combinations
-     * render the neutral `−` fill. Selecting a cell shows its `summary` /
-     * `delta` in the footer next to the drill `action`.
-     *
-     * @example
-     * ```ts
-     * import { East } from "@elaraai/east";
-     * import { Calendar, UIComponentType } from "@elaraai/east-ui";
-     *
-     * const example = East.function([], UIComponentType, _$ =>
-     *     Calendar.Root(
-     *         [{ week: "W37", day: "Mon", demand: 102.0 }],
-     *         {
-     *             title: "Forecasted demand · SE region",
-     *             cell: d => ({ week: d.week, day: d.day, value: d.demand }),
-     *         },
-     *     ),
-     * );
-     * ```
+     * Cells fill with the heatmap ramp normalised over the visible values (or
+     * the explicit `domain`); missing (week, day) combinations render the
+     * neutral hatched fill. Selecting a cell shows its details in the footer.
      */
     Root: createCalendar,
+    /**
+     * Builds a heatmap scale — the low→high colour ramp and bucket count.
+     * Pass the result as `config.scale`.
+     *
+     * @param options - The scale options ({@link CalendarScaleOptions})
+     * @returns An East `CalendarScaleType` value
+     */
+    scale: calendarScale,
+    /**
+     * Builds the weekly totals rail (per-row aggregation) — a trailing column
+     * with an optional proportion bar. Pass the result as `config.totals`.
+     *
+     * @param options - The totals options ({@link CalendarTotalsOptions})
+     * @returns An East `CalendarTotalsType` value
+     */
+    totals: calendarTotals,
+    /**
+     * Builds the per-weekday aggregate row (per-column aggregation). Pass the
+     * result as `config.aggregateRow`.
+     *
+     * @param options - The aggregate-row options ({@link CalendarAggregateRowOptions})
+     * @returns An East `CalendarAggregateRowType` value
+     */
+    aggregateRow: calendarAggregateRow,
+    /**
+     * Builds the selection footer (value / compare / delta + legend). Pass the
+     * result as `config.footer`.
+     *
+     * @param options - The footer options ({@link CalendarFooterOptions})
+     * @returns An East `CalendarFooterType` value
+     */
+    footer: calendarFooter,
     Types: {
         /**
          * East StructType for the Calendar component.
          *
          * @remarks
          * The resolved grid; see {@link CalendarRootType} for per-field docs.
-         *
-         * @property legend - Intensity caption
-         * @property cells - The resolved cells
-         * @property domain - Optional explicit intensity domain
-         * @property actionLabel - Optional footer-right drill label
-         * @property onAction - Optional drill callback
-         * @property onSelect - Optional cell-click callback
          */
         Calendar: CalendarRootType,
         /**
          * A resolved calendar cell.
-         *
-         * @property week - The row's week label
-         * @property day - The day column
-         * @property value - The intensity / printed value
-         * @property text - The cell text
-         * @property summary - Optional selection-footer text
-         * @property delta - Optional signed change
          */
         Cell: CalendarCellType,
         /**
          * A cell reference — what `onSelect` / `onAction` receive.
-         *
-         * @property week - The row's week label
-         * @property day - The day column
          */
         CellRef: CalendarCellRefType,
+        /** The aggregate reduction vocabulary (sum / mean / min / max / count). */
+        Aggregate: CalendarAggregateType,
+        /** The heatmap scale (ramp / steps). */
+        Scale: CalendarScaleType,
+        /** The weekly totals rail. */
+        Totals: CalendarTotalsType,
+        /** The per-weekday aggregate row. */
+        AggregateRow: CalendarAggregateRowType,
+        /** The selection footer. */
+        Footer: CalendarFooterType,
+        /** The heatmap legend. */
+        Legend: CalendarLegendType,
     },
 } as const;

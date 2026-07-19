@@ -1,14 +1,14 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1510,
+    "totalEntries": 1512,
     "totalFiles": 190,
     "packages": {
       "east": 490,
       "east-node-std": 43,
       "east-node-io": 63,
       "east-py-datascience": 89,
-      "east-ui": 751,
+      "east-ui": 753,
       "e3-ui": 58,
       "e3": 7,
       "e3-ui-cli": 4,
@@ -15525,22 +15525,25 @@
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/collections/calendar.examples.tsx",
       "suite": "",
-      "test": "Forecasted demand heatmap — four weeks with selection summary and drill action",
+      "test": "The full heatmap — the Σ-wk totals rail, the per-weekday mean row, and the selection footer (predicted / last-year / delta chip) with the low→high gradient legend",
       "keywords": [
         "Calendar",
         "heatmap",
         "intensity",
         "week",
         "day",
-        "summary",
-        "delta"
+        "totals",
+        "mean",
+        "footer",
+        "legend",
+        "compare"
       ],
       "imports": [
         "import { East, StringType, NullType, example } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Box, Calendar, Reactive, Text, VStack } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Forecasted demand heatmap — four weeks with selection summary and drill action\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const days = $.const([\n            { week: \"W37\", day: \"Tue\", demand: 102.0, lastYear: 96.0 },\n            { week: \"W37\", day: \"Wed\", demand: 110.0, lastYear: 104.0 },\n            { week: \"W37\", day: \"Thu\", demand: 128.0, lastYear: 115.0 },\n            { week: \"W37\", day: \"Fri\", demand: 152.0, lastYear: 140.0 },\n            { week: \"W37\", day: \"Sat\", demand: 168.0, lastYear: 151.0 },\n            { week: \"W37\", day: \"Sun\", demand: 141.0, lastYear: 129.0 },\n            { week: \"W38\", day: \"Mon\", demand: 98.0, lastYear: 91.0 },\n            { week: \"W38\", day: \"Tue\", demand: 104.0, lastYear: 99.0 },\n            { week: \"W38\", day: \"Wed\", demand: 122.0, lastYear: 109.0 },\n            { week: \"W38\", day: \"Thu\", demand: 131.0, lastYear: 112.0 },\n            { week: \"W38\", day: \"Fri\", demand: 156.0, lastYear: 137.0 },\n            { week: \"W38\", day: \"Sat\", demand: 189.0, lastYear: 164.0 },\n            { week: \"W38\", day: \"Sun\", demand: 162.0, lastYear: 148.0 },\n            { week: \"W39\", day: \"Mon\", demand: 96.0, lastYear: 90.0 },\n            { week: \"W39\", day: \"Tue\", demand: 118.0, lastYear: 106.0 },\n            { week: \"W39\", day: \"Wed\", demand: 125.0, lastYear: 114.0 },\n            { week: \"W39\", day: \"Thu\", demand: 144.0, lastYear: 126.0 },\n            { week: \"W39\", day: \"Fri\", demand: 182.0, lastYear: 158.0 },\n            { week: \"W39\", day: \"Sat\", demand: 204.0, lastYear: 175.0 },\n            { week: \"W39\", day: \"Sun\", demand: 177.0, lastYear: 160.0 },\n            { week: \"W40\", day: \"Mon\", demand: 93.0, lastYear: 88.0 },\n            { week: \"W40\", day: \"Tue\", demand: 115.0, lastYear: 103.0 },\n            { week: \"W40\", day: \"Wed\", demand: 147.0, lastYear: 128.0 },\n            { week: \"W40\", day: \"Thu\", demand: 158.0, lastYear: 137.0 },\n            { week: \"W40\", day: \"Fri\", demand: 196.0, lastYear: 169.0 },\n            { week: \"W40\", day: \"Sat\", demand: 219.0, lastYear: 187.0 },\n            { week: \"W40\", day: \"Sun\", demand: 191.0, lastYear: 170.0 },\n        ]);\n        return (\n            <Calendar\n                data={days}\n                cell={d => ({\n                    week: d.week, day: d.day, value: d.demand,\n                    text: East.Float.printFixed(d.demand, 0n),\n                    summary: East.str`predicted ${East.Float.printFixed(d.demand, 0n)} · last yr ${East.Float.printFixed(d.lastYear, 0n)}`,\n                    delta: d.demand.subtract(d.lastYear).divide(d.lastYear),\n                })}\n                actionLabel=\"Open day\"\n            />\n        );\n    })"
+      "source": "// The full heatmap — the Σ-wk totals rail, the per-weekday mean row, and the selection footer (predicted / last-year / delta chip) with the low→high gradient legend\n// inputs: []\nEast.function([], UIComponentType, ($) => (\n        <Calendar\n            data={DEMAND}\n            cell={d => ({\n                week: d.week, day: d.day,\n                value: d.demand, compare: d.lastYear,\n                text: East.Float.printFixed(d.demand, 0n),\n            })}\n            totals={Calendar.totals({ aggregate: \"sum\", label: \"Σ wk\" })}\n            aggregateRow={Calendar.aggregateRow({ aggregate: \"mean\", label: \"mean\" })}\n            footer={Calendar.footer({ valueLabel: \"predicted\", compareLabel: \"last yr\", legend: true })}\n        />\n    ))"
     },
     {
       "id": "east-ui:calendar.examples.tsx:calendarMinimal",
@@ -15548,19 +15551,65 @@
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/collections/calendar.examples.tsx",
       "suite": "",
-      "test": "Minimal sparse heatmap — missing days render the neutral fill",
+      "test": "Minimal sparse heatmap — no chrome; missing days render the hatched neutral fill",
       "keywords": [
         "Calendar",
         "heatmap",
         "minimal",
-        "sparse"
+        "sparse",
+        "hatched"
       ],
       "imports": [
         "import { East, StringType, NullType, example } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Box, Calendar, Reactive, Text, VStack } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Minimal sparse heatmap — missing days render the neutral fill\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const days = $.const([\n            { week: \"W1\", day: \"Mon\", v: 4.0 },\n            { week: \"W1\", day: \"Wed\", v: 9.0 },\n            { week: \"W1\", day: \"Fri\", v: 2.0 },\n            { week: \"W2\", day: \"Tue\", v: 6.0 },\n            { week: \"W2\", day: \"Sat\", v: 12.0 },\n        ]);\n        return (\n            <Calendar\n                data={days}\n                cell={d => ({ week: d.week, day: d.day, value: d.v })}\n            />\n        );\n    })"
+      "source": "// Minimal sparse heatmap — no chrome; missing days render the hatched neutral fill\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const days = $.const([\n            { week: \"W1\", day: \"Mon\", v: 4.0 },\n            { week: \"W1\", day: \"Wed\", v: 9.0 },\n            { week: \"W1\", day: \"Fri\", v: 2.0 },\n            { week: \"W2\", day: \"Tue\", v: 6.0 },\n            { week: \"W2\", day: \"Sat\", v: 12.0 },\n        ]);\n        return (\n            <Calendar\n                data={days}\n                cell={d => ({ week: d.week, day: d.day, value: d.v })}\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:calendar.examples.tsx:calendarValuesOff",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/calendar.examples.tsx",
+      "suite": "",
+      "test": "A pure heat read — ",
+      "keywords": [
+        "Calendar",
+        "values",
+        "heat",
+        "overview",
+        "scale",
+        "steps"
+      ],
+      "imports": [
+        "import { East, StringType, NullType, example } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Calendar, Reactive, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// A pure heat read — \n// inputs: []\nEast.function([], UIComponentType, ($) => (\n        <Calendar\n            data={DEMAND}\n            cell={d => ({ week: d.week, day: d.day, value: d.demand })}\n            values={false}\n            scale={Calendar.scale({ steps: 6n })}\n            density=\"condensed\"\n        />\n    ))"
+    },
+    {
+      "id": "east-ui:calendar.examples.tsx:calendarTotals",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/calendar.examples.tsx",
+      "suite": "",
+      "test": "The weekly totals rail and per-weekday aggregate row — the same sum/mean/min/max/count vocabulary as Table",
+      "keywords": [
+        "Calendar",
+        "totals",
+        "aggregate",
+        "sum",
+        "mean",
+        "rail",
+        "bar"
+      ],
+      "imports": [
+        "import { East, StringType, NullType, example } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Calendar, Reactive, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// The weekly totals rail and per-weekday aggregate row — the same sum/mean/min/max/count vocabulary as Table\n// inputs: []\nEast.function([], UIComponentType, ($) => (\n        <Calendar\n            data={DEMAND}\n            cell={d => ({ week: d.week, day: d.day, value: d.demand, text: East.Float.printFixed(d.demand, 0n) })}\n            totals={Calendar.totals({ aggregate: \"sum\", label: \"Σ wk\", bar: true })}\n            aggregateRow={Calendar.aggregateRow({ aggregate: \"max\", label: \"peak\" })}\n        />\n    ))"
     },
     {
       "id": "east-ui:calendar.examples.tsx:calendarDensity",
@@ -15590,20 +15639,21 @@
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/collections/calendar.examples.tsx",
       "suite": "",
-      "test": "Heatmap whose onSelect tracks the drilled day",
+      "test": "Heatmap whose onSelect tracks the drilled day; the footer surfaces the predicted vs last-year delta",
       "keywords": [
         "Calendar",
         "Reactive",
         "State",
         "onSelect",
-        "interactive"
+        "interactive",
+        "footer"
       ],
       "imports": [
         "import { East, StringType, NullType, example } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Box, Calendar, Reactive, Text, VStack } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Heatmap whose onSelect tracks the drilled day\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const bind = $.let(State.bind([StringType], \"calendar_selected\", \"none\"));\n            const onSelect = $.const(East.function([Calendar.Types.CellRef], NullType, ($, ref) => {\n                $(bind.write(East.str`${ref.day} ${ref.week}`));\n            }));\n            const selected = $.let(bind.read());\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <Calendar\n                        data={[\n                            { week: \"W1\", day: \"Mon\", v: 10.0 },\n                            { week: \"W1\", day: \"Tue\", v: 20.0 },\n                            { week: \"W1\", day: \"Wed\", v: 30.0 },\n                        ]}\n                        cell={d => ({ week: d.week, day: d.day, value: d.v })}\n                        onSelect={onSelect}\n                    />\n                    <Text.MonoLabel>{East.str`SELECTED · ${selected}`}</Text.MonoLabel>\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
+      "source": "// Heatmap whose onSelect tracks the drilled day; the footer surfaces the predicted vs last-year delta\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const bind = $.let(State.bind([StringType], \"calendar_selected\", \"none\"));\n            const onSelect = $.const(East.function([Calendar.Types.CellRef], NullType, ($, ref) => {\n                $(bind.write(East.str`${ref.day} ${ref.week}`));\n            }));\n            const selected = $.let(bind.read());\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <Calendar\n                        data={DEMAND}\n                        cell={d => ({ week: d.week, day: d.day, value: d.demand, compare: d.lastYear, text: East.Float.printFixed(d.demand, 0n) })}\n                        footer={Calendar.footer({ valueLabel: \"predicted\", compareLabel: \"last yr\", legend: true })}\n                        onSelect={onSelect}\n                    />\n                    <Text.MonoLabel>{East.str`SELECTED · ${selected}`}</Text.MonoLabel>\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "east-ui:calendar.examples.tsx:calendarScroll",

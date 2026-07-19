@@ -7,58 +7,50 @@ import { East, StringType, NullType, example } from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
 import { Box, Calendar, Reactive, Text, VStack } from "@elaraai/east-ui";
 
+/** Five weeks × seven days of forecast demand with a last-year baseline; the
+ *  first Monday is intentionally omitted so it renders the hatched empty cell. */
+const DEMAND = [
+    { week: "W37", day: "Tue", demand: 105.0, lastYear: 95.0 }, { week: "W37", day: "Wed", demand: 116.0, lastYear: 102.0 },
+    { week: "W37", day: "Thu", demand: 120.0, lastYear: 103.0 }, { week: "W37", day: "Fri", demand: 144.0, lastYear: 121.0 },
+    { week: "W37", day: "Sat", demand: 179.0, lastYear: 147.0 }, { week: "W37", day: "Sun", demand: 151.0, lastYear: 134.0 },
+    { week: "W38", day: "Mon", demand: 96.0, lastYear: 89.0 }, { week: "W38", day: "Tue", demand: 104.0, lastYear: 94.0 },
+    { week: "W38", day: "Wed", demand: 124.0, lastYear: 109.0 }, { week: "W38", day: "Thu", demand: 131.0, lastYear: 112.0 },
+    { week: "W38", day: "Fri", demand: 157.0, lastYear: 132.0 }, { week: "W38", day: "Sat", demand: 187.0, lastYear: 153.0 },
+    { week: "W38", day: "Sun", demand: 160.0, lastYear: 142.0 }, { week: "W39", day: "Mon", demand: 98.0, lastYear: 91.0 },
+    { week: "W39", day: "Tue", demand: 116.0, lastYear: 104.0 }, { week: "W39", day: "Wed", demand: 127.0, lastYear: 112.0 },
+    { week: "W39", day: "Thu", demand: 141.0, lastYear: 121.0 }, { week: "W39", day: "Fri", demand: 165.0, lastYear: 139.0 },
+    { week: "W39", day: "Sat", demand: 201.0, lastYear: 165.0 }, { week: "W39", day: "Sun", demand: 164.0, lastYear: 145.0 },
+    { week: "W40", day: "Mon", demand: 102.0, lastYear: 95.0 }, { week: "W40", day: "Tue", demand: 118.0, lastYear: 106.0 },
+    { week: "W40", day: "Wed", demand: 134.0, lastYear: 118.0 }, { week: "W40", day: "Thu", demand: 141.0, lastYear: 121.0 },
+    { week: "W40", day: "Fri", demand: 175.0, lastYear: 147.0 }, { week: "W40", day: "Sat", demand: 207.0, lastYear: 170.0 },
+    { week: "W40", day: "Sun", demand: 175.0, lastYear: 155.0 }, { week: "W41", day: "Mon", demand: 112.0, lastYear: 104.0 },
+    { week: "W41", day: "Tue", demand: 130.0, lastYear: 117.0 }, { week: "W41", day: "Wed", demand: 140.0, lastYear: 123.0 },
+    { week: "W41", day: "Thu", demand: 154.0, lastYear: 132.0 }, { week: "W41", day: "Fri", demand: 178.0, lastYear: 150.0 },
+    { week: "W41", day: "Sat", demand: 222.0, lastYear: 182.0 }, { week: "W41", day: "Sun", demand: 181.0, lastYear: 160.0 },
+];
+
 export const calendarDemand = example({
-    keywords: ["Calendar", "heatmap", "intensity", "week", "day", "summary", "delta"],
-    description: "Forecasted demand heatmap — four weeks with selection summary and drill action",
-    fn: East.function([], UIComponentType, ($) => {
-        const days = $.const([
-            { week: "W37", day: "Tue", demand: 102.0, lastYear: 96.0 },
-            { week: "W37", day: "Wed", demand: 110.0, lastYear: 104.0 },
-            { week: "W37", day: "Thu", demand: 128.0, lastYear: 115.0 },
-            { week: "W37", day: "Fri", demand: 152.0, lastYear: 140.0 },
-            { week: "W37", day: "Sat", demand: 168.0, lastYear: 151.0 },
-            { week: "W37", day: "Sun", demand: 141.0, lastYear: 129.0 },
-            { week: "W38", day: "Mon", demand: 98.0, lastYear: 91.0 },
-            { week: "W38", day: "Tue", demand: 104.0, lastYear: 99.0 },
-            { week: "W38", day: "Wed", demand: 122.0, lastYear: 109.0 },
-            { week: "W38", day: "Thu", demand: 131.0, lastYear: 112.0 },
-            { week: "W38", day: "Fri", demand: 156.0, lastYear: 137.0 },
-            { week: "W38", day: "Sat", demand: 189.0, lastYear: 164.0 },
-            { week: "W38", day: "Sun", demand: 162.0, lastYear: 148.0 },
-            { week: "W39", day: "Mon", demand: 96.0, lastYear: 90.0 },
-            { week: "W39", day: "Tue", demand: 118.0, lastYear: 106.0 },
-            { week: "W39", day: "Wed", demand: 125.0, lastYear: 114.0 },
-            { week: "W39", day: "Thu", demand: 144.0, lastYear: 126.0 },
-            { week: "W39", day: "Fri", demand: 182.0, lastYear: 158.0 },
-            { week: "W39", day: "Sat", demand: 204.0, lastYear: 175.0 },
-            { week: "W39", day: "Sun", demand: 177.0, lastYear: 160.0 },
-            { week: "W40", day: "Mon", demand: 93.0, lastYear: 88.0 },
-            { week: "W40", day: "Tue", demand: 115.0, lastYear: 103.0 },
-            { week: "W40", day: "Wed", demand: 147.0, lastYear: 128.0 },
-            { week: "W40", day: "Thu", demand: 158.0, lastYear: 137.0 },
-            { week: "W40", day: "Fri", demand: 196.0, lastYear: 169.0 },
-            { week: "W40", day: "Sat", demand: 219.0, lastYear: 187.0 },
-            { week: "W40", day: "Sun", demand: 191.0, lastYear: 170.0 },
-        ]);
-        return (
-            <Calendar
-                data={days}
-                cell={d => ({
-                    week: d.week, day: d.day, value: d.demand,
-                    text: East.Float.printFixed(d.demand, 0n),
-                    summary: East.str`predicted ${East.Float.printFixed(d.demand, 0n)} · last yr ${East.Float.printFixed(d.lastYear, 0n)}`,
-                    delta: d.demand.subtract(d.lastYear).divide(d.lastYear),
-                })}
-                actionLabel="Open day"
-            />
-        );
-    }),
+    keywords: ["Calendar", "heatmap", "intensity", "week", "day", "totals", "mean", "footer", "legend", "compare"],
+    description: "The full heatmap — the Σ-wk totals rail, the per-weekday mean row, and the selection footer (predicted / last-year / delta chip) with the low→high gradient legend",
+    fn: East.function([], UIComponentType, ($) => (
+        <Calendar
+            data={DEMAND}
+            cell={d => ({
+                week: d.week, day: d.day,
+                value: d.demand, compare: d.lastYear,
+                text: East.Float.printFixed(d.demand, 0n),
+            })}
+            totals={Calendar.totals({ aggregate: "sum", label: "Σ wk" })}
+            aggregateRow={Calendar.aggregateRow({ aggregate: "mean", label: "mean" })}
+            footer={Calendar.footer({ valueLabel: "predicted", compareLabel: "last yr", legend: true })}
+        />
+    )),
     inputs: [],
 });
 
 export const calendarMinimal = example({
-    keywords: ["Calendar", "heatmap", "minimal", "sparse"],
-    description: "Minimal sparse heatmap — missing days render the neutral fill",
+    keywords: ["Calendar", "heatmap", "minimal", "sparse", "hatched"],
+    description: "Minimal sparse heatmap — no chrome; missing days render the hatched neutral fill",
     fn: East.function([], UIComponentType, ($) => {
         const days = $.const([
             { week: "W1", day: "Mon", v: 4.0 },
@@ -74,6 +66,35 @@ export const calendarMinimal = example({
             />
         );
     }),
+    inputs: [],
+});
+
+export const calendarValuesOff = example({
+    keywords: ["Calendar", "values", "heat", "overview", "scale", "steps"],
+    description: "A pure heat read — `values={false}` drops the in-cell numbers and a 6-step `Calendar.scale` coarsens the ramp",
+    fn: East.function([], UIComponentType, ($) => (
+        <Calendar
+            data={DEMAND}
+            cell={d => ({ week: d.week, day: d.day, value: d.demand })}
+            values={false}
+            scale={Calendar.scale({ steps: 6n })}
+            density="condensed"
+        />
+    )),
+    inputs: [],
+});
+
+export const calendarTotals = example({
+    keywords: ["Calendar", "totals", "aggregate", "sum", "mean", "rail", "bar"],
+    description: "The weekly totals rail and per-weekday aggregate row — the same sum/mean/min/max/count vocabulary as Table",
+    fn: East.function([], UIComponentType, ($) => (
+        <Calendar
+            data={DEMAND}
+            cell={d => ({ week: d.week, day: d.day, value: d.demand, text: East.Float.printFixed(d.demand, 0n) })}
+            totals={Calendar.totals({ aggregate: "sum", label: "Σ wk", bar: true })}
+            aggregateRow={Calendar.aggregateRow({ aggregate: "max", label: "peak" })}
+        />
+    )),
     inputs: [],
 });
 
@@ -102,8 +123,8 @@ export const calendarDensity = example({
 });
 
 export const calendarInteractive = example({
-    keywords: ["Calendar", "Reactive", "State", "onSelect", "interactive"],
-    description: "Heatmap whose onSelect tracks the drilled day",
+    keywords: ["Calendar", "Reactive", "State", "onSelect", "interactive", "footer"],
+    description: "Heatmap whose onSelect tracks the drilled day; the footer surfaces the predicted vs last-year delta",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const bind = $.let(State.bind([StringType], "calendar_selected", "none"));
@@ -114,12 +135,9 @@ export const calendarInteractive = example({
             return (
                 <VStack gap="3" align="stretch">
                     <Calendar
-                        data={[
-                            { week: "W1", day: "Mon", v: 10.0 },
-                            { week: "W1", day: "Tue", v: 20.0 },
-                            { week: "W1", day: "Wed", v: 30.0 },
-                        ]}
-                        cell={d => ({ week: d.week, day: d.day, value: d.v })}
+                        data={DEMAND}
+                        cell={d => ({ week: d.week, day: d.day, value: d.demand, compare: d.lastYear, text: East.Float.printFixed(d.demand, 0n) })}
+                        footer={Calendar.footer({ valueLabel: "predicted", compareLabel: "last yr", legend: true })}
                         onSelect={onSelect}
                     />
                     <Text.MonoLabel>{East.str`SELECTED · ${selected}`}</Text.MonoLabel>

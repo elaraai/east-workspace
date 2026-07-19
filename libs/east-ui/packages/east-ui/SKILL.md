@@ -508,15 +508,24 @@ Task → Which tag?
 │   │       ├─ Matrix.cell({ segments?, markers?, orientation?, slot?, popover? }) — one cell (slot = arbitrary UIComponent; popover = click body)
 │   │       ├─ Matrix.segment({ fill?, weight, label?, color?, min?, max?, step? }) — one segment of the cell bar
 │   │       └─ Matrix.marker({ status?, message, at?, label? }) — corner status marker
-│   ├─ <Calendar data={days} cell={d => ({…})} /> — day-of-week × week intensity grid (cols always Mon–Sun); viz-only (no events / drag)
-│   │   └─ Props:
-│   │       ├─ data (required) — day rows; cell (optional) — row mapper to { week, day, value, text?, summary?, delta? } (omit when data is already Calendar.Types.Cell)
-│   │       ├─ legend (optional) — colour-ramp caption
-│   │       ├─ domain (optional) — explicit intensity { min, max } (default observed)
-│   │       ├─ actionLabel + onAction (optional) — footer-right drill affordance (receives the selected cell)
-│   │       ├─ onSelect (optional) — cell-click callback
-│   │       ├─ density / height / maxHeight (optional) — rhythm + uniform sizing (#320)
-│   │       └─ plotGutter (optional) — shared gutter (#147); `left` = the week-label column
+│   ├─ <Calendar data={days} cell={d => ({…})} /> — day-of-week × week HEATMAP (8-step teal ramp, theme-aware; cols always Mon–Sun); viz-only (no events / drag). Hover cross-highlights the row + column; click selects (footer + onSelect)
+│   │   ├─ Props:
+│   │   │   ├─ data (required) — day rows; cell (optional) — row mapper to { week, day, value, text?, compare?, summary? } (omit when data is already Calendar.Types.Cell). `compare` is the footer baseline (e.g. last year) → drives the delta chip
+│   │   │   ├─ values (optional) — print the number in each cell (default true; false = pure heat read)
+│   │   │   ├─ scale (optional) — Calendar.scale({…}) heatmap ramp / bucket count
+│   │   │   ├─ domain (optional) — explicit intensity { min, max } (default observed)
+│   │   │   ├─ totals (optional) — Calendar.totals({…}) the Σ-wk rail (per-WEEK aggregation)
+│   │   │   ├─ aggregateRow (optional) — Calendar.aggregateRow({…}) the trailing row (per-WEEKDAY aggregation, e.g. mean)
+│   │   │   ├─ footer (optional) — Calendar.footer({…}) the selection footer (value / compare / delta chip + gradient legend)
+│   │   │   ├─ actionLabel + onAction (optional) — footer drill affordance (receives the selected cell)
+│   │   │   ├─ onSelect (optional) — cell-click callback
+│   │   │   ├─ density / height / maxHeight (optional) — rhythm (comfortable=large / compact / condensed=tight) + uniform sizing (#320)
+│   │   │   └─ plotGutter (optional) — shared gutter (#147); `left` = the week-label column (drops the totals/mean/footer chrome to keep the day axis aligned)
+│   │   └─ Factories:
+│   │       ├─ Calendar.scale({ ramp?, steps? }) — heatmap colour scale (ramp = low→high CSS colours, absent = default teal ramp; steps = bucket count)
+│   │       ├─ Calendar.totals({ aggregate?, label?, bar? }) — the weekly rail (aggregate sum/mean/min/max/count — SAME vocabulary as Table; label "Σ wk"; bar = proportion bar)
+│   │       ├─ Calendar.aggregateRow({ aggregate?, label? }) — the per-weekday row (aggregate default "mean", label "mean")
+│   │       └─ Calendar.footer({ valueLabel?, compareLabel?, legend? }) — selection footer labels + the low→high gradient legend (legend: true | { low, high })
 │   ├─ <Schematic items={rows} extent={{width,height}} item={r => ({…})} /> — 2D world-coord canvas: items / zones / links / nets from flat tables
 │   │   ├─ Props:
 │   │   │   ├─ items + extent (required) — item rows + world bounds (canvas scales to fit)
