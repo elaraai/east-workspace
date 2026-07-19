@@ -68,9 +68,11 @@ describe("EastChakraRoster grid", () => {
                 <EastChakraRoster value={rosterValue()} storageKey="t1" />
             </ChakraProvider>,
         );
-        expect(screen.getByText("8h")).toBeTruthy();
-        expect(screen.getByText("+6h")).toBeTruthy();
-        expect(screen.getByText("+ ghost 4h")).toBeTruthy();
+        // Compact labels — state is conveyed by styling (data-state below),
+        // added keeps its leading `+`, ghost/removed carry the bare value.
+        expect(screen.getByText("8h")).toBeTruthy();      // committed
+        expect(screen.getByText("+6h")).toBeTruthy();     // added
+        expect(screen.getByText("4h")).toBeTruthy();      // model ghost
         expect(screen.getByText("1 dirty")).toBeTruthy();
         expect(document.querySelectorAll("[data-state=committed]").length).toBe(1);
         expect(document.querySelectorAll("[data-state=added]").length).toBe(1);
@@ -85,6 +87,6 @@ describe("EastChakraRoster grid", () => {
         );
         expect(screen.getByText("8h")).toBeTruthy();
         expect(screen.queryByText("+6h")).toBeNull();
-        expect(screen.queryByText("+ ghost 4h")).toBeNull();
+        expect(screen.queryByText("4h")).toBeNull();
     });
 });
