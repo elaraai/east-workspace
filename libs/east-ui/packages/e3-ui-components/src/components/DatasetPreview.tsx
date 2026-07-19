@@ -21,7 +21,7 @@ import { memo, useCallback, useMemo, useState } from 'react';
 import { Box, Button, Flex, Text } from '@chakra-ui/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faDownload } from '@fortawesome/free-solid-svg-icons';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import type { RequestOptions } from '@elaraai/e3-api-client';
 import { variant, some, none, encodeBeast2For, type EastTypeValue } from '@elaraai/east';
 import { ValueTree } from '@elaraai/east-ui';
@@ -99,6 +99,10 @@ export const DatasetPreview = memo(function DatasetPreview({
         type: status?.type as never,
         hash: status?.hash ?? null,
         enabled: shouldFetch,
+        // An edit changes the value's content hash → a new query key. Keep the
+        // current value on screen while the new one loads so an edit doesn't
+        // flash the loading state (only the FIRST load has no previous value).
+        queryOverrides: { placeholderData: keepPreviousData },
     });
     const download = useDatasetDownload(apiUrl, repo, workspace, path, requestOptions);
 
@@ -116,10 +120,10 @@ export const DatasetPreview = memo(function DatasetPreview({
         const treePath = path.split('.').filter(Boolean).map((p) => variant('field', p));
         const data = encodeBeast2For(type as never)(next as never);
         await setMutation.mutateAsync({ path: treePath, data });
-        await Promise.all([
-            queryClient.invalidateQueries({ queryKey: ['datasetStatus', apiUrl, repo, workspace, path] }),
-            queryClient.invalidateQueries({ queryKey: ['datasetValue', apiUrl, repo, workspace, path] }),
-        ]);
+        // Refetch the status only — the new content hash it returns re-keys the
+        // value query, which loads the new value (kept smooth by placeholderData
+        // above). Invalidating the value query too would refetch the stale hash.
+        await queryClient.invalidateQueries({ queryKey: ['datasetStatus', apiUrl, repo, workspace, path] });
     }, [apiUrl, repo, workspace, path, type, setMutation, queryClient]);
 
     const treeValue = useMemo<ValueTreeValue | null>(() => {
