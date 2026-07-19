@@ -163,17 +163,22 @@ function buildBreadcrumb<R extends NavRoutes>(input: AppInput<R>): ExprType<UICo
         ([name, cfg]) => [name, cfg.label],
     );
     const labelDict = East.value(new Map(labelEntries), DictType(StringType, StringType));
-    // The leaf (top of the path stack) is the current page; mark the crumb whose
-    // route tag equals it. Read inside the enclosing <Reactive> so it
-    // re-evaluates on navigation.
-    const currentTag = nav.current().getTag();
-    const items = nav.path().map(($, seg) =>
-        East.value({
+    // One crumb per path segment: label from the config, the leaf marked current,
+    // each crumb navigating back to its prefix. `.map`'s 3rd arg is the index, so
+    // the leaf (last segment) can be detected and prefixes sliced. Read inside the
+    // enclosing <Reactive> so the whole trail re-evaluates on navigation.
+    const items = nav.path().map(($, seg, i) => {
+        const isLeaf = $.let(East.equal(i, nav.path().size().subtract(1n)));
+        const prefixLen = $.let(i.add(1n));
+        const jump = $.const(East.function([], NullType, $ => {
+            $(nav.navigateTo(nav.path().slice(0n, prefixLen)));
+        }));
+        return $.const({
             label: labelDict.get(seg.getTag()),
-            current: some(seg.getTag().equals(currentTag)),
-            onClick: none,
-        }, BreadcrumbItemType),
-    );
+            current: some(isLeaf),
+            onClick: some(jump),
+        }, BreadcrumbItemType);
+    });
     return Breadcrumb.Root(items, { leadingSeparator: true });
 }
 
