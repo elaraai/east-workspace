@@ -157,6 +157,16 @@ export const plannerSlotRecipe = defineSlotRecipe({
             padding: "3px 4px",
             minWidth: 0,
             boxSizing: "border-box",
+            // Past ("locked") cells before `now` carry a muted wash. In dark
+            // mode bg.muted and border.subtle resolve to the SAME gray step
+            // (gray.700), so the locked band's column separators vanish while
+            // the open future keeps its grid — the reported #362 dark-mode
+            // regression. A firmer `border.strong` rule (gray.300 / gray.600)
+            // contrasts with the wash in both modes so the grid stays legible.
+            "&[data-past]": {
+                background: "bg.muted",
+                borderRightColor: "border.strong",
+            },
         },
         // Bucketed cell — a vertical sub-grid of labelled buckets.
         bucketedCell: { display: "grid", gap: "2px", padding: "2px", gridAutoFlow: "row", alignItems: "stretch" },
