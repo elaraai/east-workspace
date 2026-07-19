@@ -94,6 +94,16 @@ export const semanticTokens = defineSemanticTokens({
             warningBright: { value: "#f97316" },
         },
 
+        /* Breakdown/chart series accents — the default `by`-series cycle
+         * (SLICE_SERIES_PALETTE) leads with a brand pair: mid teal + deep
+         * teal ink. The deep ink vanishes on dark surfaces, so dark flips
+         * both to the bright end of the same family — vivid vs pale keeps
+         * the two series distinct in either mode (#362). */
+        series: {
+            brand:     { value: { base: "{colors.brand.600}", _dark: "{colors.brand.400}" } },
+            brandDeep: { value: { base: "{colors.brand.800}", _dark: "#97dde2" } },
+        },
+
         /* ─── Surfaces ───────────────────────────────────────── */
         bg: {
             /* Chakra's built-in `bg` DEFAULT is zinc-950 in dark mode — left

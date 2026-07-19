@@ -89,7 +89,7 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
             trigger={
                 <Box css={chip({ tone: "brand", numeric: true, shape: compact ? "pill" : "rounded" })} cursor="pointer" flexShrink={0}>
                     <Box as="span" whiteSpace="nowrap">{formatPredicate(pred)}</Box>
-                    <chakra.button type="button" cursor="pointer" color="{colors.brand.600}" flexShrink="0" onClick={e => { e.stopPropagation(); slice.removeFilter(BigInt(i)); }} aria-label="Remove filter">×</chakra.button>
+                    <chakra.button type="button" cursor="pointer" color="link" flexShrink="0" onClick={e => { e.stopPropagation(); slice.removeFilter(BigInt(i)); }} aria-label="Remove filter">×</chakra.button>
                 </Box>
             }
         >

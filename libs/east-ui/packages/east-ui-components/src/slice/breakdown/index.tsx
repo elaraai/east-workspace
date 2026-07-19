@@ -87,7 +87,7 @@ export const EastChakraSliceBreakdown = memo(function EastChakraSliceBreakdown({
                 {activeDim !== undefined && (
                     <Box css={chip({ tone: "brand", numeric: true, shape: "pill" })}>
                         <Box as="span">{activeDim.label}</Box>
-                        <chakra.button type="button" cursor="pointer" color="{colors.brand.600}" onClick={clearBreakdown} aria-label="Clear breakdown">×</chakra.button>
+                        <chakra.button type="button" cursor="pointer" color="link" onClick={clearBreakdown} aria-label="Clear breakdown">×</chakra.button>
                     </Box>
                 )}
                 {inactive.length > 0 && (
@@ -140,7 +140,7 @@ export const EastChakraSliceBreakdown = memo(function EastChakraSliceBreakdown({
                                     {d.label}
                                 </chakra.button>
                                 {on && (
-                                    <chakra.button type="button" cursor="pointer" color="{colors.brand.600}" onClick={clearBreakdown} aria-label="Clear breakdown">×</chakra.button>
+                                    <chakra.button type="button" cursor="pointer" color="link" onClick={clearBreakdown} aria-label="Clear breakdown">×</chakra.button>
                                 )}
                             </Box>
                         );
@@ -165,7 +165,7 @@ export const EastChakraSliceBreakdown = memo(function EastChakraSliceBreakdown({
                                         <Box as="span" fontWeight="semibold" color={applied ? "{colors.brand.700}" : "fg"}>{g.key}</Box>
                                         <Box as="span" fontFamily="mono" fontVariantNumeric="tabular-nums" color="fg.muted">{Number(g.count).toLocaleString()}</Box>
                                         {applied && (
-                                            <Box as="span" color="{colors.brand.600}" fontSize="9px">
+                                            <Box as="span" color="link" fontSize="9px">
                                                 <FontAwesomeIcon icon={faFilter} />
                                             </Box>
                                         )}
@@ -177,7 +177,7 @@ export const EastChakraSliceBreakdown = memo(function EastChakraSliceBreakdown({
                                     gap: "{spacing.2}",
                                     borderRadius: "{radii.sm}",
                                     borderWidth: "1px",
-                                    borderColor: applied ? "{colors.brand.600}" : "border.subtle",
+                                    borderColor: applied ? "{colors.link}" : "border.subtle",
                                     background: "bg.surface",
                                     paddingX: "10px",
                                     paddingY: "6px",

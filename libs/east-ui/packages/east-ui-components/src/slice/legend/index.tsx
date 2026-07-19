@@ -102,7 +102,7 @@ export const EastChakraSliceLegend = memo(function EastChakraSliceLegend({ value
                             <Box as="span" css={styles.legendSwatch} background={g.color} opacity={on ? 1 : 0.45} />
                             <Box as="span" css={styles.legendLabel}>{g.key}</Box>
                             <Box as="span" css={styles.legendValue}>{pct(Number(g.count))}</Box>
-                            <Box as="span" color={on ? "{colors.brand.600}" : "fg.muted"} fontSize="9px">
+                            <Box as="span" color={on ? "link" : "fg.muted"} fontSize="9px">
                                 <FontAwesomeIcon icon={on ? faEye : faEyeSlash} />
                             </Box>
                         </chakra.button>
@@ -136,7 +136,7 @@ export const EastChakraSliceLegend = memo(function EastChakraSliceLegend({ value
                         <Box as="span" css={styles.legendLabel} color={applied ? "{colors.brand.700}" : undefined}>{g.key}</Box>
                         <Box as="span" css={styles.legendValue}>{pct(Number(g.count))}</Box>
                         {applied && (
-                            <Box as="span" color="{colors.brand.600}" fontSize="9px">
+                            <Box as="span" color="link" fontSize="9px">
                                 <FontAwesomeIcon icon={faFilter} />
                             </Box>
                         )}
