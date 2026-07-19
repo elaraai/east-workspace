@@ -23,6 +23,7 @@ import { equalFor, none, type ValueTypeOf } from "@elaraai/east";
 import { AppValueType } from "@elaraai/east-ui/internal";
 import { EastChakraComponent } from "../../component";
 import { EastChakraImage } from "../../display/image";
+import { EastChakraNavList, type NavListValue } from "../nav-list";
 import { getSomeorUndefined } from "../../utils";
 import { usePersistedState } from "../../hooks/usePersistedState";
 import { useColorMode } from "../../hooks/useColorMode";
@@ -98,11 +99,12 @@ export const EastChakraApp = memo(function EastChakraApp({ value, storageKey }: 
                         </chakra.button>
                     </Box>
                 )}
-                {!collapsed && (
-                    <Box css={styles.railBody}>
-                        <EastChakraComponent value={value.rail} storageKey={`${storageKey}.rail`} />
-                    </Box>
-                )}
+                {/* The rail is always a NavList (the factory builds it); render it
+                 *  directly so the collapsed rail stays an icon rail (icons only,
+                 *  still active + clickable) rather than disappearing. */}
+                <Box css={styles.railBody}>
+                    <EastChakraNavList value={value.rail.value as unknown as NavListValue} collapsed={collapsed} />
+                </Box>
                 {slots.railFooter != null && <Box css={styles.railFooter}>{slots.railFooter}</Box>}
             </Box>
 

@@ -113,8 +113,31 @@ export const navListSlotRecipe = defineSlotRecipe({
             /** App-shell sidebar — no chrome; the host panel owns fill + rule. */
             shell: {},
         },
+        /** Collapsed rail — icon-only: labels / badges / section headings hidden,
+         *  rows centred so the leading icon is the whole hit target (the `<App>`
+         *  56 px rail). Active tint + click stay live. */
+        collapsed: {
+            true: {
+                item: {
+                    justifyContent: "center",
+                    gap: "0",
+                    paddingInline: "0",
+                    "&[aria-current=page], &[data-active]": {
+                        width: "calc(100% - 12px)",
+                        marginInline: "6px",
+                        paddingInline: "0",
+                        justifyContent: "center",
+                    },
+                },
+                itemText: { display: "none" },
+                badge: { display: "none" },
+                groupLabel: { display: "none" },
+            },
+            false: {},
+        },
     },
     defaultVariants: {
         surface: "card",
+        collapsed: false,
     },
 });

@@ -225,7 +225,7 @@ function buildBreadcrumb<R extends NavRoutes>(input: AppInput<R>): ExprType<UICo
  * ```
  */
 function createApp<R extends NavRoutes>(input: AppInput<R>): ExprType<UIComponentType> {
-    const { nav, config, pages } = input;
+    const { nav, pages } = input;
     const body = Pages.Root({ nav, pages: pages as PagesHandlers<R> });
     const rail = buildRail(input);
     const breadcrumb = buildBreadcrumb(input);
