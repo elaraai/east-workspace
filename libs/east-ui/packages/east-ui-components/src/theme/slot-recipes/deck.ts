@@ -213,6 +213,10 @@ export const deckSlotRecipe = defineSlotRecipe({
             flexDirection: "column",
             gap: "3px",
             minWidth: 0,
+            // Grow so the trailing status tag + close sit at the header's right
+            // edge — the popover head is a plain flex row (the card face's head
+            // right-aligns via space-between with only two children).
+            flex: "1 1 auto",
         },
         /* Name line — brand-voice 15px/700. */
         cardName: {
