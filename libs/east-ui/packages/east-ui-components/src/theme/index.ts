@@ -78,6 +78,7 @@ import { iconButtonSlotRecipe } from "./slot-recipes/iconButton.js";
 import { sliderSlotRecipe } from "./slot-recipes/slider.js";
 import { segmentGroupSlotRecipe } from "./slot-recipes/segmentGroup.js";
 import { navListSlotRecipe } from "./slot-recipes/navList.js";
+import { appSlotRecipe } from "./slot-recipes/app.js";
 import { drawerSlotRecipe } from "./slot-recipes/drawer.js";
 import { hoverCardSlotRecipe } from "./slot-recipes/hoverCard.js";
 import { progressSlotRecipe } from "./slot-recipes/progress.js";
@@ -189,6 +190,7 @@ const config = defineConfig({
             slider:          sliderSlotRecipe,
             segmentGroup:    segmentGroupSlotRecipe,
             navList:         navListSlotRecipe,
+            app:             appSlotRecipe,
             drawer:          drawerSlotRecipe,
             hoverCard:       hoverCardSlotRecipe,
             progress:        progressSlotRecipe,

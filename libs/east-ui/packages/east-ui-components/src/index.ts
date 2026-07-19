@@ -185,6 +185,13 @@ export {
     type BreadcrumbItemValue,
     type EastChakraBreadcrumbProps,
     type EastChakraBreadcrumbItemProps,
+    EastChakraApp,
+    type AppValue,
+    type EastChakraAppProps,
+    AppProvider,
+    useAppSlots,
+    type AppSlots,
+    type AppProviderProps,
 } from "./navigation/index.js";
 
 // Display

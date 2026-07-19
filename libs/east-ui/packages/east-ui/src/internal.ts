@@ -87,7 +87,7 @@ export { Reactive } from "./reactive/index.js";
 export { Match, type MatchCases, type MatchInput } from "./reactive/match.js";
 
 // Component / extension / platform
-export { UIComponentType } from "./component.js";
+export { UIComponentType, AppValueType } from "./component.js";
 export {
     EastUI,
     component,

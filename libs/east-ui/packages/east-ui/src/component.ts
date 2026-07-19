@@ -1488,6 +1488,30 @@ export const UIComponentType: RecursiveType<UIComponentNode> = UIComponentTypeIm
  */
 export type UIComponentType = typeof UIComponentType;
 
+/**
+ * Standalone `StructType` mirroring the inline `App` variant payload (#367) — the
+ * renderer derives its decoded value type (`ValueTypeOf`) and memo comparator
+ * (`equalFor`) from this. Keep it in **lockstep** with the `App:` case in the
+ * variant above (the inline case uses `node` for recursion; this uses the
+ * resolved `UIComponentType`, which is structurally identical).
+ */
+export const AppValueType = StructType({
+    title: OptionType(StringType),
+    logo: OptionType(ImageSourceType),
+    logoCollapsed: OptionType(ImageSourceType),
+    rail: UIComponentType,
+    breadcrumb: UIComponentType,
+    body: UIComponentType,
+    barStart: ArrayType(UIComponentType),
+    barEnd: ArrayType(UIComponentType),
+    collapsible: BooleanType,
+    themeToggle: BooleanType,
+    navKey: StringType,
+});
+
+/** Type alias for {@link AppValueType}. */
+export type AppValueType = typeof AppValueType;
+
 // ============================================================================
 // Shared positioned-content primitives (UIComp-coupled)
 // ============================================================================

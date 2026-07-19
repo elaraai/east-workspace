@@ -16,3 +16,16 @@ export {
     type NavListValue,
     type EastChakraNavListProps,
 } from "./nav-list/index.js";
+
+export {
+    EastChakraApp,
+    type AppValue,
+    type EastChakraAppProps,
+} from "./app/index.js";
+
+export {
+    AppProvider,
+    useAppSlots,
+    type AppSlots,
+    type AppProviderProps,
+} from "./app-provider.js";

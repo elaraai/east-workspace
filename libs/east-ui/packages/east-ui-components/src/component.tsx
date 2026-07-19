@@ -55,6 +55,7 @@ import { EastChakraGantt } from "./collections/gantt";
 import { EastChakraPlanner } from "./collections/planner";
 import { EastChakraBreadcrumb } from "./navigation/breadcrumb";
 import { EastChakraNavList } from "./navigation/nav-list";
+import { EastChakraApp } from "./navigation/app";
 import { EastChakraIcon } from "./display/icon";
 import { EastChakraBadge } from "./display/badge";
 import { EastChakraTag } from "./display/tag";
@@ -217,6 +218,9 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
             // Route — Pages generalized to any slot (#333): identical payload +
             // remount mechanism, so it reuses the Pages renderer.
             Route: (v) => <EastChakraPages value={v as never} storageKey={childKey(storageKey, "Route")} />,
+            // App — the application shell (#367): lays out the pre-built rail /
+            // breadcrumb / body nodes into the bsys shell chrome + host slots.
+            App: (v) => <EastChakraApp value={v as never} storageKey={childKey(storageKey, "App")} />,
 
             // Display
             Icon: (v) => <EastChakraIcon value={v} />,
