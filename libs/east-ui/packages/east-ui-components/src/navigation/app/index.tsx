@@ -82,14 +82,10 @@ export const EastChakraApp = memo(function EastChakraApp({ value, storageKey }: 
 
     return (
         <Box css={styles.root}>
-            {/* Rail — logo region, nav list (hidden when collapsed), collapse toggle, host footer. */}
+            {/* Rail — logo region, collapse toggle (above the list), nav list
+             *  (hidden when collapsed), host footer. */}
             <Box as="aside" css={styles.rail}>
                 <Box css={styles.railHeader}>{logoNode}</Box>
-                {!collapsed && (
-                    <Box css={styles.railBody}>
-                        <EastChakraComponent value={value.rail} storageKey={`${storageKey}.rail`} />
-                    </Box>
-                )}
                 {value.collapsible && (
                     <Box css={styles.collapseToggleRow}>
                         <chakra.button
@@ -100,6 +96,11 @@ export const EastChakraApp = memo(function EastChakraApp({ value, storageKey }: 
                         >
                             <FontAwesomeIcon icon={collapsed ? faChevronRight : faChevronLeft} />
                         </chakra.button>
+                    </Box>
+                )}
+                {!collapsed && (
+                    <Box css={styles.railBody}>
+                        <EastChakraComponent value={value.rail} storageKey={`${storageKey}.rail`} />
                     </Box>
                 )}
                 {slots.railFooter != null && <Box css={styles.railFooter}>{slots.railFooter}</Box>}

@@ -29,7 +29,6 @@ import {
     type SubtypeExprOrValue,
     East,
     ArrayType,
-    DictType,
     FunctionType,
     NullType,
     StringType,
@@ -159,22 +158,24 @@ function buildRailOnSelect<R extends NavRoutes>(
  *  path segment, its label from the config, the leaf marked current. */
 function buildBreadcrumb<R extends NavRoutes>(input: AppInput<R>): ExprType<UIComponentType> {
     const { nav, config } = input;
-    const labelEntries: [string, string][] = Object.entries(config.routes).map(
-        ([name, cfg]) => [name, cfg.label],
-    );
-    const labelDict = East.value(new Map(labelEntries), DictType(StringType, StringType));
-    // One crumb per path segment: label from the config, the leaf marked current,
-    // each crumb navigating back to its prefix. `.map`'s 3rd arg is the index, so
-    // the leaf (last segment) can be detected and prefixes sliced. Read inside the
-    // enclosing <Reactive> so the whole trail re-evaluates on navigation.
+    // Per-route label arms (exhaustive over the config) — a `match` rather than a
+    // Dict lookup, matching the hand-wired app-shell example and avoiding a
+    // runtime dict.
+    const labelArms: Record<string, () => string> = {};
+    for (const [name, cfg] of Object.entries(config.routes)) labelArms[name] = () => cfg.label;
+    // One crumb per path segment: label via the route match, the leaf marked
+    // current, each crumb navigating back to its prefix. `.map`'s 3rd arg is the
+    // index, so the leaf (last segment) can be detected and prefixes sliced. Read
+    // inside the enclosing <Reactive> so the whole trail re-evaluates on navigation.
     const items = nav.path().map(($, seg, i) => {
         const isLeaf = $.let(East.equal(i, nav.path().size().subtract(1n)));
         const prefixLen = $.let(i.add(1n));
         const jump = $.const(East.function([], NullType, $ => {
             $(nav.navigateTo(nav.path().slice(0n, prefixLen)));
         }));
+        const label = (seg as unknown as { match(arms: Record<string, () => string>): ExprType<StringType> }).match(labelArms);
         return $.const({
-            label: labelDict.get(seg.getTag()),
+            label,
             current: some(isLeaf),
             onClick: some(jump),
         }, BreadcrumbItemType);

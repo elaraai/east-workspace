@@ -13,7 +13,7 @@ export {
     type NavSectionInput,
     type NavItemInput,
 } from "./nav-list/index.js";
-export { type AppInput } from "./app/index.js";
+export { App, type AppInput } from "./app/index.js";
 export {
     Navigation,
     Pages,

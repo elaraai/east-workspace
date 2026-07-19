@@ -71,7 +71,8 @@ export { Input, Checkbox, RadioGroup, RadioCardGroup, TimeRangeInput, DateRangeI
 export { Progress, Banner, EmptyState, Skeleton, Status } from "./feedback/index.js";
 export { Breadcrumb, NavList, NavListType, NavSectionType, NavItemType } from "./navigation/index.js";
 export type { NavListStyle, NavSectionInput, NavItemInput } from "./navigation/index.js";
-export { Navigation, Pages, Route, NavBindHandleType, navBindPlatformFn, NavBindPrimitives, routeVariantType } from "./navigation/index.js";
+export { App, Navigation, Pages, Route, NavBindHandleType, navBindPlatformFn, NavBindPrimitives, routeVariantType } from "./navigation/index.js";
+export type { AppInput } from "./navigation/index.js";
 export type {
     NavRoutes, NavRouteConfig, NavConfig, RouteVariantOf, NavHandleType, BoundNav, PageConstructors, PagesHandlers, PagesInput, RouteInput,
 } from "./navigation/index.js";
