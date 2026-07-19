@@ -480,6 +480,7 @@ export {
     type DeckNoteValue,
 } from "./collections/deck";
 export { EastChakraValueTree, type EastChakraValueTreeProps, type ValueTreeValue, type ValueTreeNodeValue, type ValueTreeStepValue, type ValueTreeLeafValue } from "./collections/value-tree";
+export { LoadingIcon, type LoadingIconProps } from "./LoadingIcon.js";
 export { useSliceReactivity } from "./slice/use-slice-reactivity";
 // Reusable, handle-free Slice predicate-editor pieces — used by the Experiment
 // surface's population filter (its population is an Array<SlicePredicate>).
