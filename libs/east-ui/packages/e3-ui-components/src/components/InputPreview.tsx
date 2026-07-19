@@ -36,6 +36,7 @@ export const InputPreview = memo(function InputPreview({
                     repo={repo}
                     workspace={workspace}
                     path={path}
+                    editable
                     {...(requestOptions != null && { requestOptions })}
                 />
             </Box>

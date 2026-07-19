@@ -74,6 +74,16 @@ export {
     ValueTreeRootType,
 } from "./types.js";
 
+import { materialize, applyEdit } from "./materialize.js";
+export {
+    materialize,
+    applyEdit,
+    type ValueTreeNodeValue,
+    type ValueTreeLeafValue,
+    type ValueTreeStepValue,
+    type ValueTreeEditOp,
+} from "./materialize.js";
+
 /** Beyond this many unrollings of a RecursiveType the subtree prints as
  *  an `opaque` node (a lazy "expand further" is the #360 follow-up). */
 const MAX_RECURSION_DEPTH = 6;
@@ -909,6 +919,17 @@ export const ValueTree = {
     at: scopeAt,
     /** Host-side zero value for any East type (for raw `onInsert` handlers). */
     zero: zeroValue,
+    /**
+     * Host-side materializer — a DECODED value + its type into the node tree
+     * the renderer consumes (for callers holding a value, not an `Expr`; the
+     * East-side {@link ValueTree.Root} materializes an expression instead).
+     */
+    materialize,
+    /**
+     * Host-side edit application — apply one reported ValueTree edit (leaf /
+     * insert / remove / tag) to a decoded value, returning the new value.
+     */
+    applyEdit,
     Types: {
         /** The full ValueTree payload. */
         Root: ValueTreeRootType,

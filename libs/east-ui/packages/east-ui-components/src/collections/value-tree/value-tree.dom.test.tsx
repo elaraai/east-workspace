@@ -19,7 +19,11 @@ import { useState } from "react";
 import { describe, test, expect, afterEach, vi } from "vitest";
 import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
-import { variant, some, none } from "@elaraai/east";
+import {
+    variant, some, none,
+    StructType, ArrayType, DictType, OptionType, VariantType, IntegerType, StringType,
+} from "@elaraai/east";
+import { ValueTree } from "@elaraai/east-ui";
 import { system } from "../../theme/index.js";
 import { EastChakraValueTree, type ValueTreeValue, type ValueTreeNodeValue, type ValueTreeLeafValue } from "./index.js";
 
@@ -321,5 +325,71 @@ describe("EastChakraValueTree", () => {
         // ArrowUp walks back to the parent row.
         fireEvent.keyDown(deep, { key: "ArrowUp" });
         expect(document.activeElement).toBe(inner);
+    });
+});
+
+// The host-side materialize/applyEdit pair (in @elaraai/east-ui) that the e3
+// preview uses to render + edit a DECODED value (rather than an Expr).
+describe("ValueTree.materialize / applyEdit (host)", () => {
+    const Row = StructType({
+        n: IntegerType,
+        tags: ArrayType(StringType),
+        opt: OptionType(IntegerType),
+        pick: VariantType({ a: IntegerType, b: StringType }),
+        bag: DictType(StringType, IntegerType),
+    });
+    const sample = () => ({
+        n: 3n,
+        tags: ["x", "y"],
+        opt: none as unknown,
+        pick: variant("a", 7n) as unknown,
+        bag: new Map<string, bigint>([["k", 1n]]),
+    });
+    const tagOf = (v: unknown) => (v as { type: string }).type;
+
+    test("materialize walks the type into the fixed node shape", () => {
+        const root = ValueTree.materialize(Row, sample()) as { type: string; value: { fields: Array<{ name: string; node: { type: string } }> } };
+        expect(root.type).toBe("struct");
+        const byName = Object.fromEntries(root.value.fields.map(f => [f.name, f.node.type]));
+        expect(byName).toEqual({ n: "leaf", tags: "array", opt: "option", pick: "variant", bag: "dict" });
+    });
+
+    test("edit replaces the addressed leaf", () => {
+        const next = ValueTree.applyEdit(Row, sample(), [variant("field", "n")], { kind: "edit", leaf: variant("integer", 9n) }) as { n: bigint };
+        expect(next.n).toBe(9n);
+    });
+
+    test("array append then remove", () => {
+        const added = ValueTree.applyEdit(Row, sample(), [variant("field", "tags"), variant("append", null)], { kind: "insert" }) as { tags: string[] };
+        expect(added.tags).toEqual(["x", "y", ""]);
+        const dropped = ValueTree.applyEdit(Row, sample(), [variant("field", "tags"), variant("index", 0n)], { kind: "remove" }) as { tags: string[] };
+        expect(dropped.tags).toEqual(["y"]);
+    });
+
+    test("dict key add then remove", () => {
+        const added = ValueTree.applyEdit(Row, sample(), [variant("field", "bag"), variant("key", "z")], { kind: "insert" }) as { bag: Map<string, bigint> };
+        expect(added.bag.get("z")).toBe(0n);
+        const dropped = ValueTree.applyEdit(Row, sample(), [variant("field", "bag"), variant("key", "k")], { kind: "remove" }) as { bag: Map<string, bigint> };
+        expect(dropped.bag.has("k")).toBe(false);
+    });
+
+    test("variant tag switch resets to the case zero", () => {
+        const next = ValueTree.applyEdit(Row, sample(), [variant("field", "pick")], { kind: "tag", tag: "b" }) as { pick: { type: string; value: unknown } };
+        expect(tagOf(next.pick)).toBe("b");
+        expect(next.pick.value).toBe("");
+    });
+
+    test("option toggle none → some(zero) and back", () => {
+        const on = ValueTree.applyEdit(Row, sample(), [variant("field", "opt")], { kind: "tag", tag: "some" }) as { opt: { type: string; value: unknown } };
+        expect(tagOf(on.opt)).toBe("some");
+        expect(on.opt.value).toBe(0n);
+        const off = ValueTree.applyEdit(Row, { ...sample(), opt: some(5n) }, [variant("field", "opt")], { kind: "tag", tag: "none" }) as { opt: { type: string } };
+        expect(tagOf(off.opt)).toBe("none");
+    });
+
+    test("edit nested through an option's some payload", () => {
+        const start = { ...sample(), opt: some(2n) };
+        const next = ValueTree.applyEdit(Row, start, [variant("field", "opt"), variant("some", null)], { kind: "edit", leaf: variant("integer", 42n) }) as { opt: { value: bigint } };
+        expect(next.opt.value).toBe(42n);
     });
 });
