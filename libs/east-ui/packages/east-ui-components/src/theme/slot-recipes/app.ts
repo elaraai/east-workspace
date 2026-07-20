@@ -18,7 +18,7 @@ export const appSlotRecipe = defineSlotRecipe({
     slots: [
         "root", "rail", "railHeader", "logo", "railBody", "collapseToggleRow", "collapseToggle",
         "railFooter", "content", "bannerTop", "header", "headerRow", "breadcrumb",
-        "barStart", "barCenter", "barEnd", "themeToggle", "title", "titleInline", "main",
+        "barStart", "barCenter", "barEnd", "themeToggle", "title", "titleDivider", "titleInline", "main",
     ],
     base: {
         // Full-viewport shell; the main region scrolls internally so the page
@@ -171,8 +171,18 @@ export const appSlotRecipe = defineSlotRecipe({
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
         },
-        // Condensed density: the title rides the breadcrumb row after a vertical
-        // rule, instead of its own row.
+        // Condensed density: the title rides the breadcrumb row after a short
+        // vertical rule, instead of its own row. The rule is its own 1×14px span
+        // (matched to the design) with symmetric 12px margins — NOT a full-height
+        // border on the title — and the row has no flex gap, so the spacing is
+        // exactly the rule's margins.
+        titleDivider: {
+            width: "1px",
+            height: "14px",
+            background: "border.strong",
+            flexShrink: 0,
+            marginInline: "12px",
+        },
         titleInline: {
             fontFamily: "heading",
             fontWeight: "bold",
@@ -183,10 +193,6 @@ export const appSlotRecipe = defineSlotRecipe({
             overflow: "hidden",
             textOverflow: "ellipsis",
             flexShrink: 0,
-            marginInlineStart: "{spacing.3}",
-            paddingInlineStart: "{spacing.3}",
-            borderInlineStartWidth: "1px",
-            borderInlineStartColor: "border.subtle",
         },
         // Main scroll region — bsys "Main recipe" padding.
         main: {
@@ -228,7 +234,7 @@ export const appSlotRecipe = defineSlotRecipe({
             },
             condensed: {
                 header: { paddingTop: "0", paddingBottom: "0", gap: "0" },
-                headerRow: { minHeight: "44px" },
+                headerRow: { minHeight: "44px", gap: "0" },
             },
         },
     },

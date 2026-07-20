@@ -122,8 +122,13 @@ export const EastChakraApp = memo(function EastChakraApp({ value, storageKey }: 
                         <Box css={styles.breadcrumb}>
                             <EastChakraComponent value={value.breadcrumb} storageKey={`${storageKey}.breadcrumb`} />
                         </Box>
-                        {/* Condensed density: title rides this row after a rule. */}
-                        {condensed && title !== undefined && <Box css={styles.titleInline}>{title}</Box>}
+                        {/* Condensed density: title rides this row after a short rule. */}
+                        {condensed && title !== undefined && (
+                            <>
+                                <Box css={styles.titleDivider} />
+                                <Box css={styles.titleInline}>{title}</Box>
+                            </>
+                        )}
                         {hasLeading && (
                             <Box css={styles.barStart}>
                                 {value.barStart.map((c, i) => (
