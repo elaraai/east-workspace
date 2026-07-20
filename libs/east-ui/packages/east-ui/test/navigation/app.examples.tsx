@@ -83,6 +83,47 @@ export const appBasic = example({
 });
 
 /**
+ * `density="compact"` — a tighter two-row app bar (title 19 px, less vertical
+ * padding) between the default `comfortable` (two rows, title 24 px — see
+ * `appBasic`) and `condensed` (one row). Only the app bar changes.
+ */
+export const appCompact = example({
+    keywords: ["App", "app shell", "density", "compact", "app bar", "Navigation"],
+    description: "App shell with a compact app bar — tighter two rows (density)",
+    fn: East.function([], UIComponentType, (_$) => {
+        const routes = Navigation.config({
+            overview: { value: NullType, label: "Overview", section: "Analyse", icon: { prefix: "fas", name: "gauge-high" } },
+            throughput: { value: NullType, label: "Throughput", section: "Analyse", icon: { prefix: "fas", name: "chart-line" } },
+            audit: { value: NullType, label: "Audit", section: "Manage", icon: { prefix: "fas", name: "list-check" } },
+        });
+        return (
+            <Reactive>{$ => {
+                const nav = $.let(Navigation.bind(routes, "app.compact.route", [routes.Page.overview()]));
+                const overviewPage = $.const(East.function([], UIComponentType, (_$) => <Text>Overview — compact bar</Text>));
+                const throughputPage = $.const(East.function([], UIComponentType, (_$) => <Text>Throughput trend</Text>));
+                const auditPage = $.const(East.function([], UIComponentType, (_$) => <Text>Audit trail</Text>));
+                return (
+                    <App
+                        nav={nav}
+                        config={routes}
+                        title="Acme Operations"
+                        logo={Image.dataUri(LOGO)}
+                        density="compact"
+                        themeToggle
+                        pages={{
+                            overview: () => overviewPage(),
+                            throughput: () => throughputPage(),
+                            audit: () => auditPage(),
+                        }}
+                    />
+                );
+            }}</Reactive>
+        );
+    }),
+    inputs: [],
+});
+
+/**
  * `density="condensed"` — the data-dense app bar. The breadcrumb + title collapse
  * onto ONE 44 px row (separated by a rule), reclaiming ~40 px of vertical chrome;
  * the rail and content region are unchanged. `compact` (a tighter two-row bar) and
