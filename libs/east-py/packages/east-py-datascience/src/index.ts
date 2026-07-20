@@ -354,6 +354,7 @@ export {
     google_or_min_cost_flow,
     google_or_max_flow,
     google_or_assignment,
+    google_or_min_cost_assignment,
     GoogleOrStatusType,
     CpSatIntVarType,
     CpSatBoolVarType,
@@ -390,6 +391,8 @@ export {
     AssignmentInputType,
     AssignmentMatchType,
     AssignmentResultType,
+    MinCostAssignmentInputType,
+    MinCostAssignmentResultType,
 } from "./google_or/google_or.js";
 
 // Simulation - Discrete event simulation (REA economic modeling)
