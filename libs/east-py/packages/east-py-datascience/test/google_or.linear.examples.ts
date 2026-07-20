@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, BooleanType, variant, example } from "@elaraai/east";
+import { East, BooleanType, some, none, example } from "@elaraai/east";
 import { GoogleOr } from "@elaraai/east-py-datascience";
 
 export const linearSolveResourceAllocation = example({
@@ -53,8 +53,9 @@ export const linearSolveResourceAllocation = example({
         }, GoogleOr.Types.LinearModelType);
 
         const config = $.let({
-            solver: variant('none', null),
-            max_time_seconds: variant('none', null),
+            solver: none,
+            max_time_seconds: none,
+            relative_gap_limit: none,
         }, GoogleOr.Types.LinearConfigType);
 
         const result = $.let(GoogleOr.linearSolve(model, config));
@@ -62,6 +63,59 @@ export const linearSolveResourceAllocation = example({
         // Should find optimal allocation with positive objective
         return result.objective_value.match({
             some: ($, v) => v.greaterThan(0.0),
+            none: ($) => false,
+        });
+    }),
+    inputs: [],
+    returns: true,
+});
+
+export const linearSolveMipRelativeGapLimit = example({
+    keywords: ["google or", "linear", "linearSolve", "MIP", "mixed integer", "relative_gap_limit", "gap", "early stop", "optimality gap", "SCIP", "knapsack"],
+    description: "Solve a 0/1 knapsack MIP with a 1% relative optimality-gap early-stop (relative_gap_limit)",
+    fn: East.function([], BooleanType, ($) => {
+        // 0/1 knapsack: values [6, 10, 12], weights [2, 4, 6], capacity 10.
+        // Optimum picks items 1 and 2 (value 22, weight 10).
+        const model = $.let({
+            variables: [
+                { name: "x0", lower_bound: 0.0, upper_bound: 1.0, is_integer: true },
+                { name: "x1", lower_bound: 0.0, upper_bound: 1.0, is_integer: true },
+                { name: "x2", lower_bound: 0.0, upper_bound: 1.0, is_integer: true },
+            ],
+            constraints: [
+                {
+                    terms: [
+                        { var: "x0", coeff: 2.0 },
+                        { var: "x1", coeff: 4.0 },
+                        { var: "x2", coeff: 6.0 },
+                    ],
+                    lower_bound: -1e20,
+                    upper_bound: 10.0,
+                },
+            ],
+            objective: {
+                terms: [
+                    { var: "x0", coeff: 6.0 },
+                    { var: "x1", coeff: 10.0 },
+                    { var: "x2", coeff: 12.0 },
+                ],
+                maximize: true,
+            },
+        }, GoogleOr.Types.LinearModelType);
+
+        // relative_gap_limit stops branch-and-bound once the proven gap is
+        // within 1% — for this small instance the incumbent is the true optimum.
+        const config = $.let({
+            solver: none,
+            max_time_seconds: none,
+            relative_gap_limit: some(0.01),
+        }, GoogleOr.Types.LinearConfigType);
+
+        const result = $.let(GoogleOr.linearSolve(model, config));
+
+        // Optimum objective is 22 (items 1 + 2).
+        return result.objective_value.match({
+            some: ($, v) => v.greaterThanOrEqual(22.0),
             none: ($) => false,
         });
     }),

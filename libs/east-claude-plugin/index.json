@@ -1,14 +1,14 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1512,
-    "totalFiles": 190,
+    "totalEntries": 1516,
+    "totalFiles": 191,
     "packages": {
       "east": 490,
       "east-node-std": 43,
       "east-node-io": 63,
-      "east-py-datascience": 89,
-      "east-ui": 753,
+      "east-py-datascience": 90,
+      "east-ui": 756,
       "e3-ui": 58,
       "e3": 7,
       "e3-ui-cli": 4,
@@ -11920,10 +11920,36 @@
         "mixed integer"
       ],
       "imports": [
-        "import { East, BooleanType, variant, example } from \"@elaraai/east\";",
+        "import { East, BooleanType, some, none, example } from \"@elaraai/east\";",
         "import { GoogleOr } from \"@elaraai/east-py-datascience\";"
       ],
-      "source": "// Allocate production hours across product lines to maximize throughput given machine and labor constraints\n// inputs: []  returns: true\nEast.function([], BooleanType, ($) => {\n        // 3 products: A, B, C\n        // Profit: A=$5, B=$8, C=$6 per unit\n        // Machine hours: A=2h, B=3h, C=1h — available: 18h\n        // Labor hours: A=1h, B=2h, C=2h — available: 12h\n        // Maximize profit\n        const model = $.let({\n            variables: [\n                { name: \"A\", lower_bound: 0.0, upper_bound: 100.0, is_integer: false },\n                { name: \"B\", lower_bound: 0.0, upper_bound: 100.0, is_integer: false },\n                { name: \"C\", lower_bound: 0.0, upper_bound: 100.0, is_integer: false },\n            ],\n            constraints: [\n                // Machine hours: 2A + 3B + 1C <= 18\n                {\n                    terms: [\n                        { var: \"A\", coeff: 2.0 },\n                        { var: \"B\", coeff: 3.0 },\n                        { var: \"C\", coeff: 1.0 },\n                    ],\n                    lower_bound: -1e20,\n                    upper_bound: 18.0,\n                },\n                // Labor hours: 1A + 2B + 2C <= 12\n                {\n                    terms: [\n                        { var: \"A\", coeff: 1.0 },\n                        { var: \"B\", coeff: 2.0 },\n                        { var: \"C\", coeff: 2.0 },\n                    ],\n                    lower_bound: -1e20,\n                    upper_bound: 12.0,\n                },\n            ],\n            objective: {\n                terms: [\n                    { var: \"A\", coeff: 5.0 },\n                    { var: \"B\", coeff: 8.0 },\n                    { var: \"C\", coeff: 6.0 },\n                ],\n                maximize: true,\n            },\n        }, GoogleOr.Types.LinearModelType);\n\n        const config = $.let({\n            solver: variant('none', null),\n            max_time_seconds: variant('none', null),\n        }, GoogleOr.Types.LinearConfigType);\n\n        const result = $.let(GoogleOr.linearSolve(model, config));\n\n        // Should find optimal allocation with positive objective\n        return result.objective_value.match({\n            some: ($, v) => v.greaterThan(0.0),\n            none: ($) => false,\n        });\n    })"
+      "source": "// Allocate production hours across product lines to maximize throughput given machine and labor constraints\n// inputs: []  returns: true\nEast.function([], BooleanType, ($) => {\n        // 3 products: A, B, C\n        // Profit: A=$5, B=$8, C=$6 per unit\n        // Machine hours: A=2h, B=3h, C=1h — available: 18h\n        // Labor hours: A=1h, B=2h, C=2h — available: 12h\n        // Maximize profit\n        const model = $.let({\n            variables: [\n                { name: \"A\", lower_bound: 0.0, upper_bound: 100.0, is_integer: false },\n                { name: \"B\", lower_bound: 0.0, upper_bound: 100.0, is_integer: false },\n                { name: \"C\", lower_bound: 0.0, upper_bound: 100.0, is_integer: false },\n            ],\n            constraints: [\n                // Machine hours: 2A + 3B + 1C <= 18\n                {\n                    terms: [\n                        { var: \"A\", coeff: 2.0 },\n                        { var: \"B\", coeff: 3.0 },\n                        { var: \"C\", coeff: 1.0 },\n                    ],\n                    lower_bound: -1e20,\n                    upper_bound: 18.0,\n                },\n                // Labor hours: 1A + 2B + 2C <= 12\n                {\n                    terms: [\n                        { var: \"A\", coeff: 1.0 },\n                        { var: \"B\", coeff: 2.0 },\n                        { var: \"C\", coeff: 2.0 },\n                    ],\n                    lower_bound: -1e20,\n                    upper_bound: 12.0,\n                },\n            ],\n            objective: {\n                terms: [\n                    { var: \"A\", coeff: 5.0 },\n                    { var: \"B\", coeff: 8.0 },\n                    { var: \"C\", coeff: 6.0 },\n                ],\n                maximize: true,\n            },\n        }, GoogleOr.Types.LinearModelType);\n\n        const config = $.let({\n            solver: none,\n            max_time_seconds: none,\n            relative_gap_limit: none,\n        }, GoogleOr.Types.LinearConfigType);\n\n        const result = $.let(GoogleOr.linearSolve(model, config));\n\n        // Should find optimal allocation with positive objective\n        return result.objective_value.match({\n            some: ($, v) => v.greaterThan(0.0),\n            none: ($) => false,\n        });\n    })"
+    },
+    {
+      "id": "east-py-datascience:google_or.linear.examples.ts:linearSolveMipRelativeGapLimit",
+      "skill": "east-py-datascience",
+      "package": "east-py-datascience",
+      "file": "east-py/packages/east-py-datascience/test/google_or.linear.examples.ts",
+      "suite": "",
+      "test": "Solve a 0/1 knapsack MIP with a 1% relative optimality-gap early-stop (relative_gap_limit)",
+      "keywords": [
+        "google or",
+        "linear",
+        "linearSolve",
+        "MIP",
+        "mixed integer",
+        "relative_gap_limit",
+        "gap",
+        "early stop",
+        "optimality gap",
+        "SCIP",
+        "knapsack"
+      ],
+      "imports": [
+        "import { East, BooleanType, some, none, example } from \"@elaraai/east\";",
+        "import { GoogleOr } from \"@elaraai/east-py-datascience\";"
+      ],
+      "source": "// Solve a 0/1 knapsack MIP with a 1% relative optimality-gap early-stop (relative_gap_limit)\n// inputs: []  returns: true\nEast.function([], BooleanType, ($) => {\n        // 0/1 knapsack: values [6, 10, 12], weights [2, 4, 6], capacity 10.\n        // Optimum picks items 1 and 2 (value 22, weight 10).\n        const model = $.let({\n            variables: [\n                { name: \"x0\", lower_bound: 0.0, upper_bound: 1.0, is_integer: true },\n                { name: \"x1\", lower_bound: 0.0, upper_bound: 1.0, is_integer: true },\n                { name: \"x2\", lower_bound: 0.0, upper_bound: 1.0, is_integer: true },\n            ],\n            constraints: [\n                {\n                    terms: [\n                        { var: \"x0\", coeff: 2.0 },\n                        { var: \"x1\", coeff: 4.0 },\n                        { var: \"x2\", coeff: 6.0 },\n                    ],\n                    lower_bound: -1e20,\n                    upper_bound: 10.0,\n                },\n            ],\n            objective: {\n                terms: [\n                    { var: \"x0\", coeff: 6.0 },\n                    { var: \"x1\", coeff: 10.0 },\n                    { var: \"x2\", coeff: 12.0 },\n                ],\n                maximize: true,\n            },\n        }, GoogleOr.Types.LinearModelType);\n\n        // relative_gap_limit stops branch-and-bound once the proven gap is\n        // within 1% — for this small instance the incumbent is the true optimum.\n        const config = $.let({\n            solver: none,\n            max_time_seconds: none,\n            relative_gap_limit: some(0.01),\n        }, GoogleOr.Types.LinearConfigType);\n\n        const result = $.let(GoogleOr.linearSolve(model, config));\n\n        // Optimum objective is 22 (items 1 + 2).\n        return result.objective_value.match({\n            some: ($, v) => v.greaterThanOrEqual(22.0),\n            none: ($) => false,\n        });\n    })"
     },
     {
       "id": "east-py-datascience:google_or.routing.examples.ts:routingSolveVRP",
@@ -26522,6 +26548,76 @@
       "source": "// Left-column subnav that sticks at top: 0 while the main content scrolls\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Box overflowY=\"auto\" height=\"300px\" borderColor=\"gray.300\" borderWidth=\"thin\">\n                <HStack gap=\"4\" align=\"flex-start\">\n                    <Sticky offset=\"0\" boundary=\"parent\">\n                        <VStack gap=\"2\" padding=\"3\" background=\"gray.50\" borderColor=\"gray.200\" borderWidth=\"thin\" borderRadius=\"md\">\n                            <Text>Overview</Text>\n                            <Text>Details</Text>\n                            <Text>Audit</Text>\n                            <Text>Settings</Text>\n                        </VStack>\n                    </Sticky>\n                    <VStack gap=\"3\" padding=\"3\">\n                        {Array.from({ length: 20 }, (_, i) => <Text>{`Paragraph ${i + 1}`}</Text>)}\n                    </VStack>\n                </HStack>\n            </Box>\n        );\n    })"
     },
     {
+      "id": "east-ui:app.examples.tsx:appBasic",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/navigation/app.examples.tsx",
+      "suite": "",
+      "test": "Application shell — collapsible config-driven rail + breadcrumb + routed body from one nav handle",
+      "keywords": [
+        "App",
+        "app shell",
+        "Navigation",
+        "rail",
+        "breadcrumb",
+        "Pages",
+        "logo",
+        "collapsible",
+        "sidebar"
+      ],
+      "imports": [
+        "import { East, NullType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { App, Navigation, Reactive, VStack, Text, Button, Image } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Application shell — collapsible config-driven rail + breadcrumb + routed body from one nav handle\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const LineRow = StructType({ id: StringType, line: StringType });\n        const routes = Navigation.config({\n            overview: { value: NullType, label: \"Overview\", section: \"Analyse\", icon: { prefix: \"fas\", name: \"gauge-high\" } },\n            throughput: { value: NullType, label: \"Throughput\", section: \"Analyse\", icon: { prefix: \"fas\", name: \"chart-line\" }, badge: \"3\" },\n            audit: { value: NullType, label: \"Audit\", section: \"Manage\", icon: { prefix: \"fas\", name: \"list-check\" } },\n            settings: { value: NullType, label: \"Settings\", section: \"Manage\", icon: { prefix: \"fas\", name: \"gear\" } },\n            // Deep route — no `section`, so it's hidden from the rail (reached from Overview).\n            line: { value: LineRow, label: \"Line\" },\n        });\n        return (\n            <Reactive>{$ => {\n                const nav = $.let(Navigation.bind(routes, \"app.example.route\", [routes.Page.overview()]));\n\n                // Page bodies as $.const closures capturing the shared handle.\n                const overviewPage = $.const(East.function([], UIComponentType, ($) => {\n                    const openLine = $.const(East.function([], NullType, $ => {\n                        $(nav.go.line(East.value({ id: \"L-1\", line: \"A\" }, LineRow)));\n                    }));\n                    return (\n                        <VStack gap=\"3\" align=\"stretch\">\n                            <Text>Overview — production lines</Text>\n                            <Button onClick={openLine}>Open line L-1</Button>\n                        </VStack>\n                    );\n                }));\n                const throughputPage = $.const(East.function([], UIComponentType, (_$) => <Text>Throughput trend</Text>));\n                const auditPage = $.const(East.function([], UIComponentType, (_$) => <Text>Audit trail</Text>));\n                const settingsPage = $.const(East.function([], UIComponentType, (_$) => <Text>Settings</Text>));\n                const linePage = $.const(East.function([LineRow], UIComponentType, ($, row) => {\n                    const back = $.const(East.function([], NullType, $ => { $(nav.pop()); }));\n                    return (\n                        <VStack gap=\"2\" align=\"stretch\">\n                            <Text>{East.str`Line ${row.id} · ${row.line}`}</Text>\n                            <Button onClick={back}>← Back</Button>\n                        </VStack>\n                    );\n                }));\n\n                return (\n                    <App\n                        nav={nav}\n                        config={routes}\n                        title=\"Acme Operations\"\n                        logo={Image.dataUri(LOGO)}\n                        pages={{\n                            overview: () => overviewPage(),\n                            throughput: () => throughputPage(),\n                            audit: () => auditPage(),\n                            settings: () => settingsPage(),\n                            line: (_$, row) => linePage(row),\n                        }}\n                    />\n                );\n            }}</Reactive>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:app.examples.tsx:appCompact",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/navigation/app.examples.tsx",
+      "suite": "",
+      "test": "App shell with a compact app bar — tighter two rows (density)",
+      "keywords": [
+        "App",
+        "app shell",
+        "density",
+        "compact",
+        "app bar",
+        "Navigation"
+      ],
+      "imports": [
+        "import { East, NullType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { App, Navigation, Reactive, VStack, Text, Button, Image } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// App shell with a compact app bar — tighter two rows (density)\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const routes = Navigation.config({\n            overview: { value: NullType, label: \"Overview\", section: \"Analyse\", icon: { prefix: \"fas\", name: \"gauge-high\" } },\n            throughput: { value: NullType, label: \"Throughput\", section: \"Analyse\", icon: { prefix: \"fas\", name: \"chart-line\" } },\n            audit: { value: NullType, label: \"Audit\", section: \"Manage\", icon: { prefix: \"fas\", name: \"list-check\" } },\n        });\n        return (\n            <Reactive>{$ => {\n                const nav = $.let(Navigation.bind(routes, \"app.compact.route\", [routes.Page.overview()]));\n                const overviewPage = $.const(East.function([], UIComponentType, (_$) => <Text>Overview — compact bar</Text>));\n                const throughputPage = $.const(East.function([], UIComponentType, (_$) => <Text>Throughput trend</Text>));\n                const auditPage = $.const(East.function([], UIComponentType, (_$) => <Text>Audit trail</Text>));\n                return (\n                    <App\n                        nav={nav}\n                        config={routes}\n                        title=\"Acme Operations\"\n                        logo={Image.dataUri(LOGO)}\n                        density=\"compact\"\n                        pages={{\n                            overview: () => overviewPage(),\n                            throughput: () => throughputPage(),\n                            audit: () => auditPage(),\n                        }}\n                    />\n                );\n            }}</Reactive>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:app.examples.tsx:appCondensed",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/navigation/app.examples.tsx",
+      "suite": "",
+      "test": "App shell with a condensed app bar — breadcrumb + title on one row (density)",
+      "keywords": [
+        "App",
+        "app shell",
+        "density",
+        "condensed",
+        "compact",
+        "app bar",
+        "Navigation"
+      ],
+      "imports": [
+        "import { East, NullType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { App, Navigation, Reactive, VStack, Text, Button, Image } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// App shell with a condensed app bar — breadcrumb + title on one row (density)\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const routes = Navigation.config({\n            overview: { value: NullType, label: \"Overview\", section: \"Analyse\", icon: { prefix: \"fas\", name: \"gauge-high\" } },\n            throughput: { value: NullType, label: \"Throughput\", section: \"Analyse\", icon: { prefix: \"fas\", name: \"chart-line\" } },\n            audit: { value: NullType, label: \"Audit\", section: \"Manage\", icon: { prefix: \"fas\", name: \"list-check\" } },\n        });\n        return (\n            <Reactive>{$ => {\n                const nav = $.let(Navigation.bind(routes, \"app.condensed.route\", [routes.Page.overview()]));\n                const overviewPage = $.const(East.function([], UIComponentType, (_$) => <Text>Overview — dense layout</Text>));\n                const throughputPage = $.const(East.function([], UIComponentType, (_$) => <Text>Throughput trend</Text>));\n                const auditPage = $.const(East.function([], UIComponentType, (_$) => <Text>Audit trail</Text>));\n                return (\n                    <App\n                        nav={nav}\n                        config={routes}\n                        title=\"Acme Operations\"\n                        logo={Image.dataUri(LOGO)}\n                        density=\"condensed\"\n                        pages={{\n                            overview: () => overviewPage(),\n                            throughput: () => throughputPage(),\n                            audit: () => auditPage(),\n                        }}\n                    />\n                );\n            }}</Reactive>\n        );\n    })"
+    },
+    {
       "id": "east-ui:breadcrumb.examples.tsx:breadcrumbBasic",
       "skill": "east-ui",
       "package": "east-ui",
@@ -26686,7 +26782,7 @@
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
         "import { NavList, VStack, Text, Reactive } from \"@elaraai/east-ui\";"
       ],
-      "source": "// App-shell sidebar — chrome-less shell surface with a host rail background\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <NavList\n                surface=\"shell\"\n                background=\"bg.subtle\"\n                sections={[\n                    {\n                        label: \"Winemaking\",\n                        items: [\n                            { key: \"overview\", label: \"Overview\", icon: { prefix: \"fas\", name: \"gauge\" }, active: true },\n                            { key: \"batches\", label: \"Batches\", icon: { prefix: \"fas\", name: \"flask\" } },\n                            { key: \"audit\", label: \"Audit trail\", icon: { prefix: \"fas\", name: \"list\" } },\n                        ],\n                    },\n                ]}\n            />\n        );\n    })"
+      "source": "// App-shell sidebar — chrome-less shell surface with a host rail background\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <NavList\n                surface=\"shell\"\n                background=\"bg.subtle\"\n                sections={[\n                    {\n                        label: \"Operations\",\n                        items: [\n                            { key: \"overview\", label: \"Overview\", icon: { prefix: \"fas\", name: \"gauge\" }, active: true },\n                            { key: \"runs\", label: \"Runs\", icon: { prefix: \"fas\", name: \"flask\" } },\n                            { key: \"audit\", label: \"Audit trail\", icon: { prefix: \"fas\", name: \"list\" } },\n                        ],\n                    },\n                ]}\n            />\n        );\n    })"
     },
     {
       "id": "east-ui:nav-list.examples.tsx:navListReactive",

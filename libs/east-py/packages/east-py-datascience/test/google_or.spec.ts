@@ -12,7 +12,7 @@
  * Note: These tests require the ortools library to be installed in the Python environment.
  * Install with: pip install ortools
  */
-import { East, variant } from "@elaraai/east";
+import { East, variant, none } from "@elaraai/east";
 import { describeEast, Assert } from "@elaraai/east-node-std";
 import {
     GoogleOr,
@@ -197,7 +197,7 @@ describeEast("GoogleOr platform functions", (test) => {
     // Linear Programming Tests
     // ========================================================================
 
-    Assert.examples(test, { linearSolveResourceAllocation: linearEx.linearSolveResourceAllocation });
+    Assert.examples(test, { linearSolveResourceAllocation: linearEx.linearSolveResourceAllocation, linearSolveMipRelativeGapLimit: linearEx.linearSolveMipRelativeGapLimit });
 
     test("linear solves simple LP", $ => {
         // Maximize 3x + 2y subject to x + y <= 4, x <= 3, y <= 3, x,y >= 0
@@ -227,8 +227,9 @@ describeEast("GoogleOr platform functions", (test) => {
         }, LinearModelType);
 
         const config = $.let({
-            solver: variant('none', null),
-            max_time_seconds: variant('none', null),
+            solver: none,
+            max_time_seconds: none,
+            relative_gap_limit: none,
         }, LinearConfigType);
 
         const result = $.let(GoogleOr.linearSolve(model, config));
@@ -269,8 +270,9 @@ describeEast("GoogleOr platform functions", (test) => {
         }, LinearModelType);
 
         const config = $.let({
-            solver: variant('none', null),
-            max_time_seconds: variant('none', null),
+            solver: none,
+            max_time_seconds: none,
+            relative_gap_limit: none,
         }, LinearConfigType);
 
         const result = $.let(GoogleOr.linearSolve(model, config));

@@ -124,12 +124,17 @@ LinearConfigType = StructType(
     [
         ("solver", OptionType(LinearSolverType)),
         ("max_time_seconds", OptionType(FloatType)),
+        ("relative_gap_limit", OptionType(FloatType)),
     ]
 )
 """Solver configuration for a linear solve call.
 
 Fields: ``solver`` (backend override, auto-selected if omitted),
-``max_time_seconds`` (time limit; converted to milliseconds internally).
+``max_time_seconds`` (time limit; converted to milliseconds internally),
+``relative_gap_limit`` (stop with status OPTIMAL once the proven relative MIP
+gap ``(best - bound) / |best|`` <= this, e.g. ``0.01`` for 1%). The gap limit
+is MIP-only (OR-Tools ``RELATIVE_MIP_GAP``, honoured by SCIP/CBC); it is ignored
+for a pure-LP (Glop) solve, which has no branch-and-bound gap.
 """
 
 LinearResultType = StructType(
@@ -226,6 +231,11 @@ def linear_solve_impl(
               and ``scip`` for MIP models.
             - ``max_time_seconds`` (``Option<Float>``): time limit in seconds
               (converted to milliseconds for the OR-Tools solver).
+            - ``relative_gap_limit`` (``Option<Float>``): stop with status
+              OPTIMAL once the proven relative MIP gap
+              ``(best - bound) / |best|`` is at or below this (e.g. ``0.01``
+              for 1%). MIP only (OR-Tools ``RELATIVE_MIP_GAP``); ignored for a
+              pure-LP (Glop) solve.
 
     Returns:
         ``LinearResultType`` (``EastStruct``): ``status``
@@ -307,8 +317,16 @@ def linear_solve_impl(
     if max_time is not None:
         solver.SetTimeLimit(int(float(max_time) * 1000))
 
+    # Relative MIP optimality-gap early stop. Passing default parameters is
+    # equivalent to Solve() with none set; the pure-LP Glop backend ignores the
+    # gap (no branch-and-bound), so this is a no-op for LP.
+    params = pywraplp.MPSolverParameters()
+    rel_gap = _get_option(config.get("relative_gap_limit"), None)
+    if rel_gap is not None:
+        params.SetDoubleParam(params.RELATIVE_MIP_GAP, float(rel_gap))
+
     # Solve
-    result_status = solver.Solve()
+    result_status = solver.Solve(params)
     wall_time = time.perf_counter() - start_time
 
     # Map status
