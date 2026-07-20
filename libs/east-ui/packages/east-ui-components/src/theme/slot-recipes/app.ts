@@ -18,7 +18,7 @@ export const appSlotRecipe = defineSlotRecipe({
     slots: [
         "root", "rail", "railHeader", "logo", "railBody", "collapseToggleRow", "collapseToggle",
         "railFooter", "content", "bannerTop", "header", "headerRow", "breadcrumb",
-        "barStart", "barCenter", "barEnd", "themeToggle", "title", "main",
+        "barStart", "barCenter", "barEnd", "themeToggle", "title", "titleInline", "main",
     ],
     base: {
         // Full-viewport shell; the main region scrolls internally so the page
@@ -160,7 +160,7 @@ export const appSlotRecipe = defineSlotRecipe({
             transitionDuration: "{durations.fast}",
             _hover: { color: "brand.fg", background: "bg.muted" },
         },
-        // Surface title row — bsys "surface.title".
+        // Surface title row — bsys "surface.title" (comfortable / compact: own row).
         title: {
             fontFamily: "heading",
             fontSize: "{fontSizes.xl}",
@@ -170,6 +170,23 @@ export const appSlotRecipe = defineSlotRecipe({
             overflow: "hidden",
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
+        },
+        // Condensed density: the title rides the breadcrumb row after a vertical
+        // rule, instead of its own row.
+        titleInline: {
+            fontFamily: "heading",
+            fontWeight: "bold",
+            color: "fg",
+            fontSize: "15px",
+            lineHeight: "1.2",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            flexShrink: 0,
+            marginInlineStart: "{spacing.3}",
+            paddingInlineStart: "{spacing.3}",
+            borderInlineStartWidth: "1px",
+            borderInlineStartColor: "border.subtle",
         },
         // Main scroll region — bsys "Main recipe" padding.
         main: {
@@ -194,8 +211,29 @@ export const appSlotRecipe = defineSlotRecipe({
                 collapseToggleRow: { justifyContent: "flex-end" },
             },
         },
+        /** App-bar density — only the header changes (rail + body held constant).
+         *  `comfortable` (2 rows, ~84 px) · `compact` (tighter 2 rows, ~62 px) ·
+         *  `condensed` (breadcrumb + title on ONE 44 px row; the renderer moves the
+         *  title inline via `titleInline`). */
+        density: {
+            comfortable: {
+                header: { paddingTop: "14px", paddingBottom: "16px", gap: "6px" },
+                headerRow: { minHeight: "28px" },
+                title: { fontSize: "{fontSizes.xl}" },
+            },
+            compact: {
+                header: { paddingTop: "9px", paddingBottom: "10px", gap: "4px" },
+                headerRow: { minHeight: "24px" },
+                title: { fontSize: "19px" },
+            },
+            condensed: {
+                header: { paddingTop: "0", paddingBottom: "0", gap: "0" },
+                headerRow: { minHeight: "44px" },
+            },
+        },
     },
     defaultVariants: {
         collapsed: false,
+        density: "comfortable",
     },
 });

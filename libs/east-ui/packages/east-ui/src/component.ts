@@ -603,6 +603,9 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         barEnd: ArrayType(node),
         collapsible: BooleanType,
         themeToggle: BooleanType,
+        /** App-bar density — comfortable (2 rows) / compact (tighter 2 rows) /
+         *  condensed (breadcrumb + title on ONE row). Rail + body stay constant. */
+        density: OptionType(DensityType),
         navKey: StringType,
     }),
 
@@ -1506,6 +1509,7 @@ export const AppValueType = StructType({
     barEnd: ArrayType(UIComponentType),
     collapsible: BooleanType,
     themeToggle: BooleanType,
+    density: OptionType(DensityType),
     navKey: StringType,
 });
 

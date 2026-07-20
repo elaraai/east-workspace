@@ -937,6 +937,7 @@ Task → Which tag?
 │       │   ├─ logo / logoCollapsed (optional) — ImageSource (Image.url / Image.dataUri / Image.blob); the shell renders + sizes the <Image>
 │       │   ├─ collapsible (optional, default true) — rail collapses (`[` hotkey + chevron above the list)
 │       │   ├─ themeToggle (optional) — built-in dark/light app-bar button (pure-East surfaces; hosts normally inject via AppProvider)
+│       │   ├─ density (optional, default comfortable) — app-bar density: comfortable (2 rows) | compact (tighter 2 rows) | condensed (breadcrumb + title on ONE row, ~40px shorter); only the app bar changes (rail + body constant); falls back to inherited density
 │       │   └─ barStart / barEnd (optional) — app-bar UIComponent nodes (leading / trailing)
 │       └─ Rail: routes with a `section` become rail rows (grouped, icon + badge, active = current route, click → navigate); routes WITHOUT a section are reachable but hidden (deep pages). Host React apps inject chrome (avatar / theme / logout / search) via the east-ui-components `AppProvider` (barStart/barCenter/barEnd/logo/railFooter/bannerTop React slots)
 │

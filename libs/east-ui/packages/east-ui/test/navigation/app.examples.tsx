@@ -81,3 +81,45 @@ export const appBasic = example({
     }),
     inputs: [],
 });
+
+/**
+ * `density="condensed"` — the data-dense app bar. The breadcrumb + title collapse
+ * onto ONE 44 px row (separated by a rule), reclaiming ~40 px of vertical chrome;
+ * the rail and content region are unchanged. `compact` (a tighter two-row bar) and
+ * the default `comfortable` are the other two densities.
+ */
+export const appCondensed = example({
+    keywords: ["App", "app shell", "density", "condensed", "compact", "app bar", "Navigation"],
+    description: "App shell with a condensed app bar — breadcrumb + title on one row (density)",
+    fn: East.function([], UIComponentType, (_$) => {
+        const routes = Navigation.config({
+            overview: { value: NullType, label: "Overview", section: "Analyse", icon: { prefix: "fas", name: "gauge-high" } },
+            throughput: { value: NullType, label: "Throughput", section: "Analyse", icon: { prefix: "fas", name: "chart-line" } },
+            audit: { value: NullType, label: "Audit", section: "Manage", icon: { prefix: "fas", name: "list-check" } },
+        });
+        return (
+            <Reactive>{$ => {
+                const nav = $.let(Navigation.bind(routes, "app.condensed.route", [routes.Page.overview()]));
+                const overviewPage = $.const(East.function([], UIComponentType, (_$) => <Text>Overview — dense layout</Text>));
+                const throughputPage = $.const(East.function([], UIComponentType, (_$) => <Text>Throughput trend</Text>));
+                const auditPage = $.const(East.function([], UIComponentType, (_$) => <Text>Audit trail</Text>));
+                return (
+                    <App
+                        nav={nav}
+                        config={routes}
+                        title="Acme Operations"
+                        logo={Image.dataUri(LOGO)}
+                        density="condensed"
+                        themeToggle
+                        pages={{
+                            overview: () => overviewPage(),
+                            throughput: () => throughputPage(),
+                            audit: () => auditPage(),
+                        }}
+                    />
+                );
+            }}</Reactive>
+        );
+    }),
+    inputs: [],
+});

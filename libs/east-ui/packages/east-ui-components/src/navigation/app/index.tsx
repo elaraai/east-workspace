@@ -27,6 +27,7 @@ import { EastChakraNavList, type NavListValue } from "../nav-list";
 import { getSomeorUndefined } from "../../utils";
 import { usePersistedState } from "../../hooks/usePersistedState";
 import { useColorMode } from "../../hooks/useColorMode";
+import { useDensity } from "../../contracts/density";
 import { useAppSlots } from "../app-provider";
 
 /** Decoded `App` value — derived from the `AppValueType` mirror in east-ui. */
@@ -69,7 +70,12 @@ export const EastChakraApp = memo(function EastChakraApp({ value, storageKey }: 
         return () => window.removeEventListener("keydown", onKey);
     }, [value.collapsible, setCollapsed]);
 
-    const styles = recipe({ collapsed });
+    // App-bar density: own prop wins, then an inherited density, then comfortable.
+    const inheritedDensity = useDensity();
+    const density = getSomeorUndefined(value.density)?.type ?? inheritedDensity ?? "comfortable";
+    const condensed = density === "condensed";
+
+    const styles = recipe({ collapsed, density });
 
     const title = getSomeorUndefined(value.title);
     const logoSource = collapsed
@@ -116,6 +122,8 @@ export const EastChakraApp = memo(function EastChakraApp({ value, storageKey }: 
                         <Box css={styles.breadcrumb}>
                             <EastChakraComponent value={value.breadcrumb} storageKey={`${storageKey}.breadcrumb`} />
                         </Box>
+                        {/* Condensed density: title rides this row after a rule. */}
+                        {condensed && title !== undefined && <Box css={styles.titleInline}>{title}</Box>}
                         {hasLeading && (
                             <Box css={styles.barStart}>
                                 {value.barStart.map((c, i) => (
@@ -142,7 +150,8 @@ export const EastChakraApp = memo(function EastChakraApp({ value, storageKey }: 
                             )}
                         </Box>
                     </Flex>
-                    {title !== undefined && <Box css={styles.title}>{title}</Box>}
+                    {/* Comfortable / compact: title on its own row below. */}
+                    {!condensed && title !== undefined && <Box css={styles.title}>{title}</Box>}
                 </Box>
                 <Box as="main" css={styles.main}>
                     <EastChakraComponent value={value.body} storageKey={`${storageKey}.body`} />

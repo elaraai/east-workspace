@@ -12,6 +12,7 @@ describeEast("App", (test) => {
     // all built from the one handle bound in the enclosing Reactive.
     Assert.examples(test, {
         appBasic: ex.appBasic,
+        appCondensed: ex.appCondensed,
     });
 
     // `<App>` composes the navigation primitives; the `appBasic` example (wired

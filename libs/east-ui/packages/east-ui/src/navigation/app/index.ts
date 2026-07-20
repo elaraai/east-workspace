@@ -39,6 +39,8 @@ import {
 
 import { UIComponentType } from "../../component.js";
 import { ImageSourceType } from "../../display/image/types.js";
+import { DensityType } from "../../style.js";
+import type { DensityLiteral } from "../../style.js";
 import { NavList, type NavSectionInput, type NavItemInput } from "../nav-list/index.js";
 import { Breadcrumb, BreadcrumbItemType } from "../breadcrumb/index.js";
 import { Pages, type NavConfig, type NavRoutes, type BoundNav, type PagesHandlers } from "../pages/index.js";
@@ -90,6 +92,11 @@ export interface AppInput<R extends NavRoutes> {
     collapsible?: boolean;
     /** Add a built-in dark/light app-bar item (default `false`). */
     themeToggle?: boolean;
+    /** App-bar density (default `comfortable`) — `comfortable` (2 rows) /
+     *  `compact` (tighter 2 rows) / `condensed` (breadcrumb + title on one row,
+     *  ~40 px shorter). Only the app bar changes; the rail + body stay constant.
+     *  Falls back to an inherited density when unset. */
+    density?: SubtypeExprOrValue<DensityType> | DensityLiteral;
     /** App-bar nodes after the breadcrumb (leading). */
     barStart?: SubtypeExprOrValue<ArrayType<UIComponentType>>;
     /** App-bar nodes at the trailing edge. */
@@ -242,6 +249,9 @@ function createApp<R extends NavRoutes>(input: AppInput<R>): ExprType<UIComponen
         barEnd: input.barEnd ?? emptyChildren,
         collapsible: input.collapsible ?? true,
         themeToggle: input.themeToggle ?? false,
+        density: input.density !== undefined
+            ? some(typeof input.density === "string" ? East.value(variant(input.density, null), DensityType) : input.density)
+            : none,
         navKey: nav.key,
     }), UIComponentType);
 }
