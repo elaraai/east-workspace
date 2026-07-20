@@ -16,17 +16,23 @@
 import { Fragment } from "react";
 import { Box, Flex, chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faBell } from "@fortawesome/free-solid-svg-icons";
+import { faBell, faMoon, faSun } from "@fortawesome/free-solid-svg-icons";
+import { useColorMode } from "@elaraai/east-ui-components";
 
 /**
- * Trailing app-bar chrome a host app would inject: notifications + an avatar.
+ * Trailing app-bar chrome a host app would inject: notifications, a **theme
+ * toggle**, and an avatar. This is the recommended way to put a dark/light toggle
+ * in the bar — the host owns colour mode and injects the control (the east-ui
+ * `<App>`'s built-in `themeToggle` prop is just a fallback for pure-East surfaces
+ * that have no host, and is off by default).
  *
  * Returned as a **Fragment of individual items** (not a `<Flex gap>` wrapper) so
  * each becomes a direct child of the app bar's `barEnd` flex and shares its single
- * gap with the built-in theme toggle — one rhythm, not a nested one. A wrapping
- * element with its own `gap` would create a second, independent spacing system.
+ * gap. A wrapping element with its own `gap` would create a second, independent
+ * spacing system.
  */
 export function HostBarEnd() {
+    const [mode, toggleMode] = useColorMode();
     return (
         <Fragment>
             <chakra.button
@@ -45,6 +51,24 @@ export function HostBarEnd() {
                 _hover={{ color: "brand.fg", background: "bg.muted" }}
             >
                 <FontAwesomeIcon icon={faBell} style={{ fontSize: "13px" }} />
+            </chakra.button>
+            <chakra.button
+                type="button"
+                aria-label={mode === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                onClick={toggleMode}
+                display="inline-flex"
+                alignItems="center"
+                justifyContent="center"
+                w="24px"
+                h="24px"
+                border="0"
+                borderRadius="md"
+                background="transparent"
+                color="fg.muted"
+                cursor="pointer"
+                _hover={{ color: "brand.fg", background: "bg.muted" }}
+            >
+                <FontAwesomeIcon icon={mode === "dark" ? faSun : faMoon} style={{ fontSize: "13px" }} />
             </chakra.button>
             <Box
                 w="24px"

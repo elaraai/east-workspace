@@ -66,7 +66,6 @@ export const appBasic = example({
                         config={routes}
                         title="Acme Operations"
                         logo={Image.dataUri(LOGO)}
-                        themeToggle
                         pages={{
                             overview: () => overviewPage(),
                             throughput: () => throughputPage(),
@@ -109,7 +108,6 @@ export const appCompact = example({
                         title="Acme Operations"
                         logo={Image.dataUri(LOGO)}
                         density="compact"
-                        themeToggle
                         pages={{
                             overview: () => overviewPage(),
                             throughput: () => throughputPage(),
@@ -151,7 +149,6 @@ export const appCondensed = example({
                         title="Acme Operations"
                         logo={Image.dataUri(LOGO)}
                         density="condensed"
-                        themeToggle
                         pages={{
                             overview: () => overviewPage(),
                             throughput: () => throughputPage(),
