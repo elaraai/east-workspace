@@ -25,6 +25,15 @@ import { createContext, useContext, type ReactNode } from "react";
 /**
  * Host-injected app-shell slots (all optional React nodes).
  *
+ * @remarks
+ * The bar slots (`barStart` / `barCenter` / `barEnd`) render as **direct children
+ * of the app bar's flex row**, so for multiple items pass a **`Fragment` of
+ * individual elements** — `barEnd={<><Bell/><Avatar/></>}` — NOT a `<Flex gap>`
+ * wrapper. A Fragment lets each item share the bar's single gap (and, for
+ * `barEnd`, the same rhythm as the built-in theme toggle); a wrapping element with
+ * its own `gap` would introduce a second, independent spacing system. Wrap only
+ * when an item is a self-contained widget (e.g. a menu trigger + its content).
+ *
  * @property barStart - App-bar content after the breadcrumb (leading) — e.g. an environment switcher.
  * @property barCenter - App-bar center content — e.g. a global search input.
  * @property barEnd - App-bar trailing content — avatar menu, theme toggle, logout, console.
