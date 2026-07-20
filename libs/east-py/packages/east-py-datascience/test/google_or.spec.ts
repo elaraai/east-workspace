@@ -12,7 +12,7 @@
  * Note: These tests require the ortools library to be installed in the Python environment.
  * Install with: pip install ortools
  */
-import { East, variant, none } from "@elaraai/east";
+import { East, variant, some, none } from "@elaraai/east";
 import { describeEast, Assert } from "@elaraai/east-node-std";
 import {
     GoogleOr,
@@ -287,7 +287,7 @@ describeEast("GoogleOr platform functions", (test) => {
     // Graph Algorithm Tests
     // ========================================================================
 
-    Assert.examples(test, { minCostFlowSupplyChain: graphEx.minCostFlowSupplyChain, maxFlowNetwork: graphEx.maxFlowNetwork, assignmentWorkerTask: graphEx.assignmentWorkerTask });
+    Assert.examples(test, { minCostFlowSupplyChain: graphEx.minCostFlowSupplyChain, maxFlowNetwork: graphEx.maxFlowNetwork, assignmentWorkerTask: graphEx.assignmentWorkerTask, minCostAssignmentUnassignedPenalty: graphEx.minCostAssignmentUnassignedPenalty, minCostAssignmentTaskCapacity: graphEx.minCostAssignmentTaskCapacity });
 
     test("min cost flow finds cheapest flow", $ => {
         // Simple network: 0 -> 1 -> 3, 0 -> 2 -> 3
@@ -340,6 +340,42 @@ describeEast("GoogleOr platform functions", (test) => {
         $(Assert.equal(result.assignments.length(), 3n));
         // Optimal: worker 0 -> task 1 (76), worker 1 -> task 0 (35), worker 2 -> task 2 (90) = 201
         $(Assert.equal(result.total_cost, 201n));
+    });
+
+    test("min cost assignment omits workers it leaves unassigned", $ => {
+        // 3 workers over 2 single-slot tasks; only worker 2 can reach task 1.
+        const input = $.let({
+            workers: [0n, 1n, 2n],
+            tasks:   [0n, 0n, 1n],
+            costs:   [5n, 8n, 4n],
+            unassigned_penalty: some([50n, 50n, 50n]),
+            task_capacity: none,
+        }, GoogleOr.Types.MinCostAssignmentInputType);
+
+        const result = $.let(GoogleOr.minCostAssignment(input));
+
+        // 0 -> 0 (5) and 2 -> 1 (4); worker 1 waits at 50. Only the 2 matched
+        // pairs come back, but total_cost carries the penalty: 5 + 4 + 50 = 59.
+        $(Assert.equal(result.assignments.length(), 2n));
+        $(Assert.equal(result.total_cost, 59n));
+        $(Assert.greater(result.wall_time, East.value(0.0)));
+    });
+
+    test("min cost assignment is infeasible with no opt-out and too few slots", $ => {
+        // 2 workers contend for 1 slot and unassigned_penalty is none, so the
+        // loser has nowhere to go and the whole problem has no solution.
+        const input = $.let({
+            workers: [0n, 1n],
+            tasks:   [0n, 0n],
+            costs:   [3n, 7n],
+            unassigned_penalty: none,
+            task_capacity: none,
+        }, GoogleOr.Types.MinCostAssignmentInputType);
+
+        const result = $.let(GoogleOr.minCostAssignment(input));
+
+        $(Assert.equal(result.status, variant('infeasible', null)));
+        $(Assert.equal(result.assignments.length(), 0n));
     });
 
 }, { exportOnly: true });

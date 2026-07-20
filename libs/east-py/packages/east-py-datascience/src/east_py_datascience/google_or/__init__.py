@@ -34,11 +34,14 @@ from east_py_datascience.google_or.graph import (
     AssignmentResultType,
     MaxFlowInputType,
     MaxFlowResultType,
+    MinCostAssignmentInputType,
+    MinCostAssignmentResultType,
     MinCostFlowInputType,
     MinCostFlowResultType,
     assignment_impl,
     graph_impl,
     max_flow_impl,
+    min_cost_assignment_impl,
     min_cost_flow_impl,
 )
 from east_py_datascience.google_or.linear import (
@@ -87,6 +90,7 @@ __all__ = [
     "min_cost_flow_impl",
     "max_flow_impl",
     "assignment_impl",
+    "min_cost_assignment_impl",
     # Shared types
     "GoogleOrStatusType",
     # CP-SAT types
@@ -128,4 +132,6 @@ __all__ = [
     "AssignmentInputType",
     "AssignmentMatchType",
     "AssignmentResultType",
+    "MinCostAssignmentInputType",
+    "MinCostAssignmentResultType",
 ]

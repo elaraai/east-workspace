@@ -61,7 +61,8 @@ Task → What do you need?
     │   ├─ CP-SAT → .cpsatSolve(), .cpsatSolveAll()
     │   ├─ Routing → .routingSolve() (TSP, CVRP, VRPTW, VRPPD)
     │   ├─ Linear → .linearSolve() (LP, MIP)
-    │   └─ Graph → .minCostFlow(), .maxFlow(), .assignment()
+    │   └─ Graph → .minCostFlow(), .maxFlow(), .assignment() (dense cost matrix),
+    │              .minCostAssignment() (sparse arcs, task capacity, opt-out penalty)
     │
     ├─ Scipy
     │   ├─ Optimization → .optimizeMinimize(), .optimizeMinimizeQuadratic(), .optimizeDualAnnealing()

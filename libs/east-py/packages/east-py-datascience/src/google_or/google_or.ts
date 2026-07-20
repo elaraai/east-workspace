@@ -380,6 +380,35 @@ export const AssignmentResultType = StructType({
     wall_time: FloatType,
 });
 
+/** Sparse bipartite assignment input — one entry per legal `(worker, task)` arc. */
+export const MinCostAssignmentInputType = StructType({
+    /** Worker id of each candidate arc; 0-based, parallel to `tasks` and `costs`. */
+    workers: ArrayType(IntegerType),
+    /** Task id of each candidate arc; 0-based, parallel to `workers` and `costs`. */
+    tasks: ArrayType(IntegerType),
+    /** Cost of each candidate arc. */
+    costs: ArrayType(IntegerType),
+    /** Cost of leaving a worker unassigned, indexed by worker id. `none` means
+     *  there is no opt-out — a worker with no available slot renders the whole
+     *  problem infeasible. */
+    unassigned_penalty: OptionType(ArrayType(IntegerType)),
+    /** Maximum workers per task, indexed by task id. `none` means every task
+     *  takes at most one worker. */
+    task_capacity: OptionType(ArrayType(IntegerType)),
+});
+
+/** Sparse bipartite assignment result. */
+export const MinCostAssignmentResultType = StructType({
+    status: GoogleOrStatusType,
+    /** The minimised objective: matched arc costs plus the `unassigned_penalty`
+     *  of every unmatched worker. Equals the sum of `assignments[].cost` only
+     *  when every worker was matched. */
+    total_cost: IntegerType,
+    /** Matched pairs only — unassigned workers are omitted. */
+    assignments: ArrayType(AssignmentMatchType),
+    wall_time: FloatType,
+});
+
 // ============================================================================
 // Platform Functions
 // ============================================================================
@@ -433,6 +462,13 @@ export const google_or_assignment = East.platform(
     AssignmentResultType
 );
 
+/** Solve a sparse bipartite min-cost assignment problem. */
+export const google_or_min_cost_assignment = East.platform(
+    "google_or_min_cost_assignment",
+    [MinCostAssignmentInputType],
+    MinCostAssignmentResultType
+);
+
 // ============================================================================
 // Grouped Exports
 // ============================================================================
@@ -480,6 +516,8 @@ export const GoogleOrTypes = {
     AssignmentInputType,
     AssignmentMatchType,
     AssignmentResultType,
+    MinCostAssignmentInputType,
+    MinCostAssignmentResultType,
 } as const;
 
 /**
@@ -489,7 +527,7 @@ export const GoogleOrTypes = {
  * - CP-SAT: Constraint programming with SAT-based solving
  * - Routing: Vehicle routing (TSP, CVRP, VRPTW, VRPPD)
  * - Linear: Linear programming and mixed-integer programming
- * - Graph: Min-cost flow, max flow, linear sum assignment
+ * - Graph: Min-cost flow, max flow, linear sum assignment, sparse min-cost assignment
  */
 export const GoogleOr = {
     /**
@@ -641,6 +679,24 @@ export const GoogleOr = {
      * ```
      */
     assignment: google_or_assignment,
+    /**
+     * Solve a sparse bipartite min-cost assignment problem.
+     *
+     * @example
+     * ```ts
+     * import { East } from "@elaraai/east";
+     * import { GoogleOr, MinCostAssignmentInputType } from "@elaraai/east-py-datascience";
+     *
+     * const solve = East.function(
+     *     [MinCostAssignmentInputType],
+     *     GoogleOr.Types.MinCostAssignmentResultType,
+     *     ($, input) => {
+     *         return $.return(GoogleOr.minCostAssignment(input));
+     *     }
+     * );
+     * ```
+     */
+    minCostAssignment: google_or_min_cost_assignment,
     /** Type definitions. */
     Types: GoogleOrTypes,
 } as const;
