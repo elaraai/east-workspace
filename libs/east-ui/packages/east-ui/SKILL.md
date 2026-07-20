@@ -1285,6 +1285,53 @@ tier so they stay subordinate to tags at every density.
 </HStack>
 ```
 
+### App shell — `<App>` in East + host-injected chrome via `AppProvider`
+
+`<App>` composes the nav primitives into one shell from a single
+`Navigation.bind` handle — the rail is derived from the config's
+`icon` / `section` / `badge`, the breadcrumb from `nav.path()`, and the routed
+body from `pages`. Author it **inside** the `<Reactive>` that binds `nav`.
+`density` (`comfortable` / `compact` / `condensed`) resizes only the app bar.
+
+A host React app injects its own app-bar / rail chrome (avatar, theme toggle,
+logout, search) by wrapping the renderer in **`AppProvider`** (from
+`@elaraai/east-ui-components`). Pass bar items as a **Fragment of individual
+elements** — not a `<Flex gap>` wrapper — so each shares the bar's single gap
+with the built-in theme toggle. With no provider, `<App>` renders standalone
+(its IR slots + default logo), so e3 `ui()` tasks keep working.
+
+```tsx
+// East side — author the shell (inside the <Reactive> that binds nav).
+const routes = Navigation.config({
+    overview: { value: NullType, label: "Overview", section: "Analyse", icon: { prefix: "fas", name: "gauge-high" } },
+    audit:    { value: NullType, label: "Audit",    section: "Manage",  icon: { prefix: "fas", name: "list-check" } },
+});
+const shell = East.function([], UIComponentType, _$ => (
+    <Reactive>{$ => {
+        const nav = $.let(Navigation.bind(routes, "app.route", [routes.Page.overview()]));
+        return (
+            <App nav={nav} config={routes} title="Acme Ops" density="comfortable"
+                logo={Image.dataUri(LOGO_SVG)}
+                pages={{ overview: () => <OverviewPage/>, audit: () => <AuditPage/> }} />
+        );
+    }}</Reactive>
+));
+```
+
+```tsx
+// Host React side (@elaraai/east-ui-components) — inject chrome + render the value.
+import { AppProvider, EastChakraComponent } from "@elaraai/east-ui-components";
+
+<AppProvider
+    barEnd={<><NotificationsButton/><AvatarMenu/></>}   // Fragment — one bar rhythm, not a nested <Flex gap>
+    barCenter={<GlobalSearch/>}
+    railFooter={<AccountCard/>}
+    logo={<BrandLogo/>}                                  // React node — overrides the IR logo
+>
+    <EastChakraComponent value={compiledShellValue} />
+</AppProvider>
+```
+
 ### Picking between similar components
 
 - **Switch vs Toggle vs Checkbox** — `<Switch>` binds a boolean form value;
