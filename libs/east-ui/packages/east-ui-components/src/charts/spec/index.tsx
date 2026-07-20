@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useId, useMemo, useCallback, createContext, useContext, type CSSProperties, type ReactNode, type MouseEvent } from "react";
+import { memo, useId, useMemo, useCallback, createContext, useContext, type CSSProperties, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
 import { Box, Skeleton, useChakraContext, useSlotRecipe } from "@chakra-ui/react";
 import { useTooltip, useTooltipInPortal } from "@visx/tooltip";
 import { match, equalFor, some, none, variant, type ValueTypeOf } from "@elaraai/east";
@@ -620,7 +620,20 @@ function AxisBMark({ value }: { value: Axis }): ReactNode {
     // #318 — tickValues is a scale-kind variant (number | time); both arms
     // decode to arrays visx maps directly onto the linear / time scale.
     const explicitTicks = getSomeorUndefined(value.tickValues);
-    const tickValues = (explicitTicks !== undefined ? [...explicitTicks.value] : undefined) ?? (numTicks !== undefined ? undefined : xTickValues);
+    const tickValuesRaw = (explicitTicks !== undefined ? [...explicitTicks.value] : undefined) ?? (numTicks !== undefined ? undefined : xTickValues);
+    // #354 — width-adaptive default, COMPACT PLOTS ONLY (innerW < 480):
+    // colliding per-point labels thin by stride to ~one per 64px. Regular
+    // and wide plots keep the exact pre-#354 default (every data-point
+    // position) — desktop output is unchanged. Explicit tickValues /
+    // numTicks (#149) always win.
+    const tickValues = (explicitTicks === undefined && numTicks === undefined && tickValuesRaw !== undefined && innerW < 480)
+        ? (() => {
+            const maxLabels = Math.max(2, Math.floor(innerW / 64));
+            if (tickValuesRaw.length <= maxLabels) return tickValuesRaw;
+            const stride = Math.ceil(tickValuesRaw.length / maxLabels);
+            return tickValuesRaw.filter((_, i) => i % stride === 0);
+        })()
+        : tickValuesRaw;
     const hideTicks = getSomeorUndefined(value.hideTicks) ?? true;
     const hideLine = getSomeorUndefined(value.hideLine) ?? horizontal;
     const tickCss = axisTextCss(style, getSomeorUndefined(value.tickStyle));
@@ -943,7 +956,7 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
                 }
                 const cx = (p: Point) => cxKey(xKeyOf(p.x));
 
-                const onMove = (e: MouseEvent<SVGRectElement>) => {
+                const onMove = (e: ReactPointerEvent<SVGRectElement>, toggleOnRepeat = false) => {
                     const r = e.currentTarget.getBoundingClientRect();
                     const px = e.clientX - r.left;
                     const py = e.clientY - r.top;
@@ -953,6 +966,8 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
                     let focus: string | undefined; let best = Infinity;
                     for (const xv of xDomain) { const d = Math.abs(cxKey(xv) - pos); if (d < best) { best = d; focus = xv; } }
                     if (focus === undefined) return;
+                    // Touch (#354): tapping the focused band again dismisses.
+                    if (toggleOnRepeat && tooltipData?.x === focus) { hideTooltip(); return; }
                     const rows = series.flatMap(s => { const p = s.points.find(pt => xKeyOf(pt.x) === focus); return p ? [{ key: s.key, color: style.color(s.color), value: p.value }] : []; });
                     if (rows.length === 0) return;
                     showTooltip({
@@ -986,7 +1001,15 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
                                     : <Line from={{ x: cxKey(focusX), y: 0 }} to={{ x: cxKey(focusX), y: innerH }} stroke={style.axisStroke} strokeWidth={1} strokeDasharray="2 3" />
                                 )}
                                 {!brush && tooltipOn && series.length > 0 && (
-                                    <rect x={0} y={0} width={innerW} height={innerH} fill="transparent" onMouseMove={onMove} onMouseLeave={hideTooltip} />
+                                    // Pointer events (#354): mouse scrubs on move; touch taps to
+                                    // inspect (repeat tap on the same band dismisses); leave hides
+                                    // only for fine pointers so a tapped tooltip survives lift-off.
+                                    <rect
+                                        x={0} y={0} width={innerW} height={innerH} fill="transparent"
+                                        onPointerMove={(e) => { if (e.pointerType !== "touch") onMove(e); }}
+                                        onPointerDown={(e) => { onMove(e, e.pointerType === "touch"); }}
+                                        onPointerLeave={(e) => { if (e.pointerType !== "touch") hideTooltip(); }}
+                                    />
                                 )}
                                 {brush && (
                                     <Brush

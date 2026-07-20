@@ -12,6 +12,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { coarseHitArea } from "../../style/hit-area.js";
 
 export const blendSlotRecipe = defineSlotRecipe({
     className: "elara-blend",
@@ -21,7 +22,7 @@ export const blendSlotRecipe = defineSlotRecipe({
         "allocList", "allocRow", "allocGrip", "allocBody", "allocLabel", "allocSublabel",
         "amountInput", "amountText", "share", "pinBadge", "allocAction", "dragGhost",
         "metricList", "metricRow", "metricLabel", "metricValue", "trustChip", "bandText",
-        "panelFoot", "objective",
+        "panelFoot", "objective", "panelRail", "panelRailLabel",
         "diff", "diffRow", "verdict",
     ],
     base: {
@@ -43,7 +44,12 @@ export const blendSlotRecipe = defineSlotRecipe({
             borderColor: "border.subtle",
             borderRadius: "{radii.md}",
             background: "bg.surface",
-            "&[data-mode=portfolio]": { minWidth: "300px", flex: "0 0 300px" },
+            /* Compact hosts (#353): the fixed 300px basis yields to the
+             * container so the portfolio panel stacks instead of overflowing. */
+            "&[data-mode=portfolio]": { minWidth: "min(300px, 100%)", flex: "0 1 300px" },
+            /* Compact rail mode: the one expanded panel takes the width the
+             * collapsed rails leave. */
+            "&[data-compact-active]": { flex: "1 1 auto", minWidth: 0 },
         },
         panelHead: {
             display: "flex",
@@ -54,7 +60,7 @@ export const blendSlotRecipe = defineSlotRecipe({
             fontFamily: "mono",
             fontSize: "10px",
             fontWeight: "700",
-            color: "{colors.brand.700}",
+            color: "brand.fg",
             background: "{colors.brandTint}",
             paddingX: "{spacing.1.5}",
             borderRadius: "{radii.xs}",
@@ -92,14 +98,20 @@ export const blendSlotRecipe = defineSlotRecipe({
             "&[data-state=added]": {
                 background: "{colors.brand.200}",
                 backgroundImage: "repeating-linear-gradient(135deg, transparent 0 4px, {colors.brand.300} 4px 6px)",
+                /* Light cyan tints glare on dark — flip to the deep-teal end
+                 * of the same family (#362). */
+                _dark: {
+                    background: "{colors.brand.800}",
+                    backgroundImage: "repeating-linear-gradient(135deg, transparent 0 4px, {colors.brand.600} 4px 6px)",
+                },
             },
             "&[data-state=removed]": {
                 background: "bg.warning.subtle",
                 backgroundImage: "repeating-linear-gradient(135deg, transparent 0 4px, {colors.status.warn} 4px 5px)",
                 opacity: "0.7",
             },
-            "&[data-state=model]": { background: "{colors.brand.100}" },
-            "& + &": { borderLeftWidth: "1px", borderLeftColor: "{colors.white}" },
+            "&[data-state=model]": { background: "{colors.brand.100}", _dark: { background: "{colors.brand.700}" } },
+            "& + &": { borderLeftWidth: "1px", borderLeftColor: "{colors.bg.surface}" },
         },
         headroom: {
             height: "100%",
@@ -140,6 +152,11 @@ export const blendSlotRecipe = defineSlotRecipe({
             opacity: "0",
             transition: "opacity {durations.fast}",
             "[data-draggable]:hover &": { opacity: "1" },
+            /* Touch: instant-drag handle (grip fast-path) — visible, no
+             * scroll gesture, 32px tap halo. */
+            _hoverNone: { opacity: "0.7" },
+            touchAction: "none",
+            ...coarseHitArea({ position: true, size: 32 }),
         },
         allocBody: {
             flex: "1",
@@ -285,6 +302,39 @@ export const blendSlotRecipe = defineSlotRecipe({
             letterSpacing: "0.06em",
             textTransform: "uppercase",
             color: "fg.muted",
+        },
+        /* Compact rail mode: inactive panels collapse to a Dock-style
+         * vertical bar (44px ≥ touch target) — one expanded panel at a
+         * time; tapping a rail swaps it in. */
+        panelRail: {
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: "{spacing.2}",
+            flex: "0 0 44px",
+            minWidth: "44px",
+            paddingBlock: "{spacing.3}",
+            borderWidth: "1px",
+            borderColor: "border.subtle",
+            borderRadius: "{radii.md}",
+            background: "bg.surface",
+            cursor: "pointer",
+            transitionProperty: "background, border-color",
+            transitionDuration: "{durations.fast}",
+            _hover: { background: "bg.subtle", borderColor: "border.strong" },
+        },
+        panelRailLabel: {
+            writingMode: "vertical-rl",
+            fontFamily: "mono",
+            fontSize: "10px",
+            fontWeight: "600",
+            letterSpacing: "0.14em",
+            textTransform: "uppercase",
+            color: "fg.muted",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            maxHeight: "200px",
         },
         /* (The action buttons moved to the shared `commitBar` slots (#266) —
            Apply = btnPrimary, Discard = btnDanger, Reset = btn — so the

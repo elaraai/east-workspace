@@ -21,16 +21,21 @@ export const popoverSlotRecipe = defineSlotRecipe({
             /* Chakra's default recipe fixes width at --popover-size (320px);
              * the spec sizes to content within 240–360. */
             width: "fit-content",
-            minWidth: "240px",
-            maxWidth: "360px",
+            minWidth: "min(240px, calc(100vw - 16px))",
+            /* Viewport clamp (#347): the 360px spec band yields to small
+             * screens; tall content scrolls within Zag's available height. */
+            maxWidth: "min(360px, calc(100vw - 16px))",
             fontSize: "{fontSizes.control}",
             lineHeight: "{lineHeights.normal}",
             color: "fg",
-            overflow: "visible",
+            /* Was `overflow: visible`; the viewport clamp needs tall content
+             * to scroll (the arrow is a sibling slot, unaffected). */
+            maxHeight: "min(var(--available-height, 60vh), 85vh)",
+            overflowY: "auto",
         },
         arrow: {
             "--arrow-size": "12px",
-            "--arrow-background": "colors.white",
+            "--arrow-background": "colors.bg.surface",
             "--arrow-shadow-color": "colors.gray.300",
         },
         arrowTip: {

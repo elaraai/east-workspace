@@ -11,6 +11,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { coarseHitArea } from "../../style/hit-area.js";
 
 export const sliderSlotRecipe = defineSlotRecipe({
     className: "elara-slider",
@@ -53,6 +54,10 @@ export const sliderSlotRecipe = defineSlotRecipe({
             borderColor: "{colors.brand.600}",
             boxShadow: "sm",
             cursor: "grab",
+            /* Touch hit target (#346) — thumb keeps its 14px spec visual;
+             * the grab halo inflates to 44px on coarse pointers. Zag
+             * positions the thumb, so no `position` here. */
+            ...coarseHitArea(),
             _focusVisible: {
                 boxShadow: "none",
                 outline: "none",

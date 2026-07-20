@@ -142,7 +142,9 @@
 
   --fg-primary:   var(--gray-100);
   --fg-secondary: var(--gray-400);
-  --fg-muted:     var(--gray-500);
+  /* Lifted off gray-500, which sits below AA (~3.1:1) on gray-800 surfaces;
+   * keeps a distinct third voice below --fg-secondary (#362). */
+  --fg-muted:     #8fa5a5;
   --fg-inverse:   var(--brand-900);
 
   --border-subtle: var(--gray-700);
@@ -153,6 +155,31 @@
 
   --link:         var(--brand-300);
   --link-hover:   var(--brand-200);
+
+  /* Status — the light "document-print" hues lightened to hold AA on
+   * gray-800/900; washes flip to lightened ink at higher alpha (#362).
+   * Light values: --pos #2f7a5b · --neg #b85a4a · --warn #b8862d ·
+   * --info #3a7780 (spec.css). */
+  --pos:  #55a37f;
+  --neg:  #d28a7b;
+  --warn: #d3a655;
+  --info: #62a6b0;
+
+  /* Brand tint (selected rows / branded chips / active pills) flips from
+   * #e8f6f7 to the deep-teal surface. */
+  --brand-tint: var(--brand-800);
+
+  /* Brand heat ramp (calendars / density) runs dim-surface → bright teal so
+   * intensity still reads as "more":
+   *   0 #223335 · 1 #2c4a50 · 2 #3d6e76 · 3 #579aa2 · 4 #83c7cc */
+
+  /* Shadows deepen to true black — the cool-ink light shadows read as mud
+   * on dark surfaces. */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.40);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.50);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.50), 0 2px 4px -2px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.55), 0 4px 6px -4px rgba(0, 0, 0, 0.50);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.60), 0 8px 10px -6px rgba(0, 0, 0, 0.55);
 }
 
 /* ===== SEMANTIC TYPE STYLES ===== */

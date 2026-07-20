@@ -34,15 +34,26 @@ import {
 // ============================================================================
 
 /**
- * One route declaration: the page's payload East type plus its display label.
+ * One route declaration: the page's payload East type plus its display label,
+ * and optional rail presentation (`<App>` reads these to build the nav rail —
+ * the config is the single source of truth for the rail as well as the routes).
  *
  * @typeParam V - The route's payload East type (`NullType` for an argless page).
  * @property value - The East type of the value passed when navigating to this route.
  * @property label - Human-readable label (breadcrumb / rail).
+ * @property icon - Optional leading Font Awesome icon for the `<App>` rail row (`{ prefix, name }`).
+ * @property section - Optional `<App>` rail section heading to group this route under; omit ⇒ the route is reachable but hidden from the rail (a deep page).
+ * @property badge - Optional trailing badge text for the `<App>` rail row (count / "New").
  */
 export interface NavRouteConfig<V extends EastType = EastType> {
     value: V;
     label: string;
+    /** Optional leading Font Awesome icon for the `<App>` rail row. */
+    icon?: { prefix: string; name: string };
+    /** Optional `<App>` rail section heading; omit ⇒ reachable but hidden from the rail. */
+    section?: string;
+    /** Optional trailing badge text for the `<App>` rail row. */
+    badge?: string;
 }
 
 /** A routes map: route name → its {@link NavRouteConfig}. */

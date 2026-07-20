@@ -15,17 +15,34 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { coarseHitArea } from "../../style/hit-area.js";
 
 export const splitterSlotRecipe = defineSlotRecipe({
     className: "elara-splitter",
-    slots: ["root", "panel", "resizeTrigger"],
+    slots: ["root", "panel", "resizeTrigger", "stacked", "stackedPanel"],
     base: {
+        /* collapseBelow (#350): panels stack vertically in narrow hosts —
+         * a plain column, no resize chrome. */
+        stacked: {
+            display: "flex",
+            flexDirection: "column",
+            width: "100%",
+            gap: "{spacing.2}",
+            minWidth: 0,
+        },
+        stackedPanel: {
+            minWidth: 0,
+            width: "100%",
+        },
         resizeTrigger: {
             width: "9px",
             background: "transparent",
             cursor: "col-resize",
             position: "relative",
             outline: "none",
+            /* Touch (#346): `_after` carries the visual grip, so the coarse
+             * hit halo rides `_before`. */
+            ...coarseHitArea({ pseudo: "_before" }),
             // Hide Chakra's default handle children — the grip below replaces it.
             "& > *": { display: "none" },
             _after: {

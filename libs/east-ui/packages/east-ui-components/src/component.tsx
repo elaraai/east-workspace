@@ -55,6 +55,7 @@ import { EastChakraGantt } from "./collections/gantt";
 import { EastChakraPlanner } from "./collections/planner";
 import { EastChakraBreadcrumb } from "./navigation/breadcrumb";
 import { EastChakraNavList } from "./navigation/nav-list";
+import { EastChakraApp } from "./navigation/app";
 import { EastChakraIcon } from "./display/icon";
 import { EastChakraBadge } from "./display/badge";
 import { EastChakraTag } from "./display/tag";
@@ -77,6 +78,8 @@ import { EastChakraSegmentedMeter } from "./display/segmented-meter";
 import { EastChakraBarStrip } from "./display/bar-strip";
 import { EastChakraTrace } from "./display/trace";
 import { EastChakraLibrary } from "./collections/library";
+import { EastChakraDeck, EastChakraDeckReadout, EastChakraDeckRows, EastChakraDeckNote } from "./collections/deck";
+import { EastChakraValueTree } from "./collections/value-tree";
 import { EastChakraRoster } from "./collections/roster";
 import { EastChakraBoard } from "./collections/board";
 import { EastChakraCalendar } from "./collections/calendar";
@@ -215,6 +218,9 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
             // Route — Pages generalized to any slot (#333): identical payload +
             // remount mechanism, so it reuses the Pages renderer.
             Route: (v) => <EastChakraPages value={v as never} storageKey={childKey(storageKey, "Route")} />,
+            // App — the application shell (#367): lays out the pre-built rail /
+            // breadcrumb / body nodes into the bsys shell chrome + host slots.
+            App: (v) => <EastChakraApp value={v as never} storageKey={childKey(storageKey, "App")} />,
 
             // Display
             Icon: (v) => <EastChakraIcon value={v} />,
@@ -253,6 +259,11 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
             Gantt: (v) => <EastChakraGantt value={v} storageKey={childKey(storageKey, "Gantt")} />,
             Planner: (v) => <EastChakraPlanner value={v} storageKey={childKey(storageKey, "Planner")} />,
             Library: (v) => <EastChakraLibrary value={v} storageKey={childKey(storageKey, "Library")} />,
+            Deck: (v) => <EastChakraDeck value={v} storageKey={childKey(storageKey, "Deck")} />,
+            DeckReadout: (v) => <EastChakraDeckReadout value={v} />,
+            DeckRows: (v) => <EastChakraDeckRows value={v} />,
+            DeckNote: (v) => <EastChakraDeckNote value={v} />,
+            ValueTree: (v) => <EastChakraValueTree value={v} storageKey={childKey(storageKey, "ValueTree")} />,
             Roster: (v) => <EastChakraRoster value={v} storageKey={childKey(storageKey, "Roster")} />,
             Board: (v) => <EastChakraBoard value={v} storageKey={childKey(storageKey, "Board")} />,
             Calendar: (v) => <EastChakraCalendar value={v} storageKey={childKey(storageKey, "Calendar")} />,

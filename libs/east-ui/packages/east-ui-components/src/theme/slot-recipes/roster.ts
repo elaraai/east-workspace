@@ -18,7 +18,7 @@ export const rosterSlotRecipe = defineSlotRecipe({
     slots: [
         "root", "grid", "headerCell",
         "personCell", "personLabel", "personSublabel",
-        "cell", "chip", "chipGrip", "chipAction", "dragGhost",
+        "cell", "chip", "chipLabel", "chipGrip", "chipActions", "chipAction", "dragGhost",
         "strip", "stripSummary", "stripHint",
     ],
     base: {
@@ -26,6 +26,9 @@ export const rosterSlotRecipe = defineSlotRecipe({
          * is host composition via Card / Slice.Frame. */
         root: {
             background: "bg.surface",
+            /* Compact hosts (#353): the slot grid pans horizontally. */
+            overflowX: "auto",
+            overscrollBehaviorX: "contain",
         },
         grid: {
             display: "grid",
@@ -68,6 +71,11 @@ export const rosterSlotRecipe = defineSlotRecipe({
         cell: {
             display: "flex",
             flexDirection: "column",
+            /* Chips stretch to the cell width (spec `.bg-cell` default) so the
+             * hover-action overlay sits clear at the right of the left-aligned
+             * label. `minWidth: 0` lets the cell shrink to its grid track so an
+             * over-wide chip label ellipsizes rather than growing the column. */
+            minWidth: "0",
             gap: "{spacing.1}",
             padding: "{spacing.1}",
             minHeight: "44px",
@@ -82,7 +90,10 @@ export const rosterSlotRecipe = defineSlotRecipe({
             display: "flex",
             alignItems: "center",
             gap: "{spacing.1}",
-            whiteSpace: "nowrap",
+            /* Never exceed the (equal, floored) day column — the label
+             * ellipsizes inside instead of ballooning the track. */
+            maxWidth: "100%",
+            overflow: "hidden",
             minWidth: "0",
             fontFamily: "mono",
             fontSize: "11px",
@@ -104,14 +115,17 @@ export const rosterSlotRecipe = defineSlotRecipe({
                 background: "bg.brand.subtle",
                 borderColor: "{colors.brand.600}",
                 borderStyle: "dashed",
-                color: "{colors.brand.700}",
+                color: "brand.fg",
                 fontWeight: "600",
             },
-            /* Removed — a proposed deletion of a committed shift. */
+            /* Removed — a proposed deletion of a committed shift. Spec
+             * `.shift-chip.removed`: warn tint + strikethrough (the strike
+             * carries the "removed" meaning now the `▸ —` text is gone). */
             "&[data-state=removed]": {
                 background: "bg.warning.subtle",
                 borderColor: "{colors.status.warn}",
                 color: "{colors.status.warn}",
+                textDecoration: "line-through",
             },
             /* Model ghost — dashed, italic, click to accept. */
             "&[data-state=model]": {
@@ -132,6 +146,15 @@ export const rosterSlotRecipe = defineSlotRecipe({
             "&[data-draggable]": { cursor: "grab" },
             "&[data-dragging]": { opacity: "0.4" },
         },
+        /* The chip's text — truncates with an ellipsis when it can't fit its
+         * (equal, floored) column, mirroring the Planner event label. */
+        chipLabel: {
+            flex: "1",
+            minWidth: "0",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+        },
         chipGrip: {
             color: "fg.subtle",
             fontSize: "9px",
@@ -140,8 +163,22 @@ export const rosterSlotRecipe = defineSlotRecipe({
             transition: "opacity {durations.fast}",
             "[data-draggable]:hover &": { opacity: "1" },
         },
-        /* Hover action buttons — accept (check) on ghosts, remove (bin) on
-         * proposals. First action pushes to the chip's right edge. */
+        /* Hover action cluster — pinned to the chip's right edge as an
+         * ABSOLUTE overlay so it never steals width from the label (a narrow
+         * day column has no room to reserve it in flow). Revealed on hover. */
+        chipActions: {
+            position: "absolute",
+            top: "0",
+            right: "2px",
+            bottom: "0",
+            display: "flex",
+            alignItems: "center",
+            gap: "2px",
+            opacity: "0",
+            transition: "opacity {durations.fast}",
+            "[data-state]:hover > &": { opacity: "1" },
+        },
+        /* Accept (check) on ghosts, remove (bin) on proposals. */
         chipAction: {
             display: "inline-flex",
             alignItems: "center",
@@ -152,11 +189,7 @@ export const rosterSlotRecipe = defineSlotRecipe({
             border: "none",
             padding: "1px",
             cursor: "pointer",
-            opacity: "0",
-            transition: "opacity {durations.fast}",
             flexShrink: "0",
-            "&:first-of-type": { marginLeft: "auto" },
-            "[data-state]:hover > &": { opacity: "1" },
             "&:hover": { color: "fg" },
             "&[data-danger]:hover": { color: "fg.danger" },
         },

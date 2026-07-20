@@ -59,6 +59,11 @@ export const globalCss = defineGlobalStyles({
         color: "fg",
         background: "bg.canvas",
         textRendering: "optimizeLegibility",
+        /* Mobile hygiene (#346): keep the browser from inflating text on
+         * orientation change, and drop the grey tap flash — components give
+         * their own pressed/selected feedback. */
+        textSizeAdjust: "100%",
+        WebkitTapHighlightColor: "transparent",
     },
 
     "*, *::before, *::after": {
@@ -141,7 +146,8 @@ export const globalCss = defineGlobalStyles({
      * structurally valid for a removable payload. */
     "[data-drag-trash]": {
         position: "fixed",
-        bottom: "24px",
+        /* Safe-area (#346): clear the home indicator on notched phones. */
+        bottom: "calc(24px + env(safe-area-inset-bottom, 0px))",
         left: "50%",
         transform: "translateX(-50%)",
         zIndex: 1690,

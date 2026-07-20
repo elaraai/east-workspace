@@ -54,14 +54,14 @@ export const tagSlotRecipe = defineSlotRecipe({
                 root: {
                     background: "bg.surface",
                     borderColor: "border.strong",
-                    color: "{colors.brand.700}",
+                    color: "brand.fg",
                 },
             },
             brand: {
                 root: {
                     background: "bg.brand.subtle",
                     borderColor: "border.brand",
-                    color: "{colors.brand.700}",
+                    color: "brand.fg",
                 },
             },
             subtle: {

@@ -23,7 +23,7 @@ export const imageLogo = example({
     fn: East.function([], UIComponentType, (_$) => (
         <HStack gap="3" align="center">
             <Image source={Image.dataUri(LOGO_DATA_URI)} height="36px" fit="contain" alt="Acme" />
-            <Text textStyle="body-lg" fontWeight="bold">Acme Winery</Text>
+            <Text textStyle="body-lg" fontWeight="bold">Acme Industries</Text>
         </HStack>
     )),
     inputs: [],

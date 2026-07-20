@@ -3,9 +3,10 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { Box, Text, VStack, Spinner, Code, Clipboard, IconButton } from '@chakra-ui/react';
+import { Box, Text, VStack, Code, Clipboard, IconButton } from '@chakra-ui/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faCopy, faCheck } from '@fortawesome/free-solid-svg-icons';
+import { LoadingIcon } from '@elaraai/east-ui-components';
 
 type StatusVariant = 'error' | 'warning' | 'info' | 'loading';
 
@@ -24,33 +25,35 @@ const variantStyles: Record<StatusVariant, {
     detailsBg: string;
     detailsColor: string;
 }> = {
+    // Mode-aware semantic tokens (the raw `red.50` / `gray.50` washes rendered
+    // as bright light boxes in dark mode — #362).
     error: {
-        bg: 'red.50',
-        titleColor: 'red.600',
-        messageColor: 'red.500',
-        detailsBg: 'red.100',
-        detailsColor: 'red.800',
+        bg: 'bg.danger.subtle',
+        titleColor: 'fg.danger',
+        messageColor: 'fg.muted',
+        detailsBg: 'bg.muted',
+        detailsColor: 'fg.default',
     },
     warning: {
-        bg: 'yellow.50',
-        titleColor: 'yellow.700',
-        messageColor: 'yellow.600',
-        detailsBg: 'yellow.100',
-        detailsColor: 'yellow.800',
+        bg: 'bg.warning.subtle',
+        titleColor: 'fg.warning',
+        messageColor: 'fg.muted',
+        detailsBg: 'bg.muted',
+        detailsColor: 'fg.default',
     },
     info: {
-        bg: 'gray.50',
-        titleColor: 'gray.500',
-        messageColor: 'gray.400',
-        detailsBg: 'gray.100',
-        detailsColor: 'gray.700',
+        bg: 'transparent',
+        titleColor: 'fg.muted',
+        messageColor: 'fg.subtle',
+        detailsBg: 'bg.muted',
+        detailsColor: 'fg.default',
     },
     loading: {
-        bg: 'gray.50',
-        titleColor: 'gray.500',
-        messageColor: 'gray.400',
-        detailsBg: 'gray.100',
-        detailsColor: 'gray.700',
+        bg: 'transparent',
+        titleColor: 'fg.muted',
+        messageColor: 'fg.subtle',
+        detailsBg: 'bg.muted',
+        detailsColor: 'fg.default',
     },
 };
 
@@ -73,7 +76,7 @@ export function StatusDisplay({ variant, title, message, details }: StatusDispla
                 bg={styles.bg}
             >
                 <VStack gap={2}>
-                    {variant === 'loading' && <Spinner size="md" />}
+                    {variant === 'loading' && <LoadingIcon animate size="52px" />}
                     <Text color={styles.titleColor} fontSize={variant === 'loading' ? 'sm' : 'lg'}>
                         {title}
                     </Text>

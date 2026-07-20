@@ -24,7 +24,7 @@ export const meterSlotRecipe = defineSlotRecipe({
             position: "relative",
             flex: "1",
             height: "6px",
-            background: "{colors.gray.100}",
+            background: "bg.subtle",
             borderRadius: "{radii.xs}",
             overflow: "hidden",
         },
@@ -41,7 +41,7 @@ export const meterSlotRecipe = defineSlotRecipe({
             fontFamily: "mono",
             fontSize: "11px",
             fontVariantNumeric: "tabular-nums",
-            color: "{colors.gray.600}",
+            color: "fg.muted",
         },
     },
     variants: {

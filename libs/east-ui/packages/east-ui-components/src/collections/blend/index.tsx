@@ -3,8 +3,8 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
-import { Box, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Box, chakra, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faGripVertical, faThumbtack, faTrashCan } from "@fortawesome/free-solid-svg-icons";
 import { equalFor, variant, some, none, type ValueTypeOf } from "@elaraai/east";
@@ -13,6 +13,7 @@ import { getSomeorUndefined } from "../../utils";
 import { useDragTarget, useDropCell, useDragEventChip, type DragEventValue, type DragMeta, type DragPayload } from "../../dnd/drag-layer";
 import { useIRCanDrop, canDropAllows, type CanDropFn } from "../../dnd/ir-can-drop";
 import { DropHint } from "../../dnd/drop-hint";
+import { useContainerBelow } from "../../contracts/adaptive.js";
 
 const blendEqual = equalFor(Blend.Types.Blend);
 
@@ -92,7 +93,7 @@ function AllocationRow({ surface, targetKey, alloc, unit, capacity, styles, onAm
             {...(draggable && onPointerDown ? { "data-draggable": "" } : {})}
         >
             {draggable && onPointerDown && (
-                <Box as="span" css={styles.allocGrip}><FontAwesomeIcon icon={faGripVertical} /></Box>
+                <Box as="span" css={styles.allocGrip} data-drag-grip=""><FontAwesomeIcon icon={faGripVertical} /></Box>
             )}
             <Box css={styles.allocBody}>
                 <Box as="span" css={styles.allocLabel}>{alloc.label}</Box>
@@ -151,9 +152,12 @@ interface TargetPanelProps {
     onAmount?: ((source: string, amount: number) => void) | undefined;
     onRemove?: ((source: string) => void) | undefined;
     onAction?: ((action: ActionKind) => void) | undefined;
+    /** Compact rail mode: this is the one expanded panel — flex-fill the
+     *  width the collapsed rails leave. */
+    compactActive?: boolean | undefined;
 }
 
-function TargetPanel({ surface, target, mode, badge, styles, vetoFor, onAmount, onRemove, onAction }: TargetPanelProps) {
+function TargetPanel({ surface, target, mode, badge, styles, vetoFor, onAmount, onRemove, onAction, compactActive }: TargetPanelProps) {
     // The action foot rides the shared `commitBar` slots (#266) so
     // apply/discard reads as the same chrome family as the Planner review
     // foot + DecisionQueue staged footer (Apply = primary, Discard = danger,
@@ -170,7 +174,7 @@ function TargetPanel({ surface, target, mode, badge, styles, vetoFor, onAmount, 
     const objective = getSomeorUndefined(target.objective);
 
     return (
-        <Box ref={dropRef} css={styles.panel} data-mode={mode}>
+        <Box ref={dropRef} css={styles.panel} data-mode={mode} {...(compactActive ? { "data-compact-active": "" } : {})}>
             <Box css={styles.panelHead}>
                 {badge !== undefined && <Box as="span" css={styles.panelBadge}>{badge}</Box>}
                 <Box as="span" css={styles.panelTitle}>{target.label}</Box>
@@ -335,6 +339,17 @@ export const EastChakraBlend = memo(function EastChakraBlend({ value }: EastChak
         }
     }, [onActionFn]);
 
+    // Compact rail mode (#345 follow-up): in hosts below 480px, multi-panel
+    // blends show ONE expanded panel; the others collapse to Dock-style
+    // vertical rails (44px tap targets) that swap the expanded panel.
+    const rootRef = useRef<HTMLDivElement | null>(null);
+    const compact = useContainerBelow(rootRef, 480);
+    const [activeKey, setActiveKey] = useState<string | null>(null);
+    const railMode = compact && targets.length > 1;
+    const effectiveActiveKey = railMode
+        ? (activeKey !== null && targets.some(t => t.key === activeKey) ? activeKey : targets[0]?.key)
+        : undefined;
+
     // Compare diff: derived from the two targets' metrics by key.
     const diffRows = useMemo(() => {
         if (mode !== "compare") return [];
@@ -361,22 +376,40 @@ export const EastChakraBlend = memo(function EastChakraBlend({ value }: EastChak
     }, [mode, targets, value.diff]);
 
     return (
-        <Box css={styles.root} data-mode={mode}>
+        <Box ref={rootRef} css={styles.root} data-mode={mode}>
             <Box css={styles.targets} data-mode={mode}>
-                {targets.map((target, i) => (
-                    <TargetPanel
-                        key={target.key}
-                        surface={value.id}
-                        target={target}
-                        mode={mode}
-                        badge={mode === "compare" ? (i === 0 ? "A" : "B") : undefined}
-                        styles={styles}
-                        vetoFor={vetoFor}
-                        onAmount={handleAmount(target.key)}
-                        onRemove={handleRemove(target.key)}
-                        onAction={onActionFn ? handleAction(target.key) : undefined}
-                    />
-                ))}
+                {targets.map((target, i) => {
+                    const badge = mode === "compare" ? (i === 0 ? "A" : "B") : undefined;
+                    if (railMode && target.key !== effectiveActiveKey) {
+                        return (
+                            <chakra.button
+                                key={target.key}
+                                type="button"
+                                css={styles.panelRail}
+                                aria-label={`Show ${target.label}`}
+                                onClick={() => setActiveKey(target.key)}
+                            >
+                                {badge !== undefined && <Box as="span" css={styles.panelBadge}>{badge}</Box>}
+                                <Box as="span" css={styles.panelRailLabel}>{target.label}</Box>
+                            </chakra.button>
+                        );
+                    }
+                    return (
+                        <TargetPanel
+                            key={target.key}
+                            surface={value.id}
+                            target={target}
+                            mode={mode}
+                            badge={badge}
+                            styles={styles}
+                            vetoFor={vetoFor}
+                            onAmount={handleAmount(target.key)}
+                            onRemove={handleRemove(target.key)}
+                            onAction={onActionFn ? handleAction(target.key) : undefined}
+                            compactActive={railMode}
+                        />
+                    );
+                })}
             </Box>
             {mode === "compare" && diffRows.length > 0 && (
                 <Box css={styles.diff}>

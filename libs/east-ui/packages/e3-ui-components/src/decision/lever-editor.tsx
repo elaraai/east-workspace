@@ -174,7 +174,7 @@ export function LeverEditor({ leverCase, payload, onInject }: LeverEditorProps) 
             ));
         }
         return (
-            <Box key={`${k}.wrap`} width="180px" flexShrink={0}>
+            <Box key={`${k}.wrap`} width="min(180px, 100%)" flexShrink={0}>
                 {primitiveInput(active, `${k}.value`, () => valRef.current, v => { valRef.current = v; })}
             </Box>
         );

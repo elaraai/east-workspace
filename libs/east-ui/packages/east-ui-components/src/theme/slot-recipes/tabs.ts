@@ -23,12 +23,23 @@ export const tabsSlotRecipe = defineSlotRecipe({
         list: {
             display: "flex",
             alignItems: "stretch",
+            /* Compact containers (#349): many tabs scroll horizontally with
+             * snap instead of clipping; the scrollbar is suppressed (the
+             * cut-off tab is the affordance). */
+            overflowX: "auto",
+            flexWrap: "nowrap",
+            scrollSnapType: "x proximity",
+            scrollbarWidth: "none",
+            "&::-webkit-scrollbar": { display: "none" },
+            "& > [data-part=trigger]": { scrollSnapAlign: "start", flexShrink: 0 },
         },
         trigger: {
             display: "inline-flex",
             alignItems: "center",
             gap: "{spacing.2}",
             cursor: "pointer",
+            /* Touch (#346). */
+            _coarse: { minHeight: "44px" },
             transitionProperty: "background, color, border-color",
             transitionDuration: "{durations.fast}",
             transitionTimingFunction: "{easings.out}",

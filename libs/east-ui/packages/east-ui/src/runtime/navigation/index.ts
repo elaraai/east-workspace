@@ -5,6 +5,7 @@
 
 /** Navigation JSX tags. Mirrors `src/navigation/`. */
 
+export { App } from "./app.js";
 export { Breadcrumb } from "./breadcrumb.js";
 export { NavList } from "./nav-list.js";
 export { Pages } from "./pages.js";

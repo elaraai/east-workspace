@@ -27,7 +27,7 @@ export const navListSlotRecipe = defineSlotRecipe({
             fontWeight: "semibold",
             letterSpacing: "0.18em",
             textTransform: "uppercase",
-            color: "{colors.gray.500}",
+            color: "fg.subtle",
             paddingInline: "14px",
             paddingTop: "4px",
             paddingBottom: "6px",
@@ -40,11 +40,13 @@ export const navListSlotRecipe = defineSlotRecipe({
             gap: "10px",
             width: "full",
             height: "36px",
+            /* Touch (#346): the fixed 36px row grows to 44px on coarse. */
+            _coarse: { height: "44px" },
             paddingInline: "14px",
             paddingBlock: "0",
             borderRadius: "{radii.sm}",
             background: "transparent",
-            color: "{colors.gray.600}",
+            color: "fg.muted",
             fontFamily: "mono",
             fontSize: "{fontSizes.xs}",
             fontWeight: "semibold",
@@ -56,15 +58,17 @@ export const navListSlotRecipe = defineSlotRecipe({
             transitionProperty: "background, color",
             transitionDuration: "{durations.fast}",
             _hover: {
-                color: "{colors.brand.600}",
+                color: "link",
             },
-            // Active row is an inset pill, not a full-width band.
+            // Active row is an inset pill, not a full-width band. `brandTint`
+            // and `brand.fg` are mode-aware semantic tokens (#362) — the pill
+            // flips to a brand.800 fill with brand.300 ink in dark.
             "&[aria-current=page], &[data-active]": {
                 width: "calc(100% - 16px)",
                 marginInline: "8px",
                 paddingInline: "12px",
                 background: "{colors.brandTint}",
-                color: "{colors.brand.700}",
+                color: "brand.fg",
                 fontWeight: "bold",
             },
         },
@@ -88,7 +92,7 @@ export const navListSlotRecipe = defineSlotRecipe({
             fontSize: "10px",
             fontWeight: "semibold",
             letterSpacing: "0.04em",
-            color: "{colors.gray.500}",
+            color: "fg.subtle",
             flexShrink: "0",
         },
     },
@@ -99,18 +103,41 @@ export const navListSlotRecipe = defineSlotRecipe({
             card: {
                 root: {
                     paddingBlock: "12px",
-                    background: "{colors.gray.50}",
+                    background: "bg.panel",
                     borderWidth: "1px",
                     borderStyle: "solid",
-                    borderColor: "{colors.gray.200}",
+                    borderColor: "border.subtle",
                     borderRadius: "{radii.lg}",
                 },
             },
             /** App-shell sidebar — no chrome; the host panel owns fill + rule. */
             shell: {},
         },
+        /** Collapsed rail — icon-only: labels / badges / section headings hidden,
+         *  rows centred so the leading icon is the whole hit target (the `<App>`
+         *  56 px rail). Active tint + click stay live. */
+        collapsed: {
+            true: {
+                item: {
+                    justifyContent: "center",
+                    gap: "0",
+                    paddingInline: "0",
+                    "&[aria-current=page], &[data-active]": {
+                        width: "calc(100% - 12px)",
+                        marginInline: "6px",
+                        paddingInline: "0",
+                        justifyContent: "center",
+                    },
+                },
+                itemText: { display: "none" },
+                badge: { display: "none" },
+                groupLabel: { display: "none" },
+            },
+            false: {},
+        },
     },
     defaultVariants: {
         surface: "card",
+        collapsed: false,
     },
 });

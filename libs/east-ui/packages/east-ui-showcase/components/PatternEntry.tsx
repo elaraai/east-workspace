@@ -119,7 +119,11 @@ function LiveBody({ entry }: { entry: LiveEntry }) {
                 p="5"
                 mt="16px"
                 minH="96px"
-                overflowX="hidden"
+                // #356: wide examples (Table/Gantt/Planner) pan inside their
+                // frame on phones instead of being clipped or overflowing the
+                // page (the page-level no-horizontal-overflow invariant the
+                // responsive Playwright sweep asserts).
+                overflowX="auto"
             >
                 <EastFunction ir={ir} storageKey={`example-${entry.pathKey}-${entry.name}`} />
             </Box>

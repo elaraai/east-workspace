@@ -136,6 +136,9 @@ export const EastChakraDateRangeInput = memo(function EastChakraDateRangeInput({
         display: "inline-flex",
         alignItems: "center",
         gap: "{spacing.2}",
+        /* Touch (#348): 44px field rows on coarse pointers (react-aria
+         * segments already carry inputMode="numeric" for mobile keyboards). */
+        _coarse: { minHeight: "44px" },
         ...(background !== undefined ? { background } : {}),
         ...(colour !== undefined ? { color: colour } : {}),
         ...(borderColor !== undefined ? { borderColor } : {}),
@@ -188,7 +191,9 @@ export const EastChakraDateRangeInput = memo(function EastChakraDateRangeInput({
     };
 
     const inputs = (
-        <HStack gap="2" align="center">
+        // wrap (#348): in a compact container the end field drops to a
+        // second line instead of squeezing the segments.
+        <HStack gap="2" align="center" flexWrap="wrap">
             {renderField(localStart, handleStartDate, handleStartTime, "Start")}
             <Text color="fg.muted" fontSize={fontSize}>–</Text>
             {renderField(localEnd, handleEndDate, handleEndTime, "End")}

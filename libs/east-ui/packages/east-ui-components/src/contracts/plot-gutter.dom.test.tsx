@@ -31,14 +31,20 @@ afterEach(cleanup);
 /** Minimal one-cell Calendar; `plotGutter` is its own (own-beats-context) gutter. */
 function calendarValue(plotGutter: CalendarValue["plotGutter"] = none): CalendarValue {
     return {
-        legend: "Cal",
-        cells: [{ week: "W1", day: "Mon", value: 5, text: "5", summary: none, delta: none }],
+        cells: [{ week: "W1", day: "Mon", value: 5, text: "5", compare: none, summary: none }],
+        values: true,
+        scale: none,
+        domain: none,
+        totals: none,
+        aggregateRow: none,
+        footer: none,
+        actionLabel: none,
+        onAction: none,
+        onSelect: none,
         density: none,
         plotGutter,
-        onSelect: none,
-        onAction: none,
-        actionLabel: none,
-        domain: none,
+        height: none,
+        maxHeight: none,
     } as CalendarValue;
 }
 
@@ -55,9 +61,11 @@ describe("plot-gutter cascade (#147)", () => {
     test("standalone: no imposed gutter, the band keeps its plain 7-column track", () => {
         const { container } = ui(<EastChakraCalendar value={calendarValue()} storageKey="c" />);
         const style = bandStyle(container);
-        // Plain form: `<weekColW> repeat(7, 1fr)` — no gutter tracks, no minmax.
-        expect(style).toContain("repeat(7, 1fr)");
-        expect(style).not.toContain("minmax");
+        // Plain form: `<weekColW> repeat(7, minmax(<colDay>, 1fr))` — the
+        // density day track, no imposed gutter (no `minmax(0, 1fr)`, no
+        // trailing gutter column).
+        expect(style).toMatch(/repeat\(7, minmax\(62px/);
+        expect(style).not.toContain("minmax(0");
     });
 
     test("context: a PlotGutterProvider insets the band to [left, W − right]", () => {

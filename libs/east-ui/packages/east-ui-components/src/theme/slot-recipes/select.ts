@@ -30,6 +30,8 @@ export const selectSlotRecipe = defineSlotRecipe({
             gap: "{spacing.2}",
             width: "100%",
             cursor: "pointer",
+            /* Touch (#346): 44px trigger + 16px text on coarse pointers. */
+            _coarse: { minHeight: "44px", fontSize: "{fontSizes.md}" },
         },
         valueText: {
             flex: 1,
@@ -67,9 +69,11 @@ export const selectSlotRecipe = defineSlotRecipe({
             paddingY: "{spacing.2}",
             fontSize: "{fontSizes.control}",
             cursor: "pointer",
+            /* Touch (#346). */
+            _coarse: { minHeight: "44px" },
             _hover: { background: "bg.subtle" },
             _highlighted: { background: "bg.subtle" },
-            _selected: { color: "{colors.brand.700}" },
+            _selected: { color: "brand.fg" },
         },
         itemGroupLabel: {
             textStyle: "caption.eyebrow",

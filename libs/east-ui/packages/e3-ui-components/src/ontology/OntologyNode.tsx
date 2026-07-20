@@ -51,12 +51,13 @@ export interface OntologyFlowNodeData {
     [key: string]: unknown;
 }
 
-// `.sch-handle` — 8×8 paper-filled, 1.4px ink4 outline.
+// `.sch-handle` — 8×8 paper-filled, 1.4px ink4 outline. Paper = the mode's
+// surface token so the dot doesn't glare white on a dark canvas (#362).
 const HANDLE_BASE: React.CSSProperties = {
     width: 8,
     height: 8,
-    background: '#ffffff',
-    border: '1.4px solid #6b8080',
+    background: 'var(--chakra-colors-bg-surface)',
+    border: '1.4px solid var(--chakra-colors-gray-500)',
     boxSizing: 'border-box',
     zIndex: 5,
 };

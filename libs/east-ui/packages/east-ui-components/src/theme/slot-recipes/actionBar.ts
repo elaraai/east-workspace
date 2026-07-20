@@ -26,6 +26,10 @@ export const actionBarSlotRecipe = defineSlotRecipe({
             borderTopColor: "border.subtle",
             paddingX: "{spacing.4}",
             paddingY: "{spacing.3}",
+            /* Mobile (#347): clear the home indicator; crowded action rows
+             * wrap instead of clipping on compact widths. */
+            paddingBottom: "max({spacing.3}, env(safe-area-inset-bottom, 0px))",
+            flexWrap: "wrap",
         },
         separator: { width: "1px", height: "18px", background: "border.subtle" },
     },

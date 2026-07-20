@@ -7,7 +7,7 @@ import { createRoot } from "react-dom/client";
 import { ChakraProvider, CodeBlock } from "@chakra-ui/react";
 import "@elaraai/east-ui-components/fonts";
 import {
-    DragLayerProvider, OverlayManagerProvider, system, UIStore, UIStoreProvider,
+    AppProvider, DragLayerProvider, OverlayManagerProvider, system, UIStore, UIStoreProvider,
 } from "@elaraai/east-ui-components";
 // Side-effect import: registers the `Data.bind` platform impl + the Diff /
 // Ontology / decision renderers against the global registries EastFunction
@@ -29,10 +29,16 @@ import { encodeBeast2For, FloatType, IntegerType } from "@elaraai/east";
 import type { DatasetDef, FunctionDef, RecordDef, MutationDef } from "@elaraai/e3";
 import type { TreePath } from "@elaraai/e3-types";
 import { App } from "./App";
+import { applyTheme, resolveInitialTheme } from "./theme-mode";
 import { catalog, e3ExampleModules } from "./catalog";
 import { codeBlockAdapter } from "./components/PatternEntry";
 import { IsolatedFileView } from "./components/IsolatedFileView";
 import { AppErrorBoundary } from "./components/ErrorOverlay";
+import { HostBarEnd, HostRailFooter } from "./components/HostChrome";
+
+/* Stamp the colour mode onto <html> before anything renders (#362) —
+ * `?theme=dark` must also govern the `?file=` isolated snapshot views. */
+applyTheme(resolveInitialTheme());
 
 const store = new UIStore();
 
@@ -196,9 +202,13 @@ seedE3DatasetCache()
                         <OverlayManagerProvider>
                             <DragLayerProvider>
                                 <CodeBlock.AdapterProvider value={codeBlockAdapter}>
-                                    <AppErrorBoundary>
-                                        <Root />
-                                    </AppErrorBoundary>
+                                    {/* Dogfood AppProvider (#367): the east-ui <App> examples render
+                                     *  this host-injected React chrome in their bar / rail. */}
+                                    <AppProvider barEnd={<HostBarEnd />} railFooter={<HostRailFooter />}>
+                                        <AppErrorBoundary>
+                                            <Root />
+                                        </AppErrorBoundary>
+                                    </AppProvider>
                                 </CodeBlock.AdapterProvider>
                             </DragLayerProvider>
                         </OverlayManagerProvider>

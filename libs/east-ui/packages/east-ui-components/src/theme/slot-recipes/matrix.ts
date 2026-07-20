@@ -29,7 +29,7 @@ export const matrixSlotRecipe = defineSlotRecipe({
         "markerRing", "markerIcon",
     ],
     base: {
-        root: { display: "flex", flexDirection: "column", overflowX: "auto", overflowY: "hidden", background: "bg.surface", width: "100%" },
+        root: { display: "flex", flexDirection: "column", overflowX: "auto", overflowY: "hidden", overscrollBehaviorX: "contain" /* touch pan containment (#352) */, background: "bg.surface", width: "100%" },
         // Header band — wrapper only. The header cells reuse the shared `table`
         // recipe's `columnHeader` slot (same chrome as Table / Gantt), so the
         // strong bottom rule + mono eyebrow are one source across all three.
@@ -44,7 +44,7 @@ export const matrixSlotRecipe = defineSlotRecipe({
             fontWeight: "bold",
             letterSpacing: "0.16em",
             textTransform: "uppercase",
-            color: "{colors.gray.600}",
+            color: "fg.muted",
             display: "flex",
             alignItems: "center",
             borderBottomWidth: "1px",
@@ -82,7 +82,7 @@ export const matrixSlotRecipe = defineSlotRecipe({
         rowHeaderSub: {
             fontFamily: "mono",
             fontSize: "10px",
-            color: "{colors.gray.500}",
+            color: "fg.subtle",
             marginTop: "2px",
             whiteSpace: "nowrap",
             overflow: "hidden",
@@ -203,11 +203,11 @@ export const matrixSlotRecipe = defineSlotRecipe({
             neutral: { seg: { background: "bg.emphasized", color: "fg.default" } },
             slack: {
                 seg: {
-                    backgroundImage: "repeating-linear-gradient(-45deg, {colors.gray.200} 0 4px, {colors.gray.100} 4px 8px)",
-                    color: "{colors.gray.500}",
+                    backgroundImage: "repeating-linear-gradient(-45deg, {colors.bg.emphasized} 0 4px, {colors.bg.subtle} 4px 8px)",
+                    color: "fg.subtle",
                 },
             },
-            free: { seg: { background: "transparent", color: "{colors.gray.500}" } },
+            free: { seg: { background: "transparent", color: "fg.subtle" } },
         },
         // Marker status — colours the ring border + icon (carried from Planner).
         status: {

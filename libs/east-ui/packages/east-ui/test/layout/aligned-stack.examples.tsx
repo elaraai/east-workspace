@@ -348,7 +348,7 @@ export const alignedStackDateAxis = example({
                     />
                 </Box>
                 <Planner.Point
-                    data={[{ name: "Press A", role: "Crush" }, { name: "Press B", role: "Crush" }]}
+                    data={[{ name: "Press A", role: "Stamp" }, { name: "Press B", role: "Stamp" }]}
                     axis={Planner.axis.time({
                         resolution: "day",
                         format: "ddd DD",
@@ -384,7 +384,7 @@ export const alignedStackLibraryDnd = example({
             { day: 0.0, v: 12.0 }, { day: 2.0, v: 18.0 }, { day: 4.0, v: 16.0 }, { day: 6.0, v: 13.0 },
         ], ArrayType(StructType({ day: FloatType, v: FloatType })));
         const tanks = $.const([
-            { name: "Tank A", role: "Ferment" }, { name: "Tank B", role: "Crush" },
+            { name: "Tank A", role: "Mix" }, { name: "Tank B", role: "Fill" },
         ], ArrayType(StructType({ name: StringType, role: StringType })));
         return (
             <HStack gap="4" width="100%" align="stretch">
@@ -392,8 +392,8 @@ export const alignedStackLibraryDnd = example({
                     <Library
                         id="incoming"
                         data={[
-                            { id: "d1", name: "Cabernet — Bin 3" },
-                            { id: "d2", name: "Shiraz — Bin 7" },
+                            { id: "d1", name: "Grade A — Bin 3" },
+                            { id: "d2", name: "Grade B — Bin 7" },
                         ]}
                         item={r => ({ key: r.id, label: r.name, icon: "box" })}
                     />

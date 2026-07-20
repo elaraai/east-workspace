@@ -31,11 +31,12 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import {
-    Box, chakra, Flex, Heading, Input, InputGroup, Kbd, Text, useSlotRecipe,
+    Box, chakra, Drawer, Flex, Heading, Input, InputGroup, Kbd, Portal, Text, useSlotRecipe,
 } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faMagnifyingGlass, faChevronLeft, faChevronRight } from "@fortawesome/free-solid-svg-icons";
+import { faMagnifyingGlass, faChevronLeft, faChevronRight, faBars, faXmark, faMoon, faSun } from "@fortawesome/free-solid-svg-icons";
 import { LogoCollapsed, LogoFull } from "./components/ElaraLogo";
+import { useThemeMode } from "./theme-mode";
 import { DocList, type DocScrollTarget } from "./components/DocList";
 import { catalog, navSections, type CatalogEntry } from "./catalog";
 import { ALL_PAGES, SECTION_EAST } from "./showcase-config";
@@ -160,17 +161,32 @@ export function App() {
         );
     }, [search, scoped]);
 
+    /* Mobile nav (#356): below `md` the sidebar is hidden and the nav opens
+     * as a left overlay drawer from the header's hamburger. */
+    const [navOpen, setNavOpen] = useState(false);
+    const selectFromDrawer = useCallback((cat: string) => {
+        selectCategory(cat);
+        setNavOpen(false);
+    }, [selectCategory]);
+
     return (
         /* h=100vh locks the shell to the viewport — the Main content area
          * scrolls internally; the page itself never overflows. */
         <Flex h="100dvh" w="100%" overflow="hidden" bg="bg.canvas" align="stretch">
             <Sidebar selected={selectedCategory} onSelect={selectCategory} />
+            <MobileNavDrawer
+                open={navOpen}
+                onOpenChange={setNavOpen}
+                selected={selectedCategory}
+                onSelect={selectFromDrawer}
+            />
             <Flex flex="1" minW={0} direction="column" h="100vh">
                 <Header
                     category={selectedCategory}
                     categoryCount={scoped.length}
                     search={search}
                     onSearch={setSearch}
+                    onOpenNav={() => setNavOpen(true)}
                 />
                 {/* Main scroll region. DocList owns the scroll container so
                  *  the scrollbar sits flush against the right TOC rail; the
@@ -215,9 +231,105 @@ function ToggleButton({
     );
 }
 
-function Sidebar({ selected, onSelect }: { selected: string; onSelect: (cat: string) => void }) {
+/** The section → categories nav list, shared by the desktop sidebar and the
+ *  mobile nav drawer (#356). `headerExtra` renders trailing content in the
+ *  first section's eyebrow row (the desktop collapse chevron). */
+function NavSections({ selected, onSelect, headerExtra }: {
+    selected: string;
+    onSelect: (cat: string) => void;
+    headerExtra?: React.ReactNode;
+}) {
     const recipe = useSlotRecipe({ key: "navList" });
     const styles = recipe({ surface: "shell" });
+    return (
+        <Box as="nav" css={styles.root}>
+            {navSections.map((sec, sIdx) => (
+                <Fragment key={sec.section}>
+                    <Flex
+                        align="center"
+                        justify="space-between"
+                        pt={sIdx === 0 ? "4px" : "16px"}
+                        pb="10px"
+                        pl="14px"
+                        pr="10px"
+                    >
+                        <Box
+                            fontFamily="mono"
+                            fontSize="9.5px"
+                            fontWeight="semibold"
+                            letterSpacing="0.18em"
+                            textTransform="uppercase"
+                            color="fg.muted"
+                        >
+                            {sec.section}
+                        </Box>
+                        {sIdx === 0 && headerExtra}
+                    </Flex>
+                    {(() => {
+                        const items: Array<{ key: string; label: string; count: number }> = [
+                            {
+                                key: ALL_PAGES[sec.section],
+                                label: "All",
+                                count: catalog.filter(e => e.section === sec.section).length,
+                            },
+                            ...sec.categories.map(cat => ({
+                                key: cat,
+                                label: cat,
+                                count: catalog.filter(e => e.category === cat).length,
+                            })),
+                        ];
+                        return items.map(item => {
+                            const active = selected === item.key;
+                            return (
+                                <chakra.button
+                                    key={item.key}
+                                    type="button"
+                                    onClick={() => onSelect(item.key)}
+                                    aria-current={active ? "page" : undefined}
+                                    css={styles.item}
+                                >
+                                    <Box flex="1" textAlign="left">{item.label}</Box>
+                                    <Text as="span" textStyle="mono.sm" color="fg.muted" letterSpacing="0">
+                                        {item.count}
+                                    </Text>
+                                </chakra.button>
+                            );
+                        });
+                    })()}
+                </Fragment>
+            ))}
+        </Box>
+    );
+}
+
+/** Mobile nav (#356): the same sections in a left overlay drawer. */
+function MobileNavDrawer({ open, onOpenChange, selected, onSelect }: {
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    selected: string;
+    onSelect: (cat: string) => void;
+}) {
+    return (
+        <Drawer.Root open={open} onOpenChange={(d) => onOpenChange(d.open)} placement="start">
+            <Portal>
+                <Drawer.Backdrop />
+                <Drawer.Positioner>
+                    <Drawer.Content maxW="280px" layerStyle="nav.panel">
+                        <Flex align="center" justify="space-between" h="56px" px="16px">
+                            <LogoFull height={8} />
+                            <ToggleButton aria-label="Close navigation" onClick={() => onOpenChange(false)} icon={faXmark} />
+                        </Flex>
+                        <Box overflowY="auto" pb="16px">
+                            <NavSections selected={selected} onSelect={onSelect} />
+                        </Box>
+                    </Drawer.Content>
+                </Drawer.Positioner>
+            </Portal>
+        </Drawer.Root>
+    );
+}
+
+function Sidebar({ selected, onSelect }: { selected: string; onSelect: (cat: string) => void }) {
     const [collapsed, toggle] = useSidebarCollapsed();
     return (
         <Box
@@ -234,6 +346,8 @@ function Sidebar({ selected, onSelect }: { selected: string; onSelect: (cat: str
             transitionProperty="width"
             transitionDuration="{durations.normal}"
             transitionTimingFunction="{easings.smooth}"
+            /* Mobile (#356): the fixed sidebar yields to the nav drawer. */
+            hideBelow="md"
         >
             {/* Logo region — bsys "Logo region" rules. Fixed-height strip
              *  pinned to the top of the sidebar. The wordmark anchors to
@@ -257,69 +371,11 @@ function Sidebar({ selected, onSelect }: { selected: string; onSelect: (cat: str
                     <ToggleButton aria-label="Expand sidebar" onClick={toggle} icon={faChevronRight} />
                 </Flex>
             ) : (
-                <Box as="nav" css={styles.root}>
-                    {navSections.map((sec, sIdx) => (
-                        <Fragment key={sec.section}>
-                            {/* Section eyebrow — the collapse toggle lives in
-                             *  the first section's header. bsys line 641:
-                             *  9.5 px / 0.18 em eyebrow · 22 px button. */}
-                            <Flex
-                                align="center"
-                                justify="space-between"
-                                pt={sIdx === 0 ? "4px" : "16px"}
-                                pb="10px"
-                                pl="14px"
-                                pr="10px"
-                            >
-                                <Box
-                                    fontFamily="mono"
-                                    fontSize="9.5px"
-                                    fontWeight="semibold"
-                                    letterSpacing="0.18em"
-                                    textTransform="uppercase"
-                                    color="fg.muted"
-                                >
-                                    {sec.section}
-                                </Box>
-                                {sIdx === 0 && (
-                                    <ToggleButton aria-label="Collapse sidebar" onClick={toggle} icon={faChevronLeft} />
-                                )}
-                            </Flex>
-                            {/* "All" page first, then the categories. */}
-                            {(() => {
-                                const items: Array<{ key: string; label: string; count: number }> = [
-                                    {
-                                        key: ALL_PAGES[sec.section],
-                                        label: "All",
-                                        count: catalog.filter(e => e.section === sec.section).length,
-                                    },
-                                    ...sec.categories.map(cat => ({
-                                        key: cat,
-                                        label: cat,
-                                        count: catalog.filter(e => e.category === cat).length,
-                                    })),
-                                ];
-                                return items.map(item => {
-                                    const active = selected === item.key;
-                                    return (
-                                        <chakra.button
-                                            key={item.key}
-                                            type="button"
-                                            onClick={() => onSelect(item.key)}
-                                            aria-current={active ? "page" : undefined}
-                                            css={styles.item}
-                                        >
-                                            <Box flex="1" textAlign="left">{item.label}</Box>
-                                            <Text as="span" textStyle="mono.sm" color="fg.muted" letterSpacing="0">
-                                                {item.count}
-                                            </Text>
-                                        </chakra.button>
-                                    );
-                                });
-                            })()}
-                        </Fragment>
-                    ))}
-                </Box>
+                <NavSections
+                    selected={selected}
+                    onSelect={onSelect}
+                    headerExtra={<ToggleButton aria-label="Collapse sidebar" onClick={toggle} icon={faChevronLeft} />}
+                />
             )}
         </Box>
     );
@@ -330,37 +386,96 @@ function Sidebar({ selected, onSelect }: { selected: string; onSelect: (cat: str
 /* ------------------------------------------------------------------ */
 
 function Header({
-    category, categoryCount, search, onSearch,
-}: { category: string; categoryCount: number; search: string; onSearch: (q: string) => void }) {
+    category, categoryCount, search, onSearch, onOpenNav,
+}: { category: string; categoryCount: number; search: string; onSearch: (q: string) => void; onOpenNav: () => void }) {
     return (
         <Box as="header" layerStyle="header.bar" position="sticky" top="0" zIndex={10}>
-            {/* Row 1 — breadcrumb left · search right · 28 px tall */}
-            <Flex align="center" gap="3" mb="6px" h="28px">
-                <Breadcrumb category={category} />
-                <Box ml="auto">
-                    <InputGroup
-                        maxW="280px"
-                        startElement={<FontAwesomeIcon icon={faMagnifyingGlass} />}
-                        endElement={<Kbd>⌘K</Kbd>}
-                    >
-                        <Input
-                            size="sm"
-                            placeholder="Search examples"
-                            value={search}
-                            onChange={(e) => onSearch(e.target.value)}
-                        />
-                    </InputGroup>
+            {/* Row 1 — (mobile) hamburger · breadcrumb · (desktop) search.
+              * The breadcrumb never wraps: it truncates on one 28px line. */}
+            <Flex align="center" gap="3" mb="6px" h="28px" minW="0">
+                {/* Mobile nav trigger (#356): ≥44px tap target, hidden on md+. */}
+                <chakra.button
+                    type="button"
+                    aria-label="Open navigation"
+                    onClick={onOpenNav}
+                    hideFrom="md"
+                    display="inline-flex"
+                    alignItems="center"
+                    justifyContent="center"
+                    minW="44px"
+                    minH="44px"
+                    ml="-12px"
+                    border="0"
+                    background="transparent"
+                    color="fg.muted"
+                    cursor="pointer"
+                    _hover={{ color: "fg" }}
+                >
+                    <FontAwesomeIcon icon={faBars} />
+                </chakra.button>
+                <Box minW="0" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap">
+                    <Breadcrumb category={category} />
                 </Box>
+                {/* Desktop search keeps its spec position; mobile search moves
+                  * to its own full-width row below (the coarse 44px input
+                  * floor doesn't fit the 28px breadcrumb line). The theme
+                  * toggle (#362) rides the same right-aligned cluster on
+                  * every viewport. */}
+                <Flex ml="auto" align="center" gap="2" flexShrink={0}>
+                    <Box hideBelow="md">
+                        <InputGroup
+                            maxW="280px"
+                            startElement={<FontAwesomeIcon icon={faMagnifyingGlass} />}
+                            endElement={<Kbd>⌘K</Kbd>}
+                        >
+                            <Input
+                                size="sm"
+                                placeholder="Search examples"
+                                value={search}
+                                onChange={(e) => onSearch(e.target.value)}
+                            />
+                        </InputGroup>
+                    </Box>
+                    <ThemeToggle />
+                </Flex>
             </Flex>
 
             {/* Row 2 — surface title left · state eyebrow right · 36 px tall */}
-            <Flex align="baseline" gap="3.5" h="36px">
-                <Heading as="h1" textStyle="surface.title">{category}</Heading>
-                <Text textStyle="state.eyebrow">
+            <Flex align="baseline" gap="3.5" h="36px" minW="0">
+                <Heading as="h1" textStyle="surface.title" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap">{category}</Heading>
+                <Text textStyle="state.eyebrow" flexShrink={0} hideBelow="sm">
                     {categoryCount} example{categoryCount === 1 ? "" : "s"}
                 </Text>
             </Flex>
+
+            {/* Row 3 (mobile only) — full-width search on its own line. */}
+            <Box hideFrom="md" mt="8px">
+                <InputGroup
+                    w="100%"
+                    startElement={<FontAwesomeIcon icon={faMagnifyingGlass} />}
+                >
+                    <Input
+                        size="sm"
+                        w="100%"
+                        placeholder="Search examples"
+                        value={search}
+                        onChange={(e) => onSearch(e.target.value)}
+                    />
+                </InputGroup>
+            </Box>
         </Box>
+    );
+}
+
+/** Sun/moon colour-mode flip (#362) — Chakra v3 class-based dark mode. */
+function ThemeToggle() {
+    const [mode, toggle] = useThemeMode();
+    return (
+        <ToggleButton
+            aria-label={mode === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            onClick={toggle}
+            icon={mode === "dark" ? faSun : faMoon}
+        />
     );
 }
 
@@ -370,7 +485,9 @@ function Breadcrumb({ category }: { category: string }) {
         navSections.find(s => s.categories.includes(category))?.section ?? "East UI";
     return (
         <Text textStyle="breadcrumb">
-            <Box as="span" color="brand.600">{section}</Box>
+            {/* `link` (brand.600 / brand.300) not a raw brand.600 — the latter
+             *  stays dark and drops below AA on the dark surface (#362). */}
+            <Box as="span" color="link">{section}</Box>
             <Box as="span" px="1">/</Box>
             <Box as="span" color="fg">{category}</Box>
         </Text>

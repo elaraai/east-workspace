@@ -3,13 +3,14 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import React, { memo, useMemo, useCallback } from "react";
+import React, { memo, useMemo, useCallback, useRef } from "react";
 import { usePersistedState } from "../../hooks/usePersistedState";
-import { Splitter as ChakraSplitter } from "@chakra-ui/react";
+import { Box, Splitter as ChakraSplitter, useSlotRecipe } from "@chakra-ui/react";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Splitter } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
+import { useContainerBelow } from "../../contracts/adaptive.js";
 
 // Pre-define the equality function at module level
 const splitterEqual = equalFor(Splitter.Types.Splitter);
@@ -104,8 +105,34 @@ export const EastChakraSplitter = memo(function EastChakraSplitter({ value, stor
         }
     }, [onResizeEndFn, setPersistedState]);
 
+    // collapseBelow (#350): below the authored container width the panels
+    // render as a plain stacked column — no resize chrome; persisted sizes
+    // are kept for when the split restores. The shared ref lands on
+    // whichever root is mounted, so the crossing re-evaluates both ways.
+    const rootRef = useRef<HTMLDivElement | null>(null);
+    const collapseBelow = useMemo(() => {
+        const raw = style ? getSomeorUndefined(style.collapseBelow) : undefined;
+        return raw !== undefined ? Number(raw) : undefined;
+    }, [style]);
+    const stackedStyles = useSlotRecipe({ key: "splitter" })();
+    const belowThreshold = useContainerBelow(rootRef, collapseBelow ?? 0);
+    const stacked = collapseBelow !== undefined && belowThreshold;
+
+    if (stacked) {
+        return (
+            <Box ref={rootRef} css={stackedStyles.stacked} data-splitter-stacked>
+                {value.panels.map((panel, index) => (
+                    <Box key={panel.id} css={stackedStyles.stackedPanel}>
+                        <EastChakraComponent value={panel.content} storageKey={`${storageKey}.${index}`} />
+                    </Box>
+                ))}
+            </Box>
+        );
+    }
+
     return (
         <ChakraSplitter.Root
+            ref={rootRef}
             {...styleProps}
             defaultSize={effectiveDefaultSize.length > 0 ? effectiveDefaultSize : undefined}
             panels={panels}

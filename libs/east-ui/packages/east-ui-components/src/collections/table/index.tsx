@@ -37,6 +37,7 @@ import { Slice as SliceInternal } from "@elaraai/east-ui/internal";
 import { SliceRailCluster } from "../../slice/rail";
 import { parseCssSize } from "../../style/parse-size.js";
 import { virtualScrollbarCss } from "../../style/scrollbar.js";
+import { coarseHitArea } from "../../style/hit-area.js";
 import { railAffordanceKinds } from "../../slice/rail-kinds.js";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity";
 import { RowStateManager, type RowKey, type RowState } from "../../utils/RowStateManager";
@@ -44,6 +45,10 @@ import { useRowStatusBg, useDensityHeights } from "../shared/helpers";
 import { useReviewController, DecisionButtons, ReviewFoot, DECISION_WIDTH, type ApprovalOptionValue } from "../shared/review";
 import { DensityProvider } from "../../contracts/density";
 import { usePlotGutter, gutterPx } from "../../contracts/plot-gutter.js";
+
+/* Touch (#351): 36px tap halo on the 24px pin/sort/expander controls (36,
+ * not 44 — the controls sit adjacent; full halos would swallow each other). */
+const coarseControlHalo = coarseHitArea({ position: true, size: 36 });
 
 // Pre-define equality function at module level
 const tableRootEqual = equalFor(Table.Types.Root);
@@ -901,10 +906,15 @@ const TableCore = function TableCore({
     const frozenScale = (gutterActive && gLeftPx !== undefined && frozenPanelWidth > 0)
         ? gLeftPx / frozenPanelWidth : 1;
     const leftSpacerPx = (gutterActive && gLeftPx !== undefined && frozenPanelWidth === 0) ? gLeft : undefined;
-    // Per-cell override for the centre (non-pinned) columns: flex-fill the lane.
+    // Per-cell override for the centre (non-pinned) columns: flex-fill the lane
+    // AND centre the content. In an aligned stack the day columns sit under the
+    // chart's tick centres, so their values / headers must read centred on the
+    // column (not left-aligned as a standalone data table) — otherwise the label
+    // drifts ~half a column off the shared axis. The frozen row-label column is
+    // pinned, so it keeps its default left alignment.
     const gutterCenterStyle = (column: ReturnType<typeof table.getAllColumns>[number]): CSSProperties =>
         (gutterActive && !column.getIsPinned())
-            ? { flex: "1 1 0", width: "auto", minWidth: 0, position: "relative", left: undefined }
+            ? { flex: "1 1 0", width: "auto", minWidth: 0, position: "relative", left: undefined, justifyContent: "center", textAlign: "center" }
             : {};
 
     // ── TanStack pinning styles (applied per-cell) ────────────────────
@@ -946,7 +956,11 @@ const TableCore = function TableCore({
             height={styleHeightCss ?? height}
             maxHeight={styleMaxHeightCss}
             overflowY="auto"
-            overflowX={gutterActive ? 'hidden' : (hasFrozen ? 'auto' : undefined)}
+            // Horizontal containment (#351): a wide table pans inside its own
+            // scroll container instead of squeezing columns / overflowing the
+            // page — frozen or not (gutter mode still owns clipping).
+            overflowX={gutterActive ? 'hidden' : 'auto'}
+            overscrollBehaviorX="contain"
             // Reserved-gutter bar only when the author bounded the table — an
             // unbounded (content-sized) table must not reserve a dead gutter.
             css={styleHeightCss !== undefined || styleMaxHeightCss !== undefined ? virtualScrollbarCss : undefined}
@@ -1112,6 +1126,11 @@ const TableCore = function TableCore({
                                 const icon = !isSorted ? faAnglesDown : sortDirection === 'asc' ? faChevronUp : faChevronDown;
                                 const pinningStyles = hasFrozen ? getCommonPinningStyles(header.column) : {};
                                 const isPinned = header.column.getIsPinned();
+                                // Aligned-stack day column: centre the label on the
+                                // shared axis and drop the pin/sort affordance (this
+                                // is a read-only display lane, and the controls' flex
+                                // space would pull the label off-centre).
+                                const centerInGutter = gutterActive && !isPinned;
 
                                 return (
                                     <ChakraTable.ColumnHeader
@@ -1149,15 +1168,21 @@ const TableCore = function TableCore({
                                         }}
                                         position={isPinned && !gutterActive ? "sticky" : "relative"}
                                     >
-                                        <HStack justify="space-between" align="center" width="100%" pr={enableColumnResizing ? "4px" : "0"}>
+                                        <HStack justify="space-between" align="center" width="100%" pr={centerInGutter ? "0" : (enableColumnResizing ? "4px" : "0")}>
                                             {/* Inherit the columnHeader slot's mono/10px/0.16em/uppercase/
                                                 fg.subtle — a bare span so the recipe governs the type,
                                                 not a competing textStyle. */}
-                                            <Box as="span" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" flex="1">
+                                            <Box as="span" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" flex="1" textAlign={centerInGutter ? "center" : undefined}>
                                                 {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
                                             </Box>
-                                            <HStack className="col-controls" gap={0} flexShrink={0} alignItems="center"
-                                                opacity={isPinned || isSorted ? 1 : 0} transition="opacity 0.15s">
+                                            <HStack className="col-controls" gap={0} flexShrink={0} alignItems="center" display={centerInGutter ? "none" : undefined}
+                                                // Hover parity (#351): no hover ⇒ controls stay
+                                                // visible at reduced emphasis instead of invisible.
+                                                css={{
+                                                    opacity: isPinned || isSorted ? 1 : 0,
+                                                    "@media (hover: none)": { opacity: isPinned || isSorted ? 1 : 0.6 },
+                                                }}
+                                                transition="opacity 0.15s">
                                                 {/* Pin toggle — always visible */}
                                                 <Box
                                                     as="button"
@@ -1170,7 +1195,7 @@ const TableCore = function TableCore({
                                                     display="flex"
                                                     alignItems="center"
                                                     justifyContent="center"
-                                                    w="24px" h="24px"
+                                                    w="24px" h="24px" css={coarseControlHalo}
                                                     borderRadius="sm"
                                                 >
                                                     <FontAwesomeIcon icon={faThumbtack} style={{ width: '10px', height: '10px', transform: isPinned ? undefined : 'rotate(45deg)' }} />
@@ -1187,7 +1212,7 @@ const TableCore = function TableCore({
                                                         display="flex"
                                                         alignItems="center"
                                                         justifyContent="center"
-                                                        w="24px" h="24px"
+                                                        w="24px" h="24px" css={coarseControlHalo}
                                                         borderRadius="sm"
                                                         position="relative"
                                                     >
@@ -1443,7 +1468,7 @@ const TableCore = function TableCore({
                                             display="flex"
                                             alignItems="center"
                                             justifyContent="center"
-                                            w="24px" h="24px"
+                                            w="24px" h="24px" css={coarseControlHalo}
                                             borderRadius="sm"
                                             color="fg.muted"
                                             _hover={{ color: "fg.default", bg: "bg.emphasized" }}

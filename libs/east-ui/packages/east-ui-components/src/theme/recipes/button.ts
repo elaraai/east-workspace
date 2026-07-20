@@ -25,6 +25,7 @@
  */
 
 import { defineRecipe } from "@chakra-ui/react";
+import { coarseHitArea } from "../../style/hit-area.js";
 
 export const buttonRecipe = defineRecipe({
     className: "elara-btn",
@@ -45,6 +46,9 @@ export const buttonRecipe = defineRecipe({
          * inside a Chakra `<Group>`) can lift the hovered/focused
          * segment above its neighbours. */
         position: "relative",
+        /* Touch hit target (#346) — ≥44px effective area on coarse pointers;
+         * visual size (26–40px per the spec) is unchanged. */
+        ...coarseHitArea(),
         transitionProperty: "background, color, border-color, box-shadow, transform",
         transitionDuration: "{durations.fast}",
         transitionTimingFunction: "{easings.out}",
@@ -60,12 +64,14 @@ export const buttonRecipe = defineRecipe({
         "&[data-group-item]:hover, &[data-group-item]:focus-visible": {
             zIndex: 1,
         },
+        /* `bg.emphasized` keeps the light look (gray.200) and stays a muted
+         * slab in dark (gray.600) instead of a washed light block (#362). */
         _disabled: {
-            background: "{colors.gray.200}",
+            background: "bg.emphasized",
             color: "fg.muted",
             cursor: "not-allowed",
             boxShadow: "none",
-            _hover: { background: "{colors.gray.200}" },
+            _hover: { background: "bg.emphasized" },
         },
         _active: {
             transform: "scale(0.98)",

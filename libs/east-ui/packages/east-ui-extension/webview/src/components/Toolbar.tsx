@@ -16,6 +16,7 @@ import { Fragment, useMemo } from 'react';
 import { Box, HStack, chakra, useSlotRecipe } from '@chakra-ui/react';
 import { useE3Context, type Selection } from '../context/E3Context';
 import { StatusIndicator } from './StatusIndicator';
+import { ThemeToggle } from './ThemeToggle';
 import { WorkspaceSelect } from './WorkspaceSelect';
 
 interface Crumb {
@@ -81,6 +82,7 @@ export function Toolbar() {
 
             <HStack gap="3" flexShrink={0}>
                 <StatusIndicator tone="success" label="Connected" live hideLabel />
+                <ThemeToggle />
                 <WorkspaceSelect />
             </HStack>
         </Box>

@@ -77,7 +77,7 @@ export const badgeRecipe = defineRecipe({
             stakesMid: {
                 background: "bg.brand.subtle",
                 borderColor: "{colors.brand.600}",
-                color: "{colors.brand.700}",
+                color: "brand.fg",
             },
             /** Plain — Chakra default. */
             plain: {
@@ -87,9 +87,9 @@ export const badgeRecipe = defineRecipe({
             },
             /** Spec Badge & progress — count pill (paper-3, radius-full). */
             count: {
-                background: "{colors.gray.100}",
+                background: "bg.subtle",
                 borderColor: "transparent",
-                color: "{colors.brand.700}",
+                color: "brand.fg",
                 borderRadius: "{radii.full}",
                 fontWeight: "semibold",
                 fontSize: "11px",

@@ -242,7 +242,7 @@ function LoadingSkeleton() {
                 <Box flex="1" />
                 {line('72px', '16px')}
             </Box>
-            <Box display="grid" gridTemplateColumns="304px minmax(0,1fr)" alignItems="start">
+            <Box display="grid" gridTemplateColumns="304px minmax(0,1fr)" css={{ "@media (max-width: 640px)": { gridTemplateColumns: "1fr" } }} alignItems="start">
                 <Box borderRightWidth="1px" borderColor="border.subtle" p="4.5" display="flex" flexDirection="column" gap="5">
                     {[0, 1, 2, 3].map(n => (
                         <Box key={n} display="flex" flexDirection="column" gap="2">
@@ -635,7 +635,7 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
                 {canCommit && <ActionButton button={button} variant="ghost" label="Commit" onClick={onCommit} disabled={commitDisabled} />}
             </Box>
 
-            <Box display="grid" gridTemplateColumns="304px minmax(0,1fr)" alignItems="start">
+            <Box display="grid" gridTemplateColumns="304px minmax(0,1fr)" css={{ "@media (max-width: 640px)": { gridTemplateColumns: "1fr" } }} alignItems="start">
                 {/* set-up rail */}
                 <Box borderRightWidth="1px" borderColor="border.subtle">
                     <Step n={1} title="What did you change?" help="step_treatment">

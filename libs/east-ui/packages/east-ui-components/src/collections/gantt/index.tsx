@@ -52,6 +52,12 @@ import { snapToStep as snapDateToStep, timeStepToMs as timeStepMs } from "./Gant
 const ganttRootEqual = equalFor(Gantt.Types.Root);
 
 // Parse CSS size values to pixels (simple numeric extraction)
+/** Drag-grammar slot text for a datetime. East's `parse(DateTimeType)`
+ *  rejects `toISOString()`'s trailing `Z` (East DateTimes are implicitly
+ *  UTC), and the documented grammar contract is that a Gantt slot parses
+ *  as an East DateTime — so slots carry the Z-less ISO form. */
+export const toEastDateTimeSlot = (d: Date): string => d.toISOString().slice(0, -1);
+
 const parseSize = (val: string | undefined, defaultVal: number): number => {
     if (!val) return defaultVal;
     const num = parseInt(val, 10);
@@ -571,8 +577,8 @@ const GanttCore = function GanttCore({
         _newEnd: Date
     ) => {
         emitGrammar(variant("move", {
-            from: { surface: targetId, row: String(rowIndex), slot: previousStart.toISOString(), event: some(`t${taskIndex}`) },
-            to: { surface: targetId, row: String(rowIndex), slot: newStart.toISOString(), event: none },
+            from: { surface: targetId, row: String(rowIndex), slot: toEastDateTimeSlot(previousStart), event: some(`t${taskIndex}`) },
+            to: { surface: targetId, row: String(rowIndex), slot: toEastDateTimeSlot(newStart), event: none },
         }));
     }, [emitGrammar, targetId]);
 
@@ -597,8 +603,8 @@ const GanttCore = function GanttCore({
         newDate: Date
     ) => {
         emitGrammar(variant("move", {
-            from: { surface: targetId, row: String(rowIndex), slot: previousDate.toISOString(), event: some(`m${milestoneIndex}`) },
-            to: { surface: targetId, row: String(rowIndex), slot: newDate.toISOString(), event: none },
+            from: { surface: targetId, row: String(rowIndex), slot: toEastDateTimeSlot(previousDate), event: some(`m${milestoneIndex}`) },
+            to: { surface: targetId, row: String(rowIndex), slot: toEastDateTimeSlot(newDate), event: none },
         }));
     }, [emitGrammar, targetId]);
 
@@ -611,7 +617,7 @@ const GanttCore = function GanttCore({
         newEnd: Date
     ) => {
         emitGrammar(variant("resize", {
-            event: { surface: targetId, row: String(rowIndex), slot: newEnd.toISOString(), event: some(`t${taskIndex}`) },
+            event: { surface: targetId, row: String(rowIndex), slot: toEastDateTimeSlot(newEnd), event: some(`t${taskIndex}`) },
             edge: variant("end", null),
         }));
     }, [emitGrammar, targetId]);
@@ -766,8 +772,13 @@ const GanttCore = function GanttCore({
     const gutterTablePanelSize = (gutterActive && gLeftPx !== undefined && containerWidth > 0)
         ? Math.min(Math.max((gLeftPx / containerWidth) * 100, 1), 99)
         : undefined;
-    const effectiveTablePanelSize = gutterTablePanelSize
-        ?? dragSize ?? persistedState.tablePanelSize ?? computedTablePanelSize;
+    // Compact hosts (#352): below 480px there is no room for two usable
+    // panes — the table pane collapses and the timeline takes the width
+    // (persisted sizes are kept for when the split restores).
+    const compactHost = containerWidth > 0 && containerWidth < 480;
+    const effectiveTablePanelSize = compactHost
+        ? 0
+        : (gutterTablePanelSize ?? dragSize ?? persistedState.tablePanelSize ?? computedTablePanelSize);
 
     // Last unpinned column stretches to fill remaining panel space
     // (shared derivation, also used by Planner).
@@ -852,10 +863,15 @@ const GanttCore = function GanttCore({
         }
     }, []);
 
-    const panels = useMemo(() => [
-        { id: "table", minSize: 20 },
-        { id: "timeline", minSize: 20 },
-    ], []);
+    const panels = useMemo(() => compactHost
+        ? [
+            { id: "table", minSize: 0 },
+            { id: "timeline", minSize: 20 },
+        ]
+        : [
+            { id: "table", minSize: 20 },
+            { id: "timeline", minSize: 20 },
+        ], [compactHost]);
 
     // ── DnD target role (#268) ────────────────────────────────────────────
     // With `onDrag` wired the Gantt registers as a drag target: Library cards
@@ -878,7 +894,7 @@ const GanttCore = function GanttCore({
         const yPane = rect ? clientY - rect.top + (el?.scrollTop ?? 0) - headerHeight : 0;
         const vRow = virtualItems.find(v => yPane >= v.start && yPane < v.end);
         const original = vRow !== undefined ? (rows[vRow.index]?.index ?? vRow.index) : 0;
-        return { surface: targetId, row: String(original), slot: snapped.toISOString() };
+        return { surface: targetId, row: String(original), slot: toEastDateTimeSlot(snapped) };
     }, [timelineRange, xScale, dragStep, virtualItems, rows, targetId, headerHeight]);
 
     const timelineVeto = useCallback((payload: DragPayload, x?: number, y?: number): boolean => {

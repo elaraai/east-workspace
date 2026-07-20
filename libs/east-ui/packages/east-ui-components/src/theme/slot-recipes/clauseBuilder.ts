@@ -80,7 +80,7 @@ export const clauseBuilderSlotRecipe = defineSlotRecipe({
         },
         // Edit mode pins the field — rendered as a label, not a control.
         fieldLock: {
-            color: "{colors.brand.700}",
+            color: "brand.fg",
             fontWeight: "semibold",
             whiteSpace: "nowrap",
             fontSize: "{fontSizes.xs}",
@@ -108,7 +108,7 @@ export const clauseBuilderSlotRecipe = defineSlotRecipe({
             fontSize: "{fontSizes.2xs}",
             lineHeight: "1.4",
         },
-        chipField: { color: "{colors.brand.700}", fontWeight: "semibold", whiteSpace: "nowrap" },
+        chipField: { color: "brand.fg", fontWeight: "semibold", whiteSpace: "nowrap" },
         chipOp: { color: "fg.subtle" },
         chipVal: { color: "fg", fontWeight: "semibold" },
     },

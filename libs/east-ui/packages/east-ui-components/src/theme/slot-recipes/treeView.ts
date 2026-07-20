@@ -30,6 +30,8 @@ export const treeViewSlotRecipe = defineSlotRecipe({
             paddingY: "{spacing.1}",
             fontSize: "{fontSizes.control}",
             cursor: "pointer",
+            /* Touch (#346). */
+            _coarse: { minHeight: "44px" },
             color: "fg",
             transitionProperty: "background, color",
             transitionDuration: "{durations.fast}",
@@ -48,9 +50,11 @@ export const treeViewSlotRecipe = defineSlotRecipe({
             fontSize: "{fontSizes.control}",
             color: "fg",
             cursor: "pointer",
+            /* Touch (#346). */
+            _coarse: { minHeight: "44px" },
             _hover: { background: "bg.subtle" },
-            _selected: { background: "bg.brand.subtle", color: "{colors.brand.700}" },
-            "&[data-selected]": { background: "bg.brand.subtle", color: "{colors.brand.700}" },
+            _selected: { background: "bg.brand.subtle", color: "brand.fg" },
+            "&[data-selected]": { background: "bg.brand.subtle", color: "brand.fg" },
         },
         itemText: { fontSize: "{fontSizes.control}" },
     },

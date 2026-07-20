@@ -38,6 +38,12 @@ export const segmentGroupSlotRecipe = defineSlotRecipe({
             display: "inline-flex",
             alignItems: "stretch",
             width: "max-content",
+            /* Compact containers (#349): overflowing segments scroll (no
+             * wrap — the Zag indicator assumes a single row). */
+            maxWidth: "100%",
+            overflowX: "auto",
+            scrollbarWidth: "none",
+            "&::-webkit-scrollbar": { display: "none" },
             /* Keep intrinsic width even inside a parent flex with
              * `align-items: stretch` (e.g. VStack). */
             alignSelf: "flex-start",
@@ -65,6 +71,8 @@ export const segmentGroupSlotRecipe = defineSlotRecipe({
             justifyContent: "center",
             paddingX: "{spacing.3}",
             paddingY: "{spacing.2}",
+            /* Touch (#346). */
+            _coarse: { minHeight: "44px" },
             borderRadius: "0",
             borderRightWidth: "1px",
             borderRightColor: "border.strong",
@@ -128,10 +136,12 @@ export const segmentGroupSlotRecipe = defineSlotRecipe({
                     _checked: {
                         background: "{colors.brand.100}",
                         color: "{colors.brand.700}",
+                        _dark: { background: "{colors.brand.800}", color: "{colors.brand.300}" },
                     },
                     "&[data-state=checked]": {
                         background: "{colors.brand.100}",
                         color: "{colors.brand.700}",
+                        _dark: { background: "{colors.brand.800}", color: "{colors.brand.300}" },
                     },
                 },
             },

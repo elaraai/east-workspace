@@ -71,18 +71,9 @@ export const tokens = defineTokens({
     colors: {
         brand: brandScale,
         gray:  grayScale,
-        // Brand tint — used for selected rows, branded chips, brand banners,
-        // pulse rings (per pattern_spec/spec.css `--brand-tint`).
-        brandTint: { value: "#e8f6f7" },
-        // Brand heatmap scale — calendars, density heatmaps.
-        brandHeat: {
-            "0": { value: "#e8f0f0" },
-            "1": { value: "#c0dadc" },
-            "2": { value: "#88b8bd" },
-            "3": { value: "#4d8e95" },
-            "4": { value: "#2b4b55" },
-        },
-        // Accent series — chart palette only. Order is canonical.
+        // Accent series — chart palette only. Order is canonical. Mid-vibrancy
+        // hues that hold on light and dark surfaces alike, so they stay raw
+        // tokens (mode-independent).
         accent: {
             brand:  { value: "#488e97" },
             purple: { value: "#8b5cf6" },
@@ -93,32 +84,10 @@ export const tokens = defineTokens({
             pink:   { value: "#ec4899" },
             slate:  { value: "#6b8080" },
         },
-        // Overlay tints — semi-transparent ink for backdrops + scroll thumbs.
-        // Anchored to brand-900 so they read cool, never warm.
-        overlay: {
-            backdrop:    { value: "rgba(17, 27, 34, 0.40)" },   // dialog backdrop
-            scrollThumb: { value: "rgba(17, 27, 34, 0.30)" },   // scroll-area thumb
-            scrollTrack: { value: "rgba(17, 27, 34, 0.06)" },   // reserved-gutter scroll track
-            highlight:   { value: "rgba(255, 255, 255, 0.30)" }, // on-image highlight
-        },
-        // Status — muted "document-print" hues per pattern_spec/spec.css.
-        // (`--pos #2f7a5b, --neg #b85a4a, --warn #b8862d, --info #3a7780`.)
-        // `*Subtle` are the spec banner tints (very-low-opacity overlays).
-        // Vibrant Tailwind hues kept under `*Bright` for chart-series use.
-        status: {
-            pos:  { value: "#2f7a5b" },
-            neg:  { value: "#b85a4a" },
-            warn: { value: "#b8862d" },
-            info: { value: "#3a7780" },
-            posSubtle:  { value: "rgba(47, 122, 91, 0.06)" },
-            negSubtle:  { value: "rgba(184, 90, 74, 0.06)" },
-            warnSubtle: { value: "rgba(184, 134, 45, 0.08)" },
-            warnSubtleStrong: { value: "rgba(184, 134, 45, 0.14)" },
-            infoSubtle: { value: "rgba(91, 110, 135, 0.08)" },
-            successBright: { value: "#22c55e" },
-            dangerBright:  { value: "#ef4444" },
-            warningBright: { value: "#f97316" },
-        },
+        /* `brandTint`, `brandHeat`, `overlay` and `status` are SEMANTIC tokens
+         * (semantic-tokens.ts, #362) — they carry per-colour-mode values, which
+         * raw tokens cannot. References (`{colors.status.pos}`,
+         * `var(--chakra-colors-status-pos)`, …) resolve identically. */
     },
     radii: {
         xs:   { value: "3px" },   // small controls / chips (badge, meter, barStrip, checkbox)

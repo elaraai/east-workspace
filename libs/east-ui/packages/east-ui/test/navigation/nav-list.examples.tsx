@@ -89,10 +89,10 @@ export const navListShellSurface = example({
                 background="bg.subtle"
                 sections={[
                     {
-                        label: "Winemaking",
+                        label: "Operations",
                         items: [
                             { key: "overview", label: "Overview", icon: { prefix: "fas", name: "gauge" }, active: true },
-                            { key: "batches", label: "Batches", icon: { prefix: "fas", name: "flask" } },
+                            { key: "runs", label: "Runs", icon: { prefix: "fas", name: "flask" } },
                             { key: "audit", label: "Audit trail", icon: { prefix: "fas", name: "list" } },
                         ],
                     },

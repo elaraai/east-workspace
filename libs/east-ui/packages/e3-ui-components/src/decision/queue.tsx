@@ -43,6 +43,7 @@ import {
     SliceRailCluster,
     usePersistedState,
     useSliceReactivity,
+    useContainerBelow,
     type TickFormatOpt,
 } from '@elaraai/east-ui-components';
 
@@ -458,19 +459,10 @@ const EastChakraDecisionQueue = memo(function EastChakraDecisionQueue({ value, s
     // (a fresh decode per write — the subscription above drives the render).
     const sliceState = sliceHandle !== null ? sliceHandle.read() : null;
 
-    // Narrow hosts (a rail) wrap rows to two lines.
+    // Narrow hosts (a rail) wrap rows to two lines. Shared adaptive
+    // contract (#346) — same threshold as the previous inline observer.
     const rootRef = useRef<HTMLDivElement | null>(null);
-    const [narrow, setNarrow] = useState(false);
-    useLayoutEffect(() => {
-        const el = rootRef.current;
-        if (!el || typeof ResizeObserver === 'undefined') return;
-        const ro = new ResizeObserver(entries => {
-            const width = entries[0]?.contentRect.width ?? 0;
-            setNarrow(width > 0 && width < NARROW_PX);
-        });
-        ro.observe(el);
-        return () => ro.disconnect();
-    }, []);
+    const narrow = useContainerBelow(rootRef, NARROW_PX);
 
     // Exit animation is data-driven: a row leaves because the bound array no
     // longer contains its id — whoever wrote the change (Apply here, another

@@ -306,10 +306,20 @@ export function DragLayerProvider({ children }: DragLayerProviderProps) {
         }
     }, [cellValid, sinkValid, clearIndicators]);
 
-    const beginDrag = useCallback((e: ReactPointerEvent, payload: DragPayload) => {
-        if (dragRef.current) return;
-        e.preventDefault();
-        const origin = e.currentTarget as HTMLElement;
+    /** Nearest scrollable ancestor (either axis) — for touch edge auto-scroll. */
+    const scrollableAncestor = (el: Element | null): HTMLElement | null => {
+        for (let n = el as HTMLElement | null; n && n !== document.body; n = n.parentElement) {
+            const s = getComputedStyle(n);
+            if ((/(auto|scroll)/.test(s.overflowX) && n.scrollWidth > n.clientWidth)
+                || (/(auto|scroll)/.test(s.overflowY) && n.scrollHeight > n.clientHeight)) return n;
+        }
+        return null;
+    };
+
+    /** Engage an active drag (shared by the immediate mouse path and the
+     *  touch long-press path). `isTouch` adds scroll suppression + edge
+     *  auto-scroll while the drag is in flight. */
+    const engageDrag = useCallback((origin: HTMLElement, payload: DragPayload, x: number, y: number, altKey: boolean, isTouch: boolean) => {
         origin.setAttribute("data-dragging", "");
         originEl.current = origin;
 
@@ -321,7 +331,7 @@ export function DragLayerProvider({ children }: DragLayerProviderProps) {
             if (sinkValid(reg, payload)) el.setAttribute("data-drop-valid", "");
         }
 
-        const start: ActiveDrag = { payload, x: e.clientX, y: e.clientY, altKey: e.altKey };
+        const start: ActiveDrag = { payload, x, y, altKey };
         dragRef.current = start;
         setDrag(start);
 
@@ -361,20 +371,83 @@ export function DragLayerProvider({ children }: DragLayerProviderProps) {
                     hovered.current = dest;
                 }
             }
+            // Touch (#353): no wheel while dragging — nudge the scrollable
+            // ancestor under the finger when it nears an edge so cross-column
+            // drops stay reachable on phones.
+            if (isTouch) {
+                const sc = scrollableAncestor(under);
+                if (sc) {
+                    const rect = sc.getBoundingClientRect();
+                    const EDGE = 48, STEP = 12;
+                    if (ev.clientX > rect.right - EDGE) sc.scrollLeft += STEP;
+                    else if (ev.clientX < rect.left + EDGE) sc.scrollLeft -= STEP;
+                    if (ev.clientY > rect.bottom - EDGE) sc.scrollTop += STEP;
+                    else if (ev.clientY < rect.top + EDGE) sc.scrollTop -= STEP;
+                }
+            }
         };
+        // Touch (#353): once the drag is engaged the page must not pan —
+        // suppress native scrolling for the gesture's remainder.
+        const blockTouchScroll = (ev: TouchEvent) => { ev.preventDefault(); };
         const cleanup = () => {
             document.removeEventListener("pointermove", onMove);
             document.removeEventListener("pointerup", onUp);
+            document.removeEventListener("pointercancel", onCancel);
             document.removeEventListener("keydown", onKey, true);
+            if (isTouch) document.removeEventListener("touchmove", blockTouchScroll);
         };
         const onUp = () => { cleanup(); endDrag(true); };
+        const onCancel = () => { cleanup(); endDrag(false); };
         const onKey = (ev: KeyboardEvent) => {
             if (ev.key === "Escape") { cleanup(); endDrag(false); }
         };
         document.addEventListener("pointermove", onMove);
         document.addEventListener("pointerup", onUp);
+        document.addEventListener("pointercancel", onCancel);
         document.addEventListener("keydown", onKey, true);
+        if (isTouch) document.addEventListener("touchmove", blockTouchScroll, { passive: false });
     }, [cellValid, cellVetoed, sinkValid, endDrag]);
+
+    const beginDrag = useCallback((e: ReactPointerEvent, payload: DragPayload) => {
+        if (dragRef.current) return;
+        const origin = e.currentTarget as HTMLElement;
+
+        // Grip fast-path: a touch ON A DRAG GRIP (`[data-drag-grip]` — the
+        // ⋮⋮ handles on Library cards, Planner chips, Blend allocations,
+        // Board cards) is unambiguous drag intent, so it engages
+        // immediately — grips carry `touch-action: none`, so no scroll
+        // gesture competes. Body touches keep the long-press below.
+        const onGrip = e.pointerType === "touch"
+            && (e.target as HTMLElement).closest?.("[data-drag-grip]") !== null;
+
+        // Long-press protocol (#353): on touch, a pointerdown must NOT steal
+        // the scroll gesture — the drag only engages after a ~300ms hold;
+        // >8px of movement first means the user is scrolling, so we stand
+        // down and let the browser pan.
+        if (e.pointerType === "touch" && !onGrip) {
+            const startX = e.clientX, startY = e.clientY, altKey = e.altKey;
+            const stand = () => {
+                clearTimeout(timer);
+                document.removeEventListener("pointermove", onPreMove);
+                document.removeEventListener("pointerup", stand);
+                document.removeEventListener("pointercancel", stand);
+            };
+            const onPreMove = (ev: globalThis.PointerEvent) => {
+                if (Math.hypot(ev.clientX - startX, ev.clientY - startY) > 8) stand();
+            };
+            const timer = setTimeout(() => {
+                stand();
+                if (!dragRef.current) engageDrag(origin, payload, startX, startY, altKey, true);
+            }, 300);
+            document.addEventListener("pointermove", onPreMove);
+            document.addEventListener("pointerup", stand);
+            document.addEventListener("pointercancel", stand);
+            return;
+        }
+
+        e.preventDefault();
+        engageDrag(origin, payload, e.clientX, e.clientY, e.altKey, e.pointerType === "touch");
+    }, [engageDrag]);
 
     const context = useMemo<DragLayerContextValue>(() => ({
         registerTarget,

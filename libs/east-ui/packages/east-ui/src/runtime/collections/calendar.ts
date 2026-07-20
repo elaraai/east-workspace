@@ -34,17 +34,18 @@ import { UIComponentType } from "../../component.js";
  *             { week: "W38", day: "Thu", demand: 131.0, lastYear: 112.0 },
  *         ]}
  *         cell={d => ({
- *             week: d.week, day: d.day, value: d.demand,
- *             summary: East.str`predicted ${d.demand} · last yr ${d.lastYear}`,
- *             delta: d.demand.subtract(d.lastYear).divide(d.lastYear),
+ *             week: d.week, day: d.day, value: d.demand, compare: d.lastYear,
  *         })}
- *         actionLabel="Open day"
+ *         totals={Calendar.totals()}
+ *         aggregateRow={Calendar.aggregateRow()}
+ *         footer={Calendar.footer({ valueLabel: "predicted", compareLabel: "last yr", legend: true })}
  *     />
  * ));
  * ```
  *
  * @remarks
- * Desugars to `Calendar.Root(data, config)`.
+ * Desugars to `Calendar.Root(data, config)`. The `Calendar.scale` / `totals` /
+ * `aggregateRow` / `footer` sub-factories are exposed on the tag too.
  */
 function CalendarTag<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
     props: { data: T } & CalendarConfig<RowElement<T>>,
@@ -55,6 +56,14 @@ function CalendarTag<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
 
 export const Calendar: typeof CalendarTag & {
     Types: typeof CalendarFactory.Types;
+    scale: typeof CalendarFactory.scale;
+    totals: typeof CalendarFactory.totals;
+    aggregateRow: typeof CalendarFactory.aggregateRow;
+    footer: typeof CalendarFactory.footer;
 } = Object.assign(CalendarTag, {
     Types: CalendarFactory.Types,
+    scale: CalendarFactory.scale,
+    totals: CalendarFactory.totals,
+    aggregateRow: CalendarFactory.aggregateRow,
+    footer: CalendarFactory.footer,
 });

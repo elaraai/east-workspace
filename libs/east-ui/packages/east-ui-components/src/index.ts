@@ -185,6 +185,13 @@ export {
     type BreadcrumbItemValue,
     type EastChakraBreadcrumbProps,
     type EastChakraBreadcrumbItemProps,
+    EastChakraApp,
+    type AppValue,
+    type EastChakraAppProps,
+    AppProvider,
+    useAppSlots,
+    type AppSlots,
+    type AppProviderProps,
 } from "./navigation/index.js";
 
 // Display
@@ -371,6 +378,7 @@ export {
 
 // Hooks
 export { usePersistedState, type PersistedStateResult } from "./hooks/usePersistedState.js";
+export { useColorMode, applyColorMode, type ColorMode } from "./hooks/useColorMode.js";
 
 // Platform (State Management)
 export {
@@ -455,7 +463,32 @@ export {
 export { getSomeorUndefined } from "./utils.js";
 export { formatTick, type TickFormatOpt } from "./typography/numeric/format-tick.js";
 
+// Adaptive contract (#346) — container-width + pointer-capability hooks for
+// this package's renderers and sibling renderer packages (e3-ui-components).
+export {
+    type ContainerBreakpoint,
+    type ContainerBreakpointThresholds,
+    useContainerBreakpoint,
+    useContainerBelow,
+    useCoarsePointer,
+    useHoverCapable,
+} from "./contracts/index.js";
+
 export { SliceRailCluster, EastChakraSliceRail } from "./slice/rail";
+export {
+    EastChakraDeck,
+    EastChakraDeckReadout,
+    EastChakraDeckRows,
+    EastChakraDeckNote,
+    type EastChakraDeckProps,
+    type DeckValue,
+    type DeckItemValue,
+    type DeckReadoutValue,
+    type DeckRowsValue,
+    type DeckNoteValue,
+} from "./collections/deck";
+export { EastChakraValueTree, type EastChakraValueTreeProps, type ValueTreeValue, type ValueTreeNodeValue, type ValueTreeStepValue, type ValueTreeLeafValue } from "./collections/value-tree";
+export { LoadingIcon, type LoadingIconProps } from "./LoadingIcon.js";
 export { useSliceReactivity } from "./slice/use-slice-reactivity";
 // Reusable, handle-free Slice predicate-editor pieces — used by the Experiment
 // surface's population filter (its population is an Array<SlicePredicate>).

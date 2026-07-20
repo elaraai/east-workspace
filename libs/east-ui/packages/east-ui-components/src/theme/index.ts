@@ -28,7 +28,7 @@
  * @packageDocumentation
  */
 
-import { createSystem, defaultConfig, defineConfig } from "@chakra-ui/react";
+import { createSystem, defaultConfig, defineConfig, defineRecipe } from "@chakra-ui/react";
 
 import { tokens } from "./tokens.js";
 import { semanticTokens } from "./semantic-tokens.js";
@@ -58,6 +58,8 @@ import { popoverSlotRecipe } from "./slot-recipes/popover.js";
 import { tooltipSlotRecipe } from "./slot-recipes/tooltip.js";
 import { menuSlotRecipe } from "./slot-recipes/menu.js";
 import { librarySlotRecipe } from "./slot-recipes/library.js";
+import { deckSlotRecipe } from "./slot-recipes/deck.js";
+import { valueTreeSlotRecipe } from "./slot-recipes/valueTree.js";
 import { rosterSlotRecipe } from "./slot-recipes/roster.js";
 import { boardSlotRecipe } from "./slot-recipes/board.js";
 import { calendarSlotRecipe } from "./slot-recipes/calendar.js";
@@ -76,6 +78,7 @@ import { iconButtonSlotRecipe } from "./slot-recipes/iconButton.js";
 import { sliderSlotRecipe } from "./slot-recipes/slider.js";
 import { segmentGroupSlotRecipe } from "./slot-recipes/segmentGroup.js";
 import { navListSlotRecipe } from "./slot-recipes/navList.js";
+import { appSlotRecipe } from "./slot-recipes/app.js";
 import { drawerSlotRecipe } from "./slot-recipes/drawer.js";
 import { hoverCardSlotRecipe } from "./slot-recipes/hoverCard.js";
 import { progressSlotRecipe } from "./slot-recipes/progress.js";
@@ -123,6 +126,15 @@ import { decisionQueueSlotRecipe } from "./slot-recipes/decisionQueue.js";
 
 const config = defineConfig({
     globalCss,
+    /* Adaptive conditions (#346) — pointer capability as first-class recipe
+     * conditions. `_coarse` gates the touch hit-area inflation
+     * (`style/hit-area.ts`) and touch-size bumps; `_hoverNone` gates
+     * hover-parity fallbacks (always-visible affordances where desktop
+     * reveals on hover). Mirrored in JS by `contracts/adaptive.ts`. */
+    conditions: {
+        coarse: "@media (pointer: coarse)",
+        hoverNone: "@media (hover: none)",
+    },
     theme: {
         tokens,
         semanticTokens,
@@ -144,6 +156,11 @@ const config = defineConfig({
             separator:  separatorRecipe,
             skeleton:   skeletonRecipe,
             chip:       chipRecipe,
+            /* Touch floor (#348) merged onto Chakra's default textarea
+             * recipe — sub-16px focused fields make iOS Safari zoom. */
+            textarea:   defineRecipe({
+                base: { _coarse: { fontSize: "{fontSizes.md}", minHeight: "44px" } },
+            }),
         },
         slotRecipes: {
             tag:             tagSlotRecipe,
@@ -153,6 +170,8 @@ const config = defineConfig({
             tooltip:         tooltipSlotRecipe,
             menu:            menuSlotRecipe,
             library:         librarySlotRecipe,
+            deck:            deckSlotRecipe,
+            valueTree:       valueTreeSlotRecipe,
             roster:          rosterSlotRecipe,
             board:           boardSlotRecipe,
             calendar:        calendarSlotRecipe,
@@ -171,6 +190,7 @@ const config = defineConfig({
             slider:          sliderSlotRecipe,
             segmentGroup:    segmentGroupSlotRecipe,
             navList:         navListSlotRecipe,
+            app:             appSlotRecipe,
             drawer:          drawerSlotRecipe,
             hoverCard:       hoverCardSlotRecipe,
             progress:        progressSlotRecipe,

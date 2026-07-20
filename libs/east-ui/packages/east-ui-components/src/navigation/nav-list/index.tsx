@@ -22,17 +22,20 @@ export type NavListValue = ValueTypeOf<typeof NavList.Types.NavList>;
 
 export interface EastChakraNavListProps {
     value: NavListValue;
+    /** Collapsed rail (icon-only) — used by `<App>` when the shell rail is
+     *  collapsed. Labels / badges / section headings hide; icons stay clickable. */
+    collapsed?: boolean;
 }
 
 /**
  * Renders an East UI NavList as the bsys Sidebar recipe — mono uppercase
  * rows, an inset brand-tint pill for the active row, paper-2 card chrome.
  */
-export const EastChakraNavList = memo(function EastChakraNavList({ value }: EastChakraNavListProps) {
+export const EastChakraNavList = memo(function EastChakraNavList({ value, collapsed = false }: EastChakraNavListProps) {
     const surface = getSomeorUndefined(value.surface)?.type ?? "card";
     const background = getSomeorUndefined(value.background);
     const recipe = useSlotRecipe({ key: "navList" });
-    const styles = recipe({ surface });
+    const styles = recipe({ surface, collapsed });
 
     const onSelectFn = useMemo(() => getSomeorUndefined(value.onSelect), [value.onSelect]);
 
@@ -54,6 +57,8 @@ export const EastChakraNavList = memo(function EastChakraNavList({ value }: East
                 role="button"
                 onClick={() => handleSelect(item.key)}
                 css={styles.item}
+                title={item.label}
+                aria-label={collapsed ? item.label : undefined}
                 aria-current={active ? "page" : undefined}
             >
                 {icon && (
@@ -84,4 +89,4 @@ export const EastChakraNavList = memo(function EastChakraNavList({ value }: East
             })}
         </Box>
     );
-}, (prev, next) => navListEqual(prev.value, next.value));
+}, (prev, next) => navListEqual(prev.value, next.value) && prev.collapsed === next.collapsed);

@@ -187,7 +187,7 @@ describe("Chart renderer — per-layer tooltip opt-out (issue #117)", () => {
         // reports a zero-origin rect, so clientX is the local x).
         const overlay = container.querySelector('rect[fill="transparent"]');
         expect(overlay).not.toBeNull();
-        fireEvent.mouseMove(overlay!, { clientX: 176, clientY: 100 });
+        fireEvent.pointerMove(overlay!, { clientX: 176, clientY: 100, pointerType: "mouse" });
 
         // The tooltip enumerates the kept median, but not the suppressed fan series.
         expect(screen.getByText("Median")).toBeTruthy();
@@ -209,7 +209,7 @@ describe("Chart renderer — per-layer tooltip opt-out (issue #117)", () => {
         const { container } = ui(<EastVisxChart value={node as never} />);
         const overlay = container.querySelector('rect[fill="transparent"]');
         expect(overlay).not.toBeNull();
-        fireEvent.mouseMove(overlay!, { clientX: 176, clientY: 100 });
+        fireEvent.pointerMove(overlay!, { clientX: 176, clientY: 100, pointerType: "mouse" });
 
         let el: HTMLElement | null = screen.getByText("Median");
         let z = 0;
@@ -238,7 +238,7 @@ describe("Chart renderer — per-layer tooltip opt-out (issue #117)", () => {
         expect(container.querySelectorAll('rect[fill="transparent"]').length).toBe(1);
         // Hovering surfaces the series row in the tooltip.
         const overlay = container.querySelector('rect[fill="transparent"]')!;
-        fireEvent.mouseMove(overlay, { clientX: 176, clientY: 100 });
+        fireEvent.pointerMove(overlay, { clientX: 176, clientY: 100, pointerType: "mouse" });
         expect(screen.getByText("s0")).toBeTruthy();
     });
 
@@ -264,7 +264,7 @@ describe("Chart renderer — per-layer tooltip opt-out (issue #117)", () => {
         // Hover: the median sibling makes the overlay eligible, but the fan stays
         // out of the tooltip too, so its per-series rows never appear.
         const overlay = container.querySelector('rect[fill="transparent"]')!;
-        fireEvent.mouseMove(overlay, { clientX: 176, clientY: 100 });
+        fireEvent.pointerMove(overlay, { clientX: 176, clientY: 100, pointerType: "mouse" });
         expect(screen.queryByText("s0")).toBeNull();
         expect(screen.queryByText("s1")).toBeNull();
     });
@@ -342,7 +342,7 @@ describe("Chart renderer — tooltip portal + stacking tier", () => {
         const { container } = ui(<EastVisxChart value={node as never} />);
 
         const overlay = container.querySelector('rect[fill="transparent"]')!;
-        fireEvent.mouseMove(overlay, { clientX: 176, clientY: 100 });
+        fireEvent.pointerMove(overlay, { clientX: 176, clientY: 100, pointerType: "mouse" });
         const tip = screen.getByText("Median");
 
         // Portaled OUT of the chart's own container (escapes the local stacking context).
@@ -466,7 +466,7 @@ describe("Chart renderer — horizontal bars (#249)", () => {
         // Hover low in the plot — inside Beta's band row (centre ≈ 151 of 208).
         const overlay = container.querySelector('rect[fill="transparent"]');
         expect(overlay).not.toBeNull();
-        fireEvent.mouseMove(overlay!, { clientX: 100, clientY: 151 });
+        fireEvent.pointerMove(overlay!, { clientX: 100, clientY: 151, pointerType: "mouse" });
 
         // The tooltip (a body-level portal) surfaces the series row keyed by
         // the mouse's Y band: header "Beta" with its value, and no "Alpha".

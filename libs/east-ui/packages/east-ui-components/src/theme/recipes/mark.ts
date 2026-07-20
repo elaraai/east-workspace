@@ -18,7 +18,9 @@ export const markRecipe = defineRecipe({
     className: "elara-mark",
     base: {
         background: "bg.brand.subtle",
-        color: "{colors.brand.700}",
+        /* brand.fg = brand.700 light / brand.300 dark — fixed brand.700 ink
+         * vanished on the brand.800 dark fill (#362). */
+        color: "brand.fg",
         borderRadius: "2px",
         paddingX: "0.5",
     },

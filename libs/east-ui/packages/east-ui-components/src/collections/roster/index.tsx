@@ -18,6 +18,13 @@ import { useReviewController, DecisionButtons, ReviewFoot, DECISION_WIDTH } from
 
 const rosterEqual = equalFor(Roster.Types.Roster);
 
+/** Minimum width of a day column — the `minmax(DAY_MIN, 1fr)` floor that
+ *  keeps every column equal (and aligned to the header) while letting the
+ *  grid pan horizontally when the week can't fit. Chip labels ellipsize
+ *  within the cell rather than growing the track. */
+const DAY_MIN_PX = 84;
+const DAY_MIN = `${DAY_MIN_PX}px`;
+
 /** East Roster value type. */
 export type RosterValue = ValueTypeOf<typeof Roster.Types.Roster>;
 
@@ -34,19 +41,31 @@ export interface EastChakraRosterProps {
 
 type SlotStyles = Record<string, SystemStyleObject>;
 
+/** Cell-map key — NUL separator so person keys containing spaces can't
+ * collide with day names. MUST be used by both the grouping and the lookup
+ * side (they once disagreed — an invisible literal NUL vs a space — and every
+ * cell rendered empty). */
+function cellKey(person: string, day: string): string {
+    return `${person}\u0000${day}`;
+}
+
 function cellRef(surface: string, person: string, day: string, event?: string): CellRefValue {
     return { surface, row: person, slot: day, event: event !== undefined ? some(event) : none };
 }
 
-/** The chip text per the spec's visual grammar for each state. */
+/** The chip text per the spec's visual grammar for each state. State is
+ *  carried by STYLING (spec `.shift-chip`: removed = strikethrough, ghost =
+ *  italic-dashed, added = brand tint), so the label stays the bare shift
+ *  value — only `added` keeps a leading `+`. This keeps chips compact enough
+ *  to sit inside a day column without truncating. */
 function chipText(shift: RosterShiftValue): string {
     return match(shift.state, {
         committed: () => shift.label,
         rejected: () => shift.label,
         proposed: (flavour) => match(flavour, {
             added: () => `+${shift.label}`,
-            removed: () => `${shift.label} ▸ —`,
-            model: () => `+ ghost ${shift.label}`,
+            removed: () => shift.label,
+            model: () => shift.label,
         }),
     });
 }
@@ -115,28 +134,35 @@ function RosterChip({ surface, person, day, shift, edit, styles, onSelect, onAcc
                     <FontAwesomeIcon icon={faGripVertical} />
                 </Box>
             )}
-            {chipText(shift)}
-            {ghost && onAccept && (
-                <Box
-                    as="button"
-                    css={styles.chipAction}
-                    aria-label="Accept ghost shift"
-                    onPointerDown={e => e.stopPropagation()}
-                    onClick={(e: React.MouseEvent) => { e.stopPropagation(); onAccept(cellRef(surface, person, day, shift.key)); }}
-                >
-                    <FontAwesomeIcon icon={faCheck} />
-                </Box>
-            )}
-            {draggable && onRemove && (
-                <Box
-                    as="button"
-                    css={styles.chipAction}
-                    data-danger=""
-                    aria-label="Remove shift"
-                    onPointerDown={e => e.stopPropagation()}
-                    onClick={(e: React.MouseEvent) => { e.stopPropagation(); onRemove(cellRef(surface, person, day, shift.key)); }}
-                >
-                    <FontAwesomeIcon icon={faTrashCan} />
+            <Box as="span" css={styles.chipLabel}>{chipText(shift)}</Box>
+            {/* Hover actions overlay the chip's right edge (absolute) rather
+             *  than reserving flow width — otherwise, in a narrow day column,
+             *  the grip + buttons crush the label to a clipped stub. */}
+            {((ghost && onAccept) || (draggable && onRemove)) && (
+                <Box css={styles.chipActions}>
+                    {ghost && onAccept && (
+                        <Box
+                            as="button"
+                            css={styles.chipAction}
+                            aria-label="Accept ghost shift"
+                            onPointerDown={e => e.stopPropagation()}
+                            onClick={(e: React.MouseEvent) => { e.stopPropagation(); onAccept(cellRef(surface, person, day, shift.key)); }}
+                        >
+                            <FontAwesomeIcon icon={faCheck} />
+                        </Box>
+                    )}
+                    {draggable && onRemove && (
+                        <Box
+                            as="button"
+                            css={styles.chipAction}
+                            data-danger=""
+                            aria-label="Remove shift"
+                            onPointerDown={e => e.stopPropagation()}
+                            onClick={(e: React.MouseEvent) => { e.stopPropagation(); onRemove(cellRef(surface, person, day, shift.key)); }}
+                        >
+                            <FontAwesomeIcon icon={faTrashCan} />
+                        </Box>
+                    )}
                 </Box>
             )}
         </Box>
@@ -305,7 +331,7 @@ export const EastChakraRoster = memo(function EastChakraRoster({ value, storageK
         for (const shift of shifts) {
             // Published rosters render committed shifts only.
             if (!edit && shift.state.type !== "committed") continue;
-            const key = `${shift.person} ${shift.day}`;
+            const key = cellKey(shift.person, shift.day);
             if (!out.has(key)) out.set(key, []);
             out.get(key)!.push(shift);
         }
@@ -316,13 +342,26 @@ export const EastChakraRoster = memo(function EastChakraRoster({ value, storageK
 
     // Uniform sizing contract (#320) — bound the grid; it scrolls within,
     // mounting only the visible person rows via the shared VirtualRows frame.
-    const gridCols = `${getSomeorUndefined(value.personWidth) ?? "150px"} repeat(${value.days.length}, 1fr)${reviewController !== undefined ? ` ${DECISION_WIDTH}` : ""}`;
+    //
+    // Day columns are `minmax(DAY_MIN, 1fr)` — equal tracks with a floor —
+    // and the whole grid carries a matching `minWidth`, mirroring Planner /
+    // Matrix (`repeat(N, minmax(slotMin, 1fr))` + grid minWidth). Bare `1fr`
+    // is `minmax(auto, 1fr)`, which lets a wide chip grow its own column;
+    // since header and each person row are INDEPENDENT grids, that desynced
+    // every row's columns. The floor keeps all columns identical (so header
+    // and rows align) and the surface pans horizontally when the week can't
+    // fit rather than squeezing columns to nothing.
+    const personW = getSomeorUndefined(value.personWidth) ?? "150px";
+    const decTrack = reviewController !== undefined ? ` ${DECISION_WIDTH}` : "";
+    const gridCols = `${personW} repeat(${value.days.length}, minmax(${DAY_MIN}, 1fr))${decTrack}`;
+    const gridMinWidth = `calc(${personW} + ${value.days.length * DAY_MIN_PX}px${decTrack ? ` + ${DECISION_WIDTH}` : ""})`;
+    const gridStyle = { gridTemplateColumns: gridCols, minWidth: gridMinWidth };
 
     // Header + each person row are independent grids sharing one column template
     // (border-per-cell, no grid gap), so they align while each row becomes a
     // self-contained virtual item.
     const headerNode = (
-        <Box css={styles.grid} style={{ gridTemplateColumns: gridCols }}>
+        <Box css={styles.grid} style={gridStyle}>
             <Box css={styles.headerCell}>{value.personHeader}</Box>
             {value.days.map(day => (
                 <Box key={day} css={styles.headerCell}>{day}</Box>
@@ -339,7 +378,7 @@ export const EastChakraRoster = memo(function EastChakraRoster({ value, storageK
         const sublabel = getSomeorUndefined(person.sublabel);
         const rowStatusTag = reviewController !== undefined ? getSomeorUndefined(person.status)?.type : undefined;
         return (
-            <Box css={styles.grid} style={{ gridTemplateColumns: gridCols }}>
+            <Box css={styles.grid} style={gridStyle}>
                 <Box css={styles.personCell}>
                     <Box as="span" css={styles.personLabel}>
                         {rowStatusTag !== undefined && <Box as="span" css={reviewDotStyles[rowStatusTag]} data-slot="statusDot" />}
@@ -353,7 +392,7 @@ export const EastChakraRoster = memo(function EastChakraRoster({ value, storageK
                         surface={value.id}
                         person={person.key}
                         day={day}
-                        shifts={cells.get(`${person.key} ${day}`) ?? []}
+                        shifts={cells.get(cellKey(person.key, day)) ?? []}
                         edit={edit}
                         styles={styles}
                         vetoFor={vetoFor}

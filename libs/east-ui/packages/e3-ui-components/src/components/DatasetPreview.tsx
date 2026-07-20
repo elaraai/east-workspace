@@ -6,8 +6,10 @@
 /**
  * `<DatasetPreview>` — size-aware preview of a raw dataset value.
  *
- * Pipeline: status → fetch + decode if size < limit → render via
- * EastValueViewer; otherwise show "download" button.
+ * Pipeline: status → fetch + decode if size < limit → materialize + render as
+ * an interactive `ValueTree`; otherwise show a "download" button. With
+ * `editable`, leaf edits / inserts / removes / tag switches reconcile through
+ * `ValueTree.applyEdit` and persist via `useDatasetSet` (for mutable inputs).
  *
  * Used for inputs and other "show me this dataset's value" cases. NOT used
  * for UI tasks (those go through `<UITaskPreview>`).
@@ -15,15 +17,24 @@
  * @packageDocumentation
  */
 
-import { memo, useState } from 'react';
+import { memo, useCallback, useMemo, useState } from 'react';
 import { Box, Button, Flex, Text } from '@chakra-ui/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faDownload } from '@fortawesome/free-solid-svg-icons';
+import { useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import type { RequestOptions } from '@elaraai/e3-api-client';
+import { variant, some, none, encodeBeast2For, type EastTypeValue } from '@elaraai/east';
+import { ValueTree } from '@elaraai/east-ui';
+import {
+    EastChakraValueTree,
+    type ValueTreeValue,
+    type ValueTreeStepValue,
+    type ValueTreeLeafValue,
+} from '@elaraai/east-ui-components';
 import { useDatasetStatus } from '../hooks/useDatasetStatus.js';
 import { useDatasetValue, useDatasetDownload } from '../hooks/useDatasetValue.js';
+import { useDatasetSet } from '../hooks/datasets.js';
 import { StatusDisplay } from './StatusDisplay.js';
-import { EastValueViewer } from './EastValueViewer.js';
 import { formatApiError, formatError } from '../errors.js';
 
 const DEFAULT_SIZE_LIMIT = 200 * 1024; // 200KB
@@ -38,6 +49,9 @@ export interface DatasetPreviewProps {
     /** Max bytes to fetch + render inline. Above this → download button. */
     sizeLimit?: number;
     pollInterval?: number;
+    /** When set, leaf edits / inserts / removes / tag switches write back to
+     *  this dataset path (for mutable inputs). Task outputs stay read-only. */
+    editable?: boolean;
 }
 
 function formatSize(bytes: number): string {
@@ -68,6 +82,7 @@ export const DatasetPreview = memo(function DatasetPreview({
     requestOptions,
     sizeLimit = DEFAULT_SIZE_LIMIT,
     pollInterval,
+    editable = false,
 }: DatasetPreviewProps) {
     const statusQuery = useDatasetStatus(apiUrl, repo, workspace, path, {
         ...(requestOptions != null && { requestOptions }),
@@ -84,8 +99,46 @@ export const DatasetPreview = memo(function DatasetPreview({
         type: status?.type as never,
         hash: status?.hash ?? null,
         enabled: shouldFetch,
+        // An edit changes the value's content hash → a new query key. Keep the
+        // current value on screen while the new one loads so an edit doesn't
+        // flash the loading state (only the FIRST load has no previous value).
+        queryOverrides: { placeholderData: keepPreviousData },
     });
     const download = useDatasetDownload(apiUrl, repo, workspace, path, requestOptions);
+
+    // Editable path: persist a ValueTree edit back to the dataset. `applyEdit`
+    // reconciles the decoded value at the reported path, then the existing
+    // `useDatasetSet` writer encodes + PUTs it; invalidating the status/value
+    // queries refetches the new value, which re-materializes the tree.
+    const setMutation = useDatasetSet(apiUrl, repo, workspace, requestOptions);
+    const queryClient = useQueryClient();
+    const type = status?.type as EastTypeValue | undefined;
+    const decoded = valueQuery.data?.decoded;
+
+    const write = useCallback(async (next: unknown) => {
+        if (workspace == null || path == null || type === undefined) return;
+        const treePath = path.split('.').filter(Boolean).map((p) => variant('field', p));
+        const data = encodeBeast2For(type as never)(next as never);
+        await setMutation.mutateAsync({ path: treePath, data });
+        // Refetch the status only — the new content hash it returns re-keys the
+        // value query, which loads the new value (kept smooth by placeholderData
+        // above). Invalidating the value query too would refetch the stale hash.
+        await queryClient.invalidateQueries({ queryKey: ['datasetStatus', apiUrl, repo, workspace, path] });
+    }, [apiUrl, repo, workspace, path, type, setMutation, queryClient]);
+
+    const treeValue = useMemo<ValueTreeValue | null>(() => {
+        if (type === undefined || decoded === undefined) return null;
+        const root = ValueTree.materialize(type, decoded);
+        const wire = editable
+            ? {
+                onEdit: some((p: ValueTreeStepValue[], leaf: ValueTreeLeafValue) => write(ValueTree.applyEdit(type, decoded, p, { kind: 'edit', leaf }))),
+                onInsert: some((p: ValueTreeStepValue[]) => write(ValueTree.applyEdit(type, decoded, p, { kind: 'insert' }))),
+                onRemove: some((p: ValueTreeStepValue[]) => write(ValueTree.applyEdit(type, decoded, p, { kind: 'remove' }))),
+                onTag: some((p: ValueTreeStepValue[], tag: string) => write(ValueTree.applyEdit(type, decoded, p, { kind: 'tag', tag }))),
+            }
+            : { onEdit: none, onInsert: none, onRemove: none, onTag: none };
+        return { root, ...wire, style: some({ height: some('100%'), maxHeight: none }) } as unknown as ValueTreeValue;
+    }, [type, decoded, editable, write]);
 
     if (statusQuery.isLoading) return <StatusDisplay variant="loading" title="Loading..." />;
     if (statusQuery.error) {
@@ -116,8 +169,8 @@ export const DatasetPreview = memo(function DatasetPreview({
                 <Text fontSize="xs" color="fg.muted" mr={2} alignSelf="center">{formatSize(sizeBytes)}</Text>
                 <DownloadButton onClick={download} />
             </Flex>
-            <Box flex={1} overflow="auto" p="4" minHeight={0}>
-                <EastValueViewer type={status.type} value={valueQuery.data.decoded} />
+            <Box flex={1} minHeight={0} overflow="hidden">
+                {treeValue !== null && <EastChakraValueTree value={treeValue} storageKey={path ?? 'value'} />}
             </Box>
         </Flex>
     );

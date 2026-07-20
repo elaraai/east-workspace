@@ -15,6 +15,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { coarseHitArea } from "../../style/hit-area.js";
 
 export const boardSlotRecipe = defineSlotRecipe({
     className: "elara-board",
@@ -31,6 +32,10 @@ export const boardSlotRecipe = defineSlotRecipe({
          * toolbar) is host composition via Card / Slice.Frame. */
         root: {
             background: "bg.surface",
+            /* Compact hosts (#353): the column grid pans horizontally
+             * (columns keep their 180px floors) instead of overflowing. */
+            overflowX: "auto",
+            overscrollBehaviorX: "contain",
         },
         grid: {
             display: "grid",
@@ -137,7 +142,7 @@ export const boardSlotRecipe = defineSlotRecipe({
                 background: "bg.brand.subtle",
                 borderColor: "{colors.brand.600}",
                 borderStyle: "dashed",
-                color: "{colors.brand.700}",
+                color: "brand.fg",
                 fontWeight: "600",
             },
             /* Removed — a proposed unassignment; struck, never worded. */
@@ -173,6 +178,11 @@ export const boardSlotRecipe = defineSlotRecipe({
             opacity: "0",
             transition: "opacity {durations.fast}",
             "[data-draggable]:hover &": { opacity: "1" },
+            /* Touch: instant-drag handle (grip fast-path) — visible, no
+             * scroll gesture, 32px tap halo. */
+            _hoverNone: { opacity: "0.7" },
+            touchAction: "none",
+            ...coarseHitArea({ position: true, size: 32 }),
         },
         /* Hover action buttons — accept (check) on ghosts, remove (bin) on
          * proposals. First action pushes to the chip's right edge. */
@@ -213,7 +223,7 @@ export const boardSlotRecipe = defineSlotRecipe({
             transition: "border-color {durations.fast}, color {durations.fast}",
             "&:hover": {
                 borderColor: "{colors.brand.600}",
-                color: "{colors.brand.700}",
+                color: "brand.fg",
             },
         },
         /* The `+N` chip collapsing a cell past `maxVisible`. */

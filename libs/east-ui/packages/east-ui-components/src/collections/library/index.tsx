@@ -135,7 +135,7 @@ function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, styles }
             {...(compact ? { "data-compact": "" } : {})}
         >
             {draggable && onPointerDown && (
-                <Box as="span" css={styles.grip}>
+                <Box as="span" css={styles.grip} data-drag-grip="">
                     <FontAwesomeIcon icon={faGripVertical} />
                 </Box>
             )}

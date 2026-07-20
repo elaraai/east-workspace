@@ -35,6 +35,14 @@ export const drawerSlotRecipe = defineSlotRecipe({
             boxShadow: "none",
             _open: { animationDuration: "0ms" },
             _closed: { animationDuration: "0ms" },
+            /* Small viewports (#347): a drawer never exceeds the screen —
+             * rem-sized Chakra widths (md+) are wider than a 360px phone.
+             * Below 480px every size goes full-width. */
+            maxWidth: "calc(100vw - 24px)",
+            "@media (max-width: 479px)": {
+                maxWidth: "100vw",
+                width: "100vw",
+            },
         },
         header: {
             display: "flex",
@@ -43,6 +51,8 @@ export const drawerSlotRecipe = defineSlotRecipe({
             paddingX: "{spacing.5}", paddingY: "{spacing.4}",
             borderBottomWidth: "1px", borderBottomColor: "border.subtle",
             background: "bg.surface",
+            /* Notched phones (#347). */
+            paddingTop: "max({spacing.4}, env(safe-area-inset-top, 0px))",
         },
         eyebrow: {
             fontFamily: "mono",
@@ -62,7 +72,7 @@ export const drawerSlotRecipe = defineSlotRecipe({
         description: {
             fontSize: "13.5px",
             lineHeight: "1.55",
-            color: "{colors.brand.700}",
+            color: "brand.fg",
             marginTop: "{spacing.1}",
         },
         // Body padding + fill-height are owned inline by the renderer

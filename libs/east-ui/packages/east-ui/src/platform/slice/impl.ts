@@ -313,8 +313,8 @@ function sliceBreakdownKey(state: StateLike, _config: ConfigLike, row: Record<st
 // ---------------------------------------------------------------------------
 
 export const SLICE_SERIES_PALETTE: readonly string[] = [
-    "{colors.brand.600}",
-    "{colors.brand.800}",
+    "{colors.series.brand}",
+    "{colors.series.brandDeep}",
     "{colors.status.warn}",
     "{colors.status.info}",
     "{colors.gray.500}",

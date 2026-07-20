@@ -55,6 +55,7 @@ import {
 import { NODE_KIND_ACCENT } from './accents.js';
 import { useFlowState } from './flow-state.js';
 import { useBindingOntology } from './bind-runtime.js';
+import { useIsDarkMode } from './use-color-mode.js';
 
 // Monotonic counter for new node ids — synchronous so a pane "add node" can
 // seed the node's position before the binding refetch rebuilds the graph.
@@ -112,6 +113,9 @@ function OntologyEditorBody({
     ontology, readonly, hideMiniMap, hideSearch, handlers,
 }: OntologyEditorBodyProps) {
     const [searchQuery, setSearchQuery] = useState('');
+    // React Flow themes its canvas chrome via `--xy-*` vars keyed on this
+    // prop — Chakra's `.dark` scope doesn't reach them (#362).
+    const isDark = useIsDarkMode();
     const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
     const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
     // Context-menu anchors (screen coords); null = closed.
@@ -337,14 +341,15 @@ function OntologyEditorBody({
                     nodesConnectable={!readonly}
                     elementsSelectable
                     fitView
+                    colorMode={isDark ? 'dark' : 'light'}
                 >
                     {/* Dual line-grid per the schematic `.sch-canvas` spec:
                         minor 24px + major 120px lines in `rule` (gray.200) at
                         35% / 80% — gives the surface graph-paper texture so
                         white node cards read clearly against it (esp. over
                         video). */}
-                    <Background id="ont-minor" variant={BackgroundVariant.Lines} gap={24} lineWidth={1} color="rgba(226, 232, 232, 0.35)" />
-                    <Background id="ont-major" variant={BackgroundVariant.Lines} gap={120} lineWidth={1} color="rgba(226, 232, 232, 0.8)" />
+                    <Background id="ont-minor" variant={BackgroundVariant.Lines} gap={24} lineWidth={1} color="color-mix(in srgb, var(--chakra-colors-border-subtle) 35%, transparent)" />
+                    <Background id="ont-major" variant={BackgroundVariant.Lines} gap={120} lineWidth={1} color="color-mix(in srgb, var(--chakra-colors-border-subtle) 80%, transparent)" />
                     <Controls />
                     {!hideMiniMap && <MiniMap nodeColor={miniMapNodeColor} maskColor="rgba(17, 27, 34, 0.10)" />}
                 </ReactFlow>

@@ -54,10 +54,15 @@ const sizeOverride = {
         paddingX: "10px",
         paddingY: "7px",
         "--input-height": "auto",
+        /* Touch (#348): 44px row + 16px text (iOS zoom-on-focus guard). */
+        _coarse: { fontSize: "{fontSizes.md}", minHeight: "44px" },
     },
     control: {
         fontSize: "inherit",
         "--stepper-width": "22px",
+        /* Touch (#346): wider stepper column on coarse pointers (the two
+         * chevrons stack, so per-trigger halos would overlap each other). */
+        _coarse: { "--stepper-width": "32px" },
     },
 };
 

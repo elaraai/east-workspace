@@ -593,7 +593,10 @@ const ConflictRow = memo(function ConflictRow({ row, depth, bindingPathStr, serv
             </Box>
             <Box
                 display="grid"
-                gridTemplateColumns={supportsManual ? "1fr 1fr 1fr" : "1fr 1fr"}
+                // Compact hosts (#355): auto-fit with a 180px floor stacks the
+                // KEEP YOURS / KEEP THEIRS / MANUAL cards vertically on phones
+                // and keeps them side-by-side at desktop widths.
+                gridTemplateColumns="repeat(auto-fit, minmax(180px, 1fr))"
                 gap="8px"
                 mt="10px"
                 p="12px"

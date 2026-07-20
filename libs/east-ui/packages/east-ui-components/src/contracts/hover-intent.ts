@@ -13,6 +13,11 @@
  *
  * Delays are hard-coded (not theme-overridable) by design — uniform hover
  * feel is part of the design system, not a consumer tuning knob.
+ *
+ * Hover parity (#347): on hover-incapable devices the hover-open primitives
+ * bypass their hover machines entirely (Tooltip → long-press, HoverCard →
+ * tap-to-toggle, both driven by `useHoverCapable()` from `./adaptive.js`),
+ * so these delays only ever apply where hover exists.
  */
 
 export type HoverIntent = "instant" | "brief" | "standard" | "patient";

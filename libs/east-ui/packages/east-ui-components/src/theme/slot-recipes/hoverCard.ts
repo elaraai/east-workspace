@@ -23,15 +23,18 @@ export const hoverCardSlotRecipe = defineSlotRecipe({
             /* Same chrome and sizing rule as Popover — fit to content
              * within the spec band, not Chakra's fixed default width. */
             width: "fit-content",
-            minWidth: "240px",
-            maxWidth: "360px",
+            minWidth: "min(240px, calc(100vw - 16px))",
+            /* Viewport clamp (#347) — same rule as Popover. */
+            maxWidth: "min(360px, calc(100vw - 16px))",
             fontSize: "{fontSizes.control}",
             lineHeight: "{lineHeights.normal}",
             color: "fg",
+            maxHeight: "min(var(--available-height, 60vh), 85vh)",
+            overflowY: "auto",
         },
         arrow: {
             "--arrow-size": "12px",
-            "--arrow-background": "colors.white",
+            "--arrow-background": "colors.bg.surface",
             "--arrow-shadow-color": "colors.gray.300",
         },
         arrowTip: {

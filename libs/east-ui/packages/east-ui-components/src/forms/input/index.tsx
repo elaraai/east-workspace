@@ -226,7 +226,9 @@ export const EastChakraIntegerInput = memo(function EastChakraIntegerInput({ val
 
     return (
         <ChakraNumberInput.Root {...props} onValueChange={handleValueChange}>
+            {/* Mobile keyboards (#348): digits-only layout for integers. */}
             <ChakraNumberInput.Input
+                inputMode="numeric"
                 onKeyDown={handleKeyDown}
                 onBlur={handleBlur}
                 onFocus={handleFocus}
@@ -311,7 +313,9 @@ export const EastChakraFloatInput = memo(function EastChakraFloatInput({ value }
 
     return (
         <ChakraNumberInput.Root {...props} onValueChange={handleValueChange}>
+            {/* Mobile keyboards (#348): decimal layout for floats. */}
             <ChakraNumberInput.Input
+                inputMode="decimal"
                 onBlur={handleBlur}
                 onFocus={handleFocus}
             />

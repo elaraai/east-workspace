@@ -14,14 +14,61 @@
  * @packageDocumentation
  */
 
-import { lazy, memo, Suspense, useMemo } from "react";
-import { Box, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
+import { lazy, memo, Suspense, useMemo, useRef, useState, type ReactNode } from "react";
+import { Box, chakra, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faLayerGroup, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { equalFor } from "@elaraai/east";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 import { Map } from "@elaraai/east-ui/internal";
 import { alignToFlex, type MapValue } from "./leaflet-setup";
 import type { MapEngineProps } from "./engine";
+import { useContainerBelow } from "../../contracts/adaptive.js";
+
+/**
+ * Compact hosts: an interactive overlay (legend / nav panel) starts
+ * COLLAPSED to a 44px chip so the phone-sized map stays visible; tapping
+ * toggles the panel. Regular hosts render the panel as-is.
+ */
+function OverlayHost({ compact, interactive, styles, children }: {
+    compact: boolean;
+    interactive: boolean;
+    styles: SlotStyles;
+    children: ReactNode;
+}) {
+    const [open, setOpen] = useState(false);
+    if (compact && interactive && !open) {
+        return (
+            <chakra.button
+                type="button"
+                css={styles.overlayToggle}
+                aria-label="Show map panel"
+                aria-expanded={false}
+                onClick={() => setOpen(true)}
+            >
+                <FontAwesomeIcon icon={faLayerGroup} />
+            </chakra.button>
+        );
+    }
+    return (
+        <Box css={styles.overlayItem} style={{ pointerEvents: interactive ? "auto" : "none" }}>
+            {compact && interactive && (
+                <chakra.button
+                    type="button"
+                    css={styles.overlayToggle}
+                    data-dismiss=""
+                    aria-label="Hide map panel"
+                    aria-expanded={true}
+                    onClick={() => setOpen(false)}
+                >
+                    <FontAwesomeIcon icon={faXmark} />
+                </chakra.button>
+            )}
+            {children}
+        </Box>
+    );
+}
 
 export type { MapValue, MapAreaValue, MapMarkerValue, MapLineValue, MapOverlayValue } from "./leaflet-setup";
 
@@ -66,6 +113,11 @@ export const EastChakraMap = memo(function EastChakraMap({ value, storageKey }: 
     // The Leaflet engine applies the basemap + zoom clamps + interaction config
     // imperatively on mount; remount it when any of that config identity changes
     // so a reactive value swap (e.g. a new basemap) actually re-applies.
+    // Compact hosts: interactive overlays (legend / nav panels) start
+    // collapsed so the phone-sized map stays visible.
+    const rootRef = useRef<HTMLDivElement | null>(null);
+    const compact = useContainerBelow(rootRef, 480);
+
     const engineKey = useMemo(() => {
         const tilesKey = value.tiles.type === "carto"
             ? `carto:${value.tiles.value.style.type}`
@@ -82,7 +134,7 @@ export const EastChakraMap = memo(function EastChakraMap({ value, storageKey }: 
     }, [value.tiles, value.minZoom, value.maxZoom, value.scrollWheelZoom, value.attributionPrefix, value.fitBounds]);
 
     return (
-        <Box css={styles.root} {...(heightStyle !== undefined ? { style: heightStyle } : {})}>
+        <Box ref={rootRef} css={styles.root} {...(heightStyle !== undefined ? { style: heightStyle } : {})}>
             <Suspense fallback={<Box css={styles.fallback} />}>
                 <MapEngine
                     key={engineKey}
@@ -106,9 +158,9 @@ export const EastChakraMap = memo(function EastChakraMap({ value, storageKey }: 
                             alignItems: alignToFlex(overlay.verticalAlign.type),
                         }}
                     >
-                        <Box css={styles.overlayItem} style={{ pointerEvents: interactive ? "auto" : "none" }}>
+                        <OverlayHost compact={compact} interactive={interactive} styles={styles}>
                             <EastChakraComponent value={overlay.content} storageKey={`${storageKey}.overlay.${key}`} />
-                        </Box>
+                        </OverlayHost>
                     </Box>
                 );
             })}

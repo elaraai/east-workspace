@@ -12,6 +12,7 @@ import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { ScrollArea } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
+import { useCoarsePointer } from "../../contracts/adaptive.js";
 
 const scrollAreaEqual = equalFor(ScrollArea.Types.ScrollArea);
 
@@ -34,8 +35,12 @@ export const EastChakraScrollArea = memo(function EastChakraScrollArea({ value, 
     const trackColor = style ? getSomeorUndefined(style.trackColor) : undefined;
     const background = style ? getSomeorUndefined(style.background) : undefined;
 
-    const showVertical = orientationTag !== "horizontal";
-    const showHorizontal = orientationTag === "horizontal" || orientationTag === "both";
+    // Touch (#350): the 8px drag-thumbs are a desktop affordance — on coarse
+    // pointers native momentum panning does the scrolling and the custom
+    // rails would only intercept touches (`touchAction: none`).
+    const coarse = useCoarsePointer();
+    const showVertical = !coarse && orientationTag !== "horizontal";
+    const showHorizontal = !coarse && (orientationTag === "horizontal" || orientationTag === "both");
     const scrollbarType = scrollbarStyleTag === "reserved" ? "always" : "hover";
 
     // Minimal Radix wrapping. The Radix primitives are unstyled by default;

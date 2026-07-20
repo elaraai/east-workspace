@@ -278,7 +278,7 @@ export const JudgementFacet = memo(function JudgementFacet({ decision, handle, l
                 const current = judgement.answers.get(prompt.id)?.type;
                 return (
                     <Box key={prompt.id} display="flex" alignItems="center" gap="12px" flexWrap="wrap">
-                        <Text fontSize="13px" fontWeight="medium" flex="1" minW="180px">{prompt.text}</Text>
+                        <Text fontSize="13px" fontWeight="medium" flex="1" minW="min(180px, 100%)">{prompt.text}</Text>
                         <Box display="flex" gap="6px" flexShrink={0}>
                             {ANSWERS.map(a => (
                                 <chakra.button
@@ -343,7 +343,7 @@ export const JudgementFacet = memo(function JudgementFacet({ decision, handle, l
                             ) : (
                                 <Text {...caption} color="fg" flexShrink={0}>{activeLever.label}</Text>
                             )}
-                            <Box flex="1" minW="260px">
+                            <Box flex="1" minW="min(260px, 100%)">
                                 <LeverEditor
                                     key={activeLever.case}
                                     leverCase={activeLever.case}

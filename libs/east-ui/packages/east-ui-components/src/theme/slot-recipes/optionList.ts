@@ -32,6 +32,8 @@ export const optionListSlotRecipe = defineSlotRecipe({
         item: {
             display: "flex",
             alignItems: "center",
+            /* Touch (#346). */
+            _coarse: { minHeight: "44px" },
             gap: "{spacing.3}",
             width: "100%",
             paddingX: "16px",
@@ -70,7 +72,7 @@ export const optionListSlotRecipe = defineSlotRecipe({
             display: "inline-flex",
             alignItems: "center",
             flexShrink: 0,
-            color: "{colors.brand.700}",
+            color: "brand.fg",
         },
     },
 });

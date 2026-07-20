@@ -405,7 +405,7 @@ function EventChip({ event, eventStyle, gripStyle, shape, inLane = false, dnd }:
         <Box css={chipCss} data-slot="event" data-state={sk}
             onPointerDown={onChipPointerDown}
             {...(from && onChipPointerDown ? { "data-draggable": "" } : {})}>
-            {showGrip && <Box as="span" css={gripStyle} data-slot="grip"><FontAwesomeIcon icon={faGripVertical} /></Box>}
+            {showGrip && <Box as="span" css={gripStyle} data-slot="grip" data-drag-grip=""><FontAwesomeIcon icon={faGripVertical} /></Box>}
             <Box as="span" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" minW={0}>{event.label}</Box>
             {shape === "span" && startEdgeDown && (
                 <Box as="span" position="absolute" left="-3px" top="0" bottom="0" width="6px" cursor="ew-resize"
@@ -1063,13 +1063,12 @@ export const EastChakraPlanner = memo(function EastChakraPlanner({ value, storag
                                     const mStyle = marker ? statusStyles[marker.status.type] ?? statusStyles.info : undefined;
                                     const past = nowCol > 0 && ci < nowCol;
                                     // Only the past/future boundary tints the background: past (locked) cells
-                                    // carry a light grey wash, the open future stays clear. Empty vs booked
-                                    // future cells render identically — the event chip (and bucket tray) is the
-                                    // only marker of a booking. The wash reads `bg.muted` directly because
-                                    // Chakra's slot recipe doesn't surface a single-property slot via a spread.
-                                    let cellCss: Record<string, unknown> = past
-                                        ? { ...base.cell, background: "bg.muted" }
-                                        : { ...base.cell };
+                                    // carry a muted wash, the open future stays clear. Empty vs booked future
+                                    // cells render identically — the event chip (and bucket tray) is the only
+                                    // marker of a booking. The wash + its contrasting separator live on the
+                                    // `cell` slot's `&[data-past]` rule (keyed off the attribute below), so the
+                                    // locked band keeps its column grid in dark mode too (#362).
+                                    let cellCss: Record<string, unknown> = { ...base.cell };
                                     // Per-cell bucketing — this cell is a sub-grid
                                     // iff it holds a bucketed event, else a flat
                                     // unitH cell (so a flat column can sit beside a

@@ -18,6 +18,7 @@ import {
     BlobType,
     DictType,
     FunctionType,
+    AsyncFunctionType,
     LiteralValueType,
     EastTypeType,
 } from "@elaraai/east";
@@ -104,7 +105,7 @@ import { NavListType } from "./navigation/nav-list/types.js";
 import { BadgeType } from "./display/badge/types.js";
 import { TagType } from "./display/tag/types.js";
 import { AvatarType } from "./display/avatar/types.js";
-import { ImageType } from "./display/image/types.js";
+import { ImageType, ImageSourceType } from "./display/image/types.js";
 import { MetricChipToneType, MetricChipStyleType } from "./display/metric-chip/types.js";
 import { EditableChipStyleType } from "./display/editable-chip/types.js";
 import { KbdType } from "./display/kbd/types.js";
@@ -113,7 +114,19 @@ import { SegmentedMeterSegmentType, SegmentedMeterStyleType } from "./display/se
 import { BarStripStyleType, BarStripSortType } from "./display/bar-strip/types.js";
 import { AvatarGroupType } from "./display/avatar-group/types.js";
 import { TraceType } from "./display/trace/types.js";
-import { LibraryRootType } from "./collections/library/types.js";
+import { LibraryRootType, LibraryGroupMetaType } from "./collections/library/types.js";
+import {
+    DeckFactType,
+    DeckFillType,
+    DeckLayoutType,
+    DeckMetricType,
+    DeckNoteType,
+    DeckReadoutType,
+    DeckRowsType,
+    DeckStatusesType,
+    DeckStyleType,
+} from "./collections/deck/types.js";
+import { ValueTreeRootType } from "./collections/value-tree/types.js";
 import { RosterModeType, RosterPersonType, RosterShiftType } from "./collections/roster/types.js";
 import { BoardModeType, BoardEntityType, BoardAssignmentType, BoardRequirementType } from "./collections/board/types.js";
 import { CellRefType, DragEventType } from "./contracts/drag.js";
@@ -569,6 +582,32 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         render: FunctionType([], node),
         navKey: StringType,
     }),
+    /**
+     * App — the application shell (#367). Composes the navigation primitives
+     * into one surface: a collapsible nav rail, a breadcrumb app bar, an
+     * optional brand logo, app-bar slots, and the routed page body. The
+     * `App.Root` factory pre-builds `rail` / `breadcrumb` as `Reactive`
+     * NavList / Breadcrumb nodes (reading the shared `nav` handle) and `body`
+     * as a `Pages` node; the renderer is dumb layout + chrome (collapse state,
+     * `AppProvider` host-slot injection). `navKey` is the nav path's State key
+     * (collapse persistence + hotkey scope).
+     */
+    App: StructType({
+        title: OptionType(StringType),
+        logo: OptionType(ImageSourceType),
+        logoCollapsed: OptionType(ImageSourceType),
+        rail: node,
+        breadcrumb: node,
+        body: node,
+        barStart: ArrayType(node),
+        barEnd: ArrayType(node),
+        collapsible: BooleanType,
+        themeToggle: BooleanType,
+        /** App-bar density — comfortable (2 rows) / compact (tighter 2 rows) /
+         *  condensed (breadcrumb + title on ONE row). Rail + body stay constant. */
+        density: OptionType(DensityType),
+        navKey: StringType,
+    }),
 
     // Display
     Badge: BadgeType,
@@ -639,6 +678,54 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
 
     // Library — draggable palette (drag & drop source role)
     Library: LibraryRootType,
+
+    // Deck — declarative grouped card collection (#359). Items are resolved
+    // at factory time (the renderer never sees the host row type); `face`
+    // carries an optional fully-custom card body and `detail` / `hover`
+    // the card's VIEW state and hover peek, hence the inline `node`.
+    // `status` keys resolve in the `statuses` registry (solid tag + face
+    // wash + fill colour). Filtering/search flow through the slice
+    // interface (like Table).
+    Deck: StructType({
+        items: ArrayType(StructType({
+            key: StringType,
+            title: StringType,
+            sublabel: OptionType(StringType),
+            icon: OptionType(StringType),
+            status: OptionType(StringType),
+            metrics: ArrayType(DeckMetricType),
+            fill: OptionType(DeckFillType),
+            facts: ArrayType(DeckFactType),
+            filtered: BooleanType,
+            groups: DictType(StringType, StringType),
+            face: OptionType(node),
+            detail: OptionType(node),
+            hover: OptionType(node),
+        })),
+        statuses: DeckStatusesType,
+        groupOptions: ArrayType(LibraryGroupMetaType),
+        groupSummaries: DictType(StringType, DictType(StringType, StringType)),
+        footer: ArrayType(StructType({ label: StringType, value: StringType })),
+        legend: BooleanType,
+        layout: OptionType(DeckLayoutType),
+        onCardClick: OptionType(FunctionType([StringType], NullType)),
+        onOpen: OptionType(AsyncFunctionType([StringType], NullType)),
+        onClose: OptionType(AsyncFunctionType([], NullType)),
+        slice: OptionType(SliceChromeType),
+        style: OptionType(DeckStyleType),
+    }),
+
+    // Deck popover building blocks (`Deck.Readout` / `Deck.Rows` /
+    // `Deck.Note`) — the recipe-styled detail vocabulary for `onClick`
+    // popover bodies.
+    DeckReadout: DeckReadoutType,
+    DeckRows: DeckRowsType,
+    DeckNote: DeckNoteType,
+
+    // ValueTree — editable value-driven tree (#360). Any East value is
+    // materialized into the fixed recursive node IR at factory time; edits
+    // report through typed path callbacks.
+    ValueTree: ValueTreeRootType,
 
     // Slice — typed-narrowing UI family (bound to the Slice platform)
     SliceSummary: SliceSummaryType,
@@ -1403,6 +1490,31 @@ export const UIComponentType: RecursiveType<UIComponentNode> = UIComponentTypeIm
  * Type alias for UIComponentType.
  */
 export type UIComponentType = typeof UIComponentType;
+
+/**
+ * Standalone `StructType` mirroring the inline `App` variant payload (#367) — the
+ * renderer derives its decoded value type (`ValueTypeOf`) and memo comparator
+ * (`equalFor`) from this. Keep it in **lockstep** with the `App:` case in the
+ * variant above (the inline case uses `node` for recursion; this uses the
+ * resolved `UIComponentType`, which is structurally identical).
+ */
+export const AppValueType = StructType({
+    title: OptionType(StringType),
+    logo: OptionType(ImageSourceType),
+    logoCollapsed: OptionType(ImageSourceType),
+    rail: UIComponentType,
+    breadcrumb: UIComponentType,
+    body: UIComponentType,
+    barStart: ArrayType(UIComponentType),
+    barEnd: ArrayType(UIComponentType),
+    collapsible: BooleanType,
+    themeToggle: BooleanType,
+    density: OptionType(DensityType),
+    navKey: StringType,
+});
+
+/** Type alias for {@link AppValueType}. */
+export type AppValueType = typeof AppValueType;
 
 // ============================================================================
 // Shared positioned-content primitives (UIComp-coupled)

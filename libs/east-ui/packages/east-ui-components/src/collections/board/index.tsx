@@ -18,6 +18,15 @@ import { useReviewController, ReviewFoot } from "../shared/review";
 
 const boardEqual = equalFor(Board.Types.Board);
 
+/** Minimum width of a shift column — the `minmax(SHIFT_MIN, 1fr)` floor that
+ *  keeps every column equal (and aligned to the header) while the board pans
+ *  horizontally when the columns can't fit. Bare `1fr` (= `minmax(auto, 1fr)`)
+ *  let a wide person-chip grow its own column, desyncing the independent
+ *  per-row grids. Matches Planner / Matrix and fulfils the recipe's documented
+ *  180px column floor. */
+const SHIFT_MIN_PX = 180;
+const SHIFT_MIN = `${SHIFT_MIN_PX}px`;
+
 /** East Board value type. */
 export type BoardValue = ValueTypeOf<typeof Board.Types.Board>;
 
@@ -124,7 +133,7 @@ function BoardChip({ surface, area, shift, assignment, label, edit, dragDisabled
             {...(draggable && onPointerDown ? { "data-draggable": "" } : {})}
         >
             {draggable && onPointerDown && (
-                <Box as="span" css={styles.chipGrip}>
+                <Box as="span" css={styles.chipGrip} data-drag-grip="">
                     <FontAwesomeIcon icon={faGripVertical} />
                 </Box>
             )}
@@ -445,13 +454,18 @@ export const EastChakraBoard = memo(function EastChakraBoard({ value, storageKey
 
     // Uniform sizing contract (#320) — bound the board; it scrolls within,
     // mounting only the visible area rows via the shared VirtualRows frame.
-    const gridCols = `${areaWidth} repeat(${value.shifts.length}, 1fr)`;
+    // Shift columns are `minmax(SHIFT_MIN, 1fr)` (equal, floored) + a matching
+    // grid `minWidth`, mirroring Planner / Matrix / Roster — bare `1fr` let a
+    // wide chip grow its own column and desync the independent per-row grids.
+    const gridCols = `${areaWidth} repeat(${value.shifts.length}, minmax(${SHIFT_MIN}, 1fr))`;
+    const gridMinWidth = `calc(${areaWidth} + ${value.shifts.length * SHIFT_MIN_PX}px)`;
+    const gridStyle = { gridTemplateColumns: gridCols, minWidth: gridMinWidth };
 
     // The header row and each area row are independent grids sharing one column
     // template (border-per-cell, no grid gap), so they align while each row
     // becomes a self-contained virtual item.
     const headerNode = (
-        <Box css={styles.grid} style={{ gridTemplateColumns: gridCols }}>
+        <Box css={styles.grid} style={gridStyle}>
             <Box css={styles.headerCell}>{areaHeader}</Box>
             {value.shifts.map(shift => {
                 const sublabel = getSomeorUndefined(shift.sublabel);
@@ -470,7 +484,7 @@ export const EastChakraBoard = memo(function EastChakraBoard({ value, storageKey
         if (area === undefined) return null;
         const sublabel = getSomeorUndefined(area.sublabel);
         return (
-            <Box css={styles.grid} style={{ gridTemplateColumns: gridCols }}>
+            <Box css={styles.grid} style={gridStyle}>
                 <Box css={styles.areaCell}>
                     <Box as="span" css={styles.areaLabel}>{area.label}</Box>
                     {sublabel !== undefined && <Box as="span" css={styles.areaSublabel}>{sublabel}</Box>}

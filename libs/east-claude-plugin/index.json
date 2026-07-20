@@ -1,14 +1,14 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1494,
-    "totalFiles": 188,
+    "totalEntries": 1516,
+    "totalFiles": 191,
     "packages": {
       "east": 490,
       "east-node-std": 43,
       "east-node-io": 63,
       "east-py-datascience": 90,
-      "east-ui": 734,
+      "east-ui": 756,
       "e3-ui": 58,
       "e3": 7,
       "e3-ui-cli": 4,
@@ -15551,22 +15551,25 @@
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/collections/calendar.examples.tsx",
       "suite": "",
-      "test": "Forecasted demand heatmap — four weeks with selection summary and drill action",
+      "test": "The full heatmap — the Σ-wk totals rail, the per-weekday mean row, and the selection footer (predicted / last-year / delta chip) with the low→high gradient legend",
       "keywords": [
         "Calendar",
         "heatmap",
         "intensity",
         "week",
         "day",
-        "summary",
-        "delta"
+        "totals",
+        "mean",
+        "footer",
+        "legend",
+        "compare"
       ],
       "imports": [
         "import { East, StringType, NullType, example } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Box, Calendar, Reactive, Text, VStack } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Forecasted demand heatmap — four weeks with selection summary and drill action\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const days = $.const([\n            { week: \"W37\", day: \"Tue\", demand: 102.0, lastYear: 96.0 },\n            { week: \"W37\", day: \"Wed\", demand: 110.0, lastYear: 104.0 },\n            { week: \"W37\", day: \"Thu\", demand: 128.0, lastYear: 115.0 },\n            { week: \"W37\", day: \"Fri\", demand: 152.0, lastYear: 140.0 },\n            { week: \"W37\", day: \"Sat\", demand: 168.0, lastYear: 151.0 },\n            { week: \"W37\", day: \"Sun\", demand: 141.0, lastYear: 129.0 },\n            { week: \"W38\", day: \"Mon\", demand: 98.0, lastYear: 91.0 },\n            { week: \"W38\", day: \"Tue\", demand: 104.0, lastYear: 99.0 },\n            { week: \"W38\", day: \"Wed\", demand: 122.0, lastYear: 109.0 },\n            { week: \"W38\", day: \"Thu\", demand: 131.0, lastYear: 112.0 },\n            { week: \"W38\", day: \"Fri\", demand: 156.0, lastYear: 137.0 },\n            { week: \"W38\", day: \"Sat\", demand: 189.0, lastYear: 164.0 },\n            { week: \"W38\", day: \"Sun\", demand: 162.0, lastYear: 148.0 },\n            { week: \"W39\", day: \"Mon\", demand: 96.0, lastYear: 90.0 },\n            { week: \"W39\", day: \"Tue\", demand: 118.0, lastYear: 106.0 },\n            { week: \"W39\", day: \"Wed\", demand: 125.0, lastYear: 114.0 },\n            { week: \"W39\", day: \"Thu\", demand: 144.0, lastYear: 126.0 },\n            { week: \"W39\", day: \"Fri\", demand: 182.0, lastYear: 158.0 },\n            { week: \"W39\", day: \"Sat\", demand: 204.0, lastYear: 175.0 },\n            { week: \"W39\", day: \"Sun\", demand: 177.0, lastYear: 160.0 },\n            { week: \"W40\", day: \"Mon\", demand: 93.0, lastYear: 88.0 },\n            { week: \"W40\", day: \"Tue\", demand: 115.0, lastYear: 103.0 },\n            { week: \"W40\", day: \"Wed\", demand: 147.0, lastYear: 128.0 },\n            { week: \"W40\", day: \"Thu\", demand: 158.0, lastYear: 137.0 },\n            { week: \"W40\", day: \"Fri\", demand: 196.0, lastYear: 169.0 },\n            { week: \"W40\", day: \"Sat\", demand: 219.0, lastYear: 187.0 },\n            { week: \"W40\", day: \"Sun\", demand: 191.0, lastYear: 170.0 },\n        ]);\n        return (\n            <Calendar\n                data={days}\n                cell={d => ({\n                    week: d.week, day: d.day, value: d.demand,\n                    text: East.Float.printFixed(d.demand, 0n),\n                    summary: East.str`predicted ${East.Float.printFixed(d.demand, 0n)} · last yr ${East.Float.printFixed(d.lastYear, 0n)}`,\n                    delta: d.demand.subtract(d.lastYear).divide(d.lastYear),\n                })}\n                actionLabel=\"Open day\"\n            />\n        );\n    })"
+      "source": "// The full heatmap — the Σ-wk totals rail, the per-weekday mean row, and the selection footer (predicted / last-year / delta chip) with the low→high gradient legend\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        // Five weeks × seven days of forecast demand with a last-year\n        // baseline; the first Monday is omitted so it renders the hatched\n        // empty cell.\n        const days = $.const([\n            { week: \"W37\", day: \"Tue\", demand: 105.0, lastYear: 95.0 }, { week: \"W37\", day: \"Wed\", demand: 116.0, lastYear: 102.0 },\n            { week: \"W37\", day: \"Thu\", demand: 120.0, lastYear: 103.0 }, { week: \"W37\", day: \"Fri\", demand: 144.0, lastYear: 121.0 },\n            { week: \"W37\", day: \"Sat\", demand: 179.0, lastYear: 147.0 }, { week: \"W37\", day: \"Sun\", demand: 151.0, lastYear: 134.0 },\n            { week: \"W38\", day: \"Mon\", demand: 96.0, lastYear: 89.0 }, { week: \"W38\", day: \"Tue\", demand: 104.0, lastYear: 94.0 },\n            { week: \"W38\", day: \"Wed\", demand: 124.0, lastYear: 109.0 }, { week: \"W38\", day: \"Thu\", demand: 131.0, lastYear: 112.0 },\n            { week: \"W38\", day: \"Fri\", demand: 157.0, lastYear: 132.0 }, { week: \"W38\", day: \"Sat\", demand: 187.0, lastYear: 153.0 },\n            { week: \"W38\", day: \"Sun\", demand: 160.0, lastYear: 142.0 }, { week: \"W39\", day: \"Mon\", demand: 98.0, lastYear: 91.0 },\n            { week: \"W39\", day: \"Tue\", demand: 116.0, lastYear: 104.0 }, { week: \"W39\", day: \"Wed\", demand: 127.0, lastYear: 112.0 },\n            { week: \"W39\", day: \"Thu\", demand: 141.0, lastYear: 121.0 }, { week: \"W39\", day: \"Fri\", demand: 165.0, lastYear: 139.0 },\n            { week: \"W39\", day: \"Sat\", demand: 201.0, lastYear: 165.0 }, { week: \"W39\", day: \"Sun\", demand: 164.0, lastYear: 145.0 },\n            { week: \"W40\", day: \"Mon\", demand: 102.0, lastYear: 95.0 }, { week: \"W40\", day: \"Tue\", demand: 118.0, lastYear: 106.0 },\n            { week: \"W40\", day: \"Wed\", demand: 134.0, lastYear: 118.0 }, { week: \"W40\", day: \"Thu\", demand: 141.0, lastYear: 121.0 },\n            { week: \"W40\", day: \"Fri\", demand: 175.0, lastYear: 147.0 }, { week: \"W40\", day: \"Sat\", demand: 207.0, lastYear: 170.0 },\n            { week: \"W40\", day: \"Sun\", demand: 175.0, lastYear: 155.0 }, { week: \"W41\", day: \"Mon\", demand: 112.0, lastYear: 104.0 },\n            { week: \"W41\", day: \"Tue\", demand: 130.0, lastYear: 117.0 }, { week: \"W41\", day: \"Wed\", demand: 140.0, lastYear: 123.0 },\n            { week: \"W41\", day: \"Thu\", demand: 154.0, lastYear: 132.0 }, { week: \"W41\", day: \"Fri\", demand: 178.0, lastYear: 150.0 },\n            { week: \"W41\", day: \"Sat\", demand: 222.0, lastYear: 182.0 }, { week: \"W41\", day: \"Sun\", demand: 181.0, lastYear: 160.0 },\n        ]);\n        return (\n            <Calendar\n                data={days}\n                cell={d => ({\n                    week: d.week, day: d.day,\n                    value: d.demand, compare: d.lastYear,\n                    text: East.Float.printFixed(d.demand, 0n),\n                })}\n                totals={Calendar.totals({ aggregate: \"sum\", label: \"Σ wk\" })}\n                aggregateRow={Calendar.aggregateRow({ aggregate: \"mean\", label: \"mean\" })}\n                footer={Calendar.footer({ valueLabel: \"predicted\", compareLabel: \"last yr\", legend: true })}\n            />\n        );\n    })"
     },
     {
       "id": "east-ui:calendar.examples.tsx:calendarMinimal",
@@ -15574,19 +15577,65 @@
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/collections/calendar.examples.tsx",
       "suite": "",
-      "test": "Minimal sparse heatmap — missing days render the neutral fill",
+      "test": "Minimal sparse heatmap — no chrome; missing days render the hatched neutral fill",
       "keywords": [
         "Calendar",
         "heatmap",
         "minimal",
-        "sparse"
+        "sparse",
+        "hatched"
       ],
       "imports": [
         "import { East, StringType, NullType, example } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Box, Calendar, Reactive, Text, VStack } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Minimal sparse heatmap — missing days render the neutral fill\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const days = $.const([\n            { week: \"W1\", day: \"Mon\", v: 4.0 },\n            { week: \"W1\", day: \"Wed\", v: 9.0 },\n            { week: \"W1\", day: \"Fri\", v: 2.0 },\n            { week: \"W2\", day: \"Tue\", v: 6.0 },\n            { week: \"W2\", day: \"Sat\", v: 12.0 },\n        ]);\n        return (\n            <Calendar\n                data={days}\n                cell={d => ({ week: d.week, day: d.day, value: d.v })}\n            />\n        );\n    })"
+      "source": "// Minimal sparse heatmap — no chrome; missing days render the hatched neutral fill\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const days = $.const([\n            { week: \"W1\", day: \"Mon\", v: 4.0 },\n            { week: \"W1\", day: \"Wed\", v: 9.0 },\n            { week: \"W1\", day: \"Fri\", v: 2.0 },\n            { week: \"W2\", day: \"Tue\", v: 6.0 },\n            { week: \"W2\", day: \"Sat\", v: 12.0 },\n        ]);\n        return (\n            <Calendar\n                data={days}\n                cell={d => ({ week: d.week, day: d.day, value: d.v })}\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:calendar.examples.tsx:calendarValuesOff",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/calendar.examples.tsx",
+      "suite": "",
+      "test": "A pure heat read — ",
+      "keywords": [
+        "Calendar",
+        "values",
+        "heat",
+        "overview",
+        "scale",
+        "steps"
+      ],
+      "imports": [
+        "import { East, StringType, NullType, example } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Calendar, Reactive, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// A pure heat read — \n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const days = $.const([\n            { week: \"W37\", day: \"Mon\", demand: 96.0 }, { week: \"W37\", day: \"Tue\", demand: 105.0 }, { week: \"W37\", day: \"Wed\", demand: 116.0 },\n            { week: \"W37\", day: \"Thu\", demand: 120.0 }, { week: \"W37\", day: \"Fri\", demand: 144.0 }, { week: \"W37\", day: \"Sat\", demand: 179.0 }, { week: \"W37\", day: \"Sun\", demand: 151.0 },\n            { week: \"W38\", day: \"Mon\", demand: 98.0 }, { week: \"W38\", day: \"Tue\", demand: 116.0 }, { week: \"W38\", day: \"Wed\", demand: 127.0 },\n            { week: \"W38\", day: \"Thu\", demand: 141.0 }, { week: \"W38\", day: \"Fri\", demand: 165.0 }, { week: \"W38\", day: \"Sat\", demand: 201.0 }, { week: \"W38\", day: \"Sun\", demand: 164.0 },\n            { week: \"W39\", day: \"Mon\", demand: 112.0 }, { week: \"W39\", day: \"Tue\", demand: 130.0 }, { week: \"W39\", day: \"Wed\", demand: 140.0 },\n            { week: \"W39\", day: \"Thu\", demand: 154.0 }, { week: \"W39\", day: \"Fri\", demand: 178.0 }, { week: \"W39\", day: \"Sat\", demand: 222.0 }, { week: \"W39\", day: \"Sun\", demand: 181.0 },\n        ]);\n        return (\n            <Calendar\n                data={days}\n                cell={d => ({ week: d.week, day: d.day, value: d.demand })}\n                values={false}\n                scale={Calendar.scale({ steps: 6n })}\n                density=\"condensed\"\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:calendar.examples.tsx:calendarTotals",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/calendar.examples.tsx",
+      "suite": "",
+      "test": "The weekly totals rail and per-weekday aggregate row — the same sum/mean/min/max/count vocabulary as Table",
+      "keywords": [
+        "Calendar",
+        "totals",
+        "aggregate",
+        "sum",
+        "mean",
+        "rail",
+        "bar"
+      ],
+      "imports": [
+        "import { East, StringType, NullType, example } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Box, Calendar, Reactive, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// The weekly totals rail and per-weekday aggregate row — the same sum/mean/min/max/count vocabulary as Table\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const days = $.const([\n            { week: \"W37\", day: \"Mon\", demand: 96.0 }, { week: \"W37\", day: \"Tue\", demand: 105.0 }, { week: \"W37\", day: \"Wed\", demand: 116.0 },\n            { week: \"W37\", day: \"Thu\", demand: 120.0 }, { week: \"W37\", day: \"Fri\", demand: 144.0 }, { week: \"W37\", day: \"Sat\", demand: 179.0 }, { week: \"W37\", day: \"Sun\", demand: 151.0 },\n            { week: \"W38\", day: \"Mon\", demand: 98.0 }, { week: \"W38\", day: \"Tue\", demand: 116.0 }, { week: \"W38\", day: \"Wed\", demand: 127.0 },\n            { week: \"W38\", day: \"Thu\", demand: 141.0 }, { week: \"W38\", day: \"Fri\", demand: 165.0 }, { week: \"W38\", day: \"Sat\", demand: 201.0 }, { week: \"W38\", day: \"Sun\", demand: 164.0 },\n            { week: \"W39\", day: \"Mon\", demand: 112.0 }, { week: \"W39\", day: \"Tue\", demand: 130.0 }, { week: \"W39\", day: \"Wed\", demand: 140.0 },\n            { week: \"W39\", day: \"Thu\", demand: 154.0 }, { week: \"W39\", day: \"Fri\", demand: 178.0 }, { week: \"W39\", day: \"Sat\", demand: 222.0 }, { week: \"W39\", day: \"Sun\", demand: 181.0 },\n        ]);\n        return (\n            <Calendar\n                data={days}\n                cell={d => ({ week: d.week, day: d.day, value: d.demand, text: East.Float.printFixed(d.demand, 0n) })}\n                totals={Calendar.totals({ aggregate: \"sum\", label: \"Σ wk\", bar: true })}\n                aggregateRow={Calendar.aggregateRow({ aggregate: \"max\", label: \"peak\" })}\n            />\n        );\n    })"
     },
     {
       "id": "east-ui:calendar.examples.tsx:calendarDensity",
@@ -15616,20 +15665,21 @@
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/collections/calendar.examples.tsx",
       "suite": "",
-      "test": "Heatmap whose onSelect tracks the drilled day",
+      "test": "Heatmap whose onSelect tracks the drilled day; the footer surfaces the predicted vs last-year delta",
       "keywords": [
         "Calendar",
         "Reactive",
         "State",
         "onSelect",
-        "interactive"
+        "interactive",
+        "footer"
       ],
       "imports": [
         "import { East, StringType, NullType, example } from \"@elaraai/east\";",
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Box, Calendar, Reactive, Text, VStack } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Heatmap whose onSelect tracks the drilled day\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const bind = $.let(State.bind([StringType], \"calendar_selected\", \"none\"));\n            const onSelect = $.const(East.function([Calendar.Types.CellRef], NullType, ($, ref) => {\n                $(bind.write(East.str`${ref.day} ${ref.week}`));\n            }));\n            const selected = $.let(bind.read());\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <Calendar\n                        data={[\n                            { week: \"W1\", day: \"Mon\", v: 10.0 },\n                            { week: \"W1\", day: \"Tue\", v: 20.0 },\n                            { week: \"W1\", day: \"Wed\", v: 30.0 },\n                        ]}\n                        cell={d => ({ week: d.week, day: d.day, value: d.v })}\n                        onSelect={onSelect}\n                    />\n                    <Text.MonoLabel>{East.str`SELECTED · ${selected}`}</Text.MonoLabel>\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
+      "source": "// Heatmap whose onSelect tracks the drilled day; the footer surfaces the predicted vs last-year delta\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const days = $.const([\n                { week: \"W37\", day: \"Tue\", demand: 105.0, lastYear: 95.0 }, { week: \"W37\", day: \"Wed\", demand: 116.0, lastYear: 102.0 },\n                { week: \"W37\", day: \"Thu\", demand: 120.0, lastYear: 103.0 }, { week: \"W37\", day: \"Fri\", demand: 144.0, lastYear: 121.0 },\n                { week: \"W37\", day: \"Sat\", demand: 179.0, lastYear: 147.0 }, { week: \"W37\", day: \"Sun\", demand: 151.0, lastYear: 134.0 },\n                { week: \"W38\", day: \"Mon\", demand: 96.0, lastYear: 89.0 }, { week: \"W38\", day: \"Tue\", demand: 104.0, lastYear: 94.0 },\n                { week: \"W38\", day: \"Wed\", demand: 124.0, lastYear: 109.0 }, { week: \"W38\", day: \"Thu\", demand: 131.0, lastYear: 112.0 },\n                { week: \"W38\", day: \"Fri\", demand: 157.0, lastYear: 132.0 }, { week: \"W38\", day: \"Sat\", demand: 187.0, lastYear: 153.0 },\n                { week: \"W38\", day: \"Sun\", demand: 160.0, lastYear: 142.0 }, { week: \"W39\", day: \"Mon\", demand: 98.0, lastYear: 91.0 },\n                { week: \"W39\", day: \"Tue\", demand: 116.0, lastYear: 104.0 }, { week: \"W39\", day: \"Wed\", demand: 127.0, lastYear: 112.0 },\n                { week: \"W39\", day: \"Thu\", demand: 141.0, lastYear: 121.0 }, { week: \"W39\", day: \"Fri\", demand: 165.0, lastYear: 139.0 },\n                { week: \"W39\", day: \"Sat\", demand: 201.0, lastYear: 165.0 }, { week: \"W39\", day: \"Sun\", demand: 164.0, lastYear: 145.0 },\n            ]);\n            const bind = $.let(State.bind([StringType], \"calendar_selected\", \"none\"));\n            const onSelect = $.const(East.function([Calendar.Types.CellRef], NullType, ($, ref) => {\n                $(bind.write(East.str`${ref.day} ${ref.week}`));\n            }));\n            const selected = $.let(bind.read());\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <Calendar\n                        data={days}\n                        cell={d => ({ week: d.week, day: d.day, value: d.demand, compare: d.lastYear, text: East.Float.printFixed(d.demand, 0n) })}\n                        footer={Calendar.footer({ valueLabel: \"predicted\", compareLabel: \"last yr\", legend: true })}\n                        onSelect={onSelect}\n                    />\n                    <Text.MonoLabel>{East.str`SELECTED · ${selected}`}</Text.MonoLabel>\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "east-ui:calendar.examples.tsx:calendarScroll",
@@ -15846,6 +15896,170 @@
         "import { Badge, DataList, Highlight, HoverCard, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// Colour escape hatches — explicit background / border / label / value colours for brand alignment\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <DataList\n                orientation=\"horizontal\"\n                background=\"blue.50\"\n                borderColor=\"blue.200\"\n                labelColor=\"blue.700\"\n                valueColor=\"blue.900\"\n                items={[\n                    { label: \"Username\", value: <Text>alice_smith</Text> },\n                    { label: \"Email\", value: <Text>alice@example.com</Text> },\n                    { label: \"Status\", value: <Text>Active</Text> },\n                ]}\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:deck.examples.tsx:deckBasic",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/deck.examples.tsx",
+      "suite": "",
+      "test": "Rows as a wrapping grid of mini cards — each carries an explicit status colour (solid tag + face wash + fill bar) from the deck",
+      "keywords": [
+        "Deck",
+        "card",
+        "cards",
+        "collection",
+        "grid",
+        "status",
+        "statuses",
+        "metric",
+        "fill"
+      ],
+      "imports": [
+        "import { ArrayType, East, FloatType, IntegerType, NullType, StringType, StructType, example, none } from \"@elaraai/east\";",
+        "import { Slice, State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Chart, Deck, HStack, Reactive, Tag, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Rows as a wrapping grid of mini cards — each carries an explicit status colour (solid tag + face wash + fill bar) from the deck\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Deck\n            data={LINES}\n            statuses={LINE_STATUSES}\n            card={r => ({\n                key: r.id,\n                title: r.name,\n                sublabel: r.team,\n                status: r.state,\n                metrics: [\n                    Deck.metric(\"Temp\", r.temp, { format: v => East.str`${East.print(v)}°`, warn: r.state.equals(\"fault\") }),\n                    Deck.metric(\"Rate\", r.rate, { format: Chart.format.compact() }),\n                ],\n                fill: { value: r.load.multiply(100.0), max: 100.0, format: v => East.str`${East.print(v)}%` },\n            })}\n        />\n    ))"
+    },
+    {
+      "id": "east-ui:deck.examples.tsx:deckGroupBy",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/deck.examples.tsx",
+      "suite": "",
+      "test": "Named GROUP BY options — grouping by the status accessor decorates group heads with the registry",
+      "keywords": [
+        "Deck",
+        "groupBy",
+        "group",
+        "toolbar",
+        "summary",
+        "swatch"
+      ],
+      "imports": [
+        "import { ArrayType, East, FloatType, IntegerType, NullType, StringType, StructType, example, none } from \"@elaraai/east\";",
+        "import { Slice, State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Chart, Deck, HStack, Reactive, Tag, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Named GROUP BY options — grouping by the status accessor decorates group heads with the registry\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Deck\n            data={LINES}\n            statuses={LINE_STATUSES}\n            card={r => ({\n                key: r.id,\n                title: r.name,\n                sublabel: r.team,\n                status: r.state,\n                fill: { value: r.load.multiply(100.0), max: 100.0 },\n            })}\n            groupBy={[\n                { key: \"state\", label: \"Status\", value: r => r.state, summary: rows => East.str`${East.print(rows.size())} lines` },\n                { key: \"team\", label: \"Team\", value: r => r.team },\n            ]}\n        />\n    ))"
+    },
+    {
+      "id": "east-ui:deck.examples.tsx:deckListLayout",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/deck.examples.tsx",
+      "suite": "",
+      "test": "The list layout — full-width card rows instead of the wrapping grid",
+      "keywords": [
+        "Deck",
+        "layout",
+        "list",
+        "rows",
+        "metric"
+      ],
+      "imports": [
+        "import { ArrayType, East, FloatType, IntegerType, NullType, StringType, StructType, example, none } from \"@elaraai/east\";",
+        "import { Slice, State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Chart, Deck, HStack, Reactive, Tag, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// The list layout — full-width card rows instead of the wrapping grid\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Deck\n            data={LINES}\n            statuses={LINE_STATUSES}\n            card={r => ({\n                key: r.id,\n                title: r.name,\n                sublabel: r.team,\n                status: r.state,\n                metrics: [Deck.metric(\"Load\", r.load.multiply(100.0), { format: v => East.str`${East.print(v)}%` })],\n            })}\n            layout=\"list\"\n        />\n    ))"
+    },
+    {
+      "id": "east-ui:deck.examples.tsx:deckCustomFace",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/deck.examples.tsx",
+      "suite": "",
+      "test": "A fully custom card body via ",
+      "keywords": [
+        "Deck",
+        "render",
+        "custom",
+        "face",
+        "compose"
+      ],
+      "imports": [
+        "import { ArrayType, East, FloatType, IntegerType, NullType, StringType, StructType, example, none } from \"@elaraai/east\";",
+        "import { Slice, State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Chart, Deck, HStack, Reactive, Tag, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// A fully custom card body via \n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Deck\n            data={LINES}\n            card={r => ({ key: r.id, title: r.name })}\n            render={r => (\n                <VStack gap=\"1\" align=\"stretch\">\n                    <HStack gap=\"2\">\n                        <Tag>{r.team}</Tag>\n                        <Tag>{r.state}</Tag>\n                    </HStack>\n                    <Text color=\"gray.500\">{East.str`load ${East.print(r.load)}`}</Text>\n                </VStack>\n            )}\n        />\n    ))"
+    },
+    {
+      "id": "east-ui:deck.examples.tsx:deckSlice",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/deck.examples.tsx",
+      "suite": "",
+      "test": "A sliced deck — filtering and search flow through the slice interface (rail cluster + derived-count footer), exactly like Table",
+      "keywords": [
+        "Deck",
+        "slice",
+        "filter",
+        "search",
+        "rail",
+        "chrome",
+        "count",
+        "footer",
+        "Slice.rows"
+      ],
+      "imports": [
+        "import { ArrayType, East, FloatType, IntegerType, NullType, StringType, StructType, example, none } from \"@elaraai/east\";",
+        "import { Slice, State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Chart, Deck, HStack, Reactive, Tag, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// A sliced deck — filtering and search flow through the slice interface (rail cluster + derived-count footer), exactly like Table\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const cfg = Slice.config(SliceLineType, {\n            fields: { name: { label: \"Name\" }, state: { label: \"State\" }, team: { label: \"Team\" } },\n            searchFieldIds: [\"name\", \"state\", \"team\"],\n        });\n        return (\n            <Reactive>{$ => {\n                const states = $.const([\"running\", \"fault\", \"standby\"], ArrayType(StringType));\n                const teams = $.const([\"Alpha\", \"Beta\", \"Gamma\", \"Delta\"], ArrayType(StringType));\n                const lines = $.const(East.Array.generate(48n, SliceLineType, East.function([IntegerType], SliceLineType, ($, i) => {\n                    const row = $.let({\n                        id: East.str`line-${i}`,\n                        name: East.str`Line ${i}`,\n                        state: states.get(i.remainder(3n)),\n                        team: teams.get(i.remainder(4n)),\n                        load: i.remainder(10n).toFloat().divide(10.0),\n                    }, SliceLineType);\n                    return row;\n                })));\n                const slice = $.let(Slice.bind([SliceLineType], \"ex.deck.slice\", cfg, Slice.state({}), lines, none));\n                const narrowed = $.let(Slice.rows([SliceLineType], slice));\n                return (\n                    <Deck\n                        data={narrowed}\n                        statuses={LINE_STATUSES}\n                        card={r => ({\n                            key: r.id,\n                            title: r.name,\n                            sublabel: r.team,\n                            status: r.state,\n                            fill: { value: r.load.multiply(100.0), max: 100.0 },\n                        })}\n                        groupBy={[{ key: \"team\", label: \"Team\", value: r => r.team, summary: rows => East.str`${East.print(rows.size())} lines` }]}\n                        slice={slice}\n                        affordances={[\"filter\", \"search\"]}\n                        style={{ height: \"420px\" }}\n                    />\n                );\n            }}</Reactive>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:deck.examples.tsx:deckDetail",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/deck.examples.tsx",
+      "suite": "",
+      "test": "The full board — status registry, metric strips, fill bars, a footer and legend, and onClick popovers composed from Deck.Readout / Deck.Rows / Deck.Note beneath the inherited card head",
+      "keywords": [
+        "Deck",
+        "onClick",
+        "onHover",
+        "popover",
+        "detail",
+        "Readout",
+        "Rows",
+        "Note",
+        "footer",
+        "legend",
+        "onOpen",
+        "onClose"
+      ],
+      "imports": [
+        "import { ArrayType, East, FloatType, IntegerType, NullType, StringType, StructType, example, none } from \"@elaraai/east\";",
+        "import { Slice, State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Chart, Deck, HStack, Reactive, Tag, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// The full board — status registry, metric strips, fill bars, a footer and legend, and onClick popovers composed from Deck.Readout / Deck.Rows / Deck.Note beneath the inherited card head\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const logBind = $.let(State.bind([StringType], \"deck_view_log\", \"closed\"));\n            const log = $.let(logBind.read());\n            const onOpen = $.const(East.function([StringType], NullType, ($, key) => {\n                $(logBind.write(East.str`viewing ${key}`));\n            }));\n            const onClose = $.const(East.function([], NullType, ($) => {\n                $(logBind.write(\"closed\"));\n            }));\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <Deck\n                        data={LINES}\n                        statuses={LINE_STATUSES}\n                        card={r => ({\n                            key: r.id,\n                            title: r.name,\n                            sublabel: East.str`${r.id} · ${r.team}`,\n                            status: r.state,\n                            metrics: [\n                                Deck.metric(\"Temp\", r.temp, { format: v => East.str`${East.print(v)}°`, warn: r.state.equals(\"fault\") }),\n                                Deck.metric(\"Load\", r.load.multiply(100.0), { format: v => East.str`${East.print(v)}%` }),\n                            ],\n                            fill: { value: r.load.multiply(100.0), max: 100.0, format: v => East.str`${East.print(v)}%` },\n                        })}\n                        onClick={r => (\n                            <VStack gap=\"3\" align=\"stretch\">\n                                {Deck.Readout([\n                                    { label: \"Temp\", value: r.temp, format: v => East.str`${East.print(v)}`, unit: \"°C\", warn: r.state.equals(\"fault\") },\n                                    { label: \"Load\", value: r.load.multiply(100.0), unit: \"%\" },\n                                    { label: \"Rate\", value: r.rate, format: Chart.format.compact() },\n                                ])}\n                                {Deck.Rows([\n                                    { label: \"Team\", value: r.team },\n                                    { label: \"State\", value: r.state },\n                                    { label: \"Line\", value: r.id },\n                                ])}\n                                {Deck.Note(East.str`${r.name} · reviewed with the ${r.team} team`)}\n                            </VStack>\n                        )}\n                        onHover={r => (\n                            <Text color=\"gray.500\">{East.str`${r.name} · load ${East.print(r.load.multiply(100.0))}%`}</Text>\n                        )}\n                        onOpen={onOpen}\n                        onClose={onClose}\n                        footer={[\n                            { label: \"Lines\", value: `${LINES.length}` },\n                            { label: \"Faulted\", value: \"1\" },\n                        ]}\n                        legend\n                    />\n                    <Text color=\"gray.500\">{log}</Text>\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "east-ui:deck.examples.tsx:deckClickable",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/deck.examples.tsx",
+      "suite": "",
+      "test": "Cards as tap targets — onCardClick writes the selected key to bound state",
+      "keywords": [
+        "Deck",
+        "onCardClick",
+        "click",
+        "tap",
+        "Reactive",
+        "State"
+      ],
+      "imports": [
+        "import { ArrayType, East, FloatType, IntegerType, NullType, StringType, StructType, example, none } from \"@elaraai/east\";",
+        "import { Slice, State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Chart, Deck, HStack, Reactive, Tag, Text, VStack } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Cards as tap targets — onCardClick writes the selected key to bound state\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const selectedBind = $.let(State.bind([StringType], \"deck_selected\", \"none yet\"));\n            const selected = $.let(selectedBind.read());\n            const onCardClick = $.const(East.function([StringType], NullType, ($, key) => {\n                $(selectedBind.write(key));\n            }));\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <Deck\n                        data={LINES}\n                        card={r => ({ key: r.id, title: r.name, sublabel: r.team })}\n                        onCardClick={onCardClick}\n                    />\n                    <Text color=\"gray.500\">{East.str`selected: ${selected}`}</Text>\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "east-ui:gantt.examples.tsx:ganttBasic",
@@ -17278,7 +17492,7 @@
         "import { DragEventType, State, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Box, Library, Planner, Reactive, Text, VStack } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Day-resolution time axis — a pinned 7-day window derives Mon 30 … Sun 05 day columns (format \n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Planner.Point\n            data={[\n                { name: \"Press A\", role: \"Crush\" },\n                { name: \"Press B\", role: \"Crush\" },\n                { name: \"Line 1\", role: \"Bottling\" },\n            ]}\n            axis={Planner.axis.time({\n                format: \"ddd DD\",\n                range: { min: new Date(\"2026-03-30\"), max: new Date(\"2026-04-06\") },\n            })}\n            now={Planner.at.time(new Date(\"2026-04-02\"))}\n            columns={[{ key: \"name\", frozen: true, value: r => r.name, sublabel: r => r.role }]}\n            events={_r => [\n                Planner.event({ slot: Planner.at.time(new Date(\"2026-03-30T10:00:00Z\")), label: \"Setup\", state: \"committed\" }),\n                Planner.event({ slot: Planner.at.time(new Date(\"2026-04-01T09:00:00Z\")), label: \"Run\", state: \"committed\" }),\n                Planner.event({ slot: Planner.at.time(new Date(\"2026-04-03T09:00:00Z\")), label: \"Plan\", state: \"added\" }),\n            ]}\n        />\n    ))"
+      "source": "// Day-resolution time axis — a pinned 7-day window derives Mon 30 … Sun 05 day columns (format \n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Planner.Point\n            data={[\n                { name: \"Press A\", role: \"Stamp\" },\n                { name: \"Press B\", role: \"Stamp\" },\n                { name: \"Line 1\", role: \"Bottling\" },\n            ]}\n            axis={Planner.axis.time({\n                format: \"ddd DD\",\n                range: { min: new Date(\"2026-03-30\"), max: new Date(\"2026-04-06\") },\n            })}\n            now={Planner.at.time(new Date(\"2026-04-02\"))}\n            columns={[{ key: \"name\", frozen: true, value: r => r.name, sublabel: r => r.role }]}\n            events={_r => [\n                Planner.event({ slot: Planner.at.time(new Date(\"2026-03-30T10:00:00Z\")), label: \"Setup\", state: \"committed\" }),\n                Planner.event({ slot: Planner.at.time(new Date(\"2026-04-01T09:00:00Z\")), label: \"Run\", state: \"committed\" }),\n                Planner.event({ slot: Planner.at.time(new Date(\"2026-04-03T09:00:00Z\")), label: \"Plan\", state: \"added\" }),\n            ]}\n        />\n    ))"
     },
     {
       "id": "east-ui:planner.examples.tsx:plannerDensity",
@@ -18911,6 +19125,219 @@
         "import { Badge, Reactive, Text, TreeView, VStack } from \"@elaraai/east-ui\";"
       ],
       "source": "// Colour escape hatches — item / hover / selection / caret / connector colour overrides for brand alignment\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <TreeView\n                variant=\"subtle\"\n                size=\"sm\"\n                itemColor=\"gray.800\"\n                itemHoverBackground=\"blue.50\"\n                selectedBackground=\"blue.100\"\n                selectedColor=\"blue.900\"\n                caretColor=\"blue.500\"\n                connectorColor=\"gray.300\"\n                defaultExpandedValue={[\"src\"]}\n                nodes={[\n                    TreeView.Branch(\"src\", \"src\", [\n                        TreeView.Item(\"index\", \"index.ts\"),\n                        TreeView.Item(\"utils\", \"utils.ts\"),\n                    ]),\n                    TreeView.Item(\"package\", \"package.json\"),\n                ]}\n            />\n        );\n    })"
+    },
+    {
+      "id": "east-ui:value-tree.examples.tsx:valueTreeBasic",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/value-tree.examples.tsx",
+      "suite": "",
+      "test": "Read-only inspector — any value materializes into an automatic tree",
+      "keywords": [
+        "ValueTree",
+        "value",
+        "tree",
+        "inspector",
+        "leaf",
+        "struct",
+        "read-only"
+      ],
+      "imports": [
+        "import {",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Reactive, ValueTree } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Read-only inspector — any value materializes into an automatic tree\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <ValueTree\n            value={{\n                rate: 0.15,\n                label: \"Base\",\n                tags: [\"a\", \"b\"],\n            }}\n        />\n    ))"
+    },
+    {
+      "id": "east-ui:value-tree.examples.tsx:valueTreeDictOfStructs",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/value-tree.examples.tsx",
+      "suite": "",
+      "test": "A dict of structs with option and variant fields — every branch kind in one tree",
+      "keywords": [
+        "ValueTree",
+        "dict",
+        "struct",
+        "option",
+        "variant",
+        "nested",
+        "branch"
+      ],
+      "imports": [
+        "import {",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Reactive, ValueTree } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// A dict of structs with option and variant fields — every branch kind in one tree\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <ValueTree\n            value={East.value(new Map([\n                [\"m1\", { name: \"Press\", rate: 2.5, operator: some(\"dana\"), state: variant(\"running\", null) }],\n                [\"m2\", { name: \"Mill\", rate: 1.25, operator: none, state: variant(\"down\", \"belt snapped\") }],\n            ]), DictType(StringType, MachineType))}\n        />\n    ))"
+    },
+    {
+      "id": "east-ui:value-tree.examples.tsx:valueTreeEditable",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/value-tree.examples.tsx",
+      "suite": "",
+      "test": "Editable tree with onUpdate — every edit arrives as the whole rebuilt value; write it back and the tree refreshes",
+      "keywords": [
+        "ValueTree",
+        "onUpdate",
+        "edit",
+        "whole value",
+        "Reactive",
+        "State"
+      ],
+      "imports": [
+        "import {",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Reactive, ValueTree } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Editable tree with onUpdate — every edit arrives as the whole rebuilt value; write it back and the tree refreshes\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const bind = $.let(State.bind(\n                [DictType(StringType, MachineType)],\n                \"vt_machines\",\n                new Map([\n                    [\"m1\", { name: \"Press\", rate: 2.5, operator: some(\"dana\"), state: variant(\"running\", null) }],\n                    [\"m2\", { name: \"Mill\", rate: 1.25, operator: none, state: variant(\"down\", \"belt snapped\") }],\n                ]),\n            ));\n            const machines = $.let(bind.read());\n            const onUpdate = $.const(East.function(\n                [DictType(StringType, MachineType)], NullType,\n                ($, next) => {\n                    $(bind.write(next));\n                },\n            ));\n            return <ValueTree value={machines} onUpdate={onUpdate} />;\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "east-ui:value-tree.examples.tsx:valueTreeScoped",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/value-tree.examples.tsx",
+      "suite": "",
+      "test": "Scoped subtree handlers — ValueTree.at routes edits inside one entry to a typed handler; everything else bubbles to onUpdate",
+      "keywords": [
+        "ValueTree",
+        "at",
+        "scope",
+        "subtree",
+        "handler",
+        "bubble",
+        "onUpdate",
+        "dispatch"
+      ],
+      "imports": [
+        "import {",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Reactive, ValueTree } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Scoped subtree handlers — ValueTree.at routes edits inside one entry to a typed handler; everything else bubbles to onUpdate\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const PlantType = DictType(StringType, MachineType);\n            const bind = $.let(State.bind(\n                [PlantType],\n                \"vt_plant\",\n                new Map([\n                    [\"press\", { name: \"Press\", rate: 2.5, operator: some(\"dana\"), state: variant(\"running\", null) }],\n                    [\"mill\", { name: \"Mill\", rate: 1.25, operator: none, state: variant(\"down\", \"belt snapped\") }],\n                ]),\n            ));\n            const plant = $.let(bind.read());\n            // The scope receives just the rebuilt \"press\" machine — a\n            // specialised, fully-typed handler for that subtree.\n            const onPress = $.const(East.function([MachineType], NullType, ($, m) => {\n                const next = $.let(bind.read());\n                $(next.insertOrUpdate(\"press\", m));\n                $(bind.write(next));\n            }));\n            // Edits outside the scope (the mill, adds/removes) bubble here.\n            const onUpdate = $.const(East.function([PlantType], NullType, ($, next) => {\n                $(bind.write(next));\n            }));\n            return (\n                <ValueTree\n                    value={plant}\n                    onUpdate={onUpdate}\n                    at={[ValueTree.at(PlantType, p => p.entry(\"press\"), onPress)]}\n                />\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "east-ui:value-tree.examples.tsx:valueTreeCollections",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/value-tree.examples.tsx",
+      "suite": "",
+      "test": "Collection editing through onUpdate — adds and removes arrive as the rebuilt value, no path plumbing",
+      "keywords": [
+        "ValueTree",
+        "onUpdate",
+        "array",
+        "dict",
+        "add",
+        "remove",
+        "insert",
+        "collection"
+      ],
+      "imports": [
+        "import {",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Reactive, ValueTree } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Collection editing through onUpdate — adds and removes arrive as the rebuilt value, no path plumbing\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const RunType = StructType({\n                samples: ArrayType(FloatType),\n                thresholds: DictType(StringType, FloatType),\n            });\n            const bind = $.let(State.bind([RunType], \"vt_run\", {\n                samples: [1.0, 2.5],\n                thresholds: new Map([[\"base\", 0.15]]),\n            }));\n            const run = $.let(bind.read());\n            const onUpdate = $.const(East.function([RunType], NullType, ($, next) => {\n                $(bind.write(next));\n            }));\n            return <ValueTree value={run} onUpdate={onUpdate} />;\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "east-ui:value-tree.examples.tsx:valueTreeRawPaths",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/value-tree.examples.tsx",
+      "suite": "",
+      "test": "Raw path callbacks — onEdit receives the typed path and leaf for hosts with a finer-grained store",
+      "keywords": [
+        "ValueTree",
+        "onEdit",
+        "path",
+        "leaf",
+        "raw",
+        "callback",
+        "escape hatch"
+      ],
+      "imports": [
+        "import {",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Reactive, ValueTree } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Raw path callbacks — onEdit receives the typed path and leaf for hosts with a finer-grained store\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const bind = $.let(State.bind(\n                [DictType(StringType, FloatType)],\n                \"vt_rates\",\n                new Map([[\"base\", 0.15], [\"peak\", 0.4]]),\n            ));\n            const rates = $.let(bind.read());\n            const onEdit = $.const(East.function(\n                [ValueTree.Types.Path, ValueTree.Types.Leaf], NullType,\n                ($, path, leaf) => {\n                    const key = $.let(path.get(0n).unwrap(\"key\"));\n                    const next = $.let(bind.read());\n                    $(next.insertOrUpdate(key, leaf.unwrap(\"float\")));\n                    $(bind.write(next));\n                },\n            ));\n            return <ValueTree value={rates} onEdit={onEdit} />;\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "east-ui:value-tree.examples.tsx:valueTreeKitchenSink",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/value-tree.examples.tsx",
+      "suite": "",
+      "test": "Deeply nested tree over every East type — nested variants, options of variants, recursion, and summarized opaque leaves",
+      "keywords": [
+        "ValueTree",
+        "all types",
+        "deep",
+        "nested",
+        "recursive",
+        "set",
+        "vector",
+        "matrix",
+        "blob",
+        "ref",
+        "kitchen sink"
+      ],
+      "imports": [
+        "import {",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Reactive, ValueTree } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Deeply nested tree over every East type — nested variants, options of variants, recursion, and summarized opaque leaves\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <ValueTree\n            value={East.value({\n                site: \"Riverside\",\n                commissioned: new Date(\"2021-06-01T00:00:00Z\"),\n                active: true,\n                batch: 42n,\n                output: 812.5,\n                notes: some(\"Night shift only\"),\n                lines: new Map([\n                    [\"packing\", {\n                        machines: [\n                            {\n                                name: \"Press\",\n                                state: variant(\"running\", { since: new Date(\"2026-07-01T06:00:00Z\"), rate: 2.5 }),\n                                calibration: some(variant(\"manual\", { offset: 0.02, by: \"dana\" })),\n                            },\n                            {\n                                name: \"Mill\",\n                                state: variant(\"down\", { reason: \"belt snapped\", parts: [\"belt\", \"tensioner\"] }),\n                                calibration: none,\n                            },\n                            {\n                                name: \"Wrapper\",\n                                state: variant(\"idle\", null),\n                                calibration: some(variant(\"auto\", null)),\n                            },\n                        ],\n                    }],\n                    [\"casting\", { machines: [] }],\n                ]),\n                lineage: variant(\"upgraded\", {\n                    from: \"Mark II\",\n                    prior: variant(\"upgraded\", { from: \"Mark I\", prior: variant(\"original\", null) }),\n                }),\n                codes: new Map([[7n, \"critical\"], [12n, \"routine\"]]),\n                tags: new Set([\"food-grade\", \"iso-9001\"]),\n                checksum: new Uint8Array([202, 254, 186]),\n                samples: new Float64Array([1.0, 1.5, 2.25]),\n                weights: East.Matrix.fromArray([[1.0, 0.0], [0.0, 1.0]]),\n                audit: ref(\"2026-07-01 dana\"),\n            }, PlantType)}\n        />\n    ))"
+    },
+    {
+      "id": "east-ui:value-tree.examples.tsx:valueTreeKitchenSinkEditable",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/value-tree.examples.tsx",
+      "suite": "",
+      "test": "Deep editable tree — every editable kind (all leaf types, nested variants, options, collections) through one onUpdate",
+      "keywords": [
+        "ValueTree",
+        "editable",
+        "deep",
+        "nested",
+        "variant",
+        "option",
+        "datetime",
+        "boolean",
+        "onUpdate"
+      ],
+      "imports": [
+        "import {",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Reactive, ValueTree } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Deep editable tree — every editable kind (all leaf types, nested variants, options, collections) through one onUpdate\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const LineType = StructType({\n                machines: ArrayType(StructType({\n                    name: StringType,\n                    commissioned: DateTimeType,\n                    active: BooleanType,\n                    batch: IntegerType,\n                    rate: FloatType,\n                    operator: OptionType(StringType),\n                    state: VariantType({\n                        running: StructType({ rate: FloatType }),\n                        down: StructType({ reason: StringType, parts: ArrayType(StringType) }),\n                        idle: NullType,\n                    }),\n                })),\n                thresholds: DictType(StringType, FloatType),\n            });\n            const bind = $.let(State.bind([LineType], \"vt_line\", {\n                machines: [\n                    {\n                        name: \"Press\",\n                        commissioned: new Date(\"2021-06-01T00:00:00Z\"),\n                        active: true,\n                        batch: 42n,\n                        rate: 2.5,\n                        operator: some(\"dana\"),\n                        state: variant(\"running\", { rate: 2.5 }),\n                    },\n                    {\n                        name: \"Mill\",\n                        commissioned: new Date(\"2019-02-15T00:00:00Z\"),\n                        active: false,\n                        batch: 7n,\n                        rate: 1.25,\n                        operator: none,\n                        state: variant(\"down\", { reason: \"belt snapped\", parts: [\"belt\"] }),\n                    },\n                ],\n                thresholds: new Map([[\"base\", 0.15], [\"peak\", 0.4]]),\n            }));\n            const line = $.let(bind.read());\n            const onUpdate = $.const(East.function([LineType], NullType, ($, next) => {\n                $(bind.write(next));\n            }));\n            return <ValueTree value={line} onUpdate={onUpdate} />;\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "east-ui:value-tree.examples.tsx:valueTreeVirtualized",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/value-tree.examples.tsx",
+      "suite": "",
+      "test": "A pinned-height tree over hundreds of rows — rows virtualize and scroll position persists",
+      "keywords": [
+        "ValueTree",
+        "virtualized",
+        "height",
+        "scroll",
+        "large",
+        "many rows"
+      ],
+      "imports": [
+        "import {",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Reactive, ValueTree } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// A pinned-height tree over hundreds of rows — rows virtualize and scroll position persists\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const SeriesType = DictType(StringType, ArrayType(FloatType));\n            const bind = $.let(State.bind([SeriesType], \"vt_series\", new Map<string, number[]>()));\n            $.if(bind.read().size().equals(0n), $ => {\n                const seeded = $.let(East.Array.range(0n, 24n).toDict(\n                    (_$, i) => East.str`sensor ${i}`,\n                    (_$, i) => East.Array.range(0n, 8n).map((_$2, j) => j.toFloat().multiply(0.5).add(i.toFloat())),\n                ));\n                $(bind.write(seeded));\n            });\n            const series = $.let(bind.read());\n            const onUpdate = $.const(East.function([SeriesType], NullType, ($, next) => {\n                $(bind.write(next));\n            }));\n            return <ValueTree value={series} onUpdate={onUpdate} style={{ height: \"320px\" }} />;\n        }}</Reactive>\n    ))"
     },
     {
       "id": "east-ui:card.examples.tsx:cardBasic",
@@ -21105,7 +21532,7 @@
         "import { UIComponentType } from \"@elaraai/east-ui\";",
         "import { HStack, Image, Text, VStack } from \"@elaraai/east-ui\";"
       ],
-      "source": "// A self-contained SVG logo from a data URI — sized by height, object-fit contain, with alt text (an app-shell header lockup)\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <HStack gap=\"3\" align=\"center\">\n            <Image source={Image.dataUri(LOGO_DATA_URI)} height=\"36px\" fit=\"contain\" alt=\"Acme\" />\n            <Text textStyle=\"body-lg\" fontWeight=\"bold\">Acme Winery</Text>\n        </HStack>\n    ))"
+      "source": "// A self-contained SVG logo from a data URI — sized by height, object-fit contain, with alt text (an app-shell header lockup)\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <HStack gap=\"3\" align=\"center\">\n            <Image source={Image.dataUri(LOGO_DATA_URI)} height=\"36px\" fit=\"contain\" alt=\"Acme\" />\n            <Text textStyle=\"body-lg\" fontWeight=\"bold\">Acme Industries</Text>\n        </HStack>\n    ))"
     },
     {
       "id": "east-ui:image.examples.tsx:imageFit",
@@ -24310,7 +24737,7 @@
         "import { NullType } from \"@elaraai/east\";",
         "import { AlignedStack, Box, Calendar, Chart, Gantt, HStack, Library, Matrix, Planner, Table, Trace } from \"@elaraai/east-ui\";"
       ],
-      "source": "// A Chart and a day-resolution Planner share one gutter and one formatted date axis — the same [min, max) window and \n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const runs = $.const([\n            { at: new Date(\"2026-03-30T12:00:00Z\"), kl: 8.0 },\n            { at: new Date(\"2026-03-31T12:00:00Z\"), kl: 10.0 },\n            { at: new Date(\"2026-04-01T12:00:00Z\"), kl: 14.0 },\n            { at: new Date(\"2026-04-02T12:00:00Z\"), kl: 12.0 },\n            { at: new Date(\"2026-04-03T12:00:00Z\"), kl: 9.0 },\n            { at: new Date(\"2026-04-04T12:00:00Z\"), kl: 5.0 },\n            { at: new Date(\"2026-04-05T12:00:00Z\"), kl: 3.0 },\n        ], ArrayType(StructType({ at: DateTimeType, kl: FloatType })));\n        return (\n            <AlignedStack gutter={{ left: \"150px\", right: \"14px\" }} gap=\"8px\">\n                <Box height=\"150px\" width=\"100%\">\n                    <Chart\n                        height=\"fill\"\n                        layers={Chart.Column(runs, { x: r => r.at, y: r => r.kl }, { color: \"teal.solid\" })}\n                        x={{ scale: \"time\", domain: [new Date(\"2026-03-30\"), new Date(\"2026-04-06\")], format: Chart.format.date(\"ddd DD\") }}\n                        y={{ label: \"kL\" }}\n                        grid\n                    />\n                </Box>\n                <Planner.Point\n                    data={[{ name: \"Press A\", role: \"Crush\" }, { name: \"Press B\", role: \"Crush\" }]}\n                    axis={Planner.axis.time({\n                        resolution: \"day\",\n                        format: \"ddd DD\",\n                        range: { min: new Date(\"2026-03-30\"), max: new Date(\"2026-04-06\") },\n                    })}\n                    now={Planner.at.time(new Date(\"2026-04-02\"))}\n                    columns={[{ key: \"name\", frozen: true, value: r => r.name, sublabel: r => r.role }]}\n                    events={_r => [\n                        Planner.event({ slot: Planner.at.time(new Date(\"2026-03-30T09:00:00Z\")), label: \"Setup\", state: \"committed\" }),\n                        Planner.event({ slot: Planner.at.time(new Date(\"2026-04-01T09:00:00Z\")), label: \"Run\", state: \"committed\" }),\n                        Planner.event({ slot: Planner.at.time(new Date(\"2026-04-03T09:00:00Z\")), label: \"Plan\", state: \"added\" }),\n                    ]}\n                />\n            </AlignedStack>\n        );\n    })"
+      "source": "// A Chart and a day-resolution Planner share one gutter and one formatted date axis — the same [min, max) window and \n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const runs = $.const([\n            { at: new Date(\"2026-03-30T12:00:00Z\"), kl: 8.0 },\n            { at: new Date(\"2026-03-31T12:00:00Z\"), kl: 10.0 },\n            { at: new Date(\"2026-04-01T12:00:00Z\"), kl: 14.0 },\n            { at: new Date(\"2026-04-02T12:00:00Z\"), kl: 12.0 },\n            { at: new Date(\"2026-04-03T12:00:00Z\"), kl: 9.0 },\n            { at: new Date(\"2026-04-04T12:00:00Z\"), kl: 5.0 },\n            { at: new Date(\"2026-04-05T12:00:00Z\"), kl: 3.0 },\n        ], ArrayType(StructType({ at: DateTimeType, kl: FloatType })));\n        return (\n            <AlignedStack gutter={{ left: \"150px\", right: \"14px\" }} gap=\"8px\">\n                <Box height=\"150px\" width=\"100%\">\n                    <Chart\n                        height=\"fill\"\n                        layers={Chart.Column(runs, { x: r => r.at, y: r => r.kl }, { color: \"teal.solid\" })}\n                        x={{ scale: \"time\", domain: [new Date(\"2026-03-30\"), new Date(\"2026-04-06\")], format: Chart.format.date(\"ddd DD\") }}\n                        y={{ label: \"kL\" }}\n                        grid\n                    />\n                </Box>\n                <Planner.Point\n                    data={[{ name: \"Press A\", role: \"Stamp\" }, { name: \"Press B\", role: \"Stamp\" }]}\n                    axis={Planner.axis.time({\n                        resolution: \"day\",\n                        format: \"ddd DD\",\n                        range: { min: new Date(\"2026-03-30\"), max: new Date(\"2026-04-06\") },\n                    })}\n                    now={Planner.at.time(new Date(\"2026-04-02\"))}\n                    columns={[{ key: \"name\", frozen: true, value: r => r.name, sublabel: r => r.role }]}\n                    events={_r => [\n                        Planner.event({ slot: Planner.at.time(new Date(\"2026-03-30T09:00:00Z\")), label: \"Setup\", state: \"committed\" }),\n                        Planner.event({ slot: Planner.at.time(new Date(\"2026-04-01T09:00:00Z\")), label: \"Run\", state: \"committed\" }),\n                        Planner.event({ slot: Planner.at.time(new Date(\"2026-04-03T09:00:00Z\")), label: \"Plan\", state: \"added\" }),\n                    ]}\n                />\n            </AlignedStack>\n        );\n    })"
     },
     {
       "id": "east-ui:aligned-stack.examples.tsx:alignedStackLibraryDnd",
@@ -24341,7 +24768,7 @@
         "import { NullType } from \"@elaraai/east\";",
         "import { AlignedStack, Box, Calendar, Chart, Gantt, HStack, Library, Matrix, Planner, Table, Trace } from \"@elaraai/east-ui\";"
       ],
-      "source": "// DnD across an AlignedStack (#330) — a Library drag-source beside a Chart-over-Planner stack whose Planner is the drop target; the library cards should keep their grab handles\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const temp = $.const([\n            { day: 0.0, v: 12.0 }, { day: 2.0, v: 18.0 }, { day: 4.0, v: 16.0 }, { day: 6.0, v: 13.0 },\n        ], ArrayType(StructType({ day: FloatType, v: FloatType })));\n        const tanks = $.const([\n            { name: \"Tank A\", role: \"Ferment\" }, { name: \"Tank B\", role: \"Crush\" },\n        ], ArrayType(StructType({ name: StringType, role: StringType })));\n        return (\n            <HStack gap=\"4\" width=\"100%\" align=\"stretch\">\n                <Box width=\"200px\">\n                    <Library\n                        id=\"incoming\"\n                        data={[\n                            { id: \"d1\", name: \"Cabernet — Bin 3\" },\n                            { id: \"d2\", name: \"Shiraz — Bin 7\" },\n                        ]}\n                        item={r => ({ key: r.id, label: r.name, icon: \"box\" })}\n                    />\n                </Box>\n                <Box flex=\"1\" minWidth=\"0\">\n                    <AlignedStack gutter={{ left: \"120px\", right: \"12px\" }} gap=\"8px\">\n                        <Box height=\"140px\" width=\"100%\">\n                            <Chart\n                                height=\"fill\"\n                                layers={Chart.Line(temp, { x: r => r.day, y: r => r.v }, { color: \"teal.solid\" })}\n                                x={{ label: \"Day\", scale: \"linear\", domain: [-0.5, 6.5], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0] }}\n                                y={{ label: \"°C\" }}\n                                grid\n                            />\n                        </Box>\n                        <Planner.Point\n                            id=\"board\"\n                            sources={[\"incoming\"]}\n                            data={tanks}\n                            axis={Planner.axis.number({ range: { min: 0, max: 6 } })}\n                            columns={[{ key: \"name\", frozen: true, value: r => r.name, sublabel: r => r.role }]}\n                            events={_r => [Planner.event({ slot: Planner.at.number(3), label: \"plan\", state: \"added\" })]}\n                            onDrag={East.function([DragEventType], NullType, (_$, _event) => {})}\n                            now={Planner.at.number(3)}\n                        />\n                    </AlignedStack>\n                </Box>\n            </HStack>\n        );\n    })"
+      "source": "// DnD across an AlignedStack (#330) — a Library drag-source beside a Chart-over-Planner stack whose Planner is the drop target; the library cards should keep their grab handles\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const temp = $.const([\n            { day: 0.0, v: 12.0 }, { day: 2.0, v: 18.0 }, { day: 4.0, v: 16.0 }, { day: 6.0, v: 13.0 },\n        ], ArrayType(StructType({ day: FloatType, v: FloatType })));\n        const tanks = $.const([\n            { name: \"Tank A\", role: \"Mix\" }, { name: \"Tank B\", role: \"Fill\" },\n        ], ArrayType(StructType({ name: StringType, role: StringType })));\n        return (\n            <HStack gap=\"4\" width=\"100%\" align=\"stretch\">\n                <Box width=\"200px\">\n                    <Library\n                        id=\"incoming\"\n                        data={[\n                            { id: \"d1\", name: \"Grade A — Bin 3\" },\n                            { id: \"d2\", name: \"Grade B — Bin 7\" },\n                        ]}\n                        item={r => ({ key: r.id, label: r.name, icon: \"box\" })}\n                    />\n                </Box>\n                <Box flex=\"1\" minWidth=\"0\">\n                    <AlignedStack gutter={{ left: \"120px\", right: \"12px\" }} gap=\"8px\">\n                        <Box height=\"140px\" width=\"100%\">\n                            <Chart\n                                height=\"fill\"\n                                layers={Chart.Line(temp, { x: r => r.day, y: r => r.v }, { color: \"teal.solid\" })}\n                                x={{ label: \"Day\", scale: \"linear\", domain: [-0.5, 6.5], tickValues: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0] }}\n                                y={{ label: \"°C\" }}\n                                grid\n                            />\n                        </Box>\n                        <Planner.Point\n                            id=\"board\"\n                            sources={[\"incoming\"]}\n                            data={tanks}\n                            axis={Planner.axis.number({ range: { min: 0, max: 6 } })}\n                            columns={[{ key: \"name\", frozen: true, value: r => r.name, sublabel: r => r.role }]}\n                            events={_r => [Planner.event({ slot: Planner.at.number(3), label: \"plan\", state: \"added\" })]}\n                            onDrag={East.function([DragEventType], NullType, (_$, _event) => {})}\n                            now={Planner.at.number(3)}\n                        />\n                    </AlignedStack>\n                </Box>\n            </HStack>\n        );\n    })"
     },
     {
       "id": "east-ui:aligned-stack.examples.tsx:alignedStackChartGantt",
@@ -24809,7 +25236,7 @@
         "import { UIComponentType } from \"@elaraai/east-ui\";",
         "import { Box, Dock, HStack, Planner, Stack, Text, VStack } from \"@elaraai/east-ui\";"
       ],
-      "source": "// A horizontal Dock expanded — icon + label + badge header over its content, with a collapse chevron\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Box height=\"220px\" width=\"320px\">\n            <Dock icon=\"book\" label=\"Bookings\" badge=\"3\" expandedSize=\"100%\">\n                <Stack gap=\"2\" padding=\"3\">\n                    <Box padding=\"2\" background=\"bg.subtle\" borderRadius=\"md\"><Text>Cabernet — Block 3</Text></Box>\n                    <Box padding=\"2\" background=\"bg.subtle\" borderRadius=\"md\"><Text>Shiraz — Block 7</Text></Box>\n                    <Box padding=\"2\" background=\"bg.subtle\" borderRadius=\"md\"><Text>Merlot — Block 1</Text></Box>\n                </Stack>\n            </Dock>\n        </Box>\n    ))"
+      "source": "// A horizontal Dock expanded — icon + label + badge header over its content, with a collapse chevron\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Box height=\"220px\" width=\"320px\">\n            <Dock icon=\"book\" label=\"Bookings\" badge=\"3\" expandedSize=\"100%\">\n                <Stack gap=\"2\" padding=\"3\">\n                    <Box padding=\"2\" background=\"bg.subtle\" borderRadius=\"md\"><Text>Grade A — Batch 3</Text></Box>\n                    <Box padding=\"2\" background=\"bg.subtle\" borderRadius=\"md\"><Text>Grade B — Batch 7</Text></Box>\n                    <Box padding=\"2\" background=\"bg.subtle\" borderRadius=\"md\"><Text>Grade C — Batch 1</Text></Box>\n                </Stack>\n            </Dock>\n        </Box>\n    ))"
     },
     {
       "id": "east-ui:dock.examples.tsx:dockCollapsedRail",
@@ -24833,7 +25260,7 @@
         "import { UIComponentType } from \"@elaraai/east-ui\";",
         "import { Box, Dock, HStack, Planner, Stack, Text, VStack } from \"@elaraai/east-ui\";"
       ],
-      "source": "// A horizontal Dock collapsed to its icon rail — icon + expand chevron + badge, label as tooltip\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Box height=\"220px\" width=\"320px\">\n            <HStack gap=\"3\" width=\"100%\" height=\"100%\">\n                <Dock icon=\"book\" label=\"Bookings\" badge=\"3\" railSize=\"44px\" defaultCollapsed>\n                    <Stack gap=\"2\" padding=\"3\">\n                        <Box padding=\"2\" background=\"bg.subtle\" borderRadius=\"md\"><Text>Cabernet — Block 3</Text></Box>\n                    </Stack>\n                </Dock>\n                <Box flex=\"1\" minWidth=\"0\" padding=\"3\" background=\"bg.subtle\" borderRadius=\"md\">\n                    <Text>Board reclaims the freed width</Text>\n                </Box>\n            </HStack>\n        </Box>\n    ))"
+      "source": "// A horizontal Dock collapsed to its icon rail — icon + expand chevron + badge, label as tooltip\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Box height=\"220px\" width=\"320px\">\n            <HStack gap=\"3\" width=\"100%\" height=\"100%\">\n                <Dock icon=\"book\" label=\"Bookings\" badge=\"3\" railSize=\"44px\" defaultCollapsed>\n                    <Stack gap=\"2\" padding=\"3\">\n                        <Box padding=\"2\" background=\"bg.subtle\" borderRadius=\"md\"><Text>Grade A — Batch 3</Text></Box>\n                    </Stack>\n                </Dock>\n                <Box flex=\"1\" minWidth=\"0\" padding=\"3\" background=\"bg.subtle\" borderRadius=\"md\">\n                    <Text>Board reclaims the freed width</Text>\n                </Box>\n            </HStack>\n        </Box>\n    ))"
     },
     {
       "id": "east-ui:dock.examples.tsx:dockBesidePlanner",
@@ -24860,7 +25287,7 @@
         "import { UIComponentType } from \"@elaraai/east-ui\";",
         "import { Box, Dock, HStack, Planner, Stack, Text, VStack } from \"@elaraai/east-ui\";"
       ],
-      "source": "// A Dock booking-source panel beside a Planner board — collapsing the dock frees width for the board without covering it\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const tanks = $.const([\n            { name: \"Tank A\", role: \"Ferment\" },\n            { name: \"Tank B\", role: \"Crush\" },\n            { name: \"Tank C\", role: \"Press\" },\n        ], ArrayType(StructType({ name: StringType, role: StringType })));\n        return (\n            <Box height=\"260px\" width=\"100%\">\n                <HStack gap=\"4\" width=\"100%\" height=\"100%\">\n                    <Dock icon=\"book\" label=\"Bookings\" badge=\"3\" expandedSize=\"30%\">\n                        <Stack gap=\"2\" padding=\"3\">\n                            <Box padding=\"2\" background=\"bg.subtle\" borderRadius=\"md\"><Text>Cabernet — Block 3</Text></Box>\n                            <Box padding=\"2\" background=\"bg.subtle\" borderRadius=\"md\"><Text>Shiraz — Block 7</Text></Box>\n                            <Box padding=\"2\" background=\"bg.subtle\" borderRadius=\"md\"><Text>Merlot — Block 1</Text></Box>\n                        </Stack>\n                    </Dock>\n                    <Box flex=\"1\" minWidth=\"0\">\n                        <Planner.Point\n                            data={tanks}\n                            axis={Planner.axis.number({ range: { min: 0, max: 6 } })}\n                            columns={[{ key: \"name\", frozen: true, value: r => r.name, sublabel: r => r.role }]}\n                            events={_r => [\n                                Planner.event({ slot: Planner.at.number(2), label: \"plan\", state: \"added\" }),\n                            ]}\n                            now={Planner.at.number(3)}\n                        />\n                    </Box>\n                </HStack>\n            </Box>\n        );\n    })"
+      "source": "// A Dock booking-source panel beside a Planner board — collapsing the dock frees width for the board without covering it\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const tanks = $.const([\n            { name: \"Tank A\", role: \"Mix\" },\n            { name: \"Tank B\", role: \"Fill\" },\n            { name: \"Tank C\", role: \"Hold\" },\n        ], ArrayType(StructType({ name: StringType, role: StringType })));\n        return (\n            <Box height=\"260px\" width=\"100%\">\n                <HStack gap=\"4\" width=\"100%\" height=\"100%\">\n                    <Dock icon=\"book\" label=\"Bookings\" badge=\"3\" expandedSize=\"30%\">\n                        <Stack gap=\"2\" padding=\"3\">\n                            <Box padding=\"2\" background=\"bg.subtle\" borderRadius=\"md\"><Text>Grade A — Batch 3</Text></Box>\n                            <Box padding=\"2\" background=\"bg.subtle\" borderRadius=\"md\"><Text>Grade B — Batch 7</Text></Box>\n                            <Box padding=\"2\" background=\"bg.subtle\" borderRadius=\"md\"><Text>Grade C — Batch 1</Text></Box>\n                        </Stack>\n                    </Dock>\n                    <Box flex=\"1\" minWidth=\"0\">\n                        <Planner.Point\n                            data={tanks}\n                            axis={Planner.axis.number({ range: { min: 0, max: 6 } })}\n                            columns={[{ key: \"name\", frozen: true, value: r => r.name, sublabel: r => r.role }]}\n                            events={_r => [\n                                Planner.event({ slot: Planner.at.number(2), label: \"plan\", state: \"added\" }),\n                            ]}\n                            now={Planner.at.number(3)}\n                        />\n                    </Box>\n                </HStack>\n            </Box>\n        );\n    })"
     },
     {
       "id": "east-ui:dock.examples.tsx:dockVertical",
@@ -25824,6 +26251,29 @@
       "source": "// Drag to see onResize callback\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const leftBind = $.let(State.bind([FloatType], \"splitter_left_size\", 50.0));\n            const rightBind = $.let(State.bind([FloatType], \"splitter_right_size\", 50.0));\n            const leftSize = $.let(leftBind.read());\n            const rightSize = $.let(rightBind.read());\n            const onResize = $.const(East.function([Splitter.Types.ResizeDetails], NullType, ($, details) => {\n                const sizes = $.let(details.size);\n                $(leftBind.write(sizes.get(0n)));\n                $(rightBind.write(sizes.get(1n)));\n            }));\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <Box height=\"150px\">\n                        <Splitter\n                            panels={[\n                                Splitter.Panel(<Box padding=\"4\" background=\"blue.100\"><Text>Left Panel</Text></Box>, { id: \"left\" }),\n                                Splitter.Panel(<Box padding=\"4\" background=\"green.100\"><Text>Right Panel</Text></Box>, { id: \"right\" }),\n                            ]}\n                            defaultSize={[50, 50]}\n                            orientation=\"horizontal\"\n                            onResize={onResize}\n                        />\n                    </Box>\n                    <HStack gap=\"2\">\n                        <Badge colorPalette=\"blue\" variant=\"solid\">{East.str`Left: ${East.print(leftSize)}%`}</Badge>\n                        <Badge colorPalette=\"green\" variant=\"solid\">{East.str`Right: ${East.print(rightSize)}%`}</Badge>\n                    </HStack>\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
     },
     {
+      "id": "east-ui:splitter.examples.tsx:splitterCollapseBelow",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/layout/splitter.examples.tsx",
+      "suite": "",
+      "test": "Panels stack vertically when the container is narrower than collapseBelow",
+      "keywords": [
+        "Splitter",
+        "collapseBelow",
+        "responsive",
+        "stack",
+        "narrow",
+        "mobile",
+        "compact"
+      ],
+      "imports": [
+        "import { East, FloatType, IntegerType, NullType, example } from \"@elaraai/east\";",
+        "import { State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Badge, Box, Splitter, Text, VStack, HStack, Reactive } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Panels stack vertically when the container is narrower than collapseBelow\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Box height=\"150px\">\n                <Splitter\n                    panels={[\n                        Splitter.Panel(<Box padding=\"4\" background=\"blue.50\"><Text>Primary</Text></Box>, { id: \"primary\" }),\n                        Splitter.Panel(<Box padding=\"4\" background=\"green.50\"><Text>Secondary</Text></Box>, { id: \"secondary\" }),\n                    ]}\n                    defaultSize={[60, 40]}\n                    orientation=\"horizontal\"\n                    collapseBelow={480}\n                />\n            </Box>\n        );\n    })"
+    },
+    {
       "id": "east-ui:stack.examples.tsx:stackBasicVStack",
       "skill": "east-ui",
       "package": "east-ui",
@@ -26098,6 +26548,76 @@
       "source": "// Left-column subnav that sticks at top: 0 while the main content scrolls\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Box overflowY=\"auto\" height=\"300px\" borderColor=\"gray.300\" borderWidth=\"thin\">\n                <HStack gap=\"4\" align=\"flex-start\">\n                    <Sticky offset=\"0\" boundary=\"parent\">\n                        <VStack gap=\"2\" padding=\"3\" background=\"gray.50\" borderColor=\"gray.200\" borderWidth=\"thin\" borderRadius=\"md\">\n                            <Text>Overview</Text>\n                            <Text>Details</Text>\n                            <Text>Audit</Text>\n                            <Text>Settings</Text>\n                        </VStack>\n                    </Sticky>\n                    <VStack gap=\"3\" padding=\"3\">\n                        {Array.from({ length: 20 }, (_, i) => <Text>{`Paragraph ${i + 1}`}</Text>)}\n                    </VStack>\n                </HStack>\n            </Box>\n        );\n    })"
     },
     {
+      "id": "east-ui:app.examples.tsx:appBasic",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/navigation/app.examples.tsx",
+      "suite": "",
+      "test": "Application shell — collapsible config-driven rail + breadcrumb + routed body from one nav handle",
+      "keywords": [
+        "App",
+        "app shell",
+        "Navigation",
+        "rail",
+        "breadcrumb",
+        "Pages",
+        "logo",
+        "collapsible",
+        "sidebar"
+      ],
+      "imports": [
+        "import { East, NullType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { App, Navigation, Reactive, VStack, Text, Button, Image } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// Application shell — collapsible config-driven rail + breadcrumb + routed body from one nav handle\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const LineRow = StructType({ id: StringType, line: StringType });\n        const routes = Navigation.config({\n            overview: { value: NullType, label: \"Overview\", section: \"Analyse\", icon: { prefix: \"fas\", name: \"gauge-high\" } },\n            throughput: { value: NullType, label: \"Throughput\", section: \"Analyse\", icon: { prefix: \"fas\", name: \"chart-line\" }, badge: \"3\" },\n            audit: { value: NullType, label: \"Audit\", section: \"Manage\", icon: { prefix: \"fas\", name: \"list-check\" } },\n            settings: { value: NullType, label: \"Settings\", section: \"Manage\", icon: { prefix: \"fas\", name: \"gear\" } },\n            // Deep route — no `section`, so it's hidden from the rail (reached from Overview).\n            line: { value: LineRow, label: \"Line\" },\n        });\n        return (\n            <Reactive>{$ => {\n                const nav = $.let(Navigation.bind(routes, \"app.example.route\", [routes.Page.overview()]));\n\n                // Page bodies as $.const closures capturing the shared handle.\n                const overviewPage = $.const(East.function([], UIComponentType, ($) => {\n                    const openLine = $.const(East.function([], NullType, $ => {\n                        $(nav.go.line(East.value({ id: \"L-1\", line: \"A\" }, LineRow)));\n                    }));\n                    return (\n                        <VStack gap=\"3\" align=\"stretch\">\n                            <Text>Overview — production lines</Text>\n                            <Button onClick={openLine}>Open line L-1</Button>\n                        </VStack>\n                    );\n                }));\n                const throughputPage = $.const(East.function([], UIComponentType, (_$) => <Text>Throughput trend</Text>));\n                const auditPage = $.const(East.function([], UIComponentType, (_$) => <Text>Audit trail</Text>));\n                const settingsPage = $.const(East.function([], UIComponentType, (_$) => <Text>Settings</Text>));\n                const linePage = $.const(East.function([LineRow], UIComponentType, ($, row) => {\n                    const back = $.const(East.function([], NullType, $ => { $(nav.pop()); }));\n                    return (\n                        <VStack gap=\"2\" align=\"stretch\">\n                            <Text>{East.str`Line ${row.id} · ${row.line}`}</Text>\n                            <Button onClick={back}>← Back</Button>\n                        </VStack>\n                    );\n                }));\n\n                return (\n                    <App\n                        nav={nav}\n                        config={routes}\n                        title=\"Acme Operations\"\n                        logo={Image.dataUri(LOGO)}\n                        pages={{\n                            overview: () => overviewPage(),\n                            throughput: () => throughputPage(),\n                            audit: () => auditPage(),\n                            settings: () => settingsPage(),\n                            line: (_$, row) => linePage(row),\n                        }}\n                    />\n                );\n            }}</Reactive>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:app.examples.tsx:appCompact",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/navigation/app.examples.tsx",
+      "suite": "",
+      "test": "App shell with a compact app bar — tighter two rows (density)",
+      "keywords": [
+        "App",
+        "app shell",
+        "density",
+        "compact",
+        "app bar",
+        "Navigation"
+      ],
+      "imports": [
+        "import { East, NullType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { App, Navigation, Reactive, VStack, Text, Button, Image } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// App shell with a compact app bar — tighter two rows (density)\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const routes = Navigation.config({\n            overview: { value: NullType, label: \"Overview\", section: \"Analyse\", icon: { prefix: \"fas\", name: \"gauge-high\" } },\n            throughput: { value: NullType, label: \"Throughput\", section: \"Analyse\", icon: { prefix: \"fas\", name: \"chart-line\" } },\n            audit: { value: NullType, label: \"Audit\", section: \"Manage\", icon: { prefix: \"fas\", name: \"list-check\" } },\n        });\n        return (\n            <Reactive>{$ => {\n                const nav = $.let(Navigation.bind(routes, \"app.compact.route\", [routes.Page.overview()]));\n                const overviewPage = $.const(East.function([], UIComponentType, (_$) => <Text>Overview — compact bar</Text>));\n                const throughputPage = $.const(East.function([], UIComponentType, (_$) => <Text>Throughput trend</Text>));\n                const auditPage = $.const(East.function([], UIComponentType, (_$) => <Text>Audit trail</Text>));\n                return (\n                    <App\n                        nav={nav}\n                        config={routes}\n                        title=\"Acme Operations\"\n                        logo={Image.dataUri(LOGO)}\n                        density=\"compact\"\n                        pages={{\n                            overview: () => overviewPage(),\n                            throughput: () => throughputPage(),\n                            audit: () => auditPage(),\n                        }}\n                    />\n                );\n            }}</Reactive>\n        );\n    })"
+    },
+    {
+      "id": "east-ui:app.examples.tsx:appCondensed",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/navigation/app.examples.tsx",
+      "suite": "",
+      "test": "App shell with a condensed app bar — breadcrumb + title on one row (density)",
+      "keywords": [
+        "App",
+        "app shell",
+        "density",
+        "condensed",
+        "compact",
+        "app bar",
+        "Navigation"
+      ],
+      "imports": [
+        "import { East, NullType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { App, Navigation, Reactive, VStack, Text, Button, Image } from \"@elaraai/east-ui\";"
+      ],
+      "source": "// App shell with a condensed app bar — breadcrumb + title on one row (density)\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const routes = Navigation.config({\n            overview: { value: NullType, label: \"Overview\", section: \"Analyse\", icon: { prefix: \"fas\", name: \"gauge-high\" } },\n            throughput: { value: NullType, label: \"Throughput\", section: \"Analyse\", icon: { prefix: \"fas\", name: \"chart-line\" } },\n            audit: { value: NullType, label: \"Audit\", section: \"Manage\", icon: { prefix: \"fas\", name: \"list-check\" } },\n        });\n        return (\n            <Reactive>{$ => {\n                const nav = $.let(Navigation.bind(routes, \"app.condensed.route\", [routes.Page.overview()]));\n                const overviewPage = $.const(East.function([], UIComponentType, (_$) => <Text>Overview — dense layout</Text>));\n                const throughputPage = $.const(East.function([], UIComponentType, (_$) => <Text>Throughput trend</Text>));\n                const auditPage = $.const(East.function([], UIComponentType, (_$) => <Text>Audit trail</Text>));\n                return (\n                    <App\n                        nav={nav}\n                        config={routes}\n                        title=\"Acme Operations\"\n                        logo={Image.dataUri(LOGO)}\n                        density=\"condensed\"\n                        pages={{\n                            overview: () => overviewPage(),\n                            throughput: () => throughputPage(),\n                            audit: () => auditPage(),\n                        }}\n                    />\n                );\n            }}</Reactive>\n        );\n    })"
+    },
+    {
       "id": "east-ui:breadcrumb.examples.tsx:breadcrumbBasic",
       "skill": "east-ui",
       "package": "east-ui",
@@ -26262,7 +26782,7 @@
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
         "import { NavList, VStack, Text, Reactive } from \"@elaraai/east-ui\";"
       ],
-      "source": "// App-shell sidebar — chrome-less shell surface with a host rail background\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <NavList\n                surface=\"shell\"\n                background=\"bg.subtle\"\n                sections={[\n                    {\n                        label: \"Winemaking\",\n                        items: [\n                            { key: \"overview\", label: \"Overview\", icon: { prefix: \"fas\", name: \"gauge\" }, active: true },\n                            { key: \"batches\", label: \"Batches\", icon: { prefix: \"fas\", name: \"flask\" } },\n                            { key: \"audit\", label: \"Audit trail\", icon: { prefix: \"fas\", name: \"list\" } },\n                        ],\n                    },\n                ]}\n            />\n        );\n    })"
+      "source": "// App-shell sidebar — chrome-less shell surface with a host rail background\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <NavList\n                surface=\"shell\"\n                background=\"bg.subtle\"\n                sections={[\n                    {\n                        label: \"Operations\",\n                        items: [\n                            { key: \"overview\", label: \"Overview\", icon: { prefix: \"fas\", name: \"gauge\" }, active: true },\n                            { key: \"runs\", label: \"Runs\", icon: { prefix: \"fas\", name: \"flask\" } },\n                            { key: \"audit\", label: \"Audit trail\", icon: { prefix: \"fas\", name: \"list\" } },\n                        ],\n                    },\n                ]}\n            />\n        );\n    })"
     },
     {
       "id": "east-ui:nav-list.examples.tsx:navListReactive",
@@ -26699,7 +27219,7 @@
         "import { State, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Box, Button, Drawer, Reactive, Status, Text, VStack } from \"@elaraai/east-ui\";"
       ],
-      "source": "// Programmatic nested drawers with stacked:true — each drawer\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Button\n                variant=\"solid\"\n                onClick={East.function([], NullType, $ => {\n                    $(Drawer.open(East.value({\n                        body: [\n                            <VStack gap=\"4\" align=\"flex-start\">\n                                <Text>Fermenter B4418 — detail. Drill into its decisions from here.</Text>\n                                <Button\n                                    variant=\"outline\"\n                                    onClick={East.function([], NullType, $ => {\n                                        $(Drawer.open(East.value({\n                                            body: [\n                                                <VStack gap=\"4\" align=\"flex-start\">\n                                                    <Text>Decisions queue for B4418.</Text>\n                                                    <Button\n                                                        variant=\"outline\"\n                                                        onClick={East.function([], NullType, $ => {\n                                                            $(Drawer.open(East.value({\n                                                                body: [<Text>Adjust setpoint — the deepest drawer.</Text>],\n                                                                eyebrow: some(\"Decision\"),\n                                                                title: some(\"Adjust setpoint\"),\n                                                                description: none,\n                                                                style: none,\n                                                            }, Drawer.Types.OpenInput)));\n                                                        })}\n                                                    >Open decision detail</Button>\n                                                </VStack>,\n                                            ],\n                                            eyebrow: some(\"Notifications\"),\n                                            title: some(\"Decisions\"),\n                                            description: none,\n                                            // Collapses to a \"bell\" rail when the detail drawer opens on top.\n                                            style: some(East.value({\n                                                size: none, placement: none, contained: none,\n                                                onOpenChange: none, onExitComplete: none, bodyPadding: none,\n                                                flush: none, fillBody: none, stacked: some(true), stackIcon: some(\"bell\"),\n                                            }, Drawer.Types.Style)),\n                                        }, Drawer.Types.OpenInput)));\n                                    })}\n                                >Open decisions</Button>\n                            </VStack>,\n                        ],\n                        eyebrow: some(\"Fermenter\"),\n                        title: some(\"B4418\"),\n                        description: none,\n                        // Collapses to a \"flask\" rail while any deeper drawer is open.\n                        style: some(East.value({\n                            size: none, placement: none, contained: none,\n                            onOpenChange: none, onExitComplete: none, bodyPadding: none,\n                            flush: none, fillBody: none, stacked: some(true), stackIcon: some(\"flask\"),\n                        }, Drawer.Types.Style)),\n                    }, Drawer.Types.OpenInput)));\n                })}\n            >Open B4418</Button>\n        );\n    })"
+      "source": "// Programmatic nested drawers with stacked:true — each drawer\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Button\n                variant=\"solid\"\n                onClick={East.function([], NullType, $ => {\n                    $(Drawer.open(East.value({\n                        body: [\n                            <VStack gap=\"4\" align=\"flex-start\">\n                                <Text>Reactor B4418 — detail. Drill into its decisions from here.</Text>\n                                <Button\n                                    variant=\"outline\"\n                                    onClick={East.function([], NullType, $ => {\n                                        $(Drawer.open(East.value({\n                                            body: [\n                                                <VStack gap=\"4\" align=\"flex-start\">\n                                                    <Text>Decisions queue for B4418.</Text>\n                                                    <Button\n                                                        variant=\"outline\"\n                                                        onClick={East.function([], NullType, $ => {\n                                                            $(Drawer.open(East.value({\n                                                                body: [<Text>Adjust setpoint — the deepest drawer.</Text>],\n                                                                eyebrow: some(\"Decision\"),\n                                                                title: some(\"Adjust setpoint\"),\n                                                                description: none,\n                                                                style: none,\n                                                            }, Drawer.Types.OpenInput)));\n                                                        })}\n                                                    >Open decision detail</Button>\n                                                </VStack>,\n                                            ],\n                                            eyebrow: some(\"Notifications\"),\n                                            title: some(\"Decisions\"),\n                                            description: none,\n                                            // Collapses to a \"bell\" rail when the detail drawer opens on top.\n                                            style: some(East.value({\n                                                size: none, placement: none, contained: none,\n                                                onOpenChange: none, onExitComplete: none, bodyPadding: none,\n                                                flush: none, fillBody: none, stacked: some(true), stackIcon: some(\"bell\"),\n                                            }, Drawer.Types.Style)),\n                                        }, Drawer.Types.OpenInput)));\n                                    })}\n                                >Open decisions</Button>\n                            </VStack>,\n                        ],\n                        eyebrow: some(\"Reactor\"),\n                        title: some(\"B4418\"),\n                        description: none,\n                        // Collapses to a \"flask\" rail while any deeper drawer is open.\n                        style: some(East.value({\n                            size: none, placement: none, contained: none,\n                            onOpenChange: none, onExitComplete: none, bodyPadding: none,\n                            flush: none, fillBody: none, stacked: some(true), stackIcon: some(\"flask\"),\n                        }, Drawer.Types.Style)),\n                    }, Drawer.Types.OpenInput)));\n                })}\n            >Open B4418</Button>\n        );\n    })"
     },
     {
       "id": "east-ui:drawer.examples.tsx:drawerFlush",
