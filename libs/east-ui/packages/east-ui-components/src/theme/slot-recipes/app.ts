@@ -109,64 +109,66 @@ export const appSlotRecipe = defineSlotRecipe({
             height: "100dvh",
         },
         bannerTop: { flexShrink: 0 },
-        // Sticky app bar — bsys "header.bar": strong bottom rule holds as a hard
-        // line when content scrolls up behind the sticky bar.
+        // Sticky app bar — design `.appbar`: 1px `--rule` bottom, `--paper` fill.
+        // Padding / row gap are per-density (see the `density` variant).
         header: {
             display: "flex",
             flexDirection: "column",
-            gap: "6px",
             flexShrink: 0,
             position: "sticky",
             top: "0",
             zIndex: "10",
             background: "bg.surface",
             borderBottomWidth: "1px",
-            borderBottomColor: "border.strong",
-            paddingInline: "{spacing.6}",
-            paddingTop: "14px",
-            paddingBottom: "16px",
+            borderBottomColor: "border.subtle",
         },
+        // Breadcrumb row — no flex gap: the toggle rides `barEnd`'s `margin-inline-start:auto`
+        // and (condensed) the title's spacing is the divider's own margins.
         headerRow: {
             display: "flex",
             alignItems: "center",
-            gap: "{spacing.3}",
-            minHeight: "28px",
+            gap: "0",
             minWidth: "0",
         },
+        // Flex-centre the breadcrumb and tighten its line box to `1` (design
+        // `.crumb { font: …/1 }`) so its 11px text sits on the row centre, level
+        // with the divider + title (the component's default ~1.8 line-height
+        // otherwise renders a 20px box that drops the text ~2px).
         breadcrumb: {
+            display: "flex",
+            alignItems: "center",
+            lineHeight: "1",
             minWidth: "0",
             overflow: "hidden",
-            textOverflow: "ellipsis",
             whiteSpace: "nowrap",
         },
         barStart: { display: "inline-flex", alignItems: "center", gap: "{spacing.2}", minWidth: "0" },
         // Center cluster (host global search) expands to push the trailing bar right.
         barCenter: { display: "inline-flex", alignItems: "center", flex: "1", minWidth: "0", justifyContent: "center" },
         barEnd: { display: "inline-flex", alignItems: "center", gap: "{spacing.2}", marginInlineStart: "auto", flexShrink: 0 },
-        // Built-in dark/light toggle (opt-in) — a ghost icon button in the bar.
+        // Built-in dark/light toggle (opt-in) — design `.appbar__toggle`: a ghost
+        // icon button. Size / icon size / radius are per-density.
         themeToggle: {
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
-            width: "32px",
-            height: "32px",
             border: "0",
+            borderRadius: "8px",
             background: "transparent",
             color: "fg.muted",
             cursor: "pointer",
-            fontSize: "14px",
-            borderRadius: "{radii.sm}",
             transitionProperty: "background, color",
             transitionDuration: "{durations.fast}",
             _hover: { color: "brand.fg", background: "bg.muted" },
         },
-        // Surface title row — bsys "surface.title" (comfortable / compact: own row).
+        // Surface title row — design `.appbar__title` (comfortable / compact: own
+        // row). DM Sans / 700 / −.015em / lh 1.1; font size is per-density.
         title: {
             fontFamily: "heading",
-            fontSize: "{fontSizes.xl}",
             fontWeight: "bold",
             color: "fg",
-            lineHeight: "1.2",
+            letterSpacing: "-0.015em",
+            lineHeight: "1.1",
             overflow: "hidden",
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
@@ -183,12 +185,15 @@ export const appSlotRecipe = defineSlotRecipe({
             flexShrink: 0,
             marginInline: "12px",
         },
+        // Condensed inline title — design `.appbar--condensed .title`: DM Sans 16 /
+        // 700 / −.01em / lh 1.
         titleInline: {
             fontFamily: "heading",
             fontWeight: "bold",
             color: "fg",
-            fontSize: "15px",
-            lineHeight: "1.2",
+            fontSize: "16px",
+            letterSpacing: "-0.01em",
+            lineHeight: "1",
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
@@ -217,24 +222,28 @@ export const appSlotRecipe = defineSlotRecipe({
                 collapseToggleRow: { justifyContent: "flex-end" },
             },
         },
-        /** App-bar density — only the header changes (rail + body held constant).
-         *  `comfortable` (2 rows, ~84 px) · `compact` (tighter 2 rows, ~62 px) ·
-         *  `condensed` (breadcrumb + title on ONE 44 px row; the renderer moves the
-         *  title inline via `titleInline`). */
+        /** App-bar density — only the header changes (rail + body held constant),
+         *  matched to the design spec:
+         *  `comfortable` — 16px/24px padding · row1 24px · gap 8px · title 24px · toggle 24 (icon 14)
+         *  `compact` — 12px/20px padding · row1 20px · gap 4px · title 18px · toggle 20 (icon 12)
+         *  `condensed` — one 44px row · 0/20px padding · title 16px inline · toggle 20 (icon 12). */
         density: {
             comfortable: {
-                header: { paddingTop: "14px", paddingBottom: "16px", gap: "6px" },
-                headerRow: { minHeight: "28px" },
-                title: { fontSize: "{fontSizes.xl}" },
+                header: { paddingInline: "24px", paddingTop: "16px", paddingBottom: "16px", gap: "8px" },
+                headerRow: { minHeight: "24px" },
+                title: { fontSize: "24px" },
+                themeToggle: { width: "24px", height: "24px", fontSize: "14px", borderRadius: "8px" },
             },
             compact: {
-                header: { paddingTop: "9px", paddingBottom: "10px", gap: "4px" },
-                headerRow: { minHeight: "24px" },
-                title: { fontSize: "19px" },
+                header: { paddingInline: "20px", paddingTop: "12px", paddingBottom: "12px", gap: "4px" },
+                headerRow: { minHeight: "20px" },
+                title: { fontSize: "18px" },
+                themeToggle: { width: "20px", height: "20px", fontSize: "12px", borderRadius: "8px" },
             },
             condensed: {
-                header: { paddingTop: "0", paddingBottom: "0", gap: "0" },
-                headerRow: { minHeight: "44px", gap: "0" },
+                header: { paddingInline: "20px", paddingTop: "0", paddingBottom: "0", gap: "0" },
+                headerRow: { minHeight: "44px" },
+                themeToggle: { width: "20px", height: "20px", fontSize: "12px", borderRadius: "6px" },
             },
         },
     },
