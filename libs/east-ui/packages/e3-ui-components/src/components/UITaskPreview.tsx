@@ -65,6 +65,13 @@ export interface UITaskPreviewProps {
      * Poll interval (ms) for the manifest's declared reads. Default 1000ms.
      */
     pollInterval?: number;
+    /**
+     * Chromeless mode: drop the padding + scroll wrapper so the ui output
+     * (e.g. a deployed `<App>` shell that owns its own layout) fills its
+     * container edge-to-edge — for host kiosk embedding. Default `false`
+     * (the padded, scrollable preview wrapper).
+     */
+    bare?: boolean;
 }
 
 function treePathToString(path: TreePath): string {
@@ -75,6 +82,7 @@ export const UITaskPreview = memo(function UITaskPreview({
     task,
     config,
     pollInterval = 1000,
+    bare = false,
 }: UITaskPreviewProps) {
     // Read the provider non-throwingly: the `config` prop is designed to let a
     // caller render a preview without a surrounding <E3Provider>. `config` wins;
@@ -180,7 +188,9 @@ export const UITaskPreview = memo(function UITaskPreview({
     return (
         <UIStoreProvider store={store}>
             <ErrorBoundary>
-                <Box height="100%" overflow="auto" p="4">
+                {/* bare: fill the container, no inset/scroll wrapper — the ui
+                    output (typically an <App>) owns its own layout + scrolling. */}
+                <Box height="100%" overflow={bare ? undefined : 'auto'} p={bare ? undefined : '4'} minH={bare ? 0 : undefined}>
                     <EastChakraComponent
                         value={valueQuery.data.decoded as ValueTypeOf<typeof UIComponentType>}
                         storageKey={outputPath ?? task}
