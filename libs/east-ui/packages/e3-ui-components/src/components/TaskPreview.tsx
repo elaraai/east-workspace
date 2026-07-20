@@ -27,6 +27,12 @@ export interface TaskPreviewProps {
     workspace: string;
     task: string;
     requestOptions?: RequestOptions;
+    /**
+     * Chromeless mode: drop the task-name header bar and, for a `ui` task,
+     * render the output edge-to-edge (forwarded to {@link UITaskPreview} as
+     * `bare`) — for host kiosk embedding of a deployed `<App>`. Default `false`.
+     */
+    bare?: boolean;
 }
 
 export const TaskPreview = memo(function TaskPreview({
@@ -35,6 +41,7 @@ export const TaskPreview = memo(function TaskPreview({
     workspace,
     task,
     requestOptions,
+    bare = false,
 }: TaskPreviewProps) {
     const detailsQuery = useTaskDetails(apiUrl, repo, workspace, task, {
         ...(requestOptions != null && { requestOptions }),
@@ -43,9 +50,13 @@ export const TaskPreview = memo(function TaskPreview({
 
     return (
         <Box height="100%" display="flex" flexDirection="column" overflow="hidden">
-            <Flex px={4} py={2} borderBottom="1px solid" borderColor="border.subtle" bg="bg.surface" align="center" flexShrink={0}>
-                <Text fontSize="sm" fontWeight="medium" color="fg">{task}</Text>
-            </Flex>
+            {/* The task-name header is preview chrome; a bare kiosk drops it so
+                the client <App> owns the whole surface. */}
+            {!bare && (
+                <Flex px={4} py={2} borderBottom="1px solid" borderColor="border.subtle" bg="bg.surface" align="center" flexShrink={0}>
+                    <Text fontSize="sm" fontWeight="medium" color="fg">{task}</Text>
+                </Flex>
+            )}
             <Box flex={1} overflow="hidden" minHeight={0}>
                 {detailsQuery.isLoading
                     ? <StatusDisplay variant="loading" title="Loading task..." />
@@ -54,6 +65,7 @@ export const TaskPreview = memo(function TaskPreview({
                         : kind === 'ui'
                             ? <UITaskPreview
                                 task={task}
+                                bare={bare}
                                 config={{ apiUrl, repo, workspace, token: requestOptions?.token ?? null }}
                             />
                             : <DataTaskPreview
@@ -67,4 +79,4 @@ export const TaskPreview = memo(function TaskPreview({
             </Box>
         </Box>
     );
-}, (prev, next) => prev.task === next.task && prev.repo === next.repo && prev.workspace === next.workspace);
+}, (prev, next) => prev.task === next.task && prev.repo === next.repo && prev.workspace === next.workspace && prev.bare === next.bare);
