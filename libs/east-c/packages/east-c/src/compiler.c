@@ -1179,9 +1179,9 @@ static char *check_platform_types(IRNode *node, PlatformRegistry *platform)
         size_t nargs = node->data.platform.num_args;
 
         if (typed && nargs != pf->num_input_types) {
-            return format_error(
-                "Platform function '%s' expects %zu arguments but got %zu at %s", name,
-                pf->num_input_types, nargs, describe_loc_id(node->loc_id, loc, sizeof loc));
+            return format_error("Platform function '%s' expects %zu arguments but got %zu at %s",
+                                name, pf->num_input_types, nargs,
+                                describe_loc_id(node->loc_id, loc, sizeof loc));
         }
         for (size_t i = 0; i < nargs; i++) {
             IRNode *arg = node->data.platform.args[i];
