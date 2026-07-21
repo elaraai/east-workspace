@@ -202,7 +202,7 @@ def _lift_variant(value: Any, hint: EastType | None) -> KernelExpr | None:
     options with the ordinary constructors; `none` needs a type hint (from
     a `where` branch or the declared callback output).
     """
-    from east.types.values import EastVariant, is_east_variant
+    from east.types.values import EastVariant, is_east_null, is_east_variant
 
     if not is_east_variant(value) or not isinstance(value, EastVariant):
         return None
@@ -212,7 +212,9 @@ def _lift_variant(value: Any, hint: EastType | None) -> KernelExpr | None:
         opt_t = _option_type(inner.east_type)
         node = _node("Variant", type=_type_json(opt_t), case="some", value=inner.ir)
         return KernelExpr(node, opt_t)
-    if value.type == "none" and value.value is None:
+    # `none.value` is the east_null sentinel, not Python None — test the sentinel
+    # so this branch (and its type-from-context diagnostic) is actually reachable.
+    if value.type == "none" and (is_east_null(value.value) or value.value is None):
         if hint is None or not _is_option(hint):
             raise KernelTraceError(
                 "`none` in a traced kernel needs a type from context — pair it with a "
@@ -1069,9 +1071,19 @@ def where(cond: Any, then: Any, otherwise: Any) -> Any:
         return then if cond else otherwise
     if cond.east_type.type != "Boolean":
         raise KernelTraceError(f"where() condition must be Boolean, got {cond.east_type.type}")
-    then_e = _lift(then)
-    else_e = _lift(otherwise, hint=then_e.east_type)
-    then_e = _lift(then, hint=else_e.east_type)
+    from east.types.values import is_east_variant
+
+    # A bare `none` branch has no standalone type — lift the sibling first and
+    # type the `none` from it. Otherwise lift `then`, type `otherwise` from it,
+    # then re-lift `then` so a `some`/`none` pair reconciles whichever arm the
+    # `none` sits in.
+    if is_east_variant(then) and then.type == "none":
+        else_e = _lift(otherwise)
+        then_e = _lift(then, hint=else_e.east_type)
+    else:
+        then_e = _lift(then)
+        else_e = _lift(otherwise, hint=then_e.east_type)
+        then_e = _lift(then, hint=else_e.east_type)
     if then_e.east_type != else_e.east_type:
         raise KernelTraceError(
             f"where() branches must have the same East type "
@@ -1204,6 +1216,13 @@ def _allowed_global(value: Any, depth: int) -> bool:
     if value is greatest or value is least:
         return True
     if value is KernelExpr:
+        return True
+    # `some`/`none` are pure option constructors that _lift_variant turns into
+    # Variant IR — allow them so option-returning lambdas trace natively instead
+    # of falling back to the per-element python path.
+    from east.types.construct import none, some
+
+    if value is some or value is none:
         return True
     if callable(value) and depth > 0:
         return _eligible(value, depth - 1)
