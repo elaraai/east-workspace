@@ -72,6 +72,24 @@ static void eval_result_add_loc_id(EvalResult *r, int64_t loc_id)
     r->num_locations = total;
 }
 
+/* Render a loc_id for an error message that carries no location stack of its
+ * own, writing "file:line:column" into buf. A loc_id means nothing to the
+ * developer reading it, so an id the source map cannot place is described
+ * rather than printed. Returns buf, for use as a "%s" argument. */
+static const char *describe_loc_id(int64_t loc_id, char *buf, size_t buf_size)
+{
+    size_t count = 0;
+    const EastLocation *locs =
+        loc_id > 0 ? east_source_map_resolve(g_current_source_map, loc_id, &count) : NULL;
+    if (locs && count > 0 && locs[0].filename) {
+        snprintf(buf, buf_size, "%s:%lld:%lld", locs[0].filename, (long long)locs[0].line,
+                 (long long)locs[0].column);
+    } else {
+        snprintf(buf, buf_size, "an unknown location");
+    }
+    return buf;
+}
+
 /* Create an error result with location from an IR node.
  * Takes ownership of msg (caller must not free). */
 static EvalResult eval_error_at_owned(char *msg, IRNode *node)
@@ -1151,6 +1169,7 @@ static char *check_platform_types(IRNode *node, PlatformRegistry *platform)
 {
     if (!node) return NULL;
     char *err = NULL;
+    char loc[512];
 
     switch (node->kind) {
     case IR_PLATFORM: {
@@ -1161,8 +1180,8 @@ static char *check_platform_types(IRNode *node, PlatformRegistry *platform)
 
         if (typed && nargs != pf->num_input_types) {
             return format_error(
-                "Platform function '%s' expects %zu arguments but got %zu at loc_id %lld", name,
-                pf->num_input_types, nargs, (long long)node->loc_id);
+                "Platform function '%s' expects %zu arguments but got %zu at %s", name,
+                pf->num_input_types, nargs, describe_loc_id(node->loc_id, loc, sizeof loc));
         }
         for (size_t i = 0; i < nargs; i++) {
             IRNode *arg = node->data.platform.args[i];
@@ -1175,9 +1194,9 @@ static char *check_platform_types(IRNode *node, PlatformRegistry *platform)
                 err = format_error(
                     "Platform function '%s' argument %zu requires exact type match. "
                     "Expected type %s but got %s. Insert an As node if subtyping is intended. "
-                    "at loc_id %lld",
+                    "at %s",
                     name, i + 1, expected ? expected : "?", got ? got : "?",
-                    (long long)node->loc_id);
+                    describe_loc_id(node->loc_id, loc, sizeof loc));
                 free(expected);
                 free(got);
                 return err;
@@ -1187,9 +1206,9 @@ static char *check_platform_types(IRNode *node, PlatformRegistry *platform)
             char *expected = east_print_type(pf->output_type);
             char *got = east_print_type(node->type);
             err = format_error(
-                "Platform function '%s' return type expected to be %s but IR has %s at loc_id "
-                "%lld",
-                name, expected ? expected : "?", got ? got : "?", (long long)node->loc_id);
+                "Platform function '%s' return type expected to be %s but IR has %s at %s", name,
+                expected ? expected : "?", got ? got : "?",
+                describe_loc_id(node->loc_id, loc, sizeof loc));
             free(expected);
             free(got);
             return err;

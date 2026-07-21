@@ -47,8 +47,11 @@ static void trim_trailing_ws(char *s)
 }
 
 /* Decode an exported {ir, source_map} wrapper and return the top-level
- * function's body IR (retained). */
-static IRNode *load_ir_body(const char *json_path)
+ * function's body IR (retained), installing the fixture's source map as the
+ * current one. Error messages name the offending node by source location, so
+ * matching the TS analyzer byte-for-byte requires the same map it resolved
+ * against. Ownership of the map passes to *source_map_out. */
+static IRNode *load_ir_body(const char *json_path, EastSourceMap **source_map_out)
 {
     char *json = read_file(json_path);
     if (!json) {
@@ -56,36 +59,14 @@ static IRNode *load_ir_body(const char *json_path)
         return NULL;
     }
 
-    EastType *loc_struct = east_struct_type(
-        (const char *[]){"filename", "line", "column"},
-        (EastType *[]){&east_string_type, &east_integer_type, &east_integer_type}, 3);
-    EastType *loc_arr = east_array_type(loc_struct);
-    EastType *stacks_arr = east_array_type(loc_arr);
-    EastType *sm_type = east_struct_type((const char *[]){"stacks"}, (EastType *[]){stacks_arr}, 1);
-    EastType *wrapper_type = east_struct_type((const char *[]){"ir", "source_map"},
-                                              (EastType *[]){east_ir_type, sm_type}, 2);
-
-    EastValue *wrapper_val = east_json_decode(json, wrapper_type);
+    IRNode *ir = east_json_decode_ir(json, NULL, source_map_out);
     free(json);
-    east_type_release(loc_struct);
-    east_type_release(loc_arr);
-    east_type_release(stacks_arr);
-    east_type_release(sm_type);
-    east_type_release(wrapper_type);
 
-    if (!wrapper_val) {
+    if (!ir) {
         fprintf(stderr, "Failed to decode fixture JSON: %s\n", json_path);
         return NULL;
     }
-
-    /* Struct fields sorted alphabetically: ir=0, source_map=1 */
-    EastValue *ir_val = east_struct_get_field_idx(wrapper_val, 0);
-    IRNode *ir = east_ir_from_value(ir_val);
-    east_value_release(wrapper_val);
-    if (!ir) {
-        fprintf(stderr, "Failed to convert IR value: %s\n", json_path);
-        return NULL;
-    }
+    east_set_source_map(*source_map_out);
 
     IRNode *body = ir;
     if (ir->kind == IR_FUNCTION || ir->kind == IR_ASYNC_FUNCTION) {
@@ -153,7 +134,8 @@ static int run_case(const char *dir, const CheckCase *c)
 {
     char path[1024];
     snprintf(path, sizeof(path), "%s/%s.json", dir, c->name);
-    IRNode *body = load_ir_body(path);
+    EastSourceMap *source_map = NULL;
+    IRNode *body = load_ir_body(path, &source_map);
     if (!body) return 1;
 
     EastType *inputs[2] = {NULL, NULL};
@@ -211,6 +193,11 @@ static int run_case(const char *dir, const CheckCase *c)
     platform_registry_free(platform);
     builtin_registry_free(builtins);
     ir_node_release(body);
+    east_set_source_map(NULL);
+    if (source_map) {
+        east_source_map_free(source_map);
+        free(source_map);
+    }
     return failed;
 }
 

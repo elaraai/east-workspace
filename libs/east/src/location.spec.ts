@@ -4,7 +4,7 @@
  */
 import assert from "node:assert/strict";
 import { afterEach, describe, test } from "node:test";
-import { normalizeFramePath, setLocationBasePath } from "./location.js";
+import { normalizeFramePath, resolveLocIds, setLocationBasePath, SourceMap } from "./location.js";
 
 describe("normalizeFramePath", () => {
   // Reset to the automatic (cwd) base after every test so cases don't leak.
@@ -192,6 +192,89 @@ describe("bare-lambda coercion locations (issue #204)", () => {
     assert.ok(
       stacks.some(l => l.filename.includes("location.spec")),
       "expected the async lambda's frames to be re-interned into the outer map"
+    );
+  });
+});
+
+describe("error source locations (issue #381)", () => {
+  // Compile-time errors name the offending node by loc_id, which is
+  // meaningless to a reader. The source map is only in scope while the
+  // expression is being built, so that is where the id has to be resolved.
+
+  test("resolveLocIds replaces an id with its source location", () => {
+    const map = new SourceMap();
+    const id = map.intern_stack([{ filename: "app.ts", line: 12n, column: 5n }]);
+    assert.equal(
+      resolveLocIds(`Variable defined at loc_id ${id} is out of scope here`, map),
+      "Variable defined at app.ts:12:5 is out of scope here",
+    );
+  });
+
+  test("resolveLocIds replaces every id in a message", () => {
+    const map = new SourceMap();
+    const a = map.intern_stack([{ filename: "a.ts", line: 1n, column: 2n }]);
+    const b = map.intern_stack([{ filename: "b.ts", line: 3n, column: 4n }]);
+    assert.equal(
+      resolveLocIds(`defined at loc_id ${a}, reassigned at loc_id ${b}`, map),
+      "defined at a.ts:1:2, reassigned at b.ts:3:4",
+    );
+  });
+
+  test("resolveLocIds describes an id the map cannot place", () => {
+    assert.equal(
+      resolveLocIds("something failed at loc_id 0", new SourceMap()),
+      "something failed at an unknown location",
+    );
+  });
+
+  test("a compile-time error reports file:line, never a raw loc_id", async () => {
+    const { East, IntegerType } = await import("./index.js");
+    assert.throws(
+      () => East.function([], IntegerType, ($) => {
+        const c = $.const(1n, IntegerType);
+        $.assign(c as any, 2n);
+        return c;
+      }),
+      (e: Error) => {
+        assert.doesNotMatch(e.message, /loc_id \d+/, `raw loc_id in: ${e.message}`);
+        assert.match(e.message, /location\.spec\.[jt]s:\d+:\d+/, `no source location in: ${e.message}`);
+        return true;
+      },
+    );
+  });
+
+  test("captured stacks name user code, not East's own modules", async () => {
+    const { East, IntegerType, ArrayType } = await import("./index.js");
+    const ir = (East.function([], IntegerType, ($) => {
+      const arr = $.const([1n, 2n], ArrayType(IntegerType));
+      return arr.get(0n);
+    }) as any).toIR();
+
+    const frames = (ir.source_map.entries().flat(2) as { filename: string }[]);
+    assert.ok(frames.length > 0, "expected captured locations");
+    for (const frame of frames) {
+      assert.doesNotMatch(
+        frame.filename,
+        /(^|\/)(dist\/)?src\/(expr\/)?(location|block|ast)\.[jt]s$/,
+        `East's own module leaked into a trace: ${frame.filename}`,
+      );
+    }
+    assert.ok(frames.every(l => l.filename.includes("location.spec")));
+  });
+
+  test("a value built at module scope still resolves to a location", async () => {
+    const { East, IntegerType, ArrayType } = await import("./index.js");
+    // Built with no ambient map — its private map must survive the embedding
+    // below, or the nodes keep UNKNOWN_LOC_ID and errors lose their location.
+    const outside = East.value([1n, 2n, 3n], ArrayType(IntegerType));
+
+    const ir = (East.function([IntegerType], IntegerType, ($, i) =>
+      (outside as any).get(i)) as any).toIR();
+
+    const stacks = ir.source_map.entries() as { filename: string }[][];
+    assert.ok(
+      stacks.some(s => s.some(l => l.filename.includes("location.spec"))),
+      "the module-scope value's locations should be re-interned into the function's map",
     );
   });
 });

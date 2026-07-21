@@ -309,8 +309,19 @@ export function from(value: any, type?: EastType): Expr<any> {
     }); // ensure_source_map
   }
 
-  const ast = type ? valueOrExprToAstTyped(value, type) : valueOrExprToAst(value);
-  return fromAst(ast);
+  // Same treatment as the function branches above: build under a source map
+  // (inheriting any ambient one) and stamp it on the result. A value built at
+  // module scope has no ambient map, and without a private one its nodes get
+  // UNKNOWN_LOC_ID — so a failure inside it reports no location at all, even
+  // after it is embedded in a function that does have a map.
+  return ensure_source_map(() => {
+    const ast = type ? valueOrExprToAstTyped(value, type) : valueOrExprToAst(value);
+    const expr = fromAst(ast);
+    const map = get_current_source_map();
+    Object.defineProperty(expr, SourceMapSymbol, { enumerable: false, value: map });
+    Object.defineProperty(ast, SourceMapSymbol, { enumerable: false, value: map });
+    return expr;
+  });
 }
 
 
