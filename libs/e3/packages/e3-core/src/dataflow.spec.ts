@@ -24,6 +24,7 @@ import {
   dataflowGetGraph,
   dataflowGetReadyTasks,
   dataflowGetDependentsToSkip,
+  dataflowGetDependencyClosure,
   type DataflowGraph,
 } from './dataflow.js';
 import { objectWrite } from './storage/local/LocalObjectStore.js';
@@ -349,6 +350,52 @@ describe('dataflow', () => {
       // d is a transitive dependent of a through b
       const toSkip = dataflowGetDependentsToSkip(graph, 'a', new Set(), new Set());
       assert.deepStrictEqual(toSkip.sort(), ['b', 'd']);
+    });
+  });
+
+  describe('dataflowGetDependencyClosure', () => {
+    it('returns just the task itself when it has no dependencies', () => {
+      const graph: DataflowGraph = {
+        tasks: [
+          { name: 'a', hash: 'h1', inputs: [], output: 'out-a', dependsOn: [] },
+          { name: 'b', hash: 'h2', inputs: [], output: 'out-b', dependsOn: [] },
+        ],
+      };
+
+      assert.deepStrictEqual([...dataflowGetDependencyClosure(graph, 'a')].sort(), ['a']);
+    });
+
+    it('includes the target and all its transitive producers', () => {
+      // a -> b -> c -> d (d is the leaf)
+      const graph: DataflowGraph = {
+        tasks: [
+          { name: 'a', hash: 'h1', inputs: [], output: 'out-a', dependsOn: [] },
+          { name: 'b', hash: 'h2', inputs: [], output: 'out-b', dependsOn: ['a'] },
+          { name: 'c', hash: 'h3', inputs: [], output: 'out-c', dependsOn: ['b'] },
+          { name: 'd', hash: 'h4', inputs: [], output: 'out-d', dependsOn: ['c'] },
+        ],
+      };
+
+      // The leaf pulls in the whole upstream chain...
+      assert.deepStrictEqual([...dataflowGetDependencyClosure(graph, 'd')].sort(), ['a', 'b', 'c', 'd']);
+      // ...but a mid-graph task only pulls in its own ancestors, not its dependents.
+      assert.deepStrictEqual([...dataflowGetDependencyClosure(graph, 'b')].sort(), ['a', 'b']);
+    });
+
+    it('collapses shared ancestors in a diamond', () => {
+      // a -> b -> d, a -> c -> d: `a` is reached via both branches but appears once
+      const graph: DataflowGraph = {
+        tasks: [
+          { name: 'a', hash: 'h1', inputs: [], output: 'out-a', dependsOn: [] },
+          { name: 'b', hash: 'h2', inputs: [], output: 'out-b', dependsOn: ['a'] },
+          { name: 'c', hash: 'h3', inputs: [], output: 'out-c', dependsOn: ['a'] },
+          { name: 'd', hash: 'h4', inputs: [], output: 'out-d', dependsOn: ['b', 'c'] },
+        ],
+      };
+
+      const closure = dataflowGetDependencyClosure(graph, 'd');
+      assert.deepStrictEqual([...closure].sort(), ['a', 'b', 'c', 'd']);
+      assert.strictEqual(closure.size, 4);
     });
   });
 

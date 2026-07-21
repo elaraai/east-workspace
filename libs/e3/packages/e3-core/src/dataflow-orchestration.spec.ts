@@ -2190,4 +2190,145 @@ describe('dataflow orchestration with MockTaskRunner', () => {
       }
     });
   });
+
+  describe('filter + force composition (issue #378)', () => {
+    /**
+     * Build the a -> b -> c chain (input -> middle1 -> middle2 -> output), run
+     * it once so every task's output lands in the workspace, and seed the
+     * execution store so a later run resolves each task from cache. Returns the
+     * task hashes so callers can assert which task the runner was invoked for.
+     */
+    async function seedCachedChain(): Promise<Map<string, string>> {
+      const structure: Structure = {
+        type: 'struct',
+        value: new Map([
+          ['input', { type: 'value', value: { type: StringType, writable: true } }],
+          ['middle1', { type: 'value', value: { type: StringType, writable: true } }],
+          ['middle2', { type: 'value', value: { type: StringType, writable: true } }],
+          ['output', { type: 'value', value: { type: StringType, writable: true } }],
+        ]),
+      } as unknown as Structure;
+
+      const inputPath: TreePath = [variant('field', 'input')];
+      const middle1Path: TreePath = [variant('field', 'middle1')];
+      const middle2Path: TreePath = [variant('field', 'middle2')];
+      const outputPath: TreePath = [variant('field', 'output')];
+
+      const taskHashes = await createPackageWithTasks(
+        testRepo,
+        [
+          { name: 'task-a', command: ['echo'], inputs: [inputPath], output: middle1Path },
+          { name: 'task-b', command: ['echo'], inputs: [middle1Path], output: middle2Path },
+          { name: 'task-c', command: ['echo'], inputs: [middle2Path], output: outputPath },
+        ],
+        structure,
+      );
+      await workspaceDeploy(storage, testRepo, 'test-ws', 'test', '1.0.0');
+      await workspaceSetDataset(storage, testRepo, 'test-ws', inputPath, 'test', StringType);
+
+      // First run: every task executes; capture the input hashes each saw.
+      const capturedInputHashes = new Map<string, string[]>();
+      for (const [name, hash] of taskHashes) {
+        mockRunner.setResult(hash, (inputHashesArr) => {
+          capturedInputHashes.set(name, [...inputHashesArr]);
+          return { state: 'success' as const, cached: false, outputHash: `output-${name}` };
+        });
+      }
+      const first = await dataflowExecute(storage, testRepo, 'test-ws', { runner: mockRunner });
+      assert.strictEqual(first.success, true);
+      assert.strictEqual(first.executed, 3);
+
+      // Seed the execution store so a later run finds cached outputs for each
+      // task (stepPrepareTask checks the execution store; the workspace outputs
+      // written by the first run already match).
+      const now = new Date();
+      const fakeUuid = '01900000-0000-7000-8000-000000000001';
+      for (const [name, hash] of taskHashes) {
+        const captured = capturedInputHashes.get(name);
+        assert.ok(captured, `Should have captured input hashes for ${name}`);
+        await storage.refs.executionWrite(testRepo, hash, inputsHash(captured), fakeUuid, variant('success', {
+          executionId: fakeUuid,
+          inputHashes: captured,
+          outputHash: `output-${name}`,
+          startedAt: now,
+          completedAt: now,
+        }));
+      }
+
+      return taskHashes;
+    }
+
+    it('re-runs ONLY the filtered leaf under --force, consuming cached deps', async () => {
+      const taskHashes = await seedCachedChain();
+
+      // Re-run just the leaf, forced — the "edited Python, re-run this one task"
+      // idiom. Before the fix this threw "Dataflow stuck: task-c (pending)":
+      // --force globally invalidated the deps' cache while --filter kept them
+      // from being scheduled, so task-c waited forever on dependencies that
+      // never ran. Expected: task-a and task-b resolve from cache, only task-c
+      // is force re-executed.
+      mockRunner.clearCalls();
+      const started: string[] = [];
+      const result = await dataflowExecute(storage, testRepo, 'test-ws', {
+        runner: mockRunner,
+        force: true,
+        filter: 'task-c',
+        onTaskStart: (n) => started.push(n),
+      });
+
+      assert.strictEqual(result.success, true);
+      // Only the forced leaf actually executes; its deps are cache hits.
+      assert.deepStrictEqual(started, ['task-c']);
+      assert.strictEqual(result.executed, 1);
+      assert.strictEqual(result.cached, 2);
+      // The runner is invoked exactly once — for the forced leaf, with force set.
+      const calls = mockRunner.getCalls();
+      assert.strictEqual(calls.length, 1);
+      assert.strictEqual(calls[0]!.taskHash, taskHashes.get('task-c'));
+      assert.strictEqual(calls[0]!.options?.force, true);
+    });
+
+    it('resolves a filtered leaf from cache when --force is omitted', async () => {
+      await seedCachedChain();
+
+      // --filter <leaf> alone must also make progress: the leaf and its deps are
+      // all up-to-date, so nothing runs and the runner is never invoked.
+      mockRunner.clearCalls();
+      const result = await dataflowExecute(storage, testRepo, 'test-ws', {
+        runner: mockRunner,
+        filter: 'task-c',
+      });
+
+      assert.strictEqual(result.success, true);
+      assert.strictEqual(result.executed, 0);
+      assert.strictEqual(result.cached, 3);
+      assert.strictEqual(mockRunner.getCalls().length, 0);
+    });
+
+    it('still re-executes every task for --force without a filter', async () => {
+      const taskHashes = await seedCachedChain();
+
+      // The documented workaround must be unchanged: a bare --force re-executes
+      // the whole tree, bypassing every task's cache.
+      mockRunner.clearCalls();
+      const result = await dataflowExecute(storage, testRepo, 'test-ws', {
+        runner: mockRunner,
+        force: true,
+      });
+
+      assert.strictEqual(result.success, true);
+      assert.strictEqual(result.executed, 3);
+      assert.strictEqual(result.cached, 0);
+      const calls = mockRunner.getCalls();
+      assert.strictEqual(calls.length, 3);
+      assert.strictEqual(new Set(calls.map(c => c.taskHash)).size, 3);
+      for (const call of calls) {
+        assert.strictEqual(call.options?.force, true);
+      }
+      // sanity: all three known task hashes were invoked
+      for (const hash of taskHashes.values()) {
+        assert.ok(calls.some(c => c.taskHash === hash));
+      }
+    });
+  });
 });

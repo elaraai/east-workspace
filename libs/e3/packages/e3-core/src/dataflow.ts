@@ -548,6 +548,39 @@ export function dataflowGetReadyTasks(
 }
 
 /**
+ * Get the dependency closure of a task: the task itself plus every task it
+ * transitively depends on (its upstream producers).
+ *
+ * A `--filter <task>` run is scoped to this closure so the target's upstream
+ * can run — resolving from cache — and make the target ready. Without it the
+ * filtered target would wait forever on dependencies the filter excluded from
+ * scheduling.
+ *
+ * @param graph - The dependency graph from dataflowGetGraph
+ * @param target - Name of the task whose closure to compute
+ * @returns Set of task names: the target plus all transitive dependencies
+ */
+export function dataflowGetDependencyClosure(
+  graph: DataflowGraph,
+  target: string
+): Set<string> {
+  const byName = new Map(graph.tasks.map(task => [task.name, task]));
+  const closure = new Set<string>();
+  const queue = [target];
+
+  while (queue.length > 0) {
+    const name = queue.shift()!;
+    if (closure.has(name)) continue;
+    closure.add(name);
+    for (const dep of byName.get(name)?.dependsOn ?? []) {
+      queue.push(dep);
+    }
+  }
+
+  return closure;
+}
+
+/**
  * Check if a task execution is cached for the given inputs.
  *
  * @param storage - Storage backend

@@ -72,7 +72,11 @@ export async function startCommand(
     }
     console.log(`Concurrency: ${concurrency}`);
     if (options.force) {
-      console.log('Force: re-executing all tasks');
+      console.log(
+        options.filter
+          ? `Force: re-executing ${options.filter} (dependencies from cache)`
+          : 'Force: re-executing all tasks'
+      );
     }
     console.log('');
 

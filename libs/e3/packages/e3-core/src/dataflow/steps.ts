@@ -27,6 +27,7 @@ import {
   dataflowGetGraph,
   dataflowGetReadyTasks,
   dataflowGetDependentsToSkip,
+  dataflowGetDependencyClosure,
   dataflowResolveInputHashes,
   dataflowCheckCache,
   findAffectedTasks,
@@ -241,6 +242,43 @@ async function getWorkspaceStructure(
 // =============================================================================
 
 /**
+ * Resolve the set of tasks a run is permitted to schedule.
+ *
+ * With no `--filter`, every task may run (returns null — "no restriction"). A
+ * `--filter <task>` scopes the run to that task's dependency closure — the
+ * target plus its transitive producers — so the target's (usually cached)
+ * upstream can run and make it ready. Restricting to the bare target instead
+ * would strand it `pending` on dependencies that never get scheduled.
+ *
+ * @param state - Current execution state
+ * @returns Set of task names permitted to run, or null if unrestricted
+ */
+export function stepGetRunSet(state: DataflowExecutionState): Set<string> | null {
+  const filterValue = state.filter.type === 'some' ? state.filter.value : null;
+  if (filterValue === null) return null;
+  return dataflowGetDependencyClosure(getGraph(state), filterValue);
+}
+
+/**
+ * Decide whether a task's cache should be bypassed (force re-execution).
+ *
+ * `--force` on its own re-executes every task. Combined with `--filter <task>`
+ * it applies to the explicitly named target only — the target's dependencies
+ * run from cache — so "re-run just this task" does not re-execute the whole
+ * upstream tree. Keeping this scope in one place keeps the cache-bypass
+ * decision in {@link stepPrepareTask} and the runner's force flag in agreement.
+ *
+ * @param state - Current execution state
+ * @param taskName - Name of the task being prepared or executed
+ * @returns True if the task must re-execute regardless of a cached result
+ */
+export function stepTaskForced(state: DataflowExecutionState, taskName: string): boolean {
+  if (!state.force) return false;
+  const filterValue = state.filter.type === 'some' ? state.filter.value : null;
+  return filterValue === null || taskName === filterValue;
+}
+
+/**
  * Get tasks that are ready to execute.
  *
  * A task is ready when:
@@ -264,10 +302,9 @@ export function stepGetReady(state: DataflowExecutionState): string[] {
   // Get ready tasks from graph
   const graphReady = dataflowGetReadyTasks(getGraph(state), completedTasks);
 
-  // Get filter value (handle Option type)
-  const filterValue = state.filter.type === 'some' ? state.filter.value : null;
+  // Restrict to the filter's dependency closure (null = no filter)
+  const runSet = stepGetRunSet(state);
 
-  // Filter by state and filter option
   return graphReady.filter(taskName => {
     const taskState = state.tasks.get(taskName);
     if (!taskState) return false;
@@ -280,8 +317,8 @@ export function stepGetReady(state: DataflowExecutionState): string[] {
       return false;
     }
 
-    // Apply task filter
-    if (filterValue !== null && taskName !== filterValue) {
+    // Apply task filter (target + its transitive dependencies)
+    if (runSet !== null && !runSet.has(taskName)) {
       return false;
     }
 
@@ -302,7 +339,7 @@ export function stepGetReady(state: DataflowExecutionState): string[] {
  * @returns True if execution is complete
  */
 export function stepIsComplete(state: DataflowExecutionState): boolean {
-  const filterValue = state.filter.type === 'some' ? state.filter.value : null;
+  const runSet = stepGetRunSet(state);
 
   for (const taskState of state.tasks.values()) {
     if (
@@ -327,8 +364,8 @@ export function stepIsComplete(state: DataflowExecutionState): boolean {
           return depState && (depState.status === 'failed' || depState.status === 'skipped');
         });
         if (!hasUnmetDeps) {
-          if (filterValue !== null && taskState.name !== filterValue) {
-            continue; // Filtered out, doesn't affect completion
+          if (runSet !== null && !runSet.has(taskState.name)) {
+            continue; // Outside the filter's run set, doesn't affect completion
           }
           return false;
         }
@@ -551,9 +588,10 @@ export async function stepPrepareTask(
     validInputHashes.push(hash);
   }
 
-  // Check cache if not forcing re-execution
+  // Check cache unless this task is force-re-executed. Under a filter, force
+  // applies to the target only, so its dependencies still resolve from cache.
   let cachedOutputHash: string | null = null;
-  if (!state.force) {
+  if (!stepTaskForced(state, taskName)) {
     cachedOutputHash = await dataflowCheckCache(
       storage,
       state.repo,
@@ -737,8 +775,8 @@ export function stepTaskFailed(
   // Update counters
   mutableState.failed = state.failed + 1n;
 
-  // Get filter value (handle Option type)
-  const filterValue = state.filter.type === 'some' ? state.filter.value : null;
+  // Restrict skips to the filter's run set (null = no filter)
+  const runSet = stepGetRunSet(state);
 
   // Find tasks to skip (transitive dependents)
   const completedSet = new Set<string>();
@@ -757,7 +795,7 @@ export function stepTaskFailed(
     // Also exclude in-progress tasks and apply filter
     const ts = state.tasks.get(name);
     if (!ts || ts.status === 'in_progress') return false;
-    if (filterValue !== null && name !== filterValue) return false;
+    if (runSet !== null && !runSet.has(name)) return false;
     return true;
   });
 
