@@ -22,7 +22,7 @@ import { defineSlotRecipe } from "@chakra-ui/react";
 
 export const statusSlotRecipe = defineSlotRecipe({
     className: "elara-status",
-    slots: ["root", "indicator", "label"],
+    slots: ["root", "indicator", "icon", "label"],
     base: {
         root: {
             display: "inline-flex",
@@ -37,6 +37,16 @@ export const statusSlotRecipe = defineSlotRecipe({
             borderRadius: "{radii.full}",
             flexShrink: 0,
         },
+        // Glyph alternative to the dot, for the few states worth interrupting a
+        // scan for. A dot can only vary in hue, which is the first channel lost
+        // to a glance; a glyph carries shape as well.
+        icon: {
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0,
+            lineHeight: "1",
+        },
         label: {
             fontFamily: "mono",
             fontSize: "11px",
@@ -49,20 +59,27 @@ export const statusSlotRecipe = defineSlotRecipe({
     },
     variants: {
         status: {
-            success: { indicator: { background: "fg.success" } },
-            warning: { indicator: { background: "fg.warning" } },
-            danger:  { indicator: { background: "fg.danger"  } },
-            info:    { indicator: { background: "fg.info"    } },
-            neutral: { indicator: { background: "fg.subtle"   } },
-            brand:   { indicator: { background: "{colors.brand.500}" } },
+            success: { indicator: { background: "fg.success" }, icon: { color: "fg.success" } },
+            warning: { indicator: { background: "fg.warning" }, icon: { color: "fg.warning" } },
+            danger:  { indicator: { background: "fg.danger"  }, icon: { color: "fg.danger"  } },
+            info:    { indicator: { background: "fg.info"    }, icon: { color: "fg.info"    } },
+            neutral: { indicator: { background: "fg.subtle"   }, icon: { color: "fg.subtle"   } },
+            brand:   { indicator: { background: "{colors.brand.500}" }, icon: { color: "{colors.brand.500}" } },
         },
         size: {
-            sm: { indicator: { width: "6px",  height: "6px"  } },
-            md: { indicator: { width: "8px",  height: "8px"  } },
-            lg: { indicator: { width: "10px", height: "10px" } },
+            sm: { indicator: { width: "6px",  height: "6px"  }, icon: { fontSize: "11px" } },
+            md: { indicator: { width: "8px",  height: "8px"  }, icon: { fontSize: "13px" } },
+            lg: { indicator: { width: "10px", height: "10px" }, icon: { fontSize: "15px" } },
         },
         pulsing: {
             true:  { indicator: { animation: "spec-pulse-run 1.6s ease-in-out infinite" } },
+            false: {},
+        },
+        // Rotation for a glyph that stands in for the dot while work is in
+        // flight. `pulsing` fades a dot's opacity, which a 6px circle barely
+        // carries; rotation reads at any size.
+        spinning: {
+            true:  { icon: { animation: "elara-spin 1.1s linear infinite" } },
             false: {},
         },
         live: {
@@ -79,6 +96,7 @@ export const statusSlotRecipe = defineSlotRecipe({
         status: "neutral",
         size: "md",
         pulsing: false,
+        spinning: false,
         live: false,
     },
 });

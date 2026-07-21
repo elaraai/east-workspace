@@ -16,7 +16,7 @@
 import { useMemo } from 'react';
 import { Box, Flex, Text, HStack, Spinner, chakra, useSlotRecipe, type SystemStyleObject } from '@chakra-ui/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faChevronLeft, faDatabase, faBolt } from '@fortawesome/free-solid-svg-icons';
+import { faChevronLeft, faDatabase, faBolt, faSpinner, faTriangleExclamation } from '@fortawesome/free-solid-svg-icons';
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core';
 import { useE3Context } from '../context/E3Context';
 import { SidebarToggle } from './SidebarToggle';
@@ -46,13 +46,25 @@ function getTaskStatusTone(status: TaskStatusInfo['status']['type']): StatusTone
 }
 
 /**
- * Whether the status dot animates.
+ * Glyph for the two states worth interrupting a scan for, or undefined to keep
+ * the dot.
  *
- * Colour alone cannot carry "running": the dots are 6px, several states are
- * legitimately coloured, and hue is the first thing lost to colour-blindness
- * and to a glance. Motion is pre-attentive and unambiguous — if it moves, work
- * is happening.
+ * A dot can only vary in hue, and hue is the first channel lost to a glance or
+ * to colour-blindness — a fading 6px circle is not enough to say "this one is
+ * running" or "this one is broken". Shape carries those two; everything else
+ * stays a dot, because a list where every row shouts says nothing.
  */
+function getTaskStatusIcon(status: TaskStatusInfo['status']['type']): IconDefinition | undefined {
+    switch (status) {
+        case 'in-progress': return faSpinner;
+        case 'failed':
+        case 'error':
+        case 'stale-running': return faTriangleExclamation;
+        default: return undefined;
+    }
+}
+
+/** The spinner turns only while the task is actually executing. */
 function isTaskRunning(status: TaskStatusInfo['status']['type']): boolean {
     return status === 'in-progress';
 }
@@ -92,7 +104,9 @@ interface NavItemProps {
     label: string;
     tone: StatusTone;
     statusLabel: string;
-    /** Animate the status dot — the row is doing work right now. */
+    /** Glyph in place of the dot, for running / broken rows. */
+    icon?: IconDefinition | undefined;
+    /** Spin the glyph — the row is doing work right now. */
     running?: boolean;
     active: boolean;
     itemStyle: SystemStyleObject;
@@ -105,7 +119,7 @@ interface NavItemProps {
  *  A dot alone is enough for the states you scan past, but not for the one you
  *  came to find: failures spell themselves out (the status pattern's own
  *  dot-plus-word form), so a broken task is readable rather than a red speck. */
-function NavItem({ label, tone, statusLabel, running = false, active, itemStyle, onClick }: NavItemProps) {
+function NavItem({ label, tone, statusLabel, icon, running = false, active, itemStyle, onClick }: NavItemProps) {
     const failed = tone === 'danger';
     return (
         <chakra.button
@@ -121,7 +135,8 @@ function NavItem({ label, tone, statusLabel, running = false, active, itemStyle,
                 label={statusLabel}
                 size={failed ? 'md' : 'sm'}
                 hideLabel={!failed}
-                pulsing={running}
+                {...(icon !== undefined && { icon })}
+                spinning={running}
             />
         </chakra.button>
     );
@@ -197,6 +212,7 @@ export function WorkspaceTree() {
                             label={task.name}
                             tone={getTaskStatusTone(task.status.type)}
                             statusLabel={task.status.type}
+                            icon={getTaskStatusIcon(task.status.type)}
                             running={isTaskRunning(task.status.type)}
                             active={selection.type === 'task' && selection.task === task.name}
                             itemStyle={styles.item}
