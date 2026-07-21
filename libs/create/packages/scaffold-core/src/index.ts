@@ -8,3 +8,5 @@ export type { Features, ProjectKind, ScaffoldOptions, ScaffoldResult } from "./s
 export { deriveNames } from "./names.js";
 export type { ProjectNames } from "./names.js";
 export { runCreateCli } from "./cli.js";
+export { updateStack } from "./update.js";
+export type { UpdateOptions, UpdateResult, UpdatedDep } from "./update.js";
