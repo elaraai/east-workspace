@@ -8,7 +8,9 @@
  *
  * Usage:
  *   e3 logs . ws                    # List tasks in workspace
- *   e3 logs . ws.taskName           # Show logs for task's latest execution
+ *   e3 logs . ws.taskName           # Show the last 200 lines
+ *   e3 logs . ws.taskName -n 50     # Show the last 50 lines
+ *   e3 logs . ws.taskName --all     # Show the whole log
  *   e3 logs . ws.taskName --follow  # Follow log output
  */
 
@@ -30,6 +32,20 @@ import {
   ApiError,
 } from '@elaraai/e3-api-client';
 import { parseRepoLocation, formatError, exitError, HASH_DISPLAY_WIDTH } from '../utils.js';
+import { formatSize } from '../format.js';
+
+/** Bytes requested per read when paging through a log. */
+const PAGE_BYTES = 64 * 1024;
+
+/** Trailing lines shown when neither `-n/--lines` nor `--all` is given. */
+export const DEFAULT_TAIL_LINES = 200;
+
+/**
+ * How far back a tail read scans before settling for the lines it has. Only
+ * reached by logs whose lines are enormous; the notice still reports what was
+ * shown against the full size.
+ */
+const MAX_TAIL_BYTES = 8 * 1024 * 1024;
 
 /**
  * Format a hash for display (abbreviated to `HASH_DISPLAY_WIDTH`).
@@ -107,47 +123,231 @@ interface LogData {
   complete: boolean;
 }
 
-/** Callback to fetch new log data from a given offset. */
-type PollFn = (stream: 'stdout' | 'stderr', offset: number) => Promise<LogData>;
+/** Reads up to `limit` bytes of `stream` starting at byte `offset`. */
+type ReadFn = (stream: 'stdout' | 'stderr', offset: number, limit: number) => Promise<LogData>;
+
+/** How much of a log to show. */
+interface DisplayOptions {
+  follow: boolean;
+  all: boolean;
+  /** Trailing lines to show when `all` is false. */
+  lines: number;
+}
+
+/**
+ * Resolve the `-n/--lines` option.
+ *
+ * @param value - Raw option value, or undefined when the flag was not given
+ * @returns The number of trailing lines to show
+ * @throws {Error} If the value is not a positive integer
+ */
+export function parseLines(value: string | number | undefined): number {
+  if (value === undefined) return DEFAULT_TAIL_LINES;
+  const lines = typeof value === 'number' ? value : Number(value);
+  if (!Number.isInteger(lines) || lines <= 0) {
+    throw new Error(`Invalid --lines value: ${String(value)} (expected a positive integer)`);
+  }
+  return lines;
+}
+
+/**
+ * Take the last `maxLines` lines of `text`.
+ *
+ * @param text - Log text, whole lines only
+ * @param maxLines - Maximum number of lines to keep
+ * @returns The kept lines joined by newlines (no trailing newline), how many
+ *   there are, and whether earlier lines were dropped
+ */
+export function lastLines(
+  text: string,
+  maxLines: number
+): { text: string; lines: number; truncated: boolean } {
+  const all = text.split('\n');
+  // A trailing newline yields a final empty element that is not a line.
+  if (all[all.length - 1] === '') all.pop();
+  const truncated = all.length > maxLines;
+  const kept = truncated ? all.slice(all.length - maxLines) : all;
+  return { text: kept.join('\n'), lines: kept.length, truncated };
+}
+
+/** The trailing slice of a log stream. */
+export interface TailView {
+  /** Whole lines, newline-joined, without a trailing newline. */
+  text: string;
+  /** Number of lines in `text`. */
+  lines: number;
+  /** True when the log holds earlier lines that `text` does not include. */
+  truncated: boolean;
+  /** Size of the whole stream in bytes. */
+  totalSize: number;
+}
+
+/**
+ * Read the last `maxLines` lines of a log stream.
+ *
+ * Reads a window from the end of the stream and widens it until it holds
+ * enough lines, so tailing a large log costs a couple of reads rather than a
+ * full download.
+ *
+ * @param read - Log reader
+ * @param stream - Which stream to read
+ * @param maxLines - Maximum number of trailing lines to return
+ * @returns The trailing lines and the size they were taken from
+ */
+export async function readTail(
+  read: ReadFn,
+  stream: 'stdout' | 'stderr',
+  maxLines: number
+): Promise<TailView> {
+  // Read the head first: it costs one read either way, and it is the whole
+  // log for the common case of a stream that fits in a single page.
+  const head = await read(stream, 0, PAGE_BYTES);
+  if (head.complete) {
+    return { ...lastLines(head.data, maxLines), totalSize: head.totalSize };
+  }
+
+  const totalSize = head.totalSize;
+  for (let windowBytes = PAGE_BYTES; ; windowBytes = Math.min(windowBytes * 8, MAX_TAIL_BYTES)) {
+    const start = Math.max(0, totalSize - windowBytes);
+    const chunk = await read(stream, start, totalSize - start);
+    // A window opening mid-file opens mid-line: drop the leading partial line
+    // (which is also where a byte offset can split a character).
+    const newline = chunk.data.indexOf('\n');
+    const data = start === 0 ? chunk.data : newline === -1 ? '' : chunk.data.slice(newline + 1);
+
+    const tail = lastLines(data, maxLines);
+    if (start === 0) return { ...tail, totalSize };
+    if (tail.lines >= maxLines || windowBytes >= MAX_TAIL_BYTES) {
+      return { text: tail.text, lines: tail.lines, truncated: true, totalSize };
+    }
+  }
+}
+
+/**
+ * Page a log stream from `offset` to its end, writing each chunk out as it
+ * arrives so a multi-megabyte log is never held whole in memory.
+ *
+ * @param read - Log reader
+ * @param stream - Which stream to read
+ * @param offset - Byte offset to start from
+ * @param out - Destination for the log text
+ * @returns The offset just past the last byte written, and whether that byte
+ *   was a newline
+ */
+export async function pipeToEnd(
+  read: ReadFn,
+  stream: 'stdout' | 'stderr',
+  offset: number,
+  out: { write(chunk: string): unknown }
+): Promise<{ end: number; endsWithNewline: boolean }> {
+  let end = offset;
+  let endsWithNewline = true;
+  for (;;) {
+    const chunk = await read(stream, end, PAGE_BYTES);
+    if (chunk.size === 0) return { end, endsWithNewline };
+    out.write(chunk.data);
+    end += chunk.size;
+    endsWithNewline = chunk.data.endsWith('\n');
+    if (chunk.complete) return { end, endsWithNewline };
+  }
+}
+
+/** A stream's opening slice, plus where the rest of it starts. */
+interface StreamView {
+  /** Text ready to print (empty in `--all` mode, which streams from `next`). */
+  text: string;
+  /** Byte offset the remaining output starts at. */
+  next: number;
+  totalSize: number;
+  /** Notice explaining what was left out, or null when nothing was. */
+  notice: string | null;
+}
+
+/** Read as much of a stream as `options` calls for, without printing it. */
+async function openStream(
+  read: ReadFn,
+  stream: 'stdout' | 'stderr',
+  options: DisplayOptions
+): Promise<StreamView> {
+  if (options.all) {
+    // A zero-length read is the cheapest way to learn the size, which decides
+    // whether this stream gets a banner at all.
+    const probe = await read(stream, 0, 0);
+    return { text: '', next: 0, totalSize: probe.totalSize, notice: null };
+  }
+
+  const tail = await readTail(read, stream, options.lines);
+  return {
+    text: tail.text,
+    next: tail.totalSize,
+    totalSize: tail.totalSize,
+    notice: tail.truncated
+      ? `[showing the last ${tail.lines} lines of ${formatSize(tail.totalSize)} — use -n <lines> or --all for the rest]`
+      : null,
+  };
+}
+
+/**
+ * Print one stream, returning the offset at the end of the log — where
+ * `--follow` picks up.
+ */
+async function printStream(
+  label: string,
+  view: StreamView,
+  read: ReadFn,
+  stream: 'stdout' | 'stderr',
+  all: boolean
+): Promise<number> {
+  console.log(`=== ${label} ===`);
+  if (view.notice !== null) console.log(view.notice);
+
+  if (!all) {
+    console.log(view.text);
+    return view.next;
+  }
+
+  const { end, endsWithNewline } = await pipeToEnd(read, stream, view.next, process.stdout);
+  if (!endsWithNewline) process.stdout.write('\n');
+  return end;
+}
 
 /**
  * Display logs and optionally follow for new output.
  */
-async function displayLogs(
-  stdout: LogData,
-  stderr: LogData,
-  follow: boolean,
-  poll: PollFn
-): Promise<void> {
+async function displayLogs(read: ReadFn, options: DisplayOptions): Promise<void> {
+  const stdout = await openStream(read, 'stdout', options);
+  const stderr = await openStream(read, 'stderr', options);
+
   if (stdout.totalSize === 0 && stderr.totalSize === 0) {
     console.log('No log output.');
     return;
   }
 
+  // Following resumes at the end of the whole log, not the end of what was
+  // printed, so a tailed or truncated first read still hands over to live
+  // output instead of replaying the backlog.
+  let stdoutOffset = stdout.totalSize;
+  let stderrOffset = stderr.totalSize;
+
   if (stdout.totalSize > 0) {
-    console.log('=== STDOUT ===');
-    console.log(stdout.data);
+    stdoutOffset = await printStream('STDOUT', stdout, read, 'stdout', options.all);
   }
 
   if (stderr.totalSize > 0) {
     if (stdout.totalSize > 0) {
       console.log('');
     }
-    console.log('=== STDERR ===');
-    console.log(stderr.data);
+    stderrOffset = await printStream('STDERR', stderr, read, 'stderr', options.all);
   }
 
-  if (follow) {
-    let stdoutOffset = stdout.offset + stdout.size;
-    let stderrOffset = stderr.offset + stderr.size;
-
+  if (options.follow) {
     console.log('');
     console.log('[Following... press Ctrl+C to stop]');
 
     const pollInterval = 500; // ms
     const tick = async () => {
-      const newStdout = await poll('stdout', stdoutOffset);
-      const newStderr = await poll('stderr', stderrOffset);
+      const newStdout = await read('stdout', stdoutOffset, PAGE_BYTES);
+      const newStderr = await read('stderr', stderrOffset, PAGE_BYTES);
 
       if (newStdout.size > 0) {
         process.stdout.write(newStdout.data);
@@ -225,10 +425,15 @@ function toLogData(chunk: Awaited<ReturnType<typeof taskLogsRemote>>): LogData {
 export async function logsCommand(
   repoArg: string,
   pathSpec?: string,
-  options: { follow?: boolean } = {}
+  options: { follow?: boolean; lines?: string | number; all?: boolean } = {}
 ): Promise<void> {
   try {
     const location = await parseRepoLocation(repoArg);
+    const display: DisplayOptions = {
+      follow: options.follow ?? false,
+      all: options.all ?? false,
+      lines: parseLines(options.lines),
+    };
 
     if (!pathSpec) {
       exitError('Usage: e3 logs <repo> <ws> or e3 logs <repo> <ws.taskName>');
@@ -259,11 +464,10 @@ export async function logsCommand(
       console.log(`Execution: ${abbrev(taskHash)}/${abbrev(inputsHash)}/${abbrev(executionId)}`);
       console.log('');
 
-      const stdout = await executionReadLog(storage, location.path, taskHash, inputsHash, executionId, 'stdout');
-      const stderr = await executionReadLog(storage, location.path, taskHash, inputsHash, executionId, 'stderr');
-
-      await displayLogs(stdout, stderr, options.follow ?? false, (stream, offset) =>
-        executionReadLog(storage, location.path, taskHash, inputsHash, executionId, stream, { offset })
+      await displayLogs(
+        (stream, offset, limit) =>
+          executionReadLog(storage, location.path, taskHash, inputsHash, executionId, stream, { offset, limit }),
+        display
       );
     } else {
       // Remote
@@ -277,20 +481,18 @@ export async function logsCommand(
       console.log('');
 
       const { baseUrl, repo, token } = location;
-      let stdout, stderr;
-      try {
-        stdout = toLogData(await taskLogsRemote(baseUrl, repo, ws, taskName, { stream: 'stdout' }, { token }));
-        stderr = toLogData(await taskLogsRemote(baseUrl, repo, ws, taskName, { stream: 'stderr' }, { token }));
-      } catch (err) {
-        if (err instanceof ApiError && err.code === 'execution_not_found') {
-          exitError(`No executions found for task: ${ws}.${taskName}`);
+      await displayLogs(async (stream, offset, limit) => {
+        try {
+          return toLogData(
+            await taskLogsRemote(baseUrl, repo, ws, taskName, { stream, offset, limit }, { token })
+          );
+        } catch (err) {
+          if (err instanceof ApiError && err.code === 'execution_not_found') {
+            exitError(`No executions found for task: ${ws}.${taskName}`);
+          }
+          throw err;
         }
-        throw err;
-      }
-
-      await displayLogs(stdout, stderr, options.follow ?? false, async (stream, offset) =>
-        toLogData(await taskLogsRemote(baseUrl, repo, ws, taskName, { stream, offset }, { token }))
-      );
+      }, display);
     }
   } catch (err) {
     exitError(formatError(err));

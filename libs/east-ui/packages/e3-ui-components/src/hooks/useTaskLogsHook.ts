@@ -36,11 +36,14 @@ async function fetchAllLogs(
             totalSize = chunk.totalSize;
 
             // Stop if complete or hit size limit
-            if (chunk.complete || allData.length >= MAX_TOTAL_SIZE) {
+            if (chunk.complete || allData.length >= MAX_TOTAL_SIZE || chunk.size === 0n) {
                 break;
             }
 
-            offset += CHUNK_SIZE;
+            // Advance by what was actually returned, not what was asked for: a
+            // chunk stops short of the requested size rather than split a
+            // multi-byte character across the boundary.
+            offset += Number(chunk.size);
         }
 
         return {

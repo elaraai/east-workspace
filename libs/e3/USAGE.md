@@ -331,8 +331,17 @@ Error: 'dev.gret' not found in workspace 'dev'. Did you mean:
 
 ```bash
 e3 task list <repo> <ws>                         # Tasks in workspace with execution status
-e3 task logs <repo> <ws.task> [--follow]         # Stream a task's logs
+e3 task logs <repo> <ws.task>                    # Last 200 lines of a task's logs
+e3 task logs <repo> <ws.task> -n 50              # Last 50 lines
+e3 task logs <repo> <ws.task> --all              # The whole log, however large
+e3 task logs <repo> <ws.task> --follow           # Tail, then stream live output
 ```
+
+Logs are shown from the end, since that is where a failure lands. When earlier
+output was left out, a notice says so and how to get it; `--all` pages through
+the whole log rather than holding it in memory. `--follow` picks up from the
+current end of the log, so live output starts immediately regardless of how much
+backlog there is.
 
 ### Dataflow Commands
 
@@ -648,5 +657,5 @@ e3 convert data.json --to east
 1. **Use watch mode** for fast iteration during development
 2. **Let dependencies flow** - only pass leaf tasks to `e3.package()`, dependencies are collected automatically
 3. **Check status** with `e3 workspace status . <ws>` to see task states
-4. **View logs** with `e3 logs . workspace.taskname` for debugging
+4. **View logs** with `e3 task logs . workspace.taskname` for debugging (add `--all` for the whole log)
 5. **Use inputs** for values that change between runs, tasks for computations
