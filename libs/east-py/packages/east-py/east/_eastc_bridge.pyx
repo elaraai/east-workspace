@@ -50,6 +50,7 @@ from east.types.values import (
     EastVariant,
     EastVector,
     EAST_ELEMENT_TO_DTYPE,
+    east_null,
 )
 
 # Try to import Cython-accelerated struct/variant construction
@@ -546,7 +547,11 @@ cdef object _c_value_to_py_impl(_eastc.EastValue *val, _eastc.EastType *c_type, 
     cdef uintptr_t ptr_key
 
     if kind == _eastc.EAST_TYPE_NULL:
-        return None
+        # Canonical NullType value is the east_null sentinel, matching what
+        # construction/coercion produce — not a bare Python None. Returning None
+        # here made a decoded `none` compare unequal to the `none` constant and
+        # disagree with is_east_null.
+        return east_null
 
     elif kind == _eastc.EAST_TYPE_BOOLEAN:
         return val.data.boolean
