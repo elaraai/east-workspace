@@ -4,7 +4,7 @@
  */
 import assert from "node:assert/strict";
 import { afterEach, describe, test } from "node:test";
-import { normalizeFramePath, resolveLocIds, setLocationBasePath, SourceMap } from "./location.js";
+import { eastOwnDirs, normalizeFramePath, resolveLocIds, setLocationBasePath, SourceMap } from "./location.js";
 
 describe("normalizeFramePath", () => {
   // Reset to the automatic (cwd) base after every test so cases don't leak.
@@ -277,4 +277,38 @@ describe("error source locations (issue #381)", () => {
       "the module-scope value's locations should be re-interned into the function's map",
     );
   });
+});
+
+describe("eastOwnDirs", () => {
+    // Frame filtering must never be the reason East fails to load. A CJS or
+    // browser bundle has no `import.meta.url`, and East's code shares a file
+    // with its caller there anyway — so the answer is "no East dirs", not a
+    // crash at module scope.
+
+    test("no module url (CJS / browser bundle) yields no dirs", () => {
+        assert.deepEqual(eastOwnDirs(undefined), []);
+        assert.deepEqual(eastOwnDirs(""), []);
+    });
+
+    test("a compiled module url yields both the source and compiled trees", () => {
+        assert.deepEqual(eastOwnDirs("file:///w/libs/east/dist/src/location.js"), [
+            "/w/libs/east/src/",
+            "/w/libs/east/dist/src/",
+        ]);
+    });
+
+    test("an un-compiled module url yields the same pair", () => {
+        assert.deepEqual(eastOwnDirs("file:///w/libs/east/src/location.ts"), [
+            "/w/libs/east/src/",
+            "/w/libs/east/dist/src/",
+        ]);
+    });
+
+    test("an unrecognised layout falls back to the containing directory", () => {
+        assert.deepEqual(eastOwnDirs("file:///w/bundled/east.js"), ["/w/bundled/"]);
+    });
+
+    test("a url with no path separator yields no dirs", () => {
+        assert.deepEqual(eastOwnDirs("east.js"), []);
+    });
 });

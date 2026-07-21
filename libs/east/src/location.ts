@@ -63,21 +63,36 @@ export function printLocations(locations: Location[]): string {
  * @returns true if the frame should be included, false to filter it out
  */
 /**
- * Directories holding East's own modules, used to filter its frames out of
- * captured stacks.
+ * Directories holding East's own modules, given the URL of this module.
  *
- * Both the compiled and the original tree are listed because `stack` reports
- * the compiled path normally and the original one under `--enable-source-maps`
- * — a frame is East's either way.
+ * Both the compiled and the original tree are returned, because `stack`
+ * reports the compiled path normally and the original one under
+ * `--enable-source-maps` — a frame is East's either way.
+ *
+ * @param moduleUrl - `import.meta.url` of this module, or undefined where the
+ *   bundler does not provide one (a CJS or browser bundle, which has no East
+ *   tree to point at)
+ * @returns Directory prefixes to treat as East's own, empty when unknowable
+ *
+ * @remarks
+ * Exported for testing. An empty result means frame filtering falls back to
+ * the `node_modules` rule, which is the correct answer for a bundle: East's
+ * code shares a file with its caller there, so no path can separate them.
  */
-const EAST_OWN_DIRS: readonly string[] = (() => {
-  const self = normalizeSeparators(stripFileUrl(import.meta.url));
-  const dir = self.slice(0, self.lastIndexOf('/'));
+export function eastOwnDirs(moduleUrl: string | undefined): readonly string[] {
+  if (moduleUrl === undefined || moduleUrl === '') return [];
+  const path = normalizeSeparators(stripFileUrl(moduleUrl));
+  const slash = path.lastIndexOf('/');
+  if (slash === -1) return [];
+  const dir = path.slice(0, slash);
   const root = dir.endsWith('/dist/src') ? dir.slice(0, -'/dist/src'.length)
     : dir.endsWith('/src') ? dir.slice(0, -'/src'.length)
       : null;
   return root === null ? [`${dir}/`] : [`${root}/src/`, `${root}/dist/src/`];
-})();
+}
+
+/** East's own module directories in this environment (see {@link eastOwnDirs}). */
+const EAST_OWN_DIRS: readonly string[] = eastOwnDirs(import.meta.url as string | undefined);
 
 function shouldIncludeFrame(filename: string): boolean {
   // Skip Node.js internal modules (e.g., node:internal/modules/...)
