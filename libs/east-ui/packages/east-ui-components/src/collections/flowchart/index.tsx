@@ -15,6 +15,8 @@
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Box, useSlotRecipe } from "@chakra-ui/react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faArrowRight, faArrowDown } from "@fortawesome/free-solid-svg-icons";
 import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Flowchart, Slice as SliceInternal, type UIComponentType } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
@@ -390,12 +392,12 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                         type="button"
                         data-active={orientation === "LR" || undefined}
                         onClick={() => setOrientation("LR")}
-                    >→ LR</button>
+                    ><FontAwesomeIcon icon={faArrowRight} style={{ fontSize: "9px" }} /> LR</button>
                     <button
                         type="button"
                         data-active={orientation === "TD" || undefined}
                         onClick={() => setOrientation("TD")}
-                    >↓ TD</button>
+                    ><FontAwesomeIcon icon={faArrowDown} style={{ fontSize: "9px" }} /> TD</button>
                 </Box>
                 {freshness !== undefined && (
                     <Box css={styles.freshnessChip}>
